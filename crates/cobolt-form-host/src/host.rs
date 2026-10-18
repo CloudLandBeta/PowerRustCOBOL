@@ -2467,10 +2467,16 @@ impl FormBody {
             } else {
                 Vec::new()
             };
+            let password_character = matched
+                .as_deref()
+                .and_then(|k| self.state.get(k))
+                .and_then(|s| s.props.iter().find(|(p, _)| p.eq_ignore_ascii_case("PasswordCharacter")))
+                .map(|(_, v)| v.clone());
             crate::diagnostics::trace_state_update(
                 &u.ctrl_id,
                 &u.prop,
                 &u.value,
+                password_character.as_deref(),
                 matched.as_deref(),
                 &known,
             );

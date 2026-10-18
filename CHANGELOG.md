@@ -17,6 +17,50 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.201] — 2026-10-18
+
+*(Written on `fixes-powercloud-upload`, off `main` at 1.91.200.)*
+
+### Fixed: a failed AWS operation left no trace, relative paths depended on where the IDE was started, and a diagnostic could write a key
+
+Operator, 2026-10-18: "PowerCloud failed to upload the photo with the credentials provided … there is no visual log of the operation, so I cannot tell what went wrong". Then: "keys should never be written to the log", and "the IDE's Output panel is empty".
+
+*What happened, read from the running process without driving it.*
+1. `IMAGE-FIT` made the 400 × 400 copy, and `PutObject` then failed: its 40 px thumbnail, made only after a successful upload, was never written.
+2. The reason went to `LastError` and from there into a one-line, 450-pixel label in translucent ink. It was cut short, and nothing reached the Output panel.
+3. The copy itself landed in the **repository root** (`data/cache/…`), not in the project. Run Form inherits the IDE's working directory, and `IMAGE-FIT` used the path as written. From an IDE opened in the Finder, the working directory is `/` and the write would have failed outright.
+
+The operator policy in `cloudformation/powercloud.yaml` is not the cause. It allows `s3:PutObject` on `photos/*`, the key PowerCloud uses, and the bucket is AES256, not KMS. The real reason will now be in the Output panel on the next attempt.
+
+*Now:*
+- **A failed AWS operation is never silent.**
+  - Whatever `Verbose` says, a refused, failed or timed-out operation writes its reason into the program's output — the IDE's Output panel under Run Form — as well as into `LastError`: `[aws Aws-S3] PutObject failed: …`. The Sync path, which PowerCloud uses, narrated nothing at all, even with `Verbose` on.
+  - With `Verbose`, a Sync call now narrates its answer, as an Async one did.
+  - All of it is masked.
+- **Relative paths start at the application's folder everywhere.**
+  - The built-ins that take a path follow the anchor a relative `ASSIGN` already used: `WRITE-FILE`, `APPEND-FILE`, `AUDIO-PLAY`, `HTTP-DOWNLOAD`, `IMAGE-FIT`, `IMAGE-INFO`. So does the file an AWS control uploads (`|filebase64`) or saves an answer into.
+  - Run Form and Debug Form start the program in the project folder (`run_form_dir`), the same anchor `rcrun` resolves assets against.
+- **No diagnostic ever writes a key.**
+  - The diagnostics dump showed every property as it was. The live state trace printed every property a program wrote, with its value.
+  - Both now show as present, with only the length, never the value: the text of a box with a `PasswordCharacter` and every credential-named property (`ApiKey`, `AgentAPIKey`, `EmbeddingAPIKey`, `AuthToken`, `…Password`, `…Secret`, `…AccessKeyId`).
+  - Not `MaximumTokens` or `ApiKeySource`.
+  - Anything that looks like a credential inside any other value is masked where it sits.
+  - The masker is one function, moved from the AWS module into `cobolt-forms::diagnostics::mask_credentials`, so every diagnostic uses the same rule.
+- **PowerCloud:**
+  - the Pets tab's status label (`Lbl-DdbState`) wraps over three lines in solid ink, as the operator had already done for `Lbl-Conn` and `Lbl-StackState`;
+  - `examples/*/data/cache/` is ignored by git, since it holds the developer's own photos.
+
+- **Tests:**
+  - `failure_log_tests` (3) in `cobolt-runtime`:
+    - a refused Sync call reported with `Verbose` off;
+    - a Sync `PutObject` that fails, reported as `PutObject failed`;
+    - an Async error reported, with a key id inside AWS's message masked.
+  - `test_assign_anchor`: now also checks `WRITE-FILE`, `APPEND-FILE` and `IMAGE-FIT` with relative paths.
+  - `the_dump_never_writes_a_key` in `cobolt-forms`.
+  - `a_form_runs_in_its_projects_folder` in the IDE.
+  - The Sync failure line and the `IMAGE-FIT` anchor were each mutation-checked: removed, their tests fail. The mutated `IMAGE-FIT` run reproduced the bug, writing into the test's working directory.
+- **Docs:** the Developer's Guide's relative-path rule, AWS caveats and diagnostics, and the System KB (AWS `Verbose`, the picture built-ins), with `chunked.data` rebuilt.
+
 ## [PowerRustCOBOL 1.91.200] — 2026-10-17
 
 *(Written on `fixes-grid-edit-form-tab`, off `main` at 1.91.199.)*

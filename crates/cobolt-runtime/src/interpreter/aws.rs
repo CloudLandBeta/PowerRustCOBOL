@@ -87,18 +87,26 @@ impl Interpreter {
                 let spelled = self.form_spelling(obj);
                 self.async_dispatch_queue.push_back((spelled, "onComplete".to_string()));
             }
-            AsyncOutcome::AwsError { message } => self.aws_fail_event(obj, "onError", message, verbose),
-            AsyncOutcome::AwsTimeout { message } => self.aws_fail_event(obj, "onTimeout", message, verbose),
+            AsyncOutcome::AwsError { message } => self.aws_fail_event(obj, "onError", "error", message),
+            AsyncOutcome::AwsTimeout { message } => self.aws_fail_event(obj, "onTimeout", "timed out", message),
             // Not an AWS outcome; never routed here.
             _ => {}
         }
     }
 
-    fn aws_fail_event(&mut self, obj: &str, event: &str, message: String, verbose: bool) {
-        if verbose {
-            self.log_block("aws", obj, "error", &aws_mask(&message));
-        }
+    fn aws_fail_event(&mut self, obj: &str, event: &str, label: &str, message: String) {
+        self.aws_log_failure(obj, label, &message);
         self.aws_raise(obj, event, vec![("LastError".into(), message), ("Busy".into(), "0".into())], None);
+    }
+
+    /// **A failed AWS operation is never silent** (operator, 2026-10-18: "PowerCloud failed
+    /// to upload the photo … there is no visual log of the operation, so I cannot tell what
+    /// went wrong"). Whatever `Verbose` says, the reason goes to wherever this program's
+    /// DISPLAY goes — the IDE's Output panel under Run Form — as well as into `LastError`,
+    /// where a program that shows it in a one-line label cuts it short. Masked like every
+    /// AWS narration: a key, a secret or a token in the message never reaches the output.
+    fn aws_log_failure(&mut self, obj: &str, label: &str, message: &str) {
+        self.log_block("aws", obj, label, &aws_mask(message));
     }
 
     /// The last operation's row `i` (1-based): the row as JSON, or a field of
@@ -216,9 +224,7 @@ impl Interpreter {
     /// call answers empty with `LastError` set; an asynchronous one raises
     /// `onError` (R21, R25).
     fn aws_refuse(&mut self, obj: &str, sync: bool, message: String) -> String {
-        if self.obj_get(obj, "Verbose").trim().eq_ignore_ascii_case("true") {
-            self.log_block("aws", obj, "refused", &aws_mask(&message));
-        }
+        self.aws_log_failure(obj, "refused", &message);
         if sync {
             self.obj_set(obj, "LastError", message);
             String::new()
@@ -301,9 +307,16 @@ impl Interpreter {
         };
 
         if sync {
+            // A Sync call is narrated as an Async one is: its answer under `Verbose`, and a
+            // failure always — the Sync branch narrated nothing, so a failed `PutObject` in a
+            // Sync form left no trace but `LastError`.
+            let verbose = self.obj_get(obj, "Verbose").trim().eq_ignore_ascii_case("true");
             return Some(match ops::execute(&prepared, budget) {
                 ops::Outcome::Done { props, rows, .. } => {
                     let body = props.iter().find(|(k, _)| k == "ResponseBody").map(|(_, v)| v.clone()).unwrap_or_default();
+                    if verbose {
+                        self.log_block("aws", obj, "response", &aws_mask(&body));
+                    }
                     for (k, v) in props {
                         self.obj_set(obj, &k, v);
                     }
@@ -311,7 +324,13 @@ impl Interpreter {
                     self.aws_rows.insert(obj.trim().to_ascii_uppercase(), rows);
                     body
                 }
-                ops::Outcome::Error(message) | ops::Outcome::Timeout(message) => {
+                ops::Outcome::Error(message) => {
+                    self.aws_log_failure(obj, &format!("{method} failed"), &message);
+                    self.obj_set(obj, "LastError", message);
+                    String::new()
+                }
+                ops::Outcome::Timeout(message) => {
+                    self.aws_log_failure(obj, &format!("{method} timed out"), &message);
                     self.obj_set(obj, "LastError", message);
                     String::new()
                 }
@@ -371,5 +390,96 @@ impl Interpreter {
                 Some("0".into())
             }
         }
+    }
+}
+
+/// **A failed AWS operation is never silent** (operator, 2026-10-18: PowerCloud's photo
+/// upload failed and "there is no visual log of the operation, so I cannot tell what went
+/// wrong"). Its reason reaches the program's output — the IDE's Output panel under Run
+/// Form — with `Verbose` off, Sync or Async, and masked.
+#[cfg(all(test, feature = "aws"))]
+mod failure_log_tests {
+    use super::*;
+    use crate::aws::connections::{self, AwsConnection};
+    use cobolt_lexer::{tokenize, SourceFormat};
+    use cobolt_parser::parse;
+
+    const KEY_ID: &str = "AKIAIOSFODNN7EXAMPLE";
+
+    /// An interpreter holding one Sync `AwsS3`, `S3-1`, on `connection`, whose program
+    /// output is collected.
+    fn s3(connection: &str) -> (Interpreter, std::sync::mpsc::Receiver<String>) {
+        let source = "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+        let program = parse(tokenize(source, SourceFormat::Free)).program.expect("program should parse");
+        let mut i = Interpreter::new(program);
+        let props = vec![
+            ("Connection".to_string(), connection.to_string()),
+            ("Mode".to_string(), "Sync".to_string()),
+            ("Bucket".to_string(), "powercloud-photos".to_string()),
+            ("AllowWrite".to_string(), "true".to_string()),
+            ("TimeoutMs".to_string(), "3000".to_string()),
+            ("StartTimeoutMs".to_string(), "3000".to_string()),
+            ("Verbose".to_string(), "false".to_string()),
+        ];
+        i.seed_objects(vec![("S3-1".to_string(), "AwsS3".to_string(), props)]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        i.display_tx = Some(tx);
+        (i, rx)
+    }
+
+    fn put(i: &mut Interpreter) {
+        let args: Vec<crate::value::CobolValue> = ["photos/1.jpg", "hello", ""].iter().map(|a| crate::value::CobolValue::from_str(a, a.len().max(1))).collect();
+        let _ = i.aws_method("S3-1", "PutObject", &args);
+    }
+
+    /// A Sync operation refused before it is sent: the reason is in the output with
+    /// `Verbose` off.
+    #[test]
+    fn a_refused_operation_is_reported_with_verbose_off() {
+        let (mut i, rx) = s3("No-Such-Connection");
+        put(&mut i);
+        let log: Vec<String> = rx.try_iter().collect();
+        assert!(!i.obj_get("S3-1", "LastError").is_empty());
+        assert!(
+            log.iter().any(|l| l.starts_with("[aws S3-1] refused:") && l.contains("No-Such-Connection")),
+            "{log:?}"
+        );
+    }
+
+    /// A Sync `PutObject` that is sent and fails — here, to a server that is not there:
+    /// "PutObject failed" and the reason, in the output.
+    #[test]
+    fn a_sync_put_that_fails_is_reported() {
+        let conn = AwsConnection {
+            id: "conn-failure-log".into(),
+            name: "conn-failure-log".into(),
+            profile: "test".into(),
+            region: "eu-west-1".into(),
+            routes_override: "[servers.hosted]\ntransport = \"https\"\nurl = \"http://127.0.0.1:9/mcp\"\nservice = \"aws-mcp\"\nsigning_region = \"us-east-1\"\nprotocol = \"handshake\"\n".into(),
+            ..Default::default()
+        };
+        connections::publish(vec![conn]);
+        let (mut i, rx) = s3("conn-failure-log");
+        put(&mut i);
+        let log: Vec<String> = rx.try_iter().collect();
+        let error = i.obj_get("S3-1", "LastError");
+        assert!(!error.is_empty(), "the operation failed");
+        assert!(
+            log.iter().any(|l| l.starts_with("[aws S3-1] PutObject failed") || l.starts_with("[aws S3-1] PutObject timed out") || l.starts_with("[aws S3-1] refused:")),
+            "a line names the failure: {log:?}"
+        );
+        println!("Sync PutObject to a missing server: LastError {error:?}; output {log:?}");
+    }
+
+    /// An Async error is reported, and a key id inside AWS's message is masked.
+    #[test]
+    fn an_async_error_is_reported_and_masked() {
+        let (mut i, rx) = s3("No-Such-Connection");
+        i.obj_set("S3-1", "Mode", "Async".into());
+        let message = format!("An error occurred (AccessDenied) when calling the PutObject operation: key {KEY_ID} is not allowed");
+        i.aws_delivered("S3-1", AsyncOutcome::AwsError { message });
+        let log = rx.try_iter().collect::<Vec<_>>().join("\n");
+        assert!(log.contains("[aws S3-1] error: An error occurred (AccessDenied)"), "{log}");
+        assert!(!log.contains(KEY_ID), "the key id never reaches the output: {log}");
     }
 }

@@ -224,7 +224,9 @@ fn save_answer(r: &cobolt_mcp::ToolResult, def: &SaveDef, path: &str) -> Result<
         Some("base64") => super::b64::decode(&content).map_err(|e| format!("the answer could not be saved: {e}"))?,
         _ => content.into_bytes(),
     };
-    std::fs::write(path, &bytes).map_err(|e| format!("could not write \"{path}\": {e}"))?;
+    // A relative path starts at the application's folder, as an `ASSIGN` does.
+    let target = crate::interpreter::anchor_relative_path(path);
+    std::fs::write(&target, &bytes).map_err(|e| format!("could not write \"{path}\": {e}"))?;
     Ok(Some(path.to_owned()))
 }
 

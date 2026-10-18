@@ -11471,8 +11471,9 @@ impl Interpreter {
                 let path = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let text = self.eval_call_arg(&using[1], span)?.as_display_string();
                 // COBOL fixed-length fields are space-padded; trim the trailing
-                // padding so files don't accumulate runs of spaces.
-                let path = path.trim().to_owned();
+                // padding so files don't accumulate runs of spaces. A relative path
+                // starts at the application's folder, as an `ASSIGN` does.
+                let path = anchor_relative_path(path.trim());
                 let text = text.trim_end().to_owned();
 
                 let result = std::fs::OpenOptions::new()
@@ -11509,7 +11510,7 @@ impl Interpreter {
             //   IDLE, PLAYING, PAUSED, ENDED or ERROR, and milliseconds.
             "COBOL-AUDIO-PLAY" if !using.is_empty() => {
                 let file = self.eval_call_arg(&using[0], span)?.as_display_string();
-                let status = self.audio.play(file.trim());
+                let status = self.audio.play(&anchor_relative_path(file.trim()));
                 if let Some(arg) = using.get(1) {
                     let var = self.expr_to_name(call_arg_expr(arg));
                     self.env.set_str(&var, status.as_word());
@@ -11820,7 +11821,7 @@ impl Interpreter {
             "COBOL-HTTP-DOWNLOAD" if using.len() >= 4 => {
                 let url = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let file = self.eval_call_arg(&using[1], span)?.as_display_string();
-                let got = self.http.download(url.trim(), std::path::Path::new(file.trim()));
+                let got = self.http.download(url.trim(), std::path::Path::new(&anchor_relative_path(file.trim())));
                 let code_name = self.expr_to_name(call_arg_expr(&using[2]));
                 self.env.set(&code_name, CobolValue::from_i64(i64::from(got.http_status)));
                 let status_name = self.expr_to_name(call_arg_expr(&using[3]));
@@ -11837,9 +11838,12 @@ impl Interpreter {
                 let target = self.eval_call_arg(&using[1], span)?.as_display_string();
                 let width = self.eval_call_arg(&using[2], span)?.as_i64().unwrap_or(0);
                 let height = self.eval_call_arg(&using[3], span)?.as_i64().unwrap_or(0);
+                // Relative paths start at the application's folder, as an `ASSIGN`
+                // does — not wherever the process happened to be started (PowerCloud's
+                // `data/cache/…` copy landed outside the project, operator 2026-10-18).
                 let status = match crate::image_runtime::fit(
-                    std::path::Path::new(source.trim()),
-                    std::path::Path::new(target.trim()),
+                    std::path::Path::new(&anchor_relative_path(source.trim())),
+                    std::path::Path::new(&anchor_relative_path(target.trim())),
                     width,
                     height,
                 ) {
@@ -11858,7 +11862,7 @@ impl Interpreter {
             "COBOL-IMAGE-INFO" if using.len() >= 5 => {
                 let path = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let (width, height, format, status) =
-                    match crate::image_runtime::info(std::path::Path::new(path.trim())) {
+                    match crate::image_runtime::info(std::path::Path::new(&anchor_relative_path(path.trim()))) {
                         Ok(i) => (i.width, i.height, i.format, crate::image_runtime::OK),
                         Err(word) => (0, 0, "", word),
                     };
@@ -25344,7 +25348,7 @@ fn dialog_filters(spec: &str) -> Vec<(String, Vec<String>)> {
 
 /// `path` joined to the application's folder when it is relative and a
 /// folder is anchored; otherwise `path` unchanged.
-fn anchor_relative_path(path: &str) -> String {
+pub(crate) fn anchor_relative_path(path: &str) -> String {
     let p = std::path::Path::new(path.trim());
     if path.trim().is_empty() || p.is_absolute() {
         return path.to_string();

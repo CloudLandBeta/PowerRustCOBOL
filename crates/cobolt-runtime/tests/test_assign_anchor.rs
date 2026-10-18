@@ -37,6 +37,9 @@ fn a_relative_assign_starts_at_the_application_folder() {
     std::fs::create_dir_all(app.join("data")).unwrap();
     let outside = std::env::temp_dir().join(format!("prc-anchor-abs-{}.txt", std::process::id()));
     cobolt_forms::assets::set_base(&app);
+    // A picture for IMAGE-FIT, made here: an absolute source path, as a dropped file is.
+    let png = app.join("source.png");
+    image::RgbaImage::new(8, 8).save(&png).unwrap();
     let src = format!(
         r#"
        IDENTIFICATION DIVISION.
@@ -67,6 +70,7 @@ fn a_relative_assign_starts_at_the_application_folder() {
        01 FS1 PIC XX.
        01 FS2 PIC XX.
        01 FS3 PIC XX.
+       01 WS-ST PIC X(20).
        PROCEDURE DIVISION.
        MAIN.
            OPEN OUTPUT LOG-FILE
@@ -87,15 +91,25 @@ fn a_relative_assign_starts_at_the_application_folder() {
            WRITE ABS-REC FROM "absolute"
            CLOSE ABS-FILE
            DISPLAY FS1 FS3
+           CALL "COBOL-WRITE-FILE" USING "data/note.txt" "first" WS-ST
+           CALL "COBOL-APPEND-FILE" USING "data/note.txt" "second" WS-ST
+           CALL "COBOL-IMAGE-FIT" USING "{png}" "data/cache/fit.png" 20 20 WS-ST
+           DISPLAY "FIT=" WS-ST
            STOP RUN.
 "#,
-        outside = outside.display()
+        outside = outside.display(),
+        png = png.display(),
     );
     let out = run(&src);
-    assert_eq!(out, vec!["LANG=pt         00", "0000"]);
+    assert_eq!(out[..2], ["LANG=pt         00", "0000"]);
+    assert_eq!(out.get(2).map(|l| l.trim_end()), Some("FIT=OK"), "{out:?}");
     assert_eq!(std::fs::read_to_string(app.join("data/log.txt")).unwrap().trim_end(), "kept");
     assert!(app.join("data/settings.idx").exists(), "the keyed file is in the application's data folder");
     assert!(std::fs::read_to_string(&outside).unwrap().starts_with("absolute"), "an absolute path is left as written");
+    // The built-ins that take a path follow the same anchor (operator, 2026-10-18: PowerCloud's
+    // resized photo was written outside the project, wherever the process was started).
+    assert_eq!(std::fs::read_to_string(app.join("data/note.txt")).unwrap(), "first\nsecond\n", "WRITE-FILE and APPEND-FILE");
+    assert!(app.join("data/cache/fit.png").exists(), "IMAGE-FIT writes its relative target in the application folder");
     let _ = std::fs::remove_dir_all(&app);
     let _ = std::fs::remove_file(&outside);
 }

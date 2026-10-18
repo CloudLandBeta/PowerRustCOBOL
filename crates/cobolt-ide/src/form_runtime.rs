@@ -94,6 +94,22 @@ pub struct RunDiagnostics {
     pub dump_project: Option<String>,
 }
 
+/// The folder a Run Form (or Debug Form) process starts in: the project's — the folder of
+/// the manifest the form belongs to, the same anchor `rcrun` resolves the form's assets
+/// against — or, for a `.cfrm` outside any project, the form's own folder.
+///
+/// It inherited the IDE's, which is wherever the IDE was started: the repository root for
+/// `./target/release/cobolt-ide`, `/` for an IDE opened from the Finder. A program's
+/// relative paths followed it — PowerCloud's `data/cache/…` photo landed in the repository
+/// instead of the project (operator, 2026-10-18), and from `/` it cannot be written at all.
+/// A built application already starts beside its own binary.
+pub(crate) fn run_form_dir(form_path: &std::path::Path) -> Option<PathBuf> {
+    cobolt_compiler::find_project_manifest(form_path)
+        .and_then(|m| m.parent().map(|p| p.to_path_buf()))
+        .or_else(|| form_path.parent().map(|p| p.to_path_buf()))
+        .filter(|d| d.is_dir())
+}
+
 /// The bundled `rcrun` sitting next to the running executable.
 ///
 /// `EXE_SUFFIX` is empty on Unix and `".exe"` on Windows, where the sibling is
@@ -421,9 +437,13 @@ impl ExternalFormRun {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
         let rcrun_path = sibling_rcrun(&exe);
 
+        let work_dir = run_form_dir(&form_path);
         let spawn_with = |program: &std::path::Path| {
             let mut cmd = Command::new(program);
             cmd.arg("run-form").arg(&form_path).arg(cbl_path);
+            if let Some(dir) = &work_dir {
+                cmd.current_dir(dir);
+            }
             // Only the main form starts an application — except under the
             // designer, which is the one place where running any form on
             // demand is the point. `rcrun` refuses a non-main form without
@@ -844,6 +864,32 @@ impl Drop for BuiltAppRun {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+    }
+}
+
+#[cfg(test)]
+mod run_form_dir_tests {
+    use super::*;
+
+    /// A form of a project runs in the project's folder, wherever the IDE was started; a
+    /// loose form runs in its own folder.
+    #[test]
+    fn a_form_runs_in_its_projects_folder() {
+        let root = std::env::temp_dir().join(format!("prc-run-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let project = root.join("Shop");
+        std::fs::create_dir_all(project.join("forms")).unwrap();
+        std::fs::write(project.join("Shop.project.toml"), "[project]\nname = \"Shop\"\n").unwrap();
+        let form = project.join("forms").join("main-form.cfrm");
+        std::fs::write(&form, "<Form/>").unwrap();
+        assert_eq!(run_form_dir(&form).as_deref(), Some(project.as_path()), "the manifest's folder, not forms/");
+
+        let loose = root.join("elsewhere");
+        std::fs::create_dir_all(&loose).unwrap();
+        let alone = loose.join("scratch.cfrm");
+        std::fs::write(&alone, "<Form/>").unwrap();
+        assert_eq!(run_form_dir(&alone).as_deref(), Some(loose.as_path()), "a loose form: its own folder");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

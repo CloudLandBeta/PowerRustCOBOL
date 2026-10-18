@@ -119,9 +119,13 @@ pub fn trace_state_update(
     ctrl_id: &str,
     prop: &str,
     value: &str,
+    password_character: Option<&str>,
     matched: Option<&str>,
     known: &[&str],
 ) {
+    // A secret the program writes — a key into an `ApiKey`, text into a password box — is
+    // traced as present, never as itself (operator, 2026-10-18).
+    let value = cobolt_forms::diagnostics::shown_value(prop, value, password_character);
     match matched {
         Some(k) => eprintln!(
             "[prc] state update: {} :: {} = {:?} -> control '{}'",

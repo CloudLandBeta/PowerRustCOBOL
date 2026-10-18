@@ -11180,6 +11180,17 @@ An absolute path is used exactly as written. A console program run with
 `rcrun run` has no application folder, so there a relative path starts at the
 current directory, as it always has.
 
+The same rule holds for every built-in that takes a path:
+- `COBOL::"WRITE-FILE"`, `COBOL::"APPEND-FILE"` and `COBOL::"AUDIO-PLAY"`;
+- `COBOL::"HTTP-DOWNLOAD"`, `COBOL::"IMAGE-FIT"` and `COBOL::"IMAGE-INFO"`;
+- the local file an AWS control uploads (`PutObject`'s third argument) or saves
+  an answer into.
+
+`COBOL::"IMAGE-FIT" ( photo "data/cache/1-400.jpg" 400 400 status )` writes into
+the project's `data/cache/`, under Run Form and in a built application alike.
+**Run Form** also starts the program in the project folder, so a path the
+runtime does not resolve itself means the same thing there too.
+
 > ⚠️ **The folder has to exist.** `OPEN OUTPUT` creates a file, not the folders
 > above it: ship an empty `data/` folder with the project (a `README.md` in it
 > is enough to keep it in version control), or the first `OPEN OUTPUT` fails —
@@ -16302,8 +16313,15 @@ opens in English with nothing translated and a test can compare the two.
 >   that names the profile and the `aws login` command (`aws sso login` for an
 >   IAM Identity Center profile); AWS's own text is never shown to your users. Keys set with `AWS-SET-CREDENTIALS` that
 >   AWS refuses fail the same way, saying the keys were refused.
-> - `Verbose = true` narrates each call into the program's output, with
->   anything that looks like an AWS key, session token or signed URL masked.
+> - **A failure is never silent.** Whatever `Verbose` says, a refused, failed or
+>   timed-out operation writes its reason into the program's output — the IDE's
+>   **Output** panel under Run Form — as well as into `LastError`, so a reason
+>   your form cuts short in a one-line label is still there in full:
+>   `[aws Aws-S3] PutObject failed: …`.
+> - `Verbose = true` narrates each call into the program's output: the request,
+>   then the answer or the error, `Sync` and `Async` alike. Anything that looks
+>   like an AWS key, session token or signed URL is masked, in this and in a
+>   failure line.
 > - Run Form, the forms your application opens and the built binary all run
 >   the AWS controls the same way — and a built application with no AWS
 >   control links none of this.
@@ -16829,6 +16847,15 @@ with no project loaded.
 
 The trace files land in the machine's temporary folder: `/tmp` on macOS and
 Linux, `%TEMP%` on Windows.
+
+**No diagnostic ever writes a key.** The diagnostics dump and the live trace show
+these as present and how long they are, never as themselves:
+- the text of a box with a `PasswordCharacter`;
+- every property named for a credential (`ApiKey`, `AgentAPIKey`, `AuthToken`,
+  a `…Password`, a `…Secret`, …).
+
+Anything that looks like a credential inside any other value — an AWS key id, a
+secret key, a session token, a signed URL — is masked where it sits.
 
 With the **event trace** it is the *order* of the lines that pays for itself. It
 separates a handler that ran twice because the event was delivered twice from a

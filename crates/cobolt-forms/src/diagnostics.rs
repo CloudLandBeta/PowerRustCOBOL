@@ -22,6 +22,113 @@ use std::fmt::Write as _;
 use crate::model::{DataGridAdvanced, DATAGRID_ADVANCED_PROP};
 use crate::{Control, Form};
 
+// ── A secret never reaches a diagnostic ───────────────────────────────────────
+//
+// Operator, 2026-10-18: "keys should never be written to the log". The dump wrote every
+// property as it was — a password box's `Text` and an `ApiKey` included — and the live trace
+// printed every property a program wrote, value and all. Both now go through these.
+
+/// A property name that holds a credential, by its ending, in any case: `ApiKey`,
+/// `AgentAPIKey` and `EmbeddingAPIKey` do, and `ApiKeySource` does not; `AuthToken` and
+/// `SessionToken` do, and `MaximumTokens` does not.
+const SECRET_ENDINGS: &[&str] = &[
+    "apikey",
+    "password",
+    "passphrase",
+    "secret",
+    "secretkey",
+    "secretaccesskey",
+    "accesskeyid",
+    "token",
+    "privatekey",
+    "credentials",
+];
+
+/// Whether a property called `name` holds a credential.
+pub fn is_secret_property(name: &str) -> bool {
+    let n = name.trim().to_ascii_lowercase();
+    SECRET_ENDINGS.iter().any(|e| n.ends_with(e))
+}
+
+/// Whether `prop` of a control holds a secret: a credential-named property, or the `Text`
+/// of a box that hides what is typed in it (`password_character` set).
+pub fn is_secret(prop: &str, password_character: Option<&str>) -> bool {
+    is_secret_property(prop)
+        || (prop.trim().eq_ignore_ascii_case("Text") && password_character.is_some_and(|c| !c.trim().is_empty()))
+}
+
+/// What a diagnostic shows in a secret's place: whether one is there, and how long — never
+/// any of it.
+pub fn hidden(value: &str) -> String {
+    match value.trim().chars().count() {
+        0 => "(empty)".to_owned(),
+        n => format!("(hidden: {n} characters)"),
+    }
+}
+
+/// Mask anything in `text` that looks like a credential, wherever it sits: access key ids
+/// (`AKIA…`, `ASIA…`), secret keys and session tokens (long mixed-case base64 runs), and the
+/// signature, token and credential of a pre-signed URL. For a value that is not itself a
+/// secret property but may carry one — a header list, a URL, an error message.
+pub fn mask_credentials(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let chars: Vec<char> = text.chars().collect();
+    let is_b64 = |c: char| c.is_ascii_alphanumeric() || c == '/' || c == '+' || c == '=';
+    let mut i = 0;
+    while i < chars.len() {
+        // A pre-signed URL's secret-bearing query values.
+        let rest: String = chars[i..chars.len().min(i + 24)].iter().collect();
+        if let Some(key) = ["X-Amz-Signature=", "X-Amz-Security-Token=", "X-Amz-Credential="]
+            .iter()
+            .find(|k| rest.starts_with(**k))
+        {
+            out.push_str(key);
+            i += key.chars().count();
+            while i < chars.len() && !matches!(chars[i], '&' | ' ' | '"' | '\'' | '\n' | '\r' | '\t') {
+                i += 1;
+            }
+            out.push_str("****");
+            continue;
+        }
+        if is_b64(chars[i]) {
+            let start = i;
+            while i < chars.len() && is_b64(chars[i]) {
+                i += 1;
+            }
+            let run: String = chars[start..i].iter().collect();
+            let key_id = run.len() == 20
+                && (run.starts_with("AKIA") || run.starts_with("ASIA"))
+                && run.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
+            let secret = run.len() >= 40
+                && run.chars().any(|c| c.is_ascii_uppercase())
+                && run.chars().any(|c| c.is_ascii_lowercase())
+                && run.chars().any(|c| c.is_ascii_digit());
+            if key_id {
+                out.push_str(&run[..4]);
+                out.push_str("****************");
+            } else if secret {
+                out.push_str("****");
+            } else {
+                out.push_str(&run);
+            }
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+/// A property's value as a diagnostic may show it: [`hidden`] for a secret, else the value
+/// with any credential inside it masked.
+pub fn shown_value(prop: &str, value: &str, password_character: Option<&str>) -> String {
+    if is_secret(prop, password_character) {
+        hidden(value)
+    } else {
+        mask_credentials(value)
+    }
+}
+
 /// `COBOLT_EVENT_TRACE` — one line per event, at BOTH ends of the channel.
 ///
 /// A handler that runs twice for one click is either an event SENT twice or one
@@ -246,12 +353,14 @@ fn dump_control(out: &mut String, ctrl: &Control, depth: usize, index: &mut usiz
         let _ = writeln!(out, "{pad}    properties: (none)");
     } else {
         let _ = writeln!(out, "{pad}    properties ({}):", ctrl.properties.len());
+        let password_character = ctrl.get_prop("PasswordCharacter").map(|v| v.to_string());
         for (key, value) in &ctrl.properties {
             // Skip the packed DataGrid blob here; it is expanded below.
             if key == DATAGRID_ADVANCED_PROP {
                 continue;
             }
-            let _ = writeln!(out, "{pad}      {key} = {value}");
+            let shown = shown_value(key, &value.to_string(), password_character.as_deref());
+            let _ = writeln!(out, "{pad}      {key} = {shown}");
         }
     }
 
@@ -374,6 +483,45 @@ mod tests {
         assert!(dump.contains("parent : PNL"));
         assert!(dump.contains("frame_diagnostics=on"));
         assert!(dump.contains("datagrid_diagnostics=off"));
+    }
+
+    /// Operator, 2026-10-18: "keys should never be written to the log". The dump wrote
+    /// every property as it was. Now:
+    /// - the text of a password box and every credential-named property show as present,
+    ///   never as themselves;
+    /// - a key id or a secret inside any other value is masked;
+    /// - what is not a secret stays readable, `MaximumTokens` and `ApiKeySource` included.
+    #[test]
+    fn the_dump_never_writes_a_key() {
+        const KEY_ID: &str = "AKIAIOSFODNN7EXAMPLE";
+        const SECRET: &str = "fakeFAKE0000fakeFAKE1111fakeFAKE2222fake";
+        let mut form = Form::new("PowerCloud", "Main", 800, 600);
+        let mut secret_box = Control::new("Txt-Secret", ControlType::TextBox, 0, 0);
+        secret_box.set_prop("PasswordCharacter", PropValue::String("*".into()));
+        secret_box.set_prop("Text", PropValue::String(SECRET.into()));
+        let mut key_box = Control::new("Txt-KeyId", ControlType::TextBox, 0, 30);
+        key_box.set_prop("Text", PropValue::String(KEY_ID.into()));
+        let mut agent = Control::new("Agent-1", ControlType::Label, 0, 60);
+        agent.set_prop("AgentAPIKey", PropValue::String("sk-live-0123456789".into()));
+        agent.set_prop("AuthToken", PropValue::String("tok-abc".into()));
+        agent.set_prop("MaximumTokens", PropValue::Int(4096));
+        agent.set_prop("ApiKeySource", PropValue::String("Settings".into()));
+        agent.set_prop("Url", PropValue::String(format!("https://x/?X-Amz-Credential={KEY_ID}/2026&X-Amz-Signature=abc123")));
+        form.controls.extend([secret_box, key_box, agent]);
+        let dump = dump_form_diagnostics(&form, "PowerCloud", &[]);
+
+        for secret in [KEY_ID, SECRET, "sk-live-0123456789", "tok-abc", "abc123"] {
+            assert!(!dump.contains(secret), "{secret:?} is in the dump:\n{dump}");
+        }
+        assert!(dump.contains(&format!("Text = (hidden: {} characters)", SECRET.len())), "the password box's text is shown as present");
+        assert!(dump.contains("AgentAPIKey = (hidden: 18 characters)"));
+        assert!(dump.contains("AuthToken = (hidden: 7 characters)"));
+        assert!(dump.contains("Text = AKIA****************"), "a key id typed into a plain box is masked where it sits");
+        assert!(dump.contains("MaximumTokens = 4096") && dump.contains("ApiKeySource = Settings"), "not every name with Key or Token in it is a secret");
+
+        assert!(is_secret_property("SecretAccessKey") && is_secret_property("embeddingapikey") && is_secret_property("SessionToken"));
+        assert!(!is_secret_property("KeyName") && !is_secret_property("MaxKeys") && !is_secret_property("CurrentKeyDataItem"));
+        assert_eq!(hidden("   "), "(empty)");
     }
 }
 

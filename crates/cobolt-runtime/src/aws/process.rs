@@ -362,52 +362,9 @@ pub fn spawn(launch: &Launch) -> Result<Spawned, String> {
 /// mixed-case base64 runs), and the signature, token and credential of a
 /// pre-signed URL.
 pub fn mask(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let chars: Vec<char> = text.chars().collect();
-    let is_b64 = |c: char| c.is_ascii_alphanumeric() || c == '/' || c == '+' || c == '=';
-    let mut i = 0;
-    while i < chars.len() {
-        // A pre-signed URL's secret-bearing query values.
-        let rest: String = chars[i..chars.len().min(i + 24)].iter().collect();
-        if let Some(key) = ["X-Amz-Signature=", "X-Amz-Security-Token=", "X-Amz-Credential="]
-            .iter()
-            .find(|k| rest.starts_with(**k))
-        {
-            out.push_str(key);
-            i += key.chars().count();
-            while i < chars.len() && !matches!(chars[i], '&' | ' ' | '"' | '\'' | '\n' | '\r' | '\t') {
-                i += 1;
-            }
-            out.push_str("****");
-            continue;
-        }
-        if is_b64(chars[i]) {
-            let start = i;
-            while i < chars.len() && is_b64(chars[i]) {
-                i += 1;
-            }
-            let run: String = chars[start..i].iter().collect();
-            let key_id = run.len() == 20
-                && (run.starts_with("AKIA") || run.starts_with("ASIA"))
-                && run.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
-            let secret = run.len() >= 40
-                && run.chars().any(|c| c.is_ascii_uppercase())
-                && run.chars().any(|c| c.is_ascii_lowercase())
-                && run.chars().any(|c| c.is_ascii_digit());
-            if key_id {
-                out.push_str(&run[..4]);
-                out.push_str("****************");
-            } else if secret {
-                out.push_str("****");
-            } else {
-                out.push_str(&run);
-            }
-            continue;
-        }
-        out.push(chars[i]);
-        i += 1;
-    }
-    out
+    // One masker for every diagnostic in the product: the forms crate's, which the
+    // diagnostics dump and the live trace use too.
+    cobolt_forms::diagnostics::mask_credentials(text)
 }
 
 #[cfg(test)]

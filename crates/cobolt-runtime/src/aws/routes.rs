@@ -491,7 +491,10 @@ fn placeholder(body: &str, ctx: &Context) -> Result<Piece, ExpandError> {
                 }
                 Piece::Text(path.to_owned())
             } else {
-                let bytes = std::fs::read(path).map_err(|e| ExpandError::BadValue(format!("cannot read \"{path}\": {e}")))?;
+                // A relative path starts at the application's folder, as an `ASSIGN` does:
+                // PowerCloud uploads `data/cache/<id>-400.jpg` (operator, 2026-10-18).
+                let at = crate::interpreter::anchor_relative_path(path);
+                let bytes = std::fs::read(&at).map_err(|e| ExpandError::BadValue(format!("cannot read \"{path}\": {e}")))?;
                 let b64 = super::b64::encode(&bytes);
                 Piece::Text(if filter == "source" { format!("b64:{b64}") } else { b64 })
             }

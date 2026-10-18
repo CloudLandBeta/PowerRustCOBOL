@@ -51,6 +51,9 @@ examples/*/data/*.redb
 examples/PowerSpatial/data/settings.idx
 examples/*/data/*.sqlite
 examples/*/data/*chunked.data
+# PowerCloud's resized copies of the photos it uploads — the developer's own pictures,
+# made again on demand, never part of the source.
+examples/*/data/cache/
 # The application Knowledge Base's semantic model (~470 MB), fetched by the
 # running app into <app>/models (older apps: <app>/assets/models) - never
 # part of the source.

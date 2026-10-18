@@ -4958,7 +4958,7 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"WRITE-FILE"` | path in, text in, [status out] | Write a file holding one line of text, replacing it |
 
 ### Pictures and binary downloads — `IMAGE-FIT`, `IMAGE-INFO`, `HTTP-DOWNLOAD`
-Each answers with ONE status word in its last argument; test the word, never a message. Give the status item room for 9 characters (`PIC X(12)`).
+Each answers with ONE status word in its last argument; test the word, never a message. Give the status item room for 9 characters (`PIC X(12)`). A RELATIVE path — here and in `WRITE-FILE`, `APPEND-FILE`, `AUDIO-PLAY` and the file an AWS control uploads or saves — starts at the application's folder, exactly as a relative `ASSIGN` does: the project folder under Run Form, the application's own folder when built, wherever it was launched from. An absolute path is used as written.
 
 ```cobol
            COBOL::"HTTP-DOWNLOAD" ( WS-PHOTO-URL "cache/pet-7.jpg" WS-HTTP-CODE WS-STATUS )
@@ -6192,7 +6192,7 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
         )),
         (t, "Verbose") if t.starts_with("Aws") => Some((
             BOOL_DOMAIN,
-            "Narrate each call into the program's output: the tool and the arguments sent, then the answer or the error. Anything that looks like an AWS access key, session token or pre-signed URL signature is masked.",
+            "Narrate each call into the program's output: the tool and the arguments sent, then the answer or the error — Sync and Async alike. A failure is written there WHATEVER Verbose says (`[aws <control>] <Method> failed: <reason>` for a Sync call, `error:` / `timed out:` / `refused:` otherwise), as well as into `LastError`. Anything that looks like an AWS access key, session token or pre-signed URL signature is masked.",
         )),
         ("AwsLambda", "ResponseBody") => Some((
             "runtime-only, read-only",
