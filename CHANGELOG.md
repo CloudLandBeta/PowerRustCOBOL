@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.0] — 2026-10-19
+
+*(Written on `2.x.x`, off `main` at 1.91.217.)*
+
+### Changed: the 2.x.x line begins — applications as WebAssembly
+
+The operator, 2026-10-19, started the planning of version 2.x.x, whose goal is to build applications as WebAssembly instead of the traditional native binary. In the version convention that is the `x` number: a new platform component (Web/WASM). Only the operator raises `x`, and this is that act.
+
+What changed is the number and nothing else. `VERSION` in `crates/cobolt-ide/src/version.rs` moves from 1.91.217 to 2.0.0; no crate, form, control or test changed, so a 2.0.0 build behaves exactly as 1.91.217 did. The WebAssembly work itself is not started by this entry; it is planned in `specs/`.
+
+Two consequences of the number. The update check (`update_check::is_newer`) compares the three numbers, so a 2.x.x build is never offered a 1.x.x release; and the first 2.x.x release published as the latest on GitHub is offered to every 1.x.x IDE as an update.
+
+A fix made on 1.x.x reaches this line as its own entry, numbered by this line's `z` and naming the 1.x.x number it came from. The rule is in `CLAUDE.md`.
+
 ## [PowerRustCOBOL 1.91.217] — 2026-10-19
 
 *(Written on `fixes-focus-ring-clip`, off `main` at 1.91.216.)*
