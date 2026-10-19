@@ -907,12 +907,10 @@ pub struct CoboltApp {
     /// (spec 016 Q2).
     theme_defaults_modal: Option<crate::panels::theme_defaults_modal::ThemeDefaultsModal>,
     indexed_engine_modal: Option<crate::panels::indexed_engine_modal::IndexedEngineModal>,
-    /// The start-up release check, in flight. Yields exactly one message.
-    update_rx: Option<std::sync::mpsc::Receiver<Option<crate::update_check::ReleaseInfo>>>,
-    /// A newer release to offer. Cleared by either button — and NOT persisted,
-    /// so declining lasts for this run only and the question returns at the
-    /// next start-up (operator, 2026-09-14).
-    update_offer: Option<crate::update_check::ReleaseInfo>,
+    /// The start-up release check and the window that offers what it found.
+    /// Declining is NOT persisted: the question returns at the next start-up
+    /// (operator, 2026-09-14). Drawn by the frame, never by a pane.
+    update_offer: crate::update_offer::UpdateOffer,
     /// Spec 107 — *What's going on*: the announcement the repository publishes.
     announcement: crate::announcement::AnnouncementWindow,
 
@@ -2254,8 +2252,7 @@ impl CoboltApp {
             settings_form: None,
             theme_defaults_modal: None,
             indexed_engine_modal: None,
-            update_rx: None,
-            update_offer: None,
+            update_offer: Default::default(),
             announcement: Default::default(),
 
             show_project_settings: false,
@@ -2413,7 +2410,7 @@ impl CoboltApp {
         // a slow or absent network is never something the developer waits for.
         // Once per run: there is no rechecking loop, and no persisted answer —
         // declining is good for this run and the question comes back next start.
-        app.update_rx = Some(crate::update_check::spawn_check(crate::version::VERSION));
+        app.update_offer.start(crate::version::VERSION);
         // Spec 107 — the repository's announcement: read now and every six hours, on a
         // thread of its own, shown once per page.
         app.announcement.start(crate::ui_prefs::announcement_dismissed());
@@ -6533,83 +6530,21 @@ impl CoboltApp {
         );
     }
 
-    /// Collect the release check's one reply, then offer whatever it found.
+    /// Collect the release check's reply and offer whatever it found.
     ///
-    /// The reply arrives once; the receiver is dropped with it. `None` covers
-    /// "already current" and every failure alike, and neither says anything to
-    /// the developer — see `update_check`.
-    fn show_update_offer(&mut self, ctx: &egui::Context) {
-        if let Some(rx) = &self.update_rx {
-            match rx.try_recv() {
-                Ok(found) => {
-                    self.update_offer = found;
-                    self.update_rx = None;
-                }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.update_rx = None,
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            }
-        }
-        let Some(rel) = self.update_offer.clone() else {
-            return;
-        };
-        let theme = self.current_theme().clone();
-        let tr = self.lang.tr();
-        let mut dismiss = false;
-
-        egui::Window::new(egui::RichText::new(tr.upd_title).size(16.0).strong())
-            .id(egui::Id::new("update_offer"))
-            .collapsible(false)
-            // Fixed, like every other window here: nothing negotiates its own
-            // rectangle against its contents.
-            .resizable(false)
-            .fixed_size(egui::vec2(430.0, 190.0))
-            .anchor(egui::Align2::RIGHT_BOTTOM, [-24.0, -24.0])
-            .show(ctx, |ui| {
-                ui.label(tr.upd_available.replacen("{}", &rel.version, 1));
-                ui.label(
-                    egui::RichText::new(
-                        tr.upd_running.replacen("{}", crate::version::VERSION, 1),
-                    )
-                    .color(theme.text_dim),
-                );
-                if let Some(asset) = &rel.asset_name {
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(tr.upd_asset_for_platform.replacen("{}", asset, 1))
-                            .color(theme.text_dim)
-                            .small(),
-                    );
-                }
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    // The URL goes in the tooltip, not the label: the developer
-                    // is about to be sent to the open internet and gets to see
-                    // where first — the same rule the linker download follows.
-                    if ui
-                        .button(tr.upd_download)
-                        .on_hover_text(&rel.page_url)
-                        .clicked()
-                    {
-                        ui.ctx()
-                            .open_url(egui::OpenUrl::new_tab(rel.page_url.clone()));
-                        dismiss = true;
-                    }
-                    if ui.button(tr.upd_later).clicked() {
-                        dismiss = true;
-                    }
-                });
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(tr.upd_recheck_note)
-                        .color(theme.text_dim)
-                        .small(),
-                );
-            });
-
-        if dismiss {
-            // Forgotten, not remembered. The next start-up asks again.
-            self.update_offer = None;
-        }
+    /// Called by the frame (`ui`), **never from a pane**: the offer is for a
+    /// developer who may never open Project Settings. It waits, rather than
+    /// opening over them, while a first-run dialog or the Building dialog owns
+    /// the screen — the same gate the announcement keeps.
+    fn show_update_offer(&mut self, ctx: &egui::Context, tr: &Tr) {
+        let blocked = self.toolchain_prompt.is_some()
+            || self.ollama_prompt.is_some()
+            || self.ai_setup_modal
+            || self.agent_wizard.open
+            || self.build_modal_visible()
+            || self.walkthrough.is_running();
+        let theme = self.current_theme();
+        self.update_offer.show(ctx, tr, theme, blocked);
     }
 
     /// The window a refused Build/Run raises.
@@ -11286,7 +11221,6 @@ impl CoboltApp {
         self.show_import_keys_modal(ctx);
         self.show_guardian_block_modal(ctx);
         self.show_indexed_engine_modal(ctx);
-        self.show_update_offer(ctx);
         // Models Manager modal (spec 031) — taken out of self to split borrows.
         if let Some(mut m) = self.models_modal.take() {
 
@@ -16354,6 +16288,9 @@ impl eframe::App for CoboltApp {
         self.show_ollama_prompt(ctx, &tr);
         self.show_ai_setup_modal(ctx, &tr);
         self.show_announcement(ctx, &tr);
+        // The frame's, not a pane's: a developer who never opens Project
+        // Settings must still be told a newer release exists.
+        self.show_update_offer(ctx, &tr);
         // External Crates (spec 044): the service mutates `cobolt.toml` on
         // disk; when an action finished, reload so the tree shows the pins
         // (the project was saved before the dialog opened — see the
@@ -24468,5 +24405,44 @@ mod build_profile_tests {
             assert_eq!(run_needs_a_build(debug, blocks, project), want, "{why}");
         }
         println!("run/debug routing: {} cases (Run -> interpreter unless a block; Debug -> debug build in a project)", table.len());
+    }
+}
+
+/// The update offer is the frame's, not a pane's.
+///
+/// `CoboltApp` cannot be built without an eframe window (`new` takes the
+/// `CreationContext`, binds the inspection port and starts the start-up
+/// threads), so the frame itself cannot be run in a test. What can be pinned is
+/// where the call is made; `update_offer::tests` pins what the call paints.
+#[cfg(test)]
+mod update_offer_wiring_tests {
+    const APP: &str = include_str!("app.rs");
+
+    /// The source of the method that starts with `signature`: up to the next
+    /// method of the same impl, or the impl's closing brace.
+    fn body_of(signature: &str) -> &'static str {
+        let start = APP.find(signature).unwrap_or_else(|| panic!("`{signature}` is gone"));
+        let rest = &APP[start + signature.len()..];
+        let end = ["\n    fn ", "\n    pub fn ", "\n    pub(crate) fn ", "\n}\n"]
+            .iter()
+            .filter_map(|marker| rest.find(marker))
+            .min()
+            .unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    #[test]
+    fn the_frame_offers_the_update_and_project_settings_does_not() {
+        let settings = body_of("    fn show_settings_pane(");
+        assert!(
+            !settings.contains("show_update_offer(") && !settings.contains("update_offer"),
+            "Project Settings is only a Main Pane: an offer drawn from it is never seen by a \
+             developer who does not open it"
+        );
+        let frame = body_of("    fn ui(&mut self, root_ui");
+        assert!(
+            frame.contains("self.show_update_offer("),
+            "the frame must offer the update whatever the Main Pane shows"
+        );
     }
 }

@@ -22,6 +22,22 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.68] — 2026-10-24
+
+*(Forward-port of 1.91.218, `94a2570b` on `fixes-update-offer`. 2.0.67 is the last number in use on `2.x.x`, so this port takes 2.0.68.)*
+
+### Fixed: a newer release is offered whatever the Main Pane shows
+
+A developer who never opened Project Settings was never told that a newer release existed. The start-up check (`update_check`) asks GitHub once and sends its answer back on a channel; the code that collected the answer and drew the "A new version is available" window was called from exactly one place, `show_settings_pane`, which runs only while Project Settings is the Main Pane. With the editor, the Inspector, the Welcome screen or the Grace chat in that place, the reply sat in the channel and no window was drawn.
+
+The reply and the window now belong to a type of their own, `UpdateOffer` (`crates/cobolt-ide/src/update_offer.rs`), and the frame calls it every frame next to the announcement (`CoboltApp::show_update_offer`, called from `ui`). It is kept out of the way of the dialogs that already own the screen at start-up, with the announcement's own gate: the toolchain prompt, the Ollama prompt, the AI-setup invitation, the Agent wizard, the Building dialog and the Walkthrough. A blocked offer waits and is shown on the first free frame; it is not lost. While the reply is still on its way the frame asks to be redrawn twice a second, so an idle IDE shows the offer when it arrives and not at the next mouse move; the wait ends with the check's own 10-second time-out.
+
+Unchanged: the window (its text, its fixed 430 px width, its place at the bottom right), the two buttons, and the rule that declining is not remembered, so the next start-up asks again.
+
+Tests. `update_offer::tests` draws frames that contain the offer and no pane at all: the release is painted; it is collected from the channel by the frame and then offered; a check that found nothing, or died, draws nothing; a blocked offer waits and appears when the screen is free; *Later* forgets it; and in all six languages the window keeps one rectangle over 120 frames. `app::update_offer_wiring_tests` pins the call site: `CoboltApp` cannot be built without an eframe window, so it reads `app.rs` and requires that `show_settings_pane` does not mention the offer and that `ui` calls it. Putting the call back into `show_settings_pane` turns that test red.
+
+*Still open, and not changed here.* The same audit found two more windows that are drawn only inside `show_settings_pane` but can be raised from elsewhere: the **Guardian block** window (a refused Run, Debug, Check, Package, Build or Save, from the toolbar or a Designer) and the **Models Manager / Agents Manager** windows opened from the AI-setup invitation. The other windows drawn there — Default Theme Settings, the Indexed Engine, the Model Leaderboard and the two managers when opened from the pane — are opened only by that pane's own buttons, or by an action of a window opened from it, so they are drawn wherever they can be raised. The import-keys window is raised when a file dialog that the pane started returns, so it is lost only if the developer changes pane while that dialog is open.
+
 ## [PowerRustCOBOL 2.0.67] — 2026-10-24
 
 *(Forward-port of 1.91.225, `1e09865e` on `fixes-binding-editor-data`. 2.0.66 is the last number in use on `2.x.x`, so this port takes 2.0.67.)*

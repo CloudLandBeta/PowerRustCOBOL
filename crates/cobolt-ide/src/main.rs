@@ -77,6 +77,7 @@ pub mod toolchain;
 pub mod ollama_setup;
 pub mod ui_prefs;
 mod update_check;
+mod update_offer;
 // Spec 107 — "What's going on": the announcement the repository publishes.
 mod announcement;
 pub mod value_methods;
