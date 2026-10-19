@@ -11,12 +11,23 @@ use cobolt_forms::{
     DataBindingDef, Form,
 };
 
-pub fn write_data_binding_storage(out: &mut String, form: &Form) {
+use crate::{next_line_number, GenOwner, SourceMap};
+
+/// What a binding's generated lines are written for (spec 053 source map).
+fn owner(binding: &DataBindingDef) -> GenOwner {
+    GenOwner::DataBinding {
+        binding_id: binding.id.clone(),
+        target: binding.target.primary_control_id().to_owned(),
+    }
+}
+
+pub fn write_data_binding_storage(out: &mut String, form: &Form, map: &mut SourceMap) {
     if form.data_bindings.is_empty() {
         return;
     }
     out.push_str("      *>-- Data binding runtime state --------------------------------\n");
     for binding in sorted_bindings(form) {
+        let start = next_line_number(out);
         let pfx = binding_prefix(&binding.id);
         out.push_str(&format!(
             "      *>   {}: {} -> {}\n",
@@ -41,6 +52,7 @@ pub fn write_data_binding_storage(out: &mut String, form: &Form) {
             "          05 {pfx}-STATUS     PIC X(256) VALUE SPACES.\n"
         ));
         out.push('\n');
+        map.own(owner(binding), start, out);
     }
 }
 
@@ -53,12 +65,13 @@ pub fn write_data_binding_bootstrap(out: &mut String, form: &Form) {
     out.push_str("           PERFORM COBOL-DATA-BINDINGS-MARK-CLEAN\n");
 }
 
-pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
+pub fn write_data_binding_paragraphs(out: &mut String, form: &Form, map: &mut SourceMap) {
     if form.data_bindings.is_empty() {
         return;
     }
     out.push_str("       COBOL-DATA-BINDINGS-LOAD.\n");
     for binding in sorted_bindings(form) {
+        let start = next_line_number(out);
         let pfx = binding_prefix(&binding.id);
         let read_only = if binding.mode == BindingMode::ReadOnly {
             "1"
@@ -78,11 +91,13 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
             "           COBOL::\"BINDING-LOAD\" ( \"{}\" {}-STATUS )\n",
             binding.id, pfx
         ));
+        map.own(owner(binding), start, out);
     }
     out.push_str("           CONTINUE.\n\n");
 
     out.push_str("       COBOL-DATA-BINDINGS-POPULATE.\n");
     for binding in sorted_bindings(form) {
+        let start = next_line_number(out);
         let pfx = binding_prefix(&binding.id);
         out.push_str(&format!(
             "      *>    Populate {} target {}.\n",
@@ -101,16 +116,19 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
                 target_path_label(&mapping.target)
             ));
         }
+        map.own(owner(binding), start, out);
     }
     out.push_str("           CONTINUE.\n\n");
 
     out.push_str("       COBOL-DATA-BINDINGS-MARK-CLEAN.\n");
     for binding in sorted_bindings(form) {
+        let start = next_line_number(out);
         let pfx = binding_prefix(&binding.id);
         out.push_str(&format!(
             "           COBOL::\"BINDING-MARK-CLEAN\" ( \"{}\" {}-DIRTY )\n",
             binding.id, pfx
         ));
+        map.own(owner(binding), start, out);
     }
     out.push_str("           CONTINUE.\n\n");
 
@@ -119,11 +137,13 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
         .into_iter()
         .filter(|binding| binding.mode == BindingMode::Writable)
     {
+        let start = next_line_number(out);
         let pfx = binding_prefix(&binding.id);
         out.push_str(&format!(
             "           COBOL::\"BINDING-UPDATE\" ( \"{}\" {}-ROW-KEY {}-STATUS )\n",
             binding.id, pfx, pfx
         ));
+        map.own(owner(binding), start, out);
     }
     out.push_str("           CONTINUE.\n\n");
 }

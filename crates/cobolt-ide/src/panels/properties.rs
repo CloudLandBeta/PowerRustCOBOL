@@ -3962,6 +3962,16 @@ impl PropertiesPanel {
         self.active_tab = InspectorTab::Events;
     }
 
+    /// Open the binding editor on `control`'s saved binding, as its "Edit
+    /// current binding" button does. `false` when the control has none.
+    pub fn open_binding_editor(&mut self, form: &Form, control: &Control, indexed_files: &[String]) -> bool {
+        let Some(binding) = form.binding_for_control(&control.id) else {
+            return false;
+        };
+        self.binding_editor = BindingEditorState::from_existing(form, control, binding, indexed_files);
+        self.binding_editor.is_some()
+    }
+
     pub fn new() -> Self {
         Self {
             overridden: Default::default(),

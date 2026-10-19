@@ -202,17 +202,52 @@ pub enum DiagOrigin {
         col: u32,
         source_line: String,
     },
-    /// A line codegen authored (R12): named explicitly, attributed to no
-    /// developer site, and never a navigation target.
+    /// A line codegen authored (R12): named explicitly and attributed to no
+    /// developer site. The generated file itself is never a navigation
+    /// target (R15); the construct the line was written for — a data binding,
+    /// a control — is, when codegen recorded one.
     Generated {
         gen_path: std::path::PathBuf,
         line: u32,
+        written_for: Option<WrittenFor>,
     },
     /// A hand-written file (Common Code): the file and line as reported (R14).
     File {
         path: std::path::PathBuf,
         line: u32,
     },
+}
+
+/// What a generated line was written for ([`cobolt_codegen::GenOwner`]), and
+/// the form that owns it — where the developer is taken to put it right.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WrittenFor {
+    pub form_name: String,
+    pub form_path: std::path::PathBuf,
+    pub owner: cobolt_codegen::GenOwner,
+}
+
+impl WrittenFor {
+    /// The construct, in words, for a message: `the data binding BIND-1 of
+    /// GroupBox-1`, `RST-1`. The names stay as written; the words around them
+    /// are in the IDE's language.
+    pub fn describe(&self) -> String {
+        match &self.owner {
+            cobolt_codegen::GenOwner::DataBinding { binding_id, target } => {
+                crate::ui_text::idef("the data binding {} of {}", &[binding_id, target])
+            }
+            cobolt_codegen::GenOwner::Control { control_id } => control_id.clone(),
+        }
+    }
+
+    /// The control the developer is taken to: the binding's target, or the
+    /// control itself.
+    pub fn control(&self) -> &str {
+        match &self.owner {
+            cobolt_codegen::GenOwner::DataBinding { target, .. } => target,
+            cobolt_codegen::GenOwner::Control { control_id } => control_id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

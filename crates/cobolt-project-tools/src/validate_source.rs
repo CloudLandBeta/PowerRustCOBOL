@@ -64,6 +64,19 @@ pub fn validate_text(
     format: SourceFormat,
     external_crates: Option<Vec<String>>,
 ) -> Vec<Diag> {
+    validate_text_for(source, program, format, external_crates, None)
+}
+
+/// [`validate_text`], with the form whose program `source` is when there is
+/// one: then a receiver (`X::…`) and a layer's properties are checked against
+/// that form's objects, exactly as Run Form and Build check them.
+fn validate_text_for(
+    source: &str,
+    program: &Path,
+    format: SourceFormat,
+    external_crates: Option<Vec<String>>,
+    form: Option<&cobolt_forms::Form>,
+) -> Vec<Diag> {
     let mut diags = Vec::new();
     let tokens = match cobolt_lexer::preprocess_program(source, program, format) {
         Some(exp) => {
@@ -100,12 +113,13 @@ pub fn validate_text(
                 form_formats: None,
                 // A product gate: an undeclared item is an error.
                 tolerate_undeclared: false,
-                // No form context here: receivers are checked by Run Form
-                // and Build (1.80.142), not by this lint yet.
-                known_objects: None,
-                // …nor are a layer's properties (spec 091 R37), for the same
-                // reason: no form is in view.
-                known_layers: None,
+                // With a form in view, its receivers (1.80.142) and its
+                // layers' properties (spec 091 R37) are checked as Run Form
+                // checks them, so the IDE's gate finds a handler still naming
+                // a deleted control before the run does — and can say which
+                // handler. A loose file has no form, and checks neither.
+                known_objects: form.map(cobolt_forms::toolbar::object_names),
+                known_layers: form.map(cobolt_forms::toolbar::layer_names),
                 // Inside a project, a literal CALL must name a program, a
                 // paragraph or a Common Code procedure of it (2026-10-08);
                 // `None` — a path outside any project — checks nothing.
@@ -147,7 +161,7 @@ pub fn validate_form_source(
 ) -> (Vec<Diag>, String, cobolt_codegen::SourceMap) {
     // Generated form source is always free-form.
     let (src, map) = cobolt_codegen::generate_with_map(form);
-    let mut diags = validate_text(&src, program, SourceFormat::Free, external_crates);
+    let mut diags = validate_text_for(&src, program, SourceFormat::Free, external_crates, Some(form));
     diags.extend(unknown_sql_connections(form, program));
     diags.extend(row_content_problems(form, &src));
     (diags, src, map)

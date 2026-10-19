@@ -17,6 +17,41 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.215] — 2026-10-18
+
+*(Written on `fixes-error-origin`, off `main` at 1.91.214.)*
+
+### Fixed: a code error says where it is, and opens it — even in code PowerRustCOBOL generated
+
+The operator, 2026-10-18, on PowerDemo1: *"the message says there is a malformed literal, but there is no link to open the code with the problem. If the code was deleted, the text should say where the reference is and offer to open the form with the problem control selected (ideally, open the editor where the problem code is)."* The dialog that stops Run Form had said only `unterminated alphanumeric literal … (line 165)`. Line 165 was a line of the generated program, which a developer never sees, and nothing could be clicked. That error was the binding literal fixed in 1.91.213; the IDE that showed it had been started before that build.
+
+**Every message says where the fault is.** The Run/Build error dialog no longer quotes the generated line number alone:
+- **An error in the developer's own code** names the place and the line within it, `(MAIN-FORM ▸ Button-1 ▸ onClick, line 3)`. Clicking it opens that handler at that line, as before.
+- **An error on a line PowerRustCOBOL generated** names what the line was written for, `(line 165 of the code generated for the data binding BIND-TABLE-GROUPBOX-1 of GroupBox-1)`.
+
+**A generated line knows what it was written for.** The source map that codegen returns with the program (spec 053) now also records `owned` spans, as `GenOwner::{DataBinding, Control}` (`crates/cobolt-codegen/src/lib.rs`). The spans cover:
+- each binding's working-storage state and its LOAD, POPULATE, MARK-CLEAN and UPDATE lines;
+- each control's working-storage group;
+- the per-control fields and paragraphs of REST clients, web searches, DataGrid CSV export, SQL databases, indexed files, timers, charts and agents.
+
+Recording the spans changes the generated program by nothing. Lines that are the program's own scaffolding, such as the banner and the event loop, are written for no one, and stay unlinked.
+
+**Such an error is a link to what it was written for.** In the error dialog and in the Output panel (`[generated code] main-form.cbl:165 — written for …`), clicking opens the form with that control selected. For a data binding, it also opens the binding in its editor (`goto_written_for`, `PropertiesPanel::open_binding_editor`). The hover text says which of the two will happen. The generated `.cbl` itself still never opens. This is spec 053 R15a, an amendment recorded in the spec.
+
+**A handler naming a deleted control is caught before the run, at its line.** The IDE's own check before Run (`validate_form_source`, `crates/cobolt-project-tools/src/validate_source.rs`) did not pass the form's controls to the analyser. Only `rcrun run-form` did. A handler still writing to a deleted control therefore passed the IDE's check and failed inside rcrun, where the error was not mapped back to the handler or linked. The check now uses the form's controls and layers, as Run Form and Build do. The error names the handler and its line, and opens it. The coding agent's `check` tool shares this code and now agrees with Run Form.
+
+The strings are in the six languages. Updated alongside:
+- The Developer's Guide (English): what a generated-code diagnostic says and opens, and the dialog's wording.
+- The System KB line on receivers, with `chunked.data` rebuilt.
+
+New tests:
+- `every_line_written_for_a_binding_or_a_control_names_it` (cobolt-codegen).
+- `a_gate_error_on_a_line_generated_for_a_binding_names_it_and_links_to_it` (cobolt-ide).
+- `a_gate_error_naming_a_deleted_control_points_at_the_handler_line` (cobolt-ide).
+- `a_generated_line_written_for_a_binding_names_it_and_is_a_link` (cobolt-ide, Output panel).
+
+`a_gate_error_resolves_to_the_handler_line` now checks the site path and the site's own line.
+
 ## [PowerRustCOBOL 1.91.214] — 2026-10-18
 
 *(Written on `fixes-nested-scroll-clip`, off `main` at 1.91.211, after 1.91.213.)*

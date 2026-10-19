@@ -9328,6 +9328,21 @@ handler's stub). A diagnostic on one of those is labelled
 PowerRustCOBOL's plumbing or in how a property is set, not in code you can
 edit.
 
+Most generated lines are written **for** something on your form: a data
+binding's state and paragraphs, or a control's items and paragraphs (a REST
+client's fields, a SQL database's connection, a grid's CSV export). A
+diagnostic on one of those says what it was written for —
+`[generated code] main-form.cbl:165 — written for the data binding
+BIND-ORDERS of DG-ORDERS` — and is a link: click it and the IDE opens the
+form with that control selected, and with the binding open in its editor
+when the line was written for a binding. That is where what was generated
+can be put right. The generated `.cbl` still never opens.
+
+The error dialog that stops Run Form and Build says the same thing, in the
+same words: the place you wrote the faulty line and its line within that
+place (`MAIN-FORM ▸ BTN-OK ▸ onClick, line 3`), or the line of the generated
+code and what it was written for. Each is a link to it.
+
 > **Note.** Site locations cover **compile-time** diagnostics (Check, and the
 > parse/analysis run before Build/Run/Debug). A runtime abort still reports
 > the generated program's location for now.
@@ -9365,6 +9380,10 @@ edit.
 > - `COBOL`, for the built-in calls;
 > - a data item you declared (`WS-TEXT::Upper()`);
 > - a class from the program's `REPOSITORY`.
+>
+> The IDE checks this before it starts the run, so the error names the
+> handler and the line that still uses the name, and clicking it opens that
+> handler there.
 >
 > Deleting a control removes its name. A handler of another control that
 > still writes to it is reported here, rather than doing nothing on the

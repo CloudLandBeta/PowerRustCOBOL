@@ -520,19 +520,21 @@ fn generate_with_entry(cfrm: &std::path::Path, form: &Form) -> (String, GenMapEn
 }
 
 /// A form's first code error, as the Build/Run gate dialogs list it, plus the
-/// click-through origin when the offending line is the developer's own code
-/// (spec 053 — the modal's error rows open the code directly; a line codegen
-/// authored gets no link, exactly like the Output rows).
+/// click-through origin: the developer's own code (spec 053 — the modal's
+/// error rows open it directly), or the binding or control a generated line
+/// was written for. A line of the program's own scaffolding gets no link,
+/// exactly like the Output rows.
 #[derive(Debug, Clone)]
 pub struct FormCodeError {
     pub message: String,
     pub origin: Option<crate::runner::DiagOrigin>,
 }
 
-/// The first error-severity diagnostic of `form`, formatted the way the gate
-/// dialogs have always shown it (`… (line N)`), with its origin resolved
-/// through a fresh source map. Free of `CoboltApp` so it is testable headless;
-/// `gen_path` is display metadata for a codegen-authored line.
+/// The first error-severity diagnostic of `form`, with where it lives: the
+/// developer's site and the line within it, or the line of the generated code
+/// and what it was written for. Its origin is resolved through a fresh source
+/// map. Free of `CoboltApp` so it is testable headless; `gen_path` is display
+/// metadata for a codegen-authored line.
 fn first_form_error_with_origin(
     cfrm: &std::path::Path,
     gen_path: &std::path::Path,
@@ -548,11 +550,39 @@ fn first_form_error_with_origin(
     };
     let origin = resolve_diag_origin(Some(&entry), true, gen_path, &src, d.line, d.col);
     Some(FormCodeError {
-        message: format!("{} (line {})", d.message, d.line),
-        // Only the developer's own code is a navigation target (R15) — a
-        // codegen-authored line is named in the message but not linked.
-        origin: matches!(origin, DiagOrigin::Site { .. }).then_some(origin),
+        message: format!("{} ({})", d.message, diag_place(&origin)),
+        origin: diag_origin_is_navigable(&origin).then_some(origin),
     })
+}
+
+/// Where a diagnostic lives, in words, for a message. It used to be only the
+/// generated program's line number, "(line 165)", which says nothing to a
+/// developer who never sees that program (operator, 2026-10-18).
+fn diag_place(origin: &crate::runner::DiagOrigin) -> String {
+    use crate::runner::DiagOrigin;
+    match origin {
+        DiagOrigin::Site { form_name, site, line, .. } => {
+            crate::ui_text::idef("{}, line {}", &[&site.display_path(form_name), line])
+        }
+        DiagOrigin::Generated { line, written_for: Some(w), .. } => {
+            crate::ui_text::idef("line {} of the code generated for {}", &[line, &w.describe()])
+        }
+        DiagOrigin::Generated { line, written_for: None, .. } => {
+            crate::ui_text::idef("line {} of the generated code", &[line])
+        }
+        DiagOrigin::File { line, .. } => crate::ui_text::idef("line {}", &[line]),
+    }
+}
+
+/// Whether activating a diagnostic can take the developer somewhere (R16): to
+/// their own code, a hand-written file, or the binding or control a generated
+/// line was written for. The generated file itself never opens (R15).
+pub(crate) fn diag_origin_is_navigable(origin: &crate::runner::DiagOrigin) -> bool {
+    use crate::runner::DiagOrigin;
+    matches!(
+        origin,
+        DiagOrigin::Site { .. } | DiagOrigin::File { .. } | DiagOrigin::Generated { written_for: Some(_), .. }
+    )
 }
 
 /// Resolve where a diagnostic against `path` actually lives (spec 053 R10/R12).
@@ -594,6 +624,13 @@ fn resolve_diag_origin(
         return DiagOrigin::Generated {
             gen_path: path.to_path_buf(),
             line,
+            written_for: entry.and_then(|e| {
+                e.map.owner_of(line).map(|owner| crate::runner::WrittenFor {
+                    form_name: e.form_name.clone(),
+                    form_path: e.cfrm.clone(),
+                    owner: owner.clone(),
+                })
+            }),
         };
     }
     DiagOrigin::File {
@@ -1432,7 +1469,7 @@ fn error_modal_body_ui(
                                                 .sense(egui::Sense::click()),
                                         )
                                         .on_hover_cursor(egui::CursorIcon::PointingHand)
-                                        .on_hover_text(click_hint);
+                                        .on_hover_text(link_hint(origin, click_hint));
                                     if resp.clicked() {
                                         act.open = Some(origin.clone());
                                     }
@@ -1451,6 +1488,25 @@ fn error_modal_body_ui(
         });
     act
 }
+/// What clicking an error line does, said over it: open the code in its
+/// editor, or — for a line generated for a binding or a control — open the
+/// form with that control selected.
+fn link_hint(origin: &crate::runner::DiagOrigin, click_hint: &str) -> String {
+    use crate::runner::DiagOrigin;
+    match origin {
+        DiagOrigin::Generated { written_for: Some(w), .. } => match w.owner {
+            cobolt_codegen::GenOwner::DataBinding { .. } => crate::ui_text::idef(
+                "Click to open the form with {} selected and its data binding open",
+                &[&w.control()],
+            ),
+            cobolt_codegen::GenOwner::Control { .. } => {
+                crate::ui_text::idef("Click to open the form with {} selected", &[&w.control()])
+            }
+        },
+        _ => click_hint.to_owned(),
+    }
+}
+
 /// Clamp range for the error-modal message font size.
 const MIN_ERROR_FONT_SIZE: f32 = 8.0;
 const MAX_ERROR_FONT_SIZE: f32 = 28.0;
@@ -7314,8 +7370,10 @@ impl CoboltApp {
     fn goto_code_location(&mut self, origin: &crate::runner::DiagOrigin) {
         use crate::runner::DiagOrigin;
         match origin {
-            // R15/R12: generated code is not a navigation target.
-            DiagOrigin::Generated { .. } => {}
+            // R15/R12: the generated file is not a navigation target — what the
+            // line was written for is.
+            DiagOrigin::Generated { written_for: Some(w), .. } => self.goto_written_for(w),
+            DiagOrigin::Generated { written_for: None, .. } => {}
             // R14: a hand-written file opens in the main editor at the line.
             DiagOrigin::File { path, line } => {
                 self.pending_open_in_editor = Some(path.clone());
@@ -7349,6 +7407,41 @@ impl CoboltApp {
                     }
                 }
             }
+        }
+    }
+
+    /// Take the developer to what a generated line was written for: its form,
+    /// with the control selected — and, for a data binding, that binding open
+    /// in its editor, which is where what codegen wrote for it is decided
+    /// (operator, 2026-10-18: "open the form with the control selected").
+    fn goto_written_for(&mut self, w: &crate::runner::WrittenFor) {
+        self.load_form_from_path(w.form_path.clone());
+        let Some(i) = self.designers.iter().position(|(p, _)| p == &w.form_path) else {
+            return;
+        };
+        let indexed_files: Vec<String> = self
+            .cobolt_project
+            .as_ref()
+            .map(|project| project.files.indexed.clone())
+            .unwrap_or_default();
+        let d = &mut self.designers[i].1;
+        // A binding names its target as the binding does: a control id, or a
+        // repeating group's array name.
+        let target = w.control();
+        let control = d.form.find_control(target).cloned().or_else(|| {
+            d.form
+                .controls
+                .iter()
+                .find(|c| c.explicit_control_array_id().is_some_and(|a| a.eq_ignore_ascii_case(target)))
+                .cloned()
+        });
+        let Some(control) = control else {
+            self.output.push_status(crate::ui_text::idef("Could not open {}", &[&w.describe()]));
+            return;
+        };
+        d.select_only(&control.id);
+        if matches!(w.owner, cobolt_codegen::GenOwner::DataBinding { .. }) {
+            d.properties.open_binding_editor(&d.form, &control, &indexed_files);
         }
     }
 
@@ -22125,7 +22218,9 @@ mod error_modal_link_tests {
             &form,
         )
         .expect("the comma literal is an error");
-        assert!(err.message.contains("(line "), "msg: {}", err.message);
+        // The message says where the developer wrote it — the site and its own
+        // line — not the generated program's line number.
+        assert!(err.message.ends_with("(BROKEN-FORM ▸ BTN-GO ▸ onClick, line 4)"), "msg: {}", err.message);
         match err.origin.expect("resolves to the developer's code") {
             DiagOrigin::Site {
                 form_name,
@@ -22154,6 +22249,77 @@ mod error_modal_link_tests {
             &Form::new("CLEAN", "Clean", 320, 200),
         )
         .is_none());
+    }
+
+    /// Operator, 2026-10-18 (PowerDemo1): an error on a line codegen wrote for a
+    /// data binding said only "(line 165)", and nothing could be clicked. It now
+    /// names the binding and its control, and is a link to them. A field name
+    /// with a line break in it breaks the binding's literal the way PowerDemo1's
+    /// mappings did before 1.91.213.
+    #[test]
+    fn a_gate_error_on_a_line_generated_for_a_binding_names_it_and_links_to_it() {
+        use cobolt_forms::{BindingDataType, BindingField, BindingSourceDescriptor, BindingTargetDescriptor, DataBindingDef};
+        let mut form = Form::new("MAIN-FORM", "Main", 640, 480);
+        let mut grid = cobolt_forms::Control::new("DG-1", cobolt_forms::ControlType::DataGrid, 10, 10);
+        grid.set_prop("Columns", cobolt_forms::PropValue::String("A:text".into()));
+        form.controls.push(grid);
+        form.user_ws_source = "       01 ITEMS OCCURS 2.\n          03 ITEM1 PIC XX.".into();
+        form.data_bindings.push(DataBindingDef::new(
+            "BIND-DG-1",
+            "rows",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "ITEMS".into(),
+                occurs_item: "ITEMS".into(),
+                fields: vec![BindingField::new("ITEM1\nX", BindingDataType::Text)],
+                key_fields: Vec::new(),
+                writable: false,
+            },
+            BindingTargetDescriptor::DataGrid { control_id: "DG-1".into() },
+        ));
+        let err = first_form_error_with_origin(
+            std::path::Path::new("/proj/forms/main-form.cfrm"),
+            std::path::Path::new("/proj/generated/main-form.cbl"),
+            &form,
+        )
+        .expect("the broken literal is an error");
+        assert!(err.message.contains("of the code generated for the data binding BIND-DG-1 of DG-1)"), "msg: {}", err.message);
+        match err.origin.expect("a line written for a binding is a link") {
+            DiagOrigin::Generated { written_for: Some(w), .. } => {
+                assert_eq!(w.form_path, std::path::PathBuf::from("/proj/forms/main-form.cfrm"));
+                assert_eq!(w.control(), "DG-1");
+                assert_eq!(link_hint(&DiagOrigin::Generated { gen_path: "/x.cbl".into(), line: 1, written_for: Some(w.clone()) }, "-"),
+                    "Click to open the form with DG-1 selected and its data binding open");
+            }
+            other => panic!("expected a Generated line written for the binding, got {other:?}"),
+        }
+    }
+
+    /// Operator, 2026-10-18 (PowerDemo1): a handler still naming a control that
+    /// was deleted from the form. The message says which handler and which of
+    /// its lines, and the link opens that handler's editor there.
+    #[test]
+    fn a_gate_error_naming_a_deleted_control_points_at_the_handler_line() {
+        let mut form = Form::new("MAIN-FORM", "Main", 640, 480);
+        let mut btn = cobolt_forms::Control::new("Button-1", cobolt_forms::ControlType::Button, 10, 10);
+        let mut ev = cobolt_forms::EventBinding::for_control("Button-1", "onClick");
+        ev.code = "       PROCEDURE DIVISION.\n           CONTINUE\n           SET Label-1::Caption TO \"Hello from COBOL!\".".into();
+        btn.events.push(ev);
+        form.controls.push(btn);
+        let err = first_form_error_with_origin(
+            std::path::Path::new("/proj/forms/main-form.cfrm"),
+            std::path::Path::new("/proj/generated/main-form.cbl"),
+            &form,
+        )
+        .expect("Label-1 is not on the form");
+        assert!(err.message.contains("LABEL-1"), "msg: {}", err.message);
+        assert!(err.message.ends_with("(MAIN-FORM ▸ Button-1 ▸ onClick, line 3)"), "msg: {}", err.message);
+        match err.origin.expect("the handler is a link") {
+            DiagOrigin::Site { site, line, .. } => {
+                assert_eq!(site, CodeSite::ControlEvent { control_id: "Button-1".into(), event: "onClick".into() });
+                assert_eq!(line, 3);
+            }
+            other => panic!("expected the handler, got {other:?}"),
+        }
     }
 
     /// The modal renders a linked error line as a LINK: the pointing hand
@@ -22426,9 +22592,10 @@ mod gen_map_tests {
 
         // Line 1 is the banner — codegen's own, named as such (R12).
         match resolve_diag_origin(Some(&entry), true, &cbl, &src, 1, 1) {
-            DiagOrigin::Generated { gen_path, line } => {
+            DiagOrigin::Generated { gen_path, line, written_for } => {
                 assert_eq!(gen_path, cbl);
                 assert_eq!(line, 1);
+                assert_eq!(written_for, None, "the banner is written for no one");
             }
             other => panic!("expected Generated, got {other:?}"),
         }

@@ -4852,7 +4852,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
   - Example: `SET SAVE-BUTTON::Caption TO "Save".`
   - Example: `SET MAIN-PANEL::Visible TO 1.`
   - Example: `SET TOTAL-LABEL::ForegroundColor TO "#FF0000".`
-- **The receiver must exist.** In a form's program, the name before `::` must be a control of that form (a toolbar button's id included), the form's own name, `me`, `super`, `COBOL`, a declared data item or a REPOSITORY class. Anything else is a compile-time ERROR on Run Form and Build — `INVOKE BTN-SAVX::Disable()` is refused with "this form has no control or object named 'BTN-SAVX' … Did you mean 'BTN-SAVE'?". A control that was deleted takes its name with it, so a handler still writing to it must be corrected.
+- **The receiver must exist.** In a form's program, the name before `::` must be a control of that form (a toolbar button's id included), the form's own name, `me`, `super`, `COBOL`, a declared data item or a REPOSITORY class. Anything else is a compile-time ERROR on Run Form, Build and `check` — `INVOKE BTN-SAVX::Disable()` is refused with "this form has no control or object named 'BTN-SAVX' … Did you mean 'BTN-SAVE'?", and the error names the handler and its line (`MAIN-FORM ▸ BTN-OK ▸ onClick, line 3`). A control that was deleted takes its name with it, so a handler still writing to it must be corrected.
 
 ## Method Invocation Syntax
 - **Invoke a method**: Use `<control>::<method>(<parameters>)`.

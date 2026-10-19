@@ -43,14 +43,19 @@ pub fn diag_row_text(d: &DiagMsg, tr: &Tr) -> String {
             prefix,
             d.message
         ),
-        Some(DiagOrigin::Generated { gen_path, line }) => format!(
-            "[{}] {}:{}: {}: {}",
+        Some(DiagOrigin::Generated { gen_path, line, written_for }) => format!(
+            "[{}] {}:{}{}: {}: {}",
             tr.diag_generated_code,
             gen_path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             line,
+            // What codegen wrote the line for, when it recorded one.
+            written_for
+                .as_ref()
+                .map(|w| format!(" — {}", crate::ui_text::idef("written for {}", &[&w.describe()])))
+                .unwrap_or_default(),
             prefix,
             d.message
         ),
@@ -82,13 +87,11 @@ pub fn diag_quote(d: &DiagMsg) -> Option<(String, String)> {
 }
 
 /// Whether activating this diagnostic can open an owning editor (R16): a
-/// developer site or a hand-written file can; generated code and plain
+/// developer site, a hand-written file, or the binding or control a generated
+/// line was written for can; the program's own scaffolding and plain
 /// diagnostics cannot (R15).
 pub fn diag_is_activatable(d: &DiagMsg) -> bool {
-    matches!(
-        d.origin,
-        Some(DiagOrigin::Site { .. }) | Some(DiagOrigin::File { .. })
-    )
+    d.origin.as_ref().is_some_and(crate::app::diag_origin_is_navigable)
 }
 
 // ── OutputLine ────────────────────────────────────────────────────────────────
@@ -571,6 +574,7 @@ mod tests {
         d.origin = Some(DiagOrigin::Generated {
             gen_path: std::path::PathBuf::from("/proj/generated/main-form.cbl"),
             line: 57,
+            written_for: None,
         });
         let row = diag_row_text(&d, &tr);
         assert!(row.contains("generated code"), "row: {row}");
@@ -579,6 +583,28 @@ mod tests {
         assert!(!row.contains('▸'), "no site path on a generated line: {row}");
         assert!(diag_quote(&d).is_none(), "nothing of the developer's to quote");
         assert!(!diag_is_activatable(&d), "generated code is not a link");
+    }
+
+    /// A generated line codegen wrote FOR a binding says so, and is a link: it
+    /// opens the form with the binding's control selected (operator,
+    /// 2026-10-18, PowerDemo1). The generated file itself still never opens.
+    #[test]
+    fn a_generated_line_written_for_a_binding_names_it_and_is_a_link() {
+        let tr = crate::i18n::Language::English.tr();
+        let mut d = DiagMsg::plain(DiagSeverity::Error, "unterminated alphanumeric literal", 165, 91);
+        d.origin = Some(DiagOrigin::Generated {
+            gen_path: std::path::PathBuf::from("/proj/generated/main-form.cbl"),
+            line: 165,
+            written_for: Some(crate::runner::WrittenFor {
+                form_name: "MAIN-FORM".into(),
+                form_path: std::path::PathBuf::from("/proj/forms/main-form.cfrm"),
+                owner: cobolt_codegen::GenOwner::DataBinding { binding_id: "BIND-TABLE-GROUPBOX-1".into(), target: "GroupBox-1".into() },
+            }),
+        });
+        let row = diag_row_text(&d, &tr);
+        assert!(row.contains("main-form.cbl:165"), "row: {row}");
+        assert!(row.contains("written for the data binding BIND-TABLE-GROUPBOX-1 of GroupBox-1"), "row: {row}");
+        assert!(diag_is_activatable(&d), "the binding is where the developer is taken");
     }
 
     /// A plain diagnostic (no origin) renders exactly as it always has —

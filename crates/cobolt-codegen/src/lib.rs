@@ -129,9 +129,53 @@ pub struct MappedSpan {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SourceMap {
     pub spans: Vec<MappedSpan>,
+    /// What codegen wrote its own lines FOR: no developer wrote them, but a
+    /// form construct the developer owns asked for them. An error on such a
+    /// line names that construct, so the developer can be taken to it.
+    #[serde(default)]
+    pub owned: Vec<OwnedSpan>,
+}
+
+/// The form construct a run of codegen-authored lines was written for.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum GenOwner {
+    /// A form-level data binding. `target` is the control it fills, as the
+    /// binding names it (`BindingTargetDescriptor::primary_control_id`): a
+    /// control id, or a repeating group's array name.
+    DataBinding { binding_id: String, target: String },
+    /// One control's items and paragraphs.
+    Control { control_id: String },
+}
+
+/// One contiguous run of generated lines written for a [`GenOwner`]. 1-based,
+/// inclusive, like [`MappedSpan`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct OwnedSpan {
+    pub owner: GenOwner,
+    pub gen_start: u32,
+    pub gen_end: u32,
 }
 
 impl SourceMap {
+    /// The construct codegen wrote `gen_line` for, or `None` for a line of
+    /// the program's own scaffolding. The narrowest span wins.
+    pub fn owner_of(&self, gen_line: u32) -> Option<&GenOwner> {
+        self.owned
+            .iter()
+            .filter(|s| gen_line >= s.gen_start && gen_line <= s.gen_end)
+            .min_by_key(|s| s.gen_end - s.gen_start)
+            .map(|s| &s.owner)
+    }
+
+    /// Record that the lines from `gen_start` to the last one written to
+    /// `out` were written for `owner`. Nothing, when nothing was written.
+    pub(crate) fn own(&mut self, owner: GenOwner, gen_start: u32, out: &str) {
+        let gen_end = next_line_number(out) - 1;
+        if gen_end >= gen_start {
+            self.owned.push(OwnedSpan { owner, gen_start, gen_end });
+        }
+    }
+
     /// The site that produced `gen_line` and the 1-based line **within that
     /// site's text**, or `None` for a line codegen authored (R12).
     pub fn resolve(&self, gen_line: u32) -> Option<(&CodeSite, u32)> {
@@ -325,6 +369,33 @@ pub fn generate_with_map(form: &Form) -> (String, SourceMap) {
 /// 1-based number of the line that the NEXT character pushed to `out` will start.
 fn next_line_number(out: &str) -> u32 {
     out.matches('\n').count() as u32 + 1
+}
+
+/// What a control's generated items and paragraphs are written for.
+fn control_owner(ctrl: &Control) -> GenOwner {
+    GenOwner::Control { control_id: ctrl.id.clone() }
+}
+
+/// Attributes what each iteration of a per-control loop writes to that
+/// control. Each [`Self::begin`] closes the previous control's span, so an
+/// iteration that `continue`s early still owns exactly what it wrote; call
+/// [`Self::end`] right after the loop.
+#[derive(Default)]
+struct PerControl {
+    current: Option<(GenOwner, u32)>,
+}
+
+impl PerControl {
+    fn begin(&mut self, map: &mut SourceMap, out: &str, ctrl: &Control) {
+        self.end(map, out);
+        self.current = Some((control_owner(ctrl), next_line_number(out)));
+    }
+
+    fn end(&mut self, map: &mut SourceMap, out: &str) {
+        if let Some((owner, start)) = self.current.take() {
+            map.own(owner, start, out);
+        }
+    }
 }
 
 /// Regenerate the complete COBOL source from `form`.
@@ -558,6 +629,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         .iter()
         .filter(|c| c.control_type == ControlType::RestClient)
     {
+        let start = next_line_number(out);
         let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let base = ctrl
             .get_prop("BaseURL")
@@ -594,6 +666,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
             ));
         }
         out.push('\n');
+        map.own(control_owner(ctrl), start, out);
     }
 
     // ── Per-WebSearch instance fields (spec 039 T14) ─────────────────────
@@ -604,6 +677,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         .iter()
         .filter(|c| c.control_type == ControlType::WebSearch)
     {
+        let start = next_line_number(out);
         let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let engine_id = ctrl
             .get_prop("SearchEngineId")
@@ -635,6 +709,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
             cobol_lit(&safe_search)
         ));
         out.push('\n');
+        map.own(control_owner(ctrl), start, out);
     }
 
     // ── DataGrid CSV fields ───────────────────────────────────────────────
@@ -643,6 +718,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         .filter(|c| c.control_type == ControlType::DataGrid)
     {
         if datagrid_csv_export_enabled(ctrl) {
+            let start = next_line_number(out);
             let pfx = format!("WS-{}", cobol_word(&ctrl.id));
             out.push_str(&format!(
                 "      *>── DataGrid {} CSV export ──────────────────────────\n",
@@ -657,6 +733,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
                 pfx
             ));
             out.push('\n');
+            map.own(control_owner(ctrl), start, out);
         }
     }
 
@@ -691,6 +768,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         .iter()
         .filter(|c| c.control_type == ControlType::SqlDatabase)
     {
+        let start = next_line_number(out);
         let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         // A named SQL connection (spec 087 R40) wins over the connection
         // string; the runtime resolves the reserved prefix at CONNECT time.
@@ -721,15 +799,17 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
             "       01 {pfx}-STATUS        PIC X(512)  VALUE SPACES.\n"
         ));
         out.push('\n');
+        map.own(control_owner(ctrl), start, out);
     }
 
-    write_indexed_file_fields(out, &all_controls);
+    write_indexed_file_fields(out, &all_controls, map);
 
     // ── Timer runtime fields ──────────────────────────────────────────────
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::Timer)
     {
+        let start = next_line_number(out);
         let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let iv = ctrl
             .get_prop("Interval")
@@ -753,6 +833,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         ));
         out.push_str(&format!("       01 {}-ELAPSED-MS PIC 9(8) VALUE 0.\n", pfx));
         out.push('\n');
+        map.own(control_owner(ctrl), start, out);
     }
 
     // ── Chart working-storage items ───────────────────────────────────────
@@ -769,6 +850,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         .iter()
         .filter(|c| chart_types.contains(&c.control_type))
     {
+        let start = next_line_number(out);
         let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let ds = ctrl
             .get_prop("DataSource")
@@ -808,6 +890,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
             pfx
         ));
         out.push('\n');
+        map.own(control_owner(ctrl), start, out);
     }
 
     // ── User Working Storage (raw COBOL from .cfrm) ──────────────────────
@@ -843,13 +926,15 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         out.push('\n');
     }
 
-    data_binding::write_data_binding_storage(out, form);
+    data_binding::write_data_binding_storage(out, form, map);
 
     // ── Per-control groups ────────────────────────────────────────────────
     if !all_controls.is_empty() {
         out.push_str("      *>── Form controls ───────────────────────────────────────────────\n");
         for ctrl in &all_controls {
+            let start = next_line_number(out);
             write_control_group(out, ctrl);
+            map.own(control_owner(ctrl), start, out);
         }
     }
 }
@@ -1182,20 +1267,20 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
     write_timer_stubs(out, &all_controls);
     close_region(out, "TIMER-STUBS");
     open_region(out, "CSV-EXPORT");
-    write_csv_export_stubs(out, &all_controls);
+    write_csv_export_stubs(out, &all_controls, map);
     close_region(out, "CSV-EXPORT");
     open_region(out, "REST-CLIENT");
-    write_rest_client_stubs(out, &all_controls);
+    write_rest_client_stubs(out, &all_controls, map);
     close_region(out, "REST-CLIENT");
     open_region(out, "WEB-SEARCH");
-    write_web_search_stubs(out, &all_controls);
+    write_web_search_stubs(out, &all_controls, map);
     close_region(out, "WEB-SEARCH");
-    write_sql_stubs(out, &all_controls);
-    write_indexed_file_stubs(out, &all_controls, &form.user_ws_source);
-    write_agent_stubs(out, &all_controls);
+    write_sql_stubs(out, &all_controls, map);
+    write_indexed_file_stubs(out, &all_controls, &form.user_ws_source, map);
+    write_agent_stubs(out, &all_controls, map);
     write_animation_stubs(out, form, &all_controls);
-    write_chart_stubs(out, &all_controls);
-    data_binding::write_data_binding_paragraphs(out, form);
+    write_chart_stubs(out, &all_controls, map);
+    data_binding::write_data_binding_paragraphs(out, form, map);
 
     // ── Nested COBOL-85 programs — one per event handler ─────────────────
     write_nested_programs(out, form, &all_controls, map);
@@ -1241,11 +1326,13 @@ fn write_timer_stubs(out: &mut String, all_controls: &[&Control]) {
 
 // ── DataGrid CSV export paragraph generator ───────────────────────────────────
 
-fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
+fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control], map: &mut SourceMap) {
+    let mut per = PerControl::default();
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::DataGrid)
     {
+        per.begin(map, out, ctrl);
         if !ctrl
             .get_prop("ShowCSVExportButton")
             .map(|v| v.as_bool())
@@ -1293,6 +1380,7 @@ fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str("           END-IF.\n");
         out.push('\n');
     }
+    per.end(map, out);
 }
 
 fn datagrid_csv_export_enabled(ctrl: &Control) -> bool {
@@ -1307,11 +1395,13 @@ fn datagrid_csv_export_enabled(ctrl: &Control) -> bool {
 
 // ── RestClient call stub generator ───────────────────────────────────────────
 
-fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
+fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control], map: &mut SourceMap) {
+    let mut per = PerControl::default();
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::RestClient)
     {
+        per.begin(map, out, ctrl);
         let para_get = format!("{}-GET", ctrl.id);
         let para_post = format!("{}-POST", ctrl.id);
         let para_put = format!("{}-PUT", ctrl.id);
@@ -1427,15 +1517,18 @@ fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
             out.push('\n');
         }
     }
+    per.end(map, out);
 }
 
 // ── AgentObject Ask stub generator ───────────────────────────────────────────
 
-fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
+fn write_agent_stubs(out: &mut String, all_controls: &[&Control], map: &mut SourceMap) {
+    let mut per = PerControl::default();
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::AgentObject)
     {
+        per.begin(map, out, ctrl);
         let ask_para = format!("{}-ASK", ctrl.id);
         let resp_para = ctrl
             .get_prop("ResponseParagraph")
@@ -1502,6 +1595,7 @@ fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
             ),
         );
     }
+    per.end(map, out);
 }
 
 /// One of the two dispatch paragraphs: `INVOKE` every control's `method` for the
@@ -1605,11 +1699,13 @@ fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control
 // intrinsic `write_rest_client_stubs` above uses. Modelled directly on that
 // function's `<id>-GET` paragraph.
 
-fn write_web_search_stubs(out: &mut String, all_controls: &[&Control]) {
+fn write_web_search_stubs(out: &mut String, all_controls: &[&Control], map: &mut SourceMap) {
+    let mut per = PerControl::default();
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::WebSearch)
     {
+        per.begin(map, out, ctrl);
         let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let para_search = format!("{}-SEARCH", ctrl.id);
         let resp_para = format!("{}-ON-RESULTS", ctrl.id);
@@ -1688,6 +1784,7 @@ fn write_web_search_stubs(out: &mut String, all_controls: &[&Control]) {
             ),
         );
     }
+    per.end(map, out);
 }
 
 // ── SqlDatabase stub generator (Phase 8) ─────────────────────────────────────
@@ -1696,11 +1793,13 @@ fn write_web_search_stubs(out: &mut String, all_controls: &[&Control]) {
 // COBOL-EXEC-SQL, COBOL-FETCH-ROW, COBOL-NEXT-ROW, and COBOL-CLOSE-DB
 // built-in CALLs provided by the cobolt-runtime database engine.
 
-fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
+fn write_sql_stubs(out: &mut String, all_controls: &[&Control], map: &mut SourceMap) {
+    let mut per = PerControl::default();
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::SqlDatabase)
     {
+        per.begin(map, out, ctrl);
         // Paragraph and data names are COBOL words: an id like `sql_db` must
         // not reach the source verbatim (the `_` would break the whole item).
         let id = cobol_word(&ctrl.id);
@@ -1849,15 +1948,18 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
             out.push('\n');
         }
     }
+    per.end(map, out);
 }
 
 // ── IndexedFile control stub generator ───────────────────────────────────────
 
-fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control], user_ws: &str) {
+fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control], user_ws: &str, map: &mut SourceMap) {
+    let mut per = PerControl::default();
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::IndexedFile)
     {
+        per.begin(map, out, ctrl);
         // Paragraph and data names are COBOL words: an id like `sql_db` must
         // not reach the source verbatim (the `_` would break the whole item).
         let id = cobol_word(&ctrl.id);
@@ -2041,11 +2143,12 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control], user_ws
         out.push_str(&format!("               {status_call}\n"));
         out.push_str("           END-IF.\n\n");
     }
+    per.end(map, out);
 }
 
 // ── Chart INVOKE verb paragraph generator ─────────────────────────────────────
 
-fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
+fn write_chart_stubs(out: &mut String, all_controls: &[&Control], map: &mut SourceMap) {
     let chart_types = [
         ControlType::BarChart,
         ControlType::LineChart,
@@ -2066,7 +2169,9 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
     out.push_str("      *> ── Chart INVOKE verb paragraphs ─────────────────────────────────\n");
     out.push('\n');
 
+    let mut per = PerControl::default();
     for ctrl in charts {
+        per.begin(map, out, ctrl);
         let id = &ctrl.id;
         let ws = format!("WS-{}", cobol_word(id));
         // The table and its count come from the chart's DataSource /
@@ -2148,7 +2253,7 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str("           CONTINUE.\n");
         out.push('\n');
     }
-
+    per.end(map, out);
 }
 
 /// The IndexedFile control's WORKING-STORAGE items — the flags its facade
@@ -2161,11 +2266,12 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
 /// it by creating each name on first write (PowerDemo3's indexedfile-form,
 /// 2026-09-19). Emitted from the WORKING-STORAGE writer, for every form that
 /// carries the control.
-fn write_indexed_file_fields(out: &mut String, all_controls: &[&Control]) {
+fn write_indexed_file_fields(out: &mut String, all_controls: &[&Control], map: &mut SourceMap) {
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::IndexedFile)
     {
+        let start = next_line_number(out);
         let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let selected = ctrl
             .get_prop("IndexedFile")
@@ -2229,6 +2335,7 @@ fn write_indexed_file_fields(out: &mut String, all_controls: &[&Control]) {
             ));
         }
         out.push('\n');
+        map.own(control_owner(ctrl), start, out);
     }
 }
 
@@ -4923,6 +5030,65 @@ mod source_map_tests {
             .filter(|s| matches!(s.site, CodeSite::Section(_)))
             .count();
         assert_eq!(sections, 5, "five woven sections recorded");
+    }
+
+    /// Operator, 2026-10-18 (PowerDemo1): an error on a line codegen wrote said
+    /// only "(line 165)", with nothing to open. Every line written for a binding
+    /// or a control now names it, and the program's own scaffolding names nothing.
+    #[test]
+    fn every_line_written_for_a_binding_or_a_control_names_it() {
+        use cobolt_forms::{
+            BindingDataType, BindingField, BindingSourceDescriptor, BindingTargetDescriptor,
+            BindingTargetPath, DataBindingDef, FieldMapping,
+        };
+        let mut form = Form::new("CARDS-FORM", "Cards", 640, 480);
+        let mut group = Control::new("GroupBox-1", ControlType::GroupBox, 0, 0);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        let mut text = Control::new("TextBox-1", ControlType::TextBox, 10, 10);
+        text.parent = Some("GroupBox-1".into());
+        let mut rest = Control::new("RST-1", ControlType::RestClient, 0, 0);
+        rest.set_prop("ResponseDataItem", PropValue::String("WS-REPLY".into()));
+        form.add_control(group);
+        form.add_control(text);
+        form.add_control(rest);
+        let mut binding = DataBindingDef::new(
+                "BIND-CARDS",
+                "cards",
+                BindingSourceDescriptor::CobolTable {
+                    table_name: "ITEMS".into(),
+                    occurs_item: "ITEMS".into(),
+                    fields: vec![BindingField::new("ITEM1", BindingDataType::Text)],
+                    key_fields: Vec::new(),
+                    writable: true,
+                },
+                BindingTargetDescriptor::ControlArray { array_id: "GroupBox-1".into(), member_control_ids: vec!["TextBox-1".into()] },
+            )
+            .with_mappings(vec![FieldMapping::new(
+                "ITEM1",
+                BindingTargetPath::ControlProperty { array_id: "GroupBox-1".into(), control_id: "TextBox-1".into(), property_name: "Text".into() },
+            )]);
+        // Writable, so the UPDATE paragraph carries a line for it too.
+        binding.mode = cobolt_forms::BindingMode::Writable;
+        form.data_bindings.push(binding);
+        let (src, map) = generate_with_map(&form);
+        let line_of = |needle: &str| -> u32 {
+            src.lines().position(|l| l.contains(needle)).map(|i| i as u32 + 1).unwrap_or_else(|| panic!("{needle} not generated"))
+        };
+        let binding = GenOwner::DataBinding { binding_id: "BIND-CARDS".into(), target: "GroupBox-1".into() };
+        for needle in ["-READ-ONLY  PIC 9", "\"BINDING-LOAD\"", "\"_BindingMappings\"", "\"BINDING-POPULATE\"", "\"BINDING-MARK-CLEAN\"", "\"BINDING-UPDATE\""] {
+            assert_eq!(map.owner_of(line_of(needle)), Some(&binding), "{needle}");
+        }
+        let rest_owner = GenOwner::Control { control_id: "RST-1".into() };
+        for needle in ["-BASE-URL      PIC X", "01 WS-REPLY", "RST-1-GET."] {
+            assert_eq!(map.owner_of(line_of(needle)), Some(&rest_owner), "{needle}");
+        }
+        assert_eq!(map.owner_of(line_of("01 WS-TextBox-1.")), Some(&GenOwner::Control { control_id: "TextBox-1".into() }));
+        // The banner, PROCEDURE DIVISION and the event loop belong to no one.
+        for line in [1, line_of("PROCEDURE DIVISION."), line_of("COBOL-EVENT-LOOP.")] {
+            assert_eq!(map.owner_of(line), None, "line {line}: {:?}", src.lines().nth(line as usize - 1));
+        }
+        // And recording it changes the generated program by nothing.
+        assert_eq!(src, generate(&form));
     }
 }
 

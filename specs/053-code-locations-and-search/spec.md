@@ -133,6 +133,15 @@ carry a link, and a search can enumerate every site and jump into one.
   file, the system shall open that file in the main editor at the mapped line.
 - **R15 (constraint):** Activating a diagnostic shall not open, focus or scroll
   the generated `.cbl`.
+- **R15a (event, amendment 2026-10-18, 1.91.215):** When a codegen-authored line
+  (R12) was written for a construct on the form — a data binding, or a
+  control's items and paragraphs — the diagnostic shall name that construct, and
+  activating it shall open the owning form with that control selected and, for
+  a data binding, the binding open in its editor. R15 still holds: the
+  generated `.cbl` is not opened. The Run/Build error dialog shall say where a
+  fault is in the same terms: the site path and the line within the site, or
+  the generated line and what it was written for — never the generated line
+  number alone. (Operator, PowerDemo1: "(line 165)" with nothing to open.)
 - **R16 (ubiquitous):** A diagnostic that can be activated shall be visibly
   distinguishable from one that cannot, and shall respond to hover, so the
   developer can see what is clickable before clicking.
