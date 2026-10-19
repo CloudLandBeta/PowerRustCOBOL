@@ -17,6 +17,36 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.217] — 2026-10-19
+
+*(Written on `fixes-focus-ring-clip`, off `main` at 1.91.216.)*
+
+### Fixed: the focus ring is cut by the container its control is in
+
+The operator, 2026-10-19, on PowerDemo1: *"the border that marks the focused field is not clipped when the control is inside a container and a scroll clips part of the control."* With a card's TextBox scrolled halfway out of its Panel, the TextBox was cut at the Panel's edge, but its blue focus ring was drawn whole and hung below the Panel.
+
+The ring is drawn after every control, on the form's own painter, and that painter is clipped only to the form. Now `render_form_inner` records a clip for each control's ring, on interactive surfaces only, and `paint_focus_ring` (`crates/cobolt-forms/src/render.rs`) paints through it. The TabControl's dashed tab mark follows the same rule. The ring's shape, colour, radius and pulse are unchanged.
+
+**A container cuts the ring only where it cuts the control** (`ring_room`). On a side where the control crosses the container's visible edge, the ring stops at that edge. On every other side, the ring may spread up to the form, the surface or a hosted menu pane, as it always did, so a control flush with its container keeps its whole ring over the container's border. The container is the nearest real boundary. An invisible layout container is looked through: a Panel or GroupBox with no face that does not scroll, as a Grid or Flex row is. This is the rule shadows already use (`shadow_room_owner`, 2026-10-08). A scrolling container always stays a boundary. While an animation grows the control, the ring has the bleed area, as the control does.
+
+Two reviews shaped this, and each blocked a narrower rule. A first version clipped the ring to every container. The GUI Border Validation review found that the children of a layout container sit flush with its invisible edge, so their rings lost the sides that touch it. In PowerSpatial, the thermostat, lighting and speaker grid buttons kept only one side; in PowerAnalytics, the fields of the GRP-* groups lost two or three. A second version looked through such containers but still clipped to the boundary's content area. The DataGrid Quality & Compatibility review found that a DataGrid docked to fill a visible Panel or TabControl page with no padding sits exactly on that edge. The whole ring lies outside the edge, so a focused grid showed no mark at all. No shipped example places a grid that way.
+
+Run Form, Preview and a built application draw the ring through this one function. The Designer draws no focus ring.
+
+New tests:
+- `engine_focus_ring_is_clipped_by_the_container_like_its_control`. A TextBox runs past the bottom of its Panel. Once it is clicked, its ring is cut at the Panel's content edge, and its top and sides stay. With the fix taken out, the clip was the whole screen and the test failed.
+- `engine_focus_ring_looks_through_an_invisible_layout_container`. A TextBox crosses the edge of a faceless Panel that sits inside a visible Panel. Its whole ring stays visible. With the first, blocked version the clip was the faceless Panel's own area, and the test failed.
+- `engine_focus_ring_of_a_control_filling_its_container_is_whole`. A control fills its Panel's content area, and every side of its ring stays visible.
+- `a_ring_is_cut_only_where_its_control_is`. This tests the per-side rule on its own.
+
+Test results: `cobolt-forms --features render` ran 91 binaries, with 1687 passed and 0 failed. The GUI Border Validation and DataGrid Quality & Compatibility reviews both passed this version. The Designer draws no ring, and the DataGrid's rendering, cell editing and cell focus are untouched.
+
+*Still open, and not changed here.* The GUI Border Validation review noted two things that were already true before this change:
+- **Rounded containers.** A control filling a rounded container has its frame bent to the container's arc. The ring, though, keeps the control's own radius plus 2, so its corners pass the arc.
+- **Scroll edges.** While a control is still inside a scroll viewport but within 4 px of its edge, a sliver of ring, 2 to 4 px, shows past the viewport. It goes as soon as the control crosses the edge.
+
+The Developer's Guide (English) says the ring is cut like its control.
+
 ## [PowerRustCOBOL 1.91.216] — 2026-10-18
 
 *(Written for `fixes` as 1.91.210, off `main` at 1.91.191, and rebased onto `main` at 1.91.209. It reached `origin/fixes` but not `main`, which had meanwhile used 1.91.210 to 1.91.215. It was renumbered 1.91.216 when merged into `main` at 1.91.215, on the operator's "merge all into main", and nothing else in it changed. The fourth IDE failure listed below, the English-only completion descriptions, was fixed by 1.91.214.)*

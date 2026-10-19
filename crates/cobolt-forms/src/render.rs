@@ -1675,6 +1675,31 @@ fn draw_deferred_groupbox_caption(
     crate::paint::draw_groupbox_caption(painter, screen.min, &face, alpha);
 }
 
+/// The clip of a focus ring around `control`: its container (`room`) cuts the
+/// ring only on the sides where it cuts the control itself; on every other side
+/// the ring may spread to `free` — the form, the surface, a hosted menu pane.
+///
+/// A control half scrolled out of a Panel loses the ring on the side the Panel
+/// cuts it, and keeps it on the others. A control flush with its container's
+/// edge keeps its whole ring, over the container's border, as before: a
+/// DataGrid docked to fill a Panel with no padding sits exactly on the
+/// container's content edge, and clipping the ring to that area took every
+/// side of it away, leaving a focused grid with no mark at all.
+fn ring_room(control: Rect, room: Rect, free: Rect) -> Rect {
+    // Half a pixel of slack: a flush edge is not a cut.
+    const SLACK: f32 = 0.5;
+    Rect::from_min_max(
+        egui::pos2(
+            if control.min.x + SLACK >= room.min.x { free.min.x } else { room.min.x },
+            if control.min.y + SLACK >= room.min.y { free.min.y } else { room.min.y },
+        ),
+        egui::pos2(
+            if control.max.x - SLACK <= room.max.x { free.max.x } else { room.max.x },
+            if control.max.y - SLACK <= room.max.y { free.max.y } else { room.max.y },
+        ),
+    )
+}
+
 /// Whether an animation has the control bigger than its place: scaled up past
 /// 1, with a hair of margin so a settled animation (exactly 1) never counts.
 fn grows_past_its_place(tf: &RenderTransform) -> bool {
@@ -2860,6 +2885,10 @@ fn render_form_inner(
     // the popup needs travels with it.
     let mut open_combos: Vec<OpenCombo> = Vec::new();
     let mut tab_targets: Vec<TabTarget> = Vec::new();
+    // Where each control's focus ring may be seen (`ring_room`): its container
+    // cuts the ring only on the sides where it cuts the control, so the ring,
+    // drawn after every control, is cut where the control is.
+    let mut control_clips: HashMap<String, Rect> = HashMap::new();
     let tab_step = if interactive {
         apply_pending_tab_focus(ui);
         // After the Tab/Enter move, so a handler's `SetFocus()` — which always
@@ -3177,6 +3206,41 @@ fn render_form_inner(
             None => screen,
         };
         out.control_rects.insert(live.id.clone(), screen);
+        // Where the focus ring may be seen. Only an interactive surface draws it.
+        if interactive {
+            let hosted = |r: Rect| match hosted_visible {
+                Some(v) => r.intersect(Rect::from_min_size(origin + v.min.to_vec2() - scroll, v.size())),
+                None => r,
+            };
+            let ring_clip = if growing {
+                bleed
+            } else {
+                // The visible area of the nearest container that is a real
+                // boundary. A faceless layout Panel or GroupBox that does not
+                // scroll is looked through, as it is for shadows
+                // (`shadow_room_owner`): its edge is invisible. A scrolling
+                // container stays a boundary.
+                let room = hosted(
+                    match shadow_room_owner(controls, idx, input.state) {
+                        Some(pidx) => {
+                            let cr = live_control(controls, pidx, input.state).content_rect();
+                            let own = Rect::from_min_size(
+                                origin + Vec2::new(cr.x as f32, cr.y as f32) - scroll_above(pidx),
+                                Vec2::new(cr.w as f32, cr.h as f32),
+                            );
+                            match ancestor_clip_rect(controls, pidx, origin, &scroll_above, input.state) {
+                                Some(above) => content_rect.intersect(own).intersect(above),
+                                None => content_rect.intersect(own),
+                            }
+                        }
+                        None => content_rect,
+                    }
+                    .intersect(surface_clip),
+                );
+                ring_room(screen, room, hosted(bleed))
+            };
+            control_clips.insert(live.id.clone(), ring_clip);
+        }
 
         // Drive AutoScroll for Panels (interactive only). We show a ScrollArea at
         // the panel rect (with oversized content to enable bars/input). The
@@ -3435,7 +3499,7 @@ fn render_form_inner(
         }
     }
     if interactive {
-        paint_focus_ring(ui, &painter, input, controls, &tab_targets, &out);
+        paint_focus_ring(ui, &painter, input, controls, &tab_targets, &out, &control_clips);
     }
 
     clear_radio_group_siblings(input, controls, &mut out);
@@ -4259,6 +4323,13 @@ const FOCUS_PULSE_SECS: f64 = 6.4;
 
 /// Draw the focus ring around the control that has the focus — reached by
 /// the keyboard or clicked into. Nothing is drawn once the focus leaves it.
+///
+/// The ring is cut by `clips` (see [`ring_room`]): the nearest container that
+/// is a real boundary cuts it on the sides where it cuts the control, and
+/// nowhere else; an invisible layout container is looked through. It used to
+/// be drawn on the whole form, so a field half scrolled out of a panel kept
+/// its whole ring, hanging past the panel's edge (operator, 2026-10-19,
+/// PowerDemo1).
 fn paint_focus_ring(
     ui: &egui::Ui,
     painter: &egui::Painter,
@@ -4266,6 +4337,7 @@ fn paint_focus_ring(
     controls: &[Control],
     targets: &[TabTarget],
     out: &RenderOutput,
+    clips: &HashMap<String, Rect>,
 ) {
     // Whatever put the focus there — Tab, Enter, a click (operator,
     // 2026-09-23; it used to mark keyboard navigation only).
@@ -4277,6 +4349,11 @@ fn paint_focus_ring(
     };
     let Some(&rect) = out.control_rects.get(&target.ctrl_id) else {
         return;
+    };
+    // `with_clip_rect` intersects with the form's own clip.
+    let painter = &match clips.get(&target.ctrl_id) {
+        Some(&clip) => painter.with_clip_rect(clip),
+        None => painter.clone(),
     };
     // Live: the tab the keyboard just moved to, not the one designed.
     let live = controls.iter().find(|c| c.id == target.ctrl_id).map(|c| input.state.live(c));
@@ -25844,6 +25921,11 @@ mod tests {
 
     /// For each frame, whether the focus ring was painted.
     fn ring_frames(controls: &[Control], frames: Vec<Vec<Event>>) -> Vec<bool> {
+        ring_clips(controls, frames).iter().map(Option::is_some).collect()
+    }
+
+    /// For each frame, the clip the focus ring was painted under, if it was.
+    fn ring_clips(controls: &[Control], frames: Vec<Vec<Event>>) -> Vec<Option<Rect>> {
         fn has_ring(shape: &egui::Shape) -> bool {
             match shape {
                 egui::Shape::Rect(r) => {
@@ -25885,9 +25967,95 @@ mod tests {
                     });
             });
             full.textures_delta.clear();
-            painted.push(full.shapes.iter().any(|c| has_ring(&c.shape)));
+            painted.push(full.shapes.iter().find(|c| has_ring(&c.shape)).map(|c| c.clip_rect));
         }
         painted
+    }
+
+    /// Operator, 2026-10-19 (PowerDemo1): a focused TextBox half scrolled out of
+    /// its Panel kept its whole focus ring, hanging below the Panel. The ring is
+    /// cut where the TextBox is: inside what the Panel shows.
+    #[test]
+    fn engine_focus_ring_is_clipped_by_the_container_like_its_control() {
+        let mut panel = ctrl("Panel-1", ControlType::Panel, 20, 20, 200, 100);
+        panel.set_prop("VScroll", PropValue::Bool(true));
+        // The TextBox runs past the Panel's bottom edge (120), as one scrolled
+        // half out of view does.
+        let mut text = ctrlp("TextBox-1", ControlType::TextBox, 30, 90, 150, 60, &[("Text", "04")]);
+        text.parent = Some("Panel-1".into());
+        let p = pos2(60.0, 100.0); // inside the visible half
+        let clips = ring_clips(
+            &[panel, text],
+            vec![vec![], vec![Event::PointerMoved(p), press(p)], vec![release(p)], vec![]],
+        );
+        let clip = clips.last().copied().flatten().expect("the clicked box is ringed");
+        // The Panel's content area ends 2 px inside its 120 px bottom edge.
+        assert!(clip.max.y <= 118.0, "the ring is cut where the Panel cuts the box, not below it: {clip:?}");
+        // The Panel cuts the box on no other side, so the ring keeps those.
+        let ring = Rect::from_min_max(pos2(26.0, 86.0), pos2(184.0, 118.0));
+        assert!(clip.contains_rect(ring), "the top and the sides of the ring stay: {clip:?}");
+    }
+
+    /// A container cuts the ring only on the sides where it cuts the control.
+    #[test]
+    fn a_ring_is_cut_only_where_its_control_is() {
+        let free = Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 800.0));
+        let room = Rect::from_min_max(pos2(22.0, 22.0), pos2(218.0, 118.0));
+        // Flush on every side (a DataGrid docked to fill): nothing is cut.
+        let fill = room;
+        assert_eq!(ring_room(fill, room, free), free);
+        // Crossing the bottom only: only the bottom is cut.
+        let low = Rect::from_min_max(pos2(30.0, 90.0), pos2(180.0, 150.0));
+        assert_eq!(ring_room(low, room, free), Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 118.0)));
+        // Crossing the left and the top: those two are cut.
+        let corner = Rect::from_min_max(pos2(10.0, 10.0), pos2(60.0, 40.0));
+        assert_eq!(ring_room(corner, room, free), Rect::from_min_max(pos2(22.0, 22.0), pos2(1000.0, 800.0)));
+    }
+
+    /// DataGrid review, 2026-10-19: a DataGrid docked to fill a visible Panel
+    /// with no padding sits exactly on the Panel's content edge, and clipping
+    /// its ring to that area left a focused grid with no mark at all. The Panel
+    /// does not cut the grid, so it does not cut the ring.
+    #[test]
+    fn engine_focus_ring_of_a_control_filling_its_container_is_whole() {
+        let panel = ctrl("Panel-1", ControlType::Panel, 20, 20, 200, 100);
+        // The Panel's content area: 2 px inside its frame.
+        let mut text = ctrlp("TextBox-1", ControlType::TextBox, 22, 22, 196, 96, &[("Text", "04")]);
+        text.parent = Some("Panel-1".into());
+        let p = pos2(60.0, 60.0);
+        let clips = ring_clips(
+            &[panel, text],
+            vec![vec![], vec![Event::PointerMoved(p), press(p)], vec![release(p)], vec![]],
+        );
+        let clip = clips.last().copied().flatten().expect("the clicked box is ringed");
+        let ring = Rect::from_min_max(pos2(18.0, 18.0), pos2(222.0, 122.0));
+        assert!(clip.contains_rect(ring), "every side of the ring is visible: {clip:?}");
+    }
+
+    /// An invisible layout container — a Panel with no face that does not
+    /// scroll, as a Grid or Flex row is — does not cut the ring: its children
+    /// sit flush with its edge, and the ring would lose the sides that touch
+    /// it (PowerSpatial's grid buttons, PowerAnalytics' field groups). The
+    /// boundary is the visible Panel around it.
+    #[test]
+    fn engine_focus_ring_looks_through_an_invisible_layout_container() {
+        let outer = ctrl("Panel-1", ControlType::Panel, 10, 10, 300, 200);
+        let mut grid = ctrl("Grid-1", ControlType::Panel, 40, 40, 124, 44);
+        grid.set_prop("HideBackground", PropValue::Bool(true));
+        grid.parent = Some("Panel-1".into());
+        // Across the grid's content edge (42) on the left and the top: an edge
+        // nobody can see, so it is not where the ring is cut.
+        let mut text = ctrlp("TextBox-1", ControlType::TextBox, 40, 40, 120, 40, &[("Text", "04")]);
+        text.parent = Some("Grid-1".into());
+        let p = pos2(60.0, 60.0);
+        let clips = ring_clips(
+            &[outer, grid, text],
+            vec![vec![], vec![Event::PointerMoved(p), press(p)], vec![release(p)], vec![]],
+        );
+        let clip = clips.last().copied().flatten().expect("the clicked box is ringed");
+        // The ring band reaches 4 px outside the box on every side.
+        let ring = Rect::from_min_max(pos2(36.0, 36.0), pos2(164.0, 84.0));
+        assert!(clip.contains_rect(ring), "the whole ring is visible: {clip:?} vs {ring:?}");
     }
 
     /// The ring marks the focused control however the focus got there — Tab

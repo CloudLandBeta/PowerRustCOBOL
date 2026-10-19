@@ -2572,8 +2572,11 @@ is a project setting, the same for every form: **Settings ▸ Appearance ▸
 Keyboard focus ring** has a checkbox that turns it on or off (on by default),
 picks the colour (a blue by default) and, optionally, **Pulse**, which makes the
 border breathe slowly — one full breath every 6.4 seconds. The ring goes the
-moment the focus leaves the control. Run Form and your built application show
-it the same way.
+moment the focus leaves the control. A container cuts the ring only where it
+cuts the control: a field scrolled halfway out of a Panel loses the ring along
+the Panel's edge and keeps it on the other sides, while a grid docked to fill a
+Panel keeps its whole ring. Run Form and your built application show it the
+same way.
 
 > 📷 Screenshot needed — `running-form-focus-ring.png`. Capture a running form
 > after pressing Tab twice, so the second field shows the focus ring.
