@@ -17,6 +17,35 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.1] — 2026-10-19
+
+*(Forward-port of 1.91.219, `8a15f00d` on `claude/fixes-call-returning-18dea7`.)*
+
+### Fixed: `CALL … RETURNING` hands the value back
+
+`CALL "TAX-OF" USING WS-AMOUNT RETURNING WS-TAX` parsed and did nothing. The parser kept the phrase, and `exec_call` received it as `_returning` and never read it, so `WS-TAX` kept whatever it held before the call, whichever program was called and whatever that program's `PROCEDURE DIVISION … RETURNING item` had set. The callee's header was already parsed (`ProcedureDivision.returning`), and both `docs/cobol-support-matrix-en.md` and `docs/cobol85-supported-syntax-en.md` list the phrase as supported, so only the run-time half was missing.
+
+Now, when a called program returns, the value of its RETURNING item is **moved** into the caller's identifier as a `MOVE` would put it: the receiver's PICTURE converts, edits and truncates. `12.34` lands in a `PIC 9(3)V9` as `0123`, in a `PIC ZZ9.99` as ` 12.34` and in a `PIC X(8)` as `001234  `. The receiver can be anything a `MOVE` writes to: a data item, a table element, a qualified or reference-modified item, a control's property. The RETURNING item can be a group, and it can be declared in the callee's `LINKAGE SECTION` or in its own `WORKING-STORAGE`. `exec_call` finds the item while the callee's own names still resolve (a `WORKING-STORAGE` item is diverted onto its activation key until the call ends), and moves it after those aliases are released, so a caller name the callee also spells is not captured. The move runs before the callee's slots are popped, and only when the callee returned normally.
+
+Edge cases, settled from the standard and the code:
+
+- **A call that returns no value leaves the receiver as it was**: a callee with no RETURNING item, a paragraph reached through `CALL`, an unresolved program (its `ON EXCEPTION` runs and `NOT ON EXCEPTION` does not, as before), a built-in `COBOL-…` call (those hand their results back through `USING`, unchanged) and a callee that stops on a run-time error.
+- **The analyser says so**, where it can see the target. A literal `CALL "NAME" … RETURNING r` whose target is a program of the same source with no RETURNING item, a paragraph or section, or a built-in is a **warning** (`calls::check_returning`, run on every analysis, no project context needed). A Common Code program or a name held in a data item is not seen and is left alone.
+- **A receiver that is a literal or an expression is an error**, and so is a `PROCEDURE DIVISION … RETURNING item` the program does not declare (an error like an undeclared `FILE STATUS`, a warning under `tolerate_undeclared`).
+
+Nothing is wired per host: the change is in `exec_call`, which every host that builds the interpreter runs — `rcrun run-form`, embedded child forms (`host.rs`) and the compiled binary (`run_form_app`). The AST is unchanged (`Stmt::Call.returning` and `ProcedureDivision.returning` already existed), so no serialized AST changes.
+
+New tests:
+- `cobolt-runtime/tests/test_call_returning.rs`, 14 tests: the plain case; the receiver's PICTURE (wider, narrower fraction, integer, edited, alphanumeric); a `WORKING-STORAGE` returning item; a returning item spelled like the receiver; no RETURNING item, a paragraph and an unresolved program leaving the receiver alone; `NOT ON EXCEPTION` seeing the value; table-element, qualified, reference-modified and control-property receivers; a group; a static callee called three times; `BY CONTENT` + `BY REFERENCE` + `RETURNING`; a chain of two calls. Without the fix 10 of the 14 fail; the other four are the "nothing is returned" cases, which must hold either way.
+- `cobolt-parser/tests/test_call_returning.rs`, 9 tests, and `cobolt-semantic/tests/test_call_returning.rs`, 13 tests.
+- `tests/cobol/call/test-call-returning.cbl`: 20 forms and a bulk phase of 20,000 `CALL … RETURNING` with a checksum. Run by `rcrun run` (debug build): 21/21 pass, 14,285 calls per second. Built with `rcrun build` into a standalone binary and run: 21/21 pass, 71,428 calls per second.
+
+NIST, release build, both axes, every finished module, all equal to the protected baselines: compile census PASS 420/420 (FAIL 0, N-A 39/459); execution NC (Nucleus) 95/95 with 4614 PASS / 0 FAIL, SQ (Sequential I/O) 85/85 with 624 / 0, IX (Indexed I/O) 41/41 with 574 / 0, RL (Relative I/O) 34/34 with 354 / 0, IF (Conditional) 45/45 with 841 / 0, IC (Inter-program communication) 25/25 with 309 / 0, ST (Sort/Merge) 39/39 with 735 / 0, SM (Source text manipulation) 16/16 with 311 / 0.
+
+Documentation: the Developer's Guide has a new section, *Getting one value back with `RETURNING`*, under *Calling Common Code from a form*; `docs/cobol85-supported-syntax-en.md` gains the `RETURNING r` bullet under CALL. No translation of either exists on disk, so none was deleted. System KB: the *Nested programs* section of the architecture constants gains the RETURNING rule and `assets/knowledge/chunked.data` is regenerated.
+
+Seen on the way, not changed: `MOVE <numeric> TO <alphanumeric> (4:3)` gives the reference-modified receiver the trimmed value left-justified (`8  `) where a plain `PIC X(3)` receiver gets the COBOL-85 digits (`000`). `RETURNING` follows whichever `MOVE` does.
+
 ## [PowerRustCOBOL 2.0.0] — 2026-10-19
 
 *(Written on `2.x.x`, off `main` at 1.91.217.)*

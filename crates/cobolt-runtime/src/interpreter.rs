@@ -456,6 +456,10 @@ struct NestedProgram {
     /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
     /// order — bound to the caller's `CALL … USING` arguments.
     using: Vec<String>,
+    /// The item named by `PROCEDURE DIVISION … RETURNING item`, uppercase. Its
+    /// value, when the program returns, is what a caller's `CALL … RETURNING`
+    /// receives.
+    returning: Option<String>,
     /// This program's own `FILE STATUS IS` bindings, file name → status item,
     /// both uppercase.
     ///
@@ -634,6 +638,11 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
 
     let key = prog.identification.program_id.to_ascii_uppercase();
     let using = prog.procedure.using.clone();
+    let returning = prog
+        .procedure
+        .returning
+        .as_ref()
+        .map(|r| r.trim().to_ascii_uppercase());
 
     // ── The activation scope, established at registration ────────────────
     // Everything the program PRIVATELY declares moves onto program-qualified
@@ -718,6 +727,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             local_private,
             local_descriptive,
             using,
+            returning,
             file_status,
         },
     );
@@ -11253,7 +11263,7 @@ impl Interpreter {
         &mut self,
         program: &Expr,
         using: &[CallArg],
-        _returning: Option<&Expr>,
+        returning: Option<&Expr>,
         on_exception: &[Stmt],
         not_on_exception: &[Stmt],
         span: Span,
@@ -12208,6 +12218,7 @@ impl Interpreter {
                         np.file_status.clone(),
                     )
                 };
+                let callee_returning = self.nested_registry[&prog_name].returning.clone();
 
                 // Pair each LINKAGE parameter with the caller's argument:
                 // (param-key, arg-key, by_reference).
@@ -12528,6 +12539,21 @@ impl Interpreter {
                 self.para_bodies = saved_bodies;
                 self.section_names = saved_secs;
 
+                // **RETURNING.** Which storage holds the callee's returning item
+                // is settled here, while the callee's own names still resolve —
+                // a WORKING-STORAGE item is diverted onto its activation key
+                // until the aliases are released below. The value is moved into
+                // the caller's identifier only after that release, so a caller
+                // name the callee also spells is not captured by its divert.
+                // A callee that raised an error returns nothing.
+                let returned_key = match (returning, callee_returning.as_deref()) {
+                    (Some(_), Some(item)) if matches!(result, Ok(()) | Err(RuntimeError::GoBack)) => {
+                        let key = self.env.resolve_name(item, &[]);
+                        (self.env.get(&key).is_some() || self.env.is_group(&key)).then_some(key)
+                    }
+                    _ => None,
+                };
+
                 // Take back the lent edit templates before anything reads the
                 // arguments as the caller declared them.
                 for a in &lent_templates {
@@ -12606,6 +12632,18 @@ impl Interpreter {
                 }
                 self.program_locals.insert(prog_name.clone(), saved);
 
+                // The returned value goes to the caller's identifier as a
+                // `MOVE` would put it (COBOL 2002, CALL … RETURNING): the
+                // receiver's PICTURE converts, edits and truncates. It must
+                // happen before the callee's slots are popped just below, and
+                // a failure is reported after the scope has been unwound.
+                let moved = match (returning, returned_key) {
+                    (Some(dest), Some(key)) => {
+                        self.exec_move(&Expr::Identifier(key, span), std::slice::from_ref(dest))
+                    }
+                    _ => Ok(()),
+                };
+
                 // Remove the nested program's local items from the shared env
                 // regardless of outcome (their state lives in `program_locals`).
                 self.env.pop_local_scope(&inserted_keys);
@@ -12622,6 +12660,7 @@ impl Interpreter {
                     Err(e) if self.handle_unhandled_exception(&e) => {}
                     Err(e) => return Err(e),
                 }
+                moved?;
             }
 
             // ── Internal paragraph CALL (flat / legacy programs) ──────────────

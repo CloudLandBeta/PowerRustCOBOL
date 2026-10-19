@@ -280,6 +280,8 @@ pub fn analyze_with(program: &Program, opts: &AnalyzeOptions) -> SemanticResult 
     if let Some(known) = &opts.known_programs {
         calls::check(program, known, &mut result.diagnostics);
     }
+    // A CALL … RETURNING at a target the unit knows returns nothing (2026-10-19).
+    calls::check_returning(program, &mut result.diagnostics);
     result
 }
 

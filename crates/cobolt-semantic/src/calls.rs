@@ -134,3 +134,93 @@ fn check_stmt(
         span: *span,
     });
 }
+
+// ── CALL … RETURNING ──────────────────────────────────────────────────────────
+
+/// A `CALL "NAME" … RETURNING receiver` whose target is known not to return a
+/// value (2026-10-19).
+///
+/// The runtime moves the called program's RETURNING item into the receiver. A
+/// target with no such item — a program without `PROCEDURE DIVISION …
+/// RETURNING`, a paragraph or section, a built-in `COBOL-…` call (those hand
+/// their results back through `USING`) — leaves the receiver as it was, and
+/// the program carries on with the old value. The pass names the call.
+///
+/// Only what the unit itself holds can be judged: a target that is a Common
+/// Code program, or one held in a data item, is not seen here and is left
+/// alone. Unlike [`check`], this needs no project context.
+pub fn check_returning(program: &Program, diagnostics: &mut Vec<SemanticDiagnostic>) {
+    let mut programs = std::collections::HashMap::new();
+    collect_returning(program, &mut programs);
+    let mut defined = HashSet::new();
+    collect_names(program, &mut defined);
+    returning_in_program(program, &programs, &defined, diagnostics);
+}
+
+/// Every program-id of the unit, UPPERCASE, with whether it declares a
+/// RETURNING item.
+fn collect_returning(program: &Program, out: &mut std::collections::HashMap<String, bool>) {
+    out.insert(
+        program.identification.program_id.trim().to_ascii_uppercase(),
+        program.procedure.returning.is_some(),
+    );
+    for nested in &program.nested_programs {
+        collect_returning(nested, out);
+    }
+}
+
+fn returning_in_program(
+    program: &Program,
+    programs: &std::collections::HashMap<String, bool>,
+    defined: &HashSet<String>,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) {
+    let mut visit = |stmt: &Stmt| {
+        let Stmt::Call { program: Expr::Literal(Literal::String(target), _), returning: Some(_), span, .. } = stmt
+        else {
+            return;
+        };
+        let name = target.trim().to_ascii_uppercase();
+        let why = if name.starts_with("COBOL-") || name.starts_with("COBOLT-") {
+            "a built-in call hands its results back through its USING items".to_string()
+        } else {
+            match programs.get(&name) {
+                Some(true) => return,
+                Some(false) => format!("program {name} declares no RETURNING item (PROCEDURE DIVISION … RETURNING item)"),
+                None if defined.contains(&name) => format!("{name} is a paragraph or section, which returns no value"),
+                None => return,
+            }
+        };
+        diagnostics.push(SemanticDiagnostic {
+            severity: Severity::Warning,
+            message: format!(
+                "CALL \"{}\" … RETURNING: {why}, so the receiver keeps the value it had before the call.",
+                target.trim()
+            ),
+            span: *span,
+        });
+    };
+    match &program.procedure.body {
+        ProcedureBody::Sections(sections) => {
+            for sec in sections {
+                for para in &sec.paragraphs {
+                    para.stmts.iter().for_each(|s| s.walk(&mut visit));
+                }
+            }
+        }
+        ProcedureBody::Paragraphs(paras) => {
+            for para in paras {
+                para.stmts.iter().for_each(|s| s.walk(&mut visit));
+            }
+        }
+    }
+    for decl in &program.procedure.declaratives {
+        decl.stmts.iter().for_each(|s| s.walk(&mut visit));
+        for para in &decl.paras {
+            para.stmts.iter().for_each(|s| s.walk(&mut visit));
+        }
+    }
+    for nested in &program.nested_programs {
+        returning_in_program(nested, programs, defined, diagnostics);
+    }
+}
