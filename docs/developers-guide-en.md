@@ -1896,6 +1896,58 @@ files: `SELECT … ASSIGN TO WS-PATH` opens the path its `WS-PATH` holds.
 > which cannot be known before the program runs. The `COBOL-…` built-in calls
 > are not checked by this rule.
 
+**Getting one value back with `RETURNING`.** A program can answer with a single
+value as well as through its `USING` items. It names the item that holds the
+answer in its `PROCEDURE DIVISION` header, and the caller names the item that
+should receive it:
+
+```cobol
+      *> src/tax-of.cbl
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TAX-OF.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 LK-AMOUNT PIC 9(7)V99.
+       01 LK-TAX    PIC 9(7)V99.
+       PROCEDURE DIVISION USING LK-AMOUNT RETURNING LK-TAX.
+           COMPUTE LK-TAX ROUNDED = LK-AMOUNT * 0.2
+           GOBACK.
+```
+
+```cobol
+      *> a button's onClick handler
+           *> TAX-OF: works out the tax on one amount; it changes no argument.
+           *> Uses:   WS-AMOUNT = the amount to tax (BY REFERENCE).
+           *> Result: WS-TAX = the tax, delivered when TAX-OF returns.
+
+           CALL "TAX-OF" USING WS-AMOUNT RETURNING WS-TAX
+           MOVE WS-TAX TO LBL-TAX::Caption
+```
+
+When the program returns, the value of its RETURNING item is **moved** into the
+receiver exactly as a `MOVE` would put it: the receiver's PICTURE converts,
+edits and truncates. The `LK-TAX` above can land in a `PIC ZZ,ZZ9.99` item, in
+a `PIC X(10)` item or in a narrower number, and each gets what `MOVE LK-TAX TO
+…` would give it. The receiver may be anything a `MOVE` can write to — a data
+item, a table element (`WS-TOT (WS-I)`), a qualified name, a reference-modified
+item or a control's property (`LBL-TAX::Caption`). The RETURNING item may be a
+group, which travels as a group does in a `MOVE`, and it may be declared in the
+called program's `LINKAGE SECTION` (the usual place) or in its own
+`WORKING-STORAGE`. Each call delivers the value that call left, even though the
+called program keeps its other data between calls.
+
+> **Note.** A call that returns no value leaves the receiver exactly as it was:
+> a called program with no RETURNING item, a paragraph reached through `CALL`,
+> a name that does not resolve (its `ON EXCEPTION` branch runs, as always), and
+> a built-in `COBOL-…` call, which hands its results back through its `USING`
+> items. When the target is a program or paragraph of the same source, or a
+> built-in, **Check** warns that the call returns nothing. A literal or an
+> expression as the receiver is a compile error, and so is a
+> `PROCEDURE DIVISION … RETURNING` item the program never declares.
+
+> ⚠️ **Caveat.** The value is delivered when the called program returns
+> normally. A called program that stops on a run-time error delivers nothing.
+
 ### Creating vs. importing
 
 The **➕** on a category **creates a new item**:

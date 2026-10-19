@@ -160,6 +160,23 @@ pub fn resolve(
             }
         }
     }
+    // `PROCEDURE DIVISION … RETURNING item` names the item a caller's
+    // `CALL … RETURNING` receives. One the program does not declare returns
+    // nothing, and the caller's identifier would keep its old value without a
+    // word — the same silence the FILE STATUS check above exists to end.
+    if let Some(name) = program.procedure.returning.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        if !symbols.has_data_item(name) {
+            let msg = format!(
+                "RETURNING item '{name}' of the PROCEDURE DIVISION is not declared in DATA DIVISION — \
+                 declare it in the LINKAGE SECTION"
+            );
+            if tolerate_undeclared {
+                ctx.warn(msg, program.procedure.span);
+            } else {
+                ctx.error(msg, program.procedure.span);
+            }
+        }
+    }
     match &program.procedure.body {
         ProcedureBody::Paragraphs(paras) => {
             for para in paras {
@@ -421,6 +438,7 @@ impl<'a> ResolveCtx<'a> {
                     self.resolve_expr(e);
                 }
                 if let Some(r) = returning {
+                    self.check_call_returning(r);
                     self.resolve_expr(r);
                 }
                 for s in on_exception {
@@ -896,6 +914,23 @@ impl<'a> ResolveCtx<'a> {
             if args.is_empty() {
                 self.warn("a method-call result is not a receiving field", *span);
             }
+        }
+    }
+
+    /// `CALL … RETURNING receiver`: the called program's returned value is
+    /// MOVEd into the receiver, so it has to be a place a `MOVE` can write — a
+    /// data item, possibly qualified, subscripted or reference-modified, or a
+    /// control property. A literal or an expression names no storage, and the
+    /// value would go nowhere.
+    fn check_call_returning(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } | Expr::RefMod { .. } => {}
+            Expr::Member { .. } => self.check_receiving(expr),
+            other => self.error(
+                "CALL … RETURNING must name a data item to receive the returned value, \
+                 not a literal or an expression",
+                other.span(),
+            ),
         }
     }
 

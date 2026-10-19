@@ -693,6 +693,11 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   [[ON] {EXCEPTION|OVERFLOW} imp] [NOT [ON] {EXCEPTION|OVERFLOW} imp] [END-CALL]`.
 - ✅ The `ON EXCEPTION` / `ON OVERFLOW` body runs when the called program is
   unresolved; the `NOT ON EXCEPTION` body runs when the call **resolves**.
+- ✅ `RETURNING r`: when the called program returns, the item named by its
+  `PROCEDURE DIVISION … RETURNING item` is MOVEd into `r` (the receiver's
+  PICTURE converts, edits and truncates). A call that returns no value — a
+  program without a RETURNING item, a paragraph, an unresolved name, a built-in
+  `COBOL-…` call — leaves `r` as it was.
 - ✅ `CANCEL program …` re-initialises the named program's WORKING-STORAGE so its
   next `CALL` starts fresh.
 
