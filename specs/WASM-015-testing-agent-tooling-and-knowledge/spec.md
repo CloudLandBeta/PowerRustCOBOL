@@ -66,6 +66,8 @@ exists on the web and what does not. This spec specifies that equipment; without
 - **R6 (ubiquitous):** The **conformance ledger** shall be extended in the NIST style (two numbers per module: compiles, runs with 0 failures) with a second column for the generated module; NC, IF and IC are the first rows (WASM-010 R16). A regression run shall be one command.
 - **R7 (ubiquitous):** The **golden files** of the code generator shall cover the web output (the generated COBOL for web forms, the interface description, the stylesheet, the host page and the generated CSP), and `UPDATE_GOLDEN`-style regeneration shall work as it does today.
 - **R8 (ubiquitous):** The `cobolt-bench` baseline shall gain the numbers WASM-010 R15 and the performance spec propose (module size, start-up, a fixed arithmetic and string workload on the module and on the interpreter).
+- **R8b (ubiquitous):** The suite shall carry the **lifecycle, memory and boundary tests** of WASM-017 R20 — laziness (a network trace), disposal (open and close a form many times; instances and memory return to baseline), fixed memory, batching (a bound on host calls), strings, views after growth of the player's memory, the baseline and browser-matrix check,
+  and the yield test (a very long loop keeps frames within a deadline) — and the size report of WASM-016 R13 and WASM-017 R16, so that a regression in footprint or in leaks is a failing test and not a surprise.
 - **R9 (ubiquitous):** Each test shall report **quantified, human-readable results** (what was exercised and how it performed), not a bare pass count, as the project's testing rule requires.
 
 **Agent tooling**

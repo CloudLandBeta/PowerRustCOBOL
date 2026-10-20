@@ -5,8 +5,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # The WASM series — specs for the 2.x.x line (WebAssembly applications)
 
-- **Status:** drafts, 2026-10-19. Written on `features-2x`, cut from `2.x.x`. Sixteen specs: WASM-001 to WASM-009 answer the operator's eleven items; WASM-010 to WASM-015 are the first six of the
-  "missing specs" (the operator accepted them the same day); WASM-016 specifies the player, which the operator's decision on the module layout created. Further proposals are in §5.
+- **Status:** drafts, 2026-10-19. Written on `features-2x`, cut from `2.x.x`. Seventeen specs: WASM-001 to WASM-009 answer the operator's eleven items; WASM-010 to WASM-015 are the first six of the
+  "missing specs" (the operator accepted them the same day); WASM-016 specifies the player, which the operator's decision on the module layout created; WASM-017 takes in the operator's guidance of 2026-10-20 on modular loading, the memory model, the JavaScript boundary and the build, adapted to what browsers run today. Further proposals are in §5.
 - **Why a separate numbering.** At the operator's request these specs are numbered **WASM-001, WASM-002, …** and live in `specs/WASM-NNN-<slug>/` instead of the
   `NNN-<slug>` series of `specs/README.md` (which is at 107). The phases are the same (`/specify → /clarify → /plan → /tasks → /analyze → /implement → /docsync`).
   The `/specify` skill and `specs/README.md` still say `NNN`; teach them about `WASM-NNN` before the first `/plan`.
@@ -38,6 +38,7 @@ Items that overlap were merged (as asked). Item 12 is §5.
 | 12 → accepted | The backend contract and its evolution | [WASM-014](WASM-014-backend-contract-and-evolution/spec.md) |
 | 12 → accepted | Testing, agent tooling and the knowledge base for the web kinds | [WASM-015](WASM-015-testing-agent-tooling-and-knowledge/spec.md) |
 | Decision on the module layout | The player: a prebuilt Leptos form engine, the second `.wasm` | [WASM-016](WASM-016-prebuilt-player/spec.md) |
+| Guidance of 2026-10-20 | Module architecture, memory model and the JavaScript boundary: modules per form loaded and discarded on demand, fixed memory, coarse-grained host API, feature baseline, build profile | [WASM-017](WASM-017-module-architecture-and-js-boundary/spec.md) |
 | 12 | The rest of what is missing | §5 below |
 
 ## 2. The shape of the whole (proposed baseline, to be confirmed at `/clarify`)
@@ -103,6 +104,11 @@ flowchart TD
   W16 --> W4
   W16 --> W8
   W16 --> W11
+  W2 --> W17["WASM-017 module architecture + JS boundary"]
+  W10 --> W17
+  W16 --> W17
+  W17 --> W11
+  W17 --> W15
 ```
 
 ## 3. Decisions
@@ -119,6 +125,7 @@ flowchart TD
 | D3 | **CSS precedence:** do properties or the stylesheet win | WASM-007 Q1, R8 | **Decided: CSS wins** (operator, 2026-10-19) |
 | D12 | **Templates creatable in 2.0:** Web + Android + iOS, no watch; the list as written in WASM-001 | WASM-001 Q3, R5 | **Decided** (operator, 2026-10-19) |
 | D13 | **The Backend is part of every Web or Mobile project** (a `backend/` folder and a tree entry), **not a project kind**; no backend-only template | WASM-001 R1, WASM-003 Q1 | **Decided** (operator, 2026-10-20) |
+| D15 | **Architecture of the artefacts** (the guidance of 2026-10-20): a program module **per form**, loaded on first show and discarded with the form; a data memory fixed at compile time with a transport arena; a feature **baseline that excludes multi-memory and JS String Builtins** (the iOS web view lacks them), those two as optional accelerations; a coarse-grained host API; **no threads, no Rayon, no cross-origin isolation**; the Component Model deferred; `.free()`, the size-first profile and `wasm-opt` for the **player only**; `wasm-pack` not used | WASM-017 | **Proposed — three points need a ruling:** (a) per-form modules turn "two `.wasm` files" into "the player plus one module per form" (WASM-017 Q1 offers one module per project); (b) threads stay out, as ruled on 2026-10-19; (c) multi-memory stays out of the baseline because of iOS |
 | D14 | **Markup is never inserted as an HTML string:** the Viewer builds DOM nodes from an allow-listed, parsed tree; and WebLink does not offer `ping` in v1 | WASM-013 R5, WASM-016 R15, WASM-006 R3 | **Decided** (operator, 2026-10-20) |
 | D4 | **Stateless or stateful backend calls** | WASM-003 Q2 | Fresh `WORKING-STORAGE` per call. **Open** |
 | D5 | **WebSocket only, or also a small HTTPS surface** (refresh cookie, provider redirects, health, downloads) | WASM-003 Q3, WASM-009 Q3, WASM-014 Q4 | Also HTTPS, kept minimal. **Open** |
@@ -144,28 +151,28 @@ Spec 006 (*Web projects*, removed 2026-10-14; `git show ccfa3449^:specs/006-web-
 ## 5. What else is missing from the strategy (operator item 12)
 
 The six **P1** specs of the first list — the generator, navigation, the mobile shell, security, the backend contract, testing/agents/KB — are written (WASM-010 to WASM-015), and the player took WASM-016, so the numbers
-below start at 017. Still **proposed, not written**, with placeholder numbers:
+below start at 018 (WASM-017 is the architecture spec). Still **proposed, not written**, with placeholder numbers:
 **P2** = needed soon after or alongside; **P3** = later.
 
 | Proposed | Spec | Why it is missing today | P |
 |---|---|---|---|
-| WASM-017 | **Backend deployment and operations** | Containers, cloud targets (PowerCloud already knows AWS), reverse proxy and TLS, scaling and session affinity, secrets, metrics and traces (extending the observability document), health, rolling upgrades, migrations and backups | P2 |
-| WASM-018 | **Accessibility and internationalisation of the generated applications** | ARIA, focus order, contrast, RTL, locale formats against numeric-edited `PICTURE` and `DECIMAL-POINT IS COMMA`, IME, UTF-8 against `PIC X`/`PIC N` in fields and JSON, run-time language switching for the *developer's* application | P2 |
-| WASM-019 | **The touch and mobile interaction model** | Gestures, long-press as context menu, no hover, minimum touch-target lint, virtual keyboard behaviour, input modes from the `PICTURE` (numeric keyboard), orientation, pull-to-refresh | P2 |
-| WASM-020 | **Offline, PWA and caching** | Service worker, offline call queue, IndexedDB policy, bundle update flow and cache busting, installability | P2 |
-| WASM-021 | **Data controls beyond v1** | Server-side paging, sorting and filtering for DataGrid, optimistic concurrency on Save, transactions across calls (`COMMIT`/`ROLLBACK` over the channel), record locking with remote clients (needs the cross-process locking fix) | P2 |
-| WASM-022 | **Debugging and diagnostics** | COBOL breakpoints in browser runs (the DAP crate over a WebSocket to the IDE), source maps beyond the line table, console and error telemetry, crash reports, correlation ids between frontend and backend logs | P2 |
-| WASM-023 | **Distribution and updates** | Hosting and CDN, caching headers, versioned URLs, the Tauri updater, store-submission checklists, what the IDE's `update_check` does when 2.0.0 exists (it would offer it to every 1.x.x IDE), rollback | P2 |
-| WASM-024 | **Project conversion and code sharing** | A desktop → web conversion assistant that reports unsupported controls and verbs, `project_upgrade` steps, Common Code and copybooks shared between desktop and web | P2 |
-| WASM-025 | **Templates and examples** | *Agentic AI Chatbot (Web)* (the model key stays on the backend), *UserControl (Web)*, web versions of PowerChat, PowerAnalytics, PowerDemo3 and PowerSpatial, *Create from Template…* | P2 |
-| WASM-026 | **Documentation, localisation and release plan** | The Developer's Guide 2.0 chapters (held back by the 2026-10-19 ruling), README, regenerating the five translations at the minor, forum announcements batched into the RC, release-candidate steps from 2.0.0 | P2 |
-| WASM-027 | **Performance budgets** | Module size and start-up, generated-module throughput against the interpreter (`cobolt-bench`), DataGrid virtualisation, memory, payload sizes | P2 |
-| WASM-028 | **Licensing and compliance** | Licences of Leptos, Tauri, the web-view crate, the emitter and the bundler; map-tile usage policies when a browser fetches tiles; reCAPTCHA terms and consent; store data-safety forms; data-protection law | P2 |
-| WASM-029 | **Identity extras** | Social login and federation, passkeys/WebAuthn, an authorisation model (roles, permissions), session and device management, an audit log | P3 |
-| WASM-030 | **Plugins, custom controls and external crates on `wasm32`** | `Custom { plugin_id }` has no painter or runtime today; `EXEC RUST` is refused in the browser (WASM-002 Q4) and needs a story through the backend | P3 |
-| WASM-031 | **More web-native controls** | Embedded video and audio, image from a URL, IFrame, a rich-text editor, a camera/QR scanner (mobile) | P3 |
-| WASM-032 | **Other form factors** | Android Smartwatch, Apple Watch, TV | P3 |
-| WASM-033 | **Designer evolution** | A web-view-based designer, a CSS-aware designer, device frames, component-state preview | P3 |
+| WASM-018 | **Backend deployment and operations** | Containers, cloud targets (PowerCloud already knows AWS), reverse proxy and TLS, scaling and session affinity, secrets, metrics and traces (extending the observability document), health, rolling upgrades, migrations and backups | P2 |
+| WASM-019 | **Accessibility and internationalisation of the generated applications** | ARIA, focus order, contrast, RTL, locale formats against numeric-edited `PICTURE` and `DECIMAL-POINT IS COMMA`, IME, UTF-8 against `PIC X`/`PIC N` in fields and JSON, run-time language switching for the *developer's* application | P2 |
+| WASM-020 | **The touch and mobile interaction model** | Gestures, long-press as context menu, no hover, minimum touch-target lint, virtual keyboard behaviour, input modes from the `PICTURE` (numeric keyboard), orientation, pull-to-refresh | P2 |
+| WASM-021 | **Offline, PWA and caching** | Service worker, offline call queue, IndexedDB policy, bundle update flow and cache busting, installability | P2 |
+| WASM-022 | **Data controls beyond v1** | Server-side paging, sorting and filtering for DataGrid, optimistic concurrency on Save, transactions across calls (`COMMIT`/`ROLLBACK` over the channel), record locking with remote clients (needs the cross-process locking fix) | P2 |
+| WASM-023 | **Debugging and diagnostics** | COBOL breakpoints in browser runs (the DAP crate over a WebSocket to the IDE), source maps beyond the line table, console and error telemetry, crash reports, correlation ids between frontend and backend logs | P2 |
+| WASM-024 | **Distribution and updates** | Hosting and CDN, caching headers, versioned URLs, the Tauri updater, store-submission checklists, what the IDE's `update_check` does when 2.0.0 exists (it would offer it to every 1.x.x IDE), rollback | P2 |
+| WASM-025 | **Project conversion and code sharing** | A desktop → web conversion assistant that reports unsupported controls and verbs, `project_upgrade` steps, Common Code and copybooks shared between desktop and web | P2 |
+| WASM-026 | **Templates and examples** | *Agentic AI Chatbot (Web)* (the model key stays on the backend), *UserControl (Web)*, web versions of PowerChat, PowerAnalytics, PowerDemo3 and PowerSpatial, *Create from Template…* | P2 |
+| WASM-027 | **Documentation, localisation and release plan** | The Developer's Guide 2.0 chapters (held back by the 2026-10-19 ruling), README, regenerating the five translations at the minor, forum announcements batched into the RC, release-candidate steps from 2.0.0 | P2 |
+| WASM-028 | **Performance budgets** | The numbers that WASM-017 makes measurable: module size and start-up, generated-module throughput against the interpreter (`cobolt-bench`), DataGrid virtualisation, memory, payload sizes | P2 |
+| WASM-029 | **Licensing and compliance** | Licences of Leptos, Tauri, the web-view crate, the emitter and the bundler; map-tile usage policies when a browser fetches tiles; reCAPTCHA terms and consent; store data-safety forms; data-protection law | P2 |
+| WASM-030 | **Identity extras** | Social login and federation, passkeys/WebAuthn, an authorisation model (roles, permissions), session and device management, an audit log | P3 |
+| WASM-031 | **Plugins, custom controls and external crates on `wasm32`** | `Custom { plugin_id }` has no painter or runtime today; `EXEC RUST` is refused in the browser (WASM-002 Q4) and needs a story through the backend | P3 |
+| WASM-032 | **More web-native controls** | Embedded video and audio, image from a URL, IFrame, a rich-text editor, a camera/QR scanner (mobile) | P3 |
+| WASM-033 | **Other form factors** | Android Smartwatch, Apple Watch, TV | P3 |
+| WASM-034 | **Designer evolution** | A web-view-based designer, a CSS-aware designer, device frames, component-state preview | P3 |
 
 **Strategic gaps worth saying out loud** (they are not specs of their own, but they bear on every one):
 

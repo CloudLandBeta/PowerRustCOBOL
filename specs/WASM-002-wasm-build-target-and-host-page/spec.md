@@ -97,8 +97,7 @@ bundle layout serve both.
 
 **The build**
 - **R1 (event):** When the developer builds a Web project, the IDE shall produce, in the project's build folder (specs 100/101 govern
-  the folder and cache), a **static bundle**: the host `index.html`, the WebAssembly module **generated from the program's COBOL**
-  (WASM-010), the **prebuilt player** that draws the forms (WASM-016, copied, never compiled), the JavaScript loader, the form descriptions, the form stylesheet (WASM-007) and the assets the forms use,
+  the folder and cache), a **static bundle**: the host `index.html`, the WebAssembly **program modules generated from the program's COBOL — one per form, loaded on demand** (WASM-010, WASM-017 R1–R2), the **prebuilt player** that draws the forms (WASM-016, copied, never compiled), the JavaScript loader, the form descriptions, the form stylesheet (WASM-007) and the assets the forms use,
   with content-hashed file names; for the standalone application style (WASM-011) the bundle shall give each standalone form its own entry page.
 - **R2 (event):** When the developer builds a Mobile project, the IDE shall produce an **Android package** and/or an **iOS
   package** that wrap the same frontend in a Tauri 2 shell, for the platform(s) the project selected.
@@ -140,11 +139,15 @@ bundle layout serve both.
   `'unsafe-eval'`, and the build shall print the policy it needs (script, style, font, image and connect sources).
 - **R15 (state):** While the module is loading, the page shall show progress; if the browser cannot run WebAssembly, or loading fails, it
   shall show a readable message and a way to retry, not a blank page.
-- **R16 (ubiquitous):** The program module in the bundle shall be the **self-contained** module of WASM-010 R1–R2: it carries what it needs to run, imports
+- **R16 (ubiquitous):** Each program module in the bundle shall be a **self-contained** module of WASM-010 R1–R2: it carries what it needs to run, imports
   only the host API, and the bundle shall contain no interpreter, no AST and no runtime library for it.
 - **R17 (ubiquitous):** The host page shall serve both application styles of WASM-011: for **SPA**, one entry page and a router; for **standalone
-  forms**, one entry page per form, each instantiating the same module with a different start form. The embedded mode (R11) supports SPA; whether it
+  forms**, one entry page per form, each instantiating the module of its own form. The embedded mode (R11) supports SPA; whether it
   supports standalone forms is WASM-011's decision.
+- **R18 (ubiquitous):** The Build shall declare a **baseline set of WebAssembly features** and a **matrix of supported browsers** (Chrome and Edge, Firefox, Safari, the iOS web view, the Android WebView), and the loader shall probe the browser against it and show the readable message of R15 below the baseline; the player and the program
+  modules shall use only the baseline — **not** multi-memory, which the iOS web view lacks — and a feature above it shall be optional, with a fallback or a second variant (WASM-017 R18).
+- **R19 (ubiquitous):** The loader shall instantiate modules through ES-module integration where the browser offers it and through `fetch` and streaming instantiation otherwise, shall load a form's module only when the form is shown and release it when the form is destroyed (WASM-017 R2–R5), and the application shall need **no cross-origin isolation** (no `COOP`/`COEP`
+  headers) and no threads (WASM-017 R19), so that it runs on any static host and inside a page that embeds it (R11).
 
 ## 5. Acceptance criteria
 

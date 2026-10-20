@@ -26,6 +26,9 @@ The **backend does not change its engine.** It keeps the current native runtime 
 WASM-005 add to it. So the system has two engines for one language: the generator for the browser, the interpreter for the server and the desktop. Keeping them in step is a first-class requirement here (R16),
 not a hope.
 
+**Granularity, memory and the boundary (WASM-017).** The module is **per form** — each form is its own run unit, as spec 049 defines, with its own copy of the Common Code it calls — loaded when the form is first shown and discarded when it is destroyed. Its data memory has a size fixed at
+compile time and never grows, with a transport arena apart from the COBOL data; it uses a stated baseline of WebAssembly features that the iOS web view also runs (so no multi-memory); and it crosses the host API in few, large calls. "Self-contained" below therefore means *each* form's module.
+
 ### Why generate directly (the operator's question, answered)
 
 Yes: WebAssembly is an ordinary binary format with a small instruction set, and the AST the compiler already holds (`cobolt-ast`) is a sufficient input. The reasons to do it, rather than interpret in the browser
@@ -83,12 +86,13 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 
 **The module**
 - **R1 (event):** When the Build of a Web or Mobile project compiles its browser-side COBOL — the generated form programs, event handlers, user procedures and the Common Code they `CALL` — the compiler shall emit **one
-  WebAssembly module** directly from the AST, with no Rust compilation of that COBOL, and with no interpreter, AST or runtime package in the output.
+  WebAssembly module per form** (its run unit, with the Common Code its programs call copied into it; WASM-017 R1) directly from the AST, with no Rust compilation of that COBOL, and with no interpreter, AST or runtime package in the output.
 - **R2 (ubiquitous):** The module shall be **self-contained**: it shall import only the host API (R12) and shall carry, emitted into it, every routine it needs to run and no routine it does not use. Its exports shall be
   the entry points of R10, R9 and its memory.
 - **R3 (ubiquitous):** Every `WORKING-STORAGE`, `LOCAL-STORAGE` and `LINKAGE` item shall live at a fixed place in linear memory with a **byte-accurate layout**: `PICTURE` and `USAGE` (`DISPLAY`, `COMP`/`COMP-5`,
   `COMP-3`, `COMP-1`/`COMP-2`, national), sign position (trailing overpunch, `SEPARATE`, `LEADING`), `OCCURS` including `DEPENDING ON`, groups as contiguous bytes, `REDEFINES` sharing the same bytes, `FILLER`, `VALUE`
-  initialisation and `INITIALIZE`.
+  initialisation and `INITIALIZE`. The memory's **size is fixed at compile time** — `OCCURS` at their maximum, `DEPENDING ON` at its upper bound — and generated code never calls `memory.grow`; a **transport arena** for the text and JSON frames that cross the
+  boundary is reserved in the same memory, apart from the COBOL data (WASM-017 R7, R8). Multi-memory is not used (WASM-017 R9).
 - **R4 (ubiquitous):** Arithmetic shall be **exact decimal fixed-point** to at least the standard's 18 digits and to the width the interpreter supports today (an `i128` mantissa, about 38 digits); `ADD`,
   `SUBTRACT`, `MULTIPLY`, `DIVIDE` and `COMPUTE` with `GIVING`, `REMAINDER`, every `ROUNDED` mode and `SIZE ERROR` shall give the interpreter's results (R16).
 - **R5 (ubiquitous):** Control flow shall cover paragraphs and sections, `PERFORM` in every form (simple, `THRU`, `TIMES`, `UNTIL`, `VARYING`, inline, `TEST BEFORE`/`AFTER`, `EXIT PERFORM`/`CYCLE`), `GO TO` (with
@@ -104,13 +108,15 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 
 **Behaviour**
 - **R9 (state):** While a call waits for an answer — a remote `CALL` (WASM-005), a dialog, a timed wait — the module shall be able to **stop, return control to the host and later resume at the same point**, with its
-  position, its `PERFORM` stack and its data kept in linear memory; it shall not depend on a browser feature that is not available in every supported browser (Q4).
+  position, its `PERFORM` stack and its data kept in linear memory; it shall not depend on a browser feature that is not available in every supported browser (Q4). The same mechanism lets a handler that has run longer than a **budget** **yield** to the host at a loop back-edge and resume on the host's next turn, so that a long `PERFORM` never freezes the page; the
+  result shall not depend on where it yielded (WASM-017 R19).
 - **R10 (event):** When the host reports an event (an event id, a control id, parameters), the module shall run the bound handler **to completion or to the next suspension**, applying what the handler changes to the
   host through the host API as it goes, and shall report when it has finished.
 - **R11 (event):** When a run-time error occurs — a subscript outside its table, a division by zero without `ON SIZE ERROR`, invalid numeric data, an unresolved `CALL` — `ON SIZE ERROR` / `ON EXCEPTION` shall behave as
   in the interpreter; an unhandled error shall end the handler, be reported through the host API with the COBOL line (R14), and leave the application running.
 - **R12 (ubiquitous):** The host API shall be a **short, versioned list**, each entry with one documented meaning: get and set a control's property, call a control's method, write `DISPLAY` output to the host's
-  console, read the clock and a random number, and make a remote call. The page implements it (WASM-002); a module built for API version *n* shall refuse to start against a host that does not offer it.
+  console, read the clock and a random number, and make a remote call. The page implements it (WASM-002); a module built for API version *n* shall refuse to start against a host that does not offer it. The API shall be **coarse-grained**: property writes made during a handler are batched and delivered in one call when the handler ends or suspends,
+  with reads reflecting the handler's own earlier writes, and text crosses the boundary once in each direction (WASM-017 R11, R12).
 - **R13 (ubiquitous):** Apart from those host calls, the module shall be **deterministic**: the same events and the same answers give the same results. The conformance harness relies on it.
 - **R14 (ubiquitous):** The module shall carry a **name section and a line table** mapping its instructions to COBOL source lines (generated and handler code mapped to their form and event, as Check reports them),
   enough for R11's messages and for the debugging spec proposed in WASM-INDEX.

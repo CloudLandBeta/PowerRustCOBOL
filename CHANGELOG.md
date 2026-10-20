@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.9] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.8.)*
+
+### Added: WASM-017, the module architecture, memory model and JavaScript boundary — and the earlier specs adjusted to it
+
+The operator, 2026-10-20, supplied guidance on six topics — modular loading and disposal (Component Model, ES modules), the JS ⇄ Wasm boundary (JS String Builtins, a separate memory for raw data), explicit lifecycles for exposed Rust objects, avoiding the `memory.grow` trap with multiple memories, coarse-grained calls and threads, and a size-first build profile — and asked where it belongs. It cuts across the generated module, the player, the bundle and the navigation, so it became a spec of its own, **WASM-017**, and the earlier specs were adjusted (WASM-002 R16–R19, 010 R1/R3/R9/R12, 011 R4 and Q6, 013 R15b, 015 R8b, 016 R2, R12, R13, R13b).
+
+Each topic was checked first against what the product had already decided and against what browsers run, and the spec says what became of each. **Adopted:** modules loaded on demand and discarded with their form; a data memory fixed at compile time (so `memory.grow` never detaches a view) with a transport arena apart from the COBOL data; a coarse-grained, batched host API; one UTF-8 conversion each way; explicit disposal of the Rust objects the player exposes; a size-first release profile with `wasm-opt` for the player; a stated feature baseline and browser matrix. **Adapted:** "destroy on return" became COBOL's own rule (state is kept until `CANCEL` or the form's end, except `INITIAL` programs); multi-memory and JS String Builtins became optional accelerations because Can I Use's snapshot shows no multi-memory in Safari, hence none in the iOS web view this series targets; ES-module integration became feature-detected. **Left out:** the Component Model (not natively in browsers; each module is self-contained) and threads with Rayon (the operator ruled on 2026-10-19 that threads are not needed in the browser, and shared memory needs cross-origin isolation, which an embedded page or a static host cannot promise); `wasm-pack` is not used (its upstream organisation was wound down in 2025; `trunk` is the bundler of WASM-002 Q2).
+
+Three points are recorded as **D15** in `WASM-INDEX.md` for a ruling: per-form modules turn "two `.wasm` files" into "the player plus one module per form" (WASM-017 Q1 offers one module per project); threads stay out; and multi-memory stays out of the baseline. The proposals that remained are renumbered from 018.
+
+No code, `README.md` or file in `docs/` changed; the version moves because this is a change.
+
 ## [PowerRustCOBOL 2.0.8] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.7.)*
