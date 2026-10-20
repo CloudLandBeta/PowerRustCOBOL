@@ -96,7 +96,7 @@ fn shares_storage(layout: &Layout, idx: usize) -> bool {
 }
 
 /// Build the initial image of the whole region.
-pub fn build(layout: &Layout) -> GenResult<Image> {
+pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<Image> {
     let size = layout.total as usize;
     let region: u32 = 64;
     let pool_base = region + ((size as u32 + 63) & !63) + 64;
@@ -126,7 +126,8 @@ pub fn build(layout: &Layout) -> GenResult<Image> {
             for (k, c) in counters.iter().enumerate() {
                 off += c * chain[k].0;
             }
-            let dst = pool.opd_item(off, &item.fd, &[] as &[Sub], None);
+            let fd = pool.fd_with_spec(&item.fd, item.pic_template.as_deref(), decimal_comma, currency);
+            let dst = pool.opd_item(off, &fd, &[] as &[Sub], None);
             jobs.push((src_for, dst));
             // Advance the odometer (innermost level fastest).
             let mut k = chain.len();
@@ -149,12 +150,14 @@ pub fn build(layout: &Layout) -> GenResult<Image> {
     let mut mem = TestMem::new(mem_size);
     mem.put(pool_base, &pool.bytes);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // The safe entry points, not the exported ones: a panic must unwind.
         for (s, d) in &jobs {
-            cobolt_wasm_rt::rt_move(region, *s, *d);
+            let snd = cobolt_wasm_rt::mv::sender(region, &cobolt_wasm_rt::opd::parse(*s));
+            cobolt_wasm_rt::mv::move_to(region, &snd, &cobolt_wasm_rt::opd::parse(*d));
         }
     }));
     if outcome.is_err() {
-        return Err(GenError::new(0, "a VALUE clause could not be applied to its item"));
+        return Err(GenError::new(0, "internal error: building the initial image failed"));
     }
     let bytes = mem.get(region, size as u32).to_vec();
     drop(mem);

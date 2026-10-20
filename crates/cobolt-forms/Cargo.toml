@@ -14,6 +14,8 @@ license.workspace      = true
 repository.workspace   = true
 
 [dependencies]
+# The numeric-edited PICTURE engine (no_std), shared with the WebAssembly routines.
+cobolt-numedit = { path = "../cobolt-numedit" }
 # The shipped Rust-type table lives in cobolt-ast so the form model and
 # semantic analysis cannot disagree about it (spec 041 R8).
 cobolt-ast  = { path = "../cobolt-ast" }

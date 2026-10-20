@@ -144,7 +144,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     // ── lowering ─────────────────────────────────────────────────────────
     let mut pool = Pool::new(consts_base);
     let mut blocks: Vec<Block> = Vec::new();
-    let lowered = Lower::lower(prog, &mut pool, &mut blocks, map)?;
+    let lowered = Lower::lower(prog, &mut pool, &mut blocks, map, opts.conformance)?;
     let layout = lowered.layout;
 
     // Reachable blocks, entry first.
@@ -172,7 +172,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     }
 
     // ── image and memory map, continued ──────────────────────────────────
-    let img = image::build(&layout)?;
+    let img = image::build(&layout, prog.decimal_comma, prog.currency)?;
     let template_base = align(consts_base + pool.bytes.len() as u32, 16);
     let region_base = align(template_base + img.blob.len() as u32, 16);
     let region_size = layout.total;
@@ -208,15 +208,58 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     let ty_i32_ret = types.intern(&[], &[ValType::I32]);
 
     // ── function index space ────────────────────────────────────────────
-    // imports: pr.flush(len) , pr.abort(len)
-    let imp_flush = 0u32;
-    let imp_abort = 1u32;
-    let n_imports = 2u32;
+    // The glue functions the module needs: the two it always has, plus the
+    // file ones a conformance build's routines import. Each is backed by a
+    // host import of the same name in the `pr` namespace.
+    const GLUE_ORDER: [&str; 6] = ["flush", "abort", "file_open", "file_close", "file_write", "file_read"];
+    let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
+    glue_needed.insert("flush");
+    glue_needed.insert("abort");
+    for &i in &closure.imports {
+        let (m, n) = blob.import_name(i);
+        let name = GLUE_ORDER.iter().copied().find(|g| *g == n && m == "glue");
+        match name {
+            Some(g) => {
+                if g.starts_with("file_") && !opts.conformance {
+                    return Err(GenError::new(
+                        0,
+                        "file input/output is not available in a browser module: it runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE",
+                    ));
+                }
+                glue_needed.insert(g);
+            }
+            None => return Err(GenError::new(0, format!("the routine blob imports glue.{n}, which the generator does not provide"))),
+        }
+    }
+    let glue_list: Vec<&'static str> = GLUE_ORDER.iter().copied().filter(|g| glue_needed.contains(g)).collect();
+    let ty_i32_i32_i32_ret = types.intern(&[ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]);
+    let ty_i32_i32_i32_i32_ret = types.intern(&[ValType::I32; 4], &[ValType::I32]);
+    let ty_i32_i32_ret = types.intern(&[ValType::I32, ValType::I32], &[ValType::I32]);
+    let ty_i32_ret1 = types.intern(&[ValType::I32], &[ValType::I32]);
+    // (host import type, glue function type)
+    let glue_types = |name: &str| -> (u32, u32) {
+        match name {
+            "flush" => (ty_i32_void, ty_i32_i32_void),
+            "abort" => (ty_i32_void, ty_i32_void),
+            "file_open" => (ty_i32_i32_ret, ty_i32_i32_i32_ret),
+            "file_close" => (ty_i32_ret1, ty_i32_ret1),
+            "file_write" => (ty_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
+            _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
+        }
+    };
+    let n_imports = glue_list.len() as u32;
+    let imp_of = |name: &str| -> u32 { glue_list.iter().position(|g| *g == name).unwrap() as u32 };
     let mut defs: Vec<Def> = Vec::new();
-    let g_flush = n_imports + defs.len() as u32;
-    defs.push(Def { name: "glue.flush".into(), ty: ty_i32_i32_void, body: Body::Encoded(Function::new([])) });
-    let g_abort = n_imports + defs.len() as u32;
-    defs.push(Def { name: "glue.abort".into(), ty: ty_i32_void, body: Body::Encoded(Function::new([])) });
+    let mut glue_final: HashMap<&'static str, u32> = HashMap::new();
+    for g in &glue_list {
+        let idx = n_imports + defs.len() as u32;
+        glue_final.insert(*g, idx);
+        defs.push(Def { name: format!("glue.{g}"), ty: glue_types(g).1, body: Body::Encoded(Function::new([])) });
+    }
+    let g_flush = glue_final["flush"];
+    let g_abort = glue_final["abort"];
+    let imp_flush = imp_of("flush");
+    let imp_abort = imp_of("abort");
 
     let mut rt_final: HashMap<u32, u32> = HashMap::new();
     for &f in &closure.funcs {
@@ -228,13 +271,8 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     }
     // The blob's glue imports map to our glue functions.
     for &i in &closure.imports {
-        let (m, n) = blob.import_name(i);
-        let target = match (m, n) {
-            ("glue", "flush") => g_flush,
-            ("glue", "abort") => g_abort,
-            other => return Err(GenError::new(0, format!("the routine blob imports {other:?}, which the generator does not provide"))),
-        };
-        rt_final.insert(i, target);
+        let (_, n) = blob.import_name(i);
+        rt_final.insert(i, glue_final[n]);
     }
 
     let block_fn_base = n_imports + defs.len() as u32;
@@ -304,6 +342,67 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
         f.instruction(&I::Call(imp_flush));
         f.instruction(&I::End);
         defs[(g_flush - n_imports) as usize].body = Body::Encoded(f);
+    }
+    let answer_at = arena_at + opts.arena.batch;
+    if glue_final.contains_key("file_open") {
+        // glue.file_open(addr, len, mode): the name goes to the arena batch.
+        let mut f = Function::new([]);
+        f.instruction(&I::I32Const(arena_at as i32));
+        f.instruction(&I::LocalGet(0));
+        f.instruction(&I::LocalGet(1));
+        f.instruction(&I::MemoryCopy { src_mem: 0, dst_mem: arena_mem });
+        f.instruction(&I::LocalGet(1));
+        f.instruction(&I::LocalGet(2));
+        f.instruction(&I::Call(imp_of("file_open")));
+        f.instruction(&I::End);
+        defs[(glue_final["file_open"] - n_imports) as usize].body = Body::Encoded(f);
+    }
+    if glue_final.contains_key("file_close") {
+        let mut f = Function::new([]);
+        f.instruction(&I::LocalGet(0));
+        f.instruction(&I::Call(imp_of("file_close")));
+        f.instruction(&I::End);
+        defs[(glue_final["file_close"] - n_imports) as usize].body = Body::Encoded(f);
+    }
+    if glue_final.contains_key("file_write") {
+        // glue.file_write(handle, addr, len, adv)
+        let mut f = Function::new([]);
+        f.instruction(&I::I32Const(arena_at as i32));
+        f.instruction(&I::LocalGet(1));
+        f.instruction(&I::LocalGet(2));
+        f.instruction(&I::MemoryCopy { src_mem: 0, dst_mem: arena_mem });
+        f.instruction(&I::LocalGet(0));
+        f.instruction(&I::LocalGet(2));
+        f.instruction(&I::LocalGet(3));
+        f.instruction(&I::Call(imp_of("file_write")));
+        f.instruction(&I::End);
+        defs[(glue_final["file_write"] - n_imports) as usize].body = Body::Encoded(f);
+    }
+    if glue_final.contains_key("file_read") {
+        // glue.file_read(handle, addr, cap): the host leaves the record in the
+        // arena answer area; copy min(n, cap) bytes back.
+        let mut f = Function::new([(1, ValType::I32)]);
+        f.instruction(&I::LocalGet(0));
+        f.instruction(&I::LocalGet(2));
+        f.instruction(&I::Call(imp_of("file_read")));
+        f.instruction(&I::LocalSet(3));
+        f.instruction(&I::LocalGet(3));
+        f.instruction(&I::I32Const(0));
+        f.instruction(&I::I32GtS);
+        f.instruction(&I::If(BlockType::Empty));
+        f.instruction(&I::LocalGet(1));
+        f.instruction(&I::I32Const(answer_at as i32));
+        f.instruction(&I::LocalGet(3));
+        f.instruction(&I::LocalGet(2));
+        f.instruction(&I::LocalGet(3));
+        f.instruction(&I::LocalGet(2));
+        f.instruction(&I::I32LtU);
+        f.instruction(&I::Select);
+        f.instruction(&I::MemoryCopy { src_mem: arena_mem, dst_mem: 0 });
+        f.instruction(&I::End);
+        f.instruction(&I::LocalGet(3));
+        f.instruction(&I::End);
+        defs[(glue_final["file_read"] - n_imports) as usize].body = Body::Encoded(f);
     }
     {
         // glue.abort(code): ERROR command with the line, then pr.abort, then trap.
@@ -453,8 +552,9 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     module.section(&ts);
 
     let mut imports = ImportSection::new();
-    imports.import("pr", "flush", EntityType::Function(ty_i32_void));
-    imports.import("pr", "abort", EntityType::Function(ty_i32_void));
+    for g in &glue_list {
+        imports.import("pr", g, EntityType::Function(glue_types(g).0));
+    }
     module.section(&imports);
 
     let mut fs = FunctionSection::new();
@@ -551,8 +651,9 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     // Names.
     let mut names = NameSection::new();
     let mut fnames = NameMap::new();
-    fnames.append(imp_flush, "pr.flush");
-    fnames.append(imp_abort, "pr.abort");
+    for g in &glue_list {
+        fnames.append(imp_of(g), &format!("pr.{g}"));
+    }
     for (i, d) in defs.iter().enumerate() {
         fnames.append(n_imports + i as u32, &d.name);
     }
@@ -568,7 +669,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
             "arena_size": arena_total, "batch_size": opts.arena.batch, "answer_size": opts.arena.answer,
             "frame_size": opts.arena.frame, "budget_blocks": opts.budget, "data_pages": data_pages
         },
-        "imports": ["flush", "abort"],
+        "imports": glue_list,
         "regions": { "rt_workspace": rt_ws, "perform_stack": pstack_base, "constants": consts_base, "template": template_base, "region": region_base },
         "forms": [],
     });

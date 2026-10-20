@@ -45,6 +45,7 @@ pub mod codec;
 pub mod disp;
 pub mod edited;
 pub mod fd;
+pub mod file;
 pub mod float;
 pub mod host;
 pub mod mem;
@@ -261,4 +262,26 @@ pub extern "C" fn rt_flush() {
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     core::arch::wasm32::unreachable()
+}
+
+/// `OPEN` (conformance builds): returns the 2-digit file status.
+#[no_mangle]
+pub extern "C" fn rt_file_open(base: u32, fd: u32, mode: u32) -> u32 {
+    file::open(base, fd, mode)
+}
+
+#[no_mangle]
+pub extern "C" fn rt_file_close(base: u32, fd: u32) -> u32 {
+    file::close(base, fd)
+}
+
+#[no_mangle]
+pub extern "C" fn rt_file_write(base: u32, fd: u32, rec: u32, adv: u32) -> u32 {
+    file::write(base, fd, rec, adv)
+}
+
+/// `READ`: 0 read, 10 at end, otherwise a status.
+#[no_mangle]
+pub extern "C" fn rt_file_read(base: u32, fd: u32, rec: u32) -> u32 {
+    file::read(base, fd, rec)
 }

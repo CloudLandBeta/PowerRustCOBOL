@@ -23,6 +23,7 @@ crate-type = ["rlib", "cdylib"]
 # dependency but the decimal kernel, which is `no_std` itself.
 [dependencies]
 cobolt-decimal = { path = "../cobolt-decimal" }
+cobolt-numedit = { path = "../cobolt-numedit" }
 # Pure-Rust libm: `pow`, `sqrt`, the trigonometric functions of the intrinsic
 # functions — `core` has none of them and `std` is not available on wasm32.
 libm           = "0.2"

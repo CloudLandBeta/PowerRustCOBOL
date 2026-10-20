@@ -1992,6 +1992,7 @@ dependencies = [
  "cobolt-ast",
  "cobolt-docs",
  "cobolt-media",
+ "cobolt-numedit",
  "egui",
  "egui-elegance",
  "fontdb",
@@ -2138,6 +2139,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-numedit"
+version = "0.2.0"
+
+[[package]]
 name = "cobolt-os-blur"
 version = "0.2.0"
 
@@ -2281,6 +2286,7 @@ name = "cobolt-wasm-rt"
 version = "0.2.0"
 dependencies = [
  "cobolt-decimal",
+ "cobolt-numedit",
  "libm",
 ]
 

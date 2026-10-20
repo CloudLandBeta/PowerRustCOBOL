@@ -17,6 +17,36 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.16] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.15.)*
+
+### Added: edited pictures and sequential files in the WebAssembly line; the first NIST NC run on a generated module
+
+* **`cobolt-numedit`** — the numeric-edited PICTURE engine (`ZZZ,ZZ9.99`, `$$$,$$9.99`,
+  `----9.99`, `9(6).99CR`, check protection, floating insertion, `DECIMAL-POINT IS COMMA`,
+  a declared currency sign) as a `no_std`, allocation-free crate. The form painter's
+  `cobolt-forms/src/numedit.rs` is now a thin wrapper over it (same API, same tests),
+  and the original is kept as a test oracle: `tests/differential.rs` compares the two on
+  199 233 random (picture, value) cases with **0 differences**, and de-editing on 100 000.
+* **`cobolt-wasm-rt`** — numeric-edited and alphanumeric-edited receivers (`MOVE`,
+  arithmetic stores, de-editing as a sender), and four sequential-file routines
+  (`OPEN`, `CLOSE`, `READ`, `WRITE` with `ADVANCING`) that exist **only in a conformance
+  build**: they call host imports no Web or Mobile module declares, and the linker refuses
+  them there.
+* **`cobolt-wasm`** — `OPEN`/`CLOSE`/`READ`/`WRITE` (conformance builds), every diagnostic of
+  a program reported at once, `examples/nist_wasm.rs` (compile every CCVS85 member and
+  bucket what the generator cannot yet compile) and `examples/nist_wasm_run.rs`, a stand-in
+  for `rcrun run` that the NIST harness drives with `RCRUN=…`, so the CCVS85 programs run on
+  a generated module and score themselves.
+
+Measured, NC (Nucleus), compile and execution as two numbers: **53 of 95 members compile,
+55 of 95 run to completion** (a few reach the end by skipping an unsupported construct's
+statement and are not counted until the module is complete) — 212 assertions pass and 2
+fail in the programs that ran. The interpreter's own figure is 95/95 and 4614/0; the gap
+is the work list the census prints: `SEARCH`, `INSPECT`, computed subscripts, `ACCEPT`,
+`CORRESPONDING`, `ALTER`, `INITIALIZE`, `STRING`, `UNSTRING`, `RENAMES`.
+
 ## [PowerRustCOBOL 2.0.15] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.14.)*

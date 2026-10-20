@@ -34,6 +34,17 @@ mod imp {
         pub fn abort(code: u32);
         pub fn now() -> f64;
         pub fn random() -> f64;
+        // Conformance builds only (WASM-ABI-v1 §8): sequential files.
+        /// Open the file named by the `len` bytes at `addr`; `mode` is the
+        /// OPEN mode in the low byte and the organisation in the next.
+        /// Returns a handle >= 1 or a negative file status.
+        pub fn file_open(addr: u32, len: u32, mode: u32) -> i32;
+        pub fn file_close(handle: u32) -> i32;
+        /// Write one record; `adv` encodes ADVANCING (`file::ADV_*`).
+        pub fn file_write(handle: u32, addr: u32, len: u32, adv: u32) -> i32;
+        /// Read the next record into memory; returns its length, -10 at the
+        /// end of the file, or another negative status.
+        pub fn file_read(handle: u32, addr: u32, cap: u32) -> i32;
     }
 }
 
@@ -77,6 +88,18 @@ mod imp {
     pub unsafe fn abort(code: u32) {
         LOG.with(|l| l.borrow_mut().push(Event::Abort(code)));
         panic!("rt abort {code}");
+    }
+    pub unsafe fn file_open(_addr: u32, _len: u32, _mode: u32) -> i32 {
+        1
+    }
+    pub unsafe fn file_close(_h: u32) -> i32 {
+        0
+    }
+    pub unsafe fn file_write(_h: u32, _addr: u32, _len: u32, _adv: u32) -> i32 {
+        0
+    }
+    pub unsafe fn file_read(_h: u32, _addr: u32, _cap: u32) -> i32 {
+        -10
     }
     pub unsafe fn now() -> f64 {
         NOW.with(|n| *n.borrow())

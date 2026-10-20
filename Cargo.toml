@@ -11,6 +11,7 @@ members = [
     "crates/cobolt-parser",
     "crates/cobolt-semantic",
     "crates/cobolt-decimal",   # WASM-010 — the exact decimal kernel (no_std), shared by the interpreter and the WebAssembly routines
+    "crates/cobolt-numedit",   # WASM-010 — the numeric-edited PICTURE engine (no_std), shared by the form painter, the interpreter and the WebAssembly routines
     "crates/cobolt-wasm",      # WASM-010 — the generator: COBOL AST to one self-contained WebAssembly module
     "crates/cobolt-wasm-rt",   # WASM-010 — the support routines linked into every generated module (compiled to wasm32)
     "crates/cobolt-runtime",

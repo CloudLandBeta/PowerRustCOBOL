@@ -233,6 +233,7 @@ pub fn load_value(loc: &Loc) -> Val {
             a.copy_from_slice(b);
             Val::F(f64::from_le_bytes(a))
         }
+        K_NUM_EDITED => crate::edited::deedit_value(loc),
         _ => match parse_text(crate::mem::bytes(loc.addr, loc.len)) {
             Some(n) => Val::Dec(n),
             None => Val::F(0.0),
@@ -247,6 +248,9 @@ pub fn load_value(loc: &Loc) -> Val {
 /// high-order digits are cut.
 pub fn store_value(loc: &Loc, v: Val, rounded: bool, has_phrase: bool) -> bool {
     let fd = &loc.fd;
+    if fd.kind == K_NUM_EDITED {
+        return crate::edited::store_numeric_edited(loc, v, rounded, has_phrase);
+    }
     if fd.is_float() {
         let f = v.as_f64();
         match fd.kind {

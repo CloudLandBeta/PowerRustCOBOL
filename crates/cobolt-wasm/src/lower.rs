@@ -54,6 +54,15 @@ struct LoopCtx {
     cycle: BlockId,
 }
 
+/// A file of the program, as the conformance routines see it.
+#[derive(Clone, Copy)]
+struct FileInfo {
+    /// Address of the static file descriptor.
+    desc: u32,
+    /// Layout item of the file's first record area.
+    rec_item: Option<usize>,
+}
+
 pub struct Lowered {
     pub entry: BlockId,
     pub layout: Layout,
@@ -77,6 +86,13 @@ pub struct Lower<'a, 'b> {
     next_sentence: Option<BlockId>,
     /// Where control goes when the last paragraph falls off its end.
     program_end: BlockId,
+    /// Constructs that could not be compiled; reported together at the end.
+    diags: Vec<GenError>,
+    /// The NIST gate build: file verbs are compiled.
+    conformance: bool,
+    files: HashMap<String, FileInfo>,
+    /// Record item -> the file whose area it is.
+    record_file: HashMap<usize, String>,
 }
 
 fn up(s: &str) -> String {
@@ -89,6 +105,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         pool: &'b mut Pool,
         blocks: &'b mut Vec<Block>,
         map: MemMap,
+        conformance: bool,
     ) -> GenResult<Lowered> {
         let mut layout = Layout::new();
         if let Some(d) = &prog.data {
@@ -131,7 +148,12 @@ impl<'a, 'b> Lower<'a, 'b> {
             cur_para: 0,
             next_sentence: None,
             program_end: 0,
+            diags: Vec::new(),
+            conformance,
+            files: HashMap::new(),
+            record_file: HashMap::new(),
         };
+        l.build_files()?;
         l.flatten()?;
         l.prescan()?;
         let entry = l.new_block("program");
@@ -158,7 +180,211 @@ impl<'a, 'b> Lower<'a, 'b> {
         for i in 0..l.paras.len() {
             l.lower_para(i)?;
         }
+        if !l.diags.is_empty() {
+            let mut d = std::mem::take(&mut l.diags);
+            let mut first = d.remove(0);
+            first.more = d;
+            return Err(first);
+        }
         Ok(Lowered { entry, layout: l.layout })
+    }
+
+    // ── files (conformance builds) ────────────────────────────────────────
+
+    fn build_files(&mut self) -> GenResult<()> {
+        if !self.conformance {
+            return Ok(());
+        }
+        let prog = self.prog;
+        let Some(io) = prog.environment.as_ref().and_then(|e| e.input_output.as_ref()) else { return Ok(()) };
+        // record names per file, from the FILE SECTION
+        let mut records: HashMap<String, Vec<String>> = HashMap::new();
+        if let Some(d) = &prog.data {
+            for sec in &d.sections {
+                if let DataSection::FileSection(fds) = sec {
+                    for fd in fds {
+                        records.insert(
+                            up(&fd.name),
+                            fd.records.iter().filter_map(|r| r.name.as_ref().map(|n| up(n))).collect(),
+                        );
+                    }
+                }
+            }
+        }
+        for fc in &io.file_controls {
+            let name = up(&fc.name);
+            let handle_off = self.layout.alloc_hidden(4);
+            let status_opd = match &fc.file_status {
+                Some(sn) => match self.layout.lookup(sn, &[]) {
+                    Ok(i) => self.item_operand(i, &[], None, fc.span.line)?,
+                    Err(_) => 0,
+                },
+                None => 0,
+            };
+            let org = match fc.organization {
+                cobolt_ast::program::FileOrganization::LineSequential => 1,
+                _ => 0,
+            };
+            let desc = self.pool.file_desc(fc.assign.as_bytes(), org, handle_off, status_opd);
+            let mut rec_item = None;
+            for (k, rn) in records.get(&name).cloned().unwrap_or_default().iter().enumerate() {
+                if let Ok(i) = self.layout.lookup(rn, &[]) {
+                    if k == 0 {
+                        rec_item = Some(i);
+                    }
+                    self.record_file.insert(i, name.clone());
+                }
+            }
+            self.files.insert(name, FileInfo { desc, rec_item });
+        }
+        Ok(())
+    }
+
+    fn file(&self, name: &str, line: u32) -> GenResult<FileInfo> {
+        if !self.conformance {
+            return self.err(
+                line,
+                "file input/output is not available in a browser module: it runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE",
+            );
+        }
+        self.files.get(&up(name)).copied().ok_or_else(|| GenError::new(line, format!("file {name} is not defined")))
+    }
+
+    fn open_(&mut self, mode: OpenMode, files: &[String], line: u32) -> GenResult<()> {
+        let m = match mode {
+            OpenMode::Input => 0,
+            OpenMode::Output => 1,
+            OpenMode::InputOutput => 2,
+            OpenMode::Extend => 3,
+        };
+        for f in files {
+            let fi = self.file(f, line)?;
+            self.base();
+            self.i32c(fi.desc as i32);
+            self.i32c(m);
+            self.call_rt("rt_file_open");
+            self.raw(I::Drop);
+        }
+        Ok(())
+    }
+
+    fn close_(&mut self, files: &[String], line: u32) -> GenResult<()> {
+        for f in files {
+            let fi = self.file(f, line)?;
+            self.base();
+            self.i32c(fi.desc as i32);
+            self.call_rt("rt_file_close");
+            self.raw(I::Drop);
+        }
+        Ok(())
+    }
+
+    /// The file whose record area `e` names.
+    fn file_of_record(&self, e: &Expr, line: u32) -> GenResult<(String, FileInfo)> {
+        let base = match e {
+            Expr::Subscript { base, .. } => base.as_ref(),
+            other => other,
+        };
+        let idx = self.resolve_item(base)?;
+        let mut cur = Some(idx);
+        while let Some(i) = cur {
+            if let Some(f) = self.record_file.get(&i) {
+                return Ok((f.clone(), self.files[f]));
+            }
+            cur = self.layout.items[i].parent;
+        }
+        self.err(line, "the record is not in a file")
+    }
+
+    fn write_(
+        &mut self,
+        record: &Expr,
+        from: Option<&Expr>,
+        advancing: Option<&AdvancingClause>,
+        line: u32,
+    ) -> GenResult<()> {
+        if !self.conformance {
+            return self.file("", line).map(|_| ());
+        }
+        let (_, fi) = self.file_of_record(record, line)?;
+        let rec = self.receiver(record)?;
+        if let Some(src) = from {
+            self.move_(src, std::slice::from_ref(record), line)?;
+        }
+        // ADVANCING phrase -> the `adv` word (see `cobolt_wasm_rt::file`)
+        use cobolt_wasm_rt::file::{ADV_BEFORE, ADV_NONE, ADV_PAGE};
+        self.base();
+        self.i32c(fi.desc as i32);
+        self.i32c(rec as i32);
+        match advancing {
+            None => self.i32c(ADV_NONE as i32),
+            Some(a) => {
+                let flag = if a.before { ADV_BEFORE } else { 0 };
+                match &a.lines {
+                    Expr::Literal(Literal::Integer(n), _) => self.i32c((flag | (*n as u32 & 0xFFFF)) as i32),
+                    Expr::Identifier(n, _) if n.eq_ignore_ascii_case("PAGE") => self.i32c((flag | ADV_PAGE) as i32),
+                    other => match self.operand(other)? {
+                        // A data item: its integer value; a mnemonic-name (C01) or
+                        // anything unresolved: a page.
+                        Some(o) => {
+                            self.i32c(flag as i32);
+                            self.base();
+                            self.i32c(o as i32);
+                            self.call_rt("rt_int");
+                            self.raw(I::I32WrapI64);
+                            self.i32c(0xFFFF);
+                            self.raw(I::I32And);
+                            self.raw(I::I32Or);
+                        }
+                        None => self.i32c((flag | ADV_PAGE) as i32),
+                    },
+                }
+            }
+        }
+        self.call_rt("rt_file_write");
+        self.raw(I::Drop);
+        Ok(())
+    }
+
+    fn read_(
+        &mut self,
+        file: &str,
+        into: Option<&Expr>,
+        at_end: &[Stmt],
+        not_at_end: &[Stmt],
+        line: u32,
+    ) -> GenResult<()> {
+        let fi = self.file(file, line)?;
+        let rec_item = fi.rec_item.ok_or_else(|| GenError::new(line, format!("file {file} has no record")))?;
+        let rec = self.item_operand(rec_item, &[], None, line)?;
+        self.base();
+        self.i32c(fi.desc as i32);
+        self.i32c(rec as i32);
+        self.call_rt("rt_file_read");
+        self.raw(I::LocalSet(0));
+        let end_b = self.new_block("at-end");
+        let ok_b = self.new_block("not-at-end");
+        let join = self.new_block("end-read");
+        self.raw(I::LocalGet(0));
+        self.i32c(10);
+        self.raw(I::I32Eq);
+        self.branch(end_b, ok_b);
+        self.begin(end_b);
+        self.stmts(at_end)?;
+        if self.cur.is_some() {
+            self.jump(join);
+        }
+        self.begin(ok_b);
+        if let Some(target) = into {
+            let sender = Expr::Identifier(self.layout.items[rec_item].name.clone().unwrap_or_default(), cobolt_lexer::Span::new(0, 0, line, 0));
+            self.move_(&sender, std::slice::from_ref(target), line)?;
+        }
+        self.stmts(not_at_end)?;
+        if self.cur.is_some() {
+            self.jump(join);
+        }
+        self.begin(join);
+        Ok(())
     }
 
     // ── block plumbing ────────────────────────────────────────────────────
@@ -400,7 +626,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             if self.cur.is_none() {
                 self.dead_block();
             }
-            self.stmt(s)?;
+            self.stmt_guarded(s);
         }
         if self.cur.is_some() {
             let e = self.ends[i];
@@ -611,7 +837,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             };
             subs.push(Sub { opd, stride, max, odo: odo_opd, add });
         }
-        Ok(self.pool.opd_item(item.off, &item.fd, &subs, refmod))
+        let fd = self.pool.fd_with_spec(&item.fd, item.pic_template.as_deref(), self.prog.decimal_comma, self.prog.currency);
+        Ok(self.pool.opd_item(item.off, &fd, &subs, refmod))
     }
 
     /// Push the numeric value of an expression on the register stack.
@@ -789,6 +1016,17 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// An `88`: the host item equals one of its values or lies in a range.
     fn cond_name(&mut self, cond_idx: usize, host_indices: &[Expr], line: u32) -> GenResult<()> {
         let item = self.layout.items[cond_idx].clone();
+        if item.level != 88 {
+            // Not a condition-name: "holds something other than zero".
+            let o = self.item_operand(cond_idx, host_indices, None, line)?;
+            let z = self.pool.opd_lit_num(0, 0);
+            self.base();
+            self.i32c(o as i32);
+            self.i32c(z as i32);
+            self.i32c(OP_NE as i32);
+            self.call_rt("rt_rel");
+            return Ok(());
+        }
         let host = item.parent.expect("a condition-name has a host");
         let host_opd = self.item_operand(host, host_indices, None, line)?;
         let host_fd = self.layout.items[host].fd;
@@ -855,9 +1093,20 @@ impl<'a, 'b> Lower<'a, 'b> {
             if self.cur.is_none() {
                 self.dead_block();
             }
-            self.stmt(s)?;
+            self.stmt_guarded(s);
         }
         Ok(())
+    }
+
+    /// Lower one statement; a construct that cannot be compiled is recorded
+    /// and the statement skipped, so one run reports them all.
+    fn stmt_guarded(&mut self, s: &Stmt) {
+        if let Err(e) = self.stmt(s) {
+            self.diags.push(e);
+            if self.cur.is_none() {
+                self.dead_block();
+            }
+        }
     }
 
     fn stmt(&mut self, s: &Stmt) -> GenResult<()> {
@@ -891,6 +1140,16 @@ impl<'a, 'b> Lower<'a, 'b> {
                 Ok(())
             }
             Stmt::GoToDepending { targets, depending, .. } => self.go_to_depending(targets, depending, line),
+            Stmt::Open { mode, files, extra_modes, .. } => {
+                self.open_(*mode, files, line)?;
+                for (m, fs) in extra_modes {
+                    self.open_(*m, fs, line)?;
+                }
+                Ok(())
+            }
+            Stmt::Close { files, .. } => self.close_(files, line),
+            Stmt::Write { record, from, advancing, .. } => self.write_(record, from.as_ref(), advancing.as_ref(), line),
+            Stmt::Read { file, into, at_end, not_at_end, .. } => self.read_(file, into.as_ref(), at_end, not_at_end, line),
             Stmt::Continue { .. } | Stmt::SentenceEnd { .. } => Ok(()),
             Stmt::Exit { kind, .. } => self.exit(*kind, line),
             Stmt::NextSentence { .. } => {
@@ -914,10 +1173,15 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.finish_raw();
                 Ok(())
             }
-            other => self.err(
-                line,
-                format!("{} is not supported in a WebAssembly module", crate::support::stmt_name(other)),
-            ),
+            other => {
+                let name = crate::support::stmt_name(other);
+                match crate::support::support(other) {
+                    crate::support::Support::BackendOnly(why) | crate::support::Support::Unsupported(why) => {
+                        self.err(line, format!("{name} is not available in a browser module: {why}"))
+                    }
+                    _ => self.err(line, format!("{name} is not yet supported by the WebAssembly generator")),
+                }
+            }
         }
     }
 

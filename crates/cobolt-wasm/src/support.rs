@@ -66,11 +66,9 @@ pub fn support(s: &Stmt) -> Support {
         | Stmt::Throw { .. }
         | Stmt::Accept { .. } => Module,
         // Files: the browser has none; the gate builds them with host imports.
-        Stmt::Open { .. }
-        | Stmt::Close { .. }
-        | Stmt::Read { .. }
-        | Stmt::Write { .. }
-        | Stmt::Rewrite { .. }
+        // Sequential files compile in a conformance build only.
+        Stmt::Open { .. } | Stmt::Close { .. } | Stmt::Read { .. } | Stmt::Write { .. } => Conformance,
+        Stmt::Rewrite { .. }
         | Stmt::Delete { .. }
         | Stmt::Start { .. }
         | Stmt::Unlock { .. }
