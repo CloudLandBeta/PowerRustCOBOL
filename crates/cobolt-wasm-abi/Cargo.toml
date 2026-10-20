@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-wasm-abi"
+description = "WASM ABI v1 — the contract between the generated program module, the player and the host page: codecs, manifest, module scanner and a test-fixture module builder"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+serde      = { workspace = true }
+serde_json = { workspace = true }
+# `scan` — read a module's import/export/memory/custom sections and prove it
+# holds no `memory.grow`. The browser player never needs it; the bundle
+# assembler and the tests do. Already in the lock file (0.244), so no new package.
+wasmparser = { version = "0.244", optional = true }
+# `fixture` — the hand-assembled test modules (one per ABI variant) that stand in
+# for the program module until the generator can emit one. A test fixture only:
+# nothing in a product build enables it.
+wasm-encoder = { version = "0.244", optional = true }
+
+[features]
+default = []
+scan    = ["dep:wasmparser"]
+fixture = ["dep:wasm-encoder", "scan"]

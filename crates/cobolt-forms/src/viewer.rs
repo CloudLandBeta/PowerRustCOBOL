@@ -4084,13 +4084,23 @@ impl SearchableText for PdfDocument {
 }
 
 /// US Letter, the MediaBox a PDF is assumed to use when it declares none.
+#[cfg(feature = "pdf-reader")]
 const PDF_DEFAULT_MEDIABOX: (f32, f32) = (612.0, 792.0);
+
+/// Without the `pdf-reader` feature (the browser build, where `lopdf` cannot be
+/// compiled) a PDF is reported unreadable, in the words every caller already
+/// shows for "could not read document".
+#[cfg(not(feature = "pdf-reader"))]
+pub fn parse_pdf(_bytes: &[u8]) -> Result<PdfDocument, String> {
+    Err("this build does not include the PDF reader".to_owned())
+}
 
 /// Read a PDF's pages, their text, their geometry and their basic vectors.
 ///
 /// Errors carry the reader's own message rather than a generic one: a PDF
 /// that will not open is exactly the case R4 exists for, and "could not read
 /// document: Invalid file trailer" tells a developer more than "unsupported".
+#[cfg(feature = "pdf-reader")]
 pub fn parse_pdf(bytes: &[u8]) -> Result<PdfDocument, String> {
     let doc = lopdf::Document::load_mem(bytes).map_err(|e| e.to_string())?;
     let page_ids = doc.get_pages();
@@ -4116,6 +4126,7 @@ pub fn parse_pdf(bytes: &[u8]) -> Result<PdfDocument, String> {
 
 /// A page's MediaBox, inherited from its ancestors when the page itself
 /// declares none — which is how most real PDFs are written.
+#[cfg(feature = "pdf-reader")]
 fn pdf_media_box(doc: &lopdf::Document, page_id: lopdf::ObjectId) -> (f32, f32) {
     let Ok(boxed) = doc.get_dictionary(page_id).and_then(|_| {
         doc.get_page_resources(page_id);
@@ -4146,6 +4157,7 @@ fn pdf_media_box(doc: &lopdf::Document, page_id: lopdf::ObjectId) -> (f32, f32) 
 }
 
 /// Walk up the page tree for a MediaBox the page inherits.
+#[cfg(feature = "pdf-reader")]
 fn pdf_inherited_media_box(
     doc: &lopdf::Document,
     page_id: lopdf::ObjectId,
@@ -4168,6 +4180,7 @@ fn pdf_inherited_media_box(
 /// Curves (`c`/`v`/`y`), shading, patterns and clipping are deliberately not
 /// attempted — they are on §3's not-delivered side, and a half-drawn Bézier
 /// would be worse than an honestly absent one.
+#[cfg(feature = "pdf-reader")]
 fn pdf_vectors(content: &lopdf::content::Content) -> Vec<PdfVector> {
     let num = |o: &lopdf::Object| -> Option<f32> {
         match o {
@@ -7185,7 +7198,7 @@ mod split_tests {
 /// byte strings: a PDF's cross-reference table is a list of byte offsets, and
 /// a fixture with hand-computed offsets tests the arithmetic in the test far
 /// more than it tests the reader.
-#[cfg(test)]
+#[cfg(all(test, feature = "pdf-reader"))]
 mod pdf_tests {
     use super::*;
     use lopdf::{dictionary, Document, Object, Stream};

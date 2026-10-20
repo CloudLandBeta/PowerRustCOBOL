@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # WASM ABI v1 — the contract between the program module, the player and the host page
 
-- **Status:** draft 1, 2026-10-20. Normative for `cobolt-wasm` (producer of the program module), `cobolt-web-player` and the host-page loader (consumers). A change to this file is a change to all three; bump `abi` in the manifest when a rule here changes incompatibly.
+- **Status:** draft 1, 2026-10-20; amended 2026-10-20 by the player/loader/host-page implementation (see the **Amendments** table at the end). Normative for `cobolt-wasm` (producer of the program module), `cobolt-web-player` and the host-page loader (consumers). A change to this file is a change to all three; bump `abi` in the manifest when a rule here changes incompatibly.
 - **Implements:** WASM-010 R9–R14, WASM-017 R7–R12, WASM-002 (host page), WASM-005 (frames), WASM-016 (player).
 - **Conventions:** all integers little-endian (WebAssembly's); `varint` is unsigned LEB128 (max 5 bytes, `u32`); `text` is `varint length` followed by that many UTF-8 bytes; offsets are byte offsets into the **arena**.
 
@@ -19,7 +19,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | `manifest.json` | Build | also embedded in the module as the custom section `prmanifest` |
 | forms, stylesheet, assets | Build | as WASM-002/007 |
 
-The module's **only imports** are the ones in §3 (a module with any other import is rejected by the loader). Its **only exports** are the ones in §4 plus its memories.
+The module's **only imports** are the ones in §3 (a module with any other import is rejected by the loader). Its **only exports** are the ones in §4 plus its memories and, optionally, the diagnostics exports `pr_dbg_*` of §4 (**A3**); a production host ignores those.
 
 ## 2. Memory
 
@@ -59,12 +59,15 @@ A host that cannot provide an import the module declares **refuses to start** wi
 | `pr_variant` | `() -> i32` | bit 0 = multi-memory, bit 1 = conformance build |
 | `pr_arena_base` | `() -> i32` | base offset of the arena inside its memory (0 in the multi-memory variant) |
 | `pr_init` | `() -> i32` | run once after instantiation: initialises static data. `0` = ok |
-| `pr_open_form` | `(form: i32, opener: i32) -> i32` | create an instance of form `form` (index in the manifest), `opener` = the instance that opened it or `-1`; allocates its region from the form's template and runs the form's start-up (spec 037 lifecycle). Returns the **instance id** (≥ 0) or a negative error (`-3` = no free instance: the run-time error of WASM-017 R2 with the form's name). The status of the start-up run is available through `pr_status` |
-| `pr_close_form` | `(inst: i32)` | run the form's closing handlers, release and reinitialise its region (WASM-017 R5) |
+| `pr_open_form` | `(form: i32, opener: i32) -> i32` | create an instance of form `form` (index in the manifest), `opener` = the instance that opened it or `-1`; allocates its region from the form's template and runs the form's start-up (spec 037 lifecycle). Returns the **instance id** (≥ 0) or a negative error (`-3` = no free instance: the run-time error of WASM-017 R2 with the form's name). The status of the start-up run is available through `pr_status` (**A1**) |
+| `pr_close_form` | `(inst: i32) -> i32` | run the form's closing handlers, release and reinitialise its region (WASM-017 R5). Returns a **status** like `pr_event`; the region is released when the closing task is `DONE` (a closing handler may suspend; the host then calls `pr_resume`). **A2** (the signature was `(inst: i32)` with no result; a host tolerates a module that still returns nothing and reads it as `DONE`) |
 | `pr_event` | `(inst: i32, ctrl: i32, event: i32, argc: i32) -> i32` | run the handler bound to `(ctrl, event)` of instance `inst` with `argc` argument texts read from the answer region as `argc` consecutive `text` values (WASM-010 R10). Returns a **status** (below) |
 | `pr_resume` | `(task: i32, len: i32) -> i32` | continue task `task` after a `SUSPENDED` or `YIELDED` status; for a suspension on a remote call the answer frame of `len` bytes is in frame-in. Returns a status |
 | `pr_cancel` | `(task: i32)` | abandon a suspended task (the pending request is the host's to cancel) |
 | `pr_tick` | `() -> i32` | the task currently owned by the module, or `-1`: lets the host test whether the module is idle |
+| `pr_status` | `() -> i32` | the status (below) of the most recent run started by `pr_open_form`, `pr_close_form`, `pr_event` or `pr_resume`. **A1** — §4 named it in the `pr_open_form` row but never listed it; without it the host cannot tell a start-up that finished from one that suspended or yielded |
+| `pr_dbg_live` | `() -> i32` | *optional* — the number of live form instances. **A3** — the disposal test (WASM-017 R20) compares it before and after 100 open/close cycles |
+| `pr_dbg_region_used` | `() -> i32` | *optional* — the bytes of instance regions in use, for the same test |
 
 **Status** (the return value of `pr_event` / `pr_resume`): `0` = DONE (the handler finished; the batch was flushed), `1` = SUSPENDED (waiting; `task` = `pr_tick()`; the host calls `pr_resume` when the answer arrives), `2` = YIELDED (budget exhausted at a loop back-edge; the host calls `pr_resume(task, 0)` on its next turn), `3` = STOPPED (`STOP RUN`/`GOBACK` of the main program: the application ends), negative = error (§9; the `ERROR` command was flushed).
 
@@ -79,7 +82,7 @@ A batch is a concatenation of commands. Each starts with an **opcode** byte.
 | `0x01` | `SET` | `path`, `text` | assign the property or indexed member at `path` the value `text` (the interpreter's `COBOL-SET-PROPERTY`: the host converts by the property's type exactly as the desktop host does) |
 | `0x02` | `CALL` | `path` | invoke the method at `path` (last segment) and discard any result |
 | `0x03` | `DISPLAY` | `text` | `DISPLAY` output to the host's console |
-| `0x04` | `ERROR` | `varint code`, `text message`, `varint unit`, `varint line`, `varint form`, `varint event` | a run-time error with its COBOL position (`unit` and `line` index the `prlines` custom section) |
+| `0x04` | `ERROR` | `varint code`, `text message`, `varint unit`, `varint line`, `varint form`, `varint event` | a run-time error with its COBOL position (`unit` and `line` index the `prlines` custom section). **A4** — `code` is the **magnitude** of a §9 code (`3` for `-3`), or a COBOL run-time error number from `1000` up; a host reports it as `code` with the English name of §9 when it is below `1000` |
 | `0x05` | `LOG` | `varint level`, `text` | diagnostic output, ignored unless the host's debug level admits it |
 
 `path := varint inst, varint ctrl, varint nseg, seg*`; `seg := varint name, varint nargs, text*` (`nargs` argument values as text). The reserved control ids are **`0` = the form itself** (`THIS`), **`1` = the form that opened this one** (`super::`), **`2` = the application object** (`COBOL::` host-side verbs such as `OpenFormSync`, dialogs, navigation); controls of a form are numbered from `3` in the order of the manifest's `forms[i].controls`.
@@ -151,3 +154,14 @@ A custom section **`prlines`** maps a line id to `(unit name, source line, colum
 3. After every call into the module apply what the batch asked, in order; never keep a memory view across a call; queue events while the module is busy; resume on the next turn after `YIELDED`.
 4. On form destruction call `pr_close_form` and drop every reference the instance held (WASM-017 R5).
 5. Treat text as UTF-8 both ways and convert once per direction (WASM-017 R12).
+
+## 12. Amendments (the player, loader and host-page implementation, 2026-10-20)
+
+Each row is a rule the implementation proved incomplete or inconsistent, changed **in the same commit as the code that needed it**. A generator that already follows the earlier text is affected only where the row says so.
+
+| # | Where | Change | Why | Affects the generator? |
+|---|---|---|---|---|
+| A1 | §4 | `pr_status() -> i32` is listed (it was named in the `pr_open_form` row only) | the start-up run of a form can suspend or yield; `pr_open_form` returns the instance id, so the status needs its own export | **Yes** — export it |
+| A2 | §4 | `pr_close_form(inst) -> i32` returns a status; the region is released when the closing task is `DONE` | a closing handler may make a remote call; a `void` close could not suspend | Only if closing handlers can suspend; a `void` export is read as `DONE` |
+| A3 | §1, §4 | optional exports `pr_dbg_live`, `pr_dbg_region_used`; the "only exports" rule allows them | the disposal test (WASM-017 R20, AC2) must see the module's own instance count | No (optional) |
+| A4 | §5 | `ERROR.code` is the magnitude of a §9 code or a COBOL number from 1000 | a `varint` is unsigned, §9 codes are negative | Yes — emit the magnitude |
