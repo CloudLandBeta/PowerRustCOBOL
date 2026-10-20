@@ -666,6 +666,8 @@ impl Surface for Dom {
 
     fn render(&self, inner: &Rc<Inner>) {
         self.sh.render_all(inner);
+        // An element the pass made with `autofocus` (the next screen of a sign-in form) takes the focus now.
+        apply::focus_requested();
     }
 
     fn effect(&self, inner: &Rc<Inner>, e: &Effect) {

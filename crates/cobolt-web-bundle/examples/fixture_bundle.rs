@@ -47,9 +47,13 @@ fn main() {
     let mut tools: Option<PathBuf> = None;
     let mut isolation = Isolation::Credentialless;
     let (mut gallery_on, mut shell_on, mut responsive) = (false, false, false);
+    let (mut backend, mut recaptcha, mut auth_flow) = (None::<String>, String::new(), String::new());
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--backend" => backend = it.next(),
+            "--recaptcha" => recaptcha = it.next().unwrap_or_default(),
+            "--auth-flow" => auth_flow = it.next().unwrap_or_default(),
             "--gallery" => gallery_on = true,
             "--shell" => shell_on = true,
             "--responsive" => responsive = true,
@@ -106,7 +110,13 @@ fn main() {
         menus,
         assets,
         player: PlayerInput { plain: variant(&player, "plain"), threaded: variant(&player, "threaded"), build_info: std::fs::read_to_string(player.join("player-build.json")).ok(), components: Vec::new() },
-        options: BundleOptions { isolation, ..Default::default() },
+        options: BundleOptions {
+            isolation,
+            backend_origins: backend.into_iter().collect(),
+            recaptcha_site_key: recaptcha,
+            auth_flow: if auth_flow.is_empty() { BundleOptions::default().auth_flow } else { auth_flow },
+            ..Default::default()
+        },
     };
     let bundle = assemble_bundle(&input).unwrap_or_else(|e| panic!("{e}"));
     let _ = std::fs::remove_dir_all(&out);

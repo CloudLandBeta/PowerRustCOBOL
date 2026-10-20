@@ -63,6 +63,16 @@ fn screen(ui: &AuthUi, l: &Labels, title: &str) -> VNode {
     let form_key = format!("form-{}-{}", m.screen.name(), ui.attempt);
     let hint = ui.user_hint.as_str();
     let busy = m.busy;
+    // After the user has acted, the screen just made takes the keyboard focus: the first field that
+    // is still empty (the user name is offered back, so after a refused password it is the password).
+    let focus_left = std::cell::Cell::new(ui.interacted);
+    let field = |name: &'static str, label: &str, kind: &'static str, autocomplete: &'static str, hint: &str| {
+        let take = focus_left.get() && hint.is_empty();
+        if take {
+            focus_left.set(false);
+        }
+        field_node(name, label, kind, autocomplete, hint, take)
+    };
     let submit = |label: &str| {
         let mut b = VNode::new("button").key("submit").class("pr-auth-primary").attr("type", "submit").text(label.to_owned());
         if busy {
@@ -72,7 +82,7 @@ fn screen(ui: &AuthUi, l: &Labels, title: &str) -> VNode {
     };
     let heading = || VNode::new("h3").key("title").class("pr-auth-title").text(title.to_owned());
     // No `novalidate`: the browser's own `required`/`type=email` checks run first, in the user's language.
-    let form = |key: String| VNode::new("form").key("form").attr("data-form-key", key).on("submit");
+    let form = |key: String| VNode::new("form").key(key).on("submit");
 
     match m.screen {
         Screen::SignedIn => {
@@ -85,13 +95,14 @@ fn screen(ui: &AuthUi, l: &Labels, title: &str) -> VNode {
                 .class("pr-auth-signed-in")
                 .child(VNode::new("p").key("who").class("pr-auth-who").text(line))
                 .child(status)
-                .child(button("signout", "signout", &l.sign_out))
+                .child(button("signout", "signout", &l.sign_out).flag("autofocus", ui.interacted))
         }
         Screen::SignIn if m.cfg.flow == Flow::Hosted => {
             let mut go = VNode::new("button").key("hosted").class("pr-auth-primary").attr("type", "button").attr("data-id", "hosted").on("click").text(l.hosted.clone());
             if busy {
                 go = go.flag("disabled", true);
             }
+            go = go.flag("autofocus", ui.interacted);
             form(form_key).child(heading()).child(status).child(go)
         }
         Screen::SignIn => {
@@ -156,7 +167,7 @@ fn screen(ui: &AuthUi, l: &Labels, title: &str) -> VNode {
 
 /// A labelled input. `hint` is the default value (the attribute, not the live value), so what the
 /// user has typed is never overwritten by a redraw.
-fn field(name: &'static str, label: &str, kind: &'static str, autocomplete: &'static str, hint: &str) -> VNode {
+fn field_node(name: &'static str, label: &str, kind: &'static str, autocomplete: &'static str, hint: &str, autofocus: bool) -> VNode {
     let mut input = VNode::new("input")
         .key("input")
         .attr("name", name)
@@ -171,6 +182,7 @@ fn field(name: &'static str, label: &str, kind: &'static str, autocomplete: &'st
     if autocomplete == "one-time-code" {
         input = input.attr("inputmode", "numeric");
     }
+    input = input.flag("autofocus", autofocus);
     VNode::new("label").key(format!("f-{name}")).child(VNode::new("span").key("t").text(label.to_owned())).child(input)
 }
 
@@ -332,14 +344,39 @@ mod tests {
         let cx = e.cx(&t);
         let after = view(&cx, i);
         assert_eq!(after.find(&|x| x.has_class("pr-auth-message")).unwrap().all_text(), "The user name or the password is not right.");
-        let f0 = before.find_tag("form").unwrap().attr_of("data-form-key").unwrap().to_owned();
-        let f1 = after.find_tag("form").unwrap().attr_of("data-form-key").unwrap().to_owned();
+        let f0 = before.find_tag("form").unwrap().key.clone();
+        let f1 = after.find_tag("form").unwrap().key.clone();
         assert_ne!(f0, f1, "a new form after each answer");
         let user = after.find(&|x| x.attr_of("name") == Some("user")).unwrap();
         assert_eq!(user.attr_of("value"), Some("ana"));
         assert!(user.prop_of("value").is_none(), "the attribute, never the live value: typing is not overwritten");
         let pw = after.find(&|x| x.attr_of("name") == Some("password")).unwrap();
         assert!(pw.attr_of("value").is_none() && pw.prop_of("value").is_none(), "a password is never put back");
+    }
+
+    #[test]
+    fn the_keyboard_focus_goes_to_the_first_empty_field_only_after_the_user_has_acted() {
+        let (mut t, i) = tree_with("Authentication", "AUTH-1", &[]);
+        t.init_auth(Flow::InApp, "", &crate::auth::Session::default());
+        let focused = |t: &crate::tree::FormTree| {
+            let e = Empty::default();
+            let cx = e.cx(t);
+            let n = view(&cx, i);
+            let mut v = Vec::new();
+            n.find_all(&|x| x.attr_of("autofocus").is_some(), &mut v);
+            v.iter().map(|x| x.attr_of("name").or(x.attr_of("data-id")).unwrap_or("?").to_owned()).collect::<Vec<_>>()
+        };
+        assert!(focused(&t).is_empty(), "the first screen does not take the focus from the page when it loads");
+        {
+            let ui = t.auth_mut(i).unwrap();
+            ui.interacted = true;
+            ui.user_hint = "ana".into();
+        }
+        assert_eq!(focused(&t), ["password"], "after a refused password the user name is kept and the password is where the user types next");
+        t.auth_mut(i).unwrap().user_hint.clear();
+        assert_eq!(focused(&t), ["user"], "nothing offered back: the first field");
+        t.auth_mut(i).unwrap().machine.screen = Screen::Mfa;
+        assert_eq!(focused(&t), ["code"]);
     }
 
     #[test]

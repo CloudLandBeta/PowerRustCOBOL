@@ -742,6 +742,8 @@ export async function mount(target, options = {}) {
       manifest,
       timing,
       config,
+      // What the player was told about the page (diagnostics and the tests).
+      playerConfig: pcfg,
       async settled() {
         return player.settled();
       },

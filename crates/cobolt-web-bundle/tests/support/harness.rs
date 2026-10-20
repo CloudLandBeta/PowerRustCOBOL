@@ -119,7 +119,8 @@ function makeEnv(o = {}) {
     navigator: { hardwareConcurrency: 4, language: 'en' },
     performance,
     setTimeout,
-    location: { href: BASE + 'index.html', origin: 'http://pr.test' },
+    location: { href: BASE + 'index.html' + (o.search || ''), search: o.search || '', origin: 'http://pr.test' },
+    history: o.history,
   };
 }
 
@@ -373,6 +374,25 @@ await scenario('loading: nothing is fetched twice', async () => {
   check(twice.length === 0, 'fetched more than once: ' + JSON.stringify(twice));
   await app.unmount();
   return { files: hits.length };
+});
+
+await scenario('hosted sign-in return: the code reaches the player and leaves the address', async () => {
+  const replaced = [];
+  const history = { state: null, replaceState: (s, t, url) => replaced.push(url) };
+  const app = await boot({ env: { search: '?pr-code=c0de&pr-state=st4te&keep=1', history } });
+  eq(app.playerConfig.hosted_code, 'c0de', 'the authorisation code');
+  eq(app.playerConfig.hosted_state, 'st4te', 'the state');
+  eq(replaced.length, 1, 'the address was rewritten once');
+  check(!/pr-code|pr-state|c0de|st4te/.test(replaced[0]), 'the code is out of the address: ' + replaced[0]);
+  check(replaced[0].includes('keep=1'), 'what else the address carried stays: ' + replaced[0]);
+  await app.unmount();
+  // No return, nothing to rewrite.
+  const quiet = [];
+  const app2 = await boot({ env: { history: { state: null, replaceState: (s, t, url) => quiet.push(url) } } });
+  eq(app2.playerConfig.hosted_code, '', 'no code');
+  eq(quiet.length, 0, 'the address is left alone');
+  await app2.unmount();
+  return { rewritten_to: replaced[0] };
 });
 
 console.log(JSON.stringify({ results, metrics }));

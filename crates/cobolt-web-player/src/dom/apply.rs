@@ -31,6 +31,26 @@ use crate::view::{Prop, Slot, VNode};
 /// the control's root element.
 pub type Dispatch = Rc<dyn Fn(&str, &str, &Event, &Element)>;
 
+thread_local! {
+    /// Elements made with the `autofocus` attribute during the render pass in progress. A browser
+    /// autofocuses only at page load, so an element a redraw brings in (the next screen of a sign-in
+    /// form) is focused by [`focus_requested`] when the pass is done.
+    static FOCUS: std::cell::RefCell<Vec<Element>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Give the keyboard focus to the last element a render pass made with `autofocus` (if it is still on
+/// the page) and forget the others.
+pub fn focus_requested() {
+    let wanted = FOCUS.with(|f| std::mem::take(&mut *f.borrow_mut()));
+    if let Some(el) = wanted.into_iter().rev().find(|e| e.is_connected()) {
+        h::focus(&el);
+    }
+}
+
+fn request_focus(el: &Element) {
+    FOCUS.with(|f| f.borrow_mut().push(el.clone()));
+}
+
 pub struct NodeRec {
     pub el: Element,
     pub v: VNode,
@@ -106,6 +126,9 @@ fn apply_attrs(el: &Element, old: &[(String, String)], new: &[(String, String)])
     }
     for (k, v) in new {
         if el.get_attribute(k).as_deref() != Some(v.as_str()) {
+            if k == "autofocus" {
+                request_focus(el);
+            }
             if k == "src" && needs_cors_mode(el, v) {
                 // Set before `src`: the request mode is decided when the load starts.
                 let _ = el.set_attribute("crossorigin", "anonymous");

@@ -1082,7 +1082,7 @@ fn authentication(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     let Some(ui) = cx.tree.auth(i) else { return Vec::new() };
     let screen = ui.machine.screen;
     match (p.kind.as_str(), p.key.as_str()) {
-        ("submit", "form") => {
+        ("submit", k) if k.starts_with("form-") => {
             let field = |n: &str| p.fields.0.iter().find(|(k, _)| k == n).map(|(_, v)| v.trim().to_owned()).unwrap_or_default();
             // The password fields are sent as typed: leading and trailing spaces can be part of one.
             let raw = |n: &str| p.fields.0.iter().find(|(k, _)| k == n).map(|(_, v)| v.clone()).unwrap_or_default();
@@ -1551,7 +1551,7 @@ mod tests {
     }
 
     fn submit(fields: &[(&str, &str)]) -> Payload {
-        let mut p = Payload::new("submit", "form");
+        let mut p = Payload::new("submit", "form-SignIn-0");
         p.fields = Fields(fields.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect());
         p
     }

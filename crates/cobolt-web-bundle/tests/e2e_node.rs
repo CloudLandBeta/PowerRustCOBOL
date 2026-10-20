@@ -61,5 +61,5 @@ fn the_loader_the_player_and_the_program_run_together_under_node() {
     }
     assert!(failed.is_empty(), "failed scenarios:\n{}", failed.join("\n"));
     // Four (variant x mode) cores plus the probing, choosing, isolation, baseline, integrity, ABI and loading scenarios.
-    assert!(passed >= 11, "only {passed} scenarios ran");
+    assert!(passed >= 12, "only {passed} scenarios ran");
 }

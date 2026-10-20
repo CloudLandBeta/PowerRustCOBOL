@@ -157,6 +157,7 @@ pub fn gallery_cfrm(standard: &str, o: &Options) -> String {
     s += &ctl("DZ-G", "FileDropZone", 540, 930, 240, 70, None, None, &[("Hint", "Drop files here")]);
     s += &ctl("LNK-G", "WebLink", 240, 812, 200, 24, None, None, &[("Url", "https://example.com/"), ("Caption", "example.com"), ("Target", "NewTab")]);
     s += &ctl("SNK-G", "Snackbar", 240, 840, 56, 56, None, None, &[("Text", "Saved"), ("Category", "Info"), ("Buttons", "undo|Undo")]);
+    s += &ctl("AUTH-G", "Authentication", 240, 904, 290, 220, None, None, &spatial(&[]));
 
     let mut xml = standard.to_owned();
     let size = format!("width=\"1220\" height=\"1130\" background=\"#2E3138FF\" index-base=\"1\"{}", if o.responsive { " responsive=\"true\"" } else { "" });

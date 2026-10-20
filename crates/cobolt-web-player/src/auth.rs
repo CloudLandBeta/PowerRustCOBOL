@@ -656,11 +656,15 @@ pub struct AuthUi {
     pub attempt: u32,
     /// The user name last submitted, offered again after a failure.
     pub user_hint: String,
+    /// The user has acted on this control: a screen made from now on takes the keyboard focus (the
+    /// one they were in has just been replaced). Never set on the first screen, which must not
+    /// steal the focus from the page when it loads.
+    pub interacted: bool,
 }
 
 impl AuthUi {
     pub fn new(cfg: Config) -> AuthUi {
-        AuthUi { machine: Machine::new(cfg), message: String::new(), attempt: 0, user_hint: String::new() }
+        AuthUi { machine: Machine::new(cfg), message: String::new(), attempt: 0, user_hint: String::new(), interacted: false }
     }
 }
 

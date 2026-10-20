@@ -77,7 +77,21 @@ fn runs(line: &str) -> Vec<&str> {
     out
 }
 
-const AWS_PREFIXES: &[&str] = &["AKIA", "ASIA", "AIDA", "AROA", "AGPA", "ANPA", "ANVA", "APKA"];
+/// Is `run` (a slice of `line`) the payload of a `data:image/…;base64,`, `data:font/…`, `data:audio/…`
+/// or `data:video/…` address? Such bytes are a file written inline, not a secret.
+fn in_media_data_uri(line: &str, run: &str) -> bool {
+    let start = (run.as_ptr() as usize).saturating_sub(line.as_ptr() as usize);
+    let Some(before) = line.get(..start) else { return false };
+    if !before.ends_with(";base64,") {
+        return false;
+    }
+    let head = before.trim_end_matches(";base64,");
+    let Some(at) = head.rfind("data:") else { return false };
+    let kind = head[at + "data:".len()..].to_ascii_lowercase();
+    ["image/", "font/", "audio/", "video/", "application/font"].iter().any(|p| kind.starts_with(p))
+}
+
+const AWS_PREFIXES: &[&str] =&["AKIA", "ASIA", "AIDA", "AROA", "AGPA", "ANPA", "ANVA", "APKA"];
 
 fn has_aws_key(line: &str) -> bool {
     runs(line).iter().any(|r| AWS_PREFIXES.iter().any(|p| r.starts_with(p) && r.len() >= 20 && r[..20].chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())))
@@ -223,6 +237,10 @@ pub fn scan_text(file: &str, text: &str, entropy_len: usize) -> Vec<Finding> {
                 if r.starts_with("sha256-") || r.starts_with("sha384-") || r.starts_with("sha512-") {
                     continue;
                 }
+                // The bytes of a picture or a font written inline (`data:image/png;base64,…`) are an asset.
+                if in_media_data_uri(line, r) {
+                    continue;
+                }
                 // A long run that is mixed-case/digit random-looking; plain words, hex hashes of known
                 // length used as file names and base64 padding are not flagged.
                 if r.len() >= entropy_len && entropy(r) >= 4.3 && r.chars().any(|c| c.is_ascii_digit()) && r.chars().any(|c| c.is_ascii_uppercase()) && r.chars().any(|c| c.is_ascii_lowercase()) {
@@ -316,6 +334,23 @@ mod tests {
         assert!(scan_text("index.html", &line, DEFAULT_ENTROPY_LEN).is_empty(), "the bundle writes one of these per file");
         let bare = format!("<meta name=\"x\" content=\"{}\">", digest.trim_start_matches("sha384-"));
         assert_eq!(scan_text("index.html", &bare, DEFAULT_ENTROPY_LEN).len(), 1);
+    }
+
+    #[test]
+    fn a_picture_written_inline_is_not_a_finding_but_other_data_is() {
+        let payload = "q8ZkR3vLw9PxT2mRb7YhN4cD6fGsJ1aXeUoIpMtB5nKzq8ZkR3vLw9PxT2mRb7Yh";
+        let image = format!("<Property name=\"ImagePath\">data:image/png;base64,{payload}</Property>");
+        assert!(scan_text("f.cfrm", &image, DEFAULT_ENTROPY_LEN).is_empty(), "the bytes of a picture are an asset");
+        let font = format!("src: url(data:font/woff2;base64,{payload})");
+        assert!(scan_text("a.css", &font, DEFAULT_ENTROPY_LEN).is_empty());
+        // The same bytes under any other kind of address, or none, are still looked at.
+        let text = format!("<Property name=\"X\">data:text/plain;base64,{payload}</Property>");
+        assert_eq!(scan_text("f.cfrm", &text, DEFAULT_ENTROPY_LEN).len(), 1);
+        let bare = format!("<Property name=\"X\">{payload}</Property>");
+        assert_eq!(scan_text("f.cfrm", &bare, DEFAULT_ENTROPY_LEN).len(), 1);
+        // A secret that follows the picture on the same line is not hidden by it.
+        let both = format!("data:image/png;base64,{payload} then {payload}");
+        assert_eq!(scan_text("f.cfrm", &both, DEFAULT_ENTROPY_LEN).len(), 1);
     }
 
     #[test]

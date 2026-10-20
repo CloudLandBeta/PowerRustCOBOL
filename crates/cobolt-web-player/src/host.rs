@@ -1477,8 +1477,17 @@ impl Host {
 
     /// The user acted on Authentication control `ctl` of instance `inst`.
     pub fn auth_act(&mut self, inst: u32, ctl: usize, action: crate::auth::Action) {
+        self.auth_do(inst, ctl, action, true);
+    }
+
+    /// `by_user`: the screen made next takes the keyboard focus, because the one the user was in is replaced.
+    /// What the program or the clock asks for (`SignOut`, `Refresh`, a tick) never moves the focus.
+    fn auth_do(&mut self, inst: u32, ctl: usize, action: crate::auth::Action, by_user: bool) {
         use crate::auth::Action;
         let Some(ui) = self.trees.get_mut(&inst).and_then(|t| t.auth_mut(ctl)) else { return };
+        if by_user {
+            ui.interacted = true;
+        }
         match &action {
             Action::SignIn { user, .. } | Action::SignUp { user, .. } | Action::Forgot { user } | Action::Confirm { user, .. } | Action::Reset { user, .. } => {
                 ui.user_hint = user.clone();
@@ -1495,7 +1504,7 @@ impl Host {
     /// Do what the program asked of its Authentication controls (`SignOut`, `Refresh`).
     pub fn auth_flush(&mut self) {
         for (inst, ctl, action) in std::mem::take(&mut self.auth_queue) {
-            self.auth_act(inst, ctl, action);
+            self.auth_do(inst, ctl, action, false);
         }
     }
 
@@ -1507,14 +1516,14 @@ impl Host {
     /// The connection says the token expired: refresh it now (R5).
     pub fn auth_refresh(&mut self) {
         if let Some((inst, ctl)) = self.auth_owner() {
-            self.auth_act(inst, ctl, crate::auth::Action::Refresh);
+            self.auth_do(inst, ctl, crate::auth::Action::Refresh, false);
         }
     }
 
     /// The clock ticked: the owner refreshes a token that is about to expire (R5).
     pub fn auth_tick(&mut self, now_ms: f64) {
         if let Some((inst, ctl)) = self.auth_owner() {
-            self.auth_act(inst, ctl, crate::auth::Action::Tick { now_ms });
+            self.auth_do(inst, ctl, crate::auth::Action::Tick { now_ms }, false);
         }
     }
 
@@ -1542,7 +1551,7 @@ impl Host {
     pub fn auth_hosted_return(&mut self, code: &str, state: &str) -> bool {
         let target = self.trees.iter().find_map(|(inst, t)| t.auths.keys().next().map(|c| (*inst, *c)));
         let Some((inst, ctl)) = target else { return false };
-        self.auth_act(inst, ctl, crate::auth::Action::HostedFinish { code: code.to_owned(), state: state.to_owned() });
+        self.auth_do(inst, ctl, crate::auth::Action::HostedFinish { code: code.to_owned(), state: state.to_owned() }, false);
         true
     }
 

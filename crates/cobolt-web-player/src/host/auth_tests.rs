@@ -106,6 +106,7 @@ fn a_refused_sign_in_shows_the_one_generic_message_and_raises_on_error_only_when
         let (id, _) = call_of(&mut h);
         h.auth_answer(id, AuthResult::Failed { detail: "authentication/3".into() }, 0.0);
         let ui = h.trees[&0].auth(1).unwrap();
+        assert!(ui.interacted, "the user acted, so the next screen takes the focus");
         assert_eq!(ui.message, Texts::default().sign_in_failed);
         assert_eq!((ui.attempt, ui.user_hint.as_str()), (1, "ghost"), "a new form, the user name offered back");
         assert!(!h.auth.is_signed_in());
@@ -203,7 +204,9 @@ fn the_program_signs_out_and_refreshes_through_methods() {
 
     h.invoke(0, "AUTH-1", "Refresh", &[]).unwrap();
     assert!(h.effects.iter().all(|e| !matches!(e, Effect::AuthCall { .. })), "nothing happens until the driver gives the machine its turn");
+    h.trees.get_mut(&0).unwrap().auth_mut(1).unwrap().interacted = false;
     h.auth_flush();
+    assert!(!h.trees[&0].auth(1).unwrap().interacted, "what the program asks for never moves the keyboard focus");
     let (id, call) = call_of(&mut h);
     assert_eq!(call, BackendCall::Refresh);
     h.auth_answer(id, signed_in(signed_in_token()), 10.0);
