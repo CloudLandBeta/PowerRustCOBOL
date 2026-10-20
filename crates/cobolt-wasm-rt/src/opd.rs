@@ -24,12 +24,13 @@
 //!                   T_LIT_NUM: address of 17 bytes (i128 LE mantissa, u8 scale)
 //!                   T_LIT_ALNUM / T_ALL: address of the bytes
 //! 20  len      u32  T_LIT_ALNUM / T_ALL: byte count
-//! 24  subs     nsub × 16:  opd u32, stride u32, max u32, odo u32
+//! 24  subs     nsub × 20:  opd u32, stride u32, max u32, odo u32, add i32
 //!     refmod   if OF_REFMOD: start_opd u32, len_opd u32 (0 = to the end)
 //! ```
 //!
 //! A subscript's `max` is the table's declared upper bound; `odo` is the
-//! address of the operand record of the `DEPENDING ON` item, or 0.
+//! address of the operand record of the `DEPENDING ON` item, or 0; `add` is the
+//! constant of a relative subscript (`I + 1`, `J - 2`).
 
 use crate::codec;
 use crate::fd::{Fd, FD_SIZE, K_ALNUM};
@@ -53,7 +54,7 @@ pub const FIG_NULL: u8 = 5;
 pub const OF_REFMOD: u8 = 1;
 
 pub const HDR: u32 = 24;
-pub const SUB_SIZE: u32 = 16;
+pub const SUB_SIZE: u32 = 20;
 
 /// The parsed header of an operand record.
 #[derive(Debug, Clone, Copy)]
@@ -128,7 +129,8 @@ pub fn locate(base: u32, o: &Opd) -> Loc {
                 let stride = u32::from_le_bytes([s[4], s[5], s[6], s[7]]);
                 let max = u32::from_le_bytes([s[8], s[9], s[10], s[11]]);
                 let odo = u32::from_le_bytes([s[12], s[13], s[14], s[15]]);
-                let i = index_value(base, sub_opd);
+                let add = i32::from_le_bytes([s[16], s[17], s[18], s[19]]);
+                let i = index_value(base, sub_opd) + add as i64;
                 let mut bound = max as i64;
                 if odo != 0 {
                     // The current count of a variable-length table. The

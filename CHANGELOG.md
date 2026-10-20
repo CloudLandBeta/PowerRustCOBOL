@@ -17,6 +17,40 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.15] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.14.)*
+
+### Added: `cobolt-wasm`, the WebAssembly generator — first vertical slice, phase A of WASM-010
+
+A COBOL program now compiles to one self-contained WebAssembly module and runs.
+The generator lays out `WORKING-STORAGE` byte for byte (`PICTURE`, `USAGE`
+display/binary/packed/float, `OCCURS`, `REDEFINES`, `FILLER`, 88-levels, index-
+names), builds the initial image by running the routines' own `MOVE` natively,
+lowers control flow to a graph of blocks (each block a function returning the next
+block's number, so the module never uses the WebAssembly call stack and can stop
+and resume at any block boundary), links in only the routines of
+`cobolt-wasm-rt` the program reaches (a mini-linker that tree-shakes the
+committed `assets/rt.wasm`, stubs the `core` panic machinery and renumbers
+functions, types and the stack pointer), and emits ABI v1: the arena in a second
+memory or, for the iOS/Safari variant, in a region of the first.
+
+Statements in this slice: `MOVE`, `ADD`, `SUBTRACT`, `MULTIPLY`, `DIVIDE`
+(`REMAINDER`, `ROUNDED`, `ON SIZE ERROR`), `COMPUTE`, `IF`, `EVALUATE`, every
+`PERFORM` form (paragraph, `THRU`, section, inline, `TIMES`, `UNTIL`, `VARYING`
+with `AFTER`, `TEST BEFORE/AFTER`), `GO TO` and `GO TO … DEPENDING`, `EXIT`
+(`PERFORM`, `PERFORM CYCLE`, `PARAGRAPH`, `SECTION`), `NEXT SENTENCE`, `DISPLAY`,
+`STOP RUN`, `GOBACK`. `cobolt-wasm/src/support.rs` classifies *every* statement
+variant (module, conformance-only, backend-only, unsupported) and the match is
+exhaustive, so a new variant does not compile until it is classified (AC6).
+
+Measured: programs that `DISPLAY`, do arithmetic, `IF` and loop give the
+interpreter's output byte for byte, in the multi-memory and the single-memory
+variant; every generated module validates. A "hello" module is 15.8 KB, of which
+9.7 KB are the linked routines; a program with a `PERFORM VARYING` and
+arithmetic is 33 KB. A test fails when `assets/rt.wasm` was not rebuilt after the
+routines changed (`cargo run -p cobolt-wasm --example build_rt`).
+
 ## [PowerRustCOBOL 2.0.14] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.13.)*

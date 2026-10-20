@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-wasm"
+description = "Cobolt COBOL — the WebAssembly generator: COBOL AST to one self-contained program module (spec WASM-010)"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+cobolt-lexer    = { path = "../cobolt-lexer" }
+cobolt-ast      = { path = "../cobolt-ast" }
+# The generator shares the byte layouts (field descriptors, operand records)
+# with the routines it links in: one definition, in the routines' crate.
+cobolt-wasm-rt  = { path = "../cobolt-wasm-rt" }
+cobolt-decimal  = { path = "../cobolt-decimal" }
+wasm-encoder    = { version = "0.244", features = ["wasmparser"] }
+wasmparser      = "0.244"
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+thiserror       = { workspace = true }
+
+# The host that runs generated modules for tests and for the NIST gate. A
+# generated module's only contact with the outside is ABI v1, which this host
+# implements over files and a console (WASM-ABI-v1 §8).
+[dependencies.wasmi]
+version  = "2.0"
+optional = true
+
+[features]
+default = ["host"]
+host    = ["dep:wasmi"]
+
+[dev-dependencies]
+wasmparser      = { version = "0.244", features = ["validate", "features"] }
+cobolt-parser   = { path = "../cobolt-parser" }
+cobolt-semantic = { path = "../cobolt-semantic" }
+cobolt-runtime  = { path = "../cobolt-runtime" }

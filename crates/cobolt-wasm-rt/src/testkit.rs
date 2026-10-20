@@ -78,10 +78,10 @@ impl Kit {
 
     /// A subscripted item: `subs` are `(subscript operand, stride, max, odo operand)`.
     pub fn item_sub(&mut self, off: u32, fd: Fd, subs: &[(u32, u32, u32, u32)]) -> u32 {
-        let at = self.header(T_ITEM, subs.len() as u8, 0, 0, &fd, off, 0, subs.len() * 16);
+        let at = self.header(T_ITEM, subs.len() as u8, 0, 0, &fd, off, 0, subs.len() * SUB_SIZE as usize);
         for (i, s) in subs.iter().enumerate() {
             let p = at + HDR + (i as u32) * SUB_SIZE;
-            let mut b = [0u8; 16];
+            let mut b = [0u8; SUB_SIZE as usize];
             b[0..4].copy_from_slice(&s.0.to_le_bytes());
             b[4..8].copy_from_slice(&s.1.to_le_bytes());
             b[8..12].copy_from_slice(&s.2.to_le_bytes());

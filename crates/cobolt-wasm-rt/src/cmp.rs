@@ -81,7 +81,7 @@ fn holds(op: u32, ord: Ordering) -> bool {
     }
 }
 
-fn numeric_relation(a: &Val, b: &Val, op: u32) -> bool {
+pub fn numeric_relation(a: &Val, b: &Val, op: u32) -> bool {
     if let (Val::Dec(x), Val::Dec(y)) = (a, b) {
         return holds(op, x.cmp(y));
     }

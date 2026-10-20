@@ -45,6 +45,8 @@ pub mod err {
     pub const REGISTER_OVERFLOW: u32 = 103;
     pub const BAD_OPERAND: u32 = 104;
     pub const SCRATCH_OVERFLOW: u32 = 105;
+    /// More than 512 nested out-of-line PERFORMs.
+    pub const PERFORM_DEPTH: u32 = 106;
 }
 
 pub struct State {

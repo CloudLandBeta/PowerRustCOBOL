@@ -1,0 +1,122 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! The constant area: literals and operand records, in the layout
+//! `cobolt-wasm-rt` reads (its `fd` and `opd` modules are the definition).
+
+use cobolt_wasm_rt::fd::Fd;
+use cobolt_wasm_rt::opd::*;
+use std::collections::HashMap;
+
+/// One subscript of an operand record.
+#[derive(Debug, Clone, Copy)]
+pub struct Sub {
+    /// Address of the operand record of the subscript expression.
+    pub opd: u32,
+    pub stride: u32,
+    pub max: u32,
+    /// Operand record of the `DEPENDING ON` item, or 0.
+    pub odo: u32,
+    /// `I + 1` / `J - 2`.
+    pub add: i32,
+}
+
+pub struct Pool {
+    /// Absolute address of the first byte.
+    pub base: u32,
+    pub bytes: Vec<u8>,
+    dedup: HashMap<Vec<u8>, u32>,
+}
+
+impl Pool {
+    pub fn new(base: u32) -> Pool {
+        Pool { base, bytes: Vec::new(), dedup: HashMap::new() }
+    }
+
+    /// Store `data` (4-byte aligned, de-duplicated); returns its absolute address.
+    pub fn intern(&mut self, data: &[u8]) -> u32 {
+        if let Some(a) = self.dedup.get(data) {
+            return *a;
+        }
+        while self.bytes.len() % 4 != 0 {
+            self.bytes.push(0);
+        }
+        let at = self.base + self.bytes.len() as u32;
+        self.bytes.extend_from_slice(data);
+        self.dedup.insert(data.to_vec(), at);
+        at
+    }
+
+    /// Reserve `n` zero bytes that are NOT de-duplicated (mutable data).
+    pub fn reserve(&mut self, n: usize) -> u32 {
+        while self.bytes.len() % 8 != 0 {
+            self.bytes.push(0);
+        }
+        let at = self.base + self.bytes.len() as u32;
+        self.bytes.resize(self.bytes.len() + n, 0);
+        at
+    }
+
+    fn header(tag: u8, nsub: u8, flags: u8, fig: u8, fd: &Fd, off: u32, len: u32) -> Vec<u8> {
+        let mut h = vec![0u8; HDR as usize];
+        h[0] = tag;
+        h[1] = nsub;
+        h[2] = flags;
+        h[3] = fig;
+        h[4..16].copy_from_slice(&fd.to_bytes());
+        h[16..20].copy_from_slice(&off.to_le_bytes());
+        h[20..24].copy_from_slice(&len.to_le_bytes());
+        h
+    }
+
+    /// A data item: `off` from the region base, optional subscripts and
+    /// reference modification `(start operand, length operand or 0)`.
+    pub fn opd_item(&mut self, off: u32, fd: &Fd, subs: &[Sub], refmod: Option<(u32, u32)>) -> u32 {
+        let flags = if refmod.is_some() { OF_REFMOD } else { 0 };
+        let mut r = Self::header(T_ITEM, subs.len() as u8, flags, 0, fd, off, 0);
+        for s in subs {
+            r.extend_from_slice(&s.opd.to_le_bytes());
+            r.extend_from_slice(&s.stride.to_le_bytes());
+            r.extend_from_slice(&s.max.to_le_bytes());
+            r.extend_from_slice(&s.odo.to_le_bytes());
+            r.extend_from_slice(&s.add.to_le_bytes());
+        }
+        if let Some((st, ln)) = refmod {
+            r.extend_from_slice(&st.to_le_bytes());
+            r.extend_from_slice(&ln.to_le_bytes());
+        }
+        self.intern(&r)
+    }
+
+    pub fn opd_lit_num(&mut self, mantissa: i128, scale: u8) -> u32 {
+        let mut b = [0u8; 17];
+        b[..16].copy_from_slice(&mantissa.to_le_bytes());
+        b[16] = scale;
+        let data = self.intern(&b);
+        let fd = Fd { kind: cobolt_wasm_rt::fd::K_NUM_DISPLAY, flags: 0, digits: 0, scale: scale as i8, len: 0, aux: 0 };
+        let r = Self::header(T_LIT_NUM, 0, 0, 0, &fd, data, 0);
+        self.intern(&r)
+    }
+
+    pub fn opd_lit_alnum(&mut self, bytes: &[u8]) -> u32 {
+        let data = if bytes.is_empty() { self.intern(&[0]) } else { self.intern(bytes) };
+        let fd = Fd::alnum(bytes.len() as u32);
+        let r = Self::header(T_LIT_ALNUM, 0, 0, 0, &fd, data, bytes.len() as u32);
+        self.intern(&r)
+    }
+
+    pub fn opd_all(&mut self, bytes: &[u8]) -> u32 {
+        let data = self.intern(bytes);
+        let fd = Fd::alnum(bytes.len() as u32);
+        let r = Self::header(T_ALL, 0, 0, 0, &fd, data, bytes.len() as u32);
+        self.intern(&r)
+    }
+
+    pub fn opd_fig(&mut self, fig: u8) -> u32 {
+        let r = Self::header(T_FIG, 0, 0, fig, &Fd::alnum(1), 0, 0);
+        self.intern(&r)
+    }
+}

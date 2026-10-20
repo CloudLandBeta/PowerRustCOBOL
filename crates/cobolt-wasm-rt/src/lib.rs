@@ -161,6 +161,59 @@ pub extern "C" fn rt_drop() {
     let _ = state::pop();
 }
 
+/// The integer part of operand `o` (a loop count, a subscript).
+#[no_mangle]
+pub extern "C" fn rt_int(base: u32, o: u32) -> i64 {
+    match opd::value(base, &opd::parse(o)) {
+        val::Val::Dec(n) => (n.mantissa / cobolt_decimal::pow10(n.decimals as u32).unwrap_or(1)) as i64,
+        val::Val::F(f) => f as i64,
+    }
+}
+
+/// The integer part of the top register (popped).
+#[no_mangle]
+pub extern "C" fn rt_reg_int() -> i64 {
+    match state::pop() {
+        val::Val::Dec(n) => (n.mantissa / cobolt_decimal::pow10(n.decimals as u32).unwrap_or(1)) as i64,
+        val::Val::F(f) => f as i64,
+    }
+}
+
+fn goto_index(v: i64, n: u32) -> i32 {
+    if v >= 1 && v <= n as i64 {
+        (v - 1) as i32
+    } else {
+        -1
+    }
+}
+
+/// `GO TO … DEPENDING ON o`: the zero-based target index, or -1 when the
+/// value is outside `1..=n` (control falls through).
+#[no_mangle]
+pub extern "C" fn rt_goto_index(base: u32, o: u32, n: u32) -> i32 {
+    goto_index(rt_int(base, o), n)
+}
+
+/// As [`rt_goto_index`] for a computed value on the register stack.
+#[no_mangle]
+pub extern "C" fn rt_reg_goto_index(n: u32) -> i32 {
+    goto_index(rt_reg_int(), n)
+}
+
+/// Compare the two topmost registers numerically (`a` below `b`), popping both.
+#[no_mangle]
+pub extern "C" fn rt_rel_reg(op: u32) -> i32 {
+    let b = state::pop();
+    let a = state::pop();
+    cmp::numeric_relation(&a, &b, op) as i32
+}
+
+/// Is the top register zero? Pops it.
+#[no_mangle]
+pub extern "C" fn rt_reg_is_zero() -> i32 {
+    state::pop().is_zero() as i32
+}
+
 /// Pop the top register into item `o` (`arith::ST_*`); 1 on a size error.
 #[no_mangle]
 pub extern "C" fn rt_store(base: u32, o: u32, flags: u32) -> i32 {
