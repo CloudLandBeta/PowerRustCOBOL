@@ -681,6 +681,9 @@ fn cmd_package(args: &[String]) {
         forms: Vec<String>,
         #[serde(default)]
         assets: Vec<String>,
+        /// The Backend of a Web or Mobile project (WASM-001): packaged with the rest.
+        #[serde(default)]
+        backend: Vec<String>,
     }
     #[derive(Deserialize)]
     struct CoboltProject {
@@ -781,6 +784,7 @@ fn cmd_package(args: &[String]) {
         .iter()
         .chain(proj.files.forms.iter())
         .chain(proj.files.assets.iter())
+        .chain(proj.files.backend.iter())
         .map(|s| s.as_str())
         .collect();
 

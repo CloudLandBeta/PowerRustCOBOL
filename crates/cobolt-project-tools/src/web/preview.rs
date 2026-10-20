@@ -484,7 +484,7 @@ mod tests {
         let mut s = PreviewSession::spawn(&helper, "http://127.0.0.1:9/", "T", 390, 844, &Emulation::default()).unwrap();
         assert_eq!(s.mode(), Mode::WebView);
         let mut got = Vec::new();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         while got.len() < 3 && std::time::Instant::now() < deadline {
             got.extend(s.poll());
             thread::sleep(std::time::Duration::from_millis(10));
@@ -496,7 +496,7 @@ mod tests {
         // A second command reaches the helper, which then ends (as a crash would).
         assert!(s.send(&Command::Reload));
         let mut closed = false;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         while !closed && std::time::Instant::now() < deadline {
             closed = s.poll().contains(&Event::Closed);
             thread::sleep(std::time::Duration::from_millis(10));

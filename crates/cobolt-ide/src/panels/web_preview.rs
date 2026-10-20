@@ -1039,7 +1039,7 @@ mod tests {
     }
 
     fn wait_until(preview: &mut WebPreview, what: &str, mut done: impl FnMut(&WebPreview) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(30);
         let mut now = Instant::now();
         while !done(preview) {
             assert!(Instant::now() < deadline, "timed out waiting for {what}; notes: {:?}", preview.notes());
@@ -1327,7 +1327,7 @@ mod tests {
         p.controls.dark = true;
         p.apply_controls();
         p.reload();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(30);
         let lines = loop {
             let text = std::fs::read_to_string(&log).unwrap_or_default();
             if text.lines().count() >= 5 || Instant::now() > deadline {

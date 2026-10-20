@@ -35,6 +35,10 @@ use crate::panels::settings_form::{section, SettingsDraft};
 use crate::project_model::CoboltProject;
 use crate::theme::Theme;
 
+/// What the Backend address box shows while it is empty: the shape of an
+/// address, not a word of any language.
+const BACKEND_URL_HINT: &str = "wss://\u{2026}";
+
 /// The measurements of the Settings form's two-column rows, passed in so this
 /// section lines up with the rows above and below it.
 #[derive(Clone, Copy)]
@@ -341,7 +345,7 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
     };
     row(ui, lay, tr.pk_set_backend_url, |ui| {
         let w = ui.available_width();
-        ui.add(egui::TextEdit::singleline(url).hint_text("wss://…").desired_width(w));
+        ui.add(egui::TextEdit::singleline(url).hint_text(BACKEND_URL_HINT).desired_width(w));
     });
     match backend_url_problem(url) {
         Some(p) => note(ui, lay, url_problem_text(tr, p), theme.error),

@@ -232,6 +232,11 @@ pub trait WebBuildBackend: Send + Sync {
     }
 
     /// Build the bundle for `request` into [`WebBuildRequest::out_dir`].
+    ///
+    /// **Replace the bundle atomically** (build beside it, then rename): the
+    /// Preview serves that folder while it is being rebuilt, and a page that
+    /// reloads on a half-written bundle shows nothing. A build that fails must
+    /// leave the previous bundle as it was — the Preview keeps showing it.
     fn build(&self, request: &WebBuildRequest) -> Result<BuildReport, WebBuildError>;
 
     /// Where the bundle for `request` is (or will be).
