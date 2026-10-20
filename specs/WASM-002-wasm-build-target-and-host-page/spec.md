@@ -11,7 +11,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - **Branch:** `features-2x` (version line 2.x.x). Part of the WASM series, see `specs/WASM-INDEX.md`.
 - **Origin:** operator item **2** (version 2.0 generates WebAssembly; HTML, CSS3 and JavaScript load the application inside a
   pre-existing layout or fill the window's available area) and the stack named in item **1** (Tauri 2 + Leptos).
-- **Depends on:** WASM-001 (the project kinds). **Amends:** spec 041 R17/R18 (*build for the host triple only*) — for the web and
+- **Depends on:** WASM-001 (the project kinds), WASM-010 (the generated program module), WASM-016 (the prebuilt player). **Amends:** spec 041 R17/R18 (*build for the host triple only*) — for the web and
   mobile kinds only; spec 017 (*one renderer everywhere*) — the web kinds are rendered by the DOM, see WASM-004.
 - **Prior art:** spec 006 (removed 2026-10-14, `git show ccfa3449^:specs/006-web-wasm-projects/spec.md`): an eframe-web
   `<canvas>` bundle with `trunk`, COBOL transpiled to Rust, no interpreter shipped. Carried over: the portable-subset check
@@ -111,7 +111,8 @@ bundle layout serve both.
   runtime: same results, same `ON SIZE ERROR`/`ON EXCEPTION` outcomes, same event order. Any difference shall be listed, per construct,
   in one place the developer can read, and the equality is **measured** as WASM-010 R16 says.
 - **R5 (ubiquitous):** The user interface of a Web or Mobile application shall be built as DOM elements styled with CSS3 (not drawn on
-  a `<canvas>`), so that the browser's text selection, zoom, accessibility tree and find-in-page work.
+  a `<canvas>`), so that the browser's text selection, zoom, accessibility tree and find-in-page work. The one exception is the **drawing controls of class B** (charts, maps, gauges and the like, WASM-004 R4), which may use SVG or a `<canvas>`
+  *inside their own element*; the form, its layout and every ordinary control remain DOM.
 - **R6 (event):** When a required tool is missing, the IDE shall name it, say whether it can install it itself, and install only what is
   safe to install after the developer agrees (`rustup target add` is; Xcode and the Android SDK are not). A **Web** build
   needs **no tool of the Rust toolchain**: the compiler emits the module itself (WASM-010 R1) and the player is prebuilt (WASM-016 R1); the

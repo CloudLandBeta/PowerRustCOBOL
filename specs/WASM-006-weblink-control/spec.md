@@ -40,7 +40,7 @@ middle clicks — and exposes the same capabilities through properties.
 
 - **Goals:**
   - A **WebLink** control in the toolbox for the web and mobile kinds that shows link text and navigates like an `<a>` element.
-  - Every capability of `<a>` available as a property, method or event, and the browser's conventions for modifier keys honoured.
+  - Every capability of `<a>` available as a property, method or event — **except `ping`**, left out of v1 (R3) — and the browser's conventions for modifier keys honoured.
   - Safe by default: dangerous schemes refused, new contexts opened without handing the new page a handle back to this one.
 - **Non-goals:**
   - A rich-text editor or inline links inside a Label's text; one WebLink is one link.
@@ -65,8 +65,9 @@ middle clicks — and exposes the same capabilities through properties.
 **Properties** (names are proposals for `/plan`)
 - **R3 (ubiquitous):** The control shall have, besides the Label's: **Url**; **Target** (`Self`, `NewTab`, `NewWindow`, `Parent`, `Top`; HTML `_self`, `_blank`, …) with the window features for `NewWindow`
   (width, height, position, as `window.open` takes them); **Rel** (`noopener`, `noreferrer`, `nofollow`, `external`, … as a list); **Download** (off, or the file name offered to the user); **HrefLang**;
-  **MimeType** (the `type` attribute); **ReferrerPolicy**; **Ping**; and the colours of the states **Link**, **Hover**, **Active** and **Visited** (the last styled by CSS only; the page cannot read whether
-  a link was visited).
+  **MimeType** (the `type` attribute); **ReferrerPolicy**; and the colours of the states **Link**, **Hover**, **Active** and **Visited** (the last styled by CSS only; the page cannot read whether
+  a link was visited). **`ping` is not offered in v1** (operator, 2026-10-20): it is the one `<a>` attribute that makes the browser send a request to an address the page never fetches, which the Content-Security-Policy of WASM-013 R2 would block unless
+  `connect-src` were widened, and which is hostile to the user's privacy; a later spec may add it, limited to the backend's origin.
 - **R4 (ubiquitous):** The accessible name shall be the Caption; an optional accessible label property shall override it, and the existing Tooltip shall be the `title`.
 
 **Behaviour**

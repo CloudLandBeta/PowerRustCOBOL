@@ -92,7 +92,7 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 
 **Assurance**
 - **R14 (ubiquitous):** The player shall be held equal to the desktop form host by measurement: the reference form of WASM-004 R11 and the lifecycle, effects and event-order checks of specs 037/038/042 run against both, and a difference is documented or fixed (the drift of spec 042 is the failure this prevents).
-- **R15 (ubiquitous):** The player shall obey the policies of WASM-013: no API that inserts HTML from data (a source search proves it), no `eval`, a strict CSP, no network except the backend and the bundle's own files, and no secret in the player, the descriptions or the stylesheet.
+- **R15 (ubiquitous):** The player shall obey the policies of WASM-013: no API that inserts an HTML string — the Viewer builds DOM nodes from an allow-listed, parsed tree instead (WASM-013 R5) — which a source search proves, no `eval`, a strict CSP, no network except the backend and the bundle's own files, and no secret in the player, the descriptions or the stylesheet.
 - **R16 (state):** While the Preview (WASM-008) is open, the player shall accept a **new module, form description or stylesheet without reloading itself**, so that the Preview updates in place.
 - **R17 (constraint):** A Desktop project is unchanged; the desktop form host remains the host of desktop applications.
 
@@ -107,7 +107,7 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 - [ ] **AC7** — The freshness test fails when the player's source changes without the shipped player being rebuilt, and passes when it is rebuilt.
 - [ ] **AC8** — The Build reports the player's size; a form with no chart, map or Viewer does not load their parts (a test inspects what was fetched).
 - [ ] **AC9** — The reference form and the lifecycle, effect and event-order checks give the same results on the player and on the desktop form host, except for the documented differences.
-- [ ] **AC10** — A source search finds no HTML-inserting API in the player; the player runs under the generated CSP; a connection to an address outside the configured backend is refused.
+- [ ] **AC10** — A source search finds no HTML-string-inserting API in the player, the Viewer included; the player runs under the generated CSP; a connection to an address outside the configured backend is refused.
 - [ ] **AC11** — In an open Preview, replacing the module, a form description and the stylesheet each updates the page without a reload of the player.
 
 ## 6. Constraints & steering check

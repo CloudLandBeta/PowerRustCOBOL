@@ -61,7 +61,8 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
   | **SPA** | an in-page **modal dialog**; the caller's handler is suspended (WASM-010 R9) until it closes | an in-page **modeless panel** | the form loads into the ContentPane (spec 049) |
   | **Standalone** | a **new tab or window** (a screen pushed, on mobile); the caller is suspended until it closes | a **new tab or window**; the caller continues | not used (no shell) |
 
-- **R3 (ubiquitous):** `FormFormat` (spec 049) shall keep its meaning and its build-time check: a form that is `Embedded` cannot be the target of a standalone open and one that is `Standalone` cannot be loaded into a pane.
+- **R3 (ubiquitous):** `FormFormat` (spec 049) shall keep its meaning and its build-time check: a form that is `Embedded` cannot be the target of a standalone open and one that is `Standalone` cannot be loaded into a pane. In an SPA, a `Standalone` or `Both` form opened by `OpenFormSync`/`OpenFormAsync` is shown as the in-page dialog or panel of R2; that is **not** a
+  load into the ContentPane, so it does not make the form `Embedded`.
 
 **SPA**
 - **R4 (event):** When the SPA shows a form, the address shall change to that form's **route** (the form's name plus the parameters it was opened with); Back and Forward shall move through the navigation chain; a reload or a

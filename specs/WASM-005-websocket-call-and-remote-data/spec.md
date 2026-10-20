@@ -14,7 +14,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   `CALL "<function-name>"|identifier WITH WEBSOCKET LINKAGE USING BY VALUE|BY REFERENCE <working-storage group> [RETURNING <working-storage group>]`;
   groups are turned into JSON using the COBOL data structure (hierarchy and tables included), and JSON comes back into the `RETURNING` group or, for `BY REFERENCE`,
   into the group that was sent; the plumbing, **the authentication token included**, is invisible to the developer.
-- **Depends on:** WASM-002 (the browser runtime), WASM-003 (the backend and its exported programs), WASM-004 (the control classes). **Needed by:** WASM-009.
+- **Depends on:** WASM-002 (the bundle and host page), WASM-010 (the generated module and its pause-and-resume), WASM-016 (the player, which owns the connection), WASM-003 (the backend and its exported programs), WASM-004 (the control classes). **Needed by:** WASM-009.
 
 ## 1. Overview
 
@@ -30,7 +30,8 @@ its COBOL API; its work runs on the backend.
 - Parsed by `parse_call` (`crates/cobolt-parser/src/stmt.rs:3181`); the program operand is an expression, so a literal or an identifier both parse (`:3185`). The AST is
   `Stmt::Call { program, using: Vec<CallArg>, returning, on_exception, not_on_exception, span }` (`cobolt-ast/src/stmt.rs:802`); `CallArg` is `ByReference`, `ByContent` or
   `ByValue` (`:51`), the `BY` word is optional and the mode is sticky (`stmt.rs:3201-3240`). `ON/NOT ON EXCEPTION|OVERFLOW` and `END-CALL` are implemented (`:3250-3290`).
-- **`RETURNING` is parsed and ignored.** `exec_call` receives it as `_returning` (`cobolt-runtime/src/interpreter.rs:11256`) and never uses it (checked; the name appears once).
+- **`RETURNING` was parsed and ignored** when this was checked: `exec_call` received it as `_returning` (`cobolt-runtime/src/interpreter.rs:11256`) and never used it (the name appeared once). **Fixed since** (2026-10-19): the callee's
+  `RETURNING` item is now moved into the caller's identifier — `8a15f00d` on `main` (1.91.219), forwarded as `afe22c51` on 2.x.x; see Q2.
 - **There is no calling-convention phrase.** `Token::Linkage` (`cobolt-lexer/src/keywords.rs:51`) is only `LINKAGE SECTION`; nothing parses `WITH … LINKAGE`.
 - **Dispatch** (`exec_call`, `interpreter.rs:11252`) is one `match` on the upper-cased name: about 100 `COBOL-*` / `COBOLT-*` built-in arms first (they win over any program of the
   same name), then the nested-program registry (event handlers, a form's procedures — generated as `IS COMMON` nested programs, `cobolt-codegen/src/lib.rs:2399-2475` — and Common
@@ -163,8 +164,9 @@ its COBOL API; its work runs on the backend.
 
 - **Q1 — Elementary items.** The operator wrote *group*. Allow an elementary `01`/`77` item as a one-field group (a scalar), or reject it? Recommended: allow; a number or a string is the commonest argument.
 - **Q2 — `RETURNING` on local calls — decided.** It is parsed and ignored today (`interpreter.rs:11256`), which is a gap independent of this series. The operator ruled on 2026-10-19 that it is **a fix on 1.x.x,
-  forward-ported to 2.x.x** by the standing rule, so that the two conventions mean the same thing. It is under way in its own session (*Fix: CALL … RETURNING is ignored*); this spec's `RETURNING` semantics (R3) shall follow
-  what that fix defines for local calls.
+  forward-ported to 2.x.x** by the standing rule, so that the two conventions mean the same thing. It is **done**: the fix is `8a15f00d` (1.91.219) on the local `main`, forwarded as `afe22c51` on 2.x.x. It moves the callee's `RETURNING` item into the caller's identifier with ordinary `MOVE` rules (the receiver's `PICTURE` converts, edits and
+  truncates; a group moves as a group), and leaves the receiver untouched when nothing is returned (a callee with no `RETURNING` item, a built-in, a paragraph, an unresolved program, or a callee that stops on a run-time error). This spec's `RETURNING`
+  semantics (R3) follow that.
 - **Q3 — JSON key spelling.** As declared (recommended), upper-case, or lower-camel (`CUSTOMER-NAME` → `customerName`)? A per-item override (a `NAME` clause, as other COBOLs have) is the usual escape hatch.
 - **Q4 — Trimming.** Trailing spaces trimmed on output and restored (padded) on input; leading spaces and all-space values (`""`) need a rule. Recommended: trim on output, pad on input, empty string for all spaces.
 - **Q5 — `REDEFINES`.** Writing only the first item is the safe default; should a `REDEFINES` group be refused as an argument instead?

@@ -118,6 +118,8 @@ flowchart TD
 | D2 | **Password typed into our form** vs the provider's hosted sign-in, given Entra and Keycloak guidance | WASM-009 Q1, R8b | **Decided: the flow is chosen per provider** (operator, 2026-10-19). Still to do: verify each product's capabilities and fix each adapter's default |
 | D3 | **CSS precedence:** do properties or the stylesheet win | WASM-007 Q1, R8 | **Decided: CSS wins** (operator, 2026-10-19) |
 | D12 | **Templates creatable in 2.0:** Web + Android + iOS, no watch; the list as written in WASM-001 | WASM-001 Q3, R5 | **Decided** (operator, 2026-10-19) |
+| D13 | **The Backend is part of every Web or Mobile project** (a `backend/` folder and a tree entry), **not a project kind**; no backend-only template | WASM-001 R1, WASM-003 Q1 | **Decided** (operator, 2026-10-20) |
+| D14 | **Markup is never inserted as an HTML string:** the Viewer builds DOM nodes from an allow-listed, parsed tree; and WebLink does not offer `ping` in v1 | WASM-013 R5, WASM-016 R15, WASM-006 R3 | **Decided** (operator, 2026-10-20) |
 | D4 | **Stateless or stateful backend calls** | WASM-003 Q2 | Fresh `WORKING-STORAGE` per call. **Open** |
 | D5 | **WebSocket only, or also a small HTTPS surface** (refresh cookie, provider redirects, health, downloads) | WASM-003 Q3, WASM-009 Q3, WASM-014 Q4 | Also HTTPS, kept minimal. **Open** |
 | D7 | **Preview in a separate process** or embedded in the IDE window | WASM-008 Q1 | Separate process and window. **Open** |

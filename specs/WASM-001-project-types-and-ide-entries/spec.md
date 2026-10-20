@@ -18,7 +18,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 ## 1. Overview
 
 Today the IDE builds one kind of project, a desktop application. Version 2.x.x adds three more things a developer can
-build: a **Web** application (WebAssembly), a **Mobile** application (Android, iOS) and a **Backend** that those two talk to.
+build: a **Web** application (WebAssembly) and a **Mobile** application (Android, iOS), each with a **Backend** — a part of the project, not a kind of its own — that it talks to.
 This spec introduces the **project kind**, a **New Project selector** modelled on the operator's mock-up, and the new
 **project-tree entries** WebForms, MobileForms and Backend. It does not say how a Web project is built (WASM-002),
 how the backend works (WASM-003) or which controls are available (WASM-004); it makes them reachable.
@@ -70,8 +70,8 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
 ## 2. Goals / Non-goals
 
 - **Goals:**
-  - A **project kind** stored in the manifest and honoured by the whole IDE: `desktop` (today's behaviour), `web`, `mobile`
-    and `backend`.
+  - A **project kind** stored in the manifest and honoured by the whole IDE: `desktop` (today's behaviour), `web` and `mobile`.
+    The Backend is **not** a kind: it is the `backend/` part of every Web or Mobile project (operator, 2026-10-20).
   - A New Project dialog with the template list and the per-template options of the mock-up, driven by data so a template
     can be added without changing the dialog's code.
   - The tree entries **WebForms**, **MobileForms** and **Backend**, shown according to the project kind.
@@ -84,6 +84,7 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
     (Agentic AI Chatbot (Web), UserControl (Web)). They appear in the catalogue **as entries that cannot be created yet**
     (R5); see Q3.
   - Changing a project's kind after creation (see Q7).
+  - A **backend-only project kind** and a New Project template for one (operator, 2026-10-20: the Backend lives inside Web and Mobile projects; a developer who only wants a backend creates a Web or Mobile project and uses its Backend entry).
   - A template marketplace or sharing of user templates.
 
 ## 3. User stories
@@ -116,7 +117,7 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
   *Create* shall be disabled for it. In 2.0 the creatable templates are **Desktop**, **Web (WebAssembly)**, **Android
   (Cellphone)**, **Android (Tablet)**, **iPhone** and **iPad**; the rest are unavailable (Q3).
 - **R6 (event):** When the developer presses *Create*, the IDE shall create the folders and starter files for that kind and open the
-  project; for **Web** and **Mobile** it shall also create the project's backend scaffold (WASM-003 R12) unless the developer
+  project; for **Web** and **Mobile** it shall also create the project's backend scaffold (WASM-003 R22) unless the developer
   cleared that option (Q5).
 - **R7 (optional):** Where *Recent Projects* and *Create from Template…* are offered (Q6), they shall behave as their names say
   and shall not be needed to create a project.

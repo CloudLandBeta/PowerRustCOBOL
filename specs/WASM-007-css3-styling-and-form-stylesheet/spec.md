@@ -37,7 +37,7 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 ## 2. Goals / Non-goals
 
 - **Goals:**
-  - One table that maps every appearance property to CSS3, used by the runtime and by the checks, with each entry marked *exact*, *approximate* or *not on the web*.
+  - One table that maps every appearance property to CSS3, used by the player (WASM-016) and by the checks, with each entry marked *exact*, *approximate* or *not on the web*.
   - Per-control `CssClass` and `Style`, and a per-form **default stylesheet** with an editor in a modal window.
   - A stated precedence between theme, stylesheet, class, property and inline style.
   - Live preview of a style change (WASM-008) without a rebuild.

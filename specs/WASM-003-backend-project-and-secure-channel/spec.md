@@ -43,7 +43,7 @@ user obtains the JWT is WASM-009.
 ## 2. Goals / Non-goals
 
 - **Goals:**
-  - A **Backend project** (kind `backend`, or a part of a Web/Mobile project) with exported programs, built into a desktop binary.
+  - A **Backend** — the `backend/` part of every Web or Mobile project, not a project kind of its own (WASM-001) — with exported programs, built into a desktop binary.
   - A **WebSocket server** in that binary, over TLS, serving only the programs the project exported.
   - **Per-call authentication** with a bearer JWT validated against the configured identity provider; per-program authorisation by role.
   - A secure-by-default channel: origin check, size and rate limits, input validation, no secret ever leaves the backend.
@@ -66,7 +66,7 @@ user obtains the JWT is WASM-009.
 ## 4. Requirements (EARS)
 
 **The project and the build**
-- **R1 (ubiquitous):** A Backend project shall hold COBOL programs, copybooks, indexed-file definitions and SQL connections, and a list of its
+- **R1 (ubiquitous):** The Backend — the `backend/` part of a Web or Mobile project — shall hold COBOL programs, copybooks, indexed-file definitions and SQL connections, and a list of its
   **exported programs** — the only programs a remote caller can reach. A program not in the list shall be unreachable from the channel,
   whatever its name.
 - **R2 (event):** When the developer builds the Backend, the IDE shall produce **one self-contained executable per host platform**
@@ -163,8 +163,8 @@ user obtains the JWT is WASM-009.
 
 ## 7. Open questions
 
-- **Q1 — Where the backend is declared:** a separate project of kind `backend`, or a `backend/` folder inside the Web/Mobile project (WASM-001
-  Q8)? Recommended: a folder inside, so one repository, one Build and one set of copybooks shared with the frontend.
+- **Q1 — Where the backend is declared — decided** (operator, 2026-10-20): a `backend/` folder **inside** the Web or Mobile project, not a separate project and not a project kind — one repository, one Build and one set of copybooks shared with the frontend
+  (WASM-001 Q8 for the folder names).
 - **Q2 — Statefulness:** each call starts with fresh `WORKING-STORAGE` (a function), or a connection keeps one instance (a session)? Recommended:
   fresh per call, with explicit session data in a file or database; it is the model that scales and cannot leak between users.
 - **Q3 — Alongside the WebSocket,** does the backend also need ordinary HTTPS endpoints (the refresh cookie of WASM-009 R5, health, an identity

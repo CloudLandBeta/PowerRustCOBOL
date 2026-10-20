@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.8] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.7.)*
+
+### Changed: contradictions found in the WASM specs are resolved — three by the operator's rulings, the rest as wording
+
+The operator asked whether the specs contradict each other and then chose which fixes to apply. **Three rulings** (2026-10-20): the **Viewer** builds DOM nodes from an allow-listed, parsed tree and no code of the player ever inserts an HTML string, so WASM-013 R5 and WASM-016 R15 and AC10 hold without an exception; **WebLink does not offer `ping`** in v1, which the Content-Security-Policy would block and which is hostile to privacy (WASM-006); and the **Backend is a part of every Web or Mobile project, not a project kind** (WASM-001, WASM-003 Q1), so no backend-only template exists. The index records them as D13 and D14.
+
+**Wording fixed:** WASM-002 R5 now lets the class B drawing controls use SVG or a canvas inside their own element; WASM-011 R3 says an in-page dialog opened by `OpenFormSync`/`OpenFormAsync` is not an `Embedded` load; WASM-005 no longer says the `RETURNING` fix is under way (it is done, `8a15f00d` on `main`, `afe22c51` on 2.x.x) and no longer names a "browser runtime"; WASM-007 says the property-to-CSS table is used by the player; the headers of WASM-002, 004 and 005 list the specs they now depend on (010 and 016); WASM-001 R6 pointed at WASM-003 R12 where the scaffold is R22.
+
+**The 2.0.1 entry** below, the forward-port of the `RETURNING` fix, now carries a note that this line does not carry the two documentation changes it describes (`README.md` and `docs/` stay as published for 1.x.x). The operator's CLAUDE.md gains the same step for future forward-ports.
+
+No code, `README.md` or file in `docs/` changed; the version moves because this is a change.
+
 ## [PowerRustCOBOL 2.0.7] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.6.)*
@@ -117,6 +131,8 @@ New tests:
 NIST, release build, both axes, every finished module, all equal to the protected baselines: compile census PASS 420/420 (FAIL 0, N-A 39/459); execution NC (Nucleus) 95/95 with 4614 PASS / 0 FAIL, SQ (Sequential I/O) 85/85 with 624 / 0, IX (Indexed I/O) 41/41 with 574 / 0, RL (Relative I/O) 34/34 with 354 / 0, IF (Conditional) 45/45 with 841 / 0, IC (Inter-program communication) 25/25 with 309 / 0, ST (Sort/Merge) 39/39 with 735 / 0, SM (Source text manipulation) 16/16 with 311 / 0.
 
 Documentation: the Developer's Guide has a new section, *Getting one value back with `RETURNING`*, under *Calling Common Code from a form*; `docs/cobol85-supported-syntax-en.md` gains the `RETURNING r` bullet under CALL. No translation of either exists on disk, so none was deleted. System KB: the *Nested programs* section of the architecture constants gains the RETURNING rule and `assets/knowledge/chunked.data` is regenerated.
+
+*(On 2.x.x the two documentation changes above — the Developer's Guide section and the `docs/cobol85-supported-syntax-en.md` bullet — are not carried: this line leaves `README.md` and `docs/` as published for 1.x.x, so there they do not describe `RETURNING`. The behaviour, the System KB rule and `chunked.data` are on both lines.)*
 
 Seen on the way, not changed: `MOVE <numeric> TO <alphanumeric> (4:3)` gives the reference-modified receiver the trimmed value left-justified (`8  `) where a plain `PIC X(3)` receiver gets the COBOL-85 digits (`000`). `RETURNING` follows whichever `MOVE` does.
 

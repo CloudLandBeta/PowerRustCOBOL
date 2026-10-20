@@ -66,9 +66,9 @@ chain, the "unsafe" switches, and the checks that prove them — so that no corn
   versions and ciphers below a stated floor.
 
 **XSS**
-- **R5 (ubiquitous):** Every value that reaches the page — a caption, an item, a cell, a tooltip, a message — shall be inserted as **text**, never parsed as markup, by construction; the player shall contain no API that inserts HTML from data,
-  and a test shall search its source for the forbidden sinks. The only controls that render markup (the Viewer's HTML subset) shall pass it through a sanitiser with an allow-list, and WASM-006 R7 and WASM-007 R13 shall be enforced where URLs
-  and stylesheets enter.
+- **R5 (ubiquitous):** Every value that reaches the page — a caption, an item, a cell, a tooltip, a message — shall be inserted as **text**, never parsed as markup, by construction; the player shall contain **no API that inserts an HTML string** (no `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write` or the like) and no parsing of markup from data into the live page,
+  and a test shall search its source for those sinks. The only control that renders markup, the **Viewer's HTML subset**, shall do it by **building DOM nodes** (`createElement`, `setAttribute`, `textContent`) from a tree that has been parsed and filtered through an **allow-list** of elements, attributes and URL schemes —
+  never by handing a string to the browser's HTML parser — so the rule above holds without an exception. WASM-006 R7 and WASM-007 R13 shall be enforced where URLs and stylesheets enter.
 
 **CSRF, CORS and origin**
 - **R6 (ubiquitous):** State-changing backend calls shall be authorised by a **bearer token the page adds**, never by a cookie alone; a request that relies on a cookie (the refresh of WASM-009 R5) shall use `SameSite`, a CSRF token
@@ -108,7 +108,7 @@ chain, the "unsafe" switches, and the checks that prove them — so that no corn
 - [ ] **AC1** — The threat model exists, names every boundary of R1, and each row points to a control and a test; the `/analyze` of each later spec updates it.
 - [ ] **AC2** — A built bundle served under its generated CSP loads and runs, and the browser reports a violation for an injected inline script, an `eval` and a connection to an address outside `connect-src` (a headless test).
 - [ ] **AC3** — The `<meta>` and the header set are generated, and the Build prints which directives are only deliverable as headers.
-- [ ] **AC4** — A caption, item, cell and tooltip containing `<img src=x onerror=…>` render as text; a source search finds no forbidden sink in the player; the Viewer's HTML with a script element renders without it.
+- [ ] **AC4** — A caption, item, cell and tooltip containing `<img src=x onerror=…>` render as text; a source search finds no forbidden sink in the player (the Viewer included); the Viewer's HTML with a script element, an inline event handler and a `javascript:` link renders without them, built from nodes.
 - [ ] **AC5** — A cross-site page cannot make the backend run a call using only the refresh cookie; a connection from a foreign Origin is refused; no wildcard origin is accepted together with credentials.
 - [ ] **AC6** — The secret scan finds each planted secret kind in the bundle, a form, a copybook and a stylesheet, fails the Build with file and pattern, and prints no value.
 - [ ] **AC7** — On a machine with no operating-system secret store, a signing or backend secret is refused rather than written to disk.
