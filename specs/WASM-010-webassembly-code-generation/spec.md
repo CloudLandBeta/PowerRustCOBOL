@@ -26,8 +26,9 @@ The **backend does not change its engine.** It keeps the current native runtime 
 WASM-005 add to it. So the system has two engines for one language: the generator for the browser, the interpreter for the server and the desktop. Keeping them in step is a first-class requirement here (R16),
 not a hope.
 
-**Granularity, memory and the boundary (WASM-017).** The module is **per form** — each form is its own run unit, as spec 049 defines, with its own copy of the Common Code it calls — loaded when the form is first shown and discarded when it is destroyed. Its data memory has a size fixed at
-compile time and never grows, with a transport arena apart from the COBOL data; it uses a stated baseline of WebAssembly features that the iOS web view also runs (so no multi-memory); and it crosses the host API in few, large calls. "Self-contained" below therefore means *each* form's module.
+**Granularity, memory and the boundary (WASM-017).** There is **one module for the whole project** (operator, 2026-10-20). Each form is its own run unit, as spec 049 defines, with its own copy of the Common Code it calls, and each form *instance* keeps its data in a **region** of the module's memory, created with the form and released when the form is destroyed. The data
+memory has a size fixed at compile time and never grows. **Multi-memory is the default**: the transport arena is a second memory, and a **single-memory variant** exists for iOS and for any target matrix that includes Safari. The module crosses the host API in few, large calls, runs in a Worker when the page is cross-origin isolated and on the main thread otherwise,
+and yields to the host in a long loop. "Self-contained" below means the project's one module, in either variant.
 
 ### Why generate directly (the operator's question, answered)
 
@@ -68,8 +69,8 @@ What it costs: a compiler back end and the routines above, and **two engines to 
   - A short, versioned host API as the module's only imports.
   - A **conformance gate**: the NIST programs in the subset, and a golden corpus, run on the generated module with 0 failures.
 - **Non-goals:**
-  - File I/O of any organisation (sequential, line sequential, indexed, relative), the `redb` engine, `std::fs`, threads, child processes, native sockets, SQL and `EXEC SQL`, `EXEC RUST`. In the browser the
-    data lives on the backend (WASM-005).
+  - File I/O of any organisation (sequential, line sequential, indexed, relative), the `redb` engine, `std::fs`, child processes, native sockets, SQL and `EXEC SQL`, `EXEC RUST`. In the browser the
+    data lives on the backend (WASM-005). **Threads inside the COBOL program's semantics** are also out: COBOL has none; the module runs in one thread — in a Worker when the page is isolated — and parallelism belongs to the player and the graphics objects (WASM-017 R19, WASM-018).
   - A runtime, interpreter or AST in the module.
   - Compiling the backend: it keeps the native runtime.
   - WebAssembly GC, the component model, threads or SIMD proposals in v1.
@@ -86,13 +87,13 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 
 **The module**
 - **R1 (event):** When the Build of a Web or Mobile project compiles its browser-side COBOL — the generated form programs, event handlers, user procedures and the Common Code they `CALL` — the compiler shall emit **one
-  WebAssembly module per form** (its run unit, with the Common Code its programs call copied into it; WASM-017 R1) directly from the AST, with no Rust compilation of that COBOL, and with no interpreter, AST or runtime package in the output.
+  WebAssembly module for the whole project** (every form's programs, each form with the Common Code it calls copied in; WASM-017 R1), in a multi-memory and a single-memory variant (WASM-017 R9), directly from the AST, with no Rust compilation of that COBOL, and with no interpreter, AST or runtime package in the output.
 - **R2 (ubiquitous):** The module shall be **self-contained**: it shall import only the host API (R12) and shall carry, emitted into it, every routine it needs to run and no routine it does not use. Its exports shall be
   the entry points of R10, R9 and its memory.
 - **R3 (ubiquitous):** Every `WORKING-STORAGE`, `LOCAL-STORAGE` and `LINKAGE` item shall live at a fixed place in linear memory with a **byte-accurate layout**: `PICTURE` and `USAGE` (`DISPLAY`, `COMP`/`COMP-5`,
   `COMP-3`, `COMP-1`/`COMP-2`, national), sign position (trailing overpunch, `SEPARATE`, `LEADING`), `OCCURS` including `DEPENDING ON`, groups as contiguous bytes, `REDEFINES` sharing the same bytes, `FILLER`, `VALUE`
-  initialisation and `INITIALIZE`. The memory's **size is fixed at compile time** — `OCCURS` at their maximum, `DEPENDING ON` at its upper bound — and generated code never calls `memory.grow`; a **transport arena** for the text and JSON frames that cross the
-  boundary is reserved in the same memory, apart from the COBOL data (WASM-017 R7, R8). Multi-memory is not used (WASM-017 R9).
+  initialisation and `INITIALIZE`. The memory's **size is fixed at compile time** — `OCCURS` at their maximum, `DEPENDING ON` at its upper bound — and generated code never calls `memory.grow`; each form **instance** has its data in a region of that memory, created and released with the instance (WASM-017 R2), so the size is the static data plus `Instances` × each form's size; and a **transport arena** for the text and JSON frames that cross the
+  boundary is **memory 1** in the multi-memory variant and a reserved region of memory 0 in the single-memory variant, apart from the COBOL data (WASM-017 R7–R9).
 - **R4 (ubiquitous):** Arithmetic shall be **exact decimal fixed-point** to at least the standard's 18 digits and to the width the interpreter supports today (an `i128` mantissa, about 38 digits); `ADD`,
   `SUBTRACT`, `MULTIPLY`, `DIVIDE` and `COMPUTE` with `GIVING`, `REMAINDER`, every `ROUNDED` mode and `SIZE ERROR` shall give the interpreter's results (R16).
 - **R5 (ubiquitous):** Control flow shall cover paragraphs and sections, `PERFORM` in every form (simple, `THRU`, `TIMES`, `UNTIL`, `VARYING`, inline, `TEST BEFORE`/`AFTER`, `EXIT PERFORM`/`CYCLE`), `GO TO` (with
@@ -108,8 +109,8 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 
 **Behaviour**
 - **R9 (state):** While a call waits for an answer — a remote `CALL` (WASM-005), a dialog, a timed wait — the module shall be able to **stop, return control to the host and later resume at the same point**, with its
-  position, its `PERFORM` stack and its data kept in linear memory; it shall not depend on a browser feature that is not available in every supported browser (Q4). The same mechanism lets a handler that has run longer than a **budget** **yield** to the host at a loop back-edge and resume on the host's next turn, so that a long `PERFORM` never freezes the page; the
-  result shall not depend on where it yielded (WASM-017 R19).
+  position, its `PERFORM` stack and its data kept in linear memory; it shall not depend on a browser feature that is not available in every supported browser (Q4). The same mechanism lets a handler that has run longer than a **budget** **yield** to the host at a loop back-edge and resume on the host's next turn, so that a long `PERFORM` never freezes the page when the module runs on the main thread (when the page is isolated the module runs in a Worker and the page cannot freeze, WASM-017 R19); the
+  result shall not depend on where it yielded or on the mode.
 - **R10 (event):** When the host reports an event (an event id, a control id, parameters), the module shall run the bound handler **to completion or to the next suspension**, applying what the handler changes to the
   host through the host API as it goes, and shall report when it has finished.
 - **R11 (event):** When a run-time error occurs — a subscript outside its table, a division by zero without `ON SIZE ERROR`, invalid numeric data, an unresolved `CALL` — `ON SIZE ERROR` / `ON EXCEPTION` shall behave as

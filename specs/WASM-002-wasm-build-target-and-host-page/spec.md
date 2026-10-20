@@ -32,7 +32,7 @@ A **host page** is the thin HTML/CSS3/JavaScript layer that loads the module. It
 else's page).
 
 **What runs in the browser (operator, 2026-10-19).** There is **no runtime in the browser**. The program's COBOL is compiled to a WebAssembly module that is **self-contained** — it carries the routines it needs and imports only a small host
-API (WASM-010). The browser module has no `redb`, no disk, no `std::fs` and no threads. The **backend keeps the current runtime** with all of them (WASM-003). Everything a browser program needs from disks or databases goes through the backend
+API (WASM-010). The browser module has no `redb`, no disk and no `std::fs`; the page uses **threads** (Rayon in the player and the graphics objects, the program module in a Worker) when it is cross-origin isolated and works without them when it is not (WASM-017 R19, R20). The **backend keeps the current runtime** with all of them (WASM-003). Everything a browser program needs from disks or databases goes through the backend
 (WASM-005).
 
 **Two application styles** (WASM-011): **SPA** is the default — one page, forms loaded into the application shell — and **standalone forms**, as on the desktop, where opening a form opens it in a page or window of its own. The host page and the
@@ -78,7 +78,7 @@ bundle layout serve both.
   - Toolchain detection with clear, honest messages.
 - **Non-goals:**
   - A runtime, interpreter or the `redb`/disk/thread support in the browser (the operator, 2026-10-19: the backend keeps them).
-  - Server-side rendering, multi-threaded WebAssembly, offline/PWA behaviour, hosting or deploying the bundle (WASM-INDEX lists
+  - Server-side rendering, offline/PWA behaviour, hosting or deploying the bundle (WASM-INDEX lists
     each as a proposed spec).
   - A web debugger inside the IDE (browser developer tools serve; source maps where the toolchain gives them).
   - Changing the desktop build (egui, `bin/`, host triple) in any way.
@@ -97,7 +97,7 @@ bundle layout serve both.
 
 **The build**
 - **R1 (event):** When the developer builds a Web project, the IDE shall produce, in the project's build folder (specs 100/101 govern
-  the folder and cache), a **static bundle**: the host `index.html`, the WebAssembly **program modules generated from the program's COBOL — one per form, loaded on demand** (WASM-010, WASM-017 R1–R2), the **prebuilt player** that draws the forms (WASM-016, copied, never compiled), the JavaScript loader, the form descriptions, the form stylesheet (WASM-007) and the assets the forms use,
+  the folder and cache), a **static bundle**: the host `index.html`, the WebAssembly **program module generated from the program's COBOL — one for the whole project, in a multi-memory and a single-memory variant** (WASM-010, WASM-017 R1, R9), the **prebuilt player** (in a plain and a threaded variant, WASM-016) that draws the forms (WASM-016, copied, never compiled), the JavaScript loader, the form descriptions, the form stylesheet (WASM-007) and the assets the forms use,
   with content-hashed file names; for the standalone application style (WASM-011) the bundle shall give each standalone form its own entry page.
 - **R2 (event):** When the developer builds a Mobile project, the IDE shall produce an **Android package** and/or an **iOS
   package** that wrap the same frontend in a Tauri 2 shell, for the platform(s) the project selected.
@@ -145,9 +145,12 @@ bundle layout serve both.
   forms**, one entry page per form, each instantiating the module of its own form. The embedded mode (R11) supports SPA; whether it
   supports standalone forms is WASM-011's decision.
 - **R18 (ubiquitous):** The Build shall declare a **baseline set of WebAssembly features** and a **matrix of supported browsers** (Chrome and Edge, Firefox, Safari, the iOS web view, the Android WebView), and the loader shall probe the browser against it and show the readable message of R15 below the baseline; the player and the program
-  modules shall use only the baseline — **not** multi-memory, which the iOS web view lacks — and a feature above it shall be optional, with a fallback or a second variant (WASM-017 R18).
-- **R19 (ubiquitous):** The loader shall instantiate modules through ES-module integration where the browser offers it and through `fetch` and streaming instantiation otherwise, shall load a form's module only when the form is shown and release it when the form is destroyed (WASM-017 R2–R5), and the application shall need **no cross-origin isolation** (no `COOP`/`COEP`
-  headers) and no threads (WASM-017 R19), so that it runs on any static host and inside a page that embeds it (R11).
+  modules shall be built in the variants of WASM-017 R9 and R19: the program module **multi-memory by default** and a **single-memory variant** (always for iOS, and for any matrix that includes Safari, where the Web bundle carries both and the loader probes), the player **threaded** and **plain**; the baseline is what the single-memory module and the plain player use, and a feature above it
+  is chosen by probe (WASM-017 R18).
+- **R19 (ubiquitous):** The loader shall fetch the program module with `fetch` and **streaming instantiation** (ES-module integration only if feature-detected, WASM-017 R3), fetch the player's heavy parts on first use, create a form's data region when the form is created and release it when it is destroyed (WASM-017 R2–R5), and choose the program-module variant, the player variant and the execution
+  mode (Worker or main thread) by probing the browser (WASM-017 R18, R19).
+- **R20 (ubiquitous):** **Threads are used when the page is cross-origin isolated** and the application works without them when it is not. The Build shall generate, for each documented static host and for the standalone server the IDE can start, the headers `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy` (`require-corp` or `credentialless`) and print them with the trade-off that resources from other origins must then allow it;
+  it may also offer a service-worker shim that sets them for hosts that cannot (off by default). In the **embedded mode** (R11) the application is isolated only if the host page is, and otherwise starts on the plain player and the main thread (WASM-017 R19).
 
 ## 5. Acceptance criteria
 
@@ -180,7 +183,7 @@ bundle layout serve both.
 ## 7. Open questions
 
 - **Q1 — The execution model — decided.** The operator ruled on 2026-10-19: the compiler **generates WebAssembly**; there is no interpreter or
-  runtime in the browser; the final code carries what it needs; `redb`, disk and threads are not in the browser; the backend keeps the current
+  runtime in the browser; the final code carries what it needs; `redb` and disk are not in the browser (threads are, since 2026-10-20: WASM-017 R19); the backend keeps the current
   runtime. WASM-010 specifies it. Still to confirm there: that the generator emits the module **directly** rather than through Rust (WASM-010 Q1).
 - **Q2 — Bundler and framework layout:** Leptos in client-side-rendering mode with `trunk`, or `cargo-leptos`? Recommended: client-side
   rendering with `trunk` (a static bundle, no server component).

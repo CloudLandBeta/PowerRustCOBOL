@@ -62,7 +62,7 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 **The artefact**
 - **R1 (ubiquitous):** The player shall be **one prebuilt WebAssembly module** (with its loader) built from Rust and Leptos when the product is built, shipped with the IDE, and **copied, never compiled**, into every Web and Mobile bundle. A Web build shall need no Rust
   toolchain, `wasm32` target or bundler on the developer's machine.
-- **R2 (ubiquitous):** The bundle shall be exactly the **player** and the **generated program modules** — one per form, loaded when the form is shown and discarded when it is destroyed (WASM-010, WASM-017 R1–R5) — plus the host page, the form descriptions, the stylesheet and the assets; nothing else executes.
+- **R2 (ubiquitous):** The bundle shall be exactly the **player** (in a plain and a threaded variant, R13c) and the **generated program module** — one for the whole project, in a multi-memory and a single-memory variant (WASM-010, WASM-017 R1, R9) — plus the host page, the form descriptions, the stylesheet and the assets; nothing else executes.
 
 **The form description**
 - **R3 (event):** When the developer builds, the Build shall write, for each form, a **form description**: a versioned, serialised form (its controls, their properties, layout and breakpoints, the events bound to handlers, the data bindings, the stylesheet reference) derived from the `.cfrm`, and
@@ -88,7 +88,9 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 **Building and shipping it**
 - **R12 (ubiquitous):** The player shall be built by a step of the product's build (a workspace example, as `build_chunked_kb` is) from its source, its output shall be committed or produced at release (Q2), and a **freshness test** shall fail when the shipped player is not the one its source produces. The IDE shall find
   the player the way it finds its other bundled assets. The build profile (size-first, `panic = "abort"`, `wasm-opt`), the pinned tools and the rule against `wasm-pack` are WASM-017 R16–R17.
-- **R13 (ubiquitous):** The Build shall report the player's size and the sizes of any parts loaded on demand (Q3), and the player shall load heavy controls (charts, maps, the Viewer) **on first use** where that is possible, so that a form without them does not pay for them. Those parts follow the same loading and disposal rules as the program modules (WASM-017 R3, R5).
+- **R13 (ubiquitous):** The Build shall report the player's size and the sizes of any parts loaded on demand (Q3), and the player shall load heavy controls (charts, maps, the Viewer) **on first use** where that is possible, so that a form without them does not pay for them. Those parts follow the same loading and disposal rules (WASM-017 R3, R5); the Canvas 2D and Canvas 3D controls and the graphics objects (WASM-018) are such parts.
+- **R13c (ubiquitous):** The player shall be built in **two variants** from one source: **plain** (stable Rust, no shared memory) and **threaded** (a pinned nightly toolchain, a rebuilt standard library, atomics and shared memory, `wasm-bindgen-rayon`; WASM-017 R16). It shall use **Rayon** for its parallel work — image and chart work, DataGrid sorting and filtering, physics, canvas rasterisation — on a worker pool, with the
+  same results on the plain variant, which runs the same code sequentially (WASM-017 R19, WASM-018 R20); the host page chooses the variant by `crossOriginIsolated`.
 - **R13b (ubiquitous):** Every Rust object the player exposes to JavaScript through `wasm-bindgen` shall have an explicit disposal called by `unmount()` and on teardown, the objects exposed shall be few and listed, a panic shall end the instance cleanly with a readable error and a reload action, and the player shall never hand JavaScript a view over its own memory
   that outlives a call into it (WASM-017 R10, R14, R15).
 
@@ -100,7 +102,7 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — On a machine with no Rust toolchain, a Web project builds to a bundle that contains exactly the player and the program modules (one per form), the host page, form descriptions, stylesheet and assets, and runs in a headless browser.
+- [ ] **AC1** — On a machine with no Rust toolchain, a Web project builds to a bundle that contains exactly the player (plain and threaded) and the program module (multi-memory and single-memory variants), the host page, form descriptions, stylesheet and assets, and runs in a headless browser.
 - [ ] **AC2** — A form with one control of every class A and B type is drawn by the player from its description, with the properties set; the DOM shows each, and the property round-trip of WASM-004 R11 passes.
 - [ ] **AC3** — A click on a bound button reaches the program module's handler; a property written by the handler appears in the DOM; a method call reaches the control; `DISPLAY` reaches the console.
 - [ ] **AC4** — A handler that makes a remote call stops, the player performs it against a test backend with the token attached, and the handler resumes with the answer; two events raised meanwhile are handled afterwards in order.

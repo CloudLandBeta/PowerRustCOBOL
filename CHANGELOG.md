@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.10] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.9.)*
+
+### Changed: the operator's decisions of 2026-10-20 are in the WASM specs, and WASM-018 adds Canvas 2D, Canvas 3D and graphics objects
+
+The operator ruled on the points WASM-017 had left open. **One program module for the whole project** (the alternative of Q1): each form instance's data lives in a region of the module's memory, sized at compile time (`Instances` × size) and released with the form, so the module still never grows. **Threads and Rayon are in**, reversing the ruling of 2026-10-19; the specs state what the sources say, which the operator's premise did not: threads were never missing from browsers or from Wasm 3.0's scope, and the real costs are cross-origin isolation and, for Rust, a pinned nightly with a rebuilt standard library. They are used when the page is isolated — Rayon in the player and the graphics objects, the program module in a Worker — and the plain player and the main thread remain a full fallback, tested as one. **Multi-memory is the default** for the program module, with a single-memory variant always for iOS and for any browser matrix that includes Safari; the Web bundle then carries both and the loader probes. **Component Model and ES-module integration** were to stay only if Chrome supports them: that could not be established (source-phase imports are TC39 Stage 3, `jco` calls itself experimental, Chrome's status page was unreachable), so they are not kept.
+
+WASM-017 was rewritten for all of that, and WASM-002 (R18–R20: variants, isolation headers), 010, 011, 013 (R15b), 015 and 016 (R13c: plain and threaded player) were adjusted.
+
+**WASM-018** is new: **Canvas2D** and **Canvas3D** controls and five client objects — **ImageBuffer**, **Plot**, **Scene3D**, **Physics2D**, **Physics3D** — on Desktop, Web and Mobile, implemented once in a pure-Rust crate behind a display list, from crates chosen for the 100 %-Rust premise: `tiny-skia`, `rustybuzz` with `skrifa`, `image` with `imageproc`, `plotters` (with its C-dependent text feature off), `wgpu` with `glam` and `gltf`, `rapier`, `rayon`. Several are already in the dependency tree. The spec records what was rejected and why (`bevy`, `three-d`, `macroquad`, `charming`, `skia-safe`, `vello` for now) and WASM-004 gains the classes for them. The index records D15 to D19 and renumbers the remaining proposals from 019; the operator's CLAUDE.md carries the rulings.
+
+No code, `README.md` or file in `docs/` changed; the version moves because this is a change.
+
 ## [PowerRustCOBOL 2.0.9] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.8.)*

@@ -17,7 +17,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## 1. Overview
 
-The control catalogue is the product's biggest asset: **62 control types**, each with properties, events, methods, a Properties-panel
+The control catalogue is the product's biggest asset: **62 control types** today — and **69 with WASM-018**, which adds Canvas2D, Canvas3D and five client objects — each with properties, events, methods, a Properties-panel
 section, a toolbox icon, documentation in the System KB and tests. A Web or Mobile project shall reuse them, so that a developer who knows
 the desktop controls already knows these, and the agents and the KB keep working. This spec says **how much** can be reused and **how**:
 which controls become ordinary DOM elements, which must be redrawn, which now work through the backend, and which cannot exist in a browser.
@@ -60,7 +60,8 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
 | Class | Meaning | Controls |
 |---|---|---|
 | **A — native DOM** | Becomes ordinary HTML/CSS, behaviour from the existing model | Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, ProgressBar, StatusBar, Line, Shape, NumericUpDown, Slider, Switch, Splitter, TreeView, MenuBar, SideMenu, ToolBar (its visible part), DateTimePicker, PictureBox, Timer, Snackbar |
-| **B — redrawn** | Drawn by the egui painter today; needs an SVG or canvas implementation with the same data properties and methods | BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart, RadarChart, Knob, Gauge, Animator, Maps (tiles), Viewer (PDF, HTML subset, Mermaid) |
+| **B — redrawn** | Drawn by the egui painter today; needs an SVG or canvas implementation with the same data properties and methods | BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart, RadarChart, Knob, Gauge, Animator, Maps (tiles), Viewer (PDF, HTML subset, Mermaid), and the **new Canvas2D and Canvas3D** (WASM-018), which are implemented by the shared pure-Rust graphics crate rather than by DOM or per-control drawing code |
+| **E — client objects** | Non-visual objects that run in the player (or the egui host) with no backend, creating handles the program holds | The **new** ImageBuffer, Plot, Scene3D, Physics2D and Physics3D (WASM-018); they are available on every kind, run on every platform, and load as player parts on first use |
 | **C — through the backend** | Reads or writes disk, a database or the network, or holds a secret; works through WASM-005 with the same COBOL API | DataGrid (IndexedFile and SQL bindings), IndexedFile, SqlDatabase, KnowledgeBase, RestClient, AgentObject, WebSearch, FileDropZone, Maps (geocode, directions), Viewer (open and save), and the 16 AWS controls |
 | **D — not available** | Needs the local machine | ToolBar actions that start a program, open a terminal or print through the OS; Viewer print/share through the OS; `Custom` plugin controls (until a later spec) |
 
@@ -78,7 +79,7 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
 - **R1 (ubiquitous):** A control on a web or mobile form shall be the same `.cfrm` control as on a desktop form: same type name, same property names and value
   types, same events and methods. The web shall not introduce a parallel property set; a property that exists on the web only (WASM-007's `CssClass`, `Style`)
   shall be added to the model like any other.
-- **R2 (ubiquitous):** Each control shall have exactly one **primary** class (A–D) recorded in one place the toolbox, Check, the KB and the agent kit all read, plus, where
+- **R2 (ubiquitous):** Each control shall have exactly one **primary** class (A–E) recorded in one place the toolbox, Check, the KB and the agent kit all read, plus, where
   some of its operations differ from its class, the list of those operations and the class they take (Maps is B for its picture and C for geocode and directions; Viewer is B for
   its pages, C for open and save and D for print and share; ToolBar is A for its look and D for the actions that start a program).
 

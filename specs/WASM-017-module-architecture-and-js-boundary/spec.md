@@ -3,143 +3,149 @@ SPDX-License-Identifier: Apache-2.0
 Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 -->
 
-# Spec — Module architecture, memory model and the JavaScript boundary
+# Spec — Module architecture, memory model, threads and the JavaScript boundary
 
-- **Status:** draft (needs `/clarify`; D15 in the index lists what needs a ruling)
+- **Status:** draft, decisions of 2026-10-20 incorporated (needs `/clarify` only for the questions in §7)
 - **Folder:** specs/WASM-017-module-architecture-and-js-boundary/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-10-20
 - **Branch:** `features-2x` (version line 2.x.x). Part of the WASM series, see `specs/WASM-INDEX.md`.
-- **Origin:** the operator's guidance of 2026-10-20, six topics: *(1)* a modular architecture with on-demand instantiation and prompt disposal (Component Model, ES modules); *(2)* the JS ⇄ Wasm boundary — JS String Builtins and a separate memory for raw data;
-  *(3)* explicit lifecycles for Rust objects (`.free()`); *(4)* avoiding the `memory.grow` trap with multiple memories; *(5)* coarse-grained calls and native concurrency (threads, Rayon); *(6)* a size-first release profile in `Cargo.toml` and `wasm-opt`. The operator asked where
-  it belongs, or whether it needs a spec of its own, and asked for the earlier specs to be adjusted.
-- **Why a spec of its own.** The topics cut across four specs — the generated module (WASM-010), the player (WASM-016), the bundle and loader (WASM-002) and the navigation that decides when a form appears and goes (WASM-011) — and none of them is the natural home. This spec owns
-  the architecture of the WebAssembly artefacts; the others cite it.
-- **Depends on:** WASM-002, WASM-010, WASM-016. **Adjusts:** WASM-002, 010, 011, 013, 015, 016 (listed in §6).
+- **Origin:** the operator's guidance of 2026-10-20, six topics — *(1)* modular architecture with on-demand instantiation and prompt disposal (Component Model, ES modules); *(2)* the JS ⇄ Wasm boundary (JS String Builtins, a separate memory for raw data); *(3)* explicit lifecycles for Rust
+  objects (`.free()`); *(4)* avoiding the `memory.grow` trap with multiple memories; *(5)* coarse-grained calls and native concurrency (threads, Rayon); *(6)* a size-first release profile — and the operator's **decisions of the same day** on the open points: **one module for the whole project** (Q1's alternative);
+  **threads and Rayon are in**; **multi-memory is the default and is switched off for iOS**; **Component Model and ES-module integration are kept only if Chrome supports them**.
+- **Why a spec of its own.** The topics cut across the generated module (WASM-010), the player (WASM-016), the bundle and loader (WASM-002) and the navigation (WASM-011). This spec owns the architecture of the WebAssembly artefacts; the others cite it.
+- **Depends on:** WASM-002, WASM-010, WASM-016. **Adjusts:** WASM-002, 010, 011, 013, 015, 016 (§6).
 
 ## 1. Overview
 
-The guidance asks for a small initial footprint, memory that goes away when its owner does, a thin and cheap boundary between JavaScript and WebAssembly, and a lean build. Most of it fits this product — but each topic was checked against what the product
-decided before and against what browsers offer today, and several points had to be **adapted** or **left out**. The disposition of each:
+The guidance asks for a small footprint, memory that goes away when its owner does, a thin boundary between JavaScript and WebAssembly, real concurrency and a lean build. Each topic was checked against what the product decided before and what browsers run, and the operator then ruled on the open points. The disposition:
 
 | # | Topic | Disposition | Where |
 |---|---|---|---|
-| 1a | Load components on demand | **Adopted, adapted:** one program module **per form**, loaded when the form is first shown | R1–R3 |
-| 1b | Component Model | **Deferred:** not natively available in browsers; each module is self-contained, so nothing needs linking | R6 |
-| 1c | ES-module integration | **Adopted as an optimisation, feature-detected**, with `fetch` + instantiate as the baseline | R3 |
-| 1d | "Destroy on return" down the call chain | **Adapted to COBOL:** state lives until `CANCEL` or the form's end, except `IS INITIAL` programs, which are discarded on return | R4 |
-| 2a | JS String Builtins | **Optional**, where it removes a copy; **not** baseline (not in Safari) | R12 |
-| 2b | A separate memory for big data (multi-memory) | **Not baseline** — the engine of iOS web views lacks it; the same separation is made with a **fixed arena inside one memory** | R8, R9 |
-| 3 | `.free()` on exposed Rust objects | **Adopted for the player**; the generated COBOL module has no such objects | R14 |
-| 4 | `memory.grow` and detached views | **Adopted:** the data memory never grows; views are never cached | R7, R10 |
+| 1a | Load components on demand | **One program module for the whole project** (operator, Q1), compiled while it streams; on-demand loading applies to the **player's heavy parts** (charts, maps, the Viewer, the 3D engine) | R1, R3 |
+| 1b | Component Model | **Not kept**: the operator's condition — Chrome support — is not met (§1, "What was checked"); revisit when it is | R6 |
+| 1c | ES-module integration | **Not kept as the baseline**, same condition; **optional and feature-detected**, with `fetch` + streaming instantiation as the path every browser takes | R3 |
+| 1d | "Destroy on return" down the call chain | **Adapted to COBOL:** a form's data lives in a **region** that is released when the form is destroyed; state is kept until `CANCEL` or the form's end, except `INITIAL` programs, which start fresh and are discarded on return | R2, R4, R5 |
+| 2a | JS String Builtins | **Optional**, where it removes a copy; not baseline (not in Safari) | R12 |
+| 2b | A separate memory for raw data | **Multi-memory is the default** for the program module — the transport arena is memory 1 — with a **single-memory variant** for iOS and for any target matrix that includes Safari | R8, R9 |
+| 3 | `.free()` on exposed Rust objects | **Adopted for the player** (and the graphics objects it hosts); the generated COBOL module has no such objects | R14 |
+| 4 | `memory.grow` and detached views | **Adopted:** the program module's memory never grows; views are never cached; shared memory of the threaded player has a declared maximum | R7, R10 |
 | 5a | Coarse-grained calls | **Adopted** as a rule of the host API | R11 |
-| 5b | Threads, Rayon | **Not adopted:** contradicts the ruling of 2026-10-19 (no threads in the browser) and needs cross-origin isolation | R19 |
-| 6 | Size-first profile, `wasm-opt` | **Adopted for the player** (the generated module has no `Cargo.toml`) | R16, R17 |
+| 5b | Threads and Rayon | **Adopted (operator, 2026-10-20), reversing the ruling of 2026-10-19.** Rayon in the player and the graphics objects; the program module in a Worker when the page is cross-origin isolated; **everything also works without threads** | R19 |
+| 6 | Size-first profile, `wasm-opt` | **Adopted for the player**; the threaded variant needs a pinned **nightly** toolchain | R16, R17 |
 
 ### What was checked (2026-10-20)
 
-- **WebAssembly 3.0** was announced as a standard on 2025-09-17; it includes 64-bit memories, multiple memories, garbage collection, exception handling, tail calls, typed references, relaxed SIMD and a deterministic profile
-  ([webassembly.org](https://webassembly.org/news/2025-09-17-wasm-3.0)). A standard is not a browser baseline: what matters is what the engines this product targets run.
-- **Multiple memories:** Can I Use's snapshot shows support from Chrome 120 and Firefox 125 and **none in Safari, on macOS or iOS** ([caniuse.com/wf-wasm-multi-memory](https://caniuse.com/wf-wasm-multi-memory)). The iOS target of this series runs in **WKWebView**, which is Safari's engine, so a module
-  that uses a second memory would not even validate there. (A snapshot, from a secondary aggregator: confirm against MDN and WebKit's release notes at `/plan`.)
-- **JS String Builtins:** live in Chrome and Firefox, not in Safari, as of a 2024–2025 overview ([platform.uno](https://platform.uno/blog/state-of-webassembly-2024-2025/); see also [The New Stack](https://thenewstack.io/wasm-3-0-offers-new-way-to-handle-javascript-strings/)). Same caution.
-- **Component Model and ES-module integration:** an early-2026 article says the Component Model's browser features are still under development and not universal ([sesamedisk.com](https://sesamedisk.com/webassembly-in-2026-future-web-integration/)); Mozilla is implementing ES-module integration. No current per-browser table was found.
-- **`wasm-pack`:** the `rustwasm` GitHub organisation was wound down in 2025 and `wasm-bindgen` moved to an organisation of its own ([Rust blog](https://blog.rust-lang.org/inside-rust/2025/07/21/sunsetting-the-rustwasm-github-org)); `wasm-pack` was not named a new home in what was read. WASM-002 Q2 already prefers `trunk` as the bundler.
-- **In this repository:** the generated COBOL module is emitted by our compiler, not by `rustc` (WASM-010), so Cargo profiles, `wasm-bindgen` and `.free()` concern **only the player** (WASM-016). Forms are separate run units, each with its own copy of Common Code (spec 049; `cobolt-compiler/src/lib.rs:1519-1525`),
-  so a module per form follows an existing boundary. The form lifecycle — displayed, resident, destroyed, with `PreservePreviousForm` keeping a form resident — is spec 049's.
+- **WebAssembly 3.0** is a standard since 2025-09-17 — 64-bit memories, multiple memories, GC, exception handling, tail calls, typed references, relaxed SIMD, a deterministic profile ([webassembly.org](https://webassembly.org/news/2025-09-17-wasm-3.0)).
+  **Threads are not part of it**: the threads proposal is separate and has been available in Chrome, Firefox and Safari for years ([web.dev](https://web.dev/articles/webassembly-threads)). What stood in the way was never browser support; it is **cross-origin isolation** (`COOP`/`COEP`) and, for Rust,
+  a **nightly toolchain with a rebuilt standard library**: the `wasm-bindgen-rayon` documentation says the standard library for the WebAssembly target is built without threads and was tested with `nightly-2024-08-02` ([docs.rs](https://docs.rs/wasm-bindgen-rayon)). The operator's decision is carried out with those two costs stated (R19).
+- **Multiple memories:** Can I Use's snapshot shows Chrome 120+, Firefox 125+ and **no Safari, macOS or iOS** ([caniuse.com](https://caniuse.com/wf-wasm-multi-memory)); the iOS target runs in **WKWebView**, Safari's engine. A snapshot from a secondary source: confirm at `/plan`.
+- **JS String Builtins:** Chrome and Firefox, not Safari, in a 2024–2025 overview ([platform.uno](https://platform.uno/blog/state-of-webassembly-2024-2025/)).
+- **ES-module integration and the Component Model in Chrome:** **not confirmed.** Source-phase imports are TC39 Stage 3, Firefox's tests for them are marked tentative ([proposal](https://github.com/tc39/proposal-source-phase-imports)); `jco transpile`, the usual route for components in a browser, calls itself experimental and unsuitable for production
+  ([jco](https://www.socket.dev/npm/package/@bytecodealliance/jco-transpile)); the Component Model 1.0 is still being finished ([Bytecode Alliance](https://bytecodealliance.org/articles/the-road-to-component-model-1-0)). Chrome's own status page was not reachable in this session. By the operator's condition they are **not kept**, and R6 and R3 say what stays.
+- **`wasm-pack`:** its upstream organisation was wound down in 2025 ([Rust blog](https://blog.rust-lang.org/inside-rust/2025/07/21/sunsetting-the-rustwasm-github-org)); `trunk` is the bundler of WASM-002 Q2.
+- **In this repository:** the generated COBOL module is emitted by our compiler, not `rustc` (WASM-010), so Cargo profiles, `wasm-bindgen`, `.free()` and Rayon concern **the player and the graphics objects** (WASM-016, WASM-018). `rayon` is already in the workspace's dependency tree (through `image`); Rust is 1.95 stable (MSRV 1.92); the machine has no `wasm32` target yet.
+  Forms are separate run units, each with its own copy of Common Code (spec 049; `cobolt-compiler/src/lib.rs:1519-1525`), and their lifecycle — displayed, resident, destroyed, `PreservePreviousForm` keeping one resident — is spec 049's.
 
 ## 2. Goals / Non-goals
 
 - **Goals:**
-  - A small first load: only the forms the user reaches are fetched.
-  - Memory that returns when a form is destroyed, proven by a test.
-  - A memory model with **no growth and no detached views** in the program module.
-  - A host API cheap to cross: coarse-grained, batched, with at most one copy of text each way.
+  - A program module that streams, compiles while it downloads and starts fast; heavy player parts fetched only when used.
+  - Form memory that returns when the form is destroyed, proven by a test.
+  - A memory model with **no growth and no detached views** in the program module; multi-memory by default, a single-memory variant where the platform lacks it.
+  - A host API cheap to cross: coarse-grained, batched, at most one copy of text each way.
+  - **Real concurrency** where the platform allows it, never required for correctness.
   - A lean, reproducible build of the player, and a **stated feature baseline and browser matrix** the Build enforces.
 - **Non-goals:**
-  - Threads, shared memory, Rayon and Web-Worker execution in v1 (R19).
+  - Threads in the **COBOL program's own semantics**: COBOL has no threads; the program module runs in one thread (in a Worker when isolated, R19).
   - The Component Model, WebAssembly GC and 64-bit memories in v1.
-  - A second memory (multi-memory) in v1; the design leaves the door open.
-  - Performance **budgets** (numbers); this spec makes them measurable, the budgets are set after phase A of WASM-010.
+  - Performance **budgets** (numbers): this spec makes them measurable.
 
 ## 3. User stories
 
-- As a user, I want a large application to start fast and to fetch a screen only when I open it.
+- As a user, I want a large application to start fast and a long calculation never to freeze the page.
 - As a user, I want the application not to grow in memory as I open and close screens.
-- As a developer, I want a long loop in my program not to freeze the page.
+- As a developer on a phone or a Safari browser, I want the same application to run, without multi-memory and without threads, if that is what the platform offers.
 - As a maintainer, I want the rules of the JS boundary written once, so that the player and the loader cannot drift.
 
 ## 4. Requirements (EARS)
 
-**Modular loading**
-- **R1 (ubiquitous):** The Build shall emit **one program module per form** — the form's run unit, with the Common Code its programs call copied into it as today — each self-contained (WASM-010 R2). A project with one form has one module. The module of the **main form** is loaded at start. (Q1 on the granularity.)
-- **R2 (event):** When a form is first shown — by a route, a menu load, `OpenFormSync`/`OpenFormAsync` or the start of a standalone page (WASM-011) — the loader shall fetch and instantiate that form's module, and shall not fetch a module whose form is never shown.
-- **R3 (ubiquitous):** The loader shall instantiate through ES-module integration when the browser offers it and otherwise through `fetch` and streaming instantiation; both paths shall give the same behaviour. The host page may hint likely next forms for prefetch (Q4).
-- **R4 (ubiquitous):** Instance lifetime shall follow COBOL, not the call stack: a program's `WORKING-STORAGE` is kept from its first `CALL` until `CANCEL` or until its form is destroyed, **except** a program declared `INITIAL`, which starts fresh at every call and whose state is discarded when it returns. Subprograms
-  shall live inside their form's module unless the plan finds a reason to separate them; if one is separated, its instance obeys the same rule.
-- **R5 (event):** When a form is destroyed (spec 049: not resident and not preserved), the loader shall drop **every** reference to its instance and memory — listeners, timers, pending calls (cancelled), entries in host tables — so that the engine can collect it; and a debug build shall be able to prove it (R20).
-- **R6 (ubiquitous):** The Component Model shall not be used in v1; the host API stays plain imports and exports (WASM-010 R12). The decision shall be reviewed when browsers support the Component Model natively.
+**Loading and form lifetime**
+- **R1 (ubiquitous):** The Build shall emit **one program module for the whole project** — every form's programs, with the Common Code each form calls copied in as today — self-contained (WASM-010 R2). The loader shall fetch it with **streaming compilation** and start the main form as soon as it is ready.
+- **R2 (ubiquitous):** Each form **instance** shall have its `WORKING-STORAGE` in a **region** of the module's data memory, allocated when the form is created and released when it is destroyed (spec 049: not resident and not preserved). The memory's size is fixed at compile time (R7) as the static data plus, for each form, **`Instances` × its size**, where `Instances` is a property of the
+  form (default 4 for a form that `OpenFormSync`/`OpenFormAsync` can open, 1 otherwise); creating an instance beyond `Instances` shall raise the run-time error of WASM-010 R11 with the form's name.
+- **R3 (ubiquitous):** The loader shall instantiate by `fetch` and streaming instantiation, which every supported browser offers. **ES-module integration** (importing `.wasm` natively) is **optional**: used when feature-detected, never required (R6, R18). Heavy **player parts** (WASM-016 R13) shall be fetched on first use by the same loader.
+- **R4 (ubiquitous):** Lifetime shall follow COBOL, not the call stack: a program's `WORKING-STORAGE` is kept from its first `CALL` until `CANCEL` or until its form's instance is destroyed, **except** a program declared `INITIAL`, which starts fresh at every call and whose state is discarded when it returns.
+- **R5 (event):** When a form instance is destroyed, the module shall release its region and reinitialise it, and the loader shall drop **every** reference the instance held — listeners, timers, pending calls (cancelled), host-table entries; when the application is unmounted, the loader shall drop the module, its memories and terminate its Workers; a debug build shall prove both (R20).
+- **R6 (ubiquitous):** The Component Model shall **not** be used in v1: the operator kept it only if Chrome supported it, and that is not established. The host API stays plain imports and exports (WASM-010 R12). The decision shall be revisited when the three engines support the Component Model natively (Q7).
 
 **Memory model**
-- **R7 (ubiquitous):** A program module's **data memory** shall have a size **fixed at compile time** from its declared items (`OCCURS` at their maximum, `OCCURS … DEPENDING ON` at their upper bound); generated code shall contain no `memory.grow`; a program whose data cannot be sized is a compile error.
-- **R8 (ubiquitous):** Each module shall reserve, inside its one memory, a **transport arena** — a region apart from the COBOL data, of a fixed size taken from the project's payload limit (WASM-005 R11) — for the text and the JSON frames that cross the boundary. The host reads and writes the arena by offset and length, and touches COBOL data only through the host API.
-- **R9 (ubiquitous):** Multi-memory shall **not** be part of the baseline (R18). The arena of R8 is laid out so that it could become a second memory in an enhanced variant without changing the host API.
-- **R10 (ubiquitous):** The host shall never keep a `TypedArray` or `DataView` over a module's memory across a call: it takes the view from the memory object at each use. The player, whose own memory may grow, shall not hand JavaScript views over its memory that outlive a call into it.
+- **R7 (ubiquitous):** The program module's **data memory** has a size **fixed at compile time** (R2); generated code contains no `memory.grow`; data that cannot be sized is a compile error naming the item.
+- **R8 (ubiquitous):** Text and JSON frames that cross the boundary live in a **transport arena** of a fixed size taken from the project's payload limit (WASM-005 R11). In the **multi-memory variant** the arena is **memory 1**, separate from the COBOL data in memory 0; in the **single-memory variant** it is a reserved region of memory 0. The host API is the same: offset, length and a memory selector.
+- **R9 (ubiquitous):** **Multi-memory is the default** for the program module (operator, 2026-10-20). The Build shall also produce a **single-memory variant** — no multi-memory instruction anywhere — and shall use it **always for iOS** (the Mobile iOS build has "multi-memory" off by default) and **whenever the project's target-browser matrix includes Safari or the iOS web view**, which the default matrix does: such a Web bundle carries **both**
+  variants and the loader probes (`WebAssembly.validate` of a minimal multi-memory module) and loads the matching one. A project whose matrix has no Safari may choose "multi-memory only". Only the **emitted** module can use a second memory; Rust artefacts (the player) cannot address one and never do.
+- **R10 (ubiquitous):** The host shall never keep a `TypedArray` or `DataView` over a module's memory across a call: it takes the view from the memory object at each use. The player, whose memory may grow, shall not hand JavaScript views over its memory that outlive a call into it; this holds for shared memory too.
 
 **The boundary**
-- **R11 (ubiquitous):** The host API shall be **coarse-grained**: property writes made during a handler are accumulated and delivered **in one call** when the handler ends or suspends, with reads reflecting the handler's own earlier writes; an event is one call; a remote call is one request and one answer; no host call
-  shall be made per iteration of a loop.
-- **R12 (ubiquitous):** Text crossing the boundary shall be converted **once in each direction**, UTF-8 in the arena against JavaScript strings through `TextEncoder`/`TextDecoder`; where the browser offers **JS String Builtins** and using them removes a copy, the loader may use them (feature-detected, with the baseline path as the fallback).
-- **R13 (ubiquitous):** Data that does not need the COBOL program — a dropped file's bytes, an image — shall not pass through the program module: the player moves it between the browser and the backend (WASM-014 R15).
-- **R14 (ubiquitous):** Every Rust object the player exposes to JavaScript through `wasm-bindgen` shall have an **explicit disposal** (`free()` or the dispose protocol), called by `unmount()` and by the loader on teardown; the objects exposed shall be few and listed; and no object shall be left to the JavaScript garbage collector alone.
-- **R15 (ubiquitous):** The player shall be built so that a panic ends that application instance cleanly: the host page shall show a readable error with a reload action and raise an error event; a run-time error of the COBOL program is not a panic (WASM-010 R11).
+- **R11 (ubiquitous):** The host API is **coarse-grained**: property writes made during a handler are accumulated and delivered **in one call** when the handler ends or suspends, with reads reflecting the handler's own earlier writes; an event is one call; a remote call is one request and one answer; no host call is made per iteration of a loop. A drawing program uses the same rule: commands go into a buffer in the arena and are executed by one call (WASM-018 R6).
+- **R12 (ubiquitous):** Text crossing the boundary is converted **once in each direction**, UTF-8 in the arena against JavaScript strings through `TextEncoder`/`TextDecoder`; where the browser offers **JS String Builtins** and using them removes a copy, the loader may use them (feature-detected, baseline path as fallback).
+- **R13 (ubiquitous):** Data that does not need the COBOL program — a dropped file's bytes, an image, pixel buffers of the graphics objects — shall not pass through the program module: the player moves it (WASM-014 R15, WASM-018).
+- **R14 (ubiquitous):** Every Rust object the player exposes to JavaScript through `wasm-bindgen` has an **explicit disposal** (`free()` or the dispose protocol), called by `unmount()` and by the loader on teardown; the objects exposed are few and listed; none is left to the JavaScript garbage collector alone. The same holds for the handles the graphics objects hand out (WASM-018).
+- **R15 (ubiquitous):** The player shall be built so that a panic ends that application instance cleanly: the host page shows a readable error with a reload action and raises an error event; a COBOL run-time error is not a panic (WASM-010 R11). In the threaded variant a panic in a worker also ends the instance.
 
 **Build and baseline**
-- **R16 (ubiquitous):** The **player** shall be built with a size-first release profile — `lto`, `codegen-units = 1`, `panic = "abort"`, stripped symbols and a size-oriented `opt-level` chosen by measurement (`"z"` against `"s"`) — followed by a `wasm-opt` pass; the sizes shall be reported (WASM-016 R13).
-- **R17 (ubiquitous):** The product's build shall run a pinned `wasm-bindgen` CLI and a pinned Binaryen `wasm-opt` through the bundler (WASM-002 Q2) and shall not depend on `wasm-pack`; these tools exist only in the product's build, and the supply-chain rules of WASM-013 R9 apply to them.
-- **R18 (ubiquitous):** The Build shall declare a **baseline set of WebAssembly features** and a **matrix of supported browsers** — Chrome and Edge, Firefox, Safari, the iOS web view and the Android WebView — taken from MDN and Can I Use at `/plan`; the program module and the player shall use only the baseline; the loader shall probe the browser (`WebAssembly.validate`) and,
-  below the baseline, show the readable message of WASM-002 R15. A feature above the baseline (multi-memory, JS String Builtins, ES-module integration, tail calls…) shall be optional, with a fallback or a second variant of the module.
-- **R19 (constraint):** The application shall use **no threads and no shared memory** in v1 (operator, 2026-10-19: *threads are not needed in the browser*), shall not require cross-origin isolation (`COOP`/`COEP`), and shall not use Rayon. Responsiveness shall come from **cooperative yielding**: generated code shall yield to the host when a handler has run longer than a budget (a
-  default, configurable), at loop back-edges, through the suspension mechanism of WASM-010 R9, and resume on the host's next turn; results shall not depend on where it yielded.
+- **R16 (ubiquitous):** The **player** is built with a size-first release profile — `lto`, `codegen-units = 1`, `panic = "abort"`, stripped symbols, a size-oriented `opt-level` chosen by measurement (`"z"` against `"s"`) — and a `wasm-opt` pass; sizes are reported (WASM-016 R13). It has **two variants**: **plain** (stable Rust, baseline) and **threaded** (a **pinned nightly** toolchain, a rebuilt standard library, atomics, bulk memory and shared memory, `--target web`, `wasm-bindgen-rayon`), built from the same source.
+  The rest of the workspace stays on stable Rust, MSRV 1.92; the nightly is confined to the player's build step.
+- **R17 (ubiquitous):** The product's build runs a pinned `wasm-bindgen` CLI, a pinned Binaryen `wasm-opt` and the bundler (WASM-002 Q2), never `wasm-pack`; these tools and the nightly exist only in the product's build; the supply-chain rules of WASM-013 R9 apply, and the nightly's date is recorded in every build.
+- **R18 (ubiquitous):** The Build declares a **baseline of WebAssembly features** and a **matrix of supported browsers** (Chrome and Edge, Firefox, Safari, the iOS web view, the Android WebView), from MDN and Can I Use at `/plan`. The loader probes the browser and chooses, independently: the **program-module variant** (multi-memory or single, R9), the **player variant** (threaded or plain, R19) and the optional accelerations (JS String Builtins, ES-module
+  integration). Below the baseline it shows the readable message of WASM-002 R15. The baseline is what the single-memory variant and the plain player use.
 
-**Assurance**
-- **R20 (ubiquitous):** The test suite shall contain: a **laziness** test (a network trace shows a form's module fetched only when the form is shown); a **disposal** test (open and close a form many times; live instances and memory return to their baseline, using weak references in a debug build); a **fixed-memory** test; a **batching** test (a handler that writes 1000 properties makes at most
-  a stated number of host calls); a **strings** test (UTF-8 round trip including multi-byte text); a **view** test (a call that grows the player's memory leaves the host's reads correct); a **baseline** test (modules validate on the baseline, and a browser below it gets the message); and a **yield** test (a very long loop keeps frames within a deadline and gives the same result).
+**Concurrency**
+- **R19 (ubiquitous):** Threads and Rayon are **in v1** (operator, 2026-10-20), as follows.
+  (a) **Rayon** runs in the **player and the graphics objects** — image filters and resizing, chart and canvas rasterisation, physics, large table work such as sorting and filtering a DataGrid — on a worker pool sized from `navigator.hardwareConcurrency` (capped, configurable), using the threaded player.
+  (b) The **program module runs in a dedicated Worker** when the page is cross-origin isolated: host calls are proxied to the main thread (writes batched, R11; reads by a blocking wait on shared memory), so a long loop never freezes the page; the same module runs **on the main thread** with cooperative yielding (WASM-010 R9) when it is not. Results do not depend on the mode.
+  (c) **Isolation** — `Cross-Origin-Opener-Policy: same-origin` with `Cross-Origin-Embedder-Policy: require-corp` or `credentialless` — is **required for threads and is a deployment property**: the Build prints the headers for the common hosts and an optional service-worker shim that sets them for hosts that cannot (off by default, with its trade-offs stated); resources from other origins must then allow it (CORS or `Cross-Origin-Resource-Policy`).
+  (d) A page that embeds the application (WASM-002 R11) is isolated only if the host page is; otherwise the application **falls back to the plain player and the main thread**, with no loss of function.
+  (e) **Nothing requires threads for correctness:** every feature works on the plain player and the main thread, and a test runs the same cases on each (R20).
+  (f) Deterministic results: a Rayon reduction shall not make a result depend on the thread count (WASM-018 R20).
+- **R20 (ubiquitous):** The test suite contains, for **each combination** of program-module variant (multi-memory, single) and player variant (threaded, plain), and for both program execution modes (Worker, main thread): a **loading** test (one project module fetched at start, a heavy player part only on first use); a **disposal** test (open and close a form many times; regions and instances return to baseline; an unmount ends the Workers); a **fixed-memory** test; a **batching** test (a handler that writes 1000 properties makes at most a stated number of host calls); a **strings** test (UTF-8 round trip including multi-byte text); a **view** test
+  (a call that grows the player's memory leaves the host's reads correct); a **baseline and matrix** test (a browser below the baseline gets the message; each variant is chosen by its probe); an **isolation** test (with and without `COOP`/`COEP`, the threaded or plain player is chosen and results are the same); and a **yield** test (a very long loop keeps frames within a deadline in the main-thread mode).
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A three-form project builds three program modules; at start only the main form's is fetched; showing the second form fetches its module; a form never shown is never fetched.
-- [ ] **AC2** — Opening and closing a non-resident form 100 times leaves the live instance count and the memory at their starting values (debug leak check).
-- [ ] **AC3** — A form kept resident by `PreservePreviousForm` keeps its instance; destroying it releases the instance.
+- [ ] **AC1** — A three-form project builds one program module; it is fetched once, at start, with streaming compilation; a heavy player part (a chart) is fetched only when a form using it is first shown.
+- [ ] **AC2** — Opening and closing a form 100 times leaves the live instance count and the module's used regions at their starting values; creating more instances than `Instances` raises the run-time error naming the form.
+- [ ] **AC3** — A form kept resident by `PreservePreviousForm` keeps its region; destroying it releases the region; an unmount terminates the Workers and drops the module.
 - [ ] **AC4** — A called program declared `INITIAL` starts fresh on every call; a plain called program keeps its state across calls until `CANCEL`, and after `CANCEL` starts fresh.
-- [ ] **AC5** — Generated modules contain no `memory.grow`; a program with data of unbounded size fails to compile with the item named.
-- [ ] **AC6** — A handler that writes 1000 properties makes at most the stated number of host calls, and a read after a write sees the write.
-- [ ] **AC7** — Text with multi-byte characters crosses the boundary intact in both directions; no JavaScript string is built in a loop (a trace counts conversions).
-- [ ] **AC8** — A player call that grows the player's memory does not invalidate what the host reads next; no view is cached across calls (a source search of the loader and the test of R10).
-- [ ] **AC9** — Every object the player exposes to JavaScript is on the list and is disposed by `unmount()`.
-- [ ] **AC10** — A forced panic in the player shows the readable error with the reload action and raises the error event; a COBOL run-time error does not.
-- [ ] **AC11** — The Build prints the player's size before and after `wasm-opt`, and the profile in force; the pinned tool versions are recorded.
-- [ ] **AC12** — On a browser below the baseline the loader shows the message; on the baseline, modules validate; no baseline module uses multi-memory (a scan of the module's sections).
-- [ ] **AC13** — A loop of ten million iterations keeps every animation frame under the deadline of the test and yields the same results as without yielding; the page never needs cross-origin isolation (a header-free static host works).
+- [ ] **AC5** — Generated modules contain no `memory.grow`; a program whose data cannot be sized fails to compile with the item named.
+- [ ] **AC6** — The multi-memory variant has two memories with the arena in memory 1; the single-memory variant has one and no multi-memory instruction (a scan of its sections); the host API behaves identically on both.
+- [ ] **AC7** — The iOS Mobile build uses only the single-memory variant by default; a Web bundle whose matrix includes Safari carries both variants and loads the right one on Chrome (multi-memory) and on a browser that lacks it (single); "multi-memory only" is refused by the Build when the matrix includes Safari.
+- [ ] **AC8** — A handler that writes 1000 properties makes at most the stated number of host calls, and a read after a write sees the write.
+- [ ] **AC9** — Text with multi-byte characters crosses the boundary intact in both directions; no JavaScript string is built in a loop (a trace counts conversions).
+- [ ] **AC10** — A player call that grows the player's memory does not invalidate what the host reads next; no view is cached across calls (a source search of the loader and the test of R10).
+- [ ] **AC11** — Every object the player exposes to JavaScript is on the list and is disposed by `unmount()`; a forced panic shows the readable error with the reload action and raises the error event.
+- [ ] **AC12** — The Build prints both player variants' sizes before and after `wasm-opt`, the profile in force, the pinned tool versions and the nightly's date.
+- [ ] **AC13** — On an isolated page the threaded player and the Worker execution mode are chosen and a Rayon-backed operation uses more than one worker; on a non-isolated page the plain player and the main thread are chosen, results are identical, and a ten-million-iteration loop keeps every frame under the test's deadline.
+- [ ] **AC14** — Embedded in a non-isolated host page the application starts on the plain player and works; embedded in an isolated one it uses threads.
+- [ ] **AC15** — The headers for isolation are generated for each documented host; an image, font or tile from another origin loads under `credentialless` or with CORS/CORP as documented, and fails with a readable diagnostic otherwise.
 
 ## 6. Constraints & steering check
 
-- **Adjusts the earlier specs:** WASM-010 (one module **per form**; memory fixed at compile time with an arena; batching; yielding), WASM-002 (the bundle holds several program modules loaded on demand; the baseline and the browser matrix; no cross-origin isolation), WASM-011 (the module of a form is loaded when it is shown and discarded when it is destroyed),
-  WASM-016 (the bundle is the player plus the program modules; the build profile; disposal), WASM-013 (no cross-origin isolation, no threads), WASM-015 (the tests of R20).
-- **A tension to rule on (D15):** the operator's decision of 2026-10-19 was **"two `.wasm` files"** — the player and the program module. Per-form loading makes it **one player plus one module per form**. The design intent (a prebuilt player, generated COBOL, no Rust toolchain) is unchanged; the count of files is not. Q1 offers the alternative of one module for the whole project.
-- **i18n:** the readable messages of R15 and R18 belong to the host page (translatable by the developer); IDE strings (the Build report) are six languages.
-- **Credentials/security:** no secret enters a module or the arena; R19 keeps the page embeddable and free of cross-origin-isolation requirements.
-- **Tech steering:** Binaryen, `wasm-bindgen` and the bundler enter only the product's build; MSRV 1.92 and the dependency guards apply.
-- **Docs:** `docs/` untouched on 2.x.x. **System KB:** the form-lifecycle and `INITIAL`/`CANCEL` behaviour in the browser belongs in the compiler's documentation tables at implementation.
+- **Adjusts the earlier specs:** WASM-010 (one module for the project; regions per form instance; multi-memory default; Worker mode), WASM-002 (the bundle's variants; baseline and matrix; isolation headers), WASM-011 (form instance data regions instead of per-form modules), WASM-013 (isolation replaces the old "no cross-origin isolation" rule), WASM-015 (the test matrix), WASM-016 (player variants, nightly, parts on demand).
+- **Reverses a ruling:** the 2026-10-19 ruling *threads are not needed in the browser* is **superseded by the operator's decision of 2026-10-20**; CLAUDE.md and the index say so.
+- **Toolchain impact (stated, not avoided):** the threaded player needs a **pinned nightly** and `build-std`, in the **product's** build only; this is outside the workspace's MSRV and its dependency guards and is therefore recorded in every build (R17) and reviewed with WASM-013 R9.
+- **i18n:** the readable messages of R15 and R18 belong to the host page; IDE strings (the Build report, the iOS multi-memory option) are six languages.
+- **Docs:** `docs/` untouched on 2.x.x. **System KB:** the form `Instances` property and the `INITIAL`/`CANCEL` behaviour in the browser go into the compiler's documentation tables at implementation.
 - **Fix vs feature:** **feature** (`features-2x`).
 
 ## 7. Open questions
 
-- **Q1 — Granularity.** One module per form (recommended: it follows the run-unit boundary and gives the smallest first load) against **one per subsystem** (the menu-carrying form with its children, spec 049) or **one for the whole project** (simplest, no duplication, a larger first load). A module per form copies the routines it uses and the Common Code it calls into each module;
-  with transport compression this is small, but it should be measured on a real multi-form application before the choice is final.
-- **Q2 — The yield budget** (a default in milliseconds) and whether running the program in a Web Worker is worth its cost later (the DOM is not reachable from a worker, so every host call becomes asynchronous).
-- **Q3 — An enhanced variant** (multi-memory, JS String Builtins, tail calls) when Safari and the iOS web view support them: build two variants and let the loader choose, or wait?
-- **Q4 — Prefetch policy:** none, idle-time prefetch of the forms a menu lists, or a hint property on the form.
-- **Q5 — The browser matrix:** which minimum versions, in particular the oldest iOS the Mobile kind supports; decided from the data of `/plan`.
-- **Q6 — `wasm-opt`:** run only in the product's build (for the player), or also shipped with the IDE to optimise generated modules (a native tool on the developer's machine)? Recommended: only the product's build in v1; the emitter does its own dead-code removal (WASM-010 R2).
-- **Q7 — Revisiting the Component Model and ES-module integration:** a trigger (support in the three engines) and an owner.
-- **Q8 — `opt-level`:** `"z"` against `"s"`: size against speed for the player, by measurement on a form-heavy page.
+- **Q1 — decided** (operator, 2026-10-20): one program module for the whole project (R1). The cost accepted: a larger first download than per-form modules, mitigated by streaming compilation, compression and the player's on-demand parts; to be measured on a multi-form application.
+- **Q2 — The yield budget** (a default, in milliseconds) for the main-thread mode; and the number of Workers by default (`hardwareConcurrency` minus one, capped at 8?).
+- **Q3 — decided** by R9: both variants, chosen by probe; iOS off.
+- **Q4 — The browser matrix** and its defaults: which minimum versions, in particular the oldest iOS the Mobile kind supports; from the data of `/plan`.
+- **Q5 — Isolation on the mobile shell:** Tauri's configuration for the headers of its asset protocol, and whether the iOS web view isolates; if not, the Mobile kind runs the plain player and the main thread there.
+- **Q6 — `wasm-opt`:** product's build only for the player (recommended), or also shipped for generated modules.
+- **Q7 — Revisiting the Component Model and ES-module integration:** the trigger is native support in Chrome, Firefox and Safari; an owner to check Chrome's status page, which could not be read in this session.
+- **Q8 — `opt-level`:** `"z"` against `"s"` by measurement.
+- **Q9 — The nightly:** which pinned date, and whether `build-std` is still required by the toolchain of the time of the `/plan`.
+- **Q10 — The service-worker shim** that sets the isolation headers on hosts that cannot: offer it, document it only, or leave it out.

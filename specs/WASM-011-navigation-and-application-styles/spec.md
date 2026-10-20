@@ -66,7 +66,7 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
 
 **SPA**
 - **R4 (event):** When the SPA shows a form, the address shall change to that form's **route** (the form's name plus the parameters it was opened with); Back and Forward shall move through the navigation chain; a reload or a
-  pasted address shall open the application at that form (Q1 on what is restored). The form's program module is fetched when the form is first shown and released when the form is destroyed — not while it is resident or preserved by `PreservePreviousForm` (WASM-017 R2, R5).
+  pasted address shall open the application at that form (Q1 on what is restored). The form's **data region** in the project's program module is created when the form is created and released when the form is destroyed — not while it is resident or preserved by `PreservePreviousForm` (WASM-017 R2, R5); the module itself is loaded once, at start.
 - **R5 (ubiquitous):** The route form shall work on any static host without server configuration (Q2) and shall not hijack the host page's address when the application is embedded in a layout (WASM-002 R11).
 - **R6 (event):** When an address names no form, or a form the user may not open, the application shall show a defined **not-found** or **sign-in** outcome (WASM-009 R11) and raise an event the developer can handle.
 - **R7 (ubiquitous):** On every navigation the focus shall move to the new form's title, the change shall be announced to assistive technology, and the scroll position shall reset.
@@ -118,5 +118,5 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
 - **Q3 — `super` between windows** needs a channel the browser offers only within one origin and one browser profile; confirm that limit is acceptable, and that a closed opener is a normal `ON EXCEPTION`.
 - **Q4 — Same-window multi-page navigation** (each `OpenForm` replacing the page, a classic multi-page site) is a third style the operator did not name: out of scope, or part of "standalone"?
 - **Q5 — Mobile default style:** SPA with a stack (recommended) or standalone screens throughout?
-- **Q6 — The program module of a standalone page — settled by WASM-017:** each page loads **the module of its own form** (one module per form), and one player is shared by every page; a project-wide single module is WASM-017's alternative (its Q1).
+- **Q6 — The program module of a standalone page — decided** (operator, 2026-10-20, WASM-017 Q1): every page loads **the project's one program module** and the one player, instantiated with the page's start form; the browser caches both once for all pages.
 - **Q7 — Several instances of the application on one page** (embedded in two places): allowed or refused?
