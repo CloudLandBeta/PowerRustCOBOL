@@ -157,6 +157,12 @@ impl Limits {
         over("scene triangles", triangles, self.max_triangles, "max_triangles")
     }
 
+    /// One mesh of `vertices` vertices (bounded by the scene's triangle limit: a mesh cannot
+    /// usefully have more vertices than the scene may hold triangles).
+    pub fn check_vertices(&self, vertices: u64) -> Result<()> {
+        over("vertices in one mesh", vertices, self.max_triangles, "max_triangles")
+    }
+
     /// A world reaching `bodies` bodies.
     pub fn check_bodies(&self, bodies: u64) -> Result<()> {
         over("physics bodies", bodies, self.max_bodies as u64, "max_bodies")

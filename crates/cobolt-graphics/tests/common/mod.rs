@@ -7,6 +7,7 @@
 //! Helpers shared by the integration tests.
 #![allow(dead_code)]
 
+pub mod glb;
 pub mod scenes;
 pub mod synthfont;
 

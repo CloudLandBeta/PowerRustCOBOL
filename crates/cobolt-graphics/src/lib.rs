@@ -22,6 +22,8 @@ pub mod physics;
 #[cfg(feature = "plot")]
 pub mod plot;
 pub mod resources;
+#[cfg(feature = "scene3d-core")]
+pub mod scene3d;
 #[cfg(feature = "text")]
 pub mod text;
 pub mod textapi;

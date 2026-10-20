@@ -39,7 +39,10 @@ plot = ["text", "dep:plotters", "dep:plotters-backend"]
 physics = ["dep:rapier2d", "dep:rapier3d"]
 
 # Scene3D / Canvas3D (R9): wgpu + naga + glam + bytemuck + gltf + parry3d.
-scene3d = ["imagebuf", "dep:wgpu", "dep:naga", "dep:glam", "dep:gltf", "dep:parry3d", "dep:pollster"]
+scene3d = ["scene3d-core", "dep:wgpu", "dep:naga", "dep:pollster"]
+# The scene graph, glTF loader, culling, shadow fitting and picking, without the GPU renderer: plain
+# data and maths, for a host that renders elsewhere and for tests that run on any machine.
+scene3d-core = ["imagebuf", "dep:glam", "dep:gltf", "dep:parry3d"]
 
 [dependencies]
 thiserror = { workspace = true }
@@ -86,12 +89,33 @@ naga     = { version = "30", optional = true, default-features = false, features
 # glam 0.33: the same release rapier and parry (through glamx) use, so a Scene3D node and a physics
 # body share one vector type and no second glam enters the tree.
 glam     = { version = "0.33", optional = true }
-gltf     = { version = "1.4", optional = true, default-features = false, features = ["utils", "names"] }
-parry3d  = { version = "0.31", optional = true, default-features = false, features = ["dim3", "f32", "std"] }
+# `import` (the default) would read files; the loader resolves buffers and images itself (model.rs).
+gltf     = { version = "1.4", optional = true, default-features = false, features = ["utils", "names", "KHR_materials_unlit", "KHR_materials_emissive_strength"] }
+parry3d  = { version = "0.31", optional = true, default-features = false, features = ["dim3", "f32", "std", "alloc"] }
+
+# The graphics APIs wgpu reaches, per target: Metal on Apple, Vulkan (with an OpenGL fallback) on Linux
+# and Android, Direct3D 12 and Vulkan on Windows, WebGPU and WebGL2 in the browser. All are Rust
+# bindings; none compiles C. (The default features would pull every backend into every target.)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "30", optional = true, default-features = false, features = ["webgpu", "webgl"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+wgpu = { version = "30", optional = true, default-features = false, features = ["metal"] }
+
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))'.dependencies]
+wgpu = { version = "30", optional = true, default-features = false, features = ["vulkan", "gles"] }
+
+[target.'cfg(windows)'.dependencies]
+wgpu = { version = "30", optional = true, default-features = false, features = ["dx12", "vulkan"] }
+
+# Blocking on the async device calls is only possible (and only needed) off the browser.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = { version = "0.4", optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+# The scene3d tests validate the WGSL shaders without an adapter.
+naga = { version = "30", default-features = false, features = ["wgsl-in"] }
 # Golden images are read and written as PNG.
 image = { version = "0.25", default-features = false, features = ["png"] }
 # Real Latin fonts for the shaping tests (Ubuntu Light, Hack): the fonts egui already ships
