@@ -81,6 +81,7 @@ fn main() {
         Some("build") => cmd_build(&args[2..]),
         Some("package") => cmd_package(&args[2..]),
         Some("mcp") => cmd_mcp(&args[2..]),
+        Some("backend") => cmd_backend(&args[2..]),
         Some("version") => cmd_version(),
         Some("help") | Some("--help") | Some("-h") => cmd_help(),
         Some(other) => {
@@ -467,6 +468,143 @@ fn mcp_start_folder(claude_project_dir: Option<std::ffi::OsString>) -> PathBuf {
     cobolt_compiler::find_project_manifest(&here).unwrap_or(here)
 }
 
+/// `rcrun backend <run|describe|check|release|build> [dir]` (WASM-003 R19, R20).
+///
+/// `dir` is the project folder (it holds `backend/`) or the backend folder
+/// itself (it holds `exports.toml`); the default is the working directory.
+fn cmd_backend(args: &[String]) {
+    let verb = args.first().map(String::as_str).unwrap_or("");
+    let mut dir: Option<PathBuf> = None;
+    let mut listen: Option<String> = None;
+    let mut debug = false;
+    let mut quiet = false;
+    let mut accept_breaking = false;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--listen" => {
+                i += 1;
+                match args.get(i) {
+                    Some(v) => listen = Some(v.clone()),
+                    None => {
+                        eprintln!("rcrun backend: --listen needs host:port");
+                        process::exit(2);
+                    }
+                }
+            }
+            "--debug" => debug = true,
+            "--quiet" | "-q" => quiet = true,
+            "--accept-breaking" => accept_breaking = true,
+            a if !a.starts_with('-') => dir = Some(PathBuf::from(a)),
+            other => {
+                eprintln!("rcrun backend: unknown flag '{other}'");
+                process::exit(2);
+            }
+        }
+        i += 1;
+    }
+    if !matches!(verb, "run" | "describe" | "check" | "release" | "build") {
+        eprintln!("usage: rcrun backend <run|describe|check|release|build> [dir]");
+        process::exit(2);
+    }
+
+    // The project folder and its backend folder.
+    let given = dir.unwrap_or_else(|| PathBuf::from("."));
+    let (project_dir, backend_dir) = if given.join("exports.toml").exists() {
+        let project = given.parent().map(|p| p.to_path_buf()).filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| PathBuf::from("."));
+        // `backend/` beside the project's other folders, or a backend folder given directly.
+        if given.file_name().map(|n| n == "backend").unwrap_or(false) {
+            (project, given)
+        } else {
+            (given.clone(), given)
+        }
+    } else {
+        (given.clone(), given.join("backend"))
+    };
+    if !backend_dir.join("exports.toml").exists() {
+        eprintln!(
+            "rcrun backend: {} has no exports.toml — a backend declares the programs it exports there",
+            backend_dir.display()
+        );
+        process::exit(1);
+    }
+    let fail = |errs: Vec<String>| -> ! {
+        for e in errs {
+            eprintln!("rcrun backend: {e}");
+        }
+        process::exit(1);
+    };
+
+    match verb {
+        "describe" => {
+            let path = cobolt_server::dev::write_interface(&backend_dir).unwrap_or_else(|e| fail(e));
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            println!("{text}");
+            eprintln!("written to {}", path.display());
+        }
+        "check" => {
+            let backend = cobolt_server::backend::Backend::load(&backend_dir).unwrap_or_else(|e| fail(e));
+            let report = cobolt_wire::evolution::check_against_released(&backend.interface, &backend.history);
+            println!(
+                "contract {}: {} exported program(s); compared with {}",
+                backend.interface.contract,
+                backend.interface.programs.len(),
+                if report.against.is_empty() || report.against == "(none)" { "no released contract".to_string() } else { format!("released {}", report.against) }
+            );
+            for n in &report.notes {
+                println!("  note: {n}");
+            }
+            if report.breaking.is_empty() {
+                println!("ok");
+            } else {
+                for b in &report.breaking {
+                    eprintln!("  breaking: {b}");
+                }
+                process::exit(1);
+            }
+        }
+        "release" => {
+            let path = cobolt_server::dev::release_interface(&backend_dir).unwrap_or_else(|e| fail(e));
+            println!("released: {}", path.display());
+        }
+        "run" => {
+            let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen };
+            let server = cobolt_server::dev::DevServer::start(&opts).unwrap_or_else(|e| fail(e));
+            let token = server.dev_token("developer", &["user", "admin"]);
+            println!("backend listening on {}", server.url);
+            println!("development token (valid for this run only; HS256, roles user and admin):");
+            println!("{token}");
+            println!("Press Ctrl-C to stop.");
+            cobolt_server::standalone::wait_for_interrupt();
+            for l in server.log_lines() {
+                eprintln!("{l}");
+            }
+            server.stop();
+        }
+        _ => {
+            let opts = cobolt_compiler::backend_build::BackendBuildOptions { debug, verbose: !quiet, workspace_root: None, accept_breaking };
+            match cobolt_compiler::backend_build::build_backend(&project_dir, &opts) {
+                Ok(r) => {
+                    println!(
+                        "Backend built.\n   Binary   : {}\n   Interface: {}\n   Contract : {}\n   Programs : {} exported",
+                        r.binary.display(),
+                        r.interface.display(),
+                        r.contract,
+                        r.programs
+                    );
+                    for n in &r.notes {
+                        println!("   note: {n}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("rcrun backend: {e}");
+                    process::exit(1);
+                }
+            }
+        }
+    }
+}
+
 fn cmd_version() {
     println!("rcrun {} (RustCOBOL runtime)", env!("CARGO_PKG_VERSION"));
 }
@@ -499,6 +637,15 @@ fn cmd_help() {
         "  rcrun mcp     [--project <path>]      Serve the coding-agent tools (MCP) over stdio\n",
         "                                         for the project file or folder (default: the\n",
         "                                         working directory); opens no network port\n",
+        "  rcrun backend run     [dir]           Serve the project's backend for development (a\n",
+        "                                         loopback address, a development token printed)\n",
+        "         [--listen host:port]            Default 127.0.0.1:0 (a free port)\n",
+        "  rcrun backend describe [dir]          Write and print the interface description\n",
+        "  rcrun backend check   [dir]           Check the backend and compare its contract with\n",
+        "                                         the released ones\n",
+        "  rcrun backend release [dir]           Record the current contract as released\n",
+        "  rcrun backend build   [dir]           Build the headless backend binary → bin/<name>-backend\n",
+        "         [--debug] [--accept-breaking] [--quiet]\n",
         "  rcrun version                         Print version\n",
         "  rcrun help                            Print this message\n",
         "\n",

@@ -19,6 +19,8 @@ cobolt-ast      = { path = "../cobolt-ast" }
 cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-wire     = { path = "../cobolt-wire" }
+# WASM-003 — only the loader (read and pack a backend project): no sockets, no TLS.
+cobolt-server   = { path = "../cobolt-server", default-features = false, features = ["loader"] }
 cobolt-forms    = { path = "../cobolt-forms" }
 # A build regenerates the forms' generated COBOL first, as the IDE does.
 cobolt-codegen  = { path = "../cobolt-codegen" }

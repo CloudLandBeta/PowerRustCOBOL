@@ -22,11 +22,13 @@ pub mod call;
 pub mod compat;
 pub mod contract;
 pub mod error;
+pub mod evolution;
 pub mod json;
 pub mod layout;
 pub mod mapping;
 pub mod node;
 pub mod number;
+pub mod proto;
 
 pub use call::{ArgMode, ArgPayload, CallReply, CallRequest, Transport};
 pub use error::{CallError, ErrorClass};

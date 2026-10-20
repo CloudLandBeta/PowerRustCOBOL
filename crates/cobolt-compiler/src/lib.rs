@@ -55,6 +55,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 mod build_cache;
+pub mod backend_build;
 pub mod exec_rust;
 pub mod runtime_features;
 pub mod external_crates;
@@ -3609,7 +3610,7 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 15] = [
+pub const SDK_CRATES: [&str; 16] = [
     "cobolt-ast",
     "cobolt-codegen",
     // spec 074 — document import. `cobolt-kb` depends on it.
@@ -3631,6 +3632,9 @@ pub const SDK_CRATES: [&str; 15] = [
     "cobolt-parser",
     "cobolt-runtime",
     "cobolt-semantic",
+    // WASM-003 — the backend server. A Web or Mobile project's backend is built
+    // from it (`backend_build`), and `cobolt-cli` links it for `rcrun backend`.
+    "cobolt-server",
     // WASM-005 — the group <-> JSON mapping and the remote-call seam.
     // `cobolt-runtime` depends on it, so the closure guard requires it here.
     "cobolt-wire",
@@ -5080,6 +5084,10 @@ A Web or Mobile project has a backend (the `backend/` folder) that runs on the n
 - **The group-to-JSON mapping.** A member's key is its data-name **as declared** (the spelling of the declaration, case included); `FILLER`, 88-level condition-names, level-66 `RENAMES` and the **redefining** half of a `REDEFINES` are not members and are never written, and a key naming one is an unknown key. Members come out in declaration order and are read **by name**, in any order; a key the answer leaves out leaves its item unchanged. `OCCURS n` is an array of n elements (an array shorter than the table leaves the rest unchanged; a longer one is an error); `OCCURS min TO max DEPENDING ON item` is an array of the current count, the count item must be an integer declared earlier **inside the same group**, reading an array sets the count, and a count that disagrees with the array, or lies outside min..max, is an error. A numeric item is a JSON number written from its decimal text with the PICTURE scale (`PIC S9(5)V99` holding 12.5 is `12.50`) — never through a binary float, so 38 digits survive; `USAGE COMP`, `COMP-3`, `COMP-5` and `PACKED-DECIMAL` are sent as their value, and `COMP-1`/`COMP-2`, `INDEX`, `POINTER` and `OBJECT REFERENCE` items are refused at Check time. A `PIC X(n)` item is a JSON string of at most n **bytes** of UTF-8 with its trailing spaces trimmed (all spaces is `""`); `PIC N(n)` counts UTF-16 code units and `PIC U(n)` characters; an edited picture travels as its edited image. Reading is strict: an unknown key, a value of the wrong JSON type, a number that does not fit its PICTURE (too many digits, too many decimals, a negative for an unsigned item), a string longer than its PIC or a table longer than its OCCURS is an **error naming the item**, never a truncation, and **nothing is written** when any part of an answer is refused.
 - **Failure.** When a call cannot be completed — no connection, a timeout, a missing/invalid/expired token, a refused role, a payload that does not fit, an unknown program, a version mismatch, a limit, a failure the backend's program reported, or a backend fault — `ON EXCEPTION` runs; without it a failed call is a run-time error. `COBOL::"WS-LAST-ERROR" ( class code message [detail] )` reads why: the class is one of `TRANSPORT`, `AUTHENTICATION`, `AUTHORISATION`, `VALIDATION`, `NOT-FOUND`, `VERSION`, `LIMIT`, `APPLICATION`, `SERVER`; the code is stable (1000 no connection, 1002 timeout, 1003 no backend configured, 2000-2002 token missing/invalid/expired, 3000 role refused, 4000 payload does not fit, 5000 unknown program, 6000-6002 version, 7000-7004 limits, 9000-9002 server); an `APPLICATION` failure carries the backend program's own code and `detail`. `NOT ON EXCEPTION` runs when the call succeeded.
 - **At Check time** the backend's interface description (`backend/contract/interface.json`, written when the backend is built) is imported: the name must be a program the backend exports (an `ON EXCEPTION` does not excuse a name the contract does not list), the argument count must match, and each group must fit the parameter it lands on — names compared as declared, capacities, scale, sign and OCCURS.
+- **The backend's side.** `backend/exports.toml` names the contract version (`[contract] version = "1.2.0"`) and, in `[[export]]` entries, the programs a caller may reach: `program` (the PROGRAM-ID), `roles` (any one of them is enough; empty means any authenticated caller), `public` (answers with no token), `independent` (not queued behind the caller's other calls), `directions` (`in`, `out` or `inout` per parameter). **Only an exported program can be called**, whatever its name; the others are ordinary procedures the exported ones `CALL`. Every call runs in a fresh interpreter: no WORKING-STORAGE survives from one call to the next, and files are the only shared state. Inside an exported program `COBOL::"WS-CLAIM" ( "sub" WS-USER )` reads a claim of the caller's validated token (`sub`, `email`, `roles`, any scalar claim; a nested one with dotted names such as `realm_access.roles`); it is spaces when the token lacks it.
+- **Files shared between calls** wait for each other: a program that opens an indexed file for output holds it exclusively until its `CLOSE`, readers share it, and an `OPEN` that cannot get the file within `file_lock_wait_ms` (default 5000) answers file status 93. Close a file as soon as the work on it is done.
+- **The contract is versioned** (`major.minor.patch`). Between two releases an old client keeps working only if the new interface still accepts what the old one sent and still carries every member the old one reads: adding a member or a program, or widening an item that only travels to the backend, is compatible; removing or renaming a member (in a request **or** an answer), changing a scale or a sign, narrowing a picture, widening an item the backend also sends back (an old client has no room for it), removing a program, or changing who may call it is breaking and needs a new **major** version. A **release** build is refused when it breaks the last released contract (`backend/contract/released/<version>.json`, written by `rcrun backend release`).
+- **Developing and building the backend.** `rcrun backend run [dir]` serves the backend on a loopback address with a development token printed at start (valid for that run only); `rcrun backend check` compares the contract with the released ones; `rcrun backend describe` writes and prints `interface.json`; `rcrun backend release` records the current contract as released; `rcrun backend build` produces the headless server binary `bin/<name>-backend`. The built backend reads `backend.toml` (address, TLS identity, token issuer, allowed origins, limits; a secret is written as `env:NAME` or `file:PATH`, never in a form) and refuses to start on any setting named `unsafe_…`.
 
 ### Sound — the `AUDIO-…` built-ins
 Any program, console or form, can play a sound file; there is no audio control. An audio player in a form is composed from ordinary controls: Play/Pause/Stop buttons, a ProgressBar and a Label, refreshed from a Timer's `onTick` that calls `COBOL::"AUDIO-STATE"`.

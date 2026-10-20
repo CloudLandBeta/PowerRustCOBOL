@@ -39,6 +39,11 @@ zip       = { version = "2", default-features = false, features = ["deflate"] } 
 # Phase 11 — binary compiler
 cobolt-compiler = { path = "../cobolt-compiler" }
 
+# WASM-003 — `rcrun backend`: run a project's backend for development, describe
+# its contract, release it, build it. `cobolt-wire` carries the contract types.
+cobolt-server = { path = "../cobolt-server" }
+cobolt-wire   = { path = "../cobolt-wire" }
+
 # Spec 080 — `rcrun mcp`: the coding-agent tools, served over stdio.
 cobolt-mcp           = { path = "../cobolt-mcp" }
 cobolt-project-tools = { path = "../cobolt-project-tools" }

@@ -33,6 +33,7 @@ members = [
     "crates/cobolt-kb",        # spec 068 — the application Knowledge Base (collections, index, search)
     "crates/cobolt-graphics",  # WASM-018 — Canvas 2D/3D + ImageBuffer, Plot, Scene3D, Physics2D/3D (pure Rust, native + wasm32)
     "crates/cobolt-wire",      # WASM-005/014 — the frontend-backend contract: layouts, group <-> JSON, protocol
+    "crates/cobolt-server",    # WASM-003/014/009 — the headless backend server and the client that calls it
     "crates/cobolt-ide", "crates/cobolt-agents",
     "crates/cobolt-web-preview", # WASM-008 — the helper process holding the system web view of the web Preview
     "crates/cobolt-bench",   # performance + allocation baseline harness

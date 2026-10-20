@@ -1901,6 +1901,11 @@ pub struct Interpreter {
     /// [`locked_files`](Self::locked_files) is the unrelated *intra*-run-unit
     /// rule about reopening a file closed `WITH LOCK`.
     share_locks: HashMap<String, std::fs::File>,
+    /// `Some(wait)` makes every OPEN of a file-backed file take its advisory lock —
+    /// exclusive to write, shared to read — and wait up to `wait` for it
+    /// (WASM-003 R19). `None` (every host but the backend) keeps the behaviour
+    /// of a program that owns its files.
+    file_lock_wait: Option<std::time::Duration>,
     /// The models the last `COBOL-MODEL-LIST` fetched, read back one at a
     /// time with `COBOL-MODEL-LIST-GET`.
     provider_models: Vec<String>,
@@ -2252,6 +2257,7 @@ impl Interpreter {
             record_to_file,
             open_files: HashMap::new(),
             share_locks: HashMap::new(),
+            file_lock_wait: None,
             provider_models: Vec::new(),
             locked_files: std::collections::HashSet::new(),
             linage_counters: HashMap::new(),
@@ -2771,6 +2777,14 @@ impl Interpreter {
             };
             self.env.set_str(&mnemonic, if *on { "1" } else { "0" });
         }
+    }
+
+    /// Serialise file access with other run units: writers exclude everybody,
+    /// readers share, and an OPEN waits up to `wait` for its turn before
+    /// answering file status 93 (WASM-003 R19). Only a backend serving callers
+    /// at the same time asks for this.
+    pub fn set_file_lock_wait(&mut self, wait: Option<std::time::Duration>) {
+        self.file_lock_wait = wait;
     }
 
     /// Select the indexed (ISAM) file engine for this run. All engines present
@@ -9296,6 +9310,16 @@ impl Interpreter {
     /// locks from one process on the same file conflict with each other — so
     /// locking the data file here would have this run unit fighting itself.
     fn acquire_share_lock(&mut self, file: &str, path: &str, exclusive: bool) -> bool {
+        let wait = self.file_lock_wait;
+        self.acquire_share_lock_for(file, path, exclusive, wait)
+    }
+
+    /// [`Self::acquire_share_lock`], waiting up to `wait` for a conflicting lock to
+    /// go away instead of refusing at once. A backend that serves several callers
+    /// at the same time turns this on (WASM-003 R19): two calls that touch one
+    /// file take turns, writers excluding everybody and readers sharing, rather
+    /// than the second being told the file is unavailable.
+    fn acquire_share_lock_for(&mut self, file: &str, path: &str, exclusive: bool, wait: Option<std::time::Duration>) -> bool {
         // `std::fs::File` has carried advisory locking since Rust 1.89 and the
         // MSRV here is 1.92, so this needs no dependency at all — which is also
         // why `fs2` was added and then removed again while writing this.
@@ -9318,11 +9342,20 @@ impl Interpreter {
             // would make an unwritable directory stop programs that used to run.
             Err(_) => return true,
         };
-        let got = if exclusive {
-            handle.try_lock()
-        } else {
-            handle.try_lock_shared()
-        };
+        let try_once = |h: &std::fs::File| if exclusive { h.try_lock() } else { h.try_lock_shared() };
+        let mut got = try_once(&handle);
+        if let (Err(std::fs::TryLockError::WouldBlock), Some(wait)) = (&got, wait) {
+            let deadline = std::time::Instant::now() + wait;
+            // A short nap, capped low: the holder of a file lock keeps it for
+            // one OPEN..CLOSE, usually milliseconds, so a long nap makes every
+            // waiter sleep past the moment the file came free.
+            let mut nap = std::time::Duration::from_millis(1);
+            while matches!(got, Err(std::fs::TryLockError::WouldBlock)) && std::time::Instant::now() < deadline {
+                std::thread::sleep(nap);
+                nap = (nap * 2).min(std::time::Duration::from_millis(8));
+                got = try_once(&handle);
+            }
+        }
         match got {
             Ok(()) => {
                 self.share_locks.insert(file.to_owned(), handle);
@@ -9485,7 +9518,8 @@ impl Interpreter {
             if org == FileOrganization::Indexed {
                 // Cross-run-unit sharing is decided BEFORE the engine is built:
                 // a refused open must not create or touch the container.
-                if !self.acquire_share_lock(&file, &path, share_lock_is_exclusive(sharing, lock)) {
+                let policy_exclusive = self.file_lock_wait.is_some() && !matches!(mode, OpenMode::Input);
+                if !self.acquire_share_lock(&file, &path, share_lock_is_exclusive(sharing, lock) || policy_exclusive) {
                     // Another run unit holds a conflicting lock. 93 is the
                     // standard's "file unavailable", and the file is left
                     // unregistered so a later CLOSE answers 42 rather than
@@ -9542,6 +9576,18 @@ impl Interpreter {
                 self.set_file_status(&file, code);
                 self.fire_declarative(&file, code, false)?;
                 continue;
+            }
+
+            // A backend takes turns at its files (WASM-003 R19): the other
+            // organizations get the same advisory lock the keyed engine takes,
+            // exclusive for a writer and shared for a reader, and wait for it.
+            if org != FileOrganization::Indexed && self.file_lock_wait.is_some() {
+                let wait = self.file_lock_wait;
+                if !self.acquire_share_lock_for(&file, &path, !matches!(mode, OpenMode::Input), wait) {
+                    self.set_file_status(&file, crate::indexed::status::UNAVAILABLE);
+                    self.fire_declarative(&file, crate::indexed::status::UNAVAILABLE, false)?;
+                    continue;
+                }
             }
 
             // ── RELATIVE: dispatch to the numbered-slot engine ─────────────
@@ -9731,7 +9777,12 @@ impl Interpreter {
             self.last_write_key.remove(&file);
             // Dropping the handle releases the OS advisory lock, which is
             // what lets another run unit open the file after this one closes.
-            self.share_locks.remove(&file);
+            // The handle is held to the END of this iteration, not dropped
+            // here: the engine's `close()` below still writes and flushes the
+            // container, and a second caller let in before that finished reads
+            // it half-written (file status 90). A backend serving several
+            // callers at once shows it within a few dozen concurrent writers.
+            let _held_until_closed = self.share_locks.remove(&file);
             // Spec 062 — a report is handed over, not just flushed, and the
             // sink is consumed to do it: `finish()` flushes and drops the file
             // BEFORE the Viewer is told where it is, because a session polls

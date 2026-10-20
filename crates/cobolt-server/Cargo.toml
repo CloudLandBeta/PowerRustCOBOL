@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-server"
+description = "Cobolt COBOL — the backend server (WebSocket over TLS, bearer-token checks, exported programs) and the client that calls it (WASM-003, WASM-014, WASM-009)"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[features]
+default = ["server", "client"]
+
+# Reading a backend project and packing it: the programs, `exports.toml`, the
+# interface description. The compiler uses this alone — no sockets, no TLS, no
+# tokens — to build the headless binary and to write `interface.json`.
+loader = [
+    "dep:cobolt-lexer", "dep:cobolt-parser", "dep:cobolt-semantic",
+    "dep:toml", "dep:bincode", "dep:flate2",
+]
+
+# The backend: listens, authenticates, runs the project's exported programs on
+# the native runtime. Headless — nothing here knows egui or eframe.
+server = [
+    "loader", "net",
+    "dep:cobolt-runtime", "dep:jsonwebtoken", "dep:ureq", "dep:httparse",
+    "dep:sha2", "dep:base64", "dep:getrandom", "dep:tracing-subscriber",
+]
+
+# The client a desktop or native host links to make `CALL … WITH WEBSOCKET
+# LINKAGE` work: it implements `cobolt_wire::call::Transport` over a secure
+# WebSocket. The browser has its own client (the player's); this is Rust's.
+client = ["net", "dep:sha2", "dep:base64", "dep:getrandom"]
+
+# The channel itself: tokio, the operating system's TLS, the WebSocket framing.
+net = ["dep:tokio", "dep:native-tls", "dep:tokio-native-tls", "dep:tokio-tungstenite", "dep:futures-util"]
+
+[dependencies]
+cobolt-wire = { path = "../cobolt-wire" }
+cobolt-ast  = { path = "../cobolt-ast" }
+
+serde      = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+tracing    = { workspace = true }
+thiserror  = { workspace = true }
+
+# net
+tokio        = { workspace = true, optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
+# TLS is the operating system's stack, never rustls (ring / aws-lc-rs compile C
+# and are barred by `dependency_guards_063`, spec 063 AC8 as amended by 103).
+native-tls         = { version = "0.2", optional = true }
+tokio-native-tls   = { version = "0.3", optional = true }
+# The WebSocket framing. `handshake` only: the TLS wrapper is ours.
+tokio-tungstenite  = { version = "0.28", default-features = false, features = ["handshake"], optional = true }
+
+# loader
+cobolt-lexer    = { path = "../cobolt-lexer", optional = true }
+cobolt-parser   = { path = "../cobolt-parser", optional = true }
+cobolt-semantic = { path = "../cobolt-semantic", optional = true }
+toml            = { workspace = true, optional = true }
+bincode         = { workspace = true, optional = true }
+flate2          = { workspace = true, optional = true }
+
+# server
+# default-features = false: a headless backend links only the runtime parts its
+# programs reach (the built binary names them; `rcrun` has them all).
+cobolt-runtime  = { path = "../cobolt-runtime", default-features = false, optional = true }
+# JSON Web Tokens verified with the RustCrypto backend (rsa, p256, p384, hmac,
+# sha2, ed25519-dalek): pure Rust, no ring, no aws-lc-rs.
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"], optional = true }
+# The issuer's keys (JWKS) are fetched with the operating system's TLS.
+ureq      = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"], optional = true }
+httparse  = { version = "1", optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+sha2      = { workspace = true, optional = true }
+base64    = { version = "0.22", optional = true }
+getrandom = { version = "0.4", optional = true }
+
+[dev-dependencies]
+cobolt-wire = { path = "../cobolt-wire" }
+# A self-signed certificate for the loopback tests, signed with RustCrypto
+# through rcgen's remote-key hook: no ring, no aws-lc-rs.
+rcgen = { version = "0.14", default-features = false, features = ["pem"] }
+p256  = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+rsa = { version = "0.9", features = ["sha2"] }
+sha2 = { workspace = true }
+signature = "2"
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto", "use_pem"] }
