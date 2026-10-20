@@ -27,7 +27,7 @@ use crate::val::Val;
 use cobolt_decimal::{pow10, CobolNumeric};
 
 /// The digit and sign an embedded-sign character carries.
-fn de_overpunch(b: u8) -> Option<(u8, bool)> {
+pub(crate) fn de_overpunch(b: u8) -> Option<(u8, bool)> {
     match b {
         b'0'..=b'9' => Some((b - b'0', false)),
         b'{' => Some((0, false)),
@@ -40,7 +40,7 @@ fn de_overpunch(b: u8) -> Option<(u8, bool)> {
     }
 }
 
-fn overpunch(digit: u8, negative: bool) -> u8 {
+pub(crate) fn overpunch(digit: u8, negative: bool) -> u8 {
     match (digit, negative) {
         (d, false) => b'0' + d,
         (0, true) => b'}',
@@ -334,6 +334,11 @@ fn write_integer(loc: &Loc, m: i128) {
             if fd.signed() && neg && !fd.sign_separate() {
                 let at = if fd.sign_leading() { start } else { end - 1 };
                 out[at] = overpunch(out[at] - b'0', true);
+            }
+            // `BLANK WHEN ZERO` blanks the whole item, a separate sign too.
+            // Blanks read back as zero, so arithmetic on the item is unaffected.
+            if fd.blank_when_zero() && m == 0 {
+                out.fill(b' ');
             }
         }
         K_BINARY | K_COMP5 | K_INDEX => {

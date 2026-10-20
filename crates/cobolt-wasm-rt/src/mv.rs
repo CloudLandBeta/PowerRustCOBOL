@@ -59,7 +59,7 @@ pub fn sender(base: u32, o: &Opd) -> Sender {
 
 /// `MOVE sender TO receiver`.
 pub fn move_to(base: u32, snd: &Sender, dst: &Opd) {
-    let d = locate(base, dst);
+    let d = locate_full(base, dst);
     if dst.tag != T_ITEM {
         crate::fail(err::BAD_OPERAND);
     }
@@ -92,6 +92,10 @@ fn move_to_numeric(snd: &Sender, d: &Loc) {
                 // A group sender makes the move alphanumeric: the bytes land as
                 // they stand (COBOL-85 6.18.4), even in a numeric receiver.
                 put_bytes(d, mem::bytes(loc.addr, loc.len), false);
+            } else if loc.fd.kind == K_NUM_EDITED {
+                // De-editing: the value the edited characters spell, whatever
+                // insertions they carry (COBOL-85 6.18.4 GR4b).
+                codec::store_value(d, crate::edited::deedit_value(loc), false, false);
             } else if let Some(n) = codec::parse_text(mem::bytes(loc.addr, loc.len)) {
                 codec::store_value(d, Val::Dec(n), false, false);
             }
@@ -110,7 +114,7 @@ fn move_to_alnum(snd: &Sender, d: &Loc) {
         Sender::Num(v, fd) => {
             // The digit positions as characters.
             let mut buf = [0u8; 40];
-            let n = digit_chars(v, fd, &mut buf);
+            let n = image_chars(v, fd, &mut buf);
             put_bytes(d, &buf[..n], just);
         }
         Sender::Bytes(loc, _) => {
@@ -180,11 +184,22 @@ pub fn put_bytes(d: &Loc, src: &[u8], right_justified: bool) {
 /// positions, absolute, zero-padded to the item's digit count; for a literal
 /// (no declared digits) the digits of its magnitude. Returns the length.
 pub fn digit_chars(v: &Val, fd: &Fd, out: &mut [u8; 40]) -> usize {
+    chars_of_number(v, fd, out, false)
+}
+
+/// The character image of a number moved or compared as characters: as
+/// [`digit_chars`], and the positions of a `P` scale are the zeros they stand
+/// for (`S9P(17)` holding 1 is "100000000000000000", NC114M MOVE-TEST-16).
+pub fn image_chars(v: &Val, fd: &Fd, out: &mut [u8; 40]) -> usize {
+    chars_of_number(v, fd, out, true)
+}
+
+fn chars_of_number(v: &Val, fd: &Fd, out: &mut [u8; 40], with_p: bool) -> usize {
     let mag: u128 = match v {
         Val::Dec(n) => {
             // The stored integer: undo the P scaling, keep the decimals as digits.
             let mut m = n.mantissa.unsigned_abs();
-            if fd.scale < 0 {
+            if fd.scale < 0 && !with_p {
                 if let Some(p) = cobolt_decimal::pow10((-(fd.scale as i32)) as u32) {
                     m /= p as u128;
                 }
@@ -196,7 +211,8 @@ pub fn digit_chars(v: &Val, fd: &Fd, out: &mut [u8; 40]) -> usize {
             a as u128
         }
     };
-    let width = if fd.digits > 0 { fd.digits as usize } else { 0 };
+    let p_zeros = if with_p && fd.scale < 0 { (-(fd.scale as i32)) as usize } else { 0 };
+    let width = if fd.digits > 0 { fd.digits as usize + p_zeros } else { 0 };
     let mut tmp = [0u8; 40];
     let mut i = tmp.len();
     let mut m = mag;

@@ -68,9 +68,14 @@ pub fn store_numeric_edited(loc: &Loc, v: Val, rounded: bool, has_phrase: bool) 
     if overflow && has_phrase {
         return true;
     }
+    let out = mem::bytes_mut(loc.addr, loc.len);
+    // `BLANK WHEN ZERO` blanks the whole item when the value it receives is zero.
+    if loc.fd.blank_when_zero() && stored.truncate_to(frac_d.min(255) as u8).mantissa == 0 {
+        out.fill(b' ');
+        return overflow;
+    }
     let mut buf = [0u8; engine::MAX_OUT];
     let w = engine::format_edited(sp.template, stored.mantissa, stored.decimals, sp.decimal_comma, sp.currency, &mut buf);
-    let out = mem::bytes_mut(loc.addr, loc.len);
     let k = w.min(out.len());
     out[..k].copy_from_slice(&buf[..k]);
     out[k..].fill(b' ');
@@ -100,7 +105,13 @@ pub fn move_to_edited(snd: &Sender, d: &Loc) {
             }
             Sender::All(loc) => mv::fill_repeat(d.addr, d.len, mem::bytes(loc.addr, loc.len)),
         },
-        _ => move_to_alnum_edited(snd, d),
+        // A group sender makes the move alphanumeric to alphanumeric: the
+        // receiver's PICTURE gives its size and nothing else (COBOL-85 6.18.4,
+        // NC105A MOVE-TEST-F1-20: "123ABC" into `0XXXXX0` stays "123ABC ").
+        _ => match snd {
+            Sender::Bytes(loc, true) => mv::put_bytes(d, mem::bytes(loc.addr, loc.len), false),
+            _ => move_to_alnum_edited(snd, d),
+        },
     }
 }
 
@@ -112,7 +123,7 @@ fn move_to_alnum_edited(snd: &Sender, d: &Loc) {
     let mut digits = [0u8; 40];
     let src: &[u8] = match snd {
         Sender::Num(v, fd) => {
-            let n = mv::digit_chars(v, fd, &mut digits);
+            let n = mv::image_chars(v, fd, &mut digits);
             &digits[..n]
         }
         Sender::Bytes(loc, _) => mem::bytes(loc.addr, loc.len),

@@ -22,6 +22,17 @@
 use cobolt_lexer::SourceFormat;
 use std::io::Write;
 
+/// With `NIST_WASM_LOG=<file>` set, every diagnostic is also appended there, so
+/// a sweep leaves a record of why each program was refused.
+fn log(line: &str) {
+    eprintln!("{line}");
+    if let Some(p) = std::env::var_os("NIST_WASM_LOG") {
+        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).create(true).open(p) {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) != Some("run") || args.len() < 2 {
@@ -48,7 +59,7 @@ fn main() {
     for d in &parsed.diagnostics {
         if d.is_error() {
             bad = true;
-            eprintln!("{}:{}:{}: error: {}", path.display(), d.span.line, d.span.col, d.message);
+            log(&format!("{}:{}:{}: error: {}", path.display(), d.span.line, d.span.col, d.message));
         }
     }
     let Some(program) = parsed.program else {
@@ -60,18 +71,28 @@ fn main() {
         std::process::exit(1);
     }
     let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let opts = cobolt_wasm::Options { conformance: true, name, ..Default::default() };
+    let tolerate = std::env::var("COBOL_TOLERATE_UNDECLARED").is_ok_and(|v| v == "1");
+    let opts = cobolt_wasm::Options { conformance: true, tolerate_undeclared: tolerate, name, ..Default::default() };
     let compiled = match cobolt_wasm::compile_program(&program, &opts) {
         Ok(c) => c,
         Err(e) => {
             for (l, m) in e.all() {
-                eprintln!("{}:{l}: not compiled: {m}", path.display());
+                log(&format!("{}:{l}: not compiled: {m}", path.display()));
             }
             std::process::exit(1);
         }
     };
     let cwd = std::env::current_dir().unwrap();
-    let outcome = match cobolt_wasm::host::run_conformance(&compiled.wasm, cobolt_wasm::host::Conformance { cwd }) {
+    // `--switch NAME=ON|OFF`, repeatable.
+    let mut switches: Vec<(String, bool)> = Vec::new();
+    for (i, a) in args.iter().enumerate() {
+        if a == "--switch" {
+            if let Some((k, v)) = args.get(i + 1).and_then(|s| s.split_once('=')) {
+                switches.push((k.to_string(), v.eq_ignore_ascii_case("ON")));
+            }
+        }
+    }
+    let outcome = match cobolt_wasm::host::run_conformance(&compiled.wasm, cobolt_wasm::host::Conformance { cwd, switches }) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("host: {e}");
@@ -83,10 +104,10 @@ fn main() {
     let _ = lock.write_all(outcome.output.as_bytes());
     let _ = lock.flush();
     for e in &outcome.errors {
-        eprintln!("run-time error {} at line {}", e.code, e.line);
+        log(&format!("{}: run-time error {} at line {}", path.display(), e.code, e.line));
     }
     if let Some(t) = &outcome.trapped {
-        eprintln!("trap: {t}");
+        log(&format!("{}: trap: {t}", path.display()));
     }
     if outcome.status < 0 && outcome.status != -1 && outcome.status != -4 {
         std::process::exit(1);

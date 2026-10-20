@@ -6,6 +6,7 @@
 
 //! The WebAssembly generator (spec WASM-010).
 
+pub mod collate;
 pub mod error;
 pub mod image;
 pub mod ir;

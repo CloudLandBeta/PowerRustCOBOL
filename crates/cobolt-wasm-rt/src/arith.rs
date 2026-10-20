@@ -13,6 +13,7 @@
 //! the same intermediate values, so the results are the interpreter's.
 
 use crate::codec;
+use crate::fd::K_NUM_EDITED;
 use crate::opd::*;
 use crate::state::{err, pop, push, st};
 use crate::val::Val;
@@ -96,8 +97,15 @@ pub fn truncate_to_item(base: u32, o: u32) {
     let op = parse(o);
     let loc = locate(base, &op);
     let v = pop();
+    // An edited item's decimals are the ones its picture spells.
+    let scale = if loc.fd.kind == K_NUM_EDITED {
+        let sp = crate::edited::spec(&loc.fd);
+        cobolt_numedit::digit_counts(sp.template, sp.decimal_comma).1.min(255) as i32
+    } else {
+        loc.fd.scale as i32
+    };
     let t = match v {
-        Val::Dec(n) if loc.fd.scale >= 0 => Val::Dec(n.truncate_to(loc.fd.scale as u8)),
+        Val::Dec(n) if scale >= 0 => Val::Dec(n.truncate_to(scale as u8)),
         other => other,
     };
     push(t);

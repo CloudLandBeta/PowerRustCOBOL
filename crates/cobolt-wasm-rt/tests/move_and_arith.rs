@@ -279,9 +279,12 @@ fn comparisons_numeric_alphanumeric_and_padding() {
     let sp = k.item(40, Fd::alnum(4));
     k.poke(40, b"    ");
     assert_eq!(rt_rel(k.base, sp, k.fig(FIG_SPACE), OP_EQ), 1);
-    // numeric against numeric-looking text compares numerically
+    // numeric against text is a nonnumeric comparison (COBOL-85 6.3.4.2): the
+    // number stands for its digits as characters, so it is "7", not "  7  "
     let t = k.item(50, Fd::alnum(5));
     k.poke(50, b"  7  ");
+    assert_eq!(rt_rel(k.base, t, k.lit_num(7, 0), OP_EQ), 0);
+    k.poke(50, b"7    ");
     assert_eq!(rt_rel(k.base, t, k.lit_num(7, 0), OP_EQ), 1);
 }
 

@@ -45,6 +45,9 @@ mod imp {
         /// Read the next record into memory; returns its length, -10 at the
         /// end of the file, or another negative status.
         pub fn file_read(handle: u32, addr: u32, cap: u32) -> i32;
+        /// The state of the external switch named by the `len` bytes at `addr`:
+        /// 1 on, 0 off, -1 when the host knows no such switch.
+        pub fn switch_state(addr: u32, len: u32) -> i32;
     }
 }
 
@@ -100,6 +103,9 @@ mod imp {
     }
     pub unsafe fn file_read(_h: u32, _addr: u32, _cap: u32) -> i32 {
         -10
+    }
+    pub unsafe fn switch_state(_addr: u32, _len: u32) -> i32 {
+        -1
     }
     pub unsafe fn now() -> f64 {
         NOW.with(|n| *n.borrow())

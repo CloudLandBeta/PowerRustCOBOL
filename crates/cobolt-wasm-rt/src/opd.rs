@@ -96,6 +96,13 @@ pub struct Loc {
 
 /// The fill byte of a figurative constant.
 pub fn fig_byte(fig: u8) -> u8 {
+    // Under a PROGRAM COLLATING SEQUENCE, LOW-VALUE and HIGH-VALUE name the
+    // characters at the ends of that sequence.
+    let c = crate::state::st().collate;
+    if c != 0 && (fig == FIG_HIGH || fig == FIG_LOW) {
+        let b = mem::bytes(c, 2);
+        return if fig == FIG_LOW { b[0] } else { b[1] };
+    }
     match fig {
         FIG_ZERO => b'0',
         FIG_SPACE => b' ',
@@ -121,6 +128,17 @@ fn index_value(base: u32, opd_addr: u32) -> i64 {
 /// have no single location (they fill a receiver) and resolve to a one-byte
 /// location here only for the comparison code, which treats them separately.
 pub fn locate(base: u32, o: &Opd) -> Loc {
+    locate_sized(base, o, true)
+}
+
+/// As [`locate`], but a group holding a variable-length table is as long as the
+/// table's declared maximum makes it: the receiver of a `MOVE` takes the whole
+/// of what it is sent (COBOL-85 5.8.3, NC247A MOV-TEST-F1-6).
+pub fn locate_full(base: u32, o: &Opd) -> Loc {
+    locate_sized(base, o, false)
+}
+
+fn locate_sized(base: u32, o: &Opd, current: bool) -> Loc {
     match o.tag {
         T_ITEM => {
             let mut addr = base.wrapping_add(o.off);
@@ -150,6 +168,18 @@ pub fn locate(base: u32, o: &Opd) -> Loc {
                 sp += SUB_SIZE;
             }
             let mut loc = Loc { addr, len: o.fd.len, fd: o.fd };
+            if current && o.fd.kind == crate::fd::K_GROUP && o.fd.aux != 0 {
+                // A group holding a variable-length table is as long as the
+                // table's current count makes it: `[stride, max, counter]`.
+                let r = mem::bytes(o.fd.aux, 12);
+                let stride = u32::from_le_bytes([r[0], r[1], r[2], r[3]]) as i64;
+                let max = u32::from_le_bytes([r[4], r[5], r[6], r[7]]) as i64;
+                let counter = u32::from_le_bytes([r[8], r[9], r[10], r[11]]);
+                let c = index_value(base, counter).clamp(0, max);
+                let len = (o.fd.len as i64 - (max - c) * stride).max(0) as u32;
+                loc.len = len;
+                loc.fd.len = len;
+            }
             if o.flags & OF_REFMOD != 0 {
                 let r = mem::bytes(sp, 8);
                 let start_opd = u32::from_le_bytes([r[0], r[1], r[2], r[3]]);

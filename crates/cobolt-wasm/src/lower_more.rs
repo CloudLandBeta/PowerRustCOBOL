@@ -581,15 +581,15 @@ impl Lower<'_, '_> {
         not_on: &[Stmt],
         line: u32,
     ) -> GenResult<()> {
-        let split = |e: &Expr| -> (usize, Vec<Expr>) {
+        let mut split = |me: &mut Self, e: &Expr| -> (usize, Vec<Expr>) {
             let (b, ix) = match e {
                 Expr::Subscript { base, indices, .. } => (base.as_ref(), indices.clone()),
                 other => (other, vec![]),
             };
-            (self.resolve_item(b).unwrap_or(usize::MAX), ix)
+            (me.resolve_item(b).unwrap_or(usize::MAX), ix)
         };
-        let (fg, fidx) = split(from);
-        let (tg, tidx) = split(to);
+        let (fg, fidx) = split(self, from);
+        let (tg, tidx) = split(self, to);
         if fg == usize::MAX || tg == usize::MAX {
             return self.err(line, "CORRESPONDING needs two group items");
         }

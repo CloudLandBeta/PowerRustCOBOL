@@ -50,6 +50,24 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 
 - `CALL … RETURNING` (WASM-005 Q2, D6): fix `8a15f00d` (1.91.219) on `main`, forward-port `afe22c51` on 2.x.x — tests 14/14 runtime, NIST baselines held.
 
+## NIST NC on generated modules — finished (2026-10-20, version 2.0.19)
+
+GOLDEN RULE #9, module one, both axes. The generator compiles all 95 NC programs and each runs to completion on the test host; the two numbers are kept apart on purpose:
+
+| Axis | Generated module | Interpreter (`rcrun`) |
+|---|---|---|
+| Compile (`nist_wasm census NC`) | **95 of 95** | 95 of 95 |
+| Execution, programs reporting 0 failures (`RCRUN=…/nist_wasm_run nist_conformance run NC`) | **95 of 95** | 95 of 95 |
+| Assertions | **4 612 PASS / 0 FAIL / 5 DELETED** | 4 614 / 0 / 5 |
+
+The 2-assertion difference is the harness' tally and not a test that did not run: it counts the marker `PASS ` across the whole print file, the interpreter writes 120-byte records with no separator (a marker can straddle two records) and the test host writes one record per line. Every program's own CCVS summary line (`N OF N TESTS WERE EXECUTED SUCCESSFULLY`) is identical in both engines on all 95 (checked program by program).
+
+What the last stretch changed in the generator and the routines (each is a differential test in `crates/cobolt-wasm/tests/nist_nc_fixes.rs`): the comparison of a number with characters follows the standard pseudo-move (digits as written, no sign, `P` positions as zeros) and ZERO against an edited item is the character `0`; `BLANK WHEN ZERO` on numeric and edited items, and not on a `VALUE`; a `VALUE` ignores `JUSTIFIED`, reaches the children of a group and is stored as written in an edited item; a group sender into an alphanumeric-edited receiver is an alphanumeric move; de-editing with insertions; `INSPECT` on a signed numeric item sees its digits; groups holding an `OCCURS … DEPENDING ON` table are as long as the count says, and the receiver of a `MOVE` takes the maximum; 66-levels belong to their record (qualified by `OF`) and `RENAMES a` keeps `a`'s description; `PERFORM … VARYING … AFTER` follows 6.20.4 exactly for TEST BEFORE and TEST AFTER; stacked `WHEN` phrases share the statements of the next one; the remainder of `DIVIDE` uses the decimals of an edited `GIVING` item; external switches come from the host (`pr.switch_state`, conformance builds only). The test host runs `wasmi` optimised (`[profile.dev.package.wasmi*] opt-level = 1`): NC243A went from 14.5 s to 0.7 s, which the harness' 20 s limit needs (opt-level 3 overflows the stack in wasmi, so 1).
+
+Divergences from the interpreter found on the way are in `WASM-PARITY.md`.
+
+Next under GOLDEN RULE #9: **IF (Intrinsic Functions)**, then IC — IF needs `FUNCTION` calls in the generator (the module currently refuses them), IC needs nested programs and `CALL`/`LINKAGE`.
+
 ## Status at the end of the first implementation session (2026-10-20, version 2.0.18)
 
 Measured, not hoped. Commits on `features-2x`: `44371f53` … `42eac962` (2.0.11 – 2.0.17) plus this one.

@@ -39,6 +39,7 @@
 #![cfg_attr(target_arch = "wasm32", no_std)]
 #![allow(clippy::missing_safety_doc)]
 
+pub mod accept;
 pub mod arith;
 pub mod cmp;
 pub mod codec;
@@ -344,4 +345,51 @@ pub extern "C" fn rt_regs_reset() {
     let s = state::st();
     s.sp = 0;
     s.div0 = false;
+}
+
+/// `x IS [NOT] user-class`: `table` is a 32-byte character bitmap.
+#[no_mangle]
+pub extern "C" fn rt_class_user(base: u32, o: u32, table: u32) -> i32 {
+    cmp::user_class(base, o, table) as i32
+}
+
+/// `ACCEPT target [FROM DATE | TIME | DAY | DAY-OF-WEEK]` (`accept::ACC_*`).
+#[no_mangle]
+pub extern "C" fn rt_accept(base: u32, target: u32, kind: u32) {
+    accept::accept(base, target, kind);
+}
+
+/// Seed the program's external switches (conformance builds): `table` is
+/// `[count u32]` then, per switch, `[ext_addr, ext_len, mnemonic_addr,
+/// mnemonic_len, item_offset]` (all u32). The host is asked for the
+/// implementor name, then for the mnemonic; the answer is written to the
+/// mnemonic's one-character item as '1' or '0', which the switch's
+/// `ON STATUS` / `OFF STATUS` condition-names read.
+#[no_mangle]
+pub extern "C" fn rt_switches(base: u32, table: u32) {
+    let n = mem::rd_u32(table);
+    for i in 0..n {
+        let e = table + 4 + i * 20;
+        let (ea, el, ma, ml, off) = (
+            mem::rd_u32(e),
+            mem::rd_u32(e + 4),
+            mem::rd_u32(e + 8),
+            mem::rd_u32(e + 12),
+            mem::rd_u32(e + 16),
+        );
+        // SAFETY: the glue copies the name to the arena batch and calls the host.
+        let mut st = unsafe { host::switch_state(ea, el) };
+        if st < 0 {
+            st = unsafe { host::switch_state(ma, ml) };
+        }
+        if st >= 0 {
+            mem::wr_u8(base + off, b'0' + (st & 1) as u8);
+        }
+    }
+}
+
+/// Install the program collating sequence: `table` is `[low][high][u16 × 256]`.
+#[no_mangle]
+pub extern "C" fn rt_set_collation(table: u32) {
+    state::st().collate = table;
 }

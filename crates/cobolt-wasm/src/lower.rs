@@ -90,6 +90,7 @@ pub struct Lower<'a, 'b> {
     pub(crate) diags: Vec<GenError>,
     /// The NIST gate build: file verbs are compiled.
     pub(crate) conformance: bool,
+    pub(crate) tolerant: bool,
     pub(crate) files: HashMap<String, FileInfo>,
     /// Record item -> the file whose area it is.
     pub(crate) record_file: HashMap<usize, String>,
@@ -110,6 +111,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         blocks: &'b mut Vec<Block>,
         map: MemMap,
         conformance: bool,
+        tolerant: bool,
     ) -> GenResult<Lowered> {
         let mut layout = Layout::new();
         if let Some(d) = &prog.data {
@@ -154,6 +156,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             program_end: 0,
             diags: Vec::new(),
             conformance,
+            tolerant,
             files: HashMap::new(),
             record_file: HashMap::new(),
             temp_next: 0,
@@ -180,6 +183,22 @@ impl<'a, 'b> Lower<'a, 'b> {
         // Entry: set up the ALTER slots, then straight into the first paragraph.
         l.begin(entry);
         l.init_alter_slots()?;
+        // PROGRAM COLLATING SEQUENCE: install the table before anything compares.
+        if let Some(name) = &l.prog.collating_sequence {
+            let up_name = name.to_ascii_uppercase();
+            if let Some((_, spec)) = l.prog.alphabets.iter().find(|(n, _)| n.to_ascii_uppercase() == up_name) {
+                if let Some(t) = crate::collate::table(spec) {
+                    let addr = l.pool.intern(&t);
+                    l.i32c(addr as i32);
+                    l.call_rt("rt_set_collation");
+                }
+            }
+        }
+        // External switches (conformance): the host's answer seeds each one's
+        // mnemonic item before the first statement, as the interpreter does.
+        if l.conformance && !l.prog.switch_names.is_empty() {
+            l.seed_switches()?;
+        }
         if let Some(first) = l.entries.first().copied() {
             l.jump(first);
         } else {
@@ -195,6 +214,35 @@ impl<'a, 'b> Lower<'a, 'b> {
             return Err(first);
         }
         Ok(Lowered { entry, layout: l.layout })
+    }
+
+    /// Emit the call that asks the host for the state of every external
+    /// switch the program declares (`SPECIAL-NAMES. SWITCH-1 IS SW-1`).
+    fn seed_switches(&mut self) -> GenResult<()> {
+        let names = self.prog.switch_names.clone();
+        let mut table: Vec<u8> = Vec::new();
+        let mut rows: Vec<[u32; 5]> = Vec::new();
+        for (external, mnemonic) in &names {
+            let Ok(item) = self.layout.lookup(mnemonic, &[]) else { continue };
+            let off = self.layout.items[item].off;
+            let ext = self.pool.intern(external.as_bytes());
+            let mn = self.pool.intern(mnemonic.as_bytes());
+            rows.push([ext, external.len() as u32, mn, mnemonic.len() as u32, off]);
+        }
+        if rows.is_empty() {
+            return Ok(());
+        }
+        table.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+        for r in rows {
+            for w in r {
+                table.extend_from_slice(&w.to_le_bytes());
+            }
+        }
+        let addr = self.pool.intern(&table);
+        self.base();
+        self.i32c(addr as i32);
+        self.call_rt("rt_switches");
+        Ok(())
     }
 
     // ── files (conformance builds) ────────────────────────────────────────
@@ -288,7 +336,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// The file whose record area `e` names.
-    pub(crate) fn file_of_record(&self, e: &Expr, line: u32) -> GenResult<(String, FileInfo)> {
+    pub(crate) fn file_of_record(&mut self, e: &Expr, line: u32) -> GenResult<(String, FileInfo)> {
         let base = match e {
             Expr::Subscript { base, .. } => base.as_ref(),
             other => other,
@@ -770,19 +818,32 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// Resolve a (possibly qualified) data-name expression to its layout item.
-    pub(crate) fn resolve_item(&self, e: &Expr) -> GenResult<usize> {
+    pub(crate) fn resolve_item(&mut self, e: &Expr) -> GenResult<usize> {
         let line = e.span().line;
         let (name, quals): (String, Vec<String>) = match e {
             Expr::Identifier(n, _) => (n.clone(), vec![]),
             Expr::Qualified { name, of, .. } => (name.clone(), self.quals_of(of)),
             _ => return self.err(line, "a data-name was expected"),
         };
-        self.layout.lookup(&name, &quals).map_err(|m| GenError::new(line, m))
+        match self.layout.lookup(&name, &quals) {
+            Ok(i) => Ok(i),
+            Err(m) => {
+                // The CCVS85 X-cards stand for names the installation supplies;
+                // a conformance build reads them as the interpreter does under
+                // COBOL_TOLERATE_UNDECLARED.
+                if self.tolerant && quals.is_empty() && m.ends_with("is not defined") {
+                    Ok(self.layout.add_implicit(&name))
+                } else {
+                    Err(GenError::new(line, m))
+                }
+            }
+        }
     }
 
     pub(crate) fn lit_number(&mut self, lit: &Literal, line: u32) -> GenResult<Option<u32>> {
         Ok(Some(match lit {
-            Literal::Integer(n) | Literal::IntegerDigits(n, _) => self.pool.opd_lit_num(*n as i128, 0),
+            Literal::Integer(n) => self.pool.opd_lit_num(*n as i128, 0),
+            Literal::IntegerDigits(n, written) => self.pool.opd_lit_num_written(*n as i128, 0, *written),
             Literal::Decimal(m, s) => self.pool.opd_lit_num(*m, *s),
             Literal::Float(f) => {
                 let (m, s) = float_to_decimal(*f);
@@ -860,9 +921,6 @@ impl<'a, 'b> Lower<'a, 'b> {
         if item.level == 88 {
             return self.err(line, format!("{} is a condition-name, not a data item", item.name.clone().unwrap_or_default()));
         }
-        if item.level == 66 {
-            return self.err(line, "RENAMES items are not supported in a WebAssembly module yet");
-        }
         let chain = self.layout.occurs_chain(idx);
         if indices.len() != chain.len() {
             return self.err(
@@ -888,7 +946,21 @@ impl<'a, 'b> Lower<'a, 'b> {
             };
             subs.push(Sub { opd, stride, max, odo: odo_opd, add });
         }
-        let fd = self.pool.fd_with_spec(&item.fd, item.pic_template.as_deref(), self.prog.decimal_comma, self.prog.currency);
+        let mut fd = self.pool.fd_with_spec(&item.fd, item.pic_template.as_deref(), self.prog.decimal_comma, self.prog.currency);
+        // A group that holds an `OCCURS … DEPENDING ON` table is as long as the
+        // table's current count makes it (COBOL-85 5.8): the descriptor points
+        // at `[stride, max, counter operand]` and `locate` shortens the group.
+        if item.is_group {
+            if let Some((stride, max, name)) = self.layout.odo_inside(idx) {
+                let di = self.layout.lookup(&name, &[]).map_err(|m| GenError::new(line, m))?;
+                let odo_opd = self.item_operand(di, &[], None, line)?;
+                let mut rec = Vec::with_capacity(12);
+                rec.extend_from_slice(&stride.to_le_bytes());
+                rec.extend_from_slice(&max.to_le_bytes());
+                rec.extend_from_slice(&odo_opd.to_le_bytes());
+                fd.aux = self.pool.intern(&rec);
+            }
+        }
         Ok(self.pool.opd_item(item.off, &fd, &subs, refmod))
     }
 
@@ -978,7 +1050,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                 Ok(())
             }
             Condition::SignTest { expr, negated, sign, .. } => {
-                let o = self.operand_required(expr, line)?;
+                let o = self.operand_or_temp(expr)?;
                 self.base();
                 self.i32c(o as i32);
                 self.i32c(match sign {
@@ -1031,7 +1103,31 @@ impl<'a, 'b> Lower<'a, 'b> {
                 let rhs = Expr::Identifier(name.clone(), c.span());
                 self.compare(subject, cmp_code(*op), &rhs, line)
             }
-            Condition::UserClassTest { .. } => self.err(line, "user-defined CLASS conditions are not supported yet"),
+            Condition::UserClassTest { expr, negated, class, .. } => {
+                let o = self.operand_required(expr, line)?;
+                let name = class.to_ascii_uppercase();
+                let Some((_, ranges)) = self.prog.classes.iter().find(|(n, _)| n.to_ascii_uppercase() == name) else {
+                    return self.err(line, format!("class {class} is not defined"));
+                };
+                // A 256-bit bitmap of the characters that belong.
+                let mut table = [0u8; 32];
+                for (lo, hi) in ranges {
+                    for c in (*lo as u32)..=(*hi as u32) {
+                        if c < 256 {
+                            table[(c >> 3) as usize] |= 1 << (c & 7);
+                        }
+                    }
+                }
+                let t = self.pool.intern(&table);
+                self.base();
+                self.i32c(o as i32);
+                self.i32c(t as i32);
+                self.call_rt("rt_class_user");
+                if *negated {
+                    self.raw(I::I32Eqz);
+                }
+                Ok(())
+            }
         }
     }
 
@@ -1229,6 +1325,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             Stmt::Close { files, .. } => self.close_(files, line),
             Stmt::Write { record, from, advancing, .. } => self.write_(record, from.as_ref(), advancing.as_ref(), line),
             Stmt::Read { file, into, at_end, not_at_end, .. } => self.read_(file, into.as_ref(), at_end, not_at_end, line),
+            Stmt::Accept { target, from, .. } => self.accept_(target, from.as_ref(), line),
             Stmt::Continue { .. } | Stmt::SentenceEnd { .. } => Ok(()),
             Stmt::Exit { kind, .. } => self.exit(*kind, line),
             Stmt::NextSentence { .. } => {
@@ -1327,7 +1424,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     // ── MOVE ──────────────────────────────────────────────────────────────
 
-    pub(crate) fn is_numeric_item(&self, e: &Expr) -> bool {
+    pub(crate) fn is_numeric_item(&mut self, e: &Expr) -> bool {
         let base = match e {
             Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => base.as_ref(),
             other => other,
@@ -1737,8 +1834,45 @@ impl<'a, 'b> Lower<'a, 'b> {
         line: u32,
     ) -> GenResult<()> {
         let join = self.new_block("end-evaluate");
-        for w in whens {
-            let body = self.new_block("when");
+        // A condition-name written as a subject is a condition; a data
+        // reference the parser read as a condition is an operand.
+        let mut re: Vec<EvalSubject> = Vec::with_capacity(subjects.len());
+        for s in subjects {
+            re.push(match s {
+                EvalSubject::Expr(e @ (Expr::Identifier(..) | Expr::Qualified { .. })) => match self.resolve_item(e) {
+                    Ok(i) if self.layout.items[i].level == 88 => {
+                        let name = self.layout.items[i].name.clone().unwrap_or_default();
+                        EvalSubject::Cond(Condition::ConditionName(name, e.span()))
+                    }
+                    _ => s.clone(),
+                },
+                EvalSubject::Cond(Condition::ConditionRef(e, _)) => {
+                    let (leaf, quals) = match e.as_ref() {
+                        Expr::Subscript { base, .. } => split_name(base),
+                        other => split_name(other),
+                    };
+                    match self.layout.lookup(&leaf, &quals) {
+                        Ok(i) if self.layout.items[i].level != 88 => EvalSubject::Expr(e.as_ref().clone()),
+                        _ => s.clone(),
+                    }
+                }
+                EvalSubject::Cond(Condition::ConditionName(n, sp)) => match self.layout.lookup(n, &[]) {
+                    Ok(i) if self.layout.items[i].level != 88 => EvalSubject::Expr(Expr::Identifier(n.clone(), *sp)),
+                    _ => s.clone(),
+                },
+                _ => s.clone(),
+            });
+        }
+        let subjects: &[EvalSubject] = &re;
+        // Stacked WHENs: consecutive phrases share the statements of the next
+        // one that has any (or WHEN OTHER's when none does).
+        let bodies: Vec<BlockId> = whens.iter().map(|_| self.new_block("when")).collect();
+        let other_b = self.new_block("when-other");
+        for (wi, w) in whens.iter().enumerate() {
+            let body = match whens[wi..].iter().position(|x| !x.stmts.is_empty()) {
+                Some(d) => bodies[wi + d],
+                None => other_b,
+            };
             let next = self.new_block("next-when");
             // The WHEN matches when every subject's selection object does.
             let n = w.values.len().min(subjects.len());
@@ -1754,13 +1888,17 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.i32c(0);
             }
             self.branch(body, next);
-            self.begin(body);
-            self.stmts(&w.stmts)?;
-            if self.cur.is_some() {
-                self.jump(join);
+            if !w.stmts.is_empty() {
+                self.begin(bodies[wi]);
+                self.stmts(&w.stmts)?;
+                if self.cur.is_some() {
+                    self.jump(join);
+                }
             }
             self.begin(next);
         }
+        self.jump(other_b);
+        self.begin(other_b);
         self.stmts(other)?;
         if self.cur.is_some() {
             self.jump(join);
@@ -1787,9 +1925,51 @@ impl<'a, 'b> Lower<'a, 'b> {
                     self.raw(I::I32Eqz);
                     Ok(())
                 }
-                _ => self.err(line, "WHEN condition against a non-conditional EVALUATE subject is not supported yet"),
+                // `EVALUATE X NUMERIC WHEN condition`: both truth values agree.
+                EvalSubject::Cond(sc) => {
+                    self.cond(sc)?;
+                    self.cond(c)?;
+                    self.raw(I::I32Eq);
+                    Ok(())
+                }
+                EvalSubject::Expr(_) => {
+                    // A bare data-name as the selection object is an operand, not
+                    // a condition: only a declared 88-level is one (the same
+                    // ambiguity `Condition::NameOrAbbrev` carries).
+                    let obj: Option<Expr> = match c {
+                        Condition::ConditionName(n, sp) => match self.layout.lookup(n, &[]) {
+                            Ok(i) if self.layout.items[i].level != 88 => Some(Expr::Identifier(n.clone(), *sp)),
+                            Err(_) if self.tolerant => Some(Expr::Identifier(n.clone(), *sp)),
+                            _ => None,
+                        },
+                        Condition::ConditionRef(e, _) => {
+                            let (leaf, quals) = match e.as_ref() {
+                                Expr::Subscript { base, .. } => split_name(base),
+                                other => split_name(other),
+                            };
+                            match self.layout.lookup(&leaf, &quals) {
+                                Ok(i) if self.layout.items[i].level != 88 => Some(e.as_ref().clone()),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    match obj {
+                        Some(e) => self.subject_rel(subject, OP_EQ, &e, line),
+                        // A genuine condition selects on its own truth value.
+                        None => self.cond(c),
+                    }
+                }
             },
             WhenValue::Literal(l) => {
+                if let EvalSubject::Cond(sc) = subject {
+                    // `WHEN TRUE` / `WHEN FALSE` reach here as the literals 1 and 0.
+                    let wanted = matches!(l, Literal::Integer(1));
+                    self.cond(sc)?;
+                    self.i32c(wanted as i32);
+                    self.raw(I::I32Eq);
+                    return Ok(());
+                }
                 let e = Expr::Literal(l.clone(), cobolt_lexer::Span::new(0, 0, line, 0));
                 self.subject_rel(subject, OP_EQ, &e, line)
             }
@@ -2038,34 +2218,34 @@ impl<'a, 'b> Lower<'a, 'b> {
         let exit = self.new_block("end-varying");
         let body_b = self.new_block("varying-body");
         if test_before {
-            // v1=f1; T1: if c1 exit; v2=f2; T2: if c2 {v1+=b1; goto T1}; body; v2+=b2; goto T2
+            // COBOL-85 6.20.4 GR10(b): every variable is set to its FROM, then
+            // condition 1 is tested; true ends the loop. Otherwise condition 2
+            // (and on inward): a true one steps the variable of the level
+            // outside it, sets every variable inside that level to its FROM and
+            // tests again; the innermost condition false runs the body, then
+            // steps the innermost variable.
+            //   init all; T0: c0 -> exit | T1; T1: c1 -> A0 | T2; ...;
+            //   T(n-1): c(n-1) -> A(n-2) | body;   A(k): v(k)+=b(k); v(k+1..)=f; goto T(k)
             let tests: Vec<BlockId> = (0..n).map(|_| self.new_block("varying-test")).collect();
-            self.assign(levels[0].var, levels[0].from)?;
+            let advance: Vec<BlockId> = (0..n.saturating_sub(1)).map(|_| self.new_block("varying-advance")).collect();
+            for l in &levels {
+                self.assign(l.var, l.from)?;
+            }
             self.jump(tests[0]);
             for k in 0..n {
                 self.begin(tests[k]);
-                // Initialise the inner variable when entering its test from the
-                // outer level: done at the end of the outer test below.
                 self.cond(levels[k].until)?;
-                let on_true = if k == 0 {
-                    exit
-                } else {
-                    // advance the previous level and retest it
-                    let adv = self.new_block("varying-advance");
-                    adv
-                };
-                let on_false = if k + 1 < n { self.new_block("varying-init") } else { body_b };
+                let on_true = if k == 0 { exit } else { advance[k - 1] };
+                let on_false = if k + 1 < n { tests[k + 1] } else { body_b };
                 self.branch(on_true, on_false);
-                if k > 0 {
-                    self.begin(on_true);
-                    self.augment(levels[k - 1].var, levels[k - 1].by)?;
-                    self.jump(tests[k - 1]);
+            }
+            for k in 0..n.saturating_sub(1) {
+                self.begin(advance[k]);
+                self.augment(levels[k].var, levels[k].by)?;
+                for j in k + 1..n {
+                    self.assign(levels[j].var, levels[j].from)?;
                 }
-                if k + 1 < n {
-                    self.begin(on_false);
-                    self.assign(levels[k + 1].var, levels[k + 1].from)?;
-                    self.jump(tests[k + 1]);
-                }
+                self.jump(tests[k]);
             }
             self.begin(body_b);
             let cycle = self.new_block("varying-step");
@@ -2079,7 +2259,13 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.augment(levels[n - 1].var, levels[n - 1].by)?;
             self.jump(tests[n - 1]);
         } else {
-            // TEST AFTER: all variables initialised; body; test innermost first.
+            // TEST AFTER (COBOL-85 6.20.4): every variable starts at its FROM, the
+            // body runs, then the innermost condition is tested. False: step it
+            // and run the body again. True: test the next outer condition as it
+            // stands (a variable is stepped only after its own condition came out
+            // false, NC201A PFM-TEST-F4-14); the first outer condition that is
+            // false steps its variable, restarts every variable inside it at its
+            // FROM and runs the body; the outermost condition true ends the loop.
             for l in &levels {
                 self.assign(l.var, l.from)?;
             }
@@ -2093,58 +2279,33 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.jump(cycle);
             }
             self.begin(cycle);
-            // Level k: if c_k { if k == 0 exit else { v_{k-1} += b_{k-1}; test level k-1; if false: v_k = f_k; goto body } } else { v_k += b_k; goto body }
+            // `outer[k]` (k >= 1): step level k-1, test it.
             let tests: Vec<BlockId> = (0..n).map(|_| self.new_block("varying-test")).collect();
+            let outer: Vec<BlockId> = (0..n).map(|_| self.new_block("varying-outer")).collect();
             self.jump(tests[n - 1]);
-            for k in (0..n).rev() {
-                self.begin(tests[k]);
-                self.cond(levels[k].until)?;
-                let satisfied = self.new_block("varying-satisfied");
-                let step = self.new_block("varying-step");
-                self.branch(satisfied, step);
-                self.begin(step);
-                self.augment(levels[k].var, levels[k].by)?;
-                self.jump(body_b);
-                self.begin(satisfied);
-                if k == 0 {
-                    self.jump(exit);
-                } else {
-                    self.augment(levels[k - 1].var, levels[k - 1].by)?;
-                    // retest the outer level; when it is not satisfied the inner
-                    // variable restarts: handled by testing level k-1 and, on
-                    // false, re-initialising level k.
-                    self.cond(levels[k - 1].until)?;
-                    let outer_done = self.new_block("varying-outer-done");
-                    let restart = self.new_block("varying-restart");
-                    self.branch(outer_done, restart);
-                    self.begin(restart);
-                    self.assign(levels[k].var, levels[k].from)?;
-                    self.jump(body_b);
-                    self.begin(outer_done);
-                    // An outer level that is satisfied ends the loop only when
-                    // it is the outermost; otherwise it carries one level out.
-                    if k - 1 == 0 {
-                        self.jump(exit);
-                    } else {
-                        self.augment(levels[k - 2].var, levels[k - 2].by)?;
-                        self.cond(levels[k - 2].until)?;
-                        let done2 = self.new_block("varying-outer-done");
-                        let restart2 = self.new_block("varying-restart");
-                        self.branch(done2, restart2);
-                        self.begin(restart2);
-                        for j in (k - 1)..=k {
-                            self.assign(levels[j].var, levels[j].from)?;
-                        }
-                        self.jump(body_b);
-                        self.begin(done2);
-                        if k - 2 == 0 {
-                            self.jump(exit);
-                        } else {
-                            return self.err(line, "PERFORM VARYING with more than three AFTER levels in TEST AFTER is not supported");
-                        }
-                    }
+            // innermost test
+            self.begin(tests[n - 1]);
+            self.cond(levels[n - 1].until)?;
+            let step_in = self.new_block("varying-step");
+            let sat_in = if n == 1 { exit } else { outer[n - 1] };
+            self.branch(sat_in, step_in);
+            self.begin(step_in);
+            self.augment(levels[n - 1].var, levels[n - 1].by)?;
+            self.jump(body_b);
+            for k in (1..n).rev() {
+                self.begin(outer[k]);
+                self.cond(levels[k - 1].until)?;
+                let restart = self.new_block("varying-restart");
+                let on_true = if k - 1 == 0 { exit } else { outer[k - 1] };
+                self.branch(on_true, restart);
+                self.begin(restart);
+                self.augment(levels[k - 1].var, levels[k - 1].by)?;
+                for j in k..n {
+                    self.assign(levels[j].var, levels[j].from)?;
                 }
+                self.jump(body_b);
             }
+            let _ = (tests, line);
         }
         self.begin(exit);
         Ok(())
@@ -2197,6 +2358,38 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.blocks[cur].succ.extend(tgts.iter().copied());
         self.blocks[cur].done = true;
         self.begin(after);
+        Ok(())
+    }
+
+    // ── ACCEPT ────────────────────────────────────────────────────────────
+
+    pub(crate) fn accept_(&mut self, target: &Expr, from: Option<&AcceptSource>, line: u32) -> GenResult<()> {
+        use cobolt_wasm_rt::accept::*;
+        let kind = match from {
+            None => {
+                if !self.conformance {
+                    return self.err(
+                        line,
+                        "ACCEPT from the operator has no meaning in a browser module: the form's controls are the input",
+                    );
+                }
+                ACC_CONSOLE
+            }
+            Some(AcceptSource::Date) => ACC_DATE,
+            Some(AcceptSource::Time) => ACC_TIME,
+            Some(AcceptSource::Day) => ACC_DAY,
+            Some(AcceptSource::DayOfWeek) => ACC_DAY_OF_WEEK,
+            // A mnemonic bound to the console behaves as the plain form.
+            Some(AcceptSource::Mnemonic(_)) if self.conformance => ACC_CONSOLE,
+            Some(other) => {
+                return self.err(line, format!("ACCEPT FROM {other:?} is not supported in a WebAssembly module"));
+            }
+        };
+        let t = self.receiver(target)?;
+        self.base();
+        self.i32c(t as i32);
+        self.i32c(kind as i32);
+        self.call_rt("rt_accept");
         Ok(())
     }
 

@@ -92,11 +92,17 @@ impl Pool {
     }
 
     pub fn opd_lit_num(&mut self, mantissa: i128, scale: u8) -> u32 {
+        self.opd_lit_num_written(mantissa, scale, 0)
+    }
+
+    /// A numeric literal that keeps the digit count it was written with
+    /// (`012345`: six), which a move or a comparison with characters transfers.
+    pub fn opd_lit_num_written(&mut self, mantissa: i128, scale: u8, written: u8) -> u32 {
         let mut b = [0u8; 17];
         b[..16].copy_from_slice(&mantissa.to_le_bytes());
         b[16] = scale;
         let data = self.intern(&b);
-        let fd = Fd { kind: cobolt_wasm_rt::fd::K_NUM_DISPLAY, flags: 0, digits: 0, scale: scale as i8, len: 0, aux: 0 };
+        let fd = Fd { kind: cobolt_wasm_rt::fd::K_NUM_DISPLAY, flags: 0, digits: written, scale: scale as i8, len: 0, aux: 0 };
         let r = Self::header(T_LIT_NUM, 0, 0, 0, &fd, data, 0);
         self.intern(&r)
     }

@@ -69,7 +69,7 @@ fn compile_member(m: &Member) -> Result<(), Vec<String>> {
     if !errs.is_empty() {
         return Err(errs);
     }
-    let opts = cobolt_wasm::Options { conformance: true, name: m.name.clone(), ..Default::default() };
+    let opts = cobolt_wasm::Options { conformance: true, tolerate_undeclared: true, name: m.name.clone(), ..Default::default() };
     match cobolt_wasm::compile_program(&program, &opts) {
         Ok(c) => {
             if let Err(e) = wasmparser::validate(&c.wasm) {

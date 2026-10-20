@@ -36,6 +36,17 @@ members = [
 ]
 resolver = "2"
 
+# WASM-010 — the conformance host runs generated modules in the wasmi
+# interpreter; unoptimised it is slow enough to time the NIST harness out.
+[profile.dev.package.wasmi]
+opt-level = 1
+[profile.dev.package.wasmi_core]
+opt-level = 1
+[profile.dev.package.wasmi_ir]
+opt-level = 1
+[profile.dev.package.wasmi_collections]
+opt-level = 1
+
 # ── Shared package metadata ────────────────────────────────────────────────────
 [workspace.package]
 version      = "0.2.0"

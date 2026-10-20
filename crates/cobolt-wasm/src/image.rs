@@ -95,6 +95,18 @@ fn shares_storage(layout: &Layout, idx: usize) -> bool {
     false
 }
 
+/// Does an ancestor group of `idx` carry a `VALUE`?
+fn group_has_value(layout: &Layout, idx: usize) -> bool {
+    let mut cur = layout.items[idx].parent;
+    while let Some(i) = cur {
+        if layout.items[i].value.is_some() {
+            return true;
+        }
+        cur = layout.items[i].parent;
+    }
+    false
+}
+
 /// Build the initial image of the whole region.
 pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<Image> {
     let size = layout.total as usize;
@@ -109,6 +121,11 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
             continue;
         }
         if item.external || shares_storage(layout, idx) {
+            continue;
+        }
+        // An item with no VALUE of its own inside a group that has one keeps
+        // what the group's move gave it, not its type's default.
+        if item.value.is_none() && group_has_value(layout, idx) {
             continue;
         }
         // An item inside a group that has its own VALUE is initialised by the
@@ -126,7 +143,18 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
             for (k, c) in counters.iter().enumerate() {
                 off += c * chain[k].0;
             }
-            let fd = pool.fd_with_spec(&item.fd, item.pic_template.as_deref(), decimal_comma, currency);
+            // Initialisation takes place independent of any JUSTIFIED clause
+            // (COBOL-85 5.15.4, NC107A JUST-TEST-01.02) and of BLANK WHEN ZERO,
+            // which is an editing of what a statement stores (BZERO-TEST-3:
+            // `PIC 999 VALUE "000" BLANK WHEN ZERO` holds "000").
+            let mut plain = item.fd;
+            plain.flags &= !(F_JUSTIFIED | F_BLANK_ZERO);
+            // A nonnumeric VALUE of an edited item is stored as written, not
+            // edited (NC108M FMT-TEST-GF-1: `<(3),<<<.99 VALUE " <1,111.11"`).
+            if matches!(plain.kind, K_NUM_EDITED | K_ALNUM_EDITED) && matches!(item.value, Some(Literal::String(_))) {
+                plain = Fd::alnum(plain.len);
+            }
+            let fd = pool.fd_with_spec(&plain, item.pic_template.as_deref(), decimal_comma, currency);
             let dst = pool.opd_item(off, &fd, &[] as &[Sub], None);
             jobs.push((src_for, dst));
             // Advance the odometer (innermost level fastest).

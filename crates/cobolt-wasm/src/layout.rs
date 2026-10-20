@@ -77,6 +77,7 @@ impl Layout {
 
     /// Lay out one section's declarations after what is already there.
     pub fn add_section(&mut self, decls: &[DataDecl]) -> GenResult<()> {
+        let first_root = self.roots.len();
         for d in decls {
             if d.level == 66 || d.level == 88 {
                 continue; // handled after the records they refer to
@@ -96,22 +97,29 @@ impl Layout {
                 }
                 None => (self.total, None),
             };
-            let idx = self.add_decl(d, None, start, None)?;
+            let idx = self.add_decl(d, None, start, None, Usage::Display)?;
             self.items[idx].redefines = redef;
             self.roots.push(idx);
             let it = &self.items[idx];
             let end = it.off + it.size * it.occurs.as_ref().map_or(1, |o| o.0);
             self.total = self.total.max(end);
         }
-        // 66-level items come after their records.
+        // 66-level items come after their records. A 66 belongs to the record
+        // it follows, which is what a qualifier (`RENAME-5 OF T-RENAMES-DATA`)
+        // names.
+        let mut seen = 0usize;
         for d in decls {
+            if d.level != 66 && d.level != 88 {
+                seen += 1;
+            }
             if d.level == 66 {
+                let owner = if seen > 0 { self.roots.get(first_root + seen - 1).copied() } else { None };
                 if let Some(r) = &d.renames {
                     let idx = self.items.len();
                     self.items.push(Item {
                         name: d.name.as_ref().map(|n| n.to_ascii_uppercase()),
                         level: 66,
-                        parent: None,
+                        parent: owner,
                         children: vec![],
                         off: 0,
                         size: 0,
@@ -153,7 +161,7 @@ impl Layout {
             if d.level == 66 || d.level == 88 {
                 continue;
             }
-            let idx = self.add_decl(d, None, start, None)?;
+            let idx = self.add_decl(d, None, start, None, Usage::Display)?;
             match first {
                 None => first = Some(idx),
                 Some(f) => self.items[idx].redefines = Some(f),
@@ -172,7 +180,10 @@ impl Layout {
         parent: Option<usize>,
         start: u32,
         inherited_sign: Option<SignClause>,
+        inherited_usage: Usage,
     ) -> GenResult<usize> {
+        // A USAGE written on a group applies to every elementary item below it.
+        let usage = if d.usage != Usage::Display { d.usage } else { inherited_usage };
         let line = d.span.line;
         let sign = d.sign.or(inherited_sign);
         let idx = self.items.len();
@@ -198,7 +209,7 @@ impl Layout {
             global: d.is_global,
             pic_template: d.picture.as_ref().map(|p| p.template.clone()),
             pic_kind: d.picture.as_ref().map(|p| p.kind),
-            usage: d.usage,
+            usage,
             blank_when_zero: d.blank_when_zero,
             index_names: d.occurs.as_ref().map(|o| o.indexed_by.iter().map(|n| n.to_ascii_uppercase()).collect()).unwrap_or_default(),
             keys: d.occurs.as_ref().map(|o| o.keys.iter().map(|(k, a)| (k.to_ascii_uppercase(), *a)).collect()).unwrap_or_default(),
@@ -225,7 +236,7 @@ impl Layout {
                     }
                     None => (cursor, None),
                 };
-                let ci = self.add_decl(c, Some(idx), child_start, sign)?;
+                let ci = self.add_decl(c, Some(idx), child_start, sign, usage)?;
                 self.items[ci].redefines = redef;
                 self.items[idx].children.push(ci);
                 if let Some(n) = &self.items[ci].name {
@@ -245,7 +256,7 @@ impl Layout {
             self.items[idx].size = group_end - start;
             self.items[idx].fd = Fd::group(group_end - start);
         } else {
-            let fd = item_fd(d, sign)?;
+            let fd = item_fd(d, sign, usage)?;
             self.items[idx].size = fd.len;
             self.items[idx].fd = fd;
         }
@@ -294,6 +305,38 @@ impl Layout {
 
     /// Allocate the hidden items (index-names) and round the region up.
     pub fn finish(&mut self) {
+        // 66 RENAMES: a character view over the records from `from` through `thru`.
+        let renames: Vec<usize> = (0..self.items.len()).filter(|&i| self.items[i].renames.is_some()).collect();
+        for r in renames {
+            let (from, thru) = self.items[r].renames.clone().unwrap();
+            let owner = self.items[r].parent;
+            let fi = self.lookup_within(&from, owner);
+            let ti = match &thru {
+                Some(t) => self.lookup_within(t, owner),
+                None => fi,
+            };
+            if let (Some(f), Some(t)) = (fi, ti) {
+                let start = self.items[f].off;
+                let end = self.items[t].off + self.items[t].size * self.items[t].occurs.as_ref().map_or(1, |o| o.0);
+                let len = end.saturating_sub(start);
+                self.items[r].off = start;
+                self.items[r].size = len;
+                self.items[r].fd = Fd::alnum(len);
+                // `RENAMES a` alone renames one item and takes its description:
+                // a numeric-edited item stays one, so a MOVE into the new name
+                // edits (NC252A RENAM-TEST-15).
+                if thru.is_none() && self.items[f].occurs.is_none() {
+                    let src = self.items[f].clone();
+                    let it = &mut self.items[r];
+                    it.fd = src.fd;
+                    it.is_group = src.is_group;
+                    it.pic_template = src.pic_template;
+                    it.pic_kind = src.pic_kind;
+                    it.usage = src.usage;
+                    it.blank_when_zero = src.blank_when_zero;
+                }
+            }
+        }
         let names: Vec<String> = self.index_names.keys().cloned().collect();
         let mut names = names;
         names.sort();
@@ -332,6 +375,43 @@ impl Layout {
         self.total = (self.total + 7) & !7;
     }
 
+    /// An item the program used without declaring it (a conformance build
+    /// tolerates the CCVS85 X-cards, as the interpreter's
+    /// `COBOL_TOLERATE_UNDECLARED` does): thirty-two characters, spaces.
+    pub fn add_implicit(&mut self, name: &str) -> usize {
+        let up = name.to_ascii_uppercase();
+        let off = self.total;
+        let idx = self.items.len();
+        self.items.push(Item {
+            name: Some(up.clone()),
+            level: 77,
+            parent: None,
+            children: vec![],
+            off,
+            size: 32,
+            occurs: None,
+            fd: Fd::alnum(32),
+            is_group: false,
+            redefines: None,
+            value: None,
+            cond: vec![],
+            renames: None,
+            span_line: 0,
+            hidden: false,
+            external: false,
+            global: false,
+            pic_template: None,
+            pic_kind: None,
+            usage: Usage::Display,
+            blank_when_zero: false,
+            index_names: vec![],
+            keys: vec![],
+        });
+        self.by_name.entry(up).or_default().push(idx);
+        self.total = (self.total + 32 + 7) & !7;
+        idx
+    }
+
     /// Reserve `size` hidden bytes at the end of the region; returns the offset.
     pub fn alloc_hidden(&mut self, size: u32) -> u32 {
         let off = self.total;
@@ -367,11 +447,57 @@ impl Layout {
             }
             hits.push(c);
         }
+        // Two condition-names of one spelling (a SPECIAL-NAMES switch status and an
+        // 88-level the program also declares): the later declaration wins, as it
+        // does in the interpreter's table.
+        if hits.len() > 1 && hits.iter().all(|&h| self.items[h].level == 88) {
+            return Ok(*hits.last().unwrap());
+        }
         match hits.len() {
             0 => Err(format!("{name} is not defined")),
             1 => Ok(hits[0]),
             _ => Err(format!("{name} is ambiguous; qualify it with OF")),
         }
+    }
+
+    /// A name as a `RENAMES` clause reads it: among the items of the record the
+    /// 66 follows when that finds exactly one, else anywhere.
+    fn lookup_within(&self, name: &str, owner: Option<usize>) -> Option<usize> {
+        if let Some(o) = owner {
+            let inside: Vec<usize> = self
+                .named(name)
+                .iter()
+                .copied()
+                .filter(|&c| {
+                    let mut cur = self.items[c].parent;
+                    while let Some(p) = cur {
+                        if p == o {
+                            return true;
+                        }
+                        cur = self.items[p].parent;
+                    }
+                    c == o
+                })
+                .collect();
+            if inside.len() == 1 {
+                return Some(inside[0]);
+            }
+        }
+        self.lookup(name, &[]).ok()
+    }
+
+    /// The variable-length table inside group `idx`, if there is one, as
+    /// `(stride, max, DEPENDING ON name)`. A record holds at most one.
+    pub fn odo_inside(&self, idx: usize) -> Option<(u32, u32, String)> {
+        for &c in &self.items[idx].children {
+            if let Some((max, Some(name))) = &self.items[c].occurs {
+                return Some((self.items[c].size, *max, name.clone()));
+            }
+            if let Some(found) = self.odo_inside(c) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     /// The `OCCURS` levels above or at `idx`, outermost first, as
@@ -397,7 +523,7 @@ impl Default for Layout {
 }
 
 /// The descriptor of an elementary item.
-fn item_fd(d: &DataDecl, sign: Option<SignClause>) -> GenResult<Fd> {
+fn item_fd(d: &DataDecl, sign: Option<SignClause>, usage: Usage) -> GenResult<Fd> {
     let line = d.span.line;
     let mut flags = 0u8;
     if d.justified {
@@ -407,7 +533,7 @@ fn item_fd(d: &DataDecl, sign: Option<SignClause>) -> GenResult<Fd> {
         flags |= F_BLANK_ZERO;
     }
     let Some(p) = d.picture.as_ref() else {
-        return Ok(match d.usage {
+        return Ok(match usage {
             Usage::Comp1 => Fd { kind: K_FLOAT32, flags: F_SIGNED, digits: 0, scale: 0, len: 4, aux: 0 },
             Usage::Comp2 => Fd { kind: K_FLOAT64, flags: F_SIGNED, digits: 0, scale: 0, len: 8, aux: 0 },
             Usage::Index | Usage::Pointer | Usage::ObjectReference => {
@@ -424,7 +550,7 @@ fn item_fd(d: &DataDecl, sign: Option<SignClause>) -> GenResult<Fd> {
             }
             let mut f = flags | if pic.signed { F_SIGNED } else { 0 };
             let scale = pic.scale().clamp(-100, 100) as i8;
-            match d.usage {
+            match usage {
                 Usage::Display => {
                     if let Some(s) = sign {
                         if s.leading {
@@ -444,7 +570,7 @@ fn item_fd(d: &DataDecl, sign: Option<SignClause>) -> GenResult<Fd> {
                         10..=18 => 8,
                         _ => 16,
                     };
-                    let kind = if d.usage == Usage::Comp5 { K_COMP5 } else { K_BINARY };
+                    let kind = if usage == Usage::Comp5 { K_COMP5 } else { K_BINARY };
                     Fd { kind, flags: f, digits: pic.digits as u8, scale, len, aux: 0 }
                 }
                 Usage::Comp3 | Usage::PackedDecimal => {

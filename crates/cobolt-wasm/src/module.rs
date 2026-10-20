@@ -53,6 +53,9 @@ pub struct Options {
     pub multi_memory: bool,
     /// The NIST gate build: accepts the file verbs through host imports.
     pub conformance: bool,
+    /// Treat an undeclared data-name as an implicit item (the NIST harness's
+    /// `COBOL_TOLERATE_UNDECLARED`); never set for a Web or Mobile build.
+    pub tolerate_undeclared: bool,
     pub arena: Arena,
     /// Blocks run before the module yields to the host.
     pub budget: i32,
@@ -61,7 +64,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { multi_memory: true, conformance: false, arena: Arena::default(), budget: 20_000, name: "program".into() }
+        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into() }
     }
 }
 
@@ -144,7 +147,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     // ── lowering ─────────────────────────────────────────────────────────
     let mut pool = Pool::new(consts_base);
     let mut blocks: Vec<Block> = Vec::new();
-    let lowered = Lower::lower(prog, &mut pool, &mut blocks, map, opts.conformance)?;
+    let lowered = Lower::lower(prog, &mut pool, &mut blocks, map, opts.conformance, opts.tolerate_undeclared)?;
     let layout = lowered.layout;
 
     // Reachable blocks, entry first.
@@ -211,7 +214,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     // The glue functions the module needs: the two it always has, plus the
     // file ones a conformance build's routines import. Each is backed by a
     // host import of the same name in the `pr` namespace.
-    const GLUE_ORDER: [&str; 6] = ["flush", "abort", "file_open", "file_close", "file_write", "file_read"];
+    const GLUE_ORDER: [&str; 8] = ["flush", "abort", "file_open", "file_close", "file_write", "file_read", "now", "switch_state"];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
     glue_needed.insert("abort");
@@ -220,7 +223,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
         let name = GLUE_ORDER.iter().copied().find(|g| *g == n && m == "glue");
         match name {
             Some(g) => {
-                if g.starts_with("file_") && !opts.conformance {
+                if (g.starts_with("file_") || g == "switch_state") && !opts.conformance {
                     return Err(GenError::new(
                         0,
                         "file input/output is not available in a browser module: it runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE",
@@ -237,13 +240,16 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     let ty_i32_i32_ret = types.intern(&[ValType::I32, ValType::I32], &[ValType::I32]);
     let ty_i32_ret1 = types.intern(&[ValType::I32], &[ValType::I32]);
     // (host import type, glue function type)
+    let ty_f64_ret = types.intern(&[], &[ValType::F64]);
     let glue_types = |name: &str| -> (u32, u32) {
         match name {
+            "now" => (ty_f64_ret, ty_f64_ret),
             "flush" => (ty_i32_void, ty_i32_i32_void),
             "abort" => (ty_i32_void, ty_i32_void),
             "file_open" => (ty_i32_i32_ret, ty_i32_i32_i32_ret),
             "file_close" => (ty_i32_ret1, ty_i32_ret1),
             "file_write" => (ty_i32_i32_i32_ret, ty_i32_i32_i32_i32_ret),
+            "switch_state" => (ty_i32_ret1, ty_i32_i32_ret),
             _ => (ty_i32_i32_ret, ty_i32_i32_i32_ret), // file_read
         }
     };
@@ -344,6 +350,24 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
         defs[(g_flush - n_imports) as usize].body = Body::Encoded(f);
     }
     let answer_at = arena_at + opts.arena.batch;
+    if glue_final.contains_key("now") {
+        let mut f = Function::new([]);
+        f.instruction(&I::Call(imp_of("now")));
+        f.instruction(&I::End);
+        defs[(glue_final["now"] - n_imports) as usize].body = Body::Encoded(f);
+    }
+    if glue_final.contains_key("switch_state") {
+        // glue.switch_state(addr, len): the name goes to the arena batch.
+        let mut f = Function::new([]);
+        f.instruction(&I::I32Const(arena_at as i32));
+        f.instruction(&I::LocalGet(0));
+        f.instruction(&I::LocalGet(1));
+        f.instruction(&I::MemoryCopy { src_mem: 0, dst_mem: arena_mem });
+        f.instruction(&I::LocalGet(1));
+        f.instruction(&I::Call(imp_of("switch_state")));
+        f.instruction(&I::End);
+        defs[(glue_final["switch_state"] - n_imports) as usize].body = Body::Encoded(f);
+    }
     if glue_final.contains_key("file_open") {
         // glue.file_open(addr, len, mode): the name goes to the arena batch.
         let mut f = Function::new([]);

@@ -12,7 +12,7 @@
 use crate::codec;
 use crate::fd::*;
 use crate::mem;
-use crate::mv::{digit_chars, scratch};
+use crate::mv::scratch;
 use crate::opd::*;
 use crate::val::Val;
 use core::cmp::Ordering;
@@ -34,11 +34,16 @@ enum View {
     Pattern(Loc),
 }
 
-fn view(base: u32, o: &Opd, other_numeric: bool) -> View {
+fn view(base: u32, o: &Opd, other_numeric: bool, other_strict: bool) -> View {
     match o.tag {
         T_LIT_NUM => View::Num(value(base, o), o.fd),
         T_FIG => {
-            if o.fig == FIG_ZERO && other_numeric {
+            // `ZERO` is the number against a number, and the character '0'
+            // against anything else — an edited item included, which is
+            // characters here (`IF EDIT = ZERO` with `0009999` holding
+            // "0000000", NC126A LEV-TEST-GF-3-19).
+            let _ = other_numeric;
+            if o.fig == FIG_ZERO && other_strict {
                 View::Num(Val::ZERO, o.fd)
             } else {
                 View::Fill(fig_byte(o.fig))
@@ -72,6 +77,25 @@ fn is_numeric_operand(base: u32, o: &Opd) -> bool {
     }
 }
 
+/// A number proper: a numeric literal or an item of a numeric usage (not an
+/// edited one, whose class is alphanumeric).
+fn is_strict_numeric(base: u32, o: &Opd) -> bool {
+    match o.tag {
+        T_LIT_NUM => true,
+        T_ITEM => locate(base, o).fd.is_numeric(),
+        _ => false,
+    }
+}
+
+/// A numeric item with `BLANK WHEN ZERO` that holds zero (and so is blanks).
+fn is_blank_zero(base: u32, o: &Opd) -> bool {
+    if o.tag != T_ITEM {
+        return false;
+    }
+    let loc = locate(base, o);
+    loc.fd.is_numeric() && loc.fd.blank_when_zero() && matches!(codec::load_value(&loc), Val::Dec(d) if d.mantissa == 0)
+}
+
 fn holds(op: u32, ord: Ordering) -> bool {
     match op {
         OP_EQ => ord == Ordering::Equal,
@@ -102,7 +126,7 @@ pub fn numeric_relation(a: &Val, b: &Val, op: u32) -> bool {
 /// digit positions, in the scratch area.
 fn num_as_chars(v: &Val, fd: &Fd) -> Loc {
     let mut buf = [0u8; 40];
-    let n = digit_chars(v, fd, &mut buf);
+    let n = crate::mv::image_chars(v, fd, &mut buf);
     let (addr, _) = scratch();
     mem::bytes_mut(addr, n as u32).copy_from_slice(&buf[..n]);
     Loc { addr, len: n as u32, fd: Fd { kind: K_ALNUM, flags: 0, digits: 0, scale: 0, len: n as u32, aux: 0 } }
@@ -140,8 +164,14 @@ fn len_of(v: &View) -> Option<u32> {
 /// Collating weight of a byte under the program's collating sequence. The
 /// native sequence is the byte order.
 #[inline]
-fn weight(b: u8) -> u8 {
-    b
+fn weight(b: u8) -> u16 {
+    let c = crate::state::st().collate;
+    if c == 0 {
+        b as u16
+    } else {
+        let w = mem::bytes(c + 2 + 2 * b as u32, 2);
+        u16::from_le_bytes([w[0], w[1]])
+    }
 }
 
 fn chars_relation(a: &View, b: &View, op: u32) -> bool {
@@ -167,8 +197,12 @@ pub fn relation(base: u32, a: u32, b: u32, op: u32) -> bool {
     let (oa, ob) = (parse(a), parse(b));
     let na = is_numeric_operand(base, &oa);
     let nb = is_numeric_operand(base, &ob);
-    let va = view(base, &oa, nb);
-    let vb = view(base, &ob, na);
+    let (sa, sb) = (is_strict_numeric(base, &oa), is_strict_numeric(base, &ob));
+    // A `BLANK WHEN ZERO` item holding zero is spaces to a character operand
+    // (its bytes are blanks) and zero to a number (NC107A BZERO-TEST-2).
+    let against_chars = |o: &Opd| !is_numeric_operand(base, o) && !(o.tag == T_FIG && o.fig == FIG_ZERO);
+    let va = if is_blank_zero(base, &oa) && against_chars(&ob) { View::Mem(locate(base, &oa)) } else { view(base, &oa, nb, sb) };
+    let vb = if is_blank_zero(base, &ob) && against_chars(&oa) { View::Mem(locate(base, &ob)) } else { view(base, &ob, na, sa) };
     match (&va, &vb) {
         (View::Num(x, _), View::Num(y, _)) => numeric_relation(x, y, op),
         (View::Num(x, fx), other) => num_vs_chars(x, fx, other, op, false),
@@ -181,12 +215,9 @@ pub fn relation(base: u32, a: u32, b: u32, op: u32) -> bool {
 /// spell a number the comparison is numeric; otherwise it is alphanumeric, the
 /// number standing for the digits it would have as an alphanumeric item.
 fn num_vs_chars(n: &Val, nfd: &Fd, chars: &View, op: u32, swapped: bool) -> bool {
-    if let View::Mem(l) = chars {
-        if let Some(parsed) = codec::parse_text(mem::bytes(l.addr, l.len)) {
-            let other = Val::Dec(parsed);
-            return if swapped { numeric_relation(&other, n, op) } else { numeric_relation(n, &other, op) };
-        }
-    }
+    // COBOL-85 6.3.4.2: against an alphanumeric operand the number is compared
+    // as though it had been moved to an alphanumeric item of its own size — its
+    // digits, no sign (NC103A IF-TEST-GF-98, "pseudo-move to strip minus sign").
     let nv = View::Mem(num_as_chars(n, nfd));
     if swapped {
         chars_relation(chars, &nv, op)
@@ -280,4 +311,14 @@ pub fn sign_test(base: u32, o: u32, sign: u32) -> bool {
         SIGN_NEGATIVE => neg,
         _ => zero,
     }
+}
+
+/// `x IS [NOT] class-name` for a `SPECIAL-NAMES. CLASS` of the program: the
+/// 32-byte bitmap at `table` lists the characters that belong. True when the
+/// operand is non-empty and every character belongs.
+pub fn user_class(base: u32, o: u32, table: u32) -> bool {
+    let loc = locate(base, &parse(o));
+    let b = mem::bytes(loc.addr, loc.len);
+    let t = mem::bytes(table, 32);
+    !b.is_empty() && b.iter().all(|c| t[(*c >> 3) as usize] & (1 << (*c & 7)) != 0)
 }

@@ -17,6 +17,57 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.19] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.18.)*
+
+### Added: the NIST NC module runs clean on generated WebAssembly modules — 95 of 95 programs, 4 612 assertions, 0 failures
+
+GOLDEN RULE #9, first module, both axes: all 95 `NC` programs compile with the
+WebAssembly generator and each runs to completion on the test host reporting no
+failure (the interpreter: 95 of 95, 4 614 assertions; the two-assertion difference is
+the harness counting the `PASS ` marker across a print file whose record layout
+differs, and every program's own summary line is identical on all 95 — see
+`specs/WASM-PARITY.md`). It was 69 of 95 at 2.0.17.
+
+What changed in the generator and its routines (each case has a differential test
+against the interpreter in `crates/cobolt-wasm/tests/nist_nc_fixes.rs`):
+
+- **Comparisons.** A number against characters follows the standard's pseudo-move:
+  its digits as written (a literal keeps its leading zeros), no sign, `P` positions as
+  zeros. Figurative `ZERO` against an edited item is the character `0`.
+- **`BLANK WHEN ZERO`** now blanks numeric and edited items (and reads back as zero),
+  compares as spaces against characters, and is not applied to a `VALUE`.
+- **`VALUE` initialisation** ignores `JUSTIFIED`, reaches the children of a group, and
+  is stored as written in an edited item.
+- **Moves.** A group sender into an alphanumeric-edited receiver is an alphanumeric
+  move; an edited item moved to a numeric one is de-edited whatever insertions it has;
+  a numeric item with a `P` scale moved to characters yields its `P` zeros.
+- **`INSPECT`** on a signed numeric item sees its digits and keeps its sign.
+- **`OCCURS … DEPENDING ON` in a group**: the group is as long as the count says; the
+  receiver of a `MOVE` takes the declared maximum.
+- **`RENAMES`**: a 66-level belongs to the record before it (so `OF` tells two of the
+  same name apart) and `RENAMES a` keeps the description of `a`.
+- **`PERFORM … VARYING … AFTER`** follows 6.20.4 exactly for TEST BEFORE (inner
+  variables go back to their FROM when the outer one is stepped) and TEST AFTER (a
+  variable is stepped only after its own condition came out false).
+- **`EVALUATE`**: stacked `WHEN` phrases share the statements of the next one.
+- **`DIVIDE … REMAINDER`** takes the quotient with the decimals of an edited `GIVING`
+  item.
+- **External switches** (`SPECIAL-NAMES … SWITCH-n IS … ON STATUS …`): a conformance
+  build asks the host once at the start (`pr.switch_state`); browser builds refuse it.
+- The test host builds `wasmi` optimised (`[profile.dev.package.wasmi*] opt-level =
+  1`): the heaviest NC program ran in 14.5 s and now in 0.7 s, inside the harness'
+  20 s limit.
+
+Two divergences from the interpreter were found and are recorded for the operator in
+`specs/WASM-PARITY.md`, not changed here: a `BLANK WHEN ZERO` item holding zero is
+not equal to `ZERO` in the interpreter (it should be), and the same clause on an
+edited item tests the value before truncation. Version 2.0.19. No product document
+changes; `README.md` and `docs/` are untouched on this line.
+
+*(Written on `features-2x`.)*
+
 ## [PowerRustCOBOL 2.0.18] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.17.)*

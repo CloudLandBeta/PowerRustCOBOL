@@ -66,13 +66,15 @@ pub struct State {
     pub inst: u32,
     /// Bytes currently staged in the batch.
     pub batch_len: u32,
+    /// Address of the program collating sequence (`[low][high][u16 × 256]`), or 0.
+    pub collate: u32,
     /// The resolved sender of a `MOVE` in progress (several receivers).
     pub snd: Option<crate::mv::Sender>,
 }
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, snd: None }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None }
     }
 }
 

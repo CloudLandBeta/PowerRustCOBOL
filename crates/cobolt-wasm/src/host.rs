@@ -20,6 +20,8 @@ use wasmi::{Caller, Engine, Extern, Linker, Memory, Module, Store};
 #[derive(Debug, Clone)]
 pub struct Conformance {
     pub cwd: PathBuf,
+    /// External switches, by implementor name or mnemonic (case-insensitive).
+    pub switches: Vec<(String, bool)>,
 }
 
 enum OpenFile {
@@ -153,6 +155,17 @@ fn run_with(wasm: &[u8], conformance: Option<Conformance>, batch_size: u32) -> R
             Err(wasmi::Error::new("run-time error"))
         })
         .map_err(|e| e.to_string())?;
+    // External switches (ABI v1 §8): 1 on, 0 off, -1 unknown.
+    linker
+        .func_wrap("pr", "switch_state", |caller: Caller<'_, State>, len: i32| -> i32 {
+            let name = String::from_utf8_lossy(&read_batch(&caller, len as u32)).into_owned();
+            let Some(conf) = caller.data().conformance.as_ref() else { return -1 };
+            match conf.switches.iter().find(|(k, _)| k.eq_ignore_ascii_case(name.trim())) {
+                Some((_, on)) => i32::from(*on),
+                None => -1,
+            }
+        })
+        .map_err(|e| e.to_string())?;
     // Conformance files (ABI v1 §8).
     linker
         .func_wrap("pr", "file_open", |mut caller: Caller<'_, State>, len: i32, mode: i32| -> i32 {
@@ -231,6 +244,21 @@ fn run_with(wasm: &[u8], conformance: Option<Conformance>, batch_size: u32) -> R
     linker
         .func_wrap("pr", "file_read", |mut caller: Caller<'_, State>, handle: i32, cap: i32| -> i32 {
             let mut line = Vec::new();
+            if handle == 0 {
+                // The operator: one line of standard input.
+                let mut s = String::new();
+                match std::io::stdin().read_line(&mut s) {
+                    Ok(0) | Err(_) => return -10,
+                    Ok(_) => {}
+                }
+                line = s.trim_end_matches(['\n', '\r']).as_bytes().to_vec();
+                line.truncate(cap as usize);
+                let st = caller.data();
+                let mem = st.arena.expect("arena");
+                let at = st.arena_base + st.answer_at;
+                mem.write(&mut caller, at as usize, &line).expect("write arena");
+                return line.len() as i32;
+            }
             match caller.data_mut().files.get_mut(&(handle as u32)) {
                 Some(OpenFile::Reader(r)) => match r.read_until(b'\n', &mut line) {
                     Ok(0) => return -10,
@@ -248,6 +276,14 @@ fn run_with(wasm: &[u8], conformance: Option<Conformance>, batch_size: u32) -> R
             let at = st.arena_base + st.answer_at;
             mem.write(&mut caller, at as usize, &line).expect("write arena");
             line.len() as i32
+        })
+        .map_err(|e| e.to_string())?;
+    linker
+        .func_wrap("pr", "now", |_caller: Caller<'_, State>| -> f64 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64() * 1000.0)
+                .unwrap_or(0.0)
         })
         .map_err(|e| e.to_string())?;
     let instance = linker

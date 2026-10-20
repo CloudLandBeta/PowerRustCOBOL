@@ -186,8 +186,33 @@ fn blank_op() -> Op {
 }
 
 /// `INSPECT target <spec>`.
+///
+/// A signed numeric item with its sign in the last (or first) digit is
+/// inspected as its digit characters — `-12345` holds "12345", and `ALL "5"`
+/// finds the 5 (NC216A INS-TEST-F1-23). The sign position is made a plain digit
+/// for the scan and given its sign back afterwards.
 pub fn inspect(base: u32, target: u32, spec: u32) {
     let t = locate(base, &parse(target));
+    let embedded = if t.fd.kind == K_NUM_DISPLAY && t.fd.signed() && !t.fd.sign_separate() && t.len > 0 {
+        let at = t.addr + if t.fd.sign_leading() { 0 } else { t.len - 1 };
+        codec::de_overpunch(mem::rd_u8(at)).map(|(d, neg)| {
+            mem::wr_u8(at, b'0' + d);
+            (at, neg)
+        })
+    } else {
+        None
+    };
+    inspect_chars(base, &t, spec);
+    if let Some((at, true)) = embedded {
+        let b = mem::rd_u8(at);
+        if b.is_ascii_digit() {
+            mem::wr_u8(at, codec::overpunch(b - b'0', true));
+        }
+    }
+}
+
+fn inspect_chars(base: u32, t: &Loc, spec: u32) {
+    let t = *t;
     let n = rd(spec) as usize;
     if n > MAX_OPS {
         crate::fail(err::BAD_OPERAND);
