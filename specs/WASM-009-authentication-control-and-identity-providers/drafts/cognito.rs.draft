@@ -1,0 +1,299 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! Amazon Cognito user pools - the in-app flow (WASM-009 R8, plan §2.1).
+//!
+//! Every self-service operation is a public JSON call (`ClientId` required, no
+//! AWS credentials): `POST https://cognito-idp.{region}.amazonaws.com/` with
+//! `X-Amz-Target: AWSCognitoIdentityProviderService.<Operation>` and
+//! `Content-Type: application/x-amz-json-1.1`. When the app client has a secret,
+//! every call that names a user also carries `SECRET_HASH`, the base64 HMAC-SHA256
+//! of `username + client_id` keyed with the client secret.
+//!
+//! **Password sign-in uses `USER_PASSWORD_AUTH`**, which the app client must
+//! allow (`ALLOW_USER_PASSWORD_AUTH`). AWS recommends SRP for a custom-built
+//! sign-in; SRP is not implemented here (plan §7) - the password travels to
+//! the backend over TLS and from it to Cognito over TLS, and never to a log.
+//!
+//! **What a failure tells the user** is decided by [`classify`], not by the
+//! provider: `UserNotFoundException`, `NotAuthorizedException`,
+//! `UserNotConfirmedException`, `PasswordResetRequiredException` and a locked
+//! account are all [`IdpError::Rejected`], so the answer to "does this user
+//! exist" is never in what the application shows (R10). The pool's own
+//! `PreventUserExistenceErrors = ENABLED` is the provider-side half of the same
+//! rule.
+
+use std::sync::Arc;
+
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine;
+use hmac::{Hmac, Mac};
+use serde_json::{json, Value};
+use sha2::Sha256;
+
+use super::http::{Http, HttpRequest};
+use super::{Capabilities, Challenge, ChallengeResponse, Flow, IdentityProvider, IdpError, SignIn, SignUp, SignUpRequest, Tokens};
+
+pub struct Cognito {
+    http: Arc<dyn Http>,
+    endpoint: String,
+    client_id: String,
+    client_secret: Option<String>,
+    /// The hosted UI's domain (`https://my-pool.auth.eu-west-1.amazoncognito.com`), for the hosted flow.
+    domain: Option<String>,
+    scopes: String,
+}
+
+impl Cognito {
+    /// `endpoint` overrides `https://cognito-idp.{region}.amazonaws.com/` (a mock, a local emulator).
+    pub fn new(http: Arc<dyn Http>, region: &str, endpoint: Option<String>, client_id: String, client_secret: Option<String>, domain: Option<String>, scopes: Option<String>) -> Self {
+        Cognito {
+            http,
+            endpoint: endpoint.unwrap_or_else(|| format!("https://cognito-idp.{region}.amazonaws.com/")),
+            client_id,
+            client_secret: client_secret.filter(|s| !s.is_empty()),
+            domain,
+            scopes: scopes.unwrap_or_else(|| "openid email profile".to_string()),
+        }
+    }
+
+    fn secret_hash(&self, username: &str) -> Option<String> {
+        let secret = self.client_secret.as_ref()?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).ok()?;
+        mac.update(username.as_bytes());
+        mac.update(self.client_id.as_bytes());
+        Some(B64.encode(mac.finalize().into_bytes()))
+    }
+
+    fn call(&self, target: &str, body: Value) -> Result<Value, IdpError> {
+        let req = HttpRequest::post_json(
+            &self.endpoint,
+            &[("X-Amz-Target", &format!("AWSCognitoIdentityProviderService.{target}")), ("Content-Type", "application/x-amz-json-1.1")],
+            &body,
+        );
+        let resp = self.http.send(&req).map_err(|e| IdpError::Unavailable(format!("Cognito {target}: {e}")))?;
+        let v = resp.json().unwrap_or(Value::Null);
+        if (200..300).contains(&resp.status) {
+            return Ok(v);
+        }
+        let kind = v.get("__type").and_then(|t| t.as_str()).map(|t| t.rsplit('#').next().unwrap_or(t).to_string()).unwrap_or_default();
+        let message = v.get("message").or_else(|| v.get("Message")).and_then(|m| m.as_str()).unwrap_or("").to_string();
+        Err(classify(target, resp.status, &kind, &message))
+    }
+
+    fn tokens(v: &Value) -> Option<Tokens> {
+        let r = v.get("AuthenticationResult")?;
+        Some(Tokens {
+            access: r.get("AccessToken")?.as_str()?.to_string(),
+            id: r.get("IdToken").and_then(|t| t.as_str()).map(str::to_owned),
+            refresh: r.get("RefreshToken").and_then(|t| t.as_str()).map(str::to_owned),
+            expires_in: r.get("ExpiresIn").and_then(|t| t.as_u64()).unwrap_or(3600),
+        })
+    }
+
+    fn sign_in_result(v: &Value) -> Result<SignIn, IdpError> {
+        if let Some(t) = Self::tokens(v) {
+            return Ok(SignIn::Tokens(t));
+        }
+        if let Some(name) = v.get("ChallengeName").and_then(|c| c.as_str()) {
+            let session = v.get("Session").and_then(|s| s.as_str()).unwrap_or("").to_string();
+            let p = v.get("ChallengeParameters");
+            let hint = ["CODE_DELIVERY_DESTINATION", "CODE_DELIVERY_DELIVERY_MEDIUM"].iter().find_map(|k| p.and_then(|p| p.get(*k)).and_then(|x| x.as_str())).unwrap_or("").to_string();
+            return Ok(SignIn::Challenge(Challenge { kind: name.to_string(), session, hint }));
+        }
+        Err(IdpError::Unavailable("Cognito answered neither tokens nor a challenge".into()))
+    }
+}
+
+/// What a Cognito error means for the application. **Nothing here distinguishes
+/// an unknown user from a wrong password.**
+fn classify(target: &str, status: u16, kind: &str, message: &str) -> IdpError {
+    match kind {
+        // Credentials, user, account state: all one answer.
+        "NotAuthorizedException" | "UserNotFoundException" | "UserNotConfirmedException" | "PasswordResetRequiredException" | "UserLambdaValidationException" | "InvalidLambdaResponseException" => IdpError::Rejected,
+        // A code: wrong, expired, or for nobody.
+        "CodeMismatchException" | "ExpiredCodeException" | "AliasExistsException" => IdpError::Rejected,
+        "TooManyRequestsException" | "LimitExceededException" | "TooManyFailedAttemptsException" => IdpError::Throttled,
+        // The user can fix these and learn nothing private from them.
+        "InvalidPasswordException" => IdpError::Invalid(if message.is_empty() { "The password does not meet the requirements.".into() } else { message.to_string() }),
+        "InvalidParameterException" => {
+            // On ForgotPassword this is Cognito saying the account cannot recover by this route
+            // (no verified e-mail/phone) - and it is as private as "no such user".
+            if target == "ForgotPassword" || target == "ResendConfirmationCode" {
+                IdpError::Rejected
+            } else {
+                IdpError::Invalid("One of the values is not accepted.".into())
+            }
+        }
+        // Sign-up with a name that exists is handled by the service, which answers like a success.
+        "UsernameExistsException" => IdpError::Rejected,
+        "ResourceNotFoundException" | "InvalidUserPoolConfigurationException" | "UnsupportedOperationException" => IdpError::Unavailable(format!("Cognito {target}: {kind}: {message}")),
+        _ => {
+            if status >= 500 || status == 0 {
+                IdpError::Unavailable(format!("Cognito {target}: {status} {kind}"))
+            } else {
+                IdpError::Rejected
+            }
+        }
+    }
+}
+
+impl IdentityProvider for Cognito {
+    fn name(&self) -> &'static str {
+        "cognito"
+    }
+
+    fn flow(&self) -> Flow {
+        Flow::InApp
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities { sign_in: true, sign_up: true, confirm: true, reset: true, mfa_challenge: true, refresh: true, sign_out: true, hosted: self.domain.is_some() }
+    }
+
+    fn sign_in(&self, username: &str, password: &str) -> Result<SignIn, IdpError> {
+        let mut params = json!({"USERNAME": username, "PASSWORD": password});
+        if let Some(h) = self.secret_hash(username) {
+            params["SECRET_HASH"] = json!(h);
+        }
+        let v = self.call("InitiateAuth", json!({"AuthFlow": "USER_PASSWORD_AUTH", "ClientId": self.client_id, "AuthParameters": params}))?;
+        Self::sign_in_result(&v)
+    }
+
+    fn respond_to_challenge(&self, a: &ChallengeResponse) -> Result<SignIn, IdpError> {
+        let mut responses = json!({"USERNAME": a.username});
+        match a.kind.as_str() {
+            "SMS_MFA" => responses["SMS_MFA_CODE"] = json!(a.code),
+            "SOFTWARE_TOKEN_MFA" => responses["SOFTWARE_TOKEN_MFA_CODE"] = json!(a.code),
+            // The documentation names both spellings (plan §2.1): answer in the one the challenge used.
+            "EMAIL_OTP" => responses["EMAIL_OTP_CODE"] = json!(a.code),
+            "EMAIL_MFA" => responses["EMAIL_MFA_CODE"] = json!(a.code),
+            "NEW_PASSWORD_REQUIRED" => responses["NEW_PASSWORD"] = json!(a.new_password),
+            "SELECT_MFA_TYPE" => responses["ANSWER"] = json!(a.code),
+            _ => return Err(IdpError::Unsupported),
+        }
+        if let Some(h) = self.secret_hash(&a.username) {
+            responses["SECRET_HASH"] = json!(h);
+        }
+        let v = self.call("RespondToAuthChallenge", json!({"ClientId": self.client_id, "ChallengeName": a.kind, "Session": a.session, "ChallengeResponses": responses}))?;
+        Self::sign_in_result(&v)
+    }
+
+    fn sign_up(&self, r: &SignUpRequest) -> Result<SignUp, IdpError> {
+        let mut attrs = Vec::new();
+        for (name, value) in [("email", &r.email), ("phone_number", &r.phone), ("given_name", &r.given_name), ("family_name", &r.family_name)] {
+            if !value.is_empty() {
+                attrs.push(json!({"Name": name, "Value": value}));
+            }
+        }
+        let mut body = json!({"ClientId": self.client_id, "Username": r.username, "Password": r.password, "UserAttributes": attrs});
+        if let Some(h) = self.secret_hash(&r.username) {
+            body["SecretHash"] = json!(h);
+        }
+        let v = self.call("SignUp", body)?;
+        if v.get("UserConfirmed").and_then(|c| c.as_bool()) == Some(true) {
+            Ok(SignUp::Done)
+        } else {
+            let hint = v.pointer("/CodeDeliveryDetails/Destination").and_then(|d| d.as_str()).unwrap_or("").to_string();
+            Ok(SignUp::ConfirmationRequired { hint })
+        }
+    }
+
+    fn confirm_sign_up(&self, username: &str, code: &str, _session: &str) -> Result<(), IdpError> {
+        let mut body = json!({"ClientId": self.client_id, "Username": username, "ConfirmationCode": code});
+        if let Some(h) = self.secret_hash(username) {
+            body["SecretHash"] = json!(h);
+        }
+        self.call("ConfirmSignUp", body).map(|_| ())
+    }
+
+    fn resend_code(&self, username: &str, _session: &str) -> Result<(), IdpError> {
+        let mut body = json!({"ClientId": self.client_id, "Username": username});
+        if let Some(h) = self.secret_hash(username) {
+            body["SecretHash"] = json!(h);
+        }
+        self.call("ResendConfirmationCode", body).map(|_| ())
+    }
+
+    fn forgot_password(&self, username: &str) -> Result<Option<String>, IdpError> {
+        let mut body = json!({"ClientId": self.client_id, "Username": username});
+        if let Some(h) = self.secret_hash(username) {
+            body["SecretHash"] = json!(h);
+        }
+        self.call("ForgotPassword", body).map(|_| None)
+    }
+
+    fn confirm_forgot_password(&self, username: &str, code: &str, new_password: &str, _session: &str) -> Result<(), IdpError> {
+        let mut body = json!({"ClientId": self.client_id, "Username": username, "ConfirmationCode": code, "Password": new_password});
+        if let Some(h) = self.secret_hash(username) {
+            body["SecretHash"] = json!(h);
+        }
+        self.call("ConfirmForgotPassword", body).map(|_| ())
+    }
+
+    fn refresh(&self, refresh_token: &str, username: &str) -> Result<Tokens, IdpError> {
+        let mut params = json!({"REFRESH_TOKEN": refresh_token});
+        if let Some(h) = self.secret_hash(username) {
+            params["SECRET_HASH"] = json!(h);
+        }
+        let v = self.call("InitiateAuth", json!({"AuthFlow": "REFRESH_TOKEN_AUTH", "ClientId": self.client_id, "AuthParameters": params}))?;
+        let mut t = Self::tokens(&v).ok_or_else(|| IdpError::Unavailable("Cognito answered no tokens to a refresh".into()))?;
+        // Without rotation the refresh token stays the same and Cognito does not repeat it.
+        if t.refresh.is_none() {
+            t.refresh = Some(refresh_token.to_string());
+        }
+        Ok(t)
+    }
+
+    fn sign_out(&self, access_token: &str, refresh_token: Option<&str>) -> Result<(), IdpError> {
+        let mut first: Result<(), IdpError> = Ok(());
+        if let Some(rt) = refresh_token.filter(|t| !t.is_empty()) {
+            let mut body = json!({"ClientId": self.client_id, "Token": rt});
+            if let Some(s) = &self.client_secret {
+                body["ClientSecret"] = json!(s);
+            }
+            first = self.call("RevokeToken", body).map(|_| ());
+        }
+        let second = if access_token.is_empty() { Ok(()) } else { self.call("GlobalSignOut", json!({"AccessToken": access_token})).map(|_| ()) };
+        first.and(second)
+    }
+
+    fn start_hosted(&self, redirect_uri: &str, state: &str, code_challenge: &str, _nonce: &str) -> Result<String, IdpError> {
+        let domain = self.domain.as_ref().ok_or(IdpError::Unsupported)?;
+        use super::http::percent;
+        Ok(format!(
+            "{}/oauth2/authorize?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method=S256",
+            domain.trim_end_matches('/'),
+            percent(&self.client_id),
+            percent(redirect_uri),
+            percent(&self.scopes),
+            percent(state),
+            percent(code_challenge)
+        ))
+    }
+
+    fn finish_hosted(&self, code: &str, redirect_uri: &str, code_verifier: &str) -> Result<Tokens, IdpError> {
+        let domain = self.domain.as_ref().ok_or(IdpError::Unsupported)?;
+        let url = format!("{}/oauth2/token", domain.trim_end_matches('/'));
+        let fields = [("grant_type", "authorization_code"), ("client_id", self.client_id.as_str()), ("code", code), ("redirect_uri", redirect_uri), ("code_verifier", code_verifier)];
+        let mut headers: Vec<(String, String)> = Vec::new();
+        if let Some(s) = &self.client_secret {
+            headers.push(("Authorization".into(), format!("Basic {}", B64.encode(format!("{}:{}", self.client_id, s)))));
+        }
+        let hs: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let resp = self.http.send(&HttpRequest::post_form(&url, &hs, &fields)).map_err(|e| IdpError::Unavailable(format!("Cognito token endpoint: {e}")))?;
+        if resp.status != 200 {
+            return Err(if resp.status >= 500 { IdpError::Unavailable(format!("Cognito token endpoint answered {}", resp.status)) } else { IdpError::Rejected });
+        }
+        let v = resp.json().ok_or_else(|| IdpError::Unavailable("Cognito token endpoint answered no JSON".into()))?;
+        Ok(Tokens {
+            access: v.get("access_token").and_then(|t| t.as_str()).ok_or(IdpError::Rejected)?.to_string(),
+            id: v.get("id_token").and_then(|t| t.as_str()).map(str::to_owned),
+            refresh: v.get("refresh_token").and_then(|t| t.as_str()).map(str::to_owned),
+            expires_in: v.get("expires_in").and_then(|t| t.as_u64()).unwrap_or(3600),
+        })
+    }
+}

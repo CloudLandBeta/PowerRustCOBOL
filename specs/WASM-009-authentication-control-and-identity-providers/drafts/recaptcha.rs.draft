@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! reCAPTCHA v3 verification, on the backend (WASM-009 R4).
+//!
+//! The browser obtains a token for an *action* (`sign_in`, `sign_up`, …); the
+//! backend asks Google whether it is genuine (`siteverify`) and **checks four
+//! things, not one**: that Google says `success`; that the **score** is at least
+//! the configured minimum (0.5 by default); that the **action** is the one this
+//! operation expects; and that the **hostname** is one the deployment lists. A
+//! token is verifiable **once** (Google says so, and the backend remembers the
+//! tokens it accepted for two minutes, which is as long as one is valid).
+//!
+//! **The fail-open trap.** Without billing, over the free quota Google answers
+//! `HTTP 200`, `success: true`, score 0.9, and — only in an error message — "Over
+//! free quota". Taking `success` at its word would turn a quota ending into a
+//! bot filter that lets everything through, so an answer carrying that message
+//! is a **failure**.
+//!
+//! The secret is read from the configuration (`env:`/`file:`) and appears in no
+//! log and no error. The verification endpoint is configurable (a mock in
+//! tests); the Enterprise `CreateAssessment` API is *not* implemented here — it
+//! needs a Google Cloud project and an API key — and [`CaptchaVerifier`] is the
+//! seam it would sit behind.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use super::http::{Http, HttpRequest};
+
+/// What a verification decided.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verdict {
+    Human,
+    /// Not accepted. The reason is for the operator's log, never the user's screen.
+    Refused(String),
+    /// Google could not be asked. The caller decides (the service fails closed).
+    Unavailable(String),
+}
+
+pub trait CaptchaVerifier: Send + Sync {
+    fn verify(&self, token: &str, expected_action: &str, remote_ip: Option<&str>) -> Verdict;
+}
+
+pub struct Recaptcha {
+    http: Arc<dyn Http>,
+    secret: String,
+    min_score: f64,
+    hostnames: Vec<String>,
+    endpoint: String,
+    /// Tokens accepted in the last two minutes, so none is accepted twice.
+    seen: Mutex<HashMap<String, Instant>>,
+}
+
+pub const DEFAULT_ENDPOINT: &str = "https://www.google.com/recaptcha/api/siteverify";
+const VALID_FOR: Duration = Duration::from_secs(120);
+
+impl Recaptcha {
+    pub fn new(http: Arc<dyn Http>, secret: String, min_score: f64, hostnames: Vec<String>, endpoint: Option<String>) -> Self {
+        Recaptcha { http, secret, min_score, hostnames, endpoint: endpoint.unwrap_or_else(|| DEFAULT_ENDPOINT.to_string()), seen: Mutex::new(HashMap::new()) }
+    }
+
+    fn remember(&self, token: &str) -> bool {
+        let Ok(mut seen) = self.seen.lock() else { return false };
+        let now = Instant::now();
+        seen.retain(|_, at| now.duration_since(*at) < VALID_FOR);
+        if seen.contains_key(token) {
+            return false;
+        }
+        seen.insert(token.to_string(), now);
+        true
+    }
+}
+
+impl CaptchaVerifier for Recaptcha {
+    fn verify(&self, token: &str, expected_action: &str, remote_ip: Option<&str>) -> Verdict {
+        if token.is_empty() || token.len() > 4096 {
+            return Verdict::Refused("no usable token".into());
+        }
+        let mut fields = vec![("secret", self.secret.as_str()), ("response", token)];
+        if let Some(ip) = remote_ip {
+            fields.push(("remoteip", ip));
+        }
+        let resp = match self.http.send(&HttpRequest::post_form(&self.endpoint, &[], &fields)) {
+            Ok(r) => r,
+            Err(e) => return Verdict::Unavailable(e),
+        };
+        if resp.status != 200 {
+            return Verdict::Unavailable(format!("siteverify answered {}", resp.status));
+        }
+        let Some(v) = resp.json() else { return Verdict::Unavailable("siteverify answered something that is not JSON".into()) };
+        // The fail-open trap: a quota ending is reported as success.
+        let text = v.to_string().to_ascii_lowercase();
+        if text.contains("over free quota") {
+            return Verdict::Refused("recaptcha-quota: the free quota is spent; a pass would be meaningless".into());
+        }
+        if v.get("success").and_then(|s| s.as_bool()) != Some(true) {
+            let codes = v.get("error-codes").map(|c| c.to_string()).unwrap_or_default();
+            return Verdict::Refused(format!("Google did not accept the token {codes}"));
+        }
+        let score = v.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
+        if score < self.min_score {
+            return Verdict::Refused(format!("score {score:.2} is under the minimum {:.2}", self.min_score));
+        }
+        let action = v.get("action").and_then(|s| s.as_str()).unwrap_or("");
+        if action != expected_action {
+            return Verdict::Refused(format!("the token was issued for the action \"{action}\", this operation expects \"{expected_action}\""));
+        }
+        if !self.hostnames.is_empty() {
+            let host = v.get("hostname").and_then(|s| s.as_str()).unwrap_or("");
+            if !self.hostnames.iter().any(|h| h.eq_ignore_ascii_case(host)) {
+                return Verdict::Refused(format!("the token was issued for the host \"{host}\""));
+            }
+        }
+        if !self.remember(token) {
+            return Verdict::Refused("the token was used already".into());
+        }
+        Verdict::Human
+    }
+}

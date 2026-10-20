@@ -1,0 +1,174 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! Microsoft Entra - the hosted flow, and External ID's native sign-in as an
+//! opt-in (WASM-009 R8, plan §2.3).
+//!
+//! **Workforce tenants** offer one in-app flow, ROPC, which Microsoft says not
+//! to use and which fails for users with MFA, passwordless or federated
+//! accounts; so the default is **hosted**: `https://login.microsoftonline.com/
+//! {tenant}/oauth2/v2.0/{authorize,token,logout}` with PKCE.
+//!
+//! **External ID (external) tenants** have a *native authentication* API
+//! (`ciamlogin.com`, no CORS, so only a backend can call it). The password
+//! sign-in is implemented here - `initiate`, `challenge`, `token` - and any
+//! answer that needs more than the password (`mfa_required`, `redirect`, a
+//! registration) is [`IdpError::Unsupported`], which the application answers by
+//! using the hosted flow. Native sign-up and password reset are **not**
+//! implemented (plan §7): their request sequences are documented only at the
+//! level of endpoint names, and an adapter written from names alone would be
+//! a guess.
+//!
+//! Entra's two failures that tell a user from a typo - `AADSTS50034` (no such
+//! user) and `AADSTS50126` (bad password) - are the same [`IdpError::Rejected`].
+
+use std::sync::Arc;
+
+use super::http::{Http, HttpRequest};
+use super::oidc::Oidc;
+use super::{Capabilities, ChallengeResponse, Flow, IdentityProvider, IdpError, SignIn, SignUp, SignUpRequest, Tokens};
+
+pub struct Entra {
+    oidc: Oidc,
+    http: Arc<dyn Http>,
+    /// `https://{subdomain}.ciamlogin.com/{subdomain}.onmicrosoft.com`, when native authentication is on.
+    native_base: Option<String>,
+    client_id: String,
+    scopes: String,
+}
+
+impl Entra {
+    /// `authority` is `https://login.microsoftonline.com/{tenant}` (or an external tenant's
+    /// `https://{subdomain}.ciamlogin.com/{tenant}`); `native_base` turns the native password sign-in on.
+    pub fn new(http: Arc<dyn Http>, authority: &str, client_id: String, client_secret: Option<String>, scopes: Option<String>, native_base: Option<String>) -> Self {
+        let a = authority.trim_end_matches('/');
+        let scopes = scopes.unwrap_or_else(|| "openid profile email offline_access".to_string());
+        Entra {
+            oidc: Oidc {
+                http: http.clone(),
+                authorize_url: format!("{a}/oauth2/v2.0/authorize"),
+                token_url: format!("{a}/oauth2/v2.0/token"),
+                // Entra's OIDC endpoints have no revocation; sign-out ends the browser session at `logout`.
+                revoke_url: None,
+                client_id: client_id.clone(),
+                client_secret: client_secret.filter(|s| !s.is_empty()),
+                scopes: scopes.clone(),
+            },
+            http,
+            native_base: native_base.map(|b| b.trim_end_matches('/').to_string()),
+            client_id,
+            scopes,
+        }
+    }
+
+    fn native_post(&self, path: &str, fields: &[(&str, &str)]) -> Result<serde_json::Value, IdpError> {
+        let base = self.native_base.as_ref().ok_or(IdpError::Unsupported)?;
+        let resp = self.http.send(&HttpRequest::post_form(&format!("{base}{path}"), &[], fields)).map_err(|e| IdpError::Unavailable(format!("Entra native {path}: {e}")))?;
+        if resp.status >= 500 || resp.status == 0 {
+            return Err(IdpError::Unavailable(format!("Entra native {path} answered {}", resp.status)));
+        }
+        if resp.status == 429 {
+            return Err(IdpError::Throttled);
+        }
+        let v = resp.json().unwrap_or(serde_json::Value::Null);
+        if resp.status != 200 {
+            // invalid_grant / user_not_found / invalid_request: all one answer.
+            return Err(IdpError::Rejected);
+        }
+        Ok(v)
+    }
+}
+
+impl IdentityProvider for Entra {
+    fn name(&self) -> &'static str {
+        "entra"
+    }
+
+    fn flow(&self) -> Flow {
+        if self.native_base.is_some() {
+            Flow::InApp
+        } else {
+            Flow::Hosted
+        }
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities { sign_in: self.native_base.is_some(), refresh: true, sign_out: true, hosted: true, ..Capabilities::default() }
+    }
+
+    fn sign_in(&self, username: &str, password: &str) -> Result<SignIn, IdpError> {
+        if self.native_base.is_none() {
+            return Err(IdpError::Unsupported);
+        }
+        // 1. initiate: who is signing in, and which challenge types this app can handle.
+        let v = self.native_post("/oauth2/v2.0/initiate", &[("client_id", &self.client_id), ("username", username), ("challenge_type", "password redirect")])?;
+        if v.get("challenge_type").and_then(|c| c.as_str()) == Some("redirect") {
+            return Err(IdpError::Unsupported);
+        }
+        let ct = v.get("continuation_token").and_then(|c| c.as_str()).ok_or(IdpError::Rejected)?.to_string();
+        // 2. challenge: the password challenge.
+        let v = self.native_post("/oauth2/v2.0/challenge", &[("client_id", &self.client_id), ("continuation_token", &ct), ("challenge_type", "password redirect")])?;
+        match v.get("challenge_type").and_then(|c| c.as_str()) {
+            Some("password") => {}
+            Some("redirect") => return Err(IdpError::Unsupported),
+            _ => return Err(IdpError::Unsupported),
+        }
+        let ct = v.get("continuation_token").and_then(|c| c.as_str()).ok_or(IdpError::Rejected)?.to_string();
+        // 3. token: the password.
+        let v = self.native_post("/oauth2/v2.0/token", &[("client_id", &self.client_id), ("grant_type", "password"), ("continuation_token", &ct), ("password", password), ("scope", &self.scopes)])?;
+        match v.get("access_token").and_then(|t| t.as_str()) {
+            Some(access) => Ok(SignIn::Tokens(Tokens {
+                access: access.to_string(),
+                id: v.get("id_token").and_then(|t| t.as_str()).map(str::to_owned),
+                refresh: v.get("refresh_token").and_then(|t| t.as_str()).map(str::to_owned),
+                expires_in: v.get("expires_in").and_then(|t| t.as_u64()).unwrap_or(3600),
+            })),
+            None => Err(IdpError::Unsupported),
+        }
+    }
+
+    fn respond_to_challenge(&self, _: &ChallengeResponse) -> Result<SignIn, IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn sign_up(&self, _: &SignUpRequest) -> Result<SignUp, IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn confirm_sign_up(&self, _: &str, _: &str, _: &str) -> Result<(), IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn resend_code(&self, _: &str, _: &str) -> Result<(), IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn forgot_password(&self, _: &str) -> Result<Option<String>, IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn confirm_forgot_password(&self, _: &str, _: &str, _: &str, _: &str) -> Result<(), IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn refresh(&self, refresh_token: &str, _username: &str) -> Result<Tokens, IdpError> {
+        self.oidc.refresh(refresh_token)
+    }
+
+    fn sign_out(&self, _access_token: &str, _refresh_token: Option<&str>) -> Result<(), IdpError> {
+        // Entra has no revocation endpoint; the application ends its own session and, if it
+        // wants the browser session ended too, sends the user to the provider's `logout`.
+        Ok(())
+    }
+
+    fn start_hosted(&self, redirect_uri: &str, state: &str, code_challenge: &str, nonce: &str) -> Result<String, IdpError> {
+        Ok(self.oidc.start(redirect_uri, state, code_challenge, nonce))
+    }
+
+    fn finish_hosted(&self, code: &str, redirect_uri: &str, code_verifier: &str) -> Result<Tokens, IdpError> {
+        self.oidc.exchange(code, redirect_uri, code_verifier)
+    }
+}

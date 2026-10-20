@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! Where the refresh credential waits so that page script never holds it
+//! (WASM-009 R5).
+//!
+//! A browser that signs in through the WebSocket receives its access token and a
+//! **one-time handle**. It trades the handle, in an HTTPS request from the
+//! application's own origin, for an `HttpOnly; Secure; SameSite=Strict` cookie
+//! holding an opaque **session id** - a WebSocket answer cannot set a cookie,
+//! which is why there is a second step at all. The provider's refresh token
+//! stays in this process, under that id; `/auth/refresh` uses the cookie to
+//! obtain a fresh access token, and `/auth/signout` forgets the session.
+//!
+//! The store is in memory: a restart signs everyone out of the *refresh*, and
+//! their next refresh fails and sends them to sign in again, which is safe and
+//! stated. It is bounded, and everything in it has a lifetime.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// How long a handle can be traded for a session.
+pub const SESSION_HANDLE_TTL: Duration = Duration::from_secs(60);
+/// How long a session lives without being used.
+pub const SESSION_IDLE_TTL: Duration = Duration::from_secs(12 * 3600);
+const MAX_ENTRIES: usize = 100_000;
+
+struct Rec {
+    refresh: String,
+    username: String,
+    at: Instant,
+}
+
+#[derive(Default)]
+pub struct Sessions {
+    handles: Mutex<HashMap<String, Rec>>,
+    cookies: Mutex<HashMap<String, Rec>>,
+}
+
+fn rand_hex(bytes: usize) -> String {
+    let mut b = vec![0u8; bytes];
+    let _ = getrandom::fill(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+impl Sessions {
+    pub fn new() -> Self {
+        Sessions::default()
+    }
+
+    /// A one-time handle for a refresh token.
+    pub fn new_handle(&self, refresh: String, username: String) -> String {
+        let id = rand_hex(24);
+        if let Ok(mut h) = self.handles.lock() {
+            let now = Instant::now();
+            h.retain(|_, r| now.duration_since(r.at) < SESSION_HANDLE_TTL);
+            if h.len() < MAX_ENTRIES {
+                h.insert(id.clone(), Rec { refresh, username, at: now });
+            }
+        }
+        id
+    }
+
+    /// Spend a handle: `(refresh token, username)` if it was live; gone either way.
+    pub fn take_handle(&self, handle: &str) -> Option<(String, String)> {
+        let r = self.handles.lock().ok()?.remove(handle)?;
+        (r.at.elapsed() < SESSION_HANDLE_TTL).then_some((r.refresh, r.username))
+    }
+
+    /// Trade a handle for a cookie session id.
+    pub fn open_cookie(&self, handle: &str) -> Option<String> {
+        let (refresh, username) = self.take_handle(handle)?;
+        let sid = rand_hex(32);
+        let mut c = self.cookies.lock().ok()?;
+        let now = Instant::now();
+        c.retain(|_, r| now.duration_since(r.at) < SESSION_IDLE_TTL);
+        if c.len() >= MAX_ENTRIES {
+            return None;
+        }
+        c.insert(sid.clone(), Rec { refresh, username, at: now });
+        Some(sid)
+    }
+
+    /// The refresh token and username behind a cookie, if the session is live.
+    pub fn cookie(&self, sid: &str) -> Option<(String, String)> {
+        let mut c = self.cookies.lock().ok()?;
+        let r = c.get_mut(sid)?;
+        if r.at.elapsed() >= SESSION_IDLE_TTL {
+            c.remove(sid);
+            return None;
+        }
+        r.at = Instant::now();
+        Some((r.refresh.clone(), r.username.clone()))
+    }
+
+    /// A provider that rotates refresh tokens gave a new one.
+    pub fn rotate(&self, sid: &str, new_refresh: String) {
+        if let Ok(mut c) = self.cookies.lock() {
+            if let Some(r) = c.get_mut(sid) {
+                r.refresh = new_refresh;
+            }
+        }
+    }
+
+    pub fn end(&self, sid: &str) -> Option<(String, String)> {
+        let r = self.cookies.lock().ok()?.remove(sid)?;
+        Some((r.refresh, r.username))
+    }
+
+    pub fn live_cookie_sessions(&self) -> usize {
+        self.cookies.lock().map(|c| c.len()).unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_handle_is_spent_once_and_a_session_follows_the_cookie() {
+        let s = Sessions::new();
+        let h = s.new_handle("refresh-1".into(), "ana".into());
+        let sid = s.open_cookie(&h).expect("traded");
+        assert!(s.open_cookie(&h).is_none(), "a handle buys one session");
+        assert_eq!(s.cookie(&sid), Some(("refresh-1".into(), "ana".into())));
+        s.rotate(&sid, "refresh-2".into());
+        assert_eq!(s.cookie(&sid).unwrap().0, "refresh-2");
+        assert_eq!(s.end(&sid).unwrap().0, "refresh-2");
+        assert!(s.cookie(&sid).is_none());
+        assert!(s.cookie("0123").is_none());
+    }
+}

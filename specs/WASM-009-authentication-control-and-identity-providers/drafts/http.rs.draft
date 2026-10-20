@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! The backend's HTTP client for talking to an identity provider and to
+//! reCAPTCHA: `ureq` over the operating system's TLS, behind a trait so a test
+//! can stand a mock identity provider in front of it.
+//!
+//! Only `https://` — or `http://` to a loopback address, for a local mock or a
+//! local Keycloak container. No redirect is followed (a provider that redirects
+//! an API call is misconfigured, and a redirect is how a secret leaves for
+//! somewhere else), a call takes at most ten seconds, and an answer is read up
+//! to a megabyte.
+
+use std::io::Read;
+use std::sync::Arc;
+use std::time::Duration;
+
+#[derive(Debug, Clone)]
+pub struct HttpRequest {
+    pub method: &'static str,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl HttpRequest {
+    pub fn post_json(url: &str, headers: &[(&str, &str)], body: &serde_json::Value) -> Self {
+        let mut h: Vec<(String, String)> = headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        h.push(("Content-Type".into(), "application/json".into()));
+        HttpRequest { method: "POST", url: url.to_string(), headers: h, body: body.to_string().into_bytes() }
+    }
+
+    pub fn post_form(url: &str, headers: &[(&str, &str)], fields: &[(&str, &str)]) -> Self {
+        let mut h: Vec<(String, String)> = headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        h.push(("Content-Type".into(), "application/x-www-form-urlencoded".into()));
+        HttpRequest { method: "POST", url: url.to_string(), headers: h, body: form_encode(fields).into_bytes() }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HttpResponse {
+    pub status: u16,
+    pub body: String,
+}
+
+impl HttpResponse {
+    pub fn json(&self) -> Option<serde_json::Value> {
+        serde_json::from_str(&self.body).ok()
+    }
+}
+
+pub trait Http: Send + Sync {
+    fn send(&self, req: &HttpRequest) -> Result<HttpResponse, String>;
+}
+
+/// `application/x-www-form-urlencoded`.
+pub fn form_encode(fields: &[(&str, &str)]) -> String {
+    fields.iter().map(|(k, v)| format!("{}={}", percent(k), percent(v))).collect::<Vec<_>>().join("&")
+}
+
+/// Percent-encode everything but the unreserved characters (RFC 3986).
+pub fn percent(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+fn address_allowed(url: &str) -> bool {
+    url.starts_with("https://") || url.starts_with("http://127.0.0.1") || url.starts_with("http://localhost") || url.starts_with("http://[::1]")
+}
+
+/// `ureq` with the operating system's TLS.
+pub struct UreqHttp;
+
+impl Http for UreqHttp {
+    fn send(&self, req: &HttpRequest) -> Result<HttpResponse, String> {
+        if !address_allowed(&req.url) {
+            return Err("the address is not https".to_string());
+        }
+        let tls = native_tls::TlsConnector::new().map_err(|e| format!("TLS: {e}"))?;
+        let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(10)).tls_connector(Arc::new(tls)).redirects(0).build();
+        let mut r = agent.request(req.method, &req.url);
+        for (k, v) in &req.headers {
+            r = r.set(k, v);
+        }
+        let resp = match r.send_bytes(&req.body) {
+            Ok(r) => r,
+            Err(ureq::Error::Status(_, r)) => r,
+            Err(e) => return Err(e.to_string()),
+        };
+        let status = resp.status();
+        let mut body = String::new();
+        resp.into_reader().take(1024 * 1024).read_to_string(&mut body).map_err(|e| format!("reading the answer: {e}"))?;
+        Ok(HttpResponse { status, body })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn form_values_are_percent_encoded() {
+        assert_eq!(form_encode(&[("a", "b c"), ("redirect_uri", "https://x.test/cb?a=1&b=2")]), "a=b%20c&redirect_uri=https%3A%2F%2Fx.test%2Fcb%3Fa%3D1%26b%3D2");
+        assert_eq!(percent("é~-_."), "%C3%A9~-_.");
+    }
+
+    #[test]
+    fn only_https_and_loopback_http_are_spoken() {
+        assert!(address_allowed("https://cognito-idp.eu-west-1.amazonaws.com/"));
+        assert!(address_allowed("http://127.0.0.1:9000/x"));
+        assert!(!address_allowed("http://idp.example.test/"));
+        assert!(!address_allowed("ftp://x"));
+    }
+}

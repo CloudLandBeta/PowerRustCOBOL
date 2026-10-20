@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! The hosted OpenID Connect flow, shared by the providers that default to it
+//! (Keycloak, Microsoft Entra) - WASM-009 R8, plan §2.2-2.3.
+//!
+//! The provider's own page does the sign-in. The backend builds the address of
+//! that page (authorization code flow with **PKCE, S256**, plus `state` and
+//! `nonce`), and when the page sends the browser back with a `code`, exchanges
+//! it for tokens at the token endpoint - with the client secret when the client
+//! has one (a confidential client), without it when it does not (a public one,
+//! which PKCE protects). The same endpoint refreshes a token, and the
+//! revocation endpoint (when the provider has one) ends a refresh token.
+
+use std::sync::Arc;
+
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine;
+
+use super::http::{percent, Http, HttpRequest};
+use super::{IdpError, Tokens};
+
+pub struct Oidc {
+    pub http: Arc<dyn Http>,
+    pub authorize_url: String,
+    pub token_url: String,
+    pub revoke_url: Option<String>,
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub scopes: String,
+}
+
+impl Oidc {
+    pub fn start(&self, redirect_uri: &str, state: &str, code_challenge: &str, nonce: &str) -> String {
+        format!(
+            "{}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&nonce={}&code_challenge={}&code_challenge_method=S256",
+            self.authorize_url,
+            percent(&self.client_id),
+            percent(redirect_uri),
+            percent(&self.scopes),
+            percent(state),
+            percent(nonce),
+            percent(code_challenge)
+        )
+    }
+
+    fn basic(&self) -> Vec<(String, String)> {
+        match &self.client_secret {
+            Some(s) => vec![("Authorization".to_string(), format!("Basic {}", B64.encode(format!("{}:{}", percent(&self.client_id), percent(s)))))],
+            None => Vec::new(),
+        }
+    }
+
+    fn token_call(&self, fields: &[(&str, &str)]) -> Result<Tokens, IdpError> {
+        let headers = self.basic();
+        let hs: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let resp = self.http.send(&HttpRequest::post_form(&self.token_url, &hs, fields)).map_err(|e| IdpError::Unavailable(format!("token endpoint: {e}")))?;
+        if resp.status >= 500 || resp.status == 0 {
+            return Err(IdpError::Unavailable(format!("the token endpoint answered {}", resp.status)));
+        }
+        if resp.status == 429 {
+            return Err(IdpError::Throttled);
+        }
+        if resp.status != 200 {
+            // invalid_grant, invalid_client, ...: the code, the verifier or the token was not accepted.
+            return Err(IdpError::Rejected);
+        }
+        let v = resp.json().ok_or_else(|| IdpError::Unavailable("the token endpoint answered no JSON".into()))?;
+        Ok(Tokens {
+            access: v.get("access_token").and_then(|t| t.as_str()).ok_or(IdpError::Rejected)?.to_string(),
+            id: v.get("id_token").and_then(|t| t.as_str()).map(str::to_owned),
+            refresh: v.get("refresh_token").and_then(|t| t.as_str()).map(str::to_owned),
+            expires_in: v.get("expires_in").and_then(|t| t.as_u64()).unwrap_or(3600),
+        })
+    }
+
+    pub fn exchange(&self, code: &str, redirect_uri: &str, verifier: &str) -> Result<Tokens, IdpError> {
+        let mut fields = vec![("grant_type", "authorization_code"), ("client_id", self.client_id.as_str()), ("code", code), ("redirect_uri", redirect_uri), ("code_verifier", verifier)];
+        if self.client_secret.is_some() {
+            // Some token endpoints want the secret in the body, some in the header; the header is sent, and the body field
+            // is omitted so that the secret travels once.
+            fields.retain(|(k, _)| *k != "client_secret");
+        }
+        self.token_call(&fields)
+    }
+
+    pub fn refresh(&self, refresh_token: &str) -> Result<Tokens, IdpError> {
+        let mut t = self.token_call(&[("grant_type", "refresh_token"), ("client_id", self.client_id.as_str()), ("refresh_token", refresh_token), ("scope", self.scopes.as_str())])?;
+        // A provider without rotation does not repeat the refresh token.
+        if t.refresh.is_none() {
+            t.refresh = Some(refresh_token.to_string());
+        }
+        Ok(t)
+    }
+
+    pub fn revoke(&self, refresh_token: &str) -> Result<(), IdpError> {
+        let Some(url) = &self.revoke_url else { return Ok(()) };
+        let headers = self.basic();
+        let hs: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let resp = self
+            .http
+            .send(&HttpRequest::post_form(url, &hs, &[("token", refresh_token), ("token_type_hint", "refresh_token"), ("client_id", self.client_id.as_str())]))
+            .map_err(|e| IdpError::Unavailable(format!("revocation endpoint: {e}")))?;
+        // RFC 7009: 200 even for a token that was unknown.
+        if resp.status >= 500 {
+            return Err(IdpError::Unavailable(format!("the revocation endpoint answered {}", resp.status)));
+        }
+        Ok(())
+    }
+}

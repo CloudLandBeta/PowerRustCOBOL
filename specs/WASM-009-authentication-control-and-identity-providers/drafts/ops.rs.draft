@@ -1,0 +1,393 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! The identity operations the generated `AUTH-…` programs call (WASM-009 R7-R10).
+//!
+//! One entry point, [`IdentityService::run`]: an operation name, the request
+//! group as JSON, the caller's source address; the result group as JSON. What it
+//! adds to the provider's adapter is the policy that must not live in a provider:
+//!
+//! - **generic failures** (R10): a failed sign-in is `FAILED` with one message,
+//!   whatever the provider said; a reset request is always `RESET-REQUESTED`; a
+//!   sign-up for a name that exists answers like one that worked;
+//! - **a timing floor**: a failure is never answered faster than a success
+//!   usually is (the running average of the provider's successes, and at least
+//!   250 ms), so the clock does not tell an unknown user from a wrong password;
+//! - **rate limits of its own**, per source address and per account, in addition
+//!   to the provider's lockout, which is relied on and not reimplemented;
+//! - **reCAPTCHA** where it is configured, failing closed;
+//! - **the refresh credential stays out of page script** (R5): for a browser the
+//!   refresh token is kept here and the page receives a one-time handle it trades
+//!   for an `HttpOnly` cookie on the HTTPS surface; a native client is given the
+//!   token to keep in its operating system's store;
+//! - **hosted flows**: `START-HOSTED` builds the provider's address with PKCE and
+//!   remembers `state`; `FINISH-HOSTED` takes the code back.
+//!
+//! Nothing here logs a password, a code, a token or a username: the log records
+//! the operation, the outcome and the time.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+
+use cobolt_wire::error::{codes, CallError, ErrorClass};
+
+use super::recaptcha::{CaptchaVerifier, Verdict};
+use super::session::{Sessions, SESSION_HANDLE_TTL};
+use super::{Challenge, ChallengeResponse, IdentityProvider, IdpError, SignIn, SignUp, SignUpRequest, Tokens};
+
+pub const FAILED_MESSAGE: &str = "The user name or password is not correct.";
+pub const RESET_MESSAGE: &str = "If the account exists, a code was sent to it.";
+pub const CODE_MESSAGE: &str = "The code is not correct or has expired.";
+pub const CAPTCHA_MESSAGE: &str = "We could not verify that you are human. Try again.";
+pub const RATE_MESSAGE: &str = "Too many attempts. Wait a minute and try again.";
+pub const HOSTED_MESSAGE: &str = "Continue on the provider's sign-in page.";
+
+/// What the service needs besides the provider.
+pub struct ServiceConfig {
+    /// Attempts allowed per minute for one source address, and for one account.
+    pub attempts_per_minute: u32,
+    /// Redirect addresses a hosted flow may return to (exact match).
+    pub redirect_uris: Vec<String>,
+    /// Which operations ask for a CAPTCHA token (when a verifier is installed).
+    pub captcha_ops: Vec<String>,
+    /// The shortest time a failure may take.
+    pub floor: Duration,
+}
+
+impl Default for ServiceConfig {
+    fn default() -> Self {
+        ServiceConfig {
+            attempts_per_minute: 10,
+            redirect_uris: Vec::new(),
+            captcha_ops: ["SIGN-IN", "SIGN-UP", "FORGOT", "RESEND"].iter().map(|s| s.to_string()).collect(),
+            floor: Duration::from_millis(250),
+        }
+    }
+}
+
+/// Who is calling, as far as the backend knows.
+pub struct OpContext {
+    pub ip: String,
+}
+
+struct Pending {
+    verifier: String,
+    redirect_uri: String,
+    at: Instant,
+}
+
+pub struct IdentityService {
+    provider: Box<dyn IdentityProvider>,
+    captcha: Option<Box<dyn CaptchaVerifier>>,
+    cfg: ServiceConfig,
+    pub sessions: Sessions,
+    attempts: Mutex<HashMap<String, Vec<Instant>>>,
+    hosted: Mutex<HashMap<String, Pending>>,
+    /// The running average of a successful provider round trip, milliseconds.
+    avg_ok_ms: Mutex<f64>,
+}
+
+fn rand_hex(bytes: usize) -> String {
+    let mut b = vec![0u8; bytes];
+    let _ = getrandom::fill(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn text(req: &Value, key: &str) -> String {
+    req.get(key).and_then(|v| v.as_str()).unwrap_or("").trim().to_string()
+}
+
+/// Result group builder: every member present, empty when unused.
+struct Res(serde_json::Map<String, Value>);
+
+impl Res {
+    fn new(outcome: &str, message: &str) -> Res {
+        let mut m = serde_json::Map::new();
+        for k in ["OUTCOME", "OUTCOME-TEXT", "ACCESS-TOKEN", "ID-TOKEN", "REFRESH-TOKEN", "CHALLENGE", "SESSION", "HINT", "SESSION-HANDLE", "URL", "STATE"] {
+            m.insert(k.to_string(), json!(""));
+        }
+        m.insert("EXPIRES-IN".to_string(), json!(0));
+        m.insert("OUTCOME".to_string(), json!(outcome));
+        m.insert("OUTCOME-TEXT".to_string(), json!(message));
+        Res(m)
+    }
+
+    fn set(mut self, key: &str, value: Value) -> Res {
+        self.0.insert(key.to_string(), value);
+        self
+    }
+
+    fn json(self) -> String {
+        Value::Object(self.0).to_string()
+    }
+}
+
+impl IdentityService {
+    pub fn new(provider: Box<dyn IdentityProvider>, captcha: Option<Box<dyn CaptchaVerifier>>, cfg: ServiceConfig) -> Self {
+        IdentityService { provider, captcha, cfg, sessions: Sessions::new(), attempts: Mutex::new(HashMap::new()), hosted: Mutex::new(HashMap::new()), avg_ok_ms: Mutex::new(250.0) }
+    }
+
+    pub fn provider(&self) -> &dyn IdentityProvider {
+        self.provider.as_ref()
+    }
+
+    /// One operation.
+    pub fn run(&self, op: &str, request_json: &str, ctx: &OpContext) -> Result<String, CallError> {
+        let started = Instant::now();
+        let req: Value = serde_json::from_str(request_json).map_err(|_| CallError::new(ErrorClass::Validation, codes::INVALID_PAYLOAD, "the request is not JSON"))?;
+        let op = op.trim().to_ascii_uppercase();
+        let guarded = matches!(op.as_str(), "SIGN-IN" | "SIGN-UP" | "CONFIRM" | "RESEND" | "FORGOT" | "RESET" | "MFA");
+        let result = self.dispatch(&op, &req, ctx);
+        if guarded {
+            self.apply_floor(started, &result);
+        }
+        let elapsed = started.elapsed();
+        tracing::info!(target: "identity", op = %op, outcome = %outcome_of(&result), ms = elapsed.as_millis() as u64, "identity operation");
+        result
+    }
+
+    fn apply_floor(&self, started: Instant, result: &Result<String, CallError>) {
+        let ok = outcome_of(result) == "OK";
+        let spent = started.elapsed();
+        if ok {
+            // Learn how long a success takes.
+            if let Ok(mut avg) = self.avg_ok_ms.lock() {
+                *avg = *avg * 0.8 + spent.as_secs_f64() * 1000.0 * 0.2;
+            }
+            return;
+        }
+        let target = {
+            let avg = self.avg_ok_ms.lock().map(|a| *a).unwrap_or(250.0);
+            Duration::from_secs_f64((avg / 1000.0).clamp(self.cfg.floor.as_secs_f64(), 5.0))
+        };
+        if spent < target {
+            std::thread::sleep(target - spent);
+        }
+    }
+
+    fn limited(&self, ctx: &OpContext, account: &str) -> bool {
+        let Ok(mut map) = self.attempts.lock() else { return false };
+        let now = Instant::now();
+        let window = Duration::from_secs(60);
+        let mut over = false;
+        let mut keys = vec![format!("ip:{}", ctx.ip)];
+        if !account.is_empty() {
+            keys.push(format!("acct:{}", account.to_ascii_lowercase()));
+        }
+        for k in keys {
+            let v = map.entry(k).or_default();
+            v.retain(|t| now.duration_since(*t) < window);
+            if v.len() as u32 >= self.cfg.attempts_per_minute {
+                over = true;
+            } else {
+                v.push(now);
+            }
+        }
+        if map.len() > 50_000 {
+            map.retain(|_, v| v.iter().any(|t| now.duration_since(*t) < window));
+        }
+        over
+    }
+
+    fn captcha_ok(&self, op: &str, req: &Value, ctx: &OpContext) -> bool {
+        let Some(c) = &self.captcha else { return true };
+        if !self.cfg.captcha_ops.iter().any(|o| o == op) {
+            return true;
+        }
+        let action = op.to_ascii_lowercase().replace('-', "_");
+        match c.verify(&text(req, "CAPTCHA-TOKEN"), &action, Some(&ctx.ip)) {
+            Verdict::Human => true,
+            Verdict::Refused(why) => {
+                tracing::info!(target: "identity", "captcha refused: {why}");
+                false
+            }
+            Verdict::Unavailable(why) => {
+                tracing::warn!(target: "identity", "captcha unavailable (failing closed): {why}");
+                false
+            }
+        }
+    }
+
+    fn dispatch(&self, op: &str, req: &Value, ctx: &OpContext) -> Result<String, CallError> {
+        let username = text(req, "USERNAME");
+        let rate_ops = ["SIGN-IN", "SIGN-UP", "CONFIRM", "RESEND", "FORGOT", "RESET", "MFA"];
+        if rate_ops.contains(&op) && self.limited(ctx, &username) {
+            return Ok(Res::new("RATE-LIMITED", RATE_MESSAGE).json());
+        }
+        if !self.captcha_ok(op, req, ctx) {
+            return Ok(Res::new("CAPTCHA-FAILED", CAPTCHA_MESSAGE).json());
+        }
+        let web = text(req, "CLIENT-KIND") != "native";
+        match op {
+            "SIGN-IN" => {
+                if username.is_empty() || text(req, "PASSWORD").is_empty() {
+                    return Ok(Res::new("FAILED", FAILED_MESSAGE).json());
+                }
+                self.signin_result(self.provider.sign_in(&username, &text(req, "PASSWORD")), &username, web)
+            }
+            "MFA" => {
+                let a = ChallengeResponse { username: username.clone(), kind: text(req, "CHALLENGE"), session: text(req, "SESSION"), code: text(req, "ONE-TIME-CODE"), new_password: text(req, "PASSWORD") };
+                self.signin_result(self.provider.respond_to_challenge(&a), &username, web)
+            }
+            "SIGN-UP" => {
+                let r = SignUpRequest {
+                    username: username.clone(),
+                    password: text(req, "PASSWORD"),
+                    email: text(req, "EMAIL"),
+                    phone: text(req, "PHONE"),
+                    given_name: text(req, "GIVEN-NAME"),
+                    family_name: text(req, "FAMILY-NAME"),
+                };
+                match self.provider.sign_up(&r) {
+                    Ok(SignUp::Done) => Ok(Res::new("OK", "Your account is ready. Sign in.").json()),
+                    Ok(SignUp::ConfirmationRequired { hint }) => Ok(Res::new("CONFIRMATION-REQUIRED", "Enter the code we sent you.").set("HINT", json!(hint)).json()),
+                    // A name that exists answers like a name that worked: the page cannot be
+                    // used to find out who has an account.
+                    Err(IdpError::Rejected) => Ok(Res::new("CONFIRMATION-REQUIRED", "Enter the code we sent you.").json()),
+                    Err(e) => self.failure(e),
+                }
+            }
+            "CONFIRM" => match self.provider.confirm_sign_up(&username, &text(req, "ONE-TIME-CODE"), &text(req, "SESSION")) {
+                Ok(()) => Ok(Res::new("OK", "Your account is confirmed. Sign in.").json()),
+                Err(IdpError::Rejected) => Ok(Res::new("FAILED", CODE_MESSAGE).json()),
+                Err(e) => self.failure(e),
+            },
+            "RESEND" => match self.provider.resend_code(&username, &text(req, "SESSION")) {
+                Ok(()) | Err(IdpError::Rejected) => Ok(Res::new("RESET-REQUESTED", RESET_MESSAGE).json()),
+                Err(e) => self.failure(e),
+            },
+            "FORGOT" => match self.provider.forgot_password(&username) {
+                Ok(session) => Ok(Res::new("RESET-REQUESTED", RESET_MESSAGE).set("SESSION", json!(session.unwrap_or_default())).json()),
+                Err(IdpError::Rejected) => Ok(Res::new("RESET-REQUESTED", RESET_MESSAGE).json()),
+                Err(e) => self.failure(e),
+            },
+            "RESET" => match self.provider.confirm_forgot_password(&username, &text(req, "ONE-TIME-CODE"), &text(req, "PASSWORD"), &text(req, "SESSION")) {
+                Ok(()) => Ok(Res::new("OK", "Your password was changed. Sign in.").json()),
+                Err(IdpError::Rejected) => Ok(Res::new("FAILED", CODE_MESSAGE).json()),
+                Err(e) => self.failure(e),
+            },
+            "REFRESH" => {
+                // A native client trades its refresh token; a browser uses /auth/refresh with its cookie.
+                let rt = text(req, "REFRESH-TOKEN");
+                if rt.is_empty() {
+                    return Ok(Res::new("FAILED", FAILED_MESSAGE).json());
+                }
+                self.tokens_result(self.provider.refresh(&rt, &username), &username, false)
+            }
+            "SIGN-OUT" => {
+                let rt = text(req, "REFRESH-TOKEN");
+                let handle = text(req, "SESSION-HANDLE");
+                if !handle.is_empty() {
+                    self.sessions.take_handle(&handle);
+                }
+                let _ = self.provider.sign_out(&text(req, "ACCESS-TOKEN"), if rt.is_empty() { None } else { Some(rt.as_str()) });
+                Ok(Res::new("OK", "You are signed out.").json())
+            }
+            "START-HOSTED" => self.start_hosted(req),
+            "FINISH-HOSTED" => self.finish_hosted(req, web),
+            other => Err(CallError::new(ErrorClass::NotFound, codes::UNKNOWN_PROGRAM, format!("there is no identity operation \"{other}\""))),
+        }
+    }
+
+    fn failure(&self, e: IdpError) -> Result<String, CallError> {
+        match e {
+            IdpError::Invalid(m) => Ok(Res::new("INVALID", &m).json()),
+            IdpError::Throttled => Ok(Res::new("RATE-LIMITED", RATE_MESSAGE).json()),
+            IdpError::Unsupported => Ok(Res::new("HOSTED", HOSTED_MESSAGE).json()),
+            IdpError::Rejected => Ok(Res::new("FAILED", FAILED_MESSAGE).json()),
+            IdpError::Unavailable(why) => {
+                tracing::error!(target: "identity", "the identity provider is unavailable: {why}");
+                Err(CallError::new(ErrorClass::Server, codes::INTERNAL, "the sign-in service is not available; try again later"))
+            }
+        }
+    }
+
+    fn signin_result(&self, r: Result<SignIn, IdpError>, username: &str, web: bool) -> Result<String, CallError> {
+        match r {
+            Ok(SignIn::Tokens(t)) => Ok(self.deliver(t, username, web)),
+            Ok(SignIn::Challenge(Challenge { kind, session, hint })) => {
+                Ok(Res::new("CHALLENGE", "Enter the code to continue.").set("CHALLENGE", json!(kind)).set("SESSION", json!(session)).set("HINT", json!(hint)).json())
+            }
+            Err(e) => self.failure(e),
+        }
+    }
+
+    fn tokens_result(&self, r: Result<Tokens, IdpError>, username: &str, web: bool) -> Result<String, CallError> {
+        match r {
+            Ok(t) => Ok(self.deliver(t, username, web)),
+            Err(e) => self.failure(e),
+        }
+    }
+
+    /// Hand tokens to the caller: a browser gets the access token and a one-time
+    /// handle for the refresh credential; a native client gets both tokens.
+    fn deliver(&self, t: Tokens, username: &str, web: bool) -> String {
+        let mut res = Res::new("OK", "").set("ACCESS-TOKEN", json!(t.access)).set("EXPIRES-IN", json!(t.expires_in));
+        if let Some(id) = &t.id {
+            res = res.set("ID-TOKEN", json!(id));
+        }
+        if let Some(rt) = &t.refresh {
+            if web {
+                let handle = self.sessions.new_handle(rt.clone(), username.to_string());
+                res = res.set("SESSION-HANDLE", json!(handle));
+            } else {
+                res = res.set("REFRESH-TOKEN", json!(rt));
+            }
+        }
+        res.json()
+    }
+
+    fn start_hosted(&self, req: &Value) -> Result<String, CallError> {
+        let redirect = text(req, "REDIRECT-URI");
+        if !self.cfg.redirect_uris.iter().any(|u| *u == redirect) {
+            return Ok(Res::new("INVALID", "That return address is not allowed.").json());
+        }
+        let state = rand_hex(16);
+        let verifier = URL_SAFE_NO_PAD.encode({
+            let mut b = [0u8; 32];
+            let _ = getrandom::fill(&mut b);
+            b
+        });
+        let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+        let nonce = rand_hex(16);
+        match self.provider.start_hosted(&redirect, &state, &challenge, &nonce) {
+            Ok(url) => {
+                if let Ok(mut h) = self.hosted.lock() {
+                    let now = Instant::now();
+                    h.retain(|_, p| now.duration_since(p.at) < Duration::from_secs(600));
+                    h.insert(state.clone(), Pending { verifier, redirect_uri: redirect, at: now });
+                }
+                Ok(Res::new("OK", HOSTED_MESSAGE).set("URL", json!(url)).set("STATE", json!(state)).json())
+            }
+            Err(e) => self.failure(e),
+        }
+    }
+
+    fn finish_hosted(&self, req: &Value, web: bool) -> Result<String, CallError> {
+        let state = text(req, "STATE");
+        let pending = self.hosted.lock().ok().and_then(|mut h| h.remove(&state));
+        let Some(p) = pending.filter(|p| p.at.elapsed() < Duration::from_secs(600)) else {
+            return Ok(Res::new("FAILED", FAILED_MESSAGE).json());
+        };
+        self.tokens_result(self.provider.finish_hosted(&text(req, "ONE-TIME-CODE"), &p.redirect_uri, &p.verifier), "", web)
+    }
+}
+
+fn outcome_of(r: &Result<String, CallError>) -> String {
+    match r {
+        Ok(s) => serde_json::from_str::<Value>(s).ok().and_then(|v| v.get("OUTCOME").and_then(|o| o.as_str()).map(str::to_owned)).unwrap_or_default(),
+        Err(e) => format!("error:{}", e.code),
+    }
+}
+
+#[allow(dead_code)]
+const _: Duration = SESSION_HANDLE_TTL;

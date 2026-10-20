@@ -1,0 +1,201 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! The backend half of authentication (WASM-009 R4, R7-R10, R12).
+//!
+//! The Authentication control and the player talk to **public programs of the
+//! backend** (`AUTH-SIGN-IN`, `AUTH-SIGN-UP`, …). Those programs are generated
+//! COBOL whose bodies call one built-in, `COBOL::"AUTH-OP"`, which lands in
+//! [`IdentityService::run`]. Everything a provider conversation needs — client
+//! secrets, the SRP-free password flows, the code exchange, the refresh token —
+//! stays here, in the backend, and is spoken to the provider by an
+//! [`IdentityProvider`] adapter.
+//!
+//! **The adapter contract is what makes a fourth provider cheap** (R8): an
+//! adapter implements the nine operations and says, through [`Capabilities`],
+//! which of them its flow supports; the service decides what the application
+//! sees.
+//!
+//! **What an adapter can never return** is "no such user": every operation's
+//! result type carries the *generic* failure (R10), so the difference between
+//! an unknown user and a wrong password is not representable above this line.
+
+pub mod cognito;
+pub mod entra;
+pub mod generate;
+pub mod http;
+pub mod keycloak;
+pub mod ops;
+pub mod recaptcha;
+pub mod session;
+
+use std::fmt;
+
+/// How the provider's conversation reaches the user (WASM-009 R8b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    /// The application's own screens; the backend speaks to the provider.
+    InApp,
+    /// The provider's page: the backend builds the address and exchanges the code.
+    Hosted,
+}
+
+impl Flow {
+    pub fn word(self) -> &'static str {
+        match self {
+            Flow::InApp => "in-app",
+            Flow::Hosted => "hosted",
+        }
+    }
+}
+
+/// What one provider, in its flow, can do from the application's own screens.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Capabilities {
+    pub sign_in: bool,
+    pub sign_up: bool,
+    pub confirm: bool,
+    pub reset: bool,
+    pub mfa_challenge: bool,
+    pub refresh: bool,
+    pub sign_out: bool,
+    pub hosted: bool,
+}
+
+/// The tokens a successful sign-in or refresh yields.
+#[derive(Clone, Default)]
+pub struct Tokens {
+    pub access: String,
+    pub id: Option<String>,
+    pub refresh: Option<String>,
+    pub expires_in: u64,
+}
+
+impl fmt::Debug for Tokens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Tokens {{ access: <{} bytes>, id: {}, refresh: {}, expires_in: {} }}", self.access.len(), self.id.is_some(), self.refresh.is_some(), self.expires_in)
+    }
+}
+
+/// A step the user must still take before there are tokens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Challenge {
+    /// `SMS_MFA`, `SOFTWARE_TOKEN_MFA`, `EMAIL_OTP`, `NEW_PASSWORD_REQUIRED`, `SELECT_MFA_TYPE`, …
+    pub kind: String,
+    /// The provider's continuation (Cognito `Session`, Entra `continuation_token`).
+    pub session: String,
+    /// Where a code was sent, masked by the provider ("+1***23"), or empty.
+    pub hint: String,
+}
+
+/// The result of a sign-in step.
+#[derive(Debug, Clone)]
+pub enum SignIn {
+    Tokens(Tokens),
+    Challenge(Challenge),
+}
+
+/// The result of a sign-up step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SignUp {
+    /// The account exists and a code was sent to confirm it.
+    ConfirmationRequired { hint: String },
+    /// The account exists and is confirmed.
+    Done,
+}
+
+/// Why an operation did not do what was asked. **Never "no such user".**
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IdpError {
+    /// The credentials, the code or the session were not accepted (for any reason
+    /// the user must not learn: unknown user, wrong password, locked, disabled,
+    /// expired code).
+    Rejected,
+    /// The request itself is wrong in a way the user can fix and learn nothing
+    /// private from (a password that breaks the policy, an address that is not an
+    /// e-mail address). The message is safe to show.
+    Invalid(String),
+    /// The provider says to slow down.
+    Throttled,
+    /// This provider, in this flow, does not do that from the application's own
+    /// screens: use the provider's page.
+    Unsupported,
+    /// The provider could not be reached or answered something unreadable. Not
+    /// the user's doing; the message is for the operator's log only.
+    Unavailable(String),
+}
+
+impl fmt::Display for IdpError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IdpError::Rejected => write!(f, "rejected"),
+            IdpError::Invalid(m) => write!(f, "invalid: {m}"),
+            IdpError::Throttled => write!(f, "throttled"),
+            IdpError::Unsupported => write!(f, "not supported in this flow"),
+            IdpError::Unavailable(m) => write!(f, "provider unavailable: {m}"),
+        }
+    }
+}
+
+/// What a sign-up carries.
+#[derive(Clone, Default)]
+pub struct SignUpRequest {
+    pub username: String,
+    pub password: String,
+    pub email: String,
+    pub phone: String,
+    pub given_name: String,
+    pub family_name: String,
+}
+
+impl fmt::Debug for SignUpRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SignUpRequest {{ username: {:?}, password: <hidden> }}", self.username)
+    }
+}
+
+/// An answer to a challenge.
+#[derive(Clone, Default)]
+pub struct ChallengeResponse {
+    pub username: String,
+    pub kind: String,
+    pub session: String,
+    /// The code, or the choice for `SELECT_MFA_TYPE`.
+    pub code: String,
+    /// The new password for `NEW_PASSWORD_REQUIRED`.
+    pub new_password: String,
+}
+
+impl fmt::Debug for ChallengeResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ChallengeResponse {{ kind: {:?} }}", self.kind)
+    }
+}
+
+/// A provider's adapter (D1).
+pub trait IdentityProvider: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn flow(&self) -> Flow;
+    fn capabilities(&self) -> Capabilities;
+
+    fn sign_in(&self, username: &str, password: &str) -> Result<SignIn, IdpError>;
+    fn respond_to_challenge(&self, answer: &ChallengeResponse) -> Result<SignIn, IdpError>;
+    fn sign_up(&self, request: &SignUpRequest) -> Result<SignUp, IdpError>;
+    /// `session` is the provider's continuation for the conversation, when its steps span requests (empty otherwise).
+    fn confirm_sign_up(&self, username: &str, code: &str, session: &str) -> Result<(), IdpError>;
+    fn resend_code(&self, username: &str, session: &str) -> Result<(), IdpError>;
+    /// Starts a reset; the answer is the provider's continuation, when it has one.
+    fn forgot_password(&self, username: &str) -> Result<Option<String>, IdpError>;
+    fn confirm_forgot_password(&self, username: &str, code: &str, new_password: &str, session: &str) -> Result<(), IdpError>;
+    /// `username` is for providers whose refresh needs it (Cognito with a client secret).
+    fn refresh(&self, refresh_token: &str, username: &str) -> Result<Tokens, IdpError>;
+    fn sign_out(&self, access_token: &str, refresh_token: Option<&str>) -> Result<(), IdpError>;
+
+    /// The address of the provider's own page for sign-in.
+    fn start_hosted(&self, redirect_uri: &str, state: &str, code_challenge: &str, nonce: &str) -> Result<String, IdpError>;
+    /// Exchange the code the provider's page returned for tokens.
+    fn finish_hosted(&self, code: &str, redirect_uri: &str, code_verifier: &str) -> Result<Tokens, IdpError>;
+}

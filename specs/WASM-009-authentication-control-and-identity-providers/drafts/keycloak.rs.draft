@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! Keycloak - the hosted flow (WASM-009 R8, plan §2.2).
+//!
+//! Keycloak's direct grant (ROPC) "MUST NOT be used" by its own guide (RFC 9700)
+//! and supports neither self-registration nor required actions; registration and
+//! "forgot password" are realm settings that turn on **browser pages**, with no
+//! public JSON API. So the flow is hosted: the application's screens hand the
+//! user to the realm's page and take the browser back with a code. What the
+//! backend does for Keycloak is the code exchange, the refresh (the token
+//! endpoint) and the revocation (`/protocol/openid-connect/revoke`).
+//!
+//! The realm's endpoints are all under `{issuer}/protocol/openid-connect/`
+//! where `issuer` is `https://host/realms/<realm>`.
+
+use std::sync::Arc;
+
+use super::http::Http;
+use super::oidc::Oidc;
+use super::{Capabilities, ChallengeResponse, Flow, IdentityProvider, IdpError, SignIn, SignUp, SignUpRequest, Tokens};
+
+pub struct Keycloak {
+    oidc: Oidc,
+}
+
+impl Keycloak {
+    pub fn new(http: Arc<dyn Http>, issuer: &str, client_id: String, client_secret: Option<String>, scopes: Option<String>) -> Self {
+        let base = format!("{}/protocol/openid-connect", issuer.trim_end_matches('/'));
+        Keycloak {
+            oidc: Oidc {
+                http,
+                authorize_url: format!("{base}/auth"),
+                token_url: format!("{base}/token"),
+                revoke_url: Some(format!("{base}/revoke")),
+                client_id,
+                client_secret: client_secret.filter(|s| !s.is_empty()),
+                scopes: scopes.unwrap_or_else(|| "openid profile email".to_string()),
+            },
+        }
+    }
+}
+
+impl IdentityProvider for Keycloak {
+    fn name(&self) -> &'static str {
+        "keycloak"
+    }
+
+    fn flow(&self) -> Flow {
+        Flow::Hosted
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities { refresh: true, sign_out: true, hosted: true, ..Capabilities::default() }
+    }
+
+    fn sign_in(&self, _: &str, _: &str) -> Result<SignIn, IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn respond_to_challenge(&self, _: &ChallengeResponse) -> Result<SignIn, IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn sign_up(&self, _: &SignUpRequest) -> Result<SignUp, IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn confirm_sign_up(&self, _: &str, _: &str, _: &str) -> Result<(), IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn resend_code(&self, _: &str, _: &str) -> Result<(), IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn forgot_password(&self, _: &str) -> Result<Option<String>, IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn confirm_forgot_password(&self, _: &str, _: &str, _: &str, _: &str) -> Result<(), IdpError> {
+        Err(IdpError::Unsupported)
+    }
+
+    fn refresh(&self, refresh_token: &str, _username: &str) -> Result<Tokens, IdpError> {
+        self.oidc.refresh(refresh_token)
+    }
+
+    fn sign_out(&self, _access_token: &str, refresh_token: Option<&str>) -> Result<(), IdpError> {
+        match refresh_token.filter(|t| !t.is_empty()) {
+            Some(t) => self.oidc.revoke(t),
+            None => Ok(()),
+        }
+    }
+
+    fn start_hosted(&self, redirect_uri: &str, state: &str, code_challenge: &str, nonce: &str) -> Result<String, IdpError> {
+        Ok(self.oidc.start(redirect_uri, state, code_challenge, nonce))
+    }
+
+    fn finish_hosted(&self, code: &str, redirect_uri: &str, code_verifier: &str) -> Result<Tokens, IdpError> {
+        self.oidc.exchange(code, redirect_uri, code_verifier)
+    }
+}

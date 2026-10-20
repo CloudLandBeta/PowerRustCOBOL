@@ -1,0 +1,478 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! A mock identity provider on a loopback socket, speaking the wire shapes each
+//! product documents (WASM-009 plan §2, researched 2026-10-20): Cognito's JSON
+//! target API, Keycloak's and Entra's OAuth endpoints, Entra External ID's native
+//! authentication, and reCAPTCHA's `siteverify`. No real provider, account or
+//! credential is involved; the tokens are signed with a throwaway key whose JWKS
+//! the backend under test trusts.
+//!
+//! Every request is recorded (method, path, body) so a test can assert what the
+//! backend sent - that the `SECRET_HASH` is right, that a refused attempt never
+//! reached the provider, that a password appears nowhere it should not.
+
+#![allow(dead_code)]
+
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
+
+use base64::engine::general_purpose::{STANDARD as B64, URL_SAFE_NO_PAD};
+use base64::Engine;
+use hmac::{Hmac, Mac};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+
+use super::Issuer;
+
+pub const POOL: &str = "https://cognito-idp.eu-west-1.amazonaws.com/eu-west-1_TESTPOOL";
+pub const KEYCLOAK_ISSUER: &str = "https://sso.example.test/realms/test";
+pub const ENTRA_ISSUER: &str = "https://login.microsoftonline.com/11111111-2222-3333-4444-5555aaaabbbb/v2.0";
+pub const CLIENT_ID: &str = "app-client-1";
+pub const CLIENT_SECRET: &str = "mock-client-secret-0123456789";
+
+#[derive(Clone)]
+pub struct User {
+    pub password: String,
+    pub confirmed: bool,
+    pub mfa: Option<(String, String)>, // (challenge name, code)
+    pub must_change_password: bool,
+    pub confirm_code: String,
+    pub reset_code: String,
+    pub groups: Vec<String>,
+}
+
+impl User {
+    pub fn new(password: &str) -> User {
+        User { password: password.into(), confirmed: true, mfa: None, must_change_password: false, confirm_code: "123456".into(), reset_code: "654321".into(), groups: Vec::new() }
+    }
+}
+
+#[derive(Default)]
+pub struct State {
+    pub users: HashMap<String, User>,
+    pub refresh: HashMap<String, String>, // refresh token -> user
+    pub codes: HashMap<String, (String, String, String)>, // auth code -> (user, redirect_uri, pkce challenge)
+    pub requests: Vec<(String, String, String)>, // method, path, body
+    pub sessions: HashMap<String, (String, String)>, // session -> (user, challenge)
+    /// Cognito answers `UserNotFoundException` (the console-default-off behaviour) instead of hiding it.
+    pub legacy_errors: bool,
+    pub secret_required: bool,
+    pub native_mfa: bool,
+    pub recaptcha: Value,
+    pub seq: u64,
+}
+
+pub struct Mock {
+    pub addr: SocketAddr,
+    pub state: Arc<Mutex<State>>,
+    pub issuer: Arc<Issuer>,
+}
+
+impl Mock {
+    pub fn url(&self) -> String {
+        format!("http://127.0.0.1:{}", self.addr.port())
+    }
+
+    pub fn requests(&self) -> Vec<(String, String, String)> {
+        self.state.lock().unwrap().requests.clone()
+    }
+
+    pub fn count(&self, needle: &str) -> usize {
+        self.requests().iter().filter(|(_, p, b)| p.contains(needle) || b.contains(needle)).count()
+    }
+
+    pub fn add_user(&self, name: &str, user: User) {
+        self.state.lock().unwrap().users.insert(name.to_string(), user);
+    }
+
+    pub fn set_recaptcha(&self, answer: Value) {
+        self.state.lock().unwrap().recaptcha = answer;
+    }
+}
+
+pub fn start(issuer: Arc<Issuer>) -> Mock {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let state = Arc::new(Mutex::new(State { recaptcha: json!({"success": true, "score": 0.9, "action": "sign_in", "hostname": "app.example.test"}), ..State::default() }));
+    let (st, iss) = (state.clone(), issuer.clone());
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(conn) = conn else { continue };
+            let (st, iss) = (st.clone(), iss.clone());
+            std::thread::spawn(move || handle(conn, st, iss));
+        }
+    });
+    Mock { addr, state, issuer }
+}
+
+fn read_request(s: &mut TcpStream) -> Option<(String, String, HashMap<String, String>, String)> {
+    s.set_read_timeout(Some(std::time::Duration::from_secs(5))).ok()?;
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; 4096];
+    loop {
+        let n = s.read(&mut tmp).ok()?;
+        if n == 0 {
+            return None;
+        }
+        buf.extend_from_slice(&tmp[..n]);
+        if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&buf[..p]).into_owned();
+            let mut lines = head.lines();
+            let first = lines.next()?;
+            let mut parts = first.split(' ');
+            let (method, path) = (parts.next()?.to_string(), parts.next()?.to_string());
+            let headers: HashMap<String, String> = lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string())).collect();
+            let len: usize = headers.get("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
+            let mut body = buf[p + 4..].to_vec();
+            while body.len() < len {
+                let n = s.read(&mut tmp).ok()?;
+                if n == 0 {
+                    break;
+                }
+                body.extend_from_slice(&tmp[..n]);
+            }
+            return Some((method, path, headers, String::from_utf8_lossy(&body).into_owned()));
+        }
+    }
+}
+
+fn respond(s: &mut TcpStream, status: u16, body: &Value) {
+    let text = body.to_string();
+    let _ = write!(s, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len());
+}
+
+fn form(body: &str) -> HashMap<String, String> {
+    body.split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .map(|(k, v)| (unpercent(k), unpercent(v)))
+        .collect()
+}
+
+fn unpercent(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'%' if i + 2 < b.len() + 0 && i + 2 <= b.len() - 1 + 0 => {
+                let h = std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("00");
+                out.push(u8::from_str_radix(h, 16).unwrap_or(b'?'));
+                i += 3;
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn handle(mut s: TcpStream, st: Arc<Mutex<State>>, iss: Arc<Issuer>) {
+    let Some((method, path, headers, body)) = read_request(&mut s) else { return };
+    let mut state = st.lock().unwrap();
+    state.requests.push((method.clone(), path.clone(), body.clone()));
+    state.seq += 1;
+    if path == "/" || path.starts_with("/cognito") && headers.contains_key("x-amz-target") {
+        let target = headers.get("x-amz-target").cloned().unwrap_or_default().rsplit('.').next().unwrap_or("").to_string();
+        let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+        let (status, out) = cognito(&mut state, &iss, &target, &v);
+        drop(state);
+        respond(&mut s, status, &out);
+    } else if path.ends_with("/siteverify") {
+        let out = state.recaptcha.clone();
+        drop(state);
+        respond(&mut s, 200, &out);
+    } else if path.contains("/oauth2/token") || path.contains("/protocol/openid-connect/token") || path.contains("/oauth2/v2.0/token") {
+        let f = form(&body);
+        let kind = if path.contains("/realms/") { "keycloak" } else if path.contains("/entra") || path.contains("/oauth2/v2.0/") { "entra" } else { "cognito-domain" };
+        let (status, out) = oauth_token(&mut state, &iss, kind, &headers, &f);
+        drop(state);
+        respond(&mut s, status, &out);
+    } else if path.ends_with("/revoke") {
+        let f = form(&body);
+        if let Some(t) = f.get("token") {
+            state.refresh.remove(t);
+        }
+        drop(state);
+        respond(&mut s, 200, &json!({}));
+    } else if path.contains("/oauth2/v2.0/initiate") || path.contains("/oauth2/v2.0/challenge") {
+        let f = form(&body);
+        let out = if path.ends_with("/initiate") {
+            if state.users.contains_key(f.get("username").map(String::as_str).unwrap_or("")) {
+                json!({"continuation_token": format!("ct-{}-{}", f["username"], state.seq)})
+            } else {
+                // The documented native API does not reveal the user either: it continues.
+                json!({"continuation_token": format!("ct-unknown-{}", state.seq)})
+            }
+        } else {
+            json!({"continuation_token": format!("{}-c", f.get("continuation_token").cloned().unwrap_or_default()), "challenge_type": "password"})
+        };
+        drop(state);
+        respond(&mut s, 200, &out);
+    } else {
+        drop(state);
+        respond(&mut s, 404, &json!({"error": "not_found"}));
+    }
+}
+
+fn now() -> i64 {
+    cobolt_server::jwt::now()
+}
+
+fn cognito_tokens(state: &mut State, iss: &Issuer, user: &str) -> Value {
+    let u = state.users.get(user).cloned().unwrap();
+    let t = now();
+    let access = iss.mint(&json!({"iss": POOL, "sub": format!("sub-{user}"), "token_use": "access", "client_id": CLIENT_ID, "username": user, "scope": "aws.cognito.signin.user.admin", "cognito:groups": u.groups, "iat": t, "exp": t + 3600, "origin_jti": "j1"}));
+    let id = iss.mint(&json!({"iss": POOL, "sub": format!("sub-{user}"), "token_use": "id", "aud": CLIENT_ID, "email": format!("{user}@example.test"), "at_hash": "x", "iat": t, "exp": t + 3600}));
+    state.seq += 1;
+    let refresh = format!("refresh-{user}-{}", state.seq);
+    state.refresh.insert(refresh.clone(), user.to_string());
+    json!({"AuthenticationResult": {"AccessToken": access, "IdToken": id, "RefreshToken": refresh, "ExpiresIn": 3600, "TokenType": "Bearer"}})
+}
+
+fn err(kind: &str, message: &str) -> (u16, Value) {
+    (400, json!({"__type": kind, "message": message}))
+}
+
+fn check_hash(state: &State, v: &Value, username: &str, hash: Option<&str>) -> bool {
+    if !state.secret_required {
+        return true;
+    }
+    let mut mac = Hmac::<Sha256>::new_from_slice(CLIENT_SECRET.as_bytes()).unwrap();
+    mac.update(username.as_bytes());
+    mac.update(CLIENT_ID.as_bytes());
+    let want = B64.encode(mac.finalize().into_bytes());
+    let _ = v;
+    hash == Some(want.as_str())
+}
+
+fn cognito(state: &mut State, iss: &Issuer, target: &str, v: &Value) -> (u16, Value) {
+    let s = |p: &str| v.pointer(p).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    if s("/ClientId") != CLIENT_ID && target != "GlobalSignOut" {
+        return err("ResourceNotFoundException", "client not found");
+    }
+    match target {
+        "InitiateAuth" => {
+            let flow = s("/AuthFlow");
+            if flow == "REFRESH_TOKEN_AUTH" {
+                let rt = s("/AuthParameters/REFRESH_TOKEN");
+                let Some(user) = state.refresh.get(&rt).cloned() else { return err("NotAuthorizedException", "Invalid Refresh Token") };
+                let mut out = cognito_tokens(state, iss, &user);
+                // No rotation: the refresh token is not repeated.
+                out["AuthenticationResult"].as_object_mut().unwrap().remove("RefreshToken");
+                return (200, out);
+            }
+            let user = s("/AuthParameters/USERNAME");
+            let hash = v.pointer("/AuthParameters/SECRET_HASH").and_then(|h| h.as_str());
+            if !check_hash(state, v, &user, hash) {
+                return err("NotAuthorizedException", "Unable to verify secret hash for client");
+            }
+            let pw = s("/AuthParameters/PASSWORD");
+            let Some(u) = state.users.get(&user).cloned() else {
+                return if state.legacy_errors { err("UserNotFoundException", "User does not exist.") } else { err("NotAuthorizedException", "Incorrect username or password.") };
+            };
+            if u.password != pw {
+                return err("NotAuthorizedException", "Incorrect username or password.");
+            }
+            if !u.confirmed {
+                return err("UserNotConfirmedException", "User is not confirmed.");
+            }
+            if u.must_change_password {
+                state.seq += 1;
+                let session = format!("sess-{}", state.seq);
+                state.sessions.insert(session.clone(), (user.clone(), "NEW_PASSWORD_REQUIRED".into()));
+                return (200, json!({"ChallengeName": "NEW_PASSWORD_REQUIRED", "Session": session, "ChallengeParameters": {"USER_ID_FOR_SRP": user}}));
+            }
+            if let Some((name, _)) = &u.mfa {
+                state.seq += 1;
+                let session = format!("sess-{}", state.seq);
+                state.sessions.insert(session.clone(), (user.clone(), name.clone()));
+                return (200, json!({"ChallengeName": name, "Session": session, "ChallengeParameters": {"CODE_DELIVERY_DESTINATION": "+*******1234", "CODE_DELIVERY_DELIVERY_MEDIUM": "SMS"}}));
+            }
+            (200, cognito_tokens(state, iss, &user))
+        }
+        "RespondToAuthChallenge" => {
+            let session = s("/Session");
+            let Some((user, name)) = state.sessions.remove(&session) else { return err("NotAuthorizedException", "Invalid session for the user.") };
+            if s("/ChallengeName") != name {
+                return err("NotAuthorizedException", "Invalid session for the user.");
+            }
+            let hash = v.pointer("/ChallengeResponses/SECRET_HASH").and_then(|h| h.as_str());
+            if !check_hash(state, v, &user, hash) {
+                return err("NotAuthorizedException", "Unable to verify secret hash for client");
+            }
+            if name == "NEW_PASSWORD_REQUIRED" {
+                let np = s("/ChallengeResponses/NEW_PASSWORD");
+                if np.len() < 8 {
+                    return err("InvalidPasswordException", "Password does not conform to policy: Password not long enough");
+                }
+                let u = state.users.get_mut(&user).unwrap();
+                u.password = np;
+                u.must_change_password = false;
+                return (200, cognito_tokens(state, iss, &user));
+            }
+            let key = match name.as_str() {
+                "SMS_MFA" => "SMS_MFA_CODE",
+                "SOFTWARE_TOKEN_MFA" => "SOFTWARE_TOKEN_MFA_CODE",
+                "EMAIL_OTP" => "EMAIL_OTP_CODE",
+                _ => "CODE",
+            };
+            let want = state.users[&user].mfa.clone().map(|m| m.1).unwrap_or_default();
+            if s(&format!("/ChallengeResponses/{key}")) != want {
+                return err("CodeMismatchException", "Invalid code received for user");
+            }
+            (200, cognito_tokens(state, iss, &user))
+        }
+        "SignUp" => {
+            let user = s("/Username");
+            let hash = v.get("SecretHash").and_then(|h| h.as_str());
+            if !check_hash(state, v, &user, hash) {
+                return err("NotAuthorizedException", "Unable to verify secret hash for client");
+            }
+            if state.users.contains_key(&user) {
+                return err("UsernameExistsException", "User already exists");
+            }
+            let pw = s("/Password");
+            if pw.len() < 8 {
+                return err("InvalidPasswordException", "Password did not conform with policy: Password not long enough");
+            }
+            let mut u = User::new(&pw);
+            u.confirmed = false;
+            state.users.insert(user, u);
+            (200, json!({"UserConfirmed": false, "UserSub": "sub-new", "CodeDeliveryDetails": {"Destination": "n***@e***", "DeliveryMedium": "EMAIL", "AttributeName": "email"}}))
+        }
+        "ConfirmSignUp" => {
+            let user = s("/Username");
+            let code = s("/ConfirmationCode");
+            match state.users.get_mut(&user) {
+                Some(u) if u.confirm_code == code => {
+                    u.confirmed = true;
+                    (200, json!({}))
+                }
+                Some(_) => err("CodeMismatchException", "Invalid verification code provided, please try again."),
+                None => err("UserNotFoundException", "Username/client id combination not found."),
+            }
+        }
+        "ResendConfirmationCode" => {
+            if state.users.contains_key(&s("/Username")) {
+                (200, json!({"CodeDeliveryDetails": {"Destination": "n***@e***", "DeliveryMedium": "EMAIL"}}))
+            } else {
+                err("UserNotFoundException", "Username/client id combination not found.")
+            }
+        }
+        "ForgotPassword" => {
+            if state.users.contains_key(&s("/Username")) {
+                (200, json!({"CodeDeliveryDetails": {"Destination": "n***@e***", "DeliveryMedium": "EMAIL"}}))
+            } else {
+                err("UserNotFoundException", "Username/client id combination not found.")
+            }
+        }
+        "ConfirmForgotPassword" => {
+            let user = s("/Username");
+            let code = s("/ConfirmationCode");
+            let pw = s("/Password");
+            match state.users.get_mut(&user) {
+                Some(u) if u.reset_code == code => {
+                    if pw.len() < 8 {
+                        return err("InvalidPasswordException", "Password does not conform to policy: Password not long enough");
+                    }
+                    u.password = pw;
+                    (200, json!({}))
+                }
+                Some(_) => err("CodeMismatchException", "Invalid verification code provided, please try again."),
+                None => err("UserNotFoundException", "Username/client id combination not found."),
+            }
+        }
+        "RevokeToken" => {
+            state.refresh.remove(&s("/Token"));
+            (200, json!({}))
+        }
+        "GlobalSignOut" => (200, json!({})),
+        _ => err("UnsupportedOperationException", "unknown target"),
+    }
+}
+
+fn pkce_ok(challenge: &str, verifier: &str) -> bool {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes())) == challenge
+}
+
+fn oauth_token(state: &mut State, iss: &Issuer, kind: &str, headers: &HashMap<String, String>, f: &HashMap<String, String>) -> (u16, Value) {
+    let bad = |e: &str| (400u16, json!({"error": e}));
+    let t = now();
+    let mint = |state: &mut State, user: &str| -> Value {
+        let (issuer, claims) = match kind {
+            "keycloak" => (KEYCLOAK_ISSUER, json!({"typ": "Bearer", "azp": CLIENT_ID, "aud": "prc-api", "realm_access": {"roles": ["user"]}, "preferred_username": user})),
+            "entra" => (ENTRA_ISSUER, json!({"aud": "prc-api", "scp": "Orders.Read", "azp": CLIENT_ID, "ver": "2.0"})),
+            _ => (POOL, json!({"token_use": "access", "client_id": CLIENT_ID})),
+        };
+        let mut c = claims;
+        let o = c.as_object_mut().unwrap();
+        o.insert("iss".into(), json!(issuer));
+        o.insert("sub".into(), json!(format!("sub-{user}")));
+        o.insert("iat".into(), json!(t));
+        o.insert("exp".into(), json!(t + 3600));
+        state.seq += 1;
+        let refresh = format!("{kind}-refresh-{user}-{}", state.seq);
+        state.refresh.insert(refresh.clone(), user.to_string());
+        json!({"access_token": iss.mint(&c), "id_token": iss.mint(&json!({"iss": issuer, "sub": format!("sub-{user}"), "aud": CLIENT_ID, "nonce": "n", "iat": t, "exp": t + 3600})), "refresh_token": refresh, "expires_in": 3600, "token_type": "Bearer"})
+    };
+    // A confidential client authenticates with Basic.
+    if state.secret_required {
+        let want = format!("Basic {}", B64.encode(format!("{CLIENT_ID}:{CLIENT_SECRET}")));
+        if headers.get("authorization") != Some(&want) {
+            return (401, json!({"error": "invalid_client"}));
+        }
+    }
+    match f.get("grant_type").map(String::as_str) {
+        Some("authorization_code") => {
+            let Some((user, redirect, challenge)) = state.codes.remove(f.get("code").map(String::as_str).unwrap_or("")) else { return bad("invalid_grant") };
+            if f.get("redirect_uri") != Some(&redirect) || !pkce_ok(&challenge, f.get("code_verifier").map(String::as_str).unwrap_or("")) {
+                return bad("invalid_grant");
+            }
+            (200, mint(state, &user))
+        }
+        Some("refresh_token") => {
+            let rt = f.get("refresh_token").cloned().unwrap_or_default();
+            let Some(user) = state.refresh.get(&rt).cloned() else { return bad("invalid_grant") };
+            let mut out = mint(state, &user);
+            // Rotation: the old one dies.
+            state.refresh.remove(&rt);
+            let _ = &mut out;
+            (200, out)
+        }
+        Some("password") => {
+            // Entra native: the continuation token carries the user.
+            let ct = f.get("continuation_token").cloned().unwrap_or_default();
+            let user = ct.strip_prefix("ct-").and_then(|r| r.split('-').next()).unwrap_or("").to_string();
+            let Some(u) = state.users.get(&user).cloned() else { return bad("invalid_grant") };
+            if u.password != f.get("password").cloned().unwrap_or_default() {
+                return bad("invalid_grant");
+            }
+            if state.native_mfa || u.mfa.is_some() {
+                return (400, json!({"error": "invalid_grant", "suberror": "mfa_required", "continuation_token": "ct-mfa"}));
+            }
+            (200, mint(state, &user))
+        }
+        _ => bad("unsupported_grant_type"),
+    }
+}
+
+/// An authorization code the "provider's page" would hand back after a sign-in.
+pub fn issue_code(mock: &Mock, user: &str, redirect_uri: &str, code_challenge: &str) -> String {
+    let mut st = mock.state.lock().unwrap();
+    st.seq += 1;
+    let code = format!("code-{}", st.seq);
+    st.codes.insert(code.clone(), (user.to_string(), redirect_uri.to_string(), code_challenge.to_string()));
+    code
+}
