@@ -117,5 +117,5 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
 - **Q3 — `super` between windows** needs a channel the browser offers only within one origin and one browser profile; confirm that limit is acceptable, and that a closed opener is a normal `ON EXCEPTION`.
 - **Q4 — Same-window multi-page navigation** (each `OpenForm` replacing the page, a classic multi-page site) is a third style the operator did not name: out of scope, or part of "standalone"?
 - **Q5 — Mobile default style:** SPA with a stack (recommended) or standalone screens throughout?
-- **Q6 — One module for every page of a standalone project** (the same code instantiated with a start form per page, cached once) or one per form? Recommended: one module; WASM-010 Q10 and WASM-002 Q7 bear on it.
+- **Q6 — One module for every page of a standalone project** (the same code instantiated with a start form per page, cached once) or one per form? Recommended: one program module and one player, shared by every page (the two-module design of WASM-016 makes this natural).
 - **Q7 — Several instances of the application on one page** (embedded in two places): allowed or refused?

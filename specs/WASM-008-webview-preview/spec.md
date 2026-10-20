@@ -50,11 +50,11 @@ viewport, and where a style change shows up as the browser draws it.
 
 ## 4. Requirements (EARS)
 
-- **R1 (event):** When the developer starts Preview on a web or mobile form, the IDE shall build the form's frontend with the pipeline of WASM-002 and show it in a **web view** (the system engine: WKWebView on macOS,
-  WebView2 on Windows, WebKitGTK on Linux) — not an approximation drawn by the egui painter.
+- **R1 (event):** When the developer starts Preview on a web or mobile form, the IDE shall build the form's frontend with the pipeline of WASM-002 — emit the program module and the form descriptions and use the **prebuilt player** (WASM-016), so no Rust compilation is involved —
+  and show it in a **web view** (the system engine: WKWebView on macOS, WebView2 on Windows, WebKitGTK on Linux) — not an approximation drawn by the egui painter.
 - **R2 (ubiquitous):** The web view shall live in a window of its own and, if it hangs or crashes, shall not hang or crash the IDE (Q1 on process separation).
 - **R3 (event):** When the form, a property, `CssClass`, `Style` or the stylesheet changes, the Preview shall update in place, keeping the form's state where it can and reloading where it cannot, within a time the
-  plan states and the build reports.
+  plan states and the build reports. Because the player is already loaded and a change is only a new form description, stylesheet or program module, the player's in-place update (WASM-016 R16) is the mechanism, and the time is expected to be short.
 - **R4 (ubiquitous):** The Preview shall offer **device presets** (a phone, a tablet, a desktop width), **orientation**, **device pixel ratio**, **safe-area insets** and a colour-scheme (light/dark) and locale choice, and a
   free size set by a grip. The window shall **never resize itself**: its size changes only when the developer picks a preset or drags the grip.
 - **R5 (ubiquitous):** The web view shall expose the engine's developer tools (inspector, console) in debug use, and the page's console output and uncaught errors shall appear in the IDE's Output panel with the form

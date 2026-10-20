@@ -153,7 +153,8 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 
 ## 7. Open questions
 
-- **Q1 — Confirm "directly".** The operator asked whether it is possible; this spec says yes and recommends it. If instead the generator should go through Rust, R1, R2 and R6 change and a Rust toolchain returns to the build.
+- **Q1 — "Directly" — decided by implication.** The operator asked whether it is possible; this spec said yes; and the operator then chose *"two `.wasm` files… a Web build with no Rust toolchain"* (Q10), which only holds if the COBOL is emitted
+  directly and not through Rust. If that reading is wrong, R1, R2 and R6 change and a Rust toolchain returns to the build.
 - **Q2 — The emitter and the test engine.** `wasm-encoder` (a pure-Rust emitter already in the lock file transitively) or a small writer of our own; and a pure-Rust engine for the headless runs (`wasmi`) or `wasmtime`. Probe licence,
   MSRV 1.92 and weight at `/plan`.
 - **Q3 — How the routines are authored, given "no runtime".** (a) Written once in Rust, compiled to WebAssembly when the *product* is built, kept in the compiler as a blob, and **linked statically into each module with the unused
@@ -167,5 +168,5 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 - **Q7 — Which built-ins are browser-capable** — decided per entry of `BUILTINS` at `/plan`.
 - **Q8 — In-memory indexed files and in-memory `SORT` in the browser.** Out of v1 (non-goal), as the operator's "no `redb`, data on the backend" implies; confirm, since spec 006 had memory-only indexed files.
 - **Q9 — `DISPLAY` and `ACCEPT`:** `DISPLAY` goes to the host's console (R12); `ACCEPT` has no meaning where forms are the input — refuse it or map it to a dialog?
-- **Q10 — One module or two.** The COBOL module is self-contained, but the user interface is Leptos (Rust). Is the final artefact **one** `.wasm` (the COBOL object linked into the Leptos build — needs a Rust build and a
-  linker step per project) or **two** (a prebuilt Leptos "player" that renders the forms, plus the generated program, joined by the host page — no Rust build per project)? Recommended: two. See WASM-002 Q7.
+- **Q10 — One module or two — decided.** The operator ruled on 2026-10-19: **two `.wasm` files** — the generated, self-contained program module (this spec) and a **prebuilt Leptos player** that draws any form (WASM-016), joined by the host page
+  and the host API. The program module therefore never touches the DOM, the network or the page itself: it asks the player (R12), which is also why a Web build needs no Rust toolchain.

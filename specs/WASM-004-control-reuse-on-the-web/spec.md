@@ -11,7 +11,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - **Branch:** `features-2x` (version line 2.x.x). Part of the WASM series, see `specs/WASM-INDEX.md`.
 - **Origin:** operator item **4** — reuse the current controls, with their behaviour, properties, methods and configuration interface, as far as
   possible.
-- **Depends on:** WASM-001, WASM-002. **Amends:** spec 017 (*one renderer everywhere*): for the web kinds the DOM is the renderer.
+- **Depends on:** WASM-001, WASM-002. **Amends:** spec 017 (*one renderer everywhere*): for the web kinds the DOM is the renderer. **Where the web controls live:** every class A and B control is implemented **once, in the
+  prebuilt player** (WASM-016 R5) — never per project — so a new or fixed control reaches an application at its next build with the IDE's current player.
   **Needed by:** WASM-005 (the data controls), WASM-006 (WebLink), WASM-007 (CSS), WASM-008 (preview).
 
 ## 1. Overview

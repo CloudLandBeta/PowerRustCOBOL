@@ -109,7 +109,7 @@ JDK and the Rust Android targets, iOS needs macOS, Xcode and the Rust iOS target
 - **Credentials:** R4 and AC4 apply the project's no-credentials-in-files rule; the signing material is the operator's, never the agent's.
 - **Generated-code contract:** the shell project (Tauri configuration, platform manifests) is a build artefact generated from the project, never hand-edited; the planners decide whether it lives in the build folder (specs 100/101).
 - **Tech steering:** Tauri and its plugins go through the dependency guards (the `aws-lc-rs`/`ring` ban, MSRV 1.92) and a licence check; **a Rust build per application is unavoidable on mobile** (the shell is compiled and signed per
-  application), whatever WASM-002 Q7 decides for the web.
+  application), even though a Web build needs none (WASM-002 Q7, WASM-016 R1). The frontend inside the shell is the same player and program module.
 - **Self-resizing windows:** the IDE's device list and signing dialogs follow the explicit-size rule.
 - **Docs:** `docs/` untouched on 2.x.x.
 - **Fix vs feature:** **feature** (`features-2x`).
