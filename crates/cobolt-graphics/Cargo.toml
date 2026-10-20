@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-graphics"
+description = "WASM-018 — Canvas 2D/3D and the graphics objects (ImageBuffer, Plot, Scene3D, Physics2D, Physics3D): one pure-Rust crate for the interpreter, the egui host and the web player"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[features]
+# Everything on by default (the native hosts). A host that wants less turns
+# `default-features` off and names the areas it needs; the player's heavy parts
+# (WASM-018 R18) are exactly these features built as separate modules.
+default = ["parallel", "text", "imagebuf", "plot", "physics", "scene3d"]
+
+# Rayon wherever work is per-pixel / per-row independent (WASM-018 R20). OFF
+# gives a purely sequential build whose results are IDENTICAL, bit for bit.
+# On `wasm32-unknown-unknown` WITHOUT the `atomics` target feature (the plain
+# player) the crate runs sequentially even with this feature on - see `par`.
+parallel = ["dep:rayon", "rapier2d?/parallel", "rapier3d?/parallel"]
+
+# Shaped, bidirectional, wrapped text (R8) - harfrust, skrifa, fontdb,
+# unicode-bidi, icu_segmenter.
+text = ["dep:harfrust", "dep:skrifa", "dep:fontdb", "dep:unicode-bidi", "dep:icu_segmenter"]
+
+# ImageBuffer (R11): the image crate's pure-Rust codecs, imageproc, fast_image_resize.
+imagebuf = ["dep:image", "dep:imageproc", "dep:fast_image_resize"]
+
+# Plot (R12).
+plot = ["text", "dep:plotters"]
+
+# Physics2D / Physics3D (R10).
+physics = ["dep:rapier2d", "dep:rapier3d"]
+
+# Scene3D / Canvas3D (R9): wgpu + naga + glam + bytemuck + gltf + parry3d.
+scene3d = ["imagebuf", "dep:wgpu", "dep:naga", "dep:glam", "dep:gltf", "dep:parry3d", "dep:pollster"]
+
+[dependencies]
+thiserror = { workspace = true }
+bytemuck  = { version = "1", features = ["derive"] }
+
+# 2D rasteriser and geometry (R5). tiny-skia 0.12 (not the 0.11.4 resvg pins):
+# its two-point conical RadialGradient is HTML createRadialGradient(x0,y0,r0,x1,y1,r1).
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
+kurbo     = { version = "0.13", default-features = false, features = ["std"] }
+
+rayon = { version = "1.10", optional = true }
+
+# Text.
+harfrust       = { version = "0.12", optional = true, default-features = false, features = ["std"] }
+skrifa         = { version = "0.44", optional = true, default-features = false, features = ["std"] }
+fontdb         = { version = "0.23", optional = true, default-features = false, features = ["std"] }
+unicode-bidi   = { version = "0.3", optional = true, default-features = false, features = ["std"] }
+icu_segmenter  = { version = "~2.2", optional = true, default-features = false, features = ["compiled_data"] }
+
+# Images.
+image             = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "qoi"] }
+imageproc         = { version = "0.27", optional = true, default-features = false }
+fast_image_resize = { version = "6", optional = true, default-features = false, features = ["std"] }
+
+# Charts.
+plotters = { version = "0.3", optional = true, default-features = false, features = ["svg_backend", "all_series", "all_elements", "ab_glyph"] }
+
+# Physics.
+rapier2d = { version = "0.36", optional = true, default-features = false, features = ["dim2", "f32", "std", "enhanced-determinism"] }
+rapier3d = { version = "0.36", optional = true, default-features = false, features = ["dim3", "f32", "std", "enhanced-determinism"] }
+
+# 3D.
+wgpu     = { version = "30", optional = true, default-features = false, features = ["std", "parking_lot", "wgsl"] }
+naga     = { version = "30", optional = true, default-features = false, features = ["wgsl-in"] }
+glam     = { version = "0.34", optional = true }
+gltf     = { version = "1.4", optional = true, default-features = false, features = ["utils", "names"] }
+parry3d  = { version = "0.31", optional = true, default-features = false, features = ["dim3", "f32", "std"] }
+pollster = { version = "0.4", optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
