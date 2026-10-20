@@ -44,6 +44,8 @@ use cobolt_wasm_abi::manifest::Manifest;
 
 use crate::host::{CallResult, DialogKind, Effect, Host, HostOptions, ModuleCall, Outbound};
 use crate::net::{self, Client, LinkState, Out, Socket};
+use crate::view::interact::{Act, UiOp};
+use crate::view::MenuStore;
 
 /// What the loader tells the player about the page it runs in.
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -65,6 +67,14 @@ pub struct PlayerConfig {
     pub max_queue: Option<usize>,
     /// The form to open first; empty = the main form.
     pub start_form: String,
+    /// The Maps tile address template (`{z}`, `{x}`, `{y}`); empty = the OpenStreetMap server.
+    pub tile_url: String,
+    /// Origins images may be loaded from besides the application's own files.
+    pub image_origins: Vec<String>,
+    /// The page that opens a standalone form in a tab of its own; empty = this page.
+    pub app_url: String,
+    /// The form this page was opened to run, when it is a standalone window (WASM-011 R9).
+    pub opener_handle: String,
 }
 
 /// Something that happened outside the driver; the driver acts on it between calls.
@@ -77,6 +87,8 @@ pub(crate) enum Inbox {
     CloseInstance(u32),
     /// The Authentication control's machine produced an event to deliver.
     Raw(Box<dyn FnOnce(&Rc<Inner>)>),
+    /// What a user's act on control `ctl` of instance `inst` asks for (see `view::interact`).
+    Acts { inst: u32, ctl: usize, acts: Vec<Act> },
 }
 
 pub(crate) enum NetEvent {
@@ -270,6 +282,10 @@ pub(crate) trait Surface {
     fn styles_changed(&self, inner: &Rc<Inner>);
     fn fatal(&self, message: &str);
     fn unmount(&self);
+    /// A change of page state the user's act asked for (an open menu, a sorted grid, a window).
+    fn ui_op(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, op: UiOp);
+    /// A user's act the host cannot perform by itself: resolve a menu item, show a notice, open a window.
+    fn act(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, act: Act);
 }
 
 /// What the page needs besides the forms: stylesheets, the asset table, the locale. Kept here so
@@ -280,6 +296,7 @@ pub(crate) struct Styles {
     pub forms: std::collections::BTreeMap<String, String>,
     pub assets: std::collections::BTreeMap<String, String>,
     pub locale: String,
+    pub menus: MenuStore,
 }
 
 pub(crate) struct Inner {
@@ -334,6 +351,32 @@ impl Inner {
                 Inbox::CloseInstance(i) => self.host.borrow_mut().close_instance(i),
                 Inbox::Raw(f) => f(self),
                 Inbox::Net(ev) => self.net_event(ev),
+                Inbox::Acts { inst, ctl, acts } => self.apply_acts(inst, ctl, acts),
+            }
+        }
+    }
+
+    /// Carry out what a user's act asked for, in order. The host is never borrowed across a call into
+    /// the surface, and the surface never borrows the host across a call back.
+    pub(crate) fn apply_acts(self: &Rc<Self>, inst: u32, ctl: usize, acts: Vec<Act>) {
+        for a in acts {
+            match a {
+                Act::Event { name, args } => {
+                    self.host.borrow_mut().dom_event(inst, ctl, name, args);
+                }
+                Act::Quiet { prop, value } => self.host.borrow_mut().ui_set(inst, ctl, &prop, &value),
+                Act::Change { prop, value } => self.host.borrow_mut().user_change(inst, ctl, &prop, &value),
+                Act::Prevent => {}
+                Act::Ui(op) => {
+                    if let Some(sf) = self.surface.borrow().as_ref() {
+                        sf.ui_op(self, inst, ctl, op);
+                    }
+                }
+                other => {
+                    if let Some(sf) = self.surface.borrow().as_ref() {
+                        sf.act(self, inst, ctl, other);
+                    }
+                }
             }
         }
     }
@@ -747,6 +790,16 @@ impl Player {
         self.inner.host.borrow().snapshot().to_string()
     }
 
+    /// Call a method of a control (`invoke(0, "SNK-1", "Show", ["Saved"])`), from the host page or a test.
+    /// Returns the method's answer (empty for a method with none).
+    pub fn invoke(&self, inst: u32, control: &str, method: &str, args: Vec<JsValue>) -> Result<String, JsError> {
+        let args: Vec<String> = args.iter().map(|a| a.as_string().unwrap_or_default()).collect();
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let r = self.inner.host.borrow_mut().invoke(inst, control, method, &refs);
+        pump(&self.inner);
+        r.map(|v| v.unwrap_or_default()).map_err(|e| JsError::new(&e))
+    }
+
     /// Headless only: raise a DOM event on a control, as the renderer would. Returns whether a handler is bound.
     pub fn dispatch(&self, inst: u32, control: &str, event: &str, args: Vec<JsValue>) -> Result<bool, JsError> {
         if !self.inner.cfg.headless {
@@ -836,7 +889,17 @@ impl Player {
     pub fn set_assets(&self, json: &str) -> Result<(), JsError> {
         let map: std::collections::BTreeMap<String, String> =
             serde_json::from_str(json).map_err(|e| JsError::new(&format!("the asset table is not valid: {e}")))?;
-        self.inner.styles.borrow_mut().assets = map;
+        // Looked up in lower case with forward slashes, whatever the form wrote (`Assets\Logo.png`).
+        self.inner.styles.borrow_mut().assets = map.into_iter().map(|(k, v)| (k.to_ascii_lowercase().replace('\\', "/"), v)).collect();
+        self.inner.styles_changed();
+        Ok(())
+    }
+
+    /// The menu of a MenuBar or SideMenu control, as the build writes it (the menu file as JSON).
+    pub fn add_menu(&self, form: &str, control: &str, json: &str) -> Result<(), JsError> {
+        let def: cobolt_forms::menu::MenuDefinition =
+            serde_json::from_str(json).map_err(|e| JsError::new(&format!("the menu of `{control}` in form `{form}` is not valid: {e}")))?;
+        self.inner.styles.borrow_mut().menus.insert(form, control, def);
         self.inner.styles_changed();
         Ok(())
     }

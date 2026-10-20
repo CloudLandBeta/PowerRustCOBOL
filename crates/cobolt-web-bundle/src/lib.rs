@@ -82,6 +82,15 @@ pub struct FormInput {
     pub stylesheet: Option<String>,
 }
 
+/// The menu of one MenuBar or SideMenu control: the `<Control>.menu.yaml` file the IDE writes beside
+/// the form, with its integrity hash (a tampered file is refused, as it is on the desktop).
+#[derive(Debug, Clone)]
+pub struct MenuInput {
+    pub form: String,
+    pub control: String,
+    pub yaml: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct AssetInput {
     /// The path forms use, e.g. `Assets/logo.png`.
@@ -141,6 +150,11 @@ pub struct BundleOptions {
     pub call_timeout_ms: Option<u64>,
     /// The longest run flagged as high-entropy by the secret scan; 0 turns that off.
     pub entropy_len: usize,
+    /// The Maps tile address template (`{z}`, `{x}`, `{y}`); `None` = the OpenStreetMap server, whose
+    /// origin the Content-Security-Policy then allows for images when a form has a Maps control.
+    pub tile_url: Option<String>,
+    /// Further origins images may be loaded from (`img-src`), beyond the bundle itself.
+    pub image_origins: Vec<String>,
 }
 
 impl Default for BundleOptions {
@@ -166,6 +180,8 @@ impl Default for BundleOptions {
             skip_secret_scan: false,
             call_timeout_ms: None,
             entropy_len: secrets::DEFAULT_ENTROPY_LEN,
+            tile_url: None,
+            image_origins: Vec::new(),
         }
     }
 }
@@ -180,6 +196,8 @@ pub struct BundleInput {
     pub forms: Vec<FormInput>,
     /// The application-wide stylesheet (WASM-007 Q3, reserved).
     pub stylesheet: Option<String>,
+    /// The menus of the forms' MenuBar and SideMenu controls.
+    pub menus: Vec<MenuInput>,
     pub assets: Vec<AssetInput>,
     pub player: PlayerInput,
     pub options: BundleOptions,
@@ -495,6 +513,41 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         }
         forms_cfg.push(entry);
     }
+    // The menus: parsed (and their integrity hash checked) here, written as JSON the player reads.
+    let mut menus_cfg = Vec::new();
+    for m in &input.menus {
+        match cobolt_forms::menu::parse_menu(&m.yaml) {
+            Ok(def) => {
+                let json_text = serde_json::to_string(&def).expect("a menu serialises");
+                let p = b.add_hashed(&format!("forms/{}.{}.menu.json", m.form, m.control), json_text.into_bytes());
+                menus_cfg.push(json!({"form": m.form, "control": m.control, "url": p, "integrity": b.sri_of(&p)}));
+            }
+            Err(e) => return Err(BundleError { problems: vec![format!("the menu of control `{}` in form `{}` cannot be used: {e}", m.control, m.form)] }),
+        }
+    }
+    // Images: the bundle's own, `data:` and `blob:` are always allowed; a Maps control loads tiles from
+    // the tile server, so exactly that origin is added when some form has one.
+    let uses_maps = described.values().any(|(f, _)| {
+        fn has(cs: &[cobolt_forms::model::Control]) -> bool {
+            cs.iter().any(|c| c.control_type == ControlType::Maps || has(&c.children))
+        }
+        has(&f.controls)
+    });
+    let mut csp_opts = o.csp.clone();
+    for origin in &o.image_origins {
+        if !csp_opts.extra_img.contains(origin) {
+            csp_opts.extra_img.push(origin.clone());
+        }
+    }
+    if uses_maps {
+        let tile = o.tile_url.clone().unwrap_or_else(|| "https://tile.openstreetmap.org/{z}/{x}/{y}.png".into());
+        if let Some(origin) = origin_of(&tile) {
+            if !csp_opts.extra_img.contains(&origin) {
+                csp_opts.extra_img.push(origin.clone());
+                notes.push(format!("a form has a Maps control: the Content-Security-Policy allows images from {origin} (the map tiles)"));
+            }
+        }
+    }
     let stylesheet_cfg = input.stylesheet.as_ref().map(|css| {
         let p = b.add_hashed("stylesheet.css", css.clone().into_bytes());
         json!({"url": p, "integrity": b.sri_of(&p)})
@@ -557,6 +610,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         "player": Value::Object(player_cfg),
         "worker": {"url": worker_path, "integrity": b.sri_of(&worker_path)},
         "forms": forms_cfg,
+        "menus": menus_cfg,
         "assets": Value::Object(assets_cfg),
         "backend": {"origins": backend_origins, "unsafe_plain_ws": o.unsafe_plain_ws, "call_timeout_ms": o.call_timeout_ms},
         "options": {
@@ -567,6 +621,8 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
             "weblink_schemes": o.weblink_schemes,
             "recaptcha_site_key": o.recaptcha_site_key,
             "auth_flow": o.auth_flow,
+            "tile_url": o.tile_url.clone().unwrap_or_default(),
+            "image_origins": csp_opts.extra_img.clone(),
             "embed": match &o.embed { Embed::Window => json!({"mode": "window"}), Embed::Element { selector } => json!({"mode": "element", "selector": selector}) },
         },
         "texts": Value::Object(texts),
@@ -579,7 +635,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     b.add("config.json".into(), config_text.into_bytes());
 
     // the page(s)
-    let policy = csp::build(&o.csp, &backend_origins, &o.embed);
+    let policy = csp::build(&csp_opts, &backend_origins, &o.embed);
     let shim_path = if o.service_worker_shim {
         let sw = b.add_hashed("coi-serviceworker.js", COI_SW.as_bytes().to_vec());
         b.add_hashed("coi-register.js", COI_REGISTER.as_bytes().to_vec());
@@ -690,6 +746,19 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         notes,
     };
     Ok(BundleOutput { files: b.files, report })
+}
+
+/// `https://host[:port]` of an address (a tile template included), or `None` when it names no origin.
+pub fn origin_of(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    if scheme != "https" && scheme != "http" {
+        return None;
+    }
+    let host = rest.split(['/', '?', '#']).next()?;
+    if host.is_empty() || host.contains('{') {
+        return None;
+    }
+    Some(format!("{scheme}://{host}"))
 }
 
 fn sha2_concat(files: &[&(String, Vec<u8>)]) -> String {

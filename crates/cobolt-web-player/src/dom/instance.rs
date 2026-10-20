@@ -1,0 +1,665 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! **One form instance on the page** (WASM-016 R6, WASM-011): its element tree, its stylesheet, its
+//! timers and its way of being shown (the application window, the shell's ContentPane, a modal dialog,
+//! a modeless panel).
+
+use std::collections::BTreeSet;
+use std::rc::Rc;
+
+use js_sys::Reflect;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use web_sys::Element;
+
+use super::apply::{self, Dispatch, NodeRec};
+use super::h::{self, Listener};
+use super::sheets::Sheet;
+use super::{InstChanges, Route, Shared};
+use crate::api::{Inbox, Inner, Timeout};
+use crate::host::OpenMode;
+use crate::tree::Kind;
+use crate::value::truthy;
+use crate::view::interact::Act;
+use crate::view::shell::{self, Crumb};
+use crate::view::{controls, style, Slot, UiState, VNode, ViewCtx};
+
+pub(crate) struct CtlView {
+    pub rec: NodeRec,
+    pub slots: Vec<(Slot, Element)>,
+    pub dispatch: Dispatch,
+}
+
+pub(crate) struct ResizeObs {
+    obs: web_sys::ResizeObserver,
+    _cb: Closure<dyn FnMut(js_sys::Array)>,
+}
+
+impl Drop for ResizeObs {
+    fn drop(&mut self) {
+        self.obs.disconnect();
+    }
+}
+
+pub(crate) struct InstanceView {
+    pub inst: u32,
+    pub form: String,
+    pub mode: OpenMode,
+    pub handle: Option<String>,
+    pub root: Element,
+    pub surface_el: Element,
+    /// The title bar and close button of a modal or panel instance.
+    pub frame: Option<NodeRec>,
+    pub ctls: Vec<Option<CtlView>>,
+    pub mount: Vec<(usize, Slot)>,
+    pub ui: UiState,
+    pub sheet: Sheet,
+    /// The property-layer rules, one entry per control (0 is the form).
+    pub css: Vec<String>,
+    pub bp: Option<String>,
+    pub width: f64,
+    pub observer: Option<ResizeObs>,
+    pub keys: Vec<Listener>,
+    pub drag: Option<(Listener, Listener)>,
+}
+
+impl InstanceView {
+    pub fn dispose(self) {
+        if let Some(f) = &self.frame {
+            f.el.remove();
+        }
+        self.root.remove();
+        self.sheet.dispose();
+    }
+}
+
+fn slot_target(ctls: &[Option<CtlView>], surface: &Element, parent: usize, slot: Slot) -> Element {
+    if parent == 0 {
+        return surface.clone();
+    }
+    match ctls.get(parent).and_then(|c| c.as_ref()) {
+        Some(pv) => pv.slots.iter().find(|(s, _)| *s == slot).map(|(_, e)| e.clone()).unwrap_or_else(|| pv.rec.el.clone()),
+        None => surface.clone(),
+    }
+}
+
+/// Make sure control `i`'s element is a child of its slot (without disturbing it when it already is).
+fn mount_one(ctls: &[Option<CtlView>], mount: &[(usize, Slot)], surface: &Element, i: usize) {
+    let Some(cv) = ctls[i].as_ref() else { return };
+    let (p, slot) = mount[i];
+    let target = slot_target(ctls, surface, p, slot);
+    if cv.rec.el.parent_element().as_ref() != Some(&target) {
+        let _ = target.append_child(&cv.rec.el);
+    }
+}
+
+impl Shared {
+    // ── opening ─────────────────────────────────────────────────────────────
+
+    pub(super) fn open_instance(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, mode: OpenMode, handle: Option<String>) {
+        struct Built {
+            vnodes: Vec<Option<VNode>>,
+            mount: Vec<(usize, Slot)>,
+            order: Vec<usize>,
+            css: Vec<String>,
+            form: String,
+            title: String,
+            size: (f64, f64),
+            side_menu: Option<usize>,
+            opener: Option<u32>,
+            responsive: bool,
+        }
+        let built = {
+            let Ok(host) = inner.host.try_borrow() else { return };
+            let Some(tree) = host.trees.get(&inst) else { return };
+            let Ok(styles) = inner.styles.try_borrow() else { return };
+            let ui = UiState::default();
+            let tile = self.tile_url(inner);
+            let cx = ViewCtx {
+                tree,
+                assets: &styles.assets,
+                locale: &styles.locale,
+                ui: &ui,
+                menus: &styles.menus,
+                image_origins: &inner.cfg.image_origins,
+                tile_url: &tile,
+            };
+            let ctls = tree.effective_ctls(None);
+            let responsive = truthy(&tree.get(0, "Responsive"));
+            let n = ctls.len();
+            let mut vnodes: Vec<Option<VNode>> = vec![None; n];
+            let mut css = vec![String::new(); n];
+            css[0] = style::form_css(inst, &ctls, responsive, &styles.assets);
+            for i in 1..n {
+                if style::has_a_box(&ctls[i]) {
+                    vnodes[i] = Some(controls::view(&cx, i));
+                    css[i] = style::control_css(inst, &ctls, i, responsive);
+                }
+            }
+            let mount: Vec<(usize, Slot)> = (0..n).map(|i| if i == 0 { (0, Slot::Children) } else { style::mount_of(&ctls, i) }).collect();
+            let side_menu = ctls.iter().position(|c| matches!(&c.kind, Kind::Control(cobolt_forms::model::ControlType::SideMenu)));
+            Built {
+                vnodes,
+                mount,
+                order: style::mount_order(&ctls),
+                css,
+                form: tree.form_name.clone(),
+                title: tree.get(0, "Title"),
+                size: tree.design_size.into_f64(),
+                side_menu,
+                opener: tree.opener,
+                responsive,
+            }
+        };
+        let doc = &self.doc;
+        let root = h::el(doc, "section", &["pr-form"]);
+        h::attr(&root, "data-pr-form", &built.form);
+        h::attr(&root, "data-pr-inst", &inst.to_string());
+        h::attr(&root, "aria-label", &built.title);
+        if built.responsive {
+            h::attr(&root, "data-responsive", "");
+        }
+        let surface_el = h::el(doc, "div", &["pr-surface"]);
+        h::append(&root, &surface_el);
+
+        let mut ctls: Vec<Option<CtlView>> = (0..built.vnodes.len()).map(|_| None).collect();
+        for &i in &built.order {
+            if let Some(v) = &built.vnodes[i] {
+                let dispatch = self.dispatch(Route::Ctl { inst, ctl: i });
+                let rec = apply::create(doc, v, None, &dispatch);
+                let slots = apply::slots(&rec);
+                ctls[i] = Some(CtlView { rec, slots, dispatch });
+            }
+        }
+        for &i in &built.order {
+            mount_one(&ctls, &built.mount, &surface_el, i);
+        }
+
+        let sheet = self.scope.new_sheet();
+        sheet.set(&style::wrap_layer(&built.css));
+
+        // Keys that reach the form's root (Enter presses the default button, the form's own key events).
+        let mut keys = Vec::new();
+        {
+            let d = self.dispatch(Route::Form { inst });
+            let root_c = root.clone();
+            keys.push(Listener::new_active(&root, "keydown", move |ev| d("keydown", "root", &ev, &root_c)));
+        }
+
+        // The size of the form's own surface, for the breakpoints (spec 056 R61).
+        let observer = {
+            let weak = Rc::downgrade(self);
+            let cb = Closure::<dyn FnMut(js_sys::Array)>::new(move |entries: js_sys::Array| {
+                let first = entries.get(0);
+                let rect = Reflect::get(&first, &"contentRect".into()).unwrap_or(JsValue::UNDEFINED);
+                let w = Reflect::get(&rect, &"width".into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+                if let Some(sh) = weak.upgrade() {
+                    sh.on_resize(inst, w);
+                }
+            });
+            web_sys::ResizeObserver::new(cb.as_ref().unchecked_ref()).ok().map(|obs| {
+                obs.observe(&root);
+                ResizeObs { obs, _cb: cb }
+            })
+        };
+
+        let mut iv = InstanceView {
+            inst,
+            form: built.form.clone(),
+            mode,
+            handle,
+            root: root.clone(),
+            surface_el,
+            frame: None,
+            ctls,
+            mount: built.mount,
+            ui: UiState::default(),
+            sheet,
+            css: built.css,
+            bp: None,
+            width: 0.0,
+            observer,
+            keys,
+            drag: None,
+        };
+
+        // Place it.
+        match mode {
+            OpenMode::Root => {
+                h::append(&self.chrome.main, &root);
+                if built.side_menu.is_some() {
+                    self.enter_shell(inst, &built.title);
+                } else if let Ok(mut st) = self.state.try_borrow_mut() {
+                    st.chain = vec![Crumb { inst, label: built.title.clone() }];
+                }
+            }
+            OpenMode::Embedded => {
+                self.place_embedded(inner, inst, built.opener, &built.title, &root);
+            }
+            OpenMode::Modal => {
+                let frame = shell::modal_frame(&built.title, true, if built.responsive { None } else { Some(built.size) });
+                let d = self.dispatch(Route::Frame(inst));
+                let rec = apply::create(doc, &frame, None, &d);
+                if let Some(body) = apply::find_key(&rec, "body") {
+                    h::append(&body, &root);
+                }
+                h::append(&self.root, &rec.el);
+                let _ = Reflect::get(&rec.el, &"showModal".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()).map(|f| f.call0(&rec.el));
+                iv.frame = Some(rec);
+            }
+            OpenMode::Panel | OpenMode::Window => {
+                let n = self.state.try_borrow().map(|s| s.panels).unwrap_or(0);
+                let offset = (24.0 + (n % 8) as f64 * 28.0, 24.0 + (n % 8) as f64 * 28.0);
+                let frame = shell::panel_frame(&built.title, if built.responsive { None } else { Some(built.size) }, offset);
+                let d = self.dispatch(Route::Frame(inst));
+                let rec = apply::create(doc, &frame, None, &d);
+                if let Some(body) = apply::find_key(&rec, "body") {
+                    h::append(&body, &root);
+                }
+                h::append(&self.chrome.layer, &rec.el);
+                iv.frame = Some(rec);
+                if let Ok(mut st) = self.state.try_borrow_mut() {
+                    st.panels += 1;
+                }
+            }
+        }
+        if let Ok(mut st) = self.state.try_borrow_mut() {
+            st.instances.insert(inst, iv);
+        }
+        self.adopt();
+        self.sync_timers(inner, inst);
+        self.ensure_viewer_docs(inner, inst);
+        if let (OpenMode::Root, Some(menu)) = (mode, built.side_menu) {
+            // The rail starts as the user left it (spec 049 R9), else as the control is designed; the
+            // address may name a form to show (a deep link).
+            let designed = inner.host.try_borrow().ok().and_then(|h| h.trees.get(&inst).map(|t| truthy(&t.get(menu, "Collapsed")))).unwrap_or(false);
+            let collapsed = self.saved_sidebar().unwrap_or(designed);
+            self.with_ui(inst, |ui| ui.sidebar_collapsed = Some(collapsed));
+            self.update_rail(inner, inst, menu, collapsed);
+            self.mark_dirty(inst, menu);
+            let sh = self.clone();
+            inner.push(Inbox::Raw(Box::new(move |inner| sh.follow_address(inner))));
+        }
+        // The start-up handler may already have written to the new instance: draw those writes too.
+        self.mark_dirty(inst, 0);
+    }
+
+    pub(super) fn close_instance(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32) {
+        let (iv, shell_changed) = {
+            let Ok(mut st) = self.state.try_borrow_mut() else { return };
+            st.timers.retain(|(i, _), _| *i != inst);
+            st.files.retain(|(i, _), _| *i != inst);
+            st.dirty.retain(|(i, _)| *i != inst);
+            st.toasts.retain(|t| t.inst != inst);
+            let before = st.chain.len();
+            st.chain.retain(|c| c.inst != inst);
+            if st.content_inst == Some(inst) {
+                st.content_inst = None;
+            }
+            (st.instances.remove(&inst), st.chain.len() != before)
+        };
+        if let Some(iv) = iv {
+            if matches!(iv.mode, OpenMode::Panel | OpenMode::Window) {
+                if let Ok(mut st) = self.state.try_borrow_mut() {
+                    st.panels = st.panels.saturating_sub(1);
+                }
+            }
+            if iv.mode == OpenMode::Modal {
+                if let Some(f) = &iv.frame {
+                    let _ = Reflect::get(&f.el, &"close".into()).ok().and_then(|c| c.dyn_into::<js_sys::Function>().ok()).map(|c| c.call0(&f.el));
+                }
+            }
+            iv.dispose();
+        }
+        self.adopt();
+        if shell_changed {
+            self.sync_shell(inner);
+        }
+    }
+
+    // ── rendering ───────────────────────────────────────────────────────────
+
+    pub(super) fn render_instance(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, mut ch: InstChanges) {
+        let css_all = ch.dirty.remove(&usize::MAX);
+        // Phase 0: the commands that change page state the views read.
+        let mut deferred: Vec<(usize, String, Vec<String>)> = Vec::new();
+        for (ctl, name, args) in std::mem::take(&mut ch.commands) {
+            match name.as_str() {
+                "dismiss-all" => {
+                    let ids: Vec<u32> = self.state.try_borrow().map(|st| st.toasts.iter().filter(|t| t.inst == inst && t.ctl == ctl).map(|t| t.id).collect()).unwrap_or_default();
+                    for id in ids {
+                        self.dismiss_toast(id);
+                    }
+                }
+                _ => deferred.push((ctl, name, args)),
+            }
+        }
+
+        // Phase A: read the tree and compute what the page should become (no DOM is touched).
+        struct Plan {
+            vnodes: Vec<(usize, VNode)>,
+            css: Vec<(usize, String)>,
+            title: String,
+        }
+        let plan = {
+            let Ok(host) = inner.host.try_borrow() else { return };
+            let Some(tree) = host.trees.get(&inst) else { return };
+            let Ok(st) = self.state.try_borrow() else { return };
+            let Some(iv) = st.instances.get(&inst) else { return };
+            let Ok(styles) = inner.styles.try_borrow() else { return };
+            let tile = self.tile_url(inner);
+            let cx = ViewCtx {
+                tree,
+                assets: &styles.assets,
+                locale: &styles.locale,
+                ui: &iv.ui,
+                menus: &styles.menus,
+                image_origins: &inner.cfg.image_origins,
+                tile_url: &tile,
+            };
+            let bp = iv.bp.as_ref().and_then(|n| tree.breakpoints.iter().find(|b| &b.name == n));
+            let ctls = tree.effective_ctls(bp);
+            let n = ctls.len();
+            let responsive = truthy(&tree.get(0, "Responsive"));
+            let mut css_dirty: BTreeSet<usize> = BTreeSet::new();
+            if css_all {
+                css_dirty.extend(0..n);
+            }
+            for &i in &ch.dirty {
+                if i >= n {
+                    continue;
+                }
+                css_dirty.insert(i);
+                if ctls[i].is_container() {
+                    // A container's layout decides its children's rules.
+                    let mut stack = ctls[i].children.clone();
+                    while let Some(c) = stack.pop() {
+                        css_dirty.insert(c);
+                        stack.extend(ctls[c].children.iter().copied());
+                    }
+                }
+            }
+            let mut vnodes = Vec::new();
+            for &i in &ch.dirty {
+                if i >= 1 && i < n && iv.ctls.get(i).is_some_and(|c| c.is_some()) {
+                    vnodes.push((i, controls::view(&cx, i)));
+                }
+            }
+            if css_all {
+                // A breakpoint changed what the controls look like, not what they hold: views are unchanged.
+            }
+            let css: Vec<(usize, String)> = css_dirty
+                .into_iter()
+                .map(|i| {
+                    let text = if i == 0 {
+                        style::form_css(inst, &ctls, responsive, &styles.assets)
+                    } else if style::has_a_box(&ctls[i]) {
+                        style::control_css(inst, &ctls, i, responsive)
+                    } else {
+                        String::new()
+                    };
+                    (i, text)
+                })
+                .collect();
+            Plan { vnodes, css, title: tree.get(0, "Title") }
+        };
+
+        // Phase B: change the page.
+        {
+            let Ok(mut st) = self.state.try_borrow_mut() else { return };
+            let Some(iv) = st.instances.get_mut(&inst) else { return };
+            for (i, v) in &plan.vnodes {
+                let i = *i;
+                let replaced = {
+                    let Some(cv) = iv.ctls[i].as_mut() else { continue };
+                    let r = apply::patch(&self.doc, &mut cv.rec, v, None, &cv.dispatch);
+                    cv.slots = apply::slots(&cv.rec);
+                    r
+                };
+                if replaced {
+                    let children: Vec<usize> = (1..iv.ctls.len()).filter(|&c| iv.mount[c].0 == i).collect();
+                    for c in children {
+                        mount_one(&iv.ctls, &iv.mount, &iv.surface_el, c);
+                    }
+                }
+            }
+            let mut changed = false;
+            for (i, text) in plan.css {
+                if iv.css.get(i).map(|t| *t != text).unwrap_or(true) {
+                    if i < iv.css.len() {
+                        iv.css[i] = text;
+                    }
+                    changed = true;
+                }
+            }
+            if changed {
+                iv.sheet.set(&style::wrap_layer(&iv.css));
+            }
+            if let Some(f) = &iv.frame {
+                if let Some(t) = apply::find_key(f, "title") {
+                    if t.text_content().as_deref() != Some(plan.title.as_str()) {
+                        t.set_text_content(Some(&plan.title));
+                    }
+                }
+            }
+        }
+
+        // Phase C: the commands that act on the page.
+        for (ctl, name, args) in deferred {
+            self.run_command(inner, inst, ctl, &name, &args);
+        }
+        self.sync_timers(inner, inst);
+        self.ensure_viewer_docs(inner, inst);
+    }
+
+    fn run_command(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, name: &str, args: &[String]) {
+        match name {
+            "focus" | "setfocus" => {
+                if let Some(el) = self.control_element(inst, ctl) {
+                    let inner_focusable = el.query_selector("input,textarea,select,button,[tabindex]").ok().flatten();
+                    h::focus(inner_focusable.as_ref().unwrap_or(&el));
+                }
+            }
+            "select-all" => {
+                if let Some(el) = self.control_element(inst, ctl) {
+                    if let Ok(Some(f)) = el.query_selector("input,textarea") {
+                        let _ = Reflect::get(&f, &"select".into()).ok().and_then(|s| s.dyn_into::<js_sys::Function>().ok()).map(|s| s.call0(&f));
+                    }
+                }
+            }
+            "show" => self.show_toast(inner, inst, ctl, args.first().map(String::as_str).filter(|s| !s.is_empty())),
+            "jump-to-latest" => {
+                if let Some(el) = self.control_element(inst, ctl) {
+                    if let Ok(Some(c)) = el.query_selector(".pr-content") {
+                        let _ = Reflect::set(&c, &"scrollTop".into(), &1.0e9.into());
+                    }
+                }
+            }
+            "refresh" => self.mark_dirty(inst, ctl),
+            "setbreadcrumbdetail" | "clearbreadcrumbdetail" | "settitlevisible" | "setwindowstate" | "timer-start" | "timer-stop" => {}
+            _ => {}
+        }
+    }
+
+    /// The root element of a control of an instance.
+    pub(crate) fn control_element(&self, inst: u32, ctl: usize) -> Option<Element> {
+        let st = self.state.try_borrow().ok()?;
+        let iv = st.instances.get(&inst)?;
+        if ctl == 0 {
+            return Some(iv.root.clone());
+        }
+        iv.ctls.get(ctl)?.as_ref().map(|c| c.rec.el.clone())
+    }
+
+    // ── breakpoints ─────────────────────────────────────────────────────────
+
+    pub(super) fn on_resize(self: &Rc<Self>, inst: u32, width: f64) {
+        let Some(inner) = self.inner.upgrade() else { return };
+        let name = {
+            let Ok(host) = inner.host.try_borrow() else { return };
+            let Some(tree) = host.trees.get(&inst) else { return };
+            if tree.breakpoints.is_empty() {
+                None
+            } else {
+                cobolt_forms::layout::breakpoints::select(&tree.breakpoints, width as f32, None).map(|b| b.name.clone())
+            }
+        };
+        let changed = {
+            let Ok(mut st) = self.state.try_borrow_mut() else { return };
+            let Some(iv) = st.instances.get_mut(&inst) else { return };
+            iv.width = width;
+            if iv.bp != name {
+                iv.bp = name;
+                true
+            } else {
+                false
+            }
+        };
+        if changed {
+            self.mark_dirty(inst, usize::MAX);
+        }
+    }
+
+    // ── timers ──────────────────────────────────────────────────────────────
+
+    /// Start, stop or retime the Timer controls of an instance to match their properties.
+    pub(super) fn sync_timers(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32) {
+        let wanted: Vec<(usize, u64)> = {
+            let Ok(host) = inner.host.try_borrow() else { return };
+            let Some(tree) = host.trees.get(&inst) else { return };
+            tree.ctls
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| matches!(c.control_type(), Some(cobolt_forms::model::ControlType::Timer)))
+                .filter(|(_, c)| c.enabled() && c.has_handler("onTick"))
+                .map(|(i, _)| {
+                    let ms = crate::value::parse_f64(&tree.get(i, "Interval")).unwrap_or(1000.0).max(1.0) as u64;
+                    (i, ms)
+                })
+                .collect()
+        };
+        let Ok(mut st) = self.state.try_borrow_mut() else { return };
+        let running: Vec<usize> = st.timers.keys().filter(|(i, c)| *i == inst && *c != usize::MAX).map(|(_, c)| *c).collect();
+        for c in running {
+            if !wanted.iter().any(|(w, _)| *w == c) {
+                st.timers.remove(&(inst, c));
+            }
+        }
+        for (ctl, ms) in wanted {
+            if st.timers.get(&(inst, ctl)).map(|(m, _)| *m) == Some(ms) {
+                continue;
+            }
+            let weak = Rc::downgrade(self);
+            let t = Timeout::new(ms.min(u32::MAX as u64) as u32, move || {
+                if let Some(sh) = weak.upgrade() {
+                    sh.tick(inst, ctl);
+                }
+            });
+            st.timers.insert((inst, ctl), (ms, t));
+        }
+    }
+
+    fn tick(self: &Rc<Self>, inst: u32, ctl: usize) {
+        let Some(inner) = self.inner.upgrade() else { return };
+        if let Ok(mut st) = self.state.try_borrow_mut() {
+            st.timers.remove(&(inst, ctl));
+        }
+        inner.push(Inbox::Acts { inst, ctl, acts: vec![Act::Event { name: "onTick", args: vec![] }] });
+        // Re-armed once the tick has been taken in (the next render's `sync_timers`), so a handler that
+        // takes longer than the interval does not pile ticks up behind itself.
+        self.mark_dirty(inst, ctl);
+    }
+
+    // ── the shell (spec 049) ────────────────────────────────────────────────
+
+    fn enter_shell(self: &Rc<Self>, inst: u32, title: &str) {
+        if let Ok(mut st) = self.state.try_borrow_mut() {
+            st.shell = true;
+            st.chain = vec![Crumb { inst, label: title.to_owned() }];
+        }
+        let _ = self.chrome.pane.remove_attribute("hidden");
+        h::attr(&self.chrome.main, "data-shell", "");
+        self.render_crumbs();
+    }
+
+    fn place_embedded(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, opener: Option<u32>, title: &str, root: &Element) {
+        h::append(&self.chrome.content, root);
+        let to_close: Vec<u32> = {
+            let Ok(mut st) = self.state.try_borrow_mut() else { return };
+            let at = opener.and_then(|o| st.chain.iter().position(|c| c.inst == o)).unwrap_or(0);
+            let popped: Vec<u32> = st.chain.drain(at + 1..).map(|c| c.inst).collect();
+            let preserve = std::mem::take(&mut st.preserve_next);
+            st.chain.push(Crumb { inst, label: title.to_owned() });
+            st.content_inst = Some(inst);
+            // Spec 049 R25: the displayed sibling is destroyed unless the item keeps it resident.
+            popped.into_iter().rev().filter(|_| !preserve).collect()
+        };
+        for p in to_close {
+            inner.push(Inbox::CloseInstance(p));
+        }
+        self.sync_shell(inner);
+    }
+
+    /// Show the top of the chain in the ContentPane, hide the other embedded forms, and keep the
+    /// breadcrumb and the address in step.
+    pub(crate) fn sync_shell(self: &Rc<Self>, _inner: &Rc<Inner>) {
+        let (top, shell_on) = {
+            let Ok(st) = self.state.try_borrow() else { return };
+            (st.chain.last().map(|c| c.inst), st.shell)
+        };
+        if !shell_on {
+            return;
+        }
+        {
+            let Ok(st) = self.state.try_borrow() else { return };
+            let mut any_embedded_shown = false;
+            for (i, iv) in st.instances.iter() {
+                if iv.mode == OpenMode::Embedded {
+                    let shown = Some(*i) == top;
+                    any_embedded_shown |= shown;
+                    h::set_bool_attr(&iv.root, "hidden", !shown);
+                }
+            }
+            h::set_bool_attr(&self.chrome.content, "hidden", !any_embedded_shown);
+        }
+        self.render_crumbs();
+        self.sync_address();
+    }
+
+    /// The address bar follows the form being shown (WASM-011 R4): a hash route, which works on any
+    /// static host without server configuration and does not touch the host page's own path.
+    pub(crate) fn sync_address(self: &Rc<Self>) {
+        let Some(inner) = self.inner.upgrade() else { return };
+        if inner.cfg.standalone {
+            return;
+        }
+        let name = {
+            let Ok(st) = self.state.try_borrow() else { return };
+            st.chain.last().and_then(|c| st.instances.get(&c.inst)).map(|iv| iv.form.clone())
+        };
+        let Some(name) = name else { return };
+        let hash = shell::Route::new(&name).to_hash();
+        if let Some(w) = web_sys::window() {
+            let current = w.location().hash().unwrap_or_default();
+            if current != hash {
+                if let Ok(h) = w.history() {
+                    let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&hash));
+                }
+            }
+        }
+    }
+}
+
+trait IntoF64 {
+    fn into_f64(self) -> (f64, f64);
+}
+
+impl IntoF64 for (u32, u32) {
+    fn into_f64(self) -> (f64, f64) {
+        (self.0 as f64, self.1 as f64)
+    }
+}

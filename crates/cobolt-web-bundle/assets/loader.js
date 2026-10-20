@@ -642,6 +642,8 @@ export async function mount(target, options = {}) {
       choice.mode === 'worker'
         ? createWorkerLink(env, module, manifest, bridge, url(config.worker.url), policy)
         : createMainLink(env, module, manifest, bridge);
+    const UrlParams = env.URLSearchParams || globalThis.URLSearchParams;
+    const query = new UrlParams((env.location && env.location.search) || '');
     const pcfg = {
       headless,
       standalone: config.style === 'standalone',
@@ -653,7 +655,12 @@ export async function mount(target, options = {}) {
       recaptcha_site_key: (config.options && config.options.recaptcha_site_key) || '',
       auth_flow: (config.options && config.options.auth_flow) || 'in-app',
       locale: (config.options && config.options.locale) || (env.navigator && env.navigator.language) || 'en',
-      start_form: options.startForm || '',
+      // A standalone page is opened to run one form (WASM-011 R9): `?pr-form=Name&pr-opener=handle`.
+      start_form: options.startForm || query.get('pr-form') || '',
+      opener_handle: query.get('pr-opener') || '',
+      tile_url: (config.options && config.options.tile_url) || '',
+      image_origins: (config.options && config.options.image_origins) || [],
+      app_url: (config.options && config.options.app_url) || '',
     };
     let panicked = false;
     const player = new playerModule.Player(JSON.stringify(pcfg), chosenManifestText);
@@ -682,6 +689,11 @@ export async function mount(target, options = {}) {
         const sr = await fetchChecked(env, url(f.css.url), f.css.integrity, `The stylesheet of form ${f.name}`);
         player.set_form_stylesheet(f.name, await sr.text());
       }
+    }
+    // Menus (MenuBar and SideMenu) are separate files beside their forms.
+    for (const m of config.menus || []) {
+      const mr = await fetchChecked(env, url(m.url), m.integrity, `The menu ${m.control} of form ${m.form}`);
+      player.add_menu(m.form, m.control, await mr.text());
     }
     if (config.stylesheet && !headless) {
       const sr = await fetchChecked(env, url(config.stylesheet.url), config.stylesheet.integrity, 'The application stylesheet');

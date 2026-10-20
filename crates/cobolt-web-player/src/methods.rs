@@ -172,7 +172,7 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
                 return Ok(out);
             }
             if is_chart {
-                put(tree, ctl, "_ChartData", "", &mut out);
+                put(tree, ctl, "__ChartData", "", &mut out);
                 return Ok(out);
             }
             put(tree, ctl, "Text", "", &mut out);
@@ -186,9 +186,9 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         "ADDPOINT" | "ADD-POINT" if is_chart => {
             let mut line = vec![arg(0), fmt_number(parse_f64(&arg(1)).unwrap_or(0.0))];
             line.extend(args.iter().skip(2).map(|v| fmt_number(parse_f64(v).unwrap_or(0.0))));
-            let cur = tree.get(ctl, "_ChartData");
+            let cur = tree.get(ctl, "__ChartData");
             let next = if cur.is_empty() { line.join("\t") } else { format!("{cur}\n{}", line.join("\t")) };
-            put(tree, ctl, "_ChartData", &next, &mut out);
+            put(tree, ctl, "__ChartData", &next, &mut out);
         }
         // ── snackbar ────────────────────────────────────────────────────────
         "DISMISSALL" if is_snackbar => tree.command(ctl, "dismiss-all", Vec::new()),
@@ -430,14 +430,95 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE" => {
             tree.command(ctl, &m.to_ascii_lowercase(), args.iter().map(|s| (*s).to_owned()).collect());
         }
-        // ── Viewer: the commands the renderer carries out ───────────────────
-        "APPENDHTML" | "APPEND-HTML" | "APPENDMARKDOWN" | "APPEND-MARKDOWN" | "APPENDRAW" | "APPEND-RAW" | "APPENDTOMESSAGE"
-        | "APPEND-TO-MESSAGE" | "REPLACEMESSAGE" | "REPLACE-MESSAGE" | "REMOVEMESSAGE" | "REMOVE-MESSAGE" | "JUMPTOLATEST"
-        | "JUMP-TO-LATEST" | "NEWCONVERSATION" | "NEW-CONVERSATION" | "SELECTCONVERSATION" | "SELECT-CONVERSATION"
-        | "FIND" | "FINDNEXT" | "FIND-NEXT" | "FINDPREVIOUS" | "FIND-PREVIOUS" | "FINDCLOSE" | "FIND-CLOSE"
+        // ── Viewer: the conversation (spec 058 §8), kept in the tree like the interpreter keeps it ──
+        "APPENDHTML" | "APPEND-HTML" | "APPENDMARKDOWN" | "APPEND-MARKDOWN" | "APPENDRAW" | "APPEND-RAW"
             if is_class(&tree.ctls[ctl], ControlType::Viewer) =>
         {
-            tree.command(ctl, &m.to_ascii_lowercase(), args.iter().map(|s| (*s).to_owned()).collect());
+            use cobolt_forms::viewer::{AppendMode, MessageRole};
+            let mode = if m.contains("HTML") {
+                AppendMode::Html
+            } else if m.contains("MARKDOWN") {
+                AppendMode::Markdown
+            } else {
+                AppendMode::Raw
+            };
+            let content = args.first().copied().unwrap_or("");
+            let role = MessageRole::from_str(&arg(1));
+            let render = truthy(&tree.get(ctl, "RenderAsHtml"));
+            let conv = tree.conversation_mut(ctl);
+            conv.set_render_as_html(render);
+            // The message's id comes back, so a streamed reply can extend it with `AppendToMessage`.
+            let id = conv.append_as(mode, content, role);
+            tree.changed(ctl, "__conversation");
+            return answer(id);
+        }
+        "APPENDTOMESSAGE" | "APPEND-TO-MESSAGE" | "REPLACEMESSAGE" | "REPLACE-MESSAGE" | "REMOVEMESSAGE" | "REMOVE-MESSAGE"
+            if is_class(&tree.ctls[ctl], ControlType::Viewer) =>
+        {
+            use cobolt_forms::viewer::AppendMode;
+            let id = arg(0);
+            let content = args.get(1).copied().unwrap_or("");
+            let mode = AppendMode::from_str(&arg(2));
+            let render = truthy(&tree.get(ctl, "RenderAsHtml"));
+            let conv = tree.conversation_mut(ctl);
+            conv.set_render_as_html(render);
+            let ok = if m.contains("REMOVE") {
+                conv.remove_message(&id)
+            } else if m.contains("REPLACE") {
+                conv.replace_message(&id, mode, content)
+            } else {
+                conv.append_to_message(&id, mode, content)
+            };
+            if ok {
+                tree.changed(ctl, "__conversation");
+            } else {
+                // A chunk for a message that never started is a caller error worth reporting.
+                put(tree, ctl, "LastError", &format!("no conversation message with id {id:?}"), &mut out);
+                out.events.push(EventReq { ctl, event: "onError" });
+            }
+        }
+        "NEWCONVERSATION" | "NEW-CONVERSATION" if is_class(&tree.ctls[ctl], ControlType::Viewer) => {
+            let was_empty = tree.conversation_mut(ctl).is_empty();
+            if !was_empty {
+                tree.conversation_mut(ctl).clear();
+                tree.changed(ctl, "__conversation");
+                put(tree, ctl, "ConversationId", "", &mut out);
+                out.events.push(EventReq { ctl, event: "onConversationCreated" });
+            }
+        }
+        "SELECTCONVERSATION" | "SELECT-CONVERSATION" if is_class(&tree.ctls[ctl], ControlType::Viewer) => {
+            tree.conversation_mut(ctl).clear();
+            tree.changed(ctl, "__conversation");
+            put(tree, ctl, "ConversationId", &arg(0), &mut out);
+            out.events.push(EventReq { ctl, event: "onConversationSelected" });
+        }
+        "JUMPTOLATEST" | "JUMP-TO-LATEST" if is_class(&tree.ctls[ctl], ControlType::Viewer) => {
+            tree.command(ctl, "jump-to-latest", Vec::new());
+        }
+        "FIND" | "FINDNEXT" | "FIND-NEXT" | "FINDPREVIOUS" | "FIND-PREVIOUS" | "FINDCLOSE" | "FIND-CLOSE"
+            if is_class(&tree.ctls[ctl], ControlType::Viewer) =>
+        {
+            // The find bar's state is the control's properties, as on the desktop; the page highlights
+            // nothing in this version (see the plan: Find is state only).
+            match m.as_str() {
+                "FIND" => {
+                    if !args.is_empty() {
+                        put(tree, ctl, "View1SearchText", &arg(0), &mut out);
+                        put(tree, ctl, "View1SearchCurrentMatch", "0", &mut out);
+                    }
+                    if !truthy(&tree.get(ctl, "View1FindOpen")) {
+                        put(tree, ctl, "View1FindOpen", "1", &mut out);
+                        out.events.push(EventReq { ctl, event: "onFindOpened" });
+                    }
+                }
+                "FINDCLOSE" | "FIND-CLOSE" => {
+                    if truthy(&tree.get(ctl, "View1FindOpen")) {
+                        put(tree, ctl, "View1FindOpen", "0", &mut out);
+                        out.events.push(EventReq { ctl, event: "onFindClosed" });
+                    }
+                }
+                _ => {}
+            }
         }
         "PRINT" | "SHARE" | "SAVEAS" | "SAVEASPDF" | "SAVE-AS-PDF" if is_class(&tree.ctls[ctl], ControlType::Viewer) => {
             return Err(MethodError::Unsupported(format!(

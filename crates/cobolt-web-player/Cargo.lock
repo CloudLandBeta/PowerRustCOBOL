@@ -330,6 +330,7 @@ dependencies = [
  "indexmap",
  "js-sys",
  "leptos",
+ "quick-xml",
  "rayon",
  "serde",
  "serde_json",

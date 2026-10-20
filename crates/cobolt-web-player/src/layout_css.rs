@@ -261,9 +261,9 @@ fn anchors(c: &Ctl) -> (bool, bool, bool, bool) {
 
 /// The declarations that place `child` in `parent`, given the parent's DESIGNED size (the anchors are
 /// offsets from the designed edges).
-pub fn item(parent: &Ctl, child: &Ctl, parent_size: (f64, f64), responsive: bool) -> Decls {
+pub fn item(parent: &Ctl, child: &Ctl, parent_size: (f64, f64), origin: (f64, f64), responsive: bool) -> Decls {
     let mut d = Decls::new();
-    let (x, y) = (num(child, "x").unwrap_or(0.0), num(child, "y").unwrap_or(0.0));
+    let (x, y) = (num(child, "x").unwrap_or(0.0) - origin.0, num(child, "y").unwrap_or(0.0) - origin.1);
     let (w, h) = (num(child, "width").unwrap_or(100.0), num(child, "height").unwrap_or(24.0));
     // Size limits apply in every mode.
     for (k, css) in [("minwidth", "min-width"), ("minheight", "min-height"), ("maxwidth", "max-width"), ("maxheight", "max-height")] {
@@ -457,7 +457,7 @@ mod tests {
         t.set(child, "FlexGrow", "1");
         t.set(child, "AlignSelf", "End");
         t.set(child, "Order", "2");
-        let i = item(t.ctl(p), t.ctl(child), (200.0, 200.0), true);
+        let i = item(t.ctl(p), t.ctl(child), (200.0, 200.0), (0.0, 0.0), true);
         assert_eq!(get(&i, "flex"), Some("1 1 auto"));
         assert_eq!(get(&i, "align-self"), Some("flex-end"));
         assert_eq!(get(&i, "order"), Some("2"));
@@ -477,7 +477,7 @@ mod tests {
         let child = t.by_name("LBL-IN").unwrap();
         t.set(child, "GridColumn", "2");
         t.set(child, "ColumnSpan", "2");
-        let i = item(t.ctl(p), t.ctl(child), (200.0, 200.0), true);
+        let i = item(t.ctl(p), t.ctl(child), (200.0, 200.0), (0.0, 0.0), true);
         assert_eq!(get(&i, "grid-column"), Some("2 / span 2"));
         assert_eq!(get(&i, "grid-row"), Some("span 1"), "row 0 is auto-placed");
     }
@@ -488,21 +488,21 @@ mod tests {
         let form = 0;
         let b = t.by_name("BTN-GO").unwrap();
         // BTN-GO: x=10 y=10 w=80 h=30 in a 640x480 form.
-        let designed = item(t.ctl(form), t.ctl(b), (640.0, 480.0), false);
+        let designed = item(t.ctl(form), t.ctl(b), (640.0, 480.0), (0.0, 0.0), false);
         assert_eq!((get(&designed, "left"), get(&designed, "top"), get(&designed, "width"), get(&designed, "height")), (Some("10px"), Some("10px"), Some("80px"), Some("30px")));
         t.set(b, "Anchor", "Top,Left,Right");
-        let i = item(t.ctl(form), t.ctl(b), (640.0, 480.0), true);
+        let i = item(t.ctl(form), t.ctl(b), (640.0, 480.0), (0.0, 0.0), true);
         assert_eq!(get(&i, "left"), Some("10px"));
         assert_eq!(get(&i, "right"), Some("550px"), "640 - 10 - 80");
         assert_eq!(get(&i, "width"), None, "the width follows the parent");
         t.set(b, "Anchor", "Bottom,Right");
-        let i = item(t.ctl(form), t.ctl(b), (640.0, 480.0), true);
+        let i = item(t.ctl(form), t.ctl(b), (640.0, 480.0), (0.0, 0.0), true);
         assert_eq!((get(&i, "right"), get(&i, "bottom"), get(&i, "width"), get(&i, "height")), (Some("550px"), Some("440px"), Some("80px"), Some("30px")));
         t.set(b, "Anchor", "");
-        let i = item(t.ctl(form), t.ctl(b), (640.0, 480.0), true);
+        let i = item(t.ctl(form), t.ctl(b), (640.0, 480.0), (0.0, 0.0), true);
         assert_eq!(get(&i, "left"), Some("calc(7.8125% - 40px)"), "proportional: the centre stays at 50/640 of the width");
         t.set(b, "Dock", "Fill");
-        assert_eq!(get(&item(t.ctl(form), t.ctl(b), (640.0, 480.0), true), "inset"), Some("0"));
+        assert_eq!(get(&item(t.ctl(form), t.ctl(b), (640.0, 480.0), (0.0, 0.0), true), "inset"), Some("0"));
     }
 
     #[test]
@@ -511,7 +511,7 @@ mod tests {
         let b = t.by_name("BTN-GO").unwrap();
         t.set(b, "MinWidth", "60");
         t.set(b, "MaxHeight", "50");
-        let i = item(t.ctl(0), t.ctl(b), (640.0, 480.0), false);
+        let i = item(t.ctl(0), t.ctl(b), (640.0, 480.0), (0.0, 0.0), false);
         assert_eq!((get(&i, "min-width"), get(&i, "max-height")), (Some("60px"), Some("50px")));
     }
 }

@@ -159,6 +159,10 @@ pub struct FormTree {
     pub layout_bag: BTreeMap<String, PropValue>,
     pub breakpoints: Vec<Breakpoint>,
     changes: Vec<Change>,
+    /// Properties a running program has written, by control: a breakpoint never overrides one (spec 056 R64).
+    written: std::collections::HashSet<(usize, String)>,
+    /// The Viewers' conversations, by control.
+    pub conversations: BTreeMap<usize, cobolt_forms::viewer::Conversation>,
 }
 
 /// Why a form description cannot be paired with its manifest entry.
@@ -337,6 +341,8 @@ impl FormTree {
             layout_bag: form.layout.clone(),
             breakpoints: form.breakpoints.clone(),
             changes: Vec::new(),
+            written: std::collections::HashSet::new(),
+            conversations: BTreeMap::new(),
         })
     }
 
@@ -368,6 +374,20 @@ impl FormTree {
         if !self.changes.contains(&ch) {
             self.changes.push(ch);
         }
+    }
+
+    /// The Viewer's conversation of control `ctl` (made on first use).
+    pub fn conversation_mut(&mut self, ctl: usize) -> &mut cobolt_forms::viewer::Conversation {
+        self.conversations.entry(ctl).or_insert_with(cobolt_forms::viewer::Conversation::new)
+    }
+
+    pub fn conversation(&self, ctl: usize) -> Option<&cobolt_forms::viewer::Conversation> {
+        self.conversations.get(&ctl)
+    }
+
+    /// Something the renderer must redraw that no property holds (a Viewer's conversation).
+    pub fn changed(&mut self, ctl: usize, key: &str) {
+        self.touch(ctl, key);
     }
 
     /// Record a command for the renderer (focus, select-all, a timer start, …).
@@ -412,6 +432,8 @@ impl FormTree {
         let before = self.raw_or_design(ctl, name);
         let toggle = matches!(&self.ctls[ctl].kind, Kind::Control(t) if is_toggle_state_property(t, name));
         let is_radio = matches!(&self.ctls[ctl].kind, Kind::Control(ControlType::RadioButton));
+        // A program's write outranks the active breakpoint's override of the same property.
+        self.written.insert((ctl, key.clone()));
 
         if toggle {
             // Written under BOTH spellings so they can never disagree.
@@ -450,14 +472,16 @@ impl FormTree {
         if toggle {
             for k in [SELECTED_PROP, CHECKED_PROP] {
                 self.ctls[ctl].props.insert(k.to_ascii_lowercase(), value.to_owned());
+                self.touch(ctl, &k.to_ascii_lowercase());
             }
             if matches!(&self.ctls[ctl].kind, Kind::Control(ControlType::RadioButton)) && turned_on(value) {
                 self.clear_radio_siblings(ctl);
             }
         } else {
-            self.ctls[ctl].props.insert(key, value.to_owned());
+            self.ctls[ctl].props.insert(key.clone(), value.to_owned());
+            // The page shows what the user did, and what depends on it (a selected tab shows its page).
+            self.touch(ctl, &key);
         }
-        self.ctls[ctl].rev += 1;
     }
 
     fn raw_or_design(&self, ctl: usize, name: &str) -> Option<String> {
@@ -502,6 +526,28 @@ impl FormTree {
         radio_group_key(&probe)
     }
 
+    /// The controls as the active breakpoint presents them (spec 056 R58–R64): the design, with the
+    /// breakpoint's sparse `(control, property, value)` overrides laid over it — except for a
+    /// property a program has written, which the program keeps. `bp = None` is the design itself.
+    pub fn effective_ctls(&self, bp: Option<&Breakpoint>) -> Vec<Ctl> {
+        let mut out = self.ctls.clone();
+        let Some(bp) = bp else { return out };
+        for o in &bp.overrides {
+            let Some(i) = self.name_index.get(&o.control.trim().to_ascii_uppercase()).copied() else { continue };
+            let key = o.property.trim().to_ascii_lowercase();
+            if self.written.contains(&(i, key.clone())) {
+                continue;
+            }
+            out[i].props.insert(key, o.value.to_xml_string());
+        }
+        out
+    }
+
+    /// Has a program written this property of this control?
+    pub fn was_written(&self, ctl: usize, prop: &str) -> bool {
+        self.written.contains(&(ctl, prop.trim().to_ascii_lowercase()))
+    }
+
     /// The controls of one tab page of a TabControl.
     pub fn page_children(&self, tab_ctl: usize, page: u32) -> Vec<usize> {
         self.ctls[tab_ctl].children.iter().copied().filter(|&i| self.ctls[i].tab.unwrap_or(1) == page).collect()
@@ -530,7 +576,7 @@ pub(crate) mod testing {
     /// A small form as the `.cfrm` loader reads it, and the manifest entry that goes with it.
     pub fn demo() -> (Form, Manifest) {
         let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
-<Form name="main-form" title="Demo" width="640" height="480">
+<Form name="main-form" title="Demo" width="640" height="480" index-base="1">
   <Control id="BTN-GO" type="Button" x="10" y="10" w="80" h="30"><Property name="Caption">Go</Property>
     <Event name="onClick" paragraph="BTN-GO--ONCLICK"><![CDATA[x]]></Event></Control>
   <Control id="TXT-IN" type="TextBox" x="10" y="50" w="200" h="26"><Property name="Text">hello</Property></Control>
@@ -580,6 +626,30 @@ two</Property></Control>
         let (form, manifest) = demo();
         FormTree::build(&form, &manifest.forms[0], &manifest, 0, None).expect("pairs")
     }
+
+    /// A tree of the controls written in `controls` (the inside of a `<Form>`), paired with a
+    /// manifest that lists none of them: the view tests need the controls, not the program.
+    pub fn tree_of(controls: &str) -> FormTree {
+        let xml = format!(
+            r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="main-form" title="Demo" width="640" height="480" index-base="1">{controls}</Form>"##
+        );
+        let form = load_form_from_str(&xml).expect("the test form loads");
+        let (_, mut manifest) = demo();
+        manifest.forms[0].controls.clear();
+        manifest.forms[0].handlers.clear();
+        FormTree::build(&form, &manifest.forms[0], &manifest, 0, None).expect("pairs")
+    }
+
+    /// `tree_of` with one control of `kind` named `name`, its properties set the way a program sets them.
+    pub fn tree_with(kind: &str, name: &str, props: &[(&str, &str)]) -> (FormTree, usize) {
+        let mut t = tree_of(&format!(r#"<Control id="{name}" type="{kind}" x="10" y="10" w="300" h="200"></Control>"#));
+        let i = t.by_name(name).expect("the control exists");
+        for (k, v) in props {
+            t.set(i, k, v);
+        }
+        (t, i)
+    }
 }
 
 #[cfg(test)]
@@ -613,6 +683,20 @@ mod tests {
         manifest.forms[0].controls.push(cobolt_wasm_abi::manifest::ControlEntry { id: 99, name: "NOPE".into(), kind: "Button".into() });
         let e = FormTree::build(&form, &manifest.forms[0], &manifest, 0, None).unwrap_err();
         assert!(e.0.contains("NOPE"), "{e}");
+    }
+
+    #[test]
+    fn the_page_a_control_sits_on_is_counted_from_one() {
+        let t = tree_of(
+            r#"<Control id="TC" type="TabControl" x="0" y="0" w="200" h="100"></Control>
+               <Control id="A" type="Label" x="5" y="30" w="40" h="20" parent="TC" tab="1"></Control>
+               <Control id="B" type="Label" x="5" y="30" w="40" h="20" parent="TC" tab="2"></Control>"#,
+        );
+        let tc = t.by_name("TC").unwrap();
+        assert_eq!(t.ctl(t.by_name("A").unwrap()).tab, Some(1));
+        assert_eq!(t.ctl(t.by_name("B").unwrap()).tab, Some(2));
+        assert_eq!(t.page_children(tc, 1), vec![t.by_name("A").unwrap()]);
+        assert_eq!(t.page_children(tc, 2), vec![t.by_name("B").unwrap()]);
     }
 
     #[test]

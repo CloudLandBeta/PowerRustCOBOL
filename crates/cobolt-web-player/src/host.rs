@@ -447,6 +447,17 @@ impl Host {
         }
     }
 
+    /// The user's act changed a property whose observer events the act raises itself (a click on a
+    /// list row sets `SelectedIndex` and then raises `onChange` and `onSelectedIndexChanged` in the
+    /// order the desktop raises them): store it, raise nothing, and let the page redraw the control.
+    pub fn ui_set(&mut self, inst: u32, ctl: usize, prop: &str, value: &str) {
+        if let Some(tree) = self.trees.get_mut(&inst) {
+            if ctl < tree.ctls.len() {
+                tree.set_from_ui(ctl, prop, value);
+            }
+        }
+    }
+
     fn enqueue(&mut self, inst: u32, ctrl: u32, event: u32, args: Vec<String>) {
         if self.stopped {
             return;
@@ -1122,6 +1133,25 @@ impl Host {
                 self.enqueue_requests(inst, ev);
                 Ok(())
             }
+        }
+    }
+
+    /// Call a method of a control from outside the program (the host page, the tests): the same call
+    /// the program's `CALL` command makes, with the same events and the same answers.
+    pub fn invoke(&mut self, inst: u32, control: &str, method: &str, args: &[&str]) -> Result<Option<String>, String> {
+        let Some(idx) = self.trees.get(&inst).and_then(|t| t.by_name(control)) else {
+            return Err(format!("no control `{control}` in instance {inst}"));
+        };
+        let r = {
+            let tree = self.trees.get_mut(&inst).expect("checked");
+            methods::call(tree, idx, method, args)
+        };
+        match r {
+            Ok(o) => {
+                self.enqueue_requests(inst, o.events);
+                Ok(o.value)
+            }
+            Err(e) => Err(e.to_string()),
         }
     }
 

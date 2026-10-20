@@ -116,6 +116,7 @@ pub fn input_with(player: PlayerInput, options: BundleOptions) -> BundleInput {
         program_single: Some(fx.single.wasm),
         forms,
         stylesheet: None,
+        menus: Vec::new(),
         assets: Vec::new(),
         player,
         options,

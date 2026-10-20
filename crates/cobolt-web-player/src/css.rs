@@ -217,7 +217,17 @@ pub fn background(ctl: &Ctl) -> Option<(&'static str, String)> {
         ));
     }
     let c = parse_color(ctl.raw("backgroundcolor")?)?;
+    // "Still on the default means the developer has not chosen" (the renderer-wide convention of
+    // `model::DEFAULT_BACKGROUND_COLOR`): the theme's own face stays. A form's colour is always a choice.
+    if matches!(ctl.kind, Kind::Control(_)) && is_default(c, cobolt_forms::model::DEFAULT_BACKGROUND_COLOR) {
+        return None;
+    }
     Some(("background-color", css_color(faded(c, transparency))))
+}
+
+/// Is `c` exactly the colour `default_hex` (`#RRGGBB`)? An alpha of 255 only.
+fn is_default(c: [u8; 4], default_hex: &str) -> bool {
+    parse_color(default_hex).is_some_and(|d| d[..3] == c[..3]) && c[3] == 255
 }
 
 /// The border declarations.
@@ -251,7 +261,17 @@ pub fn border(ctl: &Ctl, d: &mut Decls) {
 /// The text declarations (font, colour, alignment).
 pub fn text(ctl: &Ctl, d: &mut Decls) {
     if let Some(c) = ctl.raw("foregroundcolor").and_then(parse_color) {
-        push(d, "color", css_color(c));
+        // The seeded white means "not chosen"; so does the black a faceless data-input control is
+        // seeded with (a check box has no face of its own for black text to read on).
+        let faceless = matches!(
+            ctl.control_type(),
+            Some(ControlType::CheckBox | ControlType::RadioButton | ControlType::Switch | ControlType::Slider | ControlType::Knob)
+        );
+        let unset = matches!(ctl.kind, Kind::Control(_))
+            && (is_default(c, cobolt_forms::model::DEFAULT_FOREGROUND_COLOR) || (faceless && is_default(c, "#000000")));
+        if !unset {
+            push(d, "color", css_color(c));
+        }
     }
     if let Some(n) = ctl.raw("fontname") {
         if !n.trim().is_empty() {
@@ -397,6 +417,10 @@ pub fn class_names(ctl: &Ctl) -> Vec<String> {
 
 /// `Button` → `button`, `DateTimePicker` → `datetimepicker` (the public contract of WASM-007 Q4).
 pub fn type_class(t: &ControlType) -> String {
+    // The series' own controls reach the player as the model's `Custom`; they keep the plain name.
+    if let Some(k) = crate::kinds::player_kind_of(t) {
+        return k.name().to_ascii_lowercase();
+    }
     t.as_str().to_ascii_lowercase().replace(':', "-")
 }
 
@@ -431,16 +455,28 @@ mod tests {
     #[test]
     fn colours_gradients_and_transparency_become_css_with_the_frame_faded_not_the_content() {
         let mut t = tree();
-        let i = set(&mut t, "BTN-GO", &[("BackgroundColor", "#36383EB3"), ("Transparency", "50"), ("ForegroundColor", "#FFFFFFFF")]);
+        let i = set(&mut t, "BTN-GO", &[("BackgroundColor", "#36383EB3"), ("Transparency", "50"), ("ForegroundColor", "#E0E0E0FF")]);
         let d = appearance(t.ctl(i));
         let bg = d.iter().find(|(k, _)| k == "background-color").unwrap();
         assert_eq!(bg.1, "rgb(54 56 62 / 0.353)", "alpha B3 (179/255) halved by Transparency 50 is 90/255, as 8-bit alpha rounds");
         assert!(d.iter().all(|(k, _)| k != "opacity"), "Transparency never fades the content");
-        assert!(d.contains(&("color".into(), "rgb(255 255 255)".into())));
+        assert!(d.contains(&("color".into(), "rgb(224 224 224)".into())));
         set(&mut t, "BTN-GO", &[("BackgroundGradientEnabled", "1"), ("BackgroundGradientStartColor", "#4E4E4EB3"), ("BackgroundGradientEndColor", "#000000B3"), ("BackgroundGradientDirection", "South"), ("Transparency", "0")]);
         let d = appearance(t.ctl(i));
         let g = d.iter().find(|(k, _)| k == "background-image").unwrap();
         assert!(g.1.starts_with("linear-gradient(180deg, rgb(78 78 78 / 0.702), rgb(0 0 0 / 0.702))"), "{}", g.1);
+    }
+
+    #[test]
+    fn a_colour_still_on_its_seeded_default_is_not_a_choice_and_leaves_the_theme_alone() {
+        let t = tree();
+        let i = t.by_name("BTN-GO").unwrap();
+        // Seeded by the model: #F0F0F0 and white are "not chosen".
+        let d = appearance(t.ctl(i));
+        assert!(!d.iter().any(|(k, _)| k == "background-color" || k == "color"), "{d:?}");
+        // The form's own colour is always a choice.
+        let f = appearance(t.ctl(0));
+        assert!(f.iter().any(|(k, _)| k == "background-color"), "{f:?}");
     }
 
     #[test]
@@ -497,7 +533,8 @@ mod tests {
         let names = class_names(t.ctl(i));
         assert_eq!(names, ["pr-control", "pr-button", "primary", "big"], "a class with a quote is dropped");
         assert_eq!(type_class(&ControlType::DateTimePicker), "datetimepicker");
-        assert_eq!(type_class(&ControlType::from_str("WebLink")), "unknown-weblink", "a type the model carries as Custom keeps a stable class");
+        assert_eq!(type_class(&ControlType::from_str("WebLink")), "weblink", "a type the model carries as Custom keeps a stable class");
+        assert_eq!(type_class(&ControlType::from_str("acme:thing")), "acme-thing", "a plug-in control is named after its plug-in");
     }
 
     #[test]

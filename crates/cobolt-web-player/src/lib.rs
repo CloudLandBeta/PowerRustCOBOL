@@ -26,6 +26,7 @@ pub mod net;
 pub mod par;
 pub mod tree;
 pub mod value;
+pub mod view;
 pub mod weblink;
 
 #[cfg(target_arch = "wasm32")]

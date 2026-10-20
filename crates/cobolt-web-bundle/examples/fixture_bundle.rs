@@ -11,13 +11,15 @@
 //! `build_player`, and writes it to `<dir>`: what the end-to-end tests assemble, kept on disk so that a
 //! browser or `node` can be pointed at it. With `--tools` it also writes the node harness there.
 
+#[path = "../tests/support/gallery.rs"]
+mod gallery;
 #[path = "../tests/support/harness.rs"]
 mod harness;
 
 use std::path::{Path, PathBuf};
 
 use cobolt_wasm_abi::fixture::{build, standard_cfrm, standard_spec};
-use cobolt_web_bundle::{assemble_bundle, BundleInput, BundleOptions, FormInput, Isolation, PlayerInput, PlayerVariantInput};
+use cobolt_web_bundle::{assemble_bundle, AssetInput, BundleInput, BundleOptions, FormInput, Isolation, MenuInput, PlayerInput, PlayerVariantInput};
 
 fn variant(out: &Path, name: &str) -> Option<PlayerVariantInput> {
     let dir = out.join(name);
@@ -44,9 +46,13 @@ fn main() {
     let mut out: Option<PathBuf> = None;
     let mut tools: Option<PathBuf> = None;
     let mut isolation = Isolation::Credentialless;
+    let (mut gallery_on, mut shell_on, mut responsive) = (false, false, false);
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--gallery" => gallery_on = true,
+            "--shell" => shell_on = true,
+            "--responsive" => responsive = true,
             "--player" => player = it.next().map(Into::into),
             "--out" => out = it.next().map(Into::into),
             "--tools" => tools = it.next().map(Into::into),
@@ -64,19 +70,41 @@ fn main() {
     let out = out.expect("--out <dir>");
     let multi = build(&standard_spec(true));
     let single = build(&standard_spec(false));
+    let main_name = multi.manifest.main_form().name.clone();
     let forms = multi
         .manifest
         .forms
         .iter()
-        .map(|f| FormInput { name: f.name.clone(), cfrm: standard_cfrm(&multi, &f.name), stylesheet: None })
+        .map(|f| {
+            let standard = standard_cfrm(&multi, &f.name);
+            let cfrm = if f.name == main_name && gallery_on {
+                gallery::gallery_cfrm(&standard, &gallery::Options { responsive })
+            } else if f.name == main_name && shell_on {
+                gallery::shell_cfrm(&standard)
+            } else {
+                standard
+            };
+            FormInput { name: f.name.clone(), cfrm, stylesheet: None }
+        })
         .collect();
+    let mut menus = Vec::new();
+    let mut assets = Vec::new();
+    if gallery_on {
+        menus.push(MenuInput { form: main_name.clone(), control: "MNB-G".into(), yaml: gallery::menu_bar_yaml() });
+        assets.push(AssetInput { path: "Assets/doc.md".into(), bytes: gallery::DOC_MD.as_bytes().to_vec() });
+    }
+    if shell_on {
+        let child = multi.manifest.forms.iter().find(|f| f.name != main_name).map(|f| f.name.clone()).unwrap_or_default();
+        menus.push(MenuInput { form: main_name.clone(), control: "SIDE-1".into(), yaml: gallery::side_menu_yaml(&child) });
+    }
     let input = BundleInput {
         project: "fixture".into(),
         program_multi: Some(multi.wasm),
         program_single: Some(single.wasm),
         forms,
         stylesheet: None,
-        assets: Vec::new(),
+        menus,
+        assets,
         player: PlayerInput { plain: variant(&player, "plain"), threaded: variant(&player, "threaded"), build_info: std::fs::read_to_string(player.join("player-build.json")).ok(), components: Vec::new() },
         options: BundleOptions { isolation, ..Default::default() },
     };
