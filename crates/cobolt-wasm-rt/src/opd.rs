@@ -255,6 +255,7 @@ pub fn value(base: u32, o: &Opd) -> Val {
         }
         T_FIG if o.fig == FIG_ZERO => Val::ZERO,
         T_TEMP => crate::state::st().temps[(o.off as usize) % crate::state::NTEMP],
+        T_CTEMP => crate::func::ctemp_number(o.off).unwrap_or(Val::ZERO),
         T_ITEM => {
             let loc = locate(base, o);
             codec::load_value(&loc)

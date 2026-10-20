@@ -40,8 +40,11 @@ pub const SCRATCH_SIZE: u32 = 32 * 1024;
 pub const NCTEMP: usize = 4;
 pub const CTEMP_SIZE: u32 = 4096;
 pub const WS_CTEMP: u32 = WS_SCRATCH + SCRATCH_SIZE;
+/// The path of the host command being built (ABI v1 §5).
+pub const WS_PATH: u32 = WS_CTEMP + NCTEMP as u32 * CTEMP_SIZE;
+pub const PATH_SIZE: u32 = 2048;
 /// Total workspace size the generator must reserve.
-pub const WS_SIZE: u32 = WS_CTEMP + NCTEMP as u32 * CTEMP_SIZE;
+pub const WS_SIZE: u32 = WS_PATH + PATH_SIZE;
 
 /// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
 /// owns the message text, so the IDE and the page can translate it.
@@ -83,11 +86,19 @@ pub struct State {
     pub ctemp_len: [u32; NCTEMP],
     /// The state of `FUNCTION RANDOM`'s generator.
     pub random: u64,
+    /// The host command path being built: bytes so far, and where its segment
+    /// count and the current segment's argument count sit.
+    pub path_len: u32,
+    pub path_nseg_at: u32,
+    pub path_nargs_at: u32,
+    /// Character temporaries that hold a property read, whose text is a number
+    /// when it spells one (bit `k`).
+    pub ctemp_dynamic: u32,
 }
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0 }
     }
 }
 

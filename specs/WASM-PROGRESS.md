@@ -68,6 +68,10 @@ Divergences from the interpreter found on the way are in `WASM-PARITY.md`.
 
 Next under GOLDEN RULE #9: **IF (Intrinsic Functions)**, then IC — IF needs `FUNCTION` calls in the generator (the module currently refuses them), IC needs nested programs and `CALL`/`LINKAGE`.
 
+## Where the work stopped (2026-10-20, 2.0.23; usage limit reached)
+
+Next, in order: (1) finish `module.rs`'s form exports — instance table, `pr_open_form`/`pr_event`/`pr_resume`/`pr_cancel`/`pr_tick`/`pr_close_form`/`pr_status`, the `query` and `random` glue, manifest `forms`/`names`/`events`; (2) value methods on data items (`Trim`, `Upper`, `Lower`, `Replace`, `Len`, `Split`); (3) a form-driving test host and a button-click test; (4) phase C — `remote` glue, suspension, `CALL … WITH WEBSOCKET LINKAGE`, JSON mapping (golden vectors from the backend agent); (5) merge the backend agent (branch `worktree-agent-a24ab0673830285c1`: `CALL … WITH WEBSOCKET LINKAGE`, JSON mapping, `cobolt-server`) and the player agent (`worktree-agent-ae5ab6056533b0f2f`: `cobolt-wasm-abi`, `cobolt-web-player`, `cobolt-web-bundle`) — both still running when the limit was reached, nothing of theirs is in `features-2x` yet; (6) end-to-end IDE Build → bundle → player; (7) NIST interpreter regression for the additive AST fields (`FileDescription::is_external`, `UseProcedure::is_global`); (8) security gates, KB tables, CLAUDE.md and memory refresh.
+
 ## NIST IC on generated modules — finished (2026-10-20, version 2.0.22)
 
 | Axis | Generated module | Interpreter |

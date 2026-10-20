@@ -19,6 +19,11 @@ pub mod ret {
     pub const DONE: i32 = -1;
     /// `STOP RUN`: the application ends.
     pub const STOP: i32 = -4;
+    /// `WAIT-EVENT`: the form waits for the host's next event; `Resume` holds
+    /// the block to continue in.
+    pub const PARK: i32 = -5;
+    /// Waiting for a remote answer; `Resume` holds the block to continue in.
+    pub const SUSPEND: i32 = -6;
 }
 
 /// The module's own mutable globals.
@@ -32,6 +37,8 @@ pub enum G {
     Fuel,
     /// The id of the statement about to run (for run-time error positions).
     Line,
+    /// Where a parked or suspended task continues.
+    Resume,
 }
 
 /// Functions the module itself defines besides blocks.

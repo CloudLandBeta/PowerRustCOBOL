@@ -48,6 +48,24 @@ fn put_varint(out: &mut [u8], mut v: u32) -> usize {
     }
 }
 
+/// Append raw command bytes to the batch, flushing first if they would not fit.
+pub fn batch_put(bytes: &[u8]) {
+    if bytes.len() > BATCH_SIZE as usize {
+        crate::fail(crate::state::err::SCRATCH_OVERFLOW);
+    }
+    if (st().batch_len as usize) + bytes.len() > BATCH_SIZE as usize {
+        flush();
+    }
+    let s = st();
+    let at = s.ws + WS_BATCH + s.batch_len;
+    mem::bytes_mut(at, bytes.len() as u32).copy_from_slice(bytes);
+    s.batch_len += bytes.len() as u32;
+}
+
+pub(crate) fn put_varint_pub(out: &mut [u8], v: u32) -> usize {
+    put_varint(out, v)
+}
+
 /// Append one `DISPLAY` command carrying `text`, splitting if it is larger than
 /// the batch.
 pub fn emit_text(text: &[u8]) {

@@ -49,10 +49,8 @@ impl Lower<'_, '_> {
         if let Expr::Literal(Literal::String(name), _) = program {
             let up = name.trim().to_ascii_uppercase();
             if up.starts_with("COBOL-") || up.starts_with("COBOLT-") {
-                return self.err(
-                    line,
-                    format!("CALL \"{name}\" is a runtime service of the desktop host; a WebAssembly module reaches the host through its own controls"),
-                );
+                let bare = up.trim_start_matches("COBOLT-").trim_start_matches("COBOL-");
+                return self.builtin_call(bare, using, line);
             }
             return match self.unit_by_name.get(&up).copied() {
                 Some(c) if c != 0 => self.call_unit(c, using, returning, not_exc, line),
@@ -89,7 +87,7 @@ impl Lower<'_, '_> {
         self.bind_args(c, using, line)?;
         // Overflow check: psp >= end -> run-time error.
         self.emit(Ins::GlobalGet(G::Psp));
-        self.i32c(self.map.pstack_end as i32);
+        self.stack_hi();
         self.raw(I::I32GeU);
         self.raw(I::If(wasm_encoder::BlockType::Empty));
         self.i32c(cobolt_wasm_rt::state::err::PERFORM_DEPTH as i32);
@@ -262,7 +260,7 @@ impl Lower<'_, '_> {
             if let Expr::Literal(Literal::String(name), _) = p {
                 if let Some(&c) = self.unit_by_name.get(&name.trim().to_ascii_uppercase()) {
                     if c != 0 {
-                        self.emit(Ins::InitUnit(c));
+                        self.emit(Ins::InitUnit(self.unit_base + c));
                     }
                 }
                 continue;
@@ -292,7 +290,7 @@ impl Lower<'_, '_> {
                 self.raw(I::I32Eq);
                 self.branch(hit, next);
                 self.begin(hit);
-                self.emit(Ins::InitUnit(c));
+                self.emit(Ins::InitUnit(self.unit_base + c));
                 self.jump(join);
                 test = next;
             }

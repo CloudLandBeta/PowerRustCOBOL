@@ -32,12 +32,16 @@ use cobolt_wasm_rt::opd::{FIG_HIGH, FIG_LOW, FIG_NULL, FIG_QUOTE, FIG_SPACE, FIG
 use std::collections::{HashMap, HashSet};
 use wasm_encoder::Instruction as I;
 
-/// Fixed addresses the generated code refers to, decided before lowering.
+/// Where the `PERFORM` stack lies inside the region: each instance of a form
+/// has its own, so a form that is waiting for an event keeps its frames.
 #[derive(Debug, Clone, Copy)]
 pub struct MemMap {
-    pub pstack_base: u32,
-    pub pstack_end: u32,
+    pub stack_off: u32,
+    pub stack_size: u32,
 }
+
+/// Bytes of `PERFORM` stack per region: 512 frames of 8 bytes.
+pub const STACK_BYTES: u32 = 4096;
 
 /// One paragraph, flattened out of its section.
 pub(crate) struct Para<'a> {
@@ -65,12 +69,49 @@ pub(crate) struct FileInfo {
     rec_item: Option<usize>,
 }
 
+/// The names the host commands refer to by number (ABI v1 §5): properties,
+/// methods and built-ins, shared by every form of the module and written to the
+/// manifest.
+#[derive(Debug, Default, Clone)]
+pub struct Names {
+    pub list: Vec<String>,
+    map: HashMap<String, u32>,
+}
+
+impl Names {
+    /// The number of `name` (case kept as written), interning it on first use.
+    pub fn id(&mut self, name: &str) -> u32 {
+        if let Some(&i) = self.map.get(name) {
+            return i;
+        }
+        let i = self.list.len() as u32;
+        self.list.push(name.to_string());
+        self.map.insert(name.to_string(), i);
+        i
+    }
+}
+
+/// What the generator knows of the form a program belongs to: its controls, by
+/// name, numbered as the manifest numbers them.
+#[derive(Debug, Clone, Default)]
+pub struct FormCtx {
+    /// Upper-case control name -> control id (from 3).
+    pub controls: HashMap<String, u32>,
+}
+
 pub struct Lowered {
     pub entry: BlockId,
     pub layout: Layout,
     /// Number of program units (the main program, then the nested and following
     /// programs), for the per-unit initialisation the image builds.
     pub units: usize,
+    /// Where this region's `PERFORM` stack starts, from the region base.
+    pub stack_off: u32,
+    /// Region slot where `WAIT-EVENT` parks the event items' operands (`u32::MAX`
+    /// when the form never waits).
+    pub park_slot: u32,
+    /// The region offsets of the items `COBOL-EVENT-ID` / `COBOL-CONTROL-ID`.
+    pub event_items: (u32, u32),
 }
 
 /// A parameter of a called program: the LINKAGE record it names.
@@ -188,6 +229,15 @@ pub struct Lower<'a, 'b> {
     pub(crate) use_guard: Option<u32>,
     /// Region slot holding the status of the file verb just performed.
     pub(crate) status_hold: Option<u32>,
+    /// The names the host commands carry by number.
+    pub(crate) names: &'b mut Names,
+    /// The form this program is, when it is one.
+    pub(crate) form: Option<FormCtx>,
+    /// Region slot where `WAIT-EVENT` leaves the operands the event is delivered to.
+    pub(crate) park_slot: Option<u32>,
+    /// Units in the forms lowered before this one: `Ins::InitUnit` counts
+    /// units across the whole module.
+    pub(crate) unit_base: usize,
     /// `EXTERNAL` files: name -> the region slot holding the one open handle.
     pub(crate) external_handles: HashMap<String, u32>,
 }
@@ -215,7 +265,9 @@ impl<'a, 'b> Lower<'a, 'b> {
         prog: &'a Program,
         pool: &'b mut Pool,
         blocks: &'b mut Vec<Block>,
-        map: MemMap,
+        names: &'b mut Names,
+        form: Option<FormCtx>,
+        unit_base: usize,
         conformance: bool,
         tolerant: bool,
         when_compiled: String,
@@ -237,6 +289,9 @@ impl<'a, 'b> Lower<'a, 'b> {
 
         // Storage first, for every unit, so a CALL can name any callee's records.
         let mut layout = Layout::new();
+        // The region's own PERFORM stack comes first.
+        let stack_off = layout.alloc_hidden(STACK_BYTES);
+        let map = MemMap { stack_off, stack_size: STACK_BYTES };
         for (u, (p, _)) in order.iter().enumerate() {
             layout.begin_unit(u as u32, scope_of(u));
             if let Some(d) = &p.data {
@@ -327,6 +382,10 @@ impl<'a, 'b> Lower<'a, 'b> {
             handlers: vec![Vec::new(); order.len()],
             use_guard: None,
             status_hold: None,
+            names,
+            form,
+            park_slot: None,
+            unit_base,
             external_handles: HashMap::new(),
         };
 
@@ -391,7 +450,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             return Err(first);
         }
         let count = order.len();
-        Ok(Lowered { entry: main_entry, layout: l.layout, units: count })
+        let park_slot = l.park_slot.unwrap_or(u32::MAX);
+        Ok(Lowered { entry: main_entry, layout: l.layout, units: count, stack_off, park_slot, event_items: (0, 0) })
     }
 
     /// Make unit `u` (program `p`) the one being lowered.
@@ -481,6 +541,20 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
+    /// Push the lowest address of the region's PERFORM stack.
+    pub(crate) fn stack_lo(&mut self) {
+        self.emit(Ins::GlobalGet(G::Base));
+        self.i32c(self.map.stack_off as i32);
+        self.raw(I::I32Add);
+    }
+
+    /// Push the address just past the region's PERFORM stack.
+    pub(crate) fn stack_hi(&mut self) {
+        self.emit(Ins::GlobalGet(G::Base));
+        self.i32c((self.map.stack_off + self.map.stack_size) as i32);
+        self.raw(I::I32Add);
+    }
+
     /// The exit block of a called program: pop frames until the call frame
     /// (whose end word is this block) is on top, then return to its caller.
     fn unit_exit_code(&mut self) {
@@ -488,7 +562,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         let psp = |s: &mut Self| s.emit(Ins::GlobalGet(G::Psp));
         // psp <= base: nothing to return to.
         psp(self);
-        self.i32c(self.map.pstack_base as i32);
+        self.stack_lo();
         self.raw(I::I32LeU);
         self.raw(I::If(wasm_encoder::BlockType::Empty));
         self.i32c(cobolt_wasm_rt::state::err::PERFORM_DEPTH as i32);
@@ -1109,7 +1183,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         if self.perform_ends.contains(&i) {
             // psp > base && stack[psp-8].end == this block
             self.emit(Ins::GlobalGet(G::Psp));
-            self.i32c(self.map.pstack_base as i32);
+            self.stack_lo();
             self.raw(I::I32GtU);
             self.raw(I::If(wasm_encoder::BlockType::Result(wasm_encoder::ValType::I32)));
             self.emit(Ins::GlobalGet(G::Psp));
@@ -1258,6 +1332,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             // A character-valued function is an operand once evaluated into its
             // temporary; a numeric one is a computation (`push_expr`).
             Expr::FunctionCall { name, args, .. } => self.function_operand(name, args, line),
+            // A control's property or method result is read from the host.
+            Expr::Member { .. } if self.is_host_member(e) => self.member_read(e, line).map(Some),
             _ => Ok(None),
         }
     }
@@ -1710,6 +1786,20 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.call_(program, using, returning.as_ref(), on_exception, not_on_exception, line)
             }
             Stmt::Cancel { programs, .. } => self.cancel_(programs, line),
+            Stmt::InvokeExpr { expr, .. } => self.member_call(expr, line),
+            Stmt::Invoke { object, method, args, returning, .. } => self.invoke_(object, method, args, returning.as_ref(), line),
+            Stmt::ControlSet { control, property, value, .. } => {
+                let target = Expr::Member {
+                    recv: Box::new(control.clone()),
+                    member: property.clone(),
+                    args: vec![],
+                    parens: false,
+                    span: cobolt_lexer::Span::new(0, 0, line, 0),
+                };
+                let v = self.operand_or_temp(value)?;
+                self.member_set(&target, v, line)
+            }
+            Stmt::WindowOp { op, .. } => self.window_op(op, line),
             other => {
                 let name = crate::support::stmt_name(other);
                 match crate::support::support(other) {
@@ -1837,10 +1927,17 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     pub(crate) fn move_plain(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
-        for t in to {
-            if matches!(t, Expr::Member { .. }) {
-                return self.err(line, "control members are not supported in this build of the generator yet");
+        // A control member as a receiver is a write to the host.
+        if to.iter().any(|t| matches!(t, Expr::Member { .. })) {
+            if let Some(bad) = to.iter().find(|t| matches!(t, Expr::Member { .. }) && !self.is_host_member(t)) {
+                let _ = bad;
+                return self.err(line, "a value method cannot be a receiving field");
             }
+            let src = self.operand_or_temp(from)?;
+            for t in to {
+                self.move_operand_to(src, t, line)?;
+            }
+            return Ok(());
         }
         // The sender.
         let src = match from {
@@ -2386,7 +2483,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     pub(crate) fn frame_jump(&mut self, end: BlockId, entry: BlockId, ret_to: BlockId) {
         // Overflow check: psp >= end -> run-time error.
         self.emit(Ins::GlobalGet(G::Psp));
-        self.i32c(self.map.pstack_end as i32);
+        self.stack_hi();
         self.raw(I::I32GeU);
         self.raw(I::If(wasm_encoder::BlockType::Empty));
         self.i32c(cobolt_wasm_rt::state::err::PERFORM_DEPTH as i32);

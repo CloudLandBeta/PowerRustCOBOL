@@ -852,6 +852,17 @@ pub fn current_date_text(ms: f64) -> [u8; 21] {
     out
 }
 
+/// The number a property read spells, when character temporary `k` holds one
+/// (a property of a control is text that is a number when it looks like one).
+pub fn ctemp_number(k: u32) -> Option<Val> {
+    let k = (k as usize) % NCTEMP;
+    if st().ctemp_dynamic & (1 << k) == 0 {
+        return None;
+    }
+    let (at, len) = ctemp_loc(k as u32);
+    crate::codec::parse_text(mem::bytes(at, len)).map(Val::Dec)
+}
+
 /// The location a `T_CTEMP` operand names.
 pub fn ctemp_loc(k: u32) -> (u32, u32) {
     let k = (k as usize) % NCTEMP;

@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.23] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.22.)*
+
+### Added (groundwork, not yet usable): form mode of the WebAssembly generator
+
+The pieces a form's module needs, in place and compiling, with NC (4 612), IF (841) and IC (309) unchanged:
+the host command encoder (`cobolt-wasm-rt/src/cmd.rs`: `SET`/`CALL`/`GET`/`CALLR` paths over the batch, `WAIT-EVENT` parking and event delivery); a property read is a character temporary that acts as a number when it spells one; lowering of `Ctrl::Property`, `Ctrl::Method(args)`, `INVOKE`, `SHOW`/`HIDE`/`CLOSE`, `COBOL::"SET-PROPERTY"`/`"GET-PROPERTY"` with literal names and the page's built-ins (`lower_form.rs`); a `WAIT-EVENT` that returns the new `PARK` status; the `PERFORM` stack inside each region (so every form instance keeps its frames); the module compiler restructured around `FormSpec`/`compile_project` with per-form images, region tables and base-relative initialisers.
+**Not done:** the exports of ABI v1 §4 (`pr_open_form`, `pr_event`, `pr_resume`, `pr_cancel`, `pr_tick`, `pr_close_form`, `pr_status`), the instance and form tables they read, the `query` and `random` glue, the manifest's forms and names, value methods on data items, and a test host that drives a form. `compile_project` therefore builds a module without them; `compile_program` is unchanged in behaviour.
+
+Version 2.0.23. `README.md` and `docs/` are untouched on this line.
+
+*(Written on `features-2x`.)*
+
 ## [PowerRustCOBOL 2.0.22] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.21.)*

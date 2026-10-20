@@ -141,3 +141,13 @@ pub fn stmt_name(s: &Stmt) -> &'static str {
         Stmt::ExecSql(_) => "EXEC SQL",
     }
 }
+
+/// Is the built-in `name` (without `COBOL-`) one the page performs? The rest of
+/// `cobolt-runtime`'s `BUILTINS` reach a machine, a database or a provider, and
+/// belong to the desktop host or the backend (WASM-010 R7).
+pub fn browser_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "CHART-ADD-POINT" | "CHART-CLEAR" | "CHART-REFRESH" | "CHART-SET-TABLE" | "AUDIO-PLAY" | "AUDIO-PAUSE" | "AUDIO-RESUME" | "AUDIO-STOP"
+    )
+}

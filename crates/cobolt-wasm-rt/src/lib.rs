@@ -42,6 +42,7 @@
 pub mod accept;
 pub mod arith;
 pub mod call;
+pub mod cmd;
 pub mod cmp;
 pub mod codec;
 pub mod disp;
@@ -412,6 +413,61 @@ pub extern "C" fn rt_find_program(base: u32, name: u32, table: u32) -> i32 {
 #[no_mangle]
 pub extern "C" fn rt_program_not_found() {
     call::not_found();
+}
+
+/// The form instance the module is running (for the paths of host commands).
+#[no_mangle]
+pub extern "C" fn rt_set_instance(inst: u32) {
+    state::st().inst = inst;
+}
+
+/// Start a host command path on control `ctrl` of the running instance.
+#[no_mangle]
+pub extern "C" fn rt_path_begin(ctrl: u32) {
+    cmd::path_begin(ctrl);
+}
+
+/// Add the segment named `name` to the path.
+#[no_mangle]
+pub extern "C" fn rt_path_seg(name: u32) {
+    cmd::path_seg(name);
+}
+
+/// Add the text of operand `o` as an argument of the current segment.
+#[no_mangle]
+pub extern "C" fn rt_path_arg(base: u32, o: u32) {
+    cmd::path_arg(base, o);
+}
+
+/// `SET path value`.
+#[no_mangle]
+pub extern "C" fn rt_cmd_set(base: u32, value: u32) {
+    cmd::set(base, value);
+}
+
+/// `CALL path`.
+#[no_mangle]
+pub extern "C" fn rt_cmd_call() {
+    cmd::call();
+}
+
+/// Query the path (`GET`, `CALLR`, `COUNT`); the answer text is left in
+/// character temporary `k`.
+#[no_mangle]
+pub extern "C" fn rt_cmd_query(op: u32, k: u32, dynamic: u32) {
+    cmd::query(op, k, dynamic);
+}
+
+/// `WAIT-EVENT`: remember where the next event's names are to be written.
+#[no_mangle]
+pub extern "C" fn rt_park(base: u32, slot: u32, a: u32, b: u32) {
+    cmd::park(base, slot, a, b);
+}
+
+/// Deliver an event: write its control and event names to the parked items.
+#[no_mangle]
+pub extern "C" fn rt_deliver(base: u32, slot: u32, ctrl_text: u32, ctrl_len: u32, ev_text: u32, ev_len: u32) {
+    cmd::deliver(base, slot, ctrl_text, ctrl_len, ev_text, ev_len);
 }
 
 /// Evaluate a numeric intrinsic function (call record `rec`) and push its result.

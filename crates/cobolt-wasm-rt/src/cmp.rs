@@ -37,6 +37,8 @@ enum View {
 fn view(base: u32, o: &Opd, other_numeric: bool, other_strict: bool) -> View {
     match o.tag {
         T_LIT_NUM | T_TEMP => View::Num(value(base, o), o.fd),
+        // A property read that spells a number is one against a number.
+        T_CTEMP if other_numeric && crate::func::ctemp_number(o.off).is_some() => View::Num(value(base, o), o.fd),
         T_FIG => {
             // `ZERO` is the number against a number, and the character '0'
             // against anything else — an edited item included, which is
@@ -69,6 +71,7 @@ fn view(base: u32, o: &Opd, other_numeric: bool, other_strict: bool) -> View {
 fn is_numeric_operand(base: u32, o: &Opd) -> bool {
     match o.tag {
         T_LIT_NUM | T_TEMP => true,
+        T_CTEMP => crate::func::ctemp_number(o.off).is_some(),
         T_ITEM => {
             let loc = locate(base, o);
             loc.fd.is_numeric() || loc.fd.kind == K_NUM_EDITED
@@ -82,6 +85,7 @@ fn is_numeric_operand(base: u32, o: &Opd) -> bool {
 fn is_strict_numeric(base: u32, o: &Opd) -> bool {
     match o.tag {
         T_LIT_NUM | T_TEMP => true,
+        T_CTEMP => crate::func::ctemp_number(o.off).is_some(),
         T_ITEM => locate(base, o).fd.is_numeric(),
         _ => false,
     }

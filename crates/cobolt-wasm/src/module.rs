@@ -11,7 +11,7 @@ use crate::error::{GenError, GenResult};
 use crate::image::{self, InitOp};
 use crate::ir::*;
 use crate::link::{Blob, Mapper};
-use crate::lower::{Lower, MemMap};
+use crate::lower::{FormCtx, Lower, Lowered};
 use crate::pool::Pool;
 use cobolt_ast::program::Program;
 use cobolt_wasm_rt::state::WS_SIZE;
@@ -112,6 +112,10 @@ fn wp(v: &wasmparser::ValType) -> ValType {
     }
 }
 
+/// Bytes of one row of the form table, and of the instance table.
+const FT_ROW: u32 = 48;
+const INST_ROW: u32 = 32;
+
 const fn align(n: u32, a: u32) -> u32 {
     (n + a - 1) & !(a - 1)
 }
@@ -131,25 +135,64 @@ struct Def {
     body: Body,
 }
 
+/// One form of a project: the program the form generates (the form program, its
+/// handler programs and the Common Code it calls, as sibling programs of one
+/// source), what the manifest says of it, and how many instances may be open.
+pub struct FormSpec<'a> {
+    pub name: String,
+    pub main: bool,
+    pub instances: u32,
+    pub program: &'a Program,
+    /// `(name, type)` of each control, in manifest order; ids start at 3.
+    pub controls: Vec<(String, String)>,
+    /// `(control name — empty for the form itself, event name)` of each bound handler.
+    pub bindings: Vec<(String, String)>,
+}
+
+/// Compile one program as a module that runs to its end (`pr_run`): the form a
+/// conformance run, a test or a console program takes.
 pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
+    let spec = FormSpec { name: opts.name.clone(), main: true, instances: 1, program: prog, controls: vec![], bindings: vec![] };
+    compile_forms(std::slice::from_ref(&spec), opts, false)
+}
+
+/// Compile the forms of a project into one module with the form exports of
+/// ABI v1 §4 (`pr_open_form`, `pr_event`, …).
+pub fn compile_project(forms: &[FormSpec<'_>], opts: &Options) -> GenResult<Compiled> {
+    if forms.is_empty() {
+        return Err(GenError::new(0, "a project needs at least one form"));
+    }
+    compile_forms(forms, opts, true)
+}
+
+struct Built {
+    lowered: Lowered,
+    img: image::Image,
+    first_unit: usize,
+    template_base: u32,
+    region_start: u32,
+    region_size: u32,
+    first_inst: u32,
+}
+
+fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenResult<Compiled> {
     let blob = Blob::load(RT_WASM).map_err(|e| GenError::new(0, e.to_string()))?;
 
     // ── memory map ───────────────────────────────────────────────────────
     let rt_ws = align(blob.data_end, 16);
-    let pstack_base = align(rt_ws + WS_SIZE, 16);
-    let pstack_end = pstack_base + 4096;
+    let after_ws = align(rt_ws + WS_SIZE, 16);
     let arena_total = opts.arena.total();
     let (arena_base, consts_base) = if opts.multi_memory {
-        (0, align(pstack_end, 16))
+        (0, after_ws)
     } else {
-        let a = align(pstack_end, 16);
+        let a = after_ws;
         (a, align(a + arena_total, 16))
     };
-    let map = MemMap { pstack_base, pstack_end };
 
     // ── lowering ─────────────────────────────────────────────────────────
     let mut pool = Pool::new(consts_base);
     let mut blocks: Vec<Block> = Vec::new();
+    let mut names = crate::lower::Names::default();
     let when_compiled = opts.when_compiled.clone().unwrap_or_else(|| {
         let ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -157,14 +200,38 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
             .unwrap_or(0.0);
         String::from_utf8_lossy(&cobolt_wasm_rt::func::current_date_text(ms)).into_owned()
     });
-    let lowered = Lower::lower(prog, &mut pool, &mut blocks, map, opts.conformance, opts.tolerate_undeclared, when_compiled)?;
-    let layout = lowered.layout;
-    let unit_count = lowered.units;
+    let mut lowered_forms: Vec<(Lowered, usize)> = Vec::new();
+    let mut unit_base = 0usize;
+    for spec in forms {
+        let ctx = if project {
+            let mut controls = HashMap::new();
+            for (i, (n, _)) in spec.controls.iter().enumerate() {
+                controls.insert(n.to_ascii_uppercase(), 3 + i as u32);
+            }
+            Some(FormCtx { controls })
+        } else {
+            None
+        };
+        let l = Lower::lower(
+            spec.program,
+            &mut pool,
+            &mut blocks,
+            &mut names,
+            ctx,
+            unit_base,
+            opts.conformance,
+            opts.tolerate_undeclared,
+            when_compiled.clone(),
+        )?;
+        let first = unit_base;
+        unit_base += l.units;
+        lowered_forms.push((l, first));
+    }
 
     // Reachable blocks, entry first.
     let mut order: Vec<BlockId> = Vec::new();
     let mut seen: HashMap<BlockId, u32> = HashMap::new();
-    let mut stack = vec![lowered.entry];
+    let mut stack: Vec<BlockId> = lowered_forms.iter().rev().map(|(l, _)| l.entry).collect();
     while let Some(b) = stack.pop() {
         if seen.contains_key(&b) {
             continue;
@@ -184,13 +251,85 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
             return Err(GenError::new(0, format!("internal error: block {} was never terminated", blocks[b].name)));
         }
     }
+    let entry_pcs: Vec<u32> = lowered_forms.iter().map(|(l, _)| seen[&l.entry]).collect();
+
+    // ── what the form exports need to find at run time ───────────────────
+    // The names of the controls and events, as the form's event loop compares
+    // them: each (address, length) pair is in the constant pool.
+    let mut events: Vec<String> = Vec::new();
+    for f in forms {
+        for (_, e) in &f.bindings {
+            if !events.contains(e) {
+                events.push(e.clone());
+            }
+        }
+    }
+    let mut ev_pairs: Vec<u32> = Vec::new();
+    for e in &events {
+        let a = pool.intern(e.as_bytes());
+        ev_pairs.push(a);
+        ev_pairs.push(e.len() as u32);
+    }
+    let ev_tbl = pool.spec(&ev_pairs);
+    let mut ctrl_tbls: Vec<u32> = Vec::new();
+    for f in forms {
+        let mut pairs: Vec<u32> = Vec::new();
+        let mut put = |s: &str, pool: &mut Pool| {
+            let a = pool.intern(s.as_bytes());
+            pairs.push(a);
+            pairs.push(s.len() as u32);
+        };
+        put(&f.name, &mut pool);
+        put("super", &mut pool);
+        put("COBOL", &mut pool);
+        for (n, _) in &f.controls {
+            put(n, &mut pool);
+        }
+        ctrl_tbls.push(pool.spec(&pairs));
+    }
+    let quit_addr = pool.intern(b"__QUIT__");
+    // The names the host commands carry by number (the manifest's `names`).
+    let name_list: Vec<String> = names.list.clone();
 
     // ── image and memory map, continued ──────────────────────────────────
-    let img = image::build(&layout, prog.decimal_comma, prog.currency)?;
-    let template_base = align(consts_base + pool.bytes.len() as u32, 16);
-    let region_base = align(template_base + img.blob.len() as u32, 16);
-    let region_size = layout.total;
-    let end = region_base + region_size;
+    let mut built: Vec<Built> = Vec::new();
+    let ftab_base = align(consts_base + pool.bytes.len() as u32, 16);
+    let ftab_size = if project { forms.len() as u32 * FT_ROW } else { 0 };
+    let mut cursor = align(ftab_base + ftab_size, 16);
+    let mut images: Vec<image::Image> = Vec::new();
+    for (i, (l, _)) in lowered_forms.iter().enumerate() {
+        images.push(image::build(&l.layout, forms[i].program.decimal_comma, forms[i].program.currency)?);
+    }
+    let mut template_bases: Vec<u32> = Vec::new();
+    for img in &images {
+        template_bases.push(cursor);
+        cursor = align(cursor + img.blob.len() as u32, 16);
+    }
+    let mut first_inst = 0u32;
+    let mut region_starts: Vec<u32> = Vec::new();
+    for (i, (l, _)) in lowered_forms.iter().enumerate() {
+        region_starts.push(cursor);
+        cursor += align(l.layout.total, 16) * forms[i].instances.max(1);
+    }
+    let total_instances: u32 = forms.iter().map(|f| f.instances.max(1)).sum();
+    let inst_tbl_base = align(cursor, 16);
+    let end = inst_tbl_base + total_instances * INST_ROW;
+    for (i, ((l, fu), img)) in lowered_forms.into_iter().zip(images).enumerate() {
+        built.push(Built {
+            region_size: align(l.layout.total, 16),
+            lowered: l,
+            img,
+            first_unit: fu,
+            template_base: template_bases[i],
+            region_start: region_starts[i],
+            first_inst,
+        });
+        first_inst += forms[i].instances.max(1);
+    }
+    // The program-mode exports run the one form.
+    let region_base = built[0].region_start;
+    let template_base = built[0].template_base;
+    let stack_off = built[0].lowered.stack_off;
     let data_pages = end.div_ceil(65536).max(1);
     let arena_pages = arena_total.div_ceil(65536).max(1);
 
@@ -302,6 +441,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
             G::Psp => 2,
             G::Fuel => 3,
             G::Line => 4,
+            G::Resume => 6,
         }
     };
     let g_pc = 5u32;
@@ -340,6 +480,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
                 }
                 // The per-unit initialisers are defined right after the blocks.
                 Ins::InitUnit(u) => {
+                    f.instruction(&I::GlobalGet(1));
                     f.instruction(&I::Call(block_fn_base + order.len() as u32 + *u as u32));
                 }
             }
@@ -350,30 +491,50 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
         defs.push(Def { name: format!("{}#{}", block.name, k), ty: ty_block, body: Body::Encoded(f) });
     }
 
-    // ── per-unit initialisers (CANCEL) ───────────────────────────────────
-    for u in 0..unit_count {
-        let mut f = Function::new([]);
-        if let Some(ops) = img.unit_ops.get(u) {
-            for op in ops {
-                match op {
-                    InitOp::Fill { off, len, byte } => {
-                        f.instruction(&I::I32Const((region_base + off) as i32));
-                        f.instruction(&I::I32Const(*byte as i32));
-                        f.instruction(&I::I32Const(*len as i32));
-                        f.instruction(&I::MemoryFill(0));
-                    }
-                    InitOp::Copy { off, blob_off, len } => {
-                        f.instruction(&I::I32Const((region_base + off) as i32));
-                        f.instruction(&I::I32Const((template_base + blob_off) as i32));
-                        f.instruction(&I::I32Const(*len as i32));
-                        f.instruction(&I::MemoryCopy { src_mem: 0, dst_mem: 0 });
-                    }
+    // ── initialisers: each unit's storage (CANCEL) and each form's whole region ─
+    // They take the base of the region they work on, so one function serves
+    // every instance of a form.
+    let emit_ops = |f: &mut Function, ops: &[InitOp], template_base: u32| {
+        for op in ops {
+            match op {
+                InitOp::Fill { off, len, byte } => {
+                    f.instruction(&I::LocalGet(0));
+                    f.instruction(&I::I32Const(*off as i32));
+                    f.instruction(&I::I32Add);
+                    f.instruction(&I::I32Const(*byte as i32));
+                    f.instruction(&I::I32Const(*len as i32));
+                    f.instruction(&I::MemoryFill(0));
+                }
+                InitOp::Copy { off, blob_off, len } => {
+                    f.instruction(&I::LocalGet(0));
+                    f.instruction(&I::I32Const(*off as i32));
+                    f.instruction(&I::I32Add);
+                    f.instruction(&I::I32Const((template_base + blob_off) as i32));
+                    f.instruction(&I::I32Const(*len as i32));
+                    f.instruction(&I::MemoryCopy { src_mem: 0, dst_mem: 0 });
                 }
             }
         }
-        f.instruction(&I::End);
-        defs.push(Def { name: format!("init_unit_{u}"), ty: ty_void, body: Body::Encoded(f) });
+    };
+    let total_units = built.iter().map(|b| b.lowered.units).sum::<usize>();
+    for b in &built {
+        for u in 0..b.lowered.units {
+            let mut f = Function::new([]);
+            if let Some(ops) = b.img.unit_ops.get(u) {
+                emit_ops(&mut f, ops, b.template_base);
+            }
+            f.instruction(&I::End);
+            defs.push(Def { name: format!("init_unit_{}", b.first_unit + u), ty: ty_i32_void, body: Body::Encoded(f) });
+        }
     }
+    let init_form_base = block_fn_base + order.len() as u32 + total_units as u32;
+    for (fi, b) in built.iter().enumerate() {
+        let mut f = Function::new([]);
+        emit_ops(&mut f, &b.img.ops, b.template_base);
+        f.instruction(&I::End);
+        defs.push(Def { name: format!("init_form_{fi}"), ty: ty_i32_void, body: Body::Encoded(f) });
+    }
+    let _ = ty_void;
 
     // ── glue bodies ──────────────────────────────────────────────────────
     let arena_mem = if opts.multi_memory { 1 } else { 0 };
@@ -558,7 +719,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
         let mut f = Function::new([]);
         f.instruction(&I::I32Const(rt_ws as i32));
         f.instruction(&I::Call(rt_index_by_name["rt_init"]));
-        f.instruction(&I::I32Const(pstack_base as i32));
+        f.instruction(&I::I32Const((region_base + stack_off) as i32));
         f.instruction(&I::GlobalSet(2));
         f.instruction(&I::I32Const(opts.budget));
         f.instruction(&I::GlobalSet(3));
@@ -573,22 +734,8 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
         f.instruction(&I::Drop);
         f.instruction(&I::I32Const(region_base as i32));
         f.instruction(&I::GlobalSet(1));
-        for op in &img.ops {
-            match op {
-                InitOp::Fill { off, len, byte } => {
-                    f.instruction(&I::I32Const((region_base + off) as i32));
-                    f.instruction(&I::I32Const(*byte as i32));
-                    f.instruction(&I::I32Const(*len as i32));
-                    f.instruction(&I::MemoryFill(0));
-                }
-                InitOp::Copy { off, blob_off, len } => {
-                    f.instruction(&I::I32Const((region_base + off) as i32));
-                    f.instruction(&I::I32Const((template_base + blob_off) as i32));
-                    f.instruction(&I::I32Const(*len as i32));
-                    f.instruction(&I::MemoryCopy { src_mem: 0, dst_mem: 0 });
-                }
-            }
-        }
+        f.instruction(&I::I32Const(region_base as i32));
+        f.instruction(&I::Call(init_form_base));
         f.instruction(&I::I32Const(0));
         f.instruction(&I::GlobalSet(g_pc));
         f.instruction(&I::Loop(BlockType::Empty));
@@ -660,7 +807,8 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     let mut globals = GlobalSection::new();
     let gt = GlobalType { val_type: ValType::I32, mutable: true, shared: false };
     globals.global(gt, &ConstExpr::i32_const(blob.stack_top as i32));
-    for _ in 1..=5 {
+    // 1 base, 2 psp, 3 fuel, 4 line, 5 pc, 6 resume, 7 task (instance + 1, or 0), 8 status
+    for _ in 1..=8 {
         globals.global(gt, &ConstExpr::i32_const(0));
     }
     module.section(&globals);
@@ -708,8 +856,10 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     if !pool.bytes.is_empty() {
         data.active(0, &ConstExpr::i32_const(consts_base as i32), pool.bytes.iter().copied());
     }
-    if !img.blob.is_empty() {
-        data.active(0, &ConstExpr::i32_const(template_base as i32), img.blob.iter().copied());
+    for b in &built {
+        if !b.img.blob.is_empty() {
+            data.active(0, &ConstExpr::i32_const(b.template_base as i32), b.img.blob.iter().copied());
+        }
     }
     module.section(&data);
 
@@ -735,7 +885,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
             "frame_size": opts.arena.frame, "budget_blocks": opts.budget, "data_pages": data_pages
         },
         "imports": glue_list,
-        "regions": { "rt_workspace": rt_ws, "perform_stack": pstack_base, "constants": consts_base, "template": template_base, "region": region_base },
+        "regions": { "rt_workspace": rt_ws, "perform_stack": region_base + stack_off, "constants": consts_base, "template": template_base, "region": region_base },
         "forms": [],
     });
     let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
