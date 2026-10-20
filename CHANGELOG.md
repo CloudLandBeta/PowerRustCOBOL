@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.2] — 2026-10-19
+
+*(Written on `features-2x`, off `2.x.x` at 2.0.1.)*
+
+### Added: the specs of the WASM series — what 2.x.x will build
+
+The operator, 2026-10-19, listed eleven things the WebAssembly line must do and asked for each to become a numbered spec, with overlapping items merged, and for the specs that may be missing to be listed. The result is nine requirement specs, **WASM-001 to WASM-009**, in `specs/WASM-NNN-<slug>/spec.md`, and `specs/WASM-INDEX.md`. They are drafts for `/clarify`: no code, no `README.md` and no file in `docs/` changed, and the version moves only because this is a change.
+
+The specs, and which items each merged: **001** project kinds, the New Project selector and the WebForms / MobileForms / Backend entries (items 1 and 10); **002** the WebAssembly build target on Leptos and Tauri 2, and the HTML/CSS3/JS host page (items 1 and 2); **003** the Backend project and the secure channel with a JWT (item 3); **004** reuse of the control catalogue, with every control classified for the web (item 4); **005** `CALL … WITH WEBSOCKET LINKAGE`, the group-to-JSON mapping and the data controls through the backend (item 5); **006** the WebLink control (item 6); **007** CSS3 and the form's default stylesheet (items 7 and 8); **008** the web-view Preview (item 9); **009** the Authentication control and the identity-provider backend (item 11).
+
+Each spec states what exists today with file and line, checked against the source on 2026-10-19 (three read-only surveys, with the key facts re-checked by hand), then goals, EARS requirements, acceptance criteria, the steering check and open questions with a recommendation. Findings that shape the series: the runtime is not browser-ready (blocking channels, threads, `std::fs`, `redb`, no `wasm32` build); no Rust generator for COBOL exists; `RETURNING` on `CALL` is parsed and then ignored by the interpreter; there is no JSON, WebSocket or JWT code in the workspace; the project tree has eight top entries and the control catalogue 62 types (16 of them AWS), not the numbers the older notes carry.
+
+`WASM-INDEX.md` also records eight decisions to take first (the execution model comes first), what carries over from the removed spec 006, and 23 proposed specs that the strategy still lacks, ranked P1 to P3. The numbering is `WASM-NNN` at the operator's request; `specs/README.md` and the `/specify` skill still say `NNN` and need teaching before the first `/plan`.
+
 ## [PowerRustCOBOL 2.0.1] — 2026-10-19
 
 *(Forward-port of 1.91.219, `8a15f00d` on `claude/fixes-call-returning-18dea7`.)*
