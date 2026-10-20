@@ -116,6 +116,11 @@ pub mod codes {
     pub const TOO_MANY_CALLS: u32 = 7002;
     pub const CALL_TIMEOUT: u32 = 7003;
     pub const FILE_TOO_LARGE: u32 = 7004;
+    // application: a program's own codes are 1..=7999; these belong to the platform
+    /// The caller asked to cancel and the call stopped (WASM-014 R13).
+    pub const CANCELLED: u32 = 8000;
+    /// The highest code a backend program may report with `COBOL::"WS-FAIL"`.
+    pub const APPLICATION_MAX: u32 = 7999;
     // server
     pub const INTERNAL: u32 = 9000;
     pub const PROGRAM_FAULT: u32 = 9001;

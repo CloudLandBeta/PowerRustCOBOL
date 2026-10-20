@@ -40,6 +40,8 @@ tracing   = { workspace = true }
 # IDE does — download + unpack. The SHIPPED compiler stays network-free;
 # builds use the project-local `crates/` only.
 [dev-dependencies]
+# WASM-014: the parity test serves a backend in-process and runs a built binary against it.
+cobolt-server = { path = "../cobolt-server" }
 ureq       = { version = "2", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
 tar        = "0.4"

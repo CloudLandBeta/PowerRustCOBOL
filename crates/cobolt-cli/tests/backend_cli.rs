@@ -126,3 +126,89 @@ fn the_development_server_prints_its_address_and_a_token_and_answers_its_health_
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const WHOAMI: &str = "IDENTIFICATION DIVISION.\nPROGRAM-ID. WHOAMI.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-SUB PIC X(40).\nLINKAGE SECTION.\n01 LK-ME.\n    05 WHO PIC X(40).\nPROCEDURE DIVISION RETURNING LK-ME.\nMAIN.\n    COBOL::\"WS-CLAIM\" ( \"sub\" WS-SUB )\n    MOVE WS-SUB TO WHO\n    GOBACK.\n";
+
+const CALLER: &str = "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 PONG.
+          05 REPLY PIC X(4).
+       01 ME.
+          05 WHO PIC X(40).
+       01 WS-CLASS PIC X(16).
+       01 WS-CODE  PIC 9(5).
+       01 WS-TEXT  PIC X(80).
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL \"PING\" WITH WEBSOCKET LINKAGE RETURNING PONG
+               ON EXCEPTION
+                   COBOL::\"WS-LAST-ERROR\" ( WS-CLASS WS-CODE WS-TEXT )
+                   DISPLAY \"ping failed \" WS-CLASS WS-CODE
+               NOT ON EXCEPTION
+                   DISPLAY \"ping=\" REPLY
+           END-CALL
+           CALL \"WHOAMI\" WITH WEBSOCKET LINKAGE RETURNING ME
+               ON EXCEPTION
+                   COBOL::\"WS-LAST-ERROR\" ( WS-CLASS WS-CODE WS-TEXT )
+                   DISPLAY \"whoami failed \" WS-CLASS WS-CODE
+               NOT ON EXCEPTION
+                   DISPLAY \"who=\" WHO
+           END-CALL
+           STOP RUN.
+";
+
+/// Start `rcrun backend run` on `dir`; returns the child, its address and its development token.
+fn start_dev_backend(dir: &Path) -> (std::process::Child, String, String) {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rcrun")).args(["backend", "run"]).arg(dir).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().expect("starts");
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let (mut url, mut token) = (String::new(), String::new());
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
+        match lines.next() {
+            Some(Ok(l)) if l.starts_with("backend listening on ") => url = l["backend listening on ".len()..].to_string(),
+            Some(Ok(l)) if l.starts_with("development token") => {
+                token = lines.next().and_then(|t| t.ok()).unwrap_or_default();
+                break;
+            }
+            Some(_) => {}
+            None => break,
+        }
+    }
+    // The pipe is kept open for the child by leaking the reader: dropping it would close stdout under the server.
+    std::mem::forget(lines);
+    (child, url, token)
+}
+
+#[test]
+fn a_program_run_by_rcrun_calls_its_backend_with_the_token_the_development_server_printed() {
+    let dir = project("caller");
+    std::fs::write(dir.join("backend").join("exports.toml"), format!("{EXPORTS}\n[[export]]\nprogram = \"WHOAMI\"\n")).unwrap();
+    std::fs::write(dir.join("backend").join("src").join("whoami.cbl"), WHOAMI).unwrap();
+    std::fs::write(dir.join("caller.cbl"), CALLER).unwrap();
+    let (mut backend, url, token) = start_dev_backend(&dir);
+    assert!(url.starts_with("ws://127.0.0.1:"), "{url}");
+
+    // With the backend's address and token in the environment, both calls are answered, the
+    // second by a program that read the caller's subject from the validated token.
+    let out = Command::new(env!("CARGO_BIN_EXE_rcrun")).args(["run", "caller.cbl"]).current_dir(&dir).env("COBOLT_BACKEND_URL", &url).env("COBOLT_BACKEND_TOKEN", &token).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(text.contains("ping=pong"), "{text}\n{}", String::from_utf8_lossy(&out.stderr));
+    assert!(text.contains("who=developer"), "{text}");
+
+    // With no token the public program still answers and the protected one is refused (2000, authentication).
+    let out = Command::new(env!("CARGO_BIN_EXE_rcrun")).args(["run", "caller.cbl"]).current_dir(&dir).env("COBOLT_BACKEND_URL", &url).env_remove("COBOLT_BACKEND_TOKEN").output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(text.contains("ping=pong"), "{text}");
+    assert!(text.contains("whoami failed AUTHENTICATION") && text.contains("02000"), "{text}");
+
+    // With no backend configured at all, the call fails visibly, never silently (1003, transport).
+    let out = Command::new(env!("CARGO_BIN_EXE_rcrun")).args(["run", "caller.cbl"]).current_dir(&dir).env_remove("COBOLT_BACKEND_URL").env_remove("COBOLT_BACKEND_TOKEN").output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(text.contains("ping failed TRANSPORT") && text.contains("01003"), "{text}");
+
+    let _ = backend.kill();
+    let _ = backend.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -35,7 +35,11 @@ server = [
 # The client a desktop or native host links to make `CALL … WITH WEBSOCKET
 # LINKAGE` work: it implements `cobolt_wire::call::Transport` over a secure
 # WebSocket. The browser has its own client (the player's); this is Rust's.
-client = ["net", "dep:sha2", "dep:base64", "dep:getrandom"]
+#
+# It links the runtime (with none of its optional bridges) for one reason: the
+# process-wide factory every interpreter asks for its transport
+# (`cobolt_runtime::interpreter::remote::set_default_transport_factory`).
+client = ["net", "dep:sha2", "dep:base64", "dep:getrandom", "dep:cobolt-runtime"]
 
 # The channel itself: tokio, the operating system's TLS, the WebSocket framing.
 net = ["dep:tokio", "dep:native-tls", "dep:tokio-native-tls", "dep:tokio-tungstenite", "dep:futures-util"]

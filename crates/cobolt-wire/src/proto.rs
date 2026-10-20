@@ -297,6 +297,20 @@ pub struct FileUrl {
     pub sha256: String,
 }
 
+/// A stream program ended on its own (WASM-014 R14).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubEnd {
+    pub t: String,
+    pub sub: u64,
+}
+
+/// The backend stopped a subscription at the client's request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Unsubscribed {
+    pub t: String,
+    pub id: u64,
+}
+
 // ── parsing a frame ───────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -355,4 +369,96 @@ pub fn parse_client(text: &str) -> Result<ClientFrame, CallError> {
 /// Serialise any message to its frame text.
 pub fn to_text<T: Serialize>(m: &T) -> String {
     serde_json::to_string(m).unwrap_or_else(|_| "{\"t\":\"error\",\"class\":\"server\",\"code\":9000,\"message\":\"unserialisable message\"}".into())
+}
+
+/// A frame from the server, by kind.
+#[derive(Debug)]
+pub enum ServerFrame {
+    Hello(ServerHello),
+    AuthOk(AuthOk),
+    Reply(Reply),
+    Error(ErrorMsg),
+    Progress(Progress),
+    Event(Event),
+    Subscribed(Subscribed),
+    SubEnd(SubEnd),
+    Unsubscribed(Unsubscribed),
+    PutReady(PutReady),
+    PutDone(PutDone),
+    FileUrl(FileUrl),
+}
+
+/// Parse one server frame (the client's side of [`parse_client`]). A kind this
+/// build does not know is an error the client logs and goes on from: a newer
+/// backend may say more than an older client understands.
+pub fn parse_server(text: &str) -> Result<ServerFrame, String> {
+    let tag: Tag<'_> = serde_json::from_str(text).map_err(|e| format!("not a message: {e}"))?;
+    macro_rules! kind {
+        ($ty:ty, $variant:ident) => {
+            serde_json::from_str::<$ty>(text).map(ServerFrame::$variant).map_err(|e| format!("a {} message does not fit: {e}", tag.t))
+        };
+    }
+    match tag.t {
+        "hello" => kind!(ServerHello, Hello),
+        "auth-ok" => kind!(AuthOk, AuthOk),
+        "reply" => kind!(Reply, Reply),
+        "error" => kind!(ErrorMsg, Error),
+        "progress" => kind!(Progress, Progress),
+        "event" => kind!(Event, Event),
+        "subscribed" => kind!(Subscribed, Subscribed),
+        "sub-end" => kind!(SubEnd, SubEnd),
+        "unsubscribed" => kind!(Unsubscribed, Unsubscribed),
+        "put-ready" => kind!(PutReady, PutReady),
+        "put-done" => kind!(PutDone, PutDone),
+        "file-url" => kind!(FileUrl, FileUrl),
+        other => Err(format!("unknown message kind \"{other}\"")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_server_frame_is_read_back_as_the_kind_it_was_written() {
+        let hello = ServerHello { t: "hello".into(), protocol: 1, protocol_min: 1, contract: "1.2.0".into(), accepted: Accepted::Warn, message: "m".into(), update_to: Some("1.2.0".into()), server: "s".into(), max_frame_bytes: 1 << 20 };
+        assert!(matches!(parse_server(&to_text(&hello)), Ok(ServerFrame::Hello(h)) if h.accepted == Accepted::Warn && h.update_to.as_deref() == Some("1.2.0")));
+        assert!(matches!(parse_server(&to_text(&AuthOk { t: "auth-ok".into(), sub: "u".into(), expires_in: 5 })), Ok(ServerFrame::AuthOk(a)) if a.expires_in == 5));
+        let reply = Reply { t: "reply".into(), id: 3, args: vec![Some(RawValue::from_string("{\"A\":1.50}".into()).unwrap()), None], returning: None, warnings: vec!["w".into()] };
+        match parse_server(&to_text(&reply)) {
+            Ok(ServerFrame::Reply(r)) => {
+                assert_eq!(r.id, 3);
+                assert_eq!(r.args[0].as_ref().unwrap().get(), "{\"A\":1.50}", "a payload keeps the digits it was written with");
+                assert!(r.args[1].is_none());
+                assert_eq!(r.warnings, vec!["w".to_string()]);
+            }
+            other => panic!("{other:?}"),
+        }
+        let err = ErrorMsg::from_error(Some(9), &CallError::new(ErrorClass::Application, 4201, "declined").with_detail("{}").may_have_run(true));
+        match parse_server(&to_text(&err)) {
+            Ok(ServerFrame::Error(e)) => {
+                let c = e.into_error();
+                assert_eq!((c.class, c.code, c.detail.as_deref(), c.may_have_run), (ErrorClass::Application, 4201, Some("{}"), Some(true)));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(parse_server(&to_text(&Progress { t: "progress".into(), id: 1, percent: 40, message: "x".into() })), Ok(ServerFrame::Progress(p)) if p.percent == 40));
+        assert!(matches!(parse_server(&to_text(&SubEnd { t: "sub-end".into(), sub: 2 })), Ok(ServerFrame::SubEnd(s)) if s.sub == 2));
+        assert!(matches!(parse_server(&to_text(&PutReady { t: "put-ready".into(), id: 1, upload: "u".into(), have: 10 })), Ok(ServerFrame::PutReady(p)) if p.have == 10));
+        assert!(matches!(parse_server(&to_text(&FileUrl { t: "file-url".into(), id: 1, path: "/dl/x".into(), expires_in: 60, size: 5, sha256: "00".into() })), Ok(ServerFrame::FileUrl(f)) if f.path == "/dl/x"));
+    }
+
+    #[test]
+    fn a_kind_a_newer_backend_invented_is_an_error_to_log_not_a_crash() {
+        assert!(parse_server("{\"t\":\"telepathy\",\"x\":1}").unwrap_err().contains("unknown message kind"));
+        assert!(parse_server("not json").is_err());
+        assert!(parse_server("{\"t\":\"reply\"}").is_err(), "a reply without its fields does not fit");
+    }
+
+    #[test]
+    fn an_unknown_error_class_from_a_newer_backend_is_read_as_server() {
+        let e = ErrorMsg { t: "error".into(), id: Some(1), class: "quantum".into(), code: 12345, message: "?".into(), detail: None, may_have_run: None }.into_error();
+        assert_eq!(e.class, ErrorClass::Server);
+        assert_eq!(e.code, 12345, "its code is kept");
+    }
 }

@@ -195,6 +195,14 @@ pub struct Rig {
     pub jwks: Arc<StaticJwks>,
     pub sink: MemorySink,
     pub dir: std::path::PathBuf,
+    iface: cobolt_wire::contract::InterfaceDescription,
+}
+
+impl Rig {
+    /// The interface description of the backend this rig serves (what `interface.json` would hold).
+    pub fn interface(&self) -> cobolt_wire::contract::InterfaceDescription {
+        self.iface.clone()
+    }
 }
 
 pub const AUDIENCE: &str = "prc-api";
@@ -227,9 +235,10 @@ jwks_uri = "https://idp.example.test/pool/.well-known/jwks.json"
     let cfg = ServerConfig::from_toml(&config_text).expect("config");
     let resolved = cfg.resolve(RunMode::Release, &dir).expect("resolve");
     let backend = Backend::load(&dir).expect("backend");
+    let iface = backend.interface.clone();
     let sink = MemorySink::new();
     let server = cobolt_server::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: Some(jwks.clone()) }).expect("start");
-    Rig { server, cert, issuer, jwks, sink, dir }
+    Rig { server, cert, issuer, jwks, sink, dir, iface }
 }
 
 // ── a raw client ──────────────────────────────────────────────────────────────
@@ -341,4 +350,112 @@ impl RsaIssuer {
         h.kid = Some(self.kid.clone());
         jsonwebtoken::encode(&h, claims, &jsonwebtoken::EncodingKey::from_rsa_pem(self.key_pem.as_bytes()).expect("rsa key")).expect("sign")
     }
+}
+
+// ── a TCP proxy that can lose the connection on command ──────────────────────
+//
+// TLS runs end to end through it; it only moves bytes, so a test can cut a
+// connection at the moment it chooses, or swallow what the server says so that
+// a call that ran never reports back.
+
+use std::sync::atomic::{AtomicU8, Ordering};
+
+pub const PROXY_FORWARD: u8 = 0;
+/// Bytes from the server are discarded (the client never hears the answer).
+pub const PROXY_SWALLOW_REPLIES: u8 = 1;
+/// New connections are closed at once.
+pub const PROXY_REFUSE: u8 = 2;
+
+pub struct Proxy {
+    pub addr: std::net::SocketAddr,
+    mode: Arc<AtomicU8>,
+    kill: Arc<tokio::sync::watch::Sender<u64>>,
+    _thread: std::thread::JoinHandle<()>,
+}
+
+impl Proxy {
+    pub fn start(target: std::net::SocketAddr) -> Proxy {
+        let mode = Arc::new(AtomicU8::new(PROXY_FORWARD));
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(0u64);
+        let kill = Arc::new(kill_tx);
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (m2, k2) = (mode.clone(), kill_rx);
+        let thread = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+            rt.block_on(async move {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let _ = ready_tx.send(listener.local_addr().unwrap());
+                loop {
+                    let Ok((client, _)) = listener.accept().await else { continue };
+                    if m2.load(Ordering::SeqCst) == PROXY_REFUSE {
+                        drop(client);
+                        continue;
+                    }
+                    let Ok(server) = tokio::net::TcpStream::connect(target).await else { continue };
+                    let (cr, cw) = client.into_split();
+                    let (sr, sw) = server.into_split();
+                    // A connection made after a kill must not feel it: mark the current version as seen.
+                    let mut up = k2.clone();
+                    up.borrow_and_update();
+                    let mut down = k2.clone();
+                    down.borrow_and_update();
+                    tokio::spawn(pump(cr, sw, m2.clone(), false, up));
+                    tokio::spawn(pump(sr, cw, m2.clone(), true, down));
+                }
+            });
+        });
+        let addr = ready_rx.recv().unwrap();
+        Proxy { addr, mode, kill, _thread: thread }
+    }
+
+    pub fn set(&self, mode: u8) {
+        self.mode.store(mode, Ordering::SeqCst);
+    }
+
+    /// Close every connection that goes through the proxy now.
+    pub fn kill_all(&self) {
+        self.kill.send_modify(|v| *v += 1);
+    }
+}
+
+async fn pump(
+    mut from: tokio::net::tcp::OwnedReadHalf,
+    mut to: tokio::net::tcp::OwnedWriteHalf,
+    mode: Arc<AtomicU8>,
+    server_to_client: bool,
+    mut kill: tokio::sync::watch::Receiver<u64>,
+) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut buf = vec![0u8; 16 * 1024];
+    loop {
+        tokio::select! {
+            _ = kill.changed() => break,
+            n = from.read(&mut buf) => {
+                let n = n.unwrap_or(0);
+                if n == 0 { break; }
+                if server_to_client && mode.load(Ordering::SeqCst) == PROXY_SWALLOW_REPLIES { continue; }
+                if to.write_all(&buf[..n]).await.is_err() { break; }
+            }
+        }
+    }
+    let _ = to.shutdown().await;
+}
+
+/// A plain HTTPS GET over TLS (the download address), returning status and body.
+pub fn https_get(addr: std::net::SocketAddr, cert_pem: &str, path: &str, range_from: Option<u64>) -> Option<(u16, Vec<u8>)> {
+    use std::io::{Read, Write};
+    let mut b = native_tls::TlsConnector::builder();
+    b.add_root_certificate(native_tls::Certificate::from_pem(cert_pem.as_bytes()).ok()?);
+    let c = b.build().ok()?;
+    let tcp = std::net::TcpStream::connect(addr).ok()?;
+    tcp.set_read_timeout(Some(std::time::Duration::from_secs(10))).ok()?;
+    let mut s = c.connect("localhost", tcp).ok()?;
+    let range = range_from.map(|n| format!("Range: bytes={n}-\r\n")).unwrap_or_default();
+    write!(s, "GET {path} HTTP/1.1\r\nHost: localhost\r\n{range}Connection: close\r\n\r\n").ok()?;
+    let mut raw = Vec::new();
+    let _ = s.read_to_end(&mut raw);
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = String::from_utf8_lossy(&raw[..split]).into_owned();
+    let status = head.split(' ').nth(1)?.parse().ok()?;
+    Some((status, raw[split + 4..].to_vec()))
 }

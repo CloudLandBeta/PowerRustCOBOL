@@ -19,13 +19,15 @@
 //! the values are.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use cobolt_ast::data::DataDecl;
 use cobolt_ast::expr::Expr;
 use cobolt_ast::program::{DataSection, Program};
 use cobolt_ast::stmt::{CallArg, Stmt};
 use cobolt_lexer::Span;
-use cobolt_wire::call::{ArgMode, ArgPayload, CallRequest, Transport};
+use cobolt_wire::call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallRequest, DownloadRequest, Transport, UploadRequest};
 use cobolt_wire::error::{codes, CallError, ErrorClass};
 use cobolt_wire::layout::{self, Item, Kind};
 use cobolt_wire::mapping::{self, DEFAULT_MAX_BYTES};
@@ -36,6 +38,47 @@ use super::{call_arg_expr, collect_quals, Interpreter};
 use crate::environment::{base_name, subscript_key, CobolEnvironment};
 use crate::error::RuntimeError;
 use crate::value::{CobolNumeric, CobolValue};
+
+/// What the host of an exported program gives the interpreter (the backend does
+/// this per call): where progress and stream items go, the files the caller may
+/// reach, and the flag a cancel request sets (WASM-014).
+pub struct BackendHooks {
+    pub progress: Option<Box<dyn Fn(u8, &str) + Send>>,
+    /// Send one stream item (the JSON of a group). `false` means nobody wants more.
+    pub emit: Option<Box<dyn Fn(&str) -> bool + Send>>,
+    pub files: Option<Arc<dyn BackendFiles>>,
+    /// Set when the caller asks to cancel; the program reaches it with
+    /// `COBOL::"WS-CANCELLED"` and `COBOL::"WS-PROGRESS"`.
+    pub cancel_requested: Arc<AtomicBool>,
+}
+
+/// An application failure a backend program reported with `COBOL::"WS-FAIL"`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppFailure {
+    pub code: u32,
+    pub message: String,
+    pub detail: Option<String>,
+}
+
+/// Things that happen to a pending call, for a host that shows them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteEvent {
+    Progress { percent: u8, message: String },
+    Warning(String),
+}
+
+type DefaultTransport = Box<dyn Fn() -> Option<Box<dyn Transport>> + Send + Sync>;
+static DEFAULT_TRANSPORT: OnceLock<DefaultTransport> = OnceLock::new();
+
+/// Register, once per process, how a run gets the transport for a remote call
+/// when its host installed none: every interpreter of the process - the root
+/// form's, the child forms', the backend's own - asks this the first time it
+/// calls. Returns false if one was registered already.
+pub fn set_default_transport_factory(f: impl Fn() -> Option<Box<dyn Transport>> + Send + Sync + 'static) -> bool {
+    DEFAULT_TRANSPORT.set(Box::new(f)).is_ok()
+}
+
+type EventSink = Box<dyn FnMut(RemoteEvent) + Send>;
 
 /// The run's remote-call state.
 #[derive(Default)]
@@ -49,9 +92,110 @@ pub struct RemoteState {
     /// The caller's claims, on the backend (`COBOL::"WS-CLAIM"`); read-only to
     /// the program.
     pub(crate) claims: HashMap<String, String>,
+    /// Where a host wants to see progress and warnings of a pending call.
+    pub(crate) events: Option<EventSink>,
+    /// A host sets this to cancel the pending call (the interpreter's thread is
+    /// blocked in it, so a button's own handler cannot).
+    pub(crate) cancel: Arc<AtomicBool>,
+    /// Present when this interpreter runs a program the backend exports.
+    pub(crate) hooks: Option<BackendHooks>,
+    pub(crate) app_failure: Option<AppFailure>,
+    /// The program was ended because the caller asked it to cancel.
+    pub(crate) cancelled: bool,
+    /// The last call that failed with the backend perhaps having run it, and the
+    /// key it carried: the same call made again right after reuses the key, so the
+    /// backend answers from its store instead of running it twice (WASM-014 R10).
+    pub(crate) retry: Option<(u64, String)>,
+}
+
+/// Feeds a transport's reports to the host and to the interpreter's own state.
+struct Observer<'a> {
+    events: &'a mut Option<EventSink>,
+    warnings: &'a mut Vec<String>,
+    cancel: &'a Arc<AtomicBool>,
+}
+
+impl CallObserver for Observer<'_> {
+    fn progress(&mut self, percent: u8, message: &str) {
+        if let Some(f) = self.events.as_mut() {
+            f(RemoteEvent::Progress { percent, message: message.to_string() });
+        }
+    }
+
+    fn warning(&mut self, message: &str) {
+        self.warnings.push(message.to_string());
+        if let Some(f) = self.events.as_mut() {
+            f(RemoteEvent::Warning(message.to_string()));
+        }
+    }
+
+    fn cancel_requested(&mut self) -> bool {
+        self.cancel.load(Ordering::SeqCst)
+    }
+}
+
+/// A fingerprint of a request, to recognise the same call made again.
+fn fingerprint(r: &CallRequest) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    r.program.hash(&mut h);
+    for a in &r.args {
+        (a.mode == ArgMode::Reference).hash(&mut h);
+        a.json.hash(&mut h);
+    }
+    r.wants_returning.hash(&mut h);
+    h.finish()
+}
+
+/// A fresh idempotency key: 128 random bits from the standard library's randomly seeded hasher.
+fn fresh_key() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut out = String::with_capacity(32);
+    for salt in 0u64..2 {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u64(salt);
+        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+        out.push_str(&format!("{:016x}", h.finish()));
+    }
+    out
 }
 
 impl Interpreter {
+    /// Ask the process-wide factory for a transport if this run has none.
+    fn ensure_transport(&mut self) {
+        if self.remote.transport.is_none() {
+            if let Some(f) = DEFAULT_TRANSPORT.get() {
+                self.remote.transport = f();
+            }
+        }
+    }
+
+    /// Make this interpreter the run of an exported program (the backend does
+    /// this for each call).
+    pub fn set_backend_hooks(&mut self, hooks: BackendHooks) {
+        self.remote.hooks = Some(hooks);
+    }
+
+    /// The failure the program reported with `WS-FAIL`, if it did.
+    pub fn take_app_failure(&mut self) -> Option<AppFailure> {
+        self.remote.app_failure.take()
+    }
+
+    /// Was the program ended because the caller asked it to cancel?
+    pub fn remote_cancelled(&self) -> bool {
+        self.remote.cancelled
+    }
+
+    /// Where progress and warnings of a pending remote call are reported.
+    pub fn set_remote_events(&mut self, sink: Box<dyn FnMut(RemoteEvent) + Send>) {
+        self.remote.events = Some(sink);
+    }
+
+    /// Setting this flag cancels the remote call that is pending.
+    pub fn remote_cancel_handle(&self) -> Arc<AtomicBool> {
+        self.remote.cancel.clone()
+    }
+
     /// Install what carries `CALL … WITH WEBSOCKET LINKAGE` for this run: the
     /// real WebSocket client, a loopback double in a test.
     pub fn set_remote_transport(&mut self, transport: Box<dyn Transport>) {
@@ -187,16 +331,42 @@ impl Interpreter {
             None => None,
         };
 
-        // 2. The call.
-        let Some(transport) = self.remote.transport.as_mut() else {
+        // 2. The call. The same call made again right after one the backend may
+        //    have run carries the same key, so the backend answers from its store
+        //    (WASM-014 R10); any other call gets a key of its own.
+        self.ensure_transport();
+        let fp = fingerprint(&request);
+        let key = match self.remote.retry.take() {
+            Some((f, k)) if f == fp => k,
+            _ => fresh_key(),
+        };
+        request.idempotency_key = Some(key.clone());
+        self.remote.cancel.store(false, Ordering::SeqCst);
+        self.remote.warnings.clear();
+        let RemoteState { transport, events, warnings, cancel, .. } = &mut self.remote;
+        let Some(transport) = transport.as_mut() else {
             return Err(CallError::transport(
                 codes::NOT_CONFIGURED,
                 "no backend is configured for this run (the host installs one when the project names a backend)",
             )
             .may_have_run(false));
         };
-        let reply = transport.call(&request)?;
-        self.remote.warnings = reply.warnings.clone();
+        let mut observer = Observer { events, warnings, cancel };
+        let outcome = transport.call_observed(&request, &mut observer);
+        let reply = match outcome {
+            Ok(r) => r,
+            Err(e) => {
+                if e.class == ErrorClass::Transport && e.may_have_run != Some(false) {
+                    self.remote.retry = Some((fp, key));
+                }
+                return Err(e);
+            }
+        };
+        for w in &reply.warnings {
+            if !self.remote.warnings.contains(w) {
+                self.remote.warnings.push(w.clone());
+            }
+        }
 
         // 3. Decode everything first. Nothing is written until all of it fits.
         let mut staged: Vec<(usize, Node)> = Vec::new();
@@ -303,6 +473,241 @@ impl Interpreter {
         let value = self.remote.claims.get(&wanted).cloned().unwrap_or_default();
         let n = self.expr_to_name(call_arg_expr(&using[1]));
         self.env.set_str(&n, &value);
+        Ok(())
+    }
+
+    // ── the backend's side of the contract (WASM-014) ────────────────────────
+
+    fn in_backend(&self, what: &str) -> Result<(), RuntimeError> {
+        if self.remote.hooks.is_some() {
+            Ok(())
+        } else {
+            Err(RuntimeError::General { message: format!("COBOL::\"{what}\" belongs to a program the backend exports; this run is not serving a call") })
+        }
+    }
+
+    /// `COBOL::"WS-FAIL"( code message [detail] )`: end the call with the
+    /// program's own failure. The code is 1 to 7999; the parameters the program
+    /// changed are not sent back.
+    pub(super) fn builtin_ws_fail(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        self.in_backend("WS-FAIL")?;
+        if using.len() < 2 {
+            return Err(RuntimeError::General { message: "COBOL::\"WS-FAIL\" needs a code and a message".into() });
+        }
+        let code = self.eval_call_arg(&using[0], span)?.as_f64().round();
+        if !(1.0..=codes::APPLICATION_MAX as f64).contains(&code) {
+            return Err(RuntimeError::General {
+                message: format!("COBOL::\"WS-FAIL\": the code must be 1 to {}; {} and above belong to the platform", codes::APPLICATION_MAX, codes::APPLICATION_MAX + 1),
+            });
+        }
+        let message: String = self.eval_call_arg(&using[1], span)?.as_display_string().trim_end().chars().take(200).collect();
+        let detail = match using.get(2) {
+            Some(a) => {
+                let d: String = self.eval_call_arg(a, span)?.as_display_string().trim_end().chars().take(4096).collect();
+                (!d.is_empty()).then_some(d)
+            }
+            None => None,
+        };
+        self.remote.app_failure = Some(AppFailure { code: code as u32, message, detail });
+        Err(RuntimeError::StopRun)
+    }
+
+    /// `COBOL::"WS-PROGRESS"( percent message )`: report progress. A safe point:
+    /// when the caller has asked to cancel, the call ends here.
+    pub(super) fn builtin_ws_progress(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        if self.remote.hooks.is_none() || using.is_empty() {
+            return Ok(());
+        }
+        let pct = self.eval_call_arg(&using[0], span)?.as_f64().clamp(0.0, 100.0).round() as u8;
+        let message: String = match using.get(1) {
+            Some(a) => self.eval_call_arg(a, span)?.as_display_string().trim_end().chars().take(120).collect(),
+            None => String::new(),
+        };
+        if let Some(h) = &self.remote.hooks {
+            if let Some(f) = &h.progress {
+                f(pct, &message);
+            }
+            if h.cancel_requested.load(Ordering::SeqCst) {
+                self.remote.cancelled = true;
+                return Err(RuntimeError::StopRun);
+            }
+        }
+        Ok(())
+    }
+
+    /// `COBOL::"WS-CANCELLED"( flag )`: `Y` when the caller has asked to cancel.
+    pub(super) fn builtin_ws_cancelled(&mut self, using: &[CallArg]) {
+        let asked = self.remote.hooks.as_ref().is_some_and(|h| h.cancel_requested.load(Ordering::SeqCst));
+        if let Some(a) = using.first() {
+            let n = self.expr_to_name(call_arg_expr(a));
+            self.env.set_str(&n, if asked { "Y" } else { "N" });
+        }
+    }
+
+    /// `COBOL::"WS-PAUSE"( milliseconds )`: wait, in slices, ending early when the
+    /// caller asks to cancel and stopping at once when the call is cut off.
+    pub(super) fn builtin_ws_pause(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        let Some(a) = using.first() else { return Ok(()) };
+        let ms = self.eval_call_arg(a, span)?.as_f64().clamp(0.0, 600_000.0) as u64;
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        loop {
+            if self.cancel.as_ref().is_some_and(|c| c.load(Ordering::SeqCst)) {
+                return Err(RuntimeError::Cancelled);
+            }
+            if self.remote.hooks.as_ref().is_some_and(|h| h.cancel_requested.load(Ordering::SeqCst)) {
+                return Ok(());
+            }
+            let now = std::time::Instant::now();
+            if now >= end {
+                return Ok(());
+            }
+            std::thread::sleep((end - now).min(std::time::Duration::from_millis(10)));
+        }
+    }
+
+    /// `COBOL::"WS-EMIT"( group )`: a stream program sends the group as its next item.
+    pub(super) fn builtin_ws_emit(&mut self, using: &[CallArg]) -> Result<(), RuntimeError> {
+        self.in_backend("WS-EMIT")?;
+        let Some(a) = using.first() else { return Ok(()) };
+        let name = self.expr_to_name(call_arg_expr(a));
+        let json = self.group_to_json(&name).map_err(|e| RuntimeError::General { message: format!("COBOL::\"WS-EMIT\": {e}") })?;
+        let (sent, asked) = match &self.remote.hooks {
+            Some(h) => (h.emit.as_ref().map(|f| f(&json)), h.cancel_requested.load(Ordering::SeqCst)),
+            None => (None, false),
+        };
+        match sent {
+            None => Err(RuntimeError::General { message: "COBOL::\"WS-EMIT\" is for a program exported as a stream".into() }),
+            Some(true) if !asked => Ok(()),
+            Some(_) => {
+                self.remote.cancelled = true;
+                Err(RuntimeError::StopRun)
+            }
+        }
+    }
+
+    /// `COBOL::"WS-FILE-PATH"( file-id path status )`.
+    pub(super) fn builtin_ws_file_path(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        if using.len() < 3 {
+            return Ok(());
+        }
+        let id = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_string();
+        let (path, status) = match self.remote.hooks.as_ref().and_then(|h| h.files.as_ref()) {
+            None => (String::new(), "NOBACKEND"),
+            Some(files) => match files.resolve(&id) {
+                Some(p) => (p.display().to_string(), "OK"),
+                None => (String::new(), "NOFILE"),
+            },
+        };
+        let (np, ns) = (self.expr_to_name(call_arg_expr(&using[1])), self.expr_to_name(call_arg_expr(&using[2])));
+        self.env.set_str(&np, &path);
+        self.env.set_str(&ns, status);
+        Ok(())
+    }
+
+    /// `COBOL::"WS-FILE-PUBLISH"( path file-id status )`.
+    pub(super) fn builtin_ws_file_publish(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        if using.len() < 3 {
+            return Ok(());
+        }
+        let path = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_string();
+        let (id, status) = match self.remote.hooks.as_ref().and_then(|h| h.files.as_ref()) {
+            None => (String::new(), "NOBACKEND"),
+            Some(files) => match files.publish(std::path::Path::new(&path)) {
+                Ok(id) => (id, "OK"),
+                Err(_) => (String::new(), "NOFILE"),
+            },
+        };
+        let (ni, ns) = (self.expr_to_name(call_arg_expr(&using[1])), self.expr_to_name(call_arg_expr(&using[2])));
+        self.env.set_str(&ni, &id);
+        self.env.set_str(&ns, status);
+        Ok(())
+    }
+
+    // ── the frontend's side ──────────────────────────────────────────────────
+
+    /// `COBOL::"WS-WARNING"( message )`: the most recent warning the backend attached.
+    pub(super) fn builtin_ws_warning(&mut self, using: &[CallArg]) {
+        let w = self.remote.warnings.last().cloned().unwrap_or_default();
+        if let Some(a) = using.first() {
+            let n = self.expr_to_name(call_arg_expr(a));
+            self.env.set_str(&n, &w);
+        }
+    }
+
+    /// The status word of a file transfer, and `WS-LAST-ERROR`'s record of why.
+    fn transfer_status(&mut self, result: Result<(), CallError>) -> &'static str {
+        match result {
+            Ok(()) => "OK",
+            Err(e) => {
+                let word = if e.class == ErrorClass::Transport { "FAILED" } else { "REFUSED" };
+                self.remote.last_error = Some(e);
+                word
+            }
+        }
+    }
+
+    /// `COBOL::"WS-UPLOAD"( slot path mime file-id status )`.
+    pub(super) fn builtin_ws_upload(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        if using.len() < 5 {
+            return Ok(());
+        }
+        let slot = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_string();
+        let path = self.eval_call_arg(&using[1], span)?.as_display_string().trim().to_string();
+        let mime = self.eval_call_arg(&using[2], span)?.as_display_string().trim().to_string();
+        let (id_name, st_name) = (self.expr_to_name(call_arg_expr(&using[3])), self.expr_to_name(call_arg_expr(&using[4])));
+        let p = std::path::PathBuf::from(super::anchor_relative_path(&path));
+        let (file, status) = if !p.is_file() {
+            (String::new(), "NOFILE")
+        } else {
+            self.ensure_transport();
+            self.remote.cancel.store(false, Ordering::SeqCst);
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+            let RemoteState { transport, events, warnings, cancel, .. } = &mut self.remote;
+            match transport.as_mut() {
+                None => (String::new(), "NOBACKEND"),
+                Some(t) => {
+                    let mut observer = Observer { events, warnings, cancel };
+                    let r = t.upload(&UploadRequest { slot, path: p, name, mime }, &mut observer);
+                    match r {
+                        Ok(done) => (done.file, "OK"),
+                        Err(e) => {
+                            let word = if e.class == ErrorClass::Transport { "FAILED" } else { "REFUSED" };
+                            self.remote.last_error = Some(e);
+                            (String::new(), word)
+                        }
+                    }
+                }
+            }
+        };
+        self.env.set_str(&id_name, &file);
+        self.env.set_str(&st_name, status);
+        Ok(())
+    }
+
+    /// `COBOL::"WS-DOWNLOAD"( file-id path status )`.
+    pub(super) fn builtin_ws_download(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        if using.len() < 3 {
+            return Ok(());
+        }
+        let file = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_string();
+        let path = self.eval_call_arg(&using[1], span)?.as_display_string().trim().to_string();
+        let st_name = self.expr_to_name(call_arg_expr(&using[2]));
+        let dest = std::path::PathBuf::from(super::anchor_relative_path(&path));
+        self.ensure_transport();
+        self.remote.cancel.store(false, Ordering::SeqCst);
+        let RemoteState { transport, events, warnings, cancel, .. } = &mut self.remote;
+        let outcome: Result<(), CallError> = match transport.as_mut() {
+            None => {
+                self.env.set_str(&st_name, "NOBACKEND");
+                return Ok(());
+            }
+            Some(t) => {
+                let mut observer = Observer { events, warnings, cancel };
+                t.download(&DownloadRequest { file, dest }, &mut observer).map(|_| ())
+            }
+        };
+        let word = self.transfer_status(outcome);
+        self.env.set_str(&st_name, word);
         Ok(())
     }
 }

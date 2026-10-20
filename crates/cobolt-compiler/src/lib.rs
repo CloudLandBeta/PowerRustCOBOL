@@ -2891,7 +2891,7 @@ fn build_core(
     );
     let program_ids: Vec<&str> = form_programs.iter().map(|(id, _)| id.as_str()).collect();
     let menu_ids: Vec<&str> = menus.iter().map(|(id, _)| id.as_str()).collect();
-    let main_rs = generate_main_rs(
+    let main_rs = generate_main_rs_for(
         &proj.project.name,
         &proj.project.version,
         has_forms,
@@ -2918,6 +2918,7 @@ fn build_core(
         }
         .to_json(),
         proj.agents.file_memory_limit_mb(),
+        features.remote,
     );
     let main_rs = bake_focus_ring(
         main_rs,
@@ -3906,6 +3907,14 @@ tinyvec         = {{ version = "1", features = ["std"] }}
         ));
     }
 
+    // WASM-014 - the backend client, only for an application that calls its backend:
+    // a program with no remote call links no socket code for it.
+    if features.remote {
+        s.push_str(&format!(
+            "cobolt-server   = {{ path = \"{cp}/cobolt-server\", default-features = false, features = [\"client\"] }}\n"
+        ));
+    }
+
     s
 }
 
@@ -3964,9 +3973,50 @@ fn fx_triple(effect: &str, ms: u32, easing: &str) -> String {
     format!("{}:{}:{}", clean(effect), ms, clean(easing))
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The generated `main.rs` of an application that makes no remote call.
 #[allow(clippy::too_many_arguments)]
 fn generate_main_rs(
+    app_name: &str,
+    version: &str,
+    has_forms: bool,
+    form_ids: &[&str],
+    main_form_id: &str,
+    program_ids: &[&str],
+    menu_ids: &[&str],
+    themes: &[StagedTheme],
+    project_theme_default: &str,
+    entrance_fx: &str,
+    exit_fx: &str,
+    entrance_on_restore: bool,
+    connections_json: &str,
+    file_memory_limit_mb: u64,
+) -> String {
+    generate_main_rs_for(
+        app_name,
+        version,
+        has_forms,
+        form_ids,
+        main_form_id,
+        program_ids,
+        menu_ids,
+        themes,
+        project_theme_default,
+        entrance_fx,
+        exit_fx,
+        entrance_on_restore,
+        connections_json,
+        file_memory_limit_mb,
+        false,
+    )
+}
+
+/// The generated `main.rs`. `remote` is true when the application calls its
+/// backend (`CALL … WITH WEBSOCKET LINKAGE`, `WS-UPLOAD`, `WS-DOWNLOAD`): it then
+/// starts the backend client from the environment, once, before anything runs, so
+/// the root interpreter, the child forms' and the compiled event loop all share
+/// one connection (WASM-014; interpreter/binary parity).
+#[allow(clippy::too_many_arguments)]
+fn generate_main_rs_for(
     app_name: &str,
     version: &str,
     has_forms: bool,
@@ -3985,7 +4035,13 @@ fn generate_main_rs(
     connections_json: &str,
     // `[agents] file_memory_limit_mb` (spec 075), already defaulted.
     file_memory_limit_mb: u64,
+    remote: bool,
 ) -> String {
+    let remote_line = if remote {
+        "    // WASM-014: this application calls its backend; the client starts here, once,\n    // so every interpreter below shares one connection.\n    cobolt_server::client::install_default_from_env();\n"
+    } else {
+        ""
+    };
     // Build the FORMS constant entries
     let forms_entries: String = form_ids
         .iter()
@@ -4637,7 +4693,7 @@ fn main() {{
         .init();
 
     install_sql_connections();
-    let program = load_program();
+{remote_line}    let program = load_program();
     {run_call}
     // Spec 078 R9: no AWS server this application started outlives it.
     cobolt_runtime::shutdown_child_processes();
@@ -4715,6 +4771,7 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         window_fx_const = window_fx_const,
         connections_const = connections_const,
         run_call = run_call,
+        remote_line = remote_line,
         form_runtime_code = form_runtime_code,
         ast_mismatch_help = AST_MISMATCH_HELP,
         indexed_engine_line = INDEXED_ENGINE_DEFAULT_LINE,
@@ -5041,8 +5098,18 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"SET-PROPERTY"` | object in, property in, value in | Set a control's property |
 | `COBOL::"WAIT-EVENT"` | event-id out, control-id out | Wait for the next event (generated code calls it) |
 | `COBOL::"WRITE-FILE"` | path in, text in, [status out] | Write a file holding one line of text, replacing it |
+| `COBOL::"WS-CANCELLED"` | flag out | On the backend, a long-running or stream program asks whether the caller has asked to cancel: Y or N |
 | `COBOL::"WS-CLAIM"` | name in, value out | A claim of the caller's validated token, on the backend ("sub", "email", "roles" …); spaces when absent; read-only |
+| `COBOL::"WS-DOWNLOAD"` | file-id in, path in, status out | Fetch a file the backend offers to a local path; OK, NOFILE, REFUSED (see WS-LAST-ERROR), FAILED or NOBACKEND |
+| `COBOL::"WS-EMIT"` | group in | On the backend, a stream program sends the group as the next item of the stream; the program ends if nobody is listening |
+| `COBOL::"WS-FAIL"` | code in, message in, [detail in] | On the backend, end the call with the program's own failure (code 1 to 7999); the caller reads it in ON EXCEPTION; by-reference changes are discarded |
+| `COBOL::"WS-FILE-PATH"` | file-id in, path out, status out | On the backend, where a file the caller uploaded is on disk; OK or NOFILE (also for a file someone else uploaded) |
+| `COBOL::"WS-FILE-PUBLISH"` | path in, file-id out, status out | On the backend, offer a file the program holds to the caller for download; the id goes to the client, which asks for a short-lived address |
 | `COBOL::"WS-LAST-ERROR"` | class out, code out, message out, [detail out] | How the last `CALL … WITH WEBSOCKET LINKAGE` failed: class word, numeric code, English message, the program's own detail |
+| `COBOL::"WS-PAUSE"` | milliseconds in | On the backend, wait; it ends early when the caller asks to cancel |
+| `COBOL::"WS-PROGRESS"` | percent in, message in | On the backend, report the progress of a long-running call; it is a safe point where a cancel ends the call |
+| `COBOL::"WS-UPLOAD"` | slot in, path in, mime in, file-id out, status out | Send a local file into one of the backend's upload slots, in pieces; OK, NOFILE, REFUSED (see WS-LAST-ERROR), FAILED or NOBACKEND |
+| `COBOL::"WS-WARNING"` | message out | The most recent warning the backend attached to a call (a deprecated program, an older application); spaces when none |
 
 ### Pictures and binary downloads — `IMAGE-FIT`, `IMAGE-INFO`, `HTTP-DOWNLOAD`
 Each answers with ONE status word in its last argument; test the word, never a message. Give the status item room for 9 characters (`PIC X(12)`). A RELATIVE path — here and in `WRITE-FILE`, `APPEND-FILE`, `AUDIO-PLAY` and the file an AWS control uploads or saves — starts at the application's folder, exactly as a relative `ASSIGN` does: the project folder under Run Form, the application's own folder when built, wherever it was launched from. An absolute path is used as written.
@@ -5088,6 +5155,13 @@ A Web or Mobile project has a backend (the `backend/` folder) that runs on the n
 - **Files shared between calls** wait for each other: a program that opens an indexed file for output holds it exclusively until its `CLOSE`, readers share it, and an `OPEN` that cannot get the file within `file_lock_wait_ms` (default 5000) answers file status 93. Close a file as soon as the work on it is done.
 - **The contract is versioned** (`major.minor.patch`). Between two releases an old client keeps working only if the new interface still accepts what the old one sent and still carries every member the old one reads: adding a member or a program, or widening an item that only travels to the backend, is compatible; removing or renaming a member (in a request **or** an answer), changing a scale or a sign, narrowing a picture, widening an item the backend also sends back (an old client has no room for it), removing a program, or changing who may call it is breaking and needs a new **major** version. A **release** build is refused when it breaks the last released contract (`backend/contract/released/<version>.json`, written by `rcrun backend release`).
 - **Developing and building the backend.** `rcrun backend run [dir]` serves the backend on a loopback address with a development token printed at start (valid for that run only); `rcrun backend check` compares the contract with the released ones; `rcrun backend describe` writes and prints `interface.json`; `rcrun backend release` records the current contract as released; `rcrun backend build` produces the headless server binary `bin/<name>-backend`. The built backend reads `backend.toml` (address, TLS identity, token issuer, allowed origins, limits; a secret is written as `env:NAME` or `file:PATH`, never in a form) and refuses to start on any setting named `unsafe_…`.
+- **A failure the backend program reports itself.** `COBOL::"WS-FAIL" ( 4201 "card declined" '{"retry":false}' )` ends the call: the caller's `ON EXCEPTION` runs with class `APPLICATION`, the code 4201, the message and the detail (`COBOL::"WS-LAST-ERROR" ( class code message detail )`), and the parameters the program changed are **not** sent back. A program's own codes are 1 to 7999; 8000 is the platform's *cancelled*.
+- **Repeating a call.** The runtime gives every call an idempotency key. After a lost connection a program declared `idempotent = true` in `exports.toml` is sent again once, on a new connection; any other call fails with class `TRANSPORT`, code 1001 and `may_have_run` true, and when the same `CALL` is made again right away it reuses the key, so the backend answers from what it kept for `idempotency_ttl_seconds` (600) **without running the program a second time** (the same key with other data is refused). A timeout, a limit and a cancel are not kept, so they can be tried again. Calls of one connection run in the order they were made unless the program is declared `independent = true`.
+- **Long calls.** A program declared `long_running = true` may run for `long_call_timeout_ms` (10 minutes) and reports with `COBOL::"WS-PROGRESS" ( percent message )`; the caller asks to cancel and the program sees it as `COBOL::"WS-CANCELLED" ( flag )` = `Y`, and `WS-PROGRESS` is a safe point where the call ends. A program that reaches no safe point is stopped `cancel_grace_ms` (10 s) after the request. A cancelled call fails with `APPLICATION` 8000; what the program already did is not undone. `COBOL::"WS-PAUSE" ( milliseconds )` waits and ends early on a cancel.
+- **Streams.** A program declared `stream = true` is subscribed to, not called: it runs once per subscription and sends each item with `COBOL::"WS-EMIT" ( group )` until it ends, the client unsubscribes (its next `WS-EMIT`, `WS-PROGRESS` or `WS-PAUSE` sees it) or the client disconnects — then the backend keeps nothing for that client. A subscriber that does not keep up is ended with a `LIMIT` error rather than buffered without bound.
+- **Files.** Uploads go to a *slot* the deployment declares in `[files]` (a name, the mime types it takes, the roles that may use it), in pieces, with the size and the SHA-256 declared first; a lost connection resumes where it stopped; the file is checked (size, checksum, and the first bytes of images, PDF and ZIP against the declared type) before it is placed under the backend's own name (the browser's name is only a label and is refused if it holds `/`, `\`, `..` or a control character). `COBOL::"WS-FILE-PATH" ( file-id path status )` gives a program the path of a file the **caller** uploaded (`OK`, or `NOFILE` for anything else, someone else's included); `COBOL::"WS-FILE-PUBLISH" ( path file-id status )` offers a file the program holds to the caller, who is issued a short-lived address (`download_ttl_seconds`, 60) tied to the caller and the source it was issued to, and downloads from it with resume. In the application, `COBOL::"WS-UPLOAD" ( slot path mime file-id status )` and `COBOL::"WS-DOWNLOAD" ( file-id path status )` answer `OK`, `NOFILE`, `REFUSED` (why is in `WS-LAST-ERROR`), `FAILED` or `NOBACKEND`.
+- **Versions and warnings.** The application says the contract it was built against when it connects: the same major with a lower minor is served in the shape it was built for (a member added since is not sent to it) and told to update; a higher minor than the backend has, or another major, is refused with an update message. A call to a program marked `deprecated = { message, removal }` works and carries a warning, which `COBOL::"WS-WARNING" ( message )` reads.
+- **Where the application finds its backend.** `COBOLT_BACKEND_URL` (the `wss://` address; `ws://` only to loopback), `COBOLT_BACKEND_TOKEN` (the token, or `env:NAME` / `file:PATH`), `COBOLT_BACKEND_INTERFACE` (the backend's `interface.json`), `COBOLT_BACKEND_CERT` (one more trusted certificate, PEM). `rcrun run`, `rcrun run-form` and a built application read them, once, and every form of the application shares one connection. An expired token is exchanged for a fresh one and the call is repeated, once.
 
 ### Sound — the `AUDIO-…` built-ins
 Any program, console or form, can play a sound file; there is no audio control. An audio player in a form is composed from ordinary controls: Play/Pause/Stop buttons, a ProgressBar and a Label, refreshed from a Timer's `onTick` that calls `COBOL::"AUDIO-STATE"`.
@@ -11038,6 +11112,34 @@ function_prefix = "sales-"
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── the backend client in a built application (WASM-014) ─────────────────
+
+    /// An application that calls its backend starts the client from the environment,
+    /// before anything runs, and links it; one that does not links none of it.
+    #[test]
+    fn a_built_application_starts_the_backend_client_only_when_it_calls_its_backend() {
+        let args = |remote: bool| {
+            generate_main_rs_for("Demo", "1.0.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}", 64, remote)
+        };
+        let (with, without) = (args(true), args(false));
+        assert!(with.contains("cobolt_server::client::install_default_from_env();"), "the client starts in main");
+        let main_at = with.find("fn main()").expect("a main");
+        let load_at = with.find("let program = load_program();").expect("loads the program");
+        let start_at = with.find("install_default_from_env").expect("starts the client");
+        assert!(main_at < start_at && start_at < load_at, "…before the program is loaded, so before any interpreter exists");
+        assert!(!without.contains("cobolt_server"), "a program with no remote call knows nothing of it");
+        // The old entry point is the same as asking for no client.
+        assert_eq!(generate_main_rs("Demo", "1.0.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}", 64), without);
+
+        let root = Path::new("/sdk/crates");
+        let feats = runtime_features::RuntimeFeatures { remote: true, ..Default::default() };
+        let manifest = base_dependency_block(root, false, feats);
+        assert!(manifest.contains("cobolt-server") && manifest.contains("default-features = false") && manifest.contains("features = [\"client\"]"), "{manifest}");
+        assert!(manifest.contains("cobolt-runtime") && manifest.contains("features = []"), "the runtime still takes no optional bridge: {manifest}");
+        assert!(!base_dependency_block(root, false, Default::default()).contains("cobolt-server"));
+        assert!(base_dependency_block(root, true, runtime_features::RuntimeFeatures::all()).contains("cobolt-server"), "when the build cannot read the program it links the client");
     }
 
     // ── EXEC RUST end-to-end (spec 041 T9) ────────────────────────────────────

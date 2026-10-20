@@ -89,8 +89,18 @@ pub const BUILTINS: &[Builtin] = &[
     b("SET-PROPERTY", "object in, property in, value in", "Set a control's property"),
     b("WAIT-EVENT", "event-id out, control-id out", "Wait for the next event (generated code calls it)"),
     b("WRITE-FILE", "path in, text in, [status out]", "Write a file holding one line of text, replacing it"),
+    b("WS-CANCELLED", "flag out", "On the backend, a long-running or stream program asks whether the caller has asked to cancel: Y or N"),
     b("WS-CLAIM", "name in, value out", "A claim of the caller's validated token, on the backend (\"sub\", \"email\", \"roles\" …); spaces when absent; read-only"),
+    b("WS-DOWNLOAD", "file-id in, path in, status out", "Fetch a file the backend offers to a local path; OK, NOFILE, REFUSED (see WS-LAST-ERROR), FAILED or NOBACKEND"),
+    b("WS-EMIT", "group in", "On the backend, a stream program sends the group as the next item of the stream; the program ends if nobody is listening"),
+    b("WS-FAIL", "code in, message in, [detail in]", "On the backend, end the call with the program's own failure (code 1 to 7999); the caller reads it in ON EXCEPTION; by-reference changes are discarded"),
+    b("WS-FILE-PATH", "file-id in, path out, status out", "On the backend, where a file the caller uploaded is on disk; OK or NOFILE (also for a file someone else uploaded)"),
+    b("WS-FILE-PUBLISH", "path in, file-id out, status out", "On the backend, offer a file the program holds to the caller for download; the id goes to the client, which asks for a short-lived address"),
     b("WS-LAST-ERROR", "class out, code out, message out, [detail out]", "How the last CALL … WITH WEBSOCKET LINKAGE failed: class word, numeric code, English message, the program's own detail"),
+    b("WS-PAUSE", "milliseconds in", "On the backend, wait; it ends early when the caller asks to cancel"),
+    b("WS-PROGRESS", "percent in, message in", "On the backend, report the progress of a long-running call; it is a safe point where a cancel ends the call"),
+    b("WS-UPLOAD", "slot in, path in, mime in, file-id out, status out", "Send a local file into one of the backend's upload slots, in pieces; OK, NOFILE, REFUSED (see WS-LAST-ERROR), FAILED or NOBACKEND"),
+    b("WS-WARNING", "message out", "The most recent warning the backend attached to a call (a deprecated program, an older application); spaces when none"),
 ];
 
 /// The built-in `name` names — with or without its `COBOL-` prefix, any case.

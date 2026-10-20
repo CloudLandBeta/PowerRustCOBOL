@@ -150,6 +150,15 @@ pub struct LimitsSection {
     /// How long a call waits for a file another call is using, milliseconds
     /// (WASM-003 R19); after that its OPEN answers file status 93.
     pub file_lock_wait_ms: Option<u64>,
+    /// A `long_running` call may run this long, milliseconds (WASM-014 R13).
+    pub long_call_timeout_ms: Option<u64>,
+    /// After a cancel request, a program that has not reached a safe point is
+    /// stopped at its next statement once this much time has passed, milliseconds.
+    pub cancel_grace_ms: Option<u64>,
+    /// Stream items waiting for a slow subscriber before it is ended (WASM-014 R14).
+    pub event_queue: Option<usize>,
+    /// The most idempotency results kept at once (WASM-014 R10).
+    pub idempotency_max_entries: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -302,6 +311,10 @@ pub struct Limits {
     pub handshake_timeout_ms: u64,
     pub idempotency_ttl: u64,
     pub file_lock_wait_ms: u64,
+    pub long_call_timeout_ms: u64,
+    pub cancel_grace_ms: u64,
+    pub event_queue: usize,
+    pub idempotency_max_entries: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -491,6 +504,10 @@ impl ServerConfig {
             handshake_timeout_ms: l.handshake_timeout_ms.unwrap_or(10_000),
             idempotency_ttl: l.idempotency_ttl_seconds.unwrap_or(600),
             file_lock_wait_ms: l.file_lock_wait_ms.unwrap_or(5000),
+            long_call_timeout_ms: l.long_call_timeout_ms.unwrap_or(600_000),
+            cancel_grace_ms: l.cancel_grace_ms.unwrap_or(10_000),
+            event_queue: l.event_queue.unwrap_or(256),
+            idempotency_max_entries: l.idempotency_max_entries.unwrap_or(10_000),
         };
         if limits.max_frame_bytes < 1024 {
             errs.push("limits.max_frame_bytes is under 1024: no call would fit".to_string());

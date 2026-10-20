@@ -73,6 +73,11 @@ fn main() {
         tracing.init();
     }
 
+    // WASM-014: a program that calls its backend finds the client here, from the
+    // environment (COBOLT_BACKEND_URL …); `run`, `run-form` and `run-form-ipc` all
+    // share it, and so do the child forms a running form opens.
+    cobolt_server::client::install_default_from_env();
+
     match args.get(1).map(|s| s.as_str()) {
         Some("run") => cmd_run(&args[2..]),
         Some("run-form") => form_gui::cmd_run_form(&args[2..]),

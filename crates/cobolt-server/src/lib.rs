@@ -24,6 +24,8 @@
 pub mod backend;
 #[cfg(feature = "loader")]
 pub mod bundle;
+#[cfg(feature = "client")]
+pub mod client;
 #[cfg(feature = "server")]
 pub mod config;
 #[cfg(feature = "server")]
@@ -31,7 +33,11 @@ pub mod dev;
 #[cfg(feature = "server")]
 pub mod exec;
 #[cfg(feature = "server")]
+pub mod files;
+#[cfg(feature = "server")]
 pub mod http;
+#[cfg(feature = "server")]
+pub mod idem;
 #[cfg(feature = "server")]
 pub mod jwks;
 #[cfg(feature = "server")]

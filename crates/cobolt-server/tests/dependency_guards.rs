@@ -81,6 +81,12 @@ fn the_compiler_reads_and_packs_a_backend_through_the_loader_alone() {
 fn the_client_a_desktop_host_links_has_the_channel_and_nothing_of_the_server() {
     let client = closure(&["-p", "cobolt-server", "--no-default-features", "--features", "client"]);
     assert!(client.contains("tokio-tungstenite") && client.contains("native-tls"), "the client speaks WebSocket over the operating system's TLS");
-    assert_eq!(present(&client, &["jsonwebtoken", "ureq", "cobolt-runtime", "cobolt-parser"]), Vec::<&str>::new(), "the client does not carry the server");
+    assert_eq!(present(&client, &["jsonwebtoken", "ureq"]), Vec::<&str>::new(), "the client does not carry the server's token or key-fetch code");
+    // It links the runtime, with none of its optional bridges, for the process-wide transport factory.
+    assert!(client.contains("cobolt-runtime"));
+    for optional in ["rusqlite", "libsqlite3-sys", "postgres", "mysql", "google_maps", "hyper"] {
+        assert!(!client.contains(optional), "{optional} is in the client's closure");
+    }
+    assert_eq!(present(&client, HEADLESS), Vec::<&str>::new(), "the client is headless too");
     assert_eq!(present(&client, NO_C_CRYPTO), Vec::<&str>::new());
 }

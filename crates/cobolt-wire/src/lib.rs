@@ -30,7 +30,7 @@ pub mod node;
 pub mod number;
 pub mod proto;
 
-pub use call::{ArgMode, ArgPayload, CallReply, CallRequest, Transport};
+pub use call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallReply, CallRequest, DownloadRequest, DownloadResult, NoObserver, Transport, UploadRequest, UploadResult};
 pub use error::{CallError, ErrorClass};
 pub use layout::{from_decl, Item, Kind, LayoutError, Occurs, Step};
 pub use mapping::{decode, decode_json, encode, ErrorKind, MapError};

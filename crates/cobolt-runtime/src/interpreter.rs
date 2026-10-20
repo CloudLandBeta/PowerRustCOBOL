@@ -37,7 +37,7 @@ mod grid_unit;
 mod kb;
 /// WASM-005 — `CALL … WITH WEBSOCKET LINKAGE`: groups out of the environment,
 /// through the JSON mapping, over the run's transport, and back.
-mod remote;
+pub mod remote;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::mpsc;
@@ -11680,6 +11680,21 @@ impl Interpreter {
             //   list …); read-only, spaces when the caller has no such claim
             //   (WASM-003 R12).
             "COBOL-WS-CLAIM" => self.builtin_ws_claim(using, span)?,
+            // The backend's side of the contract (WASM-014): a program the
+            // backend exports reports its own failure, its progress, its stream
+            // items, asks whether the caller wants out, and reaches the files
+            // the caller uploaded or is offered.
+            "COBOL-WS-FAIL" => self.builtin_ws_fail(using, span)?,
+            "COBOL-WS-PROGRESS" => self.builtin_ws_progress(using, span)?,
+            "COBOL-WS-CANCELLED" => self.builtin_ws_cancelled(using),
+            "COBOL-WS-PAUSE" => self.builtin_ws_pause(using, span)?,
+            "COBOL-WS-EMIT" => self.builtin_ws_emit(using)?,
+            "COBOL-WS-FILE-PATH" => self.builtin_ws_file_path(using, span)?,
+            "COBOL-WS-FILE-PUBLISH" => self.builtin_ws_file_publish(using, span)?,
+            // The frontend's side: the last warning, and files in and out.
+            "COBOL-WS-WARNING" => self.builtin_ws_warning(using),
+            "COBOL-WS-UPLOAD" => self.builtin_ws_upload(using, span)?,
+            "COBOL-WS-DOWNLOAD" => self.builtin_ws_download(using, span)?,
             // COBOL-FILE-STATUS file-name status-item
             //   Copies the named file's last FILE STATUS into `status-item`
             //   ("00" before any operation). The IndexedFile facade calls it

@@ -87,6 +87,10 @@ const AUDIO_CALLS: &[&str] = &[
     "COBOL-AUDIO-STATE",
 ];
 
+/// WASM-014 — the built-ins that talk to the backend without a `CALL … WITH
+/// WEBSOCKET LINKAGE`. A program naming either needs the client.
+const REMOTE_CALLS: &[&str] = &["COBOL-WS-UPLOAD", "COBOL-WS-DOWNLOAD"];
+
 /// What a program needs linked, unioned across every program in the build.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RuntimeFeatures {
@@ -130,6 +134,12 @@ pub struct RuntimeFeatures {
     /// Windows; on Linux it needs ALSA to build and `libasound2` to run, so
     /// only a program that calls an `AUDIO-…` verb links it. No control does.
     pub audio: bool,
+    /// WASM-005/014 - `CALL … WITH WEBSOCKET LINKAGE` and the file built-ins
+    /// `WS-UPLOAD` / `WS-DOWNLOAD`: the application links the backend client
+    /// (`cobolt-server`'s `client` feature) and starts it. Not a feature of the
+    /// runtime, so it is not in [`Self::as_toml_features`]; a program without a
+    /// remote call links no socket code for it.
+    pub remote: bool,
 }
 
 impl RuntimeFeatures {
@@ -147,6 +157,7 @@ impl RuntimeFeatures {
             aws: true,
             images: true,
             audio: true,
+            remote: true,
         }
     }
 
@@ -164,6 +175,7 @@ impl RuntimeFeatures {
             aws: self.aws || other.aws,
             images: self.images || other.images,
             audio: self.audio || other.audio,
+            remote: self.remote || other.remote,
         }
     }
 
@@ -274,8 +286,8 @@ pub fn scan_program(program: &Program) -> RuntimeFeatures {
         match stmt {
             // WASM-005: the target of a WEBSOCKET call is a program of the
             // backend, never a built-in of this runtime — its name says nothing
-            // about what the application links.
-            Stmt::Call { convention: cobolt_ast::stmt::CallConvention::WebSocket, .. } => {}
+            // about what the application links, except that it needs the client.
+            Stmt::Call { convention: cobolt_ast::stmt::CallConvention::WebSocket, .. } => found.remote = true,
             Stmt::Call { program: target, .. } => match literal_text(target) {
                 Some(name) => {
                     let upper = name.trim().to_ascii_uppercase();
@@ -290,6 +302,10 @@ pub fn scan_program(program: &Program) -> RuntimeFeatures {
                     }
                     if AUDIO_CALLS.contains(&upper.as_str()) {
                         found.audio = true;
+                    }
+                    // Files in and out of the backend ride the client.
+                    if REMOTE_CALLS.contains(&upper.as_str()) {
+                        found.remote = true;
                     }
                 }
                 // The verb is computed at run time. Nothing in the source says
@@ -336,6 +352,7 @@ fn scan_rust(source: &str) -> RuntimeFeatures {
         aws: source.contains("cobolt_runtime::aws"),
         images: source.contains("image_runtime"),
         audio: source.contains("audio_runtime"),
+        remote: source.contains("cobolt_server"),
     }
 }
 
@@ -403,6 +420,26 @@ mod tests {
         assert!(!f.maps, "…nor Maps");
         assert!(!f.images, "…nor a picture");
         assert_eq!(f.as_toml_features(), "");
+    }
+
+    /// WASM-014 - an application links the backend client only when it talks to
+    /// its backend, and for nothing else: not a SQL driver, not the REST client.
+    #[test]
+    fn a_remote_call_or_a_file_transfer_links_the_backend_client_and_nothing_else_does() {
+        for body in [
+            "    CALL \"GET-CUSTOMER\" WITH WEBSOCKET LINKAGE USING BY REFERENCE WS-VERB RETURNING WS-S.\n    STOP RUN.",
+            "    COBOL::\"WS-UPLOAD\" ( \"docs\" WS-VERB \"image/png\" WS-VERB WS-S )\n    STOP RUN.",
+            "    CALL \"COBOL-WS-DOWNLOAD\" USING WS-VERB, WS-VERB, WS-S\n    STOP RUN.",
+        ] {
+            let f = scan(&prog(body));
+            assert!(f.remote, "{body} needs the client");
+            assert!(!f.sql && !f.http && !f.maps && !f.images && !f.audio, "…and nothing else: {f:?}");
+            assert_eq!(f.as_toml_features(), "", "the client is not a feature of the runtime");
+        }
+        assert!(!scan(&prog("    DISPLAY \"hello\".\n    STOP RUN.")).remote);
+        // The backend's own built-ins run in the backend, which has the server, not the client.
+        assert!(!scan(&prog("    COBOL::\"WS-CLAIM\" ( \"sub\" WS-VERB )\n    STOP RUN.")).remote);
+        assert!(RuntimeFeatures::all().remote && RuntimeFeatures::default().union(RuntimeFeatures { remote: true, ..Default::default() }).remote);
     }
 
     /// Spec 092 — `IMAGE-FIT` / `IMAGE-INFO` link the decoders, written either
