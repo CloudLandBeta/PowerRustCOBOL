@@ -17,6 +17,22 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.12] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.11.)*
+
+### Added: `specs/WASM-PLAN.md` and `specs/WASM-ABI-v1.md`
+
+The master plan of the WASM series (the four artefacts and their crates, eight
+decisions with their reasons — routines written once in Rust and linked
+statically, the decimal kernel extracted to a `no_std` crate the interpreter
+re-exports, a trampoline of block functions over an explicit stack so that a
+module can suspend in every browser, a conformance mode for the NIST gate — the
+order of work, the risks, and the definition of done), and **ABI v1**, the
+contract between the generated program module, the player and the host page:
+memories and the arena, the six imports, the exports, the command batch and
+queries, events, error codes and the manifest. No product behaviour changes.
+
 ## [PowerRustCOBOL 2.0.11] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.10.)*
