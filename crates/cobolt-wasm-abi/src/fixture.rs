@@ -151,6 +151,13 @@ const FORM_LIVE_ADDR: u32 = 0x0200;
 const FORM_MAX_ADDR: u32 = 0x0300;
 /// The handler table: 4 bytes per entry — form, ctrl, event, first segment.
 const HANDLER_TABLE_ADDR: u32 = 0x0400;
+/// The task table (ABI amendment A5): up to [`TASKS`] tasks that may be suspended at once.
+/// `task_live[t]` is a byte; the other three are `i32` arrays indexed by `t * 4`.
+const TASK_LIVE_ADDR: u32 = 0x0600;
+const TASK_INST_ADDR: u32 = 0x0610;
+const TASK_SEG_ADDR: u32 = 0x0620;
+const TASK_CLOSE_ADDR: u32 = 0x0630;
+const TASKS: i32 = 4;
 /// Command templates and frames start here.
 const TEMPLATE_ADDR: u32 = 0x1000;
 const DATA_PAGES: u32 = 1;
@@ -171,7 +178,8 @@ const G_RLEN: u32 = 7;
 const G_REQ: u32 = 8;
 const G_SPIN_LEFT: u32 = 9;
 const G_ACC: u32 = 10;
-const G_CLOSING: u32 = 11;
+/// The task the running segment belongs to.
+const G_CUR_TASK: u32 = 11;
 const GLOBAL_COUNT: u32 = 12;
 
 // ── type indexes ────────────────────────────────────────────────────────────
@@ -205,7 +213,8 @@ const F_PR_DBG_LIVE: u32 = 17;
 const F_PR_DBG_REGION: u32 = 18;
 const F_FIND_HANDLER: u32 = 19;
 const F_RUN_CURRENT: u32 = 20;
-const F_FIRST_SEGMENT: u32 = 21;
+const F_NEW_TASK: u32 = 21;
+const F_FIRST_SEGMENT: u32 = 22;
 
 struct Layout {
     multi: bool,
@@ -924,6 +933,7 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
     funcs.function(T_V_I32); // pr_dbg_region_used
     funcs.function(T_I32X3_I32); // find_handler(form, ctrl, event)
     funcs.function(T_V_I32); // run_current
+    funcs.function(T_I32I32_I32); // new_task(inst, closing_inst)
     for _ in 0..nseg {
         funcs.function(T_V_I32);
     }
@@ -944,7 +954,7 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
     let mut globals = GlobalSection::new();
     for i in 0..GLOBAL_COUNT {
         let init = match i {
-            G_CUR_INST | G_SEG | G_TASK | G_CLOSING => -1,
+            G_CUR_INST | G_SEG | G_TASK | G_CUR_TASK => -1,
             _ => 0,
         };
         globals.global(GlobalType { val_type: ValType::I32, mutable: true, shared: false }, &ConstExpr::i32_const(init));
@@ -1073,6 +1083,10 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
         a.c(0);
         a.i(I::I32GeS);
         a.i(I::If(BlockType::Empty));
+        a.i(I::LocalGet(2));
+        a.c(-1);
+        a.i(I::Call(F_NEW_TASK));
+        a.i(I::Drop);
         a.i(I::LocalGet(3));
         a.gset(G_SEG);
         a.i(I::Call(F_RUN_CURRENT));
@@ -1119,7 +1133,9 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
         a.i(I::I32GeS);
         a.i(I::If(BlockType::Result(ValType::I32)));
         a.i(I::LocalGet(0));
-        a.gset(G_CLOSING);
+        a.i(I::LocalGet(0));
+        a.i(I::Call(F_NEW_TASK));
+        a.i(I::Drop);
         a.i(I::LocalGet(1));
         a.gset(G_SEG);
         a.i(I::Call(F_RUN_CURRENT));
@@ -1170,6 +1186,15 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
         a.c(err::UNKNOWN_TARGET);
         a.i(I::Return);
         a.i(I::End);
+        a.i(I::LocalGet(0));
+        a.c(-1);
+        a.i(I::Call(F_NEW_TASK));
+        a.c(0);
+        a.i(I::I32LtS);
+        a.i(I::If(BlockType::Empty));
+        a.c(err::GENERIC); // all tasks are in use
+        a.i(I::Return);
+        a.i(I::End);
         a.i(I::LocalGet(4));
         a.gset(G_SEG);
         a.i(I::Call(F_RUN_CURRENT));
@@ -1178,24 +1203,91 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
     }); // pr_event
 
     // pr_resume(task, len) -> status
-    code.function(&simple(l, |a| {
+    code.function(&{
+        let mut a = Asm::new(l, &[]);
+        // an unknown or finished task
+        a.i(I::LocalGet(0));
+        a.c(0);
+        a.i(I::I32LtS);
+        a.i(I::LocalGet(0));
+        a.c(TASKS);
+        a.i(I::I32GeS);
+        a.i(I::I32Or);
+        a.i(I::If(BlockType::Empty));
+        a.c(err::UNKNOWN_TARGET);
+        a.i(I::Return);
+        a.i(I::End);
+        a.i(I::LocalGet(0));
+        a.i(I::I32Load8U(data_arg(TASK_LIVE_ADDR as u64)));
+        a.i(I::I32Eqz);
+        a.i(I::If(BlockType::Empty));
+        a.c(err::UNKNOWN_TARGET);
+        a.i(I::Return);
+        a.i(I::End);
+        a.i(I::LocalGet(0));
+        a.gset(G_CUR_TASK);
+        a.i(I::LocalGet(0));
+        a.c(4);
+        a.i(I::I32Mul);
+        a.i(I::I32Load(data_arg(TASK_SEG_ADDR as u64)));
+        a.gset(G_SEG);
+        a.i(I::LocalGet(0));
+        a.c(4);
+        a.i(I::I32Mul);
+        a.i(I::I32Load(data_arg(TASK_INST_ADDR as u64)));
+        a.gset(G_CUR_INST);
         a.i(I::LocalGet(1));
         a.gset(G_RLEN);
         a.i(I::Call(F_RUN_CURRENT));
-    }));
-    // pr_cancel(task)
-    code.function(&simple(l, |a| {
-        a.gset_const(G_TASK, -1);
-        a.gset_const(G_SEG, -1);
-        a.gset_const(G_USED, 0);
+        a.i(I::End);
+        a.f
+    });
+    // pr_cancel(task): -1 discards the run that trapped (ABI A5)
+    code.function(&{
+        let mut a = Asm::new(l, &[(2, ValType::I32)]); // 1 = t, 2 = closing inst
+        a.i(I::LocalGet(0));
+        a.c(0);
+        a.i(I::I32LtS);
+        a.i(I::If(BlockType::Result(ValType::I32)));
+        a.gget(G_CUR_TASK);
+        a.i(I::Else);
+        a.i(I::LocalGet(0));
+        a.i(I::End);
+        a.i(I::LocalSet(1));
+        a.i(I::LocalGet(1));
+        a.c(0);
+        a.i(I::I32GeS);
+        a.i(I::LocalGet(1));
+        a.c(TASKS);
+        a.i(I::I32LtS);
+        a.i(I::I32And);
+        a.i(I::If(BlockType::Empty));
+        a.i(I::LocalGet(1));
+        a.i(I::I32Load8U(data_arg(TASK_LIVE_ADDR as u64)));
+        a.i(I::If(BlockType::Empty));
         // a cancelled close still releases the instance
-        a.gget(G_CLOSING);
+        a.i(I::LocalGet(1));
+        a.c(4);
+        a.i(I::I32Mul);
+        a.i(I::I32Load(data_arg(TASK_CLOSE_ADDR as u64)));
+        a.i(I::LocalSet(2));
+        a.i(I::LocalGet(2));
         a.c(0);
         a.i(I::I32GeS);
         a.i(I::If(BlockType::Empty));
-        free_instance_global(a);
+        free_instance(&mut a, 2);
         a.i(I::End);
-    }));
+        a.i(I::LocalGet(1));
+        a.c(0);
+        a.i(I::I32Store8(data_arg(TASK_LIVE_ADDR as u64)));
+        a.i(I::End);
+        a.i(I::End);
+        a.gset_const(G_TASK, -1);
+        a.gset_const(G_SEG, -1);
+        a.gset_const(G_USED, 0);
+        a.i(I::End);
+        a.f
+    });
     // pr_tick() -> task
     code.function(&simple(l, |a| {
         a.gget(G_TASK);
@@ -1285,13 +1377,13 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
     });
     // run_current() -> status: call table[seg](), record the status and the task
     code.function(&{
-        let mut a = Asm::new(l, &[(1, ValType::I32)]);
+        let mut a = Asm::new(l, &[(2, ValType::I32)]); // 0 = status, 1 = closing instance
         a.gget(G_SEG);
         a.i(I::CallIndirect { type_index: T_V_I32, table_index: 0 });
         a.i(I::LocalSet(0));
         a.i(I::LocalGet(0));
         a.gset(G_LAST_STATUS);
-        // task = status is 1 or 2 ? 0 : -1
+        // A task left suspended or yielded keeps its next segment; a finished one frees its slot.
         a.i(I::LocalGet(0));
         a.c(status::SUSPENDED);
         a.i(I::I32Eq);
@@ -1300,18 +1392,88 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
         a.i(I::I32Eq);
         a.i(I::I32Or);
         a.i(I::If(BlockType::Empty));
-        a.gset_const(G_TASK, 0);
+        // task_seg[cur] = seg; the id pr_tick reports
+        a.gget(G_CUR_TASK);
+        a.c(4);
+        a.i(I::I32Mul);
+        a.gget(G_SEG);
+        a.i(I::I32Store(data_arg(TASK_SEG_ADDR as u64)));
+        a.gget(G_CUR_TASK);
+        a.gset(G_TASK);
         a.i(I::Else);
         a.gset_const(G_TASK, -1);
+        a.gget(G_CUR_TASK);
+        a.c(0);
+        a.i(I::I32Store8(data_arg(TASK_LIVE_ADDR as u64)));
         // a finished close releases the instance
-        a.gget(G_CLOSING);
+        a.gget(G_CUR_TASK);
+        a.c(4);
+        a.i(I::I32Mul);
+        a.i(I::I32Load(data_arg(TASK_CLOSE_ADDR as u64)));
+        a.i(I::LocalSet(1));
+        a.i(I::LocalGet(1));
         a.c(0);
         a.i(I::I32GeS);
         a.i(I::If(BlockType::Empty));
-        free_instance_global(&mut a);
+        free_instance(&mut a, 1);
+        a.gget(G_CUR_TASK);
+        a.c(4);
+        a.i(I::I32Mul);
+        a.c(-1);
+        a.i(I::I32Store(data_arg(TASK_CLOSE_ADDR as u64)));
         a.i(I::End);
         a.i(I::End);
         a.i(I::LocalGet(0));
+        a.i(I::End);
+        a.f
+    });
+    // new_task(inst, closing_inst) -> slot | -1
+    code.function(&{
+        let mut a = Asm::new(l, &[(1, ValType::I32)]); // 2 = t
+        a.c(0);
+        a.i(I::LocalSet(2));
+        a.i(I::Block(BlockType::Empty));
+        a.i(I::Loop(BlockType::Empty));
+        a.i(I::LocalGet(2));
+        a.c(TASKS);
+        a.i(I::I32GeU);
+        a.i(I::BrIf(1));
+        a.i(I::LocalGet(2));
+        a.i(I::I32Load8U(data_arg(TASK_LIVE_ADDR as u64)));
+        a.i(I::I32Eqz);
+        a.i(I::BrIf(1));
+        a.i(I::LocalGet(2));
+        a.c(1);
+        a.i(I::I32Add);
+        a.i(I::LocalSet(2));
+        a.i(I::Br(0));
+        a.i(I::End);
+        a.i(I::End);
+        a.i(I::LocalGet(2));
+        a.c(TASKS);
+        a.i(I::I32GeU);
+        a.i(I::If(BlockType::Empty));
+        a.c(-1);
+        a.i(I::Return);
+        a.i(I::End);
+        a.i(I::LocalGet(2));
+        a.c(1);
+        a.i(I::I32Store8(data_arg(TASK_LIVE_ADDR as u64)));
+        a.i(I::LocalGet(2));
+        a.c(4);
+        a.i(I::I32Mul);
+        a.i(I::LocalGet(0));
+        a.i(I::I32Store(data_arg(TASK_INST_ADDR as u64)));
+        a.i(I::LocalGet(2));
+        a.c(4);
+        a.i(I::I32Mul);
+        a.i(I::LocalGet(1));
+        a.i(I::I32Store(data_arg(TASK_CLOSE_ADDR as u64)));
+        a.i(I::LocalGet(2));
+        a.gset(G_CUR_TASK);
+        a.i(I::LocalGet(0));
+        a.gset(G_CUR_INST);
+        a.i(I::LocalGet(2));
         a.i(I::End);
         a.f
     });
@@ -1369,22 +1531,6 @@ fn free_instance(a: &mut Asm<'_>, local: u32) {
     a.i(I::I32Store8(data_arg(LIVE_ADDR as u64)));
 }
 
-/// Free the instance in the `closing` global, then clear it.
-fn free_instance_global(a: &mut Asm<'_>) {
-    a.gget(G_CLOSING);
-    a.i(I::I32Load8U(data_arg(INST_FORM_ADDR as u64)));
-    a.gget(G_CLOSING);
-    a.i(I::I32Load8U(data_arg(INST_FORM_ADDR as u64)));
-    a.i(I::I32Load8U(data_arg(FORM_LIVE_ADDR as u64)));
-    a.c(1);
-    a.i(I::I32Sub);
-    a.i(I::I32Store8(data_arg(FORM_LIVE_ADDR as u64)));
-    a.gget(G_CLOSING);
-    a.c(0);
-    a.i(I::I32Store8(data_arg(LIVE_ADDR as u64)));
-    a.gset_const(G_CLOSING, -1);
-}
-
 // ── ready-made scenarios ────────────────────────────────────────────────────
 
 /// The names of the controls and events of [`standard_spec`], for tests to refer to.
@@ -1439,6 +1585,8 @@ pub fn standard_spec(multi_memory: bool) -> FixtureSpec {
                     ("BTN-STOP".into(), "Button".into()),
                     ("BTN-SUSPEND".into(), "Button".into()),
                     ("BTN-OPEN".into(), "Button".into()),
+                    ("BTN-MODAL".into(), "Button".into()),
+                    ("BTN-RAW".into(), "Button".into()),
                 ],
                 handlers: vec![
                     FixtureHandler::form("onLoad", vec![Step::Set { target: out(), name: "Caption".into(), value: "loaded".into() }]),
@@ -1502,20 +1650,64 @@ pub fn standard_spec(multi_memory: bool) -> FixtureSpec {
                         "onClick",
                         vec![Step::Call { target: Target::App, name: "OpenFormAsync".into(), args: vec![CHILD_FORM.into()] }],
                     ),
+                    // A read reflects the handler's own earlier write (WASM-017 R11): SET, then GET.
+                    FixtureHandler::on(
+                        "BTN-RAW",
+                        "onClick",
+                        vec![
+                            Step::Set { target: t(TXT_IN), name: "Text".into(), value: "written first".into() },
+                            Step::Get { target: t(TXT_IN), name: "Text".into() },
+                            Step::EchoAnswer { target: out(), name: "Caption".into() },
+                        ],
+                    ),
+                    // `OpenFormSync`: the handler suspends until the child closes, while the child's own
+                    // handlers run (ABI amendment A5: tasks of different instances interleave).
+                    FixtureHandler::on(
+                        "BTN-MODAL",
+                        "onClick",
+                        vec![
+                            Step::Set { target: out(), name: "Caption".into(), value: "modal".into() },
+                            Step::Call { target: Target::Form, name: "OpenFormSync".into(), args: vec![CHILD_FORM.into()] },
+                            Step::Suspend,
+                            Step::Set { target: out(), name: "Caption".into(), value: "after modal".into() },
+                        ],
+                    ),
                 ],
             },
             FixtureForm {
                 name: CHILD_FORM.into(),
                 main: false,
                 instances: 3,
-                controls: vec![("LBL-CHILD".into(), "Label".into())],
+                controls: vec![("LBL-CHILD".into(), "Label".into()), ("BTN-CLOSE".into(), "Button".into())],
                 handlers: vec![
                     FixtureHandler::form("onLoad", vec![Step::Set { target: Target::control("LBL-CHILD"), name: "Caption".into(), value: "child".into() }]),
                     FixtureHandler::form("onClose", vec![Step::Display("child closing".into())]),
+                    FixtureHandler::on("BTN-CLOSE", "onClick", vec![Step::Call { target: Target::Form, name: "Close".into(), args: vec![] }]),
                 ],
             },
         ],
     }
+}
+
+/// A minimal `.cfrm` for form `form_name` of `fixture`: its controls in a column, each of the type
+/// the manifest names. What the build would write from the designer; here, for tests of the player
+/// and the bundle, which both need a form description to pair with the module.
+pub fn standard_cfrm(fixture: &Fixture, form_name: &str) -> String {
+    let f = fixture.manifest.form_by_name(form_name).unwrap_or_else(|| panic!("no form `{form_name}` in the fixture"));
+    let mut xml = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Form name=\"{}\" title=\"{}\" width=\"640\" height=\"480\">\n",
+        f.name, f.name
+    );
+    for (i, c) in f.controls.iter().enumerate() {
+        xml.push_str(&format!(
+            "  <Control id=\"{}\" type=\"{}\" x=\"10\" y=\"{}\" w=\"200\" h=\"28\"></Control>\n",
+            c.name,
+            c.kind,
+            10 + i * 34
+        ));
+    }
+    xml.push_str("</Form>\n");
+    xml
 }
 
 #[cfg(test)]

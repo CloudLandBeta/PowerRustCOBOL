@@ -37,6 +37,9 @@ members = [
     "crates/cobolt-bench",   # performance + allocation baseline harness
     "crates/cobolt-wasm-abi",  # WASM-ABI-v1 — the contract between the program module, the player and the host page (2.x.x)
 ]
+# The prebuilt browser player is its own Cargo workspace (wasm-bindgen pinned to the installed CLI,
+# a nightly confined to its build, its own lock file): see crates/cobolt-web-player/Cargo.toml.
+exclude = ["crates/cobolt-web-player"]
 resolver = "2"
 
 # WASM-010 — the conformance host runs generated modules in the wasmi

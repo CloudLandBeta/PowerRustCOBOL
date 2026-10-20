@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# The PLAYER (WASM-016): the prebuilt Leptos form engine that draws any form in a
+# browser and hosts the generated program module (ABI v1). It is its OWN Cargo
+# workspace, built with `--manifest-path`, for three reasons recorded in
+# specs/WASM-016-prebuilt-player/plan.md:
+#   1. wasm-bindgen must equal the installed `wasm-bindgen` CLI *exactly*
+#      (0.2.129); the main workspace's lock pins 0.2.126 for other consumers.
+#   2. Leptos + web-sys add ~220 packages that only a wasm32 build needs, and the
+#      other agents of the 2.x.x line edit the main lock file in parallel.
+#   3. The threaded variant is built with a pinned nightly and `-Zbuild-std`,
+#      which must stay confined to this crate's build step (WASM-017 R16).
+# Its dependency closure is checked by tests/dependency_guard.rs (the main
+# workspace's guard reads only the main lock file).
+
+[package]
+name        = "cobolt-web-player"
+description = "The PowerRustCOBOL player — draws any form in the browser and hosts the generated program module (ABI v1)"
+version     = "2.0.0"
+edition     = "2021"
+rust-version = "1.92"
+license     = "Apache-2.0"
+publish     = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default  = []
+# Rayon on a worker pool (WASM-017 R19a): DataGrid sorting and filtering. Built only by the
+# threaded variant (nightly, atomics, shared memory); the plain player runs the same code sequentially.
+threaded = ["rayon", "dep:wasm-bindgen-rayon"]
+# Rayon alone (no wasm-bindgen glue): lets the native tests prove that the parallel sort gives the
+# same result as the sequential one.
+rayon = ["dep:rayon"]
+
+[dependencies]
+cobolt-forms    = { path = "../cobolt-forms", default-features = false }
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi" }
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+indexmap    = { version = "2", features = ["serde"] }
+rayon       = { version = "1", optional = true }
+
+# The browser crates are `wasm32` only: a native `cargo test` of the pure layers (the ABI host,
+# the state, the policies) compiles none of them, which keeps the test loop fast and small. The
+# DOM and Leptos modules are `#[cfg(target_arch = "wasm32")]` and are checked and built for the
+# browser target, which is what ships.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+leptos = { version = "=0.8.22", features = ["csr"] }
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+wasm-bindgen-rayon = { version = "1.3", optional = true }
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "HtmlSelectElement",
+    "HtmlOptionElement", "HtmlButtonElement", "HtmlDialogElement", "HtmlCanvasElement", "HtmlImageElement",
+    "HtmlAnchorElement", "HtmlProgressElement", "HtmlFormElement", "Node", "NodeList", "Text", "CssStyleDeclaration",
+    "DomTokenList", "Event", "EventTarget", "MouseEvent", "KeyboardEvent", "FocusEvent", "InputEvent", "WheelEvent",
+    "PointerEvent", "TouchEvent", "CustomEvent", "CustomEventInit", "Location", "History", "Navigator", "Url",
+    "UrlSearchParams", "Storage", "WebSocket", "MessageEvent", "CloseEvent", "ErrorEvent", "BroadcastChannel",
+    "ResizeObserver", "ResizeObserverEntry", "ResizeObserverSize", "DomRect", "MediaQueryList", "Performance",
+    "AddEventListenerOptions", "EventListenerOptions", "Blob", "BlobPropertyBag", "File", "FileList", "DataTransfer",
+    "FileReader", "Crypto", "SvgElement", "SvgsvgElement", "ShadowRoot", "ShadowRootInit", "ShadowRootMode",
+    "CssStyleSheet", "CssRuleList", "DocumentFragment", "CanvasRenderingContext2d", "DomException", "ScrollToOptions",
+    "ScrollBehavior", "FocusOptions", "HtmlCollection", "ProgressEvent", "StorageEvent",
+    "PageTransitionEvent", "HashChangeEvent", "PopStateEvent", "HtmlLinkElement", "HtmlStyleElement",
+] }
+
+[dev-dependencies]
+# The engine the native tests run the fixture module on (WASM-PLAN P7): pure Rust, no JIT.
+wasmi = "2"
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["fixture", "scan"] }
+
+# The size-first profile of WASM-017 R16. `opt-level` is chosen by measurement ("z" against
+# "s": see plan.md); `panic = "abort"` is what lets a panic end the instance cleanly; symbols are
+# stripped; wasm-opt runs afterwards (examples/build_player.rs).
+[profile.release]
+opt-level     = "z"
+lto           = true
+codegen-units = 1
+panic         = "abort"
+strip         = true
+debug         = false
