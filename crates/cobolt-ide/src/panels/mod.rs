@@ -66,6 +66,8 @@ pub mod toolbar;
 pub mod toolbar_editor;
 pub mod toolbox;
 pub mod walkthrough;
+/// The settings of a Web or Mobile project (WASM-001, WASM-002).
+pub mod web_settings;
 
 pub(crate) const CHAT_SEND_BUTTON_WIDTH: f32 = 96.0;
 

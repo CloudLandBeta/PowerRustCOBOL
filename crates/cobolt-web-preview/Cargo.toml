@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name         = "cobolt-web-preview"
+description  = "The helper process of the web Preview (WASM-008): a window of its own holding the system web view, driven by the IDE over JSON lines"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+# A separate process, on purpose: a web view that hangs or crashes takes this
+# program down and nothing else (WASM-008 R2), and the window is the operating
+# system's, which nothing in the IDE's layout can resize. The IDE finds it beside
+# its own executable (`cobolt_project_tools::web::preview::helper_path`) and
+# falls back to the system browser when it is not there.
+#
+# Nothing a built application links depends on this crate.
+
+[[bin]]
+name = "prc-web-preview"
+path = "src/main.rs"
+
+[dependencies]
+# The only thing the protocol needs; the IDE's side of it is in
+# `cobolt_project_tools::web::preview`, and both sides pin the same lines.
+serde_json = { workspace = true }
+
+# The system web view: WKWebView on macOS, WebView2 on Windows. wry and tao are
+# the web view and window crates Tauri 2 (the mobile shell, WASM-012) uses, under
+# the Apache-2.0 / MIT licences, MSRV 1.85. No TLS or crypto crate comes with
+# them (`ring` and `aws-lc-rs` stay out of the lock). On Linux the web view is
+# WebKitGTK, which needs system libraries; this program does not use it there yet,
+# and the IDE falls back to the system browser.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+wry = { version = "0.57", default-features = false, features = ["os-webview"] }
+tao = { version = "0.35", default-features = false, features = ["rwh_06"] }

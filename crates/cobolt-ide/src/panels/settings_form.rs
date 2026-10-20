@@ -38,6 +38,21 @@ pub struct SettingsDraft {
     pub main: String,
     pub copyright: String,
     pub destination_folder: String,
+    // ── Project kind (WASM-001): what the project builds, and its settings ──
+    /// Fixed when the project is created; shown, never edited.
+    pub kind: cobolt_compiler::ProjectKind,
+    /// One line on what the project is (a Web or Mobile project edits it here).
+    pub description: String,
+    /// The default locale, such as `pt-BR`.
+    pub locale: String,
+    /// `[web]`, edited for a Web project.
+    pub web: cobolt_compiler::project_kind::WebSettings,
+    /// `[mobile]`, edited for a Mobile project.
+    pub mobile: Option<cobolt_compiler::project_kind::MobileSettings>,
+    /// Does the project have a Backend part (`[backend]` or Backend files)?
+    pub has_backend: bool,
+    /// `[backend] exports`, one program name per line.
+    pub exports_text: String,
     // ── License ──
     pub license_model: String,
     pub license_text: String,
@@ -137,6 +152,17 @@ impl SettingsDraft {
             main: p.project.main.clone(),
             copyright: p.project.copyright.clone(),
             destination_folder: p.project.destination_folder.clone(),
+            kind: p.kind(),
+            description: p.project.description.clone(),
+            locale: p.project.locale.clone(),
+            web: p.web_settings(),
+            mobile: p.mobile.clone(),
+            has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
+            exports_text: p
+                .backend
+                .as_ref()
+                .map(|b| b.exports.join("\n"))
+                .unwrap_or_default(),
             license_model: p.project.license_model.clone(),
             // A project that names a license but carries no text (older projects,
             // or one whose text was never filled in) gets the canonical text, so
@@ -234,6 +260,7 @@ impl SettingsDraft {
         p.project.main = self.main.clone();
         p.project.copyright = self.copyright.clone();
         p.project.destination_folder = self.destination_folder.clone();
+        self.apply_kind(p);
         p.project.license_model = self.license_model.clone();
         p.project.license_text = self.license_text.clone();
         p.ide.theme = self.theme_id.clone();
@@ -851,6 +878,21 @@ impl SettingsForm {
                                 );
                             });
                         });
+
+                        // --- A Web or Mobile project's own settings (WASM-001, WASM-002).
+                        // A Desktop project shows nothing here: its settings are what they were.
+                        crate::panels::web_settings::show(
+                            ui,
+                            &mut self.draft,
+                            tr,
+                            &theme,
+                            crate::panels::web_settings::RowLayout {
+                                splitter,
+                                resizer_width,
+                                gap_after_resizer,
+                                property_indent,
+                            },
+                        );
 
                         ui.add_space(8.0);
 
@@ -2922,7 +2964,7 @@ impl SettingsForm {
     }
 }
 
-fn section(ui: &mut Ui, title: &str, theme: &crate::theme::Theme) {
+pub(crate) fn section(ui: &mut Ui, title: &str, theme: &crate::theme::Theme) {
     ui.add_space(10.0);
     ui.label(RichText::new(title).size(15.0).strong().color(theme.accent));
     ui.add_space(2.0);

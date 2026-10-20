@@ -46,8 +46,24 @@ pub const HELPER_ENV: &str = "PRC_WEB_PREVIEW";
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Command {
     /// Open the window on `url`, `width` x `height` points. Only the origin
-    /// of `url` may be navigated to afterwards (WASM-008 R8).
-    Open { url: String, title: String, width: u32, height: u32 },
+    /// of `url` may be navigated to afterwards (WASM-008 R8). The emulation the
+    /// developer already chose rides along, so the page loads once, not once
+    /// per setting.
+    Open {
+        url: String,
+        title: String,
+        width: u32,
+        height: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dpr: Option<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dark: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        locale: Option<String>,
+        /// top, right, bottom, left — CSS pixels.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        safe_area: Option<[u32; 4]>,
+    },
     /// Resize the window — the developer picked a preset or an orientation.
     Size { width: u32, height: u32 },
     /// Load the page again.
@@ -84,7 +100,35 @@ pub enum Event {
     Closed,
 }
 
+/// What the page is told about the device it runs on (WASM-008 R5). Every
+/// field is optional: what is `None` is left as the web view has it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Emulation {
+    /// The `devicePixelRatio` the page reads.
+    pub dpr: Option<f32>,
+    /// Prefer the dark (`true`) or the light (`false`) colour scheme.
+    pub dark: Option<bool>,
+    /// The language the page sees (`navigator.language`).
+    pub locale: Option<String>,
+    /// The insets `--prc-safe-area-*` carry: top, right, bottom, left, in CSS pixels.
+    pub safe_area: Option<[u32; 4]>,
+}
+
 impl Command {
+    /// The command that opens the window.
+    pub fn open(url: &str, title: &str, width: u32, height: u32, emulation: &Emulation) -> Command {
+        Command::Open {
+            url: url.to_owned(),
+            title: title.to_owned(),
+            width,
+            height,
+            dpr: emulation.dpr,
+            dark: emulation.dark,
+            locale: emulation.locale.clone(),
+            safe_area: emulation.safe_area,
+        }
+    }
+
     /// One line of JSON, newline-terminated.
     pub fn to_line(&self) -> String {
         let mut s = serde_json::to_string(self).expect("a command serialises");
@@ -173,12 +217,19 @@ impl PreviewSession {
     /// Show `url`. With a `helper`, its window opens at `width` x `height`;
     /// without one, or if it will not start, the system browser opens the page.
     /// The mode that resulted is [`PreviewSession::mode`].
-    pub fn start(url: &str, title: &str, width: u32, height: u32, helper: Option<&Path>) -> Result<Self, String> {
+    pub fn start(
+        url: &str,
+        title: &str,
+        width: u32,
+        height: u32,
+        emulation: &Emulation,
+        helper: Option<&Path>,
+    ) -> Result<Self, String> {
         if !is_preview_url(url) {
             return Err("the Preview shows only its own development server".to_owned());
         }
         if let Some(path) = helper {
-            if let Ok(session) = Self::spawn(path, url, title, width, height) {
+            if let Ok(session) = Self::spawn(path, url, title, width, height, emulation) {
                 return Ok(session);
             }
         }
@@ -186,7 +237,14 @@ impl PreviewSession {
         Ok(Self { mode: Mode::SystemBrowser, child: None, stdin: None, events: None, closed: false })
     }
 
-    fn spawn(path: &Path, url: &str, title: &str, width: u32, height: u32) -> Result<Self, String> {
+    fn spawn(
+        path: &Path,
+        url: &str,
+        title: &str,
+        width: u32,
+        height: u32,
+        emulation: &Emulation,
+    ) -> Result<Self, String> {
         let mut child = std::process::Command::new(path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -208,12 +266,7 @@ impl PreviewSession {
         });
         let mut session =
             Self { mode: Mode::WebView, child: Some(child), stdin, events: Some(rx), closed: false };
-        let opened = session.send(&Command::Open {
-            url: url.to_owned(),
-            title: title.to_owned(),
-            width,
-            height,
-        });
+        let opened = session.send(&Command::open(url, title, width, height, emulation));
         if opened {
             Ok(session)
         } else {
@@ -309,8 +362,18 @@ mod tests {
     fn the_lines_the_ide_writes_are_the_helpers_contract() {
         let cases: Vec<(Command, &str)> = vec![
             (
-                Command::Open { url: "http://127.0.0.1:8123/".into(), title: "P".into(), width: 390, height: 844 },
+                Command::open("http://127.0.0.1:8123/", "P", 390, 844, &Emulation::default()),
                 r#"{"cmd":"open","url":"http://127.0.0.1:8123/","title":"P","width":390,"height":844}"#,
+            ),
+            (
+                Command::open(
+                    "http://127.0.0.1:8123/",
+                    "P",
+                    390,
+                    844,
+                    &Emulation { dpr: Some(3.0), dark: Some(true), locale: Some("pt-BR".into()), safe_area: Some([47, 0, 34, 0]) },
+                ),
+                r#"{"cmd":"open","url":"http://127.0.0.1:8123/","title":"P","width":390,"height":844,"dpr":3.0,"dark":true,"locale":"pt-BR","safe_area":[47,0,34,0]}"#,
             ),
             (Command::Size { width: 820, height: 1180 }, r#"{"cmd":"size","width":820,"height":1180}"#),
             (Command::Reload, r#"{"cmd":"reload"}"#),
@@ -372,7 +435,7 @@ mod tests {
             assert!(!is_preview_url(bad), "{bad}");
             assert!(open_in_system_browser(bad).is_err(), "{bad}");
         }
-        assert!(PreviewSession::start("https://example.com/", "x", 1, 1, None).is_err());
+        assert!(PreviewSession::start("https://example.com/", "x", 1, 1, &Emulation::default(), None).is_err());
     }
 
     /// A helper that is not there, or will not start, leaves the system browser.
@@ -381,7 +444,7 @@ mod tests {
         // `start` with a helper that cannot run falls through to the browser; to
         // keep the test from opening one, check the helper's own failure.
         let nothing = PathBuf::from("/definitely/not/a/helper");
-        assert!(PreviewSession::spawn(&nothing, "http://127.0.0.1:1/", "t", 100, 100).is_err());
+        assert!(PreviewSession::spawn(&nothing, "http://127.0.0.1:1/", "t", 100, 100, &Emulation::default()).is_err());
     }
 
     /// A helper process that speaks the protocol: events arrive, commands
@@ -404,7 +467,7 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let mut s = PreviewSession::spawn(&helper, "http://127.0.0.1:9/", "T", 390, 844).unwrap();
+        let mut s = PreviewSession::spawn(&helper, "http://127.0.0.1:9/", "T", 390, 844, &Emulation::default()).unwrap();
         assert_eq!(s.mode(), Mode::WebView);
         let mut got = Vec::new();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
