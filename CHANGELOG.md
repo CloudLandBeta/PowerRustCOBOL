@@ -17,6 +17,62 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.22] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.21.)*
+
+### Added: programs calling programs in the WebAssembly generator — NIST IC runs clean, 25 of 25 programs, 309 assertions, 0 failures
+
+GOLDEN RULE #9, third module, both axes: the 25 `IC` test programs (with the 22
+subprograms they call, run as one source as the harness does) compile and run to
+completion on generated modules with no failure; the interpreter's own result is 309
+assertions and 0 failures, the same figures. NC (95 of 95, 4 612 assertions) and IF (45
+of 45, 841) are unchanged.
+
+- **Program units.** A source's main program, the programs nested in it and the ones
+  written after it are *units* of one module, sharing one region: a callee's storage
+  lies at its own addresses, so `GLOBAL` items need only name scoping (a name is seen by
+  its own unit and, when GLOBAL, by the units it contains) and `EXTERNAL` items one shared
+  allocation. `INDEXED BY` names, files and `USE` procedures are per unit.
+- **`CALL`.** By literal name it is a transfer inside the module: the arguments are bound
+  to the callee's LINKAGE slots, a frame is pushed and control enters the callee's first
+  paragraph; `EXIT PROGRAM`, `GOBACK` and falling off the end all reach the callee's exit,
+  which drops every `PERFORM` frame down to the call frame and returns through it (from
+  any depth). By identifier the name is found at run time (`rt_find_program`). `BY
+  REFERENCE` is the argument's address; `BY CONTENT`/`BY VALUE` a copy made for the call
+  (an item byte for byte, a literal moved into a record shaped like the callee's
+  parameter). `RETURNING`, `ON EXCEPTION`/`ON OVERFLOW` and `NOT ON EXCEPTION` work; a
+  program that is not in the module takes the exception path, or stops with a run-time
+  error. `CANCEL` puts a unit's storage back to its initial state (a generated initialiser
+  per unit); storage is otherwise static between calls.
+- **LINKAGE.** A LINKAGE record has no storage: references reach it through a four-byte
+  slot (`OF_LINK` operands), so the callee sees the caller's bytes through its own
+  description of them — records of different shape over the same characters, `REDEFINES`
+  of a linkage record (which shares the slot), tables, index data items.
+- **Files across units.** A `GLOBAL` file is visible to the units it contains; an
+  `EXTERNAL` file shares its record area and its open handle; `SELECT OPTIONAL` opens a
+  missing input file as an empty one (status 05).
+- **`USE AFTER ERROR` declaratives** (conformance builds): a file verb that fails — and
+  that no `AT END` phrase covers — performs the first applicable declarative (named file,
+  open mode, or all), once at a time; `USE GLOBAL` handlers answer for the files of the
+  units they contain.
+- **Shared front end.** `FileDescription::is_external` and `UseProcedure::is_global` are
+  new (appended, `#[serde(default)]`) AST fields that the parser fills and the
+  interpreter does not read; nothing else in `cobolt-ast`, `cobolt-parser` or
+  `cobolt-runtime` changed behaviour. Their test suites pass; the interpreter's NIST
+  regression was **not** re-run for this additive change.
+
+Interpreter divergences found are in `specs/WASM-PARITY.md` (notably: `EXIT PROGRAM` and
+`GOBACK` inside a `PERFORM` in a called program do not leave the program in the
+interpreter). Not done: `CALL … RETURNING` through an identifier, `INITIAL` and `COMMON`
+(the AST does not carry them), recursion, a `CALL` that names a backend program
+(WASM-005), the desktop host's `COBOL-…` services.
+
+Version 2.0.22. No product document changes; `README.md` and `docs/` are untouched on
+this line.
+
+*(Written on `features-2x`.)*
+
 ## [PowerRustCOBOL 2.0.21] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.20.)*

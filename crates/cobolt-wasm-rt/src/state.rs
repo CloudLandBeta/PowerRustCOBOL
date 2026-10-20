@@ -54,6 +54,10 @@ pub mod err {
     pub const SCRATCH_OVERFLOW: u32 = 105;
     /// More than 512 nested out-of-line PERFORMs.
     pub const PERFORM_DEPTH: u32 = 106;
+    /// A LINKAGE item was used that the CALL did not pass.
+    pub const UNBOUND_LINKAGE: u32 = 107;
+    /// `CALL` of a program that is not in the module, with no `ON EXCEPTION`.
+    pub const PROGRAM_NOT_FOUND: u32 = 108;
 }
 
 pub struct State {

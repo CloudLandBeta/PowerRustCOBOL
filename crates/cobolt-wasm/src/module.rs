@@ -159,6 +159,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     });
     let lowered = Lower::lower(prog, &mut pool, &mut blocks, map, opts.conformance, opts.tolerate_undeclared, when_compiled)?;
     let layout = lowered.layout;
+    let unit_count = lowered.units;
 
     // Reachable blocks, entry first.
     let mut order: Vec<BlockId> = Vec::new();
@@ -219,6 +220,7 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     let ty_i32_void = types.intern(&[ValType::I32], &[]);
     let ty_i32_i32_void = types.intern(&[ValType::I32, ValType::I32], &[]);
     let ty_i32_ret = types.intern(&[], &[ValType::I32]);
+    let ty_void = types.intern(&[], &[]);
 
     // ── function index space ────────────────────────────────────────────
     // The glue functions the module needs: the two it always has, plus the
@@ -336,12 +338,41 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
                 Ins::GlobalSet(g) => {
                     f.instruction(&I::GlobalSet(gl(*g)));
                 }
+                // The per-unit initialisers are defined right after the blocks.
+                Ins::InitUnit(u) => {
+                    f.instruction(&I::Call(block_fn_base + order.len() as u32 + *u as u32));
+                }
             }
         }
         f.instruction(&I::End);
         let idx = block_fn_base + k as u32;
         table_funcs.push(idx);
         defs.push(Def { name: format!("{}#{}", block.name, k), ty: ty_block, body: Body::Encoded(f) });
+    }
+
+    // ── per-unit initialisers (CANCEL) ───────────────────────────────────
+    for u in 0..unit_count {
+        let mut f = Function::new([]);
+        if let Some(ops) = img.unit_ops.get(u) {
+            for op in ops {
+                match op {
+                    InitOp::Fill { off, len, byte } => {
+                        f.instruction(&I::I32Const((region_base + off) as i32));
+                        f.instruction(&I::I32Const(*byte as i32));
+                        f.instruction(&I::I32Const(*len as i32));
+                        f.instruction(&I::MemoryFill(0));
+                    }
+                    InitOp::Copy { off, blob_off, len } => {
+                        f.instruction(&I::I32Const((region_base + off) as i32));
+                        f.instruction(&I::I32Const((template_base + blob_off) as i32));
+                        f.instruction(&I::I32Const(*len as i32));
+                        f.instruction(&I::MemoryCopy { src_mem: 0, dst_mem: 0 });
+                    }
+                }
+            }
+        }
+        f.instruction(&I::End);
+        defs.push(Def { name: format!("init_unit_{u}"), ty: ty_void, body: Body::Encoded(f) });
     }
 
     // ── glue bodies ──────────────────────────────────────────────────────

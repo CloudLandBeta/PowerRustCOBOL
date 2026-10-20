@@ -200,6 +200,7 @@ pub fn definition_text_of(def: &IndexedDefinition) -> String {
                 RecordSizing { min: Some(min_length), max: Some(max_length), varying: true, depending_on: None }
             }
         }),
+        is_external: false,
         span: Span::new(0, 0, 1, 1),
     };
     cobolt_ast::fd_text::render_file_description_with(&fd, &extents)

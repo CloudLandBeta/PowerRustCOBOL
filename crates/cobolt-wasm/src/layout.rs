@@ -55,6 +55,12 @@ pub struct Item {
     pub index_names: Vec<String>,
     /// `ASCENDING/DESCENDING KEY` fields `(name, ascending)`.
     pub keys: Vec<(String, bool)>,
+    /// The program unit that declared it (`u32::MAX` for hidden items).
+    pub unit: u32,
+    /// A LINKAGE item: the region offset of the 4-byte slot holding the address
+    /// of the caller's record this item lies in. `off` is then relative to
+    /// that record.
+    pub link: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -66,13 +72,85 @@ pub struct Layout {
     pub roots: Vec<usize>,
     /// Bytes of the region.
     pub total: u32,
-    /// Index-names (`INDEXED BY`): name -> hidden item.
+    /// Index-names (`INDEXED BY`): `"unit:NAME"` -> hidden item.
     pub index_names: HashMap<String, usize>,
+    /// The program unit being laid out or lowered.
+    pub unit: u32,
+    /// Units whose items a name may denote, innermost first: the current unit,
+    /// then the units that contain it (whose `GLOBAL` items it sees).
+    pub scope: Vec<u32>,
+    /// `EXTERNAL` items: name -> (offset, size) of the one storage they share.
+    externals: HashMap<String, (u32, u32)>,
+    /// Per unit: the region range its declared storage occupies.
+    pub unit_ranges: Vec<(u32, u32)>,
 }
 
 impl Layout {
     pub fn new() -> Layout {
-        Layout { items: Vec::new(), by_name: HashMap::new(), roots: Vec::new(), total: 0, index_names: HashMap::new() }
+        Layout {
+            items: Vec::new(),
+            by_name: HashMap::new(),
+            roots: Vec::new(),
+            total: 0,
+            index_names: HashMap::new(),
+            unit: 0,
+            scope: vec![0],
+            externals: HashMap::new(),
+            unit_ranges: Vec::new(),
+        }
+    }
+
+    /// Start laying out unit `u`. Its storage begins where the last one ended.
+    pub fn begin_unit(&mut self, u: u32, scope: Vec<u32>) {
+        self.unit = u;
+        self.scope = scope;
+        while self.unit_ranges.len() <= u as usize {
+            self.unit_ranges.push((self.total, self.total));
+        }
+        self.unit_ranges[u as usize] = (self.total, self.total);
+    }
+
+    /// The unit's declared storage ends here.
+    pub fn end_unit(&mut self) {
+        self.total = (self.total + 7) & !7;
+        let u = self.unit as usize;
+        self.unit_ranges[u].1 = self.total;
+    }
+
+    /// Select the names visible to unit `u` (while lowering it).
+    pub fn set_scope(&mut self, u: u32, scope: Vec<u32>) {
+        self.unit = u;
+        self.scope = scope;
+    }
+
+    /// Does the current scope see item `i`? Its own unit's items, the `GLOBAL`
+    /// items of the units containing it, and hidden items.
+    fn visible(&self, i: usize) -> bool {
+        let it = &self.items[i];
+        it.unit == u32::MAX || it.unit == self.unit || (self.scope.contains(&it.unit) && self.is_global(i))
+    }
+
+    /// Is the item `GLOBAL`, itself or through a record or group above it?
+    fn is_global(&self, i: usize) -> bool {
+        let mut cur = Some(i);
+        while let Some(c) = cur {
+            if self.items[c].global {
+                return true;
+            }
+            cur = self.items[c].parent;
+        }
+        false
+    }
+
+    /// The hidden item behind an `INDEXED BY` name of the current unit (or of a
+    /// unit containing it).
+    pub fn index_item(&self, name: &str) -> Option<usize> {
+        for u in &self.scope {
+            if let Some(&i) = self.index_names.get(&format!("{u}:{name}")) {
+                return Some(i);
+            }
+        }
+        None
     }
 
     /// Lay out one section's declarations after what is already there.
@@ -83,7 +161,10 @@ impl Layout {
                 continue; // handled after the records they refer to
             }
             // A level-01 REDEFINES shares the storage of the record it names.
+            // An EXTERNAL item is one storage for every unit that declares it.
+            let external_at = if d.is_external { d.name.as_ref().and_then(|n| self.externals.get(&n.to_ascii_uppercase()).copied()) } else { None };
             let (start, redef) = match &d.redefines {
+                _ if external_at.is_some() => (external_at.unwrap().0, None),
                 Some(target) => {
                     let t = target.to_ascii_uppercase();
                     let ti = self
@@ -102,7 +183,19 @@ impl Layout {
             self.roots.push(idx);
             let it = &self.items[idx];
             let end = it.off + it.size * it.occurs.as_ref().map_or(1, |o| o.0);
-            self.total = self.total.max(end);
+            let (it_off, it_len) = (it.off, end - it.off);
+            if d.is_external {
+                self.mark_external(idx);
+            }
+            if d.is_external && external_at.is_none() {
+                if let Some(n) = &d.name {
+                    self.externals.insert(n.to_ascii_uppercase(), (it_off, it_len));
+                }
+            }
+            // Storage shared with an earlier EXTERNAL declaration adds none.
+            if external_at.is_none() {
+                self.total = self.total.max(end);
+            }
         }
         // 66-level items come after their records. A 66 belongs to the record
         // it follows, which is what a qualifier (`RENAME-5 OF T-RENAMES-DATA`)
@@ -115,35 +208,115 @@ impl Layout {
             if d.level == 66 {
                 let owner = if seen > 0 { self.roots.get(first_root + seen - 1).copied() } else { None };
                 if let Some(r) = &d.renames {
-                    let idx = self.items.len();
-                    self.items.push(Item {
-                        name: d.name.as_ref().map(|n| n.to_ascii_uppercase()),
-                        level: 66,
-                        parent: owner,
-                        children: vec![],
-                        off: 0,
-                        size: 0,
-                        occurs: None,
-                        fd: Fd::alnum(0),
-                        is_group: false,
-                        redefines: None,
-                        value: None,
-                        cond: vec![],
-                        renames: Some((r.from.to_ascii_uppercase(), r.thru.as_ref().map(|t| t.to_ascii_uppercase()))),
-                        span_line: d.span.line,
-                        hidden: false,
-                        external: false,
-                        global: false,
-                        pic_template: None,
-                        pic_kind: None,
-                        usage: Usage::Display,
-                        blank_when_zero: false,
-                        index_names: vec![],
-                        keys: vec![],
-                    });
-                    if let Some(n) = &self.items[idx].name {
-                        self.by_name.entry(n.clone()).or_default().push(idx);
+                    self.push_renames(d, r, owner);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Flag an item and everything below it as EXTERNAL (shared storage the
+    /// image does not initialise).
+    fn mark_external(&mut self, i: usize) {
+        self.items[i].external = true;
+        let kids = self.items[i].children.clone();
+        for k in kids {
+            self.mark_external(k);
+        }
+    }
+
+    /// A 66-level item: a character view over the items it renames, resolved
+    /// in [`Layout::finish`]. It belongs to the record it follows.
+    fn push_renames(&mut self, d: &DataDecl, r: &cobolt_ast::data::RenamesClause, owner: Option<usize>) {
+        let idx = self.items.len();
+        self.items.push(Item {
+            name: d.name.as_ref().map(|n| n.to_ascii_uppercase()),
+            level: 66,
+            parent: owner,
+            children: vec![],
+            off: 0,
+            size: 0,
+            occurs: None,
+            fd: Fd::alnum(0),
+            is_group: false,
+            redefines: None,
+            value: None,
+            cond: vec![],
+            renames: Some((r.from.to_ascii_uppercase(), r.thru.as_ref().map(|t| t.to_ascii_uppercase()))),
+            span_line: d.span.line,
+            hidden: false,
+            external: false,
+            global: false,
+            pic_template: None,
+            pic_kind: None,
+            usage: Usage::Display,
+            blank_when_zero: false,
+            index_names: vec![],
+            keys: vec![],
+            unit: self.unit,
+            link: owner.and_then(|o| self.items[o].link),
+        });
+        if let Some(n) = &self.items[idx].name {
+            self.by_name.entry(n.clone()).or_default().push(idx);
+        }
+    }
+
+    /// The LINKAGE SECTION: records with no storage of their own. Each 01/77
+    /// gets a four-byte slot in the region that a `CALL` fills with the address
+    /// of the argument; the items below are laid out from offset 0 of the
+    /// record, and every reference reaches them through the slot.
+    pub fn add_linkage(&mut self, decls: &[DataDecl]) -> GenResult<()> {
+        let first_root = self.roots.len();
+        let mut seen = 0usize;
+        for d in decls {
+            if d.level == 66 || d.level == 88 {
+                continue;
+            }
+            seen += 1;
+            // A level-01 REDEFINES shares the record, and so the slot, of the
+            // record it names.
+            let shared = d.redefines.as_ref().and_then(|t| {
+                let up = t.to_ascii_uppercase();
+                self.roots
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|&r| self.items[r].name.as_deref() == Some(up.as_str()) && self.items[r].unit == self.unit)
+                    .and_then(|r| self.items[r].link.map(|l| (r, l)))
+            });
+            let slot = match shared {
+                Some((_, l)) => l,
+                None => self.alloc_hidden(4),
+            };
+            let idx = self.add_decl(d, None, 0, None, Usage::Display)?;
+            if let Some((r, _)) = shared {
+                self.items[idx].redefines = Some(r);
+            }
+            self.roots.push(idx);
+            // The record and everything under it reach their storage through the slot.
+            let mut stack = vec![idx];
+            while let Some(i) = stack.pop() {
+                self.items[i].link = Some(slot);
+                stack.extend(self.items[i].children.iter().copied());
+            }
+            // Conditions under the record's items carry the link too (they read the host).
+            let all: Vec<usize> = (0..self.items.len()).filter(|&k| self.items[k].level == 88).collect();
+            for k in all {
+                if let Some(p) = self.items[k].parent {
+                    if self.items[p].link.is_some() && self.items[k].link.is_none() {
+                        self.items[k].link = self.items[p].link;
                     }
+                }
+            }
+        }
+        // 66 and 88 under linkage records: handled as in WORKING-STORAGE (88s above;
+        // a 66 over linkage items resolves in `finish`).
+        let _ = (first_root, seen);
+        for d in decls {
+            if d.level == 66 {
+                if let Some(r) = &d.renames {
+                    let owner = if seen > 0 { self.roots.last().copied() } else { None };
+                    self.push_renames(d, r, owner);
                 }
             }
         }
@@ -154,7 +327,19 @@ impl Layout {
     /// (COBOL-85: the records of an FD implicitly redefine each other), so each
     /// starts where the first does and the area is the longest of them.
     pub fn add_file_records(&mut self, decls: &[DataDecl]) -> GenResult<()> {
-        let start = self.total;
+        self.add_file_records_of("", false, decls)
+    }
+
+    /// As [`Layout::add_file_records`] for the FD called `fd_name`; an
+    /// `EXTERNAL` FD's record area is one storage for every unit that declares
+    /// it.
+    pub fn add_file_records_of(&mut self, fd_name: &str, external: bool, decls: &[DataDecl]) -> GenResult<()> {
+        let key = format!("FD:{}", fd_name.to_ascii_uppercase());
+        let shared = if external { self.externals.get(&key).copied() } else { None };
+        let start = match shared {
+            Some((off, _)) => off,
+            None => self.total,
+        };
         let mut first: Option<usize> = None;
         let mut end = start;
         for d in decls {
@@ -170,7 +355,19 @@ impl Layout {
             let it = &self.items[idx];
             end = end.max(it.off + it.size * it.occurs.as_ref().map_or(1, |o| o.0));
         }
-        self.total = end;
+        if external {
+            // The records of an EXTERNAL FD are never initialised by the image.
+            let mine: Vec<usize> = self.roots.iter().copied().filter(|&r| r >= first.unwrap_or(usize::MAX)).collect();
+            for r in mine {
+                self.mark_external(r);
+            }
+        }
+        if shared.is_none() {
+            if external {
+                self.externals.insert(key, (start, end - start));
+            }
+            self.total = end;
+        }
         Ok(())
     }
 
@@ -213,6 +410,8 @@ impl Layout {
             blank_when_zero: d.blank_when_zero,
             index_names: d.occurs.as_ref().map(|o| o.indexed_by.iter().map(|n| n.to_ascii_uppercase()).collect()).unwrap_or_default(),
             keys: d.occurs.as_ref().map(|o| o.keys.iter().map(|(k, a)| (k.to_ascii_uppercase(), *a)).collect()).unwrap_or_default(),
+            unit: self.unit,
+            link: None,
         });
         if let Some(n) = &name {
             self.by_name.entry(n.clone()).or_default().push(idx);
@@ -287,6 +486,8 @@ impl Layout {
                 blank_when_zero: false,
                 index_names: vec![],
                 keys: vec![],
+                unit: self.unit,
+                link: None,
             });
             if let Some(n) = &self.items[ci].name {
                 self.by_name.entry(n.clone()).or_default().push(ci);
@@ -297,7 +498,7 @@ impl Layout {
         if let Some(o) = &d.occurs {
             for n in &o.indexed_by {
                 let up = n.to_ascii_uppercase();
-                self.index_names.entry(up).or_insert(usize::MAX);
+                self.index_names.entry(format!("{}:{}", self.unit, up)).or_insert(usize::MAX);
             }
         }
         Ok(idx)
@@ -340,7 +541,11 @@ impl Layout {
         let names: Vec<String> = self.index_names.keys().cloned().collect();
         let mut names = names;
         names.sort();
-        for n in names {
+        for key in names {
+            let (unit, n) = match key.split_once(':') {
+                Some((u, n)) => (u.parse::<u32>().unwrap_or(0), n.to_string()),
+                None => (0, key.clone()),
+            };
             let off = self.total;
             let idx = self.items.len();
             self.items.push(Item {
@@ -367,9 +572,11 @@ impl Layout {
                 blank_when_zero: false,
                 index_names: vec![],
                 keys: vec![],
+                unit,
+                link: None,
             });
             self.by_name.entry(n.clone()).or_default().push(idx);
-            self.index_names.insert(n, idx);
+            self.index_names.insert(key, idx);
             self.total += 4;
         }
         self.total = (self.total + 7) & !7;
@@ -406,6 +613,8 @@ impl Layout {
             blank_when_zero: false,
             index_names: vec![],
             keys: vec![],
+            unit: self.unit,
+            link: None,
         });
         self.by_name.entry(up).or_default().push(idx);
         self.total = (self.total + 32 + 7) & !7;
@@ -429,6 +638,9 @@ impl Layout {
         let cands = self.named(name);
         let mut hits: Vec<usize> = Vec::new();
         'c: for &c in cands {
+            if !self.visible(c) {
+                continue;
+            }
             // Every qualifier must name an ancestor, in order outward.
             let mut cur = self.items[c].parent;
             for q in quals {
@@ -446,6 +658,17 @@ impl Layout {
                 }
             }
             hits.push(c);
+        }
+        // An item of the current unit hides one of the same name that a
+        // containing unit declared GLOBAL, and so on outward.
+        if hits.len() > 1 {
+            for u in self.scope.clone() {
+                let here: Vec<usize> = hits.iter().copied().filter(|&h| self.items[h].unit == u).collect();
+                if !here.is_empty() {
+                    hits = here;
+                    break;
+                }
+            }
         }
         // Two condition-names of one spelling (a SPECIAL-NAMES switch status and an
         // 88-level the program also declares): the later declaration wins, as it
@@ -468,6 +691,7 @@ impl Layout {
                 .named(name)
                 .iter()
                 .copied()
+                .filter(|&c| self.visible(c))
                 .filter(|&c| {
                     let mut cur = self.items[c].parent;
                     while let Some(p) = cur {

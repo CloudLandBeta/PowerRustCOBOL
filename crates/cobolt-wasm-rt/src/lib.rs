@@ -41,6 +41,7 @@
 
 pub mod accept;
 pub mod arith;
+pub mod call;
 pub mod cmp;
 pub mod codec;
 pub mod disp;
@@ -387,6 +388,30 @@ pub extern "C" fn rt_switches(base: u32, table: u32) {
             mem::wr_u8(base + off, b'0' + (st & 1) as u8);
         }
     }
+}
+
+/// `CALL … BY REFERENCE`: point linkage slot `slot` at argument `src`.
+#[no_mangle]
+pub extern "C" fn rt_bind(base: u32, slot: u32, src: u32) {
+    call::bind(base, slot, src);
+}
+
+/// `CALL … BY CONTENT / BY VALUE`: copy the argument for the call and bind it.
+#[no_mangle]
+pub extern "C" fn rt_bind_content(base: u32, slot: u32, src: u32, tmp: u32, dst: u32, tmp_len: u32) {
+    call::bind_content(base, slot, src, tmp, dst, tmp_len);
+}
+
+/// The index of the program named by operand `name` in `table`, or -1.
+#[no_mangle]
+pub extern "C" fn rt_find_program(base: u32, name: u32, table: u32) -> i32 {
+    call::find_program(base, name, table)
+}
+
+/// A `CALL` of a program that is not there, with nothing to catch it.
+#[no_mangle]
+pub extern "C" fn rt_program_not_found() {
+    call::not_found();
 }
 
 /// Evaluate a numeric intrinsic function (call record `rec`) and push its result.

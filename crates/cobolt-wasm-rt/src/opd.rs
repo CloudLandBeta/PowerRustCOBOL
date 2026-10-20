@@ -56,6 +56,9 @@ pub const FIG_QUOTE: u8 = 4;
 pub const FIG_NULL: u8 = 5;
 
 pub const OF_REFMOD: u8 = 1;
+/// A LINKAGE item: `len` is the region offset of the slot holding the address
+/// of the caller's record, and `off` is relative to that record.
+pub const OF_LINK: u8 = 2;
 
 pub const HDR: u32 = 24;
 pub const SUB_SIZE: u32 = 20;
@@ -143,7 +146,15 @@ pub fn locate_full(base: u32, o: &Opd) -> Loc {
 fn locate_sized(base: u32, o: &Opd, current: bool) -> Loc {
     match o.tag {
         T_ITEM => {
-            let mut addr = base.wrapping_add(o.off);
+            let mut addr = if o.flags & OF_LINK != 0 {
+                let p = mem::rd_u32(base.wrapping_add(o.len));
+                if p == 0 {
+                    crate::fail(err::UNBOUND_LINKAGE);
+                }
+                p.wrapping_add(o.off)
+            } else {
+                base.wrapping_add(o.off)
+            };
             let mut sp = o.addr + HDR;
             for _ in 0..o.nsub {
                 let s = mem::bytes(sp, SUB_SIZE);

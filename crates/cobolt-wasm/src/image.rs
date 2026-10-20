@@ -33,6 +33,9 @@ pub enum InitOp {
 
 pub struct Image {
     pub ops: Vec<InitOp>,
+    /// Per program unit: the steps that put its own storage back to the initial
+    /// state (`CANCEL`), against the same literal blob.
+    pub unit_ops: Vec<Vec<InitOp>>,
     pub blob: Vec<u8>,
     /// The raw bytes, for tests.
     pub bytes: Vec<u8>,
@@ -120,7 +123,7 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
         if item.level == 88 || item.level == 66 || item.hidden || item.is_group && item.value.is_none() {
             continue;
         }
-        if item.external || shares_storage(layout, idx) {
+        if item.external || item.link.is_some() || shares_storage(layout, idx) {
             continue;
         }
         // An item with no VALUE of its own inside a group that has one keeps
@@ -190,40 +193,15 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
     let bytes = mem.get(region, size as u32).to_vec();
     drop(mem);
 
-    // Compress into runs.
-    let mut ops = Vec::new();
+    // Compress into runs: the whole region, and each unit's own storage.
     let mut blob = Vec::new();
-    let mut i = 0usize;
-    let mut lit_start: Option<usize> = None;
-    let flush = |ops: &mut Vec<InitOp>, blob: &mut Vec<u8>, start: usize, end: usize, bytes: &[u8]| {
-        if end > start {
-            let blob_off = blob.len() as u32;
-            blob.extend_from_slice(&bytes[start..end]);
-            ops.push(InitOp::Copy { off: start as u32, blob_off, len: (end - start) as u32 });
-        }
-    };
-    while i < bytes.len() {
-        let b = bytes[i];
-        let mut j = i + 1;
-        while j < bytes.len() && bytes[j] == b {
-            j += 1;
-        }
-        if j - i >= MIN_FILL {
-            if let Some(s) = lit_start.take() {
-                flush(&mut ops, &mut blob, s, i, &bytes);
-            }
-            // Zero bytes need no fill: memory starts zeroed, but an instance
-            // region is reused, so the fill is still required.
-            ops.push(InitOp::Fill { off: i as u32, len: (j - i) as u32, byte: b });
-        } else if lit_start.is_none() {
-            lit_start = Some(i);
-        }
-        i = j;
-    }
-    if let Some(s) = lit_start.take() {
-        flush(&mut ops, &mut blob, s, bytes.len(), &bytes);
-    }
-    Ok(Image { ops, blob, bytes })
+    let ops = compress(&bytes, 0, bytes.len(), &mut blob);
+    let unit_ops: Vec<Vec<InitOp>> = layout
+        .unit_ranges
+        .iter()
+        .map(|&(lo, hi)| compress(&bytes, lo as usize, (hi as usize).min(bytes.len()), &mut blob))
+        .collect();
+    Ok(Image { ops, unit_ops, blob, bytes })
 }
 
 /// The sender that initialises `item`: its `VALUE`, or the default.
@@ -235,4 +213,41 @@ fn default_or_value(pool: &mut Pool, item: &Item) -> GenResult<u32> {
         K_NUM_DISPLAY | K_BINARY | K_COMP5 | K_PACKED | K_FLOAT32 | K_FLOAT64 | K_INDEX => pool.opd_fig(FIG_ZERO),
         _ => pool.opd_fig(FIG_SPACE),
     })
+}
+
+/// `bytes[lo..hi]` as fills of long runs and copies of the rest (offsets are
+/// region offsets; copied bytes are appended to `blob`).
+fn compress(bytes: &[u8], lo: usize, hi: usize, blob: &mut Vec<u8>) -> Vec<InitOp> {
+    let mut ops = Vec::new();
+    let mut i = lo;
+    let mut lit_start: Option<usize> = None;
+    let flush = |ops: &mut Vec<InitOp>, blob: &mut Vec<u8>, start: usize, end: usize| {
+        if end > start {
+            let blob_off = blob.len() as u32;
+            blob.extend_from_slice(&bytes[start..end]);
+            ops.push(InitOp::Copy { off: start as u32, blob_off, len: (end - start) as u32 });
+        }
+    };
+    while i < hi {
+        let b = bytes[i];
+        let mut j = i + 1;
+        while j < hi && bytes[j] == b {
+            j += 1;
+        }
+        if j - i >= MIN_FILL {
+            if let Some(s) = lit_start.take() {
+                flush(&mut ops, blob, s, i);
+            }
+            // Zero bytes need no fill: memory starts zeroed, but an instance
+            // region is reused, so the fill is still required.
+            ops.push(InitOp::Fill { off: i as u32, len: (j - i) as u32, byte: b });
+        } else if lit_start.is_none() {
+            lit_start = Some(i);
+        }
+        i = j;
+    }
+    if let Some(s) = lit_start.take() {
+        flush(&mut ops, blob, s, hi);
+    }
+    ops
 }

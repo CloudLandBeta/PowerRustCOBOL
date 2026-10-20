@@ -229,6 +229,10 @@ pub struct FileDescription {
     /// themselves give the (fixed) length.
     #[serde(default)]
     pub record_sizing: Option<RecordSizing>,
+    /// `FD name IS EXTERNAL` — the file and its record area are one object for
+    /// every program of the run unit that declares it.
+    #[serde(default)]
+    pub is_external: bool,
     pub span: Span,
 }
 

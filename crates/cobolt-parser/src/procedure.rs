@@ -113,7 +113,7 @@ fn parse_declaratives(p: &mut Parser) -> Vec<UseProcedure> {
             p.advance(); // SECTION
             p.expect_period();
 
-            let (files, modes, catch_all) = parse_use_clause(p);
+            let (files, modes, catch_all, is_global) = parse_use_clause(p);
             let (stmts, paras) = parse_declarative_body(p);
             procs.push(UseProcedure {
                 files,
@@ -123,6 +123,7 @@ fn parse_declaratives(p: &mut Parser) -> Vec<UseProcedure> {
                 span,
                 section,
                 paras,
+                is_global,
             });
         } else {
             // Unexpected token — recover to the next period to avoid looping.
@@ -139,13 +140,14 @@ fn parse_declaratives(p: &mut Parser) -> Vec<UseProcedure> {
 /// Parse `USE [GLOBAL] AFTER STANDARD {ERROR | EXCEPTION} PROCEDURE ON
 /// {file… | INPUT | OUTPUT | I-O | EXTEND} .` Returns the covered files,
 /// open-modes, and whether it is a catch-all (no target named).
-fn parse_use_clause(p: &mut Parser) -> (Vec<String>, Vec<UseMode>, bool) {
+fn parse_use_clause(p: &mut Parser) -> (Vec<String>, Vec<UseMode>, bool, bool) {
     let mut files = Vec::new();
     let mut modes = Vec::new();
+    let mut is_global = false;
 
     if !p.eat(&Token::Use) {
         // Not a USE statement — nothing to associate; treat as catch-all.
-        return (files, modes, true);
+        return (files, modes, true, false);
     }
     // Skip the descriptive words (GLOBAL / AFTER / STANDARD / ERROR /
     // EXCEPTION / PROCEDURE) up to `ON` or the terminating period.
@@ -163,6 +165,9 @@ fn parse_use_clause(p: &mut Parser) -> (Vec<String>, Vec<UseMode>, bool) {
             Token::Input | Token::Output | Token::IoMode | Token::Extend
         )
     {
+        if p.at(&Token::Global) {
+            is_global = true;
+        }
         p.advance();
     }
     p.eat(&Token::On);
@@ -199,7 +204,7 @@ fn parse_use_clause(p: &mut Parser) -> (Vec<String>, Vec<UseMode>, bool) {
     p.expect_period();
 
     let catch_all = files.is_empty() && modes.is_empty();
-    (files, modes, catch_all)
+    (files, modes, catch_all, is_global)
 }
 
 /// Collect the body of a declarative section, stopping at the next section

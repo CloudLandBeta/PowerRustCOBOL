@@ -310,6 +310,10 @@ pub struct UseProcedure {
     pub section: String,
     /// The section's named paragraphs, in declaration order.
     pub paras: Vec<Paragraph>,
+    /// `USE GLOBAL …` — the handler also answers for the files of the programs
+    /// contained in this one.
+    #[serde(default)]
+    pub is_global: bool,
 }
 
 /// The open-mode a `USE` declarative applies to.

@@ -20,7 +20,7 @@
 //!  0 name_addr u32   the ASSIGN name's bytes
 //!  4 name_len  u32
 //!  8 org       u8    0 sequential, 1 line sequential
-//!  9 flags     u8    reserved
+//!  9 flags     u8    bit 0: SELECT OPTIONAL
 //! 12 handle_off u32  region offset of the u32 that holds handle+1 (0 = closed)
 //! 16 status_opd u32  operand of the FILE STATUS item, or 0
 //! ```
@@ -28,6 +28,9 @@
 use crate::host;
 use crate::mem;
 use crate::opd::*;
+
+/// The handle of an OPTIONAL file that was not there: every READ is at end.
+const EMPTY_FILE: u32 = u32::MAX;
 
 pub const MODE_INPUT: u32 = 0;
 pub const MODE_OUTPUT: u32 = 1;
@@ -44,6 +47,7 @@ struct FileDesc {
     name_addr: u32,
     name_len: u32,
     org: u8,
+    optional: bool,
     handle_off: u32,
     status_opd: u32,
 }
@@ -54,6 +58,7 @@ fn desc(a: u32) -> FileDesc {
         name_addr: u32::from_le_bytes([b[0], b[1], b[2], b[3]]),
         name_len: u32::from_le_bytes([b[4], b[5], b[6], b[7]]),
         org: b[8],
+        optional: b[9] & 1 != 0,
         handle_off: u32::from_le_bytes([b[12], b[13], b[14], b[15]]),
         status_opd: u32::from_le_bytes([b[16], b[17], b[18], b[19]]),
     }
@@ -81,12 +86,19 @@ pub fn open(base: u32, fda: u32, mode: u32) -> u32 {
         set_status(base, &fd, 41);
         return 41;
     }
+    // The mode it is open in, for the USE procedures that name a mode.
+    mem::wr_u32(base + fd.handle_off + 4, mode + 1);
     // SAFETY: the glue copies the name out of memory and returns a handle.
     let h = unsafe { host::file_open(fd.name_addr, fd.name_len, mode | ((fd.org as u32) << 8)) };
     if h > 0 {
         mem::wr_u32(base + fd.handle_off, h as u32);
         set_status(base, &fd, 0);
         0
+    } else if h == -35 && fd.optional && mode == MODE_INPUT {
+        // An OPTIONAL file that is not there opens as an empty one (status 05).
+        mem::wr_u32(base + fd.handle_off, EMPTY_FILE);
+        set_status(base, &fd, 5);
+        5
     } else {
         let code = (-h) as u32;
         set_status(base, &fd, code);
@@ -102,7 +114,7 @@ pub fn close(base: u32, fda: u32) -> u32 {
         return 42;
     }
     // SAFETY: the handle came from `file_open`.
-    let r = unsafe { host::file_close(h) };
+    let r = if h == EMPTY_FILE { 0 } else { unsafe { host::file_close(h) } };
     mem::wr_u32(base + fd.handle_off, 0);
     let code = if r < 0 { (-r) as u32 } else { 0 };
     set_status(base, &fd, code);
@@ -120,7 +132,7 @@ pub fn write(base: u32, fda: u32, rec: u32, adv: u32) -> u32 {
     }
     let loc = locate(base, &parse(rec));
     // SAFETY: the glue copies the record out of memory.
-    let r = unsafe { host::file_write(h, loc.addr, loc.len, adv) };
+    let r = if h == EMPTY_FILE { -47 } else { unsafe { host::file_write(h, loc.addr, loc.len, adv) } };
     let code = if r < 0 { (-r) as u32 } else { 0 };
     set_status(base, &fd, code);
     code
@@ -136,7 +148,7 @@ pub fn read(base: u32, fda: u32, rec: u32) -> u32 {
     }
     let loc = locate(base, &parse(rec));
     // SAFETY: the glue writes at most `loc.len` bytes at `loc.addr`.
-    let n = unsafe { host::file_read(h, loc.addr, loc.len) };
+    let n = if h == EMPTY_FILE { -10 } else { unsafe { host::file_read(h, loc.addr, loc.len) } };
     if n >= 0 {
         // A short record leaves the rest of the area as spaces.
         if (n as u32) < loc.len {

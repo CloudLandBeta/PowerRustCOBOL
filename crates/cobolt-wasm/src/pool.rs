@@ -75,8 +75,15 @@ impl Pool {
     /// A data item: `off` from the region base, optional subscripts and
     /// reference modification `(start operand, length operand or 0)`.
     pub fn opd_item(&mut self, off: u32, fd: &Fd, subs: &[Sub], refmod: Option<(u32, u32)>) -> u32 {
-        let flags = if refmod.is_some() { OF_REFMOD } else { 0 };
-        let mut r = Self::header(T_ITEM, subs.len() as u8, flags, 0, fd, off, 0);
+        self.opd_item_in(off, fd, subs, refmod, None)
+    }
+
+    /// As [`Pool::opd_item`]; with `link` the item is in a LINKAGE record whose
+    /// address lives in the slot at that region offset, and `off` is relative
+    /// to the record.
+    pub fn opd_item_in(&mut self, off: u32, fd: &Fd, subs: &[Sub], refmod: Option<(u32, u32)>, link: Option<u32>) -> u32 {
+        let flags = if refmod.is_some() { OF_REFMOD } else { 0 } | if link.is_some() { cobolt_wasm_rt::opd::OF_LINK } else { 0 };
+        let mut r = Self::header(T_ITEM, subs.len() as u8, flags, 0, fd, off, link.unwrap_or(0));
         for s in subs {
             r.extend_from_slice(&s.opd.to_le_bytes());
             r.extend_from_slice(&s.stride.to_le_bytes());
@@ -146,12 +153,13 @@ impl Pool {
 
     /// A file descriptor for the conformance file routines (`cobolt-wasm-rt`'s
     /// `file` module is the definition of the layout).
-    pub fn file_desc(&mut self, name: &[u8], org: u8, handle_off: u32, status_opd: u32) -> u32 {
+    pub fn file_desc(&mut self, name: &[u8], org: u8, optional: bool, handle_off: u32, status_opd: u32) -> u32 {
         let name_addr = if name.is_empty() { self.intern(&[0]) } else { self.intern(name) };
         let mut r = vec![0u8; 20];
         r[0..4].copy_from_slice(&name_addr.to_le_bytes());
         r[4..8].copy_from_slice(&(name.len() as u32).to_le_bytes());
         r[8] = org;
+        r[9] = u8::from(optional);
         r[12..16].copy_from_slice(&handle_off.to_le_bytes());
         r[16..20].copy_from_slice(&status_opd.to_le_bytes());
         self.intern(&r)

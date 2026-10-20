@@ -59,6 +59,8 @@ pub(crate) struct LoopCtx {
 pub(crate) struct FileInfo {
     /// Address of the static file descriptor.
     desc: u32,
+    /// Region offset of the handle slot; the open mode is kept just after it.
+    handle_off: u32,
     /// Layout item of the file's first record area.
     rec_item: Option<usize>,
 }
@@ -66,6 +68,67 @@ pub(crate) struct FileInfo {
 pub struct Lowered {
     pub entry: BlockId,
     pub layout: Layout,
+    /// Number of program units (the main program, then the nested and following
+    /// programs), for the per-unit initialisation the image builds.
+    pub units: usize,
+}
+
+/// A parameter of a called program: the LINKAGE record it names.
+#[derive(Debug, Clone)]
+pub(crate) struct ParamInfo {
+    /// Region offset of the slot a `CALL` fills with the argument's address.
+    pub slot: u32,
+    /// The record's layout item.
+    pub item: usize,
+    pub size: u32,
+}
+
+/// What a `CALL` needs to know about a program unit.
+#[derive(Debug, Clone)]
+pub(crate) struct UnitInfo {
+    pub name: String,
+    /// Where a `CALL` jumps: the first paragraph, or the exit when there is none.
+    pub entry: BlockId,
+    /// The exit block: `EXIT PROGRAM`, `GOBACK` and falling off the last
+    /// paragraph end up here and return to the caller.
+    pub exit: BlockId,
+    pub params: Vec<ParamInfo>,
+    /// The `RETURNING` item's layout index.
+    pub returning: Option<usize>,
+    /// Units whose `GLOBAL` items this one sees, itself first.
+    pub scope: Vec<u32>,
+}
+
+/// A `USE AFTER ERROR` declarative, as an I/O verb in any unit may reach it.
+#[derive(Debug, Clone)]
+pub(crate) struct Handler {
+    /// First block of the handler's paragraphs, and the end block of its last.
+    pub entry: BlockId,
+    pub end: BlockId,
+    pub files: Vec<String>,
+    pub modes: Vec<cobolt_ast::program::UseMode>,
+    pub catch_all: bool,
+    pub global: bool,
+}
+
+/// The per-unit part of [`Lower`]'s state, swapped in and out as the units are
+/// lowered one after another.
+#[derive(Default)]
+pub(crate) struct UnitState<'a> {
+    paras: Vec<Para<'a>>,
+    para_by_name: HashMap<String, Vec<usize>>,
+    sections: HashMap<String, (usize, usize)>,
+    perform_ends: HashSet<usize>,
+    entries: Vec<BlockId>,
+    ends: Vec<BlockId>,
+    program_end: BlockId,
+    files: HashMap<String, FileInfo>,
+    alter_slots: HashMap<usize, u32>,
+    prologue: BlockId,
+    /// Paragraphs before the declaratives' (which are entered only by a USE).
+    body_len: usize,
+    /// The first and last paragraph of each declarative section.
+    decl_ranges: Vec<(usize, usize)>,
 }
 
 pub struct Lower<'a, 'b> {
@@ -102,6 +165,45 @@ pub struct Lower<'a, 'b> {
     pub(crate) when_compiled: String,
     /// Paragraphs that are `ALTER` targets -> the region offset of their slot.
     pub(crate) alter_slots: HashMap<usize, u32>,
+    /// Every program unit of the module, indexed by unit number (0 = main).
+    pub(crate) units: Vec<UnitInfo>,
+    /// Unit names (upper case) -> unit number.
+    pub(crate) unit_by_name: HashMap<String, usize>,
+    /// The unit being lowered.
+    pub(crate) cur_unit: usize,
+    /// The prologue block of the unit being lowered.
+    pub(crate) prologue: BlockId,
+    /// Per unit: its files, and whether each is `GLOBAL` (visible to the
+    /// units it contains).
+    pub(crate) file_tables: Vec<HashMap<String, (FileInfo, bool)>>,
+    /// Names of the current unit's `GLOBAL` files.
+    pub(crate) global_files: HashSet<String>,
+    /// Paragraphs of the unit that are procedure-division body, not declaratives.
+    pub(crate) body_len: usize,
+    /// First and last paragraph of each declarative section of the unit.
+    pub(crate) decl_ranges: Vec<(usize, usize)>,
+    /// Per unit: its USE handlers.
+    pub(crate) handlers: Vec<Vec<Handler>>,
+    /// Region slot: non-zero while a USE procedure runs (they do not nest).
+    pub(crate) use_guard: Option<u32>,
+    /// Region slot holding the status of the file verb just performed.
+    pub(crate) status_hold: Option<u32>,
+    /// `EXTERNAL` files: name -> the region slot holding the one open handle.
+    pub(crate) external_handles: HashMap<String, u32>,
+}
+
+/// The program units of a source: `prog`, then everything nested in it or
+/// written after it, depth first, each with the unit that contains it.
+fn collect_units<'a>(prog: &'a Program, parent: Option<usize>, out: &mut Vec<(&'a Program, Option<usize>)>) {
+    let me = out.len();
+    out.push((prog, parent));
+    for n in &prog.nested_programs {
+        collect_units(n, Some(me), out);
+    }
+}
+
+fn up_name(s: &str) -> String {
+    s.to_ascii_uppercase()
 }
 
 fn up(s: &str) -> String {
@@ -118,29 +220,75 @@ impl<'a, 'b> Lower<'a, 'b> {
         tolerant: bool,
         when_compiled: String,
     ) -> GenResult<Lowered> {
+        // The units: the main program, then every program nested in it or
+        // written after it, depth first. A name is visible to its own unit and
+        // (when GLOBAL) to the units it contains.
+        let mut order: Vec<(&'a Program, Option<usize>)> = Vec::new();
+        collect_units(prog, None, &mut order);
+        let scope_of = |u: usize| -> Vec<u32> {
+            let mut v = vec![u as u32];
+            let mut cur = order[u].1;
+            while let Some(p) = cur {
+                v.push(p as u32);
+                cur = order[p].1;
+            }
+            v
+        };
+
+        // Storage first, for every unit, so a CALL can name any callee's records.
         let mut layout = Layout::new();
-        if let Some(d) = &prog.data {
-            for sec in &d.sections {
-                match sec {
-                    DataSection::WorkingStorage(decls) | DataSection::LocalStorage(decls) => layout.add_section(decls)?,
-                    DataSection::FileSection(fds) => {
-                        for fd in fds {
-                            layout.add_file_records(&fd.records)?;
+        for (u, (p, _)) in order.iter().enumerate() {
+            layout.begin_unit(u as u32, scope_of(u));
+            if let Some(d) = &p.data {
+                for sec in &d.sections {
+                    match sec {
+                        DataSection::WorkingStorage(decls) | DataSection::LocalStorage(decls) => layout.add_section(decls)?,
+                        DataSection::FileSection(fds) => {
+                            for fd in fds {
+                                layout.add_file_records_of(&fd.name, fd.is_external, &fd.records)?;
+                            }
                         }
-                    }
-                    DataSection::Linkage(_) => {
-                        return Err(GenError::new(
-                            0,
-                            "LINKAGE SECTION in the main program is not supported in a WebAssembly module",
-                        ))
-                    }
-                    DataSection::Screen(_) => {
-                        return Err(GenError::new(0, "SCREEN SECTION is not supported in a WebAssembly module; use a form"))
+                        DataSection::Linkage(decls) => layout.add_linkage(decls)?,
+                        DataSection::Screen(_) => {
+                            return Err(GenError::new(0, "SCREEN SECTION is not supported in a WebAssembly module; use a form"))
+                        }
                     }
                 }
             }
+            layout.end_unit();
         }
         layout.finish();
+
+        // What each unit offers a CALL: its USING parameters and RETURNING item.
+        let mut units: Vec<UnitInfo> = Vec::new();
+        for (u, (p, _)) in order.iter().enumerate() {
+            layout.set_scope(u as u32, scope_of(u));
+            let mut params = Vec::new();
+            for name in &p.procedure.using {
+                let item = layout.lookup(name, &[]).map_err(|m| GenError::new(0, format!("PROCEDURE DIVISION USING {name}: {m}")))?;
+                let it = &layout.items[item];
+                let Some(slot) = it.link else {
+                    return Err(GenError::new(
+                        it.span_line,
+                        format!("PROCEDURE DIVISION USING {name}: it is not a LINKAGE SECTION record"),
+                    ));
+                };
+                params.push(ParamInfo { slot, item, size: it.size });
+            }
+            let returning = match &p.procedure.returning {
+                Some(n) => Some(layout.lookup(n, &[]).map_err(|m| GenError::new(0, format!("RETURNING {n}: {m}")))?),
+                None => None,
+            };
+            units.push(UnitInfo {
+                name: p.identification.program_id.to_ascii_uppercase(),
+                entry: 0,
+                exit: 0,
+                params,
+                returning,
+                scope: scope_of(u),
+            });
+        }
+        layout.set_scope(0, scope_of(0));
 
         let mut l = Lower {
             prog,
@@ -168,51 +316,73 @@ impl<'a, 'b> Lower<'a, 'b> {
             ctemp_next: 0,
             when_compiled,
             alter_slots: HashMap::new(),
+            unit_by_name: units.iter().enumerate().map(|(i, u)| (u.name.clone(), i)).collect(),
+            units,
+            cur_unit: 0,
+            prologue: 0,
+            file_tables: vec![HashMap::new(); order.len()],
+            global_files: HashSet::new(),
+            body_len: 0,
+            decl_ranges: Vec::new(),
+            handlers: vec![Vec::new(); order.len()],
+            use_guard: None,
+            status_hold: None,
+            external_handles: HashMap::new(),
         };
-        l.build_files()?;
-        l.flatten()?;
-        l.prescan()?;
-        l.find_alters()?;
-        let entry = l.new_block("program");
-        l.program_end = l.new_block("program-end");
-        for i in 0..l.paras.len() {
-            let n = format!("{}", l.paras[i].name);
-            let e = l.new_block(&format!("{n}"));
-            let x = l.new_block(&format!("{n}.end"));
-            l.entries.push(e);
-            l.ends.push(x);
-        }
-        // The program-end block.
-        l.begin(l.program_end);
-        l.emit(Ins::Raw(I::I32Const(ret::DONE)));
-        l.finish_raw();
 
-        // Entry: set up the ALTER slots, then straight into the first paragraph.
-        l.begin(entry);
-        l.init_alter_slots()?;
-        // PROGRAM COLLATING SEQUENCE: install the table before anything compares.
-        if let Some(name) = &l.prog.collating_sequence {
-            let up_name = name.to_ascii_uppercase();
-            if let Some((_, spec)) = l.prog.alphabets.iter().find(|(n, _)| n.to_ascii_uppercase() == up_name) {
-                if let Some(t) = crate::collate::table(spec) {
-                    let addr = l.pool.intern(&t);
-                    l.i32c(addr as i32);
-                    l.call_rt("rt_set_collation");
-                }
+        // Phase A, every unit: find the paragraphs and make their blocks, so a
+        // CALL (which jumps into another unit) knows where it goes.
+        let mut states: Vec<UnitState<'a>> = Vec::new();
+        for (u, (p, _)) in order.iter().enumerate() {
+            l.enter_unit(u, p);
+            l.build_files()?;
+            l.file_tables[u] = l.files.iter().map(|(n, f)| (n.clone(), (*f, l.global_files.contains(n)))).collect();
+            l.flatten()?;
+            l.prescan()?;
+            l.find_alters()?;
+            l.prologue = l.new_block(if u == 0 { "program" } else { "program-prologue" });
+            l.program_end = l.new_block(if u == 0 { "program-end" } else { "program-exit" });
+            for i in 0..l.paras.len() {
+                let n = format!("{}", l.paras[i].name);
+                let e = l.new_block(&format!("{n}"));
+                let x = l.new_block(&format!("{n}.end"));
+                l.entries.push(e);
+                l.ends.push(x);
             }
+            // A declarative is entered by a PERFORM from the verb that failed.
+            for &(_, last) in &l.decl_ranges {
+                l.perform_ends.insert(last);
+            }
+            l.handlers[u] = l
+                .decl_ranges
+                .iter()
+                .zip(&p.procedure.declaratives)
+                .map(|(&(first, last), up)| Handler {
+                    entry: l.entries[first],
+                    end: l.ends[last],
+                    files: up.files.clone(),
+                    modes: up.modes.clone(),
+                    catch_all: up.catch_all,
+                    global: up.is_global,
+                })
+                .collect();
+            let first_body = if l.body_len > 0 { l.entries.first().copied() } else { None };
+            l.units[u].entry = first_body.unwrap_or(l.program_end);
+            l.units[u].exit = l.program_end;
+            states.push(l.take_state());
         }
-        // External switches (conformance): the host's answer seeds each one's
-        // mnemonic item before the first statement, as the interpreter does.
-        if l.conformance && !l.prog.switch_names.is_empty() {
-            l.seed_switches()?;
-        }
-        if let Some(first) = l.entries.first().copied() {
-            l.jump(first);
-        } else {
-            l.jump(l.program_end);
-        }
-        for i in 0..l.paras.len() {
-            l.lower_para(i)?;
+        let main_entry = states[0].prologue;
+        let main_first = if states[0].body_len > 0 { states[0].entries[0] } else { states[0].program_end };
+
+        // Phase B, every unit: the code.
+        for (u, (p, _)) in order.iter().enumerate() {
+            l.enter_unit(u, p);
+            l.put_state(&mut states[u]);
+            // The prologues run once, in a chain, before the main program's
+            // first paragraph: ALTER slots, the collating sequence, switches.
+            let after = if u + 1 < order.len() { states[u + 1].prologue } else { main_first };
+            l.generate_unit(u, after)?;
+            states[u] = l.take_state();
         }
         if !l.diags.is_empty() {
             let mut d = std::mem::take(&mut l.diags);
@@ -220,7 +390,127 @@ impl<'a, 'b> Lower<'a, 'b> {
             first.more = d;
             return Err(first);
         }
-        Ok(Lowered { entry, layout: l.layout })
+        let count = order.len();
+        Ok(Lowered { entry: main_entry, layout: l.layout, units: count })
+    }
+
+    /// Make unit `u` (program `p`) the one being lowered.
+    fn enter_unit(&mut self, u: usize, p: &'a Program) {
+        self.prog = p;
+        self.cur_unit = u;
+        let scope = self.units[u].scope.clone();
+        self.layout.set_scope(u as u32, scope);
+        self.take_state();
+        self.loops.clear();
+        self.cur_para = 0;
+        self.next_sentence = None;
+    }
+
+    /// Move the per-unit state out, leaving it empty.
+    fn take_state(&mut self) -> UnitState<'a> {
+        UnitState {
+            paras: std::mem::take(&mut self.paras),
+            para_by_name: std::mem::take(&mut self.para_by_name),
+            sections: std::mem::take(&mut self.sections),
+            perform_ends: std::mem::take(&mut self.perform_ends),
+            entries: std::mem::take(&mut self.entries),
+            ends: std::mem::take(&mut self.ends),
+            program_end: std::mem::take(&mut self.program_end),
+            files: std::mem::take(&mut self.files),
+            alter_slots: std::mem::take(&mut self.alter_slots),
+            prologue: std::mem::take(&mut self.prologue),
+            body_len: std::mem::take(&mut self.body_len),
+            decl_ranges: std::mem::take(&mut self.decl_ranges),
+        }
+    }
+
+    /// Put a unit's state back.
+    fn put_state(&mut self, st: &mut UnitState<'a>) {
+        self.paras = std::mem::take(&mut st.paras);
+        self.para_by_name = std::mem::take(&mut st.para_by_name);
+        self.sections = std::mem::take(&mut st.sections);
+        self.perform_ends = std::mem::take(&mut st.perform_ends);
+        self.entries = std::mem::take(&mut st.entries);
+        self.ends = std::mem::take(&mut st.ends);
+        self.program_end = st.program_end;
+        self.files = std::mem::take(&mut st.files);
+        self.alter_slots = std::mem::take(&mut st.alter_slots);
+        self.prologue = st.prologue;
+        self.body_len = st.body_len;
+        self.decl_ranges = std::mem::take(&mut st.decl_ranges);
+    }
+
+    /// The code of unit `u`: its prologue (continuing to `after`), its
+    /// paragraphs and its exit.
+    fn generate_unit(&mut self, u: usize, after: BlockId) -> GenResult<()> {
+        // The exit: the main program ends the run; a called program returns to
+        // its caller by dropping every frame down to the call frame.
+        self.begin(self.program_end);
+        if u == 0 {
+            self.emit(Ins::Raw(I::I32Const(ret::DONE)));
+            self.finish_raw();
+        } else {
+            self.unit_exit_code();
+        }
+
+        // Prologue.
+        self.begin(self.prologue);
+        self.init_alter_slots()?;
+        if u == 0 {
+            // PROGRAM COLLATING SEQUENCE: install the table before anything compares.
+            if let Some(name) = &self.prog.collating_sequence {
+                let up_name = name.to_ascii_uppercase();
+                if let Some((_, spec)) = self.prog.alphabets.iter().find(|(n, _)| n.to_ascii_uppercase() == up_name) {
+                    if let Some(t) = crate::collate::table(spec) {
+                        let addr = self.pool.intern(&t);
+                        self.i32c(addr as i32);
+                        self.call_rt("rt_set_collation");
+                    }
+                }
+            }
+        }
+        // External switches (conformance): the host's answer seeds each one's
+        // mnemonic item before the first statement, as the interpreter does.
+        if self.conformance && !self.prog.switch_names.is_empty() {
+            self.seed_switches()?;
+        }
+        self.jump(after);
+        for i in 0..self.paras.len() {
+            self.lower_para(i)?;
+        }
+        Ok(())
+    }
+
+    /// The exit block of a called program: pop frames until the call frame
+    /// (whose end word is this block) is on top, then return to its caller.
+    fn unit_exit_code(&mut self) {
+        let me = self.program_end;
+        let psp = |s: &mut Self| s.emit(Ins::GlobalGet(G::Psp));
+        // psp <= base: nothing to return to.
+        psp(self);
+        self.i32c(self.map.pstack_base as i32);
+        self.raw(I::I32LeU);
+        self.raw(I::If(wasm_encoder::BlockType::Empty));
+        self.i32c(cobolt_wasm_rt::state::err::PERFORM_DEPTH as i32);
+        self.emit(Ins::CallGlue(Glue::Abort));
+        self.raw(I::End);
+        self.raw(I::Block(wasm_encoder::BlockType::Empty));
+        self.raw(I::Loop(wasm_encoder::BlockType::Empty));
+        psp(self);
+        self.i32c(8);
+        self.raw(I::I32Sub);
+        self.emit(Ins::GlobalSet(G::Psp));
+        psp(self);
+        self.raw(I::I32Load(wasm_encoder::MemArg { offset: 0, align: 2, memory_index: 0 }));
+        self.emit(Ins::Pc(me));
+        self.raw(I::I32Eq);
+        self.raw(I::BrIf(1));
+        self.raw(I::Br(0));
+        self.raw(I::End);
+        self.raw(I::End);
+        psp(self);
+        self.raw(I::I32Load(wasm_encoder::MemArg { offset: 4, align: 2, memory_index: 0 }));
+        self.finish_raw();
     }
 
     /// Emit the call that asks the host for the state of every external
@@ -262,10 +552,18 @@ impl<'a, 'b> Lower<'a, 'b> {
         let Some(io) = prog.environment.as_ref().and_then(|e| e.input_output.as_ref()) else { return Ok(()) };
         // record names per file, from the FILE SECTION
         let mut records: HashMap<String, Vec<String>> = HashMap::new();
+        let mut external_fds: HashSet<String> = HashSet::new();
+        self.global_files.clear();
         if let Some(d) = &prog.data {
             for sec in &d.sections {
                 if let DataSection::FileSection(fds) = sec {
                     for fd in fds {
+                        if fd.is_global {
+                            self.global_files.insert(up(&fd.name));
+                        }
+                        if fd.is_external {
+                            external_fds.insert(up(&fd.name));
+                        }
                         records.insert(
                             up(&fd.name),
                             fd.records.iter().filter_map(|r| r.name.as_ref().map(|n| up(n))).collect(),
@@ -276,7 +574,19 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
         for fc in &io.file_controls {
             let name = up(&fc.name);
-            let handle_off = self.layout.alloc_hidden(4);
+            // An EXTERNAL file is one open file for every unit that declares it.
+            let handle_off = if external_fds.contains(&name) {
+                match self.external_handles.get(&name).copied() {
+                    Some(h) => h,
+                    None => {
+                        let h = self.layout.alloc_hidden(4);
+                        self.external_handles.insert(name.clone(), h);
+                        h
+                    }
+                }
+            } else {
+                self.layout.alloc_hidden(4)
+            };
             let status_opd = match &fc.file_status {
                 Some(sn) => match self.layout.lookup(sn, &[]) {
                     Ok(i) => self.item_operand(i, &[], None, fc.span.line)?,
@@ -288,7 +598,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                 cobolt_ast::program::FileOrganization::LineSequential => 1,
                 _ => 0,
             };
-            let desc = self.pool.file_desc(fc.assign.as_bytes(), org, handle_off, status_opd);
+            let desc = self.pool.file_desc(fc.assign.as_bytes(), org, fc.optional, handle_off, status_opd);
             let mut rec_item = None;
             for (k, rn) in records.get(&name).cloned().unwrap_or_default().iter().enumerate() {
                 if let Ok(i) = self.layout.lookup(rn, &[]) {
@@ -298,7 +608,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                     self.record_file.insert(i, name.clone());
                 }
             }
-            self.files.insert(name, FileInfo { desc, rec_item });
+            self.files.insert(name, FileInfo { desc, handle_off, rec_item });
         }
         Ok(())
     }
@@ -310,7 +620,17 @@ impl<'a, 'b> Lower<'a, 'b> {
                 "file input/output is not available in a browser module: it runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE",
             );
         }
-        self.files.get(&up(name)).copied().ok_or_else(|| GenError::new(line, format!("file {name} is not defined")))
+        let n = up(name);
+        if let Some(f) = self.files.get(&n) {
+            return Ok(*f);
+        }
+        // A GLOBAL file of a unit that contains this one.
+        for &u in self.units[self.cur_unit].scope.iter().skip(1) {
+            if let Some((f, true)) = self.file_tables[u as usize].get(&n) {
+                return Ok(*f);
+            }
+        }
+        Err(GenError::new(line, format!("file {name} is not defined")))
     }
 
     pub(crate) fn open_(&mut self, mode: OpenMode, files: &[String], line: u32) -> GenResult<()> {
@@ -326,7 +646,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.i32c(fi.desc as i32);
             self.i32c(m);
             self.call_rt("rt_file_open");
-            self.raw(I::Drop);
+            self.file_verb_done(f, fi.handle_off, false);
         }
         Ok(())
     }
@@ -337,7 +657,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.base();
             self.i32c(fi.desc as i32);
             self.call_rt("rt_file_close");
-            self.raw(I::Drop);
+            self.file_verb_done(f, fi.handle_off, false);
         }
         Ok(())
     }
@@ -352,7 +672,9 @@ impl<'a, 'b> Lower<'a, 'b> {
         let mut cur = Some(idx);
         while let Some(i) = cur {
             if let Some(f) = self.record_file.get(&i) {
-                return Ok((f.clone(), self.files[f]));
+                let name = f.clone();
+                let info = self.file(&name, line)?;
+                return Ok((name, info));
             }
             cur = self.layout.items[i].parent;
         }
@@ -369,7 +691,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         if !self.conformance {
             return self.file("", line).map(|_| ());
         }
-        let (_, fi) = self.file_of_record(record, line)?;
+        let (file_name, fi) = self.file_of_record(record, line)?;
         let rec = self.receiver(record)?;
         if let Some(src) = from {
             self.move_(src, std::slice::from_ref(record), line)?;
@@ -405,7 +727,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
         }
         self.call_rt("rt_file_write");
-        self.raw(I::Drop);
+        self.file_verb_done(&file_name, fi.handle_off, false);
         Ok(())
     }
 
@@ -424,11 +746,14 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.i32c(fi.desc as i32);
         self.i32c(rec as i32);
         self.call_rt("rt_file_read");
-        self.raw(I::LocalSet(0));
+        self.file_verb_done(file, fi.handle_off, !at_end.is_empty());
         let end_b = self.new_block("at-end");
         let ok_b = self.new_block("not-at-end");
         let join = self.new_block("end-read");
-        self.raw(I::LocalGet(0));
+        // The status the READ left, after any USE procedure has run.
+        let hold = self.status_slot();
+        self.base();
+        self.raw(I::I32Load(wasm_encoder::MemArg { offset: hold as u64, align: 2, memory_index: 0 }));
         self.i32c(10);
         self.raw(I::I32Eq);
         self.branch(end_b, ok_b);
@@ -605,6 +930,22 @@ impl<'a, 'b> Lower<'a, 'b> {
                 }
             }
         }
+        self.body_len = self.paras.len();
+        // The declaratives' paragraphs follow the body but are never fallen into:
+        // a USE procedure is performed by the verb whose error it handles.
+        self.decl_ranges.clear();
+        for up in &prog.procedure.declaratives {
+            let first = self.paras.len();
+            if !up.stmts.is_empty() || up.paras.is_empty() {
+                self.paras.push(Para { name: String::new(), section: Some(up.section.clone()), stmts: &up.stmts, line: up.span.line });
+            }
+            for pg in &up.paras {
+                self.paras.push(Para { name: up_name(&pg.name), section: Some(up.section.clone()), stmts: &pg.stmts, line: pg.span.line });
+            }
+            let last = self.paras.len() - 1;
+            self.sections.insert(up.section.clone(), (first, last));
+            self.decl_ranges.push((first, last));
+        }
         for (i, p) in self.paras.iter().enumerate() {
             if !p.name.is_empty() {
                 self.para_by_name.entry(p.name.clone()).or_default().push(i);
@@ -762,7 +1103,8 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// `PERFORM` ending here is waiting, otherwise fall into the next paragraph.
     pub(crate) fn lower_para_end(&mut self, i: usize) -> GenResult<()> {
         let end = self.ends[i];
-        let next = if i + 1 < self.paras.len() { self.entries[i + 1] } else { self.program_end };
+        // The last paragraph of the body does not fall into the declaratives.
+        let next = if i + 1 < self.paras.len() && i + 1 != self.body_len { self.entries[i + 1] } else { self.program_end };
         self.begin(end);
         if self.perform_ends.contains(&i) {
             // psp > base && stack[psp-8].end == this block
@@ -971,7 +1313,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                 fd.aux = self.pool.intern(&rec);
             }
         }
-        Ok(self.pool.opd_item(item.off, &fd, &subs, refmod))
+        Ok(self.pool.opd_item_in(item.off, &fd, &subs, refmod, item.link))
     }
 
     /// Push the numeric value of an expression on the register stack.
@@ -1363,12 +1705,11 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.finish_raw();
                 Ok(())
             }
-            Stmt::GoBack { .. } => {
-                self.call_rt("rt_flush");
-                self.i32c(ret::DONE);
-                self.finish_raw();
-                Ok(())
+            Stmt::GoBack { .. } => self.exit_program(),
+            Stmt::Call { program, using, returning, on_exception, not_on_exception, .. } => {
+                self.call_(program, using, returning.as_ref(), on_exception, not_on_exception, line)
             }
+            Stmt::Cancel { programs, .. } => self.cancel_(programs, line),
             other => {
                 let name = crate::support::stmt_name(other);
                 match crate::support::support(other) {
@@ -1400,15 +1741,24 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.err(line, format!("paragraph {target} is not defined"))
     }
 
+    /// `EXIT PROGRAM` / `GOBACK`: a called program returns to its caller; the
+    /// main program ends the run.
+    pub(crate) fn exit_program(&mut self) -> GenResult<()> {
+        if self.cur_unit == 0 {
+            self.call_rt("rt_flush");
+            self.i32c(ret::DONE);
+            self.finish_raw();
+        } else {
+            let exit = self.program_end;
+            self.jump(exit);
+        }
+        Ok(())
+    }
+
     pub(crate) fn exit(&mut self, kind: ExitKind, line: u32) -> GenResult<()> {
         match kind {
             ExitKind::Point => Ok(()),
-            ExitKind::Program => {
-                self.call_rt("rt_flush");
-                self.i32c(ret::DONE);
-                self.finish_raw();
-                Ok(())
-            }
+            ExitKind::Program => self.exit_program(),
             ExitKind::Perform => match self.loops.last() {
                 Some(l) => {
                     let x = l.exit;
@@ -2027,6 +2377,13 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// Push a frame `(end, return)` and enter the paragraph range, resuming at
     /// `ret_to`.
     pub(crate) fn call_range(&mut self, from: usize, to: usize, ret_to: BlockId) {
+        let (end, entry) = (self.ends[to], self.entries[from]);
+        self.frame_jump(end, entry, ret_to);
+    }
+
+    /// Push a frame `(end, ret_to)` and jump to `entry`: a `PERFORM` of blocks
+    /// that may lie in another unit.
+    pub(crate) fn frame_jump(&mut self, end: BlockId, entry: BlockId, ret_to: BlockId) {
         // Overflow check: psp >= end -> run-time error.
         self.emit(Ins::GlobalGet(G::Psp));
         self.i32c(self.map.pstack_end as i32);
@@ -2035,9 +2392,9 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.i32c(cobolt_wasm_rt::state::err::PERFORM_DEPTH as i32);
         self.emit(Ins::CallGlue(Glue::Abort));
         self.raw(I::End);
-        // stack[psp] = (end block of `to`, return block)
+        // stack[psp] = (end block, return block)
         self.emit(Ins::GlobalGet(G::Psp));
-        self.emit(Ins::Pc(self.ends[to]));
+        self.emit(Ins::Pc(end));
         self.raw(I::I32Store(wasm_encoder::MemArg { offset: 0, align: 2, memory_index: 0 }));
         self.emit(Ins::GlobalGet(G::Psp));
         self.emit(Ins::Pc(ret_to));
@@ -2046,7 +2403,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.i32c(8);
         self.raw(I::I32Add);
         self.emit(Ins::GlobalSet(G::Psp));
-        self.jump(self.entries[from]);
+        self.jump(entry);
     }
 
     pub(crate) fn perform(&mut self, t: &PerformTarget, line: u32) -> GenResult<()> {

@@ -403,7 +403,7 @@ impl Lower<'_, '_> {
         // The search index and the item stepped alongside it.
         let own = item.index_names.first().cloned();
         let own_idx = match &own {
-            Some(n) => self.layout.index_names.get(n).copied(),
+            Some(n) => self.layout.index_item(n),
             None => None,
         };
         let (idx_item, stepped): (usize, Option<usize>) = match varying {

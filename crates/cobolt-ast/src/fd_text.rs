@@ -492,6 +492,7 @@ mod tests {
             records: vec![rec],
             linage: None,
             record_sizing: None,
+            is_external: false,
             span: Span::new(0, 0, 1, 1),
         };
         // record, ID, ZERO-ID (no bytes), NAME — in listing order.
@@ -517,6 +518,7 @@ mod tests {
             records: vec![rec.clone()],
             linage: None,
             record_sizing: rs,
+            is_external: false,
             span: Span::new(0, 0, 1, 1),
         };
         assert_eq!(render_file_description(&fd(None)), "FD CUST-FILE.\n01 R PIC X(80).\n");

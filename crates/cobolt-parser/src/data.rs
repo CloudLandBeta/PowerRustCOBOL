@@ -128,6 +128,7 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
         p.advance(); // FD or SD
         let name = p.expect_identifier("file name");
         let mut is_global = false;
+        let mut is_external = false;
         let mut linage: Option<Linage> = None;
         let mut record_sizing: Option<RecordSizing> = None;
         // Consume optional clauses until period. Most are recorded elsewhere or
@@ -136,6 +137,9 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
         while !p.at(&Token::Period) && !p.at(&Token::Eof) {
             if p.at(&Token::Global) {
                 is_global = true;
+            }
+            if p.at(&Token::External) {
+                is_external = true;
             }
             if is_word(p.peek(), "LINAGE") {
                 linage = parse_linage_clause(p);
@@ -163,6 +167,7 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
             records: build_tree(records),
             linage,
             record_sizing,
+            is_external,
             span,
         });
     }

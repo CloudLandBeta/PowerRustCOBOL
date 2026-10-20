@@ -53,6 +53,9 @@ pub enum Ins {
     Pc(BlockId),
     GlobalGet(G),
     GlobalSet(G),
+    /// Call the function that puts program unit `n`'s storage back to its
+    /// initial state (`CANCEL`).
+    InitUnit(usize),
 }
 
 impl From<Instruction<'static>> for Ins {

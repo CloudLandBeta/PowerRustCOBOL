@@ -68,6 +68,16 @@ Divergences from the interpreter found on the way are in `WASM-PARITY.md`.
 
 Next under GOLDEN RULE #9: **IF (Intrinsic Functions)**, then IC — IF needs `FUNCTION` calls in the generator (the module currently refuses them), IC needs nested programs and `CALL`/`LINKAGE`.
 
+## NIST IC on generated modules — finished (2026-10-20, version 2.0.22)
+
+| Axis | Generated module | Interpreter |
+|---|---|---|
+| Compile (callers with their `SUBRTN` callees as one source) | **25 of 25** | 25 of 25 |
+| Execution, programs reporting 0 failures | **25 of 25** | 25 of 25 |
+| Assertions | **309 PASS / 0 FAIL / 4 DELETED** | 309 / 0 / 4 |
+
+Program units, `CALL`/`CANCEL`, LINKAGE, `GLOBAL`/`EXTERNAL`, `OPTIONAL` files and `USE` declaratives: see the 2.0.22 entry. Differential tests: `crates/cobolt-wasm/tests/calls.rs`. NC 95/95 (4 612) and IF 45/45 (841) re-run unchanged. **The three finished modules for the WebAssembly line are NC, IF and IC.** Not part of this line's gate (no files in a browser): SQ, IX, RL, ST, SM; SG is out of scope.
+
 ## NIST IF on generated modules — finished (2026-10-20, version 2.0.20)
 
 | Axis | Generated module | Interpreter |
