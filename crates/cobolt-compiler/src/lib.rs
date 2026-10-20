@@ -5921,7 +5921,9 @@ only what the manifest tracks.
 
 The standard sub-folders are `forms/`, `indexed/`, `src/`, `generated/`,
 `Assets/`, `Knowledge Base/`, `data/`, `bin/` and `dist/`. Missing ones are
-back-filled when an older project is opened.
+back-filled when an older project is opened. A Web or Mobile project keeps its
+forms in `webforms/` or `mobileforms/` instead of `forms/`, and may have a
+`backend/` (see *Project kinds* below).
 
 ## The manifest sections
 
@@ -6025,6 +6027,88 @@ project data and are not shared with a colleague who opens the project.
 
 `fixed_format` selects fixed-form COBOL (columns 7-72) rather than free form.
 Free form is the default for new projects.
+
+## Project kinds: Desktop, Web and Mobile
+
+A project has a **kind**: `kind = "web"` or `kind = "mobile"` under `[project]`.
+A Desktop project writes nothing for it, so every project written before kinds
+existed is a Desktop project and loads unchanged. The kind is chosen when the
+project is created — File ▸ New Project, whose left list offers Desktop, Web,
+Android phone and tablet, iOS iPhone and iPad (the other platforms are listed
+and unavailable); the coding-agent `create_project` tool takes `kind`
+(`desktop`, `web`, `mobile`) and, for Mobile, `platform` (`android`, `ios`) and
+`device` (`phone`, `tablet`) — and it is not changed by editing the manifest.
+
+| Kind | Forms live in | Tree node | Build makes |
+|---|---|---|---|
+| Desktop | `forms/` | Forms | a native executable in `bin/` |
+| Web | `webforms/` | WebForms | a static WebAssembly bundle in `dist/web/` |
+| Mobile | `mobileforms/` | MobileForms | the same bundle; the Android or iOS package step needs the mobile shell, which the product does not include yet |
+
+Every kind lists its forms under `[files] forms`. A Web or Mobile project may
+also have a **Backend** — COBOL under `backend/src/` with `backend/COPYBOOKS/`,
+listed under `[files] backend`. In the project tree a Web or Mobile project shows
+its WebForms (or MobileForms) node in place of Forms, then a **Backend** node,
+then the other nodes as above. The Backend is part of a project, not a kind: it
+is where files, SQL and every secret live, because nothing in a web bundle can
+be kept from whoever opens the page. Indexed-file definitions and SQL
+connections stay project-level.
+
+The settings tables of the non-Desktop kinds (every field optional, defaults
+shown):
+
+```toml
+[web]                       # a Web project
+style        = "spa"         # "spa" (single-page) or "standalone" (forms as separate pages)
+multi_memory = true          # emit the multi-memory program module
+isolation    = "require-corp"  # "off", "require-corp" or "credentialless": the COOP/COEP headers
+backend_url  = ""            # wss://..., or ws:// to this machine only (localhost, 127.0.0.1, ::1)
+[web.browsers]               # the browsers the build promises to run in; all true
+chromium        = true
+firefox         = true
+safari          = true
+ios_webview     = true
+android_webview = true
+
+[mobile]                    # a Mobile project
+platform     = "ios"         # "android" or "ios"
+device       = "phone"       # "phone" or "tablet"
+orientation  = "auto"        # "auto", "portrait" or "landscape"
+min_os       = "auto"        # an Android API level ("26") or an iOS version ("16.0")
+style        = "spa"
+multi_memory = false         # false is the iOS default; true for Android
+backend_url  = ""
+
+[backend]                   # a Web or Mobile project that has a Backend
+exports = ["HEALTH"]         # the only programs a remote caller can reach
+```
+
+A Desktop project made from a template may carry `[desktop]` (`window_style`,
+`ui_framework`, `high_dpi`, `gpu_acceleration`); those choices are recorded and
+have no run-time effect yet. A `backend_url` that is not `wss://` is refused
+unless it is plain `ws://` to the same machine, and a refused address is never
+written to the manifest.
+
+**Which program modules a build carries.** The single-memory module is carried
+whenever multi-memory is off, or the browser matrix includes Safari or the iOS
+web view; the multi-memory module whenever `multi_memory` is on. An iOS Mobile
+project always carries the single-memory one.
+
+**Build and Preview.** On a Web or Mobile project the Build button (and the
+`build` tool) builds the bundle instead of a binary, and says how long it took,
+how big it is, how fast it starts and what warned; when the program does not
+include the WebAssembly generator yet it says so, and the project can still be
+created, edited and checked. The designer's Preview button builds, serves the
+bundle on a loopback port with the right MIME types and the isolation headers,
+and shows it in the system web view in a window of its own (a helper process;
+the system browser when the helper is not installed). Its controls window picks
+a device (phone, tablet or desktop sizes), the orientation, the pixel ratio, the
+colour scheme, the page language and the safe-area insets; the page's console
+and uncaught errors reach the Output panel; a change to a form, a stylesheet,
+Common Code or the Backend builds again and the open page reloads. The Preview
+shows only its own address: a page that tries to open another is stopped and the
+developer is offered to open it in the browser. Run opens the same server in the
+system browser. The IDE does not start a project's Backend yet.
 
 ## Where things that are NOT project files live
 

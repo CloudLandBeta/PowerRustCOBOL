@@ -228,9 +228,9 @@ pub const RESOURCE_PREFIX: &str = "powerrustcobol://reference/";
 /// the same rules the exported brief carries, so the two cannot disagree.
 pub fn server_instructions(version: &str) -> String {
     let mut out = format!(
-        "PowerRustCOBOL AI {version} — tools for PowerRustCOBOL projects: desktop applications \
-         written in RustCOBOL (COBOL-85 plus the PowerRustCOBOL extensions) with forms (`.cfrm`), \
-         indexed-file definitions (`.cidx`), Common Code and assets. You do not have the compiler's \
+        "PowerRustCOBOL AI {version} — tools for PowerRustCOBOL projects: desktop, web and mobile \
+         applications written in RustCOBOL (COBOL-85 plus the PowerRustCOBOL extensions) with forms \
+         (`.cfrm`), indexed-file definitions (`.cidx`), Common Code and assets. You do not have the compiler's \
          source and must not need it: what the product supports is in the reference resources \
          (`{RESOURCE_PREFIX}…`, listed by resources/list) and `kb_lookup` finds one name in them.\n\n\
          Work in this order: look the names up, make the change, `regenerate` what you changed, \
@@ -251,7 +251,7 @@ pub fn server_instructions(version: &str) -> String {
 
 /// The golden rules for every application a coding agent builds (operator,
 /// 2026-10-03): `(id, rule)`, in the order they are told.
-pub const APPLICATION_RULES: [(&str, &str); 12] = [
+pub const APPLICATION_RULES: [(&str, &str); 14] = [
     (
         "responsive",
         "Responsive. Every form is responsive (`responsive=\"true\"`) and holds together at any screen \
@@ -441,6 +441,36 @@ pub const APPLICATION_RULES: [(&str, &str); 12] = [
          text table in all six languages. Keep the side menu organised so the entry fits without reshaping \
          the application.",
     ),
+    (
+        "web-kinds",
+        "Web and Mobile projects (version 2.x.x). A project has a kind — `desktop`, `web` or `mobile` — chosen \
+         when it is created (`create_project` takes `kind`; a mobile one also takes `platform` `android` or \
+         `ios` and `device` `phone` or `tablet`) and never changed by editing the manifest. A Web or Mobile \
+         project is built to WebAssembly and shown in a browser or a mobile web view, not run by the \
+         interpreter: `render_form` and `run_form` still work on a web form, but they show the desktop \
+         engine's picture and behaviour, and only the IDE's Preview shows the page as a browser does. Its \
+         forms live in `webforms/` (Web) or `mobileforms/` (Mobile) — write a form there, then register \
+         it with `add_to_project` — and the project may have a \
+         Backend in `backend/`, which is COBOL too. A web form is responsive and wears the Spatial look \
+         like every other, and it holds only what a browser can run: no file organisation (indexed files \
+         included), no SQL, no `EXEC RUST`, no child process, no native socket and no secret. The \
+         WebAssembly build is what refuses each of them, at its line and with the alternative, and \
+         produces no bundle while one remains — so keep them out yourself, because `check` does not \
+         find them. The `build` tool of a Web project reports the bundle's size, its start-up and its \
+         warnings; when the product does not include the WebAssembly generator yet it says so, and the \
+         forms, the Backend and the settings can still be created, edited and checked.",
+    ),
+    (
+        "backend-secrets",
+        "Secrets and data live on the Backend. Everything in a web bundle can be read by whoever opens the \
+         page: never put an API key, a password, a token or a connection string in a form, in a program \
+         that runs in the browser, in an asset or in the manifest. Keep it on the Backend (`backend/`), \
+         which holds the indexed files, the SQL connections and the credentials, and exports only the \
+         programs a remote caller may reach; a web form reaches the Backend with \
+         `CALL \"PROGRAM-NAME\" WITH WEBSOCKET LINKAGE USING … ` over the secure channel — look the phrase \
+         up with `kb_lookup`, and write a gap report if the reference does not list it yet — and a \
+         Backend address is `wss://`, or `ws://` only on this machine. Never invent a remote-call syntax.",
+    ),
 ];
 
 fn application_rules() -> String {
@@ -457,6 +487,12 @@ fn architecture() -> String {
     "How an application is built:\n\
      - A project is a folder with a `*.project.toml` manifest (never edited by hand), `forms/`, \
      `indexed/`, `src/`, `generated/`, `COPYBOOKS/`, `Assets/` and `data/`.\n\
+     - A project has a kind. A **Desktop** project is the one above. A **Web** or **Mobile** project \
+     keeps its forms in `webforms/` or `mobileforms/` instead of `forms/`, may have a **Backend** in \
+     `backend/` (COBOL under `backend/src/` and `backend/COPYBOOKS/`, the part that holds data and \
+     secrets), and is built to a WebAssembly bundle under `dist/web/` and previewed in a web view — \
+     see the `web-kinds` and `backend-secrets` rules. `list_files` shows the kind and the new \
+     entries.\n\
      - Each form (`.cfrm`, XML) is one window or screen: its controls with their properties, its \
      COBOL structure blocks (working-storage, file-control, file-section), and its event handlers \
      and procedures as COBOL inside the form. `regenerate` turns a form into a COBOL program under \
@@ -1133,6 +1169,74 @@ fn skills(version: &str) -> Vec<Skill> {
             ),
         },
         Skill {
+            name: "powerrustcobol-web-application".into(),
+            summary: "Build a Web or Mobile application: the project kind, its forms in `webforms/` or \
+                      `mobileforms/`, what a browser can run, the Build and the Preview; use whenever \
+                      `list_files` reports a kind other than `desktop`, or the developer asks for a web \
+                      or mobile application."
+                .into(),
+            steps: vec![
+                s("Find the kind: `list_files` reports it (`desktop`, `web` or `mobile`) and the folder \
+                   the forms live in. For a new application call `create_project` with `kind` `web`, or \
+                   `mobile` with `platform` (`android`, `ios`) and `device` (`phone`, `tablet`); \
+                   `options` carries the template's choices — `style` (`spa` or `standalone`), \
+                   `backend` (create the Backend part), `sample`. Never change the kind by editing the \
+                   manifest."),
+                s("Read the `web-kinds` and `backend-secrets` rules in the server instructions before \
+                   writing anything: a web form is responsive and wears Spatial like every other, and \
+                   it holds only what a browser can run."),
+                s("Write each form in `webforms/` (Web) or `mobileforms/` (Mobile) exactly as \
+                   `powerrustcobol-create-form` says — controls, anchors, handlers — and register it \
+                   with `add_to_project`. Look every control up with `kb_lookup`: a control the \
+                   reference does not list for the web is a gap, not a guess."),
+                s("Keep out of the form, and out of every program that runs in the browser: file \
+                   organisations and indexed files, SQL, `EXEC RUST`, child processes, native sockets \
+                   and any secret. What needs them goes to the Backend (`powerrustcobol-backend`), and \
+                   the form calls it."),
+                s("`regenerate` the form, then `check`; fix every error until `check` reports none. \
+                   `check` finds what the compiler's front end finds; the constructs a browser cannot \
+                   run are refused by the WebAssembly build, so read the list above against your own \
+                   code."),
+                s("Call `build`: for a Web project it builds the bundle under `dist/web/` and reports \
+                   its size, its start-up and its warnings. If the answer says the WebAssembly \
+                   generator is not included in this program yet, tell the developer — the project is \
+                   still correct, and the IDE's Preview shows a bundle as soon as one exists. The \
+                   developer looks at the page in the IDE (Preview: a device, an orientation, the \
+                   language, the console); do not drive the IDE window."),
+            ],
+            uses_tools: tools(&["create_project", "list_files", "kb_lookup", "add_to_project", "regenerate", "check", "build"]),
+            example: None,
+        },
+        Skill {
+            name: "powerrustcobol-backend".into(),
+            summary: "Write the Backend of a Web or Mobile application: the COBOL that holds the data and \
+                      the secrets, and the programs it exports to the browser; use whenever a web form \
+                      needs a file, a database, a key or a rule that must not run in the page."
+                .into(),
+            steps: vec![
+                s("Confirm the project has a Backend: `list_files` shows `backend` files for a Web or \
+                   Mobile project made with the `backend` option on. The Backend is plain RustCOBOL \
+                   under `backend/src/` (with `backend/COPYBOOKS/`): it can use indexed files, SQL \
+                   and the built-ins, and it runs on the machine that hosts it, never in the page."),
+                s("Write one program per thing a form may ask for, and give each a clear, documented \
+                   input and output group. Only the programs listed as exports in the project's \
+                   Backend settings can be called from a form; do not export what the browser has no \
+                   business calling."),
+                s("Put every key, password, token and connection string here — in the Backend's \
+                   configuration at run time, not in a file of the project, and never in a form or \
+                   an asset. Register the files with `add_to_project`."),
+                s("The form calls an exported program with `CALL \"NAME\" WITH WEBSOCKET LINKAGE \
+                   USING …` over the secure channel; look the phrase up with `kb_lookup` first and, if \
+                   the reference does not list it, write a gap report instead of inventing the \
+                   syntax. The Backend's address is `wss://`, or `ws://` only on this machine."),
+                s("`check` the Backend files until `check` reports no error. The IDE does not start a \
+                   project's Backend yet, so a Preview shows calls to it failing; say so to the \
+                   developer rather than pretending the call works."),
+            ],
+            uses_tools: tools(&["list_files", "kb_lookup", "add_to_project", "check"]),
+            example: None,
+        },
+        Skill {
             name: "powerrustcobol-gap-report".into(),
             summary: "Write a gap report when a request needs a verb, control, property, method, \
                       event, file feature or IDE capability the reference does not list."
@@ -1196,6 +1300,12 @@ fn reviewer() -> Reviewer {
                only on a Panel, GroupBox or Button; controls of one class share height, radius and \
                ink; none of the older-style tells (`Fixed3D`, `Raised` or `Sunken` borders, the \
                grey `#F0F0F0` face, square corners, heavy shadows, outlines around cards)."),
+            s("In a Web or Mobile project (the kind `list_files` reports): the forms are in `webforms/` \
+               or `mobileforms/` and the Backend's COBOL in `backend/`; no form or browser-side program \
+               holds a file organisation, SQL, `EXEC RUST`, a child process, a native socket or any \
+               key, password, token or connection string; remote work is a call to a program the \
+               Backend exports, written the way the reference lists it, and a Backend address is \
+               `wss://` (or `ws://` on this machine only)."),
             s("`check` reports no error for the changed files. A missing capability has a gap report \
                in `docs/compiler-requests/` instead of a workaround that pretends."),
         ],
@@ -1296,8 +1406,10 @@ pub(crate) mod tests {
             ("the check-and-fix loop", "powerrustcobol-check-and-fix"),
             ("a gap report", "powerrustcobol-gap-report"),
             ("embedded SQL", "powerrustcobol-use-sql"),
+            ("a Web or Mobile application", "powerrustcobol-web-application"),
+            ("the Backend of a Web or Mobile application", "powerrustcobol-backend"),
         ];
-        assert_eq!(c.skills.len(), 11);
+        assert_eq!(c.skills.len(), 13);
         let tool_names: Vec<&str> = c.tools.iter().map(|t| t.name.as_str()).collect();
         for (subject, name) in subjects {
             let skill = c.skills.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("no skill for {subject}"));
