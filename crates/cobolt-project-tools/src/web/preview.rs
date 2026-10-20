@@ -41,6 +41,11 @@ pub const HELPER_NAME: &str = "prc-web-preview";
 /// The environment variable that names the helper (a build tree, a test).
 pub const HELPER_ENV: &str = "PRC_WEB_PREVIEW";
 
+/// When this variable is set, [`open_in_system_browser`] checks the address and
+/// answers `Ok` without starting a browser — so a test that exercises the
+/// fall-back does not open a window on the developer's screen.
+pub const NO_BROWSER_ENV: &str = "PRC_PREVIEW_NO_BROWSER";
+
 /// What the IDE asks of the helper.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -70,12 +75,18 @@ pub enum Command {
     Reload,
     /// Prefer the dark or the light colour scheme.
     Scheme { dark: bool },
-    /// The language the page sees (`navigator.language`).
-    Locale { tag: String },
-    /// The `devicePixelRatio` the page reads.
-    Dpr { value: f32 },
-    /// The insets `--prc-safe-area-*` carry, in CSS pixels.
-    SafeArea { top: u32, right: u32, bottom: u32, left: u32 },
+    /// The device the page is told it runs on — `devicePixelRatio`,
+    /// `navigator.language`, the insets `--prc-safe-area-*` carry (top, right,
+    /// bottom, left, in CSS pixels). Any of the three may be left out; the
+    /// page loads again **once** for all of them.
+    Emulate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dpr: Option<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        locale: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        safe_area: Option<[u32; 4]>,
+    },
     /// Open the web view's developer tools.
     Devtools,
     /// Close the window and end.
@@ -161,6 +172,10 @@ pub fn helper_path() -> Option<PathBuf> {
 pub fn open_in_system_browser(url: &str) -> Result<(), String> {
     if !is_preview_url(url) {
         return Err("only the Preview's own address is opened".to_owned());
+    }
+    // Tests and CI check the decision without a browser window appearing.
+    if std::env::var_os(NO_BROWSER_ENV).is_some() {
+        return Ok(());
     }
     #[cfg(target_os = "macos")]
     let mut cmd = std::process::Command::new("open");
@@ -378,12 +393,11 @@ mod tests {
             (Command::Size { width: 820, height: 1180 }, r#"{"cmd":"size","width":820,"height":1180}"#),
             (Command::Reload, r#"{"cmd":"reload"}"#),
             (Command::Scheme { dark: true }, r#"{"cmd":"scheme","dark":true}"#),
-            (Command::Locale { tag: "pt-BR".into() }, r#"{"cmd":"locale","tag":"pt-BR"}"#),
-            (Command::Dpr { value: 2.0 }, r#"{"cmd":"dpr","value":2.0}"#),
             (
-                Command::SafeArea { top: 47, right: 0, bottom: 34, left: 0 },
-                r#"{"cmd":"safe_area","top":47,"right":0,"bottom":34,"left":0}"#,
+                Command::Emulate { dpr: Some(2.0), locale: Some("pt-BR".into()), safe_area: Some([47, 0, 34, 0]) },
+                r#"{"cmd":"emulate","dpr":2.0,"locale":"pt-BR","safe_area":[47,0,34,0]}"#,
             ),
+            (Command::Emulate { dpr: None, locale: None, safe_area: Some([0, 0, 0, 0]) }, r#"{"cmd":"emulate","safe_area":[0,0,0,0]}"#),
             (Command::Devtools, r#"{"cmd":"devtools"}"#),
             (Command::Close, r#"{"cmd":"close"}"#),
         ];

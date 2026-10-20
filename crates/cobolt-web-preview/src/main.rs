@@ -15,8 +15,8 @@
 //!               (`open` may also carry "dpr":3.0 "dark":true "locale":"pt-BR" "safe_area":[top,right,bottom,left],
 //!               so the first load already has the emulation the developer chose)
 //!               {"cmd":"size","width":820,"height":1180}   {"cmd":"reload"}   {"cmd":"close"}
-//!               {"cmd":"scheme","dark":true}   {"cmd":"locale","tag":"pt-BR"}   {"cmd":"dpr","value":2.0}
-//!               {"cmd":"safe_area","top":47,"right":0,"bottom":34,"left":0}   {"cmd":"devtools"}
+//!               {"cmd":"scheme","dark":true}   {"cmd":"devtools"}
+//!               {"cmd":"emulate","dpr":2.0,"locale":"pt-BR","safe_area":[47,0,34,0]}   (any of the three; one reload)
 //! here -> IDE   {"event":"ready"}   {"event":"console","level":"error","text":"..."}
 //!               {"event":"error","message":"..","source":"..","line":3}
 //!               {"event":"blocked","url":"https://example.com/"}   {"event":"failed","message":".."}
@@ -226,11 +226,6 @@ mod run {
         let _ = out.flush();
     }
 
-    /// A JS string literal for `s`.
-    fn js(s: &str) -> String {
-        serde_json::Value::String(s.to_owned()).to_string()
-    }
-
     struct Shown {
         window: Window,
         view: WebView,
@@ -332,22 +327,11 @@ mod run {
                                 s.window.set_theme(Some(if dark { Theme::Dark } else { Theme::Light }));
                             }
                         }
-                        "locale" => {
+                        "emulate" => {
                             if let Some(s) = &shown {
-                                let tag = cmd.get("tag").and_then(|v| v.as_str()).unwrap_or("");
-                                let _ = s.view.evaluate_script(&format!("localStorage.setItem('__prc_locale',{});location.reload();", js(tag)));
-                            }
-                        }
-                        "dpr" => {
-                            if let Some(s) = &shown {
-                                let v = cmd.get("value").and_then(|v| v.as_f64()).unwrap_or(1.0);
-                                let _ = s.view.evaluate_script(&format!("localStorage.setItem('__prc_dpr','{v}');location.reload();"));
-                            }
-                        }
-                        "safe_area" => {
-                            if let Some(s) = &shown {
-                                let value = format!("{},{},{},{}", num("top"), num("right"), num("bottom"), num("left"));
-                                let _ = s.view.evaluate_script(&format!("localStorage.setItem('__prc_safe','{value}');location.reload();"));
+                                // The same fields an `open` carries; the page loads again once.
+                                let seed = Emulation::from_open(&cmd).seed_script();
+                                let _ = s.view.evaluate_script(&format!("{seed}location.reload();"));
                             }
                         }
                         "devtools" => {
@@ -445,6 +429,20 @@ mod tests {
         let bad: serde_json::Value =
             serde_json::from_str(r#"{"cmd":"open","dpr":-1,"dark":"yes","locale":"","safe_area":[1,2,3]}"#).unwrap();
         assert_eq!(Emulation::from_open(&bad), Emulation::default());
+    }
+
+    /// `emulate` carries the same fields as `open` (the IDE pins this exact line),
+    /// and a field it leaves out is a key the page keeps as it was.
+    #[test]
+    fn an_emulate_line_changes_only_what_it_names() {
+        let both: serde_json::Value =
+            serde_json::from_str(r#"{"cmd":"emulate","dpr":2.0,"locale":"pt-BR","safe_area":[47,0,34,0]}"#).unwrap();
+        let e = Emulation::from_open(&both);
+        assert_eq!(e, Emulation { dpr: Some(2.0), dark: None, locale: Some("pt-BR".into()), safe_area: Some([47, 0, 34, 0]) });
+        let only_insets: serde_json::Value = serde_json::from_str(r#"{"cmd":"emulate","safe_area":[0,0,0,0]}"#).unwrap();
+        let script = Emulation::from_open(&only_insets).seed_script();
+        assert!(script.contains("'__prc_safe',\"0,0,0,0\""), "{script}");
+        assert!(!script.contains("__prc_dpr") && !script.contains("__prc_locale"), "{script}");
     }
 
     #[test]

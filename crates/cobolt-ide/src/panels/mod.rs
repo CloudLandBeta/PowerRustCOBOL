@@ -66,6 +66,8 @@ pub mod toolbar;
 pub mod toolbar_editor;
 pub mod toolbox;
 pub mod walkthrough;
+/// The web Preview: the build job, the server, the web view and its controls (WASM-008).
+pub mod web_preview;
 /// The settings of a Web or Mobile project (WASM-001, WASM-002).
 pub mod web_settings;
 

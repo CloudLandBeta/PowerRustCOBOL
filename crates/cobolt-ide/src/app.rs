@@ -202,6 +202,7 @@ impl BenchmarkProgress {
 }
 
 use crate::panels::new_project::NewProjectDialog;
+use crate::panels::web_preview::{Intent as WebIntent, Launch as WebLaunch, Target as WebTarget, WebPreview};
 
 // ── CoboltApp ─────────────────────────────────────────────────────────────────
 
@@ -947,6 +948,9 @@ pub struct CoboltApp {
     /// the dialog was raised by a folder row's `[+]`. `None` means `indexed/`.
     new_indexed_dir: Option<String>,
     new_project: NewProjectDialog,
+    /// The web Preview of a Web or Mobile project: its build job, development
+    /// server, web view and controls window (WASM-008).
+    web_preview: WebPreview,
 
     // Cross-window pending actions
     /// A file path waiting to be opened in the code editor (set by a designer
@@ -2285,6 +2289,7 @@ impl CoboltApp {
             new_indexed: NewIndexedDialog::new(),
             new_indexed_dir: None,
             new_project: NewProjectDialog::new(),
+            web_preview: WebPreview::default(),
 
             pending_open_in_editor: None,
             pending_goto_paragraph: None,
@@ -2670,8 +2675,90 @@ impl CoboltApp {
         }
     }
 
+    // ── Web and Mobile projects (WASM-002, WASM-008) ──────────────────────────
+
+    /// Is the open project a Web or Mobile one? Those are built into a bundle
+    /// and shown in a web view, not run by the interpreter.
+    fn is_web_project(&self) -> bool {
+        self.cobolt_project.as_ref().is_some_and(|p| !p.kind().is_desktop())
+    }
+
+    /// What the web Preview needs to know about the open project.
+    fn web_launch(&self) -> Option<WebLaunch> {
+        let p = self.cobolt_project.as_ref()?;
+        let manifest = self.project_path.clone()?;
+        let tr = self.lang.tr();
+        let mobile = p.mobile_settings();
+        Some(WebLaunch {
+            manifest,
+            name: p.project.name.clone(),
+            title: format!("{} - {}", tr.pk_prev_title, p.project.name),
+            kind: p.kind(),
+            device: mobile.map(|m| m.device),
+            orientation: mobile.map(|m| m.orientation),
+            locale: p.project.locale.clone(),
+            has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
+            backend: cobolt_project_tools::web::backend(),
+            helper: cobolt_project_tools::web::preview::helper_path(),
+        })
+    }
+
+    /// Build the bundle of the open Web or Mobile project and — for
+    /// [`WebIntent::Show`] — serve it and show it. The build reads the forms
+    /// from disk, so the designers with unsaved edits are saved first, as
+    /// Run Form saves the form it runs.
+    fn start_web(&mut self, intent: WebIntent) {
+        let Some(launch) = self.web_launch() else {
+            self.output
+                .push_status(crate::ui_text::ide("Open or create a project first (File → New/Open Project)."));
+            return;
+        };
+        for idx in 0..self.designers.len() {
+            if self.designers[idx].1.dirty {
+                self.do_save_designer(idx);
+            }
+        }
+        // 037 R3 — a project with no main form, or two, is healed before it is built.
+        self.apply_main_form_invariant();
+        if !self.web_preview.start(launch, intent) {
+            self.output
+                .push_status(self.lang.tr().status_build_already_running.to_owned());
+        }
+    }
+
+    /// The designer's Preview button in a Web or Mobile project: start the
+    /// Preview, or close it when it is already there.
+    fn toggle_web_preview(&mut self) {
+        if self.web_preview.active() {
+            self.web_preview.close();
+        } else {
+            self.start_web(WebIntent::Show(WebTarget::WebView));
+        }
+    }
+
+    /// Once a frame: move the Preview along, hand its notes to the Output
+    /// panel in the developer's language, and draw its controls window.
+    fn show_web_preview(&mut self, ctx: &Context) {
+        let wants_frame = self.web_preview.poll(std::time::Instant::now());
+        let tr = self.lang.tr();
+        for note in self.web_preview.take_outbox() {
+            for line in note.lines(&tr) {
+                self.output.push_status(line);
+            }
+        }
+        self.web_preview.show(ctx, &tr);
+        if wants_frame {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
+    }
+
     fn do_run(&mut self) {
         if !self.allow_data_binding_project_action(BindingActionGate::RunProject) {
+            return;
+        }
+        // A Web or Mobile project is built and opened in the browser.
+        if self.is_web_project() {
+            self.start_web(WebIntent::Show(WebTarget::Browser));
             return;
         }
         // Was this project last fully built by an older PowerRustCOBOL? Ask
@@ -3122,6 +3209,7 @@ impl CoboltApp {
     }
 
     fn do_stop(&mut self) {
+        self.web_preview.close();
         self.runner.stop();
         self.output.push_status(crate::ui_text::ide("── Stop requested ──"));
     }
@@ -4714,6 +4802,8 @@ impl CoboltApp {
     }
 
     fn open_project_at(&mut self, path: PathBuf) {
+        // A Preview belongs to the project it was started for.
+        self.web_preview.close();
         match load_project(&path) {
             Ok(mut proj) => {
                 let dir = path.parent().map(|p| p.to_owned());
@@ -5393,6 +5483,11 @@ impl CoboltApp {
     /// anyway", and silently full-building would overrule the answer they
     /// just gave.
     fn do_build_binary_button(&mut self) {
+        // A Web or Mobile project builds a bundle, not a native binary.
+        if self.is_web_project() {
+            self.start_web(WebIntent::Build);
+            return;
+        }
         let full = self.build_is_stale();
         self.do_build_binary_with(full, false);
     }
@@ -12718,8 +12813,14 @@ impl CoboltApp {
                 }
             }
             Item::BuildBinary => {
-                let building = self.pending_build_rx.is_some();
-                let build_label = if building { "⏳ Building…" } else { "🔨 Build Binary  (bin/)" };
+                let building = self.pending_build_rx.is_some() || self.web_preview.building();
+                let build_label = if building {
+                    "⏳ Building…"
+                } else if self.is_web_project() {
+                    tr.pk_build_web
+                } else {
+                    "🔨 Build Binary  (bin/)"
+                };
                 if ui.add_enabled(has_project && !building, egui::Button::new(build_label))
                     .on_hover_text(crate::ui_text::ide("Compile project → single native executable in bin/"))
                     .clicked()
@@ -16099,6 +16200,7 @@ impl eframe::App for CoboltApp {
         // ── Dialogs ───────────────────────────────────────────────────────────
         self.show_code_search_window(ctx);
         self.show_new_project_dialog(ctx);
+        self.show_web_preview(ctx);
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
@@ -16324,7 +16426,7 @@ impl eframe::App for CoboltApp {
             debug_hint,
             has_active,
             has_unsaved,
-            self.pending_build_rx.is_some(),
+            self.pending_build_rx.is_some() || self.web_preview.building(),
             self.task_wizard.on,
         ) {
             ToolbarAction::ToggleTaskWizard => self.toggle_task_wizard(ctx),
@@ -19465,6 +19567,12 @@ impl CoboltApp {
                     }
                     DesignerToolbarAction::GenerateOnly => {
                         self.do_generate_cobol(idx);
+                    }
+                    // A Web or Mobile project is previewed in a web view, built from
+                    // its bundle (WASM-008); the designer's own preview window is the
+                    // Desktop project's.
+                    DesignerToolbarAction::TogglePreview if self.is_web_project() => {
+                        self.toggle_web_preview();
                     }
                     DesignerToolbarAction::TogglePreview => {
                         let d = &mut self.designers[idx].1;
