@@ -68,6 +68,18 @@ Divergences from the interpreter found on the way are in `WASM-PARITY.md`.
 
 Next under GOLDEN RULE #9: **IF (Intrinsic Functions)**, then IC — IF needs `FUNCTION` calls in the generator (the module currently refuses them), IC needs nested programs and `CALL`/`LINKAGE`.
 
+## NIST IF on generated modules — finished (2026-10-20, version 2.0.20)
+
+| Axis | Generated module | Interpreter |
+|---|---|---|
+| Compile (`nist_wasm census IF`) | **45 of 45** | 45 of 45 |
+| Execution, programs reporting 0 failures | **45 of 45** | 45 of 45 |
+| Assertions | **841 PASS / 0 FAIL** | 841 / 0 |
+
+Intrinsic functions are built as call records evaluated by `func.rs` (numeric → register stack, character → `T_CTEMP`); see the 2.0.20 entry. Differential tests: `crates/cobolt-wasm/tests/intrinsics.rs`; routine tests in `func.rs`. NC is unchanged at 95/95, 4 612/0 after the change. Next: **IC** (nested programs, `CALL`/`LINKAGE`).
+
+The IDE-side sub-agent's five commits (WASM-001/008/015) are merged into `features-2x` (2.0.20); the graphics, backend and player/loader agents are still running in their own worktrees, unmerged.
+
 ## Status at the end of the first implementation session (2026-10-20, version 2.0.18)
 
 Measured, not hoped. Commits on `features-2x`: `44371f53` … `42eac962` (2.0.11 – 2.0.17) plus this one.

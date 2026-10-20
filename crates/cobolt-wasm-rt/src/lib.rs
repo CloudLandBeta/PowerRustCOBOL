@@ -48,6 +48,7 @@ pub mod edited;
 pub mod fd;
 pub mod file;
 pub mod float;
+pub mod func;
 pub mod host;
 pub mod mem;
 pub mod mv;
@@ -386,6 +387,18 @@ pub extern "C" fn rt_switches(base: u32, table: u32) {
             mem::wr_u8(base + off, b'0' + (st & 1) as u8);
         }
     }
+}
+
+/// Evaluate a numeric intrinsic function (call record `rec`) and push its result.
+#[no_mangle]
+pub extern "C" fn rt_func(base: u32, rec: u32) {
+    func::eval_num(base, rec);
+}
+
+/// Evaluate a character intrinsic function into character temporary `k`.
+#[no_mangle]
+pub extern "C" fn rt_func_chars(base: u32, rec: u32, k: u32) {
+    func::eval_chars(base, rec, k);
 }
 
 /// Install the program collating sequence: `table` is `[low][high][u16 × 256]`.

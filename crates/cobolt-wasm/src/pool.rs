@@ -163,6 +163,12 @@ impl Pool {
         self.intern(&r)
     }
 
+    /// The bytes a character-valued function left in character temporary `k`.
+    pub fn opd_ctemp(&mut self, k: u32) -> u32 {
+        let r = Self::header(cobolt_wasm_rt::opd::T_CTEMP, 0, 0, 0, &Fd::alnum(0), k, 0);
+        self.intern(&r)
+    }
+
     /// Spec records (INSPECT, STRING, UNSTRING, INITIALIZE …): a list of `u32`s.
     pub fn spec(&mut self, words: &[u32]) -> u32 {
         let mut b = Vec::with_capacity(words.len() * 4);

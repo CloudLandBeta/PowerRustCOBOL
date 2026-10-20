@@ -96,6 +96,10 @@ pub struct Lower<'a, 'b> {
     pub(crate) record_file: HashMap<usize, String>,
     /// Next free statement temporary (reset for every statement).
     pub(crate) temp_next: u32,
+    /// Next free character temporary (reset for every statement).
+    pub(crate) ctemp_next: u32,
+    /// The `WHEN-COMPILED` text of this build (21 characters).
+    pub(crate) when_compiled: String,
     /// Paragraphs that are `ALTER` targets -> the region offset of their slot.
     pub(crate) alter_slots: HashMap<usize, u32>,
 }
@@ -112,6 +116,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         map: MemMap,
         conformance: bool,
         tolerant: bool,
+        when_compiled: String,
     ) -> GenResult<Lowered> {
         let mut layout = Layout::new();
         if let Some(d) = &prog.data {
@@ -160,6 +165,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             files: HashMap::new(),
             record_file: HashMap::new(),
             temp_next: 0,
+            ctemp_next: 0,
+            when_compiled,
             alter_slots: HashMap::new(),
         };
         l.build_files()?;
@@ -906,6 +913,9 @@ impl<'a, 'b> Lower<'a, 'b> {
                 self.item_operand(idx, indices, Some((s, l)), line).map(Some)
             }
             Expr::Unary { op: UnaryOp::Pos, operand, .. } => self.operand(operand),
+            // A character-valued function is an operand once evaluated into its
+            // temporary; a numeric one is a computation (`push_expr`).
+            Expr::FunctionCall { name, args, .. } => self.function_operand(name, args, line),
             _ => Ok(None),
         }
     }
@@ -997,7 +1007,16 @@ impl<'a, 'b> Lower<'a, 'b> {
                 }
                 Ok(())
             }
-            Expr::FunctionCall { name, .. } => self.err(line, format!("FUNCTION {name} is not supported in a WebAssembly module yet")),
+            Expr::FunctionCall { name, args, .. } => {
+                let f = self.function_call(name, args, line)?;
+                if f.chars {
+                    return self.err(line, format!("FUNCTION {name} yields characters, which arithmetic cannot use"));
+                }
+                self.base();
+                self.i32c(f.rec as i32);
+                self.call_rt("rt_func");
+                Ok(())
+            }
             Expr::Member { .. } => self.err(line, "control members are not supported in this build of the generator yet"),
             _ => self.err(line, "this expression is not supported in a WebAssembly module yet"),
         }
@@ -1258,6 +1277,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     pub(crate) fn stmt(&mut self, s: &Stmt) -> GenResult<()> {
         self.temp_next = 0;
+        self.ctemp_next = 0;
         let line = s.span().line;
         if line > 0 {
             self.line(line);

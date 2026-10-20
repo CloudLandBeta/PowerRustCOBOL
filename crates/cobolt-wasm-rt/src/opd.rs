@@ -45,6 +45,8 @@ pub const T_FIG: u8 = 3;
 pub const T_ALL: u8 = 4;
 /// A value saved in one of the statement's temporaries (`off` is its index).
 pub const T_TEMP: u8 = 5;
+/// The bytes a character-valued function left in character temporary `off`.
+pub const T_CTEMP: u8 = 6;
 
 pub const FIG_ZERO: u8 = 0;
 pub const FIG_SPACE: u8 = 1;
@@ -207,6 +209,10 @@ fn locate_sized(base: u32, o: &Opd, current: bool) -> Loc {
                 };
             }
             loc
+        }
+        T_CTEMP => {
+            let (addr, len) = crate::func::ctemp_loc(o.off);
+            Loc { addr, len, fd: Fd { kind: K_ALNUM, flags: 0, digits: 0, scale: 0, len, aux: 0 } }
         }
         T_LIT_ALNUM | T_ALL => Loc {
             addr: o.off,

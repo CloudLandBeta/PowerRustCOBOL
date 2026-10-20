@@ -60,11 +60,14 @@ pub struct Options {
     /// Blocks run before the module yields to the host.
     pub budget: i32,
     pub name: String,
+    /// The 21 characters `FUNCTION WHEN-COMPILED` answers; `None` takes the
+    /// time of the build (UTC), which a reproducible build overrides.
+    pub when_compiled: Option<String>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into() }
+        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None }
     }
 }
 
@@ -147,7 +150,14 @@ pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
     // ── lowering ─────────────────────────────────────────────────────────
     let mut pool = Pool::new(consts_base);
     let mut blocks: Vec<Block> = Vec::new();
-    let lowered = Lower::lower(prog, &mut pool, &mut blocks, map, opts.conformance, opts.tolerate_undeclared)?;
+    let when_compiled = opts.when_compiled.clone().unwrap_or_else(|| {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0);
+        String::from_utf8_lossy(&cobolt_wasm_rt::func::current_date_text(ms)).into_owned()
+    });
+    let lowered = Lower::lower(prog, &mut pool, &mut blocks, map, opts.conformance, opts.tolerate_undeclared, when_compiled)?;
     let layout = lowered.layout;
 
     // Reachable blocks, entry first.

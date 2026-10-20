@@ -17,6 +17,67 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.20] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.19.)*
+
+### Added: intrinsic functions in the WebAssembly generator — NIST IF runs clean, 45 of 45 programs, 841 assertions, 0 failures
+
+GOLDEN RULE #9, second module, both axes: all 45 `IF` programs compile and run to
+completion on generated modules with no failure — the interpreter's own result is 841
+assertions and 0 failures, and the module matches it assertion for assertion. Every
+function the module used to refuse by name is now generated.
+
+- **How a call is built.** A call is a record in the constant pool (function number,
+  argument operands, the decimal-comma switch and the currency sign). The generator
+  flattens `ALL` subscripts into one operand per element, evaluates nested calls and
+  computed arguments first, and then asks the routines (`cobolt-wasm-rt/src/func.rs`,
+  linked only into modules that use a function): a **numeric** function leaves its
+  result on the register stack, a **character** function leaves its bytes in one of
+  four character temporaries that a new operand tag (`T_CTEMP`) names.
+- **Functions.** `ABS ACOS ANNUITY ASIN ATAN COS EXP EXP10 FACTORIAL FRACTION-PART
+  INTEGER INTEGER-PART LOG LOG10 MAX MEAN MEDIAN MIDRANGE MIN MOD NUMVAL NUMVAL-C
+  NUMVAL-F ORD ORD-MAX ORD-MIN PI PRESENT-VALUE RANDOM RANGE REM SIN SQRT
+  STANDARD-DEVIATION SUM TAN VARIANCE LENGTH STORED-CHAR-LENGTH TEST-NUMVAL
+  INTEGER-OF-DATE DATE-OF-INTEGER INTEGER-OF-DAY DAY-OF-INTEGER YEAR-TO-YYYY
+  UPPER-CASE LOWER-CASE REVERSE CHAR TRIM CONCATENATE CURRENT-DATE WHEN-COMPILED`;
+  `MAX`/`MIN` over alphanumeric arguments answer with the argument. The arithmetic is
+  the interpreter's (`f64` through `libm` for the transcendental and statistical
+  functions, exact decimals for `SUM`, `MAX`, `MIN` and the integer functions, the same
+  LCG for `RANDOM`), so results agree digit for digit.
+- **Clock and build time.** `CURRENT-DATE` reads the host clock (UTC, `+0000`).
+  `WHEN-COMPILED` is the time of the build — a constant in the module — and
+  `Options::when_compiled` fixes it for a reproducible build; the interpreter answers
+  the run time instead (`specs/WASM-PARITY.md`).
+- **Refused with a reason:** `ALL` over an `OCCURS … DEPENDING ON` table (its count is a
+  run-time fact), more than 256 arguments, a character-valued function inside
+  arithmetic, and the national/UTF-8 functions.
+- Comparison operands accept the saved numeric temporary (`T_TEMP`); `MOVE` accepts it
+  as a sender.
+
+### Merged: the IDE side of the line (WASM-001, WASM-008, WASM-015) — from a sub-agent's worktree
+
+Five commits, cherry-picked onto `features-2x` (no conflict beyond `Cargo.lock`, which
+was resolved by re-locking): project kinds (Desktop, Web, Mobile) in the manifest and
+the New Project dialog with data-driven templates; the WebForms/MobileForms/Backend
+tree nodes; a Web/Mobile settings section; the web Preview (a build job, a loopback
+development server with isolation headers, a separate web-view helper process
+`prc-web-preview` on `wry`/`tao`, device presets, live reload); plugin rules and
+skills for the coding agent, the System KB section "Project kinds" and a regenerated
+`chunked.data`; `plan.md` and `tasks.md` for WASM-001 and WASM-008. What the agent
+reported as **not done**: the toolbox by kind (needs the web class table of WASM-004),
+linking a real generator behind `cobolt_project_tools::web::link` (Build/Preview report
+"not linked" until it is), starting the project's Backend from the Preview, the headless
+render and scripted run of a web form, the authentication programs of the Backend
+scaffold, and Grace's planner preamble reading the project kind. Nobody has opened the
+Preview window yet. Its three IDE test failures (eleven English-only documents under
+`docs/`, two live-network crate resolutions) are not from this work.
+
+Version 2.0.20. No product document changes; `README.md` and `docs/` are untouched on
+this line.
+
+*(Written on `features-2x`.)*
+
 ## [PowerRustCOBOL 2.0.19] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.18.)*

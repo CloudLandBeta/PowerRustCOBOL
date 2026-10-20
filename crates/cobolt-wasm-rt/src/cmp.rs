@@ -36,7 +36,7 @@ enum View {
 
 fn view(base: u32, o: &Opd, other_numeric: bool, other_strict: bool) -> View {
     match o.tag {
-        T_LIT_NUM => View::Num(value(base, o), o.fd),
+        T_LIT_NUM | T_TEMP => View::Num(value(base, o), o.fd),
         T_FIG => {
             // `ZERO` is the number against a number, and the character '0'
             // against anything else — an edited item included, which is
@@ -68,7 +68,7 @@ fn view(base: u32, o: &Opd, other_numeric: bool, other_strict: bool) -> View {
 
 fn is_numeric_operand(base: u32, o: &Opd) -> bool {
     match o.tag {
-        T_LIT_NUM => true,
+        T_LIT_NUM | T_TEMP => true,
         T_ITEM => {
             let loc = locate(base, o);
             loc.fd.is_numeric() || loc.fd.kind == K_NUM_EDITED
@@ -81,7 +81,7 @@ fn is_numeric_operand(base: u32, o: &Opd) -> bool {
 /// edited one, whose class is alphanumeric).
 fn is_strict_numeric(base: u32, o: &Opd) -> bool {
     match o.tag {
-        T_LIT_NUM => true,
+        T_LIT_NUM | T_TEMP => true,
         T_ITEM => locate(base, o).fd.is_numeric(),
         _ => false,
     }

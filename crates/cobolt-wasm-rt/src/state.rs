@@ -35,8 +35,13 @@ pub const ANSWER_SIZE: u32 = 16 * 1024;
 /// Scratch for sender snapshots, string building and number formatting.
 pub const WS_SCRATCH: u32 = WS_ANSWER + ANSWER_SIZE;
 pub const SCRATCH_SIZE: u32 = 32 * 1024;
+/// Character temporaries: where a character-valued intrinsic function leaves
+/// its result for the operand (`T_CTEMP`) that names the slot.
+pub const NCTEMP: usize = 4;
+pub const CTEMP_SIZE: u32 = 4096;
+pub const WS_CTEMP: u32 = WS_SCRATCH + SCRATCH_SIZE;
 /// Total workspace size the generator must reserve.
-pub const WS_SIZE: u32 = WS_SCRATCH + SCRATCH_SIZE;
+pub const WS_SIZE: u32 = WS_CTEMP + NCTEMP as u32 * CTEMP_SIZE;
 
 /// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
 /// owns the message text, so the IDE and the page can translate it.
@@ -70,11 +75,15 @@ pub struct State {
     pub collate: u32,
     /// The resolved sender of a `MOVE` in progress (several receivers).
     pub snd: Option<crate::mv::Sender>,
+    /// Lengths of the character temporaries' contents.
+    pub ctemp_len: [u32; NCTEMP],
+    /// The state of `FUNCTION RANDOM`'s generator.
+    pub random: u64,
 }
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL }
     }
 }
 

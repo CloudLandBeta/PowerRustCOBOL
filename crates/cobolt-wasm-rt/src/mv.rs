@@ -42,7 +42,7 @@ pub enum Sender {
 /// Resolve the sender operand.
 pub fn sender(base: u32, o: &Opd) -> Sender {
     match o.tag {
-        T_LIT_NUM => Sender::Num(value(base, o), o.fd),
+        T_LIT_NUM | T_TEMP => Sender::Num(value(base, o), o.fd),
         T_LIT_ALNUM => Sender::Bytes(locate(base, o), false),
         T_FIG => Sender::Fill(fig_byte(o.fig), o.fig == FIG_ZERO),
         T_ALL => Sender::All(locate(base, o)),

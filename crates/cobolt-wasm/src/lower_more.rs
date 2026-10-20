@@ -18,7 +18,143 @@ use cobolt_wasm_rt::cmp::{OP_GT, OP_LE};
 use cobolt_wasm_rt::fd::*;
 use wasm_encoder::Instruction as I;
 
+/// A lowered intrinsic-function call: its record, and whether it yields
+/// characters (otherwise a number).
+pub(crate) struct FuncCall {
+    pub rec: u32,
+    pub chars: bool,
+}
+
 impl Lower<'_, '_> {
+    // ── intrinsic functions ───────────────────────────────────────────────
+
+    /// Is `e` an alphanumeric argument (a string literal, a character item, a
+    /// character-valued function)?
+    fn expr_is_chars(&mut self, e: &Expr) -> bool {
+        match e {
+            Expr::Literal(Literal::String(_), _) => true,
+            Expr::Identifier(..) | Expr::Qualified { .. } => match self.resolve_item(e) {
+                Ok(i) => {
+                    let it = &self.layout.items[i];
+                    it.level != 88 && !it.fd.is_numeric() && it.fd.kind != K_NUM_EDITED
+                }
+                Err(_) => false,
+            },
+            Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => self.expr_is_chars(base),
+            Expr::FunctionCall { name, args, .. } => {
+                let up = name.to_ascii_uppercase();
+                if up == "WHEN-COMPILED" {
+                    return true;
+                }
+                let flat: Vec<Expr> = args.iter().flat_map(|a| self.all_elements(a).unwrap_or_else(|_| vec![a.clone()])).collect();
+                matches!(self.function_id(&up, &flat), Some(id) if id >= 64)
+            }
+            _ => false,
+        }
+    }
+
+    /// The runtime number of function `up` for these (flattened) arguments.
+    fn function_id(&mut self, up: &str, flat: &[Expr]) -> Option<u32> {
+        use cobolt_wasm_rt::func::{id, NAMES};
+        let char_args = flat.iter().any(|a| self.expr_is_chars(a));
+        match up {
+            "MAX" if char_args => Some(id::MAX_CHARS),
+            "MIN" if char_args => Some(id::MIN_CHARS),
+            _ => NAMES.iter().find(|(n, _)| *n == up).map(|(_, i)| *i),
+        }
+    }
+
+    /// `ALL` subscripts spelled out: `T (ALL, 2)` is one element per occurrence
+    /// of the first dimension, row-major. A variable-length table is refused:
+    /// its count is a run-time fact.
+    fn all_elements(&mut self, e: &Expr) -> GenResult<Vec<Expr>> {
+        let Expr::Subscript { base, indices, span } = e else {
+            return Ok(vec![e.clone()]);
+        };
+        if !indices.iter().any(|i| matches!(i, Expr::AllSubscript(_))) {
+            return Ok(vec![e.clone()]);
+        }
+        let line = e.span().line;
+        let idx = self.resolve_item(base)?;
+        let chain = self.layout.occurs_chain(idx);
+        if chain.len() != indices.len() {
+            return self.err(line, "the subscripts do not match the table's dimensions");
+        }
+        let mut combos: Vec<Vec<Expr>> = vec![Vec::new()];
+        for (pos, ix) in indices.iter().enumerate() {
+            let choices: Vec<Expr> = if matches!(ix, Expr::AllSubscript(_)) {
+                let (_, max, odo) = &chain[pos];
+                if odo.is_some() {
+                    return self.err(line, "ALL over a variable-length table is not supported in a WebAssembly module yet");
+                }
+                (1..=*max as i64).map(|n| Expr::Literal(Literal::Integer(n), *span)).collect()
+            } else {
+                vec![ix.clone()]
+            };
+            let mut next = Vec::with_capacity(combos.len() * choices.len());
+            for c in &combos {
+                for ch in &choices {
+                    let mut v = c.clone();
+                    v.push(ch.clone());
+                    next.push(v);
+                }
+            }
+            combos = next;
+        }
+        Ok(combos.into_iter().map(|indices| Expr::Subscript { base: base.clone(), indices, span: *span }).collect())
+    }
+
+    /// Lower a call: evaluate its arguments (nested calls and computed
+    /// arguments first) and build the record the routines read.
+    pub(crate) fn function_call(&mut self, name: &str, args: &[Expr], line: u32) -> GenResult<FuncCall> {
+        let up = name.to_ascii_uppercase();
+        let mut flat: Vec<Expr> = Vec::new();
+        for a in args {
+            flat.extend(self.all_elements(a)?);
+        }
+        if flat.len() > cobolt_wasm_rt::func::MAX_ARGS {
+            return self.err(line, format!("FUNCTION {name} takes at most {} arguments here", cobolt_wasm_rt::func::MAX_ARGS));
+        }
+        let Some(fid) = self.function_id(&up, &flat) else {
+            return self.err(line, format!("FUNCTION {name} is not supported in a WebAssembly module yet"));
+        };
+        let mut words: Vec<u32> = vec![fid, flat.len() as u32, u32::from(self.prog.decimal_comma), self.prog.currency as u32];
+        for a in &flat {
+            words.push(self.operand_or_temp(a)?);
+        }
+        let rec = self.pool.spec(&words);
+        Ok(FuncCall { rec, chars: fid >= 64 })
+    }
+
+    /// The operand for a character-valued function (evaluated into its
+    /// temporary), or `None` for a numeric one.
+    pub(crate) fn function_operand(&mut self, name: &str, args: &[Expr], line: u32) -> GenResult<Option<u32>> {
+        let up = name.to_ascii_uppercase();
+        if up == "WHEN-COMPILED" {
+            let text = self.when_compiled.clone();
+            return Ok(Some(self.pool.opd_lit_alnum(text.as_bytes())));
+        }
+        let mut flat: Vec<Expr> = Vec::new();
+        for a in args {
+            flat.extend(self.all_elements(a)?);
+        }
+        match self.function_id(&up, &flat) {
+            Some(id) if id >= 64 => {}
+            _ => return Ok(None),
+        }
+        let f = self.function_call(name, args, line)?;
+        let k = self.ctemp_next;
+        if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
+            return self.err(line, "this statement needs more than four character-valued functions");
+        }
+        self.ctemp_next += 1;
+        self.base();
+        self.i32c(f.rec as i32);
+        self.i32c(k as i32);
+        self.call_rt("rt_func_chars");
+        Ok(Some(self.pool.opd_ctemp(k)))
+    }
+
     // ── computed operands ─────────────────────────────────────────────────
 
     /// An operand record for `e`, computing it into a temporary first when it
