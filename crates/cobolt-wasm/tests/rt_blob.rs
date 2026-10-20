@@ -23,11 +23,18 @@ fn the_committed_rt_blob_matches_its_sources() {
 #[test]
 fn the_blob_exports_every_routine_the_generator_calls() {
     let blob = cobolt_wasm::link::Blob::load(include_bytes!("../assets/rt.wasm")).expect("blob");
-    for name in [
-        "rt_init", "rt_move", "rt_move_begin", "rt_move_to", "rt_rel", "rt_class", "rt_sign", "rt_begin", "rt_push",
-        "rt_op", "rt_pick", "rt_drop", "rt_store", "rt_trunc", "rt_size_err", "rt_display", "rt_display_reg",
-        "rt_display_end", "rt_flush", "rt_int", "rt_reg_int", "rt_rel_reg", "rt_goto_index", "rt_reg_goto_index",
-    ] {
+    // Every `call_rt("name")` in the lowering sources.
+    let mut names = std::collections::BTreeSet::new();
+    for src in [include_str!("../src/lower.rs"), include_str!("../src/lower_more.rs")] {
+        let mut rest = src;
+        while let Some(i) = rest.find("call_rt(\"") {
+            rest = &rest[i + 9..];
+            let end = rest.find('"').unwrap();
+            names.insert(rest[..end].to_string());
+        }
+    }
+    assert!(names.len() > 20, "found only {} routine names", names.len());
+    for name in &names {
         assert!(blob.export(name).is_some(), "the blob has no {name}");
     }
 }

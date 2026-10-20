@@ -151,6 +151,21 @@ impl Pool {
         self.intern(&r)
     }
 
+    /// A value saved in temporary `k` by `rt_save_temp`.
+    pub fn opd_temp(&mut self, k: u32) -> u32 {
+        let r = Self::header(cobolt_wasm_rt::opd::T_TEMP, 0, 0, 0, &Fd::alnum(0), k, 0);
+        self.intern(&r)
+    }
+
+    /// Spec records (INSPECT, STRING, UNSTRING, INITIALIZE …): a list of `u32`s.
+    pub fn spec(&mut self, words: &[u32]) -> u32 {
+        let mut b = Vec::with_capacity(words.len() * 4);
+        for w in words {
+            b.extend_from_slice(&w.to_le_bytes());
+        }
+        self.intern(&b)
+    }
+
     pub fn opd_fig(&mut self, fig: u8) -> u32 {
         let r = Self::header(T_FIG, 0, 0, fig, &Fd::alnum(1), 0, 0);
         self.intern(&r)

@@ -63,6 +63,12 @@ pub fn move_to(base: u32, snd: &Sender, dst: &Opd) {
     if dst.tag != T_ITEM {
         crate::fail(err::BAD_OPERAND);
     }
+    move_to_loc(snd, &d);
+}
+
+/// `MOVE` into an already-located receiver.
+pub fn move_to_loc(snd: &Sender, d: &Loc) {
+    let d = *d;
     match d.fd.kind {
         K_NUM_DISPLAY | K_BINARY | K_COMP5 | K_PACKED | K_FLOAT32 | K_FLOAT64 | K_INDEX => {
             move_to_numeric(snd, &d)

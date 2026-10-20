@@ -92,6 +92,11 @@ fn main() {
         .filter(|m| m.kind == "COBOL" && m.name.starts_with(&filter))
         .collect();
     match mode {
+        "extract" => {
+            for m in &members {
+                print!("{}", m.text);
+            }
+        }
         "compile" => {
             for m in &members {
                 match compile_member(m) {

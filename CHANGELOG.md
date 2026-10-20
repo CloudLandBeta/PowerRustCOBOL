@@ -17,6 +17,36 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.17] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.16.)*
+
+### Added: phase B of the WebAssembly generator — tables, strings and group operations; NIST NC at 69 of 95 programs clean
+
+`SEARCH` (serial, and `SEARCH ALL` as a binary search over the declared keys, with
+`VARYING` and the table's own `INDEXED BY` names), `INSPECT` (tallying and replacing
+as one shared left-to-right scan each, `BEFORE`/`AFTER INITIAL`, converting), `STRING`,
+`UNSTRING` (delimiters, `ALL`, `DELIMITER IN`, `COUNT IN`, `TALLYING`, `POINTER`),
+`MOVE`/`ADD`/`SUBTRACT CORRESPONDING`, `INITIALIZE` (with `REPLACING` by category, over
+whole tables), `ALTER` (the altered paragraph's `GO TO` reads its destination from a
+slot), computed subscripts and reference-modification bounds (saved in statement
+temporaries), `+4` as a subscript, and several `SET … TO TRUE` receivers in one
+statement. The layout now makes the records of one file description share a record area
+and honours a level-01 `REDEFINES`.
+
+Two corrections the NIST run found: a `PERFORM a THRU b` whose end paragraph physically
+precedes its start returns when control reaches that end by any route (it used to be
+clamped to the start), and an edited item compared with characters (`IF EDIT = SPACES`)
+is compared as the characters it holds, not as its value.
+
+Measured with the CCVS85 harness driving the generated modules (compile and execution
+reported separately): **NC 69 of 95 programs run to completion reporting 0 failures;
+81 of 95 compile; 3 811 assertions pass and 39 fail** in the programs that ran
+(the interpreter's own figure is 95/95, 4 614/0). What stands between this and 95/95
+is listed by `cargo run -p cobolt-wasm --example nist_wasm -- census NC`: `ACCEPT`,
+`RENAMES`, user-defined `CLASS`, `EVALUATE` over conditions, and the failures in the
+`MOVE`, edited-picture and `UNSTRING` programs.
+
 ## [PowerRustCOBOL 2.0.16] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.15.)*

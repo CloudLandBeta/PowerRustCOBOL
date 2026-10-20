@@ -40,7 +40,7 @@ pub struct MemMap {
 }
 
 /// One paragraph, flattened out of its section.
-struct Para<'a> {
+pub(crate) struct Para<'a> {
     name: String,
     section: Option<String>,
     stmts: &'a [Stmt],
@@ -49,14 +49,14 @@ struct Para<'a> {
 
 /// An inline loop being lowered: where `EXIT PERFORM` and `EXIT PERFORM CYCLE`
 /// go.
-struct LoopCtx {
+pub(crate) struct LoopCtx {
     exit: BlockId,
     cycle: BlockId,
 }
 
 /// A file of the program, as the conformance routines see it.
 #[derive(Clone, Copy)]
-struct FileInfo {
+pub(crate) struct FileInfo {
     /// Address of the static file descriptor.
     desc: u32,
     /// Layout item of the file's first record area.
@@ -69,30 +69,34 @@ pub struct Lowered {
 }
 
 pub struct Lower<'a, 'b> {
-    prog: &'a Program,
+    pub(crate) prog: &'a Program,
     pub layout: Layout,
-    pool: &'b mut Pool,
-    blocks: &'b mut Vec<Block>,
-    map: MemMap,
-    cur: Option<BlockId>,
-    paras: Vec<Para<'a>>,
-    para_by_name: HashMap<String, Vec<usize>>,
-    sections: HashMap<String, (usize, usize)>,
-    perform_ends: HashSet<usize>,
-    entries: Vec<BlockId>,
-    ends: Vec<BlockId>,
-    loops: Vec<LoopCtx>,
-    cur_para: usize,
-    next_sentence: Option<BlockId>,
+    pub(crate) pool: &'b mut Pool,
+    pub(crate) blocks: &'b mut Vec<Block>,
+    pub(crate) map: MemMap,
+    pub(crate) cur: Option<BlockId>,
+    pub(crate) paras: Vec<Para<'a>>,
+    pub(crate) para_by_name: HashMap<String, Vec<usize>>,
+    pub(crate) sections: HashMap<String, (usize, usize)>,
+    pub(crate) perform_ends: HashSet<usize>,
+    pub(crate) entries: Vec<BlockId>,
+    pub(crate) ends: Vec<BlockId>,
+    pub(crate) loops: Vec<LoopCtx>,
+    pub(crate) cur_para: usize,
+    pub(crate) next_sentence: Option<BlockId>,
     /// Where control goes when the last paragraph falls off its end.
-    program_end: BlockId,
+    pub(crate) program_end: BlockId,
     /// Constructs that could not be compiled; reported together at the end.
-    diags: Vec<GenError>,
+    pub(crate) diags: Vec<GenError>,
     /// The NIST gate build: file verbs are compiled.
-    conformance: bool,
-    files: HashMap<String, FileInfo>,
+    pub(crate) conformance: bool,
+    pub(crate) files: HashMap<String, FileInfo>,
     /// Record item -> the file whose area it is.
-    record_file: HashMap<usize, String>,
+    pub(crate) record_file: HashMap<usize, String>,
+    /// Next free statement temporary (reset for every statement).
+    pub(crate) temp_next: u32,
+    /// Paragraphs that are `ALTER` targets -> the region offset of their slot.
+    pub(crate) alter_slots: HashMap<usize, u32>,
 }
 
 fn up(s: &str) -> String {
@@ -114,7 +118,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                     DataSection::WorkingStorage(decls) | DataSection::LocalStorage(decls) => layout.add_section(decls)?,
                     DataSection::FileSection(fds) => {
                         for fd in fds {
-                            layout.add_section(&fd.records)?;
+                            layout.add_file_records(&fd.records)?;
                         }
                     }
                     DataSection::Linkage(_) => {
@@ -152,10 +156,13 @@ impl<'a, 'b> Lower<'a, 'b> {
             conformance,
             files: HashMap::new(),
             record_file: HashMap::new(),
+            temp_next: 0,
+            alter_slots: HashMap::new(),
         };
         l.build_files()?;
         l.flatten()?;
         l.prescan()?;
+        l.find_alters()?;
         let entry = l.new_block("program");
         l.program_end = l.new_block("program-end");
         for i in 0..l.paras.len() {
@@ -170,8 +177,9 @@ impl<'a, 'b> Lower<'a, 'b> {
         l.emit(Ins::Raw(I::I32Const(ret::DONE)));
         l.finish_raw();
 
-        // Entry: straight into the first paragraph.
+        // Entry: set up the ALTER slots, then straight into the first paragraph.
         l.begin(entry);
+        l.init_alter_slots()?;
         if let Some(first) = l.entries.first().copied() {
             l.jump(first);
         } else {
@@ -191,7 +199,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     // ── files (conformance builds) ────────────────────────────────────────
 
-    fn build_files(&mut self) -> GenResult<()> {
+    pub(crate) fn build_files(&mut self) -> GenResult<()> {
         if !self.conformance {
             return Ok(());
         }
@@ -240,7 +248,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn file(&self, name: &str, line: u32) -> GenResult<FileInfo> {
+    pub(crate) fn file(&self, name: &str, line: u32) -> GenResult<FileInfo> {
         if !self.conformance {
             return self.err(
                 line,
@@ -250,7 +258,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.files.get(&up(name)).copied().ok_or_else(|| GenError::new(line, format!("file {name} is not defined")))
     }
 
-    fn open_(&mut self, mode: OpenMode, files: &[String], line: u32) -> GenResult<()> {
+    pub(crate) fn open_(&mut self, mode: OpenMode, files: &[String], line: u32) -> GenResult<()> {
         let m = match mode {
             OpenMode::Input => 0,
             OpenMode::Output => 1,
@@ -268,7 +276,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn close_(&mut self, files: &[String], line: u32) -> GenResult<()> {
+    pub(crate) fn close_(&mut self, files: &[String], line: u32) -> GenResult<()> {
         for f in files {
             let fi = self.file(f, line)?;
             self.base();
@@ -280,7 +288,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// The file whose record area `e` names.
-    fn file_of_record(&self, e: &Expr, line: u32) -> GenResult<(String, FileInfo)> {
+    pub(crate) fn file_of_record(&self, e: &Expr, line: u32) -> GenResult<(String, FileInfo)> {
         let base = match e {
             Expr::Subscript { base, .. } => base.as_ref(),
             other => other,
@@ -296,7 +304,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.err(line, "the record is not in a file")
     }
 
-    fn write_(
+    pub(crate) fn write_(
         &mut self,
         record: &Expr,
         from: Option<&Expr>,
@@ -346,7 +354,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn read_(
+    pub(crate) fn read_(
         &mut self,
         file: &str,
         into: Option<&Expr>,
@@ -389,37 +397,37 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     // ── block plumbing ────────────────────────────────────────────────────
 
-    fn new_block(&mut self, name: &str) -> BlockId {
+    pub(crate) fn new_block(&mut self, name: &str) -> BlockId {
         self.blocks.push(Block { name: name.to_string(), code: Vec::new(), succ: Vec::new(), done: false });
         self.blocks.len() - 1
     }
 
-    fn begin(&mut self, id: BlockId) {
+    pub(crate) fn begin(&mut self, id: BlockId) {
         self.cur = Some(id);
     }
 
-    fn emit(&mut self, i: Ins) {
+    pub(crate) fn emit(&mut self, i: Ins) {
         let id = self.cur.expect("emit with no current block");
         self.blocks[id].code.push(i);
     }
 
-    fn raw(&mut self, i: I<'static>) {
+    pub(crate) fn raw(&mut self, i: I<'static>) {
         self.emit(Ins::Raw(i));
     }
 
-    fn i32c(&mut self, v: i32) {
+    pub(crate) fn i32c(&mut self, v: i32) {
         self.raw(I::I32Const(v));
     }
 
     /// Terminate the current block by returning the code already on the stack.
-    fn finish_raw(&mut self) {
+    pub(crate) fn finish_raw(&mut self) {
         if let Some(id) = self.cur.take() {
             self.blocks[id].done = true;
         }
     }
 
     /// End the current block with a jump to `target`.
-    fn jump(&mut self, target: BlockId) {
+    pub(crate) fn jump(&mut self, target: BlockId) {
         let id = self.cur.expect("jump with no current block");
         self.blocks[id].code.push(Ins::Pc(target));
         self.blocks[id].succ.push(target);
@@ -428,7 +436,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// End the current block with `if <i32 on the stack> then a else b`.
-    fn branch(&mut self, then_b: BlockId, else_b: BlockId) {
+    pub(crate) fn branch(&mut self, then_b: BlockId, else_b: BlockId) {
         let id = self.cur.expect("branch with no current block");
         let b = &mut self.blocks[id];
         b.code.push(Ins::Raw(I::If(wasm_encoder::BlockType::Result(wasm_encoder::ValType::I32))));
@@ -444,27 +452,75 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     /// Start a block nobody jumps to — where the statements after a `GO TO`
     /// land. It is pruned if nothing ends up in it.
-    fn dead_block(&mut self) {
+    pub(crate) fn dead_block(&mut self) {
         let b = self.new_block("unreachable");
         self.begin(b);
     }
 
-    fn line(&mut self, line: u32) {
+    pub(crate) fn line(&mut self, line: u32) {
         self.i32c(line as i32);
         self.emit(Ins::GlobalSet(G::Line));
     }
 
-    fn base(&mut self) {
+    pub(crate) fn base(&mut self) {
         self.emit(Ins::GlobalGet(G::Base));
     }
 
-    fn call_rt(&mut self, name: &'static str) {
+    pub(crate) fn call_rt(&mut self, name: &'static str) {
         self.emit(Ins::CallRt(name));
+    }
+
+    // ── ALTER ─────────────────────────────────────────────────────────────
+
+    /// Which paragraphs some `ALTER` redirects: each gets a slot in the region
+    /// holding the block its `GO TO` currently leads to.
+    pub(crate) fn find_alters(&mut self) -> GenResult<()> {
+        let mut names: Vec<String> = Vec::new();
+        for p in &self.paras {
+            for st in p.stmts {
+                st.walk(&mut |s| {
+                    if let Stmt::Alter { from, .. } = s {
+                        names.push(up(from));
+                    }
+                });
+            }
+        }
+        for n in names {
+            if let Some(&i) = self.para_by_name.get(&n).and_then(|v| v.first()) {
+                if !self.alter_slots.contains_key(&i) {
+                    let slot = self.layout.alloc_hidden(4);
+                    self.alter_slots.insert(i, slot);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Store each altered paragraph's original `GO TO` target in its slot.
+    pub(crate) fn init_alter_slots(&mut self) -> GenResult<()> {
+        let slots: Vec<(usize, u32)> = self.alter_slots.iter().map(|(a, b)| (*a, *b)).collect();
+        for (para, slot) in slots {
+            let first_goto = self.paras[para].stmts.iter().find_map(|s| match s {
+                Stmt::GoTo { target, section, span } => Some((target.clone(), section.clone(), span.line)),
+                _ => None,
+            });
+            let dest = match first_goto {
+                Some((t, sec, line)) if !t.is_empty() => {
+                    let p = self.goto_target(&t, sec.as_deref(), line)?;
+                    self.entries[p]
+                }
+                _ => self.program_end,
+            };
+            self.base();
+            self.emit(Ins::Pc(dest));
+            self.raw(I::I32Store(wasm_encoder::MemArg { offset: slot as u64, align: 2, memory_index: 0 }));
+        }
+        Ok(())
     }
 
     // ── paragraphs ────────────────────────────────────────────────────────
 
-    fn flatten(&mut self) -> GenResult<()> {
+    pub(crate) fn flatten(&mut self) -> GenResult<()> {
         let prog = self.prog;
         match &prog.procedure.body {
             ProcedureBody::Paragraphs(ps) => {
@@ -503,7 +559,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// Which paragraphs end some `PERFORM` (they need the return check).
-    fn prescan(&mut self) -> GenResult<()> {
+    pub(crate) fn prescan(&mut self) -> GenResult<()> {
         let mut ends: Vec<usize> = Vec::new();
         let mut err: Option<GenError> = None;
         let paras: Vec<&'a [Stmt]> = self.paras.iter().map(|p| p.stmts).collect();
@@ -541,7 +597,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     /// The paragraphs `[from, to]` a name (paragraph or section), optionally
     /// followed by `THRU name`, designates.
-    fn name_range(&self, from: &str, thru: Option<&str>, line: u32) -> GenResult<Option<(usize, usize)>> {
+    pub(crate) fn name_range(&self, from: &str, thru: Option<&str>, line: u32) -> GenResult<Option<(usize, usize)>> {
         let f = up(from);
         let start = if let Some(&(a, _)) = self.sections.get(&f) {
             a
@@ -570,10 +626,13 @@ impl<'a, 'b> Lower<'a, 'b> {
                 }
             }
         };
-        Ok(Some((start, end.max(start))))
+        // The end may precede the start physically (NC102A PFM-TEST-F1-10): the
+        // PERFORM returns when control reaches the end of that paragraph, by
+        // whatever route, so the range is not clamped.
+        Ok(Some((start, end)))
     }
 
-    fn perform_range(&self, t: &PerformTarget, line: u32) -> GenResult<Option<(usize, usize)>> {
+    pub(crate) fn perform_range(&self, t: &PerformTarget, line: u32) -> GenResult<Option<(usize, usize)>> {
         match t {
             PerformTarget::Paragraph(n, sp) | PerformTarget::Section(n, sp) => self.name_range(n, None, sp.line.max(line)),
             PerformTarget::Thru { from, to, span } => self.name_range(from, Some(to), span.line.max(line)),
@@ -593,7 +652,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
-    fn lower_para(&mut self, i: usize) -> GenResult<()> {
+    pub(crate) fn lower_para(&mut self, i: usize) -> GenResult<()> {
         self.cur_para = i;
         let stmts = self.paras[i].stmts;
         // Split the paragraph into sentences at the parser's markers; the block
@@ -637,7 +696,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn emit_line_of_para(&mut self, i: usize) {
+    pub(crate) fn emit_line_of_para(&mut self, i: usize) {
         let l = self.paras[i].line;
         if l > 0 {
             self.line(l);
@@ -646,7 +705,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     /// The block at the end of paragraph `i`: return to the caller if a
     /// `PERFORM` ending here is waiting, otherwise fall into the next paragraph.
-    fn lower_para_end(&mut self, i: usize) -> GenResult<()> {
+    pub(crate) fn lower_para_end(&mut self, i: usize) -> GenResult<()> {
         let end = self.ends[i];
         let next = if i + 1 < self.paras.len() { self.entries[i + 1] } else { self.program_end };
         self.begin(end);
@@ -688,11 +747,11 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     // ── operands ──────────────────────────────────────────────────────────
 
-    fn err<T>(&self, line: u32, msg: impl Into<String>) -> GenResult<T> {
+    pub(crate) fn err<T>(&self, line: u32, msg: impl Into<String>) -> GenResult<T> {
         Err(GenError::new(line, msg))
     }
 
-    fn quals_of(&self, mut e: &Expr) -> Vec<String> {
+    pub(crate) fn quals_of(&self, mut e: &Expr) -> Vec<String> {
         let mut q = Vec::new();
         loop {
             match e {
@@ -711,7 +770,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// Resolve a (possibly qualified) data-name expression to its layout item.
-    fn resolve_item(&self, e: &Expr) -> GenResult<usize> {
+    pub(crate) fn resolve_item(&self, e: &Expr) -> GenResult<usize> {
         let line = e.span().line;
         let (name, quals): (String, Vec<String>) = match e {
             Expr::Identifier(n, _) => (n.clone(), vec![]),
@@ -721,7 +780,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.layout.lookup(&name, &quals).map_err(|m| GenError::new(line, m))
     }
 
-    fn lit_number(&mut self, lit: &Literal, line: u32) -> GenResult<Option<u32>> {
+    pub(crate) fn lit_number(&mut self, lit: &Literal, line: u32) -> GenResult<Option<u32>> {
         Ok(Some(match lit {
             Literal::Integer(n) | Literal::IntegerDigits(n, _) => self.pool.opd_lit_num(*n as i128, 0),
             Literal::Decimal(m, s) => self.pool.opd_lit_num(*m, *s),
@@ -761,7 +820,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     /// subscripted, reference-modified) or a literal. `Ok(None)` when the
     /// expression is a computation, which the caller pushes on the register
     /// stack instead.
-    fn operand(&mut self, e: &Expr) -> GenResult<Option<u32>> {
+    pub(crate) fn operand(&mut self, e: &Expr) -> GenResult<Option<u32>> {
         let line = e.span().line;
         match e {
             Expr::Literal(l, _) => self.lit_number(l, line),
@@ -778,24 +837,19 @@ impl<'a, 'b> Lower<'a, 'b> {
                     Expr::Subscript { base: b, indices, .. } => (self.resolve_item(b)?, indices.as_slice()),
                     other => (self.resolve_item(other)?, &[]),
                 };
-                let s = match self.operand(start)? {
-                    Some(o) => o,
-                    None => return self.err(line, "a computed reference-modification start is not supported yet"),
-                };
+                let s = self.operand_or_temp(start)?;
                 let l = match length {
-                    Some(l) => match self.operand(l)? {
-                        Some(o) => o,
-                        None => return self.err(line, "a computed reference-modification length is not supported yet"),
-                    },
+                    Some(l) => self.operand_or_temp(l)?,
                     None => 0,
                 };
                 self.item_operand(idx, indices, Some((s, l)), line).map(Some)
             }
+            Expr::Unary { op: UnaryOp::Pos, operand, .. } => self.operand(operand),
             _ => Ok(None),
         }
     }
 
-    fn item_operand(
+    pub(crate) fn item_operand(
         &mut self,
         idx: usize,
         indices: &[Expr],
@@ -824,10 +878,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         let mut subs = Vec::new();
         for (e, (stride, max, odo)) in indices.iter().zip(chain.into_iter()) {
             let (sub_expr, add) = split_relative(e);
-            let opd = match self.operand(sub_expr)? {
-                Some(o) => o,
-                None => return self.err(line, "a computed subscript is not supported yet"),
-            };
+            let opd = self.operand_or_temp(sub_expr)?;
             let odo_opd = match odo {
                 Some(name) => {
                     let di = self.layout.lookup(&name, &[]).map_err(|m| GenError::new(line, m))?;
@@ -842,7 +893,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// Push the numeric value of an expression on the register stack.
-    fn push_expr(&mut self, e: &Expr) -> GenResult<()> {
+    pub(crate) fn push_expr(&mut self, e: &Expr) -> GenResult<()> {
         let line = e.span().line;
         if let Some(o) = self.operand(e)? {
             self.base();
@@ -883,7 +934,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     // ── conditions ────────────────────────────────────────────────────────
 
     /// Leave 1 or 0 on the stack.
-    fn cond(&mut self, c: &Condition) -> GenResult<()> {
+    pub(crate) fn cond(&mut self, c: &Condition) -> GenResult<()> {
         let line = c.span().line;
         match c {
             Condition::Comparison { lhs, op, rhs, .. } => self.compare(lhs, cmp_code(*op), rhs, line),
@@ -984,14 +1035,14 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
-    fn operand_required(&mut self, e: &Expr, line: u32) -> GenResult<u32> {
+    pub(crate) fn operand_required(&mut self, e: &Expr, line: u32) -> GenResult<u32> {
         match self.operand(e)? {
             Some(o) => Ok(o),
             None => self.err(line, "a data item was expected here"),
         }
     }
 
-    fn compare(&mut self, lhs: &Expr, op: u32, rhs: &Expr, line: u32) -> GenResult<()> {
+    pub(crate) fn compare(&mut self, lhs: &Expr, op: u32, rhs: &Expr, line: u32) -> GenResult<()> {
         let (a, b) = (self.operand(lhs)?, self.operand(rhs)?);
         match (a, b) {
             (Some(a), Some(b)) => {
@@ -1014,7 +1065,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// An `88`: the host item equals one of its values or lies in a range.
-    fn cond_name(&mut self, cond_idx: usize, host_indices: &[Expr], line: u32) -> GenResult<()> {
+    pub(crate) fn cond_name(&mut self, cond_idx: usize, host_indices: &[Expr], line: u32) -> GenResult<()> {
         let item = self.layout.items[cond_idx].clone();
         if item.level != 88 {
             // Not a condition-name: "holds something other than zero".
@@ -1072,7 +1123,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn cond_literal(&mut self, l: &Literal, host_numeric: bool, line: u32) -> GenResult<u32> {
+    pub(crate) fn cond_literal(&mut self, l: &Literal, host_numeric: bool, line: u32) -> GenResult<u32> {
         // A numeric host compares against a number; an alphanumeric host
         // against characters, so a numeric literal there is its digits.
         if !host_numeric {
@@ -1088,7 +1139,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     // ── statements ────────────────────────────────────────────────────────
 
-    fn stmts(&mut self, list: &[Stmt]) -> GenResult<()> {
+    pub(crate) fn stmts(&mut self, list: &[Stmt]) -> GenResult<()> {
         for s in list {
             if self.cur.is_none() {
                 self.dead_block();
@@ -1100,7 +1151,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     /// Lower one statement; a construct that cannot be compiled is recorded
     /// and the statement skipped, so one run reports them all.
-    fn stmt_guarded(&mut self, s: &Stmt) {
+    pub(crate) fn stmt_guarded(&mut self, s: &Stmt) {
         if let Err(e) = self.stmt(s) {
             self.diags.push(e);
             if self.cur.is_none() {
@@ -1109,7 +1160,8 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
-    fn stmt(&mut self, s: &Stmt) -> GenResult<()> {
+    pub(crate) fn stmt(&mut self, s: &Stmt) -> GenResult<()> {
+        self.temp_next = 0;
         let line = s.span().line;
         if line > 0 {
             self.line(line);
@@ -1135,10 +1187,37 @@ impl<'a, 'b> Lower<'a, 'b> {
             Stmt::Evaluate { subjects, whens, other_stmts, .. } => self.evaluate(subjects, whens, other_stmts, line),
             Stmt::Perform { target, .. } => self.perform(target, line),
             Stmt::GoTo { target, section, .. } => {
+                if let Some(&slot) = self.alter_slots.get(&self.cur_para) {
+                    // An altered GO TO: the destination is whatever the slot holds.
+                    self.base();
+                    self.raw(I::I32Load(wasm_encoder::MemArg { offset: slot as u64, align: 2, memory_index: 0 }));
+                    let cur = self.cur.take().expect("current block");
+                    self.blocks[cur].done = true;
+                    return Ok(());
+                }
                 let t = self.goto_target(target, section.as_deref(), line)?;
                 self.jump(self.entries[t]);
                 Ok(())
             }
+            Stmt::Alter { from, to, .. } => self.alter_(from, to, line),
+            Stmt::Inspect { target, spec, .. } => self.inspect_(target, spec, line),
+            Stmt::String_ { operands, into, pointer, on_overflow, not_on_overflow, .. } => {
+                self.string_(operands, into, pointer.as_ref(), on_overflow, not_on_overflow)
+            }
+            Stmt::Unstring { from, delimited_by, all, into, pointer, tallying, on_overflow, not_on_overflow, .. } => {
+                self.unstring_(from, delimited_by, *all, into, pointer.as_ref(), tallying.as_ref(), on_overflow, not_on_overflow)
+            }
+            Stmt::Search { all, table, varying, at_end, whens, .. } => {
+                self.search_(*all, table, varying.as_ref(), at_end, whens, line)
+            }
+            Stmt::MoveCorresponding { from, to, .. } => self.corresponding(0, from, to, false, &[], &[], line),
+            Stmt::AddCorresponding { from, to, rounded, on_size_error, not_on_size_error, .. } => {
+                self.corresponding(1, from, to, *rounded, on_size_error, not_on_size_error, line)
+            }
+            Stmt::SubtractCorresponding { from, to, rounded, on_size_error, not_on_size_error, .. } => {
+                self.corresponding(2, from, to, *rounded, on_size_error, not_on_size_error, line)
+            }
+            Stmt::Initialize { items, replacing, .. } => self.initialize_(items, replacing, line),
             Stmt::GoToDepending { targets, depending, .. } => self.go_to_depending(targets, depending, line),
             Stmt::Open { mode, files, extra_modes, .. } => {
                 self.open_(*mode, files, line)?;
@@ -1185,7 +1264,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
-    fn goto_target(&self, target: &str, section: Option<&str>, line: u32) -> GenResult<usize> {
+    pub(crate) fn goto_target(&self, target: &str, section: Option<&str>, line: u32) -> GenResult<usize> {
         let t = up(target);
         if let Some(sec) = section {
             let s = up(sec);
@@ -1204,7 +1283,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.err(line, format!("paragraph {target} is not defined"))
     }
 
-    fn exit(&mut self, kind: ExitKind, line: u32) -> GenResult<()> {
+    pub(crate) fn exit(&mut self, kind: ExitKind, line: u32) -> GenResult<()> {
         match kind {
             ExitKind::Point => Ok(()),
             ExitKind::Program => {
@@ -1248,7 +1327,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     // ── MOVE ──────────────────────────────────────────────────────────────
 
-    fn is_numeric_item(&self, e: &Expr) -> bool {
+    pub(crate) fn is_numeric_item(&self, e: &Expr) -> bool {
         let base = match e {
             Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => base.as_ref(),
             other => other,
@@ -1259,17 +1338,38 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
-    fn move_(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
-        // A MOVE whose receiver is an 88-level condition-name is `SET … TO TRUE`.
+    pub(crate) fn move_(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
+        // A MOVE whose receiver is an 88-level condition-name is `SET … TO TRUE`;
+        // each such receiver is set, the others are moved to.
+        let mut plain: Vec<Expr> = Vec::new();
+        let mut conds: Vec<usize> = Vec::new();
         for t in to {
+            let mut is_cond = false;
             if let Expr::Identifier(..) | Expr::Qualified { .. } = t {
                 if let Ok(i) = self.resolve_item(t) {
                     if self.layout.items[i].level == 88 {
-                        return self.set_condition(i, from, line);
+                        conds.push(i);
+                        is_cond = true;
                     }
                 }
             }
+            if !is_cond {
+                plain.push(t.clone());
+            }
         }
+        if !conds.is_empty() {
+            for c in conds {
+                self.set_condition(c, from, line)?;
+            }
+            if plain.is_empty() {
+                return Ok(());
+            }
+            return self.move_plain(from, &plain, line);
+        }
+        self.move_plain(from, to, line)
+    }
+
+    pub(crate) fn move_plain(&mut self, from: &Expr, to: &[Expr], line: u32) -> GenResult<()> {
         for t in to {
             if matches!(t, Expr::Member { .. }) {
                 return self.err(line, "control members are not supported in this build of the generator yet");
@@ -1328,7 +1428,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn receiver(&mut self, e: &Expr) -> GenResult<u32> {
+    pub(crate) fn receiver(&mut self, e: &Expr) -> GenResult<u32> {
         let line = e.span().line;
         match self.operand(e)? {
             Some(o) => Ok(o),
@@ -1337,7 +1437,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// `SET condition-name TO TRUE | FALSE`.
-    fn set_condition(&mut self, cond_idx: usize, from: &Expr, line: u32) -> GenResult<()> {
+    pub(crate) fn set_condition(&mut self, cond_idx: usize, from: &Expr, line: u32) -> GenResult<()> {
         let truthy = match from {
             Expr::Literal(Literal::Integer(n), _) => *n != 0,
             Expr::Literal(Literal::IntegerDigits(n, _), _) => *n != 0,
@@ -1368,12 +1468,12 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     // ── arithmetic ────────────────────────────────────────────────────────
 
-    fn flags(rounded: bool, phrase: bool) -> i32 {
+    pub(crate) fn flags(rounded: bool, phrase: bool) -> i32 {
         (if rounded { ST_ROUNDED } else { 0 } | if phrase { ST_PHRASE } else { 0 }) as i32
     }
 
     /// After an arithmetic statement: `ON SIZE ERROR` / `NOT ON SIZE ERROR`.
-    fn size_error_tail(&mut self, on: &[Stmt], not_on: &[Stmt]) -> GenResult<()> {
+    pub(crate) fn size_error_tail(&mut self, on: &[Stmt], not_on: &[Stmt]) -> GenResult<()> {
         if on.is_empty() && not_on.is_empty() {
             return Ok(());
         }
@@ -1396,7 +1496,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn store_to(&mut self, target: &Expr, rounded: bool, phrase: bool, dup: bool) -> GenResult<()> {
+    pub(crate) fn store_to(&mut self, target: &Expr, rounded: bool, phrase: bool, dup: bool) -> GenResult<()> {
         let dst = self.receiver(target)?;
         if dup {
             self.i32c(0);
@@ -1410,7 +1510,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn add(
+    pub(crate) fn add(
         &mut self,
         operands: &[Expr],
         to: &[(Expr, bool)],
@@ -1446,7 +1546,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// Push `0 + a + b + …`.
-    fn push_sum(&mut self, operands: &[Expr]) -> GenResult<()> {
+    pub(crate) fn push_sum(&mut self, operands: &[Expr]) -> GenResult<()> {
         let z = self.pool.opd_lit_num(0, 0);
         self.base();
         self.i32c(z as i32);
@@ -1459,7 +1559,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn subtract(
+    pub(crate) fn subtract(
         &mut self,
         operands: &[Expr],
         from: &[(Expr, bool)],
@@ -1502,7 +1602,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn multiply(
+    pub(crate) fn multiply(
         &mut self,
         lhs: &Expr,
         by: &Expr,
@@ -1529,7 +1629,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn divide(
+    pub(crate) fn divide(
         &mut self,
         lhs: &Expr,
         by: &Expr,
@@ -1585,11 +1685,11 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// Store a copy of the top register, keeping the register.
-    fn store_to_keep(&mut self, target: &Expr, rounded: bool, phrase: bool) -> GenResult<()> {
+    pub(crate) fn store_to_keep(&mut self, target: &Expr, rounded: bool, phrase: bool) -> GenResult<()> {
         self.store_to(target, rounded, phrase, true)
     }
 
-    fn compute(
+    pub(crate) fn compute(
         &mut self,
         targets: &[(Expr, bool)],
         expr: &Expr,
@@ -1607,7 +1707,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     // ── IF / EVALUATE ─────────────────────────────────────────────────────
 
-    fn if_(&mut self, c: &Condition, then_s: &[Stmt], else_s: &[Stmt]) -> GenResult<()> {
+    pub(crate) fn if_(&mut self, c: &Condition, then_s: &[Stmt], else_s: &[Stmt]) -> GenResult<()> {
         self.cond(c)?;
         let then_b = self.new_block("then");
         let join = self.new_block("endif");
@@ -1629,7 +1729,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn evaluate(
+    pub(crate) fn evaluate(
         &mut self,
         subjects: &[EvalSubject],
         whens: &[WhenClause],
@@ -1669,7 +1769,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn when_match(&mut self, subject: &EvalSubject, v: &WhenValue, line: u32) -> GenResult<()> {
+    pub(crate) fn when_match(&mut self, subject: &EvalSubject, v: &WhenValue, line: u32) -> GenResult<()> {
         match v {
             WhenValue::Any | WhenValue::Other => {
                 self.i32c(1);
@@ -1703,7 +1803,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
-    fn range_match(&mut self, subject: &EvalSubject, lo: &Expr, hi: &Expr, line: u32) -> GenResult<()> {
+    pub(crate) fn range_match(&mut self, subject: &EvalSubject, lo: &Expr, hi: &Expr, line: u32) -> GenResult<()> {
         self.subject_rel(subject, OP_GE, lo, line)?;
         self.raw(I::If(wasm_encoder::BlockType::Result(wasm_encoder::ValType::I32)));
         self.subject_rel(subject, OP_LE, hi, line)?;
@@ -1713,7 +1813,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn subject_rel(&mut self, subject: &EvalSubject, op: u32, value: &Expr, line: u32) -> GenResult<()> {
+    pub(crate) fn subject_rel(&mut self, subject: &EvalSubject, op: u32, value: &Expr, line: u32) -> GenResult<()> {
         match subject {
             EvalSubject::Expr(e) => self.compare(e, op, value, line),
             EvalSubject::True_ | EvalSubject::False_ | EvalSubject::Cond(_) => {
@@ -1726,7 +1826,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     /// Push a frame `(end, return)` and enter the paragraph range, resuming at
     /// `ret_to`.
-    fn call_range(&mut self, from: usize, to: usize, ret_to: BlockId) {
+    pub(crate) fn call_range(&mut self, from: usize, to: usize, ret_to: BlockId) {
         // Overflow check: psp >= end -> run-time error.
         self.emit(Ins::GlobalGet(G::Psp));
         self.i32c(self.map.pstack_end as i32);
@@ -1749,7 +1849,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.jump(self.entries[from]);
     }
 
-    fn perform(&mut self, t: &PerformTarget, line: u32) -> GenResult<()> {
+    pub(crate) fn perform(&mut self, t: &PerformTarget, line: u32) -> GenResult<()> {
         match t {
             PerformTarget::Paragraph(..)
             | PerformTarget::Section(..)
@@ -1781,7 +1881,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
     }
 
-    fn perform_times(&mut self, count: &Expr, stmts: &[Stmt], line: u32) -> GenResult<()> {
+    pub(crate) fn perform_times(&mut self, count: &Expr, stmts: &[Stmt], line: u32) -> GenResult<()> {
         // The count is read once into a hidden eight-byte slot of the region.
         let slot = self.layout.alloc_hidden(8);
         let slot_addr_of = |me: &mut Self| {
@@ -1835,7 +1935,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn perform_until(&mut self, cond: &Condition, test_before: bool, stmts: &[Stmt]) -> GenResult<()> {
+    pub(crate) fn perform_until(&mut self, cond: &Condition, test_before: bool, stmts: &[Stmt]) -> GenResult<()> {
         let head = self.new_block("until");
         let body = self.new_block("until-body");
         let exit = self.new_block("end-until");
@@ -1870,7 +1970,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// `MOVE from TO var`.
-    fn assign(&mut self, var: &Expr, from: &Expr) -> GenResult<()> {
+    pub(crate) fn assign(&mut self, var: &Expr, from: &Expr) -> GenResult<()> {
         let line = var.span().line;
         match self.operand(from)? {
             Some(src) => {
@@ -1896,7 +1996,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     /// `ADD by TO var`.
-    fn augment(&mut self, var: &Expr, by: &Expr) -> GenResult<()> {
+    pub(crate) fn augment(&mut self, var: &Expr, by: &Expr) -> GenResult<()> {
         self.call_rt("rt_begin");
         self.push_expr(var)?;
         self.push_expr(by)?;
@@ -1912,7 +2012,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn perform_varying(
+    pub(crate) fn perform_varying(
         &mut self,
         var: &Expr,
         from: &Expr,
@@ -2050,7 +2150,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    fn go_to_depending(&mut self, targets: &[String], depending: &Expr, line: u32) -> GenResult<()> {
+    pub(crate) fn go_to_depending(&mut self, targets: &[String], depending: &Expr, line: u32) -> GenResult<()> {
         // idx = (integer value of the item) - 1; a value outside 1..=n falls through.
         let after = self.new_block("go-to-fallthrough");
         let tgts: Vec<BlockId> = targets
@@ -2102,7 +2202,7 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     // ── DISPLAY ───────────────────────────────────────────────────────────
 
-    fn display(&mut self, operands: &[Expr], upon: Option<&str>, no_adv: bool, line: u32) -> GenResult<()> {
+    pub(crate) fn display(&mut self, operands: &[Expr], upon: Option<&str>, no_adv: bool, line: u32) -> GenResult<()> {
         if let Some(u) = upon {
             let u = u.to_ascii_uppercase();
             if u == "ARGUMENT-NUMBER" || u == "ENVIRONMENT-NAME" {

@@ -52,6 +52,7 @@ pub mod mem;
 pub mod mv;
 pub mod opd;
 pub mod state;
+pub mod strings;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testkit;
 pub mod val;
@@ -284,4 +285,63 @@ pub extern "C" fn rt_file_write(base: u32, fd: u32, rec: u32, adv: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn rt_file_read(base: u32, fd: u32, rec: u32) -> u32 {
     file::read(base, fd, rec)
+}
+
+/// `INSPECT target <spec>`.
+#[no_mangle]
+pub extern "C" fn rt_inspect(base: u32, target: u32, spec: u32) {
+    strings::inspect(base, target, spec);
+}
+
+/// `STRING … INTO …`: 1 when it overflowed.
+#[no_mangle]
+pub extern "C" fn rt_string(base: u32, spec: u32) -> u32 {
+    strings::string(base, spec)
+}
+
+/// `UNSTRING …`: 1 when it overflowed.
+#[no_mangle]
+pub extern "C" fn rt_unstring(base: u32, spec: u32) -> u32 {
+    strings::unstring(base, spec)
+}
+
+/// Pop the top register into temporary `k`.
+#[no_mangle]
+pub extern "C" fn rt_save_temp(k: u32) {
+    let v = state::pop();
+    state::st().temps[(k as usize) % state::NTEMP] = v;
+}
+
+/// Store the integer `n` into numeric item `o` (an index, a counter).
+#[no_mangle]
+pub extern "C" fn rt_set_int(base: u32, o: u32, n: i64) {
+    let loc = opd::locate(base, &opd::parse(o));
+    codec::store_value(&loc, val::Val::int(n), false, false);
+}
+
+/// Three-way comparison of two operands: -1, 0 or 1.
+#[no_mangle]
+pub extern "C" fn rt_cmp3(base: u32, a: u32, b: u32) -> i32 {
+    if cmp::relation(base, a, b, cmp::OP_EQ) {
+        0
+    } else if cmp::relation(base, a, b, cmp::OP_LT) {
+        -1
+    } else {
+        1
+    }
+}
+
+/// `INITIALIZE`.
+#[no_mangle]
+pub extern "C" fn rt_initialize(base: u32, spec: u32) {
+    strings::initialize(base, spec);
+}
+
+/// Empty the register stack without touching the statement's size-error flag
+/// (a statement that does several steps, as `ADD CORRESPONDING` does).
+#[no_mangle]
+pub extern "C" fn rt_regs_reset() {
+    let s = state::st();
+    s.sp = 0;
+    s.div0 = false;
 }

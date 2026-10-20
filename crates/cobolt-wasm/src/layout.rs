@@ -51,6 +51,10 @@ pub struct Item {
     pub pic_kind: Option<PicKind>,
     pub usage: Usage,
     pub blank_when_zero: bool,
+    /// `INDEXED BY` names of this table, in order.
+    pub index_names: Vec<String>,
+    /// `ASCENDING/DESCENDING KEY` fields `(name, ascending)`.
+    pub keys: Vec<(String, bool)>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,7 +81,23 @@ impl Layout {
             if d.level == 66 || d.level == 88 {
                 continue; // handled after the records they refer to
             }
-            let idx = self.add_decl(d, None, self.total, None)?;
+            // A level-01 REDEFINES shares the storage of the record it names.
+            let (start, redef) = match &d.redefines {
+                Some(target) => {
+                    let t = target.to_ascii_uppercase();
+                    let ti = self
+                        .roots
+                        .iter()
+                        .rev()
+                        .copied()
+                        .find(|&r| self.items[r].name.as_deref() == Some(t.as_str()))
+                        .ok_or_else(|| GenError::new(d.span.line, format!("REDEFINES {target}: no such record")))?;
+                    (self.items[ti].off, Some(ti))
+                }
+                None => (self.total, None),
+            };
+            let idx = self.add_decl(d, None, start, None)?;
+            self.items[idx].redefines = redef;
             self.roots.push(idx);
             let it = &self.items[idx];
             let end = it.off + it.size * it.occurs.as_ref().map_or(1, |o| o.0);
@@ -110,6 +130,8 @@ impl Layout {
                         pic_kind: None,
                         usage: Usage::Display,
                         blank_when_zero: false,
+                        index_names: vec![],
+                        keys: vec![],
                     });
                     if let Some(n) = &self.items[idx].name {
                         self.by_name.entry(n.clone()).or_default().push(idx);
@@ -117,6 +139,30 @@ impl Layout {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Lay out the records of one file description: they share ONE record area
+    /// (COBOL-85: the records of an FD implicitly redefine each other), so each
+    /// starts where the first does and the area is the longest of them.
+    pub fn add_file_records(&mut self, decls: &[DataDecl]) -> GenResult<()> {
+        let start = self.total;
+        let mut first: Option<usize> = None;
+        let mut end = start;
+        for d in decls {
+            if d.level == 66 || d.level == 88 {
+                continue;
+            }
+            let idx = self.add_decl(d, None, start, None)?;
+            match first {
+                None => first = Some(idx),
+                Some(f) => self.items[idx].redefines = Some(f),
+            }
+            self.roots.push(idx);
+            let it = &self.items[idx];
+            end = end.max(it.off + it.size * it.occurs.as_ref().map_or(1, |o| o.0));
+        }
+        self.total = end;
         Ok(())
     }
 
@@ -154,6 +200,8 @@ impl Layout {
             pic_kind: d.picture.as_ref().map(|p| p.kind),
             usage: d.usage,
             blank_when_zero: d.blank_when_zero,
+            index_names: d.occurs.as_ref().map(|o| o.indexed_by.iter().map(|n| n.to_ascii_uppercase()).collect()).unwrap_or_default(),
+            keys: d.occurs.as_ref().map(|o| o.keys.iter().map(|(k, a)| (k.to_ascii_uppercase(), *a)).collect()).unwrap_or_default(),
         });
         if let Some(n) = &name {
             self.by_name.entry(n.clone()).or_default().push(idx);
@@ -226,6 +274,8 @@ impl Layout {
                 pic_kind: None,
                 usage: Usage::Display,
                 blank_when_zero: false,
+                index_names: vec![],
+                keys: vec![],
             });
             if let Some(n) = &self.items[ci].name {
                 self.by_name.entry(n.clone()).or_default().push(ci);
@@ -272,6 +322,8 @@ impl Layout {
                 pic_kind: None,
                 usage: Usage::Comp5,
                 blank_when_zero: false,
+                index_names: vec![],
+                keys: vec![],
             });
             self.by_name.entry(n.clone()).or_default().push(idx);
             self.index_names.insert(n, idx);

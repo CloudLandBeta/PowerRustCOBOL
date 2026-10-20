@@ -22,6 +22,8 @@ use crate::val::Val;
 /// Depth of the numeric register stack. An expression nests this deep at most;
 /// the generator refuses to emit a deeper one.
 pub const NREG: usize = 24;
+/// Temporaries a statement may save a computed subscript or bound in.
+pub const NTEMP: usize = 8;
 
 /// Workspace layout, relative to the address given to [`rt_init`](crate::rt_init).
 pub const WS_BATCH: u32 = 0;
@@ -32,7 +34,7 @@ pub const WS_ANSWER: u32 = WS_BATCH + BATCH_SIZE;
 pub const ANSWER_SIZE: u32 = 16 * 1024;
 /// Scratch for sender snapshots, string building and number formatting.
 pub const WS_SCRATCH: u32 = WS_ANSWER + ANSWER_SIZE;
-pub const SCRATCH_SIZE: u32 = 8 * 1024;
+pub const SCRATCH_SIZE: u32 = 32 * 1024;
 /// Total workspace size the generator must reserve.
 pub const WS_SIZE: u32 = WS_SCRATCH + SCRATCH_SIZE;
 
@@ -52,6 +54,7 @@ pub mod err {
 pub struct State {
     pub regs: [Val; NREG],
     pub sp: usize,
+    pub temps: [Val; NTEMP],
     /// Set by a store that overflowed its receiver, or by a division by zero.
     pub size_err: bool,
     /// Set by a division by zero inside the current statement: the receivers
@@ -69,7 +72,7 @@ pub struct State {
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, snd: None }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, snd: None }
     }
 }
 

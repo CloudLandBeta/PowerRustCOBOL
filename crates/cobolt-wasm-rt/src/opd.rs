@@ -43,6 +43,8 @@ pub const T_LIT_NUM: u8 = 1;
 pub const T_LIT_ALNUM: u8 = 2;
 pub const T_FIG: u8 = 3;
 pub const T_ALL: u8 = 4;
+/// A value saved in one of the statement's temporaries (`off` is its index).
+pub const T_TEMP: u8 = 5;
 
 pub const FIG_ZERO: u8 = 0;
 pub const FIG_SPACE: u8 = 1;
@@ -205,6 +207,7 @@ pub fn value(base: u32, o: &Opd) -> Val {
             Val::Dec(cobolt_decimal::CobolNumeric::new(m, s))
         }
         T_FIG if o.fig == FIG_ZERO => Val::ZERO,
+        T_TEMP => crate::state::st().temps[(o.off as usize) % crate::state::NTEMP],
         T_ITEM => {
             let loc = locate(base, o);
             codec::load_value(&loc)

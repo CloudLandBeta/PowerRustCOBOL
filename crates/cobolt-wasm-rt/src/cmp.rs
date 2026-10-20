@@ -50,7 +50,9 @@ fn view(base: u32, o: &Opd, other_numeric: bool) -> View {
             let loc = locate(base, o);
             if loc.fd.is_numeric() {
                 View::Num(codec::load_value(&loc), loc.fd)
-            } else if loc.fd.kind == K_NUM_EDITED {
+            } else if loc.fd.kind == K_NUM_EDITED && other_numeric {
+                // Against a number an edited item is its value; against
+                // characters it is the characters it holds (`IF EDIT = SPACES`).
                 View::Num(crate::edited::deedit_value(&loc), loc.fd)
             } else {
                 View::Mem(loc)

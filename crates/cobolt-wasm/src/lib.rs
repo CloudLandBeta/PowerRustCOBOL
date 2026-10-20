@@ -12,6 +12,7 @@ pub mod ir;
 pub mod layout;
 pub mod link;
 pub mod lower;
+pub mod lower_more;
 pub mod pic;
 pub mod pool;
 pub mod module;
