@@ -96,8 +96,8 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
   (`cobolt-ast/src/methods.rs`) and to the System KB tables, so that it never parses as a subscript and agents can find it.
 
 **Layout and input**
-- **R8 (ubiquitous):** The four layout modes and the breakpoints shall be honoured on the web with the same results the desktop's solver gives, whether by
-  mapping to CSS layout or by running the same solver in the module (Q1).
+- **R8 (ubiquitous):** The four layout modes and the breakpoints shall be honoured on the web by **CSS layout** (operator, 2026-10-19): Flex, Grid and Flow map to the browser's own flex, grid and flow layout, Absolute to absolute positioning, and the breakpoints to media or container queries.
+  "The same results the desktop's solver gives" is measured by the parity check of R11, and the differences it finds (a pixel of rounding, the browser's own text metrics) are documented.
 - **R9 (ubiquitous):** Touch input shall raise the same click events as the mouse. Events that need a hover shall be documented as not raised on a touch device. The
   full mobile interaction model is a proposed spec (WASM-INDEX).
 - **R10 (ubiquitous):** A control shall be operable by keyboard and expose a correct accessible name and role: the native element's where there is one, and the
@@ -137,9 +137,7 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
 
 ## 7. Open questions
 
-- **Q1 — Layout engine on the web:** map Absolute/Flex/Grid/Flow to CSS (the browser lays out; smaller, more accessible, may differ by a pixel from the desktop), or run the
-  existing pure-Rust solver in the module and position elements absolutely (pixel parity, less "web-native")? Recommended: CSS for Flex/Grid/Flow, absolute positioning for
-  Absolute, verified by the parity check of R11.
+- **Q1 — Layout engine on the web — decided:** **CSS** (operator, 2026-10-19; R8). The existing pure-Rust solver is not run in the browser. The cost accepted is a possible pixel of difference from the desktop, which R11 measures.
 - **Q2 — Which class a few borderline controls take:** Animator (a browser plays animated GIF/WebP/APNG natively, but the control's API is richer), Timer, DateTimePicker (the
   native `input type=date` differs from the desktop picker), TreeView and DataGrid (large data, virtualisation). Decide per control at `/plan`.
 - **Q3 — Hide or mark** a property with no web effect? Recommended: keep and mark (R6), so no data is lost.

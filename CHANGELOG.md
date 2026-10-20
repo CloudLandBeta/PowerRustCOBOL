@@ -17,9 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
-## [PowerRustCOBOL 2.0.4] — 2026-10-19
+## [PowerRustCOBOL 2.0.5] — 2026-10-19
 
-*(Written on `features-2x`, after 2.0.3.)*
+*(Written on `features-2x`, after 2.0.4.)*
+
+### Changed: the WASM specs record four more answers of the operator
+
+The operator, 2026-10-19, answered four of the open decisions, and the specs now carry them. **CSS wins** over the Properties panel on the web (WASM-007 R8: theme defaults, then properties, then the form stylesheet, then `CssClass` rules, then `Style`; the Properties panel marks a value that CSS overrides, R12). **Layout on the web is CSS** (WASM-004 R8): flex, grid and flow map to the browser's own layout, Absolute to absolute positioning, with the desktop parity measured and the differences documented. The **authentication flow is chosen per provider** (WASM-009 R8b: each adapter declares an in-app flow or the provider's hosted flow, and the control raises the same events either way). The **templates creatable in 2.0** are Web, Android (phone, tablet) and iOS (iPhone, iPad) besides Desktop, with no watch, and the list as written in WASM-001 stands (WASM-001 Q3). `WASM-INDEX.md` records them as D2, D3, D8 and a new D12, and marks D6 — `CALL … RETURNING` — as done.
+
+The same message also listed three answers about the execution model that disagree with each other and with the ruling already recorded (generated WebAssembly, no interpreter, no Rust toolchain for a Web build): an interpreter compiled to `wasm32`, and a COBOL → Rust transpiler twice. Nothing about the execution model changed here; the operator was asked which is meant.
+
+No code, `README.md` or file in `docs/` changed; the version moves because this is a change.
 
 ### Changed: the WASM specs record the decision on the module layout — two `.wasm` files, and the player gets its own spec
 

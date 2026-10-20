@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — The Authentication control and the identity-provider backend
 
-- **Status:** draft (needs `/clarify`; Q1 is a design risk, not a detail)
+- **Status:** draft (needs `/clarify`; the flow is chosen per provider, 2026-10-19, but each provider's capabilities still have to be verified)
 - **Folder:** specs/WASM-009-authentication-control-and-identity-providers/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-10-19
 - **Branch:** `features-2x` (version line 2.x.x). Part of the WASM series, see `specs/WASM-INDEX.md`.
@@ -77,6 +77,9 @@ backend programs that talk to the chosen identity provider and return a token th
 - **R8 (ubiquitous):** Provider support shall sit behind one **adapter interface**, so that a fourth provider is an adapter and not a change to the control. The three adapters shall support, within what each provider
   offers, authentication, registration, confirmation, password recovery, an MFA challenge, refresh, sign-out/revocation and the basic attributes; a table in the plan shall list per provider what is not supported and
   what the control does instead.
+- **R8b (ubiquitous):** The sign-in **flow is chosen per provider** (operator, 2026-10-19): each adapter shall declare whether it uses the **in-app flow** — the control's own screens, the backend exchanging the credentials with the provider — or the provider's **hosted flow** — the
+  browser or web view goes to the provider's sign-in page, brokered by the backend with an authorisation code and PKCE — and the control shall present the matching screens. Where the flow is hosted, sign-up, recovery and MFA are the provider's pages, and the control shall still raise the same
+  events (R3), so a form's handlers do not depend on the flow. The capability table (R8) shall list the flow of each provider.
 - **R9 (ubiquitous):** Provider settings (issuer or region/realm/tenant, client id, any client secret, the reCAPTCHA secret) shall be set in the Backend's configuration through an IDE settings page with a **Test
   connection** action, and shall never be written to a form, a copybook or any frontend file.
 
@@ -113,7 +116,9 @@ backend programs that talk to the chosen identity provider and return a token th
 
 ## 7. Open questions
 
-- **Q1 — The design risk: a password typed into *our* form.** The operator's model — the application shows its own sign-in form and the backend exchanges the password with the provider — is the *password grant*. For
+- **Q1 — The design risk: a password typed into *our* form — decided: the flow is chosen per provider** (operator, 2026-10-19), option (c) below; R8b states it. What remains for `/clarify`: verify each product's current capability (the paragraph below is general
+  knowledge) and fix the default flow of each adapter — recommended: in-app screens for Cognito, the hosted flow for Entra and Keycloak unless the tenant is configured for the in-app one. The original analysis follows.
+  **The risk:** The operator's model — the application shows its own sign-in form and the backend exchanges the password with the provider — is the *password grant*. For
   **Microsoft Entra** that flow is not supported for accounts that require MFA or are federated, and Microsoft steers new work to a browser-redirect flow; for **Keycloak** the password ("direct access") grant is
   disabled by default and discouraged in current OAuth guidance; **AWS Cognito** supports password and SRP authentication with MFA challenges natively. (Stated from general knowledge of the three products —
   **verify each at `/clarify`**, including whether Entra External ID's *native authentication* and Keycloak's own flows fit.) Options: (a) keep the in-app form where the provider allows it and say honestly, in the

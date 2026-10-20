@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — CSS3 for appearance, and the form's default stylesheet
 
-- **Status:** draft (needs `/clarify`; Q1 is the rule that decides what the developer sees)
+- **Status:** draft (needs `/clarify`; the precedence is decided: CSS wins, 2026-10-19)
 - **Folder:** specs/WASM-007-css3-styling-and-form-stylesheet/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-10-19
 - **Branch:** `features-2x` (version line 2.x.x). Part of the WASM series, see `specs/WASM-INDEX.md`.
@@ -74,8 +74,9 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 - **R7 (constraint):** The modal shall not resize itself: it owns an explicit size, lays its children out from it and has one grip as the only writer of the size (`panels/leaderboard_modal.rs` is the reference).
 
 **Precedence and scope**
-- **R8 (ubiquitous):** The cascade, lowest to highest, shall be stated in one place and implemented as stated (Q1): theme defaults, the form stylesheet, the control's `CssClass` rules, the properties the developer
-  **set explicitly** in the Properties panel, then the control's `Style`.
+- **R8 (ubiquitous):** **CSS wins** (operator, 2026-10-19). The cascade, lowest to highest, shall be stated in one place and implemented as stated: the theme's defaults, then the **properties** set in the Properties panel, then the **form stylesheet**, then the control's
+  `CssClass` rules, then the control's `Style`. Any CSS the developer writes therefore overrides the same appearance given by a property; within the CSS the ordinary cascade (specificity, order, `!important`) applies. (The plan may realise this by placing the
+  declarations derived from properties in a lower cascade layer than the developer's CSS.)
 - **R9 (ubiquitous):** The stylesheet shall apply **inside the form's root only**; it shall not affect the host page (WASM-002 R12), and CSS custom properties for the theme's colours (an accent, a surface, a
   text colour, a radius) shall be defined so that a host page can set them.
 - **R10 (ubiquitous):** The supported CSS shall be that of current evergreen browsers and the platform web views (WKWebView, Android's WebView), with `@media` and container queries, `@font-face` for fonts from the
@@ -83,7 +84,8 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 
 **Tooling**
 - **R11 (event):** When a property, `CssClass`, `Style` or the stylesheet changes, the Preview (WASM-008) shall show the change without a rebuild.
-- **R12 (state):** While a control has CSS overrides the designer cannot paint (a class rule or a `Style`), the Form Designer shall mark it so, and shall not pretend to show the result.
+- **R12 (state):** While a control has CSS overrides the designer cannot paint (a class rule or a `Style`), the Form Designer shall mark it so, and shall not pretend to show the result; and because CSS wins (R8), the Properties panel shall mark, on the property itself,
+  a value that a CSS rule overrides, so that the developer is not left changing a value that has no effect.
 
 **Safety**
 - **R13 (ubiquitous):** The stylesheet shall not be able to load a remote resource unless the project allows that origin: `url()` shall be limited to the project's assets, data URIs and allowed origins;
@@ -113,9 +115,8 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 
 ## 7. Open questions
 
-- **Q1 — Precedence.** R8 puts a property the developer set explicitly *above* the stylesheet (a value typed in the Properties panel is the strongest statement of intent) and the inline `Style` above that.
-  The alternative reading of the operator's words — "properties can be edited by hand **or** by CSS" — is that CSS wins and properties are only the defaults. Which? Recommended: R8, with `!important` as the
-  developer's escape hatch.
+- **Q1 — Precedence — decided.** The operator ruled on 2026-10-19: **CSS wins** over the Properties panel (R8). The consequence to design for: a developer can edit a property that CSS overrides, and see no effect — R12 makes the Properties
+  panel say so.
 - **Q2 — Where the stylesheet lives:** inside the `.cfrm` (one file per form, no extra file to lose, a CDATA caveat) or as `forms/<Form>.css` (an ordinary file any CSS tool can open)? Recommended: a file beside the
   form, referenced from the `.cfrm`.
 - **Q3 — A project-wide stylesheet** (an application stylesheet under the forms' ones) is not asked for; add it now or leave it to a later spec? Recommended: leave it, but reserve its place in the cascade.

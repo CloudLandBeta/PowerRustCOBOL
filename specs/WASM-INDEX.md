@@ -111,16 +111,17 @@ flowchart TD
 |---|---|---|---|
 | D1 | **Execution model.** The compiler generates WebAssembly; no interpreter, no runtime in the browser; the final code carries what it needs; no `redb`, disk or threads in the browser; the backend keeps the current runtime | WASM-002, WASM-003, WASM-010 | **Decided** (operator, 2026-10-19). Reverses spec 006's *via Rust*, keeps its *no interpreter* |
 | D1b | **Directly or through Rust.** The operator asked whether WebAssembly can be generated directly; the answer is yes (WASM-010 §1) | WASM-010 Q1 | **Decided by implication:** the operator's "a Web build with no Rust toolchain" (D10) only holds if the COBOL is emitted directly. Say so if that reading is wrong |
-| D6 | **`RETURNING` on local `CALL`** is parsed and ignored today | WASM-005 Q2 | **Decided:** a fix on 1.x.x, then forwarded to 2.x.x. In progress in its own session |
+| D6 | **`RETURNING` on local `CALL`** is parsed and ignored today | WASM-005 Q2 | **Decided and done:** fix `8a15f00d` (1.91.219) on branch `claude/fixes-call-returning-18dea7`, forwarded as `afe22c51` (2.0.1) on 2.x.x. Merging the fix into `main` waits for the operator |
 | D9 | **Application style:** SPA by default, standalone forms as the alternative | WASM-011 | **Decided** (operator, 2026-10-19); details are WASM-011's questions |
 | D10 | **The player:** **two `.wasm` files** — a prebuilt Leptos player that draws any form, plus the generated COBOL module; a Web build is *emit the module, copy the player*, with no Rust toolchain. Cost accepted: no per-project Leptos code, no `Custom` plug-in controls on the web in v1 | WASM-002 Q7, WASM-010 Q10, WASM-016 | **Decided** (operator, 2026-10-19) |
 | D11 | **Data-model parity:** the generator lays data out in real bytes while the interpreter keeps values; where they differ the standard and NIST decide, and the interpreter's bug is a 1.x.x fix | WASM-010 Q5, R16 | Recommended as stated. **Open** |
-| D2 | **Password typed into our form** vs the provider's hosted sign-in, given Entra and Keycloak guidance | WASM-009 Q1 | Per provider; verify the three products first. **Open** |
-| D3 | **CSS precedence:** do properties or the stylesheet win | WASM-007 Q1 | Explicit properties above the stylesheet; `!important` as the escape hatch. **Open** |
+| D2 | **Password typed into our form** vs the provider's hosted sign-in, given Entra and Keycloak guidance | WASM-009 Q1, R8b | **Decided: the flow is chosen per provider** (operator, 2026-10-19). Still to do: verify each product's capabilities and fix each adapter's default |
+| D3 | **CSS precedence:** do properties or the stylesheet win | WASM-007 Q1, R8 | **Decided: CSS wins** (operator, 2026-10-19) |
+| D12 | **Templates creatable in 2.0:** Web + Android + iOS, no watch; the list as written in WASM-001 | WASM-001 Q3, R5 | **Decided** (operator, 2026-10-19) |
 | D4 | **Stateless or stateful backend calls** | WASM-003 Q2 | Fresh `WORKING-STORAGE` per call. **Open** |
 | D5 | **WebSocket only, or also a small HTTPS surface** (refresh cookie, provider redirects, health, downloads) | WASM-003 Q3, WASM-009 Q3, WASM-014 Q4 | Also HTTPS, kept minimal. **Open** |
 | D7 | **Preview in a separate process** or embedded in the IDE window | WASM-008 Q1 | Separate process and window. **Open** |
-| D8 | **Layout on the web:** CSS layout or the existing solver | WASM-004 Q1 | CSS for Flex/Grid/Flow, absolute for Absolute, parity-checked. **Open** |
+| D8 | **Layout on the web:** CSS layout or the existing solver | WASM-004 Q1, R8 | **Decided: CSS layout** (operator, 2026-10-19), parity-checked against the desktop |
 
 ## 4. What carries over from the removed spec 006, and what does not
 

@@ -180,8 +180,8 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
   always show all three and grey out the ones that do not apply.
 - **Q2 — File format.** Recommended: web and mobile forms stay `.cfrm` (one model, WASM-004 R1), told apart by the folder / entry they
   are in. Alternative: a new extension for web forms. The first keeps tooling, tests and the agent kit unchanged.
-- **Q3 — Unavailable entries.** Show them greyed with a "not yet available" note (as R5 says), or hide them until they work? And is the set of templates creatable in 2.0 (R5) the right one? It is this
-  spec's proposal — Web and the four phone/tablet entries — not something the operator has said.
+- **Q3 — Unavailable entries and the set creatable in 2.0 — decided.** The operator confirmed on 2026-10-19: **Web + Android + iOS, no watch**, and **the template list of this spec as written** (R5: the entries that cannot be created yet stay visible, greyed, with a "not yet
+  available" note). So the creatable templates in 2.0 are Desktop, Web (WebAssembly), Android (Cellphone), Android (Tablet), iPhone and iPad.
 - **Q4 — "Target platform" for Desktop.** The compiler builds for the host triple only (spec 041 R17/R18), so macOS | Windows | Linux
   can be informational (the host) or a real choice only when cross-building exists. Recommended: show the host, disabled, until then.
 - **Q5 — Backend scaffold always created?** The operator's item 11 says every Web/Mobile project "gets" a backend. Recommended: created by
