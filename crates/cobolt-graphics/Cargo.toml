@@ -38,8 +38,8 @@ plot = ["text", "dep:plotters", "dep:plotters-backend"]
 # Physics2D / Physics3D (R10).
 physics = ["dep:rapier2d", "dep:rapier3d"]
 
-# Scene3D / Canvas3D (R9): wgpu + naga + glam + bytemuck + gltf + parry3d.
-scene3d = ["scene3d-core", "dep:wgpu", "dep:naga", "dep:pollster"]
+# Scene3D / Canvas3D (R9): wgpu (which brings naga) + glam + bytemuck + gltf + parry3d.
+scene3d = ["scene3d-core", "dep:wgpu", "dep:pollster"]
 # The scene graph, glTF loader, culling, shadow fitting and picking, without the GPU renderer: plain
 # data and maths, for a host that renders elsewhere and for tests that run on any machine.
 scene3d-core = ["imagebuf", "dep:glam", "dep:gltf", "dep:parry3d"]
@@ -83,9 +83,8 @@ plotters-backend = { version = "0.3", optional = true }
 rapier2d = { version = "0.36", optional = true, default-features = false, features = ["dim2", "f32", "std", "enhanced-determinism"] }
 rapier3d = { version = "0.36", optional = true, default-features = false, features = ["dim3", "f32", "std", "enhanced-determinism"] }
 
-# 3D.
+# 3D. naga is not a dependency of the library: wgpu compiles the WGSL with its own; the tests validate the shaders with a dev-dependency.
 wgpu     = { version = "30", optional = true, default-features = false, features = ["std", "parking_lot", "wgsl"] }
-naga     = { version = "30", optional = true, default-features = false, features = ["wgsl-in"] }
 # glam 0.33: the same release rapier and parry (through glamx) use, so a Scene3D node and a physics
 # body share one vector type and no second glam enters the tree.
 glam     = { version = "0.33", optional = true }

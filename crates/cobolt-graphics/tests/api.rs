@@ -49,10 +49,6 @@ fn reg() -> Registry {
     r
 }
 
-fn f(v: &[f64]) -> Value {
-    Value::Floats(v.to_vec())
-}
-
 fn int(v: Value) -> i64 {
     match v {
         Value::Int(i) => i,

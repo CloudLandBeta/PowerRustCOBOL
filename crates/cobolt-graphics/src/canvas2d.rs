@@ -196,13 +196,15 @@ impl Canvas2D {
         self.limits.check_text(text.len())?;
         self.list.measure_text(0, text);
         let out = self.run(res)?;
-        out.readbacks
-            .into_iter()
-            .find_map(|r| match r {
-                ReadBack::Text { slot: 0, metrics } => Some(metrics),
-                _ => None,
-            })
-            .ok_or_else(|| GraphicsError::invalid("there is no font to measure with (load one with LoadFont)"))
+        let metrics = out.readbacks.into_iter().find_map(|r| match r {
+            ReadBack::Text { slot: 0, metrics } => Some(metrics),
+            _ => None,
+        });
+        match metrics {
+            // With no font the rasteriser answers all zeros (and a diagnostic): say so instead.
+            Some(m) if m != TextMetrics::default() || text.is_empty() => Ok(m),
+            _ => Err(GraphicsError::invalid("there is no font to measure with (load one with LoadFont)")),
+        }
     }
 
     /// `Capture`: a rectangle of the canvas as an image (device resolution).

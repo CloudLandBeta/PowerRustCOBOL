@@ -21,6 +21,11 @@ use super::scene::{AlphaMode, Background, Camera, Content, Fog, LightKind, Mater
 use crate::error::{GraphicsError, Result};
 use crate::handles::Handle;
 
+/// A node with at least this many copies has them boxed and culled in parallel chunks.
+const PAR_INSTANCES: usize = 4096;
+/// Copies per parallel chunk.
+const CHUNK: usize = 2048;
+
 /// The most lights a frame carries (the rest are dropped, lowest handles kept).
 pub const MAX_LIGHTS: usize = 8;
 /// The most shadow maps a frame carries.
@@ -181,6 +186,23 @@ impl Scene3D {
             let world = n.world;
             let instances: Vec<Instance> = if m.instances.is_empty() {
                 vec![Instance { model: world, aabb: data.bounds.transformed(&world) }]
+            } else if m.instances.len() >= PAR_INSTANCES {
+                // Many copies: carry each one's box in parallel chunks, joined in order (the same list for any number of threads).
+                let (bounds, list) = (data.bounds, &m.instances);
+                let chunks = list.len().div_ceil(CHUNK);
+                crate::par::map_range(chunks, |c| {
+                    let (lo, hi) = (c * CHUNK, ((c + 1) * CHUNK).min(list.len()));
+                    list[lo..hi]
+                        .iter()
+                        .map(|i| {
+                            let model = world * *i;
+                            Instance { model, aabb: bounds.transformed(&model) }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .into_iter()
+                .flatten()
+                .collect()
             } else {
                 m.instances
                     .iter()
@@ -220,10 +242,23 @@ impl Scene3D {
         // Cull.
         for d in draws.iter_mut() {
             let skinned = d.joints.is_some();
-            for (i, inst) in d.instances.iter().enumerate() {
-                // A skinned mesh's pose can leave its bind-pose box, so it is never culled.
-                if skinned || frustum.intersects_aabb(&inst.aabb) {
-                    d.visible.push(i as u32);
+            if !skinned && d.instances.len() >= PAR_INSTANCES {
+                // Many copies: test them in parallel chunks and join the answers in order.
+                let list = &d.instances;
+                let chunks = list.len().div_ceil(CHUNK);
+                d.visible = crate::par::map_range(chunks, |c| {
+                    let (lo, hi) = (c * CHUNK, ((c + 1) * CHUNK).min(list.len()));
+                    (lo..hi).filter(|&i| frustum.intersects_aabb(&list[i].aabb)).map(|i| i as u32).collect::<Vec<u32>>()
+                })
+                .into_iter()
+                .flatten()
+                .collect();
+            } else {
+                for (i, inst) in d.instances.iter().enumerate() {
+                    // A skinned mesh's pose can leave its bind-pose box, so it is never culled.
+                    if skinned || frustum.intersects_aabb(&inst.aabb) {
+                        d.visible.push(i as u32);
+                    }
                 }
             }
             stats.mesh_nodes += 1;
@@ -377,6 +412,26 @@ mod tests {
         assert!(f.stats.instances_drawn > 5 && f.stats.instances_drawn < 20, "only the middle of the row is in view: {}", f.stats.instances_drawn);
         assert_eq!(f.stats.instances_drawn + f.stats.instances_culled, 1000);
         assert!(f.draws[0].visible.windows(2).all(|w| w[0] < w[1]), "in order");
+    }
+
+    #[test]
+    fn a_hundred_thousand_instances_are_culled_the_same_on_one_thread_and_on_many() {
+        let (mut s, cam) = scene_with_camera();
+        let n = s.add_box([1.0; 3]).unwrap();
+        let mut mats = Vec::new();
+        for i in 0..100_000 {
+            // A 400 x 250 grid, 3 apart: most of it is outside the view.
+            let t = Mat4::from_translation(Vec3::new((i % 400) as f32 * 3.0 - 600.0, ((i / 400) % 5) as f32, -(i / 400) as f32 * 3.0));
+            mats.extend_from_slice(&t.to_cols_array());
+        }
+        s.set_instances(n, &mats).unwrap();
+        let one = crate::par::with_threads(1, || s.build_frame(Some(cam), 1.0).unwrap());
+        let many = crate::par::with_threads(8, || s.build_frame(Some(cam), 1.0).unwrap());
+        assert_eq!(one.stats, many.stats);
+        assert_eq!(one.draws[0].visible, many.draws[0].visible, "the same copies are visible, in the same order");
+        assert!(one.draws[0].instances.iter().zip(&many.draws[0].instances).all(|(a, b)| a.model == b.model && a.aabb == b.aabb));
+        assert!(one.stats.instances_drawn > 100 && one.stats.instances_culled > 50_000, "{:?}", one.stats);
+        assert!(one.draws[0].visible.windows(2).all(|w| w[0] < w[1]));
     }
 
     #[test]
