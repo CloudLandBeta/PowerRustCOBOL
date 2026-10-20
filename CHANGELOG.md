@@ -17,6 +17,31 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.13] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.12.)*
+
+### Changed: the exact decimal kernel is its own `no_std` crate, `cobolt-decimal`
+
+`CobolNumeric` — the `i128` mantissa with a decimal scale, and its `add`, `sub`,
+`mul`, `div`, `round_to`, `truncate_to`, `round_to_power`, `cmp` and `Display` —
+moved out of `cobolt-runtime/src/value.rs` into a crate with no dependencies,
+no `std` and no allocator. `value.rs` re-exports it, so nothing that names
+`value::CobolNumeric` changes and the interpreter computes the same numbers as
+before. The reason is the WebAssembly line (WASM-010 R6): the support routines
+linked into every generated program module must give the interpreter's results,
+and that is only true if they are the same code.
+
+Three small things `std` provided are written out in the new crate and **proved
+equal to the `std` function by tests**: `f64::round` (2.2 million random and edge
+values, bit-for-bit), `f64::powi` for `10^n` (n = 0 … 40) and the decimal
+formatting of the mantissa (300 000 random cases against the old
+implementation). The whole `cobolt-runtime` suite passes unchanged: 1527 tests,
+0 failures, in 180 test binaries.
+
+⚠️ A 1.x.x fix to `value.rs` that touches the arithmetic no longer
+cherry-picks onto 2.x.x; it is ported by hand into `cobolt-decimal`.
+
 ## [PowerRustCOBOL 2.0.12] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.11.)*

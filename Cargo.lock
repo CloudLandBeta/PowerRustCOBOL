@@ -1946,6 +1946,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-decimal"
+version = "0.2.0"
+
+[[package]]
 name = "cobolt-docs"
 version = "0.2.0"
 dependencies = [
@@ -2188,6 +2192,7 @@ dependencies = [
  "chrono",
  "cobolt-ast",
  "cobolt-codegen",
+ "cobolt-decimal",
  "cobolt-forms",
  "cobolt-indexed",
  "cobolt-kb",

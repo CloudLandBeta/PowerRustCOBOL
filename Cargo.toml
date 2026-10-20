@@ -10,6 +10,7 @@ members = [
     "crates/cobolt-ast",
     "crates/cobolt-parser",
     "crates/cobolt-semantic",
+    "crates/cobolt-decimal",   # WASM-010 — the exact decimal kernel (no_std), shared by the interpreter and the WebAssembly routines
     "crates/cobolt-runtime",
     "crates/cobolt-stdlib",
     "crates/cobolt-cli",
