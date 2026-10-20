@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.11] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.10.)*
+
+### Added: `specs/WASM-PROGRESS.md`, the ledger of the 2.x.x work
+
+One file that says where the WebAssembly series stands — the operating rules
+(worktree, branches, no push in work hours, version and changelog, credential
+scan, i18n, System KB, interpreter/binary parity) and a status row per spec
+(specified · planned · tasked · implementing · verified, with the evidence
+named). It records what is *measured*, not what is hoped, so that any session
+can resume after an interruption. No product behaviour changes.
+
 ## [PowerRustCOBOL 2.0.10] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.9.)*
