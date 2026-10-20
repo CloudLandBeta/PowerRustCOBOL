@@ -124,6 +124,9 @@ fn validate_text_for(
                 // paragraph or a Common Code procedure of it (2026-10-08);
                 // `None` — a path outside any project — checks nothing.
                 known_programs: cobolt_compiler::common_code_names(program),
+                // WASM-005 R4: the backend's exported programs, when the
+                // project has imported them.
+                remote_interface: cobolt_compiler::backend_interface(program),
             },
         );
         for d in &sem.diagnostics {

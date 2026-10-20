@@ -136,6 +136,8 @@ cobolt-ast      = { path = "../cobolt-ast" }
 # The exact decimal kernel (`CobolNumeric`), shared with the WebAssembly
 # support routines (spec WASM-010 R6): `value.rs` re-exports it.
 cobolt-decimal  = { path = "../cobolt-decimal" }
+# WASM-005 — the group <-> JSON mapping and the seam a remote call crosses.
+cobolt-wire     = { path = "../cobolt-wire" }
 # The debugger's expression evaluator parses what the developer types in a watch
 # or at the console prompt. It reuses the REAL parser rather than carrying a
 # second, smaller COBOL grammar that would drift from it. No cycle: the parser

@@ -11,7 +11,7 @@
 
 use cobolt_ast::expr::{CmpOp, Expr, Literal};
 use cobolt_ast::stmt::{
-    AcceptSource, AdvancingClause, CallArg, EvalSubject, ExecRustBinding, ExitKind, OpenMode,
+    AcceptSource, AdvancingClause, CallArg, CallConvention, EvalSubject, ExecRustBinding, ExitKind, OpenMode,
     PerformTarget, ReadDirection, Stmt, UnstringTarget, VaryingAfter, WhenClause, WhenValue,
 };
 use cobolt_lexer::Token;
@@ -3184,6 +3184,21 @@ fn parse_call(p: &mut Parser) -> Stmt {
 
     let program = parse_expr(p);
 
+    // WITH WEBSOCKET LINKAGE (WASM-005 R1) — the target is an exported program
+    // of the backend and the arguments travel as JSON. `WEBSOCKET` is a
+    // contextual word: it is a reserved word nowhere else, so a data item
+    // may still be called that. The phrase must be written in full; a
+    // `WITH WEBSOCKET` that stops short is named, not skipped.
+    let mut convention = CallConvention::Local;
+    if p.at(&Token::With) && is_word(p.peek_at(1), "WEBSOCKET") {
+        p.advance(); // WITH
+        p.advance(); // WEBSOCKET
+        if !p.eat(&Token::Linkage) {
+            p.emit_error("CALL ... WITH WEBSOCKET must be followed by LINKAGE: CALL \"NAME\" WITH WEBSOCKET LINKAGE USING group ...");
+        }
+        convention = CallConvention::WebSocket;
+    }
+
     // USING [BY {REFERENCE|CONTENT|VALUE}] args…
     //
     // **The phrase governs every operand that follows it**, until another one
@@ -3208,6 +3223,13 @@ fn parse_call(p: &mut Parser) -> Stmt {
             } else if p.eat(&Token::Value) {
                 mode = value;
             } else if matches!(ident_upper(p).as_deref(), Some("CONTENT")) {
+                if convention == CallConvention::WebSocket {
+                    p.emit_error(
+                        "BY CONTENT is not available in a WITH WEBSOCKET LINKAGE call: \
+                         write BY VALUE (the group is sent, the caller's copy is never changed) \
+                         or BY REFERENCE (the answer is written back into it)",
+                    );
+                }
                 p.advance();
                 mode = content;
             }
@@ -3269,6 +3291,7 @@ fn parse_call(p: &mut Parser) -> Stmt {
         on_exception,
         not_on_exception,
         span,
+        convention,
     }
 }
 
@@ -3428,6 +3451,7 @@ fn cobol_object_call(expr: &Expr, span: cobolt_lexer::Span) -> Option<Stmt> {
         on_exception: Vec::new(),
         not_on_exception: Vec::new(),
         span,
+        convention: CallConvention::Local,
     })
 }
 

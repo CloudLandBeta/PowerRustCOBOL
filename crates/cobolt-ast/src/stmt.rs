@@ -54,6 +54,24 @@ pub enum CallArg {
     ByValue(Expr),
 }
 
+/// The calling convention of a `CALL` (WASM-005).
+///
+/// `Local` is every `CALL` that has ever existed: the target is a program,
+/// paragraph or built-in of the run unit. `WebSocket` is
+/// `CALL … WITH WEBSOCKET LINKAGE USING …`: the target is a program exported by
+/// the project's backend, the arguments are groups that travel as JSON, and the
+/// answer is written back into them.
+///
+/// 🔴 New variants go at the END — the AST is bincode-serialized by ordinal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum CallConvention {
+    /// An ordinary call inside the run unit.
+    #[default]
+    Local,
+    /// `WITH WEBSOCKET LINKAGE` — a call to an exported program of the backend.
+    WebSocket,
+}
+
 /// The source of an ACCEPT statement (`FROM DATE`, `FROM TIME`, etc.).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AcceptSource {
@@ -809,6 +827,10 @@ pub enum Stmt {
         /// EXCEPTION` / `NOT ON OVERFLOW`).
         not_on_exception: Vec<Stmt>,
         span: Span,
+        /// `WITH WEBSOCKET LINKAGE` (WASM-005 R1); `Local` for every other call.
+        ///
+        /// 🔴 Appended: `Stmt` is bincode-serialized field by field, by ordinal.
+        convention: CallConvention,
     },
 
     /// Visual-object **method invocation** (PowerCOBOL OO):

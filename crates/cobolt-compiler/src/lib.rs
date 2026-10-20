@@ -1610,6 +1610,22 @@ pub fn common_code_names(path: &Path) -> Option<std::collections::HashSet<String
     Some(program_names(&common))
 }
 
+/// The interface description of the backend of the project `path` belongs to
+/// (WASM-005 R4): what a `CALL … WITH WEBSOCKET LINKAGE` is checked against at
+/// Check time. `None` outside a project and for a project with no backend
+/// description; a file that is there but cannot be read is logged and treated
+/// as absent by the caller, never skipped silently.
+pub fn backend_interface(path: &Path) -> Option<cobolt_wire::contract::InterfaceDescription> {
+    let manifest = find_project_manifest(path)?;
+    match cobolt_wire::contract::InterfaceDescription::load_project(manifest.parent()?) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("{e}");
+            None
+        }
+    }
+}
+
 fn main_form_program(proj: &CoboltProject, dir: &Path) -> Option<String> {
     if proj.files.forms.is_empty() {
         return None;
@@ -2269,6 +2285,19 @@ fn build_core(
             // A literal CALL must name a program, a paragraph or a Common
             // Code procedure of this project (2026-10-08).
             known_programs: has_project.then(|| program_names(&common)),
+            // The backend's exported programs, when the project has one
+            // (WASM-005 R4): a WEBSOCKET call is checked against them.
+            remote_interface: if has_project {
+                match cobolt_wire::contract::InterfaceDescription::load_project(&project_dir) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        log(&format!("⚠️  {e}"));
+                        None
+                    }
+                }
+            } else {
+                None
+            },
             // When the main program is a form's, its `X::…` receivers must
             // name that form's objects (2026-10-02).
             known_objects: form_formats.as_ref().and_then(|(parsed, _)| {
@@ -3580,7 +3609,7 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 14] = [
+pub const SDK_CRATES: [&str; 15] = [
     "cobolt-ast",
     "cobolt-codegen",
     // spec 074 — document import. `cobolt-kb` depends on it.
@@ -3602,6 +3631,9 @@ pub const SDK_CRATES: [&str; 14] = [
     "cobolt-parser",
     "cobolt-runtime",
     "cobolt-semantic",
+    // WASM-005 — the group <-> JSON mapping and the remote-call seam.
+    // `cobolt-runtime` depends on it, so the closure guard requires it here.
+    "cobolt-wire",
 ];
 
 /// Paths outside `crates/` that a build reads from the workspace root.
@@ -5005,6 +5037,8 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"SET-PROPERTY"` | object in, property in, value in | Set a control's property |
 | `COBOL::"WAIT-EVENT"` | event-id out, control-id out | Wait for the next event (generated code calls it) |
 | `COBOL::"WRITE-FILE"` | path in, text in, [status out] | Write a file holding one line of text, replacing it |
+| `COBOL::"WS-CLAIM"` | name in, value out | A claim of the caller's validated token, on the backend ("sub", "email", "roles" …); spaces when absent; read-only |
+| `COBOL::"WS-LAST-ERROR"` | class out, code out, message out, [detail out] | How the last `CALL … WITH WEBSOCKET LINKAGE` failed: class word, numeric code, English message, the program's own detail |
 
 ### Pictures and binary downloads — `IMAGE-FIT`, `IMAGE-INFO`, `HTTP-DOWNLOAD`
 Each answers with ONE status word in its last argument; test the word, never a message. Give the status item room for 9 characters (`PIC X(12)`). A RELATIVE path — here and in `WRITE-FILE`, `APPEND-FILE`, `AUDIO-PLAY` and the file an AWS control uploads or saves — starts at the application's folder, exactly as a relative `ASSIGN` does: the project folder under Run Form, the application's own folder when built, wherever it was launched from. An absolute path is used as written.
@@ -5021,6 +5055,31 @@ Each answers with ONE status word in its last argument; test the word, never a m
 - **`IMAGE-INFO`** reads only the header: width and height as numbers (the UPRIGHT size — a camera photo stored sideways with an EXIF rotation reports its upright size, the picture `IMAGE-FIT` works on), the format name. Words: `OK`, `NOFILE`, `BADIMAGE`, `NOFEATURE`; on a refusal the size is 0 × 0 and the format spaces.
 - **`HTTP-DOWNLOAD`** fetches an `http://`/`https://` address AS BYTES (unlike `HTTP-GET`, whose response is text and capped). It follows up to 5 redirects (an `Authorization` header is not carried across one), sends only the headers set with `HTTP-SET-HEADER`, gives up after 60 seconds in total, refuses more than 256 MB, and writes through `<file>.part`, renamed when complete — a failure leaves no `.part` and an existing file untouched. `http-status` receives the server's code (0 when none came back). Words: `OK`, `BADURL`, `TIMEOUT`, `TOOBIG`, `HTTP` (a 4xx/5xx answer, or more than 5 redirects), `WRITE`, `NET` (no connection), `NOFEATURE`. The address's query string — where a pre-signed URL keeps its signature — never appears in a log.
 - `NOFEATURE` means the program was built without the picture or HTTP support. A build that calls these by their literal name always has it; only a CALL whose target is assembled at run time could meet it.
+
+### Calling the backend — `CALL … WITH WEBSOCKET LINKAGE`
+A Web or Mobile project has a backend (the `backend/` folder) that runs on the native RustCOBOL runtime; the frontend calls the programs the backend **exports**, by name, over a secure WebSocket. The call is a `CALL` with a calling convention:
+
+```cobol
+           *> GET-CUSTOMER: asks the backend for one customer; CUSTOMER-REC carries the key and receives the record.
+           *> Uses:   CUST-ID of CUSTOMER-REC = the key to look up.
+           *> Result: CUSTOMER-REC = the record the backend sent back; RESULT-REC = the outcome.
+
+           CALL "GET-CUSTOMER" WITH WEBSOCKET LINKAGE
+               USING BY REFERENCE CUSTOMER-REC
+               RETURNING RESULT-REC
+               ON EXCEPTION
+                   COBOL::"WS-LAST-ERROR" ( WS-CLASS WS-CODE WS-MESSAGE )
+                   SET LBL-STATUS::Caption TO WS-MESSAGE
+               NOT ON EXCEPTION
+                   SET LBL-STATUS::Caption TO "Found"
+           END-CALL
+```
+
+- **The arguments are groups.** Each operand of `USING`, and the `RETURNING` receiver, is a data item declared in WORKING-STORAGE (or LINKAGE), written as its name — never a literal, an expression, a table element or a file record. A group travels as a JSON object built from its own declaration; an elementary item travels as its bare scalar (a number or a string). `BY VALUE` sends the group and never changes the caller's copy; `BY REFERENCE` (the default when no `BY` is written) also writes the backend's final values of that parameter back into it; `RETURNING` writes the backend's returned item into the named group. `BY CONTENT` does not exist here — write `BY VALUE`.
+- **Nothing else is the developer's.** The connection, the bearer token, the framing, the correlation, the keep-alive, the reconnection and the token refresh are the runtime's. While the call is pending the form keeps repainting and its events queue up in order; the statement after the `CALL` does not run until the call has finished.
+- **The group-to-JSON mapping.** A member's key is its data-name **as declared** (the spelling of the declaration, case included); `FILLER`, 88-level condition-names, level-66 `RENAMES` and the **redefining** half of a `REDEFINES` are not members and are never written, and a key naming one is an unknown key. Members come out in declaration order and are read **by name**, in any order; a key the answer leaves out leaves its item unchanged. `OCCURS n` is an array of n elements (an array shorter than the table leaves the rest unchanged; a longer one is an error); `OCCURS min TO max DEPENDING ON item` is an array of the current count, the count item must be an integer declared earlier **inside the same group**, reading an array sets the count, and a count that disagrees with the array, or lies outside min..max, is an error. A numeric item is a JSON number written from its decimal text with the PICTURE scale (`PIC S9(5)V99` holding 12.5 is `12.50`) — never through a binary float, so 38 digits survive; `USAGE COMP`, `COMP-3`, `COMP-5` and `PACKED-DECIMAL` are sent as their value, and `COMP-1`/`COMP-2`, `INDEX`, `POINTER` and `OBJECT REFERENCE` items are refused at Check time. A `PIC X(n)` item is a JSON string of at most n **bytes** of UTF-8 with its trailing spaces trimmed (all spaces is `""`); `PIC N(n)` counts UTF-16 code units and `PIC U(n)` characters; an edited picture travels as its edited image. Reading is strict: an unknown key, a value of the wrong JSON type, a number that does not fit its PICTURE (too many digits, too many decimals, a negative for an unsigned item), a string longer than its PIC or a table longer than its OCCURS is an **error naming the item**, never a truncation, and **nothing is written** when any part of an answer is refused.
+- **Failure.** When a call cannot be completed — no connection, a timeout, a missing/invalid/expired token, a refused role, a payload that does not fit, an unknown program, a version mismatch, a limit, a failure the backend's program reported, or a backend fault — `ON EXCEPTION` runs; without it a failed call is a run-time error. `COBOL::"WS-LAST-ERROR" ( class code message [detail] )` reads why: the class is one of `TRANSPORT`, `AUTHENTICATION`, `AUTHORISATION`, `VALIDATION`, `NOT-FOUND`, `VERSION`, `LIMIT`, `APPLICATION`, `SERVER`; the code is stable (1000 no connection, 1002 timeout, 1003 no backend configured, 2000-2002 token missing/invalid/expired, 3000 role refused, 4000 payload does not fit, 5000 unknown program, 6000-6002 version, 7000-7004 limits, 9000-9002 server); an `APPLICATION` failure carries the backend program's own code and `detail`. `NOT ON EXCEPTION` runs when the call succeeded.
+- **At Check time** the backend's interface description (`backend/contract/interface.json`, written when the backend is built) is imported: the name must be a program the backend exports (an `ON EXCEPTION` does not excuse a name the contract does not list), the argument count must match, and each group must fit the parameter it lands on — names compared as declared, capacities, scale, sign and OCCURS.
 
 ### Sound — the `AUDIO-…` built-ins
 Any program, console or form, can play a sound file; there is no audio control. An audio player in a form is composed from ordinary controls: Play/Pause/Stop buttons, a ProgressBar and a Label, refreshed from a Timer's `onTick` that calls `COBOL::"AUDIO-STATE"`.

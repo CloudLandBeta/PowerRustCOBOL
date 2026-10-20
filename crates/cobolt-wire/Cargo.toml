@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-wire"
+description = "Cobolt COBOL — the frontend-backend contract: group layouts, the COBOL group <-> JSON mapping, the wire protocol, errors and the interface description (WASM-005, WASM-014)"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+# Deliberately small: this crate is linked by the interpreter, the semantic
+# analyser, the compiler and the backend server, and it is the reference the
+# browser module's generator is held to. It knows nothing of egui, sockets,
+# files or the runtime.
+[dependencies]
+cobolt-ast = { path = "../cobolt-ast" }
+serde      = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+
+[dev-dependencies]
+cobolt-lexer  = { path = "../cobolt-lexer" }
+cobolt-parser = { path = "../cobolt-parser" }

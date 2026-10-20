@@ -51,6 +51,7 @@ fn errors_with_map(procedure: &str) -> Vec<String> {
             known_objects: None,
             known_layers: None,
             known_programs: None,
+            remote_interface: None,
         },
     )
     .diagnostics

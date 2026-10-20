@@ -89,6 +89,8 @@ pub const BUILTINS: &[Builtin] = &[
     b("SET-PROPERTY", "object in, property in, value in", "Set a control's property"),
     b("WAIT-EVENT", "event-id out, control-id out", "Wait for the next event (generated code calls it)"),
     b("WRITE-FILE", "path in, text in, [status out]", "Write a file holding one line of text, replacing it"),
+    b("WS-CLAIM", "name in, value out", "A claim of the caller's validated token, on the backend (\"sub\", \"email\", \"roles\" …); spaces when absent; read-only"),
+    b("WS-LAST-ERROR", "class out, code out, message out, [detail out]", "How the last CALL … WITH WEBSOCKET LINKAGE failed: class word, numeric code, English message, the program's own detail"),
 ];
 
 /// The built-in `name` names — with or without its `COBOL-` prefix, any case.

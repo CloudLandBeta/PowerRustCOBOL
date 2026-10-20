@@ -25,7 +25,7 @@ use std::collections::HashSet;
 
 use cobolt_ast::expr::{Expr, Literal};
 use cobolt_ast::program::{ProcedureBody, Program};
-use cobolt_ast::stmt::Stmt;
+use cobolt_ast::stmt::{CallConvention, Stmt};
 
 use crate::{SemanticDiagnostic, Severity};
 
@@ -106,9 +106,14 @@ fn check_stmt(
     known_programs: &HashSet<String>,
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) {
-    let Stmt::Call { program: Expr::Literal(Literal::String(target), _), on_exception, span, .. } = stmt else {
+    let Stmt::Call { program: Expr::Literal(Literal::String(target), _), on_exception, span, convention, .. } = stmt else {
         return;
     };
+    // A WEBSOCKET target is a program of the backend, never of this unit; the
+    // remote-call pass judges its name (WASM-005 R4).
+    if *convention == CallConvention::WebSocket {
+        return;
+    }
     // `ON EXCEPTION` says the target is optional; the program handles its
     // absence.
     if !on_exception.is_empty() {
@@ -176,7 +181,13 @@ fn returning_in_program(
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) {
     let mut visit = |stmt: &Stmt| {
-        let Stmt::Call { program: Expr::Literal(Literal::String(target), _), returning: Some(_), span, .. } = stmt
+        let Stmt::Call {
+            program: Expr::Literal(Literal::String(target), _),
+            returning: Some(_),
+            span,
+            convention: CallConvention::Local,
+            ..
+        } = stmt
         else {
             return;
         };

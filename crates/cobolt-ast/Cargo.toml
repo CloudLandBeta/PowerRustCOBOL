@@ -23,3 +23,4 @@ indexmap     = { workspace = true }
 pretty_assertions = { workspace = true }
 # Spec 087 T5: the new SQL nodes survive the binary's serialization.
 bincode = { workspace = true }
+serde_json = { workspace = true }

@@ -35,6 +35,9 @@ mod grid_dropdown;
 mod grid_edit;
 mod grid_unit;
 mod kb;
+/// WASM-005 — `CALL … WITH WEBSOCKET LINKAGE`: groups out of the environment,
+/// through the JSON mapping, over the run's transport, and back.
+mod remote;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::mpsc;
@@ -1662,6 +1665,9 @@ pub struct Interpreter {
     binding_states: HashMap<String, BindingRuntimeState>,
     /// Spec 094: the edits a bound grid has kept and not yet written.
     grid_edits: grid_edit::GridEdits,
+    /// WASM-005: what carries a `CALL … WITH WEBSOCKET LINKAGE`, how the last
+    /// one failed, and (on the backend) the caller's claims.
+    remote: remote::RemoteState,
 
     // ── GUI Form Runtime channels (Phase 6) ───────────────────────────────────
     /// Receives UI events (button clicks, text changes, etc.) from the form window.
@@ -2190,6 +2196,7 @@ impl Interpreter {
             tool_results: HashMap::new(),
             binding_states: HashMap::new(),
             grid_edits: HashMap::new(),
+            remote: remote::RemoteState::default(),
             event_rx: None,
             input_rx: None,
             state_tx: None,
@@ -6005,6 +6012,8 @@ impl Interpreter {
             } => self.exec_return(file, into.as_ref(), at_end, not_at_end),
 
             // ── Subprogram linkage ────────────────────────────────────────────
+            // WASM-005: a call to an exported program of the backend, its
+            // groups carried as JSON.
             Stmt::Call {
                 program,
                 using,
@@ -6012,6 +6021,24 @@ impl Interpreter {
                 on_exception,
                 not_on_exception,
                 span,
+                convention: cobolt_ast::stmt::CallConvention::WebSocket,
+            } => self.exec_remote_call(
+                program,
+                using,
+                returning.as_ref(),
+                on_exception,
+                not_on_exception,
+                *span,
+            ),
+
+            Stmt::Call {
+                program,
+                using,
+                returning,
+                on_exception,
+                not_on_exception,
+                span,
+                convention: cobolt_ast::stmt::CallConvention::Local,
             } => self.exec_call(
                 program,
                 using,
@@ -11590,6 +11617,18 @@ impl Interpreter {
                 self.add_chart_point_args(&id, label.trim().to_owned(), value, rest);
                 self.push_chart_data(&id);
             }
+            // COBOL-WS-LAST-ERROR class code message [detail]
+            //   How the last `CALL … WITH WEBSOCKET LINKAGE` failed: the class
+            //   as a word (TRANSPORT, AUTHENTICATION, AUTHORISATION, VALIDATION,
+            //   NOT-FOUND, VERSION, LIMIT, APPLICATION, SERVER), the numeric
+            //   code, the English message and the program's own detail. Spaces
+            //   and 0 when nothing has failed (WASM-005 R10).
+            "COBOL-WS-LAST-ERROR" => self.builtin_ws_last_error(using),
+            // COBOL-WS-CLAIM name value
+            //   A claim of the caller's validated token ("sub", "email", a role
+            //   list …); read-only, spaces when the caller has no such claim
+            //   (WASM-003 R12).
+            "COBOL-WS-CLAIM" => self.builtin_ws_claim(using, span)?,
             // COBOL-FILE-STATUS file-name status-item
             //   Copies the named file's last FILE STATUS into `status-item`
             //   ("00" before any operation). The IndexedFile facade calls it

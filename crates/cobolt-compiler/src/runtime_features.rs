@@ -272,6 +272,10 @@ pub fn scan_program(program: &Program) -> RuntimeFeatures {
     let mut found = RuntimeFeatures::default();
     for_each_stmt(program, &mut |stmt| {
         match stmt {
+            // WASM-005: the target of a WEBSOCKET call is a program of the
+            // backend, never a built-in of this runtime — its name says nothing
+            // about what the application links.
+            Stmt::Call { convention: cobolt_ast::stmt::CallConvention::WebSocket, .. } => {}
             Stmt::Call { program: target, .. } => match literal_text(target) {
                 Some(name) => {
                     let upper = name.trim().to_ascii_uppercase();

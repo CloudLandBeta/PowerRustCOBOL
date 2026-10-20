@@ -372,6 +372,7 @@ fn stmt_call() {
         on_exception: vec![],
         not_on_exception: vec![],
         span: dummy_span(),
+        convention: cobolt_ast::stmt::CallConvention::Local,
     };
     let _ = format!("{s:?}");
 }

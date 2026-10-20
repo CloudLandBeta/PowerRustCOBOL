@@ -16,6 +16,8 @@ repository.workspace   = true
 [dependencies]
 cobolt-lexer = { path = "../cobolt-lexer" }
 cobolt-ast   = { path = "../cobolt-ast" }
+# WASM-005 R7 — layouts and the backend's interface description, for the Check-time fit.
+cobolt-wire  = { path = "../cobolt-wire" }
 thiserror    = { workspace = true }
 indexmap     = { workspace = true }
 

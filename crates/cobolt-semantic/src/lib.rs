@@ -38,6 +38,7 @@ pub mod national;
 pub mod flagging;
 pub mod external;
 pub mod file_keys;
+pub mod remote_calls;
 pub mod reports;
 pub mod resolver;
 pub mod symbol_table;
@@ -190,6 +191,14 @@ pub struct AnalyzeOptions {
     /// `COBOL-…` / `COBOLT-…` names are never checked here — their table
     /// lives in the runtime, which this crate cannot see.
     pub known_programs: Option<std::collections::HashSet<String>>,
+    /// The backend's interface description, imported into the project
+    /// (WASM-005 R4, R7). `Some` = the project has a backend: a
+    /// `CALL "NAME" WITH WEBSOCKET LINKAGE` must name a program the
+    /// description exports, with as many arguments as it takes, whose groups
+    /// fit the parameters it declares. `None` = no description imported; the
+    /// phrase is still checked for what the unit alone can show (the arguments
+    /// are groups of WORKING-STORAGE) but not against any backend.
+    pub remote_interface: Option<cobolt_wire::contract::InterfaceDescription>,
 }
 
 /// 049 R1 — a project form's FormFormat, as the load-path check needs it.
@@ -282,6 +291,9 @@ pub fn analyze_with(program: &Program, opts: &AnalyzeOptions) -> SemanticResult 
     }
     // A CALL … RETURNING at a target the unit knows returns nothing (2026-10-19).
     calls::check_returning(program, &mut result.diagnostics);
+    // WASM-005: the arguments of a CALL … WITH WEBSOCKET LINKAGE, and — when the
+    // project imported the backend's interface description — its name and fit.
+    remote_calls::check(program, opts.remote_interface.as_ref(), &mut result.diagnostics);
     result
 }
 
