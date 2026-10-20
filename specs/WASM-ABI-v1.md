@@ -165,3 +165,52 @@ Each row is a rule the implementation proved incomplete or inconsistent, changed
 | A2 | §4 | `pr_close_form(inst) -> i32` returns a status; the region is released when the closing task is `DONE` | a closing handler may make a remote call; a `void` close could not suspend | Only if closing handlers can suspend; a `void` export is read as `DONE` |
 | A3 | §1, §4 | optional exports `pr_dbg_live`, `pr_dbg_region_used`; the "only exports" rule allows them | the disposal test (WASM-017 R20, AC2) must see the module's own instance count | No (optional) |
 | A4 | §5 | `ERROR.code` is the magnitude of a §9 code or a COBOL number from 1000 | a `varint` is unsigned, §9 codes are negative | Yes — emit the magnitude |
+| A5 | §4 "One task at a time" | The module holds **several suspended tasks at once, each belonging to one form instance**. Tasks of **different instances interleave**: while a task is `SUSPENDED` in `OpenFormSync` the host calls `pr_event` (and `pr_open_form`) for the child's instance. The events of **one instance** stay serialised: the host queues them behind that instance's live task. `pr_resume(task, len)` names the task to continue; `pr_tick()` is the task the most recent call started or resumed. `pr_cancel(-1)` discards the run that trapped (the module drops its half-built batch) so the next run starts clean | a modal child form's handlers must run while the opener's handler waits for it (spec 037 lifecycle, WASM-010 AC5); a module that runs one task deadlocks on the first `OpenFormSync` | **Yes** — a task table and per-task state; the number of tasks is the generator's (the fixture module has 4: the opener, the modal child, and two spare) |
+| A6 | §3 `remote`, §4 `pr_resume` | A remote call that **fails** — no backend configured, an address the page may not connect to, a timeout, a lost connection, a frame over the limit — is answered like any other: `pr_resume(task, len)` with frame-in holding an **error frame**, a JSON object `{"id":N,"error":{"class":…,"code":…,"message":…,"may_have_been_received":…}}`. `class` is one of `transport`, `authentication`, `limit`, `client` (WASM-014 R7). A call that had been sent when the link dropped has `may_have_been_received: true` and the player **never repeats it** (WASM-014 R9) | one format for every failure, so `ON EXCEPTION` is decided by the frame and not by which layer failed | **Yes** — decode this shape (the success frame is `{"id":N,"result":…}`) |
+| A7 | §5 ctrl `2` and ctrl `0`, §7 | The verbs of the application object (`COBOL::`) and of the form (`me::`) the player implements, which of them **suspend** the task, and the text of each event's argument — listed in §12.1 and §12.2. A verb the player does not know answers `-4` and an `ERROR`: "the application object has no verb `X`" | the ABI named the objects and said nothing of their vocabulary; two generators would have guessed differently | **Yes** — emit these names; the manifest's `builtins` table lists what the program uses |
+| A8 | §3 `remote` | **The envelope on the connection** between the player and the backend (WASM-003/005/014): the first message of a connection that has a session is `{"type":"auth","token":…}` (never in the address or a header); a call is `{"type":"call","id":N,"frame":{…}}`, its answer `{"id":N,"result":…}` or `{"id":N,"error":{…}}` (A6); the server may send `{"type":"ping"}`, answered `{"type":"pong"}`; an `{"id":N,"error":{"class":"authentication","expired":true}}` makes the player refresh the token and repeat the call **once**. Request ids below `0x80000000` are the module's (what `remote` returned); the player's own calls (the Authentication control's identity requests, WASM-009) use ids from `0x80000000` | the contract named the frame and not the connection; this is the player's **proposal** until the backend's wire specification (WASM-014) replaces it, and it is kept in one file of the player (`net.rs`) so that aligning it is a one-file change | No — the module sees frames only; the **backend** must speak it |
+
+### 12.1 The application object and the form (A7)
+
+Verbs the player implements (names are case-insensitive). **Suspends** means the task is left `SUSPENDED` until the thing it waits for happens, then resumed with `pr_resume`.
+
+| Object | Verb | Arguments | Effect | Suspends? |
+|---|---|---|---|---|
+| `COBOL::` (ctrl 2) | `MessageBox` · `Alert` | text, title, buttons | a dialog; the pressed button is the application property `DialogResult` | until it is closed |
+| | `Confirm` | text, title, buttons | as above, with the answer buttons of a question | until it is closed |
+| | `InputBox` | text, title, default | the typed text is `DialogResult` | until it is closed |
+| | `Sleep` · `Wait` | milliseconds | a timer | until it fires |
+| | `OpenFormSync` · `OpenFormAsync` | form name | the form as a modal dialog / a modeless panel (SPA), or a window of its own (standalone); answers a **handle** | `Sync`: until the child closes |
+| | `Navigate` · `OpenUrl` | address, target | the address, through the WebLink policy (WASM-006 R4) | no |
+| | `Download` | file name, text | the browser's download of the text | no |
+| | `CopyToClipboard` | text | the clipboard | no |
+| | `SetTitle` | text | the page's title | no |
+| | `GetProperty` · `SetProperty` | name, value | the application's own properties (`DialogResult`, `Locale`, `Standalone`, `Title`, …) | no |
+| | `StopRun` · `Exit` | — | the application ends (`STOPPED`, §4) | — |
+| `me::` (ctrl 0) | `OpenFormSync` · `OpenFormAsync` | form name | as above | `Sync` only |
+| | `Close` | — | the form is closed **after the running handler finishes** | no |
+| | `SetTitle` · `SetFullscreen` · `SetFocus` · `GetFormState` … | | window-level verbs | no |
+| Authentication control | `SignOut` · `Refresh` · `GetClaim` | claim name | the control's session (WASM-009 R3); `GetClaim` answers a claim's value, never the token | no |
+
+### 12.2 The text of an event's argument (A7)
+
+Every argument is `text` (§7). The player raises exactly these; an event not listed carries none. A bound handler receives the argument as its single value, in the form the desktop host's `FormEvent.value` has.
+
+| Event | Argument |
+|---|---|
+| `onKeyDown` · `onKeyPress` · `onKeyUp` | the key (`a`, `Enter`, `ArrowLeft`) |
+| `onMouseWheel` | the vertical delta |
+| `onCheckedChanged` | `true` or `false` |
+| `onItemChecked` | the checked items, joined by a line feed |
+| `onItemDoubleClick` | the item's text |
+| `onTabClick` · `onTabChanged` | the page number (from 1) |
+| `onNodeClick` · `onNodeSelect` · `onNodeDblClick` · `onNodeCheck` | `text⇥index⇥level⇥checked` (⇥ is a tab) |
+| `onMenuClick` · `onMenuItemClick` | the menu item's id |
+| `onClick` of a ToolBar button | the button's id; of a WebLink, the modifier keys held (`Ctrl,Shift`) |
+| `onCellClick` · `onCellDoubleClick` | `row,column`, **from 0** (the properties `ClickedRow` and `ClickedColumn` count from 1); `onRowDoubleClick` the row and `onColumnClick` the column, from 0 |
+| `onMapClick` | `latitude,longitude` in degrees, rounded to six decimals |
+| `onMarkerClick` | the marker's id |
+| `onFilesDropped` · `onFilesRejected` | the names, joined by a line feed |
+| `onButtonClick` (Snackbar) | the button's id |
+| `onSignedIn` · `onSignedOut` · `onSignUpCompleted` · `onPasswordResetRequested` · `onMfaRequired` (Authentication) | none |
+| `onError` (Authentication) | the error's class and code from the backend's answer (`authentication/3`), never its message |

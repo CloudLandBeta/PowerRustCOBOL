@@ -19,7 +19,7 @@ mod harness;
 use std::path::{Path, PathBuf};
 
 use cobolt_wasm_abi::fixture::{build, standard_cfrm, standard_spec};
-use cobolt_web_bundle::{assemble_bundle, AssetInput, BundleInput, BundleOptions, FormInput, Isolation, MenuInput, PlayerInput, PlayerVariantInput};
+use cobolt_web_bundle::{assemble_bundle, AssetInput, BundleInput, BundleOptions, FormInput, Isolation, MenuInput, PlayerInput, PlayerPartInput, PlayerVariantInput};
 
 fn variant(out: &Path, name: &str) -> Option<PlayerVariantInput> {
     let dir = out.join(name);
@@ -39,6 +39,18 @@ fn variant(out: &Path, name: &str) -> Option<PlayerVariantInput> {
     }
     walk(&dir, &dir, &mut files);
     Some(PlayerVariantInput { files, entry_js: "player.js".into(), entry_wasm: "player_bg.wasm".into() })
+}
+
+/// The parts `build_player` wrote under `<dir>/parts/<name>/`.
+fn parts(out: &Path) -> Vec<PlayerPartInput> {
+    let mut v = Vec::new();
+    let Ok(rd) = std::fs::read_dir(out.join("parts")) else { return v };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let files = std::fs::read_dir(e.path()).unwrap().flatten().map(|f| (f.file_name().to_string_lossy().into_owned(), std::fs::read(f.path()).unwrap())).collect();
+        v.push(PlayerPartInput { entry_js: format!("{name}.js"), entry_wasm: format!("{name}_bg.wasm"), name, files });
+    }
+    v
 }
 
 fn main() {
@@ -109,7 +121,7 @@ fn main() {
         stylesheet: None,
         menus,
         assets,
-        player: PlayerInput { plain: variant(&player, "plain"), threaded: variant(&player, "threaded"), build_info: std::fs::read_to_string(player.join("player-build.json")).ok(), components: Vec::new() },
+        player: PlayerInput { plain: variant(&player, "plain"), threaded: variant(&player, "threaded"), parts: parts(&player), build_info: std::fs::read_to_string(player.join("player-build.json")).ok(), components: Vec::new() },
         options: BundleOptions {
             isolation,
             backend_origins: backend.into_iter().collect(),

@@ -410,6 +410,57 @@ impl Shared {
         }
     }
 
+    /// The Mermaid diagrams the instance's Viewers show that the Mermaid part has not been asked about:
+    /// ask once each (WASM-016 R13). The part is a module of its own that the loader fetches the first
+    /// time this runs, so a form with no diagram never pays for it; the diagram reads "loading" until
+    /// the part answers, and the Viewers are redrawn when it does.
+    pub(crate) fn ensure_mermaid(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32) {
+        let (wanted, viewers): (Vec<String>, Vec<usize>) = {
+            let Ok(host) = inner.host.try_borrow() else { return };
+            let Some(tree) = host.trees.get(&inst) else { return };
+            let Ok(styles) = inner.styles.try_borrow() else { return };
+            let Ok(st) = self.state.try_borrow() else { return };
+            let Some(iv) = st.instances.get(&inst) else { return };
+            let tile = self.tile_url(inner);
+            let cx = ViewCtx { tree, assets: &styles.assets, locale: &styles.locale, ui: &iv.ui, menus: &styles.menus, image_origins: &inner.cfg.image_origins, tile_url: &tile };
+            let mut wanted: Vec<String> = Vec::new();
+            let mut viewers = Vec::new();
+            for (i, c) in tree.ctls.iter().enumerate() {
+                if matches!(c.control_type(), Some(cobolt_forms::model::ControlType::Viewer)) {
+                    viewers.push(i);
+                    for s in crate::view::viewer::mermaid_sources(&cx, i) {
+                        if !iv.ui.mermaid.contains_key(&s) && !wanted.contains(&s) {
+                            wanted.push(s);
+                        }
+                    }
+                }
+            }
+            (wanted, viewers)
+        };
+        for source in wanted {
+            self.with_ui(inst, |ui| {
+                ui.mermaid.insert(source.clone(), crate::view::MermaidState::Loading);
+            });
+            let weak = Rc::downgrade(self);
+            let inner = inner.clone();
+            let viewers = viewers.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let state = match inner.call_part("mermaid", "render", &source).await {
+                    Ok(svg) => crate::view::MermaidState::Ready(svg),
+                    Err(e) => crate::view::MermaidState::Failed(format!("the diagram could not be drawn ({e})")),
+                };
+                if let Some(sh) = weak.upgrade() {
+                    sh.with_ui(inst, |ui| {
+                        ui.mermaid.insert(source, state);
+                    });
+                    for v in viewers {
+                        sh.mark_dirty(inst, v);
+                    }
+                }
+            });
+        }
+    }
+
     // ── the address (WASM-011 R4) ───────────────────────────────────────────
 
     /// The address names a form: show it (a deep link at start-up, the Back button later).

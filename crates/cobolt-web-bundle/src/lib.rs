@@ -113,10 +113,22 @@ pub struct SbomComponent {
     pub license: String,
 }
 
+/// A part of the player, a module of its own that the player loads on first use (WASM-016 R13).
+#[derive(Debug, Clone)]
+pub struct PlayerPartInput {
+    /// The name the player asks for it by (`mermaid`).
+    pub name: String,
+    pub files: Vec<(String, Vec<u8>)>,
+    pub entry_js: String,
+    pub entry_wasm: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PlayerInput {
     pub plain: Option<PlayerVariantInput>,
     pub threaded: Option<PlayerVariantInput>,
+    /// The parts loaded on demand; the same for both variants.
+    pub parts: Vec<PlayerPartInput>,
     /// `player-build.json` of `build_player`: tool versions, nightly date, profile, sizes.
     pub build_info: Option<String>,
     /// The player's dependency list, for the SBOM.
@@ -600,6 +612,34 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         }
         player_cfg.insert(key.into(), json!({"js": js, "wasm": wasm, "js_integrity": b.sri_of(&js), "wasm_integrity": b.sri_of(&wasm)}));
     }
+    // The parts load on first use and not before: they are listed with their sizes, never linked from the page.
+    let mut parts_cfg = serde_json::Map::new();
+    for part in &input.player.parts {
+        let mut all: Vec<&(String, Vec<u8>)> = part.files.iter().collect();
+        all.sort_by(|x, y| x.0.cmp(&y.0));
+        let mut id = sha2_concat(&all);
+        id.truncate(8);
+        let dir = format!("player/part-{}-{id}", part.name);
+        let (mut js, mut wasm) = (String::new(), String::new());
+        let mut bytes_total = 0usize;
+        for (rel, bytes) in all {
+            let path = format!("{dir}/{rel}");
+            bytes_total += bytes.len();
+            b.add(path.clone(), bytes.clone());
+            if *rel == part.entry_js {
+                js = path.clone();
+            }
+            if *rel == part.entry_wasm {
+                wasm = path;
+            }
+        }
+        if js.is_empty() || wasm.is_empty() {
+            return Err(BundleError { problems: vec![format!("the player part `{}` lacks its entry files `{}` and `{}`", part.name, part.entry_js, part.entry_wasm)] });
+        }
+        parts_cfg.insert(part.name.clone(), json!({"js": js, "wasm": wasm, "js_integrity": b.sri_of(&js), "wasm_integrity": b.sri_of(&wasm), "bytes": bytes_total}));
+        notes.push(format!("the `{}` part ({bytes_total} bytes) is loaded on first use, not at start", part.name));
+    }
+    player_cfg.insert("parts".into(), Value::Object(parts_cfg));
 
     // the loader and the worker
     let loader_path = b.add_hashed("loader.js", LOADER_JS.as_bytes().to_vec());

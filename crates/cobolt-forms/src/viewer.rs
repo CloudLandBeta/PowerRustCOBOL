@@ -3984,6 +3984,7 @@ pub fn mermaid_kind(source: &str) -> MermaidKind {
 /// caller shows the reason beside the source, so a developer whose class
 /// diagram did not draw learns why from the control rather than from this
 /// spec.
+#[cfg(feature = "mermaid")]
 pub fn render_mermaid_svg(source: &str) -> Result<String, String> {
     match mermaid_kind(source) {
         MermaidKind::Flowchart => {
@@ -3996,6 +3997,20 @@ pub fn render_mermaid_svg(source: &str) -> Result<String, String> {
             Ok(mermaid_rs_renderer::render_svg(&layout, &opts.theme, &opts.layout))
         }
         MermaidKind::Sequence => mermaid_rs_renderer::render(source).map_err(|e| e.to_string()),
+        MermaidKind::Unsupported(kind) => Err(format!(
+            "Mermaid '{kind}' diagrams are not supported — this Viewer draws flowchart and sequence diagrams"
+        )),
+        MermaidKind::NotMermaid => Err(String::new()),
+    }
+}
+
+/// Without the `mermaid` feature the renderer is not compiled in (the browser player loads it as a
+/// part of its own): a diagram the Viewer would draw answers that reason, every other kind answers
+/// as it does with the feature on.
+#[cfg(not(feature = "mermaid"))]
+pub fn render_mermaid_svg(source: &str) -> Result<String, String> {
+    match mermaid_kind(source) {
+        MermaidKind::Flowchart | MermaidKind::Sequence => Err("the Mermaid renderer is not part of this build".to_owned()),
         MermaidKind::Unsupported(kind) => Err(format!(
             "Mermaid '{kind}' diagrams are not supported — this Viewer draws flowchart and sequence diagrams"
         )),

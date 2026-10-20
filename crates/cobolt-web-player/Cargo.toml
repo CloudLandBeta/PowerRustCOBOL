@@ -4,13 +4,13 @@
 # Licensed under the Apache License, Version 2.0.
 # See the LICENSE file in the project root for full license information.
 
-# The PLAYER (WASM-016): the prebuilt Leptos form engine that draws any form in a
+# The PLAYER (WASM-016): the prebuilt form engine that draws any form in a
 # browser and hosts the generated program module (ABI v1). It is its OWN Cargo
 # workspace, built with `--manifest-path`, for three reasons recorded in
 # specs/WASM-016-prebuilt-player/plan.md:
 #   1. wasm-bindgen must equal the installed `wasm-bindgen` CLI *exactly*
 #      (0.2.129); the main workspace's lock pins 0.2.126 for other consumers.
-#   2. Leptos + web-sys add ~220 packages that only a wasm32 build needs, and the
+#   2. wasm-bindgen and web-sys add ~100 packages that only a wasm32 build needs, and the
 #      other agents of the 2.x.x line edit the main lock file in parallel.
 #   3. The threaded variant is built with a pinned nightly and `-Zbuild-std`,
 #      which must stay confined to this crate's build step (WASM-017 R16).
@@ -27,6 +27,14 @@ license     = "Apache-2.0"
 publish     = false
 
 [workspace]
+members = [".", "parts/mermaid"]
+
+# The Mermaid renderer reads `std::time::Instant::now()` unconditionally, which panics on
+# `wasm32-unknown-unknown`: every diagram trapped in the browser. The copy under vendor/ differs from
+# 0.2.2 only by a clock that exists on `wasm32` (see its Cargo.toml). It applies to THIS workspace only;
+# the main workspace's lock file keeps crates.io's crate. Drop the patch when upstream has the fix.
+[patch.crates-io]
+mermaid-rs-renderer = { path = "vendor/mermaid-rs-renderer" }
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -53,10 +61,9 @@ quick-xml   = "0.36"
 
 # The browser crates are `wasm32` only: a native `cargo test` of the pure layers (the ABI host,
 # the state, the policies) compiles none of them, which keeps the test loop fast and small. The
-# DOM and Leptos modules are `#[cfg(target_arch = "wasm32")]` and are checked and built for the
+# DOM modules are `#[cfg(target_arch = "wasm32")]` and are checked and built for the
 # browser target, which is what ships.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-leptos = { version = "=0.8.22", features = ["csr"] }
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
@@ -73,12 +80,16 @@ web-sys = { version = "0.3", features = [
     "FileReader", "Crypto", "SvgElement", "SvgsvgElement", "ShadowRoot", "ShadowRootInit", "ShadowRootMode",
     "CssStyleSheet", "CssRuleList", "DocumentFragment", "CanvasRenderingContext2d", "DomException", "ScrollToOptions",
     "ScrollBehavior", "FocusOptions", "HtmlCollection", "ProgressEvent", "StorageEvent",
-    "PageTransitionEvent", "HashChangeEvent", "PopStateEvent", "HtmlLinkElement", "HtmlStyleElement",
+    "PageTransitionEvent", "HashChangeEvent", "PopStateEvent", "HtmlLinkElement", "HtmlStyleElement", "HtmlHeadElement",
+    "console",
 ] }
 
 [dev-dependencies]
 # The engine the native tests run the fixture module on (WASM-PLAN P7): pure Rust, no JIT.
 wasmi = "2"
+# The Mermaid renderer the browser player loads as a part: the native tests turn it on here to give the
+# view layer a real answer to read (the player itself depends on `cobolt-forms` without it).
+cobolt-forms = { path = "../cobolt-forms", default-features = false, features = ["mermaid"] }
 cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["fixture", "scan"] }
 
 # The size-first profile of WASM-017 R16. `opt-level` is chosen by measurement ("z" against

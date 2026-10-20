@@ -270,9 +270,15 @@ impl Shared {
         if let Ok(mut st) = self.state.try_borrow_mut() {
             st.instances.insert(inst, iv);
         }
+        if mode == OpenMode::Embedded {
+            // The chain was extended before the instance was recorded: show only the top form and put its
+            // route in the address now that the page knows the form's name (WASM-011 R4).
+            self.sync_shell(inner);
+        }
         self.adopt();
         self.sync_timers(inner, inst);
         self.ensure_viewer_docs(inner, inst);
+        self.ensure_mermaid(inner, inst);
         if let (OpenMode::Root, Some(menu)) = (mode, built.side_menu) {
             // The rail starts as the user left it (spec 049 R9), else as the control is designed; the
             // address may name a form to show (a deep link).
@@ -454,6 +460,7 @@ impl Shared {
         }
         self.sync_timers(inner, inst);
         self.ensure_viewer_docs(inner, inst);
+        self.ensure_mermaid(inner, inst);
     }
 
     fn run_command(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, name: &str, args: &[String]) {

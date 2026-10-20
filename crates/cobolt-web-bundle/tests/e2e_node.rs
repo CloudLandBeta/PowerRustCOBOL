@@ -25,7 +25,7 @@ fn the_loader_the_player_and_the_program_run_together_under_node() {
     let player_out = support::built_player();
     let plain = support::player_variant(&player_out, "plain");
     let out = support::assemble(
-        PlayerInput { plain: Some(plain), ..Default::default() },
+        PlayerInput { plain: Some(plain), parts: support::player_parts(&player_out), ..Default::default() },
         BundleOptions { isolation: Isolation::RequireCorp, ..Default::default() },
     );
 
@@ -61,5 +61,5 @@ fn the_loader_the_player_and_the_program_run_together_under_node() {
     }
     assert!(failed.is_empty(), "failed scenarios:\n{}", failed.join("\n"));
     // Four (variant x mode) cores plus the probing, choosing, isolation, baseline, integrity, ABI and loading scenarios.
-    assert!(passed >= 12, "only {passed} scenarios ran");
+    assert!(passed >= 13, "only {passed} scenarios ran");
 }

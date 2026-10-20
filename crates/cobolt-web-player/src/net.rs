@@ -20,9 +20,9 @@
 //!   is **failed** (the program reads it as `ON EXCEPTION`), a call made after the reconnection
 //!   is not;
 //! * turn every failure into an *error frame* of the same shape as the server's, so the module's
-//!   run time decodes one format (ABI amendment A8).
+//!   run time decodes one format (ABI amendment A6).
 //!
-//! The envelope (`{"type":"call","id":N,"frame":{…}}` out, `{"id":N,"result":…}` /
+//! The envelope (ABI amendment A8; `{"type":"call","id":N,"frame":{…}}` out, `{"id":N,"result":…}` /
 //! `{"id":N,"error":{"class","code","message"}}` in) is the player's proposal pending the
 //! backend's wire specification (WASM-014); it lives in this one file so that aligning it is a
 //! one-file change.
@@ -133,7 +133,7 @@ pub fn origin_allowed(cfg: &Config, url: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// An error frame, the same shape the server sends (ABI amendment A8).
+/// An error frame, the same shape the server sends (ABI amendment A6).
 pub fn error_frame(id: u32, class: &str, code: i32, message: &str, may_have_been_received: bool) -> Vec<u8> {
     json!({"id": id, "error": {"class": class, "code": code, "message": message, "may_have_been_received": may_have_been_received}})
         .to_string()

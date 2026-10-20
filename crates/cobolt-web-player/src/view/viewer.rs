@@ -24,11 +24,11 @@
 //! A test greps this crate's sources for the APIs that would insert markup, and this file is the one
 //! it watches most closely.
 
-use cobolt_forms::viewer::{mermaid_kind, render_mermaid_svg, Background, Block, BoxStyle, Conversation, Inline, MermaidKind, TableAlignment, TextAlign, TextStyle};
+use cobolt_forms::viewer::{mermaid_kind, Background, Block, BoxStyle, Conversation, Inline, MermaidKind, TableAlignment, TextAlign, TextStyle};
 
 use super::controls::root;
 use super::svg::svg_to_vnode;
-use super::{VNode, ViewCtx};
+use super::{MermaidState, VNode, ViewCtx};
 use crate::value::{fmt_number, parse_f64};
 use crate::weblink::{check, Policy};
 
@@ -333,7 +333,7 @@ fn block(cx: &ViewCtx, b: &Block, key: String) -> VNode {
         }
         Block::Styled { style, blocks } => box_styles(VNode::new("div").key(key.clone()).class("pr-styled"), style).children(blocks_to_nodes(cx, blocks, &format!("{key}."))),
         Block::ThematicBreak => VNode::new("hr").key(key),
-        Block::Mermaid { source } => mermaid(source, key),
+        Block::Mermaid { source } => mermaid(cx, source, key),
         Block::FootnoteDefinition { label, blocks } => {
             VNode::new("div").key(key.clone()).class("pr-footnote").child(VNode::new("sup").key("label").text(format!("[{label}]"))).children(blocks_to_nodes(cx, blocks, &format!("{key}.")))
         }
@@ -342,8 +342,45 @@ fn block(cx: &ViewCtx, b: &Block, key: String) -> VNode {
     }
 }
 
-/// A Mermaid fence: the diagram as SVG nodes when it is a kind the Viewer draws, else the source and the reason.
-fn mermaid(source: &str, key: String) -> VNode {
+/// The sources of the diagrams a document holds that the Viewer draws, at any depth: what the page
+/// must ask the Mermaid part for (WASM-016 R13). A kind it does not draw is not asked for.
+pub fn mermaid_wanted(blocks: &[Block], out: &mut Vec<String>) {
+    for b in blocks {
+        match b {
+            Block::Mermaid { source } if matches!(mermaid_kind(source), MermaidKind::Flowchart | MermaidKind::Sequence) => {
+                if !out.contains(source) {
+                    out.push(source.clone());
+                }
+            }
+            Block::BlockQuote { blocks } | Block::FootnoteDefinition { blocks, .. } | Block::Styled { blocks, .. } => mermaid_wanted(blocks, out),
+            Block::List { items, .. } => {
+                for it in items {
+                    mermaid_wanted(&it.blocks, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The diagrams a Viewer shows now (its document or its conversation), for the page to render.
+pub fn mermaid_sources(cx: &ViewCtx, i: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(c) = cx.tree.conversation(i).filter(|c| !c.is_empty()) {
+        for m in &c.messages {
+            mermaid_wanted(&m.blocks, &mut out);
+        }
+    } else if let Some(doc) = cx.ui.viewer_docs.get(&i) {
+        if doc.error.is_none() {
+            mermaid_wanted(&doc.blocks(), &mut out);
+        }
+    }
+    out
+}
+
+/// A Mermaid fence: the diagram as SVG nodes when it is a kind the Viewer draws and the Mermaid part
+/// has answered, else the source and the reason (or that the diagram is on its way).
+fn mermaid(cx: &ViewCtx, source: &str, key: String) -> VNode {
     let listing = |reason: Option<String>| {
         let mut n = VNode::new("figure").key(key.clone()).class("pr-mermaid-source");
         if let Some(r) = reason.filter(|r| !r.is_empty()) {
@@ -352,15 +389,17 @@ fn mermaid(source: &str, key: String) -> VNode {
         n.child(VNode::new("pre").key("src").child(VNode::new("code").key("code").text(source.to_owned())))
     };
     match mermaid_kind(source) {
-        MermaidKind::Flowchart | MermaidKind::Sequence => match render_mermaid_svg(source) {
-            Ok(svg) => match svg_to_vnode(&svg, 20_000) {
+        MermaidKind::Flowchart | MermaidKind::Sequence => match cx.ui.mermaid.get(source) {
+            Some(MermaidState::Ready(svg)) => match svg_to_vnode(svg, 20_000) {
                 Some(mut s) => {
                     s.key = "diagram".into();
                     VNode::new("figure").key(key.clone()).class("pr-mermaid").attr("role", "img").child(s)
                 }
                 None => listing(Some("the diagram could not be drawn".into())),
             },
-            Err(e) => listing(Some(e)),
+            Some(MermaidState::Failed(e)) => listing(Some(e.clone())),
+            // Not asked for yet, or on its way: the source stays readable meanwhile.
+            Some(MermaidState::Loading) | None => listing(Some("Loading the diagram\u{2026}".into())).attr("aria-busy", "true"),
         },
         MermaidKind::Unsupported(kind) => listing(Some(format!("Mermaid '{kind}' diagrams are not supported; flowchart and sequence diagrams are"))),
         MermaidKind::NotMermaid => listing(None),
@@ -515,15 +554,78 @@ mod tests {
         assert!(n.find_tag("b").is_none());
     }
 
+    const FLOW: &str = "flowchart LR\n  A[Start] --> B[Review] --> C[Done]\n";
+
+    /// A document with one fence, the Mermaid part's answer for `source` being `state`.
+    fn render_diagram(source: &str, state: Option<MermaidState>) -> VNode {
+        let (t, i) = tree_with("Viewer", "VW-1", &[]);
+        let mut e = Empty::default();
+        e.ui.viewer_docs.insert(i, LoadedDoc { format: DocFormat::Markdown, text: format!("```mermaid\n{source}```\n"), error: None });
+        if let Some(s) = state {
+            e.ui.mermaid.insert(source.to_owned(), s);
+        }
+        view(&e.cx(&t), i)
+    }
+
     #[test]
-    fn a_flowchart_is_drawn_as_svg_nodes_and_an_unsupported_diagram_says_why() {
-        let ok = render("```mermaid\nflowchart LR\n  A[Start] --> B[Review] --> C[Done]\n```\n");
-        let figure = ok.find(&|x| x.has_class("pr-mermaid")).expect("a diagram");
+    fn a_flowchart_the_part_has_drawn_is_svg_nodes() {
+        // What the part answers is what the desktop Viewer's renderer answers (the dev-dependency turns it on here).
+        let svg_text = cobolt_forms::viewer::render_mermaid_svg(FLOW).expect("the renderer draws a flowchart");
+        let n = render_diagram(FLOW, Some(MermaidState::Ready(svg_text)));
+        let figure = n.find(&|x| x.has_class("pr-mermaid")).expect("a diagram");
         let svg = figure.find_tag("svg").unwrap();
         assert!(svg.count("path") + svg.count("line") + svg.count("polyline") > 0, "{}", svg.describe());
         assert!(svg.all_text().contains("Review"), "the node labels are text nodes");
-        let bad = render("```mermaid\nclassDiagram\n  A <|-- B\n```\n");
+        assert!(n.find_tag("pre").is_none(), "the source is not shown beside a diagram that is drawn");
+    }
+
+    #[test]
+    fn until_the_part_answers_the_source_stays_readable_and_a_failure_says_why() {
+        for state in [None, Some(MermaidState::Loading)] {
+            let n = render_diagram(FLOW, state);
+            let fig = n.find(&|x| x.has_class("pr-mermaid-source")).expect("the listing");
+            assert_eq!(fig.attr_of("aria-busy"), Some("true"));
+            assert!(fig.all_text().contains("Loading the diagram") && fig.all_text().contains("A[Start]"), "{}", fig.describe());
+        }
+        let n = render_diagram(FLOW, Some(MermaidState::Failed("the Mermaid part could not be loaded".into())));
+        let fig = n.find(&|x| x.has_class("pr-mermaid-source")).unwrap();
+        assert!(fig.attr_of("aria-busy").is_none() && fig.all_text().contains("could not be loaded"), "{}", fig.describe());
+    }
+
+    #[test]
+    fn an_unsupported_diagram_says_why_without_asking_the_part() {
+        let class = "classDiagram\n  A <|-- B\n";
+        let bad = render_diagram(class, None);
         assert!(bad.all_text().contains("not supported"), "{}", bad.describe());
+        let mut wanted = Vec::new();
+        mermaid_wanted(&cobolt_forms::viewer::parse_markdown(&format!("```mermaid\n{class}```\n")).blocks, &mut wanted);
+        assert!(wanted.is_empty(), "a kind the Viewer does not draw is not asked for: {wanted:?}");
+        // Text that is not a diagram is shown as text, with no reason and no request.
+        let text = render_diagram("[ Start ] -> [ End ]\n", None);
+        assert!(text.find(&|x| x.has_class("pr-mermaid-source")).unwrap().find_tag("figcaption").is_none());
+    }
+
+    #[test]
+    fn the_diagrams_to_ask_for_are_found_at_any_depth_once_each() {
+        let md = format!(
+            "```mermaid\n{FLOW}```\n\n> ```mermaid\n> sequenceDiagram\n>   A->>B: hi\n> ```\n\n- item\n\n  ```mermaid\n  {}  ```\n\n```mermaid\n{FLOW}```\n",
+            "flowchart TD\n  X --> Y\n"
+        );
+        let mut wanted = Vec::new();
+        mermaid_wanted(&cobolt_forms::viewer::parse_markdown(&md).blocks, &mut wanted);
+        assert_eq!(wanted.len(), 3, "the repeated diagram once: {wanted:?}");
+        assert!(wanted.iter().any(|s| s.starts_with("sequenceDiagram")));
+        // From the view's own state: a Viewer's document.
+        let (t, i) = tree_with("Viewer", "VW-1", &[]);
+        let mut e = Empty::default();
+        e.ui.viewer_docs.insert(i, LoadedDoc { format: DocFormat::Markdown, text: md, error: None });
+        assert_eq!(mermaid_sources(&e.cx(&t), i).len(), 3);
+        // And a conversation's messages.
+        let (mut t2, i2) = tree_with("Viewer", "VW-2", &[]);
+        let mut c = Conversation::new();
+        c.append_as(AppendMode::Markdown, &format!("```mermaid\n{FLOW}```\n"), MessageRole::Agent);
+        t2.conversations.insert(i2, c);
+        assert_eq!(mermaid_sources(&Empty::default().cx(&t2), i2), vec![FLOW.to_owned()]);
     }
 
     #[test]

@@ -10,7 +10,7 @@
 //! that, unlayered, so it wins whatever its specificity.
 //!
 //! The class names (`pr-button`, `pr-textbox`, …) and the custom properties (`--pr-accent`, …) are a
-//! public contract once shipped (WASM-007 Q4); `tests/css_contract.rs` pins them. A host page sets the
+//! public contract once shipped (WASM-007 Q4); `view/contract.rs` pins them. A host page sets the
 //! custom properties on the mount element and they inherit into the shadow root (WASM-007 R9).
 
 pub const BASE_CSS: &str = r#"
@@ -170,6 +170,8 @@ pub const BASE_CSS: &str = r#"
 .pr-viewer { overflow: auto; background: #1c1f24; padding: 8px; user-select: text; }
 .pr-viewer .pr-content { position: static; background: transparent; }
 .pr-viewer pre, .pr-viewer code { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.pr-viewer .pr-mermaid { margin: 8px 0; background: #fff; border-radius: 4px; padding: 6px; overflow-x: auto; } .pr-viewer .pr-mermaid svg { max-width: 100%; height: auto; display: block; }
+.pr-viewer .pr-mermaid-source figcaption { opacity: .8; font-size: .9em; margin-bottom: 4px; } .pr-viewer .pr-mermaid-source[aria-busy="true"] figcaption { font-style: italic; }
 .pr-viewer pre { overflow: auto; padding: 8px; background: rgba(255,255,255,.05); border-radius: 4px; }
 .pr-viewer table { border-collapse: collapse; } .pr-viewer td, .pr-viewer th { border: 1px solid var(--pr-border); padding: 2px 6px; }
 .pr-viewer blockquote { margin: .5em 0; padding-left: 1em; border-left: 3px solid var(--pr-border); color: var(--pr-text-dim); }

@@ -28,6 +28,8 @@
 pub mod auth;
 pub mod charts;
 pub mod controls;
+#[cfg(test)]
+mod contract;
 pub mod data;
 pub mod interact;
 pub mod maps;
@@ -302,6 +304,8 @@ pub struct UiState {
     pub viewer_docs: BTreeMap<usize, viewer::LoadedDoc>,
     /// The `Source` value already asked for, by control (a document is read once per value).
     pub viewer_src: BTreeMap<usize, String>,
+    /// The Mermaid diagrams the part has drawn (or failed to), by their source text (WASM-016 R13).
+    pub mermaid: BTreeMap<String, MermaidState>,
     /// The SideMenu rail's state, an application-level preference that survives navigation (spec 049
     /// R9): `None` until the user chooses, then the choice (the control's `Collapsed` is the start).
     pub sidebar_collapsed: Option<bool>,
@@ -309,6 +313,19 @@ pub struct UiState {
     pub dropzone_over: Option<usize>,
     /// A pointer drag on a Maps control: where it began `(x, y, centre latitude, centre longitude)`.
     pub map_drag: BTreeMap<usize, (f64, f64, f64, f64)>,
+}
+
+/// Where a Mermaid diagram stands: the Mermaid part is a module of its own, loaded the first time a
+/// Viewer shows one, so the answer comes later than the document.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MermaidState {
+    /// Asked for; no answer yet.
+    Loading,
+    /// The SVG text the part answered. It is read by the allow-listed reader, never inserted.
+    Ready(String),
+    /// Why it could not be drawn (a kind the Viewer does not draw, a source the renderer refused, a
+    /// part that could not be loaded).
+    Failed(String),
 }
 
 /// Menu definitions delivered with the bundle, by `(form name lower-case, control name upper-case)`.

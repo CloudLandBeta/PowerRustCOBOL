@@ -23,6 +23,10 @@
 //! `<out>/<variant>/player.js`, `player_bg.wasm` (+ the rayon worker snippet for the threaded one)
 //! and `<out>/player-build.json`, which records the tool versions, the nightly date, the profile and
 //! the sizes before and after `wasm-opt` (WASM-017 AC12).
+//!
+//! The **parts** loaded on demand (WASM-016 R13) — today the Mermaid renderer — are built once with
+//! the stable toolchain into `<out>/parts/<name>/<name>.js` + `<name>_bg.wasm` and shared by both
+//! variants; `--no-parts` skips them.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -42,10 +46,11 @@ struct Args {
     variants: Vec<String>,
     opt_level: String,
     measure: bool,
+    no_parts: bool,
 }
 
 fn parse() -> Args {
-    let mut a = Args { out: PathBuf::from("target/player"), variants: vec!["plain".into(), "threaded".into()], opt_level: "z".into(), measure: false };
+    let mut a = Args { out: PathBuf::from("target/player"), variants: vec!["plain".into(), "threaded".into()], opt_level: "z".into(), measure: false, no_parts: false };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
         match k.as_str() {
@@ -53,6 +58,7 @@ fn parse() -> Args {
             "--variants" => a.variants = it.next().expect("--variants plain,threaded").split(',').map(str::to_owned).collect(),
             "--opt-level" => a.opt_level = it.next().expect("--opt-level z|s"),
             "--measure" => a.measure = true,
+            "--no-parts" => a.no_parts = true,
             other => panic!("unknown argument {other}"),
         }
     }
@@ -162,6 +168,47 @@ fn build_variant(crate_dir: &Path, target_dir: &Path, out: &Path, variant: &str,
     }
 }
 
+/// The parts loaded on demand (WASM-016 R13): `(name, package)`. Each is a WebAssembly module of its
+/// own, built with the stable toolchain once and shared by both player variants.
+const PARTS: &[(&str, &str)] = &[("mermaid", "cobolt-web-part-mermaid")];
+
+fn build_part(crate_dir: &Path, target_dir: &Path, out: &Path, name: &str, package: &str, opt_level: &str) -> Built {
+    let tdir = target_dir.join("parts");
+    run(
+        Command::new("cargo")
+            .arg("build")
+            .arg("--release")
+            .arg("--manifest-path")
+            .arg(crate_dir.join("Cargo.toml"))
+            .args(["-p", package, "--target", "wasm32-unknown-unknown"])
+            .arg("--target-dir")
+            .arg(&tdir)
+            .env("CARGO_PROFILE_RELEASE_OPT_LEVEL", opt_level),
+        &format!("cargo build (part {name}, opt-level {opt_level})"),
+    );
+    let raw_wasm = tdir.join(format!("wasm32-unknown-unknown/release/{}.wasm", package.replace('-', "_")));
+    let vdir = out.join("parts").join(name);
+    let _ = std::fs::remove_dir_all(&vdir);
+    std::fs::create_dir_all(&vdir).unwrap();
+    run(
+        Command::new("wasm-bindgen").args(["--target", "web", "--no-typescript", "--out-name", name, "--out-dir"]).arg(&vdir).arg(&raw_wasm),
+        &format!("wasm-bindgen (part {name})"),
+    );
+    let bg = vdir.join(format!("{name}_bg.wasm"));
+    let bindgen = size(&bg);
+    let opt = vdir.join(format!("{name}_bg.opt.wasm"));
+    run(
+        Command::new("wasm-opt")
+            .args(["-Oz", "--enable-bulk-memory", "--enable-sign-ext", "--enable-mutable-globals", "--enable-nontrapping-float-to-int", "--enable-reference-types", "--enable-multivalue"])
+            .arg(&bg)
+            .arg("-o")
+            .arg(&opt),
+        &format!("wasm-opt (part {name})"),
+    );
+    std::fs::rename(&opt, &bg).unwrap();
+    Built { variant: format!("part:{name}"), dir: vdir.clone(), raw: size(&raw_wasm), bindgen, optimised: size(&bg), gzip: gzip_size(&bg), js: size(&vdir.join(format!("{name}.js"))) }
+}
+
 fn main() {
     let args = parse();
     let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -196,10 +243,24 @@ fn main() {
             }
         }
     }
+    // The parts: one build each, in the directory the bundle assembler reads (`<out>/parts/<name>`).
+    let mut parts = Vec::new();
+    if !args.no_parts {
+        let part_out = if args.measure { out.join(format!("opt-{}", levels[0])) } else { out.clone() };
+        for (name, package) in PARTS {
+            let b = build_part(&crate_dir, &target_dir, &part_out, name, package, &levels[0]);
+            println!("part {name:<8} opt-level {}: cargo {:>9}  bindgen {:>9}  wasm-opt {:>9}  gzip {:>9}  glue {:>7}", levels[0], b.raw, b.bindgen, b.optimised, b.gzip, b.js);
+            parts.push(serde_json::json!({
+                "name": name, "opt_level": levels[0], "cargo_output_bytes": b.raw, "after_bindgen_bytes": b.bindgen,
+                "after_wasm_opt_bytes": b.optimised, "gzip_bytes": b.gzip, "glue_js_bytes": b.js,
+            }));
+        }
+    }
     let info = serde_json::json!({
         "profile": {"lto": true, "codegen_units": 1, "panic": "abort", "strip": true, "opt_level": args.opt_level, "wasm_opt": "-Oz"},
         "tools": {"wasm_bindgen": bindgen_v, "wasm_opt": wasm_opt_v, "rustc_stable": rustc_v, "rustc_nightly": nightly_v, "nightly": NIGHTLY, "wasm_pack": "not used (WASM-017 R17)"},
         "measurements": report,
+        "parts": parts,
         "variants": chosen.iter().map(|b| serde_json::json!({"name": b.variant, "dir": b.dir.file_name().unwrap().to_string_lossy()})).collect::<Vec<_>>(),
     });
     std::fs::write(out.join("player-build.json"), serde_json::to_string_pretty(&info).unwrap()).unwrap();

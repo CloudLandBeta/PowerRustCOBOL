@@ -586,19 +586,21 @@ export async function mount(target, options = {}) {
     const pv = config.player[choice.player] || config.player.plain;
     if (!pv) throw new LoadError('The bundle contains no player.', 'load');
     const playerJsUrl = url(pv.js);
-    if (pv.js_integrity && doc && !headless) {
-      // dynamic import() takes no integrity: a modulepreload link carries it, and the import that
-      // follows reuses the preloaded, checked response.
-      await new Promise((resolve, reject) => {
+    // dynamic import() takes no integrity: a modulepreload link carries it, and the import that
+    // follows reuses the preloaded, checked response.
+    const preloadChecked = (href, integrity, what) =>
+      new Promise((resolve, reject) => {
         const link = doc.createElement('link');
         link.rel = 'modulepreload';
-        link.href = playerJsUrl;
-        link.integrity = pv.js_integrity;
+        link.href = href;
+        link.integrity = integrity;
         link.crossOrigin = 'anonymous';
         link.onload = () => resolve();
-        link.onerror = () => reject(new LoadError('The player script failed its integrity check or could not be fetched.', 'fetch', playerJsUrl));
+        link.onerror = () => reject(new LoadError(`${what} failed its integrity check or could not be fetched.`, 'fetch', href));
         doc.head.appendChild(link);
       });
+    if (pv.js_integrity && doc && !headless) {
+      await preloadChecked(playerJsUrl, pv.js_integrity, 'The player script');
     }
     const playerModule = options.importPlayer ? await options.importPlayer(playerJsUrl) : await import(playerJsUrl);
     const playerWasmUrl = url(pv.wasm);
@@ -615,6 +617,33 @@ export async function mount(target, options = {}) {
       await playerModule.initThreadPool(n);
     }
     timing.player = env.performance ? env.performance.now() - t0 : 0;
+
+    // The parts (WASM-016 R13): modules of their own that the player asks for the first time it needs one
+    // (today the Mermaid renderer). Nothing is fetched here; a part is loaded once, on first use, with
+    // the same integrity checks as the player, and a part that failed to load may be asked for again.
+    const parts = new Map();
+    const loadPart = (name) => {
+      if (parts.has(name)) return parts.get(name);
+      const pt = config.player && config.player.parts && config.player.parts[name];
+      const loading = (async () => {
+        if (!pt) throw new Error(`this application does not include the ${name} part`);
+        const jsUrl = url(pt.js);
+        if (pt.js_integrity && doc && !headless) await preloadChecked(jsUrl, pt.js_integrity, `The ${name} part`);
+        const mod = options.importPlayer ? await options.importPlayer(jsUrl) : await import(jsUrl);
+        const wr = await fetchChecked(env, url(pt.wasm), pt.wasm_integrity, `The ${name} part`);
+        await mod.default({ module_or_path: wr });
+        return mod;
+      })();
+      loading.catch(() => parts.delete(name));
+      parts.set(name, loading);
+      return loading;
+    };
+    // `part(name, fn, arg)`: call `fn` of the part with one text argument; the answer is text.
+    const callPart = async (name, fn, arg) => {
+      const mod = await loadPart(name);
+      if (typeof mod[fn] !== 'function') throw new Error(`the ${name} part has no ${fn}`);
+      return String(mod[fn](arg));
+    };
 
     // 6. the program
     showStage(ui, texts.stage_program, 3, 6);
@@ -719,6 +748,7 @@ export async function mount(target, options = {}) {
       player.set_stylesheet(await sr.text());
     }
     if (config.assets && typeof player.set_assets === 'function') player.set_assets(JSON.stringify(config.assets));
+    link.part = callPart;
     player.attach(link);
     if (!headless) {
       const root = el(doc, 'div', 'pr-root');
@@ -744,6 +774,8 @@ export async function mount(target, options = {}) {
       config,
       // What the player was told about the page (diagnostics and the tests).
       playerConfig: pcfg,
+      // Call a function of a part (loaded on first use); the player does this for the Viewer's diagrams.
+      part: callPart,
       async settled() {
         return player.settled();
       },

@@ -57,7 +57,7 @@ pub fn spatial(extra: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'s
 /// A 1 x 1 PNG, stretched by the control.
 pub const PNG_DATA_URI: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-pub const DOC_MD: &str = "# The gallery document\n\nA *Markdown* file of the application, **read by the page** and drawn as nodes.\n\n- one\n- two\n\n| A | B |\n|---|--:|\n| 1 | 2 |\n\n[a link](https://example.com/) and `code`.\n";
+pub const DOC_MD: &str = "# The gallery document\n\nA *Markdown* file of the application, **read by the page** and drawn as nodes.\n\n- one\n- two\n\n| A | B |\n|---|--:|\n| 1 | 2 |\n\n[a link](https://example.com/) and `code`.\n\n```mermaid\nflowchart LR\n  A[Start] --> B[Review] --> C[Done]\n```\n";
 
 pub fn menu_yaml(items: Vec<MenuItem>) -> String {
     let dir = tempfile::tempdir().expect("a temp dir");

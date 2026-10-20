@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# A PART of the player (WASM-016 R13): the Mermaid renderer, a WebAssembly module of its own that
+# the player loads the first time a Viewer shows a diagram. A form with no diagram never fetches it.
+# It is a member of the player's own Cargo workspace (see ../../Cargo.toml) and is built by
+# `examples/build_player.rs` with the same pinned tools as the player.
+
+[package]
+name        = "cobolt-web-part-mermaid"
+description = "The player's Mermaid part: flowchart and sequence diagram source in, SVG text out"
+version     = "2.0.0"
+edition     = "2021"
+rust-version = "1.92"
+license     = "Apache-2.0"
+publish     = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The renderer is `cobolt-forms`' own (`viewer::render_mermaid_svg`): one implementation for the
+# desktop Viewer and the browser's.
+cobolt-forms = { path = "../../../cobolt-forms", default-features = false, features = ["mermaid"] }
+wasm-bindgen = "=0.2.129"

@@ -376,6 +376,43 @@ await scenario('loading: nothing is fetched twice', async () => {
   return { files: hits.length };
 });
 
+await scenario('parts: the Mermaid renderer is fetched on first use, once, and not before', async () => {
+  const hits = [];
+  const app = await boot({ env: { hits } });
+  const partHit = (h) => /part-mermaid/.test(h);
+  eq(hits.filter(partHit).length, 0, 'nothing of the part is fetched at start: ' + hits.filter(partHit).join(','));
+  eq(Object.keys(app.config.player.parts).join(','), 'mermaid', 'the part is listed in the bundle');
+  check(/^sha(256|384|512)-/.test(app.config.player.parts.mermaid.wasm_integrity), 'with an integrity digest');
+  const t0 = performance.now();
+  const svg = await app.part('mermaid', 'render', 'flowchart LR\n  A[Start] --> B[Review]\n');
+  const firstMs = performance.now() - t0;
+  check(svg.startsWith('<svg') && svg.includes('Review'), 'the diagram came back as SVG text: ' + svg.slice(0, 80));
+  const fetched = hits.filter(partHit);
+  // (node imports a script from disk, so only the module is a fetch here; a browser imports both over the network)
+  eq(fetched.length, 1, 'the part module is fetched once: ' + fetched.join(','));
+  const t1 = performance.now();
+  const seq = await app.part('mermaid', 'render', 'sequenceDiagram\n  A->>B: hi\n');
+  const secondMs = performance.now() - t1;
+  check(seq.includes('<svg'), 'a sequence diagram too');
+  eq(hits.filter(partHit).length, 1, 'the second diagram fetched nothing');
+  let refused = '';
+  try {
+    await app.part('mermaid', 'render', 'classDiagram\n  A <|-- B\n');
+  } catch (e) {
+    refused = String((e && e.message) || e);
+  }
+  check(refused.includes('not supported'), 'a kind it does not draw says why: ' + refused);
+  let noPart = '';
+  try {
+    await app.part('nothing', 'render', 'x');
+  } catch (e) {
+    noPart = String((e && e.message) || e);
+  }
+  check(/does not include/.test(noPart), 'a part the bundle lacks is a readable error: ' + noPart);
+  await app.unmount();
+  return { first_call_ms: Math.round(firstMs), second_call_ms: Math.round(secondMs), part_fetches: fetched.length };
+});
+
 await scenario('hosted sign-in return: the code reaches the player and leaves the address', async () => {
   const replaced = [];
   const history = { state: null, replaceState: (s, t, url) => replaced.push(url) };

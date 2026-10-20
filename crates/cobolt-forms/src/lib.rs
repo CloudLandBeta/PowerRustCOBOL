@@ -74,6 +74,7 @@ pub mod viewer;
 /// layout, and nothing fetched.
 pub mod css;
 /// A flowchart's connectors made orthogonal, meeting each shape at a side's middle.
+#[cfg(feature = "mermaid")]
 pub mod mermaid_route;
 /// The Viewer written out as a PDF — `SaveAsPdf`.
 #[cfg(feature = "pdf")]

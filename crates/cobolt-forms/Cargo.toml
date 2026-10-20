@@ -51,7 +51,13 @@ lopdf = { version = "0.26", default-features = false, features = ["nom_parser"],
 # SVG out — `resvg`, already here behind `render`, turns that into pixels.
 # Version matched to cobolt-ide's own pin so the two never resolve to
 # different releases.
-mermaid-rs-renderer = "0.2"
+#
+# **Behind `mermaid`, on by default** (WASM-016 R13, the browser player): the layout, the parser
+# and the regex engine it brings are about a quarter of the player's code, and a form with no
+# Mermaid diagram should not download them. Every native build keeps the default and so keeps the
+# renderer exactly as it was; the player depends on this crate with `default-features = false`
+# and loads the renderer as a part of its own, on first use (`crates/cobolt-web-player/parts`).
+mermaid-rs-renderer = { version = "0.2", optional = true }
 # The Viewer opening Word, PowerPoint, Excel and OpenDocument files as their
 # text (operator 2026-09-27): the Knowledge Base's own converter, so a
 # document reads the same in the Viewer as the chat reads it. Behind `office`
@@ -93,7 +99,10 @@ native-tls  = { version = "0.2", optional = true }
 arboard     = { version = "3.6", optional = true }
 
 [features]
-default = ["pdf-reader"]
+default = ["pdf-reader", "mermaid"]
+# The Viewer's Mermaid renderer (`viewer::render_mermaid_svg`). Off: it answers an error saying so,
+# and the diagram is shown as its source with that reason, as for any diagram it cannot draw.
+mermaid = ["dep:mermaid-rs-renderer"]
 # The Viewer's PDF READER (`viewer::parse_pdf`). Off for `wasm32` (see `lopdf` above):
 # `parse_pdf` then answers an error saying so, and every other Viewer format works.
 pdf-reader = ["dep:lopdf"]
@@ -103,7 +112,7 @@ pdf-reader = ["dep:lopdf"]
 # form application, which links `render` already (operator, 2026-09-28).
 pdf = ["render", "pdf-reader"]
 office = ["dep:cobolt-docs"]
-render = ["pdf-reader", "dep:egui", "dep:fontdb", "dep:skrifa", "dep:cobolt-media", "dep:image", "dep:resvg", "dep:egui-elegance", "dep:ureq", "dep:native-tls", "dep:arboard"]
+render = ["pdf-reader", "mermaid", "dep:egui", "dep:fontdb", "dep:skrifa", "dep:cobolt-media", "dep:image", "dep:resvg", "dep:egui-elegance", "dep:ureq", "dep:native-tls", "dep:arboard"]
 
 [dev-dependencies]
 # The Viewer's Office tests build a Word document in memory.

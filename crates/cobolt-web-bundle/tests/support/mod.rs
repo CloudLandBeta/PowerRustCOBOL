@@ -16,7 +16,7 @@ use std::process::Command;
 use std::time::SystemTime;
 
 use cobolt_wasm_abi::fixture::{build, standard_cfrm, standard_spec, Fixture};
-use cobolt_web_bundle::{assemble_bundle, BundleInput, BundleOptions, BundleOutput, FormInput, PlayerInput, PlayerVariantInput};
+use cobolt_web_bundle::{assemble_bundle, BundleInput, BundleOptions, BundleOutput, FormInput, PlayerInput, PlayerPartInput, PlayerVariantInput};
 
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
@@ -44,8 +44,8 @@ pub fn built_player() -> PathBuf {
     let crate_dir = repo_root().join("crates/cobolt-web-player");
     let out = crate_dir.join("target-player/out-test");
     let wasm = out.join("plain/player_bg.wasm");
-    let stamp = wasm.metadata().and_then(|m| m.modified()).ok();
-    let sources = newest(&crate_dir.join("src")).max(newest(&crate_dir.join("examples"))).max(
+    let stamp = wasm.metadata().and_then(|m| m.modified()).ok().filter(|_| out.join("parts/mermaid/mermaid_bg.wasm").exists());
+    let sources = newest(&crate_dir.join("src")).max(newest(&crate_dir.join("examples"))).max(newest(&crate_dir.join("parts"))).max(newest(&repo_root().join("crates/cobolt-forms/src"))).max(
         crate_dir.join("Cargo.toml").metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH),
     );
     if stamp.map(|s| s < sources).unwrap_or(true) {
@@ -77,6 +77,21 @@ pub fn player_variant(out: &Path, name: &str) -> PlayerVariantInput {
     }
     walk(&dir, &dir, &mut files);
     PlayerVariantInput { files, entry_js: "player.js".into(), entry_wasm: "player_bg.wasm".into() }
+}
+
+/// The parts `build_player` wrote under `<out>/parts/<name>/`.
+pub fn player_parts(out: &Path) -> Vec<PlayerPartInput> {
+    let mut parts = Vec::new();
+    let Ok(rd) = std::fs::read_dir(out.join("parts")) else { return parts };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let mut files = Vec::new();
+        for f in std::fs::read_dir(e.path()).unwrap().flatten() {
+            files.push((f.file_name().to_string_lossy().into_owned(), std::fs::read(f.path()).unwrap()));
+        }
+        parts.push(PlayerPartInput { entry_js: format!("{name}.js"), entry_wasm: format!("{name}_bg.wasm"), name, files });
+    }
+    parts
 }
 
 /// A module that imports `env.surprise`, which ABI v1 §3 does not provide.

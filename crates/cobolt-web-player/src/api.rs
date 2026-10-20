@@ -107,6 +107,8 @@ pub(crate) enum NetEvent {
 struct JsLink {
     this: JsValue,
     perform: Function,
+    /// `part(name, fn, arg)`: call a function of a part the loader loads on first use (optional).
+    part: Option<Function>,
 }
 
 impl JsLink {
@@ -467,6 +469,16 @@ impl Inner {
         self.drain_net();
     }
 
+    /// Call `func` of the part `part` (a module of its own the loader fetches the first time it is asked
+    /// for) with one text, and answer its text (WASM-016 R13). An error is the part's own message.
+    pub(crate) async fn call_part(&self, part: &str, func: &str, arg: &str) -> Result<String, String> {
+        let link = self.link.borrow().clone().ok_or_else(|| "the player is not attached to a loader".to_owned())?;
+        let f = link.part.as_ref().ok_or_else(|| "this page cannot load the player's parts".to_owned())?;
+        let pending = f.call3(&link.this, &part.into(), &func.into(), &arg.into()).map_err(|e| js_message(&e))?;
+        let answer = JsFuture::from(Promise::resolve(&pending)).await.map_err(|e| js_message(&e))?;
+        answer.as_string().ok_or_else(|| format!("the {part} part answered no text"))
+    }
+
     /// Hand request `id` to the connection, opening it (anonymously, or with the session's token) when
     /// it is closed. The module's requests and the Authentication control's go the same way.
     fn net_submit(self: &Rc<Self>, id: u32, frame: &[u8]) -> Result<(), String> {
@@ -795,7 +807,8 @@ impl Player {
             .ok()
             .and_then(|f| f.dyn_into::<Function>().ok())
             .ok_or_else(|| JsError::new("the link has no perform() function"))?;
-        *self.inner.link.borrow_mut() = Some(Rc::new(JsLink { this: link, perform }));
+        let part = Reflect::get(&link, &"part".into()).ok().and_then(|f| f.dyn_into::<Function>().ok());
+        *self.inner.link.borrow_mut() = Some(Rc::new(JsLink { this: link, perform, part }));
         Ok(())
     }
 
