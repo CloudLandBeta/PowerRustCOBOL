@@ -1,0 +1,211 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! The support routines of the WebAssembly line (spec WASM-010).
+//!
+//! The compiler (`cobolt-wasm`) turns a program's control flow into
+//! WebAssembly and leaves everything that has *meaning* — how a `PIC S9(5)V99`
+//! is read from its bytes, what `MOVE` does between two categories, how `ADD ...
+//! ROUNDED` stores, what a comparison of a numeric and an alphanumeric item
+//! says — to this crate. It is compiled to `wasm32` once, committed as a blob,
+//! and linked statically into every generated module with the functions the
+//! program does not reach removed. **There is no interpreter and no AST in the
+//! module**: the generated code calls these functions with the addresses of
+//! small static *operand records* it also generated.
+//!
+//! # Addresses, not pointers
+//!
+//! Every function takes `u32` addresses. On `wasm32` an address is an offset in
+//! linear memory 0 and is turned into a pointer by adding nothing; in the
+//! native unit tests memory is a `Vec<u8>` ([`mem::TestMem`]) and the same code
+//! runs against it. One body of code, two memories.
+//!
+//! # Rules this crate keeps
+//!
+//! * `no_std`, no allocator, no function pointers, no formatting machinery
+//!   (`core::fmt`), no panics on the happy path: a size that would not fit is a
+//!   checked error, never an allocation.
+//! * Behaviour is the interpreter's wherever the interpreter follows the
+//!   standard, and the standard's where it does not (WASM-PLAN P5). The
+//!   decimal arithmetic *is* the interpreter's: [`cobolt_decimal`].
+//! * Memory is never grown; scratch space is static.
+//!
+//! The data layouts the generator and this crate agree on are documented in
+//! [`fd`] (field descriptors) and [`opd`] (operand records).
+
+#![cfg_attr(target_arch = "wasm32", no_std)]
+#![allow(clippy::missing_safety_doc)]
+
+pub mod arith;
+pub mod cmp;
+pub mod codec;
+pub mod disp;
+pub mod edited;
+pub mod fd;
+pub mod float;
+pub mod host;
+pub mod mem;
+pub mod mv;
+pub mod opd;
+pub mod state;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod testkit;
+pub mod val;
+
+use state::st;
+
+/// Report run-time error `code` to the host and stop. The host's `abort`
+/// traps; if a host ever returned, we trap here.
+#[cold]
+pub fn fail(code: u32) -> ! {
+    // SAFETY: the glue function only reads the code.
+    unsafe { host::abort(code) };
+    #[cfg(target_arch = "wasm32")]
+    core::arch::wasm32::unreachable();
+    #[cfg(not(target_arch = "wasm32"))]
+    panic!("run-time error {code}");
+}
+
+// ── The exported surface ───────────────────────────────────────────────────
+//
+// Every function below is `extern "C"` so that it is a plain WebAssembly
+// function with `i32` parameters; the linker (`cobolt-wasm`) keeps the ones a
+// program reaches. Arguments named `base` are the address of the current form
+// instance's region; `o`, `a`, `b`, `from`, `to` are addresses of operand
+// records (see `opd`).
+
+/// Give the routines their workspace and reset their state.
+#[no_mangle]
+pub extern "C" fn rt_init(ws: u32) {
+    let s = st();
+    *s = state::State::new();
+    s.ws = ws;
+}
+
+/// Set the form instance whose handler is about to run.
+#[no_mangle]
+pub extern "C" fn rt_enter(inst: u32) {
+    st().inst = inst;
+}
+
+/// `MOVE from TO to`.
+#[no_mangle]
+pub extern "C" fn rt_move(base: u32, from: u32, to: u32) {
+    let snd = mv::sender(base, &opd::parse(from));
+    mv::move_to(base, &snd, &opd::parse(to));
+}
+
+/// First half of `MOVE from TO to1 to2 …`: read the sender once.
+#[no_mangle]
+pub extern "C" fn rt_move_begin(base: u32, from: u32) {
+    st().snd = Some(mv::sender(base, &opd::parse(from)));
+}
+
+/// Second half: move the sender read by [`rt_move_begin`] into one receiver.
+#[no_mangle]
+pub extern "C" fn rt_move_to(base: u32, to: u32) {
+    match st().snd {
+        Some(snd) => mv::move_to(base, &snd, &opd::parse(to)),
+        None => fail(state::err::BAD_OPERAND),
+    }
+}
+
+/// `a op b` for a relation condition; `op` is one of `cmp::OP_*`.
+#[no_mangle]
+pub extern "C" fn rt_rel(base: u32, a: u32, b: u32, op: u32) -> i32 {
+    cmp::relation(base, a, b, op) as i32
+}
+
+/// `o IS class` (`cmp::CLASS_*`).
+#[no_mangle]
+pub extern "C" fn rt_class(base: u32, o: u32, class: u32) -> i32 {
+    cmp::class_test(base, o, class) as i32
+}
+
+/// `o IS POSITIVE | NEGATIVE | ZERO` (`cmp::SIGN_*`).
+#[no_mangle]
+pub extern "C" fn rt_sign(base: u32, o: u32, sign: u32) -> i32 {
+    cmp::sign_test(base, o, sign) as i32
+}
+
+/// Start an arithmetic statement: empty the register stack, clear the size error.
+#[no_mangle]
+pub extern "C" fn rt_begin() {
+    arith::begin_statement();
+}
+
+/// Push the numeric value of operand `o`.
+#[no_mangle]
+pub extern "C" fn rt_push(base: u32, o: u32) {
+    arith::push_operand(base, o);
+}
+
+/// Apply `arith::OP_*` to the top registers.
+#[no_mangle]
+pub extern "C" fn rt_op(op: u32) {
+    arith::apply(op);
+}
+
+/// Push a copy of the register `depth` below the top.
+#[no_mangle]
+pub extern "C" fn rt_pick(depth: u32) {
+    arith::pick(depth);
+}
+
+/// Discard the top register.
+#[no_mangle]
+pub extern "C" fn rt_drop() {
+    let _ = state::pop();
+}
+
+/// Pop the top register into item `o` (`arith::ST_*`); 1 on a size error.
+#[no_mangle]
+pub extern "C" fn rt_store(base: u32, o: u32, flags: u32) -> i32 {
+    arith::store(base, o, flags) as i32
+}
+
+/// Truncate the top register to the scale of item `o`.
+#[no_mangle]
+pub extern "C" fn rt_trunc(base: u32, o: u32) {
+    arith::truncate_to_item(base, o);
+}
+
+/// Did the statement hit a size error?
+#[no_mangle]
+pub extern "C" fn rt_size_err() -> i32 {
+    st().size_err as i32
+}
+
+/// `DISPLAY` one operand.
+#[no_mangle]
+pub extern "C" fn rt_display(base: u32, o: u32) {
+    disp::display_operand(base, o);
+}
+
+/// `DISPLAY` the top register.
+#[no_mangle]
+pub extern "C" fn rt_display_reg() {
+    let v = state::pop();
+    disp::display_val(&v);
+}
+
+/// End a `DISPLAY` statement.
+#[no_mangle]
+pub extern "C" fn rt_display_end(no_advancing: u32) {
+    disp::display_end(no_advancing != 0);
+}
+
+/// Hand the staged command batch to the host.
+#[no_mangle]
+pub extern "C" fn rt_flush() {
+    disp::flush();
+}
+
+#[cfg(target_arch = "wasm32")]
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    core::arch::wasm32::unreachable()
+}

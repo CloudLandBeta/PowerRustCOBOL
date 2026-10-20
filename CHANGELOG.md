@@ -17,6 +17,25 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.14] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.13.)*
+
+### Added: `cobolt-wasm-rt`, the support routines of the WebAssembly line — first slice
+
+The crate whose functions the generated program module will link in (WASM-010
+R2, R6): field descriptors and operand records (the layout the generator and the
+routines agree on), the byte codecs of `DISPLAY` numerics in every sign mode,
+`COMP` (big-endian), `COMP-5` (native order) and `COMP-3`, `MOVE` between every
+pair of categories (justification, padding, truncation, figuratives, `ALL`,
+group senders), the register machine behind `ADD`/`SUBTRACT`/`MULTIPLY`/
+`DIVIDE`/`COMPUTE` (rounding, size error, division by zero as a size error),
+relation, class and sign conditions, and `DISPLAY` into the command batch of
+ABI v1. It is `no_std` and allocator-free on `wasm32` and the same source runs
+natively against a test memory: 15 tests, 0 failures. The routines do not yet
+handle edited pictures, tables searched by key, `STRING`/`UNSTRING`/`INSPECT`
+or intrinsic functions (phase B).
+
 ## [PowerRustCOBOL 2.0.13] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.12.)*

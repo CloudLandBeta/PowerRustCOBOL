@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-wasm-rt"
+description = "Cobolt COBOL — the support routines the generated WebAssembly module links in (spec WASM-010): decimal arithmetic, moves, comparisons, display"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+# `cdylib` is what `cargo run -p cobolt-wasm --example build_rt` compiles to
+# wasm32 and commits as `crates/cobolt-wasm/assets/rt.wasm`; `rlib` is what the
+# native unit tests and the differential harness link.
+crate-type = ["rlib", "cdylib"]
+
+# On wasm32 this crate is `no_std` and allocator-free (see lib.rs). It has no
+# dependency but the decimal kernel, which is `no_std` itself.
+[dependencies]
+cobolt-decimal = { path = "../cobolt-decimal" }
+# Pure-Rust libm: `pow`, `sqrt`, the trigonometric functions of the intrinsic
+# functions — `core` has none of them and `std` is not available on wasm32.
+libm           = "0.2"

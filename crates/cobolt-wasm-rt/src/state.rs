@@ -1,0 +1,135 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! The routines' own state: a small register stack for numbers, a few flags,
+//! and the address of the **workspace** the generator reserved for them.
+//!
+//! State lives in this crate's statics, which on wasm32 are bytes of the
+//! module's data segment. Nothing here has to survive a suspension: a task is
+//! suspended only *between* statements, never inside a numeric expression, so
+//! the register stack is always empty at a suspension point.
+//!
+//! Buffers that need an **address** the host or the generator can name — the
+//! command batch, the answer area — live in the workspace instead, because a
+//! Rust `static` has an address only on wasm32 (the native tests have a
+//! [`crate::mem::TestMem`] for that).
+
+use crate::val::Val;
+
+/// Depth of the numeric register stack. An expression nests this deep at most;
+/// the generator refuses to emit a deeper one.
+pub const NREG: usize = 24;
+
+/// Workspace layout, relative to the address given to [`rt_init`](crate::rt_init).
+pub const WS_BATCH: u32 = 0;
+/// Bytes of command batch staged before a flush is forced.
+pub const BATCH_SIZE: u32 = 16 * 1024;
+pub const WS_ANSWER: u32 = WS_BATCH + BATCH_SIZE;
+/// Bytes of query answer.
+pub const ANSWER_SIZE: u32 = 16 * 1024;
+/// Scratch for sender snapshots, string building and number formatting.
+pub const WS_SCRATCH: u32 = WS_ANSWER + ANSWER_SIZE;
+pub const SCRATCH_SIZE: u32 = 8 * 1024;
+/// Total workspace size the generator must reserve.
+pub const WS_SIZE: u32 = WS_SCRATCH + SCRATCH_SIZE;
+
+/// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
+/// owns the message text, so the IDE and the page can translate it.
+pub mod err {
+    pub const SUBSCRIPT: u32 = 100;
+    pub const REFMOD: u32 = 101;
+    pub const DIVISION_BY_ZERO: u32 = 102;
+    pub const REGISTER_OVERFLOW: u32 = 103;
+    pub const BAD_OPERAND: u32 = 104;
+    pub const SCRATCH_OVERFLOW: u32 = 105;
+}
+
+pub struct State {
+    pub regs: [Val; NREG],
+    pub sp: usize,
+    /// Set by a store that overflowed its receiver, or by a division by zero.
+    pub size_err: bool,
+    /// Set by a division by zero inside the current statement: the receivers
+    /// are left alone.
+    pub div0: bool,
+    /// Address of the workspace.
+    pub ws: u32,
+    /// The form instance whose events the module is running.
+    pub inst: u32,
+    /// Bytes currently staged in the batch.
+    pub batch_len: u32,
+    /// The resolved sender of a `MOVE` in progress (several receivers).
+    pub snd: Option<crate::mv::Sender>,
+}
+
+impl State {
+    pub const fn new() -> State {
+        State { regs: [Val::ZERO; NREG], sp: 0, size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, snd: None }
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        State::new()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+static mut STATE: State = State::new();
+
+/// The state. The module is single-threaded, so one `&mut` at a time is a
+/// property of the program, not something the type system can see.
+#[cfg(target_arch = "wasm32")]
+#[inline(always)]
+pub fn st() -> &'static mut State {
+    // SAFETY: wasm32 without atomics runs one thread; no routine re-enters
+    // another while holding the reference across the call.
+    unsafe { &mut *core::ptr::addr_of_mut!(STATE) }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+std::thread_local! {
+    static STATE: core::cell::Cell<*mut State> = const { core::cell::Cell::new(core::ptr::null_mut()) };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn st() -> &'static mut State {
+    STATE.with(|c| {
+        if c.get().is_null() {
+            c.set(std::boxed::Box::leak(std::boxed::Box::new(State::new())));
+        }
+        // SAFETY: thread-local, leaked box: unique per thread.
+        unsafe { &mut *c.get() }
+    })
+}
+
+/// Reset the state of this thread (native tests).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn reset() {
+    *st() = State::new();
+}
+
+/// Push a number on the register stack.
+#[inline]
+pub fn push(v: Val) {
+    let s = st();
+    if s.sp >= NREG {
+        crate::fail(err::REGISTER_OVERFLOW);
+    }
+    s.regs[s.sp] = v;
+    s.sp += 1;
+}
+
+/// Pop the top of the register stack.
+#[inline]
+pub fn pop() -> Val {
+    let s = st();
+    if s.sp == 0 {
+        crate::fail(err::REGISTER_OVERFLOW);
+    }
+    s.sp -= 1;
+    s.regs[s.sp]
+}

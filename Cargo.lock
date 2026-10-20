@@ -2258,6 +2258,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-wasm-rt"
+version = "0.2.0"
+dependencies = [
+ "cobolt-decimal",
+ "libm",
+]
+
+[[package]]
 name = "codepage"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

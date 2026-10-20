@@ -43,7 +43,7 @@ use core::fmt;
 /// * `PIC 9(5)`      → decimals = 0, `123`    represents `123`
 /// * `PIC 9(5)V99`   → decimals = 2, `12345`  represents `123.45`
 /// * `PIC S9(4)V9`   → decimals = 1, `-12345` represents `-1234.5`
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CobolNumeric {
     /// Scaled integer mantissa. An `i128` holds ~38 significant digits, covering
     /// COBOL's 18-digit standard limit and up to 31-digit extended precision,
