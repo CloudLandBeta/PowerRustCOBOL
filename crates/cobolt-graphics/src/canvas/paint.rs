@@ -77,9 +77,12 @@ pub(crate) fn sk_rule(r: FillRule) -> SkRule {
     }
 }
 
-/// A kurbo path to a rasteriser path, shifted up by `y0` pixels. `None` when
-/// there is nothing drawable.
-pub(crate) fn to_tiny(bez: &BezPath, y0: f64) -> Option<Path> {
+/// A kurbo path to a rasteriser path **with its curves intact**: for user-space
+/// paths that the stroker will walk. (Device-space geometry goes through
+/// [`flatten::to_tiny`](super::flatten::to_tiny) instead, which flattens it.)
+/// `None` when there is nothing drawable.
+pub(crate) fn curves_to_tiny(bez: &BezPath) -> Option<Path> {
+    let y0 = 0.0;
     let mut pb = PathBuilder::new();
     let cl = |v: f64| v.clamp(-COORD_LIMIT, COORD_LIMIT);
     let fx = |p: kurbo::Point| (cl(p.x) as f32, cl(p.y - y0) as f32);

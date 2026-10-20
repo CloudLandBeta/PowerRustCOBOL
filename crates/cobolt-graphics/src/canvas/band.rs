@@ -21,6 +21,7 @@ use std::sync::Arc;
 use kurbo::{Affine, BezPath, Point, Shape};
 use tiny_skia::{IntRect, Mask, Path, Pixmap, Transform};
 
+use super::flatten::{map_to_tiny, to_tiny};
 use super::paint::*;
 use super::state::*;
 use crate::color::Rgba;
@@ -29,7 +30,7 @@ use crate::display_list::{Command, DisplayList};
 use crate::error::Result;
 use crate::limits::Limits;
 use crate::resources::Resources;
-use crate::textapi::{FontSpec, TextBlock, TextMetrics, TextRequest};
+use crate::textapi::{align_fraction, baseline_shift, metrics_for, FontSpec, TextBlock, TextMetrics, TextRequest};
 
 /// Read-only context shared by all bands during one `execute`.
 pub(crate) struct RunCtx<'a> {
@@ -80,6 +81,10 @@ pub(crate) struct Band {
     pub pm: Pixmap,
     pub st: ExecState,
     pub primary: bool,
+    /// The grid (a power of two, in device pixels) device coordinates are snapped
+    /// to before they are shifted into this band: fine enough that the snap is
+    /// invisible, coarse enough that `y - y0` is exact in `f32` for every band.
+    pub grid: f64,
 }
 
 macro_rules! finite {
@@ -99,8 +104,20 @@ fn rect_bez(m: Affine, x: f64, y: f64, w: f64, h: f64) -> BezPath {
 }
 
 impl Band {
-    pub fn new(y0: u32, w: u32, h: u32, base: Affine, primary: bool) -> Option<Band> {
-        Some(Band { y0, w, h, pm: Pixmap::new(w, h)?, st: ExecState::new(base), primary })
+    /// `canvas` is the whole canvas in device pixels (it fixes the snapping grid).
+    pub fn new(y0: u32, w: u32, h: u32, canvas: (u32, u32), base: Affine, primary: bool) -> Option<Band> {
+        // 24 bits of f32 mantissa: a coordinate below 2^k can carry 24 - k fractional bits.
+        let k = (32 - canvas.0.max(canvas.1).max(1).leading_zeros()) as i32; // coordinates < 2^k
+        let grid = 2.0f64.powi(k + 1 - 24);
+        Some(Band { y0, w, h, pm: Pixmap::new(w, h)?, st: ExecState::new(base), primary, grid })
+    }
+
+    fn dev_path(&self, bez: &BezPath) -> Option<Path> {
+        to_tiny(bez, self.y0 as f64, self.grid)
+    }
+
+    fn map_dev(&self, path: &Path, m: Affine) -> Option<Path> {
+        map_to_tiny(path, m, self.y0 as f64, self.grid)
     }
 
     fn shader_ts(&self) -> Transform {
@@ -180,16 +197,18 @@ impl Band {
         if !(g.line_width.is_finite() && g.line_width > 0.0) {
             return;
         }
-        let ts = to_ts(g.ctm);
+        let ctm = g.ctm;
+        let ts = to_ts(ctm);
         let stroke = make_stroke(g.line_width, g.cap, g.join, g.miter_limit, &g.dash, g.dash_offset);
         let res_scale = tiny_skia::PathStroker::compute_resolution_scale(&ts);
         let Some(outline) = user.stroke(&stroke, res_scale) else { return };
-        let Some(dev) = outline.transform(self.shader_ts()) else { return };
+        // The outline's curves are flattened in device space, in f64 (see flatten.rs).
+        let Some(dev) = self.map_dev(&outline, ctm) else { return };
         self.paint(&dev, Which::Stroke, tiny_skia::FillRule::Winding, ctx);
     }
 
     fn stroke_user_bez(&mut self, user: &BezPath, ctx: &RunCtx<'_>) {
-        if let Some(p) = to_tiny(user, 0.0) {
+        if let Some(p) = curves_to_tiny(user) {
             self.stroke_user_path(&p, ctx);
         }
     }
@@ -207,7 +226,7 @@ impl Band {
     }
 
     fn fill_device_bez(&mut self, dev: &BezPath, rule: tiny_skia::FillRule, ctx: &RunCtx<'_>) {
-        if let Some(p) = to_tiny(dev, self.y0 as f64) {
+        if let Some(p) = self.dev_path(dev) {
             self.paint(&p, Which::Fill, rule, ctx);
         }
     }
@@ -239,17 +258,6 @@ impl Band {
         }
     }
 
-    /// The baseline shift (down is positive) for the text baseline setting.
-    fn baseline_shift(b: TextBaseline, block: &TextBlock) -> f32 {
-        match b {
-            TextBaseline::Alphabetic => 0.0,
-            TextBaseline::Top => block.ascent,
-            TextBaseline::Hanging => block.ascent * 0.8,
-            TextBaseline::Middle => (block.ascent - block.descent) / 2.0,
-            TextBaseline::Ideographic | TextBaseline::Bottom => -block.descent,
-        }
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn draw_text(&mut self, text: &str, x: f32, y: f32, max_width: f32, wrap: Option<(f32, f32)>, mode: u8, ctx: &RunCtx<'_>, out: &mut BandOutcome) -> Result<()> {
         let cleaned: String;
@@ -264,8 +272,8 @@ impl Band {
         }
         let Some(block) = self.layout_text(text, wrap, ctx, out)? else { return Ok(()) };
         let align = self.st.cur.align;
-        let shift = Self::baseline_shift(self.st.cur.baseline, &block);
-        let mut fill_paths: Vec<Path> = Vec::new();
+        let shift = baseline_shift(self.st.cur.baseline, &block);
+        let ctm = self.st.cur.ctm;
         for line in &block.lines {
             let Some(lp) = &line.path else { continue };
             let rtl = line.rtl;
@@ -274,11 +282,7 @@ impl Band {
                 sx = max_width / adv;
                 adv = max_width;
             }
-            let frac = match (align, rtl) {
-                (TextAlign::Left, _) | (TextAlign::Start, false) | (TextAlign::End, true) => 0.0,
-                (TextAlign::Right, _) | (TextAlign::End, false) | (TextAlign::Start, true) => 1.0,
-                (TextAlign::Center, _) => 0.5,
-            };
+            let frac = align_fraction(align, rtl);
             // `frac` is 0 for a line that starts at the anchor, 1 for one that ends
             // there (or at the far edge of the box) and 0.5 for a centred one.
             let x_line = match wrap {
@@ -286,19 +290,17 @@ impl Band {
                 Some((w, _)) => x + (w - adv) * frac,
             };
             let y_line = y + shift + line.baseline;
-            let user_ts = Transform::from_row(sx, 0.0, 0.0, 1.0, x_line, y_line);
-            let Some(up) = (**lp).clone().transform(user_ts) else { continue };
+            let place = Affine::new([sx as f64, 0.0, 0.0, 1.0, x_line as f64, y_line as f64]);
             if mode & MODE_FILL != 0 {
-                if let Some(dev) = up.clone().transform(self.shader_ts()) {
-                    fill_paths.push(dev);
+                if let Some(dev) = self.map_dev(lp, ctm * place) {
+                    self.paint(&dev, Which::Fill, tiny_skia::FillRule::Winding, ctx);
                 }
             }
             if mode & MODE_STROKE != 0 {
-                self.stroke_user_path(&up, ctx);
+                if let Some(up) = (**lp).clone().transform(Transform::from_row(sx, 0.0, 0.0, 1.0, x_line, y_line)) {
+                    self.stroke_user_path(&up, ctx);
+                }
             }
-        }
-        for p in fill_paths {
-            self.paint(&p, Which::Fill, tiny_skia::FillRule::Winding, ctx);
         }
         Ok(())
     }
@@ -307,24 +309,7 @@ impl Band {
         let cleaned: String = text.chars().map(|c| if matches!(c, '\n' | '\r' | '\t' | '\u{b}' | '\u{c}') { ' ' } else { c }).collect();
         let Some(block) = self.layout_text(&cleaned, None, ctx, out)? else { return Ok(TextMetrics::default()) };
         let g = &self.st.cur;
-        let line = block.lines.first();
-        let adv = line.map(|l| l.advance).unwrap_or(0.0);
-        let rtl = line.map(|l| l.rtl).unwrap_or(block.rtl);
-        let start = match (g.align, rtl) {
-            (TextAlign::Left, _) | (TextAlign::Start, false) | (TextAlign::End, true) => 0.0,
-            (TextAlign::Right, _) | (TextAlign::End, false) | (TextAlign::Start, true) => 1.0,
-            (TextAlign::Center, _) => 0.5,
-        };
-        let x_line = -adv * start;
-        let shift = Self::baseline_shift(g.baseline, &block);
-        let mut m = TextMetrics { width: adv, font_ascent: block.ascent - shift, font_descent: block.descent + shift, lines: block.lines.len() as u32, ..TextMetrics::default() };
-        if let Some((l, t, r, b)) = line.and_then(|l| l.ink) {
-            m.actual_left = -(x_line + l);
-            m.actual_right = x_line + r;
-            m.actual_ascent = -(t + shift);
-            m.actual_descent = b + shift;
-        }
-        Ok(m)
+        Ok(metrics_for(&block, g.align, baseline_shift(g.baseline, &block)))
     }
 
     // ------------------------------------------------------------------
@@ -381,7 +366,7 @@ impl Band {
             * Affine::translate((px0 as f64 - sx, py0 as f64 - sy));
         let img_ts = to_ts(ctm * map).post_translate(0.0, -(self.y0 as f32));
         let dest = rect_bez(ctm, dx, dy, dw, dh);
-        if let Some(p) = to_tiny(&dest, self.y0 as f64) {
+        if let Some(p) = self.dev_path(&dest) {
             self.paint_src(&p, &PaintSrc::Image(sub), tiny_skia::FillRule::Winding, img_ts, ctx);
         }
     }
@@ -494,7 +479,7 @@ impl Band {
             C::Clip { rule } => {
                 let r = sk_rule(FillRule::from_u8(rule).unwrap_or(FillRule::NonZero));
                 let (w, h) = (self.w, self.h);
-                let new_mask = match to_tiny(&self.st.path.bez, self.y0 as f64) {
+                let new_mask = match self.dev_path(&self.st.path.bez) {
                     // An empty or degenerate path clips everything away.
                     None => Mask::new(w, h),
                     Some(p) => match self.st.cur.clip.as_ref() {
@@ -526,7 +511,7 @@ impl Band {
             C::ClearRect { x, y, w, h } => {
                 finite!(x, y, w, h);
                 let b = rect_bez(self.st.cur.ctm, x as f64, y as f64, w as f64, h as f64);
-                if let Some(p) = to_tiny(&b, self.y0 as f64) {
+                if let Some(p) = self.dev_path(&b) {
                     let ts = self.shader_ts();
                     let mask = self.st.cur.clip.as_deref();
                     raster(&mut self.pm, &p, &PaintSrc::Solid(Rgba::BLACK), tiny_skia::FillRule::Winding, ts, 1.0, tiny_skia::BlendMode::Clear, tiny_skia::FilterQuality::Nearest, mask);
@@ -891,21 +876,20 @@ impl Band {
         }
         let mut user = self.st.path.bez.clone();
         user.apply_affine(inv);
-        let Some(up) = to_tiny(&user, 0.0) else { return false };
+        let Some(up) = curves_to_tiny(&user) else { return false };
         let ts = to_ts(g.ctm);
         let stroke = make_stroke(g.line_width, g.cap, g.join, g.miter_limit, &g.dash, g.dash_offset);
         let res_scale = tiny_skia::PathStroker::compute_resolution_scale(&ts);
         let Some(outline) = up.stroke(&stroke, res_scale) else { return false };
-        let Some(dev) = outline.transform(ts) else { return false };
-        // Convert back to a kurbo path to reuse the winding test.
+        // Flatten in device space (the same polygon the fill would use) and take its winding number.
+        let Some(dev) = map_to_tiny(&outline, g.ctm, 0.0, self.grid) else { return false };
         let mut bez = BezPath::new();
         for seg in dev.segments() {
             use tiny_skia::PathSegment as S;
             match seg {
                 S::MoveTo(p) => bez.move_to(Point::new(p.x as f64, p.y as f64)),
                 S::LineTo(p) => bez.line_to(Point::new(p.x as f64, p.y as f64)),
-                S::QuadTo(c, p) => bez.quad_to(Point::new(c.x as f64, c.y as f64), Point::new(p.x as f64, p.y as f64)),
-                S::CubicTo(a, b, p) => bez.curve_to(Point::new(a.x as f64, a.y as f64), Point::new(b.x as f64, b.y as f64), Point::new(p.x as f64, p.y as f64)),
+                S::QuadTo(..) | S::CubicTo(..) => {}
                 S::Close => bez.close_path(),
             }
         }

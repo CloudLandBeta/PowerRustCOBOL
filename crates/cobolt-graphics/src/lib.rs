@@ -15,6 +15,8 @@ pub mod limits;
 pub mod par;
 pub mod pixels;
 pub mod resources;
+#[cfg(feature = "text")]
+pub mod text;
 pub mod textapi;
 
 pub use color::Rgba;

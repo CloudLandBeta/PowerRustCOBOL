@@ -27,7 +27,7 @@ parallel = ["dep:rayon", "rapier2d?/parallel", "rapier3d?/parallel"]
 
 # Shaped, bidirectional, wrapped text (R8) - harfrust, skrifa, fontdb,
 # unicode-bidi, icu_segmenter.
-text = ["dep:harfrust", "dep:skrifa", "dep:fontdb", "dep:unicode-bidi", "dep:icu_segmenter"]
+text = ["dep:harfrust", "dep:skrifa", "dep:fontdb", "dep:unicode-bidi", "dep:icu_segmenter", "dep:icu_properties"]
 
 # ImageBuffer (R11): the image crate's pure-Rust codecs, imageproc, fast_image_resize.
 imagebuf = ["dep:image", "dep:imageproc", "dep:fast_image_resize"]
@@ -56,8 +56,13 @@ rayon = { version = "1.10", optional = true }
 harfrust       = { version = "0.12", optional = true, default-features = false, features = ["std"] }
 skrifa         = { version = "0.44", optional = true, default-features = false, features = ["std"] }
 fontdb         = { version = "0.23", optional = true, default-features = false, features = ["std"] }
-unicode-bidi   = { version = "0.3", optional = true, default-features = false, features = ["std"] }
+unicode-bidi   = { version = "0.3", optional = true, default-features = false, features = ["std", "hardcoded-data"] }
+# Pinned to the 2.2 line the rest of the workspace tree already resolves (idna, url), so adding
+# this crate does not move any shared package. icu_segmenter replaces unicode-linebreak, whose
+# last release (2023-07) fails R4's twelve-month rule; icu_properties gives the Unicode script
+# of each character (shaping needs it per run).
 icu_segmenter  = { version = "~2.2", optional = true, default-features = false, features = ["compiled_data"] }
+icu_properties = { version = "~2.2", optional = true, default-features = false, features = ["compiled_data"] }
 
 # Images.
 image             = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "qoi"] }
@@ -81,3 +86,8 @@ pollster = { version = "0.4", optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+# Golden images are read and written as PNG.
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Real Latin fonts for the shaping tests (Ubuntu Light, Hack): the fonts egui already ships
+# in this workspace, so no new font enters the tree.
+epaint_default_fonts = "0.36"

@@ -54,6 +54,7 @@ impl PathAcc {
         self.points
     }
 
+    #[cfg(test)]
     pub fn current(&self) -> Option<Point> {
         self.cur
     }

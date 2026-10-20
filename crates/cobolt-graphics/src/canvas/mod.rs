@@ -39,6 +39,7 @@
 
 mod band;
 mod blur;
+mod flatten;
 mod paint;
 mod path;
 mod state;
@@ -167,7 +168,7 @@ impl Surface {
         let mut y = 0;
         while y < dh {
             let h = rows.min(dh - y);
-            let b = Band::new(y, dw, h, base, y == 0)
+            let b = Band::new(y, dw, h, (dw, dh), base, y == 0)
                 .ok_or_else(|| GraphicsError::invalid("the canvas could not be allocated"))?;
             bands.push(b);
             y += h;

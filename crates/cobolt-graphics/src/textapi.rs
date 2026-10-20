@@ -19,7 +19,7 @@
 
 use std::sync::Arc;
 
-use crate::display_list::consts::TextDirection;
+use crate::display_list::consts::{TextAlign, TextBaseline, TextDirection};
 use crate::error::Result;
 
 /// Slant of a font.
@@ -247,6 +247,53 @@ pub struct TextMetrics {
 pub trait TextEngine: Send + Sync {
     /// Shape, order and (optionally) wrap the text.
     fn layout(&self, request: &TextRequest<'_>) -> Result<TextBlock>;
+}
+
+/// How far the baseline moves down (negative: up) for a `textBaseline` setting,
+/// in pixels. The conventions: the em box runs from the ascent down to the
+/// descent; `hanging` is 0.8 of the ascent; `ideographic` sits at the bottom.
+pub fn baseline_shift(baseline: TextBaseline, block: &TextBlock) -> f32 {
+    match baseline {
+        TextBaseline::Alphabetic => 0.0,
+        TextBaseline::Top => block.ascent,
+        TextBaseline::Hanging => block.ascent * 0.8,
+        TextBaseline::Middle => (block.ascent - block.descent) / 2.0,
+        TextBaseline::Ideographic | TextBaseline::Bottom => -block.descent,
+    }
+}
+
+/// Where a line starts, as a fraction of its advance measured back from the
+/// alignment point: 0 when the line starts at the point, 1 when it ends there,
+/// 0.5 when it is centred.
+pub fn align_fraction(align: TextAlign, rtl: bool) -> f32 {
+    match (align, rtl) {
+        (TextAlign::Left, _) | (TextAlign::Start, false) | (TextAlign::End, true) => 0.0,
+        (TextAlign::Right, _) | (TextAlign::End, false) | (TextAlign::Start, true) => 1.0,
+        (TextAlign::Center, _) => 0.5,
+    }
+}
+
+/// `MeasureText`'s answer for the first line of a block, relative to the
+/// alignment point and the baseline setting.
+pub fn metrics_for(block: &TextBlock, align: TextAlign, shift: f32) -> TextMetrics {
+    let line = block.lines.first();
+    let adv = line.map(|l| l.advance).unwrap_or(0.0);
+    let rtl = line.map(|l| l.rtl).unwrap_or(block.rtl);
+    let x_line = -adv * align_fraction(align, rtl);
+    let mut m = TextMetrics {
+        width: adv,
+        font_ascent: block.ascent - shift,
+        font_descent: block.descent + shift,
+        lines: block.lines.len() as u32,
+        ..TextMetrics::default()
+    };
+    if let Some((l, t, r, b)) = line.and_then(|l| l.ink) {
+        m.actual_left = -(x_line + l);
+        m.actual_right = x_line + r;
+        m.actual_ascent = -(t + shift);
+        m.actual_descent = b + shift;
+    }
+    m
 }
 
 #[cfg(test)]
