@@ -49,3 +49,22 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 ## Done elsewhere
 
 - `CALL … RETURNING` (WASM-005 Q2, D6): fix `8a15f00d` (1.91.219) on `main`, forward-port `afe22c51` on 2.x.x — tests 14/14 runtime, NIST baselines held.
+
+## Status at the end of the first implementation session (2026-10-20, version 2.0.18)
+
+Measured, not hoped. Commits on `features-2x`: `44371f53` … `42eac962` (2.0.11 – 2.0.17) plus this one.
+
+| Area | State | Evidence |
+|---|---|---|
+| Planning | done | `WASM-PLAN.md`, `WASM-ABI-v1.md` (2.0.12) |
+| `cobolt-decimal` (shared decimal kernel) | **V** | interpreter suite 1527 passed / 0 failed; `round`/`powi`/format proved equal to `std` |
+| `cobolt-numedit` (shared edited-picture engine) | **V** | 199 233 random cases, 0 differences against the original; `cobolt-forms` numedit tests green |
+| `cobolt-wasm-rt` (routines) | I | 15 native tests; codecs, MOVE, arithmetic, conditions, DISPLAY, edited pictures, INSPECT/STRING/UNSTRING, INITIALIZE, conformance files |
+| `cobolt-wasm` (generator), WASM-010 phases A and B | I | programs match the interpreter byte for byte in both memory variants; modules validate; "hello" 15.8 KB |
+| NIST **NC** on generated modules | I | **69 of 95 programs run clean; 81 of 95 compile; 3 811 PASS / 39 FAIL** (interpreter: 95/95, 4 614/0). Open: `ACCEPT`, `RENAMES`, user `CLASS`, `EVALUATE` over conditions, X-card/undeclared names, failures in NC104A/105A/107A/108M/114M/124A/203A/215A/216A/219A/222A/247A/254A |
+| NIST IF, IC | not started (GOLDEN RULE #9: NC first) | |
+| WASM-010 phase C (suspension, remote CALL), JSON mapping in the module | not started | |
+
+Work running in other worktrees when the session's usage limit was reached (each commits on its own branch, **none merged into `features-2x`**): `cobolt-graphics` (WASM-018 part 1); backend + `CALL … WITH WEBSOCKET LINKAGE` + JSON mapping + `cobolt-server` + identity backend (WASM-005/003/014/009); player + loader + host page + bundle (WASM-016/002/004/006/007/011); IDE project kinds, selector, tree entries, preview, tooling (WASM-001/008/015). Their reports have not been read. Not started: Tauri shell (WASM-012), security gates (WASM-013), the Canvas control integration (WASM-018 part 2), CLAUDE.md/memory refresh.
+
+Harness notes: `NIST_KEEP=1` keeps the work directories (they land under the *temp_dir*, which in this environment is a literal `${DaemonNameOrIdentifierHere}` TMPDIR — set `TMPDIR` explicitly before using it); drive the generator with `RCRUN=target/debug/examples/nist_wasm_run ./target/debug/examples/nist_conformance run NC`.

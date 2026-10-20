@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.18] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.17.)*
+
+### Changed: the NIST harness can keep its work directories; the progress ledger records where the WebAssembly line stands
+
+`NIST_KEEP=1` leaves each program's prepared source, report and stderr in place after
+a `nist_conformance run`, so a failure on the generated module can be read. The
+ledger (`specs/WASM-PROGRESS.md`) now states the measured position — decimal kernel
+and edited-picture engine verified, generator at phases A and B, NIST NC 69 of 95
+clean — and what is running in other worktrees and what is not started. No product
+behaviour changes.
+
 ## [PowerRustCOBOL 2.0.17] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.16.)*

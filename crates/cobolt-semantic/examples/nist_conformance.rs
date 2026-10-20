@@ -1280,6 +1280,9 @@ fn run_pass(members: &[Member], filter: &str) {
         }
     };
     let workroot = std::env::temp_dir().join("nist-exec-scoring");
+    // `NIST_KEEP=1` leaves the work directories (prepared sources, reports,
+    // stderr) in place after the run, for diagnosing a failure.
+    let keep = std::env::var_os("NIST_KEEP").is_some();
     let _ = std::fs::remove_dir_all(&workroot);
     std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
 
@@ -1351,7 +1354,9 @@ fn run_pass(members: &[Member], filter: &str) {
         outcomes.push((m.name.clone(), module, outcome));
     }
 
-    let _ = std::fs::remove_dir_all(&workroot);
+    if !keep {
+        let _ = std::fs::remove_dir_all(&workroot);
+    }
     report_run(&outcomes);
 }
 
@@ -1669,8 +1674,10 @@ fn run_one(
     let source = with_subprograms(members, name, raw);
     let r = run_one_in(rcrun, &dir, name, &source);
     // Reclaim the directory — a sweep is hundreds of programs and a runaway
-    // print file is measured in gigabytes.
-    let _ = std::fs::remove_dir_all(&dir);
+    // print file is measured in gigabytes. (`NIST_KEEP=1` keeps it for diagnosis.)
+    if std::env::var_os("NIST_KEEP").is_none() {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     r
 }
 
