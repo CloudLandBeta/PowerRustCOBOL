@@ -25,6 +25,29 @@ pub(crate) struct PathAcc {
 
 const TWO_PI: f64 = 2.0 * PI;
 
+/// The tolerance, in **user** units, for turning an arc of `radius` into cubic
+/// curves: 0.1 device pixel, but never finer than 1/2,000,000 of the radius.
+/// Without that floor an absurd radius (or an absurd scale) asks for millions of
+/// segments for something far beyond the canvas; with it a circle is at most a
+/// dozen curves, and the flattening of each curve in `flatten.rs` has its own cap.
+pub(crate) fn arc_tolerance(ctm: Affine, radius: f64) -> f64 {
+    let c = ctm.as_coeffs();
+    let scale = (c[0] * c[3] - c[1] * c[2]).abs().sqrt().max(1e-9);
+    (0.1 / scale).max(radius / 2.0e6).max(1e-9)
+}
+
+/// A full circle as a closed path in user space.
+pub(crate) fn circle_path(center: Point, radius: f64, ctm: Affine) -> BezPath {
+    let mut b = BezPath::new();
+    let arc = Arc::new(center, Vec2::new(radius, radius), 0.0, TWO_PI, 0.0);
+    b.move_to(Point::new(center.x + radius, center.y));
+    for el in arc.append_iter(arc_tolerance(ctm, radius)) {
+        b.push(el);
+    }
+    b.close_path();
+    b
+}
+
 /// `a mod m` in `[0, m)`, built only from basic arithmetic (deterministic).
 fn modulo(a: f64, m: f64) -> f64 {
     let r = a - m * (a / m).floor();
@@ -194,14 +217,8 @@ impl PathAcc {
             }
             return;
         }
-        // Tolerance in user units: 0.1 device pixel.
-        let scale = {
-            let c = ctm.as_coeffs();
-            (c[0] * c[3] - c[1] * c[2]).abs().sqrt().max(1e-9)
-        };
-        let tol = 0.1 / scale;
         let arc = Arc::new(center, Vec2::new(rx, ry), start, sweep, rot);
-        for el in arc.append_iter(tol.max(1e-9)) {
+        for el in arc.append_iter(arc_tolerance(ctm, rx.max(ry))) {
             if let PathEl::CurveTo(a, b, c) = el {
                 self.cubic_to(ctm * a, ctm * b, ctm * c);
             }
@@ -258,12 +275,8 @@ impl PathAcc {
             sweep = PI;
         }
         self.line_to(ctm * t1);
-        let scale = {
-            let c = ctm.as_coeffs();
-            (c[0] * c[3] - c[1] * c[2]).abs().sqrt().max(1e-9)
-        };
         let arc = Arc::new(center, Vec2::new(r, r), a1, sweep, 0.0);
-        for el in arc.append_iter((0.1 / scale).max(1e-9)) {
+        for el in arc.append_iter(arc_tolerance(ctm, r)) {
             if let PathEl::CurveTo(a, b, c) = el {
                 self.cubic_to(ctm * a, ctm * b, ctm * c);
             }

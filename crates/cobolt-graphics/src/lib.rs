@@ -8,9 +8,12 @@
 
 pub mod canvas;
 pub mod color;
+pub(crate) mod detmath;
 pub mod display_list;
 pub mod error;
 pub mod handles;
+#[cfg(feature = "imagebuf")]
+pub mod imagebuf;
 pub mod limits;
 pub mod par;
 pub mod pixels;

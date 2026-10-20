@@ -23,7 +23,7 @@ default = ["parallel", "text", "imagebuf", "plot", "physics", "scene3d"]
 # gives a purely sequential build whose results are IDENTICAL, bit for bit.
 # On `wasm32-unknown-unknown` WITHOUT the `atomics` target feature (the plain
 # player) the crate runs sequentially even with this feature on - see `par`.
-parallel = ["dep:rayon", "rapier2d?/parallel", "rapier3d?/parallel"]
+parallel = ["dep:rayon", "rapier2d?/parallel", "rapier3d?/parallel", "imageproc?/rayon", "fast_image_resize?/rayon"]
 
 # Shaped, bidirectional, wrapped text (R8) - harfrust, skrifa, fontdb,
 # unicode-bidi, icu_segmenter.

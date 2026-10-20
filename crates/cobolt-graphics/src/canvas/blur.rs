@@ -64,9 +64,75 @@ pub(crate) fn kernel_q16(sigma: f64) -> Vec<u32> {
     full
 }
 
+/// Above this sigma the exact kernel would cost too much per pixel and three
+/// box blurs (which approximate a Gaussian to within a few percent, the way
+/// browsers and the CSS specification do it) take over.
+pub(crate) const EXACT_KERNEL_MAX_SIGMA: f64 = 6.0;
+
+/// The three box widths whose repeated blur approximates a Gaussian of `sigma`
+/// ("ideal averaging filter widths", Kovesi); each is odd.
+pub(crate) fn box_widths(sigma: f64) -> [usize; 3] {
+    let n = 3.0f64;
+    let ideal = (12.0 * sigma * sigma / n + 1.0).sqrt();
+    let mut wl = ideal.floor() as i64;
+    if wl % 2 == 0 {
+        wl -= 1;
+    }
+    let wl = wl.max(1);
+    let wu = wl + 2;
+    let m = ((12.0 * sigma * sigma - n * (wl * wl) as f64 - 4.0 * n * wl as f64 - 3.0 * n) / (-4.0 * wl as f64 - 4.0)).round();
+    let m = m.clamp(0.0, 3.0) as usize;
+    let mut out = [wu as usize; 3];
+    for slot in out.iter_mut().take(m) {
+        *slot = wl as usize;
+    }
+    out
+}
+
+/// One box blur pass along rows (`stride` 1) or columns (`stride` = width), on values
+/// scaled by 256, with a running sum: the cost per pixel does not depend on the width.
+fn box_pass(src: &[u32], dst: &mut [u32], len: usize, lines: usize, line_stride: usize, step: usize, width: usize) {
+    let r = width / 2;
+    let div = width as u64;
+    for line in 0..lines {
+        let base = line * line_stride;
+        let at = |i: usize| src[base + i * step] as u64;
+        let mut sum: u64 = 0;
+        for i in 0..=r.min(len.saturating_sub(1)) {
+            sum += at(i);
+        }
+        for i in 0..len {
+            dst[base + i * step] = ((sum + div / 2) / div) as u32;
+            let add = i + r + 1;
+            if add < len {
+                sum += at(add);
+            }
+            if i >= r {
+                sum -= at(i - r);
+            }
+        }
+    }
+}
+
+fn blur_alpha_box3(plane: &mut [u8], w: usize, h: usize, sigma: f64) {
+    let mut a: Vec<u32> = plane.iter().map(|&v| v as u32 * 256).collect();
+    let mut b = vec![0u32; a.len()];
+    for width in box_widths(sigma) {
+        box_pass(&a, &mut b, w, h, w, 1, width);
+        box_pass(&b, &mut a, h, w, 1, w, width);
+    }
+    for (o, v) in plane.iter_mut().zip(a.iter()) {
+        *o = ((*v + 128) >> 8).min(255) as u8;
+    }
+}
+
 /// Blur an 8-bit alpha plane in place; pixels outside the plane count as 0.
 pub(crate) fn blur_alpha(plane: &mut [u8], w: usize, h: usize, sigma: f64) {
     if sigma <= 0.0 || w == 0 || h == 0 || plane.len() != w * h {
+        return;
+    }
+    if sigma > EXACT_KERNEL_MAX_SIGMA {
+        blur_alpha_box3(plane, w, h, sigma);
         return;
     }
     let k = kernel_q16(sigma);
@@ -140,6 +206,51 @@ mod tests {
         assert!(p[20 * w + 23] > p[20 * w + 30]);
         assert_eq!(p[20 * w + 21], p[20 * w + 19], "symmetric");
         assert_eq!(p[21 * w + 20], p[19 * w + 20], "symmetric");
+    }
+
+    #[test]
+    fn large_sigmas_use_box_blurs_that_keep_the_energy_and_the_symmetry() {
+        let (w, h) = (121usize, 121usize);
+        let mut p = vec![0u8; w * h];
+        for y in 58..63 {
+            for x in 58..63 {
+                p[y * w + x] = 255;
+            }
+        }
+        let before: u32 = p.iter().map(|&v| v as u32).sum();
+        blur_alpha(&mut p, w, h, 10.0);
+        let after: u32 = p.iter().map(|&v| v as u32).sum();
+        assert!((after as f64 / before as f64 - 1.0).abs() < 0.03, "energy {before} -> {after}");
+        assert_eq!(p[60 * w + 50], p[60 * w + 70], "symmetric");
+        assert_eq!(p[50 * w + 60], p[70 * w + 60], "symmetric");
+        assert!(p[60 * w + 60] > p[60 * w + 75]);
+    }
+
+    #[test]
+    fn the_box_approximation_tracks_the_exact_kernel() {
+        let (w, h) = (101usize, 101usize);
+        let mut dot = vec![0u8; w * h];
+        for y in 45..56 {
+            for x in 45..56 {
+                dot[y * w + x] = 255;
+            }
+        }
+        let mut exact = dot.clone();
+        // Just under the switch-over, the exact kernel; just over it, the boxes.
+        blur_alpha(&mut exact, w, h, 5.99);
+        let mut boxed = dot.clone();
+        blur_alpha(&mut boxed, w, h, 6.01);
+        let worst = exact.iter().zip(&boxed).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+        assert!(worst <= 14, "the two methods agree to within {worst} levels at the switch-over (5 %)");
+    }
+
+    #[test]
+    fn box_widths_are_odd_and_grow_with_sigma() {
+        for s in [6.1, 10.0, 50.0, 256.0] {
+            let w = box_widths(s);
+            assert!(w.iter().all(|x| x % 2 == 1), "{w:?}");
+        }
+        assert!(box_widths(50.0)[0] > box_widths(10.0)[0]);
     }
 
     #[test]

@@ -38,9 +38,9 @@
 //! | A `roundRect` with a `DOMPointInit` radius | four numbers, one per corner |
 
 mod band;
-mod blur;
+pub(crate) mod blur;
 mod flatten;
-mod paint;
+pub(crate) mod paint;
 mod path;
 mod state;
 

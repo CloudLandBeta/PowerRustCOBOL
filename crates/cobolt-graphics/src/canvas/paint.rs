@@ -279,6 +279,19 @@ pub(crate) fn raster(
     pm.fill_path(path, &paint, rule, Transform::identity(), m);
 }
 
+/// How finely the stroker approximates curved offsets, from the transform that will
+/// be applied to its outline. The stroker's work grows with this number, so it is
+/// capped: past a scale of 256 the drawing is far larger than any canvas and only
+/// hostile numbers get there.
+pub(crate) fn stroke_resolution(ts: &Transform) -> f32 {
+    let r = tiny_skia::PathStroker::compute_resolution_scale(ts);
+    if r.is_finite() {
+        r.clamp(0.01, 256.0)
+    } else {
+        1.0
+    }
+}
+
 /// Build the rasteriser stroke for the current line style.
 pub(crate) fn make_stroke(width: f32, cap: LineCap, join: LineJoin, miter: f32, dash: &[f32], offset: f32) -> Stroke {
     let mut s = Stroke {
@@ -344,7 +357,8 @@ pub(crate) fn shadow_params(s: &Shadow, ratio: f32) -> Option<(i32, i32, f64)> {
     if !(dx.is_finite() && dy.is_finite() && sigma.is_finite()) {
         return None;
     }
-    Some((dx.clamp(-1.0e5, 1.0e5) as i32, dy.clamp(-1.0e5, 1.0e5) as i32, sigma.min(1.0e3)))
+    // A blur of 512 device pixels (sigma 256) is far past anything drawn on purpose.
+    Some((dx.clamp(-1.0e5, 1.0e5) as i32, dy.clamp(-1.0e5, 1.0e5) as i32, sigma.min(256.0)))
 }
 
 /// Draw the shadow of a shape: the shape is rendered alone into a layer, its
@@ -360,6 +374,11 @@ pub(crate) fn draw_shadow(pm: &mut Pixmap, job: &ShadowJob<'_>) {
     let lx1 = (b.right().ceil() as i64 + margin).min(job.band_w as i64 - dx as i64 + margin);
     let ly1 = (b.bottom().ceil() as i64 + margin).min(job.band_h as i64 - dy as i64 + margin);
     if lx1 <= lx0 || ly1 <= ly0 {
+        return;
+    }
+    // A shape and a blur that would need a layer of more than 32 megapixels are not drawn
+    // (only hostile numbers get there: the layer never reaches beyond the band plus the blur).
+    if (lx1 - lx0) as u64 * (ly1 - ly0) as u64 > 32_000_000 {
         return;
     }
     let (lw, lh) = ((lx1 - lx0) as u32, (ly1 - ly0) as u32);

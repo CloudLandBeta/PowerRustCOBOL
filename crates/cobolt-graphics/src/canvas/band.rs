@@ -23,6 +23,7 @@ use tiny_skia::{IntRect, Mask, Path, Pixmap, Transform};
 
 use super::flatten::{map_to_tiny, to_tiny};
 use super::paint::*;
+use super::path::circle_path;
 use super::state::*;
 use crate::color::Rgba;
 use crate::display_list::consts::*;
@@ -200,7 +201,7 @@ impl Band {
         let ctm = g.ctm;
         let ts = to_ts(ctm);
         let stroke = make_stroke(g.line_width, g.cap, g.join, g.miter_limit, &g.dash, g.dash_offset);
-        let res_scale = tiny_skia::PathStroker::compute_resolution_scale(&ts);
+        let res_scale = stroke_resolution(&ts);
         let Some(outline) = user.stroke(&stroke, res_scale) else { return };
         // The outline's curves are flattened in device space, in f64 (see flatten.rs).
         let Some(dev) = self.map_dev(&outline, ctm) else { return };
@@ -529,12 +530,7 @@ impl Band {
                 if radius < 0.0 {
                     return Ok(());
                 }
-                let circle = kurbo::Circle::new(Point::new(x as f64, y as f64), radius as f64);
-                let scale = {
-                    let c = self.st.cur.ctm.as_coeffs();
-                    (c[0] * c[3] - c[1] * c[2]).abs().sqrt().max(1e-9)
-                };
-                let user = circle.to_path(0.1 / scale);
+                let user = circle_path(Point::new(x as f64, y as f64), radius as f64, self.st.cur.ctm);
                 if mode & MODE_FILL != 0 {
                     let mut dev = user.clone();
                     dev.apply_affine(self.st.cur.ctm);
@@ -773,7 +769,7 @@ impl Band {
             C::ReadPixel { slot, x, y } => {
                 let color = if x.is_finite() && y.is_finite() {
                     let (px, py) = ((x * ctx.ratio).floor() as i64, (y * ctx.ratio).floor() as i64);
-                    let row = py - self.y0 as i64;
+                    let row = py.saturating_sub(self.y0 as i64);
                     if px >= 0 && row >= 0 && (px as u64) < self.w as u64 && (row as u64) < self.h as u64 {
                         self.pm.pixel(px as u32, row as u32).map(|p| {
                             let c = p.demultiply();
@@ -879,7 +875,7 @@ impl Band {
         let Some(up) = curves_to_tiny(&user) else { return false };
         let ts = to_ts(g.ctm);
         let stroke = make_stroke(g.line_width, g.cap, g.join, g.miter_limit, &g.dash, g.dash_offset);
-        let res_scale = tiny_skia::PathStroker::compute_resolution_scale(&ts);
+        let res_scale = stroke_resolution(&ts);
         let Some(outline) = up.stroke(&stroke, res_scale) else { return false };
         // Flatten in device space (the same polygon the fill would use) and take its winding number.
         let Some(dev) = map_to_tiny(&outline, g.ctm, 0.0, self.grid) else { return false };
