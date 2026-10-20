@@ -33,7 +33,7 @@ text = ["dep:harfrust", "dep:skrifa", "dep:fontdb", "dep:unicode-bidi", "dep:icu
 imagebuf = ["dep:image", "dep:imageproc", "dep:fast_image_resize"]
 
 # Plot (R12).
-plot = ["text", "dep:plotters"]
+plot = ["text", "dep:plotters", "dep:plotters-backend"]
 
 # Physics2D / Physics3D (R10).
 physics = ["dep:rapier2d", "dep:rapier3d"]
@@ -70,7 +70,11 @@ imageproc         = { version = "0.27", optional = true, default-features = fals
 fast_image_resize = { version = "6", optional = true, default-features = false, features = ["std"] }
 
 # Charts.
-plotters = { version = "0.3", optional = true, default-features = false, features = ["svg_backend", "all_series", "all_elements", "ab_glyph"] }
+# Without `ttf` (font-kit, C libraries) and without `ab_glyph`: the charts are laid out and drawn
+# by OUR backends (plot/backend.rs) with this crate's text engine. See plan.md for why plotters'
+# own font layer cannot be used on wasm32 (it measures text through the browser DOM).
+plotters = { version = "0.3", optional = true, default-features = false, features = ["svg_backend", "all_series", "all_elements"] }
+plotters-backend = { version = "0.3", optional = true }
 
 # Physics.
 rapier2d = { version = "0.36", optional = true, default-features = false, features = ["dim2", "f32", "std", "enhanced-determinism"] }
