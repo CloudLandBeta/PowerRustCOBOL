@@ -17,6 +17,30 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.24] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.23. The player agent's seven commits, taken in order as cherry-picks: `3d59c8b0`, `21f84d13`, `4c65989e`, `8ec7e932`, `d09bb41a`, `065eb3c1`, `9860e9cf` on `worktree-agent-ae5ab6056533b0f2f`.)*
+
+### Added: the prebuilt player, the loader and host page, the bundle assembler and the ABI v1 crate (WASM-016, WASM-017, WASM-002 in part, WASM-009 in part)
+
+The browser half of the WebAssembly line, verified in a real Chrome and in node with a fixture module (no generated module is needed to run it):
+
+- **`cobolt-wasm-abi`** — ABI v1 as code: the batch and command codecs (`batch.rs`), the manifest reader (`manifest.rs`), the error and status codes (`codes.rs`), a module scanner (`scan.rs`, which proves a module imports and exports exactly what the ABI names) and fixture modules (`fixture.rs`) that the player's tests run on `wasmi`. This is the contract the generator's `compile_project` is held to.
+- **`cobolt-web-player`** (its own Cargo workspace, built with `cargo run --manifest-path crates/cobolt-web-player/Cargo.toml --example build_player`) — the ABI host, form state, the property and method tables, the WebLink policy and the Authentication machine, tested natively; the page (every control type as a DOM element, the shell with SideMenu rail, embedded child form and breadcrumb, dialogs, notifications, menus, charts, maps, the Viewer); the Authentication screens, wire, reCAPTCHA, hosted return and silent refresh. No `innerHTML`, `eval`, `Function` or `unsafe-inline` anywhere (a test scans 35 source files, 14,098 code lines, 25 forbidden names). Sizes after `wasm-opt`: plain 2,136,155 bytes (gzip 737,875), threaded 2,098,499 (gzip 737,113); Mermaid is a part of its own (1,906,933 bytes) loaded on first use — the player lost 1.75 MB by it.
+- **`cobolt-web-bundle`** — the loader (variant choice by `crossOriginIsolated`, Worker or main thread, integrity check, parts), the host-page templates, the CSP and Trusted-Types policy, the secret search over sources and bundles, the bundle assembler (`assemble_bundle`), a development server and a mock backend over a real WebSocket. The loader, worker, app and cross-origin-isolation shim `.js` files under `crates/cobolt-web-bundle/assets/` are product assets requested by the operator, not scripts.
+- **`cobolt-forms`** gains two default-on features, `pdf-reader` (lopdf → `time 0.2` → `stdweb` does not build for `wasm32`) and `mermaid`; `render` implies both, so a native build is unchanged. `viewer.rs` changed with them.
+- **ABI amendments A1–A8** in `specs/WASM-ABI-v1.md` §12 (`pr_status`, `pr_close_form` returns a status, optional `pr_dbg_*`, `ERROR.code` as a magnitude, several suspended tasks one per instance, failed remote calls answered with an error frame, the verb vocabulary and the argument text of every event, the connection envelope). A5–A7 bind the generator; A8 and the Authentication wire are the player's proposals pending WASM-014.
+
+Measured, in Chrome: 100 open/close cycles of a form in 1,134 ms with DOM nodes 699→699, host instances 1→1, module live 1→1; 1,000 property writes in one batch = 1 flush, 0 queries; a 20 MB string round trip with multibyte UTF-8; the yield loop's longest main-thread gap 5.3–5.4 ms; with `COOP`/`COEP` the Worker mode, without them the main-thread mode (13 node scenarios, both program variants). Tests: player 199 lib + 21 ABI-host + 3 sink + 4 dependency-guard; bundle 18 lib + 2 + 2 + the node end-to-end; `cobolt-forms --features render` 1,687 passed, 0 failed, identical before and after.
+
+**Not done** (the player's own list, kept so that none of it is lost): `plan.md` and `tasks.md` for WASM-016, 002, 004, 006, 007 and 011; the threaded variant exercised in a browser; the shell's route push after an embedded form opens re-checked in Chrome; 19 dead-code warnings; the freshness test of a shipped player (WASM-016 AC7); live reCAPTCHA, an accessibility checker, a keyboard walk, WebLink navigation, map pan/zoom, knob drag and FileDropZone in a real browser; `super` messaging across standalone windows (WASM-011 R11); route parameters; TabOrder; PDF rendering; Canvas 2D/3D drawing (the display-list waits on the graphics crate).
+
+**Needs the operator's ruling:** the player does **not** use Leptos (WASM-016 R1/Q2 name it). Its DOM layer is a small keyed virtual DOM over `web-sys` — the host is a state machine that must patch live DOM while keeping caret, focus and scroll, and signals added nothing; replacing the layer is contained behind its `Surface` trait. The player is its own Cargo workspace because `wasm-bindgen` must equal the installed CLI (0.2.129) while the main lock pins 0.2.126. `mermaid-rs-renderer` 0.2.2 is vendored with a patch (MIT, `LICENSE` kept): it called `std::time::Instant::now()` unconditionally, which panics on `wasm32-unknown-unknown`, so every diagram trapped; the patch is a clock shim.
+
+Version 2.0.24. `README.md` and `docs/` are untouched on this line.
+
+*(Written on `features-2x`.)*
+
 ## [PowerRustCOBOL 2.0.23] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.22.)*

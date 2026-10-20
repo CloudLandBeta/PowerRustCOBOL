@@ -68,9 +68,17 @@ Divergences from the interpreter found on the way are in `WASM-PARITY.md`.
 
 Next under GOLDEN RULE #9: **IF (Intrinsic Functions)**, then IC — IF needs `FUNCTION` calls in the generator (the module currently refuses them), IC needs nested programs and `CALL`/`LINKAGE`.
 
+## The player, loader, host page and bundle — merged (2026-10-20, version 2.0.24)
+
+The player agent's seven commits are on `features-2x` (cherry-picked in order). What stands, how it was measured and what is not done is in the CHANGELOG entry for 2.0.24; the points that bind the rest of the work:
+
+- **ABI A5–A7 bind the generator**: one suspended task per form instance with tasks of different instances interleaving (`OpenFormSync`), `pr_cancel(-1)` discards a trapped run, `pr_close_form` returns a status, `pr_status` exists, `ERROR.code` is a magnitude, and §12.1/§12.2 give the verbs of `COBOL::`/`me::` and the argument text of each event. The form exports in `compile_project` are written against them.
+- **Needs the operator's ruling**: Leptos is not used (WASM-016 R1/Q2). The deviation is contained behind the `Surface` trait; nothing else in the player depends on it.
+- **Open items of the player** (to finish, none postponed): the plan and tasks files of WASM-016, 002, 004, 006, 007, 011; the threaded variant run in a browser (Rayon DataGrid sort); the shell route push re-checked in Chrome; the dead-code warnings; WASM-016 AC7 (a shipped player is fresh); the WASM-015 R20 browser matrix cells it could not measure.
+
 ## Where the work stopped (2026-10-20, 2.0.23; usage limit reached)
 
-Next, in order: (1) finish `module.rs`'s form exports — instance table, `pr_open_form`/`pr_event`/`pr_resume`/`pr_cancel`/`pr_tick`/`pr_close_form`/`pr_status`, the `query` and `random` glue, manifest `forms`/`names`/`events`; (2) value methods on data items (`Trim`, `Upper`, `Lower`, `Replace`, `Len`, `Split`); (3) a form-driving test host and a button-click test; (4) phase C — `remote` glue, suspension, `CALL … WITH WEBSOCKET LINKAGE`, JSON mapping (golden vectors from the backend agent); (5) merge the backend agent (branch `worktree-agent-a24ab0673830285c1`: `CALL … WITH WEBSOCKET LINKAGE`, JSON mapping, `cobolt-server`) and the player agent (`worktree-agent-ae5ab6056533b0f2f`: `cobolt-wasm-abi`, `cobolt-web-player`, `cobolt-web-bundle`) — both still running when the limit was reached, nothing of theirs is in `features-2x` yet; (6) end-to-end IDE Build → bundle → player; (7) NIST interpreter regression for the additive AST fields (`FileDescription::is_external`, `UseProcedure::is_global`); (8) security gates, KB tables, CLAUDE.md and memory refresh.
+Next, in order: (1) finish `module.rs`'s form exports — instance table, `pr_open_form`/`pr_event`/`pr_resume`/`pr_cancel`/`pr_tick`/`pr_close_form`/`pr_status`, the `query` and `random` glue, manifest `forms`/`names`/`events`; (2) value methods on data items (`Trim`, `Upper`, `Lower`, `Replace`, `Len`, `Split`); (3) a form-driving test host and a button-click test; (4) phase C — `remote` glue, suspension, `CALL … WITH WEBSOCKET LINKAGE`, JSON mapping (golden vectors from the backend agent); (5) merge the backend agent (branch `worktree-agent-a24ab0673830285c1`: `CALL … WITH WEBSOCKET LINKAGE`, JSON mapping, `cobolt-server`) — still running; the player agent is merged (2.0.24); (6) end-to-end IDE Build → bundle → player; (7) NIST interpreter regression for the additive AST fields (`FileDescription::is_external`, `UseProcedure::is_global`); (8) security gates, KB tables, CLAUDE.md and memory refresh.
 
 ## NIST IC on generated modules — finished (2026-10-20, version 2.0.22)
 
