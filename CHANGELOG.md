@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.6] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.5.)*
+
+### Changed: the WASM specs record that direct generation is confirmed
+
+The operator's message of 2026-10-19 had listed three answers about the execution model that disagreed with each other and with the ruling on file. Asked which was meant, the operator answered on 2026-10-20: **keep direct generation** — the compiler emits the WebAssembly from the AST, with no Rust step and no interpreter, and a Web build needs no Rust toolchain. WASM-010 Q1 and the index's D1b move from "decided by implication" to "decided and confirmed"; no requirement changed.
+
+The same answer asked for the `CALL … RETURNING` fix to be merged into `main`; it was, as a fast-forward of the local `main` to `8a15f00d` (1.91.219), nothing pushed. No code, `README.md` or file in `docs/` changed here; the version moves because this is a change.
+
 ## [PowerRustCOBOL 2.0.5] — 2026-10-19
 
 *(Written on `features-2x`, after 2.0.4.)*

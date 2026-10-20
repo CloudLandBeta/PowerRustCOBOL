@@ -153,8 +153,8 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 
 ## 7. Open questions
 
-- **Q1 — "Directly" — decided by implication.** The operator asked whether it is possible; this spec said yes; and the operator then chose *"two `.wasm` files… a Web build with no Rust toolchain"* (Q10), which only holds if the COBOL is emitted
-  directly and not through Rust. If that reading is wrong, R1, R2 and R6 change and a Rust toolchain returns to the build.
+- **Q1 — "Directly" — decided and confirmed.** The operator asked whether it is possible; this spec said yes; the operator chose *"two `.wasm` files… a Web build with no Rust toolchain"* (Q10), and on 2026-10-20, offered the alternatives — a COBOL → Rust transpiler, or the
+  interpreter compiled to `wasm32` — answered **keep direct generation**. R1, R2 and R6 stand as written.
 - **Q2 — The emitter and the test engine.** `wasm-encoder` (a pure-Rust emitter already in the lock file transitively) or a small writer of our own; and a pure-Rust engine for the headless runs (`wasmi`) or `wasmtime`. Probe licence,
   MSRV 1.92 and weight at `/plan`.
 - **Q3 — How the routines are authored, given "no runtime".** (a) Written once in Rust, compiled to WebAssembly when the *product* is built, kept in the compiler as a blob, and **linked statically into each module with the unused
