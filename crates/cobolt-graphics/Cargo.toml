@@ -83,7 +83,9 @@ rapier3d = { version = "0.36", optional = true, default-features = false, featur
 # 3D.
 wgpu     = { version = "30", optional = true, default-features = false, features = ["std", "parking_lot", "wgsl"] }
 naga     = { version = "30", optional = true, default-features = false, features = ["wgsl-in"] }
-glam     = { version = "0.34", optional = true }
+# glam 0.33: the same release rapier and parry (through glamx) use, so a Scene3D node and a physics
+# body share one vector type and no second glam enters the tree.
+glam     = { version = "0.33", optional = true }
 gltf     = { version = "1.4", optional = true, default-features = false, features = ["utils", "names"] }
 parry3d  = { version = "0.31", optional = true, default-features = false, features = ["dim3", "f32", "std"] }
 pollster = { version = "0.4", optional = true }

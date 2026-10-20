@@ -17,6 +17,8 @@ pub mod imagebuf;
 pub mod limits;
 pub mod par;
 pub mod pixels;
+#[cfg(feature = "physics")]
+pub mod physics;
 #[cfg(feature = "plot")]
 pub mod plot;
 pub mod resources;
