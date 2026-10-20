@@ -14,7 +14,7 @@ use rapier2d::math::{Rotation, Vector};
 use rapier2d::pipeline::{ActiveEvents, EventHandler, PhysicsWorld, QueryFilter};
 
 use super::{
-    finite, positive, BindTarget, BodyKind, Bound2, Collector, CollisionEvent, CollisionKind, RawEvent, RayHit, ShapeOptions, StepReport,
+    finite, guarded, positive, BindTarget, BodyKind, Bound2, Collector, CollisionEvent, CollisionKind, RawEvent, RayHit, ShapeOptions, StepReport,
     Stepper,
 };
 use crate::error::{GraphicsError, Result};
@@ -175,6 +175,9 @@ impl Physics2D {
     /// (0 returns to the default pool). The results do not depend on the number; a
     /// test uses this to prove it. Without the `parallel` feature it does nothing.
     pub fn set_threads(&mut self, world: Handle, threads: usize) -> Result<()> {
+        if threads > 256 {
+            return Err(GraphicsError::invalid("a world uses at most 256 threads"));
+        }
         #[cfg(feature = "parallel")]
         {
             let w = self.w(world)?;
@@ -293,11 +296,14 @@ impl Physics2D {
     /// `AddConvexHull`: the convex hull of a point cloud, in the body's space.
     pub fn add_convex_hull(&mut self, world: Handle, body: Handle, points: &[[f32; 2]], o: &ShapeOptions) -> Result<Handle> {
         self.limits.check_path_points(points.len() as u64)?;
+        if points.len() < 3 {
+            return Err(GraphicsError::invalid("a convex hull needs at least three points"));
+        }
         for p in points {
             finite("a point", p)?;
         }
         let pts: Vec<Vector> = points.iter().map(|p| v2(*p)).collect();
-        let b = ColliderBuilder::convex_hull(&pts).ok_or_else(|| GraphicsError::invalid("the points do not span a convex polygon (a hull needs at least three points that are not on one line)"))?;
+        let b = guarded("the convex hull (it needs at least three points that are not on one line)", || ColliderBuilder::convex_hull(&pts))?;
         self.add_shape(world, body, b, o)
     }
 

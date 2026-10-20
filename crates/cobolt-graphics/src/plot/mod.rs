@@ -54,7 +54,7 @@ pub mod table;
 use plotters::prelude::IntoDrawingArea;
 
 pub use backend::{ListBackend, SvgPlotBackend};
-pub use table::{read_table, Column, NumKind, Table, TableSpec, ZonedSign};
+pub use table::{parse_columns, read_table, Column, NumKind, Table, TableSpec, ZonedSign};
 
 use std::sync::Arc;
 
@@ -300,6 +300,11 @@ impl Plot {
     /// How many series are live.
     pub fn series_count(&self) -> usize {
         self.series.len()
+    }
+
+    /// About how much memory the series hold, for the registry's accounting.
+    pub fn memory_bytes(&self) -> u64 {
+        self.series.iter().map(|(_, s)| s.points() as u64 * 40).sum::<u64>() + 1024
     }
 
     /// Empty a series (its settings stay).

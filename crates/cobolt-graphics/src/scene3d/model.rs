@@ -294,6 +294,7 @@ impl Scene3D {
         match outcome {
             Ok(()) => {
                 info.triangles = self.triangles.saturating_sub(tris_before);
+                self.last_warnings = info.warnings.clone();
                 Ok(info)
             }
             Err(e) => {

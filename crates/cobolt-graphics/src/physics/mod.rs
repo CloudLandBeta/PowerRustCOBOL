@@ -270,16 +270,31 @@ impl Stepper {
     }
 }
 
+/// The largest magnitude a position, velocity, force or shape size may have: far beyond any scene
+/// (a hundred thousand kilometres) and far below where `f32` arithmetic and the solver's geometry
+/// start to overflow.
+pub(crate) const MAX_MAGNITUDE: f32 = 1.0e8;
+
 pub(crate) fn finite(what: &str, v: &[f32]) -> crate::Result<()> {
-    if v.iter().all(|x| x.is_finite()) {
+    if v.iter().all(|x| x.is_finite() && x.abs() <= MAX_MAGNITUDE) {
         Ok(())
     } else {
-        Err(crate::GraphicsError::invalid(format!("{what} must be finite numbers")))
+        Err(crate::GraphicsError::invalid(format!("{what} must be finite numbers no larger than 100,000,000")))
+    }
+}
+
+/// Build a shape inside the geometry library, turning a panic there (it asserts on degenerate
+/// input such as collinear points or overflow) into an error: a program's numbers never crash the host.
+pub(crate) fn guarded<R>(what: &str, build: impl FnOnce() -> Option<R>) -> crate::Result<R> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
+        Ok(Some(r)) => Ok(r),
+        Ok(None) => Err(crate::GraphicsError::invalid(format!("{what} is not a usable shape (it is degenerate)"))),
+        Err(_) => Err(crate::GraphicsError::invalid(format!("{what} could not be built from these numbers"))),
     }
 }
 
 pub(crate) fn positive(what: &str, v: f32) -> crate::Result<()> {
-    if v.is_finite() && v > 0.0 {
+    if v.is_finite() && v > 0.0 && v <= MAX_MAGNITUDE {
         Ok(())
     } else {
         Err(crate::GraphicsError::invalid(format!("{what} must be greater than zero")))

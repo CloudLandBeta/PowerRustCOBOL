@@ -415,12 +415,14 @@ pub struct CommandInfo {
     pub method: &'static str,
     /// The operands in wire order: `(name, kind)`.
     pub operands: &'static [(&'static str, &'static str)],
+    /// What it does, in one line.
+    pub doc: &'static str,
 }
 
 macro_rules! commands {
     (
         $(
-            $(#[$doc:meta])*
+            $(#[doc = $doc:literal])*
             $op:literal $name:ident $snake:ident { $( $f:ident : $t:ty ),* $(,)? }
         )*
     ) => {
@@ -429,7 +431,7 @@ macro_rules! commands {
         #[derive(Debug, Clone, PartialEq)]
         #[allow(missing_docs)]
         pub enum Command<'a> {
-            $( $(#[$doc])* $name { $( $f: <$t as OperandKind>::Value<'a> ),* } ),*
+            $( $(#[doc = $doc])* $name { $( $f: <$t as OperandKind>::Value<'a> ),* } ),*
         }
 
         impl<'a> Command<'a> {
@@ -472,6 +474,7 @@ macro_rules! commands {
                 name: stringify!($name),
                 method: stringify!($snake),
                 operands: &[ $( (stringify!($f), <$t as OperandKind>::KIND) ),* ],
+                doc: concat!($($doc),*),
             } ),*
         ];
 

@@ -14,7 +14,7 @@ use rapier3d::math::{Rotation, Vector};
 use rapier3d::pipeline::{ActiveEvents, EventHandler, PhysicsWorld, QueryFilter};
 
 use super::{
-    finite, positive, BindTarget, BodyKind, Bound3, Collector, CollisionEvent, CollisionKind, RawEvent, RayHit, ShapeOptions, StepReport,
+    finite, guarded, positive, BindTarget, BodyKind, Bound3, Collector, CollisionEvent, CollisionKind, RawEvent, RayHit, ShapeOptions, StepReport,
     Stepper,
 };
 use crate::error::{GraphicsError, Result};
@@ -184,6 +184,9 @@ impl Physics3D {
     /// (0 returns to the default pool). The results do not depend on the number; a
     /// test uses this to prove it. Without the `parallel` feature it does nothing.
     pub fn set_threads(&mut self, world: Handle, threads: usize) -> Result<()> {
+        if threads > 256 {
+            return Err(GraphicsError::invalid("a world uses at most 256 threads"));
+        }
         #[cfg(feature = "parallel")]
         {
             let w = self.w(world)?;
@@ -302,11 +305,14 @@ impl Physics3D {
     /// `AddConvexHull`: the convex hull of a point cloud, in the body's space.
     pub fn add_convex_hull(&mut self, world: Handle, body: Handle, points: &[[f32; 3]], o: &ShapeOptions) -> Result<Handle> {
         self.limits.check_path_points(points.len() as u64)?;
+        if points.len() < 4 {
+            return Err(GraphicsError::invalid("a convex hull needs at least four points"));
+        }
         for p in points {
             finite("a point", p)?;
         }
         let pts: Vec<Vector> = points.iter().map(|p| v3(*p)).collect();
-        let b = ColliderBuilder::convex_hull(&pts).ok_or_else(|| GraphicsError::invalid("the points do not span a convex solid (a hull needs at least four points that are not in one plane)"))?;
+        let b = guarded("the convex hull (it needs at least four points that are not in one plane)", || ColliderBuilder::convex_hull(&pts))?;
         self.add_shape(world, body, b, o)
     }
 
@@ -323,8 +329,7 @@ impl Physics3D {
         if triangles.iter().any(|t| t.iter().any(|&i| i as usize >= vertices.len())) {
             return Err(GraphicsError::invalid("a triangle refers to a vertex that does not exist"));
         }
-        let b = ColliderBuilder::trimesh(vertices.iter().map(|p| v3(*p)).collect(), triangles.to_vec())
-            .map_err(|e| GraphicsError::invalid(format!("the triangle mesh is not usable: {e:?}")))?;
+        let b = guarded("the triangle mesh", || ColliderBuilder::trimesh(vertices.iter().map(|p| v3(*p)).collect(), triangles.to_vec()).ok())?;
         self.add_shape(world, body, b, o)
     }
 

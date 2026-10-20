@@ -33,6 +33,7 @@ pub struct Canvas3D {
     height: u32,
     msaa: u32,
     camera: Option<Handle>,
+    scene: Option<Handle>,
     limits: Limits,
     config: RendererConfig,
     renderer: Option<Renderer>,
@@ -51,7 +52,7 @@ impl Canvas3D {
     /// A canvas of this size (checked against the limits), not yet connected to a graphics device.
     pub fn new(width: u32, height: u32, limits: Limits) -> Result<Canvas3D> {
         limits.check_canvas(width, height, 1.0)?;
-        Ok(Canvas3D { width, height, msaa: 4, camera: None, limits, config: RendererConfig::default(), renderer: None, status: None, events: Vec::new(), last_frame: None })
+        Ok(Canvas3D { width, height, msaa: 4, camera: None, scene: None, limits, config: RendererConfig::default(), renderer: None, status: None, events: Vec::new(), last_frame: None })
     }
 
     /// Use shadow maps of this edge (256 to 8192 texels). Takes effect at the next connect.
@@ -123,6 +124,16 @@ impl Canvas3D {
     /// The renderer, for a host that shares the device.
     pub fn renderer(&self) -> Option<&Renderer> {
         self.renderer.as_ref()
+    }
+
+    /// `SetScene`: the scene (a handle in the host's registry) this canvas shows.
+    pub fn set_scene(&mut self, scene: Option<Handle>) {
+        self.scene = scene;
+    }
+
+    /// The scene this canvas shows.
+    pub fn scene(&self) -> Option<Handle> {
+        self.scene
     }
 
     /// `SetCamera`: look through this camera node (`None`: the scene's first camera, or one that frames everything).

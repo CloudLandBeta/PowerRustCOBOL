@@ -97,7 +97,7 @@ pub(crate) fn threshold(img: &mut PixelBuffer, level: u8) {
 
 fn apply_matrix(img: &mut PixelBuffer, m: [[f64; 3]; 3]) {
     // Q14 fixed point.
-    let q: [[i32; 3]; 3] = m.map(|row| row.map(|v| (v * 16384.0).round() as i32));
+    let q: [[i32; 3]; 3] = m.map(|row| row.map(|v| (v.clamp(-100.0, 100.0) * 16384.0).round() as i32));
     each_pixel(img, move |p| {
         let (r, g, b) = (p[0] as i32, p[1] as i32, p[2] as i32);
         for (i, row) in q.iter().enumerate() {
@@ -112,7 +112,8 @@ pub(crate) fn hue(img: &mut PixelBuffer, degrees: f32) {
     if !degrees.is_finite() {
         return;
     }
-    let (s, c) = sin_cos(radians(degrees as f64));
+    // A whole number of turns changes nothing; reducing first keeps the angle small (and exact: % on f64 is exact).
+    let (s, c) = sin_cos(radians((degrees as f64) % 360.0));
     apply_matrix(
         img,
         [

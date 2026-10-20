@@ -296,9 +296,122 @@ pub fn read_table(block: &[u8], spec: &TableSpec, limits: &Limits) -> Result<Tab
     Ok(Table { columns, bad })
 }
 
+/// Parse the text a program gives to say where the numbers of a table row are and how each is stored.
+///
+/// A description is a list of fields separated by `;`, each `offset:type`:
+///
+/// | type | means |
+/// |---|---|
+/// | `u8`, `i8`, `u16`, `i16`, `u32`, `i32`, `u64`, `i64` | `COMP`/`COMP-5` binary of that size and sign; add `be` or `le` for the byte order (`COMP` is `be`, `COMP-5` is `le`, the default) and `/n` for `n` implied decimals: `i32be/2` is `PIC S9(7)V99 COMP` |
+/// | `f32`, `f64` | `COMP-1` and `COMP-2`; add `be` or `le` (default `le`) |
+/// | `packed(digits,scale[,s])` | `COMP-3`; `s` when the picture has an `S` |
+/// | `zoned(digits,scale[,sign])` | `DISPLAY` numeric; `sign` is `u` (none, the default), `s` or `trailing` (overpunch on the last digit), `leading` (on the first), `trailing-separate`, `leading-separate` |
+///
+/// Example: `"0:zoned(6,0); 6:packed(7,2,s)"` is a row that starts with `PIC 9(6)` and
+/// continues with `PIC S9(5)V99 COMP-3`.
+pub fn parse_columns(spec: &str) -> Result<Vec<Column>> {
+    let bad = |item: &str, why: &str| GraphicsError::invalid(format!("the table column \"{item}\" is not understood: {why}"));
+    let mut out = Vec::new();
+    for item in spec.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        let (off, ty) = item.split_once(':').ok_or_else(|| bad(item, "it needs an offset, a colon and a type, like 0:i32be"))?;
+        let offset: usize = off.trim().parse().map_err(|_| bad(item, "the offset must be a whole number of bytes"))?;
+        let ty = ty.trim().to_ascii_lowercase();
+        let kind = if let Some(rest) = ty.strip_prefix("packed(").and_then(|r| r.strip_suffix(')')) {
+            let p: Vec<&str> = rest.split(',').map(str::trim).collect();
+            if !(2..=3).contains(&p.len()) {
+                return Err(bad(item, "packed(digits,scale[,s]) takes two or three arguments"));
+            }
+            NumKind::Packed {
+                digits: p[0].parse().map_err(|_| bad(item, "digits must be a whole number"))?,
+                scale: p[1].parse().map_err(|_| bad(item, "scale must be a whole number"))?,
+                signed: matches!(p.get(2), Some(&"s") | Some(&"signed")),
+            }
+        } else if let Some(rest) = ty.strip_prefix("zoned(").and_then(|r| r.strip_suffix(')')) {
+            let p: Vec<&str> = rest.split(',').map(str::trim).collect();
+            if !(2..=3).contains(&p.len()) {
+                return Err(bad(item, "zoned(digits,scale[,sign]) takes two or three arguments"));
+            }
+            let sign = match p.get(2).copied().unwrap_or("u") {
+                "u" | "unsigned" => ZonedSign::Unsigned,
+                "s" | "trailing" => ZonedSign::TrailingOverpunch,
+                "leading" => ZonedSign::LeadingOverpunch,
+                "trailing-separate" => ZonedSign::TrailingSeparate,
+                "leading-separate" => ZonedSign::LeadingSeparate,
+                other => return Err(bad(item, &format!("\"{other}\" is not a sign style (u, s, trailing, leading, trailing-separate, leading-separate)"))),
+            };
+            NumKind::Zoned {
+                digits: p[0].parse().map_err(|_| bad(item, "digits must be a whole number"))?,
+                scale: p[1].parse().map_err(|_| bad(item, "scale must be a whole number"))?,
+                sign,
+            }
+        } else {
+            let (base, scale) = match ty.split_once('/') {
+                Some((b, s)) => (b, s.trim().parse::<u8>().map_err(|_| bad(item, "the number after / must be a whole number of decimals"))?),
+                None => (ty.as_str(), 0),
+            };
+            let (name, big_endian) = if let Some(n) = base.strip_suffix("be") {
+                (n, true)
+            } else if let Some(n) = base.strip_suffix("le") {
+                (n, false)
+            } else {
+                (base, false)
+            };
+            match name {
+                "f32" if scale == 0 => NumKind::F32 { big_endian },
+                "f64" if scale == 0 => NumKind::F64 { big_endian },
+                "u8" => NumKind::Binary { bytes: 1, signed: false, big_endian, scale },
+                "i8" => NumKind::Binary { bytes: 1, signed: true, big_endian, scale },
+                "u16" => NumKind::Binary { bytes: 2, signed: false, big_endian, scale },
+                "i16" => NumKind::Binary { bytes: 2, signed: true, big_endian, scale },
+                "u32" => NumKind::Binary { bytes: 4, signed: false, big_endian, scale },
+                "i32" => NumKind::Binary { bytes: 4, signed: true, big_endian, scale },
+                "u64" => NumKind::Binary { bytes: 8, signed: false, big_endian, scale },
+                "i64" => NumKind::Binary { bytes: 8, signed: true, big_endian, scale },
+                _ => return Err(bad(item, "the type must be u8 ... i64, f32, f64, packed(...) or zoned(...)")),
+            }
+        };
+        out.push(Column { offset, kind });
+    }
+    if out.is_empty() {
+        return Err(GraphicsError::invalid("a table description needs at least one column, like \"0:f64\""));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn column_descriptions_parse_to_the_kinds_they_name() {
+        let c = parse_columns("0:zoned(6,0); 6:packed(7,2,s); 10:i32be/2; 14:u16; 16:f64le; 24:f32be; 28:zoned(5,2,leading-separate)").unwrap();
+        assert_eq!(c.len(), 7);
+        assert_eq!(c[0], Column { offset: 0, kind: NumKind::Zoned { digits: 6, scale: 0, sign: ZonedSign::Unsigned } });
+        assert_eq!(c[1], Column { offset: 6, kind: NumKind::Packed { digits: 7, scale: 2, signed: true } });
+        assert_eq!(c[2], Column { offset: 10, kind: NumKind::Binary { bytes: 4, signed: true, big_endian: true, scale: 2 } });
+        assert_eq!(c[3], Column { offset: 14, kind: NumKind::Binary { bytes: 2, signed: false, big_endian: false, scale: 0 } });
+        assert_eq!(c[4].kind, NumKind::F64 { big_endian: false });
+        assert_eq!(c[5].kind, NumKind::F32 { big_endian: true });
+        assert_eq!(c[6].kind, NumKind::Zoned { digits: 5, scale: 2, sign: ZonedSign::LeadingSeparate });
+    }
+
+    #[test]
+    fn a_bad_description_says_which_column_and_why() {
+        for (spec, word) in [
+            ("", "at least one"),
+            ("0", "offset"),
+            ("x:i32", "offset"),
+            ("0:i128", "type"),
+            ("0:packed(7)", "two or three"),
+            ("0:zoned(a,0)", "digits"),
+            ("0:zoned(5,0,weird)", "sign style"),
+            ("0:i32/x", "decimals"),
+            ("0:f64/2", "type"),
+        ] {
+            let e = parse_columns(spec).unwrap_err().to_string();
+            assert!(e.contains(word), "{spec:?} -> {e}");
+        }
+    }
 
     #[test]
     fn binary_integers_in_both_byte_orders_and_signs() {

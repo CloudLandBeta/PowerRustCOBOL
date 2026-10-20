@@ -330,6 +330,8 @@ pub struct Scene3D {
     pub(super) memory: u64,
     /// Changes whenever anything a renderer caches may have changed.
     pub(super) revision: u64,
+    /// What the last model load could not honour.
+    pub(super) last_warnings: Vec<String>,
 }
 
 impl std::fmt::Debug for Scene3D {
@@ -372,6 +374,7 @@ impl Scene3D {
             triangles: 0,
             memory: 0,
             revision: 0,
+            last_warnings: Vec::new(),
         }
     }
 
@@ -398,6 +401,11 @@ impl Scene3D {
     /// How many triangles the meshes hold (instances not counted).
     pub fn triangle_count(&self) -> u64 {
         self.triangles
+    }
+
+    /// What the last successful model load could not honour (morph targets, skipped primitives ...).
+    pub fn last_load_warnings(&self) -> &[String] {
+        &self.last_warnings
     }
 
     /// The memory the scene's meshes hold.

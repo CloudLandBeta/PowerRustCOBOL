@@ -128,11 +128,13 @@
 //! decoder that does not know a version refuses the list instead of guessing.
 
 mod builder;
+mod dynamic;
 pub mod consts;
 mod list;
 pub mod ops;
 
 pub use builder::DisplayListBuilder;
+pub use dynamic::is_recordable;
 pub use consts::*;
 pub use list::{Commands, DisplayList, HEADER_LEN, MAGIC, VERSION};
 pub use ops::{Command, CommandInfo, Floats, Points, Reader, Stops, COMMANDS};

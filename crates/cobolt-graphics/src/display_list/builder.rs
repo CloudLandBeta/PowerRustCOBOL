@@ -63,6 +63,23 @@ impl DisplayListBuilder {
         self.commands += 1;
     }
 
+    /// Record one command already in wire form (what [`DisplayListBuilder::push_dynamic`] builds).
+    pub(crate) fn push_encoded(&mut self, encoded: &[u8]) {
+        if self.error.is_some() {
+            return;
+        }
+        if let Err(e) = self.limits.check_display_list_commands(self.commands as u64 + 1) {
+            self.error = Some(e);
+            return;
+        }
+        if let Err(e) = self.limits.check_display_list_bytes((HEADER_LEN + self.payload.len() + encoded.len()) as u64) {
+            self.error = Some(e);
+            return;
+        }
+        self.payload.extend_from_slice(encoded);
+        self.commands += 1;
+    }
+
     /// Commands recorded so far.
     pub fn command_count(&self) -> u32 {
         self.commands

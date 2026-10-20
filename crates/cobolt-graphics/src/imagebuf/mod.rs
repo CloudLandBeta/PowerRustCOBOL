@@ -82,6 +82,11 @@ impl ImageBuffer {
         Self { px: Arc::new(px) }
     }
 
+    /// Share pixels that already exist (no copy; a change to either copies first).
+    pub fn from_shared(px: Arc<PixelBuffer>) -> Self {
+        Self { px }
+    }
+
     /// Decode a file's bytes. The size limit is checked from the header, before
     /// any pixel memory exists.
     pub fn load_from_bytes(bytes: &[u8], limits: &Limits) -> Result<Self> {
