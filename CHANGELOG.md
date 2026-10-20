@@ -17,6 +17,46 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.21] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.20.)*
+
+### Merged: `cobolt-graphics`, the graphics objects of the WebAssembly line (WASM-018 part 1) — from a sub-agent's worktree
+
+Nine commits cherry-picked onto `features-2x` (conflicts only in `Cargo.lock`, re-locked
+once at the end); the workspace gains one member. The crate is the drawing, imaging,
+plotting, physics and 3D engine behind the Canvas 2D, Canvas 3D and the five client
+objects (ImageBuffer, Plot, Scene3D, Physics2D, Physics3D), all in Rust, all from
+crates that build for `wasm32-unknown-unknown`: a display-list canvas rasteriser on
+`tiny-skia`, a text engine (`harfrust` shaping, `unicode-bidi`, `icu_segmenter`, `fontdb`),
+`image`/`imageproc`/`fast_image_resize` for ImageBuffer, `plotters` driven through its
+own backends for Plot (12 chart kinds, SVG), `rapier2d`/`rapier3d` for physics, and
+`wgpu` + glTF for Scene3D/Canvas3D, with a COBOL-facing method table (313 methods on
+7 object kinds) and an owner-tracked handle registry. Its own suite is 330 tests (328
+without `parallel`), the dependency guard walks the whole tree for all targets, and
+parallel helpers give byte-identical results at 1 and N threads. Measured by the agent
+on Apple Metal: a 1M-triangle scene renders a frame in 2.5 ms; 24-MP Gaussian blur
+655 ms → 208 ms on 11 threads; the wasm32 size of all five areas is 8.0 MB raw / 2.1 MB
+brotli (an upper bound).
+
+**What was not done, as the agent states it:** the Canvas2D/Canvas3D *controls* and the
+player/host adapter (WASM-018 part 2, R1/R13/R14/R16/R17), the closed method vocabulary
+in `methods.rs` with the System KB tables, six-language labels and `tests/controls`, the
+Designer placeholder and the `examples/PowerGraphics` sample (R19); AC1, AC12–AC14 are
+not met by this part, AC4–AC7 only partly (GPU tests ran on Metal only; WebGPU/WebGL2,
+Vulkan and DX12, plain-versus-threaded player and native-versus-wasm exactness were not
+run; the threaded wasm32 build was type-checked only). Deviations from the spec are in
+`specs/WASM-018-canvas-and-graphics-objects/plan.md` §4: `harfrust` for `rustybuzz`
+(archived), `icu_segmenter` for `unicode-linebreak` (stale), `tiny-skia` 0.12 (the
+two-point conical gradient), `plotters` without its text layers, `gltf` without file
+import, a `scene3d-core` feature, wgpu backends chosen per target, no bundled software
+adapter. A second `tiny-skia` version (0.12 next to `resvg`'s 0.11.4) is now in the tree.
+
+Version 2.0.21. No product document changes; `README.md` and `docs/` are untouched on
+this line.
+
+*(Written on `features-2x`.)*
+
 ## [PowerRustCOBOL 2.0.20] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.19.)*

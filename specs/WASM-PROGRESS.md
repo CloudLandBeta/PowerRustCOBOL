@@ -78,7 +78,7 @@ Next under GOLDEN RULE #9: **IF (Intrinsic Functions)**, then IC — IF needs `F
 
 Intrinsic functions are built as call records evaluated by `func.rs` (numeric → register stack, character → `T_CTEMP`); see the 2.0.20 entry. Differential tests: `crates/cobolt-wasm/tests/intrinsics.rs`; routine tests in `func.rs`. NC is unchanged at 95/95, 4 612/0 after the change. Next: **IC** (nested programs, `CALL`/`LINKAGE`).
 
-The IDE-side sub-agent's five commits (WASM-001/008/015) are merged into `features-2x` (2.0.20); the graphics, backend and player/loader agents are still running in their own worktrees, unmerged.
+The IDE-side sub-agent's five commits (WASM-001/008/015) are merged into `features-2x` (2.0.20) and the graphics agent's nine (`cobolt-graphics`, WASM-018 part 1) in 2.0.21; the backend and player/loader agents are still running in their own worktrees, unmerged.
 
 ## Status at the end of the first implementation session (2026-10-20, version 2.0.18)
 
