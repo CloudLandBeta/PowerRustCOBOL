@@ -185,7 +185,10 @@ pub const BASE_CSS: &str = r#"
 .pr-authentication, .pr-auth { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--pr-surface-2); border: 1px solid var(--pr-border); border-radius: var(--pr-radius); overflow: auto; }
 .pr-auth label { display: flex; flex-direction: column; gap: 2px; } .pr-auth input { font: inherit; color: var(--pr-field-text); background: var(--pr-field); border: 1px solid var(--pr-border); border-radius: 4px; padding: 4px 6px; }
 .pr-auth .pr-auth-message { color: var(--pr-danger); min-height: 1.35em; } .pr-auth nav { display: flex; gap: 8px; flex-wrap: wrap; } .pr-auth nav button { background: transparent; border: 0; color: var(--pr-accent); cursor: pointer; font: inherit; padding: 0; }
-.pr-auth > button { padding: 6px 12px; background: var(--pr-accent); color: #fff; border: 0; border-radius: 4px; cursor: pointer; font: inherit; }
+.pr-auth form, .pr-auth .pr-auth-signed-in { display: flex; flex-direction: column; gap: 8px; } .pr-auth .pr-auth-title { margin: 0; font-size: 1.1em; }
+.pr-auth button.pr-auth-primary, .pr-auth .pr-auth-signed-in > button { padding: 6px 12px; background: var(--pr-accent); color: #fff; border: 0; border-radius: 4px; cursor: pointer; font: inherit; }
+.pr-auth button.pr-auth-primary:disabled { opacity: .6; cursor: progress; }
+.pr-auth input:focus-visible, .pr-auth button:focus-visible { outline: 2px solid var(--pr-accent); outline-offset: 2px; }
 
 /* the page's own furniture */
 .pr-layer { position: absolute; inset: 0; pointer-events: none; z-index: 20; }

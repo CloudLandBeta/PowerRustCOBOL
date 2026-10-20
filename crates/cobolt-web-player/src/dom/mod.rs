@@ -22,6 +22,7 @@
 //!   and queues what the user did into the driver's inbox instead of acting at once.
 
 mod apply;
+pub(crate) mod captcha;
 mod h;
 mod instance;
 mod ops;

@@ -106,9 +106,31 @@ fn apply_attrs(el: &Element, old: &[(String, String)], new: &[(String, String)])
     }
     for (k, v) in new {
         if el.get_attribute(k).as_deref() != Some(v.as_str()) {
+            if k == "src" && needs_cors_mode(el, v) {
+                // Set before `src`: the request mode is decided when the load starts.
+                let _ = el.set_attribute("crossorigin", "anonymous");
+            }
             let _ = el.set_attribute(k, v);
         }
     }
+}
+
+/// On a cross-origin isolated page (`COEP: require-corp`) a picture from another origin is
+/// blocked unless the server marks it with a CORP header or the request is made in CORS mode
+/// and the server answers it. Map tiles and `ImagePath` pictures are such requests, so on an
+/// isolated page they are asked for in CORS mode (a measured finding: tile.openstreetmap.org
+/// sends `Access-Control-Allow-Origin: *`, and the same tile without `crossorigin` is refused
+/// with `NotSameOriginAfterDefaultedToSameOriginByCoep`). On a page that is not isolated
+/// nothing changes: a server that sends no CORS header must keep working there.
+fn needs_cors_mode(el: &Element, src: &str) -> bool {
+    if !el.tag_name().eq_ignore_ascii_case("img") {
+        return false;
+    }
+    let lower = src.trim_start().to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("//")) {
+        return false;
+    }
+    js_sys::Reflect::get(&js_sys::global(), &"crossOriginIsolated".into()).ok().and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
 fn apply_styles(el: &Element, old: &[String], new: &[(String, String)]) -> Vec<String> {

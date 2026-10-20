@@ -385,6 +385,21 @@ impl<S: Socket> Client<S> {
         self.wire_to_req.remove(&id);
     }
 
+    /// The user signed out: close the connection so that the server forgets who it was, and let the next
+    /// call open a new one (anonymously, or with another session's token). What was sent and not yet
+    /// answered is failed — it may have been received — and what was only waiting goes out on the new one.
+    pub fn reset_session(&mut self) {
+        let sent: Vec<u32> = self.inflight.iter().filter(|(_, f)| f.sent).map(|(id, _)| *id).collect();
+        for id in sent {
+            self.fail(id, class::TRANSPORT, 7, "the connection was closed by the sign-out", true);
+        }
+        self.token = None;
+        self.wanted = false;
+        self.retry_at = None;
+        self.sock.close();
+        self.set_state(LinkState::Closed);
+    }
+
     /// Close for good (unmount).
     pub fn shutdown(&mut self) {
         self.wanted = false;
@@ -616,5 +631,31 @@ mod tests {
         assert_eq!((c.state(), c.in_flight(), c.sock.closed), (LinkState::Closed, 0, 1));
         c.on_close(5);
         assert_eq!(c.state(), LinkState::Closed, "no reconnection after an unmount");
+    }
+
+    #[test]
+    fn a_sign_out_closes_the_connection_and_the_next_call_opens_an_anonymous_one() {
+        let mut c = client();
+        c.set_token(Some("tok".into()));
+        c.connect("wss://api.example.com/ws", 0).unwrap();
+        c.on_open(1);
+        c.on_message(r#"{"type":"auth","ok":true}"#);
+        let sent_call = c.request(br#"{"program":"X"}"#, 2);
+        c.reset_session();
+        assert_eq!((c.state(), c.sock.closed), (LinkState::Closed, 1));
+        let out = c.take_out();
+        assert!(
+            out.iter().any(|o| matches!(o, Out::Answer { id, frame } if *id == sent_call && String::from_utf8_lossy(frame).contains("may_have_been_received\":true"))),
+            "a call that was sent is failed as possibly received: {out:?}"
+        );
+        c.on_close(5);
+        assert_eq!(c.state(), LinkState::Closed, "no reconnection of the old session");
+        // The next call opens a new connection with no token: it is Ready at once and sends no `auth` message.
+        c.connect("wss://api.example.com/ws", 10).unwrap();
+        c.request(br#"{"identity":"sign-in"}"#, 11);
+        c.on_open(12);
+        let sent = sent_json(&c);
+        assert_eq!(sent.iter().filter(|m| m["type"] == "auth").count(), 1, "only the first session's token was ever sent: {sent:?}");
+        assert!(sent.iter().any(|m| m["type"] == "call" && m["frame"]["identity"] == "sign-in"));
     }
 }

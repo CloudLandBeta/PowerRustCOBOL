@@ -554,16 +554,20 @@ export async function mount(target, options = {}) {
     timing.probe = env.performance ? env.performance.now() - t0 : 0;
 
     // 4. Trusted Types: one default policy that lets same-origin script URLs through and nothing else
-    //    (the CSP enforces `require-trusted-types-for 'script'`; a Worker's URL is a script URL).
+    //    (the CSP enforces `require-trusted-types-for 'script'`; a Worker's URL is a script URL) —
+    //    except the reCAPTCHA scripts, and only when the application has a site key (WASM-009 R4).
     let policy = null;
+    const recaptchaOn = !!(config.options && config.options.recaptcha_site_key);
+    const RECAPTCHA_PREFIXES = ['https://www.google.com/recaptcha/', 'https://www.gstatic.com/recaptcha/'];
     if (env.trustedTypes && typeof env.trustedTypes.createPolicy === 'function') {
       try {
         const origin = (env.location && env.location.origin) || new URL(base).origin;
         policy = env.trustedTypes.createPolicy('default', {
           createScriptURL: (u) => {
             const abs = new URL(u, base);
-            if (abs.origin !== origin) throw new TypeError('script URL from another origin refused');
-            return abs.href;
+            if (abs.origin === origin) return abs.href;
+            if (recaptchaOn && RECAPTCHA_PREFIXES.some((p) => abs.href.startsWith(p))) return abs.href;
+            throw new TypeError('script URL from another origin refused');
           },
           createHTML: () => {
             throw new TypeError('HTML strings are not accepted by this application');
@@ -654,6 +658,11 @@ export async function mount(target, options = {}) {
       weblink_schemes: (config.options && config.options.weblink_schemes) || [],
       recaptcha_site_key: (config.options && config.options.recaptcha_site_key) || '',
       auth_flow: (config.options && config.options.auth_flow) || 'in-app',
+      // The hosted sign-in flow comes back with an authorisation code (WASM-009 R8b): the backend's
+      // callback redirects here with `?pr-code=…&pr-state=…`. They are handed to the player and taken
+      // out of the address at once, so the code is in neither the history nor a later Referer.
+      hosted_code: query.get('pr-code') || '',
+      hosted_state: query.get('pr-state') || '',
       locale: (config.options && config.options.locale) || (env.navigator && env.navigator.language) || 'en',
       // A standalone page is opened to run one form (WASM-011 R9): `?pr-form=Name&pr-opener=handle`.
       start_form: options.startForm || query.get('pr-form') || '',
@@ -662,6 +671,16 @@ export async function mount(target, options = {}) {
       image_origins: (config.options && config.options.image_origins) || [],
       app_url: (config.options && config.options.app_url) || '',
     };
+    if ((pcfg.hosted_code || pcfg.hosted_state) && env.history && typeof env.history.replaceState === 'function' && env.location) {
+      try {
+        const here = new URL(env.location.href);
+        here.searchParams.delete('pr-code');
+        here.searchParams.delete('pr-state');
+        env.history.replaceState(env.history.state, '', here.pathname + here.search + here.hash);
+      } catch (_) {
+        /* the address stays as it is; the player still has what it needs */
+      }
+    }
     let panicked = false;
     const player = new playerModule.Player(JSON.stringify(pcfg), chosenManifestText);
     bridge.player = player;

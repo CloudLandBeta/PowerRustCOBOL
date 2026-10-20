@@ -666,10 +666,9 @@ pub fn weblink(cx: &ViewCtx, i: usize) -> VNode {
     n.text(text)
 }
 
-/// The Authentication control (WASM-009): the sign-in UI is built by the surface from the machine's
-/// state; the element here is its mount point.
+/// The Authentication control (WASM-009): its screens are in [`super::auth`].
 pub fn authentication(cx: &ViewCtx, i: usize) -> VNode {
-    root(cx, i, "div").class("pr-auth").attr("data-auth", "").attr("role", "group").attr("aria-label", "Sign in")
+    super::auth::view(cx, i)
 }
 
 /// Canvas2D/Canvas3D (WASM-018): a canvas the graphics crate's display lists are drawn onto.

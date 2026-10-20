@@ -169,6 +169,12 @@ pub enum Effect {
     Fullscreen(bool),
     /// A spec-055 snackbar `Show()` etc. is a tree command; this is the host-level notice.
     Notice(String),
+    /// An Authentication control needs a backend call made (WASM-009 R7); the answer comes back
+    /// through [`Host::auth_answer`] under the same `id`.
+    AuthCall { id: u32, call: crate::auth::BackendCall },
+    /// An Authentication control needs a reCAPTCHA v3 token for `action`; the answer comes back
+    /// through [`Host::auth_captcha`] (`None` when the script could not be loaded or did not answer).
+    AuthCaptcha { id: u32, site_key: String, action: &'static str },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,6 +303,17 @@ pub struct Host {
     last_error: i32,
     /// The signed-in session (WASM-009): the access token lives here, in memory only.
     pub auth: crate::auth::Session,
+    /// Counts the changes of the session's token: the page gives the connection the new one when it moves.
+    pub auth_epoch: u64,
+    /// What the page says about Authentication controls that leave it open: the flow, the reCAPTCHA site key.
+    auth_defaults: (crate::auth::Flow, String),
+    /// Backend calls the Authentication controls made and are waiting for: `id → (instance, control, call)`.
+    auth_calls: BTreeMap<u32, (u32, usize, crate::auth::BackendCall)>,
+    /// reCAPTCHA tokens being obtained: `id → (instance, control)`.
+    auth_captchas: BTreeMap<u32, (u32, usize)>,
+    next_auth_id: u32,
+    /// What the program asked of an Authentication control (`SignOut`, `Refresh`), until the driver gives the time.
+    auth_queue: Vec<(u32, usize, crate::auth::Action)>,
     /// Instances whose close was requested while their own task was running.
     close_after: Vec<u32>,
     started: bool,
@@ -332,6 +349,12 @@ impl Host {
             app: HashMap::new(),
             last_error: 0,
             auth: crate::auth::Session::default(),
+            auth_epoch: 0,
+            auth_defaults: (crate::auth::Flow::InApp, String::new()),
+            auth_calls: BTreeMap::new(),
+            auth_captchas: BTreeMap::new(),
+            next_auth_id: crate::auth::wire::ID_BASE,
+            auth_queue: Vec::new(),
             close_after: Vec::new(),
             started: false,
             aborted: false,
@@ -870,7 +893,8 @@ impl Host {
         let Some(desc) = self.forms.get(form).cloned().flatten() else {
             return Err(format!("form `{}` has no description loaded", self.manifest.forms[form].name));
         };
-        let tree = FormTree::build(&desc, &self.manifest.forms[form], &self.manifest, inst, opener).map_err(|e| e.to_string())?;
+        let mut tree = FormTree::build(&desc, &self.manifest.forms[form], &self.manifest, inst, opener).map_err(|e| e.to_string())?;
+        tree.init_auth(self.auth_defaults.0, &self.auth_defaults.1, &self.auth);
         self.trees.insert(inst, tree);
         Ok(())
     }
@@ -881,6 +905,9 @@ impl Host {
             self.effects.push(Effect::Closed { inst });
         }
         self.work.retain(|w| !matches!(w, Work::Event(e) if e.inst == inst));
+        self.auth_calls.retain(|_, (i, _, _)| *i != inst);
+        self.auth_captchas.retain(|_, (i, _)| *i != inst);
+        self.auth_queue.retain(|(i, _, _)| *i != inst);
         let dead: Vec<i32> = self.tasks.iter().filter(|(_, t)| t.inst == inst).map(|(id, _)| *id).collect();
         for id in dead {
             if let Some(t) = self.tasks.remove(&id) {
@@ -1142,6 +1169,11 @@ impl Host {
         let Some(idx) = self.trees.get(&inst).and_then(|t| t.by_name(control)) else {
             return Err(format!("no control `{control}` in instance {inst}"));
         };
+        if crate::kinds::player_kind(&self.trees[&inst].ctls[idx]) == Some(crate::kinds::PlayerKind::Authentication) {
+            return self.auth_method(inst, idx, method, args).map_err(|e| match e {
+                CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
+            });
+        }
         let r = {
             let tree = self.trees.get_mut(&inst).expect("checked");
             methods::call(tree, idx, method, args)
@@ -1416,12 +1448,14 @@ impl Host {
     fn auth_method(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Result<Option<String>, CmdError> {
         match name.to_ascii_uppercase().as_str() {
             "GETCLAIM" => Ok(Some(self.auth.claim(args.first().copied().unwrap_or("")))),
+            // The machine acts when the driver next gives it the time (`auth_flush`): the module is
+            // in the middle of a call now, and the answer of a backend is not its business.
             "SIGNOUT" => {
-                self.trees.get_mut(&inst).unwrap().command(idx, "auth-sign-out", Vec::new());
+                self.auth_queue.push((inst, idx, crate::auth::Action::SignOut));
                 Ok(None)
             }
             "REFRESH" => {
-                self.trees.get_mut(&inst).unwrap().command(idx, "auth-refresh", Vec::new());
+                self.auth_queue.push((inst, idx, crate::auth::Action::Refresh));
                 Ok(None)
             }
             other => {
@@ -1429,6 +1463,173 @@ impl Host {
                 match methods::call(tree, idx, other, args) {
                     Ok(o) => Ok(o.value),
                     Err(e) => Err(CmdError::Unknown(e.to_string())),
+                }
+            }
+        }
+    }
+
+    // ── the Authentication control (WASM-009) ───────────────────────────────
+
+    /// What the page says for controls that leave it open: the flow (`Mode`) and the reCAPTCHA site key.
+    pub fn set_auth_defaults(&mut self, flow: crate::auth::Flow, site_key: &str) {
+        self.auth_defaults = (flow, site_key.to_owned());
+    }
+
+    /// The user acted on Authentication control `ctl` of instance `inst`.
+    pub fn auth_act(&mut self, inst: u32, ctl: usize, action: crate::auth::Action) {
+        use crate::auth::Action;
+        let Some(ui) = self.trees.get_mut(&inst).and_then(|t| t.auth_mut(ctl)) else { return };
+        match &action {
+            Action::SignIn { user, .. } | Action::SignUp { user, .. } | Action::Forgot { user } | Action::Confirm { user, .. } | Action::Reset { user, .. } => {
+                ui.user_hint = user.clone();
+            }
+            _ => {}
+        }
+        if matches!(action, Action::Show(_) | Action::SignOut | Action::Hosted) {
+            ui.message.clear();
+        }
+        let ops = ui.machine.act(action);
+        self.auth_run(inst, ctl, ops);
+    }
+
+    /// Do what the program asked of its Authentication controls (`SignOut`, `Refresh`).
+    pub fn auth_flush(&mut self) {
+        for (inst, ctl, action) in std::mem::take(&mut self.auth_queue) {
+            self.auth_act(inst, ctl, action);
+        }
+    }
+
+    /// The control that owns the session: the first signed-in one.
+    fn auth_owner(&self) -> Option<(u32, usize)> {
+        self.trees.iter().find_map(|(inst, t)| t.auths.iter().find(|(_, ui)| ui.machine.session.is_signed_in()).map(|(c, _)| (*inst, *c)))
+    }
+
+    /// The connection says the token expired: refresh it now (R5).
+    pub fn auth_refresh(&mut self) {
+        if let Some((inst, ctl)) = self.auth_owner() {
+            self.auth_act(inst, ctl, crate::auth::Action::Refresh);
+        }
+    }
+
+    /// The clock ticked: the owner refreshes a token that is about to expire (R5).
+    pub fn auth_tick(&mut self, now_ms: f64) {
+        if let Some((inst, ctl)) = self.auth_owner() {
+            self.auth_act(inst, ctl, crate::auth::Action::Tick { now_ms });
+        }
+    }
+
+    /// When [`Host::auth_tick`] next has something to do (ms since the epoch), if a session is open.
+    pub fn auth_deadline(&self) -> Option<f64> {
+        let (inst, ctl) = self.auth_owner()?;
+        let ui = self.trees.get(&inst)?.auth(ctl)?;
+        ui.machine.session.expires_at_ms.map(|e| e - 60_000.0)
+    }
+
+    /// The backend answered call `id`; answers which call it was (`None` when nobody was waiting).
+    pub fn auth_answer(&mut self, id: u32, result: crate::auth::AuthResult, now_ms: f64) -> Option<crate::auth::BackendCall> {
+        let (inst, ctl, call) = self.auth_calls.remove(&id)?;
+        // The form that asked may have been closed meanwhile: a late answer has nowhere to go.
+        let Some(ui) = self.trees.get_mut(&inst).and_then(|t| t.auth_mut(ctl)) else { return Some(call) };
+        ui.attempt += 1;
+        ui.message.clear();
+        let ops = ui.machine.on_result(&call, result, now_ms);
+        self.auth_run(inst, ctl, ops);
+        Some(call)
+    }
+
+    /// The hosted flow came back to the page with an authorisation code: give it to the first
+    /// Authentication control there is. `false` when no control exists (yet).
+    pub fn auth_hosted_return(&mut self, code: &str, state: &str) -> bool {
+        let target = self.trees.iter().find_map(|(inst, t)| t.auths.keys().next().map(|c| (*inst, *c)));
+        let Some((inst, ctl)) = target else { return false };
+        self.auth_act(inst, ctl, crate::auth::Action::HostedFinish { code: code.to_owned(), state: state.to_owned() });
+        true
+    }
+
+    /// Is there anything for the driver to hand on: effects to carry out, requests to send?
+    pub fn has_outgoing(&self) -> bool {
+        !self.effects.is_empty() || !self.outbox.is_empty()
+    }
+
+    /// reCAPTCHA gave a token for the call that waited for it (or `None`).
+    pub fn auth_captcha(&mut self, id: u32, token: Option<String>) {
+        let Some((inst, ctl)) = self.auth_captchas.remove(&id) else { return };
+        let Some(ui) = self.trees.get_mut(&inst).and_then(|t| t.auth_mut(ctl)) else { return };
+        ui.attempt += 1;
+        ui.message.clear();
+        let ops = ui.machine.captcha_token(token);
+        self.auth_run(inst, ctl, ops);
+    }
+
+    /// Carry out what a machine asked for.
+    fn auth_run(&mut self, inst: u32, ctl: usize, ops: Vec<crate::auth::Op>) {
+        use crate::auth::{AuthEvent, Op};
+        for op in ops {
+            match op {
+                Op::Backend(call) => {
+                    let id = self.next_auth_id;
+                    self.next_auth_id = self.next_auth_id.wrapping_add(1).max(crate::auth::wire::ID_BASE);
+                    self.auth_calls.insert(id, (inst, ctl, call.clone()));
+                    self.effects.push(Effect::AuthCall { id, call });
+                }
+                Op::Captcha { action } => {
+                    let id = self.next_auth_id;
+                    self.next_auth_id = self.next_auth_id.wrapping_add(1).max(crate::auth::wire::ID_BASE);
+                    let site_key = self.trees.get(&inst).and_then(|t| t.auth(ctl)).map(|u| u.machine.cfg.recaptcha_site_key.clone()).unwrap_or_default();
+                    self.auth_captchas.insert(id, (inst, ctl));
+                    self.effects.push(Effect::AuthCaptcha { id, site_key, action });
+                }
+                Op::Notify(ev) => {
+                    // The detail of an error is the class and code of the backend's answer (never its text).
+                    let args = match &ev {
+                        AuthEvent::Error(detail) => vec![detail.clone()],
+                        _ => Vec::new(),
+                    };
+                    self.dom_event(inst, ctl, ev.handler_name(), args);
+                }
+                Op::Message(m) => {
+                    if let Some(ui) = self.trees.get_mut(&inst).and_then(|t| t.auth_mut(ctl)) {
+                        ui.message = m;
+                    }
+                }
+                Op::Redirect(url) => {
+                    if crate::auth::redirect_allowed(&url) {
+                        self.effects.push(Effect::Navigate { url, target: "_self".into() });
+                    } else {
+                        // The provider's address came over the network: refuse anything but https.
+                        let generic = self.trees.get(&inst).and_then(|t| t.auth(ctl)).map(|u| u.machine.cfg.texts.generic_error.clone()).unwrap_or_default();
+                        if let Some(ui) = self.trees.get_mut(&inst).and_then(|t| t.auth_mut(ctl)) {
+                            ui.message = generic;
+                        }
+                        self.dom_event(inst, ctl, AuthEvent::Error(String::new()).handler_name(), vec!["redirect refused".into()]);
+                    }
+                }
+            }
+        }
+        self.auth_sync(inst, ctl);
+    }
+
+    /// After a machine moved: publish its properties, make the application's session the same, and
+    /// let the other Authentication controls follow it.
+    fn auth_sync(&mut self, inst: u32, ctl: usize) {
+        let Some(session) = self.trees.get(&inst).and_then(|t| t.auth(ctl)).map(|u| u.machine.session.clone()) else { return };
+        let moved = self.auth.token() != session.token();
+        self.auth = session.clone();
+        if moved {
+            self.auth_epoch += 1;
+        }
+        if let Some(t) = self.trees.get_mut(&inst) {
+            t.sync_auth_props(ctl);
+        }
+        if moved {
+            for (i, t) in self.trees.iter_mut() {
+                let others: Vec<usize> = t.auths.keys().copied().filter(|c| !(*i == inst && *c == ctl)).collect();
+                for c in others {
+                    if let Some(ui) = t.auth_mut(c) {
+                        ui.machine.adopt(&session);
+                        ui.message.clear();
+                    }
+                    t.sync_auth_props(c);
                 }
             }
         }
@@ -1471,6 +1672,9 @@ impl Host {
         serde_json::Value::Object(m)
     }
 }
+
+#[cfg(test)]
+mod auth_tests;
 
 #[derive(Debug)]
 enum Target {

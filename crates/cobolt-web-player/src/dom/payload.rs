@@ -82,6 +82,24 @@ pub fn from_event(kind: &str, key: &str, ev: &Event, root: &Element) -> Payload 
         p.id = climb(t, stop, "data-id");
         p.part = climb(t, stop, "data-part");
     }
+    if kind == "submit" {
+        // The form's named fields, read now and held only for the length of this event.
+        let form: JsValue = current.as_ref().map(|c| c.clone().into()).unwrap_or(JsValue::UNDEFINED);
+        let elements = get(&form, "elements");
+        if elements.is_object() {
+            let n = num(&elements, "length") as u32;
+            for k in 0..n {
+                if let Ok(el) = Reflect::get(&elements, &k.into()) {
+                    if el.is_object() {
+                        let name = text(&el, "name");
+                        if !name.is_empty() && !text(&el, "type").eq_ignore_ascii_case("submit") && !text(&el, "type").eq_ignore_ascii_case("button") {
+                            p.fields.0.push((name, text(&el, "value")));
+                        }
+                    }
+                }
+            }
+        }
+    }
     p.key_name = text(evj, "key");
     p.button = num(evj, "button") as i16;
     p.buttons = num(evj, "buttons") as u16;

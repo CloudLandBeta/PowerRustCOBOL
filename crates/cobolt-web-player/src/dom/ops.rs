@@ -59,12 +59,15 @@ impl Shared {
                     let _ = Reflect::get(&d, &"exitFullscreen".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()).map(|f| f.call0(&d));
                 }
             }
-            Effect::Notice(n) => {
-                if n != "auth-refresh" {
-                    self.notice(n);
-                }
-            }
-            Effect::Display(_) | Effect::Log { .. } | Effect::Timer { .. } | Effect::Opened { .. } | Effect::Closed { .. } => {}
+            Effect::Notice(n) => self.notice(n),
+            // The driver carries these out itself (it owns the connection and the reCAPTCHA script).
+            Effect::Display(_)
+            | Effect::Log { .. }
+            | Effect::Timer { .. }
+            | Effect::Opened { .. }
+            | Effect::Closed { .. }
+            | Effect::AuthCall { .. }
+            | Effect::AuthCaptcha { .. } => {}
         }
     }
 

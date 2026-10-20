@@ -42,6 +42,7 @@ use wasm_bindgen_futures::{future_to_promise, spawn_local, JsFuture};
 use cobolt_forms::xml::load_form_from_str;
 use cobolt_wasm_abi::manifest::Manifest;
 
+use crate::auth;
 use crate::host::{CallResult, DialogKind, Effect, Host, HostOptions, ModuleCall, Outbound};
 use crate::net::{self, Client, LinkState, Out, Socket};
 use crate::view::interact::{Act, UiOp};
@@ -75,6 +76,9 @@ pub struct PlayerConfig {
     pub app_url: String,
     /// The form this page was opened to run, when it is a standalone window (WASM-011 R9).
     pub opener_handle: String,
+    /// The hosted sign-in flow came back to this page with an authorisation code (WASM-009 R8b).
+    pub hosted_code: String,
+    pub hosted_state: String,
 }
 
 /// Something that happened outside the driver; the driver acts on it between calls.
@@ -315,6 +319,14 @@ pub(crate) struct Inner {
     dead: Cell<bool>,
     weak: RefCell<std::rc::Weak<Inner>>,
     pub(crate) policy: crate::weblink::Policy,
+    /// The session's token epoch the connection was last given (see `Host::auth_epoch`).
+    auth_epoch_seen: Cell<u64>,
+    /// Wakes the Authentication machine shortly before its token expires.
+    auth_timer: RefCell<Option<Timeout>>,
+    /// reCAPTCHA: the time limits and the script's load listeners of the tokens being obtained.
+    pub(crate) captcha: RefCell<crate::dom::captcha::Pending>,
+    /// The authorisation code the hosted flow came back with, until a control takes it.
+    hosted_return: RefCell<Option<(String, String)>>,
 }
 
 impl Inner {
@@ -367,6 +379,7 @@ impl Inner {
                 Act::Quiet { prop, value } => self.host.borrow_mut().ui_set(inst, ctl, &prop, &value),
                 Act::Change { prop, value } => self.host.borrow_mut().user_change(inst, ctl, &prop, &value),
                 Act::Prevent => {}
+                Act::Auth(action) => self.host.borrow_mut().auth_act(inst, ctl, action),
                 Act::Ui(op) => {
                     if let Some(sf) = self.surface.borrow().as_ref() {
                         sf.ui_op(self, inst, ctl, op);
@@ -406,6 +419,16 @@ impl Inner {
         };
         for o in outs {
             match o {
+                Out::Answer { id, frame } if auth::wire::is_auth_id(id) => {
+                    // An Authentication control's call (WASM-009): the answer is the machine's, not the module's.
+                    let answered = self.host.borrow_mut().auth_answer(id, auth::wire::decode(&frame), now_ms() as f64);
+                    if matches!(answered, Some(auth::BackendCall::SignOut)) {
+                        // The server forgets who the connection was when it is closed: a later call opens a new one.
+                        if let Some(c) = self.net.borrow_mut().as_mut() {
+                            c.reset_session();
+                        }
+                    }
+                }
                 Out::Answer { id, frame } => self.host.borrow_mut().remote_answer(id, frame),
                 Out::State(s) => {
                     if let Some(sf) = self.surface.borrow().as_ref() {
@@ -430,11 +453,10 @@ impl Inner {
     }
 
     fn run_auth_refresh(self: &Rc<Self>) {
-        // The Authentication control (if the application has one) performs the silent refresh
-        // and gives the connection the new token; with none, the call simply fails upstream.
-        if let Some(sf) = self.surface.borrow().as_ref() {
-            sf.effect(self, &Effect::Notice("auth-refresh".into()));
-        }
+        // The server refused an expired token. The Authentication control (if the application has
+        // one) performs the silent refresh and gives the connection the new token; with none, the
+        // call simply fails upstream.
+        self.host.borrow_mut().auth_refresh();
     }
 
     /// Give the connection a token (or none).
@@ -443,6 +465,76 @@ impl Inner {
             c.set_token(token);
         }
         self.drain_net();
+    }
+
+    /// Hand request `id` to the connection, opening it (anonymously, or with the session's token) when
+    /// it is closed. The module's requests and the Authentication control's go the same way.
+    fn net_submit(self: &Rc<Self>, id: u32, frame: &[u8]) -> Result<(), String> {
+        if self.net.borrow().is_none() || self.cfg.backend_origins.is_empty() {
+            return Err("the application has no backend configured".into());
+        }
+        let now = now_ms();
+        {
+            let mut guard = self.net.borrow_mut();
+            let c = guard.as_mut().expect("checked above");
+            if c.state() == LinkState::Closed {
+                let token = self.host.borrow().auth.token().map(str::to_owned);
+                c.set_token(token);
+                c.connect(&self.cfg.backend_origins[0], now)?;
+            }
+            c.request_as(id, frame, now);
+        }
+        self.drain_net();
+        Ok(())
+    }
+
+    /// An Authentication control's backend call (WASM-009 R7).
+    fn send_auth_call(self: &Rc<Self>, id: u32, call: auth::BackendCall) {
+        if let Err(e) = self.net_submit(id, &auth::wire::encode(&call)) {
+            // Nothing to send it through: the control reads it as any failed call (the user sees the generic message).
+            let answered = self.host.borrow_mut().auth_answer(id, auth::AuthResult::Failed { detail: e }, now_ms() as f64);
+            let _ = answered;
+        }
+    }
+
+    /// Give the connection the session's token when it has changed, and set the clock that refreshes
+    /// the token before it expires (WASM-009 R5).
+    fn sync_auth_token(self: &Rc<Self>) {
+        let epoch = self.host.borrow().auth_epoch;
+        if epoch != self.auth_epoch_seen.get() {
+            self.auth_epoch_seen.set(epoch);
+            let token = self.host.borrow().auth.token().map(str::to_owned);
+            self.set_net_token(token);
+            self.arm_auth_timer();
+        }
+    }
+
+    fn arm_auth_timer(self: &Rc<Self>) {
+        let due = self.host.borrow().auth_deadline();
+        let timer = due.map(|at| {
+            // Never sooner than five seconds: a refresh that fails must not become a busy loop.
+            let ms = (at - js_sys::Date::now()).clamp(5_000.0, 2_000_000_000.0) as u32;
+            let weak = Rc::downgrade(self);
+            Timeout::new(ms, move || {
+                if let Some(i) = weak.upgrade() {
+                    i.push(Inbox::Raw(Box::new(|inner| {
+                        inner.host.borrow_mut().auth_tick(js_sys::Date::now());
+                        inner.arm_auth_timer();
+                    })));
+                }
+            })
+        });
+        *self.auth_timer.borrow_mut() = timer;
+    }
+
+    /// The hosted flow's return: hand the authorisation code to the first Authentication control, once.
+    fn take_hosted_return(self: &Rc<Self>) {
+        let pending = self.hosted_return.borrow().clone();
+        if let Some((code, state)) = pending {
+            if self.host.borrow_mut().auth_hosted_return(&code, &state) {
+                *self.hosted_return.borrow_mut() = None;
+            }
+        }
     }
 
     fn send_requests(self: &Rc<Self>) {
@@ -459,29 +551,12 @@ impl Inner {
         for o in outs {
             match o {
                 Outbound::Request { id, frame } => {
-                    if self.net.borrow().is_none() || self.cfg.backend_origins.is_empty() {
-                        // No backend was configured: the program is told, as for any lost connection.
-                        let f = net::error_frame(id, net::class::TRANSPORT, 7, "the application has no backend configured", false);
+                    // No backend configured, or an address the page may not connect to: the program is
+                    // told, as for any lost connection.
+                    if let Err(e) = self.net_submit(id, &frame) {
+                        let f = net::error_frame(id, net::class::TRANSPORT, 7, &e, false);
                         self.host.borrow_mut().remote_answer(id, f);
-                        continue;
                     }
-                    let now = now_ms();
-                    {
-                        let mut guard = self.net.borrow_mut();
-                        let c = guard.as_mut().unwrap();
-                        if c.state() == LinkState::Closed {
-                            let token = self.host.borrow().auth.token().map(str::to_owned);
-                            c.set_token(token);
-                            if let Err(e) = c.connect(&self.cfg.backend_origins[0], now) {
-                                drop(guard);
-                                let f = net::error_frame(id, net::class::TRANSPORT, 7, &e, false);
-                                self.host.borrow_mut().remote_answer(id, f);
-                                continue;
-                            }
-                        }
-                        c.request_as(id, &frame, now);
-                    }
-                    self.drain_net();
                 }
                 Outbound::Cancel { id } => {
                     if let Some(c) = self.net.borrow_mut().as_mut() {
@@ -517,6 +592,14 @@ impl Inner {
                     if let Some(sf) = self.surface.borrow().as_ref() {
                         sf.closed(self, *inst);
                     }
+                    continue;
+                }
+                Effect::AuthCall { id, call } => {
+                    self.send_auth_call(*id, call.clone());
+                    continue;
+                }
+                Effect::AuthCaptcha { id, site_key, action } => {
+                    self.run_captcha(*id, site_key, *action);
                     continue;
                 }
                 Effect::Timer { id, ms } => {
@@ -555,8 +638,18 @@ impl Inner {
     }
 
     fn after_call(self: &Rc<Self>) {
-        self.process_effects();
-        self.send_requests();
+        self.take_hosted_return();
+        // What a step leaves can start another (an Authentication answer that raises an event, a
+        // refused call answered at once): go round until nothing is left, never forever.
+        for _ in 0..4 {
+            self.host.borrow_mut().auth_flush();
+            self.process_effects();
+            self.send_requests();
+            self.sync_auth_token();
+            if !self.host.borrow().has_outgoing() {
+                break;
+            }
+        }
         if let Some(sf) = self.surface.borrow().as_ref() {
             sf.render(self);
         }
@@ -641,7 +734,12 @@ impl Player {
             standalone: cfg.standalone,
             max_queue: cfg.max_queue.unwrap_or(HostOptions::default().max_queue),
         };
-        let host = Host::new(manifest, opts);
+        let mut host = Host::new(manifest, opts);
+        host.set_auth_defaults(
+            if cfg.auth_flow.eq_ignore_ascii_case("hosted") { crate::auth::Flow::Hosted } else { crate::auth::Flow::InApp },
+            &cfg.recaptcha_site_key,
+        );
+        let hosted_return = (!cfg.hosted_code.is_empty()).then(|| (cfg.hosted_code.clone(), cfg.hosted_state.clone()));
         let policy = crate::weblink::Policy { extra_schemes: cfg.weblink_schemes.clone() };
         let inner = Rc::new(Inner {
             styles: RefCell::new(Styles { locale: cfg.locale.clone(), ..Styles::default() }),
@@ -659,6 +757,10 @@ impl Player {
             dead: Cell::new(false),
             weak: RefCell::new(std::rc::Weak::new()),
             policy,
+            auth_epoch_seen: Cell::new(0),
+            auth_timer: RefCell::new(None),
+            captcha: RefCell::new(Default::default()),
+            hosted_return: RefCell::new(hosted_return),
         });
         *inner.weak.borrow_mut() = Rc::downgrade(&inner);
         if !inner.cfg.backend_origins.is_empty() {

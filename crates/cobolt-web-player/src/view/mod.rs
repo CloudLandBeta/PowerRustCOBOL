@@ -25,6 +25,7 @@
 //! | [`interact`] | what a DOM event on any of them asks of the host |
 //! | [`shell`] | the application shell: routes, the SideMenu, the breadcrumb |
 
+pub mod auth;
 pub mod charts;
 pub mod controls;
 pub mod data;

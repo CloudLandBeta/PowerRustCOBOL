@@ -548,6 +548,22 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
             }
         }
     }
+    // reCAPTCHA v3 (WASM-009 R4): the Authentication control loads Google's script and the script loads
+    // its own from gstatic; its badge is a frame. Exactly those prefixes are added, and only when a
+    // site key is configured.
+    if !o.recaptcha_site_key.trim().is_empty() {
+        for s in ["https://www.google.com/recaptcha/", "https://www.gstatic.com/recaptcha/"] {
+            if !csp_opts.extra_script.iter().any(|x| x == s) {
+                csp_opts.extra_script.push(s.into());
+            }
+        }
+        for s in ["https://www.google.com/recaptcha/", "https://recaptcha.google.com/recaptcha/"] {
+            if !csp_opts.extra_frame.iter().any(|x| x == s) {
+                csp_opts.extra_frame.push(s.into());
+            }
+        }
+        notes.push("a reCAPTCHA site key is configured: the Content-Security-Policy allows Google's reCAPTCHA scripts and frame (WASM-009 R4)".into());
+    }
     let stylesheet_cfg = input.stylesheet.as_ref().map(|css| {
         let p = b.add_hashed("stylesheet.css", css.clone().into_bytes());
         json!({"url": p, "integrity": b.sri_of(&p)})

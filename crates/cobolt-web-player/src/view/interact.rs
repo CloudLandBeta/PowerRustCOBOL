@@ -73,6 +73,18 @@ pub struct Payload {
     pub client_height: f64,
     /// Files of a drop or a picker: `(name, bytes)`.
     pub files: Vec<(String, u64)>,
+    /// The named fields of a form at the moment of its `submit`: `(name, value)`.
+    pub fields: Fields,
+}
+
+/// The fields of a submitted form. Their values may be passwords: a `Debug` output shows the names only.
+#[derive(Clone, Default)]
+pub struct Fields(pub Vec<(String, String)>);
+
+impl std::fmt::Debug for Fields {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.iter().map(|(k, _)| k)).finish()
+    }
 }
 
 impl Payload {
@@ -123,6 +135,8 @@ pub enum Act {
     OpenWindow { url: String, target: String, features: String, rel: String },
     /// The files a drop accepted, for the player to hold.
     Files { accepted: Vec<(String, u64)> },
+    /// An Authentication control's user acted (WASM-009): the host's machine takes it.
+    Auth(crate::auth::Action),
 }
 
 fn ev(name: &'static str) -> Act {
@@ -236,6 +250,7 @@ fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     if let Some(k) = crate::kinds::player_kind(c) {
         return match k {
             crate::kinds::PlayerKind::WebLink => weblink(cx, i, p),
+            crate::kinds::PlayerKind::Authentication => authentication(cx, i, p),
             _ => Vec::new(),
         };
     }
@@ -1059,6 +1074,50 @@ fn weblink(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     out
 }
 
+/// The Authentication control (WASM-009): what a submit of its form, a click on one of its links or
+/// on Sign out asks of the machine. The fields arrive in the payload only at the moment of the submit
+/// and are not kept anywhere here.
+fn authentication(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
+    use crate::auth::{Action, Screen};
+    let Some(ui) = cx.tree.auth(i) else { return Vec::new() };
+    let screen = ui.machine.screen;
+    match (p.kind.as_str(), p.key.as_str()) {
+        ("submit", "form") => {
+            let field = |n: &str| p.fields.0.iter().find(|(k, _)| k == n).map(|(_, v)| v.trim().to_owned()).unwrap_or_default();
+            // The password fields are sent as typed: leading and trailing spaces can be part of one.
+            let raw = |n: &str| p.fields.0.iter().find(|(k, _)| k == n).map(|(_, v)| v.clone()).unwrap_or_default();
+            let (action, needed): (Action, &[&str]) = match screen {
+                Screen::SignIn => (Action::SignIn { user: field("user"), password: raw("password") }, &["user", "password"]),
+                Screen::SignUp => (Action::SignUp { user: field("user"), email: field("email"), password: raw("password") }, &["user", "email", "password"]),
+                Screen::Confirm => (Action::Confirm { user: field("user"), code: field("code") }, &["user", "code"]),
+                Screen::Forgot => (Action::Forgot { user: field("user") }, &["user"]),
+                Screen::Reset => (Action::Reset { user: field("user"), code: field("code"), new_password: raw("new_password") }, &["user", "code", "new_password"]),
+                Screen::Mfa => (Action::Mfa { code: field("code") }, &["code"]),
+                Screen::SignedIn => return vec![Act::Prevent],
+            };
+            // The browser's own `required` validation normally stops an empty field before this point;
+            // an empty one that gets here (a script, an old browser) is not sent.
+            if needed.iter().any(|n| raw(n).is_empty()) {
+                return vec![Act::Prevent];
+            }
+            vec![Act::Prevent, Act::Auth(action)]
+        }
+        ("click", _) => match p.id.as_deref() {
+            Some("signout") => vec![Act::Auth(Action::SignOut)],
+            Some("hosted") => vec![Act::Auth(Action::Hosted)],
+            Some(id) => match id.strip_prefix("show:") {
+                Some("SignIn") => vec![Act::Auth(Action::Show(Screen::SignIn))],
+                Some("SignUp") => vec![Act::Auth(Action::Show(Screen::SignUp))],
+                Some("Confirm") => vec![Act::Auth(Action::Show(Screen::Confirm))],
+                Some("Forgot") => vec![Act::Auth(Action::Show(Screen::Forgot))],
+                _ => Vec::new(),
+            },
+            None => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
 // ── the form ────────────────────────────────────────────────────────────────
 
 /// A key pressed on the form (outside any control that takes it): Enter presses the default button.
@@ -1483,5 +1542,74 @@ mod tests {
         assert_eq!(first, 100);
         assert!(count >= 10);
         let _ = (fmt_number(1.0), lines("a"));
+    }
+
+    fn auth_tree() -> (FormTree, usize) {
+        let (mut t, i) = tree_with("Authentication", "AUTH-1", &[]);
+        t.init_auth(crate::auth::Flow::InApp, "", &crate::auth::Session::default());
+        (t, i)
+    }
+
+    fn submit(fields: &[(&str, &str)]) -> Payload {
+        let mut p = Payload::new("submit", "form");
+        p.fields = Fields(fields.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect());
+        p
+    }
+
+    #[test]
+    fn submitting_each_screen_asks_the_machine_for_that_screens_action() {
+        use crate::auth::{Action, Screen};
+        let e = Empty::default();
+        let cases: Vec<(Screen, Vec<(&str, &str)>, Action)> = vec![
+            (Screen::SignIn, vec![("user", " ana "), ("password", " p ss ")], Action::SignIn { user: "ana".into(), password: " p ss ".into() }),
+            (Screen::SignUp, vec![("user", "bia"), ("email", "b@x.y"), ("password", "pw")], Action::SignUp { user: "bia".into(), email: "b@x.y".into(), password: "pw".into() }),
+            (Screen::Confirm, vec![("user", "bia"), ("code", " 123456 ")], Action::Confirm { user: "bia".into(), code: "123456".into() }),
+            (Screen::Forgot, vec![("user", "ana")], Action::Forgot { user: "ana".into() }),
+            (Screen::Reset, vec![("user", "ana"), ("code", "9"), ("new_password", "n w")], Action::Reset { user: "ana".into(), code: "9".into(), new_password: "n w".into() }),
+            (Screen::Mfa, vec![("code", "000000")], Action::Mfa { code: "000000".into() }),
+        ];
+        for (screen, fields, want) in cases {
+            let (mut t, i) = auth_tree();
+            t.auth_mut(i).unwrap().machine.screen = screen;
+            let acts = run(&t, i, &e, submit(&fields));
+            assert_eq!(acts, vec![Act::Prevent, Act::Auth(want)], "{screen:?}: the user name is trimmed, a password is sent as typed");
+        }
+    }
+
+    #[test]
+    fn an_empty_required_field_is_never_sent_and_the_submit_is_still_cancelled() {
+        let e = Empty::default();
+        let (t, i) = auth_tree();
+        assert_eq!(run(&t, i, &e, submit(&[("user", "ana"), ("password", "")])), vec![Act::Prevent]);
+        assert_eq!(run(&t, i, &e, submit(&[])), vec![Act::Prevent]);
+    }
+
+    #[test]
+    fn the_links_and_sign_out_ask_for_their_screen_or_action() {
+        use crate::auth::{Action, Screen};
+        let e = Empty::default();
+        let (t, i) = auth_tree();
+        let click = |id: &str| {
+            let mut p = Payload::new("click", "nav-x");
+            p.id = Some(id.to_owned());
+            p
+        };
+        assert_eq!(run(&t, i, &e, click("show:SignUp")), vec![Act::Auth(Action::Show(Screen::SignUp))]);
+        assert_eq!(run(&t, i, &e, click("show:Forgot")), vec![Act::Auth(Action::Show(Screen::Forgot))]);
+        assert_eq!(run(&t, i, &e, click("show:SignIn")), vec![Act::Auth(Action::Show(Screen::SignIn))]);
+        assert_eq!(run(&t, i, &e, click("signout")), vec![Act::Auth(Action::SignOut)]);
+        assert_eq!(run(&t, i, &e, click("hosted")), vec![Act::Auth(Action::Hosted)]);
+        assert!(run(&t, i, &e, click("show:Nowhere")).is_empty(), "an unknown id asks for nothing");
+        assert!(run(&t, i, &e, click("javascript:alert(1)")).is_empty());
+    }
+
+    #[test]
+    fn what_a_submit_carries_never_shows_in_a_debug_output() {
+        use crate::auth::Action;
+        let p = submit(&[("user", "ana"), ("password", "hunter2")]);
+        let shown = format!("{p:?}");
+        assert!(shown.contains("password") && !shown.contains("hunter2"), "R10: {shown}");
+        let a = Action::SignIn { user: "ana".into(), password: "hunter2".into() };
+        assert!(!format!("{a:?} {:?}", Act::Auth(a.clone())).contains("hunter2"));
     }
 }

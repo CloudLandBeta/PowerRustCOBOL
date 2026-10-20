@@ -163,6 +163,8 @@ pub struct FormTree {
     written: std::collections::HashSet<(usize, String)>,
     /// The Viewers' conversations, by control.
     pub conversations: BTreeMap<usize, cobolt_forms::viewer::Conversation>,
+    /// The Authentication controls' live state, by control (WASM-009).
+    pub auths: BTreeMap<usize, crate::auth::AuthUi>,
 }
 
 /// Why a form description cannot be paired with its manifest entry.
@@ -343,6 +345,7 @@ impl FormTree {
             changes: Vec::new(),
             written: std::collections::HashSet::new(),
             conversations: BTreeMap::new(),
+            auths: BTreeMap::new(),
         })
     }
 
@@ -388,6 +391,49 @@ impl FormTree {
     /// Something the renderer must redraw that no property holds (a Viewer's conversation).
     pub fn changed(&mut self, ctl: usize, key: &str) {
         self.touch(ctl, key);
+    }
+
+    /// Make the state of every Authentication control from its properties. `flow` and `site_key`
+    /// are the page's settings, for what a control leaves open; `session` is the application's
+    /// (a form opened while the user is signed in shows it).
+    pub fn init_auth(&mut self, flow: crate::auth::Flow, site_key: &str, session: &crate::auth::Session) {
+        let ids: Vec<usize> = (0..self.ctls.len()).filter(|&i| crate::kinds::player_kind(&self.ctls[i]) == Some(crate::kinds::PlayerKind::Authentication)).collect();
+        for i in ids {
+            let cfg = {
+                let this = &*self;
+                crate::auth::config_from(&|p| this.get(i, p), flow, site_key)
+            };
+            let mut ui = crate::auth::AuthUi::new(cfg);
+            if session.is_signed_in() {
+                ui.machine.adopt(session);
+            }
+            self.auths.insert(i, ui);
+            self.sync_auth_props(i);
+        }
+    }
+
+    pub fn auth(&self, ctl: usize) -> Option<&crate::auth::AuthUi> {
+        self.auths.get(&ctl)
+    }
+
+    /// The state of Authentication control `ctl`, to be changed; the control is redrawn.
+    pub fn auth_mut(&mut self, ctl: usize) -> Option<&mut crate::auth::AuthUi> {
+        if self.auths.contains_key(&ctl) {
+            self.touch(ctl, "auth");
+        }
+        self.auths.get_mut(&ctl)
+    }
+
+    /// Publish `State`, `UserName` and `Email` where the program reads properties (WASM-009 R3).
+    pub fn sync_auth_props(&mut self, ctl: usize) {
+        let Some(ui) = self.auths.get(&ctl) else { return };
+        let (state, user, email) = (ui.machine.state_name().to_owned(), ui.machine.user_name.clone(), ui.machine.email.clone());
+        let mode = if ui.machine.cfg.flow == crate::auth::Flow::Hosted { "Hosted" } else { "InApp" };
+        for (k, v) in [("State", state), ("UserName", user), ("Email", email), ("Mode", mode.to_owned())] {
+            if self.get(ctl, k) != v {
+                self.set_from_ui(ctl, k, &v);
+            }
+        }
     }
 
     /// Record a command for the renderer (focus, select-all, a timer start, …).
