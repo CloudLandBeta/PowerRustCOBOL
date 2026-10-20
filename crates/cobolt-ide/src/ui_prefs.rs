@@ -94,7 +94,19 @@ pub struct UiPrefs {
     /// theme's accent. Machine-level and never in a `.cfrm`: it is how *this developer* sees
     /// the guides, and Preview and Run Form draw no guides at all.
     pub layout_grid_color: String,
+    /// The projects opened or created most recently, newest first (WASM-001 Q6):
+    /// manifest paths, at most [`MAX_RECENT_PROJECTS`]. Machine-level — what
+    /// *this developer* worked on is not the project's business, and a colleague
+    /// opening the same project must not inherit the list. Empty for an older
+    /// `ui.toml`.
+    pub recent_projects: Vec<String>,
+    /// The folder the last New Project went into, offered as the next one's
+    /// *Project location*. Empty until a project has been created.
+    pub new_project_location: String,
 }
+
+/// How many recent projects are remembered.
+pub const MAX_RECENT_PROJECTS: usize = 12;
 
 fn prefs_path() -> std::path::PathBuf {
     crate::llm::base_dir().join("ui.toml")
@@ -275,6 +287,79 @@ pub fn save_build_dir(root: Option<&std::path::Path>) {
     prefs.save();
 }
 
+/// `list` with `manifest` put first: the same path moves up instead of
+/// appearing twice, and only the newest [`MAX_RECENT_PROJECTS`] are kept.
+pub fn with_recent(list: &[String], manifest: &str) -> Vec<String> {
+    let manifest = manifest.trim();
+    if manifest.is_empty() {
+        return list.to_vec();
+    }
+    let mut out = vec![manifest.to_owned()];
+    out.extend(list.iter().filter(|p| p.as_str() != manifest && !p.trim().is_empty()).cloned());
+    out.truncate(MAX_RECENT_PROJECTS);
+    out
+}
+
+/// The recent projects' manifests, newest first.
+pub fn load_recent_projects() -> Vec<std::path::PathBuf> {
+    UiPrefs::load().recent_projects.into_iter().map(std::path::PathBuf::from).collect()
+}
+
+/// Remember that `manifest` was opened or created (load-then-save).
+pub fn record_recent_project(manifest: &std::path::Path) {
+    let mut prefs = UiPrefs::load();
+    prefs.recent_projects = with_recent(&prefs.recent_projects, &manifest.display().to_string());
+    prefs.save();
+}
+
+/// The folder the last New Project went into, if it is still there.
+pub fn load_new_project_location() -> Option<std::path::PathBuf> {
+    let stored = UiPrefs::load().new_project_location;
+    let path = std::path::PathBuf::from(stored.trim());
+    (!stored.trim().is_empty() && path.is_dir()).then_some(path)
+}
+
+/// Remember the folder a New Project went into.
+pub fn save_new_project_location(folder: &std::path::Path) {
+    let mut prefs = UiPrefs::load();
+    prefs.new_project_location = folder.display().to_string();
+    prefs.save();
+}
+
+#[cfg(test)]
+mod recent_projects_tests {
+    use super::*;
+
+    /// WASM-001 Q6: the list keeps the newest first, moves a repeat up and is bounded.
+    #[test]
+    fn the_recent_list_is_newest_first_without_repeats_and_bounded() {
+        let mut list: Vec<String> = Vec::new();
+        for i in 0..20 {
+            list = with_recent(&list, &format!("/p/project-{i}.project.toml"));
+        }
+        assert_eq!(list.len(), MAX_RECENT_PROJECTS);
+        assert_eq!(list[0], "/p/project-19.project.toml");
+        assert_eq!(list[MAX_RECENT_PROJECTS - 1], "/p/project-8.project.toml");
+        // Opening one again moves it to the top; nothing is listed twice.
+        let again = with_recent(&list, "/p/project-12.project.toml");
+        assert_eq!(again[0], "/p/project-12.project.toml");
+        assert_eq!(again.iter().filter(|p| p.as_str() == "/p/project-12.project.toml").count(), 1);
+        assert_eq!(again.len(), MAX_RECENT_PROJECTS);
+        // Nothing and blanks add nothing.
+        assert_eq!(with_recent(&list, "  "), list);
+        assert_eq!(with_recent(&[String::new()], "/x.toml"), ["/x.toml"]);
+    }
+
+    #[test]
+    fn an_older_prefs_file_has_no_recent_projects_and_no_location() {
+        let older: UiPrefs = toml::from_str("language = \"fr\"\n").unwrap();
+        assert!(older.recent_projects.is_empty() && older.new_project_location.is_empty());
+        let set: UiPrefs = toml::from_str("recent_projects = [\"/a.toml\", \"/b.toml\"]\nnew_project_location = \"/work\"\n").unwrap();
+        assert_eq!(set.recent_projects, ["/a.toml", "/b.toml"]);
+        assert_eq!(set.new_project_location, "/work");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,6 +408,8 @@ mod tests {
             task_wizard_dismissed: ["/home/dev/Inventory|Main|Grid1|datagrid".to_owned()].into(),
             announcement_dismissed: "cbf29ce484222325".into(),
             layout_grid_color: "#FF8800FF".into(),
+            recent_projects: vec!["/home/dev/Inventory/Inventory.project.toml".into()],
+            new_project_location: "/home/dev".into(),
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
         assert_eq!(p, back);

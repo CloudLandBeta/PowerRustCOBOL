@@ -595,7 +595,7 @@ impl<'a> IdeToolBackend<'a> {
     /// asking the developer to pick a target on the project tree, and return the
     /// chosen **project-relative** path for the agent to use in its write.
     fn exec_project(&mut self, call: &ToolCall) -> ToolResult {
-        use crate::target_select::{create_request, edit_candidates, edit_request, TargetChoice};
+        use crate::target_select::{create_request_for, edit_candidates, edit_request, TargetChoice};
         if call.tool != "project.select_target" {
             return ToolResult::critical(format!("unknown project tool “{}”", call.tool));
         }
@@ -619,7 +619,14 @@ impl<'a> IdeToolBackend<'a> {
         };
 
         let request = match op.as_str() {
-            "create" => create_request(kind, &name),
+            "create" => {
+                // The folder offered first is the one the project's kind keeps
+                // that element in (`webforms/` for a Web project's forms).
+                let project = cobolt_project_tools::ProjectRoot::open(&self.project_dir)
+                    .ok()
+                    .and_then(|root| crate::project_model::load_project(root.manifest()).ok());
+                create_request_for(project.as_ref(), kind, &name)
+            }
             "edit" => {
                 let project = crate::project_model::load_project(
                     &self.project_dir.join("cobolt.toml"),

@@ -18,7 +18,7 @@ use egui::{Align2, Context, RichText, ScrollArea, Vec2};
 
 use crate::i18n::Tr;
 use crate::project_fs;
-use crate::project_model::{Category, FileKind};
+
 use crate::target_select::{TargetChoice, TargetOp, TargetRequest};
 
 /// Transient UI state for the picker. One per surface that can host it.
@@ -48,7 +48,7 @@ impl TargetPicker {
             TargetOp::Edit => format!("{} “{}”", tr.pick_element_for_editing, req.name),
         };
         let options: Vec<String> = match req.op {
-            TargetOp::Create => folder_options(root, req.kind),
+            TargetOp::Create => folder_options(root, &req.home),
             TargetOp::Edit => req.candidates.clone(),
         };
         if self.selected.is_none() {
@@ -98,7 +98,7 @@ impl TargetPicker {
                                 let parent = self
                                     .selected
                                     .clone()
-                                    .unwrap_or_else(|| category_root(req.kind));
+                                    .unwrap_or_else(|| req.home.clone());
                                 match project_fs::create_folder(
                                     root,
                                     Path::new(&parent),
@@ -145,14 +145,11 @@ impl TargetPicker {
     }
 }
 
-fn category_root(kind: FileKind) -> String {
-    Category::of_kind(kind).root_subdir().to_string()
-}
-
-/// The selectable destination folders for a create: the category root plus every
+/// The selectable destination folders for a create: the element's home folder
+/// in this project (`forms`, `webforms`, `mobileforms`, `src`, …) plus every
 /// directory under it on disk (so empty and freshly-created folders appear).
-fn folder_options(root: &Path, kind: FileKind) -> Vec<String> {
-    let sub = category_root(kind);
+fn folder_options(root: &Path, home: &str) -> Vec<String> {
+    let sub = home.to_string();
     let mut dirs = vec![sub.clone()];
     collect_dirs(&root.join(&sub), root, &mut dirs);
     dirs.sort();
@@ -193,7 +190,7 @@ mod tests {
         let base = std::env::temp_dir().join(format!("prc_picker_{}", std::process::id()));
         let _ = std::fs::create_dir_all(base.join("forms/customers"));
         let _ = std::fs::create_dir_all(base.join("forms/empty"));
-        let opts = folder_options(&base, FileKind::Form);
+        let opts = folder_options(&base, "forms");
         assert!(opts.contains(&"forms".to_string()));
         assert!(opts.contains(&"forms/customers".to_string()));
         // An empty on-disk folder still appears (R6 inline-created folders show).

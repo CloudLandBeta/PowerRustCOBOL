@@ -212,7 +212,7 @@ impl CoboltApp {
         if let Some((_, r)) = tree
             .categories
             .iter()
-            .find(|(c, _)| *c == crate::project_model::Category::Forms)
+            .find(|(c, _)| c.is_forms())
         {
             anchors::mark_rect(ViewportId::ROOT, AnchorId::FormsCategory, *r, clip);
         }

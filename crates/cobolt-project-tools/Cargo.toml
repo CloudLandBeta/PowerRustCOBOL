@@ -37,6 +37,9 @@ serde_json = { workspace = true }
 # Manifest edits that keep every byte the tools do not own (comments, key
 # order, unknown tables). The 0.22 line is the one `toml` 0.8 already pulls.
 toml_edit  = "0.22"
+# The kind tables of a new project, written by the serializer the IDE saves
+# with, so a manifest made here and one the IDE saves are the same bytes.
+toml       = { workspace = true }
 # The External Crates registry client (spec 044), moved down from the IDE so
 # `add_crate` can register a crate without it: the blocking HTTP stack the IDE
 # uses (ureq + an explicit native-tls, never rustls/ring), the `.crate`

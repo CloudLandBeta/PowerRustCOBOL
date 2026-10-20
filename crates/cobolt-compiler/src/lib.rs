@@ -59,8 +59,10 @@ pub mod exec_rust;
 pub mod runtime_features;
 pub mod external_crates;
 pub mod main_form_guard;
+pub mod project_kind;
 
 pub use external_crates::ExternalCrate;
+pub use project_kind::ProjectKind;
 
 // ── License / NOTICE assets ─────────────────────────────────────────────────────
 //
@@ -756,6 +758,16 @@ pub enum CompilerError {
     )]
     UnsupportedTarget { requested: String, host: String },
 
+    /// A Web or Mobile project reached the desktop build. It would compile the
+    /// project's forms into a native binary the kind never asked for, so the
+    /// build refuses and says which build to use (WASM-001, WASM-002).
+    #[error(
+        "this is a {kind} project, not a desktop one: the native build does not make it. \
+         Build it with the web build of the IDE (Build on a Web or Mobile project) or the \
+         `build` tool of `rcrun mcp`."
+    )]
+    NotADesktopProject { kind: String },
+
     #[error("No main COBOL source specified in cobolt.toml")]
     NoMain,
 
@@ -796,6 +808,10 @@ struct ProjectMeta {
     main: String,
     #[serde(default)]
     destination_folder: String,
+    /// What the project builds (WASM-001). Absent ⇒ Desktop, the only kind
+    /// this crate's native build produces.
+    #[serde(default)]
+    kind: ProjectKind,
 }
 
 /// Where a build installs the deliverable when the project does not choose.
@@ -852,6 +868,11 @@ struct ProjectFiles {
     /// had put the file. See the copy in step 11c.
     #[serde(default)]
     indexed: Vec<String>,
+    /// The Backend part of a Web or Mobile project (WASM-001): its programs and
+    /// copybooks. Not built by the native build; read so the manifest round-trips
+    /// through either copy and the tools can list it.
+    #[serde(default)]
+    backend: Vec<String>,
 }
 
 /// The two focus-ring constants every generated `main.rs` carries, as
@@ -1073,8 +1094,19 @@ pub struct ManifestView {
     pub documentation: Vec<String>,
     pub generated: Vec<String>,
     pub indexed: Vec<String>,
+    /// `[files] backend` — the files of the Backend part of a Web or Mobile
+    /// project (WASM-001). Empty for a Desktop project.
+    pub backend: Vec<String>,
     /// `[[crates]]` lib names (`ExternalCrate::lib_name`), in manifest order.
     pub crates: Vec<String>,
+    /// What the project builds (WASM-001); Desktop when the manifest says nothing.
+    pub kind: ProjectKind,
+    /// `[web]`, when the manifest has one.
+    pub web: Option<project_kind::WebSettings>,
+    /// `[mobile]`, when the manifest has one.
+    pub mobile: Option<project_kind::MobileSettings>,
+    /// `[backend] exports` — the programs a remote caller can reach.
+    pub backend_exports: Vec<String>,
 }
 
 /// The manifest subset [`project_manifest_view`] reads. Its own mirror, like
@@ -1087,11 +1119,19 @@ struct ViewManifest {
     files: ProjectFiles,
     #[serde(default)]
     crates: Vec<ExternalCrate>,
+    #[serde(default)]
+    web: Option<project_kind::WebSettings>,
+    #[serde(default)]
+    mobile: Option<project_kind::MobileSettings>,
+    #[serde(default)]
+    backend: Option<project_kind::BackendSettings>,
 }
 
 #[derive(Deserialize)]
 struct ViewMeta {
     name: String,
+    #[serde(default)]
+    kind: ProjectKind,
     #[serde(default)]
     structure: u32,
 }
@@ -1114,7 +1154,12 @@ pub fn project_manifest_view(manifest_path: &Path) -> Result<ManifestView, Strin
         documentation: m.files.documentation,
         generated: m.files.generated,
         indexed: m.files.indexed,
+        backend: m.files.backend,
         crates: m.crates.iter().map(ExternalCrate::lib_name).collect(),
+        kind: m.project.kind,
+        web: m.web,
+        mobile: m.mobile,
+        backend_exports: m.backend.map(|b| b.exports).unwrap_or_default(),
     })
 }
 
@@ -1744,6 +1789,9 @@ pub fn build_project(
     let manifest_text = std::fs::read_to_string(manifest_path)?;
     let proj: CoboltProject =
         toml::from_str(&manifest_text).map_err(|e| CompilerError::Toml(e.to_string()))?;
+    if !proj.project.kind.is_desktop() {
+        return Err(CompilerError::NotADesktopProject { kind: proj.project.kind.as_str().to_owned() });
+    }
 
     let project_dir = manifest_path
         .canonicalize()?
@@ -1781,6 +1829,7 @@ pub fn build_single_file(
             version: "1.0.0".into(),
             main,
             destination_folder: String::new(),
+            kind: ProjectKind::Desktop,
         },
         files: ProjectFiles::default(),
         forms: FormsConfig::default(),
@@ -10122,6 +10171,7 @@ function_prefix = "sales-"
                 version: "1.0.0".into(),
                 main: main.into(),
                 destination_folder: String::new(),
+                kind: ProjectKind::Desktop,
             },
             files: ProjectFiles {
                 sources: sources.into_iter().map(String::from).collect(),
@@ -13928,5 +13978,43 @@ mod regenerate_before_build_tests {
         );
         let _ = fs::remove_dir_all(&dir);
         println!("F9: stale program off → {kept:.60}…; regenerated → {err:.60}…");
+    }
+}
+
+#[cfg(test)]
+mod project_kind_build_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// WASM-001: a Web or Mobile project must not fall into the desktop build,
+    /// which would compile its forms into a native binary nobody asked for.
+    /// A manifest without a kind is a Desktop project and goes on to build.
+    #[test]
+    fn the_native_build_refuses_a_web_or_mobile_project_and_names_the_way_out() {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("prc-wasm001-{nanos}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let opts = BuildOptions { verbose: false, ..Default::default() };
+        let mut refused = Vec::new();
+        for kind in ["web", "mobile"] {
+            let manifest = dir.join(format!("{kind}.project.toml"));
+            std::fs::write(
+                &manifest,
+                format!("[project]\nname = \"K\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"{kind}\"\n"),
+            )
+            .unwrap();
+            let err = build_project(&manifest, &opts).err().expect("a non-desktop project is refused");
+            assert!(matches!(err, CompilerError::NotADesktopProject { .. }), "{err}");
+            let text = err.to_string();
+            assert!(text.contains(kind) && text.contains("web build"), "{text}");
+            refused.push(kind);
+        }
+        // No kind at all: not refused for its kind (it fails later, for want of a main program).
+        let old = dir.join("old.project.toml");
+        std::fs::write(&old, "[project]\nname = \"K\"\nversion = \"1.0.0\"\nmain = \"\"\n").unwrap();
+        let err = build_project(&old, &opts).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(!err.contains("not a desktop one"), "an old manifest is a desktop project: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("kinds: {refused:?} refused by the native build; a manifest with no kind is still Desktop");
     }
 }

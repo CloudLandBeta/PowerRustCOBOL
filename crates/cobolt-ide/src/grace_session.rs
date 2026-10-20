@@ -279,6 +279,7 @@ mod handshake_tests {
             kind: FileKind::Form,
             name: "order".into(),
             candidates: Vec::new(),
+            home: "forms".into(),
         }
     }
 

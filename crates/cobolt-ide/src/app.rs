@@ -201,23 +201,7 @@ impl BenchmarkProgress {
     }
 }
 
-struct NewProjectDialog {
-    open: bool,
-    name: String,
-    version: String,
-    main: String,
-}
-
-impl NewProjectDialog {
-    fn new() -> Self {
-        Self {
-            open: false,
-            name: "MyApp".into(),
-            version: "1.0.0".into(),
-            main: "src/main.cbl".into(),
-        }
-    }
-}
+use crate::panels::new_project::NewProjectDialog;
 
 // ── CoboltApp ─────────────────────────────────────────────────────────────────
 
@@ -1190,6 +1174,10 @@ pub struct CoboltApp {
     /// Which app-level file dialog (if any) is currently open; its result is
     /// applied by `apply_file_result` once the async picker returns.
     pending_file: Option<FileRequest>,
+    /// The project-relative folder a pending `AddFile` imports into, when the
+    /// import was asked for on a folder (the Backend's `backend/src`) rather
+    /// than on a category. Consumed by `add_file_to_project_path`.
+    add_file_dir: Option<String>,
 
     /// Clone of the root egui context, so async file dialogs can wake the UI
     /// from their worker thread when the user finishes picking.
@@ -1224,7 +1212,10 @@ pub struct CoboltApp {
 #[derive(Clone)]
 enum FileRequest {
     OpenCobol,
-    CreateProject,
+    /// The folder button of the New Project dialog (WASM-001 R3).
+    PickProjectLocation,
+    /// *Create from Template…* (WASM-001 R7): the manifest of the project to start from.
+    PickTemplateProject,
     OpenProject,
     SaveProject,
     PackageProject,
@@ -1510,10 +1501,6 @@ fn link_hint(origin: &crate::runner::DiagOrigin, click_hint: &str) -> String {
 /// Clamp range for the error-modal message font size.
 const MIN_ERROR_FONT_SIZE: f32 = 8.0;
 const MAX_ERROR_FONT_SIZE: f32 = 28.0;
-
-/// Standard project sub-folders — shared with the coding-agent tools'
-/// `create_project` (spec 084), so both make the same project.
-use cobolt_project_tools::create::PROJECT_FOLDERS;
 
 /// Inline indexed-file inspector in the Main Pane.
 struct IndexedInspectState {
@@ -2362,6 +2349,7 @@ impl CoboltApp {
             pending_build_progress: None,
             build_phase: (0.0, String::new()),
             pending_file: None,
+            add_file_dir: None,
             egui_ctx: cc.egui_ctx.clone(),
             agent_tools,
             agent_tools_rx,
@@ -4576,107 +4564,79 @@ impl CoboltApp {
 
     // ── Project actions ───────────────────────────────────────────────────────
 
+    /// File ▸ New Project: open the dialog (WASM-001 R1), offering the folder
+    /// the last project went into and the projects opened most recently.
     fn do_new_project(&mut self) {
-        self.new_project.open = true;
+        let location = crate::ui_prefs::load_new_project_location()
+            .or_else(|| dirs::document_dir().or_else(dirs::home_dir))
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        self.new_project.open_with(&location, crate::ui_prefs::load_recent_projects());
     }
 
-    fn create_new_project(&mut self) {
-        if !self.new_project.name.ends_with(".project") {
-            self.new_project.name.push_str(".project");
-        }
-        // The manifest is named after the project (e.g. "Inventory System.project.toml")
-        // rather than a fixed "cobolt.toml", so the file is self-describing.
-        let file_name = format!("{}.toml", sanitize_file_stem(&self.new_project.name));
-        self.begin_file_dialog(
-            FileRequest::CreateProject,
-            crate::file_dialog::DialogSpec::save()
-                .filter("RustCOBOL Project", &["toml"])
-                .file_name(&file_name),
-        );
-    }
-
-    /// Finish creating a new project once the user has chosen `cobolt.toml`.
-    fn create_new_project_at(&mut self, path: PathBuf) {
-        let mut proj =
-            CoboltProject::new(self.new_project.name.clone(), self.new_project.main.clone());
-        proj.project.version = self.new_project.version.clone();
-        let mut llm = crate::llm::LlmConfig::load();
-        llm.carry_session_keys_from(&self.llm);
-        self.llm = llm;
-        proj.ai.apply_to_llm(&mut self.llm);
-
-        match save_project(&proj, &path) {
-            Ok(()) => {
-                let dir = path.parent().map(|p| p.to_owned());
-                self.cobolt_project = Some(proj);
-                // The run threads read the project's engine choice from here;
-                // publishing it on load is what makes it take effect without
-                // threading it through every `start` call.
-                crate::runner::set_project_indexed_engine(
-                    &self
-                        .cobolt_project
-                        .as_ref()
-                        .map(|p| p.ide.indexed_engine.clone())
-                        .unwrap_or_default(),
-                );
-                self.project_path = Some(path);
-                self.publish_project_sql();
-                if let Some(dir) = dir {
-                    // Create the standard project sub-folders: one per category
-                    // (Common Code / Forms / Generated Code / Assets / Docs) plus
-                    // build/debug/temp working folders and `dist/` (a future
-                    // self-contained bundle — binary + assets + libs — for running
-                    // the project on a machine without PowerRustCOBOL installed).
-                    for sub in PROJECT_FOLDERS {
-                        if let Err(e) = std::fs::create_dir_all(dir.join(sub)) {
-                            self.output
-                                .push_status(crate::ui_text::idef("Could not create {}/: {}", &[&sub, &e]));
-                        }
-                    }
-                    // Scaffold a runnable starter main program so the project can
-                    // be Run immediately. Track it under Common Code and open it.
-                    let proj_name = self.cobolt_project.as_ref().unwrap().project.name.clone();
-                    let main_rel = self.cobolt_project.as_ref().unwrap().project.main.clone();
-                    let main_path = dir.join(&main_rel);
-                    if !main_path.exists() {
-                        if let Some(parent) = main_path.parent() {
-                            let _ = std::fs::create_dir_all(parent);
-                        }
-                        let template =
-                            cobolt_project_tools::create::starter_main(&proj_name, &main_rel);
-                        if std::fs::write(&main_path, template).is_ok() {
-                            if let Some(p) = &mut self.cobolt_project {
-                                p.add_file_to(
-                                    &main_rel,
-                                    crate::project_model::Category::CommonCode,
-                                );
-                            }
-                        }
-                    }
-                    self.project.set_root(&dir);
-                    self.forms_list.set_root(&dir);
-                    self.ensure_project_agent_system(&dir);
-                    self.sync_project_documentation_membership(&dir);
-                    self.do_save_project(); // persist the tracked main
-
-                    // Initialize the project Settings form and show it immediately
-                    // (fills the main work area right of the tree; no editor controls on top).
-                    if let Some(p) = &self.cobolt_project {
-                        self.settings_form = Some(crate::panels::settings_form::SettingsForm::new(
-                            p, &self.llm,
-                        ));
-                        self.show_project_settings = true;
-                        self.show_grace_chat = false;
-                        self.inspect = None;
-                    }
-                }
-                let name = self.cobolt_project.as_ref().unwrap().project.name.clone();
-                self.output.push_status(crate::ui_text::idef("Created project '{}'", &[&name]));
-                self.new_project.open = false;
-            }
-            Err(e) => {
+    /// Create the project the dialog described and open it (WASM-001 R6).
+    ///
+    /// The folders, the starter files and the manifest are written by
+    /// `cobolt_project_tools::create` — the code `create_project` of the
+    /// coding-agent tools runs — so the two cannot make different projects; the
+    /// project is then opened as File ▸ Open Project opens any, which is what
+    /// brings up its tree, its settings and its AI configuration.
+    fn create_new_project_from(&mut self, dir: PathBuf, request: cobolt_project_tools::create::CreateRequest) {
+        let plan = match cobolt_project_tools::create::plan(&request, self.new_project.catalogue()) {
+            Ok(plan) => plan,
+            Err(why) => {
                 self.output
-                    .push_status(crate::ui_text::idef("Failed to create project: {}", &[&e]));
+                    .push_status(crate::ui_text::idef("Failed to create project: {}", &[&why]));
+                return;
+            }
+        };
+        if let Err(why) = plan.write_into(&dir, &plan.manifest_name) {
+            self.output
+                .push_status(crate::ui_text::idef("Failed to create project: {}", &[&why]));
+            return;
+        }
+        if let Some(parent) = dir.parent() {
+            crate::ui_prefs::save_new_project_location(parent);
+        }
+        let manifest = dir.join(&plan.manifest_name);
+        self.new_project.open = false;
+        self.open_project_at(manifest.clone());
+        if self.project_path.as_deref() == Some(manifest.as_path()) {
+            let tr = self.lang.tr();
+            let kind = match plan.kind {
+                cobolt_compiler::ProjectKind::Desktop => tr.pk_kind_desktop,
+                cobolt_compiler::ProjectKind::Web => tr.pk_kind_web,
+                cobolt_compiler::ProjectKind::Mobile => tr.pk_kind_mobile,
+            };
+            self.output
+                .push_status(tr.pk_status_created.replacen("{}", kind, 1).replacen("{}", &plan.stored_name, 1));
+        }
+    }
+
+    /// *Create from Template…* (WASM-001 R7): copy the project at `source` to
+    /// the dialog's location under the dialog's name, and open the copy.
+    fn create_new_project_from_template(&mut self, source: PathBuf) {
+        let tr = self.lang.tr();
+        let target = match self.new_project.copy_target() {
+            Ok(t) => t,
+            Err(problem) => {
+                self.new_project.set_problem(problem);
+                return;
+            }
+        };
+        match cobolt_project_tools::create::clone_project(&source, &target.dir, &target.stored_name) {
+            Ok(done) => {
+                if let Some(parent) = target.dir.parent() {
+                    crate::ui_prefs::save_new_project_location(parent);
+                }
+                self.new_project.open = false;
+                let from = source.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                self.output
+                    .push_status(tr.pk_cft_done.replacen("{}", &done.files.to_string(), 1).replacen("{}", &from, 1));
+                self.open_project_at(done.manifest);
+            }
+            Err(why) => {
+                self.output.push_status(tr.pk_cft_failed.replacen("{}", &why, 1));
             }
         }
     }
@@ -4771,6 +4731,9 @@ impl CoboltApp {
                         .map(|p| p.ide.indexed_engine.clone())
                         .unwrap_or_default(),
                 );
+                // The list File ▸ New Project offers under Recent Projects
+                // (WASM-001 Q6).
+                crate::ui_prefs::record_recent_project(&path);
                 self.project_path = Some(path);
                 self.publish_project_sql();
                 self.agents_modal = None;
@@ -4816,9 +4779,16 @@ impl CoboltApp {
                     self.ai_setup_modal = !suppressed && self.ai_setup_needed(root);
                 }
                 if let Some(dir) = dir {
-                    // Back-fill any standard sub-folders missing from older projects.
+                    // Back-fill any standard sub-folders missing from older projects —
+                    // the ones of the project's own kind (a Web project has no
+                    // `forms/` or `bin/`, and a Backend only when it has one).
                     let mut created = 0;
-                    for sub in PROJECT_FOLDERS {
+                    let (kind, has_backend) = self
+                        .cobolt_project
+                        .as_ref()
+                        .map(|p| (p.kind(), p.backend.is_some() || !p.files.backend.is_empty()))
+                        .unwrap_or_default();
+                    for sub in cobolt_project_tools::create::folders_for(kind, has_backend) {
                         let p = dir.join(sub);
                         if !p.exists() && std::fs::create_dir_all(&p).is_ok() {
                             created += 1;
@@ -5257,10 +5227,10 @@ impl CoboltApp {
                         .replacen("{}", &target, 1);
                     self.output.push_status(line.trim_end().to_owned());
                 }
-                HostRequest::CreateProject { folder, name, reply } => {
+                HostRequest::CreateProject { folder, request, reply } => {
                     let result = self.agent_project_switch_refused().map_or_else(
                         || {
-                            let made = cobolt_project_tools::create::create_project(&folder, &name)?;
+                            let made = cobolt_project_tools::create::create_project_with(&folder, &request)?;
                             let manifest = folder.join(made["project"].as_str().unwrap_or_default());
                             self.agent_open_project(manifest).map(|_| made)
                         },
@@ -7018,6 +6988,8 @@ impl CoboltApp {
         }
         let rel = format!("{sub}/{fname}");
         if let Some(proj) = &mut self.cobolt_project {
+            // A program made under the Backend's folder is the Backend's.
+            let category = if kind == FileKind::Source { proj.category_of_path(&rel) } else { category };
             proj.add_file_to(&rel, category);
         }
         self.do_save_project();
@@ -7090,15 +7062,21 @@ impl CoboltApp {
         }
 
         // Resolve to a project-relative path, importing (copying) when external.
+        // A folder asked for on the tree (the Backend's `backend/src`) wins;
+        // otherwise the kind's home — and a form's home is the folder of the
+        // project's own kind (`forms/`, `webforms/` or `mobileforms/`).
+        let forms_folder = self.cobolt_project.as_ref().map_or("forms", |p| p.kind().forms_folder());
+        let asked_dir = self.add_file_dir.take();
         let rel = match relative_to(&path, &proj_dir) {
             Some(rel) => rel,
             None => {
-                let subdir = match kind {
-                    FileKind::Source => "src",
-                    FileKind::Form => "forms",
-                    FileKind::Indexed => "data",
-                    FileKind::Asset => "Assets",
-                    FileKind::Documentation => {
+                let subdir = match (&asked_dir, kind) {
+                    (Some(dir), _) => dir.as_str(),
+                    (None, FileKind::Source) => "src",
+                    (None, FileKind::Form) => forms_folder,
+                    (None, FileKind::Indexed) => "data",
+                    (None, FileKind::Asset) => "Assets",
+                    (None, FileKind::Documentation) => {
                         cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT
                     }
                 };
@@ -7124,14 +7102,15 @@ impl CoboltApp {
             }
         };
 
-        let category = match kind {
-            FileKind::Source => Category::CommonCode,
-            FileKind::Form => Category::Forms,
-            FileKind::Indexed => Category::IndexedFiles,
-            FileKind::Asset => Category::Assets,
-            FileKind::Documentation => Category::Documentation,
-        };
         if let Some(proj) = &mut self.cobolt_project {
+            let category = match kind {
+                // Common Code, or the Backend's when it sits under `backend/`.
+                FileKind::Source => proj.category_of_path(&rel),
+                FileKind::Form => proj.forms_category(),
+                FileKind::Indexed => Category::IndexedFiles,
+                FileKind::Asset => Category::Assets,
+                FileKind::Documentation => Category::Documentation,
+            };
             proj.add_file_to(&rel, category);
         }
         self.do_save_project();
@@ -14125,38 +14104,30 @@ impl CoboltApp {
             return;
         }
         let tr = self.lang.tr();
-        let mut open = true;
-        egui::Window::new(tr.dlg_new_project)
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                egui::Grid::new("npg")
-                    .num_columns(2)
-                    .spacing([8.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label(tr.dlg_proj_name);
-                        ui.text_edit_singleline(&mut self.new_project.name);
-                        ui.end_row();
-                        ui.label(tr.dlg_proj_version);
-                        ui.text_edit_singleline(&mut self.new_project.version);
-                        ui.end_row();
-                        ui.label(tr.dlg_proj_main);
-                        ui.text_edit_singleline(&mut self.new_project.main);
-                        ui.end_row();
-                    });
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button(tr.dlg_create_dots).clicked() {
-                        self.create_new_project();
-                    }
-                    if ui.button(tr.dlg_cancel).clicked() {
-                        self.new_project.open = false;
-                    }
-                });
-            });
-        if !open {
+        let theme = self.current_theme();
+        let action = self.new_project.show(ctx, theme, &tr);
+        // The folder button: ask for the folder the project goes in.
+        if action.browse_location {
+            let mut spec = crate::file_dialog::DialogSpec::folder();
+            let current = std::path::PathBuf::from(self.new_project.location.trim());
+            if current.is_dir() {
+                spec = spec.directory(current);
+            }
+            self.begin_file_dialog(FileRequest::PickProjectLocation, spec);
+        }
+        // *Create from Template…*: ask for the project to start from.
+        if action.from_template {
+            self.begin_file_dialog(
+                FileRequest::PickTemplateProject,
+                crate::file_dialog::DialogSpec::open().filter("RustCOBOL Project", &["toml"]),
+            );
+        }
+        if let Some(manifest) = action.open_recent {
             self.new_project.open = false;
+            self.open_project_at(manifest);
+        }
+        if let Some(ready) = action.create {
+            self.create_new_project_from(ready.dir, ready.request);
         }
     }
 
@@ -14671,10 +14642,12 @@ impl CoboltApp {
         let mut spec = crate::file_dialog::DialogSpec::save()
             .filter("RustCOBOL Form", &["cfrm"])
             .file_name(default_name);
-        // Default into the folder whose [+] was clicked, or the project's forms/
-        // folder when the create came from the category header.
+        // Default into the folder whose [+] was clicked, or the project's forms
+        // folder (`forms/`, `webforms/` or `mobileforms/` by its kind) when the
+        // create came from the category header.
+        let forms_folder = self.cobolt_project.as_ref().map_or("forms", |p| p.kind().forms_folder());
         if let Some(dir) = self.project_dir() {
-            let dest = dir.join(self.new_form.target_dir.as_deref().unwrap_or("forms"));
+            let dest = dir.join(self.new_form.target_dir.as_deref().unwrap_or(forms_folder));
             let _ = std::fs::create_dir_all(&dest);
             spec = spec.directory(dest);
         }
@@ -14968,7 +14941,10 @@ impl CoboltApp {
                 }
                 self.open_in_editor(path);
             }
-            FileRequest::CreateProject => self.create_new_project_at(path),
+            FileRequest::PickProjectLocation => {
+                self.new_project.location = path.display().to_string();
+            }
+            FileRequest::PickTemplateProject => self.create_new_project_from_template(path),
             FileRequest::OpenProject => self.open_project_at(path),
             FileRequest::SaveProject => {
                 self.project_path = Some(path);
@@ -16523,7 +16499,14 @@ impl eframe::App for CoboltApp {
                         self.do_save_project();
                         self.show_external_crates = true;
                     }
-                    ProjectPanelEvent::Add(kind) => self.do_add_file_to_project(kind),
+                    ProjectPanelEvent::Add(kind) => {
+                        self.add_file_dir = None;
+                        self.do_add_file_to_project(kind)
+                    }
+                    ProjectPanelEvent::AddIn { kind, dir_rel } => {
+                        self.add_file_dir = Some(crate::project_fs::rel_string(&dir_rel));
+                        self.do_add_file_to_project(kind)
+                    }
                     ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
                     ProjectPanelEvent::CreateKnowledgeFolder(parent) => {
                         self.knowledge_folder_parent = Some(parent);
@@ -18765,7 +18748,11 @@ impl CoboltApp {
             // Reject a file whose kind does not belong in the destination
             // category (R14).
             if let Some(dest_cat) = dest_cat {
-                if Category::of_kind(kind) != dest_cat {
+                let accepted = self
+                    .cobolt_project
+                    .as_ref()
+                    .map_or(Category::of_kind(kind) == dest_cat, |p| p.category_accepts(dest_cat, kind));
+                if !accepted {
                     let tr = self.lang.tr();
                     self.set_alert_error(tr.folder_err_incompatible_kind);
                     continue;
@@ -18795,7 +18782,7 @@ impl CoboltApp {
         }
         let rel = format!("{}/{fname}", dest_dir_rel.trim_end_matches('/'));
         if let Some(proj) = &mut self.cobolt_project {
-            proj.add_file_to(&rel, crate::project_model::Category::of_path(&rel));
+            proj.add_file(&rel);
         }
         self.do_save_project();
         self.output.push_status(crate::ui_text::idef("Imported {}", &[&rel]));

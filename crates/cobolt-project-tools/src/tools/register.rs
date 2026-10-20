@@ -29,16 +29,20 @@ pub fn run<H: ProjectHost>(
     let rel = root
         .relative(&abs)
         .ok_or_else(|| format!("'{path}' is not inside the project"))?;
+    let kind = cobolt_compiler::project_manifest_view(root.manifest()).map(|v| v.kind).unwrap_or_default();
     let list = match list {
         Some(key) => match FileList::from_key(key) {
             Some(FileList::Generated) | None => {
                 return Err(format!(
-                    "'{key}' is not a list a file can be added to (forms, indexed, sources, assets, documentation)"
+                    "'{key}' is not a list a file can be added to (forms, indexed, sources, assets, documentation, backend)"
                 ))
+            }
+            Some(FileList::Backend) if !kind.has_backend() => {
+                return Err("only a Web or Mobile project has a Backend list".to_owned())
             }
             Some(l) => l,
         },
-        None => FileList::of_path(&rel),
+        None => FileList::of_path_in(&rel, kind),
     };
     if host.unsaved(root.manifest()) {
         return Err(

@@ -150,7 +150,9 @@ impl Anchors {
             Anchor::Category(c) => self
                 .categories
                 .iter()
-                .find(|(k, _)| *k == c)
+                // The Forms step points at whichever forms node the project has
+                // (Forms, WebForms or MobileForms).
+                .find(|(k, _)| *k == c || (c.is_forms() && k.is_forms()))
                 .map(|(_, r)| *r),
             Anchor::OutputPanel => self.output,
         }

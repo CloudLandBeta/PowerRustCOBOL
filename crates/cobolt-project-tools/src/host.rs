@@ -50,17 +50,21 @@ pub enum FileList {
     Assets,
     Documentation,
     Generated,
+    /// The Backend part of a Web or Mobile project (WASM-001): the programs and
+    /// copybooks under `backend/`.
+    Backend,
 }
 
 impl FileList {
     /// Every list, in the order `list_files` reports them.
-    pub const ALL: [FileList; 6] = [
+    pub const ALL: [FileList; 7] = [
         FileList::Forms,
         FileList::Indexed,
         FileList::Sources,
         FileList::Generated,
         FileList::Assets,
         FileList::Documentation,
+        FileList::Backend,
     ];
 
     /// The manifest key.
@@ -72,6 +76,23 @@ impl FileList {
             FileList::Assets => "assets",
             FileList::Documentation => "documentation",
             FileList::Generated => "generated",
+            FileList::Backend => "backend",
+        }
+    }
+
+    /// Where a file of a project of `kind` belongs: its extension's list
+    /// ([`FileList::of_path`]), except that under `backend/` in a Web or Mobile
+    /// project a COBOL file is the Backend's, not Common Code.
+    pub fn of_path_in(rel: &str, kind: cobolt_compiler::ProjectKind) -> FileList {
+        let top = rel.replace('\\', "/");
+        let in_backend = top
+            .split('/')
+            .next()
+            .is_some_and(|seg| seg.eq_ignore_ascii_case(cobolt_compiler::project_kind::BACKEND_FOLDER))
+            && top.contains('/');
+        match FileList::of_path(rel) {
+            FileList::Sources if kind.has_backend() && in_backend => FileList::Backend,
+            other => other,
         }
     }
 
@@ -160,8 +181,12 @@ pub trait ProjectHost: Send {
 
     /// Create a new project in `folder` (spec 084 R15, R18) — exactly what
     /// New Project writes. A host that can also OPEN it does so.
-    fn create_project(&mut self, folder: &Path, name: &str) -> Result<serde_json::Value, String> {
-        crate::create::create_project(folder, name)
+    fn create_project(
+        &mut self,
+        folder: &Path,
+        request: &crate::create::CreateRequest,
+    ) -> Result<serde_json::Value, String> {
+        crate::create::create_project_with(folder, request)
     }
 
     /// Open the project at `path` — a project folder or its manifest — as the
@@ -234,8 +259,12 @@ impl ProjectHost for HeadlessHost {
     }
 
     /// The new project becomes the one this server acts on.
-    fn create_project(&mut self, folder: &Path, name: &str) -> Result<serde_json::Value, String> {
-        let answer = crate::create::create_project(folder, name)?;
+    fn create_project(
+        &mut self,
+        folder: &Path,
+        request: &crate::create::CreateRequest,
+    ) -> Result<serde_json::Value, String> {
+        let answer = crate::create::create_project_with(folder, request)?;
         let manifest = folder.join(answer["project"].as_str().unwrap_or_default());
         self.start = manifest.clone();
         Ok(self.switched(answer, &manifest))

@@ -38,6 +38,10 @@ pub struct TargetRequest {
     pub name: String,
     /// For an **edit**, the matching element rel paths; empty for a **create**.
     pub candidates: Vec<String>,
+    /// The folder the element's kind lives in **in this project** — `forms`,
+    /// `webforms` or `mobileforms` for a form, by the project's kind — which a
+    /// create offers first and falls back on.
+    pub home: String,
 }
 
 /// The developer's chosen target — a project-relative folder (create) or element
@@ -59,7 +63,7 @@ fn stem_ci(rel: &str) -> String {
 /// Tracked elements in `kind`'s category whose **stem** matches `name`
 /// (case-insensitive). `name` may be given with or without an extension.
 pub fn edit_candidates(project: &CoboltProject, kind: FileKind, name: &str) -> Vec<String> {
-    let cat = Category::of_kind(kind);
+    let cat = project.category_of_kind(kind);
     let target = stem_ci(name);
     project
         .files_in(cat)
@@ -79,17 +83,26 @@ pub fn edit_request(project: &CoboltProject, kind: FileKind, name: &str) -> Opti
         kind,
         name: name.to_string(),
         candidates,
+        home: project.category_of_kind(kind).root_subdir().to_string(),
     })
 }
 
 /// Build the **create** target request. A create always prompts for a folder
 /// (spec 034, R1), so this is unconditional.
 pub fn create_request(kind: FileKind, name: &str) -> TargetRequest {
+    create_request_for(None, kind, name)
+}
+
+/// [`create_request`] in a project whose kind may keep its forms elsewhere
+/// (`webforms/`, `mobileforms/`): the folder offered first is that project's.
+pub fn create_request_for(project: Option<&CoboltProject>, kind: FileKind, name: &str) -> TargetRequest {
+    let category = project.map_or(Category::of_kind(kind), |p| p.category_of_kind(kind));
     TargetRequest {
         op: TargetOp::Create,
         kind,
         name: name.to_string(),
         candidates: Vec::new(),
+        home: category.root_subdir().to_string(),
     }
 }
 
@@ -98,7 +111,7 @@ pub fn create_request(kind: FileKind, name: &str) -> TargetRequest {
 /// UI may additionally surface empty on-disk folders; this membership-derived list
 /// is the pure, testable core.) All paths are relative.
 pub fn create_folders(project: &CoboltProject, kind: FileKind) -> Vec<String> {
-    let cat = Category::of_kind(kind);
+    let cat = project.category_of_kind(kind);
     let mut set: BTreeSet<String> = BTreeSet::new();
     set.insert(cat.root_subdir().to_string());
     for rel in project.files_in(cat) {

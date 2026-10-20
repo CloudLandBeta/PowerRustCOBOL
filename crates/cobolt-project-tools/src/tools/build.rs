@@ -66,12 +66,87 @@ pub struct BuildSlot {
     done: Condvar,
 }
 
+/// A Web or Mobile project's build (WASM-015 R10, R12): the same gate as the
+/// desktop build — regenerate, then `check`, and no build over an error — and
+/// then the web backend builds the bundle. The answer carries the size by part,
+/// the start-up time and the warnings; a Mobile project says plainly which
+/// package step this program cannot perform and why.
+fn run_web<H: ProjectHost>(
+    host: &mut H,
+    root: &ProjectRoot,
+    shared: &Arc<Shared>,
+    view: &cobolt_compiler::ManifestView,
+) -> Result<Value, String> {
+    use crate::web::{self, WebBuildError, WebBuildRequest};
+    if let Some(why) = host.build_blocked() {
+        return Err(why);
+    }
+    {
+        let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+        regenerate::run(host, root, None)?;
+    }
+    let report = check::check_project(host, root)?;
+    if report.errors() > 0 {
+        return Ok(json!({
+            "status": "refused",
+            "kind": view.kind.as_str(),
+            "reason": "the project has errors; fix them (see diagnostics) and build again",
+            "check": report.to_json(),
+        }));
+    }
+    let request = WebBuildRequest::from_manifest(root.manifest())?;
+    let backend = web::backend();
+    let started = Instant::now();
+    let mut answer = match backend.build(&request) {
+        Ok(built) => {
+            let mut a = json!({
+                "status": "built",
+                "kind": view.kind.as_str(),
+                "engine": backend.name(),
+                "bundle": root.relative(&built.bundle_dir).unwrap_or_else(|| web::BUNDLE_SUBDIR.to_owned()),
+            });
+            a["report"] = built.to_json();
+            a["variants"] = json!({ "multi_memory": request.variants.multi_memory, "single_memory": request.variants.single_memory });
+            a
+        }
+        Err(WebBuildError::NotYetLinked) => json!({
+            "status": "not_linked",
+            "kind": view.kind.as_str(),
+            "reason": web::NOT_YET_LINKED_MESSAGE,
+        }),
+        Err(WebBuildError::Refused(lines)) => json!({
+            "status": "refused",
+            "kind": view.kind.as_str(),
+            "reason": "the project uses what a browser cannot run",
+            "portable_subset": lines,
+        }),
+        Err(WebBuildError::Failed(why)) => json!({ "status": "failed", "kind": view.kind.as_str(), "errors": why }),
+    };
+    answer["elapsed_ms"] = json!(started.elapsed().as_millis() as u64);
+    if view.kind == cobolt_compiler::ProjectKind::Mobile && answer["status"] == "built" {
+        let ios = view.mobile.as_ref().is_some_and(|m| m.platform == cobolt_compiler::project_kind::MobilePlatform::Ios);
+        answer["package"] = json!({
+            "built": false,
+            "reason": if ios && !cfg!(target_os = "macos") {
+                "an iOS package can only be built on macOS; the web bundle is built and can be taken there"
+            } else {
+                "the Android and iOS package step needs the Tauri 2 mobile shell, which this program does not include yet; the web bundle it wraps is built"
+            },
+        });
+    }
+    Ok(answer)
+}
+
 pub fn run<H: ProjectHost>(
     host: &mut H,
     root: &ProjectRoot,
     shared: &Arc<Shared>,
     full: bool,
 ) -> Result<Value, String> {
+    let view = cobolt_compiler::project_manifest_view(root.manifest())?;
+    if !view.kind.is_desktop() {
+        return run_web(host, root, shared, &view);
+    }
     let idle = {
         let st = shared.build.state.lock().unwrap_or_else(|p| p.into_inner());
         matches!(*st, SlotState::Idle)

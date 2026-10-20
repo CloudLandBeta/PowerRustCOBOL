@@ -42,8 +42,12 @@ pub mod patterns;
 pub mod powerchat;
 pub mod reference;
 pub mod root;
+/// The New Project templates as data (WASM-001 R2).
+pub mod templates;
 pub mod tools;
 pub mod validate_source;
+/// Building, serving and previewing a Web or Mobile project (WASM-002, WASM-008).
+pub mod web;
 
 pub use host::{FileList, HeadlessHost, NoProject, ProjectHost};
 pub use root::ProjectRoot;

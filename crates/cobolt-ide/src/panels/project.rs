@@ -88,6 +88,10 @@ pub enum ProjectPanelEvent {
     OpenSqlConnection(String),
     /// User chose "Import existing…" — add an existing file of this kind.
     Add(FileKind),
+    /// "Import existing…" on the Backend (WASM-001 R13): add an existing file
+    /// of this kind into the project-relative folder `dir_rel` instead of the
+    /// category root `Add` uses.
+    AddIn { kind: FileKind, dir_rel: PathBuf },
     /// User chose "Remove from project" — contains the relative path string.
     Remove(String),
     /// Open the create-folder dialog for this project-relative Knowledge Base folder.
@@ -290,7 +294,8 @@ fn walkthrough_scroll_key(anchor: crate::panels::walkthrough::Anchor) -> String 
     use crate::panels::walkthrough::Anchor;
     match anchor {
         Anchor::ProjectRoot => "wt:root".to_owned(),
-        Anchor::Category(c) => format!("wt:cat:{}", c.root_subdir()),
+        // Any forms node (Forms, WebForms, MobileForms) is the Forms step's one.
+        Anchor::Category(c) => format!("wt:cat:{}", if c.is_forms() { Category::Forms.root_subdir() } else { c.root_subdir() }),
         Anchor::OutputPanel => "wt:output".to_owned(),
     }
 }
@@ -619,7 +624,11 @@ impl ProjectPanel {
                 .body(|ui| {
                     // L2 — fixed IDE-owned project categories. Internal agent
                     // configuration remains managed through Agents Manager.
-                    for cat in Category::TOP {
+                    // The nodes of the project's own kind (WASM-001 R11, R12): a
+                    // Desktop project shows exactly the eight it always has; a
+                    // Web or Mobile one shows its forms node and the Backend in
+                    // place of Forms.
+                    for cat in proj.top_categories() {
                         self.show_category(ui, cat, proj, &cur, events, tr);
                     }
                     // Spec 080 R19a — not a category: read from the folder,
@@ -895,6 +904,27 @@ fn draw_crown_icon(p: &egui::Painter, r: egui::Rect, _c: Color32) {
     }
 }
 
+/// The folder a Backend program is created or imported into (WASM-001 Q8).
+pub(crate) const BACKEND_PROGRAMS_DIR: &str = "backend/src";
+
+/// The icon-catalogue name (`cobolt_forms::icons`) of a Web or Mobile project's
+/// node: the globe for the web forms, the smartphone for the mobile ones, the
+/// server for the Backend.
+pub(crate) fn category_icon(cat: Category) -> &'static str {
+    match cat {
+        Category::WebForms => "globe",
+        Category::MobileForms => "smartphone",
+        Category::Backend => "server",
+        _ => "doc-blank",
+    }
+}
+
+/// Paint the catalogue icon `name` (the same vector set the menus use), so the
+/// tree's icons for the new nodes are drawn by one engine with the rest.
+pub(crate) fn draw_catalogue_icon(p: &egui::Painter, r: egui::Rect, c: Color32, name: &str) {
+    cobolt_forms::icons::draw_menu_icon(p, r.expand(1.8), name, c);
+}
+
 /// Tiny padlock for generated / locked items (replaces 🔒).
 fn draw_lock_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
     let s = egui::Stroke::new(1.4, c);
@@ -1019,6 +1049,9 @@ impl ProjectPanel {
     ) {
         let label: &str = match cat {
             Category::Forms => tr.panel_forms,
+            Category::WebForms => tr.cat_web_forms,
+            Category::MobileForms => tr.cat_mobile_forms,
+            Category::Backend => tr.cat_backend,
             Category::IndexedFiles => tr.cat_indexed_files,
             Category::SqlConnections => tr.cat_sql_connections,
             Category::CommonCode => tr.cat_common_code,
@@ -1040,6 +1073,11 @@ impl ProjectPanel {
                 match cat {
                     Category::IndexedFiles | Category::SqlConnections => tree_icon(ui, draw_indexed_icon),
                     Category::ExternalCrates => tree_icon(ui, draw_crate_icon),
+                    // The nodes of a Web or Mobile project wear the icon of what
+                    // they hold, from the icon catalogue (WASM-001 R13).
+                    Category::WebForms | Category::MobileForms | Category::Backend => {
+                        tree_icon(ui, |p, r, c| draw_catalogue_icon(p, r, c, category_icon(cat)))
+                    }
                     _ => tree_icon(ui, draw_folder_icon),
                 }
                 let header_hover =
@@ -1084,13 +1122,31 @@ impl ProjectPanel {
                         {
                             events.push(ProjectPanelEvent::OpenExternalCrates);
                         }
+                    } else if cat == Category::Backend {
+                        // WASM-001 R13 — a new COBOL program of the Backend,
+                        // in `backend/src`; a right click imports an existing one.
+                        let dir_rel = PathBuf::from(BACKEND_PROGRAMS_DIR);
+                        let plus = ui
+                            .small_button("+")
+                            .on_hover_text(format!("{}: {label}", tr.tree_create_hover));
+                        #[cfg(test)]
+                        ui.data_mut(|d| d.insert_temp(egui::Id::new("backend_plus_probe"), plus.rect));
+                        if plus.clicked() {
+                            events.push(ProjectPanelEvent::CreateIn { kind: FileKind::Source, dir_rel: dir_rel.clone() });
+                        }
+                        plus.context_menu(|ui| {
+                            if ui.button(tr.tree_import_existing).clicked() {
+                                events.push(ProjectPanelEvent::AddIn { kind: FileKind::Source, dir_rel });
+                                ui.close();
+                            }
+                        });
                     }
                     // New-folder affordance for every category (spec 033, R1) —
                     // except External Crates and SQL Connections, whose rows
                     // are not files.
                     // Spec 046 R3 — Paste Form, one click: the icon beside the
                     // name, for the people who do not look for a context menu.
-                    if cat == Category::Forms {
+                    if cat.is_forms() {
                         let paste = ui.small_button("📋").on_hover_text(tr.tree_paste_form);
                         #[cfg(test)]
                         ui.data_mut(|d| d.insert_temp(egui::Id::new("paste_icon_probe"), paste.rect));
@@ -1212,7 +1268,7 @@ impl ProjectPanel {
         // form comes from the OS clipboard).
         #[cfg(test)]
         ui.data_mut(|d| d.insert_temp(egui::Id::new(("cat_label_probe", cat.root_subdir())), header_inner.inner.1.rect));
-        if cat == Category::Forms {
+        if cat.is_forms() {
             header_inner.inner.1.context_menu(|ui| {
                 let paste = ui.button(tr.tree_paste_form);
                 #[cfg(test)]
@@ -1268,7 +1324,7 @@ impl ProjectPanel {
                         // Per-folder create: the category [+] always lands in the
                         // category root, so a folder needs its own, or a form can
                         // only reach a subfolder by being created and then dragged.
-                        if let Some(kind) = creatable_kind(cat) {
+                        if let Some(kind) = creatable_kind(cat).or((cat == Category::Backend).then_some(FileKind::Source)) {
                             if ui
                                 .small_button("+")
                                 .on_hover_text(format!("{}: {name}", tr.tree_create_hover))
@@ -1281,7 +1337,7 @@ impl ProjectPanel {
                             }
                         }
                         // Spec 046 R3 — paste a copied form into THIS folder.
-                        if cat == Category::Forms {
+                        if cat.is_forms() {
                             let paste = ui.small_button("📋").on_hover_text(format!("{}: {name}", tr.tree_paste_form));
                             #[cfg(test)]
                             ui.data_mut(|d| d.insert_temp(egui::Id::new(("paste_icon_probe", folder_rel)), paste.rect));
@@ -1324,7 +1380,7 @@ impl ProjectPanel {
             }
             #[cfg(test)]
             ui.data_mut(|d| d.insert_temp(egui::Id::new(("folder_label_probe", folder_rel)), header_resp.rect));
-            folder_context_menu(&header_resp, folder_rel, &category_root, cat == Category::Forms, tr, events);
+            folder_context_menu(&header_resp, folder_rel, &category_root, cat.is_forms(), tr, events);
             accept_file_drop(ui, &header_resp, folder_rel, events);
         }
         for rel in structure.files_of(dir_rel) {
@@ -1349,7 +1405,7 @@ impl ProjectPanel {
         // Record this leaf for keyboard navigation (spec 033, R15, R18).
         let abs = root.as_ref().map(|d| d.join(rel));
         let activate = abs.as_ref().map(|p| match cat {
-            Category::Forms => ProjectPanelEvent::InspectForm(p.clone()),
+            c if c.is_forms() => ProjectPanelEvent::InspectForm(p.clone()),
             Category::IndexedFiles => ProjectPanelEvent::InspectIndexedFile(p.clone()),
             _ => ProjectPanelEvent::Open(p.clone()),
         });
@@ -1359,7 +1415,7 @@ impl ProjectPanel {
         // with the same source the item renderer uses — so Right expands them
         // (spec 033, R16). Other categories are true leaves.
         let (folder_id, expanded) = match cat {
-            Category::Forms => {
+            c if c.is_forms() => {
                 let id = ui.make_persistent_id(("form_item", rel));
                 let open = egui::collapsing_header::CollapsingState::load(ui.ctx(), id)
                     .map(|s| s.is_open())
@@ -1387,7 +1443,7 @@ impl ProjectPanel {
         // scroll it into view (the leaf renderers don't return a response).
         let top_before = ui.cursor().top();
         match cat {
-            Category::Forms => self.show_form_item(ui, rel, root, cur, events, tr),
+            c if c.is_forms() => self.show_form_item(ui, rel, root, cur, events, tr),
             Category::IndexedFiles => self.show_indexed_item(ui, rel, root, cur, events, tr),
             Category::Generated => file_row(
                 ui,
@@ -2019,7 +2075,9 @@ fn show_sql_connection_rows(ui: &mut Ui, proj: &CoboltProject, events: &mut Vec<
 
 fn creatable_kind(cat: Category) -> Option<FileKind> {
     match cat {
-        Category::Forms => Some(FileKind::Form),
+        Category::Forms | Category::WebForms | Category::MobileForms => Some(FileKind::Form),
+        // Its `[+]` and its folders create a program in `backend/src` (see `show_category`).
+        Category::Backend => None,
         Category::IndexedFiles => Some(FileKind::Indexed),
         Category::CommonCode => Some(FileKind::Source),
         Category::Generated => None,

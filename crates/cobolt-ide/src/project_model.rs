@@ -31,6 +31,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use cobolt_compiler::project_kind::{BackendSettings, DesktopSettings, MobileSettings, ProjectKind, WebSettings};
 use serde::{Deserialize, Serialize};
 
 // ── Data model ────────────────────────────────────────────────────────────────
@@ -79,6 +80,22 @@ pub struct CoboltProject {
     /// there is one, so a project without them keeps its file unchanged.
     #[serde(default, rename = "sql-connections", skip_serializing_if = "Vec::is_empty")]
     pub sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
+    /// `[desktop]` — the options the Desktop templates offer (WASM-001 R4).
+    /// Written only when a choice differs from the default, so a default
+    /// Desktop manifest is unchanged. The four tables below are declared last
+    /// and in this order: `cobolt-project-tools` appends them in the same order
+    /// when it creates a project, and the two must agree byte for byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop: Option<DesktopSettings>,
+    /// `[web]` — a Web project's settings (WASM-001, WASM-002).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web: Option<WebSettings>,
+    /// `[mobile]` — a Mobile project's platform, device and settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mobile: Option<MobileSettings>,
+    /// `[backend]` — the Backend part of a Web or Mobile project (WASM-003 R1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<BackendSettings>,
 }
 
 /// `[agents]` in the project manifest (spec 065 R34 / 075).
@@ -677,6 +694,19 @@ pub struct ProjectMeta {
     /// [`ProjectMeta::build_is_stale_for`]).
     #[serde(default)]
     pub built_with_version: String,
+    /// What the project builds (WASM-001): a Desktop application (every project
+    /// made before kinds existed, and the default), a Web application or a
+    /// Mobile one. Fixed when the project is created (WASM-001 Q7). A Desktop
+    /// project writes nothing, so its manifest is what it always was.
+    #[serde(default, skip_serializing_if = "ProjectKind::is_desktop")]
+    pub kind: ProjectKind,
+    /// One line on what the project is, from New Project (WASM-001 R3).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// The default locale of the application, such as `pt-BR` (WASM-001 R3).
+    /// Empty when none was chosen.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub locale: String,
 }
 
 /// Where a build installs the deliverable when the project does not say.
@@ -811,6 +841,11 @@ pub struct ProjectFiles {
     /// Indexed-file definitions (`.cidx`) — edited in the Indexed File Editor.
     #[serde(default)]
     pub indexed: Vec<String>,
+    /// The Backend part of a Web or Mobile project (WASM-001 R7): its COBOL
+    /// programs and copybooks, under `backend/`. Written only when there is
+    /// one, so a Desktop manifest is unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub backend: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -850,6 +885,9 @@ impl CoboltProject {
                 destination_folder,
                 // Never fully built yet — the first full build stamps it.
                 built_with_version: String::new(),
+                kind: ProjectKind::Desktop,
+                description: String::new(),
+                locale: String::new(),
             },
             files: ProjectFiles::default(),
             runtime: RuntimeConfig::default(),
@@ -862,7 +900,85 @@ impl CoboltProject {
             rag: RagSettings::default(),
             agents: AgentsSettings::default(),
             sql_connections: Vec::new(),
+            desktop: None,
+            web: None,
+            mobile: None,
+            backend: None,
         }
+    }
+
+    // ── Project kind (WASM-001) ───────────────────────────────────────────────
+
+    /// What the project builds.
+    pub fn kind(&self) -> ProjectKind {
+        self.project.kind
+    }
+
+    /// The category the project's forms are listed under: Forms, WebForms or
+    /// MobileForms, by kind.
+    pub fn forms_category(&self) -> Category {
+        Category::forms_for(self.project.kind)
+    }
+
+    /// The fixed top nodes of the project tree, in display order, for this
+    /// project's kind (WASM-001 R11, R12).
+    pub fn top_categories(&self) -> Vec<Category> {
+        Category::top_for(self.project.kind)
+    }
+
+    /// The category a kind of file belongs to in **this** project: a form is
+    /// Forms, WebForms or MobileForms by the project's kind.
+    pub fn category_of_kind(&self, kind: FileKind) -> Category {
+        match kind {
+            FileKind::Form => self.forms_category(),
+            other => Category::of_kind(other),
+        }
+    }
+
+    /// The category a project-relative path belongs to in **this** project:
+    /// by extension, except that a COBOL file under `backend/` in a Web or
+    /// Mobile project is the Backend's, not Common Code.
+    pub fn category_of_path(&self, rel: &str) -> Category {
+        let by_extension = self.category_of_kind(FileKind::from_path(rel));
+        let top = rel.replace('\\', "/");
+        let in_backend = top
+            .split('/')
+            .next()
+            .is_some_and(|seg| seg.eq_ignore_ascii_case(Category::Backend.root_subdir()))
+            && top.contains('/');
+        if self.project.kind.has_backend() && in_backend && by_extension == Category::CommonCode {
+            Category::Backend
+        } else {
+            by_extension
+        }
+    }
+
+    /// May a file of `kind` be put in `dest` of **this** project (a drop on a
+    /// folder, WASM-001 R13)? Its own category, or — in a Web or Mobile
+    /// project — COBOL into the Backend.
+    pub fn category_accepts(&self, dest: Category, kind: FileKind) -> bool {
+        self.category_of_kind(kind) == dest
+            || (dest == Category::Backend && self.project.kind.has_backend() && kind == FileKind::Source)
+    }
+
+    /// The `[web]` settings, or the defaults when the manifest has none.
+    pub fn web_settings(&self) -> WebSettings {
+        self.web.clone().unwrap_or_default()
+    }
+
+    /// The `[web]` settings to edit; the table is created with its defaults.
+    pub fn web_settings_mut(&mut self) -> &mut WebSettings {
+        self.web.get_or_insert_with(WebSettings::default)
+    }
+
+    /// The `[mobile]` settings, if the project is a Mobile one with them.
+    pub fn mobile_settings(&self) -> Option<&MobileSettings> {
+        self.mobile.as_ref()
+    }
+
+    /// The `[backend]` settings to edit; the table is created empty.
+    pub fn backend_settings_mut(&mut self) -> &mut BackendSettings {
+        self.backend.get_or_insert_with(BackendSettings::default)
     }
 
     // ── File membership helpers ───────────────────────────────────────────────
@@ -883,9 +999,11 @@ impl CoboltProject {
         }
     }
 
-    /// Add a file, routing it to a category by its extension.
+    /// Add a file, routing it to a category by its extension (and, in a Web or
+    /// Mobile project, by the `backend/` folder).
     pub fn add_file(&mut self, rel: &str) {
-        self.add_file_to(rel, Category::of_path(rel));
+        let category = self.category_of_path(rel);
+        self.add_file_to(rel, category);
     }
 
     /// Register a RAD-generated COBOL file (read-only). Also removes it from the
@@ -900,12 +1018,16 @@ impl CoboltProject {
 
     fn list_mut(&mut self, category: Category) -> &mut Vec<String> {
         match category {
-            Category::Forms => &mut self.files.forms,
+            // The three forms categories are one list: a project has one kind,
+            // so one of them is shown, and every reader of the manifest —
+            // the compiler, the main-form seal, the tools — reads `forms`.
+            Category::Forms | Category::WebForms | Category::MobileForms => &mut self.files.forms,
             Category::CommonCode => &mut self.files.sources,
             Category::Assets => &mut self.files.assets,
             Category::Documentation => &mut self.files.documentation,
             Category::Generated => &mut self.files.generated,
             Category::IndexedFiles => &mut self.files.indexed,
+            Category::Backend => &mut self.files.backend,
             // Unreachable: `add_file_to` returns before routing here, and no
             // `FileKind` maps to the category (spec 044 R3 — crates ≠ files).
             Category::ExternalCrates | Category::SqlConnections => {
@@ -923,10 +1045,11 @@ impl CoboltProject {
         self.files.documentation.retain(|f| f != &rel);
         self.files.generated.retain(|f| f != &rel);
         self.files.indexed.retain(|f| f != &rel);
+        self.files.backend.retain(|f| f != &rel);
     }
 
-    /// Every tracked file list, mutably (spec 033 folder ops iterate all six).
-    fn all_lists_mut(&mut self) -> [&mut Vec<String>; 6] {
+    /// Every tracked file list, mutably (spec 033 folder ops iterate all seven).
+    fn all_lists_mut(&mut self) -> [&mut Vec<String>; 7] {
         let ProjectFiles {
             sources,
             forms,
@@ -934,8 +1057,9 @@ impl CoboltProject {
             documentation,
             generated,
             indexed,
+            backend,
         } = &mut self.files;
-        [sources, forms, assets, documentation, generated, indexed]
+        [sources, forms, assets, documentation, generated, indexed, backend]
     }
 
     /// Rewrite every tracked path under the folder `old_dir` to sit under
@@ -1047,12 +1171,13 @@ impl CoboltProject {
     /// tree, so callers usually iterate CommonCode + Generated separately).
     pub fn files_in(&self, category: Category) -> &[String] {
         match category {
-            Category::Forms => &self.files.forms,
+            Category::Forms | Category::WebForms | Category::MobileForms => &self.files.forms,
             Category::CommonCode => &self.files.sources,
             Category::Assets => &self.files.assets,
             Category::Documentation => &self.files.documentation,
             Category::Generated => &self.files.generated,
             Category::IndexedFiles => &self.files.indexed,
+            Category::Backend => &self.files.backend,
             // Crates are pins, not tracked files (spec 044 R3); the tree
             // renders them from `self.crates` instead.
             Category::ExternalCrates => &[],
@@ -1071,6 +1196,7 @@ impl CoboltProject {
             .chain(self.files.assets.iter())
             .chain(self.files.documentation.iter())
             .chain(self.files.generated.iter())
+            .chain(self.files.backend.iter())
             .map(|s| s.as_str())
     }
 
@@ -1122,7 +1248,16 @@ impl ElementStatus {
 /// nodes; developers only add sub-entries within a category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
+    /// A Desktop project's forms (`forms/`).
     Forms,
+    /// A Web project's forms (`webforms/`) — the same list as [`Category::Forms`]
+    /// under another name, folder and icon: a project has one kind (WASM-001 R12).
+    WebForms,
+    /// A Mobile project's forms (`mobileforms/`).
+    MobileForms,
+    /// The Backend part of a Web or Mobile project (`backend/`): its COBOL
+    /// programs and copybooks (WASM-001 R12).
+    Backend,
     /// Indexed-file definitions (`.cidx`).
     IndexedFiles,
     /// The project's named SQL connections (spec 087 R33) — one row per
@@ -1156,6 +1291,34 @@ impl Category {
         Category::Documentation,
     ];
 
+    /// The fixed top nodes of a project of `kind`, in display order
+    /// (WASM-001 R11, R12). A Desktop project shows [`Category::TOP`], exactly
+    /// as before; a Web or Mobile project shows its forms node and the Backend
+    /// in place of Forms, and the rest (Q1).
+    pub fn top_for(kind: ProjectKind) -> Vec<Category> {
+        if kind.is_desktop() {
+            return Category::TOP.to_vec();
+        }
+        let mut top = vec![Category::forms_for(kind), Category::Backend];
+        top.extend(Category::TOP.iter().copied().filter(|c| *c != Category::Forms));
+        top
+    }
+
+    /// The forms node of a project of `kind`.
+    pub fn forms_for(kind: ProjectKind) -> Category {
+        match kind {
+            ProjectKind::Desktop => Category::Forms,
+            ProjectKind::Web => Category::WebForms,
+            ProjectKind::Mobile => Category::MobileForms,
+        }
+    }
+
+    /// Is this a project's forms node (Forms, WebForms or MobileForms)? The
+    /// three behave alike: the same list, the same designer, the same events.
+    pub fn is_forms(self) -> bool {
+        matches!(self, Category::Forms | Category::WebForms | Category::MobileForms)
+    }
+
     /// True if developers may add files to this category (Generated is populated
     /// by the form designer only).
     pub fn is_addable(self) -> bool {
@@ -1168,6 +1331,9 @@ impl Category {
     pub fn root_subdir(self) -> &'static str {
         match self {
             Category::Forms => "forms",
+            Category::WebForms => "webforms",
+            Category::MobileForms => "mobileforms",
+            Category::Backend => "backend",
             Category::IndexedFiles => "indexed",
             // No folder: the definitions live in the project file. The name
             // only keys the tree's state; `from_root_component` never maps a
@@ -1203,6 +1369,7 @@ impl Category {
         let top = top.split('/').next().unwrap_or("");
         Category::TOP
             .into_iter()
+            .chain([Category::WebForms, Category::MobileForms, Category::Backend])
             .filter(|c| *c != Category::SqlConnections)
             .find(|c| c.root_subdir().eq_ignore_ascii_case(top))
     }
@@ -1271,9 +1438,18 @@ impl FileKind {
 /// as project-relative paths using `/` separators, at any nesting depth.
 /// Returns an empty list if the folder does not exist.
 pub fn recursive_category_files(project_dir: &Path, category: Category) -> Vec<String> {
-    let root = project_dir.join(category.root_subdir());
+    // The forms of a project sit in `forms/`, `webforms/` or `mobileforms/` by
+    // its kind; asked for "Forms", the walk covers whichever the project has
+    // (a project has one), so a caller never needs to know the kind.
+    let roots: &[Category] = if category.is_forms() {
+        &[Category::Forms, Category::WebForms, Category::MobileForms]
+    } else {
+        std::slice::from_ref(&category)
+    };
     let mut out = Vec::new();
-    collect_files_recursive(project_dir, &root, &mut out);
+    for c in roots {
+        collect_files_recursive(project_dir, &project_dir.join(c.root_subdir()), &mut out);
+    }
     out.sort();
     out
 }
@@ -2602,5 +2778,304 @@ mod new_project_template_tests {
             assert_eq!(render_manifest(name, main), ides_manifest(name, main), "{name}");
         }
         println!("new-project manifest: template ({} bytes) identical to the IDE's, 2 names rendered identically", template.len());
+    }
+}
+
+/// WASM-001 — the project kind in the manifest, the tree it gives, and the
+/// agreement between what the tools create and what the IDE saves.
+#[cfg(test)]
+mod project_kind_tests {
+    use super::*;
+    use cobolt_compiler::project_kind::{ApplicationStyle, DeviceClass, MobilePlatform, Orientation};
+    use cobolt_project_tools::create::{self, CreateRequest};
+    use cobolt_project_tools::templates;
+    use std::collections::BTreeMap;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("prc-wasm001-ide-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn tree(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+        fn walk(base: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    out.entry(format!("{}/", p.strip_prefix(base).unwrap().display())).or_default();
+                    walk(base, &p, out);
+                } else {
+                    out.insert(p.strip_prefix(base).unwrap().display().to_string(), std::fs::read(&p).unwrap());
+                }
+            }
+        }
+        let mut out = BTreeMap::new();
+        walk(dir, dir, &mut out);
+        out
+    }
+
+    /// WASM-001 R8 / AC2: a manifest without a kind loads as Desktop, and loading
+    /// does not modify the file; a Desktop project writes none of the new fields.
+    #[test]
+    fn an_old_manifest_loads_as_desktop_and_loading_leaves_the_file_alone() {
+        let dir = scratch("old");
+        let manifest = dir.join("Old.project.toml");
+        let text = "[project]\nname = \"Old.project\"\nstructure = 1\nversion = \"1.2.3\"\nmain = \"src/main.cbl\"\n\n[files]\nsources = [\"src/main.cbl\"]\nforms = [\"forms/a.cfrm\"]\n";
+        std::fs::write(&manifest, text).unwrap();
+        let before = std::fs::read(&manifest).unwrap();
+        let p = load_project(&manifest).unwrap();
+        assert_eq!(p.kind(), ProjectKind::Desktop);
+        assert!(p.web.is_none() && p.mobile.is_none() && p.backend.is_none() && p.desktop.is_none());
+        assert!(p.files.backend.is_empty());
+        assert_eq!(std::fs::read(&manifest).unwrap(), before, "loading wrote nothing");
+        let out = toml::to_string_pretty(&p).unwrap();
+        // (Looked for as keys and tables: the AI prompts in the same file use the word "description".)
+        let has_key = |key: &str| out.lines().any(|l| l.starts_with(&format!("{key} =")) || l.trim_end() == format!("[{key}]"));
+        for absent in ["kind", "web", "mobile", "backend", "desktop", "description", "locale"] {
+            assert!(!has_key(absent), "a Desktop manifest has no `{absent}`");
+        }
+        assert_eq!(p.top_categories(), Category::TOP.to_vec());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_web_and_a_mobile_project_round_trip_their_settings() {
+        let mut web = CoboltProject::new("W.project", "");
+        web.project.kind = ProjectKind::Web;
+        web.project.description = "A shop".into();
+        web.project.locale = "pt-BR".into();
+        {
+            let s = web.web_settings_mut();
+            s.style = ApplicationStyle::Standalone;
+            s.multi_memory = false;
+            s.backend_url = "wss://api.example.com/ws".into();
+            s.browsers.firefox = false;
+        }
+        web.backend_settings_mut().exports.push("HEALTH".into());
+        web.files.backend.push("backend/src/health.cbl".into());
+        let text = toml::to_string_pretty(&web).unwrap();
+        for present in ["kind = \"web\"", "[web]", "[backend]", "locale = \"pt-BR\"", "backend = [\"backend/src/health.cbl\"]"] {
+            assert!(text.contains(present), "{present} in\n{}", &text[text.find("[project]").unwrap()..text.find("[ai]").unwrap_or(text.len())]);
+        }
+        let back: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(back.kind(), ProjectKind::Web);
+        assert_eq!(back.web, web.web);
+        assert_eq!(back.backend, web.backend);
+        assert_eq!(back.files.backend, web.files.backend);
+        assert_eq!((back.project.description.as_str(), back.project.locale.as_str()), ("A shop", "pt-BR"));
+
+        let mut mob = CoboltProject::new("M.project", "");
+        mob.project.kind = ProjectKind::Mobile;
+        let mut m = MobileSettings::new(MobilePlatform::Ios, DeviceClass::Tablet);
+        m.orientation = Orientation::Landscape;
+        m.min_os = "17.0".into();
+        mob.mobile = Some(m.clone());
+        let back: CoboltProject = toml::from_str(&toml::to_string_pretty(&mob).unwrap()).unwrap();
+        assert_eq!(back.mobile, Some(m));
+        assert_eq!(back.kind(), ProjectKind::Mobile);
+    }
+
+    /// WASM-001 R11, R12 / AC4: the tree of each kind.
+    #[test]
+    fn the_tree_follows_the_kind() {
+        assert_eq!(Category::top_for(ProjectKind::Desktop), Category::TOP.to_vec(), "Desktop: unchanged");
+        let rest = [
+            Category::IndexedFiles,
+            Category::SqlConnections,
+            Category::CommonCode,
+            Category::Generated,
+            Category::ExternalCrates,
+            Category::Assets,
+            Category::Documentation,
+        ];
+        let expect = |forms: Category| -> Vec<Category> {
+            let mut v = vec![forms, Category::Backend];
+            v.extend(rest);
+            v
+        };
+        assert_eq!(Category::top_for(ProjectKind::Web), expect(Category::WebForms));
+        assert_eq!(Category::top_for(ProjectKind::Mobile), expect(Category::MobileForms));
+        for kind in [ProjectKind::Web, ProjectKind::Mobile] {
+            assert!(!Category::top_for(kind).contains(&Category::Forms), "{kind:?} shows no Forms");
+        }
+        // Their folders, and that a folder maps back to its node.
+        assert_eq!(
+            (Category::WebForms.root_subdir(), Category::MobileForms.root_subdir(), Category::Backend.root_subdir()),
+            ("webforms", "mobileforms", "backend")
+        );
+        assert_eq!(Category::from_root_component("webforms/sub/x.cfrm"), Some(Category::WebForms));
+        assert_eq!(Category::from_root_component("MobileForms"), Some(Category::MobileForms));
+        assert_eq!(Category::from_root_component("backend/src"), Some(Category::Backend));
+        assert_eq!(Category::from_root_component("forms"), Some(Category::Forms));
+        assert!(Category::Forms.is_forms() && Category::WebForms.is_forms() && Category::MobileForms.is_forms());
+        assert!(!Category::Backend.is_forms() && Category::Backend.is_addable());
+    }
+
+    /// Forms and the Backend go to their lists by the project's kind; a Desktop
+    /// project's `backend/` is a folder like any other.
+    #[test]
+    fn files_are_routed_by_the_projects_kind() {
+        let mut web = CoboltProject::new("W", "");
+        web.project.kind = ProjectKind::Web;
+        for rel in ["webforms/main-form.cfrm", "backend/src/health.cbl", "backend/COPYBOOKS/rec.cpy", "src/shared.cbl", "Assets/logo.png", "indexed/c.cidx"] {
+            web.add_file(rel);
+        }
+        assert_eq!(web.files.forms, ["webforms/main-form.cfrm"]);
+        assert_eq!(web.files.backend, ["backend/src/health.cbl", "backend/COPYBOOKS/rec.cpy"]);
+        assert_eq!(web.files.sources, ["src/shared.cbl"]);
+        assert_eq!(web.files_in(Category::WebForms), web.files_in(Category::Forms), "one list, whichever node shows it");
+        assert_eq!(web.category_of_kind(FileKind::Form), Category::WebForms);
+        assert!(web.category_accepts(Category::Backend, FileKind::Source) && !web.category_accepts(Category::Backend, FileKind::Form));
+        assert!(web.category_accepts(Category::WebForms, FileKind::Form));
+        // Folder operations reach the Backend's list.
+        web.rename_prefix("backend/src", "backend/programs");
+        assert!(web.files.backend.contains(&"backend/programs/health.cbl".to_string()));
+        web.move_entry("backend/programs/health.cbl", "backend/health.cbl");
+        assert_eq!(web.drain_under("backend"), ["backend/health.cbl", "backend/COPYBOOKS/rec.cpy"]);
+        assert!(web.files.backend.is_empty());
+        web.add_file("backend/x.cbl");
+        web.remove_file("backend/x.cbl");
+        assert!(web.files.backend.is_empty());
+        assert!(web.all_files().all(|f| !f.starts_with("backend/")));
+        web.add_file("backend/y.cbl");
+        assert!(web.all_files().any(|f| f == "backend/y.cbl"), "a Backend file is a project file (packaged, listed)");
+
+        let mut desktop = CoboltProject::new("D", "src/main.cbl");
+        desktop.add_file("backend/src/x.cbl");
+        assert_eq!(desktop.files.sources, ["backend/src/x.cbl"], "Desktop: Common Code, as before");
+        assert!(desktop.files.backend.is_empty());
+        assert_eq!(desktop.category_of_path("forms/a.cfrm"), Category::Forms);
+    }
+
+    /// The directory a recursive walk of "Forms" covers is the project's own.
+    #[test]
+    fn walking_the_forms_finds_them_in_whichever_folder_the_kind_keeps_them() {
+        let dir = scratch("walk");
+        std::fs::create_dir_all(dir.join("webforms/sub")).unwrap();
+        std::fs::write(dir.join("webforms/sub/a.cfrm"), "<Form/>").unwrap();
+        assert_eq!(recursive_category_files(&dir, Category::Forms), ["webforms/sub/a.cfrm"]);
+        assert_eq!(recursive_category_files(&dir, Category::WebForms), ["webforms/sub/a.cfrm"]);
+        assert!(recursive_category_files(&dir, Category::Backend).is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// WASM-001 AC3, the IDE's half: every project the tools create is a
+    /// manifest the IDE saves back unchanged (so the first save after opening
+    /// rewrites nothing), and the IDE's way of creating — `plan` then
+    /// `write_into` — makes the very tree `create_project` makes.
+    #[test]
+    fn what_the_tools_create_is_what_the_ide_saves_and_the_two_routes_make_one_tree() {
+        let base = scratch("agree");
+        let catalogue = templates::builtin();
+        let mut variants: Vec<CreateRequest> = Vec::new();
+        for t in catalogue.iter().filter(|t| t.creatable) {
+            variants.push(CreateRequest::new("Shop").template(t.id));
+            let mut full = CreateRequest::new("Shop Two").template(t.id);
+            full.description = "Everything set".into();
+            full.locale = "ja-JP".into();
+            full.version = "3.4.5".into();
+            full.theme = "spatial".into();
+            variants.push(full);
+            if t.option("backend").is_some() {
+                variants.push(CreateRequest::new("Lean").template(t.id).option("backend", "false").option("sample", "false"));
+                variants.push(CreateRequest::new("Stand").template(t.id).option("style", "standalone"));
+            }
+            if t.option("orientation").is_some() {
+                variants.push(CreateRequest::new("Turn").template(t.id).option("orientation", "landscape").option("min_os", t.option("min_os").map(|_| match t.mobile.map(|m| m.0) {
+                    Some(MobilePlatform::Ios) => "16.0",
+                    _ => "29",
+                }).unwrap()));
+            }
+            if t.id == "desktop" {
+                variants.push(CreateRequest::new("Plain").template("desktop").option("window_style", "single").option("high_dpi", "false").option("sample", "false"));
+            }
+        }
+        let mut checked = 0usize;
+        for (i, request) in variants.iter().enumerate() {
+            // The IDE's route.
+            let ide_dir = base.join(format!("ide-{i}"));
+            let plan = create::plan(request, &catalogue).unwrap();
+            plan.write_into(&ide_dir, &plan.manifest_name).unwrap();
+            // The tools' route.
+            let tool_dir = base.join(format!("tool-{i}"));
+            create::create_project_with(&tool_dir, request).unwrap();
+            assert_eq!(tree(&ide_dir), tree(&tool_dir), "variant {i}: the two routes made different trees");
+            // The IDE saves it back as it is.
+            let manifest = ide_dir.join(&plan.manifest_name);
+            let written = std::fs::read_to_string(&manifest).unwrap();
+            let loaded = load_project(&manifest).unwrap_or_else(|e| panic!("variant {i} does not load: {e}\n{written}"));
+            assert_eq!(loaded.kind(), plan.kind, "variant {i}");
+            let resaved = scratch(&format!("resave-{i}"));
+            // The seal covers the name and the form files: save beside them.
+            for f in &loaded.files.forms {
+                let to = resaved.join(f);
+                std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+                std::fs::copy(ide_dir.join(f), to).unwrap();
+            }
+            let path = resaved.join(&plan.manifest_name);
+            save_project(&loaded, &path).unwrap();
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                written,
+                "variant {i} ({} {}): the IDE's save is not the manifest the tools wrote",
+                request.template,
+                request.name
+            );
+            let _ = std::fs::remove_dir_all(&resaved);
+            checked += 1;
+        }
+        println!("create/save agreement: {checked} requests over 6 templates; each made one tree by both routes, and each manifest saved back byte for byte");
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// The headless Desktop default is still the IDE's own serialisation: the
+    /// golden template the tools carry (the existing byte-identity guard) and
+    /// the default request agree.
+    #[test]
+    fn the_default_request_is_the_golden_desktop_manifest() {
+        let plan = create::plan(&CreateRequest::new("Inventory"), &templates::builtin()).unwrap();
+        assert_eq!(plan.manifest, create::render_manifest("Inventory.project", "src/main.cbl"));
+        assert_eq!(plan.folders.len(), create::PROJECT_FOLDERS.len());
+        assert_eq!(plan.kind, ProjectKind::Desktop);
+    }
+
+    /// Create from Template: a copy has the files the developer wrote, none of
+    /// the build output, its own name, and a main form the runtime accepts.
+    #[test]
+    fn a_project_is_copied_from_a_template_project() {
+        let base = scratch("clone");
+        let src = base.join("Source");
+        create::create_project_with(&src, &CreateRequest::new("Source").template("web")).unwrap();
+        std::fs::create_dir_all(src.join("dist/web")).unwrap();
+        std::fs::write(src.join("dist/web/index.html"), "built").unwrap();
+        std::fs::create_dir_all(src.join("temp")).unwrap();
+        std::fs::write(src.join("temp/scratch.txt"), "x").unwrap();
+        std::fs::write(src.join("docs-note.md"), "keep me").unwrap();
+        let before = tree(&src);
+
+        let dest = base.join("Copy");
+        let done = create::clone_project(&src.join("Source.project.toml"), &dest, "Copy.project").unwrap();
+        assert_eq!(done.manifest, dest.join("Copy.project.toml"));
+        assert!(dest.join("webforms/main-form.cfrm").is_file() && dest.join("backend/src/health.cbl").is_file());
+        assert!(dest.join("docs-note.md").is_file(), "the developer's own files");
+        assert!(!dest.join("dist/web/index.html").exists() && !dest.join("temp/scratch.txt").exists(), "no build output");
+        assert!(!dest.join("Source.project.toml").exists(), "the source's manifest stays behind");
+        let copy = load_project(&done.manifest).unwrap();
+        assert_eq!(copy.project.name, "Copy.project");
+        assert_eq!(copy.kind(), ProjectKind::Web);
+        assert_eq!(copy.project.built_with_version, "");
+        assert_eq!(
+            cobolt_compiler::main_form_guard::authorize_form_start(&dest.join("webforms/main-form.cfrm"), None),
+            cobolt_compiler::main_form_guard::StartVerdict::Allowed,
+            "the seal covers the new name"
+        );
+        assert_eq!(tree(&src), before, "the source is untouched");
+        // Refusals.
+        assert!(create::clone_project(&src.join("Source.project.toml"), &dest, "Again.project").unwrap_err().contains("not empty"));
+        assert!(create::clone_project(&src.join("Source.project.toml"), &src.join("inside"), "In.project").unwrap_err().contains("inside"));
+        assert!(create::clone_project(&base.join("nothing.toml"), &base.join("X"), "X.project").is_err());
+        println!("create from template: {} files / {} bytes copied, build output and the source's manifest left behind", done.files, done.bytes);
+        let _ = std::fs::remove_dir_all(base);
     }
 }

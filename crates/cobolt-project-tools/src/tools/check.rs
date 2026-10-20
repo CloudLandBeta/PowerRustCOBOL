@@ -114,6 +114,11 @@ pub fn check_project<H: ProjectHost>(host: &H, root: &ProjectRoot) -> Result<Rep
     for rel in &view.sources {
         check_source(root, rel, &crates, &mut report);
     }
+    // The Backend of a Web or Mobile project is COBOL like any other
+    // (WASM-001 R12): checked with the rest.
+    for rel in &view.backend {
+        check_source(root, rel, &crates, &mut report);
+    }
     // Exactly one main form (spec 037).
     if let Err(e) = cobolt_compiler::main_form_guard::read_designation(root.dir(), &view.forms) {
         report

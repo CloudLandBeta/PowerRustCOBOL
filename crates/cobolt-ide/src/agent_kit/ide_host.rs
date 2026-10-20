@@ -85,7 +85,8 @@ pub enum HostRequest {
     /// Create a project in `folder` and open it in the IDE (spec 084 R15).
     CreateProject {
         folder: PathBuf,
-        name: String,
+        /// What to create: the template, its options, the name (WASM-001 R10).
+        request: cobolt_project_tools::create::CreateRequest,
         reply: Sender<Result<Value, String>>,
     },
     /// Open the project at `path` in the IDE, as File → Open Project does
@@ -277,9 +278,13 @@ impl ProjectHost for IdeHost {
     }
 
     /// The UI thread creates it and opens it (spec 084 R15, R17).
-    fn create_project(&mut self, folder: &Path, name: &str) -> Result<Value, String> {
+    fn create_project(
+        &mut self,
+        folder: &Path,
+        request: &cobolt_project_tools::create::CreateRequest,
+    ) -> Result<Value, String> {
         let (reply, answer) = mpsc::channel();
-        let req = HostRequest::CreateProject { folder: folder.to_path_buf(), name: name.to_owned(), reply };
+        let req = HostRequest::CreateProject { folder: folder.to_path_buf(), request: request.clone(), reply };
         self.ask(req, answer)
     }
 
@@ -511,7 +516,13 @@ pub fn handle_record(
     let project = project.ok_or_else(|| NoProject::NoneOpen.message().to_owned())?;
     match list {
         FileList::Generated => project.add_generated(rel),
-        FileList::Forms => project.add_file_to(rel, Category::Forms),
+        // A project's forms are one list, whichever node (Forms, WebForms or
+        // MobileForms) shows it.
+        FileList::Forms => {
+            let category = project.forms_category();
+            project.add_file_to(rel, category)
+        }
+        FileList::Backend => project.add_file_to(rel, Category::Backend),
         FileList::Indexed => project.add_file_to(rel, Category::IndexedFiles),
         FileList::Sources => project.add_file_to(rel, Category::CommonCode),
         FileList::Assets => project.add_file_to(rel, Category::Assets),
@@ -633,7 +644,7 @@ mod tests {
         let worker = std::thread::spawn(move || {
             let mut tools = IdeTools::new(worker_shared);
             let a = call(&mut tools, "open_project", json!({"path": "/abs/Demo"}));
-            let b = call(&mut tools, "create_project", json!({"folder": "/abs/New", "name": "New"}));
+            let b = call(&mut tools, "create_project", json!({"folder": "/abs/New", "name": "New", "kind": "web"}));
             (a, b)
         });
         let mut seen = Vec::new();
@@ -643,8 +654,8 @@ mod tests {
                     seen.push(format!("open {}", path.display()));
                     reply.send(Ok(json!({"opened": true, "project": "Demo.project.toml"}))).unwrap();
                 }
-                Ok(HostRequest::CreateProject { folder, name, reply }) => {
-                    seen.push(format!("create {} {name}", folder.display()));
+                Ok(HostRequest::CreateProject { folder, request, reply }) => {
+                    seen.push(format!("create {} {} {}", folder.display(), request.name, request.template));
                     reply.send(Err("the IDE has unsaved changes in forms/X.cfrm".into())).unwrap();
                 }
                 Ok(_) | Err(_) => {}
@@ -653,7 +664,7 @@ mod tests {
         let ((open_text, open_err), (create_text, create_err)) = worker.join().unwrap();
         assert!(!open_err && open_text.contains("Demo.project.toml"), "{open_text}");
         assert!(create_err && create_text.contains("unsaved"), "{create_text}");
-        assert_eq!(seen, ["open /abs/Demo", "create /abs/New New"]);
+        assert_eq!(seen, ["open /abs/Demo", "create /abs/New New web"], "the request carries the kind's template");
         println!("ide host: open_project and create_project forwarded to the UI thread; its answer and its refusal returned");
     }
 

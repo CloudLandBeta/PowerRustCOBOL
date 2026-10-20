@@ -368,15 +368,38 @@ impl<H: ProjectHost> ProjectTools<H> {
                 description: Some(
                     "Create a new PowerRustCOBOL project in an empty or new folder — exactly what the \
                      IDE's New Project makes: the manifest, the standard folders and a runnable main \
-                     program — and make it the project these tools act on. Refuses a folder that \
-                     already holds files."
+                     program or main form — and make it the project these tools act on. Refuses a \
+                     folder that already holds files. The `kind` picks what the project builds: \
+                     `desktop` (the default; a native application), `web` (a WebAssembly application \
+                     for the browser; forms in `webforms/`) or `mobile` (an Android or iOS \
+                     application: give `platform` and `device`; forms in `mobileforms/`). A web or \
+                     mobile project also has a Backend part (`backend/`, a health program it \
+                     exports) unless `options.backend` is \"false\". `template` names one of the New \
+                     Project templates directly (desktop, web, android-phone, android-tablet, iphone, \
+                     ipad; the others are listed in the IDE but cannot be created yet); `options` \
+                     sets the template's options (style: spa or standalone; orientation: auto, \
+                     portrait or landscape; min_os; backend, sample: \"true\" or \"false\"). Add what \
+                     else a project needs with the other tools, never by editing the manifest."
                         .into(),
                 ),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
                         "folder": { "type": "string", "description": "Absolute path of the new project's folder." },
-                        "name": { "type": "string", "description": "The project's name, e.g. Inventory." }
+                        "name": { "type": "string", "description": "The project's name, e.g. Inventory." },
+                        "kind": { "type": "string", "enum": ["desktop", "web", "mobile"],
+                                  "description": "What the project builds (default desktop)." },
+                        "platform": { "type": "string", "enum": ["android", "ios"],
+                                      "description": "For kind mobile: the operating system." },
+                        "device": { "type": "string", "enum": ["phone", "tablet"],
+                                    "description": "For kind mobile: the class of device." },
+                        "template": { "type": "string",
+                                      "description": "A New Project template id instead of kind/platform/device: desktop, web, android-phone, android-tablet, iphone, ipad." },
+                        "options": { "type": "object",
+                                     "description": "The template's options by id, e.g. {\"style\":\"standalone\",\"backend\":\"false\"}. Values are strings; flags are \"true\" or \"false\"." },
+                        "version": { "type": "string", "description": "Optional major.minor.fix (default 1.0.0)." },
+                        "description": { "type": "string", "description": "Optional one-line description." },
+                        "locale": { "type": "string", "description": "Optional default locale such as en-US or pt-BR." }
                     },
                     "required": ["folder", "name"],
                     "additionalProperties": false
@@ -459,8 +482,8 @@ impl<H: ProjectHost> ProjectTools<H> {
             // Spec 084 R15/R16 — they make or choose the project, so none need be open.
             "create_project" => {
                 let folder = absolute_arg(args, "folder", "create_project")?;
-                let name = opt_str(args, "name").ok_or("create_project needs a 'name'")?;
-                return self.host.create_project(&folder, &name);
+                let request = create_request(args)?;
+                return self.host.create_project(&folder, &request);
             }
             "open_project" => {
                 let path = absolute_arg(args, "path", "open_project")?;
@@ -611,6 +634,70 @@ impl<H: ProjectHost> ProjectTools<H> {
 /// make or choose one.
 pub fn project_free(name: &str) -> bool {
     name.starts_with("kb_") || name == "create_project" || name == "open_project"
+}
+
+/// The [`crate::create::CreateRequest`] a `create_project` call describes
+/// (WASM-001 R10): the template named, or the one `kind` (with `platform` and
+/// `device` for a mobile project) resolves to, and the options. A project an
+/// agent creates wears Spatial, as before.
+fn create_request(args: &Value) -> Result<crate::create::CreateRequest, String> {
+    use cobolt_compiler::project_kind::{DeviceClass, MobilePlatform, ProjectKind};
+    let name = opt_str(args, "name").ok_or("create_project needs a 'name'")?;
+    let catalogue = crate::templates::builtin();
+    let kind = match opt_str(args, "kind") {
+        Some(k) => Some(ProjectKind::parse(&k).ok_or_else(|| format!("'{k}' is not a project kind; use desktop, web or mobile"))?),
+        None => None,
+    };
+    let template = match opt_str(args, "template") {
+        Some(id) => {
+            let t = crate::templates::find(&catalogue, &id)
+                .ok_or_else(|| format!("no template '{id}'; the templates that can be created are: {}", crate::templates::creatable_ids(&catalogue).join(", ")))?;
+            if kind.is_some_and(|k| k != t.kind) {
+                return Err(format!("the template '{}' makes a {} project, not a {} one", t.id, t.kind.as_str(), kind.map_or("", ProjectKind::as_str)));
+            }
+            t.id.to_owned()
+        }
+        None => match kind.unwrap_or_default() {
+            ProjectKind::Mobile => {
+                let platform = match opt_str(args, "platform").as_deref() {
+                    Some("android") => MobilePlatform::Android,
+                    Some("ios") => MobilePlatform::Ios,
+                    _ => return Err("a mobile project needs a 'platform': android or ios".to_owned()),
+                };
+                let device = match opt_str(args, "device").as_deref() {
+                    Some("phone") => DeviceClass::Phone,
+                    Some("tablet") => DeviceClass::Tablet,
+                    _ => return Err("a mobile project needs a 'device': phone or tablet".to_owned()),
+                };
+                crate::templates::for_kind(&catalogue, ProjectKind::Mobile, Some((platform, device)))
+                    .ok_or("no template for that platform and device")?
+                    .id
+                    .to_owned()
+            }
+            other => crate::templates::for_kind(&catalogue, other, None).ok_or("no template for that kind")?.id.to_owned(),
+        },
+    };
+    let mut request = crate::create::CreateRequest::new(name).template(template);
+    request.spatial = true;
+    request.version = opt_str(args, "version").unwrap_or_default();
+    request.description = opt_str(args, "description").unwrap_or_default();
+    request.locale = opt_str(args, "locale").unwrap_or_default();
+    match args.get("options") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(map)) => {
+            for (key, value) in map {
+                let text = match value {
+                    Value::String(s) => s.clone(),
+                    Value::Bool(b) => b.to_string(),
+                    Value::Number(n) => n.to_string(),
+                    other => return Err(format!("the option '{key}' must be a string, a boolean or a number, not {other}")),
+                };
+                request.options.insert(key.clone(), text);
+            }
+        }
+        Some(_) => return Err("'options' must be an object".to_owned()),
+    }
+    Ok(request)
 }
 
 /// An argument that must be an absolute path.

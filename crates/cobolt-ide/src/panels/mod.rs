@@ -43,6 +43,8 @@ pub mod leaderboard_modal;
 pub mod md_render;
 pub mod model_search;
 pub mod models_modal;
+/// The New Project dialog (WASM-001).
+pub mod new_project;
 pub mod objects_list;
 pub mod output;
 pub mod project;
