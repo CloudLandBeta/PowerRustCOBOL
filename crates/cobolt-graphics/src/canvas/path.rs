@@ -51,9 +51,7 @@ pub(crate) fn circle_path(center: Point, radius: f64, ctm: Affine) -> BezPath {
 /// `a mod m` in `[0, m)`, built only from basic arithmetic (deterministic).
 fn modulo(a: f64, m: f64) -> f64 {
     let r = a - m * (a / m).floor();
-    if r >= m {
-        0.0
-    } else if r < 0.0 {
+    if r >= m || r < 0.0 {
         0.0
     } else {
         r

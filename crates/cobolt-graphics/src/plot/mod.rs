@@ -45,7 +45,7 @@
 //! `plotters` is used as a layout and series library only. Its own font layer
 //! needs C libraries (`font-kit`) on desktop and measures text through the
 //! browser's DOM on `wasm32`; neither is acceptable (WASM-018 R4, R20), so every
-//! backend here measures and draws text with [`TextEngine`](crate::textapi::TextEngine).
+//! backend here measures and draws text with [`TextEngine`].
 
 pub mod backend;
 mod render;

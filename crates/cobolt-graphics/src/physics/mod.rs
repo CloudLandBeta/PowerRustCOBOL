@@ -10,7 +10,7 @@
 //! holds **bodies** (static, dynamic, kinematic), their **shapes** (ball, box,
 //! capsule, convex hull, and in 3D a triangle mesh), **joints** (fixed, revolute,
 //! prismatic) and the **collision events** of the last step. Everything a program
-//! creates is a [`Handle`](crate::handles::Handle); the shapes of a body and the
+//! creates is a [`Handle`]; the shapes of a body and the
 //! joints that touch it are released with it, and everything is released with its
 //! world and with the object.
 //!

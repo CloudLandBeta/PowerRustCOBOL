@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! The `wgpu` renderer: uploads a [`Frame`](super::frame::Frame) and draws it.
+//! The `wgpu` renderer: uploads a [`Frame`] and draws it.
 //!
 //! Everything the picture depends on was decided on the CPU in
 //! [`Scene3D::build_frame`](super::scene::Scene3D::build_frame); this module only

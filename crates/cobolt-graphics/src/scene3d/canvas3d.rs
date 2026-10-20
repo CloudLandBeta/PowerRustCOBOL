@@ -25,6 +25,7 @@ use super::scene::Scene3D;
 use crate::error::{GraphicsError, Result};
 use crate::handles::Handle;
 use crate::limits::Limits;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::pixels::PixelBuffer;
 
 /// A 3D view.

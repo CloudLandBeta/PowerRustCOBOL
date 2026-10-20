@@ -271,9 +271,9 @@ fn extreme_numbers_in_shapes_do_not_hang_or_panic() {
     let mut s = Surface::new(&SurfaceConfig::new(64, 64), &Limits::default()).unwrap();
     let mut b = DisplayListBuilder::new();
     b.set_fill_color(Rgba::BLACK).set_stroke_color(Rgba::rgb(255, 0, 0)).set_line_width(3.0);
-    b.begin_path().arc(32.0, 32.0, 1.0e8, 0.0, 6.28, 0).stroke();
-    b.begin_path().arc(32.0, 32.0, 1.0e-8, 0.0, 6.28, 0).fill(0);
-    b.begin_path().ellipse(32.0, 32.0, 1.0e7, 1.0e-7, 1.0, 0.0, 6.28, 1).stroke();
+    b.begin_path().arc(32.0, 32.0, 1.0e8, 0.0, std::f32::consts::TAU, 0).stroke();
+    b.begin_path().arc(32.0, 32.0, 1.0e-8, 0.0, std::f32::consts::TAU, 0).fill(0);
+    b.begin_path().ellipse(32.0, 32.0, 1.0e7, 1.0e-7, 1.0, 0.0, std::f32::consts::TAU, 1).stroke();
     b.set_dash(&[1.0e-7, 1.0e-7], 0.0).draw_line(0.0, 0.0, 64.0, 64.0).draw_circle(32.0, 32.0, 30.0, 2);
     b.set_dash(&[], 0.0).scale(1.0e30, 1.0e30).fill_rect(0.0, 0.0, 1.0, 1.0).reset_transform();
     b.scale(1.0e-30, 1.0e-30).stroke_rect(0.0, 0.0, 1.0e30, 1.0e30).reset_transform();

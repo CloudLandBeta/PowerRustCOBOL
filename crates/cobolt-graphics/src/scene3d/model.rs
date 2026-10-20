@@ -20,7 +20,7 @@
 //! **No file is read and no connection opened.** Buffers and images come from the
 //! GLB's own chunk, from `data:` URIs, or - for a `.gltf` with separate files -
 //! from the host through [`AssetHost`]. The file is untrusted: every count is
-//! checked against [`Limits`] before memory is reserved, hierarchy depth is not
+//! checked against [`Limits`](crate::Limits) before memory is reserved, hierarchy depth is not
 //! recursion, and a damaged file is an error, never a crash (the tests feed it
 //! thousands of mutated files).
 
