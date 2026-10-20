@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.3] — 2026-10-19
+
+*(Written on `features-2x`, after 2.0.2.)*
+
+### Changed: the WASM specs record the operator's answers, and six more are written
+
+The operator, 2026-10-19, answered the first batch. The specs now carry what was decided: the compiler **generates WebAssembly directly**, with **no interpreter and no runtime in the browser** and a final module that carries what it needs to run; **no `redb`, disk or threads in the browser**; the **backend keeps the current runtime** with `redb`, `std::fs` and threads, plus what the new functions need; a **single-page application is the default** and standalone forms the alternative; and `CALL … RETURNING` being ignored is **a fix on 1.x.x forwarded to 2.x.x** (it started in its own session).
+
+Written: **WASM-010** WebAssembly code generation (the compiler back end, a byte-accurate data layout, exact decimal arithmetic, `GO TO`/`ALTER`, a module that can pause and resume, a host API, and a conformance gate on the NIST modules NC, IF and IC); **WASM-011** navigation and the two application styles; **WASM-012** the Tauri 2 mobile shell; **WASM-013** the security architecture and threat model; **WASM-014** the backend contract and how it evolves; **WASM-015** testing, agent tooling and the knowledge base for the web kinds. Edited: WASM-001, 002, 003, 005, 006, 009 and `WASM-INDEX.md` (the decisions table, the diagrams, what carries over from the removed spec 006, the proposals that remain).
+
+Corrected in the specs while writing them: an earlier sentence said the example forms carry live credentials; on 2026-10-19 the committed examples hold the key properties (`AgentAPIKey`) empty, and the specs now say so, and that the project's notes record keys having been found in demo forms before. The golden files of the code generator are in `crates/cobolt-codegen/tests/golden`, not `tests/golden`. The plugin's application rules number 12, not ten.
+
+No code, `README.md` or file in `docs/` changed; the version moves because this is a change.
+
 ## [PowerRustCOBOL 2.0.2] — 2026-10-19
 
 *(Written on `features-2x`, off `2.x.x` at 2.0.1.)*

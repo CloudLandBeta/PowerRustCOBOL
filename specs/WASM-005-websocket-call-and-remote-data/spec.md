@@ -57,7 +57,8 @@ its COBOL API; its work runs on the backend.
   `db_runtime.rs`, `esql/`. **RestClient:** `:17303-17350`, `http_runtime.rs`. **AgentObject:** `Ask` `:17267`, `AllowFile`/`RegisterFile` `:17244-17257`. **KnowledgeBase:** `interpreter/kb.rs`.
   **WebSearch:** `:17353`. **Maps:** tile fetch inside the renderer (`cobolt-forms/src/map_tiles.rs:432`), geocode/directions `:17480-17570`. **FileDropZone:** `dropzone.rs:261-272` via
   `CommitFiles` (`:16605`). **Viewer:** `viewer.rs`, `viewer_remote.rs`, Save As `:16884-16920`. **AWS ×16:** `interpreter/aws.rs`, `runtime/aws/` (one path spawns a child process).
-  The example forms **carry live credentials** in properties — which is why R14 exists.
+  The forms have properties where a key or a connection string can be typed (`AgentAPIKey`, `ConnectionString` and the like); the committed examples checked on
+  2026-10-19 keep the key properties empty, but nothing in a form stops a developer from typing one — which is why R14 exists.
 
 ## 2. Goals / Non-goals
 
@@ -102,6 +103,8 @@ its COBOL API; its work runs on the backend.
   - **Text:** an alphanumeric item is a JSON string in UTF-8; trailing spaces are trimmed on output (Q4).
   - **`USAGE`:** `COMP`, `COMP-3` and the like are sent as their numeric value, never as bytes.
   - **`REDEFINES`:** only the redefined (first) item is written (Q5).
+- **R5b (ubiquitous):** The mapping shall be implemented **twice, by the same rules**: in the code the generator embeds in the browser module (WASM-010 R6), and in the backend's native runtime. A single normative table
+  of rules and one set of **golden vectors** (a group, its JSON text, and the group read back) shall be run against **both** implementations, so that a difference between them is a failing test, not a field in production.
 - **R6 (ubiquitous):** JSON shall be read into a group **by name, not by position**, so that a reordered or extended answer still lands correctly; a key absent from the answer leaves the item
   unchanged; an unknown key, a value of the wrong type, a number that does not fit its `PICTURE`, a string longer than its `PIC` or a table longer than its `OCCURS` is an **error**, never a silent
   truncation. A group written and read back shall equal the original.
@@ -112,7 +115,7 @@ its COBOL API; its work runs on the backend.
 - **R8 (ubiquitous):** The developer shall write nothing for the connection, the bearer token (WASM-009 supplies it), serialisation, framing, correlation, keep-alive, reconnection or refresh. When
   the token has expired the runtime shall refresh it and repeat the call once before reporting failure.
 - **R9 (state):** While a `WEBSOCKET` call is pending, the form shall stay responsive and the statement after the `CALL` shall not run; further events raised on that form shall be queued in order and
-  handled when the call has finished (Q6).
+  handled when the call has finished (Q6). In the browser this is the module's pause-and-resume of WASM-010 R9; on the backend side nothing waits (a call is a request answered).
 - **R10 (event):** When a call cannot be completed — no connection, timeout, authentication failure or expiry, validation failure, an error in the remote program, an unknown function — `ON EXCEPTION` shall
   run, and the program shall be able to read the failure class and a message (a built-in in the inline `COBOL::"…"` form, Q7).
 - **R11 (ubiquitous):** The timeout and the maximum payload shall have safe defaults and be configurable per project; the backend enforces its own limits (WASM-003 R16).
@@ -148,19 +151,20 @@ its COBOL API; its work runs on the backend.
 
 - **i18n:** the IDE strings (diagnostics, Output) — yes, six languages. Failure messages that reach the end user are the developer's.
 - **Generated-code contract:** the generated frontend calls and backend programs (R16) are build artefacts with the banner and regenerate-on-Build rules; codegen writes the inline built-in form
-  (`COBOL::"NAME"`) where it needs a built-in (CLAUDE.md, 2026-09-28) and `tests/golden/` pins it.
+  (`COBOL::"NAME"`) where it needs a built-in (CLAUDE.md, 2026-09-28) and the codegen golden files (`crates/cobolt-codegen/tests/golden`) pin it.
 - **COBOL written under this spec** shall use the RustCOBOL extensions (the 2026-10-09 ruling) and a comment block above every `CALL` to a procedure (the 2026-10-12 ruling); an inline built-in needs none.
 - **System KB:** **required** — the `CALL` phrase, each new built-in (also in `builtins.rs` `BUILTINS`) and every class C control note; regenerate `chunked.data`.
-- **Interpreter/binary parity (the 2026-09-07 ruling):** the runtime change reaches all three hosts that build the interpreter — `rcrun run-form`, embedded child forms and the compiled binary — and now a
-  fourth, the browser module (WASM-002).
+- **Interpreter/binary parity (the 2026-09-07 ruling):** the runtime change reaches all three hosts that build the interpreter — `rcrun run-form`, embedded child forms and the compiled binary — which now includes the
+  **backend** (it runs on that runtime). The browser has **no interpreter**: the generator (WASM-010) must implement the phrase on its own, and R5b ties the two implementations together by golden vectors.
 - **Docs:** `docs/` untouched on 2.x.x; planned in WASM-INDEX.
 - **Fix vs feature:** **feature**. The part of Q2 about local `RETURNING` is a **fix** (1.x.x, then forward-ported).
 
 ## 7. Open questions
 
 - **Q1 — Elementary items.** The operator wrote *group*. Allow an elementary `01`/`77` item as a one-field group (a scalar), or reject it? Recommended: allow; a number or a string is the commonest argument.
-- **Q2 — `RETURNING` on local calls.** It is parsed and ignored today (`interpreter.rs:11256`), which is a gap independent of this series. Fix it on 1.x.x first (a fix, forward-ported), so that the two
-  conventions mean the same thing? Recommended: yes, before WASM-005 is implemented.
+- **Q2 — `RETURNING` on local calls — decided.** It is parsed and ignored today (`interpreter.rs:11256`), which is a gap independent of this series. The operator ruled on 2026-10-19 that it is **a fix on 1.x.x,
+  forward-ported to 2.x.x** by the standing rule, so that the two conventions mean the same thing. It is under way in its own session (*Fix: CALL … RETURNING is ignored*); this spec's `RETURNING` semantics (R3) shall follow
+  what that fix defines for local calls.
 - **Q3 — JSON key spelling.** As declared (recommended), upper-case, or lower-camel (`CUSTOMER-NAME` → `customerName`)? A per-item override (a `NAME` clause, as other COBOLs have) is the usual escape hatch.
 - **Q4 — Trimming.** Trailing spaces trimmed on output and restored (padded) on input; leading spaces and all-space values (`""`) need a rule. Recommended: trim on output, pad on input, empty string for all spaces.
 - **Q5 — `REDEFINES`.** Writing only the first item is the safe default; should a `REDEFINES` group be refused as an argument instead?

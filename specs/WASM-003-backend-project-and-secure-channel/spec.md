@@ -71,8 +71,10 @@ user obtains the JWT is WASM-009.
   whatever its name.
 - **R2 (event):** When the developer builds the Backend, the IDE shall produce **one self-contained executable per host platform**
   (macOS, Windows, Linux) that includes the runtime, the programs and the WebSocket server, extending the existing single-binary build.
-- **R3 (ubiquitous):** The backend shall run its programs on the same native runtime as a desktop application, with the file, indexed, SQL and
-  HTTP features available to them.
+- **R3 (ubiquitous):** The backend shall run its programs on **the current native runtime** — the tree-walking interpreter, with `std::fs`, threads and
+  every indexed engine including `redb` — with the file, indexed, SQL and HTTP features available to them, plus whatever the new functions need (the WebSocket
+  server, JWT validation, the group ⇄ JSON mapping of WASM-005). This is the operator's ruling of 2026-10-19: the backend keeps the runtime; only the browser is
+  generated WebAssembly (WASM-010), so the backend is **not** compiled by the generator.
 - **R4 (event):** When the backend is built, it shall also write an **interface description** of each exported program (name, parameter
   groups, the `RETURNING` group, required roles) that the frontend project imports (WASM-005 R7).
 

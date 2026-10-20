@@ -52,7 +52,7 @@ pane serve every kind, and what changes is which templates, tree entries, toolbo
   (`cobolt-project-tools/src/tools/mod.rs:367-385`) and forces the Spatial theme (`create.rs:115`, `:153-160`).
 - **Prior art.** Spec 006 (*Web projects*, removed from the tree on 2026-10-14, recoverable with
   `git show ccfa3449^:specs/006-web-wasm-projects/spec.md`) already asked for a Desktop | Web picker with the type fixed at
-  creation. Its picker idea survives here; its canvas rendering and its "no interpreter" choice are decided again in WASM-002.
+  creation. Its picker idea survives here; its canvas rendering was replaced by the DOM (WASM-002) and its "no interpreter" choice was kept, without the Rust step (WASM-010).
 
 ### The mock-up (operator, 2026-10-19)
 
@@ -110,8 +110,8 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
   description, UI style / theme and default language / locale; the values shall be written to the manifest and to the settings the
   rest of the IDE already reads (the `[ide]` and `[forms]` theme, the default form language).
 - **R4 (ubiquitous):** Each template shall add its own options (examples from the mock-up: window style and UI framework for
-  Desktop; default orientation and minimum OS version for Mobile; High DPI and GPU acceleration for Desktop only). An option that
-  does not apply to a template shall not be shown for it.
+  Desktop; default orientation and minimum OS version for Mobile; High DPI and GPU acceleration for Desktop only; and for Web and Mobile the
+  **application style** — **SPA** (the default) or **standalone forms**, WASM-011 R1). An option that does not apply to a template shall not be shown for it.
 - **R5 (state):** While a template's features are not implemented, its entry shall be visible, marked as unavailable, and
   *Create* shall be disabled for it. In 2.0 the creatable templates are **Desktop**, **Web (WebAssembly)**, **Android
   (Cellphone)**, **Android (Tablet)**, **iPhone** and **iPad**; the rest are unavailable (Q3).

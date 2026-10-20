@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — The WebAssembly build target (Leptos + Tauri 2) and the host page
 
-- **Status:** draft (needs `/clarify`; Q1 decides the shape of the whole series)
+- **Status:** draft (needs `/clarify`). **The execution model is decided** (operator, 2026-10-19): the compiler generates WebAssembly directly, with no interpreter and no runtime in the browser — see WASM-010.
 - **Folder:** specs/WASM-002-wasm-build-target-and-host-page/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-10-19
 - **Branch:** `features-2x` (version line 2.x.x). Part of the WASM series, see `specs/WASM-INDEX.md`.
@@ -15,7 +15,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   mobile kinds only; spec 017 (*one renderer everywhere*) — the web kinds are rendered by the DOM, see WASM-004.
 - **Prior art:** spec 006 (removed 2026-10-14, `git show ccfa3449^:specs/006-web-wasm-projects/spec.md`): an eframe-web
   `<canvas>` bundle with `trunk`, COBOL transpiled to Rust, no interpreter shipped. Carried over: the portable-subset check
-  (R3), toolchain detection (R6), no in-IDE web debugger. Changed: DOM + CSS instead of a canvas; the execution model is open (Q1).
+  (R3), toolchain detection (R6), no in-IDE web debugger. Changed: DOM + CSS instead of a canvas, and no Rust step either — the compiler emits the module itself (WASM-010).
 
 ## 1. Overview
 
@@ -28,6 +28,13 @@ inside a **Tauri 2** shell, which supplies the native wrapper, the system web vi
 A **host page** is the thin HTML/CSS3/JavaScript layer that loads the module. It supports two ways to place the application:
 **in the available window area** (the application is the page), or **inside a pre-existing layout** (an element on someone
 else's page).
+
+**What runs in the browser (operator, 2026-10-19).** There is **no runtime in the browser**. The program's COBOL is compiled to a WebAssembly module that is **self-contained** — it carries the routines it needs and imports only a small host
+API (WASM-010). The browser module has no `redb`, no disk, no `std::fs` and no threads. The **backend keeps the current runtime** with all of them (WASM-003). Everything a browser program needs from disks or databases goes through the backend
+(WASM-005).
+
+**Two application styles** (WASM-011): **SPA** is the default — one page, forms loaded into the application shell — and **standalone forms**, as on the desktop, where opening a form opens it in a page or window of its own. The host page and the
+bundle layout serve both.
 
 ### What exists today (checked 2026-10-19, `main` at 1.91.217)
 
@@ -42,16 +49,21 @@ else's page).
 - **There is no COBOL → Rust generator.** `cobolt-codegen` turns *forms* into COBOL; the only Rust the compiler emits from COBOL
   source is `EXEC RUST` blocks (`cobolt-compiler/src/exec_rust.rs`). The program runs in the **tree-walking interpreter** bundled
   into the binary.
-- **The runtime is not browser-ready.** The event loop blocks on `std::sync::mpsc` (`cobolt-runtime/src/interpreter.rs` ~`:3942`,
-  `:3958`); `thread::spawn` appears in 12 runtime files (`async_op.rs` among them); `std::fs` in 23 (`interpreter.rs` 62 times,
-  `indexed_disk.rs` 201); `Instant::now` 23 times in `interpreter.rs`; `redb`, `sysinfo`, `aes-gcm`, `getrandom` and `chrono`
-  (clock) are linked whatever the features. The lexer, AST, parser and semantic crates use no file, thread, process or network
-  API (the lexer reads files only in `copybook.rs`). `cobolt-forms` without `render` is free of egui but has unconditional
-  `lopdf`, `mermaid-rs-renderer` and `tl` dependencies and ungated `std::fs` in `viewer.rs`, `dropzone.rs`, `assets.rs` and
-  `items_file.rs`. `cobolt-form-host` is native (`rfd`, `pollster`, eframe).
+- **The runtime is not browser-ready — and, by the operator's decision, it will not go to the browser.** The event loop blocks on
+  `std::sync::mpsc` (`cobolt-runtime/src/interpreter.rs` ~`:3942`, `:3958`); `thread::spawn` appears in 12 runtime files
+  (`async_op.rs` among them); `std::fs` in 23 (`interpreter.rs` 62 times, `indexed_disk.rs` 201); `Instant::now` 23 times in
+  `interpreter.rs`; `redb`, `sysinfo`, `aes-gcm`, `getrandom` and `chrono` (clock) are linked whatever the features. All of that stays
+  where it is: it is the **backend's** runtime. The browser module is generated (WASM-010) and takes none of it. The lexer, AST, parser and
+  semantic crates use no file, thread, process or network API (the lexer reads files only in `copybook.rs`), which is what lets the
+  compiler front end feed the generator unchanged. `cobolt-forms` without `render` is free of egui but has unconditional `lopdf`,
+  `mermaid-rs-renderer` and `tl` dependencies and ungated `std::fs` in `viewer.rs`, `dropzone.rs`, `assets.rs` and `items_file.rs`;
+  `cobolt-form-host` is native (`rfd`, `pollster`, eframe). The player that draws the forms in the browser (Q7) is therefore new code, not a
+  port of these.
+- **A WebAssembly emitter is not in the workspace's own dependencies:** `wasm-encoder` and `wasmparser` are in `Cargo.lock` only
+  transitively; no engine (`wasmtime`, `wasmi`) is (WASM-010 Q2).
 - **Optional bridges are already feature-gated** in `cobolt-runtime`: `default = sql, http, maps, kb, smb, pdf, office, aws, images,
-  audio`, and generated applications use `default-features = false` (`cobolt-compiler/src/lib.rs:3770`) — the same mechanism a
-  browser profile would use.
+  audio`, and generated applications use `default-features = false` (`cobolt-compiler/src/lib.rs:3770`); that mechanism serves the
+  desktop and backend profiles, not the browser.
 - **Docs and specs that already speak of the web:** the CLAUDE.md 2.x.x section; `CONVENTIONS.md` and spec 047 mention WebAssembly.
 
 ## 2. Goals / Non-goals
@@ -63,6 +75,7 @@ else's page).
   - The **host page**: window-filling mode and embedded-in-a-layout mode, with a small documented JavaScript surface.
   - Toolchain detection with clear, honest messages.
 - **Non-goals:**
+  - A runtime, interpreter or the `redb`/disk/thread support in the browser (the operator, 2026-10-19: the backend keeps them).
   - Server-side rendering, multi-threaded WebAssembly, offline/PWA behaviour, hosting or deploying the bundle (WASM-INDEX lists
     each as a proposed spec).
   - A web debugger inside the IDE (browser developer tools serve; source maps where the toolchain gives them).
@@ -82,22 +95,26 @@ else's page).
 
 **The build**
 - **R1 (event):** When the developer builds a Web project, the IDE shall produce, in the project's build folder (specs 100/101 govern
-  the folder and cache), a **static bundle**: the host `index.html`, the WebAssembly module, the JavaScript loader, the form
-  stylesheet (WASM-007) and the assets the forms use, with content-hashed file names.
+  the folder and cache), a **static bundle**: the host `index.html`, the WebAssembly module **generated from the program's COBOL**
+  (WASM-010), the player that draws the forms (Q7), the JavaScript loader, the form stylesheet (WASM-007) and the assets the forms use,
+  with content-hashed file names; for the standalone application style (WASM-011) the bundle shall give each standalone form its own entry page.
 - **R2 (event):** When the developer builds a Mobile project, the IDE shall produce an **Android package** and/or an **iOS
   package** that wrap the same frontend in a Tauri 2 shell, for the platform(s) the project selected.
 - **R3 (event):** When the developer runs Check or Build on a Web or Mobile project, the IDE shall validate the COBOL against the
   **portable subset** and report each construct that cannot run in a browser as an **error** at its line, naming the construct and
   the alternative (a remote call, WASM-005, or a different control); no bundle shall be produced while such errors remain. Constructs
-  that need the local disk, a child process, an OS thread, a native socket or an embedded secret are not portable.
+  that need the local disk (any file organisation, the indexed engines and `redb` included), a child process, an OS thread, a native
+  socket, SQL, `EXEC RUST` or an embedded secret are not portable; the generator is where they are refused (WASM-010 R8).
 - **R4 (ubiquitous):** For every construct in the portable subset the application shall behave as the same program does on the desktop
-  runtime: same results, same file-status/`ON EXCEPTION` outcomes, same event order. Any difference shall be listed, per construct,
-  in one place the developer can read.
+  runtime: same results, same `ON SIZE ERROR`/`ON EXCEPTION` outcomes, same event order. Any difference shall be listed, per construct,
+  in one place the developer can read, and the equality is **measured** as WASM-010 R16 says.
 - **R5 (ubiquitous):** The user interface of a Web or Mobile application shall be built as DOM elements styled with CSS3 (not drawn on
   a `<canvas>`), so that the browser's text selection, zoom, accessibility tree and find-in-page work.
-- **R6 (event):** When a required tool is missing (the `wasm32-unknown-unknown` target, the bundler, the `wasm-bindgen` CLI at the
-  matching version, the Tauri 2 CLI, the Android SDK/NDK, Xcode), the IDE shall name it, say whether it can install it itself, and
-  install only what is safe to install after the developer agrees (`rustup target add` is; Xcode and the Android SDK are not).
+- **R6 (event):** When a required tool is missing, the IDE shall name it, say whether it can install it itself, and install only what is
+  safe to install after the developer agrees (`rustup target add` is; Xcode and the Android SDK are not). Which tools a **Web** build
+  needs depends on Q7: compiling the COBOL needs none of them (the compiler emits the module itself, WASM-010 R1), and a prebuilt player
+  needs none either; a per-project player needs the `wasm32-unknown-unknown` target, the bundler and the matching `wasm-bindgen` CLI. A
+  **Mobile** build always needs the Tauri 2 CLI, the Android SDK/NDK and Xcode (WASM-012 R2).
 - **R7 (ubiquitous):** The bundle shall contain **no secret**: no key, token, password, connection string or client secret; Build shall
   scan the produced files and the forms for them and fail, naming the file and the pattern (the credential gate the examples already need).
 - **R8 (ubiquitous):** Build shall report the size of each part (module, loader, stylesheet, assets) so that growth is visible from
@@ -120,6 +137,11 @@ else's page).
   `'unsafe-eval'`, and the build shall print the policy it needs (script, style, font, image and connect sources).
 - **R15 (state):** While the module is loading, the page shall show progress; if the browser cannot run WebAssembly, or loading fails, it
   shall show a readable message and a way to retry, not a blank page.
+- **R16 (ubiquitous):** The program module in the bundle shall be the **self-contained** module of WASM-010 R1–R2: it carries what it needs to run, imports
+  only the host API, and the bundle shall contain no interpreter, no AST and no runtime library for it.
+- **R17 (ubiquitous):** The host page shall serve both application styles of WASM-011: for **SPA**, one entry page and a router; for **standalone
+  forms**, one entry page per form, each instantiating the same module with a different start form. The embedded mode (R11) supports SPA; whether it
+  supports standalone forms is WASM-011's decision.
 
 ## 5. Acceptance criteria
 
@@ -129,8 +151,9 @@ else's page).
   and neither page's CSS affects the other (a test asserts a computed style on each side).
 - [ ] **AC3** — A form using a construct outside the subset (for example an `OPEN` of a disk file) makes Check fail with the line, the
   construct and the alternative; no bundle is written.
-- [ ] **AC4** — A program in the subset, run on the desktop runtime and in the browser (headless), prints identical output for a fixed set of
-  programs (a conformance list is part of the plan; it is what R4's "behave as" is measured against).
+- [ ] **AC4** — A program in the subset, run on the desktop runtime and as the generated module (headless), prints identical output for a fixed set of
+  programs; the conformance list and its numbers are WASM-010 R16 and AC7–AC8, which is what R4's "behave as" is measured against.
+- [ ] **AC4b** — The built bundle contains no interpreter, AST or runtime library, and the program module's import section lists only the host API (R16).
 - [ ] **AC5** — A key placed in a form's property (a deliberate test secret) stops Build with a message that names the file and pattern.
 - [ ] **AC6** — Missing-tool messages for each tool of R6 appear when that tool is absent (tested by hiding it from `PATH`).
 - [ ] **AC7** — The Mobile build produces an Android package and (on macOS) an iOS package from the same project; both start and show the form.
@@ -150,18 +173,21 @@ else's page).
 
 ## 7. Open questions
 
-- **Q1 — The execution model. This decides the series.** (a) **Interpreter in the browser:** compile `cobolt-runtime` and the AST to
-  `wasm32` and embed the AST in the bundle — the behaviour parity of R4 and the control reuse of WASM-004 come almost free, at the cost of
-  making the runtime browser-capable (the blockers above: blocking channels, threads, `std::fs`, `redb`, clocks) — see proposed WASM-010.
-  (b) **A COBOL → Rust transpiler** (spec 006's choice): faster and smaller output, but no such generator exists, and "full parity" was
-  called the highest risk even then. **Recommendation: (a) for 2.0**, with (b) as a later optimisation. Note that (a) reverses spec 006's
-  "no interpreter shipped" — say so explicitly if you agree.
+- **Q1 — The execution model — decided.** The operator ruled on 2026-10-19: the compiler **generates WebAssembly**; there is no interpreter or
+  runtime in the browser; the final code carries what it needs; `redb`, disk and threads are not in the browser; the backend keeps the current
+  runtime. WASM-010 specifies it. Still to confirm there: that the generator emits the module **directly** rather than through Rust (WASM-010 Q1).
 - **Q2 — Bundler and framework layout:** Leptos in client-side-rendering mode with `trunk`, or `cargo-leptos`? Recommended: client-side
   rendering with `trunk` (a static bundle, no server component).
 - **Q3 — Is Tauri 2 also used for the desktop kind** later (one web frontend for all), or does Desktop stay on egui? Recommended: Desktop stays
   on egui in 2.0 (R9).
-- **Q4 — `EXEC RUST` in a web project:** compiled into the module (so it must itself target `wasm32`) or rejected by R3? Recommended: rejected
-  in 2.0, allowed later (WASM-INDEX, external crates on `wasm32`).
-- **Q5 — A size/startup budget** for the module and a measured target for first paint: set at `/clarify` once the runtime profile is measured.
+- **Q4 — `EXEC RUST` in a web project — decided by the model:** rejected (a generated module has no Rust step), allowed later only through a
+  backend program or a future external-crates spec (WASM-INDEX).
+- **Q5 — A size/startup budget** for the module and a measured target for first paint: set at `/clarify` once phase A of WASM-010 is measured.
 - **Q6 — Where the host page's JavaScript comes from:** hand-written and shipped as a fixed file (recommended; small, auditable), or generated
   per build.
+- **Q7 — The player: prebuilt, or built per project?** The generated COBOL module is self-contained, but the forms are drawn by Leptos, which is
+  Rust. (a) A **prebuilt Leptos player**, shipped with the IDE, that reads each form's description and draws it, and talks to the program module
+  through the host API: a Web build is then *emit the module, copy the player, write the page* — seconds, no Rust toolchain; the cost is that no
+  per-project Leptos code is possible. (b) A **per-project Leptos build**: the forms become Leptos components compiled with `trunk` — more
+  freedom, slow builds, a Rust toolchain on the developer's machine. And is the final artefact **one** `.wasm` (the COBOL linked into the Leptos
+  build) or **two** (player + program)? Recommended: (a), two modules. It bears on R6, on WASM-010 Q10 and on WASM-011 Q6.

@@ -111,7 +111,7 @@ middle clicks — and exposes the same capabilities through properties.
 - **Generated-code contract:** the control's events produce handlers in the generated COBOL like any control's; nothing new.
 - **Docs:** `docs/` untouched on 2.x.x; the control's reference lives in the System KB until the guide chapter is written at release.
 - **System KB:** **required** — all the tables named in §1 and the regenerated `chunked.data`; the freshness test is a gate.
-- **Interpreter/binary parity:** any runtime method (`Open`, `OpenIn`, `SetUrl`) reaches every host (WASM-002 adds the browser).
+- **Interpreter/binary parity:** any method (`Open`, `OpenIn`, `SetUrl`) that the interpreter implements for the hosts that run it must also be implemented by the code generator for the browser (WASM-010 R7, R17), which has no interpreter.
 - **Fix vs feature:** **feature** (`features-2x`).
 - **Safety:** R7 and R8 are the control's security model; the plan shall review them with the security specification proposed in WASM-INDEX.
 

@@ -107,7 +107,7 @@ backend programs that talk to the chosen identity provider and return a token th
 - **i18n:** yes — the control's default texts and the settings page, six languages. The text the end user of the developer's application sees is translatable by the developer.
 - **Generated-code contract:** the identity programs are generated artefacts (banner, regenerate on Build) and never hand-edited; COBOL they contain follows the extensions ruling and the call-comment ruling.
 - **System KB:** **required** — a new control, its properties, events and methods; regenerate `chunked.data`.
-- **Credentials:** the project's no-credentials-in-commits rule applies to the test fixtures and the example project; the examples' history of live keys in `.cfrm` files is why R6, R9 and AC6 exist.
+- **Credentials:** the project's no-credentials-in-commits rule applies to the test fixtures and the example project; the fact that a form has properties where a key can be typed (and that the project's notes record live keys having been found in demo forms before) is why R6, R9 and AC6 exist.
 - **Docs:** `docs/` untouched on 2.x.x.
 - **Fix vs feature:** **feature**.
 
