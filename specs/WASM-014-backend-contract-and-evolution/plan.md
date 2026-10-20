@@ -66,15 +66,28 @@ The builtins `WS-FAIL`, `WS-PROGRESS`, `WS-CANCELLED`, `WS-EMIT`, `WS-FILE-PATH`
 - **A cancel button during a pending call.** The interpreter thread is blocked in the call, so a form's own `onClick` cannot run; a host cancels through the handle `Interpreter::remote_cancel_handle()`. No host uses it yet.
 
 ## 6. Evidence
-Run on the final M4 tree, `CARGO_INCREMENTAL=0`, sweeps batched per crate (summary lines are the tests' own `test result:` totals):
+Run on the final M4 tree, `CARGO_INCREMENTAL=0`, sweeps batched per crate (counts are the tests' own `test result:` totals):
 
 | Suite | Result |
 |---|---|
 | `cobolt-wire` (all targets) | 23 passed, 0 failed |
 | `cobolt-runtime` (all targets, includes `test_backend_hooks`) | 1551 passed, 0 failed |
-| `cobolt-compiler` (all targets, heavy tests that are `#[ignore]` not included) | 197 passed, 0 failed |
-| `cobolt-server` `client_contract` (13 tests, each prints its measured figures: order line, upload bytes and forced-disconnect resume, repeat/idempotency, cancel, stream restart) | green when run on their own; run with `--nocapture` to read the figures |
-| `cobolt-cli` `backend_cli` (CLI calls a running backend) | green when run on its own |
-| `cobolt-compiler` `compiled_app_calls_backend` (a compiled application calls the backend; builds a binary, ~25 s) | green when run on its own; `#[ignore]` in the ordinary sweep, run with `--ignored` |
+| `cobolt-compiler` (all targets; the tests marked `#[ignore]` are not in the count) | 197 passed, 0 failed |
+| `cobolt-cli` (all targets, includes `backend_cli`) | 54 passed, 0 failed |
+| `cobolt-project-tools` | 93 passed, 0 failed |
+| `cobolt-semantic` | 157 passed, 0 failed |
+| `cobolt-parser` | 222 passed, 0 failed |
+| `cobolt-ast` | 73 passed, 0 failed |
+| `cobolt-server` (all test targets, default parallel mode, three consecutive runs: 9 + 13 + 10 + 4 + 11 + 15 = 62 passed, 0 failed each time) | 62 passed, 0 failed |
+| of which `client_contract` (13 tests: AC1/AC10 versions, AC3 deprecation, AC4 classes and limits, AC6 repeat and idempotency, AC7 ordering, AC8 progress/cancel and streams, AC9 files, token refresh) | 13 passed, 0 failed, 7 consecutive whole-file runs after the fix below (about 18 s each) |
+| `cobolt-compiler` `compiled_app_calls_backend` (a compiled application calls the backend; builds a binary, about 25 s) | passed on its own earlier in the milestone (before the upload fix below, which does not touch its path); `#[ignore]` in the ordinary sweep, run with `--ignored` |
 
-Not re-run after the last edit when this entry was written: the sweeps of `cobolt-cli`, `cobolt-project-tools`, `cobolt-semantic`, `cobolt-parser` and `cobolt-ast` (the chain was still running when the session was asked to commit). The report that accompanies the commit states what finished.
+Figures the contract tests print (`--nocapture`):
+- **AC7, order:** `["INDEP", "SLOW-A", "FAST-B"]` after 0.44 s - the program declared independent overtakes; the two dependent ones keep their order.
+- **AC9, upload:** 3,000,000 bytes in 64 pieces of at most 65,536-byte frames, with one forced disconnect, in 0.70 s (4.3 MB/s) (0.84-0.85 s, 3.5-3.6 MB/s in four earlier runs); the SHA-256 of what arrived matches.
+
+**A defect found while collecting this and fixed in the same milestone.** In 2 of the first 9 whole-file runs the AC9 upload test failed with `4001 "begin an upload first"`: the backend keeps an upload's state on the connection that began it, and a chunk (or the end frame) could be the first frame on the reconnected connection. The client treated that Validation answer as final. It now treats it like a lost connection - it begins again with the upload's id and the backend reports how much it holds (`upload_state_lost` in `client.rs`). The test was not changed.
+
+**A second finding, in the test harness.** With the rigs started in parallel, 10 of the 13 `client_contract` tests failed with "the TLS handshake took too long" (the client's 10 s budget, debug build, thirteen servers at once on a loaded machine); one after another they pass every time. `tests/support/mod.rs` now takes the rigs in turn (a per-process lock, released after the server stops; a test that starts two rigs on its own thread is let through). **The cause of the slow handshake under parallel load was not isolated** (a single `loopback` test once took 36 s on a loaded machine and did not repeat in 15 reruns; it may be the same thing). The product's own TLS timeouts are unchanged.
+
+Not run: Windows or Linux; a backend behind a real reverse proxy; a load test beyond the figures above.

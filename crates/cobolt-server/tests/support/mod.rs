@@ -188,6 +188,45 @@ fn rand_suffix() -> u64 {
 
 // ── a running server ──────────────────────────────────────────────────────────
 
+/// One rig at a time per test binary.
+///
+/// Measured, not assumed: started together, the thirteen rigs of `client_contract`
+/// (each its own TLS server, runtime and interpreter, in a debug build) overrun the
+/// client's 10 s connect budget - ten of them failed with "the TLS handshake took
+/// too long" - while the same tests one after another pass every time. The cause
+/// was not isolated; the rigs are therefore taken in turn. A test that starts two
+/// rigs on its own thread is let through (the lock is held per thread).
+static SERIAL: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    static HELD: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+pub struct Serial {
+    _guard: Option<std::sync::MutexGuard<'static, ()>>,
+}
+
+impl Serial {
+    fn take() -> Serial {
+        HELD.with(|held| {
+            if held.get() > 0 {
+                held.set(held.get() + 1);
+                Serial { _guard: None }
+            } else {
+                let guard = SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                held.set(1);
+                Serial { _guard: Some(guard) }
+            }
+        })
+    }
+}
+
+impl Drop for Serial {
+    fn drop(&mut self) {
+        HELD.with(|held| held.set(held.get().saturating_sub(1)));
+    }
+}
+
 pub struct Rig {
     pub server: ServerHandle,
     pub cert: TestCert,
@@ -196,6 +235,8 @@ pub struct Rig {
     pub sink: MemorySink,
     pub dir: std::path::PathBuf,
     iface: cobolt_wire::contract::InterfaceDescription,
+    /// Declared last: it is released after the server has shut down.
+    _serial: Serial,
 }
 
 impl Rig {
@@ -210,6 +251,7 @@ pub const ORIGIN: &str = "https://app.example.test";
 
 /// Start a TLS server with the backend in `dir`, trusting `issuer`.
 pub fn rig(dir: std::path::PathBuf, extra_toml: &str) -> Rig {
+    let serial = Serial::take();
     let cert = test_cert();
     let issuer = Arc::new(Issuer::new("https://idp.example.test/pool", "k1"));
     let jwks = StaticJwks::new(issuer.jwks());
@@ -238,7 +280,7 @@ jwks_uri = "https://idp.example.test/pool/.well-known/jwks.json"
     let iface = backend.interface.clone();
     let sink = MemorySink::new();
     let server = cobolt_server::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: Some(jwks.clone()) }).expect("start");
-    Rig { server, cert, issuer, jwks, sink, dir, iface }
+    Rig { server, cert, issuer, jwks, sink, dir, iface, _serial: serial }
 }
 
 // ── a raw client ──────────────────────────────────────────────────────────────

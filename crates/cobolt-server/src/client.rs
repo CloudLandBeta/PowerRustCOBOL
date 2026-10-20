@@ -192,6 +192,15 @@ fn closed(message: &str) -> CallError {
     CallError::transport(codes::CLOSED, message.to_string())
 }
 
+/// The backend keeps an upload's state on the connection that began it, so a
+/// frame that lands on a fresh connection (the old one was cut and the client
+/// reconnected before the frame went out) is answered "begin an upload first".
+/// That is a lost connection in effect: begin again with the upload's id and the
+/// backend says how much it already holds.
+fn upload_state_lost(e: &CallError) -> bool {
+    e.class == ErrorClass::Validation && e.code == codes::BAD_MESSAGE && e.message.contains("begin an upload first")
+}
+
 fn random_hex(bytes: usize) -> String {
     let mut b = vec![0u8; bytes];
     let _ = getrandom::fill(&mut b);
@@ -309,7 +318,7 @@ impl WsClient {
                 match ack {
                     Ok(Rpc::PutReady(r)) => offset = r.have,
                     Ok(other) => return Err(CallError::new(ErrorClass::Server, codes::INTERNAL, format!("unexpected answer to put-chunk: {other:?}"))),
-                    Err(e) if e.class == ErrorClass::Transport && attempts < 6 => {
+                    Err(e) if (e.class == ErrorClass::Transport || upload_state_lost(&e)) && attempts < 6 => {
                         std::thread::sleep(Duration::from_millis(200 * attempts as u64));
                         continue 'outer;
                     }
@@ -321,7 +330,7 @@ impl WsClient {
             match end {
                 Ok(Rpc::PutDone(d)) => return Ok(UploadResult { file: d.file, size: d.size }),
                 Ok(other) => return Err(CallError::new(ErrorClass::Server, codes::INTERNAL, format!("unexpected answer to put-end: {other:?}"))),
-                Err(e) if e.class == ErrorClass::Transport && attempts < 6 => {
+                Err(e) if (e.class == ErrorClass::Transport || upload_state_lost(&e)) && attempts < 6 => {
                     std::thread::sleep(Duration::from_millis(200 * attempts as u64));
                     continue 'outer;
                 }
