@@ -1,0 +1,410 @@
+{
+  "format": "prc-group-json-vectors",
+  "version": 1,
+  "about": "Golden vectors of the COBOL group <-> JSON mapping (WASM-005 R5, R5b, R6). See README.md in this folder for how to run them and ../mapping-rules.md for the rules each case pins. Written by hand from the rules, not generated from an implementation.",
+  "cases": [
+    {
+      "id": "alnum-basic",
+      "rules": ["G1", "S1", "S2", "R1", "R3", "J1"],
+      "title": "An alphanumeric member: trimmed on the way out, padded on the way in; every fault named and nothing written.",
+      "layout": "       01 REC.\n           05 NAME PIC X(8).\n",
+      "initial": [["REC.NAME", "ANNA"]],
+      "json": "{\"NAME\":\"ANNA\"}",
+      "reads": [
+        {"json": "{\"NAME\":\"Bo\"}", "changes": [["REC.NAME", "Bo"]]},
+        {"json": "{\"NAME\":\"12345678\"}", "changes": [["REC.NAME", "12345678"]]},
+        {"json": "{\"NAME\":\"\"}", "changes": [["REC.NAME", ""]]},
+        {"json": "{ \"NAME\" : \"spaced\" }", "changes": [["REC.NAME", "spaced"]]},
+        {"json": "{\"NAME\":\"tab\\there\"}", "changes": [["REC.NAME", "tab\there"]]},
+        {"json": "{}", "changes": []},
+        {"json": "{\"NAME\":\"123456789\"}", "error": "too-long", "path": "REC.NAME"},
+        {"json": "{\"NAME\":12}", "error": "wrong-type", "path": "REC.NAME"},
+        {"json": "{\"NAME\":null}", "error": "wrong-type", "path": "REC.NAME"},
+        {"json": "{\"NAME\":true}", "error": "wrong-type", "path": "REC.NAME"},
+        {"json": "{\"NAME\":[\"a\"]}", "error": "wrong-type", "path": "REC.NAME"},
+        {"json": "{\"NAME\":{}}", "error": "wrong-type", "path": "REC.NAME"},
+        {"json": "{\"NAMES\":\"x\"}", "error": "unknown-key", "path": "REC.NAMES"},
+        {"json": "{\"name\":\"x\"}", "error": "unknown-key", "path": "REC.name"},
+        {"json": "{\"NAME\":\"a\",\"NAME\":\"b\"}", "error": "duplicate-key", "path": "REC"},
+        {"json": "[]", "error": "wrong-type", "path": "REC"},
+        {"json": "\"x\"", "error": "wrong-type", "path": "REC"},
+        {"json": "null", "error": "wrong-type", "path": "REC"},
+        {"json": "{\"NAME\":\"ok\"} x", "error": "syntax", "path": "REC"},
+        {"json": "{\"NAME\":\"ok\",}", "error": "syntax", "path": "REC"},
+        {"json": "{'NAME':'ok'}", "error": "syntax", "path": "REC"},
+        {"json": "", "error": "syntax", "path": "REC"}
+      ]
+    },
+    {
+      "id": "numeric-display",
+      "rules": ["N1", "N2", "N4", "R3"],
+      "title": "Numeric members from decimal text with the PICTURE scale; exact, signed, never through a float.",
+      "layout": "       01 REC.\n           05 QTY   PIC 9(3).\n           05 PRICE PIC S9(5)V99.\n           05 RATE  PIC SV999.\n           05 BIG   PIC 9(18).\n",
+      "initial": [["REC.QTY", "7"], ["REC.PRICE", "-12.50"], ["REC.RATE", "0.050"], ["REC.BIG", "123456789012345678"]],
+      "json": "{\"QTY\":7,\"PRICE\":-12.50,\"RATE\":0.050,\"BIG\":123456789012345678}",
+      "reads": [
+        {"json": "{\"QTY\":999}", "changes": [["REC.QTY", "999"]]},
+        {"json": "{\"QTY\":0}", "changes": [["REC.QTY", "0"]]},
+        {"json": "{\"QTY\":1.0}", "changes": [["REC.QTY", "1"]]},
+        {"json": "{\"QTY\":1e2}", "changes": [["REC.QTY", "100"]]},
+        {"json": "{\"QTY\":1.5E1}", "changes": [["REC.QTY", "15"]]},
+        {"json": "{\"QTY\":-0}", "changes": [["REC.QTY", "0"]]},
+        {"json": "{\"QTY\":1000}", "error": "overflow", "path": "REC.QTY"},
+        {"json": "{\"QTY\":-1}", "error": "overflow", "path": "REC.QTY"},
+        {"json": "{\"QTY\":1.5}", "error": "overflow", "path": "REC.QTY"},
+        {"json": "{\"QTY\":1e999999}", "error": "overflow", "path": "REC.QTY"},
+        {"json": "{\"QTY\":\"7\"}", "error": "wrong-type", "path": "REC.QTY"},
+        {"json": "{\"QTY\":true}", "error": "wrong-type", "path": "REC.QTY"},
+        {"json": "{\"QTY\":01}", "error": "syntax", "path": "REC"},
+        {"json": "{\"QTY\":+1}", "error": "syntax", "path": "REC"},
+        {"json": "{\"QTY\":.5}", "error": "syntax", "path": "REC"},
+        {"json": "{\"QTY\":NaN}", "error": "syntax", "path": "REC"},
+        {"json": "{\"PRICE\":99999.99}", "changes": [["REC.PRICE", "99999.99"]]},
+        {"json": "{\"PRICE\":-99999.99}", "changes": [["REC.PRICE", "-99999.99"]]},
+        {"json": "{\"PRICE\":1.2300}", "changes": [["REC.PRICE", "1.23"]]},
+        {"json": "{\"PRICE\":-0.00}", "changes": [["REC.PRICE", "0.00"]]},
+        {"json": "{\"PRICE\":5}", "changes": [["REC.PRICE", "5.00"]]},
+        {"json": "{\"PRICE\":100000}", "error": "overflow", "path": "REC.PRICE"},
+        {"json": "{\"PRICE\":12.345}", "error": "overflow", "path": "REC.PRICE"},
+        {"json": "{\"PRICE\":-0.005}", "error": "overflow", "path": "REC.PRICE"},
+        {"json": "{\"RATE\":0.999}", "changes": [["REC.RATE", "0.999"]]},
+        {"json": "{\"RATE\":-0.001}", "changes": [["REC.RATE", "-0.001"]]},
+        {"json": "{\"RATE\":1}", "error": "overflow", "path": "REC.RATE"},
+        {"json": "{\"BIG\":9007199254740993}", "changes": [["REC.BIG", "9007199254740993"]]},
+        {"json": "{\"BIG\":999999999999999999}", "changes": [["REC.BIG", "999999999999999999"]]},
+        {"json": "{\"BIG\":1000000000000000000}", "error": "overflow", "path": "REC.BIG"}
+      ]
+    },
+    {
+      "id": "numeric-usage-and-sign-clauses",
+      "rules": ["N3", "N1"],
+      "title": "USAGE (COMP, COMP-3, COMP-5, PACKED-DECIMAL) and SIGN clauses change storage, never the wire: the number is its value, bounded by the PICTURE.",
+      "layout": "       01 REC.\n           05 A PIC S9(4) COMP.\n           05 B PIC S9(7)V99 COMP-3.\n           05 C PIC 9(9) COMP-5.\n           05 D PIC S9(5)V9 PACKED-DECIMAL.\n           05 E PIC S9(3) SIGN IS LEADING SEPARATE CHARACTER.\n           05 F PIC S9(3) COMP-4.\n",
+      "initial": [["REC.A", "-123"], ["REC.B", "1234567.89"], ["REC.C", "123456789"], ["REC.D", "1.5"], ["REC.E", "-5"], ["REC.F", "999"]],
+      "json": "{\"A\":-123,\"B\":1234567.89,\"C\":123456789,\"D\":1.5,\"E\":-5,\"F\":999}",
+      "reads": [
+        {"json": "{\"A\":9999}", "changes": [["REC.A", "9999"]]},
+        {"json": "{\"A\":32767}", "error": "overflow", "path": "REC.A"},
+        {"json": "{\"B\":-9999999.99}", "changes": [["REC.B", "-9999999.99"]]},
+        {"json": "{\"B\":10000000}", "error": "overflow", "path": "REC.B"},
+        {"json": "{\"C\":4294967295}", "error": "overflow", "path": "REC.C"},
+        {"json": "{\"D\":99999.9}", "changes": [["REC.D", "99999.9"]]},
+        {"json": "{\"D\":0.25}", "error": "overflow", "path": "REC.D"},
+        {"json": "{\"E\":-999}", "changes": [["REC.E", "-999"]]}
+      ]
+    },
+    {
+      "id": "numeric-wide",
+      "rules": ["N4"],
+      "title": "Numbers beyond 2^53 and up to 38 digits are written and read in full.",
+      "layout": "       01 REC.\n           05 W PIC S9(30)V9(8).\n           05 X PIC 9(38).\n",
+      "initial": [["REC.W", "123456789012345678901234567890.12345678"], ["REC.X", "99999999999999999999999999999999999999"]],
+      "json": "{\"W\":123456789012345678901234567890.12345678,\"X\":99999999999999999999999999999999999999}",
+      "reads": [
+        {"json": "{\"W\":-0.00000001}", "changes": [["REC.W", "-0.00000001"]]},
+        {"json": "{\"W\":123456789012345678901234567890.123456789}", "error": "overflow", "path": "REC.W"},
+        {"json": "{\"W\":1234567890123456789012345678901}", "error": "overflow", "path": "REC.W"},
+        {"json": "{\"X\":100000000000000000000000000000000000000}", "error": "overflow", "path": "REC.X"}
+      ]
+    },
+    {
+      "id": "float-usage-refused",
+      "rules": ["N3"],
+      "title": "COMP-1 / COMP-2 are binary floating point: no decimal scale, so no wire form.",
+      "layout": "       01 REC.\n           05 F PIC 9(4)V99 COMP-1.\n",
+      "layout_error": "COMP-1"
+    },
+    {
+      "id": "values-as-initial-state",
+      "rules": ["N1", "S1"],
+      "title": "VALUE clauses are the initial state: numbers keep their scale, text its characters.",
+      "layout": "       01 REC.\n           05 A PIC 9(3) VALUE 5.\n           05 B PIC X(4) VALUE \"xy\".\n           05 C PIC S9(3)V9 VALUE -1.5.\n           05 D PIC 9(3) VALUE ZEROS.\n           05 E PIC X(3) VALUE SPACES.\n",
+      "initial": [],
+      "json": "{\"A\":5,\"B\":\"xy\",\"C\":-1.5,\"D\":0,\"E\":\"\"}"
+    },
+    {
+      "id": "nested-groups",
+      "rules": ["G1", "R1"],
+      "title": "Groups nest as objects; members come out in declaration order and go in by name, in any order.",
+      "layout": "       01 ORD-REC.\n           05 ORD-NO PIC 9(6).\n           05 CUSTOMER.\n               10 CNAME PIC X(10).\n               10 ADDR.\n                   15 CITY PIC X(12).\n                   15 ZIP  PIC 9(5).\n           05 TOTAL PIC S9(7)V99.\n",
+      "initial": [["ORD-REC.ORD-NO", "42"], ["ORD-REC.CUSTOMER.CNAME", "Ana"], ["ORD-REC.CUSTOMER.ADDR.CITY", "Lisboa"], ["ORD-REC.CUSTOMER.ADDR.ZIP", "1100"], ["ORD-REC.TOTAL", "199.90"]],
+      "json": "{\"ORD-NO\":42,\"CUSTOMER\":{\"CNAME\":\"Ana\",\"ADDR\":{\"CITY\":\"Lisboa\",\"ZIP\":1100}},\"TOTAL\":199.90}",
+      "reads": [
+        {"json": "{\"CUSTOMER\":{\"ADDR\":{\"ZIP\":2000}}}", "changes": [["ORD-REC.CUSTOMER.ADDR.ZIP", "2000"]]},
+        {"json": "{\"TOTAL\":1,\"ORD-NO\":2}", "changes": [["ORD-REC.TOTAL", "1.00"], ["ORD-REC.ORD-NO", "2"]]},
+        {"json": "{\"CUSTOMER\":{}}", "changes": []},
+        {"json": "{\"CUSTOMER\":\"x\"}", "error": "wrong-type", "path": "ORD-REC.CUSTOMER"},
+        {"json": "{\"CUSTOMER\":[]}", "error": "wrong-type", "path": "ORD-REC.CUSTOMER"},
+        {"json": "{\"CUSTOMER\":{\"ZIP\":1}}", "error": "unknown-key", "path": "ORD-REC.CUSTOMER.ZIP"},
+        {"json": "{\"ORD-NO\":7,\"CUSTOMER\":{\"CNAME\":\"far too long a name\"}}", "error": "too-long", "path": "ORD-REC.CUSTOMER.CNAME"},
+        {"json": "{\"ORD-NO\":7,\"CUSTOMER\":{\"ADDR\":{\"ZIP\":123456}}}", "error": "overflow", "path": "ORD-REC.CUSTOMER.ADDR.ZIP"}
+      ]
+    },
+    {
+      "id": "filler-88-redefines",
+      "rules": ["G2", "R4", "R1"],
+      "title": "FILLER, 88-level condition-names and REDEFINES overlays are not members: they are never written, and a key naming one is unknown.",
+      "layout": "       01 REC.\n           05 TAG PIC X(2).\n               88 IS-AA VALUE \"AA\".\n           05 FILLER PIC X(3) VALUE \"ABC\".\n           05 AMT PIC 9(4).\n           05 RAW PIC X(4).\n           05 ALT REDEFINES RAW PIC 9(4).\n           05 FILLER PIC 9(2) VALUE 55.\n",
+      "initial": [["REC.TAG", "AA"], ["REC.AMT", "12"], ["REC.RAW", "abcd"]],
+      "json": "{\"TAG\":\"AA\",\"AMT\":12,\"RAW\":\"abcd\"}",
+      "reads": [
+        {"json": "{\"AMT\":5}", "changes": [["REC.AMT", "5"]]},
+        {"json": "{\"RAW\":\"wxyz\",\"TAG\":\"BB\"}", "changes": [["REC.RAW", "wxyz"], ["REC.TAG", "BB"]]},
+        {"json": "{\"ALT\":5}", "error": "unknown-key", "path": "REC.ALT"},
+        {"json": "{\"FILLER\":\"x\"}", "error": "unknown-key", "path": "REC.FILLER"},
+        {"json": "{\"IS-AA\":1}", "error": "unknown-key", "path": "REC.IS-AA"}
+      ]
+    },
+    {
+      "id": "duplicate-member-names",
+      "rules": ["G3"],
+      "title": "Two members of one group with one name cannot be a JSON object.",
+      "layout": "       01 REC.\n           05 A PIC X(2).\n           05 a PIC X(2).\n",
+      "layout_error": "share a name"
+    },
+    {
+      "id": "table-fixed",
+      "rules": ["T1", "R2", "R3"],
+      "title": "OCCURS n is an array of n; given short, the elements not given are unchanged; given long, an error.",
+      "layout": "       01 REC.\n           05 TAGS PIC X(4) OCCURS 3.\n",
+      "initial": [["REC.TAGS(1)", "a"], ["REC.TAGS(2)", "b"]],
+      "json": "{\"TAGS\":[\"a\",\"b\",\"\"]}",
+      "reads": [
+        {"json": "{\"TAGS\":[\"x\"]}", "changes": [["REC.TAGS(1)", "x"]]},
+        {"json": "{\"TAGS\":[]}", "changes": []},
+        {"json": "{\"TAGS\":[\"p\",\"q\",\"r\"]}", "changes": [["REC.TAGS(1)", "p"], ["REC.TAGS(2)", "q"], ["REC.TAGS(3)", "r"]]},
+        {"json": "{\"TAGS\":[\"a\",\"b\",\"c\",\"d\"]}", "error": "too-many-elements", "path": "REC.TAGS"},
+        {"json": "{\"TAGS\":\"x\"}", "error": "wrong-type", "path": "REC.TAGS"},
+        {"json": "{\"TAGS\":{}}", "error": "wrong-type", "path": "REC.TAGS"},
+        {"json": "{\"TAGS\":[\"a\",5]}", "error": "wrong-type", "path": "REC.TAGS(2)"},
+        {"json": "{\"TAGS\":[\"a\",\"toolong\"]}", "error": "too-long", "path": "REC.TAGS(2)"},
+        {"json": "{\"TAGS\":[\"changed\",\"x\"]}", "error": "too-long", "path": "REC.TAGS(1)"}
+      ]
+    },
+    {
+      "id": "table-of-groups-and-nested-tables",
+      "rules": ["T3", "T4", "R2"],
+      "title": "A table of groups is an array of objects; a table inside a table element is a nested array.",
+      "layout": "       01 INV.\n           05 LINE-ITEM OCCURS 2.\n               10 SKU PIC X(4).\n               10 QTY PIC 9(2).\n               10 CELLS PIC 9 OCCURS 2.\n",
+      "initial": [["INV.LINE-ITEM(1).SKU", "A1"], ["INV.LINE-ITEM(1).QTY", "3"], ["INV.LINE-ITEM(1).CELLS(1)", "1"], ["INV.LINE-ITEM(1).CELLS(2)", "2"], ["INV.LINE-ITEM(2).SKU", "B2"], ["INV.LINE-ITEM(2).QTY", "4"]],
+      "json": "{\"LINE-ITEM\":[{\"SKU\":\"A1\",\"QTY\":3,\"CELLS\":[1,2]},{\"SKU\":\"B2\",\"QTY\":4,\"CELLS\":[0,0]}]}",
+      "reads": [
+        {"json": "{\"LINE-ITEM\":[{\"QTY\":9},{\"CELLS\":[7]}]}", "changes": [["INV.LINE-ITEM(1).QTY", "9"], ["INV.LINE-ITEM(2).CELLS(1)", "7"]]},
+        {"json": "{\"LINE-ITEM\":[{\"CELLS\":[1,2,3]}]}", "error": "too-many-elements", "path": "INV.LINE-ITEM(1).CELLS"},
+        {"json": "{\"LINE-ITEM\":[{\"X\":1}]}", "error": "unknown-key", "path": "INV.LINE-ITEM(1).X"},
+        {"json": "{\"LINE-ITEM\":[{},{\"QTY\":100}]}", "error": "overflow", "path": "INV.LINE-ITEM(2).QTY"},
+        {"json": "{\"LINE-ITEM\":[1]}", "error": "wrong-type", "path": "INV.LINE-ITEM(1)"}
+      ]
+    },
+    {
+      "id": "odo-sibling",
+      "rules": ["T2", "R2"],
+      "title": "OCCURS min TO max DEPENDING ON: the array has the current count; reading an array sets the count; a count that disagrees, or lies outside the bounds, is an error.",
+      "layout": "       01 REC.\n           05 N PIC 99.\n           05 ITEM PIC 9(3) OCCURS 1 TO 4 DEPENDING ON N.\n",
+      "initial": [["REC.N", "3"], ["REC.ITEM(1)", "10"], ["REC.ITEM(2)", "20"], ["REC.ITEM(3)", "30"], ["REC.ITEM(4)", "40"]],
+      "json": "{\"N\":3,\"ITEM\":[10,20,30]}",
+      "blank": [["REC.ITEM(4)", "40"]],
+      "reads": [
+        {"json": "{\"ITEM\":[1,2]}", "changes": [["REC.N", "2"], ["REC.ITEM(1)", "1"], ["REC.ITEM(2)", "2"]]},
+        {"json": "{\"N\":2,\"ITEM\":[1,2]}", "changes": [["REC.N", "2"], ["REC.ITEM(1)", "1"], ["REC.ITEM(2)", "2"]]},
+        {"json": "{\"ITEM\":[1,2],\"N\":2}", "changes": [["REC.N", "2"], ["REC.ITEM(1)", "1"], ["REC.ITEM(2)", "2"]]},
+        {"json": "{\"ITEM\":[1,2,3,4],\"N\":4}", "changes": [["REC.N", "4"], ["REC.ITEM(1)", "1"], ["REC.ITEM(2)", "2"], ["REC.ITEM(3)", "3"], ["REC.ITEM(4)", "4"]]},
+        {"json": "{\"N\":4}", "changes": [["REC.N", "4"]]},
+        {"json": "{\"N\":3,\"ITEM\":[1,2]}", "error": "odo-mismatch", "path": "REC.ITEM"},
+        {"json": "{\"ITEM\":[]}", "error": "too-few-elements", "path": "REC.ITEM"},
+        {"json": "{\"ITEM\":[1,2,3,4,5]}", "error": "too-many-elements", "path": "REC.ITEM"},
+        {"json": "{\"N\":5}", "error": "odo-out-of-range", "path": "REC.ITEM"},
+        {"json": "{\"N\":0}", "error": "odo-out-of-range", "path": "REC.ITEM"}
+      ]
+    },
+    {
+      "id": "odo-count-out-of-range-on-encode",
+      "rules": ["T2"],
+      "title": "A group whose count lies outside its bounds cannot be sent.",
+      "layout": "       01 REC.\n           05 N PIC 99.\n           05 ITEM PIC 9(3) OCCURS 1 TO 4 DEPENDING ON N.\n",
+      "initial": [["REC.N", "7"]],
+      "encode_error": "odo-out-of-range",
+      "encode_error_path": "REC.ITEM"
+    },
+    {
+      "id": "odo-minimum-zero",
+      "rules": ["T2"],
+      "title": "OCCURS 0 TO n: an empty array is a count of zero.",
+      "layout": "       01 REC.\n           05 N PIC 9.\n           05 ITEM PIC X(2) OCCURS 0 TO 3 DEPENDING ON N.\n",
+      "initial": [],
+      "json": "{\"N\":0,\"ITEM\":[]}",
+      "reads": [
+        {"json": "{\"ITEM\":[\"a\",\"b\"]}", "changes": [["REC.N", "2"], ["REC.ITEM(1)", "a"], ["REC.ITEM(2)", "b"]]},
+        {"json": "{\"N\":0,\"ITEM\":[]}", "changes": []}
+      ]
+    },
+    {
+      "id": "odo-count-in-another-group",
+      "rules": ["T2"],
+      "title": "The DEPENDING ON item may sit in an earlier group of the same argument.",
+      "layout": "       01 REC.\n           05 HDR.\n               10 CNT PIC 9.\n           05 BODY.\n               10 ROW PIC X(2) OCCURS 1 TO 3 DEPENDING ON CNT.\n",
+      "initial": [["REC.HDR.CNT", "2"], ["REC.BODY.ROW(1)", "a"], ["REC.BODY.ROW(2)", "b"], ["REC.BODY.ROW(3)", "c"]],
+      "json": "{\"HDR\":{\"CNT\":2},\"BODY\":{\"ROW\":[\"a\",\"b\"]}}",
+      "blank": [["REC.BODY.ROW(3)", "c"]],
+      "reads": [
+        {"json": "{\"BODY\":{\"ROW\":[\"z\"]}}", "changes": [["REC.HDR.CNT", "1"], ["REC.BODY.ROW(1)", "z"]]},
+        {"json": "{\"HDR\":{\"CNT\":3}}", "changes": [["REC.HDR.CNT", "3"]]},
+        {"json": "{\"HDR\":{\"CNT\":4}}", "error": "odo-out-of-range", "path": "REC.BODY.ROW"}
+      ]
+    },
+    {
+      "id": "odo-count-in-the-same-table-element",
+      "rules": ["T2", "T3"],
+      "title": "Each element of a table may carry its own count.",
+      "layout": "       01 REC.\n           05 ROW OCCURS 2.\n               10 K PIC 9.\n               10 CELL PIC 9 OCCURS 1 TO 3 DEPENDING ON K.\n",
+      "initial": [["REC.ROW(1).K", "2"], ["REC.ROW(1).CELL(1)", "4"], ["REC.ROW(1).CELL(2)", "5"], ["REC.ROW(2).K", "1"], ["REC.ROW(2).CELL(1)", "9"]],
+      "json": "{\"ROW\":[{\"K\":2,\"CELL\":[4,5]},{\"K\":1,\"CELL\":[9]}]}",
+      "reads": [
+        {"json": "{\"ROW\":[{},{\"CELL\":[1,2,3]}]}", "changes": [["REC.ROW(2).K", "3"], ["REC.ROW(2).CELL(1)", "1"], ["REC.ROW(2).CELL(2)", "2"], ["REC.ROW(2).CELL(3)", "3"]]},
+        {"json": "{\"ROW\":[{\"CELL\":[1,2,3,4]}]}", "error": "too-many-elements", "path": "REC.ROW(1).CELL"}
+      ]
+    },
+    {
+      "id": "odo-object-missing",
+      "rules": ["T2"],
+      "title": "A DEPENDING ON item that is not inside the argument group is refused before anything is sent.",
+      "layout": "       01 REC.\n           05 ITEM PIC 9 OCCURS 1 TO 3 DEPENDING ON MISSING.\n",
+      "layout_error": "DEPENDING ON"
+    },
+    {
+      "id": "elementary-argument",
+      "rules": ["E1"],
+      "title": "An elementary argument is its bare scalar.",
+      "layout": "       77 AMOUNT PIC S9(5)V99.\n",
+      "initial": [["AMOUNT", "12.50"]],
+      "json": "12.50",
+      "reads": [
+        {"json": "99999.99", "changes": [["AMOUNT", "99999.99"]]},
+        {"json": "\"x\"", "error": "wrong-type", "path": "AMOUNT"},
+        {"json": "{\"AMOUNT\":1}", "error": "wrong-type", "path": "AMOUNT"},
+        {"json": "1000000", "error": "overflow", "path": "AMOUNT"}
+      ]
+    },
+    {
+      "id": "elementary-text-argument",
+      "rules": ["E1", "S1"],
+      "title": "An elementary text argument is a bare string.",
+      "layout": "       01 GREETING PIC X(5).\n",
+      "initial": [["GREETING", "hello"]],
+      "json": "\"hello\"",
+      "reads": [
+        {"json": "\"hi\"", "changes": [["GREETING", "hi"]]},
+        {"json": "\"hello!\"", "error": "too-long", "path": "GREETING"}
+      ]
+    },
+    {
+      "id": "justified-right",
+      "rules": ["S2"],
+      "title": "JUSTIFIED RIGHT pads on the left; the leading spaces are part of the value and are kept.",
+      "layout": "       01 REC.\n           05 R PIC X(5) JUSTIFIED RIGHT.\n",
+      "initial": [["REC.R", "ab"]],
+      "json": "{\"R\":\"   ab\"}",
+      "reads": [
+        {"json": "{\"R\":\"xy\"}", "changes": [["REC.R", "   xy"]]},
+        {"json": "{\"R\":\"xyzxyzx\"}", "error": "too-long", "path": "REC.R"}
+      ]
+    },
+    {
+      "id": "string-escapes",
+      "rules": ["S3", "J1"],
+      "title": "Escaping: quote, backslash and C0 controls are escaped; slash and non-ASCII are written as they are; every standard escape is read.",
+      "layout": "       01 REC.\n           05 S PIC X(24).\n",
+      "initial": [["REC.S", "a\"b\\c/d\te\u0001f"]],
+      "json": "{\"S\":\"a\\\"b\\\\c/d\\te\\u0001f\"}",
+      "reads": [
+        {"json": "{\"S\":\"a\\/b\\n\\r\\f\\b\"}", "changes": [["REC.S", "a/b\n\r\f\b"]]},
+        {"json": "{\"S\":\"\\u00e7\"}", "changes": [["REC.S", "\u00e7"]]},
+        {"json": "{\"S\":\"\\ud83d\\ude00\"}", "changes": [["REC.S", "\ud83d\ude00"]]},
+        {"json": "{\"S\":\"\\ud83d\"}", "error": "syntax", "path": "REC"},
+        {"json": "{\"S\":\"\\udc00\"}", "error": "syntax", "path": "REC"},
+        {"json": "{\"S\":\"\\q\"}", "error": "syntax", "path": "REC"},
+        {"json": "{\"S\":\"a\tb\"}", "error": "syntax", "path": "REC"}
+      ]
+    },
+    {
+      "id": "text-is-counted-in-bytes",
+      "rules": ["S2", "S5"],
+      "title": "A PIC X(n) holds n bytes: its JSON string must be at most n bytes of UTF-8. A multi-byte character costs its bytes.",
+      "layout": "       01 REC.\n           05 T PIC X(6).\n",
+      "initial": [["REC.T", "a\u00e7\u00e3o"]],
+      "json": "{\"T\":\"a\u00e7\u00e3o\"}",
+      "reads": [
+        {"json": "{\"T\":\"\u00e7\u00e7\u00e7\"}", "changes": [["REC.T", "\u00e7\u00e7\u00e7"]]},
+        {"json": "{\"T\":\"\u00e7\u00e7\u00e7a\"}", "error": "too-long", "path": "REC.T"},
+        {"json": "{\"T\":\"\ud83d\ude00ab\"}", "changes": [["REC.T", "\ud83d\ude00ab"]]},
+        {"json": "{\"T\":\"\ud83d\ude00abc\"}", "error": "too-long", "path": "REC.T"}
+      ]
+    },
+    {
+      "id": "edited-pictures",
+      "rules": ["S6"],
+      "title": "An edited picture travels as its edited image, a string; it is not re-edited on the way in.",
+      "layout": "       01 REC.\n           05 E PIC Z,ZZ9.99.\n           05 D PIC 99/99/9999.\n",
+      "initial": [["REC.E", "1,234.50"], ["REC.D", "31/12/2026"]],
+      "json": "{\"E\":\"1,234.50\",\"D\":\"31/12/2026\"}",
+      "reads": [
+        {"json": "{\"E\":\"   0.00\"}", "changes": [["REC.E", "   0.00"]]},
+        {"json": "{\"E\":\"too wide!\"}", "error": "too-long", "path": "REC.E"},
+        {"json": "{\"E\":5}", "error": "wrong-type", "path": "REC.E"},
+        {"json": "{\"D\":\"01/01/2027\"}", "changes": [["REC.D", "01/01/2027"]]}
+      ]
+    },
+    {
+      "id": "national-and-utf8",
+      "rules": ["S5"],
+      "title": "PIC N counts UTF-16 code units, PIC U counts characters.",
+      "layout": "       01 REC.\n           05 NN PIC N(3).\n           05 UU PIC U(3).\n",
+      "initial": [["REC.NN", "ab"], ["REC.UU", "\u00e9a"]],
+      "json": "{\"NN\":\"ab\",\"UU\":\"\u00e9a\"}",
+      "reads": [
+        {"json": "{\"NN\":\"\ud83d\ude00a\"}", "changes": [["REC.NN", "\ud83d\ude00a"]]},
+        {"json": "{\"NN\":\"\ud83d\ude00ab\"}", "error": "too-long", "path": "REC.NN"},
+        {"json": "{\"NN\":\"abcd\"}", "error": "too-long", "path": "REC.NN"},
+        {"json": "{\"UU\":\"\ud83d\ude00ab\"}", "changes": [["REC.UU", "\ud83d\ude00ab"]]},
+        {"json": "{\"UU\":\"abcd\"}", "error": "too-long", "path": "REC.UU"}
+      ]
+    },
+    {
+      "id": "reference-group",
+      "rules": ["G1", "G2", "T1", "T2", "T4", "N1", "N3", "S1", "R4"],
+      "title": "The reference group of AC2: nested groups, OCCURS and DEPENDING ON, signed and decimal fields, FILLER, an 88-level, COMP and COMP-3 items and a REDEFINES.",
+      "layout": "       01 CUSTOMER-REC.\n           05 CUST-ID    PIC 9(8) COMP.\n           05 CUST-NAME  PIC X(20).\n           05 FILLER     PIC X(2).\n           05 CUST-STATUS PIC X.\n               88 ACTIVE VALUE \"A\".\n           05 BALANCE    PIC S9(9)V99 COMP-3.\n           05 CUST-KEY   PIC X(8).\n           05 CUST-NUM REDEFINES CUST-KEY PIC 9(8).\n           05 LIMITS.\n               10 CREDIT-LIMIT PIC 9(7)V99.\n               10 DEBIT-LIMIT  PIC S9(5).\n           05 ORDER-COUNT PIC 99.\n           05 ORDERS OCCURS 0 TO 3 DEPENDING ON ORDER-COUNT.\n               10 ORDER-NO PIC 9(6).\n               10 ORDER-AMT PIC S9(7)V99 COMP-3.\n               10 LINE-QTY PIC 9(3) OCCURS 2.\n           05 NOTES PIC X(10) OCCURS 2.\n",
+      "initial": [["CUSTOMER-REC.CUST-ID", "42"], ["CUSTOMER-REC.CUST-NAME", "Maria da Silva"], ["CUSTOMER-REC.CUST-STATUS", "A"], ["CUSTOMER-REC.BALANCE", "-1500.75"], ["CUSTOMER-REC.CUST-KEY", "K0001"], ["CUSTOMER-REC.LIMITS.CREDIT-LIMIT", "5000.00"], ["CUSTOMER-REC.LIMITS.DEBIT-LIMIT", "-200"], ["CUSTOMER-REC.ORDER-COUNT", "2"], ["CUSTOMER-REC.ORDERS(1).ORDER-NO", "1001"], ["CUSTOMER-REC.ORDERS(1).ORDER-AMT", "99.90"], ["CUSTOMER-REC.ORDERS(1).LINE-QTY(1)", "2"], ["CUSTOMER-REC.ORDERS(1).LINE-QTY(2)", "5"], ["CUSTOMER-REC.ORDERS(2).ORDER-NO", "1002"], ["CUSTOMER-REC.ORDERS(2).ORDER-AMT", "0.05"], ["CUSTOMER-REC.NOTES(1)", "first"]],
+      "json": "{\"CUST-ID\":42,\"CUST-NAME\":\"Maria da Silva\",\"CUST-STATUS\":\"A\",\"BALANCE\":-1500.75,\"CUST-KEY\":\"K0001\",\"LIMITS\":{\"CREDIT-LIMIT\":5000.00,\"DEBIT-LIMIT\":-200},\"ORDER-COUNT\":2,\"ORDERS\":[{\"ORDER-NO\":1001,\"ORDER-AMT\":99.90,\"LINE-QTY\":[2,5]},{\"ORDER-NO\":1002,\"ORDER-AMT\":0.05,\"LINE-QTY\":[0,0]}],\"NOTES\":[\"first\",\"\"]}",
+      "reads": [
+        {"json": "{\"BALANCE\":0.01,\"ORDERS\":[{\"ORDER-NO\":7}]}", "changes": [["CUSTOMER-REC.BALANCE", "0.01"], ["CUSTOMER-REC.ORDER-COUNT", "1"], ["CUSTOMER-REC.ORDERS(1).ORDER-NO", "7"]]},
+        {"json": "{\"CUST-NUM\":5}", "error": "unknown-key", "path": "CUSTOMER-REC.CUST-NUM"},
+        {"json": "{\"ACTIVE\":true}", "error": "unknown-key", "path": "CUSTOMER-REC.ACTIVE"},
+        {"json": "{\"ORDERS\":[{},{},{},{}]}", "error": "too-many-elements", "path": "CUSTOMER-REC.ORDERS"},
+        {"json": "{\"ORDER-COUNT\":2,\"ORDERS\":[{}]}", "error": "odo-mismatch", "path": "CUSTOMER-REC.ORDERS"},
+        {"json": "{\"CUST-ID\":123456789}", "error": "overflow", "path": "CUSTOMER-REC.CUST-ID"},
+        {"json": "{\"LIMITS\":{\"DEBIT-LIMIT\":-99999},\"NOTES\":[\"a\",\"b\"]}", "changes": [["CUSTOMER-REC.LIMITS.DEBIT-LIMIT", "-99999"], ["CUSTOMER-REC.NOTES(1)", "a"], ["CUSTOMER-REC.NOTES(2)", "b"]]},
+        {"json": "{\"LIMITS\":{\"DEBIT-LIMIT\":-99999},\"NOTES\":[\"a\",\"much too long a note\"]}", "error": "too-long", "path": "CUSTOMER-REC.NOTES(2)"}
+      ]
+    },
+    {
+      "id": "text-limits-of-json",
+      "rules": ["J1"],
+      "title": "The text is strict RFC 8259: nothing is guessed, nothing is forgiven.",
+      "layout": "       01 REC.\n           05 A PIC X(4).\n",
+      "initial": [],
+      "json": "{\"A\":\"\"}",
+      "reads": [
+        {"json": "{\"A\":\"x\"}\n", "changes": [["REC.A", "x"]]},
+        {"json": " \t\r\n{\"A\":\"x\"}", "changes": [["REC.A", "x"]]},
+        {"json": "{\"A\":\"x\"}{}", "error": "syntax", "path": "REC"},
+        {"json": "{\"A\":\"x\"", "error": "syntax", "path": "REC"},
+        {"json": "{\"A\"\"x\"}", "error": "syntax", "path": "REC"},
+        {"json": "{A:\"x\"}", "error": "syntax", "path": "REC"},
+        {"json": "{\"A\":\"x\"}//c", "error": "syntax", "path": "REC"},
+        {"json": "{\"A\":Infinity}", "error": "syntax", "path": "REC"},
+        {"json": "{\"A\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}", "error": "syntax", "path": "REC"}
+      ]
+    }
+  ]
+}
