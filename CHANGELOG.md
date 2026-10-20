@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.25] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.24.)*
+
+### Added: the resource list of the WebAssembly series (`specs/WASM-LISTA-DE-RECURSOS.md`)
+
+A reading of the whole series, with every requirement counted against the specs: 18 specs holding 300 requirements (checked per spec with grep), the 17 proposed specs (WASM-019 to WASM-035), the ABI v1 contract (152 items), the plan (85 items), the progress ledger (86 items) and the parity ledger (10 divergences). It is a working document: it lists what the specs plan, the state the ledger records, and the operator decisions still pending. It changes no code.
+
+Version 2.0.25. `README.md` and `docs/` are untouched on this line.
+
 ## [PowerRustCOBOL 2.0.24] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.23. The player agent's seven commits, taken in order as cherry-picks: `3d59c8b0`, `21f84d13`, `4c65989e`, `8ec7e932`, `d09bb41a`, `065eb3c1`, `9860e9cf` on `worktree-agent-ae5ab6056533b0f2f`.)*
