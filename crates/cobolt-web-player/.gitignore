@@ -1,0 +1,4 @@
+# Build output of the player: the cargo target directory of the wasm32 build and
+# the packaged player (player.js, player_bg.wasm) the build_player example writes.
+target/
+target-player/

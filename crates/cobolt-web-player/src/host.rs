@@ -422,6 +422,31 @@ impl Host {
         true
     }
 
+    /// The user changed a property (typed in a box, ticked a check box, picked an item): store it
+    /// without echoing it back to the DOM, then raise the observer events the property has — the
+    /// same `onChange`/`onTextChanged`/… the desktop host raises for a user edit — for the handlers
+    /// that are bound.
+    pub fn user_change(&mut self, inst: u32, ctl: usize, prop: &str, value: &str) {
+        let events: Vec<&'static str> = {
+            let Some(tree) = self.trees.get_mut(&inst) else { return };
+            if ctl >= tree.ctls.len() {
+                return;
+            }
+            let changed = tree.get(ctl, prop) != value;
+            tree.set_from_ui(ctl, prop, value);
+            if !changed {
+                return;
+            }
+            match tree.ctls[ctl].control_type() {
+                Some(t) => t.observer_events_for(prop).into_iter().filter(|e| tree.ctls[ctl].has_handler(e)).collect(),
+                None => Vec::new(),
+            }
+        };
+        for e in events {
+            self.dom_event(inst, ctl, e, Vec::new());
+        }
+    }
+
     fn enqueue(&mut self, inst: u32, ctrl: u32, event: u32, args: Vec<String>) {
         if self.stopped {
             return;

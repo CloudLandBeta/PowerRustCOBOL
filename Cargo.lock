@@ -2406,6 +2406,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-web-bundle"
+version = "0.2.0"
+dependencies = [
+ "cobolt-forms",
+ "cobolt-wasm-abi",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tungstenite",
+ "wasm-encoder",
+]
+
+[[package]]
 name = "codepage"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

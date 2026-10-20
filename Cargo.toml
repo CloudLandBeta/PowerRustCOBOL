@@ -36,6 +36,7 @@ members = [
     "crates/cobolt-web-preview", # WASM-008 — the helper process holding the system web view of the web Preview
     "crates/cobolt-bench",   # performance + allocation baseline harness
     "crates/cobolt-wasm-abi",  # WASM-ABI-v1 — the contract between the program module, the player and the host page (2.x.x)
+    "crates/cobolt-web-bundle", # the Web bundle assembler: host page, loader, headers, CSP, SRI, dev server (2.x.x)
 ]
 # The prebuilt browser player is its own Cargo workspace (wasm-bindgen pinned to the installed CLI,
 # a nightly confined to its build, its own lock file): see crates/cobolt-web-player/Cargo.toml.

@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors */
+
+/* The host page's own styling (WASM-002 R10/R11): where the application sits and what the page
+   shows before the application is there. The application's look is inside its shadow root. */
+
+html, body { margin: 0; padding: 0; }
+
+/* Window-filling mode: the application is the page, on the dynamic viewport of a phone too. */
+body.pr-window #pr-app,
+#pr-app.pr-window {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Embedded mode: the element decides the size; the application fills it and re-lays out when it changes. */
+#pr-app.pr-embedded {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  contain: layout paint;
+}
+
+/* Before the application: a progress bar and a line of text, in the host's own fonts. */
+#pr-app { color: CanvasText; background: Canvas; font: 14px/1.4 system-ui, sans-serif; }

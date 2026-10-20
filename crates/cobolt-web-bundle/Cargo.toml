@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-web-bundle"
+description = "The Web bundle assembler (WASM-002): host page, loader, manifest, CSP and isolation headers, integrity hashes, and a static dev server"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["scan"] }
+# The form model: a bundle's form descriptions are the .cfrm with the program code taken out
+# (WASM-016 R4), read and written by the model's own loader/serialiser so that nothing is re-implemented.
+cobolt-forms = { path = "../cobolt-forms", default-features = false }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+sha2         = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+# A crafted module for the "asks for an import ABI v1 does not have" test.
+wasm-encoder = "0.244"
+# The mock backend of the tests: a WebSocket server in a few lines. Already in the lock file.
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["scan", "fixture"] }
