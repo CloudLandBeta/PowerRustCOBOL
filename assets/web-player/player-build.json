@@ -1,0 +1,135 @@
+{
+  "files": [
+    {
+      "bytes": 15548,
+      "path": "parts/canvas/canvas.js",
+      "sha256": "ee7dfc2810bad1670725dfb8af77646cc0fb84e40b7a8b423f1f7b46553b422e"
+    },
+    {
+      "bytes": 469419,
+      "path": "parts/canvas/canvas_bg.wasm",
+      "sha256": "1af150017c452df06bbfd5a2d1d7cb7f2b854f94f21a2a7db25cd8196d34e958"
+    },
+    {
+      "bytes": 7985,
+      "path": "parts/mermaid/mermaid.js",
+      "sha256": "2585e75ede88c4a08edb85882d76f07972c94362415cad19fb64745caca9f26d"
+    },
+    {
+      "bytes": 1906933,
+      "path": "parts/mermaid/mermaid_bg.wasm",
+      "sha256": "723c62fef007c03490fae68f3e076a8ebb48873e2eb5b4401c72e13bd9f0f682"
+    },
+    {
+      "bytes": 6785,
+      "path": "parts/pdf/pdf.js",
+      "sha256": "0acbcc4dbaa3dea42c3bc8e9f4228aa9110f792e8d77349f3f578b03aa42e7cf"
+    },
+    {
+      "bytes": 219273,
+      "path": "parts/pdf/pdf_bg.wasm",
+      "sha256": "a5c0ef6c8697194a2a36b1c35e3df8585b785339bbb3e3d951260bd4503cc18f"
+    },
+    {
+      "bytes": 72056,
+      "path": "plain/player.js",
+      "sha256": "956bfbc5066505c517fad551ffef86edfaa22a01bae65f3bcede481fec3cf8fb"
+    },
+    {
+      "bytes": 2222253,
+      "path": "plain/player_bg.wasm",
+      "sha256": "88436bde8e3c6bee7b6f3bf526478cae194f154eb2f3e2e94fd74726b61c4cd0"
+    },
+    {
+      "bytes": 78159,
+      "path": "threaded/player.js",
+      "sha256": "85eb259ec1f00e5b84f994d0b6290768a3115c505e12c7a60d5f6fd9a1140c7d"
+    },
+    {
+      "bytes": 2187394,
+      "path": "threaded/player_bg.wasm",
+      "sha256": "61e3af419b4524dd1f8dfed04ea7f6b9fa12cb00978ea343a976163bb61921ef"
+    },
+    {
+      "bytes": 4556,
+      "path": "threaded/snippets/wasm-bindgen-rayon-38edf6e439f6d70d/src/workerHelpers.js",
+      "sha256": "e4f72ebb57379bd9440897cfa829ba89f5cd81f0fa55984b36937aa69b1881b2"
+    }
+  ],
+  "measurements": [
+    {
+      "after_bindgen_bytes": 2434371,
+      "after_wasm_opt_bytes": 2222253,
+      "cargo_output_bytes": 3573499,
+      "glue_js_bytes": 72056,
+      "gzip_bytes": 772899,
+      "opt_level": "z",
+      "variant": "plain"
+    },
+    {
+      "after_bindgen_bytes": 2414374,
+      "after_wasm_opt_bytes": 2187394,
+      "cargo_output_bytes": 3577684,
+      "glue_js_bytes": 78159,
+      "gzip_bytes": 773318,
+      "opt_level": "z",
+      "variant": "threaded"
+    }
+  ],
+  "parts": [
+    {
+      "after_bindgen_bytes": 2070844,
+      "after_wasm_opt_bytes": 1906933,
+      "cargo_output_bytes": 2225905,
+      "glue_js_bytes": 7985,
+      "gzip_bytes": 700017,
+      "name": "mermaid",
+      "opt_level": "z"
+    },
+    {
+      "after_bindgen_bytes": 518890,
+      "after_wasm_opt_bytes": 469419,
+      "cargo_output_bytes": 576626,
+      "glue_js_bytes": 15548,
+      "gzip_bytes": 180008,
+      "name": "canvas",
+      "opt_level": "z"
+    },
+    {
+      "after_bindgen_bytes": 241682,
+      "after_wasm_opt_bytes": 219273,
+      "cargo_output_bytes": 273673,
+      "glue_js_bytes": 6785,
+      "gzip_bytes": 101928,
+      "name": "pdf",
+      "opt_level": "z"
+    }
+  ],
+  "profile": {
+    "codegen_units": 1,
+    "lto": true,
+    "opt_level": "z",
+    "panic": "abort",
+    "strip": true,
+    "wasm_opt": "-Oz"
+  },
+  "source_hash": "b13172873787f8540f469358ded508f57444ed4ff838289bf8dd91ec4cef8567",
+  "tools": {
+    "nightly": "nightly-2026-10-08",
+    "rustc_nightly": "rustc 1.101.0-nightly (1d81eb4ad 2026-10-07)",
+    "rustc_stable": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "wasm_bindgen": "wasm-bindgen 0.2.129",
+    "wasm_opt": "wasm-opt version 133",
+    "wasm_pack": "not used (WASM-017 R17)"
+  },
+  "variants": [
+    {
+      "dir": "plain",
+      "name": "plain"
+    },
+    {
+      "dir": "threaded",
+      "name": "threaded"
+    }
+  ]
+}

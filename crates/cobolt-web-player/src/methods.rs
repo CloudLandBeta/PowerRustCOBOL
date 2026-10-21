@@ -46,9 +46,6 @@ impl std::fmt::Display for MethodError {
     }
 }
 
-fn done() -> Result<Outcome, MethodError> {
-    Ok(Outcome::default())
-}
 
 fn answer(v: impl Into<String>) -> Result<Outcome, MethodError> {
     Ok(Outcome { value: Some(v.into()), events: Vec::new() })
@@ -119,6 +116,11 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
     if let Some(prop) = m.strip_prefix("SET-") {
         put(tree, ctl, prop, &arg(0), &mut out);
         return Ok(out);
+    }
+
+    // Canvas 2D (WASM-018): the drawing vocabulary is the graphics crate's, run by the Canvas part.
+    if crate::kinds::player_kind(&tree.ctls[ctl]) == Some(crate::kinds::PlayerKind::Canvas2D) && !matches!(m.as_str(), "SHOW" | "HIDE" | "ENABLE" | "DISABLE" | "SETFOCUS" | "FOCUS") {
+        return canvas_method(tree, ctl, method, &m, args);
     }
 
     match m.as_str() {
@@ -498,9 +500,12 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         "FIND" | "FINDNEXT" | "FIND-NEXT" | "FINDPREVIOUS" | "FIND-PREVIOUS" | "FINDCLOSE" | "FIND-CLOSE"
             if is_class(&tree.ctls[ctl], ControlType::Viewer) =>
         {
-            // The find bar's state is the control's properties, as on the desktop; the page highlights
-            // nothing in this version (see the plan: Find is state only).
+            // The find bar's state is the control's properties, as on the desktop; the page counts the matches,
+            // highlights them and reports the current one back (`dom/find.rs`). Next and Previous need the
+            // count, which only the page has, so they are commands to it.
             match m.as_str() {
+                "FINDNEXT" | "FIND-NEXT" => tree.command(ctl, "find-next", Vec::new()),
+                "FINDPREVIOUS" | "FIND-PREVIOUS" => tree.command(ctl, "find-prev", Vec::new()),
                 "FIND" => {
                     if !args.is_empty() {
                         put(tree, ctl, "View1SearchText", &arg(0), &mut out);
@@ -538,6 +543,37 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
             )))
         }
     }
+    Ok(out)
+}
+
+/// A method of a Canvas2D. A drawing method is **recorded for the page**, which runs it in the order it was
+/// called when the Canvas part has loaded (a form with a canvas loads it at once; the part is a module of its
+/// own) and paints the picture when `Present` runs. A method that *reads* the picture back (`GetPixel`,
+/// `MeasureText`, `IsPointInPath`, `ToImage`, `Capture`, ...) needs an answer now, which the browser cannot give
+/// while the part may still be loading, so it is refused with that reason rather than answered wrongly.
+fn canvas_method(tree: &mut FormTree, ctl: usize, method: &str, m: &str, args: &[&str]) -> Result<Outcome, MethodError> {
+    let mut out = Outcome::default();
+    match m {
+        "GETWIDTH" => return answer(tree.get(ctl, "Width").trim().parse::<f64>().map(|w| (w.max(1.0) as u32).to_string()).unwrap_or_else(|_| "300".into())),
+        "GETHEIGHT" => return answer(tree.get(ctl, "Height").trim().parse::<f64>().map(|h| (h.max(1.0) as u32).to_string()).unwrap_or_else(|_| "150".into())),
+        "GETPIXELRATIO" => return answer("1"),
+        _ if m.starts_with("GET") || m.starts_with("IS") || m.starts_with("MEASURE") || matches!(m, "PENDINGCOMMANDS" | "HOSTCALLS" | "TAKEPRESENTED" | "TOIMAGE" | "CAPTURE") => {
+            return Err(MethodError::Unsupported(format!(
+                "{method} reads the picture back, which needs an answer at once; in the browser the drawing is done by a module loaded on demand, so only drawing methods are available on a Canvas2D for now"
+            )))
+        }
+        "RESIZE" => {
+            let (w, h) = (args.first().map(|s| s.trim()).unwrap_or(""), args.get(1).map(|s| s.trim()).unwrap_or(""));
+            if !w.is_empty() && !h.is_empty() {
+                put(tree, ctl, "Width", w, &mut out);
+                put(tree, ctl, "Height", h, &mut out);
+            }
+        }
+        _ => {}
+    }
+    let mut a = vec![method.trim().to_owned()];
+    a.extend(args.iter().map(|s| (*s).to_owned()));
+    tree.command(ctl, "canvas-call", a);
     Ok(out)
 }
 
@@ -609,6 +645,36 @@ mod tests {
 
     fn val(o: Result<Outcome, MethodError>) -> String {
         o.unwrap().value.unwrap_or_default()
+    }
+
+    #[test]
+    fn a_canvas2d_records_drawing_methods_for_the_page_in_order_and_refuses_read_backs_with_the_reason() {
+        let (mut t, c) = crate::tree::testing::tree_with("Canvas2D", "CNV-1", &[("Width", "200"), ("Height", "100")]);
+        call(&mut t, c, "SetFillColor", &["#FF0000"]).unwrap();
+        call(&mut t, c, "FillRect", &["0", "0", "10", "5"]).unwrap();
+        call(&mut t, c, "Present", &[]).unwrap();
+        let sent: Vec<Vec<String>> = t
+            .take_changes()
+            .into_iter()
+            .filter_map(|ch| match ch {
+                crate::tree::Change::Command { name, args, .. } if name == "canvas-call" => Some(args),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sent, vec![vec!["SetFillColor", "#FF0000"], vec!["FillRect", "0", "0", "10", "5"], vec!["Present"]], "each call, in the order made, with its arguments");
+        assert_eq!(val(call(&mut t, c, "GetWidth", &[])), "200");
+        assert_eq!(val(call(&mut t, c, "GetHeight", &[])), "100");
+        for m in ["GetPixel", "MeasureText", "IsPointInPath", "ToImage", "Capture", "HostCalls"] {
+            let e = call(&mut t, c, m, &["1", "1"]).unwrap_err();
+            assert!(matches!(&e, MethodError::Unsupported(r) if r.contains("reads the picture back")), "{m}: {e:?}");
+        }
+        // A resize changes the element's size as well as asking the part to resize its picture.
+        call(&mut t, c, "Resize", &["320", "240"]).unwrap();
+        assert_eq!((t.get(c, "Width"), t.get(c, "Height")), ("320".to_owned(), "240".to_owned()));
+        assert!(t.take_changes().iter().any(|ch| matches!(ch, crate::tree::Change::Command { name, args, .. } if name == "canvas-call" && args[0] == "Resize")));
+        // The universal ones stay the form's own.
+        call(&mut t, c, "Hide", &[]).unwrap();
+        assert_eq!(t.get(c, "Visible"), "false");
     }
 
     #[test]

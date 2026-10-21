@@ -17,7 +17,7 @@
 
 use cobolt_forms::model::ControlType;
 
-use super::{Prop, Slot, VNode, ViewCtx};
+use super::{Slot, VNode, ViewCtx};
 use crate::css::class_names;
 use crate::kinds::{player_kind, PlayerKind};
 use crate::tree::{Ctl, Kind};
@@ -109,6 +109,41 @@ pub fn display_items(cx: &ViewCtx, i: usize, items: &mut Vec<String>) {
 
 /// The element of the control `i`, children excluded (a container's children are mounted into its slots).
 pub fn view(cx: &ViewCtx, i: usize) -> VNode {
+    with_tab_order(cx, i, element_of(cx, i))
+}
+
+/// The first element of `n` (itself included) the browser can focus: a native one, or one that carries a `tabindex`.
+fn first_focusable_mut(n: &mut VNode) -> Option<&mut VNode> {
+    let native = matches!(n.tag, "button" | "select" | "textarea" | "a") || (n.tag == "input" && n.attr_of("type") != Some("hidden"));
+    let out_of_order = n.attr_of("tabindex") == Some("-1") || n.attrs.iter().any(|(k, _)| k == "hidden");
+    if !out_of_order && (native || n.attr_of("tabindex").is_some()) {
+        return Some(n);
+    }
+    n.children.iter_mut().find_map(first_focusable_mut)
+}
+
+/// The form's **tab order** is the browser's sequential focus order (WASM-004 R10): a control the
+/// desktop numbers `TabOrder = n` gets `tabindex="n"` on the element that takes the focus, so Tab
+/// walks the controls in the order the designer set — which the document order does not say once the
+/// developer has moved a control in the order. A control with no number (0) keeps the document order, a
+/// disabled or hidden one keeps `-1`, and only the types that are tab stops take part.
+fn with_tab_order(cx: &ViewCtx, i: usize, mut n: VNode) -> VNode {
+    let c = cx.tree.ctl(i);
+    let Some(t) = c.control_type() else { return n };
+    if !t.is_tab_stop() {
+        return n;
+    }
+    let order = parse_f64(&cx.tree.get(i, "TabOrder")).map(|v| v as i64).unwrap_or(0);
+    if order > 0 {
+        if let Some(focus) = first_focusable_mut(&mut n) {
+            focus.attrs.retain(|(k, _)| k != "tabindex");
+            focus.attrs.push(("tabindex".into(), order.to_string()));
+        }
+    }
+    n
+}
+
+fn element_of(cx: &ViewCtx, i: usize) -> VNode {
     let c = cx.tree.ctl(i);
     let Kind::Control(t) = &c.kind else { return VNode::new("div").key("root") };
     if let Some(k) = player_kind(c) {
@@ -206,9 +241,17 @@ pub fn text_box(cx: &ViewCtx, i: usize) -> VNode {
     let multiline = flag(cx, i, "Multiline");
     let password = !cx.tree.get(i, "PasswordCharacter").is_empty();
     let max = num(cx, i, "MaximumLength", 0.0) as i64;
+    // An explicit PICTURE (WASM-004): its width bounds the box, a number gets the keypad a number needs, and
+    // a numeric-edited one shows the edited form at rest and the plain value to edit while it has the focus.
+    let pic = cx.tree.picture_of(i);
+    let raw = cx.tree.get(i, "Text");
+    let shown = match &pic {
+        Some(p) => p.display(&raw, cx.ui.focused == Some(i), cx.tree.decimal_comma, cx.tree.currency),
+        None => raw,
+    };
     let mut input = VNode::new(if multiline { "textarea" } else { "input" })
         .key("input")
-        .prop_str("value", cx.tree.get(i, "Text"))
+        .prop_str("value", shown)
         .prop_bool("readOnly", flag(cx, i, "ReadOnly"))
         .prop_bool("disabled", !c.enabled())
         .attr("spellcheck", "false")
@@ -222,8 +265,17 @@ pub fn text_box(cx: &ViewCtx, i: usize) -> VNode {
     } else if !flag(cx, i, "WordWrap") {
         input = input.attr("wrap", "off");
     }
-    if max > 0 {
-        input = input.prop_num("maxLength", max as f64);
+    match &pic {
+        Some(p) => {
+            // The raw text is at most `max_raw_len` long; the edited display at rest may be longer (grouping
+            // and currency), which the browser's maxlength does not stop (it only limits typing).
+            input = input.prop_num("maxLength", p.max_raw_len().max(1) as f64);
+            if let cobolt_forms::picture::PicShape::Number { frac_digits, signed, .. } = p.shape() {
+                input = input.attr("inputmode", if *frac_digits > 0 || *signed { "decimal" } else { "numeric" });
+            }
+        }
+        None if max > 0 => input = input.prop_num("maxLength", max as f64),
+        None => {}
     }
     root(cx, i, "div").child(input)
 }
@@ -627,8 +679,7 @@ pub fn file_drop_zone(cx: &ViewCtx, i: usize) -> VNode {
 pub fn weblink(cx: &ViewCtx, i: usize) -> VNode {
     let c = cx.tree.ctl(i);
     let props = crate::weblink::LinkProps::read(cx.tree, i);
-    let policy = crate::weblink::Policy::default();
-    let plain = crate::weblink::plan(&props, crate::weblink::Click::default(), &policy);
+    let plain = crate::weblink::plan(&props, crate::weblink::Click::default(), &cx.tree.policy);
     let mut n = root(cx, i, "a").class("pr-weblink");
     n = n.on("click").on("auxclick");
     match plain {
@@ -681,14 +732,11 @@ pub fn canvas(cx: &ViewCtx, i: usize, k: PlayerKind) -> VNode {
     )
 }
 
-#[allow(dead_code)]
-fn _unused(_: &Prop) {}
-
 #[cfg(test)]
 mod tests {
-    use super::super::{Empty, VNode};
+    use super::super::{Empty, Prop, VNode};
     use super::*;
-    use crate::tree::testing::tree;
+    use crate::tree::testing::{tree, tree_with};
 
     fn view_of(name: &str, props: &[(&str, &str)]) -> VNode {
         let mut t = tree();
@@ -796,7 +844,7 @@ mod tests {
 
     #[test]
     fn a_picture_with_an_unknown_path_is_not_loaded_from_anywhere() {
-        let mut t = tree();
+        let t = tree();
         let i = t.by_name("BTN-GO").unwrap();
         let _ = i;
         let e = Empty::default();
@@ -813,6 +861,68 @@ mod tests {
         assert_eq!(dom_event_for("onDoubleClick"), Some("dblclick"));
         assert_eq!(dom_event_for("onEnterPressed"), Some("keydown"));
         assert_eq!(dom_event_for("onChange"), None, "behavioural, not generic");
+    }
+
+    #[test]
+    fn the_tab_order_is_the_browsers_focus_order_on_the_element_that_takes_the_focus() {
+        // A button, a check box (the focus is on its input), a text box and a label: only tab stops are numbered.
+        let (t, _) = tree_with("Button", "B-1", &[("TabOrder", "3")]);
+        let e = Empty::default();
+        let i = t.by_name("B-1").unwrap();
+        let n = view(&e.cx(&t), i);
+        assert_eq!(n.attr_of("tabindex"), Some("3"), "{}", n.describe());
+
+        let (t, i) = tree_with("CheckBox", "C-1", &[("TabOrder", "7")]);
+        let n = view(&e.cx(&t), i);
+        let input = n.find(&|x| x.tag == "input").unwrap();
+        assert_eq!(input.attr_of("tabindex"), Some("7"), "the check box's own input takes the number: {}", n.describe());
+        assert!(n.attr_of("tabindex").is_none(), "not its label");
+
+        let (t, i) = tree_with("TextBox", "T-1", &[("TabOrder", "2")]);
+        assert_eq!(view(&e.cx(&t), i).find(&|x| x.tag == "input" || x.tag == "textarea").unwrap().attr_of("tabindex"), Some("2"));
+
+        // No number, a label, a disabled control: nothing is forced.
+        let (t, i) = tree_with("Button", "B-2", &[]);
+        assert!(view(&e.cx(&t), i).attr_of("tabindex").is_none(), "no TabOrder: the document order");
+        let (t, i) = tree_with("Label", "L-1", &[("TabOrder", "1")]);
+        assert!(view(&e.cx(&t), i).attr_of("tabindex").is_none(), "a Label holds a place in the order but never the focus");
+        let (t, i) = tree_with("ListBox", "S-1", &[("TabOrder", "5"), ("Enabled", "0")]);
+        let n = view(&e.cx(&t), i);
+        assert_eq!(n.attr_of("tabindex"), Some("-1"), "a disabled control stays out of the order: {}", n.describe());
+    }
+
+    #[test]
+    fn a_picture_bounds_the_box_chooses_the_keypad_and_shows_the_edited_form_only_at_rest() {
+        let e = Empty::default();
+        let input = |t: &crate::tree::FormTree, i: usize, focused: bool| {
+            let mut e2 = Empty::default();
+            if focused {
+                e2.ui.focused = Some(i);
+            }
+            view(&e2.cx(t), i).find(&|x| x.tag == "input").cloned().unwrap()
+        };
+        // A digits-only picture: its width is the limit and the numeric keypad is offered.
+        let (t, i) = tree_with("TextBox", "N-1", &[("Picture", "9(4)"), ("Text", "42")]);
+        let n = input(&t, i, false);
+        assert_eq!(n.prop_of("maxLength"), Some(&Prop::Num(4.0)));
+        assert_eq!(n.attr_of("inputmode"), Some("numeric"));
+        // A numeric-edited one: decimal keypad, the edited form at rest, the plain value while focused.
+        let (t, i) = tree_with("TextBox", "N-2", &[("Picture", "ZZ,ZZ9.99"), ("Text", "1234.5")]);
+        let rest = input(&t, i, false);
+        let editing = input(&t, i, true);
+        assert_eq!(rest.attr_of("inputmode"), Some("decimal"));
+        assert_eq!(rest.prop_of("value"), Some(&Prop::Str(" 1,234.50".into())), "the edited form at rest: {}", rest.describe());
+        assert_eq!(editing.prop_of("value"), Some(&Prop::Str("1234.5".into())), "the plain value to edit");
+        assert_eq!(rest.prop_of("maxLength"), Some(&Prop::Num(8.0)), "digits, the separator: what can be typed");
+        // `DECIMAL-POINT IS COMMA` swaps the roles: the picture is then written with `.` for grouping and `,` for the point.
+        let (mut t, i) = tree_with("TextBox", "N-3", &[("Picture", "ZZ.ZZ9,99"), ("Text", "1234,5")]);
+        t.decimal_comma = true;
+        assert_eq!(input(&t, i, false).prop_of("value"), Some(&Prop::Str(" 1.234,50".into())));
+        // No explicit picture: the box is what it was (MaximumLength, no keypad hint).
+        let (t, i) = tree_with("TextBox", "N-4", &[("MaximumLength", "10"), ("Text", "hello")]);
+        let n = input(&t, i, false);
+        assert_eq!((n.prop_of("maxLength"), n.attr_of("inputmode"), n.prop_of("value")), (Some(&Prop::Num(10.0)), None, Some(&Prop::Str("hello".into()))));
+        let _ = e;
     }
 
     #[test]

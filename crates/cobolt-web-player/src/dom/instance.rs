@@ -46,10 +46,8 @@ impl Drop for ResizeObs {
 }
 
 pub(crate) struct InstanceView {
-    pub inst: u32,
     pub form: String,
     pub mode: OpenMode,
-    pub handle: Option<String>,
     pub root: Element,
     pub surface_el: Element,
     /// The title bar and close button of a modal or panel instance.
@@ -62,8 +60,9 @@ pub(crate) struct InstanceView {
     pub css: Vec<String>,
     pub bp: Option<String>,
     pub width: f64,
-    pub observer: Option<ResizeObs>,
-    pub keys: Vec<Listener>,
+    /// Held for what dropping it does: the size observer stops and the form's key listener is removed with the instance.
+    pub _observer: Option<ResizeObs>,
+    pub _keys: Vec<Listener>,
     pub drag: Option<(Listener, Listener)>,
 }
 
@@ -100,7 +99,7 @@ fn mount_one(ctls: &[Option<CtlView>], mount: &[(usize, Slot)], surface: &Elemen
 impl Shared {
     // ── opening ─────────────────────────────────────────────────────────────
 
-    pub(super) fn open_instance(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, mode: OpenMode, handle: Option<String>) {
+    pub(super) fn open_instance(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, mode: OpenMode) {
         struct Built {
             vnodes: Vec<Option<VNode>>,
             mount: Vec<(usize, Slot)>,
@@ -208,10 +207,8 @@ impl Shared {
         };
 
         let mut iv = InstanceView {
-            inst,
             form: built.form.clone(),
             mode,
-            handle,
             root: root.clone(),
             surface_el,
             frame: None,
@@ -222,8 +219,8 @@ impl Shared {
             css: built.css,
             bp: None,
             width: 0.0,
-            observer,
-            keys,
+            _observer: observer,
+            _keys: keys,
             drag: None,
         };
 
@@ -279,6 +276,7 @@ impl Shared {
         self.sync_timers(inner, inst);
         self.ensure_viewer_docs(inner, inst);
         self.ensure_mermaid(inner, inst);
+        self.sync_find(inner, inst);
         if let (OpenMode::Root, Some(menu)) = (mode, built.side_menu) {
             // The rail starts as the user left it (spec 049 R9), else as the control is designed; the
             // address may name a form to show (a deep link).
@@ -295,6 +293,8 @@ impl Shared {
     }
 
     pub(super) fn close_instance(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32) {
+        self.clear_find(inst);
+        self.clear_canvas(inst);
         let (iv, shell_changed) = {
             let Ok(mut st) = self.state.try_borrow_mut() else { return };
             st.timers.retain(|(i, _), _| *i != inst);
@@ -335,6 +335,7 @@ impl Shared {
         let mut deferred: Vec<(usize, String, Vec<String>)> = Vec::new();
         for (ctl, name, args) in std::mem::take(&mut ch.commands) {
             match name.as_str() {
+                "find-next" | "find-prev" => self.find_step(inner, inst, ctl, name == "find-next"),
                 "dismiss-all" => {
                     let ids: Vec<u32> = self.state.try_borrow().map(|st| st.toasts.iter().filter(|t| t.inst == inst && t.ctl == ctl).map(|t| t.id).collect()).unwrap_or_default();
                     for id in ids {
@@ -461,10 +462,12 @@ impl Shared {
         self.sync_timers(inner, inst);
         self.ensure_viewer_docs(inner, inst);
         self.ensure_mermaid(inner, inst);
+        self.sync_find(inner, inst);
     }
 
     fn run_command(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, name: &str, args: &[String]) {
         match name {
+            "canvas-call" => self.canvas_call(inner, inst, ctl, args),
             "focus" | "setfocus" => {
                 if let Some(el) = self.control_element(inst, ctl) {
                     let inner_focusable = el.query_selector("input,textarea,select,button,[tabindex]").ok().flatten();
@@ -644,17 +647,28 @@ impl Shared {
         if inner.cfg.standalone {
             return;
         }
-        let name = {
+        let (name, at_root, params) = {
             let Ok(st) = self.state.try_borrow() else { return };
-            st.chain.last().and_then(|c| st.instances.get(&c.inst)).map(|iv| iv.form.clone())
+            let top = st.chain.last();
+            let name = top.and_then(|c| st.instances.get(&c.inst)).map(|iv| iv.form.clone());
+            let params = top.and_then(|c| inner.host.try_borrow().ok().and_then(|h| h.trees.get(&c.inst).map(|t| t.params.clone()))).unwrap_or_default();
+            (name, st.chain.len() <= 1, params)
         };
         let Some(name) = name else { return };
-        let hash = shell::Route::new(&name).to_hash();
+        // The main form is the page's own address (no route): Back from the first route lands on it, and
+        // coming home from another form returns to it.
+        let hash = if at_root { String::new() } else { shell::Route { form: name.clone(), params }.to_hash() };
         if let Some(w) = web_sys::window() {
             let current = w.location().hash().unwrap_or_default();
-            if current != hash {
+            let same = current == hash || (hash.is_empty() && shell::Route::parse(&current).is_none());
+            if !same {
                 if let Ok(h) = w.history() {
-                    let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&hash));
+                    let url = if hash.is_empty() {
+                        format!("{}{}", w.location().pathname().unwrap_or_default(), w.location().search().unwrap_or_default())
+                    } else {
+                        hash.clone()
+                    };
+                    let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&url));
                 }
             }
         }

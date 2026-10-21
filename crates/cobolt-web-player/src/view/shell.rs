@@ -17,7 +17,7 @@ use cobolt_forms::menu::{MenuItem, MenuItemType};
 use cobolt_forms::snackbar::{parse_buttons, SnackButton, SnackCategory};
 use cobolt_forms::toolbar::{ToolbarAction, ToolbarDef};
 
-use super::controls::{catalogue_icon, lines_nonempty, root};
+use super::controls::{catalogue_icon, root};
 use super::{VNode, ViewCtx};
 use crate::tree::FormTree;
 use crate::value::{fmt_number, parse_f64, truthy};
@@ -502,11 +502,6 @@ pub fn count_text(n: usize) -> String {
     } else {
         fmt_number(n as f64)
     }
-}
-
-#[allow(dead_code)]
-fn _lines(s: &str) -> Vec<String> {
-    lines_nonempty(s)
 }
 
 #[cfg(test)]

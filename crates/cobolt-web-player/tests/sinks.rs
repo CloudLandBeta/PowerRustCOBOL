@@ -116,7 +116,9 @@ fn every_node_the_page_gets_is_made_with_the_dom_builder_and_the_viewer_never_ta
     // Viewer's view module has no function that takes a string of markup into the page.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let h = std::fs::read_to_string(root.join("src/dom/h.rs")).unwrap();
-    assert!(h.contains("create_element") && h.contains("set_text_content"), "the builder uses createElement and textContent");
+    assert!(h.contains("create_element") && h.contains("create_text_node"), "the builder uses createElement and text nodes");
+    let apply = std::fs::read_to_string(root.join("src/dom/apply.rs")).unwrap();
+    assert!(apply.contains("set_text_content") && apply.contains("set_attribute"), "the patch sets text through textContent and attributes through setAttribute");
     let viewer = std::fs::read_to_string(root.join("src/view/viewer.rs")).unwrap();
     let code: String = without_tests(&viewer).lines().filter(|l| is_code(l)).collect::<Vec<_>>().join("\n");
     assert!(code.contains("VNode::new(\"p\")") && code.contains("RawHtml"), "the Viewer builds nodes and keeps raw HTML as text");

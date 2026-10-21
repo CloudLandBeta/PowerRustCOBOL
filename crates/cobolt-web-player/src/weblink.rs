@@ -274,7 +274,7 @@ pub fn method(tree: &mut FormTree, ctl: usize, m: &str, args: &[&str]) -> Result
         "SETURL" => {
             let url = arg(0);
             let allow_data = !tree.get(ctl, "Download").trim().is_empty();
-            if let Err(r) = check(&url, allow_data, &Policy::default()) {
+            if let Err(r) = check(&url, allow_data, &tree.policy.clone()) {
                 return Err(MethodError::Refused(format!("SetUrl refused: {}", r.message)));
             }
             out.events.extend(tree.set(ctl, "Url", &url));

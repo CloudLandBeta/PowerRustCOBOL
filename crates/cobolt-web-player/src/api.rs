@@ -68,6 +68,8 @@ pub struct PlayerConfig {
     pub max_queue: Option<usize>,
     /// The form to open first; empty = the main form.
     pub start_form: String,
+    /// The parameters the page's address carried for `start_form` (`pr-param-<name>=<value>`), as pairs.
+    pub start_params: Vec<(String, String)>,
     /// The Maps tile address template (`{z}`, `{x}`, `{y}`); empty = the OpenStreetMap server.
     pub tile_url: String,
     /// Origins images may be loaded from besides the application's own files.
@@ -109,6 +111,8 @@ struct JsLink {
     perform: Function,
     /// `part(name, fn, arg)`: call a function of a part the loader loads on first use (optional).
     part: Option<Function>,
+    /// `partModule(name)`: the part's module itself, for a part whose exports are objects (optional).
+    part_module: Option<Function>,
 }
 
 impl JsLink {
@@ -279,14 +283,13 @@ impl Socket for WsSocket {
 /// An implementation may read and change the host (it is never borrowed when these are called) and
 /// reports user input with [`Inner::push`].
 pub(crate) trait Surface {
-    fn opened(&self, inner: &Rc<Inner>, inst: u32, mode: crate::host::OpenMode, handle: Option<String>);
+    fn opened(&self, inner: &Rc<Inner>, inst: u32, mode: crate::host::OpenMode);
     fn closed(&self, inner: &Rc<Inner>, inst: u32);
     fn render(&self, inner: &Rc<Inner>);
     fn effect(&self, inner: &Rc<Inner>, e: &Effect);
     fn net_state(&self, inner: &Rc<Inner>, s: LinkState);
     /// The stylesheets, the asset table or the locale changed: redo what depends on them.
     fn styles_changed(&self, inner: &Rc<Inner>);
-    fn fatal(&self, message: &str);
     fn unmount(&self);
     /// A change of page state the user's act asked for (an open menu, a sorted grid, a window).
     fn ui_op(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, op: UiOp);
@@ -320,7 +323,6 @@ pub(crate) struct Inner {
     pub(crate) errors: RefCell<Vec<crate::host::RunError>>,
     dead: Cell<bool>,
     weak: RefCell<std::rc::Weak<Inner>>,
-    pub(crate) policy: crate::weblink::Policy,
     /// The session's token epoch the connection was last given (see `Host::auth_epoch`).
     auth_epoch_seen: Cell<u64>,
     /// Wakes the Authentication machine shortly before its token expires.
@@ -329,6 +331,8 @@ pub(crate) struct Inner {
     pub(crate) captcha: RefCell<crate::dom::captcha::Pending>,
     /// The authorisation code the hosted flow came back with, until a control takes it.
     hosted_return: RefCell<Option<(String, String)>>,
+    /// The channels to the windows this one opened and to the one that opened it (WASM-011 R11).
+    pub(crate) superlink: RefCell<crate::superlink::Links>,
 }
 
 impl Inner {
@@ -472,9 +476,26 @@ impl Inner {
     /// Call `func` of the part `part` (a module of its own the loader fetches the first time it is asked
     /// for) with one text, and answer its text (WASM-016 R13). An error is the part's own message.
     pub(crate) async fn call_part(&self, part: &str, func: &str, arg: &str) -> Result<String, String> {
+        self.call_part_with(part, func, &arg.into()).await
+    }
+
+    /// The module of the part `part` (loaded on first use): for a part whose exports are objects, not text.
+    pub(crate) async fn part_module(&self, part: &str) -> Result<JsValue, String> {
+        let link = self.link.borrow().clone().ok_or_else(|| "the player is not attached to a loader".to_owned())?;
+        let f = link.part_module.as_ref().ok_or_else(|| "this page cannot load the player's parts".to_owned())?;
+        let pending = f.call1(&link.this, &part.into()).map_err(|e| js_message(&e))?;
+        JsFuture::from(Promise::resolve(&pending)).await.map_err(|e| js_message(&e))
+    }
+
+    /// The same, with the argument a file's bytes (the PDF part reads a document's bytes).
+    pub(crate) async fn call_part_bytes(&self, part: &str, func: &str, bytes: &[u8]) -> Result<String, String> {
+        self.call_part_with(part, func, &js_sys::Uint8Array::from(bytes).into()).await
+    }
+
+    async fn call_part_with(&self, part: &str, func: &str, arg: &JsValue) -> Result<String, String> {
         let link = self.link.borrow().clone().ok_or_else(|| "the player is not attached to a loader".to_owned())?;
         let f = link.part.as_ref().ok_or_else(|| "this page cannot load the player's parts".to_owned())?;
-        let pending = f.call3(&link.this, &part.into(), &func.into(), &arg.into()).map_err(|e| js_message(&e))?;
+        let pending = f.call3(&link.this, &part.into(), &func.into(), arg).map_err(|e| js_message(&e))?;
         let answer = JsFuture::from(Promise::resolve(&pending)).await.map_err(|e| js_message(&e))?;
         answer.as_string().ok_or_else(|| format!("the {part} part answered no text"))
     }
@@ -594,16 +615,21 @@ impl Inner {
                     web_sys::console::error_1(&r.describe().into());
                     self.errors.borrow_mut().push(r.clone());
                 }
-                Effect::Opened { inst, mode, handle, .. } => {
+                Effect::Opened { inst, mode, .. } => {
                     if let Some(sf) = self.surface.borrow().as_ref() {
-                        sf.opened(self, *inst, *mode, handle.clone());
+                        sf.opened(self, *inst, *mode);
                     }
                     continue;
                 }
                 Effect::Closed { inst } => {
+                    self.super_closed(*inst);
                     if let Some(sf) = self.surface.borrow().as_ref() {
                         sf.closed(self, *inst);
                     }
+                    continue;
+                }
+                Effect::SuperSet { .. } | Effect::SuperCall { .. } => {
+                    self.super_to_opener(&e);
                     continue;
                 }
                 Effect::AuthCall { id, call } => {
@@ -665,6 +691,7 @@ impl Inner {
         if let Some(sf) = self.surface.borrow().as_ref() {
             sf.render(self);
         }
+        self.super_publish();
     }
 }
 
@@ -752,7 +779,7 @@ impl Player {
             &cfg.recaptcha_site_key,
         );
         let hosted_return = (!cfg.hosted_code.is_empty()).then(|| (cfg.hosted_code.clone(), cfg.hosted_state.clone()));
-        let policy = crate::weblink::Policy { extra_schemes: cfg.weblink_schemes.clone() };
+        host.policy = crate::weblink::Policy { extra_schemes: cfg.weblink_schemes.clone() };
         let inner = Rc::new(Inner {
             styles: RefCell::new(Styles { locale: cfg.locale.clone(), ..Styles::default() }),
             host: RefCell::new(host),
@@ -768,11 +795,11 @@ impl Player {
             errors: RefCell::new(Vec::new()),
             dead: Cell::new(false),
             weak: RefCell::new(std::rc::Weak::new()),
-            policy,
             auth_epoch_seen: Cell::new(0),
             auth_timer: RefCell::new(None),
             captcha: RefCell::new(Default::default()),
             hosted_return: RefCell::new(hosted_return),
+            superlink: RefCell::new(Default::default()),
         });
         *inner.weak.borrow_mut() = Rc::downgrade(&inner);
         if !inner.cfg.backend_origins.is_empty() {
@@ -808,7 +835,8 @@ impl Player {
             .and_then(|f| f.dyn_into::<Function>().ok())
             .ok_or_else(|| JsError::new("the link has no perform() function"))?;
         let part = Reflect::get(&link, &"part".into()).ok().and_then(|f| f.dyn_into::<Function>().ok());
-        *self.inner.link.borrow_mut() = Some(Rc::new(JsLink { this: link, perform, part }));
+        let part_module = Reflect::get(&link, &"partModule".into()).ok().and_then(|f| f.dyn_into::<Function>().ok());
+        *self.inner.link.borrow_mut() = Some(Rc::new(JsLink { this: link, perform, part, part_module }));
         Ok(())
     }
 
@@ -823,6 +851,14 @@ impl Player {
         Ok(())
     }
 
+    /// This window was opened by another (`pr-super=token` in its address): join the channel and wait, at most
+    /// `timeout_ms`, for the opener's state, so that the first handler already reads it (WASM-011 R11).
+    /// Answers whether the opener replied; when it did not, `super::` fails here with `ON EXCEPTION`.
+    /// Call it before `start()`.
+    pub async fn attach_opener(&self, token: String, timeout_ms: u32) -> bool {
+        self.inner.super_attach(&token, timeout_ms).await
+    }
+
     /// Open the first form (the main form, or `start_form` of the configuration) and run.
     pub fn start(&self) -> Result<(), JsError> {
         let missing = self.inner.host.borrow().missing_forms();
@@ -833,7 +869,7 @@ impl Player {
             let mut h = self.inner.host.borrow_mut();
             let sf = self.inner.cfg.start_form.trim();
             match h.manifest.form_by_name(sf).map(|f| f.id as usize) {
-                Some(id) if !sf.is_empty() => h.start_with(id),
+                Some(id) if !sf.is_empty() => h.start_with(id, self.inner.cfg.start_params.clone()),
                 _ => h.start(),
             }
         }

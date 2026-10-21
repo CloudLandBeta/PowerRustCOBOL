@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# A PART of the player (WASM-016 R13, WASM-018 R18): the Canvas 2D rasteriser, a WebAssembly module of
+# its own that the player loads the first time a canvas has something to draw. A form with no canvas
+# never fetches it. Member of the player's own Cargo workspace; built by `examples/build_player.rs`.
+
+[package]
+name        = "cobolt-web-part-canvas"
+description = "The player's Canvas 2D part: a display list in (WASM-018 R6), straight-alpha RGBA out"
+version     = "2.0.0"
+edition     = "2021"
+rust-version = "1.92"
+license     = "Apache-2.0"
+publish     = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The rasteriser is `cobolt-graphics`' own: one implementation for the interpreter, the egui host and
+# the browser. Only the canvas is wanted here: no text engine, images, plots, physics or 3D (those are
+# parts of their own, WASM-018 R18).
+cobolt-graphics = { path = "../../../cobolt-graphics", default-features = false }
+wasm-bindgen = "=0.2.129"

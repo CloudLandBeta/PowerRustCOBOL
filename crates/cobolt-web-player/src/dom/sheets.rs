@@ -56,10 +56,6 @@ impl Scope {
         Scope { root, doc, constructed: has_adopted && can_replace }
     }
 
-    pub fn constructed(&self) -> bool {
-        self.constructed
-    }
-
     pub fn new_sheet(&self) -> Sheet {
         if self.constructed {
             let ctor: Function = Reflect::get(&js_sys::global(), &"CSSStyleSheet".into()).unwrap().unchecked_into();
@@ -136,10 +132,6 @@ impl Sheet {
         }
         self.set(css);
         Scoping::Unscoped
-    }
-
-    pub fn clear(&self) {
-        self.set("");
     }
 
     /// Take the sheet off the scope.

@@ -5,7 +5,7 @@
 // See the LICENSE file in the project root for full license information.
 
 //! `cargo run -p cobolt-web-bundle --example fixture_bundle -- --player <build_player out dir> --out <dir>
-//!  [--threaded] [--isolation require-corp|credentialless|off] [--tools <dir>]`
+//!  [--standalone] [--threaded] [--isolation require-corp|credentialless|off] [--tools <dir>]`
 //!
 //! Assembles a Web bundle around the fixture program module (both variants) and the player built by
 //! `build_player`, and writes it to `<dir>`: what the end-to-end tests assemble, kept on disk so that a
@@ -19,7 +19,7 @@ mod harness;
 use std::path::{Path, PathBuf};
 
 use cobolt_wasm_abi::fixture::{build, standard_cfrm, standard_spec};
-use cobolt_web_bundle::{assemble_bundle, AssetInput, BundleInput, BundleOptions, FormInput, Isolation, MenuInput, PlayerInput, PlayerPartInput, PlayerVariantInput};
+use cobolt_web_bundle::{assemble_bundle, AppStyle, AssetInput, BundleInput, BundleOptions, FormInput, Isolation, MenuInput, PlayerInput, PlayerPartInput, PlayerVariantInput};
 
 fn variant(out: &Path, name: &str) -> Option<PlayerVariantInput> {
     let dir = out.join(name);
@@ -58,7 +58,7 @@ fn main() {
     let mut out: Option<PathBuf> = None;
     let mut tools: Option<PathBuf> = None;
     let mut isolation = Isolation::Credentialless;
-    let (mut gallery_on, mut shell_on, mut responsive) = (false, false, false);
+    let (mut gallery_on, mut shell_on, mut responsive, mut standalone) = (false, false, false, false);
     let (mut backend, mut recaptcha, mut auth_flow) = (None::<String>, String::new(), String::new());
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -69,6 +69,7 @@ fn main() {
             "--gallery" => gallery_on = true,
             "--shell" => shell_on = true,
             "--responsive" => responsive = true,
+            "--standalone" => standalone = true,
             "--player" => player = it.next().map(Into::into),
             "--out" => out = it.next().map(Into::into),
             "--tools" => tools = it.next().map(Into::into),
@@ -108,6 +109,7 @@ fn main() {
     if gallery_on {
         menus.push(MenuInput { form: main_name.clone(), control: "MNB-G".into(), yaml: gallery::menu_bar_yaml() });
         assets.push(AssetInput { path: "Assets/doc.md".into(), bytes: gallery::DOC_MD.as_bytes().to_vec() });
+        assets.push(AssetInput { path: "Assets/doc.pdf".into(), bytes: gallery::doc_pdf() });
     }
     if shell_on {
         let child = multi.manifest.forms.iter().find(|f| f.name != main_name).map(|f| f.name.clone()).unwrap_or_default();
@@ -124,6 +126,7 @@ fn main() {
         player: PlayerInput { plain: variant(&player, "plain"), threaded: variant(&player, "threaded"), parts: parts(&player), build_info: std::fs::read_to_string(player.join("player-build.json")).ok(), components: Vec::new() },
         options: BundleOptions {
             isolation,
+            style: if standalone { AppStyle::Standalone } else { AppStyle::Spa },
             backend_origins: backend.into_iter().collect(),
             recaptcha_site_key: recaptcha,
             auth_flow: if auth_flow.is_empty() { BundleOptions::default().auth_flow } else { auth_flow },

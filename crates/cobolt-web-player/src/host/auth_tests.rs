@@ -54,7 +54,7 @@ fn host(bound: &[&str], props: &str) -> Host {
 }
 
 fn open(h: &mut Host, inst: u32) {
-    h.create_tree(inst, 0, None).expect("the tree builds");
+    h.create_tree(inst, 0, None, Vec::new()).expect("the tree builds");
 }
 
 /// The one backend call the host asked for since the last look.

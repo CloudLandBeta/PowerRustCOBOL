@@ -46,6 +46,66 @@ use cobolt_wasm_abi::manifest::{ArenaLayout, Manifest};
 use crate::methods::{self, MethodError};
 use crate::tree::{Change, EventReq, FormTree};
 
+/// The parameters a form was opened with, in order: `(name, value)` (WASM-011 R4). They are the query of
+/// the form's route in a single-page application and of its address in a window of its own.
+pub type Params = Vec<(String, String)>;
+
+/// The most parameters one open may carry, the longest name and the longest value: an address has a limit,
+/// and a parameter is a short identifier or choice, not a document.
+pub const MAX_PARAMS: usize = 16;
+pub const MAX_PARAM_NAME: usize = 64;
+pub const MAX_PARAM_VALUE: usize = 512;
+
+/// Why `name=value` is not an acceptable parameter, if it is not: a name is letters, digits, `-`, `_` and `.`
+/// and at most [`MAX_PARAM_NAME`] long; a value is at most [`MAX_PARAM_VALUE`] characters.
+fn param_problem(k: &str, v: &str) -> Option<String> {
+    if k.is_empty() || k.len() > MAX_PARAM_NAME || !k.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) {
+        return Some(format!("`{k}` is not a parameter name (letters, digits, - _ . up to {MAX_PARAM_NAME})"));
+    }
+    if v.chars().count() > MAX_PARAM_VALUE {
+        return Some(format!("the value of `{k}` is longer than {MAX_PARAM_VALUE} characters"));
+    }
+    None
+}
+
+/// The parameters that come from outside the program (an address, a link someone typed): the acceptable
+/// ones, at most [`MAX_PARAMS`], the first of a repeated name. The program's own are checked by
+/// [`parse_params`] and refused loudly; these are the user's, so a bad one is left out.
+pub fn sanitize_params(params: Params) -> Params {
+    let mut out: Params = Vec::new();
+    for (k, v) in params {
+        if out.len() < MAX_PARAMS && param_problem(&k, &v).is_none() && !out.iter().any(|(n, _)| n.eq_ignore_ascii_case(&k)) {
+            out.push((k, v));
+        }
+    }
+    out
+}
+
+/// Read the arguments of an open verb after the form's name: each is `name=value`. Anything else is
+/// refused with the reason (a bad argument is a bad argument, never silently dropped).
+pub fn parse_params(args: &[&str]) -> Result<Params, String> {
+    if args.len() > MAX_PARAMS {
+        return Err(format!("at most {MAX_PARAMS} parameters can be passed to a form"));
+    }
+    let mut out: Params = Vec::new();
+    for a in args {
+        let a = a.trim();
+        if a.is_empty() {
+            continue;
+        }
+        let (k, v) = a.split_once('=').ok_or_else(|| format!("the parameter `{a}` is not name=value"))?;
+        let k = k.trim();
+        if let Some(p) = param_problem(k, v) {
+            return Err(p);
+        }
+        if out.iter().any(|(n, _)| n.eq_ignore_ascii_case(k)) {
+            return Err(format!("the parameter `{k}` is given twice"));
+        }
+        out.push((k.to_owned(), v.to_owned()));
+    }
+    Ok(out)
+}
+
 /// A request to call into the module. The driver performs it and reports a [`CallResult`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleCall {
@@ -154,7 +214,11 @@ pub enum Effect {
     /// An instance was destroyed: drop its DOM, listeners and timers.
     Closed { inst: u32 },
     /// A standalone open: open `url` in a tab/window of its own (WASM-011 R9/R10).
-    OpenWindow { handle: String, form: usize, sync: bool },
+    OpenWindow { handle: String, form: usize, sync: bool, params: Params, opener: u32 },
+    /// `SET super::Prop = value` in a window that another window opened (WASM-011 R11): the opener applies it.
+    SuperSet { prop: String, value: String },
+    /// `CALL super::Method(args)` in such a window: the opener runs it.
+    SuperCall { name: String, args: Vec<String> },
     Dialog { id: u32, kind: DialogKind, text: String, title: String, buttons: String, default: String },
     /// A timed wait of `ms` started.
     Timer { id: u32, ms: u64 },
@@ -238,7 +302,7 @@ struct QueuedEvent {
 
 #[derive(Debug, Clone)]
 enum Work {
-    Open { form: usize, opener: Option<u32>, mode: OpenMode, handle: Option<String> },
+    Open { form: usize, opener: Option<u32>, mode: OpenMode, handle: Option<String>, params: Params },
     Close { inst: u32 },
     Event(QueuedEvent),
     /// Discard the run that trapped (`pr_cancel(-1)`).
@@ -261,9 +325,7 @@ struct Task {
 
 #[derive(Debug, Clone)]
 struct Handle {
-    form: usize,
     inst: Option<u32>,
-    sync: bool,
     closed: bool,
 }
 
@@ -273,7 +335,7 @@ struct InFlight {
     /// The instance the call acts on, when known (`Event`, `Resume`, `CloseForm`).
     inst: Option<u32>,
     /// The form being opened, for `OpenForm`.
-    opening: Option<(usize, Option<u32>, OpenMode, Option<String>)>,
+    opening: Option<(usize, Option<u32>, OpenMode, Option<String>, Params)>,
     /// A wait registered during the call.
     wait: Option<Wait>,
     /// The resume was for this task.
@@ -303,6 +365,8 @@ pub struct Host {
     last_error: i32,
     /// The signed-in session (WASM-009): the access token lives here, in memory only.
     pub auth: crate::auth::Session,
+    /// The project's extra link schemes (WASM-006 R7), copied into every form instance.
+    pub policy: crate::weblink::Policy,
     /// Counts the changes of the session's token: the page gives the connection the new one when it moves.
     pub auth_epoch: u64,
     /// What the page says about Authentication controls that leave it open: the flow, the reCAPTCHA site key.
@@ -321,6 +385,20 @@ pub struct Host {
     aborted: bool,
     /// An error was already reported during the call in flight (an ERROR command, a bad command).
     reported_in_call: bool,
+    /// The form that opened this standalone window, living in another window (WASM-011 R11).
+    pub remote_opener: Option<RemoteOpener>,
+}
+
+/// What a standalone window knows of the form that opened it in another window: a **replica** of that
+/// form's own properties, kept up to date by the opener's messages. A read of `super::Prop` is answered from
+/// it at once (the program's call is synchronous, a round trip to another window is not); a write is applied
+/// to it at once and forwarded.
+#[derive(Debug, Default, Clone)]
+pub struct RemoteOpener {
+    /// The opener form's properties, by lower-cased name.
+    pub props: BTreeMap<String, String>,
+    /// The opener went away (its window closed, or it never answered): `super::` fails with `ON EXCEPTION`.
+    pub closed: bool,
 }
 
 /// Events that fire in floods; a newer one replaces a queued one of the same target.
@@ -349,6 +427,7 @@ impl Host {
             app: HashMap::new(),
             last_error: 0,
             auth: crate::auth::Session::default(),
+            policy: crate::weblink::Policy::default(),
             auth_epoch: 0,
             auth_defaults: (crate::auth::Flow::InApp, String::new()),
             auth_calls: BTreeMap::new(),
@@ -359,6 +438,7 @@ impl Host {
             started: false,
             aborted: false,
             reported_in_call: false,
+            remote_opener: None,
         }
     }
 
@@ -406,20 +486,26 @@ impl Host {
         }
         self.started = true;
         let main = self.manifest.main_form().id as usize;
-        self.work.push_back(Work::Open { form: main, opener: None, mode: OpenMode::Root, handle: None });
+        self.work.push_back(Work::Open { form: main, opener: None, mode: OpenMode::Root, handle: None, params: Vec::new() });
     }
 
-    /// Queue the opening of a specific form (a deep link, a standalone page's start form).
-    pub fn start_with(&mut self, form: usize) {
+    /// Queue the opening of a specific form (a deep link, a standalone page's start form) with the
+    /// parameters its address carried (WASM-011 R4).
+    pub fn start_with(&mut self, form: usize, params: Params) {
         if self.started {
             return;
         }
         self.started = true;
-        self.work.push_back(Work::Open { form, opener: None, mode: OpenMode::Root, handle: None });
+        self.work.push_back(Work::Open { form, opener: None, mode: OpenMode::Root, handle: None, params: sanitize_params(params) });
     }
 
     pub fn open_form(&mut self, form: usize, opener: Option<u32>, mode: OpenMode) {
-        self.work.push_back(Work::Open { form, opener, mode, handle: None });
+        self.open_form_with(form, opener, mode, Vec::new());
+    }
+
+    /// As [`Host::open_form`], with the route parameters the form was opened with (a deep link, `Back`).
+    pub fn open_form_with(&mut self, form: usize, opener: Option<u32>, mode: OpenMode, params: Params) {
+        self.work.push_back(Work::Open { form, opener, mode, handle: None, params: sanitize_params(params) });
     }
 
     /// Ask for an instance to be destroyed (the user closed its dialog, navigated away, …).
@@ -660,10 +746,10 @@ impl Host {
                 let refs: Vec<&str> = e.args.iter().map(String::as_str).collect();
                 Some(ModuleCall::Event { inst: e.inst, ctrl: e.ctrl, event: e.event, args: encode_event_args(&refs), argc: e.args.len() as u32 })
             }
-            Work::Open { form, opener, mode, handle } => {
+            Work::Open { form, opener, mode, handle, params } => {
                 self.inflight = Some(InFlight {
                     inst: None,
-                    opening: Some((form, opener, mode, handle)),
+                    opening: Some((form, opener, mode, handle, params)),
                     wait: None,
                     task: None,
                     event_desc: Some((self.manifest.forms[form].name.clone(), "onLoad".into())),
@@ -715,7 +801,7 @@ impl Host {
         let resumed_task = flight.as_ref().and_then(|f| f.task);
         match (call, result) {
             (ModuleCall::OpenForm { .. }, CallResult::Opened { inst: id, status, task }) => {
-                let (form, opener, mode, handle) = flight.as_ref().and_then(|f| f.opening.clone()).expect("open in flight");
+                let (form, opener, mode, handle, params) = flight.as_ref().and_then(|f| f.opening.clone()).expect("open in flight");
                 if id < 0 {
                     self.report(RunError {
                         code: id,
@@ -736,7 +822,7 @@ impl Host {
                 let id = id as u32;
                 // The start-up handler may already have written to the new instance.
                 if !self.trees.contains_key(&id) {
-                    if let Err(e) = self.create_tree(id, form, opener) {
+                    if let Err(e) = self.create_tree(id, form, opener, params) {
                         self.fail(e);
                         return;
                     }
@@ -889,12 +975,14 @@ impl Host {
         self.effects.push(Effect::RuntimeError(e));
     }
 
-    fn create_tree(&mut self, inst: u32, form: usize, opener: Option<u32>) -> Result<(), String> {
+    fn create_tree(&mut self, inst: u32, form: usize, opener: Option<u32>, params: Params) -> Result<(), String> {
         let Some(desc) = self.forms.get(form).cloned().flatten() else {
             return Err(format!("form `{}` has no description loaded", self.manifest.forms[form].name));
         };
         let mut tree = FormTree::build(&desc, &self.manifest.forms[form], &self.manifest, inst, opener).map_err(|e| e.to_string())?;
         tree.init_auth(self.auth_defaults.0, &self.auth_defaults.1, &self.auth);
+        tree.policy = self.policy.clone();
+        tree.params = params;
         self.trees.insert(inst, tree);
         Ok(())
     }
@@ -1093,8 +1181,8 @@ impl Host {
         if self.trees.contains_key(&inst) {
             return Ok(());
         }
-        if let Some((form, opener, _, _)) = self.inflight.as_ref().and_then(|f| f.opening.clone()) {
-            return self.create_tree(inst, form, opener).map_err(CmdError::Unknown);
+        if let Some((form, opener, _, _, params)) = self.inflight.as_ref().and_then(|f| f.opening.clone()) {
+            return self.create_tree(inst, form, opener, params).map_err(CmdError::Unknown);
         }
         Err(CmdError::Unknown(format!("instance {inst} does not exist")))
     }
@@ -1104,6 +1192,14 @@ impl Host {
             ctrl::APP => Ok(Target::App),
             ctrl::SUPER => {
                 self.ensure_tree(path.inst)?;
+                if self.trees[&path.inst].opener.is_none() {
+                    if let Some(r) = &self.remote_opener {
+                        if r.closed {
+                            return Err(CmdError::Refused("the window that opened this one has been closed".into()));
+                        }
+                        return Ok(Target::Remote);
+                    }
+                }
                 let opener = self.trees[&path.inst].opener.ok_or_else(|| {
                     CmdError::Refused("`super::` was used in a form that nothing opened (it is the first form)".into())
                 })?;
@@ -1133,6 +1229,16 @@ impl Host {
                     return Err(CmdError::Bad("the application object has no indexed properties".into()));
                 }
                 self.app_set(&name, value);
+                Ok(())
+            }
+            Target::Remote => {
+                if !seg.args.is_empty() {
+                    return Err(CmdError::Bad("a property of the opener form takes no subscript in a SET".into()));
+                }
+                if let Some(r) = &mut self.remote_opener {
+                    r.props.insert(name.to_ascii_lowercase(), value.to_owned());
+                }
+                self.effects.push(Effect::SuperSet { prop: name, value: value.to_owned() });
                 Ok(())
             }
             Target::Ctl { inst, idx } => {
@@ -1196,31 +1302,85 @@ impl Host {
         let args: Vec<&str> = seg.args.clone();
         match target {
             Target::App => self.verb(path.inst, ctrl::APP, &name, &args),
-            Target::Ctl { inst, idx } => {
-                // Window-level verbs live on the form itself (ctrl 0) and on `super`.
-                if idx == 0 {
-                    if let Some(r) = self.form_verb(inst, &name, &args)? {
-                        return Ok(r);
-                    }
-                }
-                // Authentication is the host's: it holds the session (WASM-009).
-                if crate::kinds::player_kind(&self.trees[&inst].ctls[idx]) == Some(crate::kinds::PlayerKind::Authentication) {
-                    return self.auth_method(inst, idx, &name, &args);
-                }
-                let r = {
-                    let tree = self.trees.get_mut(&inst).unwrap();
-                    methods::call(tree, idx, &name, &args)
-                };
-                match r {
-                    Ok(o) => {
-                        self.enqueue_requests(inst, o.events);
-                        Ok(o.value)
-                    }
-                    Err(MethodError::Unsupported(m)) => Err(CmdError::Unknown(m)),
-                    Err(MethodError::Refused(m)) => Err(CmdError::Refused(m)),
-                }
+            Target::Remote => {
+                // The opener runs it in its own window; what it answers is not waited for (see `RemoteOpener`).
+                self.effects.push(Effect::SuperCall { name, args: args.iter().map(|a| (*a).to_owned()).collect() });
+                Ok(None)
+            }
+            Target::Ctl { inst, idx } => self.call_ctl(inst, idx, &name, &args),
+        }
+    }
+
+    /// Call a method of control `idx` of instance `inst` (the form itself when `idx` is 0).
+    fn call_ctl(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Result<Option<String>, CmdError> {
+        // Window-level verbs live on the form itself (ctrl 0) and on `super`.
+        if idx == 0 {
+            if let Some(r) = self.form_verb(inst, name, args)? {
+                return Ok(r);
             }
         }
+        // Authentication is the host's: it holds the session (WASM-009).
+        if crate::kinds::player_kind(&self.trees[&inst].ctls[idx]) == Some(crate::kinds::PlayerKind::Authentication) {
+            return self.auth_method(inst, idx, name, args);
+        }
+        let r = {
+            let tree = self.trees.get_mut(&inst).unwrap();
+            methods::call(tree, idx, name, args)
+        };
+        match r {
+            Ok(o) => {
+                self.enqueue_requests(inst, o.events);
+                Ok(o.value)
+            }
+            Err(MethodError::Unsupported(m)) => Err(CmdError::Unknown(m)),
+            Err(MethodError::Refused(m)) => Err(CmdError::Refused(m)),
+        }
+    }
+
+    // ── `super::` across windows (WASM-011 R11) ─────────────────────────────
+
+    /// This window was opened by another: from now on `super::` in its first form is that form.
+    pub fn attach_remote_opener(&mut self) {
+        self.remote_opener = Some(RemoteOpener::default());
+    }
+
+    /// The opener's properties, as it last sent them.
+    pub fn remote_opener_state(&mut self, props: BTreeMap<String, String>) {
+        if let Some(r) = &mut self.remote_opener {
+            r.props = props.into_iter().map(|(k, v)| (k.to_ascii_lowercase(), v)).collect();
+            r.closed = false;
+        }
+    }
+
+    /// The opener's window closed, or never answered.
+    pub fn remote_opener_closed(&mut self) {
+        if let Some(r) = &mut self.remote_opener {
+            r.closed = true;
+        }
+    }
+
+    /// The form properties instance `inst` publishes to the window it opened (its own, by name).
+    pub fn form_props(&self, inst: u32) -> Option<BTreeMap<String, String>> {
+        let tree = self.trees.get(&inst)?;
+        Some(tree.ctls.first()?.props.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+    }
+
+    /// The window this one opened asks for `prop` of instance `inst` to be set (its `SET super::Prop`).
+    pub fn apply_super_set(&mut self, inst: u32, prop: &str, value: &str) -> Result<(), String> {
+        let tree = self.trees.get_mut(&inst).ok_or_else(|| format!("instance {inst} is closed"))?;
+        let ev = tree.set(0, prop, value);
+        self.enqueue_requests(inst, ev);
+        Ok(())
+    }
+
+    /// The window this one opened asks for `name` of instance `inst` to be called (its `CALL super::Name`).
+    pub fn apply_super_call(&mut self, inst: u32, name: &str, args: &[&str]) -> Result<(), String> {
+        if !self.trees.contains_key(&inst) {
+            return Err(format!("instance {inst} is closed"));
+        }
+        self.call_ctl(inst, 0, name, args).map(|_| ()).map_err(|e| match e {
+            CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
+        })
     }
 
     fn eval_query(&mut self, q: &Command<'_>) -> Result<String, i32> {
@@ -1234,6 +1394,13 @@ impl Host {
                     let name = self.name_of(seg.name)?;
                     match target {
                         Target::App => Ok(self.app_get(&name)),
+                        Target::Remote => {
+                            let text = self.remote_opener.as_ref().and_then(|r| r.props.get(&name.to_ascii_lowercase()).cloned()).unwrap_or_default();
+                            match seg.args.first() {
+                                None => Ok(text),
+                                Some(a) => Ok(crate::value::index1(a).and_then(|n| text.lines().nth(n).map(str::to_owned)).unwrap_or_default()),
+                            }
+                        }
                         Target::Ctl { inst, idx } => {
                             let tree = &self.trees[&inst];
                             if seg.args.is_empty() {
@@ -1263,6 +1430,10 @@ impl Host {
                     let name = self.name_of(path.last().map(|s| s.name).unwrap_or(0))?;
                     match target {
                         Target::App => Ok("0".into()),
+                        Target::Remote => {
+                            let text = self.remote_opener.as_ref().and_then(|r| r.props.get(&name.to_ascii_lowercase()).cloned()).unwrap_or_default();
+                            Ok((if text.trim().is_empty() { 0 } else { text.lines().count() }).to_string())
+                        }
                         Target::Ctl { inst, idx } => {
                             let text = self.trees[&inst].get(idx, &name);
                             let n = if text.trim().is_empty() { 0 } else { text.lines().count() };
@@ -1312,10 +1483,10 @@ impl Host {
         }
     }
 
-    fn new_handle(&mut self, form: usize, sync: bool) -> String {
+    fn new_handle(&mut self) -> String {
         let h = format!("H{}", self.next_handle);
         self.next_handle += 1;
-        self.handles.insert(h.clone(), Handle { form, inst: None, sync, closed: false });
+        self.handles.insert(h.clone(), Handle { inst: None, closed: false });
         h
     }
 
@@ -1335,13 +1506,15 @@ impl Host {
                     .form_by_name(id)
                     .map(|f| f.id as usize)
                     .ok_or_else(|| CmdError::Unknown(format!("{name}: the program has no form `{id}`")))?;
-                let handle = self.new_handle(form, sync);
+                // The arguments after the form's name are its route parameters, `name=value` (WASM-011 R4).
+                let params = parse_params(&args[1..]).map_err(|e| CmdError::Bad(format!("{name}: {e}")))?;
+                let handle = self.new_handle();
                 let standalone = self.opts.standalone;
                 if standalone {
-                    self.effects.push(Effect::OpenWindow { handle: handle.clone(), form, sync });
+                    self.effects.push(Effect::OpenWindow { handle: handle.clone(), form, sync, params, opener: inst });
                 } else {
                     let mode = if sync { OpenMode::Modal } else { OpenMode::Panel };
-                    self.work.push_back(Work::Open { form, opener: Some(inst), mode, handle: Some(handle.clone()) });
+                    self.work.push_back(Work::Open { form, opener: Some(inst), mode, handle: Some(handle.clone()), params });
                 }
                 if sync {
                     if let Some(f) = &mut self.inflight {
@@ -1375,6 +1548,17 @@ impl Host {
                 Ok(Some(None))
             }
             "GETFORMSTATE" => Ok(Some(Some("Normal".into()))),
+            // What this form was opened with (WASM-011 R4): one parameter by name (empty when absent), or all
+            // of them as `name=value` lines. Read at `onLoad` already: the tree is made before the handler runs.
+            "GETPARAM" => {
+                let want = args.first().copied().unwrap_or("").trim();
+                let value = self.trees.get(&inst).and_then(|t| t.params.iter().find(|(k, _)| k.eq_ignore_ascii_case(want)).map(|(_, v)| v.clone()));
+                Ok(Some(Some(value.unwrap_or_default())))
+            }
+            "GETPARAMS" => {
+                let all = self.trees.get(&inst).map(|t| t.params.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("\n")).unwrap_or_default();
+                Ok(Some(Some(all)))
+            }
             _ => Ok(None),
         }
     }
@@ -1684,11 +1868,17 @@ impl Host {
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod params_tests;
+#[cfg(test)]
+mod super_tests;
 
 #[derive(Debug)]
 enum Target {
     App,
     Ctl { inst: u32, idx: usize },
+    /// `super::` in a window another window opened: the replica of that form (WASM-011 R11).
+    Remote,
 }
 
 #[derive(Debug)]

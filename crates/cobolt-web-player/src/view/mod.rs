@@ -298,8 +298,8 @@ pub struct UiState {
     pub grid_sort: BTreeMap<usize, (usize, bool)>,
     /// A ComboBox whose list is open (a custom popup is never used: the native `<select>` opens itself).
     pub focused: Option<usize>,
-    /// The Viewer find bar contents by control.
-    pub find_text: BTreeMap<usize, String>,
+    /// How many matches the page found for each Viewer's search text, by control (the page counts them in the text it shows).
+    pub find_total: BTreeMap<usize, usize>,
     /// The document a Viewer's `Source` named, once the page has read it.
     pub viewer_docs: BTreeMap<usize, viewer::LoadedDoc>,
     /// The `Source` value already asked for, by control (a document is read once per value).

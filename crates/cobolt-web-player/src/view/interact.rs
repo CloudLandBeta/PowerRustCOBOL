@@ -29,7 +29,7 @@ use cobolt_forms::treenodes::{node_at, nodes};
 use super::controls::{display_items, lines, lines_nonempty};
 use super::data::{columns, node_payload, sorted_order, visible_nodes, DEFAULT_WINDOW, OVERSCAN};
 use super::shell::{menu_items, toolbar_def};
-use super::{UiState, ViewCtx};
+use super::ViewCtx;
 use crate::tree::{Ctl, FormTree, Kind};
 use crate::value::{fmt_number, parse_f64, truthy};
 
@@ -111,6 +111,9 @@ pub enum UiOp {
     Dismiss(u32),
     /// Open the browser's file picker of a FileDropZone.
     PickFiles,
+    /// The user is in (`true`) or has left (`false`) a TextBox that has a numeric-edited PICTURE: it shows
+    /// the plain value to edit while focused and the edited form at rest.
+    Editing(bool),
 }
 
 /// One thing to do.
@@ -259,7 +262,7 @@ fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         return Vec::new();
     }
     match t {
-        ControlType::TextBox => text_box(p),
+        ControlType::TextBox => text_box(cx, i, p),
         ControlType::CheckBox | ControlType::RadioButton => check_or_radio(cx, i, p),
         ControlType::Switch => switch(cx, i, p),
         ControlType::ListBox => list_box(cx, i, p),
@@ -283,15 +286,44 @@ fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         ControlType::Knob => knob(cx, i, p),
         ControlType::Maps => maps(cx, i, p),
         ControlType::FileDropZone => drop_zone(cx, i, p),
+        ControlType::Viewer => viewer(cx, i, p),
         _ => Vec::new(),
     }
 }
 
 // ── the controls ────────────────────────────────────────────────────────────
 
-fn text_box(p: &Payload) -> Vec<Act> {
+fn text_box(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
+    let Some(pic) = cx.tree.picture_of(i) else {
+        return match p.kind.as_str() {
+            "input" => vec![Act::Change { prop: "Text".into(), value: p.value.clone() }],
+            _ => Vec::new(),
+        };
+    };
+    // A PICTURE decides what the box may hold, keystroke by keystroke (the desktop's rule: the text is valid
+    // so far, or the keystroke is refused).
+    let dc = cx.tree.decimal_comma;
     match p.kind.as_str() {
-        "input" => vec![Act::Change { prop: "Text".into(), value: p.value.clone() }],
+        "input" => {
+            if pic.accepts_partial(&p.value, dc) {
+                vec![Act::Change { prop: "Text".into(), value: p.value.clone() }]
+            } else {
+                // Refused: the box goes back to what it held. Storing the same value redraws the control,
+                // and the redraw writes the stored text over what the user typed.
+                vec![quiet("Text", cx.tree.get(i, "Text"))]
+            }
+        }
+        "focusin" if pic.is_edited() => vec![Act::Ui(UiOp::Editing(true))],
+        "focusout" if pic.is_numeric() => {
+            let mut v = vec![Act::Ui(UiOp::Editing(false))];
+            // A typed sign goes where the picture puts it (`ZZ9.99-`, `9(4)CR`).
+            let stored = cx.tree.get(i, "Text");
+            let moved = pic.normalize_sign(&stored, dc);
+            if moved != stored {
+                v.push(Act::Change { prop: "Text".into(), value: moved });
+            }
+            v
+        }
         _ => Vec::new(),
     }
 }
@@ -1048,14 +1080,14 @@ fn drop_zone(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
 // ── WebLink ─────────────────────────────────────────────────────────────────
 
 fn weblink(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
-    use crate::weblink::{plan, Click, LinkProps, Policy, Target};
+    use crate::weblink::{plan, Click, LinkProps, Target};
     if !matches!(p.kind.as_str(), "click" | "auxclick") {
         return Vec::new();
     }
     let click = Click { ctrl: p.ctrl, meta: p.meta, shift: p.shift, alt: p.alt, button: if p.kind == "auxclick" { 1 } else { 0 } };
     let props = LinkProps::read(cx.tree, i);
     let mut out = Vec::new();
-    match plan(&props, click, &Policy::default()) {
+    match plan(&props, click, &cx.tree.policy) {
         Ok(Some(np)) => {
             // The browser performs the navigation (so Ctrl-click, middle-click and the context menu keep
             // their native meaning); the player steps in only for what an anchor cannot say.
@@ -1113,6 +1145,66 @@ fn authentication(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
                 _ => Vec::new(),
             },
             None => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// The Viewer's Find bar and its shortcut (spec 058 R26–R30). The needle, the case switch and the current
+/// match are the control's properties; the page reports how many matches there are (`find_total`).
+fn viewer(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
+    let open = truthy(&cx.tree.get(i, "View1FindOpen"));
+    let total = cx.ui.find_total.get(&i).copied().unwrap_or(0);
+    let current = parse_f64(&cx.tree.get(i, "View1SearchCurrentMatch")).map(|v| v.max(0.0) as usize).unwrap_or(0);
+    // Next and Previous wrap round; with no match they do nothing.
+    let step = |forward: bool| -> Vec<Act> {
+        if total == 0 {
+            return Vec::new();
+        }
+        let to = if forward {
+            if current == 0 || current >= total { 1 } else { current + 1 }
+        } else if current <= 1 {
+            total
+        } else {
+            current - 1
+        };
+        vec![quiet("View1SearchCurrentMatch", to.to_string())]
+    };
+    let close = || vec![quiet("View1FindOpen", "0"), ev("onFindClosed")];
+    match (p.kind.as_str(), p.key.as_str()) {
+        // Ctrl/Cmd+F in the document opens the bar (and the browser's own find is not opened over it).
+        ("keydown", "root") if (p.ctrl || p.meta) && p.key_name.eq_ignore_ascii_case("f") => {
+            let mut v = vec![Act::Prevent];
+            if !open {
+                v.push(quiet("View1FindOpen", "1"));
+                v.push(ev("onFindOpened"));
+            }
+            v
+        }
+        ("keydown", "root") if open && p.key_name == "Escape" => close(),
+        ("input", "find-input") => vec![quiet("View1SearchText", p.value.clone()), quiet("View1SearchCurrentMatch", if p.value.is_empty() { "0" } else { "1" })],
+        ("keydown", "find-input") => match p.key_name.as_str() {
+            "Enter" => {
+                let mut v = vec![Act::Prevent];
+                v.extend(step(!p.shift));
+                v
+            }
+            "Escape" => {
+                let mut v = vec![Act::Prevent];
+                v.extend(close());
+                v
+            }
+            _ => Vec::new(),
+        },
+        ("click", _) => match p.part.as_deref() {
+            Some("find-next") => step(true),
+            Some("find-prev") => step(false),
+            Some("find-close") => close(),
+            Some("find-case") => {
+                let on = truthy(&cx.tree.get(i, "View1SearchCaseSensitive"));
+                vec![quiet("View1SearchCaseSensitive", b01(!on)), quiet("View1SearchCurrentMatch", "1")]
+            }
+            _ => Vec::new(),
         },
         _ => Vec::new(),
     }
@@ -1611,5 +1703,104 @@ mod tests {
         assert!(shown.contains("password") && !shown.contains("hunter2"), "R10: {shown}");
         let a = Action::SignIn { user: "ana".into(), password: "hunter2".into() };
         assert!(!format!("{a:?} {:?}", Act::Auth(a.clone())).contains("hunter2"));
+    }
+
+    #[test]
+    fn a_picture_refuses_the_keystroke_that_would_break_it_and_the_box_goes_back_to_what_it_held() {
+        let e = Empty::default();
+        let (t, i) = tree_with("TextBox", "N-1", &[("Picture", "9(3)"), ("Text", "12")]);
+        let typed = |v: &str| {
+            let mut p = Payload::new("input", "input");
+            p.value = v.to_owned();
+            names(&run(&t, i, &e, p))
+        };
+        assert_eq!(typed("123"), ["~Text=123"], "a digit within the width is the user's edit");
+        assert_eq!(typed("12a"), ["Text=12"], "a letter is refused: the stored text is written back over it");
+        assert_eq!(typed("1234"), ["Text=12"], "one digit too many");
+        assert_eq!(typed(""), ["~Text="], "emptying the box is allowed");
+        // Letters only.
+        let (t, i) = tree_with("TextBox", "A-1", &[("Picture", "A(3)"), ("Text", "ab")]);
+        let mut p = Payload::new("input", "input");
+        p.value = "ab1".into();
+        assert_eq!(names(&run(&t, i, &e, p.clone())), ["Text=ab"]);
+        p.value = "abc".into();
+        assert_eq!(names(&run(&t, i, &e, p)), ["~Text=abc"]);
+    }
+
+    #[test]
+    fn a_number_is_checked_as_a_shape_and_the_edited_display_follows_the_focus_and_the_sign_goes_to_its_place() {
+        let e = Empty::default();
+        let (t, i) = tree_with("TextBox", "N-2", &[("Picture", "ZZ9.99-"), ("Text", "-5.5")]);
+        let key = |v: &str| {
+            let mut p = Payload::new("input", "input");
+            p.value = v.to_owned();
+            names(&run(&t, i, &e, p))
+        };
+        assert_eq!(key("12."), ["~Text=12."], "an unfinished number can be typed");
+        assert_eq!(key("12.345"), ["Text=-5.5"], "a third decimal does not fit");
+        assert_eq!(key("1.2.3"), ["Text=-5.5"], "one decimal separator");
+        // Focus shows the plain value; leaving shows the edited one and puts the sign where the picture does.
+        let fin = Payload::new("focusin", "input");
+        assert_eq!(run(&t, i, &e, fin), vec![Act::Ui(UiOp::Editing(true))]);
+        let fout = Payload::new("focusout", "input");
+        assert_eq!(run(&t, i, &e, fout), vec![Act::Ui(UiOp::Editing(false)), Act::Change { prop: "Text".into(), value: "5.5-".into() }]);
+        // A character picture has no edited form: focus changes nothing for it.
+        let (t, i) = tree_with("TextBox", "A-1", &[("Picture", "X(5)")]);
+        assert!(run(&t, i, &e, Payload::new("focusin", "input")).is_empty());
+    }
+
+    #[test]
+    fn the_find_bar_opens_with_ctrl_f_steps_round_and_closes_and_the_events_are_the_desktops() {
+        let mut e = Empty::default();
+        let (mut t, i) = tree_with("Viewer", "VW-1", &[]);
+        // The generic key events of the document come along (a Viewer raises onKeyDown like any control): leave them out.
+        let find_only = |v: Vec<String>| v.into_iter().filter(|n| !n.starts_with("onKey") && n != "onEscapePressed").collect::<Vec<_>>();
+        // Ctrl+F (or Cmd+F) opens it; the browser's own find is not opened over it.
+        let mut f = Payload::new("keydown", "root");
+        f.key_name = "f".into();
+        f.ctrl = true;
+        assert_eq!(find_only(names(&run(&t, i, &e, f.clone()))), ["prevent", "View1FindOpen=1", "onFindOpened"]);
+        t.set(i, "View1FindOpen", "1");
+        assert_eq!(find_only(names(&run(&t, i, &e, f))), ["prevent"], "already open: nothing to raise");
+        // Typing sets the needle and starts at the first match.
+        let mut typed = Payload::new("input", "find-input");
+        typed.value = "alpha".into();
+        assert_eq!(names(&run(&t, i, &e, typed)), ["View1SearchText=alpha", "View1SearchCurrentMatch=1"]);
+        // Enter steps forward and wraps; Shift+Enter steps back and wraps; with no match nothing happens.
+        t.set(i, "View1SearchText", "alpha");
+        e.ui.find_total.insert(i, 3);
+        let step = |t: &crate::tree::FormTree, e: &Empty, cur: &str, shift: bool| {
+            let mut t2 = t.clone();
+            t2.set(i, "View1SearchCurrentMatch", cur);
+            let mut p = Payload::new("keydown", "find-input");
+            p.key_name = "Enter".into();
+            p.shift = shift;
+            names(&run(&t2, i, e, p))
+        };
+        assert_eq!(step(&t, &e, "1", false), ["prevent", "View1SearchCurrentMatch=2"]);
+        assert_eq!(step(&t, &e, "3", false), ["prevent", "View1SearchCurrentMatch=1"], "wraps to the first");
+        assert_eq!(step(&t, &e, "1", true), ["prevent", "View1SearchCurrentMatch=3"], "wraps to the last");
+        assert_eq!(step(&t, &e, "3", true), ["prevent", "View1SearchCurrentMatch=2"]);
+        e.ui.find_total.insert(i, 0);
+        assert_eq!(step(&t, &e, "0", false), ["prevent"], "no match: Enter goes nowhere");
+        // Escape in the box, Escape in the document and the Close button all close it and say so.
+        let mut esc = Payload::new("keydown", "find-input");
+        esc.key_name = "Escape".into();
+        assert_eq!(names(&run(&t, i, &e, esc)), ["prevent", "View1FindOpen=0", "onFindClosed"]);
+        let mut esc_doc = Payload::new("keydown", "root");
+        esc_doc.key_name = "Escape".into();
+        assert_eq!(find_only(names(&run(&t, i, &e, esc_doc))), ["View1FindOpen=0", "onFindClosed"]);
+        let mut close = Payload::new("click", "close");
+        close.part = Some("find-close".into());
+        assert_eq!(names(&run(&t, i, &e, close)), ["View1FindOpen=0", "onFindClosed"]);
+        // Match case toggles and starts over.
+        let mut case = Payload::new("click", "case");
+        case.part = Some("find-case".into());
+        assert_eq!(names(&run(&t, i, &e, case)), ["View1SearchCaseSensitive=1", "View1SearchCurrentMatch=1"]);
+        // Escape in a document whose bar is closed is the page's own key.
+        t.set(i, "View1FindOpen", "0");
+        let mut esc_doc = Payload::new("keydown", "root");
+        esc_doc.key_name = "Escape".into();
+        assert!(!find_only(names(&run(&t, i, &e, esc_doc))).contains(&"View1FindOpen=0".to_owned()));
     }
 }

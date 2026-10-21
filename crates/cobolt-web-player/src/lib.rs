@@ -28,8 +28,12 @@ pub mod tree;
 pub mod value;
 pub mod view;
 pub mod weblink;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod fingerprint;
 
 #[cfg(target_arch = "wasm32")]
 pub mod api;
+#[cfg(target_arch = "wasm32")]
+mod superlink;
 #[cfg(target_arch = "wasm32")]
 mod dom;

@@ -170,7 +170,7 @@ fn build_variant(crate_dir: &Path, target_dir: &Path, out: &Path, variant: &str,
 
 /// The parts loaded on demand (WASM-016 R13): `(name, package)`. Each is a WebAssembly module of its
 /// own, built with the stable toolchain once and shared by both player variants.
-const PARTS: &[(&str, &str)] = &[("mermaid", "cobolt-web-part-mermaid")];
+const PARTS: &[(&str, &str)] = &[("mermaid", "cobolt-web-part-mermaid"), ("canvas", "cobolt-web-part-canvas"), ("pdf", "cobolt-web-part-pdf")];
 
 fn build_part(crate_dir: &Path, target_dir: &Path, out: &Path, name: &str, package: &str, opt_level: &str) -> Built {
     let tdir = target_dir.join("parts");
@@ -256,7 +256,30 @@ fn main() {
             }));
         }
     }
+    // What this build was made from and what it made (WASM-016 R12/AC7): the fingerprint of the source and the
+    // digest of every file, so that the freshness test can tell a player that is not the source's.
+    let repo_root = crate_dir.join("../..").canonicalize().unwrap();
+    let mut files = Vec::new();
+    fn collect(base: &Path, dir: &Path, out: &mut Vec<serde_json::Value>) {
+        let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let p = e.path();
+            if p.is_dir() {
+                collect(base, &p, out);
+            } else if p.file_name().is_some_and(|n| n != "player-build.json") {
+                out.push(serde_json::json!({
+                    "path": p.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/"),
+                    "bytes": size(&p),
+                    "sha256": cobolt_web_player::fingerprint::file_digest(&p),
+                }));
+            }
+        }
+    }
+    collect(&out, &out, &mut files);
     let info = serde_json::json!({
+        "source_hash": cobolt_web_player::fingerprint::source_fingerprint(&repo_root),
+        "files": files,
         "profile": {"lto": true, "codegen_units": 1, "panic": "abort", "strip": true, "opt_level": args.opt_level, "wasm_opt": "-Oz"},
         "tools": {"wasm_bindgen": bindgen_v, "wasm_opt": wasm_opt_v, "rustc_stable": rustc_v, "rustc_nightly": nightly_v, "nightly": NIGHTLY, "wasm_pack": "not used (WASM-017 R17)"},
         "measurements": report,

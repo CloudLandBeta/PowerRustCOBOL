@@ -1678,9 +1678,20 @@ pub fn standard_spec(multi_memory: bool) -> FixtureSpec {
                 name: CHILD_FORM.into(),
                 main: false,
                 instances: 3,
-                controls: vec![("LBL-CHILD".into(), "Label".into()), ("BTN-CLOSE".into(), "Button".into())],
+                controls: vec![("LBL-CHILD".into(), "Label".into()), ("BTN-CLOSE".into(), "Button".into()), ("BTN-SUPER".into(), "Button".into())],
                 handlers: vec![
                     FixtureHandler::form("onLoad", vec![Step::Set { target: Target::control("LBL-CHILD"), name: "Caption".into(), value: "child".into() }]),
+                    // `super::` (WASM-011 R11): write a property of the form that opened this one, then read it
+                    // back and show it. In a window of its own the opener is in another window.
+                    FixtureHandler::on(
+                        "BTN-SUPER",
+                        "onClick",
+                        vec![
+                            Step::Set { target: Target::Super, name: "Caption".into(), value: "set by the child".into() },
+                            Step::Get { target: Target::Super, name: "Caption".into() },
+                            Step::EchoAnswer { target: Target::control("LBL-CHILD"), name: "Caption".into() },
+                        ],
+                    ),
                     FixtureHandler::form("onClose", vec![Step::Display("child closing".into())]),
                     FixtureHandler::on("BTN-CLOSE", "onClick", vec![Step::Call { target: Target::Form, name: "Close".into(), args: vec![] }]),
                 ],

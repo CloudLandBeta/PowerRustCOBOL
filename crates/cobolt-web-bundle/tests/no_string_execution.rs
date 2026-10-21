@@ -104,6 +104,47 @@ fn no_javascript_of_the_bundle_evaluates_a_string_or_inserts_markup() {
     assert!(problems.is_empty(), "string execution or markup insertion found:\n{}", problems.join("\n"));
 }
 
+/// Every `.js` under a built **threaded** player (the glue and the `wasm-bindgen-rayon` worker helper),
+/// wherever `build_player` wrote one under `target-player/`. The test's own build is the plain player
+/// (the nightly build takes minutes), so this scans what is there and says what it found.
+fn threaded_scripts() -> Vec<(String, String)> {
+    fn walk(dir: &std::path::Path, in_threaded: bool, out: &mut Vec<(String, String)>) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            if p.is_dir() {
+                walk(&p, in_threaded || name == "threaded", out);
+            } else if in_threaded && name.ends_with(".js") {
+                out.push((p.display().to_string(), std::fs::read_to_string(&p).unwrap_or_default()));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let root = support::repo_root().join("crates/cobolt-web-player/target-player");
+    for e in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+        if e.file_name().to_string_lossy().starts_with("out-") {
+            walk(&e.path(), false, &mut out);
+        }
+    }
+    out
+}
+
+#[test]
+fn the_threaded_players_glue_and_worker_helper_are_clean_too() {
+    let files = threaded_scripts();
+    println!("threaded scripts found: {}", files.len());
+    let mut problems = Vec::new();
+    for (path, text) in &files {
+        for (needle, why) in FORBIDDEN {
+            for (line, code) in hits(text, needle) {
+                problems.push(format!("{path}:{line}: `{needle}` ({why}): {code}"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "string execution or markup insertion in the threaded player:\n{}", problems.join("\n"));
+}
+
 #[test]
 fn the_search_finds_what_it_looks_for_and_only_that() {
     assert_eq!(hits("x = eval('1');", "eval").len(), 1);

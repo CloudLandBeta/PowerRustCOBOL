@@ -165,6 +165,15 @@ pub struct FormTree {
     pub conversations: BTreeMap<usize, cobolt_forms::viewer::Conversation>,
     /// The Authentication controls' live state, by control (WASM-009).
     pub auths: BTreeMap<usize, crate::auth::AuthUi>,
+    /// What a link may point at, beyond the defaults: the project's extra schemes (WASM-006 R7). Every
+    /// place that checks an address — the WebLink control, `SetUrl`, a Viewer's links, `Navigate` — reads it here.
+    pub policy: crate::weblink::Policy,
+    /// What this form was opened with, in order (WASM-011 R4): the query of its route.
+    pub params: Vec<(String, String)>,
+    /// The form's `SPECIAL-NAMES` decide how a PICTURE reads and prints: `DECIMAL-POINT IS COMMA` swaps the
+    /// roles of `.` and `,`, and `CURRENCY SIGN` names the character a currency position prints.
+    pub decimal_comma: bool,
+    pub currency: char,
 }
 
 /// Why a form description cannot be paired with its manifest entry.
@@ -346,6 +355,10 @@ impl FormTree {
             written: std::collections::HashSet::new(),
             conversations: BTreeMap::new(),
             auths: BTreeMap::new(),
+            policy: crate::weblink::Policy::default(),
+            params: Vec::new(),
+            decimal_comma: cobolt_forms::picture::decimal_comma_from_special_names(&form.cobol_structure.special_names),
+            currency: cobolt_forms::picture::currency_from_special_names(&form.cobol_structure.special_names),
         })
     }
 
@@ -410,6 +423,18 @@ impl FormTree {
             self.auths.insert(i, ui);
             self.sync_auth_props(i);
         }
+    }
+
+    /// The COBOL PICTURE a TextBox's contents obey, when the developer set one (WASM-004; the desktop's
+    /// `Control::effective_picture` falls back to `X(n)` from `MaximumLength`, which the browser's own
+    /// `maxlength` already says, so only an explicit picture changes what is shown and accepted).
+    pub fn picture_of(&self, ctl: usize) -> Option<cobolt_forms::picture::Picture> {
+        if !matches!(self.ctls[ctl].control_type(), Some(ControlType::TextBox)) {
+            return None;
+        }
+        let template = self.get(ctl, "Picture");
+        let template = template.trim();
+        (!template.is_empty()).then(|| cobolt_forms::picture::Picture::parse(template, self.decimal_comma))
     }
 
     pub fn auth(&self, ctl: usize) -> Option<&crate::auth::AuthUi> {

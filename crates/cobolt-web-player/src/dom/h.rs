@@ -39,16 +39,8 @@ pub fn text(doc: &Document, s: &str) -> web_sys::Text {
     doc.create_text_node(s)
 }
 
-pub fn set_text(e: &Element, s: &str) {
-    e.set_text_content(Some(s));
-}
-
 pub fn attr(e: &Element, name: &str, value: &str) {
     let _ = e.set_attribute(name, value);
-}
-
-pub fn remove_attr(e: &Element, name: &str) {
-    let _ = e.remove_attribute(name);
 }
 
 pub fn set_bool_attr(e: &Element, name: &str, on: bool) {
@@ -74,19 +66,6 @@ pub fn css_remove(e: &Element, prop: &str) {
     if let Some(h) = e.dyn_ref::<HtmlElement>() {
         let _ = h.style().remove_property(prop);
     }
-}
-
-/// Remove every declaration the property layer set before and set the new ones.
-pub fn css_all(e: &Element, previous: &[String], next: &[(String, String)]) -> Vec<String> {
-    for p in previous {
-        css_remove(e, p);
-    }
-    let mut names = Vec::with_capacity(next.len());
-    for (k, v) in next {
-        css(e, k, v);
-        names.push(k.clone());
-    }
-    names
 }
 
 pub fn clear(e: &Element) {
@@ -130,45 +109,8 @@ impl Drop for Listener {
     }
 }
 
-pub fn modifiers(ev: &Event) -> String {
-    let get = |k: &str| Reflect::get(ev, &k.into()).ok().and_then(|v| v.as_bool()).unwrap_or(false);
-    let mut v = Vec::new();
-    if get("ctrlKey") {
-        v.push("Ctrl");
-    }
-    if get("metaKey") {
-        v.push("Meta");
-    }
-    if get("shiftKey") {
-        v.push("Shift");
-    }
-    if get("altKey") {
-        v.push("Alt");
-    }
-    v.join(",")
-}
-
-pub fn num_prop(ev: &Event, k: &str) -> f64 {
-    Reflect::get(ev, &k.into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0)
-}
-
-pub fn str_prop(ev: &Event, k: &str) -> String {
-    Reflect::get(ev, &k.into()).ok().and_then(|v| v.as_string()).unwrap_or_default()
-}
-
-/// The mouse position inside `target`'s box, in CSS pixels.
-pub fn local_xy(ev: &Event, target: &Element) -> (i32, i32) {
-    let r = target.get_bounding_client_rect();
-    ((num_prop(ev, "clientX") - r.left()).round() as i32, (num_prop(ev, "clientY") - r.top()).round() as i32)
-}
-
 pub fn focus(e: &Element) {
     if let Some(h) = e.dyn_ref::<HtmlElement>() {
         let _ = h.focus();
     }
-}
-
-/// `true` when a node is attached to a document.
-pub fn connected(e: &Element) -> bool {
-    e.is_connected()
 }

@@ -27,7 +27,7 @@ license     = "Apache-2.0"
 publish     = false
 
 [workspace]
-members = [".", "parts/mermaid"]
+members = [".", "parts/mermaid", "parts/canvas", "parts/pdf"]
 
 # The Mermaid renderer reads `std::time::Instant::now()` unconditionally, which panics on
 # `wasm32-unknown-unknown`: every diagram trapped in the browser. The copy under vendor/ differs from
@@ -35,6 +35,9 @@ members = [".", "parts/mermaid"]
 # the main workspace's lock file keeps crates.io's crate. Drop the patch when upstream has the fix.
 [patch.crates-io]
 mermaid-rs-renderer = { path = "vendor/mermaid-rs-renderer" }
+# `lopdf` 0.26 (the PDF reader) reaches `time` 0.2, whose `stdweb` cannot be built for the browser. The copy
+# under vendor/time differs from 0.2.27 only by dropping `stdweb` (see its Cargo.toml); the PDF part needs it.
+time = { path = "vendor/time" }
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -59,6 +62,11 @@ rayon       = { version = "1", optional = true }
 # allow-list of elements and attributes (view/svg.rs) - the player never inserts markup.
 quick-xml   = "0.36"
 
+# Native only: the fingerprint of the player's source (src/fingerprint.rs, WASM-016 R12), which
+# build_player records and the freshness test checks. The browser build never links it.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+sha2 = "0.10"
+
 # The browser crates are `wasm32` only: a native `cargo test` of the pure layers (the ABI host,
 # the state, the policies) compiles none of them, which keeps the test loop fast and small. The
 # DOM modules are `#[cfg(target_arch = "wasm32")]` and are checked and built for the
@@ -81,12 +89,13 @@ web-sys = { version = "0.3", features = [
     "CssStyleSheet", "CssRuleList", "DocumentFragment", "CanvasRenderingContext2d", "DomException", "ScrollToOptions",
     "ScrollBehavior", "FocusOptions", "HtmlCollection", "ProgressEvent", "StorageEvent",
     "PageTransitionEvent", "HashChangeEvent", "PopStateEvent", "HtmlLinkElement", "HtmlStyleElement", "HtmlHeadElement",
-    "console",
+    "console", "Range", "ImageData",
 ] }
 
 [dev-dependencies]
 # The engine the native tests run the fixture module on (WASM-PLAN P7): pure Rust, no JIT.
 wasmi = "2"
+tempfile = "3"
 # The Mermaid renderer the browser player loads as a part: the native tests turn it on here to give the
 # view layer a real answer to read (the player itself depends on `cobolt-forms` without it).
 cobolt-forms = { path = "../cobolt-forms", default-features = false, features = ["mermaid"] }

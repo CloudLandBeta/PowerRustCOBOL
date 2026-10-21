@@ -404,7 +404,7 @@ fn teardown_releases_every_instance_and_cancels_pending_requests() {
 
 #[test]
 fn the_player_refuses_a_form_description_that_is_not_in_the_program() {
-    let mut rig = Rig::new(true);
+    let rig = Rig::new(true);
     let alien = cobolt_forms::xml::load_form_from_str("<Form name=\"alien\" title=\"x\" width=\"1\" height=\"1\"></Form>").unwrap();
     let e = rig.host.borrow_mut().add_form(alien).unwrap_err();
     assert!(e.contains("alien") && e.contains("rebuild"), "{e}");

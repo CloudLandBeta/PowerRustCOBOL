@@ -36,7 +36,7 @@ use crate::css::{self, Decls};
 use crate::kinds::{player_kind, PlayerKind};
 use crate::layout_css;
 use crate::tree::{Ctl, Kind};
-use crate::value::{css_color, fmt_number, parse_color, parse_f64, truthy};
+use crate::value::{css_color, fmt_number, parse_color, parse_f64};
 
 /// The rules for a CSS string literal: `"` and `\` escaped, control characters dropped.
 pub fn css_string(s: &str) -> String {
@@ -532,11 +532,6 @@ pub fn wrap_layer(parts: &[String]) -> String {
     }
     out.push_str("}\n");
     out
-}
-
-#[allow(dead_code)]
-fn _unused(_: bool) -> bool {
-    truthy("1")
 }
 
 #[cfg(test)]

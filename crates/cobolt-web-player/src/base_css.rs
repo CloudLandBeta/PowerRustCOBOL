@@ -170,6 +170,11 @@ pub const BASE_CSS: &str = r#"
 .pr-viewer { overflow: auto; background: #1c1f24; padding: 8px; user-select: text; }
 .pr-viewer .pr-content { position: static; background: transparent; }
 .pr-viewer pre, .pr-viewer code { font-family: ui-monospace, Menlo, Consolas, monospace; }
+::highlight(pr-find) { background-color: #ffd54a; color: #1a1a1a; } ::highlight(pr-find-current) { background-color: #ff8a00; color: #000; }
+.pr-findbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 4px; align-items: center; padding: 4px; margin: -8px -8px 6px; background: var(--pr-surface-2); border-bottom: 1px solid var(--pr-border); }
+.pr-findbar input { flex: 1; min-width: 0; font: inherit; color: var(--pr-field-text); background: var(--pr-field); border: 1px solid var(--pr-border); border-radius: 4px; padding: 2px 6px; }
+.pr-findbar button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--pr-border); border-radius: 4px; min-width: 1.8em; cursor: pointer; } .pr-findbar button[aria-pressed="true"] { background: var(--pr-accent); color: #fff; }
+.pr-find-count { min-width: 4.5em; text-align: center; font-variant-numeric: tabular-nums; opacity: .85; }
 .pr-viewer .pr-mermaid { margin: 8px 0; background: #fff; border-radius: 4px; padding: 6px; overflow-x: auto; } .pr-viewer .pr-mermaid svg { max-width: 100%; height: auto; display: block; }
 .pr-viewer .pr-mermaid-source figcaption { opacity: .8; font-size: .9em; margin-bottom: 4px; } .pr-viewer .pr-mermaid-source[aria-busy="true"] figcaption { font-style: italic; }
 .pr-viewer pre { overflow: auto; padding: 8px; background: rgba(255,255,255,.05); border-radius: 4px; }

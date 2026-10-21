@@ -695,7 +695,11 @@ export async function mount(target, options = {}) {
       locale: (config.options && config.options.locale) || (env.navigator && env.navigator.language) || 'en',
       // A standalone page is opened to run one form (WASM-011 R9): `?pr-form=Name&pr-opener=handle`.
       start_form: options.startForm || query.get('pr-form') || '',
+      // What the form was opened with (WASM-011 R4): `pr-param-<name>=<value>` pairs, in the order given.
+      start_params: [...query.entries()].filter(([k]) => k.startsWith('pr-param-')).map(([k, v]) => [k.slice('pr-param-'.length), v]),
       opener_handle: query.get('pr-opener') || '',
+      // The private channel to the window that opened this one (WASM-011 R11): the token is the opener's.
+      super_token: query.get('pr-super') || '',
       tile_url: (config.options && config.options.tile_url) || '',
       image_origins: (config.options && config.options.image_origins) || [],
       app_url: (config.options && config.options.app_url) || '',
@@ -749,6 +753,7 @@ export async function mount(target, options = {}) {
     }
     if (config.assets && typeof player.set_assets === 'function') player.set_assets(JSON.stringify(config.assets));
     link.part = callPart;
+    link.partModule = loadPart;
     player.attach(link);
     if (!headless) {
       const root = el(doc, 'div', 'pr-root');
@@ -756,6 +761,8 @@ export async function mount(target, options = {}) {
       player.mount(root);
     }
     showStage(ui, texts.stage_start, 6, 6);
+    // A window another window opened waits (briefly) for that window's state, so the first handler reads it.
+    if (pcfg.super_token && typeof player.attach_opener === 'function') await player.attach_opener(pcfg.super_token, 1500);
     player.start();
     timing.started = env.performance ? env.performance.now() - t0 : 0;
 
@@ -776,6 +783,9 @@ export async function mount(target, options = {}) {
       playerConfig: pcfg,
       // Call a function of a part (loaded on first use); the player does this for the Viewer's diagrams.
       part: callPart,
+      // The part's module itself (loaded on first use), for a part whose exports are objects and bytes
+      // rather than text: the Canvas 2D part's `Canvas` (a display list in, RGBA out).
+      partModule: loadPart,
       async settled() {
         return player.settled();
       },

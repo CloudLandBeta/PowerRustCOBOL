@@ -381,7 +381,7 @@ await scenario('parts: the Mermaid renderer is fetched on first use, once, and n
   const app = await boot({ env: { hits } });
   const partHit = (h) => /part-mermaid/.test(h);
   eq(hits.filter(partHit).length, 0, 'nothing of the part is fetched at start: ' + hits.filter(partHit).join(','));
-  eq(Object.keys(app.config.player.parts).join(','), 'mermaid', 'the part is listed in the bundle');
+  eq(Object.keys(app.config.player.parts).sort().join(','), 'canvas,mermaid,pdf', 'the parts are listed in the bundle');
   check(/^sha(256|384|512)-/.test(app.config.player.parts.mermaid.wasm_integrity), 'with an integrity digest');
   const t0 = performance.now();
   const svg = await app.part('mermaid', 'render', 'flowchart LR\n  A[Start] --> B[Review]\n');
@@ -411,6 +411,40 @@ await scenario('parts: the Mermaid renderer is fetched on first use, once, and n
   check(/does not include/.test(noPart), 'a part the bundle lacks is a readable error: ' + noPart);
   await app.unmount();
   return { first_call_ms: Math.round(firstMs), second_call_ms: Math.round(secondMs), part_fetches: fetched.length };
+});
+
+await scenario('parts: the Canvas 2D part runs a display list and answers the picture', async () => {
+  const hits = [];
+  const app = await boot({ env: { hits } });
+  const partHit = (h) => /part-canvas/.test(h);
+  eq(hits.filter(partHit).length, 0, 'nothing of the part is fetched at start');
+  const mod = await app.partModule('canvas');
+  // PRGD v1: SetFillColor 0xFF0000FF, FillRect 0 0 4 4, Present.
+  const payload = [];
+  const u32 = (v) => payload.push(v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255);
+  const f32 = (v) => { const b = new Uint8Array(new Float32Array([v]).buffer); payload.push(...b); };
+  payload.push(0x30); u32(0xFF0000FF);
+  payload.push(0x20); f32(0); f32(0); f32(4); f32(4);
+  payload.push(0x05);
+  const head = [0x50, 0x52, 0x47, 0x44, 1, 0, 0, 0];
+  const tail = []; const t32 = (v) => tail.push(v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255);
+  t32(3); t32(payload.length);
+  const list = new Uint8Array([...head, ...tail, ...payload]);
+  const c = new mod.Canvas(8, 8, 1);
+  const t0 = performance.now();
+  eq(c.draw(list), 3, 'three commands ran');
+  const px = c.rgba();
+  const ms = performance.now() - t0;
+  eq(c.device_width() + 'x' + c.device_height(), '8x8', 'device size');
+  eq(Array.from(px.slice(0, 4)).join(','), '255,0,0,255', 'red inside the rectangle');
+  const last = (7 * 8 + 7) * 4;
+  eq(Array.from(px.slice(last, last + 4)).join(','), '0,0,0,0', 'transparent outside');
+  let bad = '';
+  try { c.draw(new Uint8Array([1, 2, 3])); } catch (e) { bad = String((e && e.message) || e); }
+  check(bad.length > 0, 'a damaged list is refused with a reason: ' + bad);
+  c.free();
+  await app.unmount();
+  return { draw_and_read_ms: +ms.toFixed(2), part_fetches: hits.filter(partHit).length };
 });
 
 await scenario('hosted sign-in return: the code reaches the player and leaves the address', async () => {

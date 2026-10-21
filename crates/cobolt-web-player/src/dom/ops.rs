@@ -19,7 +19,7 @@ use super::{js_num, Shared};
 use crate::api::{Inbox, Inner, Timeout};
 use crate::host::{Effect, OpenMode};
 use crate::view::interact::{self, Act, MenuTarget, UiOp};
-use crate::view::shell::{self, DialogSpec, Route as AppRoute, Toast};
+use crate::view::shell::{DialogSpec, Route as AppRoute, Toast};
 use crate::view::{Empty, ViewCtx};
 use cobolt_forms::snackbar::SnackCategory;
 
@@ -32,7 +32,7 @@ impl Shared {
             Effect::Dialog { id, kind, text, title, buttons, default } => {
                 self.show_dialog(DialogSpec { id: *id, kind: *kind, title: title.clone(), text: text.clone(), buttons: buttons.clone(), default: default.clone() });
             }
-            Effect::OpenWindow { handle, form, sync } => self.open_window(inner, handle, *form, *sync),
+            Effect::OpenWindow { handle, form, sync, params, opener } => self.open_window(inner, handle, *form, *sync, params, *opener),
             Effect::Stopped => self.set_banner(Some(("The application has ended.".to_owned(), false))),
             Effect::Title(t) => {
                 if inner.cfg.standalone || self.state.try_borrow().map(|s| s.chain.len() <= 1).unwrap_or(true) {
@@ -66,6 +66,8 @@ impl Shared {
             | Effect::Timer { .. }
             | Effect::Opened { .. }
             | Effect::Closed { .. }
+            | Effect::SuperSet { .. }
+            | Effect::SuperCall { .. }
             | Effect::AuthCall { .. }
             | Effect::AuthCaptcha { .. } => {}
         }
@@ -127,7 +129,7 @@ impl Shared {
     }
 
     fn navigate(self: &Rc<Self>, url: &str, target: &str) {
-        let policy = crate::weblink::Policy::default();
+        let policy = self.inner.upgrade().and_then(|i| i.host.try_borrow().ok().map(|h| h.policy.clone())).unwrap_or_default();
         match crate::weblink::check(url, false, &policy) {
             Ok(_) => {
                 let norm = crate::weblink::normalize(url);
@@ -149,14 +151,19 @@ impl Shared {
 
     // ── a form in a window of its own (WASM-011 R9–R12) ─────────────────────
 
-    fn open_window(self: &Rc<Self>, inner: &Rc<Inner>, handle: &str, form: usize, _sync: bool) {
+    fn open_window(self: &Rc<Self>, inner: &Rc<Inner>, handle: &str, form: usize, _sync: bool, params: &[(String, String)], opener: u32) {
         let name = inner.host.try_borrow().ok().map(|h| h.manifest.forms[form].name.clone()).unwrap_or_default();
         let base = if inner.cfg.app_url.trim().is_empty() {
             web_sys::window().and_then(|w| w.location().href().ok()).unwrap_or_default().split('#').next().unwrap_or("").split('?').next().unwrap_or("").to_owned()
         } else {
             inner.cfg.app_url.clone()
         };
-        let url = format!("{base}?pr-form={}&pr-opener={}", urlencode(&name), urlencode(handle));
+        // The window gets a private channel to this one (WASM-011 R11): `super::` there is this form.
+        let token = inner.super_open(opener);
+        let mut url = format!("{base}?pr-form={}&pr-opener={}&pr-super={}", urlencode(&name), urlencode(handle), urlencode(&token));
+        for (k, v) in params {
+            url.push_str(&format!("&pr-param-{}={}", urlencode(k), urlencode(v)));
+        }
         let win = web_sys::window().and_then(|w| w.open_with_url_and_target_and_features(&url, "_blank", "noopener=0").ok().flatten());
         match win {
             Some(win) => self.watch_window(handle.to_owned(), win, 0),
@@ -210,6 +217,13 @@ impl Shared {
                 self.update_rail(inner, inst, ctl, collapsed);
             }
             UiOp::DropOver(on) => self.with_ui(inst, |ui| ui.dropzone_over = if on { Some(ctl) } else { None }),
+            UiOp::Editing(on) => self.with_ui(inst, |ui| {
+                if on {
+                    ui.focused = Some(ctl);
+                } else if ui.focused == Some(ctl) {
+                    ui.focused = None;
+                }
+            }),
             UiOp::MapDrag { x, y, lat, lng } => self.with_ui(inst, |ui| {
                 ui.map_drag.insert(ctl, (x, y, lat, lng));
             }),
@@ -294,7 +308,7 @@ impl Shared {
             Act::Menu { item } => self.resolve_menu_item(inner, inst, ctl, &item),
             Act::OpenModal { form } => {
                 let mode = if inner.cfg.standalone { OpenMode::Window } else { OpenMode::Modal };
-                self.open_named(inner, &form, Some(inst), mode);
+                self.open_named(inner, &form, Some(inst), mode, Vec::new());
             }
             Act::Notice(t) => self.notice(&t),
             Act::OpenWindow { url, target, features, rel } => {
@@ -308,11 +322,11 @@ impl Shared {
         }
     }
 
-    fn open_named(self: &Rc<Self>, inner: &Rc<Inner>, form: &str, opener: Option<u32>, mode: OpenMode) {
+    fn open_named(self: &Rc<Self>, inner: &Rc<Inner>, form: &str, opener: Option<u32>, mode: OpenMode, params: Vec<(String, String)>) {
         let idx = inner.host.try_borrow().ok().and_then(|h| h.manifest.form_by_name(form).map(|f| f.id as usize));
         match idx {
             Some(i) => {
-                inner.host.borrow_mut().open_form(i, opener, mode);
+                inner.host.borrow_mut().open_form_with(i, opener, mode, params);
             }
             None => self.notice(&format!("The application has no form named {form}.")),
         }
@@ -336,7 +350,7 @@ impl Shared {
                     st.preserve_next = preserve_previous;
                 }
                 let mode = if shell_on { OpenMode::Embedded } else { OpenMode::Panel };
-                self.open_named(inner, &form, Some(inst), mode);
+                self.open_named(inner, &form, Some(inst), mode, Vec::new());
             }
             MenuTarget::Standalone { form, sync } => {
                 let mode = if inner.cfg.standalone {
@@ -346,7 +360,7 @@ impl Shared {
                 } else {
                     OpenMode::Panel
                 };
-                self.open_named(inner, &form, Some(inst), mode);
+                self.open_named(inner, &form, Some(inst), mode, Vec::new());
             }
             MenuTarget::None => {}
         }
@@ -392,9 +406,19 @@ impl Shared {
                 ui.viewer_docs.remove(&ctl);
             });
             let weak = Rc::downgrade(self);
+            let inner = inner.clone();
             wasm_bindgen_futures::spawn_local(async move {
+                let is_pdf = src.to_ascii_lowercase().ends_with(".pdf");
                 let doc = match url {
                     None => crate::view::viewer::LoadedDoc::failed(format!("`{src}` is not a file of this application")),
+                    // A PDF is read by its part (a module of its own, loaded the first time one is shown).
+                    Some(u) if is_pdf => match fetch_bytes(&u).await {
+                        Ok(bytes) => match inner.call_part_bytes("pdf", "read", &bytes).await {
+                            Ok(json) => crate::view::viewer::LoadedDoc::from_pdf_json(&json),
+                            Err(e) => crate::view::viewer::LoadedDoc::failed(format!("`{src}` could not be read as a PDF ({e})")),
+                        },
+                        Err(e) => crate::view::viewer::LoadedDoc::failed(format!("`{src}` could not be read ({e})")),
+                    },
                     Some(u) => match fetch_text(&u).await {
                         Ok(text) => crate::view::viewer::LoadedDoc::from_text(&src, text),
                         Err(e) => crate::view::viewer::LoadedDoc::failed(format!("`{src}` could not be read ({e})")),
@@ -466,13 +490,26 @@ impl Shared {
     /// The address names a form: show it (a deep link at start-up, the Back button later).
     pub(crate) fn follow_address(self: &Rc<Self>, inner: &Rc<Inner>) {
         let hash = web_sys::window().and_then(|w| w.location().hash().ok()).unwrap_or_default();
-        let Some(route) = AppRoute::parse(&hash) else { return };
+        let route = AppRoute::parse(&hash);
+        // An empty address is where the application started: the main form (Back past the first route).
+        // Any other address that is not a route (`#section`) is the page's own and none of ours.
+        if route.is_none() && !(hash.trim().is_empty() || hash.trim() == "#") {
+            return;
+        }
         let (shell_on, in_chain, above): (bool, bool, Vec<u32>) = {
             let Ok(st) = self.state.try_borrow() else { return };
-            let at = st.chain.iter().position(|c| st.instances.get(&c.inst).is_some_and(|iv| iv.form.eq_ignore_ascii_case(&route.form)));
-            match at {
-                Some(a) => (st.shell, true, st.chain[a + 1..].iter().rev().map(|c| c.inst).collect()),
-                None => (st.shell, false, Vec::new()),
+            match &route {
+                None => (st.shell, true, st.chain.iter().skip(1).rev().map(|c| c.inst).collect()),
+                Some(route) => {
+                    let at = st.chain.iter().position(|c| st.instances.get(&c.inst).is_some_and(|iv| iv.form.eq_ignore_ascii_case(&route.form)));
+                    // The form is already shown, but opened with other parameters than the address names: it is
+                    // opened again (the shown one is replaced), not left as it was.
+                    let same_params = |inst: u32| inner.host.try_borrow().ok().and_then(|h| h.trees.get(&inst).map(|t| t.params == route.params)).unwrap_or(true);
+                    match at {
+                        Some(a) if same_params(st.chain[a].inst) => (st.shell, true, st.chain[a + 1..].iter().rev().map(|c| c.inst).collect()),
+                        _ => (st.shell, false, Vec::new()),
+                    }
+                }
             }
         };
         if !shell_on {
@@ -482,10 +519,10 @@ impl Shared {
             for i in above {
                 inner.push(Inbox::CloseInstance(i));
             }
-        } else {
+        } else if let Some(route) = &route {
             let main = self.state.try_borrow().ok().and_then(|st| st.chain.first().map(|c| c.inst));
             if let Some(main) = main {
-                self.open_named(inner, &route.form, Some(main), OpenMode::Embedded);
+                self.open_named(inner, &route.form, Some(main), OpenMode::Embedded, route.params.clone());
             }
         }
     }
@@ -506,6 +543,18 @@ impl Shared {
 }
 
 /// `fetch(url)` of a file of the bundle, as text.
+async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let w = web_sys::window().ok_or("no window")?;
+    let resp = wasm_bindgen_futures::JsFuture::from(w.fetch_with_str(url)).await.map_err(|e| format!("{e:?}"))?;
+    if !Reflect::get(&resp, &"ok".into()).ok().and_then(|v| v.as_bool()).unwrap_or(false) {
+        return Err(format!("HTTP {}", js_num(&resp, "status")));
+    }
+    let f = Reflect::get(&resp, &"arrayBuffer".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()).ok_or("no arrayBuffer()")?;
+    let p = f.call0(&resp).map_err(|e| format!("{e:?}"))?;
+    let v = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(p)).await.map_err(|e| format!("{e:?}"))?;
+    Ok(js_sys::Uint8Array::new(&v).to_vec())
+}
+
 async fn fetch_text(url: &str) -> Result<String, String> {
     let w = web_sys::window().ok_or("no window")?;
     let resp = wasm_bindgen_futures::JsFuture::from(w.fetch_with_str(url)).await.map_err(|e| format!("{e:?}"))?;
@@ -528,9 +577,4 @@ fn urlencode(s: &str) -> String {
         }
     }
     out
-}
-
-#[allow(dead_code)]
-fn _n(o: &JsValue) -> f64 {
-    js_num(o, "x")
 }

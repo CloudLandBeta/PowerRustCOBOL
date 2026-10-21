@@ -59,6 +59,32 @@ pub const PNG_DATA_URI: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA
 
 pub const DOC_MD: &str = "# The gallery document\n\nA *Markdown* file of the application, **read by the page** and drawn as nodes.\n\n- one\n- two\n\n| A | B |\n|---|--:|\n| 1 | 2 |\n\n[a link](https://example.com/) and `code`.\n\n```mermaid\nflowchart LR\n  A[Start] --> B[Review] --> C[Done]\n```\n";
 
+/// A one-page PDF with two lines of text (Helvetica, US Letter), with a correct cross-reference table: what the
+/// gallery's PDF Viewer reads through the player's PDF part.
+pub fn doc_pdf() -> Vec<u8> {
+    let content = "BT /F1 18 Tf 72 700 Td (Hello from the PDF part) Tj 0 -24 Td (Second line of the page) Tj ET";
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_owned(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+    ];
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for off in offsets {
+        out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
+    out
+}
+
 pub fn menu_yaml(items: Vec<MenuItem>) -> String {
     let dir = tempfile::tempdir().expect("a temp dir");
     let p = dir.path().join("m.menu.yaml");
@@ -138,6 +164,8 @@ pub fn gallery_cfrm(standard: &str, o: &Options) -> String {
     s += &ctl("SHP-3", "Shape", 680, 522, 60, 50, None, None, &[("ShapeType", "Triangle"), ("FillColor", "#F59E0B")]);
     s += &ctl("TRE-G", "TreeView", 540, 584, 240, 130, None, None, &[("Items", "Root\n  Child A\n  Child B\nOther"), ("CheckBoxes", "1"), ("SelectedNode", "Child A")]);
     s += &ctl("VWR-G", "Viewer", 540, 722, 240, 200, None, None, &[("Source", "Assets/doc.md")]);
+    s += &ctl("VWR-PDF", "Viewer", 540, 1080, 240, 200, None, None, &[("Source", "Assets/doc.pdf")]);
+    s += &ctl("CNV-G", "Canvas2D", 540, 1290, 240, 120, None, None, &[("Width", "240"), ("Height", "120")]);
     // Column C
     s += &ctl("GRD-G", "DataGrid", 800, 10, 380, 150, None, None, &[("Columns", "Name:string\nQty:number"), ("Rows", &rows)]);
     let data = "Q1\t10\t4\nQ2\t24\t8\nQ3\t17\t12\nQ4\t30\t9";
@@ -158,6 +186,8 @@ pub fn gallery_cfrm(standard: &str, o: &Options) -> String {
     s += &ctl("LNK-G", "WebLink", 240, 812, 200, 24, None, None, &[("Url", "https://example.com/"), ("Caption", "example.com"), ("Target", "NewTab")]);
     s += &ctl("SNK-G", "Snackbar", 240, 840, 56, 56, None, None, &[("Text", "Saved"), ("Category", "Info"), ("Buttons", "undo|Undo")]);
     s += &ctl("AUTH-G", "Authentication", 240, 904, 290, 220, None, None, &spatial(&[]));
+    s += &ctl("TXT-NUM", "TextBox", 540, 1010, 240, 28, None, None, &[("Picture", "ZZ,ZZ9.99-"), ("Text", "1234.5")]);
+    s += &ctl("TXT-ALPHA", "TextBox", 540, 1044, 240, 28, None, None, &[("Picture", "A(8)"), ("Text", "abc")]);
 
     let mut xml = standard.to_owned();
     let size = format!("width=\"1220\" height=\"1130\" background=\"#2E3138FF\" index-base=\"1\"{}", if o.responsive { " responsive=\"true\"" } else { "" });

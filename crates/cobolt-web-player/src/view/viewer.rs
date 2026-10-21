@@ -29,7 +29,7 @@ use cobolt_forms::viewer::{mermaid_kind, Background, Block, BoxStyle, Conversati
 use super::controls::root;
 use super::svg::svg_to_vnode;
 use super::{MermaidState, VNode, ViewCtx};
-use crate::value::{fmt_number, parse_f64};
+use crate::value::{fmt_number, parse_f64, truthy};
 use crate::weblink::{check, Policy};
 
 /// A document the page has read for a Viewer: its text and how to read it.
@@ -46,6 +46,8 @@ pub enum DocFormat {
     Markdown,
     Html,
     Text,
+    /// A PDF the PDF part read: the pages' text, separated by a form feed (`\u{c}`).
+    Pdf,
 }
 
 impl LoadedDoc {
@@ -62,6 +64,21 @@ impl LoadedDoc {
         LoadedDoc { format, text, error: None }
     }
 
+    /// A PDF the PDF part answered, as its JSON (`{"pages":[{"width":..,"height":..,"text":".."}]}`): each page
+    /// becomes a heading with its size and its text. The desktop Viewer also paints the page's lines and
+    /// rectangles; this one shows the text, which is what a reader and a screen reader use.
+    pub fn from_pdf_json(json: &str) -> LoadedDoc {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else { return LoadedDoc::failed("the PDF reader answered something unreadable") };
+        let pages: Vec<String> = v["pages"]
+            .as_array()
+            .map(|a| a.iter().map(|p| format!("{} x {} pt\n{}", p["width"].as_f64().unwrap_or(0.0).round(), p["height"].as_f64().unwrap_or(0.0).round(), p["text"].as_str().unwrap_or(""))).collect())
+            .unwrap_or_default();
+        if pages.is_empty() {
+            return LoadedDoc::failed("the PDF has no pages");
+        }
+        LoadedDoc { format: DocFormat::Pdf, text: pages.join("\u{c}"), error: None }
+    }
+
     pub fn failed(message: impl Into<String>) -> LoadedDoc {
         LoadedDoc { format: DocFormat::Text, text: String::new(), error: Some(message.into()) }
     }
@@ -71,6 +88,17 @@ impl LoadedDoc {
             DocFormat::Markdown => cobolt_forms::viewer::parse_markdown(&self.text).blocks,
             DocFormat::Html => cobolt_forms::viewer::parse_html(&self.text).blocks,
             DocFormat::Text => vec![Block::CodeBlock { language: None, text: self.text.clone() }],
+            DocFormat::Pdf => {
+                let n = self.text.split('\u{c}').count();
+                let mut out = Vec::new();
+                for (k, page) in self.text.split('\u{c}').enumerate() {
+                    let (size, body) = page.split_once('\n').unwrap_or((page, ""));
+                    let title = format!("Page {} of {} ({size})", k + 1, n);
+                    out.push(Block::Heading { level: 3, content: vec![Inline::Text { text: title, style: Default::default() }] });
+                    out.push(Block::CodeBlock { language: None, text: body.to_owned() });
+                }
+                out
+            }
         }
     }
 }
@@ -125,7 +153,7 @@ fn inline_styles(mut n: VNode, s: &TextStyle) -> VNode {
 
 /// The scheme check every link goes through (the WebLink policy: `http`, `https`, `mailto`, `tel`,
 /// a bundle-relative path or a fragment; never `javascript:` or `data:`).
-pub fn link_allowed(url: &str) -> bool {
+pub fn link_allowed(url: &str, policy: &Policy) -> bool {
     let u = url.trim();
     if u.is_empty() {
         return false;
@@ -133,7 +161,7 @@ pub fn link_allowed(url: &str) -> bool {
     if u.starts_with('#') {
         return true;
     }
-    check(u, false, &Policy::default()).is_ok()
+    check(u, false, policy).is_ok()
 }
 
 fn inline(cx: &ViewCtx, it: &Inline, key: String) -> VNode {
@@ -146,7 +174,7 @@ fn inline(cx: &ViewCtx, it: &Inline, key: String) -> VNode {
                 }
             }
             if let Some(href) = style.link.as_deref() {
-                if link_allowed(href) {
+                if link_allowed(href, &cx.tree.policy) {
                     let external = !href.trim().starts_with('#');
                     let mut a = VNode::new("a").key("a").attr("href", href.trim());
                     if external {
@@ -439,7 +467,7 @@ fn bubble_color(c: &str) -> String {
 }
 
 pub fn view(cx: &ViewCtx, i: usize) -> VNode {
-    let mut n = root(cx, i, "div").attr("role", "document").attr("tabindex", "0").on("scroll");
+    let mut n = root(cx, i, "div").attr("role", "document").attr("tabindex", "0").on("scroll").on("keydown");
     let zoom = parse_f64(&cx.tree.get(i, "Zoom")).or_else(|| parse_f64(&cx.tree.get(i, "View1Zoom"))).unwrap_or(100.0).clamp(25.0, 1600.0);
     let mut content = VNode::new("div").key("content").class("pr-content").style("font-size", format!("{}%", fmt_number(zoom)));
     let conv = cx.tree.conversation(i).filter(|c| !c.is_empty());
@@ -461,13 +489,52 @@ pub fn view(cx: &ViewCtx, i: usize) -> VNode {
     if !err.is_empty() {
         content = content.child(VNode::new("p").key("last-error").class("pr-error").attr("role", "alert").text(err));
     }
+    if truthy(&cx.tree.get(i, "View1FindOpen")) {
+        n = n.child(find_bar(cx, i));
+    }
     n = n.child(content);
     n
 }
 
+/// The Find bar (spec 058 R26–R30): a search box, "n / m", Previous, Next, Match case and Close. The needle,
+/// the case switch and the current match are the control's properties (`View1SearchText`,
+/// `View1SearchCaseSensitive`, `View1SearchCurrentMatch`, from 1; 0 = none), as on the desktop; the page counts
+/// the matches in the text it shows and highlights them (`dom/find.rs`).
+fn find_bar(cx: &ViewCtx, i: usize) -> VNode {
+    let total = cx.ui.find_total.get(&i).copied().unwrap_or(0);
+    let needle = cx.tree.get(i, "View1SearchText");
+    let current = parse_f64(&cx.tree.get(i, "View1SearchCurrentMatch")).map(|v| v.max(0.0) as usize).unwrap_or(0);
+    let case = truthy(&cx.tree.get(i, "View1SearchCaseSensitive"));
+    let counter = if needle.is_empty() { String::new() } else { cobolt_forms::viewer::find_counter_text(current.saturating_sub(1).min(total.saturating_sub(1)), total) };
+    let button = |key: &'static str, part: &'static str, label: &'static str, text: &'static str| {
+        VNode::new("button").key(key).attr("type", "button").attr("data-part", part).attr("aria-label", label).attr("title", label).on("click").text(text)
+    };
+    VNode::new("div")
+        .key("findbar")
+        .class("pr-findbar")
+        .attr("role", "search")
+        .child(
+            VNode::new("input")
+                .key("find-input")
+                .attr("type", "search")
+                .attr("aria-label", "Find in the document")
+                .attr("autocomplete", "off")
+                .attr("spellcheck", "false")
+                .attr("autofocus", "")
+                .prop_str("value", needle)
+                .on("input")
+                .on("keydown"),
+        )
+        .child(VNode::new("span").key("count").class("pr-find-count").attr("role", "status").attr("aria-live", "polite").text(counter))
+        .child(button("prev", "find-prev", "Previous match", "\u{2039}"))
+        .child(button("next", "find-next", "Next match", "\u{203a}"))
+        .child(button("case", "find-case", "Match case", "Aa").attr("aria-pressed", if case { "true" } else { "false" }))
+        .child(button("close", "find-close", "Close find", "\u{00d7}"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::{Empty, UiState};
+    use super::super::{Empty, Prop, UiState};
     use super::*;
     use crate::tree::testing::tree_with;
     use cobolt_forms::viewer::{AppendMode, MessageRole};
@@ -626,6 +693,54 @@ mod tests {
         c.append_as(AppendMode::Markdown, &format!("```mermaid\n{FLOW}```\n"), MessageRole::Agent);
         t2.conversations.insert(i2, c);
         assert_eq!(mermaid_sources(&Empty::default().cx(&t2), i2), vec![FLOW.to_owned()]);
+    }
+
+    #[test]
+    fn the_find_bar_shows_the_needle_the_live_counter_and_its_buttons_only_while_it_is_open() {
+        let (mut t, i) = tree_with("Viewer", "VW-1", &[]);
+        let mut e = Empty::default();
+        e.ui.viewer_docs.insert(i, LoadedDoc { format: DocFormat::Markdown, text: "alpha beta alpha".into(), error: None });
+        assert!(view(&e.cx(&t), i).find(&|x| x.has_class("pr-findbar")).is_none(), "closed: no bar");
+        t.set(i, "View1FindOpen", "1");
+        t.set(i, "View1SearchText", "alpha");
+        t.set(i, "View1SearchCurrentMatch", "2");
+        e.ui.find_total.insert(i, 2);
+        let n = view(&e.cx(&t), i);
+        let bar = n.find(&|x| x.has_class("pr-findbar")).expect("the bar");
+        assert_eq!(bar.attr_of("role"), Some("search"));
+        let input = bar.find_tag("input").unwrap();
+        assert_eq!((input.attr_of("type"), input.prop_of("value")), (Some("search"), Some(&Prop::Str("alpha".into()))));
+        assert_eq!(bar.find(&|x| x.has_class("pr-find-count")).unwrap().all_text(), "2 / 2", "the desktop's own counter text");
+        let parts: Vec<&str> = {
+            let mut b = Vec::new();
+            bar.find_all(&|x| x.tag == "button", &mut b);
+            b.iter().map(|x| x.attr_of("data-part").unwrap()).collect()
+        };
+        assert_eq!(parts, ["find-prev", "find-next", "find-case", "find-close"]);
+        assert!(bar.find(&|x| x.attr_of("aria-pressed") == Some("false")).is_some(), "Match case is a toggle that says its state");
+        // Nothing found says so honestly; no needle shows no counter.
+        e.ui.find_total.insert(i, 0);
+        t.set(i, "View1SearchCurrentMatch", "0");
+        assert_eq!(view(&e.cx(&t), i).find(&|x| x.has_class("pr-find-count")).unwrap().all_text(), "0 / 0");
+        t.set(i, "View1SearchText", "");
+        assert_eq!(view(&e.cx(&t), i).find(&|x| x.has_class("pr-find-count")).unwrap().all_text(), "");
+        // The bar is not the document: the content is still there, after it.
+        assert!(view(&e.cx(&t), i).find(&|x| x.has_class("pr-content")).is_some());
+    }
+
+    #[test]
+    fn a_pdf_the_part_read_shows_one_heading_and_one_text_block_per_page_and_an_empty_one_says_so() {
+        let doc = LoadedDoc::from_pdf_json(r#"{"pages":[{"width":612,"height":792,"text":"first\nline"},{"width":595.2,"height":841.8,"text":"second"}]}"#);
+        assert_eq!(doc.error, None);
+        let blocks = doc.blocks();
+        assert_eq!(blocks.len(), 4, "a heading and a text block for each of the two pages");
+        let Block::Heading { content, .. } = &blocks[2] else { panic!("a heading") };
+        let Inline::Text { text, .. } = &content[0] else { panic!("text") };
+        assert_eq!(text, "Page 2 of 2 (595 x 842 pt)");
+        let Block::CodeBlock { text, .. } = &blocks[1] else { panic!("the text") };
+        assert_eq!(text, "first\nline", "the page's line structure is kept");
+        assert!(LoadedDoc::from_pdf_json(r#"{"pages":[]}"#).error.is_some(), "no pages is said, not drawn blank");
+        assert!(LoadedDoc::from_pdf_json("not json").error.is_some());
     }
 
     #[test]

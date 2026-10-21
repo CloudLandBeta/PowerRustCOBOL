@@ -181,7 +181,7 @@ Verbs the player implements (names are case-insensitive). **Suspends** means the
 | | `Confirm` | text, title, buttons | as above, with the answer buttons of a question | until it is closed |
 | | `InputBox` | text, title, default | the typed text is `DialogResult` | until it is closed |
 | | `Sleep` · `Wait` | milliseconds | a timer | until it fires |
-| | `OpenFormSync` · `OpenFormAsync` | form name | the form as a modal dialog / a modeless panel (SPA), or a window of its own (standalone); answers a **handle** | `Sync`: until the child closes |
+| | `OpenFormSync` · `OpenFormAsync` | form name, then optional `name=value` **parameters** (at most 16; a name is letters, digits, `-` `_` `.`, a value up to 512 characters) | the form as a modal dialog / a modeless panel (SPA), or a window of its own (standalone); the parameters are the query of its route (`#/form?id=7`) or of its address (`?pr-form=…&pr-param-id=7`); answers a **handle**. A bad parameter refuses the open | `Sync`: until the child closes |
 | | `Navigate` · `OpenUrl` | address, target | the address, through the WebLink policy (WASM-006 R4) | no |
 | | `Download` | file name, text | the browser's download of the text | no |
 | | `CopyToClipboard` | text | the clipboard | no |
@@ -189,6 +189,7 @@ Verbs the player implements (names are case-insensitive). **Suspends** means the
 | | `GetProperty` · `SetProperty` | name, value | the application's own properties (`DialogResult`, `Locale`, `Standalone`, `Title`, …) | no |
 | | `StopRun` · `Exit` | — | the application ends (`STOPPED`, §4) | — |
 | `me::` (ctrl 0) | `OpenFormSync` · `OpenFormAsync` | form name | as above | `Sync` only |
+| | `GetParam` · `GetParams` | name | what this form was opened with (also from a deep link): one value by name (empty when absent, names are case-insensitive), or all as `name=value` lines. Readable in the first handler: the form's state is made before it runs | no |
 | | `Close` | — | the form is closed **after the running handler finishes** | no |
 | | `SetTitle` · `SetFullscreen` · `SetFocus` · `GetFormState` … | | window-level verbs | no |
 | Authentication control | `SignOut` · `Refresh` · `GetClaim` | claim name | the control's session (WASM-009 R3); `GetClaim` answers a claim's value, never the token | no |

@@ -22,7 +22,9 @@
 //!   and queues what the user did into the driver's inbox instead of acting at once.
 
 mod apply;
+mod canvas;
 pub(crate) mod captcha;
+mod find;
 mod h;
 mod instance;
 mod ops;
@@ -43,7 +45,7 @@ use crate::net::LinkState;
 use crate::tree::Change;
 use crate::view::interact::{self, Act, UiOp};
 use crate::view::shell::{self, Crumb, DialogSpec, Toast};
-use crate::view::{VNode, ViewCtx};
+use crate::view::ViewCtx;
 
 use apply::{Dispatch, NodeRec};
 use instance::InstanceView;
@@ -104,7 +106,6 @@ pub(crate) struct State {
     pub files: HashMap<(u32, usize), Vec<web_sys::File>>,
     pub dirty: BTreeSet<(u32, usize)>,
     pub panels: u32,
-    pub sidebar: Option<bool>,
 }
 
 pub(crate) struct Shared {
@@ -116,6 +117,10 @@ pub(crate) struct Shared {
     pub state: RefCell<State>,
     me: RefCell<Weak<Shared>>,
     nav: RefCell<Option<h::Listener>>,
+    /// What the page highlighted for each Viewer whose Find bar is open (`dom/find.rs`).
+    find: RefCell<find::FindMap>,
+    /// The Canvas 2D controls the page has drawn on (WASM-018).
+    canvas: RefCell<canvas::CanvasMap>,
 }
 
 pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface>, String> {
@@ -161,7 +166,6 @@ pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface
         files: HashMap::new(),
         dirty: BTreeSet::new(),
         panels: 0,
-        sidebar: None,
     };
     let sh = Rc::new(Shared {
         inner: Rc::downgrade(inner),
@@ -172,6 +176,8 @@ pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface
         state: RefCell::new(state),
         me: RefCell::new(Weak::new()),
         nav: RefCell::new(None),
+        find: RefCell::new(Default::default()),
+        canvas: RefCell::new(Default::default()),
     });
     *sh.me.borrow_mut() = Rc::downgrade(&sh);
     let nav = sh.watch_address();
@@ -185,10 +191,6 @@ struct Dom {
 }
 
 impl Shared {
-    fn rc(&self) -> Rc<Shared> {
-        self.me.borrow().upgrade().expect("the surface is alive while it is used")
-    }
-
     /// A listener target that reports to `route`.
     pub(crate) fn dispatch(&self, route: Route) -> Dispatch {
         let weak = self.me.borrow().clone();
@@ -282,7 +284,19 @@ impl Shared {
         }
         // A drag (a map pan, a knob turn, the splitter's handle) keeps hearing the pointer after it
         // leaves the element: capture it for the length of the press.
-        if kind == "pointerdown" && (key == "handle" || acts.iter().any(|a| matches!(a, Act::Ui(UiOp::MapDrag { .. }) | Act::Ui(UiOp::Focus)))) {
+        let capture = kind == "pointerdown" && (key == "handle" || acts.iter().any(|a| matches!(a, Act::Ui(UiOp::MapDrag { .. }) | Act::Ui(UiOp::Focus))));
+        // What only the page needs to know (where a drag began, that a box has the focus) is recorded **now**, not
+        // when the driver next takes the inbox in: the pointer moves that follow a press can arrive in the same
+        // turn, and each is read against what the press recorded.
+        let (now, acts): (Vec<Act>, Vec<Act>) = acts
+            .into_iter()
+            .partition(|a| matches!(a, Act::Ui(UiOp::MapDrag { .. } | UiOp::MapDragEnd | UiOp::Editing(_) | UiOp::DropOver(_))));
+        for a in now {
+            if let Act::Ui(op) = a {
+                self.ui_op(&inner, inst, ctl, op);
+            }
+        }
+        if capture {
             if let Some(cur) = ev.current_target().and_then(|t| t.dyn_into::<Element>().ok()) {
                 let id = js_sys::Reflect::get(ev.as_ref(), &"pointerId".into()).unwrap_or(JsValue::UNDEFINED);
                 let _ = js_sys::Reflect::get(&cur, &"setPointerCapture".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()).map(|f| f.call1(&cur, &id));
@@ -656,8 +670,8 @@ fn js_value(el: &Element) -> String {
 // ── the Surface the driver talks to ─────────────────────────────────────────
 
 impl Surface for Dom {
-    fn opened(&self, inner: &Rc<Inner>, inst: u32, mode: OpenMode, handle: Option<String>) {
-        self.sh.open_instance(inner, inst, mode, handle);
+    fn opened(&self, inner: &Rc<Inner>, inst: u32, mode: OpenMode) {
+        self.sh.open_instance(inner, inst, mode);
     }
 
     fn closed(&self, inner: &Rc<Inner>, inst: u32) {
@@ -706,10 +720,6 @@ impl Surface for Dom {
 
     fn styles_changed(&self, inner: &Rc<Inner>) {
         self.sh.styles_changed(inner);
-    }
-
-    fn fatal(&self, message: &str) {
-        self.sh.set_banner(Some((message.to_owned(), true)));
     }
 
     fn unmount(&self) {
@@ -829,6 +839,3 @@ impl Shared {
         h::clear(&self.root);
     }
 }
-
-#[allow(dead_code)]
-fn _vnode(_: VNode) {}
