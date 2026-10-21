@@ -17,6 +17,25 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.28] — 2026-10-21
+
+*(Written on `features-2x`, after 2.0.27.)*
+
+### Merged: the backend and the browser player into the WebAssembly line
+
+The unmerged work of two agent branches now sits in `features-2x` as a linear history, with no merge commit:
+
+- the backend (`worktree-agent-a24ab0673830285c1`): six commits applied by cherry-pick with `-x` (WASM-005 M1 and M2, WASM-003 M3, WASM-014 M4 and its fix, WASM-009 plan and drafts);
+- the player (`worktree-agent-ae5ab6056533b0f2f`): eleven commits as one squash (`47ce767b`), the player's later work after 2.0.24.
+
+The IDE and graphics branches, and the `RETURNING` fix branch, held no content that `features-2x` lacked, so they are redundant.
+
+The System KB store was regenerated after the merge (3515 records from 8 documents), and `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+
+On the merged line, `cargo check --workspace` reports no errors. The NIST ledger is reproduced: execution gives NC 95/95 (4614 PASS / 0 FAIL / 5 DELETED), IF 45/45 (841 / 0), IC 25/25 (309 / 0 / 4) and SQ 85/85 (624 / 0 / 6); compile conformance gives NC 95/95, IF 45/45, IC 47/47 and SQ 85/85. The `OBIC`, `OBNC` and `OBSQ` modules are outside the ledger (N-A).
+
+Version 2.0.28. `README.md` and `docs/` are untouched on this line.
+
 ## [PowerRustCOBOL 2.0.27] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.26.)*
