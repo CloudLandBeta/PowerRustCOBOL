@@ -92,6 +92,10 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
   legacy script-in-CSS constructs shall be refused; the build shall print the style and font sources the Content-Security-Policy must allow (WASM-002 R14).
 - **R14 (constraint):** A desktop form shall be unchanged: it has no stylesheet, and the new properties exist only on the web and mobile kinds.
 
+**Form layers (spec 091, adapted to HTML)**
+- **R15 (ubiquitous):** A layer root shall be a stacking context over the form's rectangle (`position: absolute; inset: 0`), with `overflow: hidden` and the form's `border-radius`, so that a layer clips with the base (WASM-004 R14, R17). The CSS stacking context is the mechanism: a `z-index` inside a layer can never leave it.
+- **R16 (constraint):** No `CssClass`, `Style` or form-stylesheet rule shall set `position`, `z-index`, `display`, `visibility`, `inert` or `pointer-events` on a layer root or on a control's layer container, because each would break the layering and visibility rules of WASM-004 R14–R16. Check reports such a rule with its line, and the Properties panel marks it as it marks a property a rule overrides (R12).
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — A test enumerates every appearance property and checks that the table has an entry for it with a marking; an unmapped property fails the test.
@@ -103,11 +107,12 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 - [ ] **AC7** — A stylesheet with a remote `url()` is refused unless that origin is allowed; the printed policy lists the sources actually used.
 - [ ] **AC8** — A style change appears in the open Preview within the budget the plan sets (measured and reported).
 - [ ] **AC9** — The modal keeps the same rectangle over 120 frames in each of the six languages and after dragging the grip it keeps the dragged size (the self-resizing guard).
+- [ ] **AC10** — A stylesheet rule that sets `z-index` or `pointer-events` on a layer root is reported by Check with its line (R16).
 
 ## 6. Constraints & steering check
 
 - **i18n:** yes — the modal, its buttons, the diagnostics' texts and the tooltips' markings, six languages.
-- **Generated-code contract:** the stylesheet is form data (in the `.cfrm`, CDATA — it must never contain `]]>`, which is a diagnostic — or in a file, Q2), not generated COBOL; the web output reads it.
+- **Generated-code contract:** the stylesheet is form data (in the form file — `.wcfrm`, `.mcfrm` or `.cfrm` — CDATA — it must never contain `]]>`, which is a diagnostic — or in a file, Q2), not generated COBOL; the web output reads it.
 - **Docs:** `docs/` untouched on 2.x.x.
 - **System KB:** **required** — `CssClass`, `Style` and the stylesheet are properties/behaviours of controls and forms: update `property_reference_for`/`control_structure` and regenerate `chunked.data`.
 - **Self-resizing windows:** R7 and AC9 apply the project's golden rule; read the `egui-resize-guardian` and `egui-paint-regressions` notes before building the modal.
@@ -117,8 +122,8 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 
 - **Q1 — Precedence — decided.** The operator ruled on 2026-10-19: **CSS wins** over the Properties panel (R8). The consequence to design for: a developer can edit a property that CSS overrides, and see no effect — R12 makes the Properties
   panel say so.
-- **Q2 — Where the stylesheet lives:** inside the `.cfrm` (one file per form, no extra file to lose, a CDATA caveat) or as `forms/<Form>.css` (an ordinary file any CSS tool can open)? Recommended: a file beside the
-  form, referenced from the `.cfrm`.
+- **Q2 — Where the stylesheet lives:** inside the form file (`.wcfrm`, `.mcfrm` or `.cfrm`; one file per form, no extra file to lose, a CDATA caveat) or as `forms/<Form>.css` (an ordinary file any CSS tool can open)? Recommended: a file beside the
+  form, referenced from the form file.
 - **Q3 — A project-wide stylesheet** (an application stylesheet under the forms' ones) is not asked for; add it now or leave it to a later spec? Recommended: leave it, but reserve its place in the cascade.
 - **Q4 — Class naming** (`pr-button`) and the list of custom properties are a public contract once shipped; settle them at `/plan` and pin them with a test.
 - **Q5 — The visual bar:** how close to the desktop's Spatial/Liquid Glass look must the CSS get — the glass shadows, the perspective and spec 057's drawn corners have no exact CSS twin. Accept "approximate"

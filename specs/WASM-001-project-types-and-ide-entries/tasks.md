@@ -1,6 +1,6 @@
 # Tasks — Project types, the New Project selector and the IDE entries
 
-- **Status:** in progress — T1–T13 done (results at the bottom); T14 is open (blocked on WASM-004)
+- **Status:** in progress — T1–T13 done (results at the bottom); T14 is open (blocked on WASM-004); T15 is open (form file extensions, decided 2026-10-20)
 - **Plan:** ./plan.md   **Date:** 2026-10-20
 
 Ordered, small, independently verifiable. Commits are on the worktree branch `worktree-agent-a97ba65c65571c2df`
@@ -62,6 +62,8 @@ Ordered, small, independently verifiable. Commits are on the worktree branch `wo
 - [x] **T13 — Final sweep** (AC7) — results below.
 
 - [ ] **T14 — Toolbox by kind** (R14, second half) — **blocked**: needs the web class table of WASM-004 R5/R12.
+
+- [ ] **T15 — Form file extensions `.wcfrm` and `.mcfrm`** (Q2, decided 2026-10-20) — **open**: web forms are written as `.wcfrm` and mobile forms as `.mcfrm`; load, save, the tree, the compiler's project reader, the project tools, the agent kit and the plugin rules recognise both. The rule for a `.cfrm` already inside a web or mobile project (keep, convert or report) is decided in `/plan`.
 
 ## Done criteria
 

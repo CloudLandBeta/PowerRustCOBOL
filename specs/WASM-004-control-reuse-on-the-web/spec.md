@@ -76,7 +76,7 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
 ## 4. Requirements (EARS)
 
 **One definition**
-- **R1 (ubiquitous):** A control on a web or mobile form shall be the same `.cfrm` control as on a desktop form: same type name, same property names and value
+- **R1 (ubiquitous):** A control on a web or mobile form shall be the same control as on a desktop form, stored in a web or mobile form file (`.wcfrm` or `.mcfrm`, WASM-001 Q2): same type name, same property names and value
   types, same events and methods. The web shall not introduce a parallel property set; a property that exists on the web only (WASM-007's `CssClass`, `Style`)
   shall be added to the model like any other.
 - **R2 (ubiquitous):** Each control shall have exactly one **primary** class (A–E) recorded in one place the toolbox, Check, the KB and the agent kit all read, plus, where
@@ -111,6 +111,20 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
 - **R12 (ubiquitous):** The System KB tables shall state the class of every control and the web-only members, and the regenerated `assets/knowledge/chunked.data`
   shall carry them (the freshness test is a real gate).
 
+**Form layers and the Non-Visuals tab, on the web (spec 091, adapted to HTML)**
+- **R13 (ubiquitous):** A web or mobile form shall carry the form layers of spec 091: the base, named `Form`, and up to 64 layers above it, and each control shall name its `Layer` (default `Form`), with the same records as a desktop `.cfrm`, in a web or mobile form file (`.wcfrm` or `.mcfrm`, WASM-001 Q2). The design-time rules of spec 091 (its R9–R11, R23–R32 and R43–R71) apply to web forms unchanged, because the Form Designer edits them. The requirements that follow state only what the browser changes.
+- **R14 (ubiquitous):** The player shall paint the base and each layer as a stacking context, the base lowest and each layer above the one before it, so that every control of a higher layer paints above every control of a lower layer whatever its `ZOrder` (spec 091 R9, R10). `ZOrder` shall order only the controls that share a layer and a parent.
+- **R15 (state):** While a layer is not visible, the player shall not paint it, and its controls shall be neither focusable nor reachable by the pointer (`display: none` together with `inert`, or an equivalent the browser enforces; spec 091 R12). Every layer shall start hidden in a running form (spec 091 R35), and a web form description shall carry no `Visible` state, so that a saved form starts hidden in every host.
+- **R16 (event):** The player shall deliver a pointer event to the topmost element that has a painted part at the point, by the browser's own hit testing (spec 091 R17–R19). A layer's root and every area that paints nothing shall be `pointer-events: none`, and a control's hit area is its painted part: for a Label with no background, its text rather than its box. A layer's background is never a target with a handler (spec 091 R20): where it is opaque at the point it stays hit-testable and the event is discarded; where it is transparent or translucent, the event passes to the layers below.
+- **R17 (constraint):** The player shall clip the base and every layer to the form's rectangle and to the arcs of the form's `CornerRadius`, for every control type, with `overflow: hidden` and the same `border-radius` on the form's root. This also clips the seven types that cannot clip themselves on the desktop (spec 091 R14, Q31). That difference is allowed by the parity guard (WASM-015 R17).
+- **R18 (constraint):** A layer's backdrop (spec 091 R15) shall be painted on the layer's own background element. Its `Transparency` shall be an alpha channel of that background, not an `opacity` on the layer, so that the controls keep their own `Transparency` (spec 091 Q6; WASM-007 R1).
+- **R19 (ubiquitous):** Only the base uses the CSS layout of R8. A control in a layer is positioned absolutely at its designed `X`, `Y`, `Width` and `Height`, inside its layer. A layer has no layout, no `Dock` and no `Anchor`, and a control moved into a layer loses its `Dock` and takes the default `Anchor` (spec 091 R21, Q7).
+- **R20 (ubiquitous):** At run time the keyboard order shall be the base's controls in their tab order, then each layer upward, each in its own tab order (spec 091 R69, Q10). The player shall obtain it from DOM order, with the layers appended in stack order and each sorted by its own tab order, and `tabindex="0"`. It shall not use positive `tabindex` values, which number across the whole document and would break the per-layer order.
+- **R21 (ubiquitous):** The non-visual controls (spec 091 R47) paint no element in the browser, as classes A, C and E already state, and they belong to no layer. The Form Designer's `Non-Visuals` tab holds them at design time only. Their set is the catalogue's predicate `ControlType::is_non_visual()`, and the web player's copy in `crates/cobolt-web-player/src/kinds.rs` shall stay equal to it, as its test requires. The client objects of WASM-018 join the predicate, and so the tab, when they are added to it.
+- **R22 (ubiquitous):** A program shall read and write a layer's properties by name, in the generated module (WASM-010 R19) and through the host API (WASM-ABI-v1 amendment A9): `Name` read only; `Visible`, `Transparency`, `BackgroundColor`, the gradient properties, `BackgroundImage` and `BackgroundImageMode` writable, and a write shows on the next frame (spec 091 R33, R34). A name that is not a layer, or a property a layer does not have, is a build error (spec 091 R37).
+- **R23 (ubiquitous):** A layered form shown in a ContentPane of the SPA (WASM-011) or in a standalone window shall cover the area the form occupies, as it does in a desktop window (spec 091 R42).
+- **R24 (ubiquitous):** A web form with no layers shall produce the same form description and the same generated module as before this change (spec 091 R2, R41), so no existing web form changes.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — A table in one place lists each of the 62 controls with its class; a test fails when `ControlType::ALL` and the table disagree.
@@ -122,6 +136,11 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
 - [ ] **AC6** — Click, change, focus and key events fire in the same order on the desktop and in the browser for a scripted interaction on each class A control.
 - [ ] **AC7** — A keyboard-only walk through a reference form reaches and operates every control; an automated accessibility check reports no critical issue.
 - [ ] **AC8** — `prebuilt_chunked_kb_matches_the_published_documentation` is green with the new KB entries.
+- [ ] **AC9** — A layer control with `ZOrder` 0 paints above a base control with `ZOrder` 209, in a browser test (R14).
+- [ ] **AC10** — A layer that starts hidden paints nothing, takes no pointer event and no focus, and `SET … Visible TO TRUE` shows it on the next frame (R15, R22).
+- [ ] **AC11** — A click at an opaque point of a layer background is discarded and does not reach a control beneath it; the same click at a transparent point reaches that control (R16).
+- [ ] **AC12** — Tab walks the base controls in order, then each visible layer upward, each in its own order (R20).
+- [ ] **AC13** — A `DataGrid` in a layer at a rounded corner of the form paints inside the arc (R17).
 
 ## 6. Constraints & steering check
 
@@ -148,3 +167,6 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
   through `@font-face` from `Assets/`.
 - **Q6 — Is the egui-elegance look** (Knob, glass shadows, Spatial's operating-system blur, spec 057's drawn corners) reproduced in CSS or accepted as approximate? WASM-007 maps the properties;
   the visual bar is the operator's call.
+- **Q7 — Is a layer background opaque at a point?** A gradient or an image can be opaque in one part of the form and transparent in another. Options: decide from the layer's description (a colour or gradient opaque at every stop, with `Transparency` 0), and never count an image as opaque, which the desktop also does (spec 091 R17); or test the pixels of an image. Recommended: the first.
+- **Q8 — Where does a Snackbar's toast go?** The catalogue lists `Snackbar` as non-visual (spec 091 Q20), but a toast appears at run time. Recommended: keep the classification and the tab, and draw the toast above every layer, outside any layer.
+- **Q9 — Touch targets.** A finger may need a hit area larger than the painted part of a control. Open: whether the mobile shells add a hit margin, which belongs with the touch model of WASM-021.

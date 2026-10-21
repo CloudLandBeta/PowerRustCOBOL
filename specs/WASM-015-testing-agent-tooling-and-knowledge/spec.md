@@ -84,6 +84,10 @@ exists on the web and what does not. This spec specifies that equipment; without
 - **R15 (ubiquitous):** Grace's specialists shall not propose a construct the web kinds refuse: the planner and the pedantic reviewer shall read the project kind, and their preambles (the policy rules, not word heuristics) shall say what each kind may use.
 - **R16 (ubiquitous):** The shipped **examples** shall include at least one Web application and one Backend, built and run by the test suite with the module, browser and backend runners; the examples shall hold no key or password (WASM-013 R7).
 
+**Layers**
+- **R17 (ubiquitous):** The parity guard (R5) shall include a reference form with layers: a control in a layer above a base control, a hidden layer, an opaque and a transparent layer background, a `DataGrid` at a corner of the form, and a tab order that crosses layers. The same script runs on the desktop engine and in the browser, and the only differences found are those WASM-004 R17 and R20 record.
+- **R18 (ubiquitous):** The knowledge base and the plugin's rules shall state the layer model for web forms (WASM-004 R13–R24), the `Non-Visuals` tab as a design-time surface, and the rule that a layer is addressed as `LAYER-NAME::Property` and never as a control. The agents' layer operations (spec 091 R71) apply to web forms, and `check` reports a name that is not a layer of the web form.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — One command runs the NC subset on the generated module through the module runner and prints two numbers per module with the excluded programs and their reasons.
@@ -98,6 +102,7 @@ exists on the web and what does not. This spec specifies that equipment; without
 - [ ] **AC10** — The plugin's rules include the web rules; the reviewer flags a web form containing a `SqlDatabase`; the new skills exist.
 - [ ] **AC11** — `prebuilt_chunked_kb_matches_the_published_documentation` is green with the web knowledge; a Grace run asked for a `SqlDatabase` on a web form refuses or reroutes it through the backend.
 - [ ] **AC12** — The example Web application and Backend build and run in the test suite and contain no secret.
+- [ ] **AC13** — The reference form with layers gives the same stacking, visibility, hit testing and tab order on the desktop and in the browser, except the differences WASM-004 R17 and R20 record (R17).
 
 ## 6. Constraints & steering check
 

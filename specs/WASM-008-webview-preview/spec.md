@@ -68,6 +68,9 @@ viewport, and where a style change shows up as the browser draws it.
   MCP tools `render_form` and `run_form`, with the same shape of answer they give for desktop forms.
 - **R10 (state):** While the project kind is desktop, the Preview and Run Form shall be exactly as today.
 
+**Layers (spec 091, adapted to HTML)**
+- **R11 (state):** The Preview and the Run of a layered web form shall show what the program shows: every layer starts hidden (WASM-004 R15; spec 091 R35). The visibility the developer set on the designer's layer tabs is not part of the form description and is not carried into the Preview.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — Preview of a hello-world web form opens a web view that shows it, and a click on its button changes what it shows.
@@ -80,6 +83,7 @@ viewport, and where a style change shows up as the browser draws it.
 - [ ] **AC7** — A link to another origin does not navigate the web view; it opens in the system browser (or is blocked, per the plan).
 - [ ] **AC8** — The headless render and the scripted run work for a web form and return the same fields as for a desktop one (`render_form`, `run_form`); a reference form's image is stable across runs within a tolerance.
 - [ ] **AC9** — A desktop project's Preview and Run Form behave as before: the existing tests stay green and no new window or action appears for the desktop kind.
+- [ ] **AC10** — Opening a layered form in the Preview shows none of its layers until the program shows one (R11).
 
 ## 6. Constraints & steering check
 

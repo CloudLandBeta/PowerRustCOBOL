@@ -134,6 +134,10 @@ What it costs: a compiler back end and the routines above, and **two engines to 
   `UNSTRING`/`INSPECT`, numeric-edited, intrinsic functions, nested programs and local `CALL`; **C** — suspension and the remote `CALL` with the JSON mapping (WASM-005); **D** — the rest of the subset. Each phase
   shall record in the NIST ledger style what compiles and what passes. Following GOLDEN RULE #9, **NC** is finished before **IF** and **IC** are started.
 
+**Layers (spec 091, adapted to HTML)**
+- **R19 (ubiquitous):** A layer's property shall be read and written as a control's is (R7), in the form `LAYER-NAME::Property`, with the layer named as it is and not as the layer its controls are in (spec 091 R38). The generator shall address each layer by an object id of the host API (WASM-ABI-v1 amendment A9); it shall refuse at build time a name that is not a layer of the form, or a property a layer does not have, naming the layer and listing the properties it has (spec 091 R37); and it shall emit no write to a control's `Layer`, which is readable only (spec 091 Q11).
+- **R20 (ubiquitous):** A layer has no event handler of its own (spec 091 R64). The generator shall emit no handler for a layer, and the handlers of the controls in a layer shall be generated and dispatched as those of any control (spec 091 R38).
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — A form whose button handler does `MOVE`, `ADD` and `DISPLAY` compiles to a module that, run on a headless engine with a stub host, produces the expected property writes and output; its import section lists only the host API.
@@ -146,6 +150,7 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 - [ ] **AC8** — The `tests/cobol/` corpus inside the subset prints the same output on both engines; any difference is an open bug entry.
 - [ ] **AC9** — The Build reports module size and start-up time; a module run against a host without a required API entry refuses to start.
 - [ ] **AC10** — The desktop build, the interpreter and the backend are unchanged: their existing tests stay green, and the backend still opens `redb` and files.
+- [ ] **AC11** — A program that writes `LAYER-9::Visible` on a form with one layer fails the build and names that layer (R19).
 
 ## 6. Constraints & steering check
 

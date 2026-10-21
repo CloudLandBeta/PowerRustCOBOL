@@ -46,7 +46,7 @@ kind = "web"            # absent for desktop
 ```
 
 All fields `#[serde(default)]`; unknown tables are preserved by the tool-side edits (`toml_edit`). The kind is immutable
-after creation (Q7). Forms stay `.cfrm` (Q2) in one `files.forms` list, told apart by their folder (Q8).
+after creation (Q7). Desktop forms stay `.cfrm`; web and mobile forms are `.wcfrm` and `.mcfrm` (Q2, decided 2026-10-20). They stay in one `files.forms` list, told apart by their folder (Q8). The implementation on this branch still writes `.cfrm` for web and mobile forms; that is open work (tasks.md T15).
 
 ## 4. Key decisions & alternatives
 

@@ -12,7 +12,7 @@
 | Item | Quantidade |
 |---|---|
 | Specs escritos (WASM-001 a WASM-018) | 18 |
-| Requisitos R (EARS) somados nos 18 specs | 300 |
+| Requisitos R (EARS) somados nos 18 specs | 322 |
 | Specs propostos, sem arquivo (WASM-019 a WASM-035) | 17 |
 | Decisões D1 a D19 (WASM-INDEX §3) | 19 |
 | Itens de WASM-PLAN.md | 85 |
@@ -24,14 +24,14 @@ Requisitos R por spec:
 
 | Spec | R | Spec | R |
 |---|---|---|---|
-| WASM-001 | 18 | WASM-010 | 18 |
-| WASM-002 | 20 | WASM-011 | 15 |
+| WASM-001 | 18 | WASM-010 | 20 |
+| WASM-002 | 20 | WASM-011 | 16 |
 | WASM-003 | 23 | WASM-012 | 14 |
-| WASM-004 | 12 | WASM-013 | 17 (inclui R15b) |
+| WASM-004 | 24 | WASM-013 | 17 (inclui R15b) |
 | WASM-005 | 18 (inclui R5b) | WASM-014 | 17 |
-| WASM-006 | 15 | WASM-015 | 17 (inclui R8b) |
-| WASM-007 | 14 | WASM-016 | 19 (inclui R13b, R13c) |
-| WASM-008 | 10 | WASM-017 | 20 |
+| WASM-006 | 15 | WASM-015 | 19 (inclui R8b, R17 e R18) |
+| WASM-007 | 16 | WASM-016 | 21 (inclui R13b, R13c, R18 e R19) |
+| WASM-008 | 11 | WASM-017 | 20 |
 | WASM-009 | 13 (inclui R8b) | WASM-018 | 20 |
 
 ---
@@ -103,11 +103,11 @@ Status do spec: rascunho, precisa de `/clarify`. Não depende de nada e é pré-
 
 **Questões:**
 - **Q1** — Entradas de árvore por kind — recomendado: Web = WebForms + Backend; Mobile = MobileForms + Backend; Desktop = Forms. Alternativa: mostrar as três e desabilitar as que não se aplicam.
-- **Q2** — Formato de arquivo — recomendado: forms web e mobile continuam `.cfrm`, distinguidas pela pasta. Alternativa: extensão nova.
+- **Q2** — Formato de arquivo — decidido (operador, 2026-10-20): forms web com `.wcfrm` e forms mobile com `.mcfrm`; desktop continua `.cfrm`.
 - **Q3** — Templates indisponíveis e conjunto criável na 2.0 — **decidido** (operador, 2026-10-19): Web + Android + iOS, sem watch, com a lista de R5.
 - **Q4** — "Target platform" do Desktop — recomendado: mostrar o host, desabilitado, até haver cross-build.
 - **Q5** — Scaffold do backend sempre criado? — recomendado: criado por padrão, com opção de desmarcar.
-- **Q6** — *Recent Projects* e *Create from Template…* — aberto: se *Recent Projects* já existe em outro lugar, e se *Create from Template…* é copiar um projeto salvo ou a mesma lista da coluna esquerda.
+- **Q6** — *Recent Projects* e *Create from Template…* — decidido (operador, 2026-10-20): *Create from Template…* copia um projeto salvo; *Recent Projects* não existe ainda, segundo o operador (a confirmar: o código já tem uma lista de recentes no diálogo).
 - **Q7** — Kind imutável? — recomendado: fixo na 2.0; conversão em spec posterior.
 - **Q8** — Nomes de pasta — recomendado: `webforms/`, `mobileforms/`, `backend/`.
 
@@ -224,7 +224,7 @@ Status: rascunho. Depende de WASM-001, 002, 010 e 016. Emenda a spec 017: na web
 **Requisitos**
 
 *Uma definição*
-- **R1** — Um controle de form web ou mobile é o mesmo controle `.cfrm` do desktop: mesmos tipos, propriedades, eventos e métodos. Propriedades só da web (`CssClass`, `Style`, WASM-007) entram no modelo como as demais.
+- **R1** — Um controle de form web ou mobile é o mesmo controle do desktop, guardado em `.wcfrm` (web) ou `.mcfrm` (mobile): mesmos tipos, propriedades, eventos e métodos. Propriedades só da web (`CssClass`, `Style`, WASM-007) entram no modelo como as demais.
 - **R2** — Cada controle tem uma **classe primária** (A a E) num registro único lido por toolbox, Check, KB e agent kit. Onde operações diferem, o registro lista essas operações e a classe que assumem: Maps é B para imagem e C para geocode e directions; Viewer é B para páginas, C para open/save e D para print/share; ToolBar é A para o visual e D para ações que iniciam programa.
 
 *Comportamento*
@@ -398,7 +398,7 @@ Status: rascunho. Precedência decidida (2026-10-19): **o CSS vence**. Depende d
 
 **Questões:**
 - **Q1** — Precedência — **decidido**: CSS vence o painel Properties (R8). O painel mostra quando um valor é sobrescrito (R12).
-- **Q2** — Onde mora a stylesheet — recomendado: arquivo `forms/<Form>.css` ao lado da form. Alternativa: dentro do `.cfrm` (ressalva do CDATA).
+- **Q2** — Onde mora a stylesheet — recomendado: arquivo `forms/<Form>.css` ao lado da form. Alternativa: dentro do arquivo do form (`.wcfrm`/`.mcfrm`; ressalva do CDATA).
 - **Q3** — Stylesheet de projeto inteiro (camada de aplicação) — recomendado: deixar para spec futuro, reservando o lugar na cascata.
 - **Q4** — Nomes de classe (`pr-button`) e custom properties como contrato público — aberto: fixar no `/plan` e travar com teste.
 - **Q5** — Efeitos visuais sem gêmeo CSS exato (sombras de vidro, perspectiva, cantos do spec 057) — aberto, sem recomendação: aceitar approximate por propriedade ou exigir paridade nos três temas embutidos.
@@ -784,7 +784,7 @@ Status: rascunho. Origem: decisão do operador (2026-10-19) sobre WASM-002 Q7 e 
 - **R2** — Bundle = player (variantes plain e threaded, R13c) + módulo de programa (um por projeto, multi-memory e single-memory) + host page, form descriptions, stylesheet e assets. Nada mais executa.
 
 *A descrição de form*
-- **R3** — Build escreve, para cada form, uma **form description** versionada e serializada (controles, propriedades, layout e breakpoints, eventos ligados a handlers, data bindings, referência ao stylesheet), derivada do `.cfrm`. O player desenha qualquer form a partir dela. A mesma descrição alimenta a Preview (WASM-008) e o Build.
+- **R3** — Build escreve, para cada form, uma **form description** versionada e serializada (controles, propriedades, layout e breakpoints, eventos ligados a handlers, data bindings, referência ao stylesheet), derivada do arquivo do form (`.wcfrm` ou `.mcfrm`). O player desenha qualquer form a partir dela. A mesma descrição alimenta a Preview (WASM-008) e o Build.
 - **R4** — A descrição não contém secret nem código de programa; o código dos handlers fica no módulo, referido por id.
 
 *O que o player faz*
@@ -1350,3 +1350,27 @@ Resumo: **by design**: #3 e #6. **Aguardam aval do operador** (handoff §7): #1,
 ---
 
 *Fim do inventário. Cada item acima vem de um requisito R, de um Q ou de um item de plano, e a origem está indicada. O arquivo não é commitado: é um documento de trabalho na worktree.*
+
+## 11. Adendo 2.0.26 — camadas de formulário (spec 091) adaptadas para HTML
+
+A série WASM não tinha as camadas do desktop (spec 091). Foram acrescentadas como regras que valem para formulários web sem mudança, e como a realização em HTML de cada regra. O total de requisitos R passa de 300 para **322** (+22). Entram também a emenda A9 do contrato ABI, a decisão D20 (proposta) e a linha W4 do plano.
+
+- **WASM-004 R13–R24 (12):** modelo de camadas e regras de design herdadas; empilhamento por contexto de empilhamento; visibilidade (oculta por `display: none` e `inert`, começa oculta, sem estado `Visible` na descrição); ponteiro pelo teste de acerto do navegador (fundo transparente deixa passar, fundo opaco descarta); recorte por `overflow: hidden` com o raio do formulário, inclusive os sete tipos que o desktop não recorta; fundo da camada no próprio elemento, com `Transparency` como alfa; layout só na base; ordem de tabulação pela ordem do DOM, sem `tabindex` positivo; conjunto de não visuais igual ao predicado do catálogo; propriedades de camada em tempo de execução, por nome; camadas em ContentPane e janelas standalone; formulário sem camadas inalterado.
+- **WASM-007 R15–R16 (2):** a raiz da camada como contexto de empilhamento; regras de folha de estilo que não podem mudar empilhamento nem visibilidade.
+- **WASM-008 R11 (1):** a Preview começa com todas as camadas ocultas.
+- **WASM-010 R19–R20 (2):** propriedades de camada como `LAYER-NAME::Property`; erro de build para nome desconhecido; camada sem handler de evento próprio.
+- **WASM-011 R16 (1):** formulário com camadas no ContentPane e em janela standalone.
+- **WASM-015 R17–R18 (2):** guard de paridade com um formulário de referência com camadas; KB e regras do plugin.
+- **WASM-016 R18–R19 (2):** descrição do formulário com camadas; estado de visibilidade por instância, oculto ao criar e liberado com a instância.
+- **Contrato ABI, amendment A9:** camadas como objetos endereçáveis, ids depois dos controles, propriedades por nome e `Visible` como estado por instância.
+- **Índice:** decisão D20 (proposta) e linha na tabela de itens do operador. **Plano:** W4.
+- **Questões novas:** WASM-004 Q7 (opacidade do fundo), Q8 (toast do Snackbar) e Q9 (área de toque).
+
+Todas as escolhas de realização em HTML (`inert`, `pointer-events`, `overflow: hidden`, ordem do DOM) são propostas e ficam para confirmar no `/clarify`.
+
+## 12. Adendo 2.0.27 — decisões de 2026-10-20 na WASM-001
+
+- **Q1, Q4, Q5, Q7 e Q8:** aceitas como recomendadas.
+- **Q2:** forms web com `.wcfrm`, forms mobile com `.mcfrm`, desktop com `.cfrm`. Refletido em WASM-004 R1 e R13, WASM-007 (lugar da stylesheet) e WASM-016 R3. A implementação ainda escreve `.cfrm` para web e mobile: tarefa T15 aberta.
+- **Q6:** *Create from Template…* copia um projeto salvo. *Recent Projects* entra no rodapé, com a confirmação pendente: o código já tem uma lista de recentes no diálogo (`new_project.rs`, alimentada por `ui_prefs` em `app.rs`).
+- **R7 da WASM-001** virou requisito (antes era opcional).

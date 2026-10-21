@@ -88,6 +88,9 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
 - **R14 (ubiquitous):** Modal dialogs shall trap focus, be closable by the keyboard where the form allows it, stack in the order opened, and block interaction with what is behind them.
 - **R15 (ubiquitous):** A Desktop project shall be unchanged.
 
+**Layers**
+- **R16 (ubiquitous):** A layered form shown in a ContentPane of the SPA, or in a standalone window, shall cover the area the form occupies, as it does in a window on the desktop (WASM-004 R23; spec 091 R42). Routing (R4) does not show a layer: a layer is shown by the program alone.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — A SPA with a SideMenu and three forms: choosing a menu entry loads the form and changes the address; Back returns to the previous form; a reload at a form's address reopens it.
@@ -100,6 +103,7 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
 - [ ] **AC8** — A form marked as having unsaved changes prompts on Back and on closing the tab.
 - [ ] **AC9** — In the mobile shell, standalone forms stack, Back pops them and a deep link opens a form.
 - [ ] **AC10** — The `FormFormat` build-time check rejects an `Embedded` form opened standalone, and the desktop projects' tests stay green.
+- [ ] **AC11** — A route to a layered form shows the form with every layer hidden, and the ContentPane then shows the layers the program shows, within the pane (R16).
 
 ## 6. Constraints & steering check
 

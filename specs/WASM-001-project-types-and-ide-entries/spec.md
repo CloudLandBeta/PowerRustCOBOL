@@ -119,7 +119,7 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
 - **R6 (event):** When the developer presses *Create*, the IDE shall create the folders and starter files for that kind and open the
   project; for **Web** and **Mobile** it shall also create the project's backend scaffold (WASM-003 R22) unless the developer
   cleared that option (Q5).
-- **R7 (optional):** Where *Recent Projects* and *Create from Template…* are offered (Q6), they shall behave as their names say
+- **R7 (ubiquitous):** The New Project footer shall offer *Recent Projects* and *Create from Template…*. *Create from Template…* shall copy a saved project into a new project in the chosen location; it is not a second list of the left column (Q6). *Recent Projects* shall list the projects opened recently (Q6). Neither is needed to create a project from a template.
   and shall not be needed to create a project.
 
 **The manifest and the other readers**
@@ -177,17 +177,15 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
 
 ## 7. Open questions
 
-- **Q1 — Which tree entries per kind?** Recommended: Web = WebForms + Backend; Mobile = MobileForms + Backend; Desktop = Forms. Alternative:
+- **Q1 — Which tree entries per kind? — decided (operator, 2026-10-20: the recommendation).** Recommended: Web = WebForms + Backend; Mobile = MobileForms + Backend; Desktop = Forms. Alternative:
   always show all three and grey out the ones that do not apply.
-- **Q2 — File format.** Recommended: web and mobile forms stay `.cfrm` (one model, WASM-004 R1), told apart by the folder / entry they
-  are in. Alternative: a new extension for web forms. The first keeps tooling, tests and the agent kit unchanged.
+- **Q2 — File format — decided (operator, 2026-10-20).** Web forms are `.wcfrm` and mobile forms are `.mcfrm`; desktop forms stay `.cfrm`. The model is one (WASM-004 R1): only the extension differs, and the folder (`webforms/`, `mobileforms/`, Q8) keeps the kind visible. Everything that recognises a form file by its extension (the IDE tree, the loaders, the compiler, the project tools, the agent kit and the plugin rules) shall recognise the two new extensions; the `.cfrm`-only assumption is changed under T15.
 - **Q3 — Unavailable entries and the set creatable in 2.0 — decided.** The operator confirmed on 2026-10-19: **Web + Android + iOS, no watch**, and **the template list of this spec as written** (R5: the entries that cannot be created yet stay visible, greyed, with a "not yet
   available" note). So the creatable templates in 2.0 are Desktop, Web (WebAssembly), Android (Cellphone), Android (Tablet), iPhone and iPad.
-- **Q4 — "Target platform" for Desktop.** The compiler builds for the host triple only (spec 041 R17/R18), so macOS | Windows | Linux
+- **Q4 — "Target platform" for Desktop — decided (operator, 2026-10-20: the recommendation).** The compiler builds for the host triple only (spec 041 R17/R18), so macOS | Windows | Linux
   can be informational (the host) or a real choice only when cross-building exists. Recommended: show the host, disabled, until then.
-- **Q5 — Backend scaffold always created?** The operator's item 11 says every Web/Mobile project "gets" a backend. Recommended: created by
+- **Q5 — Backend scaffold always created? — decided (operator, 2026-10-20: the recommendation).** The operator's item 11 says every Web/Mobile project "gets" a backend. Recommended: created by
   default with an option to clear it for a project that talks to an existing backend.
-- **Q6 — *Recent Projects* and *Create from Template…*** appear in the mock-up. Does *Recent Projects* already exist elsewhere in the IDE, and
-  is *Create from Template…* "start from a saved project" (a user template) or the same list as the left column?
-- **Q7 — Kind immutable?** Spec 006 fixed it at creation. Recommended: fixed in 2.0; a conversion is a later spec (WASM-INDEX, project conversion).
-- **Q8 — Folder names** on disk: `webforms/`, `mobileforms/`, `backend/`, or `forms/web/` …? Recommended: the three names above.
+- **Q6 — Recent Projects and Create from Template… — decided (operator, 2026-10-20).** *Create from Template…* copies a saved project into a new project; it is not the left column's list (R7). *Recent Projects* does not exist yet, according to the operator, and is an entry of the footer (R7). **To confirm before the footer is built:** the features-2x code already has a Recent view in the New Project dialog (`crates/cobolt-ide/src/panels/new_project.rs`), fed by the recent-projects store in `crates/cobolt-ide/src/ui_prefs.rs` through `app.rs`; the operator says whether that is this same entry.
+- **Q7 — Kind immutable? — decided (operator, 2026-10-20: the recommendation).** Spec 006 fixed it at creation. Recommended: fixed in 2.0; a conversion is a later spec (WASM-INDEX, project conversion).
+- **Q8 — Folder names — decided (operator, 2026-10-20: the recommendation).** on disk: `webforms/`, `mobileforms/`, `backend/`, or `forms/web/` …? Recommended: the three names above.

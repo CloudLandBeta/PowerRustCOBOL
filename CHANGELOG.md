@@ -17,6 +17,32 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.27] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.26.)*
+
+### Changed: web and mobile form files are `.wcfrm` and `.mcfrm` (WASM-001 Q2)
+
+The operator answered the questions of WASM-001 on 2026-10-20. Q1, Q4, Q5, Q7 and Q8 are accepted as recommended. Q2 is decided: web forms are `.wcfrm`, mobile forms `.mcfrm`, desktop forms stay `.cfrm`. Q6 is decided: *Create from Template…* copies a saved project, and *Recent Projects* is a footer entry to confirm against the existing Recent view. WASM-001 R7 becomes a requirement.
+
+The decision is carried into WASM-004 R1 and R13, WASM-007 (where the stylesheet lives) and WASM-016 R3. WASM-001 tasks.md T15 records the implementation as open: the branch still writes `.cfrm` for web and mobile forms. No code changed. `README.md` and `docs/` are untouched on this line.
+
+## [PowerRustCOBOL 2.0.26] — 2026-10-20
+
+*(Written on `features-2x`, after 2.0.25.)*
+
+### Changed: form layers (spec 091) adapted to HTML in the WebAssembly specs
+
+The desktop form layers of spec 091 had no counterpart in the WebAssembly series. This adds them: the design rules of spec 091 carry over unchanged to web forms, and each rule gets its realisation in the browser.
+
+- **WASM-004** R13–R24: the layer model, stacking, visibility, hit testing, clipping, backdrop, layout, tab order, the non-visual set and the run-time properties on the web. Acceptance criteria AC9–AC13; open questions Q7–Q9.
+- **WASM-007** R15–R16: the CSS of a layer root, and the rules that must not override it.
+- **WASM-008** R11, **WASM-010** R19–R20, **WASM-011** R16, **WASM-015** R17–R18, **WASM-016** R18–R19: the Preview, the generator, the SPA and standalone pages, the tests and the knowledge base, and the player.
+- **WASM-ABI-v1** amendment A9: layers as addressable objects, their ids, their properties and the visibility state.
+- **WASM-INDEX** decision D20 and the operator-item table; **WASM-PLAN** workstream W4.
+
+These are proposals until they are confirmed at `/clarify`. No code changed. `README.md` and `docs/` are untouched on this line.
+
 ## [PowerRustCOBOL 2.0.25] — 2026-10-20
 
 *(Written on `features-2x`, after 2.0.24.)*

@@ -65,7 +65,7 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 - **R2 (ubiquitous):** The bundle shall be exactly the **player** (in a plain and a threaded variant, R13c) and the **generated program module** — one for the whole project, in a multi-memory and a single-memory variant (WASM-010, WASM-017 R1, R9) — plus the host page, the form descriptions, the stylesheet and the assets; nothing else executes.
 
 **The form description**
-- **R3 (event):** When the developer builds, the Build shall write, for each form, a **form description**: a versioned, serialised form (its controls, their properties, layout and breakpoints, the events bound to handlers, the data bindings, the stylesheet reference) derived from the `.cfrm`, and
+- **R3 (event):** When the developer builds, the Build shall write, for each form, a **form description**: a versioned, serialised form (its controls, their properties, layout and breakpoints, the events bound to handlers, the data bindings, the stylesheet reference) derived from the form file (`.wcfrm` or `.mcfrm`), and
   the player shall draw any form from it. The same description shall feed the **Preview** (WASM-008) and the Build.
 - **R4 (ubiquitous):** The description shall contain **no secret** and no program code; the handler code is in the program module, referred to by id.
 
@@ -100,6 +100,10 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 - **R16 (state):** While the Preview (WASM-008) is open, the player shall accept a **new module, form description or stylesheet without reloading itself**, so that the Preview updates in place.
 - **R17 (constraint):** A Desktop project is unchanged; the desktop form host remains the host of desktop applications.
 
+**Form layers (spec 091, adapted to HTML)**
+- **R18 (ubiquitous):** The form description shall carry the layers in stack order, each with its name and its backdrop properties other than `Visible` (spec 091 R39), and each control with its `Layer` (default `Form`). A form with no layers shall carry none of this (WASM-004 R24).
+- **R19 (state):** The player shall hold each layer's `Visible` state for each form instance, start every layer hidden when the instance is created, apply the program's changes on the next frame, and release the state with the instance (WASM-017 R5), so that a form opened again starts hidden as its description says (spec 091 R35; WASM-004 R15).
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — On a machine with no Rust toolchain, a Web project builds to a bundle that contains exactly the player (plain and threaded) and the program module (multi-memory and single-memory variants), the host page, form descriptions, stylesheet and assets, and runs in a headless browser.
@@ -113,6 +117,7 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 - [ ] **AC9** — The reference form and the lifecycle, effect and event-order checks give the same results on the player and on the desktop form host, except for the documented differences.
 - [ ] **AC10** — A source search finds no HTML-string-inserting API in the player, the Viewer included; the player runs under the generated CSP; a connection to an address outside the configured backend is refused.
 - [ ] **AC11** — In an open Preview, replacing the module, a form description and the stylesheet each updates the page without a reload of the player.
+- [ ] **AC12** — A form with layers opened twice in a row starts both times with every layer hidden, and no layer state survives the release of the instance (R19).
 
 ## 6. Constraints & steering check
 
