@@ -17,6 +17,26 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.34] — 2026-10-22
+
+*(Forward-port of 1.91.220, `c4a89e82` on `fixes-rust-object-reads`. 2.0.32 and 2.0.33 are held by `features-2x` (WASM-001 and the first part of WASM-002), not on `2.x.x` yet, so this entry takes 2.0.34.)*
+
+### Fixed: COBOL reads and writes a bound Rust item the same way everywhere
+
+Three ways of touching a `USAGE OBJECT REFERENCE` item — the kind an `EXEC RUST` block binds — went to the item's slot, which holds the internal handle, instead of the object behind it:
+
+- **A `STRING` sender sent the handle id.** `STRING "Loaded " WS-COUNT " sheet(s)" … INTO WS-MESSAGE` read "Loaded 6" for a `RUST-I64` holding 3, while `DISPLAY`, `MOVE` and `IF` of the same item read 3. A sender that is a bound item now sends its value, delimited by size like any other value.
+- **`COBOL::"GET-PROPERTY"` into a bound item overwrote its handle.** The property's text landed in the slot, the item kept its old value and its object was lost (`len` answered 0). The value now goes into the object, as `MOVE` puts it there.
+- **A property write dropped a leading TAB.** `COBOL::"SET-PROPERTY"`, `SET` and `MOVE` into a control property trimmed the whole value, so a DataGrid `Rows` whose first cell was empty lost that TAB and every cell of its first row moved one column left. A write now drops only leading spaces and the trailing padding; a leading TAB or line break is kept.
+
+And the check no longer warns "moving a numeric literal to … an alphanumeric PIC clause" for `SET WS-INDEX TO 1` when `WS-INDEX` is an `OBJECT REFERENCE RUST-I64`: such an item has no PIC, and the run time refuses a value its class cannot hold. A `PIC X` receiver still warns.
+
+All three run-time fixes are in the interpreter every host shares — Run Form, embedded forms and the built application.
+
+Tests: `cobolt-runtime/tests/test_rust_ffi.rs` (`a_string_sender_that_is_an_object_reference_sends_its_value`, `get_property_into_an_object_reference_updates_the_object`, `a_property_write_keeps_a_leading_tab`) and `cobolt-semantic/tests/test_object_reference_move.rs`. The Developer's Guide (*Rust inside COBOL*, the DataGrid's `Rows`) and the System KB say the same.
+
+*This line does not carry the Developer's Guide part of the fix: `docs/` is left as `main` publishes it. The System KB part is here, and `chunked.data` is regenerated on this line.*
+
 ## [PowerRustCOBOL 2.0.31] — 2026-10-22
 
 *(Written on `features-2x`, after 2.0.30.)*

@@ -11519,7 +11519,9 @@ impl Interpreter {
                 let val = self.eval_call_arg(&using[2], span)?.as_display_string();
                 let obj_t = obj.trim().to_owned();
                 let prop_t = prop.trim().to_owned();
-                let val_t = val.trim().to_owned();
+                // Leading spaces and the trailing padding go; a leading TAB or
+                // newline is data (a DataGrid row whose first cell is empty).
+                let val_t = val.trim_start_matches(' ').trim_end().to_owned();
                 self.check_button_write(&obj_t, &prop_t)?;
                 self.check_layer_write(&obj_t, &prop_t)?;
                 self.objects.set_property(&obj_t, &prop_t, val_t.clone());
@@ -11535,8 +11537,16 @@ impl Interpreter {
                 let prop = self.eval_call_arg(&using[1], span)?.as_display_string();
                 if let Some(pv) = self.objects.get_property(obj.trim(), prop.trim()) {
                     let val_s = pv.to_string();
-                    let n = self.expr_to_name(call_arg_expr(&using[2]));
-                    self.env.set_str(&n, &val_s);
+                    let dest = call_arg_expr(&using[2]);
+                    // An OBJECT REFERENCE item's slot is its handle: the value
+                    // goes into the object it names, as a MOVE into it does.
+                    let key = self.resolve_lvalue(dest);
+                    if self.object_refs.contains_key(&key) {
+                        self.assign_object_ref(&key, &CobolValue::from_str(&val_s, val_s.len()))?;
+                    } else {
+                        let n = self.expr_to_name(dest);
+                        self.env.set_str(&n, &val_s);
+                    }
                 }
             }
 
@@ -15970,7 +15980,8 @@ impl Interpreter {
         let (root, res) = self.resolve_member(target)?;
         match res {
             Resolved::Path(path) => {
-                let v = val.as_display_string().trim().to_owned();
+                // As COBOL-SET-PROPERTY: a leading TAB or newline is data.
+                let v = val.as_display_string().trim_start_matches(' ').trim_end().to_owned();
                 // 049 R28/R31 — `MOVE … TO super[::super…]::X` writes the
                 // resolved ancestor's property through the supervisor
                 // (write-through, blocking, so a NULL link raises the R32
@@ -19679,9 +19690,13 @@ impl Interpreter {
             Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }
         ) {
             let name = self.resolve_lvalue(e);
-            if let Some(bytes) = self.env.display_bytes(&name) {
-                let is_alpha = self.env.is_alphanumeric_field(&name);
-                return Ok((bytes, is_alpha));
+            // An OBJECT REFERENCE item's slot holds its handle id; the value it
+            // sends is the one behind the handle, which `eval_expr` reads.
+            if !self.object_refs.contains_key(&name) {
+                if let Some(bytes) = self.env.display_bytes(&name) {
+                    let is_alpha = self.env.is_alphanumeric_field(&name);
+                    return Ok((bytes, is_alpha));
+                }
             }
         }
         Ok((value_bytes(&self.eval_expr(e, span)?), false))
