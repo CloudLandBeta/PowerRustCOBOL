@@ -4311,6 +4311,13 @@ surface counts it the same way: the Designer and the running form draw it,
 is the row your handler reads. (A line break at
 the very end of `Rows` ends the last row; it does not add one.)
 
+A row whose **first cell is empty** begins with a TAB, and writing `Rows` keeps
+it — `SET DG-1::Rows TO WS-ROWS`, `MOVE` and `COBOL::"SET-PROPERTY"` drop only
+leading spaces and the trailing padding of a `PIC X` item.
+
+> ⚠️ **Before 1.91.220 a write dropped that leading TAB**, so when the first
+> cell of the first row was empty every cell of that row moved one column left.
+
 **Appearance & border rules (unified across all surfaces)**
 
 - Background defined in appearance now correctly applies to the **last
@@ -12131,11 +12138,12 @@ value type, so a `Rust.Vec` filled by `INVOKE` and one filled inside a block hol
 the same things.
 
 **Reading a bound item from COBOL yields its value.** After a block runs,
-`DISPLAY clicked-button`, `MOVE clicked-button TO WS-N` and
-`SET Label-1::Caption TO clicked-button` all see what the block wrote —
-strings, any integer width, floats and booleans. Collections and your own types
-have no single printable value; reading those yields an internal id, so go
-through `INVOKE`/`::methods` for them instead.
+`DISPLAY clicked-button`, `MOVE clicked-button TO WS-N`,
+`SET Label-1::Caption TO clicked-button` and a `STRING` sender
+(`STRING "Clicked " clicked-button DELIMITED BY SIZE INTO WS-MESSAGE`) all see
+what the block wrote — strings, any integer width, floats and booleans.
+Collections and your own types have no single printable value; reading those
+yields an internal id, so go through `INVOKE`/`::methods` for them instead.
 
 > ⚠️ **Before 1.60.23 every such read yielded the internal id** — a small
 > integer that follows declaration order, so a program reading its second item
@@ -12143,7 +12151,13 @@ through `INVOKE`/`::methods` for them instead.
 > constant small number where a result should be, rebuild with a current
 > version.
 
-**Writing a bound item from COBOL reaches the Rust value.** `MOVE 5 TO clicked-button` and `SET cobol-text TO TextBox-1::Text` update the object the
+> ⚠️ **Before 1.91.220 a `STRING` sender still yielded the internal id**: the
+> other reads above were right, but `STRING "Loaded " WS-COUNT …` put the id in
+> the message. Moving the item to a `PIC` item first and stringing that was the
+> workaround, and is no longer needed.
+
+**Writing a bound item from COBOL reaches the Rust value.** `MOVE 5 TO clicked-button`, `SET cobol-text TO TextBox-1::Text` and
+`COBOL::"GET-PROPERTY" ( "TextBox-1" "Text" cobol-text )` update the object the
 item names, so the next block sees what COBOL wrote — that is how you hand the
 operator's input to a block:
 
@@ -12168,6 +12182,11 @@ an error — fill those inside a block.
 > item failed with `EXEC RUST cannot bind <ITEM>: handle 0 is not live`, usually
 > seen as `FFI failed:` from the handler's `CATCH RUST-EXCEPTION`. Rebuild with a
 > current version.
+
+> ⚠️ **Before 1.91.220 `COBOL::"GET-PROPERTY"` made that same mistake** when its
+> third argument was a bound item: the property's text overwrote the handle, the
+> item kept its old value and its object was lost. `SET cobol-text TO
+> TextBox-1::Text` was the workaround.
 
 > ⚠️ **Before 1.63.28, a form opened any way other than as your project's main
 > window** — picked from a sidebar/menu into a content pane, or opened with

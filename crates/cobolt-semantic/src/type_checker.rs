@@ -191,6 +191,14 @@ impl<'a> TypeCtx<'a> {
                             if self.symbols.data_item(name).map(|d| d.level) == Some(88) {
                                 continue;
                             }
+                            // An OBJECT REFERENCE item has no PIC: its class
+                            // (`RUST-I64`, `RUST-STRING`…) takes the value, and
+                            // the run time refuses one it cannot hold.
+                            if self.symbols.data_item(name).map(|d| d.usage)
+                                == Some(Usage::ObjectReference)
+                            {
+                                continue;
+                            }
                             self.warn(
                                 format!(
                                     "moving a numeric literal to '{name}' \

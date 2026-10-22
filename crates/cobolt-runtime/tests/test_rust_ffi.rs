@@ -745,3 +745,109 @@ fn new_with_channels_and_bridge_never_touches_an_unrelated_object() {
         "the handler must still work correctly against its own (now id 2/3) objects"
     );
 }
+
+/// Runs `src` and answers what it DISPLAYed and every property update it sent.
+fn run_with_updates(src: &str) -> (Vec<String>, Vec<(String, String, String)>) {
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, state_rx) = mpsc::channel();
+    let (display_tx, display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    interp.run().expect("run failed");
+    let shown = display_rx.try_iter().map(|s| s.trim_end().to_owned()).collect();
+    let updates = state_rx.try_iter().map(|u| (u.ctrl_id, u.prop, u.value)).collect();
+    (shown, updates)
+}
+
+/// A `STRING` sender that is an `OBJECT REFERENCE` item sends the value behind
+/// it, as `DISPLAY` and `MOVE` read it — not the handle id its slot holds.
+/// `STRING "Loaded " WS-COUNT …` showed "Loaded 6" for a count of 3.
+#[test]
+fn a_string_sender_that_is_an_object_reference_sends_its_value() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. STRREF.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-I64 IS "Rust.i64"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NAME  USAGE IS OBJECT REFERENCE RUST-STRING VALUE "Orders".
+       01 WS-COUNT USAGE IS OBJECT REFERENCE RUST-I64 VALUE 3.
+       01 WS-TEXT  PIC X(40).
+       PROCEDURE DIVISION.
+           STRING "sheet=" WS-NAME " count=" WS-COUNT
+               DELIMITED BY SIZE INTO WS-TEXT
+           DISPLAY WS-TEXT
+           STOP RUN.
+"#;
+    let (out, _) = run(src);
+    assert_eq!(out, vec!["sheet=Orders count=3".to_string()]);
+}
+
+/// `COBOL-GET-PROPERTY` into an `OBJECT REFERENCE` item writes the object the
+/// item names, as `MOVE` does; it used to overwrite the handle in the slot,
+/// so the item kept its old value and its object was lost.
+#[test]
+fn get_property_into_an_object_reference_updates_the_object() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GETREF.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ROWS USAGE IS OBJECT REFERENCE RUST-STRING VALUE "old".
+       01 WS-N    PIC 9(4).
+       PROCEDURE DIVISION.
+           SET DG-1::Rows TO "new rows"
+           COBOL::"GET-PROPERTY" ( "DG-1" "Rows" WS-ROWS )
+           DISPLAY WS-ROWS
+           INVOKE WS-ROWS "len" RETURNING WS-N
+           DISPLAY WS-N
+           STOP RUN.
+"#;
+    let (out, live) = run(src);
+    assert_eq!(out, vec!["new rows".to_string(), "0008".to_string()]);
+    assert_eq!(live, 1, "the item keeps its one live object");
+}
+
+/// A DataGrid's `Rows` whose first cell is empty starts with a TAB. A property
+/// write keeps it — trimming it moved every cell of the first row one column
+/// left. Trailing padding of a PIC X sender is still dropped.
+#[test]
+fn a_property_write_keeps_a_leading_tab() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TABLEAD.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ROWS PIC X(40).
+       PROCEDURE DIVISION.
+           STRING X"09" "b1" X"0A" "a2" X"09" "b2" DELIMITED BY SIZE INTO WS-ROWS
+           COBOL::"SET-PROPERTY" ( "DG-1" "Rows" WS-ROWS )
+           SET DG-2::Rows TO WS-ROWS
+           STOP RUN.
+"#;
+    let (_, updates) = run_with_updates(src);
+    let rows = |grid: &str| {
+        updates
+            .iter()
+            .rev()
+            .find(|(c, p, _)| c.eq_ignore_ascii_case(grid) && p.eq_ignore_ascii_case("Rows"))
+            .map(|(_, _, v)| v.clone())
+            .unwrap_or_else(|| panic!("no Rows update for {grid}: {updates:?}"))
+    };
+    assert_eq!(rows("DG-1"), "\tb1\na2\tb2", "COBOL-SET-PROPERTY");
+    assert_eq!(rows("DG-2"), "\tb1\na2\tb2", "SET ctrl::Rows");
+}
