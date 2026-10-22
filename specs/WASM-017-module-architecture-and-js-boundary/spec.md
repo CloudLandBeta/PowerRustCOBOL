@@ -95,7 +95,7 @@ The guidance asks for a small footprint, memory that goes away when its owner do
 **Build and baseline**
 - **R16 (ubiquitous):** The **player** is built with a size-first release profile — `lto`, `codegen-units = 1`, `panic = "abort"`, stripped symbols, a size-oriented `opt-level` chosen by measurement (`"z"` against `"s"`) — and a `wasm-opt` pass; sizes are reported (WASM-016 R13). It has **two variants**: **plain** (stable Rust, baseline) and **threaded** (a **pinned nightly** toolchain, a rebuilt standard library, atomics, bulk memory and shared memory, `--target web`, `wasm-bindgen-rayon`), built from the same source.
   The rest of the workspace stays on stable Rust, MSRV 1.92; the nightly is confined to the player's build step.
-- **R17 (ubiquitous):** The product's build runs a pinned `wasm-bindgen` CLI, a pinned Binaryen `wasm-opt` and the bundler (WASM-002 Q2), never `wasm-pack`; these tools and the nightly exist only in the product's build; the supply-chain rules of WASM-013 R9 apply, and the nightly's date is recorded in every build.
+- **R17 (ubiquitous):** The product's build runs a pinned `wasm-bindgen` CLI, a pinned Binaryen `wasm-opt` and `cargo-leptos` (WASM-002 Q2), never `wasm-pack`; these tools and the nightly exist only in the product's build; the supply-chain rules of WASM-013 R9 apply, and the nightly's date is recorded in every build.
 - **R18 (ubiquitous):** The Build declares a **baseline of WebAssembly features** and a **matrix of supported browsers** (Chrome and Edge, Firefox, Safari, the iOS web view, the Android WebView), from MDN and Can I Use at `/plan`. The loader probes the browser and chooses, independently: the **program-module variant** (multi-memory or single, R9), the **player variant** (threaded or plain, R19) and the optional accelerations (JS String Builtins, ES-module
   integration). Below the baseline it shows the readable message of WASM-002 R15. The baseline is what the single-memory variant and the plain player use.
 
@@ -141,11 +141,19 @@ The guidance asks for a small footprint, memory that goes away when its owner do
 
 - **Q1 — decided** (operator, 2026-10-20): one program module for the whole project (R1). The cost accepted: a larger first download than per-form modules, mitigated by streaming compilation, compression and the player's on-demand parts; to be measured on a multi-form application.
 - **Q2 — The yield budget** (a default, in milliseconds) for the main-thread mode; and the number of Workers by default (`hardwareConcurrency` minus one, capped at 8?).
+  **Decided (operator, 2026-10-22):** `hardwareConcurrency` minus one, capped at 8.
 - **Q3 — decided** by R9: both variants, chosen by probe; iOS off.
 - **Q4 — The browser matrix** and its defaults: which minimum versions, in particular the oldest iOS the Mobile kind supports; from the data of `/plan`.
+  **Decided (operator, 2026-10-22):** versions released from 2024 onwards.
 - **Q5 — Isolation on the mobile shell:** Tauri's configuration for the headers of its asset protocol, and whether the iOS web view isolates; if not, the Mobile kind runs the plain player and the main thread there.
+  **Not answered (operator reply of 2026-10-22 does not address it):** the reply repeats the question.
 - **Q6 — `wasm-opt`:** product's build only for the player (recommended), or also shipped for generated modules.
+  **Decided (operator, 2026-10-22):** only in the player's build.
 - **Q7 — Revisiting the Component Model and ES-module integration:** the trigger is native support in Chrome, Firefox and Safari; an owner to check Chrome's status page, which could not be read in this session.
+  **Decided (operator, 2026-10-22):** revisit on native support in Chrome, Firefox and Safari; the developer checks.
 - **Q8 — `opt-level`:** `"z"` against `"s"` by measurement.
+  **Decided (operator, 2026-10-22):** `"s"`.
 - **Q9 — The nightly:** which pinned date, and whether `build-std` is still required by the toolchain of the time of the `/plan`.
+  **Decided (operator, 2026-10-22):** the nightly of 2026-10-22; `build-std` is required.
 - **Q10 — The service-worker shim** that sets the isolation headers on hosts that cannot: offer it, document it only, or leave it out.
+  **Decided (operator, 2026-10-22):** offer the shim that sets the isolation headers on hosts that cannot.

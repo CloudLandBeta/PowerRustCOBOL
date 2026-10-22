@@ -104,5 +104,7 @@ viewport, and where a style change shows up as the browser draws it.
 - **Q2 — Which engine library,** and whether the IDE's Preview and the mobile shell use the same one. Decide at `/plan` with the crate probe (licence, MSRV 1.92, Linux dependencies).
 - **Q3 — Backend during Preview.** The real backend started locally (recommended), a generated stub that answers from fixtures (fast, offline, but a second implementation to keep true), or both?
 - **Q4 — Sign-in during Preview** (WASM-009): the developer signs in to a real provider, or a development token is allowed (WASM-003 Q5)?
+  **Decided (operator, 2026-10-22):** a development token may be used.
 - **Q5 — Update budget.** A number for R3 ("a style change shows within N ms") is needed before the AC can be checked; measure a prototype first.
+  **Answered (operator, 2026-10-22), to confirm:** "as short as possible". A number is still needed before the acceptance criterion can be checked.
 - **Q6 — Does Preview replace Run Form** for web kinds, or are they two actions (Preview = quick, Run = the full bundle with the backend)? Recommended: two, as on desktop.

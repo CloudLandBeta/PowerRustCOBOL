@@ -150,7 +150,11 @@ heavy parts wherever threads exist.
 - **Q2 — A scene layer of our own** on `wgpu` against a library engine: ours is chosen for footprint and control; the cost is the work (R9's list). Revisit if a small engine with a library API appears.
 - **Q3 — Skeletal animation and shadows** are in R9; if the plan finds either blocks the schedule it must say so rather than drop it silently.
 - **Q4 — The desktop renderer.** `eframe` has both glow and wgpu compiled in; sharing the device for Canvas3D needs wgpu. Decide from the IDE's startup code whether to select wgpu explicitly, and what that changes for the rest of the IDE.
+  **Decided (operator, 2026-10-22):** share the device with Canvas3D (wgpu in the IDE).
 - **Q5 — A software adapter for CI** (`wgpu` over a software Vulkan, or a pure-Rust fallback): which, so the 3D goldens run without a GPU.
+  **Decided (operator, 2026-10-22):** wgpu over a software Vulkan, with no fallback.
 - **Q6 — Names:** `ImageBuffer` against `Bitmap`, `Plot` against `ChartObject`; chosen to avoid the `Image` and `Chart` control names already in use.
 - **Q7 — Fonts:** which fonts ship in the base set for CJK and right-to-left text in the player (size against coverage), and whether the player loads them on demand.
+  **Decided (operator, 2026-10-22):** every font the project references.
 - **Q8 — Audio** is out of this spec; a game wants it. A separate spec could add a sound object on a pure-Rust engine (`kira`); say if it is wanted.
+  **Answered (operator, 2026-10-22), to confirm:** audio support already exists since the PowerCloud example. *To verify which mechanism, before closing.*

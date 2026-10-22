@@ -3,13 +3,13 @@ SPDX-License-Identifier: Apache-2.0
 Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 -->
 
-# Spec — The WebLink control
+# Spec — The Hyperlink control
 
 - **Status:** draft (needs `/clarify`)
 - **Folder:** specs/WASM-006-weblink-control/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-10-19
 - **Branch:** `features-2x` (version line 2.x.x). Part of the WASM series, see `specs/WASM-INDEX.md`.
-- **Origin:** operator item **6** — a new *WebLink* control in the toolbox: basically a Label that shows a friendly text (the caption) for a URL; the mouse cursor becomes a hand over
+- **Origin:** operator item **6** — a new *Hyperlink* control in the toolbox: basically a Label that shows a friendly text (the caption) for a URL; the mouse cursor becomes a hand over
   it; properties define the URL and whether it opens in a new tab or a new window; modifier keys (Shift, Control, Command…) open a new tab or window; **every capability of the HTML `<a>` tag**
   is available.
 - **Depends on:** WASM-004 (the control model on the web), WASM-007 (its states are styled by CSS). **Precedent:** spec 049 made the `SideMenu` its own control type rather than a MenuBar mode;
@@ -18,7 +18,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 ## 1. Overview
 
 A form often has to point somewhere: the terms of service, a help page, a mail address, a file to download. Today the developer paints a Label and handles the click, and there is no way to
-open a URL from COBOL at all. **WebLink** is the control for it: it looks like link text, behaves like an `<a>` element in a browser — including the browser's own conventions for modifier keys and
+open a URL from COBOL at all. **Hyperlink** is the control for it: it looks like link text, behaves like an `<a>` element in a browser — including the browser's own conventions for modifier keys and
 middle clicks — and exposes the same capabilities through properties.
 
 ### What exists today (checked 2026-10-19, `main` at 1.91.217)
@@ -39,17 +39,17 @@ middle clicks — and exposes the same capabilities through properties.
 ## 2. Goals / Non-goals
 
 - **Goals:**
-  - A **WebLink** control in the toolbox for the web and mobile kinds that shows link text and navigates like an `<a>` element.
+  - A **Hyperlink** control in the toolbox for the web and mobile kinds that shows link text and navigates like an `<a>` element.
   - Every capability of `<a>` available as a property, method or event — **except `ping`**, left out of v1 (R3) — and the browser's conventions for modifier keys honoured.
   - Safe by default: dangerous schemes refused, new contexts opened without handing the new page a handle back to this one.
 - **Non-goals:**
-  - A rich-text editor or inline links inside a Label's text; one WebLink is one link.
+  - A rich-text editor or inline links inside a Label's text; one Hyperlink is one link.
   - Navigating *between forms* of the application (that is the application shell, spec 049, and the router proposed in WASM-INDEX).
   - Link previews, link checking or analytics.
 
 ## 3. User stories
 
-- As a developer, I want to drop a WebLink on a form, type its friendly text and its address, and have it open the page, so that I do not write a click handler.
+- As a developer, I want to drop a Hyperlink on a form, type its friendly text and its address, and have it open the page, so that I do not write a click handler.
 - As a user, I want Ctrl/Cmd-click to open the page in a new tab and Shift-click in a new window, as on any website.
 - As a developer, I want a `mailto:` link with a subject, a `tel:` link and a *download* link, because those are what `<a>` can do.
 - As a security reviewer, I want `javascript:` addresses refused and external pages opened without access to my application.
@@ -57,9 +57,9 @@ middle clicks — and exposes the same capabilities through properties.
 ## 4. Requirements (EARS)
 
 **The control**
-- **R1 (ubiquitous):** A WebLink control shall exist in the toolbox of web and mobile projects, with its own icon, default size and default caption, as a control type of its own that inherits the Label's
-  properties, events and methods (Q1 on name and on desktop forms).
-- **R2 (ubiquitous):** A WebLink shall show its **Caption** as link text (the "friendly text") with a link appearance — colour, and underline always, on hover or never (a property) — and shall use the
+- **R1 (ubiquitous):** A Hyperlink control shall exist in the toolbox of every project kind (desktop, web and mobile), with its own icon, default size and default caption, as a control type of its own that inherits the Label's
+  properties, events and methods (Q1).
+- **R2 (ubiquitous):** A Hyperlink shall show its **Caption** as link text (the "friendly text") with a link appearance — colour, and underline always, on hover or never (a property) — and shall use the
   **hand** cursor over it unless the developer chose another.
 
 **Properties** (names are proposals for `/plan`)
@@ -71,7 +71,7 @@ middle clicks — and exposes the same capabilities through properties.
 - **R4 (ubiquitous):** The accessible name shall be the Caption; an optional accessible label property shall override it, and the existing Tooltip shall be the `title`.
 
 **Behaviour**
-- **R5 (event):** When the user clicks a WebLink, the control shall raise its click event first and then navigate as `Target` says. A plain click follows `Target`; **Ctrl/Cmd-click and middle-click** open a new
+- **R5 (event):** When the user clicks a Hyperlink, the control shall raise its click event first and then navigate as `Target` says. A plain click follows `Target`; **Ctrl/Cmd-click and middle-click** open a new
   tab; **Shift-click** a new window; **Alt-click** follows the browser's convention for downloading. The event shall tell the handler which modifier keys were down.
 - **R6 (event):** When a handler sets the control's **Cancel** indication during the click event (a property read after the handler returns, Q3), navigation shall not happen.
 - **R7 (ubiquitous):** The control shall accept `http`, `https`, `mailto` (with `subject`, `body`, `cc`, `bcc` parameters), `tel`, `sms`, relative URLs and fragment (`#name`) links, and shall **refuse**
@@ -80,7 +80,7 @@ middle clicks — and exposes the same capabilities through properties.
 - **R8 (ubiquitous):** When `Target` is `NewTab` or `NewWindow` and `Rel` is empty, the control shall open the page with `noopener noreferrer`; the developer can loosen it explicitly.
 - **R9 (ubiquitous):** The control shall be focusable and activate with Enter, show a visible focus ring, and offer the browser's context menu (open in new tab, copy link address) on the web.
 - **R10 (event):** When a fragment link names a control or an anchor on the form, the form shall scroll to it and move focus there.
-- **R11 (state):** While a WebLink runs inside the mobile shell, an address outside the application's own origin shall open in the **system browser** (not in the application's web view), and `mailto:`/`tel:`/`sms:`
+- **R11 (state):** While a Hyperlink runs inside the mobile shell, an address outside the application's own origin shall open in the **system browser** (not in the application's web view), and `mailto:`/`tel:`/`sms:`
   shall be handed to the operating system.
 
 **Methods and events**
@@ -93,10 +93,12 @@ middle clicks — and exposes the same capabilities through properties.
   shall be possible; the Preview (WASM-008) is where the click is tried.
 - **R15 (ubiquitous):** The control shall round-trip through `.cfrm`, have a `tests/controls/` test, be exercised by the tests that iterate `ControlType::ALL`, have its documentation in the compiler's KB tables and the
   regenerated `chunked.data`, a toolbox icon, and every user-facing string in six languages.
+- **R16 (state):** While a Hyperlink runs on a **desktop** form — under `rcrun run-form`, as an embedded child form and in the compiled binary — a click shall open the address in the
+  system's default browser, whatever its `Target`, and hand `mailto:`/`tel:`/`sms:` to the operating system; the scheme rules of R7 and the events of R5, R6 and R13 apply unchanged.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — In a headless browser, a WebLink with Url `https://example.com` and Caption "Example" renders an `<a>` whose text is "Example" and whose computed `cursor` is `pointer`.
+- [ ] **AC1** — In a headless browser, a Hyperlink with Url `https://example.com` and Caption "Example" renders an `<a>` whose text is "Example" and whose computed `cursor` is `pointer`.
 - [ ] **AC2** — A plain click navigates according to each `Target`; Ctrl/Cmd-click and middle-click open a new tab; Shift-click opens a new window; the click event reports the modifiers.
 - [ ] **AC3** — With `Target` `NewTab` and empty `Rel` the opened page has no `window.opener`; with `Rel` set explicitly it is as set.
 - [ ] **AC4** — `javascript:alert(1)`, `vbscript:` and `data:text/html,…` set in the designer and via `SetUrl` are refused, the control is left unchanged and the refusal is reported.
@@ -105,6 +107,7 @@ middle clicks — and exposes the same capabilities through properties.
 - [ ] **AC7** — The control round-trips through `.cfrm` with every property at a distinct value; `ControlType::ALL`-driven tests pass; the KB freshness test passes.
 - [ ] **AC8** — Keyboard: Tab reaches the link, Enter follows it, the focus ring is visible; an automated accessibility check reports no critical issue.
 - [ ] **AC9** — In the mobile shell an external address opens the system browser and a `tel:` link opens the dialler (on a device or simulator).
+- [ ] **AC10** — On a desktop form, a click on a Hyperlink opens its address in the system browser in all three hosts, and a refused scheme stays refused (R16).
 
 ## 6. Constraints & steering check
 
@@ -120,8 +123,14 @@ middle clicks — and exposes the same capabilities through properties.
 
 - **Q1 — Name and reach.** "WebLink" as the operator wrote it, or "Hyperlink"? And is the control available on **desktop** forms too (it would open the system browser, which needs a runtime capability that does
   not exist today)? Recommended: name as the operator wrote it; web and mobile only in 2.0.
+  **Decided (operator, 2026-10-22):** the control is named **Hyperlink** and exists on desktop (it opens the system browser), web and mobile (R1, R16).
 - **Q2 — Alt-click and modifiers** differ between browsers and operating systems (Safari, macOS Command). Pin the table of conventions at `/plan` from the browsers the project supports.
+  **Decided (operator, 2026-10-22):** follow the operating system: Apple platforms use Safari's conventions, Linux and Windows use Chrome's.
 - **Q3 — How a handler cancels.** A boolean property set during the event (`SET LINK-1::Cancel TO TRUE`), or a return value? Recommended: the property.
+  **Decided (operator, 2026-10-22):** a property.
 - **Q4 — Same-origin navigation inside a single-page application:** does a link to another form of the same app go through the router (WASM-INDEX) or a full page load? Out of scope here; the router spec decides.
+  **Decided (operator, 2026-10-22):** the router.
 - **Q5 — Visited styling** is privacy-restricted by browsers (only some properties can differ for `:visited`); state the supported subset.
+  **Decided (operator, 2026-10-22):** declare the supported subset.
 - **Q6 — Percent-encoding and IDN:** does the control encode a URL the developer typed, and how does it show an internationalised domain? Recommended: pass the URL through the platform's URL parser and show the parsed form.
+  **Decided (operator, 2026-10-22):** pass the URL through the platform's URL parser.

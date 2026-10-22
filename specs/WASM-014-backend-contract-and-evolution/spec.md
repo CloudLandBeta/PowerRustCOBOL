@@ -110,7 +110,12 @@ as something with a version, a compatibility check at connection time, a stable 
 ## 7. Open questions
 
 - **Q1 — How a program reports an *application* failure:** a status group in the `RETURNING` item by convention, a built-in (`COBOL::"…"`) the program calls, or both? Recommended: a built-in, so the platform can tell a deliberate failure from a fault.
+  **Decided (operator, 2026-10-22):** both; agents (Codex) use only the built-in.
 - **Q2 — "May have been received."** The runtime cannot know whether a dropped call ran. State the guarantee plainly (at-most-once by default, at-least-once for declared-safe programs) and decide whether the application class can ask the backend afterwards.
+  **Answered (operator, 2026-10-22), to confirm:** at-least-once. *Whether for every call or only for programs declared safe to repeat is to confirm.*
 - **Q3 — Streams** need server-side state per subscriber, which sits badly with WASM-003 Q2's stateless calls. Is server push in 2.0 at all, or a later spec (WASM-INDEX lists it as a gap)?
+  **Decided (operator, 2026-10-22):** streams are in 2.0.
 - **Q4 — Where a downloaded file is fetched from:** over the WebSocket in pieces (one channel, no second origin), or through a short-lived HTTPS address (cacheable, streamable by the browser, needs the HTTPS surface of WASM-003 Q3)? Recommended: HTTPS address for downloads, pieces for uploads.
+  **Decided (operator, 2026-10-22):** HTTPS for downloads.
 - **Q5 — Retention** of idempotency results and of the previous interface description (where they are kept, for how long) — decide with the operations spec.
+  **Decided (operator, 2026-10-22):** per session; nothing stays in the frontend; kept in memory or on the server, configurable in the project properties.

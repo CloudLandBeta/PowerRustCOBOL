@@ -71,9 +71,9 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 
 **What the player does**
 - **R5 (ubiquitous):** The player shall implement each control of classes A and B (WASM-004) **once**, with the properties, events and methods of the model, the property-to-CSS table of WASM-007 R1, `CssClass`, `Style` and the form stylesheet, and the accessibility
-  behaviour of WASM-004 R10; and it shall implement the Authentication (WASM-009) and WebLink (WASM-006) controls.
-- **R6 (ubiquitous):** The player shall provide, in the browser, what the desktop form host provides for a designed form: the form's window properties and backdrop, the entrance and exit effects, the window lifecycle events, event dispatch to the bound handlers, and the pacing of
-  timers and animations — each as the existing specs (037, 038, 042) define them, or with the difference documented.
+  behaviour of WASM-004 R10; and it shall implement the Authentication (WASM-009) and Hyperlink (WASM-006) controls.
+- **R6 (ubiquitous):** The player shall provide, in the browser, what the desktop form host provides for a designed form: the form's window properties and backdrop, the window lifecycle events, event dispatch to the bound handlers, and the pacing of
+  timers and animations — each as the existing specs (037, 038, 042) define them, or with the difference documented. Entrance and exit effects and window states and positions are not carried to the browser (operator, 2026-10-22, Q4).
 - **R7 (event):** When the user acts on a control, the player shall deliver the event (an id, the control, the parameters) to the program module (WASM-010 R10) and, while the module runs, carry out what it asks through the **host API** (WASM-010 R12): read and write a control's
   property, call a control's method, write `DISPLAY` output to the console, give the time and a random number, and make a remote call.
 - **R8 (event):** When the module stops at a call that waits (WASM-010 R9), the player shall perform the wait — a remote call, a dialog, a timer — and resume the module with the answer; events raised meanwhile shall be queued in order (WASM-005 R9).
@@ -82,12 +82,13 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 - **R10 (ubiquitous):** The player shall implement routing and the two application styles (WASM-011): the SPA's shell, routes and history, and the standalone forms' pages, windows and `super` messaging.
 
 **Consistency and versions**
-- **R11 (ubiquitous):** The player, the form-description format and the host API shall each have a **version**; the Build shall copy the player that matches the compiler that emitted the module, and the module shall refuse to start against a player that lacks a host-API entry it
-  needs (WASM-010 R12). A bundle is therefore consistent by construction; a player and module that disagree are a build error, never a run-time surprise.
+- **R11 (ubiquitous):** The player, the form-description format and the host API shall each have a **version**. The Build shall copy the player that matches the compiler that emitted the module, unless the project **pins** an older player
+  (operator, 2026-10-22, Q6): then the module is emitted for that player's host-API version, and when the compiler can no longer emit it the Build fails and names the pinned version. The module shall refuse to start against a player that lacks a
+  host-API entry it needs (WASM-010 R12). A bundle is therefore consistent by construction; a player and module that disagree are a build error, never a run-time surprise.
 
 **Building and shipping it**
 - **R12 (ubiquitous):** The player shall be built by a step of the product's build (a workspace example, as `build_chunked_kb` is) from its source, its output shall be committed or produced at release (Q2), and a **freshness test** shall fail when the shipped player is not the one its source produces. The IDE shall find
-  the player the way it finds its other bundled assets. The build profile (size-first, `panic = "abort"`, `wasm-opt`), the pinned tools and the rule against `wasm-pack` are WASM-017 R16–R17.
+  the player the way it finds its other bundled assets, and shall keep the older players a project may pin, each with its version (R11). The build profile (size-first, `panic = "abort"`, `wasm-opt`), the pinned tools and the rule against `wasm-pack` are WASM-017 R16–R17.
 - **R13 (ubiquitous):** The Build shall report the player's size and the sizes of any parts loaded on demand (Q3), and the player shall load heavy controls (charts, maps, the Viewer) **on first use** where that is possible, so that a form without them does not pay for them. Those parts follow the same loading and disposal rules (WASM-017 R3, R5); the Canvas 2D and Canvas 3D controls and the graphics objects (WASM-018) are such parts.
 - **R13c (ubiquitous):** The player shall be built in **two variants** from one source: **plain** (stable Rust, no shared memory) and **threaded** (a pinned nightly toolchain, a rebuilt standard library, atomics and shared memory, `wasm-bindgen-rayon`; WASM-017 R16). It shall use **Rayon** for its parallel work — image and chart work, DataGrid sorting and filtering, physics, canvas rasterisation — on a worker pool, with the
   same results on the plain variant, which runs the same code sequentially (WASM-017 R19, WASM-018 R20); the host page chooses the variant by `crossOriginIsolated`.
@@ -95,7 +96,7 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
   that outlives a call into it (WASM-017 R10, R14, R15).
 
 **Assurance**
-- **R14 (ubiquitous):** The player shall be held equal to the desktop form host by measurement: the reference form of WASM-004 R11 and the lifecycle, effects and event-order checks of specs 037/038/042 run against both, and a difference is documented or fixed (the drift of spec 042 is the failure this prevents).
+- **R14 (ubiquitous):** The player shall be held equal to the desktop form host by measurement: the reference form of WASM-004 R11 and the lifecycle and event-order checks of specs 037/042 run against both, and a difference is documented or fixed (the drift of spec 042 is the failure this prevents).
 - **R15 (ubiquitous):** The player shall obey the policies of WASM-013: no API that inserts an HTML string — the Viewer builds DOM nodes from an allow-listed, parsed tree instead (WASM-013 R5) — which a source search proves, no `eval`, a strict CSP, no network except the backend and the bundle's own files, and no secret in the player, the descriptions or the stylesheet.
 - **R16 (state):** While the Preview (WASM-008) is open, the player shall accept a **new module, form description or stylesheet without reloading itself**, so that the Preview updates in place.
 - **R17 (constraint):** A Desktop project is unchanged; the desktop form host remains the host of desktop applications.
@@ -131,8 +132,14 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 ## 7. Open questions
 
 - **Q1 — The form-description format:** JSON (easy to inspect and diff), a compact binary, or the `.cfrm` XML itself? Recommended: JSON, versioned, with a binary option later if the size matters.
+  **Decided (operator, 2026-10-22):** JSON, versioned.
 - **Q2 — Committed or built at release.** Commit the built player (as `chunked.data` is: the IDE works from a clone with no extra step) or build it in the release pipeline and have a developer's checkout build it once? Recommended: committed, with the freshness test.
+  **Decided (operator, 2026-10-22):** committed, as `chunked.data` is.
 - **Q3 — One file or on-demand parts.** A single player file is simplest; heavy controls loaded on first use (R13) mean several files and a loader. Recommended: split from the start along the class B controls.
+  **Decided (operator, 2026-10-22):** the recommendation.
 - **Q4 — How much of the form host's behaviour reaches the browser in v1.** Entrance and exit effects, window states and positions (R6) have no obvious browser meaning for an SPA; which are kept, mapped or dropped? Decide per behaviour at `/plan` and list the differences (R14).
+  **Decided (operator, 2026-10-22):** discard: entrance and exit effects and window states and positions are not carried to the browser (R6, R14).
 - **Q5 — Extensibility.** The developer cannot add Leptos code in v1 (non-goal). When `Custom` controls and external crates reach the web (WASM-INDEX, plugins on `wasm32`), is the answer a second prebuilt "player with plug-ins", or loading plug-in modules? Out of scope here; note that the two-module design does not forbid either.
+  **Decided (operator, 2026-10-22):** loading plugin modules.
 - **Q6 — The player in two builds of the IDE.** Because the player is shipped with the IDE, an IDE upgrade changes the player a project builds with; confirm that a rebuild always uses the current one, and whether an old project can pin an older player (the contract of R11 makes a mix a build error).
+  **Decided (operator, 2026-10-22):** a rebuild uses the current player, and a project may pin an older one (R11, R12).

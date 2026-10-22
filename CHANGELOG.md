@@ -17,6 +17,28 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.29] — 2026-10-22
+
+*(Written on `features-2x`, after 2.0.28.)*
+
+### Changed: the operator's answers of 2026-10-22 recorded in the WASM specs
+
+The 97 open questions of WASM-002 to WASM-018 each carry the operator's reply under the question: 86 are decided (some with a conflict to confirm, below), 7 are answered with a point still to confirm, and 4 are still open because the reply does not address them (WASM-004 Q2, WASM-007 Q4, WASM-010 Q3, WASM-017 Q5).
+
+The operator then settled the conflicts the same day, keeping the answers and adjusting the requirements:
+
+- WASM-002 Q2: Leptos with `cargo-leptos`; the server runs the developer's COBOL, with Leptos plumbing invisible (WASM-003 R2, WASM-017 R17).
+- WASM-002 Q6: the host page's JavaScript is generated at every Build and never edited by hand (WASM-013 R9).
+- WASM-003 Q6: one binary per host, spec 041 kept.
+- WASM-004 Q3: properties with no use on the web are hidden on web and mobile forms (WASM-004 R6, WASM-007 R1).
+- WASM-006 Q1: the control is **Hyperlink**, on desktop, web and mobile (R1, new R16 and an acceptance criterion); "WebLink" is renamed across the specs. The code still says WebLink.
+- WASM-010 Q8: in-memory INDEXED files and in-memory `SORT` run in the browser (WASM-010 R7 and non-goals, WASM-002 R3).
+- WASM-013 Q2: Trusted Types best effort.
+- WASM-016 Q4: entrance and exit effects and window states are not carried to the browser (R6, R14).
+- WASM-016 Q6: a project may pin an older player (R11, R12).
+
+No code changed. `README.md` and `docs/` are untouched on this line.
+
 ## [PowerRustCOBOL 2.0.28] — 2026-10-21
 
 *(Written on `features-2x`, after 2.0.27.)*

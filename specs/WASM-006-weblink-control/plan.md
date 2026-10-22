@@ -3,14 +3,14 @@ SPDX-License-Identifier: Apache-2.0
 Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 -->
 
-# Plan — WebLink control (WASM-006)
+# Plan — Hyperlink control (WASM-006)
 
 - **Status:** the player half (rendering, the link policy, the click plan, the methods) is implemented, tested natively and run in Chrome 152; **Cancel and the before-navigate event (R6, R13), fragment scrolling (R10) and the mobile rule (R11) are not done**; the model type, toolbox, Designer face and Properties panel are the IDE side
 - **Spec:** ./spec.md   **Date:** 2026-10-20
 
 ## 1. Approach
 
-WebLink reaches the player as a `ControlType::Custom` named `WebLink` (the model does not carry the type yet), recognised by `kinds::player_kind`. Its rules are **pure functions in `crates/cobolt-web-player/src/weblink.rs`** — nothing there knows the DOM — so they are tested without a browser; the view and the interaction layer only ask `plan()` what to do.
+Hyperlink reaches the player as a `ControlType::Custom` named `Hyperlink` (the model does not carry the type yet), recognised by `kinds::player_kind`. Its rules are **pure functions in `crates/cobolt-web-player/src/weblink.rs`** — nothing there knows the DOM — so they are tested without a browser; the view and the interaction layer only ask `plan()` what to do.
 
 - **Properties read** (the names this file's header lists, the contract the model must match): `Url`, `Target` (`Self`, `NewTab`, `NewWindow`, `Parent`, `Top`), `WindowFeatures`, `Rel`, `Download`, `HrefLang`, `MimeType`, `ReferrerPolicy`, `Underline`, `AccessibleLabel`, the colours `LinkColor`, `HoverColor`, `ActiveColor`, `VisitedColor`; `Cancel` is read as the flag a handler sets.
 - **R2, R4, R9 — an anchor.** The control is an `<a>` showing its Caption; it is focusable, Enter activates it natively, the browser's context menu stays. The accessible name is the Caption unless `AccessibleLabel` overrides it.
@@ -28,7 +28,7 @@ WebLink reaches the player as a `ControlType::Custom` named `WebLink` (the model
 
 ## 3. Data / model changes
 
-None in the player. The model's WebLink must carry the properties above under those names.
+None in the player. The model's Hyperlink must carry the properties above under those names.
 
 ## 4. Key decisions & alternatives
 

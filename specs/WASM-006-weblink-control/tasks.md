@@ -3,7 +3,7 @@ SPDX-License-Identifier: Apache-2.0
 Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 -->
 
-# Tasks — WebLink control (WASM-006)
+# Tasks — Hyperlink control (WASM-006)
 
 - **Status:** in progress — the player half is done; Cancel / before-navigate, fragments and the IDE half are not
 - **Plan:** ./plan.md   **Date:** 2026-10-20

@@ -47,7 +47,7 @@ Para achar um recurso pelo assunto. O detalhe fica na seção 3.
 | Backend (binário, WebSocket, JWT, limites, logs, scaffold) | 003, 014 |
 | Reuso do catálogo de controles, classes A a E | 004 |
 | `CALL … WITH WEBSOCKET LINKAGE`, mapeamento JSON, controles de dados remotos | 005 |
-| Controle WebLink | 006 |
+| Controle Hyperlink | 006 |
 | CSS3, `CssClass`, `Style`, stylesheet da form | 007 |
 | Preview em web view | 008 |
 | Controle Authentication, provedores de identidade, reCAPTCHA | 009 |
@@ -256,7 +256,7 @@ Status: rascunho. Depende de WASM-001, 002, 010 e 016. Emenda a spec 017: na web
 
 **Metas:** uma definição por controle; todo controle classificado e publicado; controles A e B iguais ao desktop, com diferenças listadas; harness de conformidade web.
 
-**Fora do escopo:** controles novos (WebLink é WASM-006, Authentication é WASM-009); redesenho visual; levar o canvas do Form Designer para a web.
+**Fora do escopo:** controles novos (Hyperlink é WASM-006, Authentication é WASM-009); redesenho visual; levar o canvas do Form Designer para a web.
 
 **Questões:**
 - **Q1** — Layout na web — **decidido**: CSS (R8). Diferença de um pixel medida em R11.
@@ -328,12 +328,12 @@ Sintaxe pedida pelo operador: `CALL "<nome>"|identificador WITH WEBSOCKET LINKAG
 **Estado:** rascunho. O `CALL … RETURNING` local já está corrigido em 1.x.x e 2.x.x. A parte WEBSOCKET depende do backend, que não foi mergeado (PROGRESS PROG-79).
 
 ---
-### WASM-006 — Controle WebLink
+### WASM-006 — Controle Hyperlink
 
 Status: rascunho. Origem: item 6 do operador. Depende de WASM-004 e WASM-007.
 
 **Requisitos**
-- **R1** — Controle **WebLink** na toolbox de projetos web e mobile, com ícone, tamanho e caption padrão. É tipo próprio que herda propriedades, eventos e métodos do Label (Q1 trata do nome e das forms desktop).
+- **R1** — Controle **Hyperlink** na toolbox de projetos web e mobile, com ícone, tamanho e caption padrão. É tipo próprio que herda propriedades, eventos e métodos do Label (Q1 trata do nome e das forms desktop).
 - **R2** — Mostra o **Caption** como texto de link. Cor e sublinhado (sempre, no hover ou nunca, por propriedade). Cursor **hand** por padrão.
 - **R3** — Propriedades além das do Label:
   - **Url**;
@@ -356,12 +356,12 @@ Status: rascunho. Origem: item 6 do operador. Depende de WASM-004 e WASM-007.
 - **R14** — No Form Designer, desenhado como texto de link. Caption editável no lugar; Url no painel Properties, com validação de esquema e indicação de esquema recusado. O clique é testado na Preview (WASM-008).
 - **R15** — Round-trip por `.cfrm`; teste em `tests/controls/`; exercitado pelos testes que iteram `ControlType::ALL`; documentado no System KB; ícone; strings em seis idiomas.
 
-**Metas:** WebLink com texto de link e navegação como `<a>`; toda capacidade de `<a>` como propriedade, método ou evento, exceto `ping`; seguro por padrão.
+**Metas:** Hyperlink com texto de link e navegação como `<a>`; toda capacidade de `<a>` como propriedade, método ou evento, exceto `ping`; seguro por padrão.
 **Fora do escopo:** rich text ou links inline dentro de um Label; navegação entre forms da aplicação (shell de WASM-011 e router proposto); prévia, verificação ou analytics de links.
 **Adiado ou fora de alcance:** o controle em forms **desktop** (exigiria capacidade de runtime que não existe); `ping`; estilo `:visited` (limitado pelos navegadores).
 
 **Questões:**
-- **Q1** — Nome e alcance — aberto, com recomendação: nome WebLink e só web e mobile no 2.0.
+- **Q1** — Nome e alcance — aberto, com recomendação: nome Hyperlink e só web e mobile no 2.0.
 - **Q2** — Alt-clique e modificadores variam por navegador e SO — aberto: fixar a tabela no `/plan`.
 - **Q3** — Como o handler cancela — recomendado: propriedade booleana (`SET LINK-1::Cancel TO TRUE`).
 - **Q4** — Navegação de mesma origem dentro de uma SPA — aberto; o router decide.
@@ -755,7 +755,7 @@ Status: rascunho. Depende de WASM-001, 004, 008 e 010. Reúne os requisitos de t
 - **R13** — O `APPLICATION_RULES` do plugin ganha as regras dos kinds web: o que um form web não pode conter; que segredos vivem só no backend; que chamadas remotas usam `CALL … WITH WEBSOCKET LINKAGE`; que form web é responsivo e usa o visual Spatial. Os skills ganham um para aplicação Web ou Mobile e um para Backend. O agente revisor passa a checar essas regras.
 
 *Conhecimento*
-- **R14** — A System KB declara, nas tabelas de documentação do compilador: classe de cada controle na web (WASM-004 R12), membros exclusivos da web, built-ins utilizáveis no navegador (WASM-010 R7), a frase `CALL … WITH WEBSOCKET LINKAGE` e seu mapeamento, os estilos de aplicação (WASM-011) e os controles Authentication e WebLink. `chunked.data` regenerado, com teste de freshness passando.
+- **R14** — A System KB declara, nas tabelas de documentação do compilador: classe de cada controle na web (WASM-004 R12), membros exclusivos da web, built-ins utilizáveis no navegador (WASM-010 R7), a frase `CALL … WITH WEBSOCKET LINKAGE` e seu mapeamento, os estilos de aplicação (WASM-011) e os controles Authentication e Hyperlink. `chunked.data` regenerado, com teste de freshness passando.
 - **R15** — Especialistas do Grace não propõem construções que o kind recusa: planner e pedantic reviewer leem o kind do projeto, e as regras de política (não heurísticas de palavras) dizem o que cada kind pode usar.
 - **R16** — Os **exemplos** distribuídos incluem ao menos uma aplicação Web e um Backend, construídos e rodados pela suíte. Não contêm chave nem senha (WASM-013 R7).
 
@@ -788,7 +788,7 @@ Status: rascunho. Origem: decisão do operador (2026-10-19) sobre WASM-002 Q7 e 
 - **R4** — A descrição não contém secret nem código de programa; o código dos handlers fica no módulo, referido por id.
 
 *O que o player faz*
-- **R5** — Cada controle das classes A e B (WASM-004) é implementado **uma vez**, com propriedades, eventos e métodos do modelo, a tabela propriedade → CSS (WASM-007 R1), `CssClass`, `Style`, stylesheet da form e acessibilidade (WASM-004 R10). Também implementa os controles **Authentication** (WASM-009) e **WebLink** (WASM-006).
+- **R5** — Cada controle das classes A e B (WASM-004) é implementado **uma vez**, com propriedades, eventos e métodos do modelo, a tabela propriedade → CSS (WASM-007 R1), `CssClass`, `Style`, stylesheet da form e acessibilidade (WASM-004 R10). Também implementa os controles **Authentication** (WASM-009) e **Hyperlink** (WASM-006).
 - **R6** — O player oferece no navegador o que o form host desktop oferece: propriedades de janela e backdrop, efeitos de entrada e saída, eventos de ciclo de vida, despacho de eventos e pacing de timers e animações. Como definem as specs 037, 038 e 042, ou com diferença documentada.
 - **R7** — Ação do usuário num controle: o player entrega o evento (id, controle, parâmetros) ao módulo (WASM-010 R10) e, enquanto o módulo roda, executa o que ele pede pela host API: ler e escrever propriedade, chamar método, escrever `DISPLAY`, dar hora e aleatório, fazer chamada remota.
 - **R8** — Quando o módulo para numa espera (WASM-010 R9), o player faz a espera (chamada remota, diálogo, timer) e retoma com a resposta. Eventos nesse intervalo ficam em fila, em ordem (WASM-005 R9).
@@ -1120,7 +1120,7 @@ Estado: draft 1, amended em 2026-10-20. É normativo para `cobolt-wasm` (produto
 - `InputBox` (texto, título, padrão; texto digitado em `DialogResult`; suspende) (ABI-124);
 - `Sleep`, `Wait` (milissegundos; suspende) (ABI-125);
 - `OpenFormSync`, `OpenFormAsync` (nome da form; handle; `Sync` suspende até o filho fechar) (ABI-126);
-- `Navigate`, `OpenUrl` (endereço e alvo, pela política de WebLink; não suspende) (ABI-127);
+- `Navigate`, `OpenUrl` (endereço e alvo, pela política de Hyperlink; não suspende) (ABI-127);
 - `Download` (nome e texto; não suspende) (ABI-128); `CopyToClipboard` (ABI-129); `SetTitle` (ABI-130);
 - `GetProperty`, `SetProperty` (propriedades da aplicação: `DialogResult`, `Locale`, `Standalone`, `Title`…) (ABI-131);
 - `StopRun`, `Exit` (aplicação termina; `STOPPED`) (ABI-132).
@@ -1136,7 +1136,7 @@ Estado: draft 1, amended em 2026-10-20. É normativo para `cobolt-wasm` (produto
 - teclado (`onKeyDown`, `onKeyPress`, `onKeyUp`): a tecla (ABI-137);
 - `onMouseWheel`: delta vertical (ABI-138); `onCheckedChanged`: `true` ou `false` (ABI-139); `onItemChecked`: itens marcados separados por line feed (ABI-140); `onItemDoubleClick`: texto do item (ABI-141); `onTabClick` e `onTabChanged`: número da página, a partir de 1 (ABI-142);
 - `onNodeClick`, `onNodeSelect`, `onNodeDblClick`, `onNodeCheck`: `text⇥index⇥level⇥checked` (ABI-143);
-- `onMenuClick`, `onMenuItemClick`: id do item (ABI-144); `onClick` de botão de ToolBar: id; de WebLink: modificadores (ABI-145);
+- `onMenuClick`, `onMenuItemClick`: id do item (ABI-144); `onClick` de botão de ToolBar: id; de Hyperlink: modificadores (ABI-145);
 - `onCellClick`, `onCellDoubleClick`: `row,column` a partir de **0** (ABI-146); `onRowDoubleClick`: linha; `onColumnClick`: coluna (a partir de 0);
 - `onMapClick`: latitude e longitude a seis casas (ABI-147); `onMarkerClick`: id do marcador (ABI-148);
 - `onFilesDropped`, `onFilesRejected`: nomes separados por line feed (ABI-149);
@@ -1172,7 +1172,7 @@ Documento de ordem, crates e risco. Cada spec tem o seu `plan.md` e `tasks.md`, 
 - **W1** — `cobolt-graphics`: display list, texto, ImageBuffer, Plot, Scene3D, Physics, handles, limits, dependency guard (spec 018; agente G, mergeado);
 - **W2** — `CALL … WITH WEBSOCKET LINKAGE`, mapeamento group ⇄ JSON com golden vectors, `cobolt-server`, contrato e backend de identidade (specs 005, 003, 014, 009; agente B, em andamento);
 - **W3** — `cobolt-decimal`, `cobolt-wasm-rt`, `cobolt-wasm` (layout, lowering, linker, glue da host API), harness de paridade, NC → IF → IC (specs 010, 017; feito em grande parte);
-- **W4** — player: `cobolt-web-player`, JS do loader, host page, variantes, Viewer por construção de nós, controles classes A a E, CSS, navegação, WebLink, controle Authentication (lado frontend), controles Canvas ligados a W1 (specs 016, 002, 004, 006, 007, 011, 009, 018; agente P, mergeado em 2.0.24);
+- **W4** — player: `cobolt-web-player`, JS do loader, host page, variantes, Viewer por construção de nós, controles classes A a E, CSS, navegação, Hyperlink, controle Authentication (lado frontend), controles Canvas ligados a W1 (specs 016, 002, 004, 006, 007, 011, 009, 018; agente P, mergeado em 2.0.24);
 - **W5** — IDE: tipos de projeto e seletor, entradas da árvore, chaves `Tr`, ligação de Build, Run e Preview, preview em web view (specs 001, 008, 015; mergeado em 2.0.20);
 - **W6** — portões de segurança e matriz de testes, ferramentas de agente, System KB e `chunked.data` (specs 013, 015; pendente);
 - **W7** — shell mobile Tauri 2 (spec 012; pendente);
@@ -1306,7 +1306,7 @@ Resumo: **by design**: #3 e #6. **Aguardam aval do operador** (handoff §7): #1,
 | D11 | Paridade do modelo de dados (bytes do gerador, valores do interpretador) | aberta (WASM-010 Q5) |
 | D12 | Templates criáveis na 2.0: Web, Android, iOS; sem watch | **decidida** |
 | D13 | Backend é parte de todo projeto web ou mobile, não kind | **decidida** (2026-10-20) |
-| D14 | Markup nunca é inserido como string HTML; WebLink sem `ping` na v1 | **decidida** (2026-10-20) |
+| D14 | Markup nunca é inserido como string HTML; Hyperlink sem `ping` na v1 | **decidida** (2026-10-20) |
 | D15 | Arquitetura: um módulo por projeto, regiões por instância, data memory fixa, arena de transporte, granularidade grossa | **decidida** (2026-10-20) |
 | D16 | Threads e Rayon na v1, com isolamento cross-origin e fallback plain | **decidida** (2026-10-20), revertendo o ruling de 2026-10-19 |
 | D17 | Multi-memory padrão, com variante single-memory para iOS e matrizes com Safari | **decidida** (2026-10-20) |

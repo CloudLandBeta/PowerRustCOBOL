@@ -59,7 +59,7 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 **Properties ⇄ CSS**
 - **R1 (ubiquitous):** Each existing appearance property shall map to CSS3 declarations in the web output through **one table** (for example Shadow* → `box-shadow`, the gradient → `linear-gradient`, Transparency →
   `opacity` or an alpha channel, Padding* → `padding`, CornerRadius → `border-radius`, BorderStyle/Color/Width → `border`, the font properties → `font-*`/`text-decoration`). Each entry shall be marked *exact*,
-  *approximate* or *not on the web* (for example perspective `RotateX`/`RotateY` and the operating-system blur are candidates for "approximate"), and the marking shall appear in the property's tooltip (WASM-004 R6).
+  *approximate* or *not on the web* (for example perspective `RotateX`/`RotateY` and the operating-system blur are candidates for "approximate"), an *approximate* entry shall be marked in the property's tooltip, and a *not on the web* entry shall be hidden in the Properties panel of a web or mobile form (WASM-004 R6).
 - **R2 (ubiquitous):** Every control on a web or mobile form shall have **`CssClass`** (space-separated class names) and **`Style`** (inline CSS declarations) properties, in the model and in the Properties panel,
   and its name shall be the element's `id`/`data-name` so that a selector can address it.
 - **R3 (ubiquitous):** The element of a control shall carry a class for its type (for example `pr-button`) and the state classes the browser provides through pseudo-classes (`:hover`, `:focus-visible`,
@@ -124,7 +124,11 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
   panel say so.
 - **Q2 — Where the stylesheet lives:** inside the form file (`.wcfrm`, `.mcfrm` or `.cfrm`; one file per form, no extra file to lose, a CDATA caveat) or as `forms/<Form>.css` (an ordinary file any CSS tool can open)? Recommended: a file beside the
   form, referenced from the form file.
+  **Decided (operator, 2026-10-22):** `forms/<Form>.css`, next to the form.
 - **Q3 — A project-wide stylesheet** (an application stylesheet under the forms' ones) is not asked for; add it now or leave it to a later spec? Recommended: leave it, but reserve its place in the cascade.
+  **Decided (operator, 2026-10-22):** add the project-wide stylesheet now.
 - **Q4 — Class naming** (`pr-button`) and the list of custom properties are a public contract once shipped; settle them at `/plan` and pin them with a test.
+  **Not answered (operator reply of 2026-10-22 does not address it):** the reply "100% Leptos" does not settle the class names and custom properties as a contract.
 - **Q5 — The visual bar:** how close to the desktop's Spatial/Liquid Glass look must the CSS get — the glass shadows, the perspective and spec 057's drawn corners have no exact CSS twin. Accept "approximate"
   per property (R1), or require parity for the three built-in themes?
+  **Decided (operator, 2026-10-22):** Spatial / Liquid Glass is native to the web: only the names match the desktop. Unlike the desktop, a web theme is replaceable as a whole (no sub-themes).

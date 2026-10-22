@@ -163,14 +163,22 @@ its COBOL API; its work runs on the backend.
 ## 7. Open questions
 
 - **Q1 — Elementary items.** The operator wrote *group*. Allow an elementary `01`/`77` item as a one-field group (a scalar), or reject it? Recommended: allow; a number or a string is the commonest argument.
+  **Decided (operator, 2026-10-22):** accept an elementary `01`/`77` item.
 - **Q2 — `RETURNING` on local calls — decided.** It is parsed and ignored today (`interpreter.rs:11256`), which is a gap independent of this series. The operator ruled on 2026-10-19 that it is **a fix on 1.x.x,
   forward-ported to 2.x.x** by the standing rule, so that the two conventions mean the same thing. It is **done**: the fix is `8a15f00d` (1.91.219) on the local `main`, forwarded as `afe22c51` on 2.x.x. It moves the callee's `RETURNING` item into the caller's identifier with ordinary `MOVE` rules (the receiver's `PICTURE` converts, edits and
   truncates; a group moves as a group), and leaves the receiver untouched when nothing is returned (a callee with no `RETURNING` item, a built-in, a paragraph, an unresolved program, or a callee that stops on a run-time error). This spec's `RETURNING`
   semantics (R3) follow that.
 - **Q3 — JSON key spelling.** As declared (recommended), upper-case, or lower-camel (`CUSTOMER-NAME` → `customerName`)? A per-item override (a `NAME` clause, as other COBOLs have) is the usual escape hatch.
+  **Decided (operator, 2026-10-22):** as declared.
 - **Q4 — Trimming.** Trailing spaces trimmed on output and restored (padded) on input; leading spaces and all-space values (`""`) need a rule. Recommended: trim on output, pad on input, empty string for all spaces.
+  **Answered (operator, 2026-10-22), to confirm:** "defined". This record takes the recommendation (trim on output, pad on input, empty string for all spaces).
 - **Q5 — `REDEFINES`.** Writing only the first item is the safe default; should a `REDEFINES` group be refused as an argument instead?
+  **Decided (operator, 2026-10-22):** the safe default: write only the first item; a `REDEFINES` group is not refused.
 - **Q6 — Concurrency of events while a call is pending:** queue them (recommended), disable the form's controls, or let handlers run re-entrantly (dangerous)?
+  **Decided (operator, 2026-10-22):** queue the events.
 - **Q7 — How the failure is read:** a new built-in such as `COBOL::"WS-LAST-ERROR"( class message )`, a special register, or `RETURN-CODE`? Needs the operator's taste; the built-in is the project's convention.
+  **Decided (operator, 2026-10-22):** both mechanisms, carrying the same data. Agents (Codex) use the first, the built-in; humans may use either. *To confirm that "the first" is the built-in.*
 - **Q8 — `RestApi` / `AgentAi` bindings:** implement through the backend, or hide on the web and leave to a later spec?
+  **Decided (operator, 2026-10-22):** through the backend, except COBOL tables, which stay local.
 - **Q9 — Wire format:** one JSON text frame per call (recommended), or a binary framing for large tables? The JSON mapping is the contract either way.
+  **Decided (operator, 2026-10-22):** the recommendation: one JSON text frame per call.

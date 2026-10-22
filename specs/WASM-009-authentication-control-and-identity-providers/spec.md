@@ -126,10 +126,16 @@ backend programs that talk to the chosen identity provider and return a token th
   use the in-app screens only for Cognito; (c) support both, chosen per provider. Recommended: (c). It changes R1, R7 and R8 materially, so it must be settled first.
 - **Q2 — Backend-issued token or the provider's.** Recommended for 2.0: the provider's access token, validated by the backend against the provider's keys (WASM-003 R10) — no token minting, no key custody. A
   backend-issued session token is a later option.
+  **Decided (operator, 2026-10-22):** the recommendation: the provider's access token, validated by the backend.
 - **Q3 — Refresh cookie needs HTTP,** while the series' contract is a WebSocket (WASM-003 Q3). Confirm that the backend also serves a small HTTPS surface for the cookie and the provider's redirects.
+  **Decided (operator, 2026-10-22):** confirmed.
 - **Q4 — Route protection:** a form marked "requires sign-in", a property of the application shell (spec 049), or a handler's explicit check? Recommended: a form-level property.
+  **Decided (operator, 2026-10-22):** a form-level property.
 - **Q5 — MFA kinds in 2.0:** TOTP only, or also SMS/e-mail codes? It follows what each provider offers; list them in R8's table.
+  **Decided (operator, 2026-10-22):** TOTP, and SMS and e-mail codes as well.
 - **Q6 — reCAPTCHA v3 and privacy:** it loads a third party's script and sends data to it; the consent text and the regional rules (LGPD, GDPR) are the developer's to satisfy; should the control provide a consent hook?
   Alternatives (hCaptcha, Cloudflare Turnstile) are a later adapter.
+  **Decided (operator, 2026-10-22):** the control offers a consent hook.
 - **Q7 — Mobile:** the OS secure store through a Tauri plugin and biometric unlock are assumed; confirm with the mobile-platform spec proposed in WASM-INDEX. Note that iOS requires "Sign in with Apple" when other social
   logins are offered — relevant only once federation is added.
+  **Decided (operator, 2026-10-22):** confirmed.

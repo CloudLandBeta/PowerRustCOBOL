@@ -69,8 +69,8 @@ What it costs: a compiler back end and the routines above, and **two engines to 
   - A short, versioned host API as the module's only imports.
   - A **conformance gate**: the NIST programs in the subset, and a golden corpus, run on the generated module with 0 failures.
 - **Non-goals:**
-  - File I/O of any organisation (sequential, line sequential, indexed, relative), the `redb` engine, `std::fs`, child processes, native sockets, SQL and `EXEC SQL`, `EXEC RUST`. In the browser the
-    data lives on the backend (WASM-005). **Threads inside the COBOL program's semantics** are also out: COBOL has none; the module runs in one thread — in a Worker when the page is isolated — and parallelism belongs to the player and the graphics objects (WASM-017 R19, WASM-018).
+  - File I/O on disk of any organisation (sequential, line sequential, indexed, relative), the `redb` engine, `std::fs`, child processes, native sockets, SQL and `EXEC SQL`, `EXEC RUST`. In-memory INDEXED
+    files and in-memory `SORT` are in (R7); persistent data lives on the backend (WASM-005). **Threads inside the COBOL program's semantics** are also out: COBOL has none; the module runs in one thread — in a Worker when the page is isolated — and parallelism belongs to the player and the graphics objects (WASM-017 R19, WASM-018).
   - A runtime, interpreter or AST in the module.
   - Compiling the backend: it keeps the native runtime.
   - WebAssembly GC, the component model, threads or SIMD proposals in v1.
@@ -101,7 +101,7 @@ What it costs: a compiler back end and the routines above, and **two engines to 
 - **R6 (ubiquitous):** The routines emitted into a module — decimal arithmetic including the 128-bit operations WebAssembly lacks, numeric-edited pictures, character and string handling for `STRING`, `UNSTRING`,
   `INSPECT` and reference modification, intrinsic functions, date and time arithmetic — shall have **one source of truth with the interpreter's** where the same behaviour is required, so that a fix to one reaches
   both (Q3 on how). They shall contain no file, thread, process, `redb` or `std::fs` code.
-- **R7 (ubiquitous):** The subset the generator accepts shall be all COBOL-85 statements that need no file, plus the PowerRustCOBOL extensions that do not need the host machine: a control's property read and written like a
+- **R7 (ubiquitous):** The subset the generator accepts shall be all COBOL-85 statements that need no file, plus INDEXED files declared `STORAGE IS MEMORY` and `SORT`/`MERGE` held in memory (operator, 2026-10-22, Q8), whose data lives with the form instance and is released with it, plus the PowerRustCOBOL extensions that do not need the host machine: a control's property read and written like a
   data item (`CTRL::Property`), method calls and method values, the value methods of data items (`Trim`, `UpperCase`, `Replace`, `Len`, …), expressions in `MOVE`/`SET`/`STRING`, and the inline `COBOL::"…"` built-ins
   that are browser-capable. Each built-in (`cobolt-runtime/src/builtins.rs` `BUILTINS`) shall be classified *browser*, *backend only* or *unsupported* in one table.
 - **R8 (event):** When the compiler meets a construct outside the subset, it shall report an **error at its line** naming the construct and the alternative (the rule of WASM-002 R3); a test shall fail when a `Stmt`
@@ -169,16 +169,24 @@ What it costs: a compiler back end and the routines above, and **two engines to 
   interpreter compiled to `wasm32` — answered **keep direct generation**. R1, R2 and R6 stand as written.
 - **Q2 — The emitter and the test engine.** `wasm-encoder` (a pure-Rust emitter already in the lock file transitively) or a small writer of our own; and a pure-Rust engine for the headless runs (`wasmi`) or `wasmtime`. Probe licence,
   MSRV 1.92 and weight at `/plan`.
+  **Decided (operator, 2026-10-22):** `wasm-encoder` as the emitter and `wasmtime` as the engine (the reply was given under Q3).
 - **Q3 — How the routines are authored, given "no runtime".** (a) Written once in Rust, compiled to WebAssembly when the *product* is built, kept in the compiler as a blob, and **linked statically into each module with the unused
   functions dropped** — one source of truth with the interpreter, 128-bit arithmetic comes with it; (b) written in the compiler as code that emits each routine on demand — no blob, but a second implementation to keep equal.
   Recommended: (a). Either meets R2: nothing is loaded at run time.
+  **Not answered (operator reply of 2026-10-22 does not address it):** the reply "WASMTIME" answers Q2's engine, not how the routines are authored.
 - **Q4 — Suspension technique.** Explicit state kept by the generated code (recommended; works in every browser) against JavaScript Promise Integration or stack switching (not in every browser yet) against a post-processing
   tool such as Binaryen's Asyncify (an extra build dependency).
+  **Decided (operator, 2026-10-22):** explicit state kept by the generated code.
 - **Q5 — Data-model parity.** R3 asks for real bytes; the interpreter keeps values. Where they differ (`REDEFINES`, group moves over `COMP-3`), the generator follows the standard and the NIST suite, and a difference
   found is an interpreter bug (R16c). Confirm this is the intended direction.
+  **Answered (operator, 2026-10-22), to confirm:** check whether the difference is a bug; if it is, fix it; if not, avoid `REDEFINES`. *What "avoid" means for the generator is to state.*
 - **Q6 — Budgets** for module size and start-up: measure phase A before setting them.
+  **Decided (operator, 2026-10-22):** agreed: measure phase A before setting the budgets.
 - **Q7 — Which built-ins are browser-capable** — decided per entry of `BUILTINS` at `/plan`.
+  **Decided (operator, 2026-10-22):** iOS applications prioritise Safari's built-ins; every other case keeps Chrome/Safari parity.
 - **Q8 — In-memory indexed files and in-memory `SORT` in the browser.** Out of v1 (non-goal), as the operator's "no `redb`, data on the backend" implies; confirm, since spec 006 had memory-only indexed files.
+  **Decided (operator, 2026-10-22):** the web frontend allows in-memory INDEXED files and in-memory `SORT` (R7).
 - **Q9 — `DISPLAY` and `ACCEPT`:** `DISPLAY` goes to the host's console (R12); `ACCEPT` has no meaning where forms are the input — refuse it or map it to a dialog?
+  **Decided (operator, 2026-10-22):** `DISPLAY` goes to the host's console; `ACCEPT` is ignored.
 - **Q10 — One module or two — decided.** The operator ruled on 2026-10-19: **two `.wasm` files** — the generated, self-contained program module (this spec) and a **prebuilt Leptos player** that draws any form (WASM-016), joined by the host page
   and the host API. The program module therefore never touches the DOM, the network or the page itself: it asks the player (R12), which is also why a Web build needs no Rust toolchain.

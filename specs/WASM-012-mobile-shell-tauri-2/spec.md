@@ -117,8 +117,14 @@ JDK and the Rust Android targets, iOS needs macOS, Xcode and the Rust iOS target
 ## 7. Open questions
 
 - **Q1 — The first device features.** The minimum is what other specs need (secure storage, opening addresses, deep links). Which of camera, location, notifications, biometric unlock and barcode scanning belong to 2.0?
+  **Answered (operator, 2026-10-22), to confirm:** "yes". *Whether all five features (camera, location, notifications, biometric unlock, barcode scanning) enter 2.0 is to confirm.*
 - **Q2 — Cloud or remote builds.** iOS needs a Mac; a developer on Windows or Linux has no route. Out of scope, or is a remote-Mac build a later spec?
+  **Decided (operator, 2026-10-22):** no remote builds: building for iOS needs a Mac.
 - **Q3 — Minimum OS levels** the New Project dialog offers (Android API level, iOS version) and how they track Tauri's and the web views' own minimums.
+  **Decided (operator, 2026-10-22):** the last version of 2024 of each operating system; each new major version of PowerRustCOBOL AI Web/Mobile raises the required OS by one year.
 - **Q4 — Tablet layouts.** Android Tablet and iPad are separate templates in WASM-001; do they differ from phones only by the responsive breakpoints (recommended) or by a separate shell?
+  **Decided (operator, 2026-10-22):** the recommendation.
 - **Q5 — Pinning.** Tauri 2 and each plugin pinned per project with an upgrade path, or tracked with the IDE?
+  **Decided (operator, 2026-10-22):** track the IDE.
 - **Q6 — Certificate pinning and similar hardening** for the backend connection: optional, in WASM-013, or later.
+  **Decided (operator, 2026-10-22):** optional, in WASM-013.

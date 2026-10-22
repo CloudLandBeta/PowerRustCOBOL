@@ -117,10 +117,16 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
 ## 7. Open questions
 
 - **Q1 — What a reload or a deep link restores.** The form and its opening parameters, not its in-memory data (recommended); or also a saved snapshot of the data in `sessionStorage` (never tokens, WASM-009 R5)?
+  **Decided (operator, 2026-10-22):** the recommendation.
 - **Q2 — Route syntax.** A hash (`#/customer/42`) works on any static host and does not touch the host page's path; a path (`/customer/42`) is cleaner but needs the server to serve the application for unknown paths.
   Recommended: hash by default, path as an option.
+  **Decided (operator, 2026-10-22):** hash.
 - **Q3 — `super` between windows** needs a channel the browser offers only within one origin and one browser profile; confirm that limit is acceptable, and that a closed opener is a normal `ON EXCEPTION`.
+  **Decided (operator, 2026-10-22):** confirmed; a closed opener is a normal `ON EXCEPTION`.
 - **Q4 — Same-window multi-page navigation** (each `OpenForm` replacing the page, a classic multi-page site) is a third style the operator did not name: out of scope, or part of "standalone"?
+  **Decided (operator, 2026-10-22):** part of the standalone style.
 - **Q5 — Mobile default style:** SPA with a stack (recommended) or standalone screens throughout?
+  **Decided (operator, 2026-10-22):** SPA with a stack.
 - **Q6 — The program module of a standalone page — decided** (operator, 2026-10-20, WASM-017 Q1): every page loads **the project's one program module** and the one player, instantiated with the page's start form; the browser caches both once for all pages.
 - **Q7 — Several instances of the application on one page** (embedded in two places): allowed or refused?
+  **Decided (operator, 2026-10-22):** allowed.

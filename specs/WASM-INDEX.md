@@ -26,7 +26,7 @@ Items that overlap were merged (as asked). Item 12 is §5.
 | 3 | The Backend project and the secure frontend–backend channel (JWT) | [WASM-003](WASM-003-backend-project-and-secure-channel/spec.md) |
 | 4 | Reuse of the control catalogue | [WASM-004](WASM-004-control-reuse-on-the-web/spec.md) |
 | 5 | `CALL … WITH WEBSOCKET LINKAGE`, the group ⇄ JSON mapping, and the data controls through the backend | [WASM-005](WASM-005-websocket-call-and-remote-data/spec.md) |
-| 6 | The WebLink control | [WASM-006](WASM-006-weblink-control/spec.md) |
+| 6 | The Hyperlink control | [WASM-006](WASM-006-weblink-control/spec.md) |
 | 7 + 8 | CSS3 for appearance and the form's default stylesheet | [WASM-007](WASM-007-css3-styling-and-form-stylesheet/spec.md) |
 | 9 | The Preview is a web view | [WASM-008](WASM-008-webview-preview/spec.md) |
 | 11 (and the obtaining side of 3) | The Authentication control and the identity-provider backend | [WASM-009](WASM-009-authentication-control-and-identity-providers/spec.md) |
@@ -85,7 +85,7 @@ flowchart TD
   W3 --> W5["WASM-005 CALL WEBSOCKET + data controls"]
   W10 --> W5
   W4 --> W5
-  W4 --> W6["WASM-006 WebLink"]
+  W4 --> W6["WASM-006 Hyperlink"]
   W4 --> W7["WASM-007 CSS3 + stylesheet"]
   W7 --> W8["WASM-008 web-view Preview"]
   W2 --> W8
@@ -136,7 +136,7 @@ flowchart TD
 | D18 | **Component Model and ES-module integration:** kept only if Chrome supports them — **not established** (source-phase imports are Stage 3, `jco` calls itself experimental, Chrome's status page was unreachable) — so **not kept**: ES-module integration is optional and feature-detected, the Component Model is not used; revisit on native support | WASM-017 R3, R6, Q7 | **Decided** by the operator's own condition (2026-10-20) |
 | D19 | **Canvas 2D, Canvas 3D and five client objects** (ImageBuffer, Plot, Scene3D, Physics2D, Physics3D) on every platform, from 100 %-Rust crates: `tiny-skia`, `rustybuzz`+`skrifa`, `image`+`imageproc`, `plotters`, `wgpu`+`glam`+`gltf`, `rapier`, `rayon`; one pure-Rust crate, `cobolt-graphics`, behind a display list | WASM-018 | **Decided** (operator, 2026-10-20); the crate versions are fixed at `/plan` |
 | D20 | **Form layers on the web (spec 091):** the desktop rules carry over to web forms unchanged; on the web a layer is a stacking context, hit testing is the browser's, a hidden layer is `inert`, every layer starts hidden, and the non-visual set is one predicate | WASM-004 R13–R24, WASM-016 R18–R19, WASM-ABI-v1 A9 | **Proposed.** The desktop rules are decided by spec 091 (approved 2026-10-09); the HTML realisation is to confirm at `/clarify` |
-| D14 | **Markup is never inserted as an HTML string:** the Viewer builds DOM nodes from an allow-listed, parsed tree; and WebLink does not offer `ping` in v1 | WASM-013 R5, WASM-016 R15, WASM-006 R3 | **Decided** (operator, 2026-10-20) |
+| D14 | **Markup is never inserted as an HTML string:** the Viewer builds DOM nodes from an allow-listed, parsed tree; and Hyperlink does not offer `ping` in v1 | WASM-013 R5, WASM-016 R15, WASM-006 R3 | **Decided** (operator, 2026-10-20) |
 | D4 | **Stateless or stateful backend calls** | WASM-003 Q2 | Fresh `WORKING-STORAGE` per call. **Open** |
 | D5 | **WebSocket only, or also a small HTTPS surface** (refresh cookie, provider redirects, health, downloads) | WASM-003 Q3, WASM-009 Q3, WASM-014 Q4 | Also HTTPS, kept minimal. **Open** |
 | D7 | **Preview in a separate process** or embedded in the IDE window | WASM-008 Q1 | Separate process and window. **Open** |

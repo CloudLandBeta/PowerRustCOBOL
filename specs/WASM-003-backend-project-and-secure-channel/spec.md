@@ -70,7 +70,9 @@ user obtains the JWT is WASM-009.
   **exported programs** — the only programs a remote caller can reach. A program not in the list shall be unreachable from the channel,
   whatever its name.
 - **R2 (event):** When the developer builds the Backend, the IDE shall produce **one self-contained executable per host platform**
-  (macOS, Windows, Linux) that includes the runtime, the programs and the WebSocket server, extending the existing single-binary build.
+  (macOS, Windows, Linux) that includes the runtime, the programs and the server, extending the existing single-binary build. The server
+  is built on Leptos (`cargo-leptos`, WASM-002 Q2) and carries the WebSocket channel and the HTTPS endpoints; it runs the developer's
+  COBOL programs, and its Leptos plumbing is invisible to the developer, who writes and sees only COBOL.
 - **R3 (ubiquitous):** The backend shall run its programs on **the current native runtime** — the tree-walking interpreter, with `std::fs`, threads and
   every indexed engine including `redb` — with the file, indexed, SQL and HTTP features available to them, plus whatever the new functions need (the WebSocket
   server, JWT validation, the group ⇄ JSON mapping of WASM-005). This is the operator's ruling of 2026-10-19: the backend keeps the runtime; only the browser is
@@ -167,12 +169,18 @@ user obtains the JWT is WASM-009.
   (WASM-001 Q8 for the folder names).
 - **Q2 — Statefulness:** each call starts with fresh `WORKING-STORAGE` (a function), or a connection keeps one instance (a session)? Recommended:
   fresh per call, with explicit session data in a file or database; it is the model that scales and cannot leak between users.
+  **Decided (operator, 2026-10-22):** a project property, defaulting to the recommendation (fresh `WORKING-STORAGE` per call).
 - **Q3 — Alongside the WebSocket,** does the backend also need ordinary HTTPS endpoints (the refresh cookie of WASM-009 R5, health, an identity
   provider's redirect)? Probably yes; the spec allows them but the contract of this series is the WebSocket.
+  **Decided (operator, 2026-10-22):** yes, the backend also serves ordinary HTTPS endpoints.
 - **Q4 — Idempotency:** which programs are safe to repeat after a reconnection, and how is that declared? Recommended: none are by default.
+  **Decided (operator, 2026-10-22):** the recommendation: no program is safe to repeat by default.
 - **Q5 — A development token** (a locally signed JWT so a developer can test without an identity provider): allowed in a development run only,
   never in a release build? Needs the operator's ruling; it is the easiest way to ship an unauthenticated backend by mistake.
+  **Decided (operator, 2026-10-22):** the development token is allowed only in a development run, never in a release build.
 - **Q6 — Packaging per platform:** one binary per host (as spec 041 requires, host triple only), or cross-built binaries? Recommended: host only
   in 2.0.
+  **Decided (operator, 2026-10-22):** one binary per host, as spec 041 requires.
 - **Q7 — TLS:** terminated by the binary (certificate files) or by a reverse proxy in front of it? Recommended: both supported; the binary refuses a
   non-loopback `ws` either way.
+  **Decided (operator, 2026-10-22):** support both: TLS terminated by the binary and behind a reverse proxy.

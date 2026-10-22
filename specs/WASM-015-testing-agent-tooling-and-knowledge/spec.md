@@ -79,7 +79,7 @@ exists on the web and what does not. This spec specifies that equipment; without
   shall gain a skill for a Web or Mobile application and one for a Backend; the reviewer agent shall check the new rules.
 
 **Knowledge**
-- **R14 (ubiquitous):** The System KB shall state, in the compiler's documentation tables, for every control its class on the web (WASM-004 R12), the web-only members, the browser-capable built-ins (WASM-010 R7), the `CALL … WITH WEBSOCKET LINKAGE` phrase and its mapping, the application styles (WASM-011) and the Authentication and WebLink
+- **R14 (ubiquitous):** The System KB shall state, in the compiler's documentation tables, for every control its class on the web (WASM-004 R12), the web-only members, the browser-capable built-ins (WASM-010 R7), the `CALL … WITH WEBSOCKET LINKAGE` phrase and its mapping, the application styles (WASM-011) and the Authentication and Hyperlink
   controls; `chunked.data` shall be regenerated and its freshness test shall pass.
 - **R15 (ubiquitous):** Grace's specialists shall not propose a construct the web kinds refuse: the planner and the pedantic reviewer shall read the project kind, and their preambles (the policy rules, not word heuristics) shall say what each kind may use.
 - **R16 (ubiquitous):** The shipped **examples** shall include at least one Web application and one Backend, built and run by the test suite with the module, browser and backend runners; the examples shall hold no key or password (WASM-013 R7).
@@ -116,7 +116,12 @@ exists on the web and what does not. This spec specifies that equipment; without
 ## 7. Open questions
 
 - **Q1 — The browser engine for the runners.** A headless Chromium or Firefox driven over WebDriver or the DevTools protocol, or a test harness built on the platform web view of WASM-008? Weigh determinism, CI images and licences at `/plan`; the harness must not make a browser a prerequisite of `cargo test` for people who do not touch the web kinds.
+  **Decided (operator, 2026-10-22):** a harness on the web view of WASM-008.
 - **Q2 — The WebAssembly engine for the module runner:** a pure-Rust interpreter (small, no JIT, slower) or a JIT engine (fast, larger) — WASM-010 Q2.
+  **Decided (operator, 2026-10-22):** a JIT engine (`wasmtime`, WASM-010 Q2).
 - **Q3 — Where the golden and ledger data live** for the web (the existing ledger is `NIST/progress.json`, one file per concern): extend it, or a sibling ledger for the module?
+  **Decided (operator, 2026-10-22):** extend `NIST/progress.json`.
 - **Q4 — Visual tolerance** for R5: a geometry-only guard (as today) is cheap; a pixel comparison is stricter and flaky across engines. Set after the first measurements.
+  **Decided (operator, 2026-10-22):** geometry only.
 - **Q5 — Should the Grace specialists get a web-aware specialist** (a `WebFormsDesigner`) or stay three and read the kind? Recommended: stay three.
+  **Decided (operator, 2026-10-22):** a `WebFormsDesigner` specialist replaces `FormsDesigner` for Web and Mobile.

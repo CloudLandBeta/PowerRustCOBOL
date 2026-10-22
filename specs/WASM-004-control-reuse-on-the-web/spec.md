@@ -13,7 +13,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   possible.
 - **Depends on:** WASM-001, WASM-002, WASM-010 (the module that drives the controls), WASM-016 (the player that implements them). **Amends:** spec 017 (*one renderer everywhere*): for the web kinds the DOM is the renderer. **Where the web controls live:** every class A and B control is implemented **once, in the
   prebuilt player** (WASM-016 R5) — never per project — so a new or fixed control reaches an application at its next build with the IDE's current player.
-  **Needed by:** WASM-005 (the data controls), WASM-006 (WebLink), WASM-007 (CSS), WASM-008 (preview).
+  **Needed by:** WASM-005 (the data controls), WASM-006 (Hyperlink), WASM-007 (CSS), WASM-008 (preview).
 
 ## 1. Overview
 
@@ -51,7 +51,7 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
   - Class A and B controls behave on the web as on the desktop, with differences listed.
   - A web conformance harness so "works like the desktop" is measured.
 - **Non-goals:**
-  - New controls (WebLink is WASM-006; Authentication is WASM-009).
+  - New controls (Hyperlink is WASM-006; Authentication is WASM-009).
   - A redesign of any control's look.
   - Moving the Form Designer canvas to the web (it stays egui; WASM-008 shows the real result in a webview).
 
@@ -90,9 +90,10 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
   where its picture differs from the desktop.
 - **R5 (state):** While the project kind is web or mobile, the toolbox shall hide class D controls, and Check shall report one that appears on a form (for example
   in a desktop form copied over) with its line and the alternative.
-- **R6 (ubiquitous):** The Properties panel, the toolbox and the event-binding editor shall be unchanged for a web control. A property that has no effect or only an
-  approximate one on the web (for example `RotateX`/`RotateY` perspective, an operating-system blur) shall stay editable, so that a form round-trips between kinds,
-  and shall be marked as approximate or ignored in its tooltip (Q3).
+- **R6 (ubiquitous):** The toolbox and the event-binding editor shall be unchanged for a web control. In the Properties panel of a web or mobile form, a property
+  that has no use on the web (for example an operating-system blur) shall be **hidden** (operator, 2026-10-22, Q3); its value stays in the form file, so that a form
+  round-trips between kinds (AC5). A property with only an approximate effect (for example `RotateX`/`RotateY` perspective) stays editable and is marked as
+  approximate in its tooltip.
 - **R7 (ubiquitous):** Every web-only member (a property, event or method a control gets only on the web) shall be added to the closed method vocabulary
   (`cobolt-ast/src/methods.rs`) and to the System KB tables, so that it never parses as a subscript and agents can find it.
 
@@ -160,13 +161,21 @@ which controls become ordinary DOM elements, which must be redrawn, which now wo
 - **Q1 — Layout engine on the web — decided:** **CSS** (operator, 2026-10-19; R8). The existing pure-Rust solver is not run in the browser. The cost accepted is a possible pixel of difference from the desktop, which R11 measures.
 - **Q2 — Which class a few borderline controls take:** Animator (a browser plays animated GIF/WebP/APNG natively, but the control's API is richer), Timer, DateTimePicker (the
   native `input type=date` differs from the desktop picker), TreeView and DataGrid (large data, virtualisation). Decide per control at `/plan`.
+  **Not answered (operator reply of 2026-10-22 does not address it):** the reply restates the multi-class controls already in R2 (Maps B/C, Viewer B/C/D, ToolBar A/D). Animator, Timer, DateTimePicker, TreeView and DataGrid are still open.
 - **Q3 — Hide or mark** a property with no web effect? Recommended: keep and mark (R6), so no data is lost.
+  **Decided (operator, 2026-10-22):** hide, on web and mobile forms, the properties that have no use there (R6).
 - **Q4 — DataGrid** keeps the `Rows` string model (`Rows` with `\n` and TAB, `Columns` as `Name:Type`, `model.rs:5617-5622`) in the browser for in-memory use; a large remote table
   needs paging, sorting and filtering on the server (WASM-INDEX, data controls beyond v1).
+  **Decided (operator, 2026-10-22):** with paging: large remote tables are paged on the server.
 - **Q5 — Fonts:** the desktop ships its own font set (`fonts.rs`); on the web, bundle web fonts (licences, size) or use the system stack? Recommended: system stack by default, project fonts
   through `@font-face` from `Assets/`.
+  **Decided (operator, 2026-10-22):** bundle the fonts; when they exceed 50 % of the application's size, the Build warns, says so and suggests system fonts only.
 - **Q6 — Is the egui-elegance look** (Knob, glass shadows, Spatial's operating-system blur, spec 057's drawn corners) reproduced in CSS or accepted as approximate? WASM-007 maps the properties;
   the visual bar is the operator's call.
+  **Decided (operator, 2026-10-22):** reproduce the look in CSS.
 - **Q7 — Is a layer background opaque at a point?** A gradient or an image can be opaque in one part of the form and transparent in another. Options: decide from the layer's description (a colour or gradient opaque at every stop, with `Transparency` 0), and never count an image as opaque, which the desktop also does (spec 091 R17); or test the pixels of an image. Recommended: the first.
+  **Decided (operator, 2026-10-22):** the first option: opacity decided from the layer's description.
 - **Q8 — Where does a Snackbar's toast go?** The catalogue lists `Snackbar` as non-visual (spec 091 Q20), but a toast appears at run time. Recommended: keep the classification and the tab, and draw the toast above every layer, outside any layer.
+  **Decided (operator, 2026-10-22):** keep the classification; the toast is drawn above every layer.
 - **Q9 — Touch targets.** A finger may need a hit area larger than the painted part of a control. Open: whether the mobile shells add a hit margin, which belongs with the touch model of WASM-021.
+  **Decided (operator, 2026-10-22):** yes: the hit area is 15 % larger than the painted part.

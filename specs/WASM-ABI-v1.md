@@ -182,7 +182,7 @@ Verbs the player implements (names are case-insensitive). **Suspends** means the
 | | `InputBox` | text, title, default | the typed text is `DialogResult` | until it is closed |
 | | `Sleep` · `Wait` | milliseconds | a timer | until it fires |
 | | `OpenFormSync` · `OpenFormAsync` | form name, then optional `name=value` **parameters** (at most 16; a name is letters, digits, `-` `_` `.`, a value up to 512 characters) | the form as a modal dialog / a modeless panel (SPA), or a window of its own (standalone); the parameters are the query of its route (`#/form?id=7`) or of its address (`?pr-form=…&pr-param-id=7`); answers a **handle**. A bad parameter refuses the open | `Sync`: until the child closes |
-| | `Navigate` · `OpenUrl` | address, target | the address, through the WebLink policy (WASM-006 R4) | no |
+| | `Navigate` · `OpenUrl` | address, target | the address, through the Hyperlink policy (WASM-006 R4) | no |
 | | `Download` | file name, text | the browser's download of the text | no |
 | | `CopyToClipboard` | text | the clipboard | no |
 | | `SetTitle` | text | the page's title | no |
@@ -208,7 +208,7 @@ Every argument is `text` (§7). The player raises exactly these; an event not li
 | `onTabClick` · `onTabChanged` | the page number (from 1) |
 | `onNodeClick` · `onNodeSelect` · `onNodeDblClick` · `onNodeCheck` | `text⇥index⇥level⇥checked` (⇥ is a tab) |
 | `onMenuClick` · `onMenuItemClick` | the menu item's id |
-| `onClick` of a ToolBar button | the button's id; of a WebLink, the modifier keys held (`Ctrl,Shift`) |
+| `onClick` of a ToolBar button | the button's id; of a Hyperlink, the modifier keys held (`Ctrl,Shift`) |
 | `onCellClick` · `onCellDoubleClick` | `row,column`, **from 0** (the properties `ClickedRow` and `ClickedColumn` count from 1); `onRowDoubleClick` the row and `onColumnClick` the column, from 0 |
 | `onMapClick` | `latitude,longitude` in degrees, rounded to six decimals |
 | `onMarkerClick` | the marker's id |
