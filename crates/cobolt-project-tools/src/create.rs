@@ -359,14 +359,15 @@ pub fn plan(request: &CreateRequest, catalogue: &[TemplateDescriptor]) -> Result
     } else {
         if !request.main.trim().is_empty() {
             return Err(format!(
-                "a {} project's entry is its main form, {}/{}.cfrm; 'main' is for a Desktop project",
+                "a {} project's entry is its main form, {}/{}.{}; 'main' is for a Desktop project",
                 kind.as_str(),
                 kind.forms_folder(),
-                MAIN_FORM_NAME.to_lowercase()
+                MAIN_FORM_NAME.to_lowercase(),
+                kind.form_extension()
             ));
         }
         if sample {
-            let rel = format!("{}/{}.cfrm", kind.forms_folder(), MAIN_FORM_NAME.to_lowercase());
+            let rel = format!("{}/{}.{}", kind.forms_folder(), MAIN_FORM_NAME.to_lowercase(), kind.form_extension());
             files.push(PlannedFile { rel: rel.clone(), contents: starter_form(&stored, kind, t.mobile, wears_spatial) });
             forms.push(rel.clone());
             rel
@@ -727,4 +728,32 @@ pub fn create_project_with(folder: &Path, request: &CreateRequest) -> Result<Val
         "backend": plan.backend,
         "theme": if plan.theme.is_empty() { Value::Null } else { Value::String(plan.theme.clone()) },
     }))
+}
+
+#[cfg(test)]
+mod form_extension_tests {
+    use super::*;
+
+    /// WASM-001 Q2: each kind's entry form carries the kind's own extension.
+    #[test]
+    fn create_plans_the_entry_form_with_the_kinds_extension() {
+        let catalogue = templates::builtin();
+        for (template, expected) in [
+            ("web", "webforms/main-form.wcfrm"),
+            ("android-phone", "mobileforms/main-form.mcfrm"),
+            ("ipad", "mobileforms/main-form.mcfrm"),
+        ] {
+            let p = plan(&CreateRequest::new("Shop").template(template), &catalogue).unwrap();
+            println!("{template:<14} entry form {}", p.main);
+            assert_eq!(p.main, expected);
+            assert_eq!(p.forms, [expected]);
+            assert!(p.files.iter().any(|f| f.rel == expected), "{template}: the form file is planned");
+        }
+        let desktop = plan(&CreateRequest::new("Shop"), &catalogue).unwrap();
+        assert!(desktop.forms.is_empty() && desktop.main == DEFAULT_MAIN, "Desktop is unchanged");
+        let mut wrong = CreateRequest::new("Shop").template("web");
+        wrong.main = "src/x.cbl".into();
+        let e = plan(&wrong, &catalogue).unwrap_err();
+        assert!(e.contains("webforms/main-form.wcfrm"), "{e}");
+    }
 }

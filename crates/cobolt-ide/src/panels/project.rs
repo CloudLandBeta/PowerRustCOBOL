@@ -103,6 +103,10 @@ pub enum ProjectPanelEvent {
     /// Spec 046 R1/R2 — copy a form (controls, properties, event handler
     /// bodies, animations, data bindings) to the OS clipboard.
     CopyForm(PathBuf),
+    /// WASM-001 Q2, D-T15b — rename a form file (project-relative) to its
+    /// project kind's extension: the file and its `files.forms` entry, nothing
+    /// else.
+    RenameFormForKind(String),
     /// Spec 046 R3 — paste a form from the OS clipboard into `dir_rel`
     /// (project-relative).
     PasteForm { dir_rel: PathBuf },
@@ -182,6 +186,10 @@ pub struct ProjectPanel {
     /// Spec 080 R19a — the gap reports in `docs/compiler-requests/`, cached on
     /// the folder's modification time: `(folder, mtime, reports newest first)`.
     compiler_requests: Option<(PathBuf, Option<SystemTime>, Vec<PathBuf>)>,
+    /// The open project's kind, taken each frame from the project: a form
+    /// row offers its rename when the file is named for another kind
+    /// (WASM-001 Q2, D-T15b).
+    project_kind: cobolt_compiler::ProjectKind,
 }
 
 /// One keyboard-navigable tree row (spec 033).
@@ -212,6 +220,7 @@ impl Default for ProjectPanel {
             scroll_to_key: None,
             anchors: Default::default(),
             compiler_requests: None,
+            project_kind: cobolt_compiler::ProjectKind::Desktop,
         }
     }
 }
@@ -628,6 +637,7 @@ impl ProjectPanel {
                     // Desktop project shows exactly the eight it always has; a
                     // Web or Mobile one shows its forms node and the Backend in
                     // place of Forms.
+                    self.project_kind = proj.kind();
                     for cat in proj.top_categories() {
                         self.show_category(ui, cat, proj, &cur, events, tr);
                     }
@@ -719,8 +729,9 @@ impl ProjectPanel {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 if !matches!(
                     ext.to_ascii_lowercase().as_str(),
-                    "cbl" | "cob" | "cpy" | "cfrm" | "toml" | "txt"
-                ) {
+                    "cbl" | "cob" | "cpy" | "toml" | "txt"
+                ) && !cobolt_compiler::project_kind::is_form_extension(ext)
+                {
                     continue;
                 }
                 ui.horizontal(|ui| {
@@ -1841,10 +1852,21 @@ impl ProjectPanel {
             // every bound event's full COBOL body, animations, data
             // bindings) to the OS clipboard.
             let p = p.clone();
+            // WASM-001 Q2, D-T15b — a form named for another kind (a `.cfrm`
+            // made by 2.0.x in a Web project) loads as it is; renaming it is
+            // the developer's choice, offered here and never made on open.
+            let rename = crate::project_model::form_rename_for_kind(rel, self.project_kind);
             resp.context_menu(|ui| {
                 if ui.button(tr.tree_copy_form).clicked() {
                     events.push(ProjectPanelEvent::CopyForm(p.clone()));
                     ui.close();
+                }
+                if let Some(new_rel) = &rename {
+                    let new_name = Path::new(new_rel).file_name().and_then(|n| n.to_str()).unwrap_or(new_rel);
+                    if ui.button(tr.pk_rename_form_kind.replacen("{}", new_name, 1)).clicked() {
+                        events.push(ProjectPanelEvent::RenameFormForKind(rel.to_string()));
+                        ui.close();
+                    }
                 }
             });
         }

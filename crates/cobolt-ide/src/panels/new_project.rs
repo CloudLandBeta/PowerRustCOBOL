@@ -341,7 +341,7 @@ impl NewProjectDialog {
         match self.template() {
             Some(t) if !t.kind.is_desktop() => {
                 if self.flag("sample") {
-                    format!("{}/{}.cfrm", t.kind.forms_folder(), create::MAIN_FORM_NAME.to_lowercase())
+                    format!("{}/{}.{}", t.kind.forms_folder(), create::MAIN_FORM_NAME.to_lowercase(), t.kind.form_extension())
                 } else {
                     String::new()
                 }
@@ -1131,7 +1131,8 @@ mod tests {
         // The plan the request makes is a Mobile iPad project.
         let plan = create::plan(r, d.catalogue()).unwrap();
         assert_eq!(plan.kind, ProjectKind::Mobile);
-        assert_eq!(plan.main, "mobileforms/main-form.cfrm");
+        assert_eq!(plan.main, "mobileforms/main-form.mcfrm");
+        assert_eq!(d.entry_shown(), plan.main, "the dialog shows the entry the plan writes");
         assert!(plan.manifest.contains("platform = \"ios\"") && plan.manifest.contains("min_os = \"17.0\""));
         // The Desktop request carries the entry only when it is not the default.
         d.select(index_of(&d, "desktop"));

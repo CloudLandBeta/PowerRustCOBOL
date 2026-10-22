@@ -17,6 +17,18 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.32] — 2026-10-22
+
+*(Written on `features-2x`, after 2.0.31.)*
+
+### Added: Web and Mobile forms get their own file names, and the toolbox follows the project's kind (WASM-001)
+
+**Web forms are `.wcfrm`, mobile forms `.mcfrm`** (the operator's decision of 2026-10-20); Desktop forms stay `.cfrm`. The format inside is the same; only the name differs. A new Web project's main form is `webforms/main-form.wcfrm`, a Mobile one's `mobileforms/main-form.mcfrm`, from the New Project dialog and from the `create_project` tool alike (the two still make byte-identical projects). One test decides what a form file is — `is_form_extension` in `cobolt-compiler` — and every reader now asks it: the project tree and its add-file filter, the New Form and pasted-form file names, the designer's form picker, the coding-agent tools (`check`, `validate`, `regenerate`, `run_form`, `render_form`, `list_files`), `rcrun run-form`'s `open-form:` lookup, the dev servers and the Web build's secret scan. A Web project made before this version keeps its `.cfrm`: it opens exactly as before and nothing is renamed on open (the operator's ruling D-T15b, 2026-10-22). `check` — the coding-agent tool and the IDE's own Check alike — warns once per such file, and the form's row in the project tree offers **Rename to main-form.wcfrm** (or `.mcfrm`, or back to `.cfrm` for a Web form copied into a Desktop project): it renames the file and its `files.forms` entry, follows any tab the form is open in, and refuses when a file already has the new name. Its label, the Check note and the two Output messages are in all six languages. The agent rules and the System KB's *Project kinds* table name the extensions (`assets/knowledge/chunked.data` regenerated).
+
+**The toolbox offers what the project's kind can run.** WASM-004's class table moved from the browser player into `cobolt-forms` (`web_class`), so the IDE and the player read one table; the player re-exports it and its shipped build under `assets/web-player/` was rebuilt. A Web or Mobile project's toolbox leaves out class-D controls, and a user control is offered only when every control in it is. Today no built-in control is class D, so the toolbox shows the same 62 controls in every kind.
+
+Still open: the Backend's authentication programs wait for WASM-009; whether the dialog's Recent view is the operator's *Recent Projects* is still to confirm (Q6). `README.md` and `docs/` are untouched on this line.
+
 ## [PowerRustCOBOL 2.0.31] — 2026-10-22
 
 *(Written on `features-2x`, after 2.0.30.)*

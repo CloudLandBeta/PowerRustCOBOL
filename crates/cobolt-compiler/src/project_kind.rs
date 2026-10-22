@@ -70,6 +70,35 @@ impl ProjectKind {
             ProjectKind::Mobile => "mobileforms",
         }
     }
+
+    /// The extension of the kind's form files, without the dot (WASM-001 Q2):
+    /// one form model, three names, so the kind stays visible on disk.
+    pub fn form_extension(self) -> &'static str {
+        match self {
+            ProjectKind::Desktop => "cfrm",
+            ProjectKind::Web => "wcfrm",
+            ProjectKind::Mobile => "mcfrm",
+        }
+    }
+
+    /// The kind a form file's extension names, if it names one.
+    pub fn of_form_extension(ext: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.form_extension().eq_ignore_ascii_case(ext))
+    }
+}
+
+/// Every form file extension, Desktop's first (WASM-001 Q2).
+pub const FORM_EXTENSIONS: [&str; 3] = ["cfrm", "wcfrm", "mcfrm"];
+
+/// Is `ext` (without the dot, any case) the extension of a form file of any kind?
+/// The one test every reader uses instead of comparing with `"cfrm"` (plan D-T15a).
+pub fn is_form_extension(ext: &str) -> bool {
+    FORM_EXTENSIONS.iter().any(|e| e.eq_ignore_ascii_case(ext))
+}
+
+/// Is `path` a form file of any kind, judged by its extension?
+pub fn is_form_path(path: &std::path::Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(is_form_extension)
 }
 
 /// The folder of the Backend part of a Web or Mobile project (WASM-001 Q8).
@@ -459,6 +488,26 @@ pub enum BackendUrlProblem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_kind_has_its_own_form_extension_and_only_those_are_forms() {
+        for k in ProjectKind::ALL {
+            println!("{:<8} forms are .{}", k.as_str(), k.form_extension());
+            assert_eq!(ProjectKind::of_form_extension(k.form_extension()), Some(k));
+            assert!(FORM_EXTENSIONS.contains(&k.form_extension()));
+        }
+        assert_eq!(ProjectKind::Desktop.form_extension(), "cfrm");
+        assert_eq!(ProjectKind::Web.form_extension(), "wcfrm");
+        assert_eq!(ProjectKind::Mobile.form_extension(), "mcfrm");
+        for yes in ["cfrm", "wcfrm", "mcfrm", "WCFRM", "Cfrm"] {
+            assert!(is_form_extension(yes), "{yes} is a form extension");
+        }
+        for no in ["cfrmx", "frm", "", "cbl", ".cfrm"] {
+            assert!(!is_form_extension(no), "{no:?} is not a form extension");
+        }
+        assert!(is_form_path(std::path::Path::new("webforms/main-form.wcfrm")));
+        assert!(!is_form_path(std::path::Path::new("webforms/main-form")));
+    }
 
     #[test]
     fn a_kind_round_trips_and_parses() {

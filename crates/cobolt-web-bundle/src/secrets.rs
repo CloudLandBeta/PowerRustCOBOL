@@ -256,7 +256,9 @@ pub fn scan_text(file: &str, text: &str, entropy_len: usize) -> Vec<Finding> {
 /// Is `path` a file whose bytes are text the scan should read?
 pub fn is_text_path(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
-    [".html", ".js", ".mjs", ".css", ".json", ".cfrm", ".xml", ".txt", ".md", ".csv", ".svg", ".toml", ".cidx", ".cbl", ".cpy", ".map", "_headers", ".conf", ".htaccess"]
+    // The three form names are `cobolt_compiler::project_kind::FORM_EXTENSIONS` (WASM-001 Q2); this
+    // crate does not link the compiler, so they are spelled here — a key typed into a web form is found.
+    [".html", ".js", ".mjs", ".css", ".json", ".cfrm", ".wcfrm", ".mcfrm", ".xml", ".txt", ".md", ".csv", ".svg", ".toml", ".cidx", ".cbl", ".cpy", ".map", "_headers", ".conf", ".htaccess"]
         .iter()
         .any(|e| p.ends_with(e))
 }
@@ -359,9 +361,21 @@ mod tests {
         assert_eq!(errors("k.pem", &pem), ["private key block"]);
     }
 
+    /// WASM-001 Q2: a key typed into a web or mobile form is found, as one in a desktop form is.
+    #[test]
+    fn a_secret_planted_in_a_web_or_mobile_form_is_reported() {
+        let text = format!("<Property name=\"AgentAPIKey\">{}</Property>", "q8Zk3vLw9PxT2mRb");
+        for file in ["forms/x.cfrm", "webforms/x.wcfrm", "mobileforms/x.mcfrm"] {
+            assert!(is_text_path(file), "{file} is read by the scan");
+            let found = scan_text(file, &text, DEFAULT_ENTROPY_LEN);
+            assert!(found.iter().any(|f| f.severity == Severity::Error), "{file}: {found:?}");
+            println!("{file}: {} finding(s), first: {}", found.len(), found[0]);
+        }
+    }
+
     #[test]
     fn text_paths_are_recognised() {
-        for p in ["a.html", "forms/x.cfrm", "app.css", "config.json", "_headers"] {
+        for p in ["a.html", "forms/x.cfrm", "webforms/x.wcfrm", "mobileforms/x.MCFRM", "app.css", "config.json", "_headers"] {
             assert!(is_text_path(p), "{p}");
         }
         for p in ["program.wasm", "logo.png", "font.woff2"] {

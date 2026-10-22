@@ -139,7 +139,7 @@ pub fn check_one<H: ProjectHost>(host: &H, root: &ProjectRoot, rel: &str) -> Res
     let crates = host.external_crates();
     let mut report = Report::default();
     match ext(&rel).as_str() {
-        "cfrm" => check_form(root, &view, &rel, &crates, &mut report),
+        e if cobolt_compiler::project_kind::is_form_extension(e) => check_form(root, &view, &rel, &crates, &mut report),
         "cidx" => check_indexed(root, &rel, &mut report),
         "cbl" | "cob" | "cpy" => check_source(root, &rel, &crates, &mut report),
         _ => return Err(format!("'{rel}' is not a form, an indexed definition or COBOL source")),
@@ -169,6 +169,9 @@ fn check_form(
         return;
     };
     report.forms += 1;
+    if let Some(w) = form_name_mismatch(rel, view.kind) {
+        report.findings.push(Finding::at(rel, Severity::Warning, w));
+    }
     let form = match cobolt_forms::load_form(&abs) {
         Ok(f) => f,
         Err(e) => {
@@ -225,6 +228,24 @@ fn check_form(
         finding.form = Some(form.name.clone());
         report.findings.push(finding);
     }
+}
+
+/// WASM-001 Q2, plan D-T15b/c: a form whose file name belongs to another kind
+/// (a `.cfrm` made by 2.0.x in a Web project, a `.wcfrm` copied into a Desktop
+/// one) still loads and is checked; this warning says so. Nothing is renamed.
+fn form_name_mismatch(rel: &str, kind: cobolt_compiler::ProjectKind) -> Option<String> {
+    let path = Path::new(rel);
+    let named = cobolt_compiler::ProjectKind::of_form_extension(path.extension()?.to_str()?)?;
+    if named == kind {
+        return None;
+    }
+    let stem = path.file_stem()?.to_string_lossy();
+    Some(format!(
+        "'{rel}' is a {} form file name in a {} project; rename it to {stem}.{} (the form loads as it is)",
+        named.as_str(),
+        kind.as_str(),
+        kind.form_extension()
+    ))
 }
 
 fn check_indexed(root: &ProjectRoot, rel: &str, report: &mut Report) {

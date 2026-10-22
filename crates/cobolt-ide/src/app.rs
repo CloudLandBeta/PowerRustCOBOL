@@ -1721,11 +1721,12 @@ fn same_file_path(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// Spec 046 R5 — the `.cfrm` file name a pasted form registers under,
+/// Spec 046 R5 — the form file name a pasted form registers under,
 /// matching `create_new_form`'s own convention (`form_name.to_lowercase()`)
-/// so a pasted and a hand-created form are indistinguishable on disk.
-fn pasted_form_file_name(form_name: &str) -> String {
-    format!("{}.cfrm", form_name.to_lowercase())
+/// so a pasted and a hand-created form are indistinguishable on disk. The
+/// extension is the project kind's (WASM-001 Q2): `.cfrm`, `.wcfrm`, `.mcfrm`.
+fn pasted_form_file_name(form_name: &str, kind: cobolt_compiler::ProjectKind) -> String {
+    format!("{}.{}", form_name.to_lowercase(), kind.form_extension())
 }
 
 /// Spec 046 R3/R4 — the text of the first `Event::Paste` in this frame's
@@ -4499,6 +4500,7 @@ impl CoboltApp {
         self.output.clear_run_output();
         self.output.push_status(crate::ui_text::idef("── Checking {} ──", &[&path.file_name().and_then(|n| n.to_str()).unwrap_or("?")]));
         self.warn_agents_without_tools();
+        self.warn_forms_named_for_another_kind();
         self.editor.clear_diags();
 
         use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
@@ -4605,6 +4607,27 @@ impl CoboltApp {
     /// Spec 063 R65 — say, at design time, which forms hold two or more agents set to offer no
     /// tools. Such an application still runs (it answers without tool calling, R66); the
     /// developer is told so that it is not a surprise. The designers' live forms win over disk.
+    /// WASM-001 Q2, D-T15b — Check names each form whose file is named for
+    /// another kind of project (it still loads) and the rename that fixes it.
+    fn warn_forms_named_for_another_kind(&mut self) {
+        let Some(proj) = &self.cobolt_project else {
+            return;
+        };
+        let kind = proj.kind();
+        let notes: Vec<(String, String)> = proj
+            .files
+            .forms
+            .iter()
+            .filter_map(|rel| crate::project_model::form_rename_for_kind(rel, kind).map(|new| (rel.clone(), new)))
+            .collect();
+        let tr = self.lang.tr();
+        for (rel, new) in notes {
+            let new_name = Path::new(&new).file_name().and_then(|n| n.to_str()).unwrap_or(&new).to_owned();
+            self.output
+                .push_status(tr.pk_check_form_name_kind.replacen("{}", &rel, 1).replacen("{}", &new_name, 1));
+        }
+    }
+
     fn warn_agents_without_tools(&mut self) {
         let mut forms: Vec<(PathBuf, Form)> =
             self.designers.iter().map(|(p, d)| (p.clone(), d.form.clone())).collect();
@@ -7109,7 +7132,7 @@ impl CoboltApp {
         let spec = crate::file_dialog::DialogSpec::open().directory(proj_dir);
         let spec = match kind {
             FileKind::Source => spec.filter("COBOL Source", &["cbl", "cob", "cpy"]),
-            FileKind::Form => spec.filter("RustCOBOL Form", &["cfrm"]),
+            FileKind::Form => spec.filter("RustCOBOL Form", &cobolt_compiler::project_kind::FORM_EXTENSIONS),
             FileKind::Indexed => spec.filter("Indexed data file", &["idx", "dat"]),
             FileKind::Documentation => spec.filter(
                 "Knowledge Base documents",
@@ -14612,7 +14635,8 @@ impl CoboltApp {
     /// and its own runtime process, so nothing here can collide with an
     /// unrelated form already in the project).
     fn register_pasted_form(&mut self, form: Form, dest_dir: &Path) {
-        let path = dest_dir.join(pasted_form_file_name(&form.name));
+        let kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
+        let path = dest_dir.join(pasted_form_file_name(&form.name, kind));
         if let Err(e) = save_form(&form, &path) {
             self.output.push_status(crate::ui_text::idef("Could not paste form: {}", &[&e]));
             return;
@@ -14739,14 +14763,16 @@ impl CoboltApp {
             form.background_color = "00000000".into(); // transparent — matches IDE glass
         }
 
-        let default_name = format!("{}.cfrm", form_name.to_lowercase());
+        // The kind names the file (WASM-001 Q2): `.cfrm`, `.wcfrm` or `.mcfrm`.
+        let kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
+        let default_name = pasted_form_file_name(&form_name, kind);
         let mut spec = crate::file_dialog::DialogSpec::save()
-            .filter("RustCOBOL Form", &["cfrm"])
+            .filter("RustCOBOL Form", &[kind.form_extension()])
             .file_name(default_name);
         // Default into the folder whose [+] was clicked, or the project's forms
         // folder (`forms/`, `webforms/` or `mobileforms/` by its kind) when the
         // create came from the category header.
-        let forms_folder = self.cobolt_project.as_ref().map_or("forms", |p| p.kind().forms_folder());
+        let forms_folder = kind.forms_folder();
         if let Some(dir) = self.project_dir() {
             let dest = dir.join(self.new_form.target_dir.as_deref().unwrap_or(forms_folder));
             let _ = std::fs::create_dir_all(&dest);
@@ -16623,6 +16649,7 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::CopyForm(path) => {
                         self.copy_form(ctx, &path);
                     }
+                    ProjectPanelEvent::RenameFormForKind(rel) => self.do_rename_form_for_kind(rel),
                     ProjectPanelEvent::PasteForm { dir_rel } => {
                         if let Some(root) = self.project_dir() {
                             let dest = root.join(&dir_rel);
@@ -18808,6 +18835,38 @@ impl CoboltApp {
     }
 
     /// Move a tracked file into another folder via drag-and-drop (spec 033, R9).
+    /// WASM-001 Q2, D-T15b — the tree's *Rename to …* on a form named for
+    /// another kind: the file and its `files.forms` entry take the project
+    /// kind's extension, open tabs follow, and nothing else changes. A file
+    /// already holding the new name is never overwritten.
+    fn do_rename_form_for_kind(&mut self, rel: String) {
+        let Some(root) = self.project_dir() else {
+            return;
+        };
+        let Some(new) = self
+            .cobolt_project
+            .as_ref()
+            .and_then(|p| crate::project_model::form_rename_for_kind(&rel, p.kind()))
+        else {
+            return;
+        };
+        if root.join(&new).exists() {
+            let tr = self.lang.tr();
+            self.set_alert_error(tr.folder_err_exists);
+            return;
+        }
+        if let Err(e) = std::fs::rename(root.join(&rel), root.join(&new)) {
+            self.output.push_status(crate::ui_text::idef("Could not rename {}: {}", &[&rel, &e]));
+            return;
+        }
+        if let Some(proj) = &mut self.cobolt_project {
+            proj.move_entry(&rel, &new);
+        }
+        self.rewrite_open_paths(&root, &rel, &new);
+        self.do_save_project();
+        self.output.push_status(crate::ui_text::idef("Renamed {} → {}", &[&rel, &new]));
+    }
+
     fn do_move_tracked_file(&mut self, src_rel: String, dest_dir_rel: String) {
         let Some(root) = self.project_dir() else {
             return;
@@ -19430,6 +19489,8 @@ impl CoboltApp {
             .as_ref()
             .map(|project| project.user_controls.clone())
             .unwrap_or_default();
+        // WASM-001 R14 — the toolbox offers what the open project's kind can run.
+        let project_kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
 
         // The toolbar spans the whole window: it is drawn BEFORE the sidebar,
         // so the toolbox sits under it on the left (operator, 2026-09-30).
@@ -19796,6 +19857,7 @@ impl CoboltApp {
                     // Spec 091 R58, R59 — while `Non-Visuals` is the active tab the
                     // visual entries are greyed and take no press.
                     d.toolbox.visual_disabled = d.tabs.is_non_visuals();
+                    d.toolbox.project_kind = project_kind;
                     d.toolbox.show(ui, tr, &user_controls, false, h.toolbox, magnifier)
                 });
                 tb.toggle_collapse |= collapse_clicked;
@@ -22219,8 +22281,12 @@ mod form_paste_tests {
     /// hand-created form would be.
     #[test]
     fn pasted_form_file_name_matches_the_create_convention() {
-        assert_eq!(pasted_form_file_name("MAIN-FORM"), "main-form.cfrm");
-        assert_eq!(pasted_form_file_name("Login"), "login.cfrm");
+        use cobolt_compiler::ProjectKind;
+        assert_eq!(pasted_form_file_name("MAIN-FORM", ProjectKind::Desktop), "main-form.cfrm");
+        assert_eq!(pasted_form_file_name("Login", ProjectKind::Desktop), "login.cfrm");
+        // WASM-001 Q2: a Web or Mobile project's pasted form carries its kind's extension.
+        assert_eq!(pasted_form_file_name("Login", ProjectKind::Web), "login.wcfrm");
+        assert_eq!(pasted_form_file_name("Login", ProjectKind::Mobile), "login.mcfrm");
     }
 
     /// Spec 046 R3/R4 — Paste Form reports an empty clipboard and a

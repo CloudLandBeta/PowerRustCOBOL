@@ -449,7 +449,7 @@ pub const APPLICATION_RULES: [(&str, &str); 14] = [
          project is built to WebAssembly and shown in a browser or a mobile web view, not run by the \
          interpreter: `render_form` and `run_form` still work on a web form, but they show the desktop \
          engine's picture and behaviour, and only the IDE's Preview shows the page as a browser does. Its \
-         forms live in `webforms/` (Web) or `mobileforms/` (Mobile) — write a form there, then register \
+         forms live in `webforms/` as `.wcfrm` (Web) or `mobileforms/` as `.mcfrm` (Mobile) — write a form there, then register \
          it with `add_to_project` — and the project may have a \
          Backend in `backend/`, which is COBOL too. A web form is responsive and wears the Spatial look \
          like every other, and it holds only what a browser can run: no file organisation (indexed files \
@@ -488,7 +488,7 @@ fn architecture() -> String {
      - A project is a folder with a `*.project.toml` manifest (never edited by hand), `forms/`, \
      `indexed/`, `src/`, `generated/`, `COPYBOOKS/`, `Assets/` and `data/`.\n\
      - A project has a kind. A **Desktop** project is the one above. A **Web** or **Mobile** project \
-     keeps its forms in `webforms/` or `mobileforms/` instead of `forms/`, may have a **Backend** in \
+     keeps its forms in `webforms/` (`.wcfrm`) or `mobileforms/` (`.mcfrm`) instead of `forms/` (`.cfrm`), may have a **Backend** in \
      `backend/` (COBOL under `backend/src/` and `backend/COPYBOOKS/`, the part that holds data and \
      secrets), and is built to a WebAssembly bundle under `dist/web/` and previewed in a web view — \
      see the `web-kinds` and `backend-secrets` rules. `list_files` shows the kind and the new \
@@ -1185,7 +1185,7 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("Read the `web-kinds` and `backend-secrets` rules in the server instructions before \
                    writing anything: a web form is responsive and wears Spatial like every other, and \
                    it holds only what a browser can run."),
-                s("Write each form in `webforms/` (Web) or `mobileforms/` (Mobile) exactly as \
+                s("Write each form in `webforms/` as `<name>.wcfrm` (Web) or `mobileforms/` as `<name>.mcfrm` (Mobile) exactly as \
                    `powerrustcobol-create-form` says — controls, anchors, handlers — and register it \
                    with `add_to_project`. Look every control up with `kb_lookup`: a control the \
                    reference does not list for the web is a gap, not a guess."),
@@ -1300,8 +1300,8 @@ fn reviewer() -> Reviewer {
                only on a Panel, GroupBox or Button; controls of one class share height, radius and \
                ink; none of the older-style tells (`Fixed3D`, `Raised` or `Sunken` borders, the \
                grey `#F0F0F0` face, square corners, heavy shadows, outlines around cards)."),
-            s("In a Web or Mobile project (the kind `list_files` reports): the forms are in `webforms/` \
-               or `mobileforms/` and the Backend's COBOL in `backend/`; no form or browser-side program \
+            s("In a Web or Mobile project (the kind `list_files` reports): the forms are `.wcfrm` in `webforms/` \
+               or `.mcfrm` in `mobileforms/` and the Backend's COBOL in `backend/`; no form or browser-side program \
                holds a file organisation, SQL, `EXEC RUST`, a child process, a native socket or any \
                key, password, token or connection string; remote work is a call to a program the \
                Backend exports, written the way the reference lists it, and a Backend address is \

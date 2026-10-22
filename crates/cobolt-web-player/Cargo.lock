@@ -132,6 +132,7 @@ name = "cobolt-forms"
 version = "0.2.0"
 dependencies = [
  "cobolt-ast",
+ "cobolt-numedit",
  "hmac",
  "indexmap",
  "lopdf",
@@ -165,6 +166,10 @@ dependencies = [
  "serde",
  "thiserror",
 ]
+
+[[package]]
+name = "cobolt-numedit"
+version = "0.2.0"
 
 [[package]]
 name = "cobolt-wasm-abi"

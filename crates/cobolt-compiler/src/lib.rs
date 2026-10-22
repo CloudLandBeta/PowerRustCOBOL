@@ -6180,13 +6180,15 @@ and unavailable); the coding-agent `create_project` tool takes `kind`
 (`desktop`, `web`, `mobile`) and, for Mobile, `platform` (`android`, `ios`) and
 `device` (`phone`, `tablet`) — and it is not changed by editing the manifest.
 
-| Kind | Forms live in | Tree node | Build makes |
-|---|---|---|---|
-| Desktop | `forms/` | Forms | a native executable in `bin/` |
-| Web | `webforms/` | WebForms | a static WebAssembly bundle in `dist/web/` |
-| Mobile | `mobileforms/` | MobileForms | the same bundle; the Android or iOS package step needs the mobile shell, which the product does not include yet |
+| Kind | Forms live in | Form file | Tree node | Build makes |
+|---|---|---|---|---|
+| Desktop | `forms/` | `<name>.cfrm` | Forms | a native executable in `bin/` |
+| Web | `webforms/` | `<name>.wcfrm` | WebForms | a static WebAssembly bundle in `dist/web/` |
+| Mobile | `mobileforms/` | `<name>.mcfrm` | MobileForms | the same bundle; the Android or iOS package step needs the mobile shell, which the product does not include yet |
 
-Every kind lists its forms under `[files] forms`. A Web or Mobile project may
+Every kind lists its forms under `[files] forms`. The three form files are one
+format; only the name differs. A form named for another kind (a `.cfrm` in a Web
+project made before 2.0.32) still loads, and Check warns about its name. A Web or Mobile project may
 also have a **Backend** — COBOL under `backend/src/` with `backend/COPYBOOKS/`,
 listed under `[files] backend`. In the project tree a Web or Mobile project shows
 its WebForms (or MobileForms) node in place of Forms, then a **Backend** node,

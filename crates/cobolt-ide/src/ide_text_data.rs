@@ -439,6 +439,8 @@ pub static IDE_TEXT: &[UiText] = &[
     UiText { text: ["Move to the next result row: Y when there is one, N at the end", "Pasa a la siguiente fila de resultados: Y si la hay, N al final", "Passa para a próxima linha de resultado: Y quando há, N no fim", "次の結果行へ移動する（あれば Y、末尾なら N）", "移到下一个结果行：有则返回 Y，到末尾则返回 N", "Passe à la ligne de résultat suivante : Y s'il y en a une, N à la fin"] },
     UiText { text: ["Move to the previous match, wrapping past the first back to the last.", "Pasa a la coincidencia anterior, dando la vuelta de la primera a la última.", "Passa para a correspondência anterior, voltando da primeira para a última.", "前の一致箇所へ移動します。最初の前は最後に戻ります。", "移到上一个匹配项，越过第一个后回到最后一个。", "Passe à la correspondance précédente, en repassant de la première à la dernière."] },
     UiText { text: ["Moved {} → {}", "Movido {} → {}", "Movido {} → {}", "{} を {} へ移動しました", "已将 {} 移动到 {}", "{} déplacé vers {}"] },
+    UiText { text: ["Renamed {} → {}", "Renombrado {} → {}", "Renomeado {} → {}", "{} を {} に名前変更しました", "已将 {} 重命名为 {}", "{} renommé en {}"] },
+    UiText { text: ["Could not rename {}: {}", "No se pudo renombrar {}: {}", "Não foi possível renomear {}: {}", "{} の名前を変更できませんでした: {}", "无法重命名 {}：{}", "Impossible de renommer {} : {}"] },
     UiText { text: ["New Knowledge Base subfolder", "Nueva subcarpeta de la Base de conocimiento", "Nova subpasta da Base de Conhecimento", "ナレッジベースの新しいサブフォルダー", "知识库新子文件夹", "Nouveau sous-dossier de la base de connaissances"] },
     UiText { text: ["Next", "Siguiente", "Avançar", "次へ", "下一步", "Suivant"] },
     UiText { text: ["Next match (Enter)", "Siguiente coincidencia (Intro)", "Próxima correspondência (Enter)", "次の一致 (Enter)", "下一个匹配项 (Enter)", "Correspondance suivante (Entrée)"] },

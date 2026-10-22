@@ -74,10 +74,8 @@ fn find_cfrm_by_stem(dir: &std::path::Path, want: &str, depth: usize) -> Option<
             subdirs.push(p);
             continue;
         }
-        let is_cfrm = p
-            .extension()
-            .map(|x| x.eq_ignore_ascii_case("cfrm"))
-            .unwrap_or(false);
+        // A form of any kind: `.cfrm`, `.wcfrm` or `.mcfrm` (WASM-001 Q2).
+        let is_cfrm = cobolt_compiler::project_kind::is_form_path(&p);
         if is_cfrm
             && p.file_stem()
                 .and_then(|s| s.to_str())
@@ -814,6 +812,24 @@ pub fn cmd_run_form(args: &[String]) {
 mod tests {
     use super::*;
     use cobolt_forms::{Control, ControlType};
+
+    /// WASM-001 Q2: an `open-form:` target in a Web or Mobile project resolves
+    /// to its `.wcfrm` / `.mcfrm`, as a Desktop one resolves to its `.cfrm`.
+    #[test]
+    fn a_form_is_found_by_its_name_whatever_its_kind_calls_the_file() {
+        let dir = std::env::temp_dir().join(format!("rcrun-ext-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for rel in ["forms/a.cfrm", "webforms/sub/orders.wcfrm", "mobileforms/login.MCFRM", "webforms/notes.txt"] {
+            let p = dir.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "<Form/>").unwrap();
+        }
+        for (want, found) in [("A", "forms/a.cfrm"), ("ORDERS", "webforms/sub/orders.wcfrm"), ("login", "mobileforms/login.MCFRM")] {
+            assert_eq!(find_cfrm_by_stem(&dir, want, 0), Some(dir.join(found)), "{want}");
+        }
+        assert_eq!(find_cfrm_by_stem(&dir, "notes", 0), None, "not a form");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// `rcrun run-form` reads the engine from the argument list the IDE builds
     /// (`<form> <program> --designer … --indexed-engine <project setting>`),

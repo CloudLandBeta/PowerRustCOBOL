@@ -16410,7 +16410,7 @@ impl DesignerPanel {
                     }
                     continue;
                 }
-                if path.extension().and_then(|x| x.to_str()) != Some("cfrm") {
+                if !cobolt_compiler::project_kind::is_form_path(&path) {
                     continue;
                 }
                 let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {

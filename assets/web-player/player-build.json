@@ -6,9 +6,9 @@
       "sha256": "ee7dfc2810bad1670725dfb8af77646cc0fb84e40b7a8b423f1f7b46553b422e"
     },
     {
-      "bytes": 469419,
+      "bytes": 469287,
       "path": "parts/canvas/canvas_bg.wasm",
-      "sha256": "1af150017c452df06bbfd5a2d1d7cb7f2b854f94f21a2a7db25cd8196d34e958"
+      "sha256": "2c46dd376879180105e4cbe43181da69960db15365fb08807aa7d4123288a5b2"
     },
     {
       "bytes": 7985,
@@ -16,9 +16,9 @@
       "sha256": "2585e75ede88c4a08edb85882d76f07972c94362415cad19fb64745caca9f26d"
     },
     {
-      "bytes": 1906933,
+      "bytes": 1906925,
       "path": "parts/mermaid/mermaid_bg.wasm",
-      "sha256": "723c62fef007c03490fae68f3e076a8ebb48873e2eb5b4401c72e13bd9f0f682"
+      "sha256": "caaaf83ea31524b12cfedb9b685d18e92d7bf6e1bd37df7e005e1dd5ac808cc0"
     },
     {
       "bytes": 6785,
@@ -26,29 +26,29 @@
       "sha256": "0acbcc4dbaa3dea42c3bc8e9f4228aa9110f792e8d77349f3f578b03aa42e7cf"
     },
     {
-      "bytes": 219273,
+      "bytes": 219257,
       "path": "parts/pdf/pdf_bg.wasm",
-      "sha256": "a5c0ef6c8697194a2a36b1c35e3df8585b785339bbb3e3d951260bd4503cc18f"
+      "sha256": "89fa3288467ed5f00d12be978790b6ad3a229bc828790988432f2eec357ce5db"
     },
     {
       "bytes": 72056,
       "path": "plain/player.js",
-      "sha256": "956bfbc5066505c517fad551ffef86edfaa22a01bae65f3bcede481fec3cf8fb"
+      "sha256": "110b9957cc8cb1606688a3f77b4b060278dbc7a51d50b54246ba0d827f0f32be"
     },
     {
-      "bytes": 2222253,
+      "bytes": 2221748,
       "path": "plain/player_bg.wasm",
-      "sha256": "88436bde8e3c6bee7b6f3bf526478cae194f154eb2f3e2e94fd74726b61c4cd0"
+      "sha256": "0841f68a6fdc538bd58505fa13b1dabb6a5a4b7001196122a1ab1ba041f883dc"
     },
     {
       "bytes": 78159,
       "path": "threaded/player.js",
-      "sha256": "85eb259ec1f00e5b84f994d0b6290768a3115c505e12c7a60d5f6fd9a1140c7d"
+      "sha256": "35eeae614e1699a3183d56657454ac227fa2d9eaf94acee4f208161e513dd76f"
     },
     {
-      "bytes": 2187394,
+      "bytes": 2187163,
       "path": "threaded/player_bg.wasm",
-      "sha256": "61e3af419b4524dd1f8dfed04ea7f6b9fa12cb00978ea343a976163bb61921ef"
+      "sha256": "f97b7921d3e5e2900db5b5b078ced445bb60c3fa185e0f87ccbf74adaea757ce"
     },
     {
       "bytes": 4556,
@@ -58,49 +58,49 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 2434371,
-      "after_wasm_opt_bytes": 2222253,
-      "cargo_output_bytes": 3573499,
+      "after_bindgen_bytes": 2433725,
+      "after_wasm_opt_bytes": 2221748,
+      "cargo_output_bytes": 3572459,
       "glue_js_bytes": 72056,
-      "gzip_bytes": 772899,
+      "gzip_bytes": 773701,
       "opt_level": "z",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 2414374,
-      "after_wasm_opt_bytes": 2187394,
-      "cargo_output_bytes": 3577684,
+      "after_bindgen_bytes": 2413719,
+      "after_wasm_opt_bytes": 2187163,
+      "cargo_output_bytes": 3576570,
       "glue_js_bytes": 78159,
-      "gzip_bytes": 773318,
+      "gzip_bytes": 772852,
       "opt_level": "z",
       "variant": "threaded"
     }
   ],
   "parts": [
     {
-      "after_bindgen_bytes": 2070844,
-      "after_wasm_opt_bytes": 1906933,
-      "cargo_output_bytes": 2225905,
+      "after_bindgen_bytes": 2070828,
+      "after_wasm_opt_bytes": 1906925,
+      "cargo_output_bytes": 2225889,
       "glue_js_bytes": 7985,
-      "gzip_bytes": 700017,
+      "gzip_bytes": 699982,
       "name": "mermaid",
       "opt_level": "z"
     },
     {
-      "after_bindgen_bytes": 518890,
-      "after_wasm_opt_bytes": 469419,
-      "cargo_output_bytes": 576626,
+      "after_bindgen_bytes": 518754,
+      "after_wasm_opt_bytes": 469287,
+      "cargo_output_bytes": 576490,
       "glue_js_bytes": 15548,
-      "gzip_bytes": 180008,
+      "gzip_bytes": 180019,
       "name": "canvas",
       "opt_level": "z"
     },
     {
-      "after_bindgen_bytes": 241682,
-      "after_wasm_opt_bytes": 219273,
-      "cargo_output_bytes": 273673,
+      "after_bindgen_bytes": 241666,
+      "after_wasm_opt_bytes": 219257,
+      "cargo_output_bytes": 273657,
       "glue_js_bytes": 6785,
-      "gzip_bytes": 101928,
+      "gzip_bytes": 101899,
       "name": "pdf",
       "opt_level": "z"
     }
@@ -113,7 +113,7 @@
     "strip": true,
     "wasm_opt": "-Oz"
   },
-  "source_hash": "b13172873787f8540f469358ded508f57444ed4ff838289bf8dd91ec4cef8567",
+  "source_hash": "592b8f475d89e2e049c7b967dd443204f851b7c7f987cb4b0e94a5d136c2e0a2",
   "tools": {
     "nightly": "nightly-2026-10-08",
     "rustc_nightly": "rustc 1.101.0-nightly (1d81eb4ad 2026-10-07)",

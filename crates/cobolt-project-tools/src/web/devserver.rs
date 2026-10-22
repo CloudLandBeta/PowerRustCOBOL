@@ -277,7 +277,7 @@ pub fn mime_for(path: &Path) -> &'static str {
         "json" | "map" => "application/json; charset=utf-8",
         "webmanifest" => "application/manifest+json; charset=utf-8",
         "wasm" => "application/wasm",
-        "txt" | "md" | "cfrm" | "cidx" | "yaml" | "yml" => "text/plain; charset=utf-8",
+        "txt" | "md" | "cfrm" | "wcfrm" | "mcfrm" | "cidx" | "yaml" | "yml" => "text/plain; charset=utf-8",
         "xml" => "application/xml; charset=utf-8",
         "svg" => "image/svg+xml",
         "png" => "image/png",

@@ -57,8 +57,8 @@ pub fn run(
     window: Option<[f32; 2]>,
 ) -> Result<(Vec<u8>, Value), String> {
     let renderer = renderer.ok_or("render_form is not available in this server")?;
-    if !rel.to_ascii_lowercase().ends_with(".cfrm") {
-        return Err("render_form takes a form (.cfrm)".to_owned());
+    if !cobolt_compiler::project_kind::is_form_path(std::path::Path::new(rel)) {
+        return Err("render_form takes a form (.cfrm, .wcfrm or .mcfrm)".to_owned());
     }
     let abs = root.resolve(rel)?;
     if !abs.is_file() {

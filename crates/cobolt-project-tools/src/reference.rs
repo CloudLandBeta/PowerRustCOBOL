@@ -149,6 +149,10 @@ A form is one XML file in `forms/`, UTF-8, that the IDE's Form Designer reads an
 from which PowerRustCOBOL generates the form's COBOL program. You may write it directly; then
 call `validate` (it must load), `add_to_project` (a new form), `regenerate` and `check`.
 
+The same format has three file names, one per project kind: a Desktop form is `forms/<name>.cfrm`,
+a Web form `webforms/<name>.wcfrm` and a Mobile form `mobileforms/<name>.mcfrm`. Only the name
+differs; everything below applies to all three.
+
 ## The `Form` element
 
 The root element. Its attributes:

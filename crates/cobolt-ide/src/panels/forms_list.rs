@@ -203,7 +203,7 @@ fn scan_dir(dir: &Path, out: &mut Vec<PathBuf>) {
             if !name.starts_with('.') {
                 scan_dir(&path, out);
             }
-        } else if path.extension().and_then(|e| e.to_str()) == Some("cfrm") {
+        } else if cobolt_compiler::project_kind::is_form_path(&path) {
             out.push(path);
         }
     }

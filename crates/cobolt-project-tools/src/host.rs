@@ -111,7 +111,7 @@ impl FileList {
             .to_ascii_lowercase();
         match ext.as_str() {
             "cbl" | "cob" | "cpy" => FileList::Sources,
-            "cfrm" => FileList::Forms,
+            e if cobolt_compiler::project_kind::is_form_extension(e) => FileList::Forms,
             "cidx" => FileList::Indexed,
             "md" | "markdown" | "txt" | "rst" | "adoc" | "pdf" | "html" | "htm" => {
                 FileList::Documentation

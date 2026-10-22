@@ -85,7 +85,7 @@ pub fn mime(path: &str) -> &'static str {
         "css" => "text/css; charset=utf-8",
         "json" | "map" => "application/json; charset=utf-8",
         "wasm" => "application/wasm",
-        "cfrm" | "xml" => "application/xml; charset=utf-8",
+        "cfrm" | "wcfrm" | "mcfrm" | "xml" => "application/xml; charset=utf-8",
         "svg" => "image/svg+xml",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",

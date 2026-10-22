@@ -23,7 +23,7 @@ pub fn run(root: &ProjectRoot, path: &str) -> Result<Value, String> {
         .unwrap_or("")
         .to_ascii_lowercase();
     match ext.as_str() {
-        "cfrm" => Ok(match cobolt_forms::load_form(&abs) {
+        e if cobolt_compiler::project_kind::is_form_extension(e) => Ok(match cobolt_forms::load_form(&abs) {
             Ok(form) => json!({
                 "path": path, "valid": true, "form": form.name,
                 "controls": form.controls.len(), "main_form": form.main_form,
@@ -49,6 +49,6 @@ pub fn run(root: &ProjectRoot, path: &str) -> Result<Value, String> {
                 "errors": errors, "warnings": pick(Severity::Warning),
             }))
         }
-        _ => Err(format!("'{path}' is not a .cfrm or a .cidx")),
+        _ => Err(format!("'{path}' is not a form (.cfrm, .wcfrm or .mcfrm) or a .cidx")),
     }
 }
