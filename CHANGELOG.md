@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.31] — 2026-10-22
+
+*(Written on `features-2x`, after 2.0.30.)*
+
+### Changed: plans and task lists for the last five WASM specs
+
+The WASM spec pipeline wrote or revised `plan.md` and `tasks.md` for WASM-012 (the mobile shell), WASM-013 (security), WASM-014 (the backend contract), WASM-015 (testing, agent tooling and the knowledge base) and WASM-018 (canvas and graphics objects), against the specs as they stand after the decisions of 2026-10-22. WASM-012, 013 and 015 get their first plan; WASM-012, 013, 014 and 015 their first task list; WASM-018 keeps its ten tasks already done. With 2.0.30, every WASM spec now has a plan and a task list.
+
+No code changed. `README.md` and `docs/` are untouched on this line.
+
 ## [PowerRustCOBOL 2.0.30] — 2026-10-22
 
 *(Written on `features-2x`, after 2.0.29.)*
