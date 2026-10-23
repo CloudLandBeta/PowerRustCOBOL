@@ -560,6 +560,25 @@ pub fn template_icon(id: &str) -> &'static str {
     }
 }
 
+/// The colour a template's icon is drawn in, by family, so the list reads at a
+/// glance: Desktop violet, the chatbots indigo, Web the WebAssembly purple, user
+/// controls lavender, Android green, iPhone and iPad blue, a watch amber.
+pub fn template_tint(id: &str) -> egui::Color32 {
+    match id {
+        "desktop" => egui::Color32::from_rgb(0xB8, 0x6B, 0xFF),
+        "chatbot-desktop" | "chatbot-web" => egui::Color32::from_rgb(0x7C, 0x83, 0xFF),
+        "web" => egui::Color32::from_rgb(0x65, 0x4F, 0xF0),
+        "usercontrol-desktop" | "usercontrol-web" => egui::Color32::from_rgb(0x8E, 0x92, 0xFF),
+        "android-phone" | "android-tablet" | "android-watch" => egui::Color32::from_rgb(0x8B, 0xD4, 0x48),
+        "iphone" | "ipad" => egui::Color32::from_rgb(0x4D, 0xA3, 0xFF),
+        "apple-watch" => egui::Color32::from_rgb(0xF5, 0xB7, 0x31),
+        _ => egui::Color32::from_rgb(0x9B, 0x8C, 0xFF),
+    }
+}
+
+/// The *Recent Projects* row's icon colour.
+const RECENT_TINT: egui::Color32 = egui::Color32::from_rgb(0x9B, 0x8C, 0xFF);
+
 /// The platform line of the dialog: the host the Desktop build is for. Cross-
 /// building is not offered, so the choice is shown and fixed (WASM-001 Q4).
 pub fn host_platform() -> &'static str {
@@ -719,7 +738,7 @@ impl NewProjectDialog {
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 let selected = self.pane == Pane::Recent;
-                if self.row(ui, theme, "doc-history", tr.pk_recent, "", selected, true) {
+                if self.row(ui, theme, "doc-history", RECENT_TINT, tr.pk_recent, "", selected, true) {
                     self.show_recent();
                 }
             });
@@ -734,7 +753,7 @@ impl NewProjectDialog {
                     let (name, _) = template_text(tr, &t);
                     let sub = if t.creatable { t.platforms.to_owned() } else { tr.pk_unavailable.to_owned() };
                     let selected = self.pane == Pane::Template(index);
-                    if self.row(ui, theme, template_icon(t.id), name, &sub, selected, t.creatable) {
+                    if self.row(ui, theme, template_icon(t.id), template_tint(t.id), name, &sub, selected, t.creatable) {
                         self.select(index);
                     }
                 }
@@ -745,7 +764,8 @@ impl NewProjectDialog {
     /// One row of the template list: icon, name, and a small line under it.
     /// Painted, so a long name in another language is clipped to the row and
     /// cannot widen anything.
-    fn row(&self, ui: &mut egui::Ui, theme: &Theme, icon: &str, name: &str, sub: &str, selected: bool, available: bool) -> bool {
+    #[allow(clippy::too_many_arguments)]
+    fn row(&self, ui: &mut egui::Ui, theme: &Theme, icon: &str, tint: egui::Color32, name: &str, sub: &str, selected: bool, available: bool) -> bool {
         let (rect, response) = ui.allocate_exact_size(egui::vec2(LEFT_W - 14.0, ROW_H), egui::Sense::click());
         let painter = ui.painter().with_clip_rect(rect);
         if selected {
@@ -755,7 +775,10 @@ impl NewProjectDialog {
         }
         let ink = if available { theme.text_bright } else { theme.text_dim };
         let icon_rect = egui::Rect::from_min_size(rect.min + egui::vec2(10.0, (ROW_H - 22.0) * 0.5), egui::vec2(22.0, 22.0));
-        cobolt_forms::icons::draw_menu_icon(&painter, icon_rect, icon, ink);
+        // The icon keeps its family colour; a template that cannot be created
+        // yet shows it faded, as its text is dimmed.
+        let icon_ink = if available { tint } else { tint.gamma_multiply(0.45) };
+        cobolt_forms::icons::draw_menu_icon(&painter, icon_rect, icon, icon_ink);
         let x = rect.min.x + 42.0;
         painter.text(
             egui::pos2(x, rect.min.y + 7.0),
@@ -1285,6 +1308,23 @@ mod tests {
         for icon in ["doc-open", "doc-history"] {
             assert!(known.contains(icon), "{icon}");
         }
+    }
+
+    /// Every template's icon has a colour of its own (none is the old white
+    /// ink), and the families the reference design separates stay apart.
+    #[test]
+    fn every_template_icon_has_its_family_colour() {
+        let white = egui::Color32::WHITE;
+        for t in templates::builtin() {
+            let c = template_tint(t.id);
+            assert_ne!(c, white, "{}", t.id);
+            let [r, g, b, _] = c.to_array();
+            assert!(r.max(g).max(b) - r.min(g).min(b) > 60, "{}: {c:?} is too grey to read as a colour", t.id);
+        }
+        assert_eq!(template_tint("android-phone"), template_tint("android-tablet"));
+        assert_ne!(template_tint("android-phone"), template_tint("iphone"));
+        assert_ne!(template_tint("desktop"), template_tint("web"));
+        println!("template icons: {} templates, each in its family colour", templates::builtin().len());
     }
 
     #[test]
