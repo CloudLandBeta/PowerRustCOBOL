@@ -39,6 +39,19 @@ pub const ELEGANCE: &str = "elegance";
 /// the system-blurred desktop.
 pub const SPATIAL: &str = "spatial";
 
+/// The colour a see-through theme's window is measured and pictured over, in
+/// place of the blurred desktop no painter can read (`paint::SEE_THROUGH_DESKTOP`
+/// is made from it). A Web build paints it behind such a form, since a page has
+/// no desktop behind it at all.
+pub const SEE_THROUGH_BACKDROP_RGB: (u8, u8, u8) = (0x4A, 0x46, 0x42);
+
+/// Does the theme `id` show what is behind its window? Only Spatial does; the
+/// render feature's `SurfaceTheme::see_through` says the same, and a test holds
+/// the two together.
+pub fn is_see_through(id: &str) -> bool {
+    id == SPATIAL
+}
+
 /// Whether a theme is drawn procedurally or composited from an asset pack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemeKind {

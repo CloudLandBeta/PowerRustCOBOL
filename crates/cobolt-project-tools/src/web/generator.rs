@@ -485,6 +485,19 @@ impl WebBuildBackend for GeneratorBackend {
             backend_origins: cobolt_web_bundle::origin_of(&req.web.backend_url)
                 .into_iter()
                 .collect(),
+            // A see-through theme (Spatial) needs something behind it: the same
+            // stand-in for a desktop its pictures are drawn over.
+            backdrop: {
+                let main = forms.iter().find(|f| f.form.main_form).or(forms.first());
+                let theme = cobolt_forms::theme::resolve_theme_id(
+                    main.and_then(|f| f.form.theme.as_deref()),
+                    req.form_theme.as_deref(),
+                );
+                cobolt_forms::theme::is_see_through(&theme).then(|| {
+                    let (r, g, b) = cobolt_forms::theme::SEE_THROUGH_BACKDROP_RGB;
+                    format!("#{r:02X}{g:02X}{b:02X}")
+                })
+            },
             ..BundleOptions::default()
         };
         let program_multi = modules.multi.as_ref().map(|c| c.wasm.clone());

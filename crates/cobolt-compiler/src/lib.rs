@@ -3626,9 +3626,12 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 16] = [
+pub const SDK_CRATES: [&str; 18] = [
     "cobolt-ast",
     "cobolt-codegen",
+    // Decimal arithmetic, shared by the interpreter and the WebAssembly
+    // generator's routines (2.0.16). `cobolt-runtime` depends on it.
+    "cobolt-decimal",
     // spec 074 — document import. `cobolt-kb` depends on it.
     "cobolt-docs",
     "cobolt-form-host",
@@ -3642,6 +3645,9 @@ pub const SDK_CRATES: [&str; 16] = [
     // depends on it, so the closure guard below requires it here.
     "cobolt-mcp",
     "cobolt-media",
+    // Edited pictures, shared by the interpreter (through `cobolt-forms`) and
+    // the WebAssembly generator's routines (2.0.13). `cobolt-forms` depends on it.
+    "cobolt-numedit",
     // spec 083 — desktop blur behind a see-through (Spatial) form window.
     // `cobolt-form-host` depends on it, so the closure guard requires it.
     "cobolt-os-blur",

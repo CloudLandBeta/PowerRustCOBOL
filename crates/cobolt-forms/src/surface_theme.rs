@@ -684,6 +684,15 @@ impl SurfaceTheme for PackBaseTheme {
 mod tests {
     use super::*;
 
+    /// `theme::is_see_through` (what a Web build asks, with no painter linked)
+    /// and each built-in theme's own `see_through` give the same answer.
+    #[test]
+    fn the_see_through_test_without_the_painters_agrees_with_every_theme() {
+        for id in crate::theme::ThemeCatalog::builtin().ids() {
+            assert_eq!(crate::theme::is_see_through(id), for_theme_id(id).see_through(), "{id}");
+        }
+    }
+
     /// The `Option` contract, stated as a test: Liquid Glass answers `None` to
     /// everything, so it cannot reach — and therefore cannot move — the
     /// built-in painting it stands for.

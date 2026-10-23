@@ -1281,8 +1281,15 @@ pub fn page_html(p: &Page<'_>) -> String {
     )
 }
 
-/// `app.css`: the host page's own styling (WASM-002 R10/R11).
-pub fn app_css() -> String {
+/// `app.css`: the host page's own styling (WASM-002 R10/R11). `backdrop` is the colour
+/// behind a see-through form theme ([`crate::BundleOptions::backdrop`]).
+pub fn app_css(backdrop: Option<&str>) -> String {
+    let behind = match backdrop {
+        Some(c) => format!(
+            "\n/* A see-through form theme shows what is behind the window. A page has no desktop behind it, so\n   the application sits on a stand-in for one, and the text before it is drawn light. */\n#pr-app {{ color: rgb(255, 255, 255); background: {c}; }}\n"
+        ),
+        None => String::new(),
+    };
     String::from(BANNER_CSS)
         + r#"/* SPDX-License-Identifier: Apache-2.0 */
 /* Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors */
@@ -1314,5 +1321,5 @@ body.pr-window #pr-app,
 
 /* Before the application: a progress bar and a line of text, in the host's own fonts. */
 #pr-app { color: CanvasText; background: Canvas; font: 14px/1.4 system-ui, sans-serif; }
-"#
+"# + &behind
 }

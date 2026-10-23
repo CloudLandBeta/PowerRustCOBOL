@@ -198,6 +198,29 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
+    /// A control property as the receiving field of `STRING`: its current text
+    /// in a character temporary widened to the temporary's full capacity, so
+    /// the statement can write into it. Answers the temporary's index and its
+    /// operand; the caller trims it (`rt_ctemp_rtrim`) and writes it back with
+    /// [`Self::member_set`].
+    pub(crate) fn member_receiver(&mut self, target: &Expr, line: u32) -> GenResult<(u32, u32)> {
+        let Some((root, segs)) = Self::chain(target) else {
+            return self.err(line, "a control property was expected as the receiving field");
+        };
+        let Some(ctrl) = self.host_root(root) else {
+            if let Some(e) = self.unknown_root(root, line) {
+                return Err(e);
+            }
+            return self.err(line, "a value method cannot be a receiving field");
+        };
+        self.check_layer_rules(root, ctrl, &segs, true, line)?;
+        let k = self.ctemp_next;
+        let opd = self.host_read(ctrl, &segs, line)?;
+        self.i32c(k as i32);
+        self.call_rt("rt_ctemp_widen");
+        Ok((k, opd))
+    }
+
     /// `Ctrl::Method(args)` as a statement: the call, its result discarded.
     pub(crate) fn member_call(&mut self, e: &Expr, line: u32) -> GenResult<()> {
         let Some((root, segs)) = Self::chain(e) else {

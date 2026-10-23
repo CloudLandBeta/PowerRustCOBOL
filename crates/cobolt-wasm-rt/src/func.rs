@@ -868,6 +868,28 @@ pub fn ctemp_number(k: u32) -> Option<Val> {
     crate::codec::parse_text(mem::bytes(at, len)).map(Val::Dec)
 }
 
+/// Widen character temporary `k` to `CTEMP_SIZE` bytes: its text, then spaces.
+/// It is no longer a number the host spelt.
+pub fn ctemp_widen(k: u32) {
+    let k = (k as usize) % NCTEMP;
+    let (at, len) = ctemp_loc(k as u32);
+    mem::fill(at + len, CTEMP_SIZE - len, b' ');
+    st().ctemp_len[k] = CTEMP_SIZE;
+    st().ctemp_dynamic &= !(1 << k);
+}
+
+/// Shorten character temporary `k` to its text without trailing spaces.
+pub fn ctemp_rtrim(k: u32) {
+    let k = (k as usize) % NCTEMP;
+    let (at, len) = ctemp_loc(k as u32);
+    let b = mem::bytes(at, len);
+    let mut n = len as usize;
+    while n > 0 && b[n - 1] == b' ' {
+        n -= 1;
+    }
+    st().ctemp_len[k] = n as u32;
+}
+
 /// The location a `T_CTEMP` operand names.
 pub fn ctemp_loc(k: u32) -> (u32, u32) {
     let k = (k as usize) % NCTEMP;

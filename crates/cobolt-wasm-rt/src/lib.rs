@@ -319,6 +319,20 @@ pub extern "C" fn rt_save_temp(k: u32) {
     state::st().temps[(k as usize) % state::NTEMP] = v;
 }
 
+/// Make character temporary `k` a receiving field of its full capacity: its
+/// current text, then spaces (`STRING … INTO Ctrl::Prop`).
+#[no_mangle]
+pub extern "C" fn rt_ctemp_widen(k: u32) {
+    func::ctemp_widen(k);
+}
+
+/// Drop the trailing spaces of character temporary `k`, as a property write
+/// does on the interpreter.
+#[no_mangle]
+pub extern "C" fn rt_ctemp_rtrim(k: u32) {
+    func::ctemp_rtrim(k);
+}
+
 /// Store the integer `n` into numeric item `o` (an index, a counter).
 #[no_mangle]
 pub extern "C" fn rt_set_int(base: u32, o: u32, n: i64) {
