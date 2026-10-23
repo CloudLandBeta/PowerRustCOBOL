@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.46] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.45.)*
+
+### Feature: one web table for classes, exceptions and fidelity (WASM-004, T12–T13)
+
+`cobolt_forms::web_class` now also holds each control's operations that take a different class:
+- Maps' six geocoding and routing methods are C.
+- Viewer `SaveAs`/`SaveAsPdf` are C, and `Print`/`Share` are D.
+- ToolBar `run-app`, `open-terminal`, `print` and `share` are D.
+- DataGrid's in-memory `Rows` is A.
+
+Each D entry has the English alternative that Check will print. The module also holds the series name **Hyperlink**; the old spelling `WebLink` is still recognised. Finally, it holds the property-fidelity rows (exact, approximate, not on the web) that the player kept in `css.rs` until now. The player now reads those rows and keeps only the CSS for each one. Its non-visual set is the model's `ControlType::is_non_visual()`. A guard test checks that every property name the view reads is one the model has. Player tests: 230 passed. The run stopped at T14, which waits for WASM-007's CSS that reproduces the desktop look.
+
 ## [PowerRustCOBOL 2.0.45] — 2026-10-23
 
 *(Written on `features-2x`, after 2.0.44.)*

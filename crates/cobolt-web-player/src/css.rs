@@ -17,89 +17,85 @@
 //! declarations are allowed.
 //!
 //! What it does *not* reproduce — the egui painter's liquid glass, perspective tilt of a whole
-//! control, the operating-system blur — is listed in the table as *approximate* or *not on the web*
-//! and shown in a property's tooltip (WASM-004 R6); a property that has no effect on the web stays
-//! editable, so a form round-trips between kinds.
+//! control, the operating-system blur — is marked *approximate* or *not on the web* in the shared
+//! fidelity rows (`cobolt_forms::web_class::FIDELITY`): the Properties panel of a web form marks an
+//! approximate property in its tooltip and hides one with no effect on the web, whose value stays
+//! in the form file, so a form round-trips between kinds (WASM-004 R6).
 
 use crate::tree::{Ctl, Kind};
 use crate::value::{css_color, fmt_number, parse_color, parse_f64, truthy};
 use cobolt_forms::model::ControlType;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Fidelity {
-    Exact,
-    Approximate,
-    NotOnWeb,
-}
+// The fidelity of each property (exact, approximate, not on the web) and its note live in
+// `cobolt_forms::web_class::FIDELITY` (WASM-004 T13), which the IDE's Properties panel reads too.
+// This table holds only what the browser does with each of those rows.
+pub use cobolt_forms::web_class::{fidelity_of, Fidelity, PropertyFidelity};
 
-/// One row of the table of WASM-007 R1.
+/// One row of the table of WASM-007 R1: the CSS a shared fidelity row becomes.
 #[derive(Debug, Clone, Copy)]
 pub struct Mapping {
     pub property: &'static str,
     pub css: &'static str,
-    pub fidelity: Fidelity,
-    pub note: &'static str,
 }
 
-const fn m(property: &'static str, css: &'static str, fidelity: Fidelity, note: &'static str) -> Mapping {
-    Mapping { property, css, fidelity, note }
+const fn m(property: &'static str, css: &'static str) -> Mapping {
+    Mapping { property, css }
 }
-
-use Fidelity::*;
 
 /// Every appearance property and what it becomes. A test checks the model's theme-owned
-/// properties are all here (WASM-007 AC1).
+/// properties are all here (WASM-007 AC1), and another that these rows and the shared fidelity
+/// rows name the same properties.
 pub const TABLE: &[Mapping] = &[
-    m("BackgroundColor", "background-color", Exact, ""),
-    m("BackgroundGradientEnabled", "background-image: linear-gradient(…)", Exact, ""),
-    m("BackgroundGradientStartColor", "linear-gradient start stop", Exact, ""),
-    m("BackgroundGradientEndColor", "linear-gradient end stop", Exact, ""),
-    m("BackgroundGradientDirection", "linear-gradient angle (eight directions)", Exact, ""),
-    m("ForegroundColor", "color", Exact, ""),
-    m("FontName", "font-family", Exact, "a name the browser does not have falls back to the system font"),
-    m("FontSize", "font-size", Exact, "pixels"),
-    m("Bold", "font-weight: 700", Exact, ""),
-    m("Italic", "font-style: italic", Exact, ""),
-    m("Underline", "text-decoration: underline", Exact, ""),
-    m("Strikethrough", "text-decoration: line-through", Exact, ""),
-    m("Tooltip", "title attribute", Exact, ""),
-    m("Cursor", "cursor", Exact, "Default|Hand|Text|Wait|Crosshair|No|SizeAll|SizeNS|SizeWE"),
-    m("Padding", "padding", Exact, ""),
-    m("PaddingLeft", "padding-left", Exact, ""),
-    m("PaddingTop", "padding-top", Exact, ""),
-    m("PaddingRight", "padding-right", Exact, ""),
-    m("PaddingBottom", "padding-bottom", Exact, ""),
-    m("Transparency", "alpha of the background, border and shadow (not opacity)", Exact, "fades the frame, never the content"),
-    m("CornerRadius", "border-radius", Exact, "drawn corners of spec 057 (children clipped to the arc) are overflow: hidden on the container"),
-    m("BorderStyle", "border-style", Approximate, "Raised/Sunken/Inset/Outset become a two-tone border"),
-    m("BorderColor", "border-color", Exact, ""),
-    m("BorderWidth", "border-width", Exact, ""),
-    m("ShadowEnabled", "box-shadow", Approximate, "the neumorphic dual shadow is two box-shadows"),
-    m("ShadowColor", "box-shadow colour", Exact, ""),
-    m("ShadowLightColor", "second box-shadow colour", Exact, ""),
-    m("ShadowOpacity", "alpha of the shadow colours", Exact, "percent"),
-    m("ShadowDirection", "box-shadow offset direction", Exact, "eight directions"),
-    m("ShadowDistance", "box-shadow offset", Exact, "0-60"),
-    m("ShadowBlur", "box-shadow blur on/off", Exact, ""),
-    m("ShadowBlurStrength", "box-shadow blur radius; negative = inset", Approximate, "-20..20"),
-    m("TextAlignment", "text-align / justify-content", Exact, ""),
-    m("VerticalAlignment", "align-items", Exact, ""),
-    m("WordWrap", "white-space", Exact, ""),
-    m("RotateX", "transform: perspective() rotateX()", Approximate, "no per-pixel perspective of the painter's content"),
-    m("RotateY", "transform: perspective() rotateY()", Approximate, ""),
-    m("PerspectiveDistance", "perspective()", Approximate, ""),
-    m("PerspectiveStrength", "perspective()", Approximate, ""),
-    m("BorderGradientEnabled", "border-image", NotOnWeb, "charts only; the frame is a plain border"),
-    m("BorderBlur", "—", NotOnWeb, "an operating-system effect"),
-    m("BorderTransparency", "—", NotOnWeb, ""),
-    m("ZOrder", "z-index", Exact, ""),
-    m("Visible", "display / hidden", Exact, ""),
-    m("Enabled", "disabled / aria-disabled", Exact, ""),
-    m("OsBlur", "backdrop-filter", NotOnWeb, "the operating-system blur behind a window has no page equivalent; backdrop-filter is not applied by default"),
+    m("BackgroundColor", "background-color"),
+    m("BackgroundGradientEnabled", "background-image: linear-gradient(…)"),
+    m("BackgroundGradientStartColor", "linear-gradient start stop"),
+    m("BackgroundGradientEndColor", "linear-gradient end stop"),
+    m("BackgroundGradientDirection", "linear-gradient angle (eight directions)"),
+    m("ForegroundColor", "color"),
+    m("FontName", "font-family"),
+    m("FontSize", "font-size"),
+    m("Bold", "font-weight: 700"),
+    m("Italic", "font-style: italic"),
+    m("Underline", "text-decoration: underline"),
+    m("Strikethrough", "text-decoration: line-through"),
+    m("Tooltip", "title attribute"),
+    m("Cursor", "cursor"),
+    m("Padding", "padding"),
+    m("PaddingLeft", "padding-left"),
+    m("PaddingTop", "padding-top"),
+    m("PaddingRight", "padding-right"),
+    m("PaddingBottom", "padding-bottom"),
+    m("Transparency", "alpha of the background, border and shadow (not opacity)"),
+    m("CornerRadius", "border-radius"),
+    m("BorderStyle", "border-style"),
+    m("BorderColor", "border-color"),
+    m("BorderWidth", "border-width"),
+    m("ShadowEnabled", "box-shadow"),
+    m("ShadowColor", "box-shadow colour"),
+    m("ShadowLightColor", "second box-shadow colour"),
+    m("ShadowOpacity", "alpha of the shadow colours"),
+    m("ShadowDirection", "box-shadow offset direction"),
+    m("ShadowDistance", "box-shadow offset"),
+    m("ShadowBlur", "box-shadow blur on/off"),
+    m("ShadowBlurStrength", "box-shadow blur radius; negative = inset"),
+    m("TextAlignment", "text-align / justify-content"),
+    m("VerticalAlignment", "align-items"),
+    m("WordWrap", "white-space"),
+    m("RotateX", "transform: perspective() rotateX()"),
+    m("RotateY", "transform: perspective() rotateY()"),
+    m("PerspectiveDistance", "perspective()"),
+    m("PerspectiveStrength", "perspective()"),
+    m("BorderGradientEnabled", "border-image"),
+    m("BorderBlur", "—"),
+    m("BorderTransparency", "—"),
+    m("ZOrder", "z-index"),
+    m("Visible", "display / hidden"),
+    m("Enabled", "disabled / aria-disabled"),
+    m("OsBlur", "backdrop-filter"),
 ];
 
-/// The marking of a property, for its tooltip (WASM-004 R6): `None` for a property not in the table.
-pub fn fidelity_of(property: &str) -> Option<&'static Mapping> {
+/// The CSS row of a property: `None` for a property not in the table.
+pub fn mapping_of(property: &str) -> Option<&'static Mapping> {
     TABLE.iter().find(|r| r.property.eq_ignore_ascii_case(property))
 }
 
@@ -446,10 +442,30 @@ mod tests {
         }
         // And every entry is marked.
         assert!(TABLE.iter().all(|r| !r.css.is_empty()));
-        let exact = TABLE.iter().filter(|r| r.fidelity == Exact).count();
-        let approx = TABLE.iter().filter(|r| r.fidelity == Approximate).count();
-        let none = TABLE.iter().filter(|r| r.fidelity == NotOnWeb).count();
-        println!("WASM-007 table: {} properties - {exact} exact, {approx} approximate, {none} not on the web", TABLE.len());
+        let n = |k: Fidelity| cobolt_forms::web_class::FIDELITY.iter().filter(|r| r.fidelity == k).count();
+        println!(
+            "WASM-007 table: {} properties - {} exact, {} approximate, {} not on the web",
+            TABLE.len(),
+            n(Fidelity::Exact),
+            n(Fidelity::Approximate),
+            n(Fidelity::NotOnWeb)
+        );
+    }
+
+    #[test]
+    fn the_css_rows_and_the_shared_fidelity_rows_name_the_same_properties() {
+        // WASM-004 T13: a property in one table and not the other fails.
+        use std::collections::BTreeSet;
+        let css: Vec<&str> = TABLE.iter().map(|r| r.property).collect();
+        let shared: Vec<&str> = cobolt_forms::web_class::FIDELITY.iter().map(|r| r.property).collect();
+        let (css_set, shared_set): (BTreeSet<&str>, BTreeSet<&str>) = (css.iter().copied().collect(), shared.iter().copied().collect());
+        assert_eq!(css.len(), css_set.len(), "a property has two CSS rows");
+        assert_eq!(shared.len(), shared_set.len(), "a property has two fidelity rows");
+        assert_eq!(css_set.difference(&shared_set).collect::<Vec<_>>(), Vec::<&&str>::new(), "CSS rows with no fidelity row");
+        assert_eq!(shared_set.difference(&css_set).collect::<Vec<_>>(), Vec::<&&str>::new(), "fidelity rows with no CSS row");
+        println!("{} properties in both tables", css.len());
+        assert_eq!(mapping_of("osblur").map(|r| r.css), Some("backdrop-filter"));
+        assert_eq!(fidelity_of("OsBlur").map(|r| r.fidelity), Some(Fidelity::NotOnWeb));
     }
 
     #[test]
