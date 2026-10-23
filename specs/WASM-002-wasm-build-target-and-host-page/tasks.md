@@ -181,6 +181,8 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
     2/2.
 
 - [ ] **T16 — Link the backend where the program starts** (R1; plan §1 layer 2)
+  - *2026-10-23, the manual MCP check run outside the pipeline:* `rcrun mcp` (2.0.37) — `create_project` kind web → `check` 0 errors, 0
+    warnings → `build` writes `dist/web` in 93 ms (page, `config.json`, `_headers`, both players, `program.wasm` + `program.single.wasm`, SBOM).
   - *2026-10-23:* the links exist (WASM-010 T19: `cobolt-ide/src/main.rs:102`, `cobolt-cli/src/main.rs:83`, `GeneratorBackend`).
     `cargo test -p cobolt-ide --bin cobolt-ide web_preview` 15 passed; `--test tools build` matches no test (0 run) and `--test build`
     0 passed, 1 ignored (pre-existing); `--lib build` 4 passed. **Not checked:** the manual MCP check — the PowerRustCOBOL MCP server
@@ -215,6 +217,14 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
     offered after consent, the SDKs not) is WASM-012's.
 
 - [ ] **T19 — The Build's own bundle in node and Chrome** (AC1, AC2)
+  - *2026-10-23, Chrome half run outside the pipeline* (Chromium 152.0.7977.167 in the desktop app's browser pane; the 2.0.37 Web template
+    built through `rcrun mcp`, served by `cobolt-web-bundle --example serve --isolated`, `crossOriginIsolated` true):
+    **AC2 passes** — mounted in a 420×300 `<div>` the app fills only that div, follows a resize to 640×420, nothing paints past it; a host
+    `button {background:red !important; font-size:40px}` does not reach the app's button (rgb(58,62,71), 14px) and the app's `.pr-window`
+    rules do not reach a host `<p class="pr-window">` (Georgia, rgb(10,20,30)). **AC1 fails:** a click with the box empty shows "Type your
+    name first."; after typing "Ada" the click leaves `"\u0001"` in `LBL-RESULT` instead of "Hello, Ada" — the template's
+    `STRING "Hello, " TXT-NAME::Text::Trim() DELIMITED BY SIZE INTO LBL-RESULT::Caption` (a generator defect, fixes-2x). Also seen: mounted in
+    a `<div>` the app does not paint its window background (it comes from `body.pr-window`), so its white labels sit on the host page.
   - *2026-10-23, node half done:* `node_the_builds_own_hello_world_answers_a_click` (in `cobolt-project-tools/tests/web_build.rs`, the
     harness reached by `#[path]`, no dependency cycle) — the Build's bundle, a click on `BTN-OK` writes `Hi`, multi- and single-memory, under
     node v23.3.0 (**AC1, node**). `PRC_WEB_E2E_KEEP=1` keeps the bundle for a browser run. **Stopped here:** the Chrome half (AC1 in Chrome,
@@ -227,6 +237,9 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
     follows its resize, and a computed style asserted on each side shows no leak either way (**AC2**). Record the browser version used.
 
 - [ ] **T20 — Desktop builds as before** (R9, AC8; plan C3)
+  - *2026-10-23, run outside the pipeline on `ddaa2d12` (2.0.37):* `cobolt-compiler` + `cobolt-cli` + `cobolt-web-bundle` — 297 passed,
+    4 failed: the known `cobolt-compiler` SDK failures (`sdk_crate_set_is_closed_under_path_dependencies` and three `resolve_main_tests`;
+    the SDK crate set lacks `cobolt-numedit`/`cobolt-decimal`, added at 2.0.13/2.0.16) — a fixes-2x item. Box stays open until it is fixed.
   - Files: none changed — this is the check that none of the desktop path was touched.
   - Verify: `git diff --stat` shows no change to `crates/cobolt-compiler/src/lib.rs` (`build_project`), `bin/` handling, eframe or the
     host-triple rule; `cargo test -p cobolt-compiler --no-fail-fast` and `cargo test -p cobolt-cli --no-fail-fast` green, every `test result`

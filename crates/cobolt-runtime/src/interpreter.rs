@@ -2821,7 +2821,21 @@ impl Interpreter {
         state_tx: mpsc::Sender<StateUpdate>,
         display_tx: mpsc::Sender<String>,
     ) -> Self {
-        let mut interp = Self::new(program);
+        Self::new_with_channels_and_store(program, event_rx, state_tx, display_tx, new_external_store())
+    }
+
+    /// Like [`new_with_channels`](Self::new_with_channels), but joins the run
+    /// unit's `external_store` — several programs of one run unit (a backend
+    /// connection that keeps its state, WASM-003 Q2) share one copy of every
+    /// `EXTERNAL` item.
+    pub fn new_with_channels_and_store(
+        program: Program,
+        event_rx: mpsc::Receiver<FormEvent>,
+        state_tx: mpsc::Sender<StateUpdate>,
+        display_tx: mpsc::Sender<String>,
+        external_store: ExternalStore,
+    ) -> Self {
+        let mut interp = Self::with_external_store(program, external_store);
         interp.event_rx = Some(event_rx);
         interp.state_tx = Some(state_tx);
         interp.display_tx = Some(display_tx);
@@ -25579,5 +25593,79 @@ pub(crate) fn anchor_relative_path(path: &str) -> String {
     match cobolt_forms::assets::current_base() {
         Some(base) => base.join(p).to_string_lossy().into_owned(),
         None => path.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod reentry_tests {
+    use super::*;
+    use cobolt_lexer::{tokenize, SourceFormat};
+    use cobolt_parser::parse;
+
+    /// WASM-003 T1 (plan §5 R3) — a backend in `per-connection` mode calls the
+    /// same `Interpreter` again for each call of one connection, so a second
+    /// `run()` must keep `WORKING-STORAGE`, as a program `CALL`ed again in one
+    /// run unit does, and end its SQL work at the end of each run.
+    #[test]
+    fn interpreter_reentry_keeps_working_storage() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. COUNTER.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-COUNT PIC 9(4) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    ADD 1 TO WS-COUNT
+    GOBACK.
+";
+        let program = parse(tokenize(source, SourceFormat::Free)).program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        let mut answers = Vec::new();
+        for _ in 0..2 {
+            let r = interp.run();
+            assert!(r.is_ok() || r.as_ref().is_err_and(RuntimeError::is_exit_signal), "{r:?}");
+            let sessions = interp.sql_run_unit().lock().map(|u| u.sessions.len()).unwrap_or(usize::MAX);
+            assert_eq!(sessions, 0, "the SQL work of the run has ended with it");
+            let bytes = interp.env.display_bytes("WS-COUNT").expect("WS-COUNT exists");
+            answers.push(String::from_utf8_lossy(&bytes).into_owned());
+        }
+        println!("one interpreter, two runs: WS-COUNT = {answers:?}");
+        assert_eq!(answers, ["0001", "0002"], "WORKING-STORAGE survives the second run");
+    }
+
+    /// `spawn_blocking` may run each call of one connection on another thread,
+    /// so the interpreter must be `Send` and keep its state across the move.
+    #[test]
+    fn interpreter_reentry_crosses_threads() {
+        fn assert_send<T: Send>() {}
+        assert_send::<Interpreter>();
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. COUNTER.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-COUNT PIC 9(4) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    ADD 1 TO WS-COUNT
+    GOBACK.
+";
+        let program = parse(tokenize(source, SourceFormat::Free)).program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        let mut answers = Vec::new();
+        for _ in 0..3 {
+            let (back, answer) = std::thread::spawn(move || {
+                let _ = interp.run();
+                let bytes = interp.env.display_bytes("WS-COUNT").expect("WS-COUNT exists");
+                (interp, String::from_utf8_lossy(&bytes).into_owned())
+            })
+            .join()
+            .expect("the run thread");
+            interp = back;
+            answers.push(answer);
+        }
+        println!("one interpreter, three runs on three threads: WS-COUNT = {answers:?}");
+        assert_eq!(answers, ["0001", "0002", "0003"]);
     }
 }

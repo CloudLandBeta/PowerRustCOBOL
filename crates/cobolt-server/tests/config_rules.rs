@@ -45,7 +45,7 @@ fn a_good_configuration_resolves_with_the_documented_defaults() {
 
 #[test]
 fn a_release_start_refuses_every_unsafe_setting_and_a_development_start_only_warns() {
-    for setting in ["unsafe_allow_any_origin = true", "unsafe_dev_token_secret = \"0123456789abcdef0123456789abcdef\"", "unsafe_plain_ws = true"] {
+    for setting in ["unsafe_allow_any_origin = true", "unsafe_dev_token_secret = \"0123456789abcdef0123456789abcdef\""] {
         let text = format!("{setting}\n{GOOD}");
         // (A top-level key, written ahead of the first section.)
         let e = errors(&text, RunMode::Release);
@@ -63,10 +63,37 @@ fn a_misspelt_setting_stops_the_start_instead_of_being_ignored() {
     assert!(e.contains("unknown field"), "{e}");
 }
 
+/// WASM-003 T4 (R5, Q7; D4): plain `ws://` is served on a loopback address only,
+/// in a release start and in a development one alike — there is no relaxation,
+/// and a `backend.toml` that still names the removed one is told why.
 #[test]
-fn plain_ws_is_for_loopback_only_and_tls_is_all_or_nothing() {
-    let e = errors(&GOOD.replace("127.0.0.1:8443", "0.0.0.0:8443"), RunMode::Release);
-    assert!(e.contains("not a loopback address") && e.contains("TLS"), "{e}");
+fn plain_ws_is_never_served_on_a_non_loopback_address() {
+    for addr in ["0.0.0.0:8443", "192.168.1.20:8443", "[::]:8443", "10.0.0.5:80", "127.0.0.1:8443", "[::1]:8443", "127.0.0.2:8443"] {
+        let text = GOOD.replace("127.0.0.1:8443", addr);
+        let mut outcomes = Vec::new();
+        for mode in [RunMode::Release, RunMode::Development] {
+            let r = resolve(&text, mode);
+            let loopback = addr.parse::<std::net::SocketAddr>().unwrap().ip().is_loopback();
+            match &r {
+                Ok(_) => assert!(loopback, "{addr} {mode:?}: plain ws:// served on a network address"),
+                Err(e) => {
+                    assert!(!loopback, "{addr} {mode:?}: {e:?}");
+                    assert!(e.iter().any(|m| m.contains("not a loopback address") && m.contains("TLS")), "{addr}: {e:?}");
+                }
+            }
+            outcomes.push(format!("{mode:?} {}", if r.is_ok() { "served" } else { "refused" }));
+        }
+        println!("  ws:// on {addr:<18} {}", outcomes.join(", "));
+    }
+    for mode in [RunMode::Release, RunMode::Development] {
+        let e = errors(&format!("unsafe_plain_ws = true\n{}", GOOD.replace("127.0.0.1:8443", "0.0.0.0:8443")), mode);
+        assert!(e.contains("`unsafe_plain_ws` was removed") && e.contains("loopback") && !e.contains("unknown field"), "{mode:?}: {e}");
+        println!("  {mode:?}, a backend.toml naming unsafe_plain_ws: {e}");
+    }
+}
+
+#[test]
+fn tls_is_all_or_nothing() {
     let half = format!("{GOOD}\n[tls]\ncert_chain = \"cert.pem\"\n");
     let e = errors(&half, RunMode::Release);
     assert!(e.contains("not half of either"), "{e}");
@@ -110,7 +137,7 @@ fn origins_must_be_listed_and_a_wildcard_is_not_an_origin() {
 #[test]
 fn every_fault_is_reported_together_so_one_start_shows_them_all() {
     let bad = r#"
-unsafe_plain_ws = true
+unsafe_allow_any_origin = true
 [server]
 listen = "not an address"
 allowed_origins = ["*"]

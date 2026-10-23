@@ -125,7 +125,9 @@ fn the_kind_and_its_options_pick_the_template_and_shape_the_project() {
     assert_eq!(doc["project"]["kind"].as_str(), Some("web"));
     assert_eq!(doc["web"]["style"].as_str(), Some("standalone"));
     assert_eq!(doc["web"]["isolation"].as_str(), Some("require-corp"));
-    assert_eq!(doc["backend"]["exports"][0].as_str(), Some("HEALTH"));
+    // WASM-003 D5: the exports live in backend/exports.toml, not in the manifest.
+    assert!(doc.get("backend").is_none(), "no [backend] table in a new manifest");
+    assert!(std::fs::read_to_string(f.join("backend/exports.toml")).unwrap().contains("program = \"HEALTH\""));
 
     // `kind: mobile` needs a platform and a device; with them it is that template.
     let e = make(&mut tools, "m0", json!({"kind": "mobile"})).unwrap_err();
@@ -387,5 +389,49 @@ fn check_warns_once_about_a_form_named_for_another_kind() {
     assert_eq!(checked["errors"], 0, "the form still loads and checks: {checked}");
     assert!(folder.join("webforms/main-form.cfrm").is_file() && !folder.join("webforms/main-form.wcfrm").exists(), "nothing renamed");
     assert_eq!(std::fs::read_to_string(&manifest).unwrap(), text, "the manifest is untouched");
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// WASM-003 T2 (R1, R22; C5): a new Web or Mobile project's Backend has its
+/// list of exports — `HEALTH`, public — and a development deployment with no
+/// secret and no `unsafe_*`; neither is in `[files] backend`, and creating
+/// over an existing `exports.toml` leaves it byte for byte.
+#[test]
+fn a_new_backend_has_its_exports_and_a_development_deployment() {
+    use cobolt_project_tools::create::{self, CreateRequest, BACKEND_CONFIG, BACKEND_EXPORTS};
+    let base = scratch("backend-scaffold");
+    for template in ["web", "android-phone"] {
+        let folder = base.join(template);
+        let started = Instant::now();
+        create::create_project_with(&folder, &CreateRequest::new("Shop").template(template)).unwrap();
+        let exports = std::fs::read_to_string(folder.join(BACKEND_EXPORTS)).unwrap();
+        let parsed: toml::Value = toml::from_str(&exports).unwrap();
+        assert_eq!(parsed["contract"]["version"].as_str(), Some("1.0.0"), "{template}");
+        let list = parsed["export"].as_array().unwrap();
+        assert_eq!(list.len(), 1, "{template}");
+        assert_eq!(list[0]["program"].as_str(), Some("HEALTH"));
+        assert_eq!(list[0]["public"].as_bool(), Some(true));
+
+        let config = std::fs::read_to_string(folder.join(BACKEND_CONFIG)).unwrap();
+        let parsed: toml::Value = toml::from_str(&config).unwrap();
+        let listen = parsed["server"]["listen"].as_str().unwrap();
+        assert!(listen.parse::<std::net::SocketAddr>().unwrap().ip().is_loopback(), "{template}: {listen}");
+        let keys: Vec<&String> = parsed.as_table().unwrap().keys().collect();
+        assert_eq!(keys, ["server"], "{template}: only [server], no unsafe_* and no secret");
+        assert!(!config.contains("password") && !config.contains("secret ="), "{template}");
+
+        let view = cobolt_compiler::project_manifest_view(&folder.join("Shop.project.toml")).unwrap();
+        assert_eq!(view.backend, ["backend/src/health.cbl"], "{template}: the settings files are not COBOL");
+        println!("    {template:<14} exports.toml {:>3} bytes, backend.toml {:>3} bytes, listen {listen}, {:.1} ms", exports.len(), config.len(), started.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    // Written once: the developer's thereafter.
+    let folder = base.join("web");
+    let mine = "[contract]\nversion = \"2.1.0\"\n\n[[export]]\nprogram = \"HEALTH\"\npublic = true\nroles = []\n";
+    std::fs::write(folder.join(BACKEND_EXPORTS), mine).unwrap();
+    let plan = create::plan(&CreateRequest::new("Shop").template("web"), &cobolt_project_tools::templates::builtin()).unwrap();
+    plan.write_into(&folder, &plan.manifest_name).unwrap();
+    assert_eq!(std::fs::read_to_string(folder.join(BACKEND_EXPORTS)).unwrap(), mine, "an existing exports.toml is never rewritten");
+    println!("  an existing exports.toml ({} bytes) is left byte for byte", mine.len());
     let _ = std::fs::remove_dir_all(base);
 }

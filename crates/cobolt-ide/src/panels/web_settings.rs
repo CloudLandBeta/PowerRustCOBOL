@@ -17,14 +17,17 @@
 //! Backend address and exports. A Desktop project shows none of it.
 //!
 //! The section edits the form's draft ([`SettingsDraft`]); `apply_kind` writes
-//! the draft back into the project. The Backend's address is checked against the
+//! the draft back into the project, and [`write_exports`] writes the exported
+//! programs to `backend/exports.toml`, their one home (WASM-003 D5). The Backend's address is checked against the
 //! rule of WASM-003 R5 as it is typed — `wss://`, or `ws://` for a loopback
 //! address — and a refused address is never written to the project.
+
+use std::path::{Path, PathBuf};
 
 use egui::{RichText, Ui};
 
 use cobolt_compiler::project_kind::{
-    backend_url_problem, ApplicationStyle, BackendUrlProblem, Isolation, MobilePlatform, ModuleVariants, Orientation,
+    backend_url_problem, ApplicationStyle, BackendUrlProblem, Isolation, MobilePlatform, ModuleVariants, Orientation, BACKEND_FOLDER,
 };
 use cobolt_compiler::ProjectKind;
 use cobolt_project_tools::templates;
@@ -189,10 +192,94 @@ impl SettingsDraft {
                 }
             }
         }
+        // The exports are not the project file's (WASM-003 D5): `write_exports`
+        // writes them to backend/exports.toml. The state is.
         if self.kind.has_backend() && (self.has_backend || p.backend.is_some()) {
-            p.backend_settings_mut().exports = parse_exports(&self.exports_text);
+            let default = self.backend_state.trim().is_empty() || self.backend_state == STATE_PER_CALL;
+            if !default || p.backend.is_some() {
+                p.backend_settings_mut().state = self.backend_state.clone();
+            }
         }
     }
+}
+
+/// `[backend] state`'s two spellings (WASM-003 Q2; the words shown are `Tr` keys).
+pub const STATE_PER_CALL: &str = "per-call";
+pub const STATE_PER_CONNECTION: &str = "per-connection";
+
+fn state_text<'a>(tr: &'a Tr, state: &str) -> &'a str {
+    if state == STATE_PER_CONNECTION {
+        tr.pk_set_state_per_connection
+    } else {
+        tr.pk_set_state_per_call
+    }
+}
+
+/// `backend/exports.toml` of the project in `project_dir`.
+pub fn exports_path(project_dir: &Path) -> PathBuf {
+    project_dir.join(BACKEND_FOLDER).join("exports.toml")
+}
+
+/// The programs `backend/exports.toml` lists, one per line, as the exports box
+/// shows them; empty when there is no file or it cannot be read.
+pub fn read_exports_text(project_dir: &Path) -> String {
+    let Ok(doc) = std::fs::read_to_string(exports_path(project_dir)).unwrap_or_default().parse::<toml_edit::DocumentMut>() else {
+        return String::new();
+    };
+    doc.get("export")
+        .and_then(|e| e.as_array_of_tables())
+        .map(|a| a.iter().filter_map(|t| t.get("program").and_then(|p| p.as_str()).map(str::to_owned)).collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default()
+}
+
+/// Write `names` as the exports of `backend/exports.toml`, in that order. An
+/// entry that stays keeps every key it has (`roles`, `public`, `idempotent`, …)
+/// and its comments; a new name gets an entry with only `program`; a name taken
+/// out of the box is taken out of the file. Everything else in the file stays.
+/// A missing file is created with contract `1.0.0`. Returns whether it changed.
+pub fn write_exports(project_dir: &Path, names: &[String]) -> Result<bool, String> {
+    let path = exports_path(project_dir);
+    let before = match std::fs::read_to_string(&path) {
+        Ok(t) => Some(t),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut doc: toml_edit::DocumentMut = before.as_deref().unwrap_or("[contract]\nversion = \"1.0.0\"\n").parse().map_err(|e| format!("{}: {e}", path.display()))?;
+    let old: Vec<toml_edit::Table> = doc.get("export").and_then(|e| e.as_array_of_tables()).map(|a| a.iter().cloned().collect()).unwrap_or_default();
+    let mut list = toml_edit::ArrayOfTables::new();
+    for name in names {
+        let kept = old.iter().find(|t| t.get("program").and_then(|p| p.as_str()) == Some(name.as_str())).cloned();
+        list.push(kept.unwrap_or_else(|| {
+            let mut t = toml_edit::Table::new();
+            t.insert("program", toml_edit::value(name.as_str()));
+            t
+        }));
+    }
+    doc.insert("export", toml_edit::Item::ArrayOfTables(list));
+    let after = doc.to_string();
+    if before.as_deref() == Some(after.as_str()) {
+        return Ok(false);
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    std::fs::write(&path, after).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(true)
+}
+
+/// A project from before `backend/exports.toml` was the list (WASM-003 C5):
+/// a Web or Mobile project whose file has none and whose project file has a
+/// non-empty `[backend] exports` gets the file, written from those names (no
+/// roles, not public). The project file is left as it is. `Some(path)` when
+/// the file was written.
+pub fn migrate_exports(project_dir: &Path, p: &CoboltProject) -> Result<Option<PathBuf>, String> {
+    let old = p.backend.as_ref().map(|b| b.exports.clone()).unwrap_or_default();
+    let path = exports_path(project_dir);
+    if !p.kind().has_backend() || old.is_empty() || path.exists() {
+        return Ok(None);
+    }
+    write_exports(project_dir, &old)?;
+    Ok(Some(path))
 }
 
 /// Draw the section for a Web or Mobile project; nothing for a Desktop one.
@@ -359,6 +446,14 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
             ui.add(egui::TextEdit::multiline(&mut draft.exports_text).desired_rows(3).desired_width(w));
         });
         note(ui, lay, tr.pk_set_exports_hint, dim);
+        row(ui, lay, tr.pk_set_state, |ui| {
+            egui::ComboBox::from_id_salt("kind_backend_state").selected_text(state_text(tr, &draft.backend_state)).show_ui(ui, |ui| {
+                for s in [STATE_PER_CALL, STATE_PER_CONNECTION] {
+                    ui.selectable_value(&mut draft.backend_state, s.to_owned(), state_text(tr, s));
+                }
+            });
+        });
+        note(ui, lay, tr.pk_set_state_hint, dim);
     } else {
         note(ui, lay, tr.pk_set_no_backend, dim);
     }
@@ -420,19 +515,21 @@ mod tests {
         let mut draft = SettingsDraft::from_project(&p, &llm);
         assert_eq!(draft.kind, ProjectKind::Web);
         assert!(draft.has_backend);
-        assert_eq!(draft.exports_text, "HEALTH");
+        assert_eq!(draft.exports_text, "", "the box is filled from backend/exports.toml by the caller, never from the project file");
+        assert_eq!(draft.backend_state, STATE_PER_CALL);
         draft.web.style = ApplicationStyle::Standalone;
         draft.web.multi_memory = false;
         draft.web.isolation = Isolation::Credentialless;
         draft.web.backend_url = "wss://api.example.com/ws".into();
-        draft.exports_text = "HEALTH\nORDERS\n".into();
+        draft.backend_state = STATE_PER_CONNECTION.into();
         draft.description = "A shop".into();
         draft.locale = "fr-FR".into();
         draft.apply_kind(&mut p);
         let web = p.web.clone().unwrap();
         assert_eq!((web.style, web.multi_memory, web.isolation), (ApplicationStyle::Standalone, false, Isolation::Credentialless));
         assert_eq!(web.backend_url, "wss://api.example.com/ws");
-        assert_eq!(p.backend.as_ref().unwrap().exports, ["HEALTH", "ORDERS"]);
+        assert_eq!(p.backend.as_ref().unwrap().state, STATE_PER_CONNECTION);
+        assert_eq!(p.backend.as_ref().unwrap().exports, ["HEALTH"], "the retired list is neither read nor rewritten (WASM-003 D5)");
         assert_eq!((p.project.description.as_str(), p.project.locale.as_str()), ("A shop", "fr-FR"));
 
         let mut desktop = CoboltProject::new("D.project", "src/main.cbl");
@@ -483,6 +580,90 @@ mod tests {
         let android: Vec<&str> = min_os_choices(MobilePlatform::Android).iter().map(|c| c.id).collect();
         assert!(ios.contains(&"17.0") && !ios.contains(&"29"));
         assert!(android.contains(&"29") && !android.contains(&"17.0"));
+    }
+
+    // ── backend/exports.toml is the one list (WASM-003 C5, D5) ───────────
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("prc-ide-wasm003-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// An older project — its exports only in the project file — gets
+    /// backend/exports.toml once, written from those names; the project file is
+    /// not touched, and a second open writes nothing.
+    #[test]
+    fn opening_a_project_with_old_exports_writes_exports_toml_and_leaves_cobolt_toml() {
+        let dir = scratch("migrate");
+        let manifest = dir.join("Shop.project.toml");
+        let text = "[project]\nname = \"Shop.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"web\"\n\n[files]\nbackend = [\"backend/src/health.cbl\"]\n\n[backend]\nexports = [\"HEALTH\", \"ORDERS\"]\n";
+        std::fs::write(&manifest, text).unwrap();
+        let p = crate::project_model::load_project(&manifest).expect("an older Web project loads");
+        let written = migrate_exports(&dir, &p).unwrap().expect("the file is written");
+        assert_eq!(written, exports_path(&dir));
+        let made = std::fs::read_to_string(&written).unwrap();
+        let parsed: toml::Value = toml::from_str(&made).unwrap();
+        assert_eq!(parsed["contract"]["version"].as_str(), Some("1.0.0"));
+        let entries = parsed["export"].as_array().unwrap();
+        assert_eq!(entries.iter().map(|e| e["program"].as_str().unwrap()).collect::<Vec<_>>(), ["HEALTH", "ORDERS"]);
+        assert!(entries.iter().all(|e| e.as_table().unwrap().len() == 1), "no roles, not public: {made}");
+        assert_eq!(std::fs::read_to_string(&manifest).unwrap(), text, "the project file is byte for byte as it was");
+        assert_eq!(read_exports_text(&dir), "HEALTH\nORDERS");
+        assert_eq!(migrate_exports(&dir, &p).unwrap(), None, "once: the file exists now");
+        println!("migration: [backend] exports = [HEALTH, ORDERS] → {} ({} bytes); project file unchanged ({} bytes)", written.display(), made.len(), text.len());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The box edits the file in place: a kept entry keeps its roles, `public`
+    /// and comments, a new name is added bare, a removed one goes; saving the
+    /// same list again changes nothing.
+    #[test]
+    fn an_exports_edit_keeps_each_entrys_roles() {
+        let dir = scratch("edit");
+        std::fs::create_dir_all(dir.join("backend")).unwrap();
+        let before = "# Shop — the programs a remote caller can reach.\n\n[contract]\nversion = \"2.3.0\"\n\n[[export]]\nprogram = \"HEALTH\"\npublic = true\n\n# Only the back office.\n[[export]]\nprogram = \"ORDERS\"\nroles = [\"admin\", \"clerk\"]\nidempotent = true\n";
+        std::fs::write(exports_path(&dir), before).unwrap();
+        assert_eq!(read_exports_text(&dir), "HEALTH\nORDERS");
+        let changed = write_exports(&dir, &parse_exports("ORDERS\nREFUND\n")).unwrap();
+        assert!(changed);
+        let after = std::fs::read_to_string(exports_path(&dir)).unwrap();
+        let parsed: toml::Value = toml::from_str(&after).unwrap();
+        let entries = parsed["export"].as_array().unwrap();
+        assert_eq!(entries.iter().map(|e| e["program"].as_str().unwrap()).collect::<Vec<_>>(), ["ORDERS", "REFUND"]);
+        assert_eq!(entries[0]["roles"].as_array().unwrap().len(), 2, "{after}");
+        assert_eq!(entries[0]["idempotent"].as_bool(), Some(true));
+        assert_eq!(entries[1].as_table().unwrap().len(), 1, "a new name is added bare");
+        assert_eq!(parsed["contract"]["version"].as_str(), Some("2.3.0"), "the rest of the file stays");
+        assert!(after.starts_with("# Shop") && after.contains("# Only the back office."), "comments stay: {after}");
+        assert!(!write_exports(&dir, &parse_exports("ORDERS\nREFUND")).unwrap(), "the same list again changes nothing");
+        // A project with no file yet gets one.
+        let fresh = scratch("edit-new");
+        assert!(write_exports(&fresh, &["HEALTH".to_owned()]).unwrap());
+        assert_eq!(read_exports_text(&fresh), "HEALTH");
+        println!("exports edit: HEALTH, ORDERS(roles admin+clerk, idempotent) → ORDERS(kept), REFUND(new); {} → {} bytes, comments kept", before.len(), after.len());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&fresh);
+    }
+
+    /// The state is written only when it says something: the default on a
+    /// project with no `[backend]` table adds none.
+    #[test]
+    fn the_state_is_written_only_when_it_is_not_the_default() {
+        let llm = LlmConfig::load_defaults_for_test();
+        let mut p = CoboltProject::new("W.project", "");
+        p.project.kind = ProjectKind::Web;
+        p.files.backend.push("backend/src/health.cbl".into());
+        let mut draft = SettingsDraft::from_project(&p, &llm);
+        draft.apply_kind(&mut p);
+        assert!(p.backend.is_none(), "per-call is the default: no [backend] table");
+        draft.backend_state = STATE_PER_CONNECTION.into();
+        draft.apply_kind(&mut p);
+        assert_eq!(p.backend.as_ref().unwrap().state, STATE_PER_CONNECTION);
+        draft.backend_state = STATE_PER_CALL.into();
+        draft.apply_kind(&mut p);
+        assert_eq!(p.backend.as_ref().unwrap().state, STATE_PER_CALL);
     }
 
     // ── The section never changes the Settings form's size ────────────────

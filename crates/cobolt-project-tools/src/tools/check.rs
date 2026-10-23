@@ -119,6 +119,10 @@ pub fn check_project<H: ProjectHost>(host: &H, root: &ProjectRoot) -> Result<Rep
     for rel in &view.backend {
         check_source(root, rel, &crates, &mut report);
     }
+    // `[backend] state` is one of two spellings (WASM-003 Q2).
+    if let Err(e) = view.backend_state_mode() {
+        report.findings.push(Finding::at(&root.manifest_name(), Severity::Error, e));
+    }
     // Exactly one main form (spec 037).
     if let Err(e) = cobolt_compiler::main_form_guard::read_designation(root.dir(), &view.forms) {
         report

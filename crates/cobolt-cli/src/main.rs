@@ -543,6 +543,8 @@ fn cmd_backend(args: &[String]) {
         }
         process::exit(1);
     };
+    // `[backend] state` (WASM-003 Q2): checked by every verb, used by `run`.
+    let state = cobolt_compiler::backend_build::backend_state(&project_dir).unwrap_or_else(|e| fail(vec![e.to_string()]));
 
     match verb {
         "describe" => {
@@ -577,7 +579,7 @@ fn cmd_backend(args: &[String]) {
             println!("released: {}", path.display());
         }
         "run" => {
-            let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen };
+            let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen, state };
             let server = cobolt_server::dev::DevServer::start(&opts).unwrap_or_else(|e| fail(e));
             let token = server.dev_token("developer", &["user", "admin"]);
             println!("backend listening on {}", server.url);

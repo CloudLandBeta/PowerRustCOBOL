@@ -44,6 +44,9 @@ pub struct LogRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes_out: Option<usize>,
     /// A fixed-vocabulary note (never data from the caller).
+    /// `per-call` or `per-connection` on a call record: the mode, never what it kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
@@ -51,7 +54,7 @@ pub struct LogRecord {
 impl LogRecord {
     pub fn new(event: &'static str) -> Self {
         let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
-        LogRecord { ts, event, call: None, connection: None, program: None, subject: None, duration_ms: None, outcome: None, code: None, bytes_in: None, bytes_out: None, note: None }
+        LogRecord { ts, event, call: None, connection: None, program: None, subject: None, duration_ms: None, outcome: None, code: None, bytes_in: None, bytes_out: None, state: None, note: None }
     }
 }
 

@@ -17,6 +17,51 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.38] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.37.)*
+
+### Added: the Backend keeps state per connection when the project says so, one list of exports, and its HTTPS front on axum and hyper (WASM-003 T1–T9, T11; T10 waits for the operator)
+
+**One interpreter, entered again** (T1, T1a). One `Interpreter` runs a program twice and keeps its `WORKING-STORAGE` (`0001` then `0002`), with no SQL session left after either run. It was not `Send`: `OpenFile::Indexed` held a `Box<dyn IndexedStore>`. `IndexedStore` is now `Send`; every engine already was, and no host's behaviour changes. One interpreter now runs on three threads in turn and counts `0001`, `0002`, `0003`.
+
+**A new project's Backend can start** (T2). New Web and Mobile projects get `backend/exports.toml` (`HEALTH`, public) and a development `backend/backend.toml` (loopback, no secret, no `unsafe_*`). `[backend] exports` is no longer written into the project file. `rcrun backend check` on a new project gives `contract 1.0.0: 1 exported program(s)`, and `rcrun backend run` answers `/health`.
+
+**`[backend] state`** (T3, T5; WASM-003 Q2, decided by the operator). `per-call` is the default, so existing projects are unchanged. `per-connection` keeps one run unit per exported program for the life of a connection:
+- its calls run in turn;
+- it serves only the user it first served (another subject's token is refused `authorisation 3000`);
+- a call that is cut off, cancelled or faults starts that program afresh;
+- a reconnection starts empty.
+
+The Build, `rcrun backend` and the project Check refuse any other word, naming the two. The bundle carries the mode, and every call's log record names it.
+
+Tested: interleaved, alice counts 1, 2, 3 and bob counts 1, 2, 3; after reconnecting, 1; `per-call` counts 1, 1, 1. A file one connection holds open makes another wait 404 ms (limit 400) and get 93, and then 00 once it is closed or the holder disconnects. The runtime gains `Interpreter::new_with_channels_and_store`.
+
+**`unsafe_plain_ws` is gone** (T4). Plain `ws://` is served on loopback only, in every mode. A `backend.toml` that still names the setting is told it was removed and why.
+
+**The HTTPS front** (T6–T8). Leptos 0.8 (`ssr`), `leptos_axum`, `axum` 0.8, `hyper` 1 and `hyper-util` are behind `cobolt-server`'s `server` feature, and nothing barred came with them. The server closure is 406 crates; the loader (47 crates) and the client (227) carry none of the five. The highest `rust-version` in the closure is 1.89.
+
+The accept loop keeps the connection limit and the TLS handshake timeout, then hands each connection to hyper with a closed axum route table:
+- `/health` and `/dl/{token}`;
+- the upgrade on `/` and `/ws`;
+- 404 for everything else.
+
+The security headers are a response layer. A 20 KiB request head gets 431, and an unfinished head is closed after 1502 ms (limit 1500). The WebSocket session code is unchanged, and `httparse`, `read_head`, `Replay` and `respond` are gone.
+
+No Leptos API is called yet: the four platform routes need no page or server function. That reading of R2 is left with open item O1.
+
+A built backend: 40 s cold debug build, 57.5 MB (was 29 s / 53.1 MB). Over its own WebSocket, `PING` answers `pong`. A non-exported program answers exactly like a name that never existed.
+
+**The IDE edits `backend/exports.toml`** (T9). The exports box reads the file and writes it on Save, and only when the box was edited. Entries that stay keep their roles, flags and comments. A project whose exports were only in the project file gets the file once, when it is opened, and the project file is left byte for byte. A choice for the state is added. There are six new `Tr` keys in all six languages.
+
+**System KB** (T11). *Calling the backend* now covers the state property, the one exports file, the loopback-only `ws://` and the route table. `chunked.data` was regenerated: 3553 records.
+
+**Not done here.** T10, starting and stopping the backend from the IDE, waits for the operator to choose how the IDE hosts it. T12 and T13 were not run. Two items stay open:
+- the `hello` member that would tell a client its state is new belongs to WASM-014;
+- R2's "built on Leptos" (O1).
+
+**Decided by the operator on 2026-10-23, for what follows:** the IDE hosts the backend as a child `rcrun backend run` (T10); the front must run on Leptos for real, not hyper + axum with Leptos linked and unused (O1, new task T10a). Also recorded here: WASM-002's owed checks, run outside the pipeline on 2.0.37 — T16's MCP check passes, T19's AC2 passes in Chrome 152, T19's AC1 fails in Chrome on the Web template's `STRING … INTO LBL-RESULT::Caption` (a generator defect), and T20 shows the four known SDK failures.
+
 ## [PowerRustCOBOL 2.0.37] — 2026-10-23
 
 *(Written on `features-2x`, after 2.0.36.)*

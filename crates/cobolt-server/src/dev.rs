@@ -37,6 +37,8 @@ pub struct DevOptions {
     pub backend_dir: PathBuf,
     /// `host:port` to listen on; default `127.0.0.1:0` (a free port).
     pub listen: Option<String>,
+    /// The project's `[backend] state`.
+    pub state: crate::backend::StateMode,
 }
 
 pub struct DevServer {
@@ -62,7 +64,8 @@ pub fn mint_dev_token(secret: &str, sub: &str, roles: &[&str], ttl_secs: i64) ->
 
 impl DevServer {
     pub fn start(opts: &DevOptions) -> Result<DevServer, Vec<String>> {
-        let backend = Backend::load(&opts.backend_dir)?;
+        let mut backend = Backend::load(&opts.backend_dir)?;
+        backend.state = opts.state;
         let secret = fresh_secret();
         let path = opts.backend_dir.join("backend.toml");
         let mut cfg = if path.exists() { ServerConfig::load(&path).map_err(|e| vec![e])? } else { ServerConfig::default() };

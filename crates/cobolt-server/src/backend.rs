@@ -28,10 +28,58 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cobolt_ast::program::{DataSection, Program};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use cobolt_wire::contract::{Deprecation, Direction, InterfaceDescription, Param, ProgramSig};
 use cobolt_wire::layout::from_decl;
+
+/// Whether a call's `WORKING-STORAGE` outlives it — the project's `[backend]
+/// state` (WASM-003 Q2, decided by the operator 2026-10-22: a project property,
+/// fresh per call by default).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum StateMode {
+    /// Every call starts with fresh `WORKING-STORAGE`.
+    #[default]
+    PerCall,
+    /// A connection keeps one run unit per exported program it has called;
+    /// its calls take turns, and it ends with the connection.
+    PerConnection,
+}
+
+impl StateMode {
+    pub const PER_CALL: &'static str = "per-call";
+    pub const PER_CONNECTION: &'static str = "per-connection";
+
+    /// The manifest's spelling; an empty value is the default.
+    pub fn parse(text: &str) -> Result<StateMode, String> {
+        match text.trim() {
+            "" | Self::PER_CALL => Ok(StateMode::PerCall),
+            Self::PER_CONNECTION => Ok(StateMode::PerConnection),
+            other => Err(format!(
+                "[backend] state \"{other}\" is not one of \"{}\" (fresh WORKING-STORAGE at every call, the default) or \"{}\" (kept for the connection)",
+                Self::PER_CALL,
+                Self::PER_CONNECTION
+            )),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StateMode::PerCall => Self::PER_CALL,
+            StateMode::PerConnection => Self::PER_CONNECTION,
+        }
+    }
+}
+
+/// The names `exports.toml` in `backend_dir` exports, in file order; empty
+/// when there is no such file or it cannot be read.
+pub fn exported_names(backend_dir: &Path) -> Vec<String> {
+    std::fs::read_to_string(backend_dir.join("exports.toml"))
+        .ok()
+        .and_then(|t| ExportsFile::from_toml(&t).ok())
+        .map(|f| f.exports.into_iter().map(|e| e.program).collect())
+        .unwrap_or_default()
+}
 
 /// The `[[export]]` entries of `exports.toml`.
 #[derive(Debug, Clone, Deserialize)]
@@ -123,6 +171,8 @@ pub struct Backend {
     /// Released contracts, oldest first (for answering older clients, WASM-014 R4).
     pub history: Vec<InterfaceDescription>,
     exports: HashMap<String, Arc<ExportedProgram>>,
+    /// Whether `WORKING-STORAGE` outlives a call (the project's `[backend] state`).
+    pub state: StateMode,
 }
 
 impl Backend {
@@ -235,7 +285,7 @@ impl Backend {
             return Err(errs);
         }
         interface.programs.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(Backend { interface, history, exports: map })
+        Ok(Backend { interface, history, exports: map, state: StateMode::default() })
     }
 
     /// Read a backend folder: `exports.toml`, `src/*.cbl`, the released

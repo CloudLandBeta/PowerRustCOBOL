@@ -51,8 +51,11 @@ pub struct SettingsDraft {
     pub mobile: Option<cobolt_compiler::project_kind::MobileSettings>,
     /// Does the project have a Backend part (`[backend]` or Backend files)?
     pub has_backend: bool,
-    /// `[backend] exports`, one program name per line.
+    /// The programs `backend/exports.toml` lists, one per line (loaded by the
+    /// caller, which knows the project's folder: `SettingsForm::load_backend_exports`).
     pub exports_text: String,
+    /// `[backend] state`: `per-call` or `per-connection` (WASM-003 Q2).
+    pub backend_state: String,
     // ── License ──
     pub license_model: String,
     pub license_text: String,
@@ -158,11 +161,8 @@ impl SettingsDraft {
             web: p.web_settings(),
             mobile: p.mobile.clone(),
             has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
-            exports_text: p
-                .backend
-                .as_ref()
-                .map(|b| b.exports.join("\n"))
-                .unwrap_or_default(),
+            exports_text: String::new(),
+            backend_state: p.backend.clone().unwrap_or_default().state,
             license_model: p.project.license_model.clone(),
             // A project that names a license but carries no text (older projects,
             // or one whose text was never filled in) gets the canonical text, so
@@ -583,6 +583,21 @@ impl SettingsForm {
 
     pub fn set_available_models(&mut self, models: Vec<String>) {
         self.available_models = models;
+    }
+
+    /// Fill the exports box from `backend/exports.toml` of the project in
+    /// `project_dir` (draft and baseline, so loading is not an edit).
+    pub fn load_backend_exports(&mut self, project_dir: &std::path::Path) {
+        let text = crate::panels::web_settings::read_exports_text(project_dir);
+        self.draft.exports_text = text.clone();
+        self.baseline.exports_text = text;
+    }
+
+    /// The exports box was edited since the last load or save: only then is
+    /// `backend/exports.toml` written, so a file changed by hand meanwhile is
+    /// never overwritten by a box nobody touched.
+    pub fn exports_edited(&self) -> bool {
+        self.draft.exports_text != self.baseline.exports_text
     }
 
     /// There are unsaved edits.

@@ -65,7 +65,7 @@ fn a_built_application_calls_its_backend_as_rcrun_run_does() {
     std::fs::write(backend.join("exports.toml"), EXPORTS).unwrap();
     std::fs::write(backend.join("src").join("ping.cbl"), PING).unwrap();
     std::fs::write(backend.join("src").join("whoami.cbl"), WHOAMI).unwrap();
-    let server = DevServer::start(&DevOptions { backend_dir: backend.clone(), listen: None }).expect("the backend starts");
+    let server = DevServer::start(&DevOptions { backend_dir: backend.clone(), listen: None, ..DevOptions::default() }).expect("the backend starts");
     let token = server.dev_token("tester", &["user"]);
 
     // The application: a console program with a remote call.

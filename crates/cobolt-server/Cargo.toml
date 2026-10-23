@@ -28,8 +28,9 @@ loader = [
 # the native runtime. Headless — nothing here knows egui or eframe.
 server = [
     "loader", "net",
-    "dep:cobolt-runtime", "dep:jsonwebtoken", "dep:ureq", "dep:httparse",
+    "dep:cobolt-runtime", "dep:jsonwebtoken", "dep:ureq",
     "dep:sha2", "dep:base64", "dep:getrandom", "dep:tracing-subscriber",
+    "dep:leptos", "dep:leptos_axum", "dep:axum", "dep:hyper", "dep:hyper-util",
 ]
 
 # The client a desktop or native host links to make `CALL … WITH WEBSOCKET
@@ -80,8 +81,14 @@ cobolt-runtime  = { path = "../cobolt-runtime", default-features = false, option
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"], optional = true }
 # The issuer's keys (JWKS) are fetched with the operating system's TLS.
 ureq      = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"], optional = true }
-httparse  = { version = "1", optional = true }
 tracing-subscriber = { workspace = true, optional = true }
+# The HTTP front (WASM-003 R2, D1): Leptos's server integration over axum and
+# hyper, server side only. The developer's generated backend names none of them.
+leptos      = { workspace = true, optional = true }
+leptos_axum = { workspace = true, optional = true }
+axum        = { workspace = true, optional = true }
+hyper       = { workspace = true, optional = true }
+hyper-util  = { workspace = true, optional = true }
 sha2      = { workspace = true, optional = true }
 base64    = { version = "0.22", optional = true }
 getrandom = { version = "0.4", optional = true }

@@ -32,7 +32,11 @@ pub type Bytes = Vec<u8>;
 /// MEMORY`) or the on-disk B+tree engine
 /// ([`crate::indexed_disk::DiskIndexedFile`], `STORAGE IS DISK`) through a
 /// single `Box<dyn IndexedStore>` handle.
-pub trait IndexedStore {
+///
+/// `Send` because an open file travels with its interpreter: a backend in
+/// `per-connection` mode runs one connection's calls on whichever worker
+/// thread is free (WASM-003 T1a).
+pub trait IndexedStore: Send {
     fn open(&mut self, mode: OpenMode) -> &'static str;
     fn close(&mut self) -> &'static str;
     fn write(&mut self, rec: &[u8]) -> &'static str;

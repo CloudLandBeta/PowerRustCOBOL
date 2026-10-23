@@ -4942,10 +4942,23 @@ impl CoboltApp {
                 }
                 // Initialize (or reset) the in-pane project Settings form and show it
                 // by default (fills the main area to the right of the tree, no editor chrome).
+                // WASM-003 C5: a project whose exports are still only in its
+                // project file gets backend/exports.toml, once; the project
+                // file is left as it is.
+                if let (Some(p), Some(root)) = (&self.cobolt_project, self.project_path.as_ref().and_then(|p| p.parent())) {
+                    let tr = self.lang.tr();
+                    match crate::panels::web_settings::migrate_exports(root, p) {
+                        Ok(Some(written)) => self.output.push_status(tr.pk_set_exports_migrated.replacen("{}", &written.display().to_string(), 1)),
+                        Ok(None) => {}
+                        Err(e) => self.output.push_status(tr.pk_set_exports_write_failed.replacen("{}", &e, 1)),
+                    }
+                }
                 if let Some(p) = &self.cobolt_project {
-                    self.settings_form = Some(crate::panels::settings_form::SettingsForm::new(
-                        p, &self.llm,
-                    ));
+                    let mut form = crate::panels::settings_form::SettingsForm::new(p, &self.llm);
+                    if let Some(root) = self.project_path.as_ref().and_then(|p| p.parent()) {
+                        form.load_backend_exports(root);
+                    }
+                    self.settings_form = Some(form);
                     self.show_project_settings = true;
                     self.show_grace_chat = false;
                     self.inspect = None;
@@ -11108,6 +11121,15 @@ impl CoboltApp {
             return;
         };
         form.draft.apply(proj, &mut self.llm);
+        // The exported programs live in backend/exports.toml (WASM-003 D5).
+        let project_dir = self.project_path.as_ref().and_then(|p| p.parent()).map(|d| d.to_path_buf());
+        if let Some(dir) = project_dir.filter(|_| form.exports_edited() && form.draft.has_backend && form.draft.kind.has_backend()) {
+            let names = crate::panels::web_settings::parse_exports(&form.draft.exports_text);
+            if let Err(e) = crate::panels::web_settings::write_exports(&dir, &names) {
+                let tr = self.lang.tr();
+                self.output.push_status(tr.pk_set_exports_write_failed.replacen("{}", &e, 1));
+            }
+        }
         form.mark_saved();
         self.persist_active_project_ai();
         // The background image or its opacity may have just changed: drop the

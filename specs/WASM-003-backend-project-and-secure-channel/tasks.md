@@ -52,7 +52,11 @@ exports field `:357`); `crates/cobolt-ide/src/i18n.rs` (`pk_set_exports_hint` `:
 
 ## The runtime prerequisite (plan §2.6, §5 R3)
 
-- [ ] **T1 — One interpreter can run a program twice and keep `WORKING-STORAGE`; it can cross threads** (R18, Q2)
+- [x] **T1 — One interpreter can run a program twice and keep `WORKING-STORAGE`; it can cross threads** (R18, Q2)
+  - *Result (2026-10-23):* re-entry held (`interpreter_reentry_keeps_working_storage`: `["0001", "0002"]`, no SQL session left after
+    either run); `Send` **failed** — `OpenFile::Indexed(Box<dyn IndexedStore>)` was not `Send`. Recorded as T1a below and done before
+    going on; with T1a, `interpreter_reentry_crosses_threads` moves one interpreter through three threads: `["0001", "0002", "0003"]`.
+    Both pass with and without `--features sql`.
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (test module only, unless the test fails).
   - Do: unit test `interpreter_reentry_keeps_working_storage` — one `Interpreter`, a counter program, `run()` twice: answers 1 then 2; with
     the `sql` feature, `sql_end` has run at the end of each `run` (no transaction carried across). A compile-time assertion that `Interpreter`
@@ -63,9 +67,16 @@ exports field `:357`); `crates/cobolt-ide/src/i18n.rs` (`pk_set_exports_hint` `:
   - Verify: `cargo test -p cobolt-runtime interpreter_reentry --no-fail-fast` and `cargo test -p cobolt-runtime --features sql interpreter_reentry`;
     the test prints the two answers.
 
+- [x] **T1a — `IndexedStore` is `Send`, so `Interpreter` is** (runtime; the separate task T1 calls for)
+  - Files: `crates/cobolt-runtime/src/indexed.rs` (`pub trait IndexedStore: Send`). Every implementor — `IndexedFile` (`indexed.rs`),
+    `DiskIndexedFile` (`indexed_disk.rs`), `RedbIndexedFile` (`indexed_redb.rs`) — already was; nothing else in `Interpreter` blocked `Send`.
+  - Parity: a trait bound, no behaviour — `rcrun run-form`, embedded child forms, the compiled binary and the backend run the same code.
+  - Verify: `cargo test -p cobolt-runtime --lib interpreter_reentry` (2 pass, with and without `--features sql`);
+    `cargo check -p cobolt-runtime --no-default-features` clean; the full runtime suite in T14.
+
 ## One list of exports, one property (plan C2, C5, §3; D5)
 
-- [ ] **T2 — The scaffold writes `backend/exports.toml` and a development `backend/backend.toml`** (R1, R22; C5)
+- [x] **T2 — The scaffold writes `backend/exports.toml` and a development `backend/backend.toml`** (R1, R22; C5)
   - Files: `crates/cobolt-project-tools/src/create.rs` (beside `BACKEND_STARTER` and `starter_backend`; the `[backend]` table write `:531`).
   - Do: a new Web or Mobile project gets `backend/exports.toml` exporting `HEALTH` with `public = true`, and a `backend/backend.toml` that
     listens on loopback, has no secret and no `unsafe_*` setting. Both carry the generated-file comment the other scaffold files carry (they
@@ -74,8 +85,14 @@ exports field `:357`); `crates/cobolt-ide/src/i18n.rs` (`pk_set_exports_hint` `:
     **not** added here (plan §2.1: M5 adds them when they exist).
   - Verify: `cargo test -p cobolt-project-tools --no-fail-fast` — a new test creates a Web project in a temp folder and asserts both files,
     then runs `rcrun backend check <dir>` on it (exit 0, prints the count of exports); an existing `exports.toml` is left byte-identical.
+  - *Result (2026-10-23):* `create.rs` writes `BACKEND_EXPORTS` (`HEALTH`, `public = true`) and `BACKEND_CONFIG` (`[server] listen =
+    "127.0.0.1:8443"` only), neither in `[files] backend` (the Check reads that list as COBOL); `[backend] exports` is no longer written.
+    `kinds::a_new_backend_has_its_exports_and_a_development_deployment` (web, android-phone; an existing `exports.toml` left byte for
+    byte). The `rcrun` half lives where `rcrun` is built: `backend_cli::a_new_web_projects_backend_checks_clean_and_answers_its_health_probe`
+    — `contract 1.0.0: 1 exported program(s)`, `backend run` up in 56 ms, `/health` 200. cobolt-project-tools 156 pass / 0 fail / 1 ignored;
+    `backend_cli` 5 pass.
 
-- [ ] **T3 — `[backend] state`, and `exports` retired as a source** (R18, Q2 — *operator*; C2, C5)
+- [x] **T3 — `[backend] state`, and `exports` retired as a source** (R18, Q2 — *operator*; C2, C5)
   - Files: `crates/cobolt-compiler/src/project_kind.rs` (`BackendSettings`), `crates/cobolt-compiler/src/lib.rs` (`ManifestView::backend_exports`
     re-pointed at `backend/exports.toml` through the `cobolt-server` loader the compiler already links), `crates/cobolt-server/src/bundle.rs`
     (`Bundle` gains `state`), `crates/cobolt-compiler/src/backend_build.rs` (copies `state` into the bundle), `crates/cobolt-cli/src/main.rs`
@@ -85,10 +102,17 @@ exports field `:357`); `crates/cobolt-ide/src/i18n.rs` (`pk_set_exports_hint` `:
     manifests load) but nothing reads it as the list. An absent `[backend]` table or `state` = `per-call`, so every existing project is unchanged.
   - Verify: `cargo test -p cobolt-compiler --no-fail-fast` (a round-trip test: absent → `per-call`; `per-connection` survives a save; `"session"`
     is refused with the message) and `cargo test -p cobolt-server --no-fail-fast` (bundle round-trip carries `state`).
+  - *Result (2026-10-23):* `cobolt_server::backend::StateMode` (loader) parses the two spellings; `BackendSettings::state` (not written
+    when default), `ManifestView::{backend_exports (from exports.toml via `backend::exported_names`), backend_state, backend_state_mode}`,
+    `backend_build::backend_state` (Build refuses a bad word; the bundle carries the mode), `rcrun backend` checks it for every verb and
+    passes it to `DevOptions::state`, the project-tools Check reports it. `project_kind::tests::backend_state_round_trips_and_refuses_an_unknown_word`,
+    `bundle::tests::a_bundle_round_trip_carries_the_state` pass; cobolt-server 63 pass; cobolt-compiler: every binary green except 4 lib tests
+    that fail on the SDK crate set (`cobolt-decimal`, `cobolt-numedit` not shipped — `sdk_crate_set_is_closed_under_path_dependencies` and
+    three `resolve_main_tests`), untouched by this change.
 
 ## The server (plan §2.2–§2.6; D3, D4)
 
-- [ ] **T4 — `unsafe_plain_ws` is removed** (R5, Q7 — *operator*; D4; AC4)
+- [x] **T4 — `unsafe_plain_ws` is removed** (R5, Q7 — *operator*; D4; AC4)
   - Files: `crates/cobolt-server/src/config.rs` (the field `:233`, its warning `:416`, the `unsafe_set` list), `crates/cobolt-server/tests/config_rules.rs`.
   - Do: plain `ws` is served only on a loopback address, in every start mode (that is the reverse-proxy arrangement of Q7). A `backend.toml`
     still naming `unsafe_plain_ws` fails to start with a specific message ("`unsafe_plain_ws` was removed: plain ws:// is served on loopback only;
@@ -97,8 +121,14 @@ exports field `:357`); `crates/cobolt-ide/src/i18n.rs` (`pk_set_exports_hint` `:
   - Verify: `cargo test -p cobolt-server --test config_rules --no-fail-fast` — `plain_ws_is_never_served_on_a_non_loopback_address` replaces the
     `unsafe_plain_ws` case of `plain_ws_is_for_loopback_only_and_tls_is_all_or_nothing`, and reports each address tried and its outcome;
     `cargo test -p cobolt-server --test loopback a_foreign_origin` still passes.
+  - *Result (2026-10-23):* field, warning and `unsafe_set` entry gone from `config.rs`; `ServerConfig::from_toml` answers a file naming it
+    with "`unsafe_plain_ws` was removed: plain ws:// is served on a loopback address only (WASM-003 R5); use TLS …". The new test tries seven
+    addresses in both modes: `0.0.0.0`, `192.168.1.20`, `[::]`, `10.0.0.5` refused in Release and Development; `127.0.0.1`, `[::1]`,
+    `127.0.0.2` served. `config_rules` 11 pass (`tls_is_all_or_nothing` keeps the TLS half of the old test); `a_foreign_origin…` passes
+    (its `unsafe_plain_ws` assertion now expects the removal message). *Not touched:* the frontend's own `unsafe_plain_ws`
+    (`cobolt-web-player` `net.rs`/`api.rs`, `cobolt-web-bundle` `lib.rs`) — a client setting, outside this task's files.
 
-- [ ] **T5 — `per-connection` sessions** (R18, R19, Q2 — *operator*, Q4; D3) — *requires T1 green and T3*
+- [x] **T5 — `per-connection` sessions** (R18, R19, Q2 — *operator*, Q4; D3) — *requires T1 green and T3*
   - Files: `crates/cobolt-server/src/exec.rs` (a session type holding one `Interpreter` per exported program called, sharing one `ExternalStore`
     via `Interpreter::with_external_store`), `crates/cobolt-server/src/serve.rs` (`session`, `on_call`: pick `execute` or the session by the
     bundle's `state`; claims re-installed at every call with `set_remote_claims`; a call whose token names another `sub` than the session's
@@ -114,6 +144,22 @@ exports field `:357`); `crates/cobolt-ide/src/i18n.rs` (`pk_set_exports_hint` `:
     `a_file_held_open_across_calls_makes_others_wait_or_93` (another connection gets status 93 within the configured wait, never hangs; the
     wait measured and printed); `concurrent_callers_get_their_own_results_and_no_state_survives_a_call` unchanged (AC7);
     `cargo test -p cobolt-wire --no-fail-fast`.
+  - *Result (2026-10-23):* `exec::Session` (one `Unit` per exported program, one shared `ExternalStore` through the new runtime constructor
+    `Interpreter::new_with_channels_and_store`; `admit` binds the first subject); `exec::execute` is the same body as before, now `run_call`
+    on a fresh unit. `Backend::state` (set by `Bundle::into_backend` and `DevServer::start`), `Conn::state` in `serve.rs`, claims installed at
+    every call, `LogRecord::state`; Build notes an `independent` export in `per-connection` mode. A call cut off, cancelled or faulted
+    drops that program's run unit (its next call starts fresh); a refused payload or a `WS-FAIL` keeps it.
+    `per_connection_state_is_kept_and_never_shared`: alice `[1, 2, 3]`, bob `[1, 2, 3]` interleaved; bob's token on alice's connection →
+    `authorisation 3000`; alice again → 4; reconnected → 1; `per-call` `[1, 1, 1]`; every call record names its mode.
+    `a_file_held_open_across_calls_makes_others_wait_or_93`: the other connection waited 404 ms (limit 400) → 93; after the holder's `CLOSE`
+    call → 00; after the holder disconnected → 00 in 14 ms. cobolt-server 66 pass (`loopback` 13), cobolt-wire 23 pass.
+  - *Deviations, stated:* (1) **Serialised by the ordering ticket, not by a per-connection permit of 1** — `on_call` takes the permit with
+    `try_acquire`, so a permit of 1 would *refuse* a second pipelined call (7002) instead of queueing it, against R6 ("requests may be in
+    flight together"); `independent` is ignored instead, so the calls of a stateful connection run in turn. (2) **No `session: "new"` in
+    `ServerHello`** — WASM-014 defines `hello.session` as a *client*-made id that a reconnect carries to *continue* a session for
+    idempotency (WASM-014 plan §2.4 D-Session); it defines no server member saying "new". Adding one would decide WASM-014's wire, so it
+    is left open (see *Open items carried*); a reconnect starts fresh state whatever the client sends. (3) Stream subscriptions keep
+    running per call in either mode.
 
 ## The Leptos front (plan C1, C3; D1, D2, D6; §5 R2, R5) — O1 working assumption
 
@@ -121,7 +167,15 @@ exports field `:357`); `crates/cobolt-ide/src/i18n.rs` (`pk_set_exports_hint` `:
 decided:** the backend is built on the Leptos framework inside `cobolt-server` with plain `cargo build`; `cargo-leptos` is not needed on the
 developer's machine. If the operator rules otherwise, T7 gains a tool check with a missing-tool message (Tr ×6) and WASM-017 R17 needs an amendment.
 
-- [ ] **T6 — The Leptos server crates enter behind `server`, guarded first** (R2; plan §5 R2)
+- [x] **T6 — The Leptos server crates enter behind `server`, guarded first** (R2; plan §5 R2)
+  - *Result (2026-10-23):* probed first in a throwaway project outside the repository: `leptos` 0.8.22 (`ssr`), `leptos_axum` 0.8.10,
+    `server_fn` 0.8.13, `axum` 0.8.9, `hyper` 1.12.0, `hyper-util` 0.1.21 — 210 crates, none of `ring`/`aws-lc*`/`rustls*`/`openssl*`; the
+    highest `rust-version` in the closure is 1.89 (`uuid`), Leptos's own 1.88. Workspace dependencies added, named only by `server`.
+    `dependency_guards` 4 pass: server 406 crates with the 7 front crates and no headless/barred name; loader 47 and client 227 with
+    neither; the compiler links no `leptos`/`leptos_axum`/`server_fn`. The old guard's `hyper` (the runtime's maps bridge) is now
+    `reqwest` + `aws-config`, since `hyper` is the front's. `cargo check -p cobolt-server --no-default-features --features loader` clean.
+    `Cargo.lock` +949 lines, no version of an existing crate changed. Note: `rcrun` links `cobolt-server` with its defaults, so it now
+    carries the front too (it serves `rcrun backend run`); the IDE links no `cobolt-server`.
   - Files: root `Cargo.toml` (`[workspace.dependencies]`: `leptos`, `leptos_axum`, `axum`, `hyper`, `hyper-util`, `default-features = false`,
     server side `ssr` only), `crates/cobolt-server/Cargo.toml` (`server` feature names them; `loader` and `client` do not),
     `crates/cobolt-server/tests/dependency_guards.rs`.
@@ -132,7 +186,7 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
   - Verify: `cargo test -p cobolt-server --test dependency_guards --no-fail-fast` (each guard prints the closure size and the barred names it
     found: none); `cargo check -p cobolt-server --no-default-features --features loader`.
 
-- [ ] **T7 — The HTTP front moves onto the Leptos/axum router; the session code does not change** (R2, R5, R8, R14, R16, Q3 — *operator*; D1, D6)
+- [x] **T7 — The HTTP front moves onto the Leptos/axum router; the session code does not change** (R2, R5, R8, R14, R16, Q3 — *operator*; D1, D6)
   - Files: `crates/cobolt-server/src/serve.rs` (the accept loop keeps the connection limit and the TLS handshake timeout and hands the
     `native-tls` stream to `hyper_util`'s connection server with upgrades; a closed route table built through `leptos_axum`: `GET /health`,
     `GET /dl/<token>` → `serve_download`, `GET /` and `GET /ws` with an upgrade, everything else 404; the upgrade route runs `origin_allowed`,
@@ -146,18 +200,45 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
     `test result` line), plus `loopback::routes_are_closed` (each path and its status printed) and
     `loopback::a_large_or_slow_request_head_is_refused` (over-cap header → 431; a head that never ends → closed within the handshake timeout,
     the time printed). `grep -n "httparse" crates/cobolt-server/Cargo.toml` finds nothing.
+  - *Result (2026-10-23):* `serve.rs`: `connection` keeps the connection limit and the TLS handshake timeout and hands the stream to
+    `serve_http` — hyper's `http1` (`header_read_timeout` = handshake timeout, `max_buf_size` = `http::MAX_HEAD`, title-case headers) with
+    upgrades, serving `front_router`: an `axum::Router` with `/health`, `/dl/{token}`, `/` and `/ws`, a 404 fallback, any other method 404,
+    and the security headers plus `Connection: close` as a response layer (not on the 101). `upgrade` checks Upgrade/Connection, the
+    Origin (`origin_allowed`, now taking the header value), `Sec-WebSocket-Version: 13` and the key, answers 101 with
+    `derive_accept_key`, and runs `session` unchanged on `WebSocketStream::from_raw_socket(TokioIo<Upgraded>)` with the same
+    `WebSocketConfig`; the connection lasts as long as its session. `download` streams with `Content-Length` and `Range` as before.
+    `health_loop` serves a `/health`-only router (the plain listener must not offer the upgrade). `http.rs`: `read_head`, `Head`,
+    `HeadError`, `Replay` and `respond` gone; `SECURITY_HEADERS` is a list of pairs. `httparse` dropped. `on_hello`/`on_text`/`on_call`
+    and `jwt.rs` untouched. cobolt-server 68 pass: lib 10, `client_contract` 13, `config_rules` 11, `dependency_guards` 4, `loopback` 15,
+    `token_rules` 15. `routes_are_closed`: `GET /health` 200; `POST /health`, `/dl/<bad>`, `/dl/../etc/passwd`, `GET /ws` and `GET /`
+    without upgrade, `/admin`, `/api/anything`, `/ws/extra` (upgrade), `/health/` → 404; upgrade `/` and `/ws` → 101.
+    `a_large_or_slow_request_head_is_refused`: a 20 KiB head → 431; an unfinished head closed after 1502 ms (limit 1500).
+  - *Stated plainly — what of Leptos runs:* the router is `axum`'s, the server `hyper`'s; **no `leptos`/`leptos_axum` API is called**.
+    A closed table of four platform routes has no page, no hydration and no server function, and `leptos_axum`'s entry points
+    (`LeptosRoutes::leptos_routes`, `render_app_to_stream`, `handle_server_fns`, `file_and_error_handler`) all serve one of those. The
+    crates are linked (T6) and are what WASM-009's identity routes would mount through, on this router. Whether that satisfies R2's
+    "built on Leptos" is the operator's reading, joined to **O1**; nothing here is hard to change either way.
 
-- [ ] **T8 — The built binary on the new front** (R2, R3, R4, Q6 — *operator*; AC1)
+- [x] **T8 — The built binary on the new front** (R2, R3, R4, Q6 — *operator*; AC1)
   - Files: `crates/cobolt-compiler/tests/backend_build_wasm003.rs` (assertions added), `crates/cobolt-compiler/src/backend_build.rs` only if
     the bundle/`state` change needs it.
   - Do: build a backend with one exported and one non-exported program; the staging `Cargo.toml` names `cobolt-server` and no `leptos*`/`axum`
     crate; the binary answers `/health`, `--describe` prints `interface.json`, the non-exported program is `not-found 5000`.
   - Verify: `cargo test -p cobolt-compiler --test backend_build_wasm003 --no-fail-fast`; the test prints the binary size and the cold build time,
     recorded in T12 against 53.1 MB / 29 s (plan §5 R5). `cargo test -p cobolt-cli --test backend_cli --no-fail-fast` (3) still green.
+  - *Result (2026-10-23):* `backend_build_wasm003` 3 pass. The e2e build adds a non-exported `SECRET`; the generated `Cargo.toml`
+    names `cobolt-server` and none of `leptos`/`axum`/`hyper`; `--describe` = `interface.json`; `/health` 200, `/other` 404 (the
+    health listener); over the built binary's WebSocket (a minimal client in the test), `PING` → `pong`. **40 s** cold debug build,
+    **57.5 MB** (was 29 s / 53.1 MB on the hand-rolled front). `backend_cli` 5 pass (the 4 it had — not 3 as written above — and T2's).
+  - *Deviation, stated:* the built binary runs as **release**, which refuses the development token, and this test has no identity
+    provider; so the not-exported check there is that `SECRET` (3 spellings) answers **exactly** like `NO-SUCH-PROGRAM` — both
+    `authentication 2000`, the "no token" an unauthenticated caller gets for any non-public name, so names cannot be enumerated (plan §1).
+    The `not-found 5000` with a valid token is proven on the same server code by
+    `loopback::an_exported_program_answers_and_nothing_else_does` (nine spellings, T7's run).
 
 ## The IDE (plan C5, §3; R20; AC9)
 
-- [ ] **T9 — The Backend settings section edits `backend/exports.toml` and `state`; old projects migrate once** (R1, R18, R20; C2, C5; O2)
+- [x] **T9 — The Backend settings section edits `backend/exports.toml` and `state`; old projects migrate once** (R1, R18, R20; C2, C5; O2)
   - Files: `crates/cobolt-ide/src/panels/web_settings.rs` (the exports field `:357` reads and writes `backend/exports.toml` — names added
     as `[[export]] program = …`, an existing entry's `roles`/`public`/`idempotent`/… preserved, never dropped; a `state` choice of two values),
     the project-open path in `crates/cobolt-ide/src/app.rs` (the migration), `crates/cobolt-ide/src/i18n.rs`.
@@ -167,8 +248,25 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast` — `opening_a_project_with_old_exports_writes_exports_toml_and_leaves_cobolt_toml`
     (asserts the new file and `cobolt.toml` byte-identical), an edit round-trip that keeps an entry's `roles`, and the i18n test (no empty
     translation in the six tables). Window check per the egui-resize memory: the section at its default size in six languages.
+  - *Result (2026-10-23):* `web_settings.rs`: `exports_path`, `read_exports_text`, `write_exports` (`toml_edit`: a kept entry keeps its
+    keys and comments, a new name is bare, a removed one goes, unchanged → no write), `migrate_exports`, the `state` row (`STATE_PER_CALL`
+    / `STATE_PER_CONNECTION`, words from `Tr`); `apply_kind` writes `state` (only when not the default or a `[backend]` exists) and no
+    longer writes `exports`. `SettingsDraft::backend_state`; `SettingsForm::load_backend_exports` and `exports_edited` — the file is
+    written on Save **only if the box was edited**, so a file changed by hand is never overwritten by an untouched box. `app.rs`:
+    `open_project_at` migrates once and reports it, then fills the box from the file; `save_settings_form` writes the file.
+    `BackendSettings::exports` is now skipped when empty, so a manifest saved by the IDE gains no `exports = []`. Six `Tr` keys ×6
+    languages (`pk_set_state`, `_per_call`, `_per_connection`, `_hint`, `pk_set_exports_migrated`, `pk_set_exports_write_failed`),
+    `pk_set_exports_hint` re-worded to name the file. `toml_edit` 0.22 added to the IDE (already in the lock via cobolt-project-tools).
+    Tests: `opening_a_project_with_old_exports_writes_exports_toml_and_leaves_cobolt_toml` (HEALTH, ORDERS → 91-byte file; project file
+    161 bytes unchanged; second open writes nothing), `an_exports_edit_keeps_each_entrys_roles` (ORDERS keeps roles/idempotent and its
+    comment; REFUND added bare; HEALTH removed; same list again → no write), `the_state_is_written_only_when_it_is_not_the_default`,
+    the round-trip test updated; web_settings 11 pass; i18n 19 pass; the section drawn in 6 languages × 3 kinds (72 frames) within its width.
+    The test calls `migrate_exports` directly — `open_project_at` is the one line that calls it; no test drives the IDE's window.
 
 - [ ] **T10 — Start and stop the backend from the IDE, its log in the Output panel** (R20; AC9 IDE half) — *design not in the plan*
+  - **Decided by the operator (2026-10-23): a child process.** The IDE runs `rcrun backend run <project>` (the `sibling_rcrun` pattern),
+    streams its stdout/stderr into the Output panel and kills it on Stop and on IDE exit; the IDE links no `cobolt-server`, no Leptos and no
+    socket/TLS/token crate (extend the T6 guard to assert it).
   - The plan lists this as not done (§7) and names `cobolt_server::dev::DevServer` as ready, but does not choose how the IDE hosts it; the IDE
     links no `cobolt-server` today. **Working assumption, to confirm by the operator before this task starts:** the IDE runs
     `rcrun backend run <project>` as a child process (the `sibling_rcrun` pattern of `form_runtime.rs:120`), streams its stdout/stderr into the
@@ -183,7 +281,13 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
 
 ## Cross-checks (R12, R17, R23; AC10)
 
-- [ ] **T11 — System KB: *Calling the backend* rewritten; `chunked.data` regenerated** (R12, R18, R19; Q2)
+- [x] **T11 — System KB: *Calling the backend* rewritten; `chunked.data` regenerated** (R12, R18, R19; Q2)
+  - *Result (2026-10-23, done ahead of T10 because the KB rule ties it to T5's behaviour change):* in *Calling the backend*
+    (`crates/cobolt-compiler/src/lib.rs`): `exports.toml` is the one list and the one-time copy from `[backend] exports`; the `state`
+    property (`per-call` default; `per-connection` — kept per connection, calls in turn, one user per connection, a cut-off/cancel/fault
+    restarts that program, nothing kept after the connection); the file lock held across a `per-connection` connection's calls; plain
+    `ws://` on loopback only in every mode, the scaffold's two files, and `/health` with 404 for the rest. `build_chunked_kb`: 3553
+    records from 8 documents, `chunked.data` 12 730 368 → 12 738 560 bytes; `prebuilt_chunked_kb_matches_the_published_documentation` pass.
   - Files: `crates/cobolt-compiler/src/lib.rs` (the section at `:5130`; the sentence at `:5154` "Every call runs in a fresh interpreter"
     becomes the `state` property: `per-call` default, `per-connection` keeps `WORKING-STORAGE` per connection, serialised, never resumed
     across connections, a file left open holds its lock across that connection's calls; `backend/exports.toml` is the one list),
@@ -191,6 +295,16 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
   - Do: `cargo run -p cobolt-ide --example build_chunked_kb` in the same change. `WS-CLAIM` is already in `BUILTINS`; no new built-in.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation`; `git diff --stat` shows
     `chunked.data` changed.
+
+- [ ] **T10a — The front runs on Leptos for real** (R2; O1 **decided 2026-10-23**: "use Leptos de fato")
+  - The operator ruled that a front built on hyper + axum with Leptos linked but never called does not satisfy R2. The HTTP front is served
+    through Leptos: the router is `leptos_axum`'s, and the platform routes (health, hello/token exchange, the WebSocket upgrade, the static
+    answers) go through Leptos server functions or Leptos-registered handlers rather than a bare axum table. The WebSocket session code, the
+    431 limit, the closed route set and every guard of T6–T8 stay as they are. Still plain `cargo build`: `cargo-leptos` is not needed on the
+    developer's machine, so WASM-017 R17 holds.
+  - Verify: the T7/T8 tests pass unchanged on the Leptos front; a test proves each platform route is answered by the Leptos layer (e.g. a
+    route registered only through Leptos answers, a route absent from Leptos's table gets 404); the dependency guard still holds; T13 then
+    re-runs its evidence on this front.
 
 - [ ] **T12 — AC10 and R23: a secret stops the frontend build, the same value in `backend.toml` does not; `connect-src` printed**
   (R17, R23; AC10) — *the scan itself is WASM-002's (T2 there, done)*
@@ -218,6 +332,31 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
     `cargo test -p cobolt-web-bundle --no-fail-fast`, `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`; `cargo fmt --check`;
     the credential scan of the staged diff (no `AKIA`/`ASIA`/secret) before the pipeline commits.
 
+### State of this run (2026-10-23)
+
+T1–T9 and T11 done; **stopped at T10** (an operator decision); T12 and T13 not run. T14's version and CHANGELOG parts were done because the
+run required them: `2.0.37` → `2.0.38`, one entry above 2.0.37. T14 stays unchecked. Sweep with `--no-fail-fast`, every `test result` line read:
+
+| Crate | Passed | Failed | Ignored |
+|---|---|---|---|
+| cobolt-runtime | 1554 | 0 | 29 |
+| cobolt-wire | 23 | 0 | 0 |
+| cobolt-server | 68 | 0 | 0 |
+| cobolt-compiler | 207 | 4 | 5 |
+| cobolt-cli | 62 | 0 | 5 |
+| cobolt-project-tools | 156 | 0 | 1 |
+| cobolt-ide (`--bin cobolt-ide`) | 1875 | 5 | 4 |
+
+None of the 9 failures touches this change:
+- **cobolt-compiler (4):** the SDK crate set does not ship `cobolt-decimal`/`cobolt-numedit` (`sdk_crate_set_is_closed_under_path_dependencies` and three `resolve_main_tests`).
+- **cobolt-ide (5):**
+  - `every_document_ships_in_every_language`: docs translations, removed under the 2.x.x rule;
+  - `every_completion_description_exists_in_six_languages`: 12 descriptions are English only, none of them touched here;
+  - `claude_validates_the_written_bundle`: the external `claude` plugin validator;
+  - `compatible_and_reserved_collisions_still_refuse` and `live_resolver_verdicts`: live crates.io, where egui 0.37 is now published.
+
+`cargo fmt --check` fails across 887 files of the workspace, most of them not touched here: the codebase is written in wide lines. Nothing was reformatted. The credential scan of the diff found nothing.
+
 ## Coverage (acceptance criteria → tasks)
 
 | AC | Covered by |
@@ -241,6 +380,9 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
 - **D4 reading of R5** — loopback `ws` in a release start behind a reverse proxy; for the next `/clarify`.
 - **O3** — WASM-INDEX D4/D5 still say "Open"; another file, left to its owner.
 - **Plan §5 R1** — the player/server envelope mismatch; WASM-014/WASM-016.
+- **T5, the `hello` member** — the plan wants the client told by `hello` that a reconnection starts with fresh state; WASM-014's
+  `hello.session` means the opposite direction and purpose (a client id that continues an idempotency session). Which member, if any,
+  says "state is new" is WASM-014's to define; nothing was added to `proto.rs`.
 
 ## Done criteria
 All acceptance criteria in spec.md are checked with the evidence of T13, the tests of every touched crate pass, the System KB and

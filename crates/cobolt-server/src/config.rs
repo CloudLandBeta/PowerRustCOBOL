@@ -229,9 +229,11 @@ pub struct ServerConfig {
     pub unsafe_dev_token_secret: Option<Secret>,
     /// Accept any `Origin`.
     pub unsafe_allow_any_origin: bool,
-    /// Serve plain `ws://` even on a non-loopback address.
-    pub unsafe_plain_ws: bool,
 }
+
+/// The relaxation that served plain `ws://` on a network address — removed
+/// (WASM-003 D4): R5 and Q7 allow plain `ws://` on loopback only, in every mode.
+const REMOVED_PLAIN_WS: &str = "unsafe_plain_ws";
 
 // The provider settings hold the client secret next to the region and the pool;
 // printing the section prints the names of the settings and none of the values.
@@ -338,6 +340,12 @@ pub fn resolve_secret(spec: &str) -> Result<String, String> {
 
 impl ServerConfig {
     pub fn from_toml(text: &str) -> Result<Self, String> {
+        // A removed relaxation is named, not reported as an unknown field.
+        if text.parse::<toml::Table>().is_ok_and(|t| t.contains_key(REMOVED_PLAIN_WS)) {
+            return Err(format!(
+                "backend.toml: `{REMOVED_PLAIN_WS}` was removed: plain ws:// is served on a loopback address only (WASM-003 R5); use TLS (a [tls] section), or terminate TLS in a reverse proxy in front and listen on loopback — then delete the line"
+            ));
+        }
         toml::from_str(text).map_err(|e| format!("backend.toml: {e}"))
     }
 
@@ -349,7 +357,7 @@ impl ServerConfig {
     /// Apply the defaults, check every rule, read the secrets. `base` resolves relative paths.
     ///
     /// The rules (all of them report together, so one start shows every fault):
-    /// - a non-loopback address needs TLS (`ws://` only for loopback, WASM-003 R5), unless `unsafe_plain_ws`;
+    /// - a non-loopback address needs TLS (`ws://` only for loopback, WASM-003 R5, in every mode);
     /// - TLS is given as a PEM pair or a PKCS#12 identity, never half of either;
     /// - a release run refuses every `unsafe_*` setting (WASM-013 R11);
     /// - `none` and the HMAC algorithms are never accepted from a token (only the dev token uses HS256);
@@ -413,13 +421,9 @@ impl ServerConfig {
         };
         if let Some(addr) = listen {
             if tls.is_none() && !addr.ip().is_loopback() {
-                if self.unsafe_plain_ws {
-                    warnings.push(format!("unsafe_plain_ws: serving plain ws:// on {addr}, which is not a loopback address"));
-                } else {
-                    errs.push(format!(
-                        "server.listen {addr} is not a loopback address and no TLS identity is configured: ws:// is served only on loopback (WASM-003 R5); configure [tls], or terminate TLS in front and listen on loopback"
-                    ));
-                }
+                errs.push(format!(
+                    "server.listen {addr} is not a loopback address and no TLS identity is configured: ws:// is served only on loopback (WASM-003 R5); configure [tls], or terminate TLS in front and listen on loopback"
+                ));
             }
         }
 
@@ -430,9 +434,6 @@ impl ServerConfig {
         }
         if self.unsafe_allow_any_origin {
             unsafe_set.push("unsafe_allow_any_origin");
-        }
-        if self.unsafe_plain_ws {
-            unsafe_set.push("unsafe_plain_ws");
         }
         for u in &unsafe_set {
             match mode {

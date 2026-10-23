@@ -401,12 +401,39 @@ impl MobileSettings {
 }
 
 /// `[backend]` — the Backend part of a Web or Mobile project (WASM-003 R1).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackendSettings {
-    /// The programs a remote caller can reach, by name. A program that is not
-    /// listed is unreachable from the channel, whatever its name.
-    #[serde(default)]
+    /// Retired as the list of exported programs (WASM-003 D5): that is
+    /// `backend/exports.toml`, which carries roles and `public` as well. Still
+    /// read, so an older manifest loads and the IDE can migrate it once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exports: Vec<String>,
+    /// `per-call` (the default: fresh `WORKING-STORAGE` at every call) or
+    /// `per-connection` (WASM-003 Q2). Written only when it is not the default,
+    /// so an existing manifest is saved unchanged.
+    #[serde(default = "per_call", skip_serializing_if = "is_per_call")]
+    pub state: String,
+}
+
+impl Default for BackendSettings {
+    fn default() -> Self {
+        BackendSettings { exports: Vec::new(), state: per_call() }
+    }
+}
+
+impl BackendSettings {
+    /// `state` as the server reads it; `Err` names the two values.
+    pub fn state_mode(&self) -> Result<cobolt_server::backend::StateMode, String> {
+        cobolt_server::backend::StateMode::parse(&self.state)
+    }
+}
+
+fn per_call() -> String {
+    cobolt_server::backend::StateMode::PER_CALL.to_owned()
+}
+
+fn is_per_call(state: &String) -> bool {
+    state.trim().is_empty() || state == cobolt_server::backend::StateMode::PER_CALL
 }
 
 /// `[desktop]` — the options of the Desktop templates the New Project dialog
@@ -648,5 +675,32 @@ mod tests {
             Some(BackendUrlProblem::PlainNotLoopback),
             "userinfo does not make a host loopback"
         );
+    }
+
+    /// WASM-003 T3 (Q2): `[backend] state` — absent is `per-call`, `per-connection`
+    /// survives a save, the default is not written, any other word is refused
+    /// naming the two values; the old `exports` list still loads.
+    #[test]
+    fn backend_state_round_trips_and_refuses_an_unknown_word() {
+        #[derive(Serialize, Deserialize)]
+        struct T {
+            backend: BackendSettings,
+        }
+        let absent: T = toml::from_str("[backend]\nexports = [\"HEALTH\"]\n").unwrap();
+        assert_eq!(absent.backend.state, "per-call");
+        assert_eq!(absent.backend.exports, ["HEALTH"], "an older manifest still loads");
+        assert_eq!(absent.backend.state_mode(), Ok(cobolt_server::backend::StateMode::PerCall));
+        let saved = toml::to_string(&absent).unwrap();
+        assert!(!saved.contains("state"), "the default is not written: {saved}");
+
+        let kept: T = toml::from_str("[backend]\nstate = \"per-connection\"\n").unwrap();
+        let saved = toml::to_string(&kept).unwrap();
+        let again: T = toml::from_str(&saved).unwrap();
+        assert_eq!(again.backend.state_mode(), Ok(cobolt_server::backend::StateMode::PerConnection), "{saved}");
+
+        let wrong: T = toml::from_str("[backend]\nstate = \"session\"\n").unwrap();
+        let e = wrong.backend.state_mode().unwrap_err();
+        assert!(e.contains("\"session\"") && e.contains("per-call") && e.contains("per-connection"), "{e}");
+        println!("absent → per-call (not written back); per-connection → {:?}; \"session\" → {e}", saved.trim());
     }
 }
