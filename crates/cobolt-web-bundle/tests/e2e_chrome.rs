@@ -444,6 +444,25 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
         Ok(format!("{} console lines, none an error", p.console.len()))
     });
 
+    // Last, after the console check: a panic logs its message and ends the player (WASM-017 R15, AC11).
+    run.scenario("panic: a forced panic (test bundle) shows the readable error with the reload action and raises the error event", |p, _| {
+        p.eval(
+            "(async () => { window.__prErr = null; __pr.app().addEventListener('pr-error', (e) => { window.__prErr = e.detail; }); \
+             const a = await __pr.handle(); const m = await import(new URL(a.config.player[a.choice.player].js, location.href).href); \
+             try { m.force_panic_for_test(); } catch (_) {} return true; })()",
+        )?;
+        p.wait_for("!!(__pr.root() && __pr.root().querySelector('.pr-message'))", 20)?;
+        let r = p.eval(
+            "(() => { const m = __pr.root().querySelector('.pr-message'); return { title: m.querySelector('.pr-message-title').textContent, \
+             actions: [...m.querySelectorAll('button')].map((b) => b.textContent), err: window.__prErr && window.__prErr.code }; })()",
+        )?;
+        let actions: Vec<&str> = r["actions"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect()).unwrap_or_default();
+        if !actions.contains(&"Reload") || r["err"] != "panic" || !r["title"].as_str().unwrap_or("").contains("internal error") {
+            return Err(format!("after the panic the page shows {r}"));
+        }
+        Ok(format!("{:?} with actions {actions:?}; pr-error code panic", r["title"].as_str().unwrap_or("")))
+    });
+
     run.results
 }
 

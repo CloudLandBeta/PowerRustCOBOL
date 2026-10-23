@@ -113,6 +113,9 @@ impl WebBuildRequest {
                     isolation: Isolation::Off,
                     backend_url: mobile.backend_url.clone(),
                     player: mobile.player.clone(),
+                    max_payload_bytes: mobile.max_payload_bytes,
+                    // A Mobile build's variants are its platform's (below).
+                    single_memory_fallback: true,
                 };
                 (web, mobile.module_variants())
             }
@@ -242,6 +245,12 @@ pub enum WebDiagnosticKind {
     AcceptIgnored,
     /// Warning: a `REDEFINES` may give a different result than on the desktop.
     RedefinesMayDiffer,
+    /// Refused: a form's `Instances` is out of range; the subject is the form
+    /// (WASM-017 R2).
+    InstancesOutOfRange,
+    /// Refused: "multi-memory only" with WebKit engines in the matrix; the
+    /// subject names them (WASM-017 R9, AC7).
+    MultiMemoryOnlyWithWebKit,
 }
 
 /// One refusal or warning of a web build: where, what kind, about what, and the

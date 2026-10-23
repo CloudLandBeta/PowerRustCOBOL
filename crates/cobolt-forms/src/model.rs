@@ -8948,7 +8948,18 @@ pub struct Form {
     pub layout: std::collections::BTreeMap<String, PropValue>,
     /// The breakpoint table and its overrides (R58, R63).
     pub breakpoints: Vec<crate::layout::breakpoints::Breakpoint>,
+
+    // ── WASM-017 R2 ─────────────────────────────────────────────────────────
+    /// `Instances`: how many copies of this form a browser module may hold
+    /// at once — each has its own fixed region of the module's memory. `None`
+    /// uses [`Form::effective_instances`]'s default. Kept as written, even out
+    /// of range; [`Form::instances_problem`] refuses it at Build.
+    pub instances: Option<u32>,
 }
+
+/// The range `Instances` accepts (WASM-017 R2). The bound is the plan's
+/// (§1.1); the operator may change it.
+pub const INSTANCES_RANGE: std::ops::RangeInclusive<u32> = 1..=64;
 
 /// Run `f` on every control in `controls` and, depth first, on the children
 /// held inside each — a style switch reaches a container's contents as it
@@ -9059,9 +9070,35 @@ impl Form {
             control_style: String::new(),
             layout: std::collections::BTreeMap::new(),
             breakpoints: crate::layout::defaults::default_breakpoints(),
+            instances: None,
         };
         form.seed_repository_if_empty();
         form
+    }
+
+    /// How many instances of this form a browser module reserves (WASM-017
+    /// R2): the value set, else 1 for the project's main form and 4 for every
+    /// other — the working reading of "4 for a form `OpenFormSync`/
+    /// `OpenFormAsync` can open" (Q-17a, open), since a form name may arrive
+    /// in a data item and the Build cannot know which forms are opened.
+    pub fn effective_instances(&self, is_main: bool) -> u32 {
+        self.instances.unwrap_or(if is_main { 1 } else { 4 })
+    }
+
+    /// Why this form's `Instances` cannot be built, naming the form; `None`
+    /// when it is unset or within [`INSTANCES_RANGE`]. The one copy of the
+    /// rule — the Web/Mobile Build and the Check call it.
+    pub fn instances_problem(&self) -> Option<String> {
+        let n = self.instances?;
+        if INSTANCES_RANGE.contains(&n) {
+            return None;
+        }
+        Some(format!(
+            "form {}: Instances is {n}; it must be between {} and {}",
+            self.name,
+            INSTANCES_RANGE.start(),
+            INSTANCES_RANGE.end()
+        ))
     }
 
     /// 049 R2 — does this form carry a SideMenu control (anywhere in its
@@ -13343,5 +13380,37 @@ mod derived_name_tests {
         let n = derive_paragraph_name("MAIN FORM", "on Load");
         assert!(n.contains("--"), "{n}");
         assert_eq!(n.matches("--").count(), 1, "{n}");
+    }
+}
+
+#[cfg(test)]
+mod instances_tests_017 {
+    use super::Form;
+
+    /// WASM-017 R2 (Q-17a working reading): unset gives 1 for the main form
+    /// and 4 for the others; a set value wins; the range is 1–64, refused
+    /// naming the form.
+    #[test]
+    fn effective_instances_and_the_range_017() {
+        let mut f = Form::new("ORDERS", "Orders", 400, 300);
+        assert_eq!(f.effective_instances(true), 1);
+        assert_eq!(f.effective_instances(false), 4);
+        assert_eq!(f.instances_problem(), None);
+        f.instances = Some(7);
+        assert_eq!(f.effective_instances(true), 7);
+        assert_eq!(f.effective_instances(false), 7);
+        let mut refused = 0;
+        for (n, ok) in [(0, false), (1, true), (64, true), (65, false)] {
+            f.instances = Some(n);
+            match f.instances_problem() {
+                None => assert!(ok, "{n} must be refused"),
+                Some(msg) => {
+                    assert!(!ok, "{n} must be accepted");
+                    assert!(msg.contains("ORDERS") && msg.contains(&n.to_string()), "{msg}");
+                    refused += 1;
+                }
+            }
+        }
+        println!("instances: defaults 1/4, set 7 wins; 4 values checked, {refused} refused naming the form");
     }
 }

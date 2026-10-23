@@ -58,6 +58,8 @@ pub struct PlayerConfig {
     pub debug_level: u32,
     pub backend_origins: Vec<String>,
     pub call_timeout_ms: Option<u64>,
+    /// The project's payload limit (WASM-017 R8); `None` keeps the default.
+    pub max_frame: Option<usize>,
     pub unsafe_plain_ws: bool,
     pub weblink_schemes: Vec<String>,
     pub recaptcha_site_key: String,
@@ -809,14 +811,12 @@ impl Player {
         });
         *inner.weak.borrow_mut() = Rc::downgrade(&inner);
         if !inner.cfg.backend_origins.is_empty() {
-            let mut ncfg = net::Config {
-                origins: inner.cfg.backend_origins.clone(),
-                unsafe_plain_ws: inner.cfg.unsafe_plain_ws,
-                ..net::Config::default()
-            };
-            if let Some(t) = inner.cfg.call_timeout_ms {
-                ncfg.call_timeout_ms = t;
-            }
+            let ncfg = net::Config::from_page(
+                inner.cfg.backend_origins.clone(),
+                inner.cfg.unsafe_plain_ws,
+                inner.cfg.call_timeout_ms,
+                inner.cfg.max_frame,
+            );
             let sock = WsSocket { inner: Rc::downgrade(&inner), ws: None, handlers: Vec::new() };
             *inner.net.borrow_mut() = Some(Client::new(ncfg, sock));
         }
@@ -1184,6 +1184,9 @@ pub fn install_panic_hook(f: Function) {
 }
 
 /// Force a panic (the test of R15: the page must show the readable error and the reload action).
+/// Only in a player built with the `test-hooks` feature: a shipped player has no export a page
+/// script could end the application with.
+#[cfg(feature = "test-hooks")]
 #[wasm_bindgen]
 pub fn force_panic_for_test() {
     panic!("forced panic (test)");

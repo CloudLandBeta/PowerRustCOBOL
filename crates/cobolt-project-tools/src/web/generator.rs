@@ -124,6 +124,17 @@ impl GeneratorBackend {
                 .map_err(|e| WebBuildError::Failed(format!("cannot read {rel}: {e}")))?;
             let form = cobolt_forms::xml::load_form_from_str(&cfrm)
                 .map_err(|e| WebBuildError::Failed(format!("{rel}: {e}")))?;
+            // WASM-017 R2: a form's instances are fixed memory; out of range
+            // refuses Check and Build alike, the form named.
+            if let Some(problem) = form.instances_problem() {
+                refused.push(diag(
+                    rel.clone(),
+                    WebDiagnosticKind::InstancesOutOfRange,
+                    form.name.clone(),
+                    problem,
+                ));
+                continue;
+            }
             let (src, map) = cobolt_codegen::generate_with_map(&form);
             let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(
                 &src,
@@ -189,11 +200,28 @@ impl GeneratorBackend {
         req: &WebBuildRequest,
         warnings: &mut Vec<WebDiagnostic>,
     ) -> Result<(Vec<LoadedForm>, cobolt_wasm::WebModules), WebBuildError> {
+        // WASM-017 R9, AC7: "multi-memory only" with WebKit in the matrix is
+        // refused, never built without the module those browsers need.
+        if req.kind == cobolt_compiler::ProjectKind::Web {
+            if let Some(p) = req.web.variant_problem() {
+                let manifest = req.manifest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                return Err(WebBuildError::Refused(vec![diag(
+                    manifest,
+                    WebDiagnosticKind::MultiMemoryOnlyWithWebKit,
+                    p.browsers.join(", "),
+                    p.to_string(),
+                )]));
+            }
+        }
         let forms = self.load_forms(req, warnings)?;
         let specs = form_specs(&forms);
+        // WASM-017 R8, D3: the project's payload limit is the arena's frame;
+        // the batch and answer regions stay as ABI v1 §2 sizes them.
+        let defaults = cobolt_wasm::Options::default();
         let opts = cobolt_wasm::Options {
             name: req.name.clone(),
-            ..cobolt_wasm::Options::default()
+            arena: cobolt_wasm::module::Arena { frame: req.web.max_payload_bytes, ..defaults.arena },
+            ..defaults
         };
         let modules = cobolt_wasm::compile_web_project(
             &specs,
@@ -232,8 +260,8 @@ impl GeneratorBackend {
 }
 
 /// The form specs the generator takes: controls in the model's order, every
-/// bound event, the layers above the base. The first form of the manifest is
-/// the main form.
+/// bound event, the layers above the base, the form's `Instances` (WASM-017
+/// R2). The first form of the manifest is the main form.
 fn form_specs(forms: &[LoadedForm]) -> Vec<FormSpec<'_>> {
     forms
         .iter()
@@ -255,7 +283,7 @@ fn form_specs(forms: &[LoadedForm]) -> Vec<FormSpec<'_>> {
             FormSpec {
                 name: f.form.name.clone(),
                 main: i == 0,
-                instances: 1,
+                instances: f.form.effective_instances(i == 0),
                 program: &f.program,
                 controls: controls
                     .iter()
@@ -607,6 +635,7 @@ impl WebBuildBackend for GeneratorBackend {
                 Isolation::Credentialless => cobolt_web_bundle::Isolation::Credentialless,
             },
             backend_origins: backend_origin(&req.web.backend_url).into_iter().collect(),
+            max_frame: Some(req.web.max_payload_bytes),
             // A see-through theme (Spatial) needs something behind it: the same
             // stand-in for a desktop its pictures are drawn over.
             backdrop: {

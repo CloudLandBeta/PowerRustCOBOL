@@ -176,6 +176,9 @@ pub struct BundleOptions {
     pub unsafe_plain_ws: bool,
     pub skip_secret_scan: bool,
     pub call_timeout_ms: Option<u64>,
+    /// The largest frame the player sends or accepts, in bytes (WASM-017 R8:
+    /// the project's payload limit); `None` keeps the player's own default.
+    pub max_frame: Option<u32>,
     /// The longest run flagged as high-entropy by the secret scan; 0 turns that off.
     pub entropy_len: usize,
     /// The Maps tile address template (`{z}`, `{x}`, `{y}`); `None` = the OpenStreetMap server, whose
@@ -212,6 +215,7 @@ impl Default for BundleOptions {
             unsafe_plain_ws: false,
             skip_secret_scan: false,
             call_timeout_ms: None,
+            max_frame: None,
             entropy_len: secrets::DEFAULT_ENTROPY_LEN,
             tile_url: None,
             image_origins: Vec::new(),
@@ -712,7 +716,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         "forms": forms_cfg,
         "menus": menus_cfg,
         "assets": Value::Object(assets_cfg),
-        "backend": {"origins": backend_origins, "unsafe_plain_ws": o.unsafe_plain_ws, "call_timeout_ms": o.call_timeout_ms},
+        "backend": {"origins": backend_origins, "unsafe_plain_ws": o.unsafe_plain_ws, "call_timeout_ms": o.call_timeout_ms, "max_frame": o.max_frame},
         "options": {
             "threads": if o.threads == Threads::Off { "off" } else { "auto" },
             "workers": o.workers,

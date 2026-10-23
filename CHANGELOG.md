@@ -17,6 +17,53 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.44] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.43. WASM-017, module architecture and the JavaScript boundary: tasks T2–T10 of
+`specs/WASM-017-module-architecture-and-js-boundary/tasks.md`, plus the System KB for what they changed; stopped at T11, see below.)*
+
+### Feature: form instances, a memory ceiling, one payload limit, "multi-memory only" refused with WebKit, the loader's optional probes, the exposure list
+
+- **`Instances`, a form property of Web and Mobile projects (R2).** How many copies of a form a browser module holds at once, each with
+  its own fixed region: 1–64, default 1 for the main form and 4 for the others. Written to the form (`instances="…"`) only when set, so
+  every existing `.cfrm` saves byte for byte as before; a value out of range is kept as written and refused by Check and Build naming the
+  form. The Build now gives the generator each form's `Instances` (it passed 1 for every form). The Properties panel shows the row for a
+  Web or Mobile project only; label, hint, refusal and hover help in six languages.
+- **Fixed memory has a ceiling (R7, AC5).** A project whose storage would not fit a 32-bit WebAssembly memory stops the Build naming the
+  form, its largest item and the arithmetic (`region × Instances`), checked before the initial image is built; an item larger than a
+  memory by itself is refused by name instead of overflowing. "Needs a PICTURE" and "more than 38 digits" now name the item. The corpus
+  test asserts no module has `memory.grow` (34 modules).
+- **One payload limit (R8, D3).** `max_payload_bytes` in `[web]`/`[mobile]` (default 384 KB, written only when changed) is the module's
+  transport frame and the player's frame limit (`config.json` `backend.max_frame`); the player refuses a larger request before sending
+  it. Project Settings shows it. The hand-off to the Backend waits for WASM-002 T16.
+- **"Multi-memory only" is the fallback turned off (R9, AC7, D5).** `single_memory_fallback` (default true): with Safari or the iOS web
+  view among the browsers, turning it off is refused by Check and Build naming them, never built without the module they need.
+  **Behaviour change:** a Chromium-only Web project now carries both program modules unless the fallback is turned off.
+- **The loader probes JS String Builtins and ES-module source imports (R3, R12, D2)** and reports them in its choice; it uses neither.
+  A source search proves no memory view outlives its call and no JavaScript string is built on the call path. The plan's debug
+  conversion counter was not added: since WASM-016 the loader hands arena bytes to the player untouched and has no conversion to count.
+- **The exposure list (R14, R15, AC11).** `cobolt_web_player::EXPOSED` names every `#[wasm_bindgen]` type and its disposal, checked by a
+  source scan. Found and fixed: the player's unmount never freed the canvases' `Surface2D` objects. `force_panic_for_test` exists only
+  in test bundles (`build_player --test-hooks`); the shipped player has none and its record says `features: []`. A forced panic shows
+  the readable error with Reload and raises `pr-error` (node and Chrome).
+- **`INITIAL` and `CANCEL` (R4, AC4).** A plain called program keeps its storage until `CANCEL` on both engines; `INITIAL` starts fresh
+  at every call on the module (the interpreter ignores `INITIAL`, WASM-PARITY #11).
+
+**Stopped at T11.** Its AC3 needs `PreservePreviousForm` to keep a data region in the browser (WASM-011 T11, not done); its AC1 asks for
+a chart part, which WASM-016 T26 measured and decided not to split; and generated COBOL cannot reproduce the fixture's event argument,
+deliberate trap and raw answer frame, so how the generated cells may differ from the fixture's is the operator's decision. T12–T15 and
+T17 are not started.
+
+**Tests (2026-10-23):** cobolt-forms (render), cobolt-wasm, cobolt-wasm-abi (fixture), cobolt-compiler, cobolt-project-tools and
+cobolt-web-bundle: 148 result lines, 2,217 passed, 0 failed (after the forced-panic scenario learned that the shipped player has no
+hook); the player: 265 passed; node end to end: 15 scenarios; Chrome: 28 passed; cobolt-ide: 1,879 passed, 5 failed, none of them this
+work's (docs translations, the external `claude` validator, two live crates.io resolver checks, 12 English-only completion texts of
+the Backend verbs).
+
+**Open, with the working assumption used:** Q2 first half (yield budget in ms; not used yet); Q5 (Mobile runs the plain player on the
+main thread); Q-17a (`Instances` default 1 main / 4 others); Q-17b (no product cap below 4 GiB); Q-17c (the Rayon pool lives with the
+page).
+
 ## [PowerRustCOBOL 2.0.43] — 2026-10-23
 
 *(Written on `features-2x`, after 2.0.42. WASM-017 T1, done outside the pipeline, whose session had no web access.)*

@@ -145,3 +145,79 @@ fn the_crate_keeps_no_javascript_html_or_css_source() {
         "non-Rust host-page source is back in the crate: {found:?}"
     );
 }
+
+// ── WASM-017 T8: optional probes, no cached view, no strings on the call path ──
+
+/// JS String Builtins and ES-module source imports are probed and reported in
+/// `choice.reasons`, and neither is used (D2): run under node, on node's own
+/// globals and on a stand-in engine that has both.
+#[test]
+fn the_loader_probes_the_optional_accelerations_and_uses_neither_017() {
+    let loader = cobolt_web_bundle::hostpage::loader_js();
+    for want in ["JS_STRING_PROBE", "builtins: ['js-string']", "AbstractModuleSource", "neither is used"] {
+        assert!(loader.contains(want), "the loader carries {want:?}");
+    }
+    assert!(!loader.contains("import source"), "detected without module syntax");
+    if !support::node_available() {
+        panic!("node is required for the loader tests (WASM-015) and was not found on PATH");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("loader.mjs"), &loader).unwrap();
+    let driver = r#"
+import { probe, choose } from './loader.mjs';
+class AbstractModuleSource {}
+class Module extends AbstractModuleSource {}
+const both = { WebAssembly: { validate: (b, o) => !(o && o.builtins), Module }, fetch() {}, TextEncoder, TextDecoder };
+const out = {};
+for (const [name, env] of [['node', globalThis], ['both', both]]) {
+  const p = probe(env);
+  out[name] = { js: p.jsStringBuiltins, esm: p.esmSourceImports, reasons: choose(p, { program: { multi: {}, single: {} } }).reasons };
+}
+console.log(JSON.stringify(out));
+"#;
+    std::fs::write(dir.path().join("driver.mjs"), driver).unwrap();
+    let run = std::process::Command::new("node").arg(dir.path().join("driver.mjs")).output().expect("node runs");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(run.status.success(), "{}\n{stdout}", String::from_utf8_lossy(&run.stderr));
+    let r: serde_json::Value = serde_json::from_str(stdout.lines().last().unwrap()).unwrap();
+    assert_eq!((r["both"]["js"].as_bool(), r["both"]["esm"].as_bool()), (Some(true), Some(true)), "{r}");
+    for name in ["node", "both"] {
+        let last = r[name]["reasons"].as_array().unwrap().last().unwrap().as_str().unwrap().to_owned();
+        assert!(last.starts_with("optional: ") && last.contains("neither is used"), "{name}: {last}");
+    }
+    assert!(r["both"]["reasons"].to_string().contains("JS String Builtins available, ES-module source imports available"));
+    println!("probes under node: node js={} esm={}; stand-in js=true esm=true; reasons: {}", r["node"]["js"], r["node"]["esm"], r["node"]["reasons"].as_array().unwrap().last().unwrap());
+}
+
+/// AC10: no `.buffer` view outlives the call that made it — every one is the
+/// per-use `view` arrow or a transfer list. AC9 (in place of the plan's
+/// conversion counter): the call path builds no JavaScript string — the one
+/// `TextDecoder` reads the embedded manifest once, at load.
+#[test]
+fn no_view_is_kept_and_no_string_is_built_on_the_call_path_017() {
+    use cobolt_web_bundle::hostpage::{loader_js, worker_js};
+    let (mut found, mut stored) = (0, Vec::new());
+    for (name, text) in [("loader.js", loader_js()), ("worker.js", worker_js())] {
+        for (i, line) in text.lines().enumerate() {
+            for _ in line.matches(".buffer").filter(|_| true) {
+                found += 1;
+                let per_use = line.contains("=> new Uint8Array(");
+                let transfer = line.contains("[copy.buffer]") || line.contains("[bytes.buffer]");
+                if !(per_use || transfer) {
+                    stored.push(format!("{name}:{}: {}", i + 1, line.trim()));
+                }
+            }
+        }
+    }
+    assert!(found > 0, "the search found no view at all — it has stopped testing anything");
+    assert!(stored.is_empty(), "a view over a module memory kept beyond its call: {stored:#?}");
+    let loader = loader_js();
+    let worker = worker_js();
+    let decoders = loader.matches("new env.TextDecoder(").count() + loader.matches("new TextDecoder(").count();
+    let encoders = loader.matches("TextEncoder(").count() + worker.matches("TextEncoder(").count() + worker.matches("TextDecoder(").count();
+    assert_eq!(decoders, 1, "one decoder: the embedded manifest");
+    let manifest_fn = loader.split("function readEmbeddedManifest").nth(1).unwrap().split("\n}\n").next().unwrap();
+    assert!(manifest_fn.contains("TextDecoder"), "the decoder is the manifest's");
+    assert_eq!(encoders, 0, "no encoder, and the worker builds no string");
+    println!("views: {found} found, {} stored; text conversions on the call path: 0 (1 TextDecoder, for the manifest at load)", stored.len());
+}

@@ -277,6 +277,8 @@ async function core(program, mode) {
   const exBefore = app.link.exports();
   const summary = JSON.parse(await app.unmount());
   eq(summary.closed, open, 'one pr_close_form per open instance at unmount');
+  // WASM-017 R14: every listed object is freed — in node the Player is the one the page holds.
+  eq(app.player.__wbg_ptr, 0, 'the Player is freed at unmount');
   if (exBefore) eq(exBefore.pr_dbg_live(), 0, 'the module holds no instance after unmount');
   if (mode === 'worker') eq(WebWorkerLike.live.size, workersBefore, 'the worker was terminated');
   out.unmount = { instances_closed: summary.closed, cancelled_tasks: summary.cancelled };
@@ -464,6 +466,34 @@ await scenario('hosted sign-in return: the code reaches the player and leaves th
   eq(quiet.length, 0, 'the address is left alone');
   await app2.unmount();
   return { rewritten_to: replaced[0] };
+});
+
+// Last: a panic ends the player's instance, which every scenario above shares (WASM-017 R15, AC11).
+await scenario('panic: a forced panic (test bundle) calls onPanic and raises the error event', async () => {
+  const env = makeEnv();
+  env.CustomEvent = CustomEvent;
+  const target = new EventTarget();
+  const events = [];
+  target.addEventListener('pr-error', (e) => events.push(e.detail));
+  let said = '';
+  const app = await mount(target, { env, config, baseUrl: BASE, headless: true, importPlayer, onPanic: (m) => { said = m; } });
+  await app.settled();
+  const mod = await importPlayer(new URL(config.player[app.choice.player].js, BASE).href);
+  // The shipped player has no test hook (R15): run on it, the scenario says so and checks that.
+  if (typeof mod.force_panic_for_test !== 'function') {
+    await app.unmount();
+    return { shipped_player_has_no_hook: true };
+  }
+  let thrown = '';
+  try {
+    mod.force_panic_for_test();
+  } catch (e) {
+    thrown = String((e && e.message) || e);
+  }
+  check(said.includes('forced panic'), 'onPanic got the message: ' + said);
+  eq(events.length, 1, 'one pr-error event');
+  eq(events[0].code, 'panic', 'the event says panic');
+  return { message: said.slice(0, 60), events: events.length, thrown: thrown.slice(0, 40) };
 });
 
 console.log(JSON.stringify({ results, metrics }));

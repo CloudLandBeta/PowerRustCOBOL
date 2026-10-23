@@ -50,6 +50,9 @@ threaded = ["rayon", "dep:wasm-bindgen-rayon"]
 # Rayon alone (no wasm-bindgen glue): lets the native tests prove that the parallel sort gives the
 # same result as the sequential one.
 rayon = ["dep:rayon"]
+# Exports used only by the test bundles (WASM-017 R15, AC11): `force_panic_for_test`. `build_player`
+# turns it on with `--test-hooks` for the node and browser tests, never for `assets/web-player/`.
+test-hooks = []
 
 [dependencies]
 cobolt-forms    = { path = "../cobolt-forms", default-features = false }

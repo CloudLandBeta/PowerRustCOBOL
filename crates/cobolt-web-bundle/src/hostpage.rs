@@ -68,6 +68,13 @@ const MULTI_MEMORY_PROBE = new Uint8Array([
   0x28, 0x42, 0x01, 0x00, 0x0b,
 ]);
 
+// Imports `wasm:js-string` `cast` with the wrong signature (WASM-017 R12): an engine with JS String
+// Builtins rejects it when asked for them; one without ignores the option and finds it valid.
+const JS_STRING_PROBE = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x02, 0x17, 0x01, 0x0e, 0x77, 0x61,
+  0x73, 0x6d, 0x3a, 0x6a, 0x73, 0x2d, 0x73, 0x74, 0x72, 0x69, 0x6e, 0x67, 0x04, 0x63, 0x61, 0x73, 0x74, 0x00, 0x00,
+]);
+
 export const PRODUCTION_IMPORTS = ['flush', 'query', 'remote', 'now', 'random', 'abort'];
 export const REQUIRED_EXPORTS = [
   'pr_abi', 'pr_variant', 'pr_arena_base', 'pr_init', 'pr_open_form', 'pr_close_form', 'pr_event', 'pr_resume',
@@ -132,6 +139,25 @@ export function probe(env = globalThis) {
       multiMemory = false;
     }
   }
+  // The optional accelerations (WASM-017 R3, R12, D2): probed and reported, never used.
+  let jsStringBuiltins = false;
+  let esmSourceImports = false;
+  if (W && typeof W.validate === 'function') {
+    try {
+      jsStringBuiltins = !W.validate(JS_STRING_PROBE, { builtins: ['js-string'] });
+    } catch (_) {
+      jsStringBuiltins = false;
+    }
+    // Source-phase imports make WebAssembly.Module a module source: its prototype then inherits from
+    // %AbstractModuleSource% instead of Object. Detected without module syntax, so a browser without
+    // them still parses this file.
+    try {
+      const proto = W.Module && W.Module.prototype && Object.getPrototypeOf(W.Module.prototype);
+      esmSourceImports = !!proto && proto !== Object.prototype;
+    } catch (_) {
+      esmSourceImports = false;
+    }
+  }
   if (typeof env.fetch !== 'function') missing.push('fetch');
   if (typeof env.TextEncoder !== 'function' || typeof env.TextDecoder !== 'function') missing.push('TextEncoder/TextDecoder');
   const isolated = env.crossOriginIsolated === true;
@@ -145,6 +171,8 @@ export function probe(env = globalThis) {
     threads: isolated && shared && worker,
     worker: isolated && shared && worker,
     hardwareConcurrency: (env.navigator && env.navigator.hardwareConcurrency) || 4,
+    jsStringBuiltins,
+    esmSourceImports,
   };
 }
 
@@ -172,6 +200,10 @@ export function choose(p, config, overrides = {}) {
   if (overrides.mode === 'main') mode = 'main';
   if (overrides.mode === 'worker' && p.worker) mode = 'worker';
   reasons.push(`execution: ${mode === 'worker' ? 'in a Worker' : 'on the main thread, yielding cooperatively'}`);
+  reasons.push(
+    `optional: JS String Builtins ${p.jsStringBuiltins ? 'available' : 'not available'}, ES-module source imports ${p.esmSourceImports ? 'available' : 'not available'}; ` +
+      'neither is used (text crosses as UTF-8 bytes, decoded once; streaming compilation already streams)',
+  );
   return { program, player, mode, reasons };
 }
 
@@ -726,6 +758,7 @@ export async function mount(target, options = {}) {
       debug_level: (config.options && config.options.debug_level) || 0,
       backend_origins: (config.backend && config.backend.origins) || [],
       call_timeout_ms: config.backend && config.backend.call_timeout_ms,
+      max_frame: config.backend && config.backend.max_frame,
       unsafe_plain_ws: !!(config.backend && config.backend.unsafe_plain_ws),
       weblink_schemes: (config.options && config.options.weblink_schemes) || [],
       recaptcha_site_key: (config.options && config.options.recaptcha_site_key) || '',

@@ -203,10 +203,12 @@ fn program_modules(
 
 #[test]
 fn the_bundle_holds_the_page_the_modules_the_player_and_nothing_else() {
-    // Chromium only: `module_variants` asks for the multi-memory module alone.
+    // Chromium only, the single-memory fallback off: `module_variants` asks
+    // for the multi-memory module alone.
     let manifest = project_with(
         "ac4b",
-        "[web]\nmulti_memory = true\n\n[web.browsers]\nfirefox = false\nsafari = false\nios_webview = false\nandroid_webview = false\n",
+        // WASM-017 D5: multi-memory only is the fallback turned off.
+        "[web]\nmulti_memory = true\nsingle_memory_fallback = false\n\n[web.browsers]\nfirefox = false\nsafari = false\nios_webview = false\nandroid_webview = false\n",
         &["main-form"],
     );
     let req = WebBuildRequest::from_manifest(&manifest).unwrap();
@@ -374,6 +376,91 @@ fn a_desktop_project_is_refused_before_anything_is_written() {
         "nothing is written for a Desktop project"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── WASM-017 T7: "multi-memory only" is refused while WebKit is in the matrix ──
+
+#[test]
+fn multi_memory_only_with_webkit_refuses_check_and_build_017() {
+    let manifest = project_with("mm-only-webkit", "[web]\nmulti_memory = true\nsingle_memory_fallback = false\n", &["main-form"]);
+    let ds = refusals(&manifest);
+    assert_eq!(ds.len(), 1, "{ds:?}");
+    assert_eq!(ds[0].kind, cobolt_project_tools::web::WebDiagnosticKind::MultiMemoryOnlyWithWebKit);
+    assert_eq!(ds[0].subject, "Safari, iOS web view");
+    assert_eq!(ds[0].location, "Hello.project.toml");
+    eprintln!("refused: {}", ds[0]);
+    let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+
+    // Without WebKit the same setting builds the multi-memory module alone.
+    let manifest = project_with(
+        "mm-only",
+        "[web]\nmulti_memory = true\nsingle_memory_fallback = false\n\n[web.browsers]\nsafari = false\nios_webview = false\n",
+        &["main-form"],
+    );
+    let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+    let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+    let modules: Vec<String> = program_modules(&snapshot(&report.bundle_dir)).into_iter().map(|(p, _)| p.clone()).collect();
+    assert_eq!(modules.len(), 1, "{modules:?}");
+    assert!(!modules[0].contains(".single."), "{modules:?}");
+    eprintln!("fallback off, no WebKit: {modules:?}");
+    let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+}
+
+// ── WASM-017 T6: one payload limit ──────────────────────────────────────────
+
+/// The project's payload limit reaches the module manifest's `frame_size` and
+/// `config.json`'s `max_frame`; a project that sets none gets 384 KiB in both.
+#[test]
+fn the_payload_limit_reaches_the_module_and_the_player_017() {
+    let mut seen = Vec::new();
+    for (tag, web, want) in [("payload-default", "[web]\nmulti_memory = true\n", 384 * 1024u64), ("payload-512", "[web]\nmulti_memory = true\nmax_payload_bytes = 524288\n", 512 * 1024)] {
+        let manifest = project_with(tag, web, &["main-form"]);
+        let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+        assert_eq!(u64::from(req.web.max_payload_bytes), want);
+        let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+        let files = snapshot(&report.bundle_dir);
+        let config: serde_json::Value = serde_json::from_slice(&files["config.json"]).unwrap();
+        assert_eq!(config["backend"]["max_frame"].as_u64(), Some(want), "config.json max_frame");
+        let url = config["manifest"]["url"].as_str().unwrap();
+        let module_manifest: serde_json::Value = serde_json::from_slice(&files[url]).unwrap();
+        assert_eq!(module_manifest["limits"]["frame_size"].as_u64(), Some(want), "manifest frame_size");
+        seen.push(format!("{tag}: frame_size {want}, max_frame {want}"));
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+    }
+    eprintln!("payload limit: {}", seen.join("; "));
+}
+
+// ── WASM-017 T3: `Instances` out of range refuses Check and Build ───────────
+
+#[test]
+fn instances_out_of_range_refuses_check_and_build_naming_the_form_017() {
+    let manifest = project("instances", "           MOVE \"Hi\" TO LBL-OUT::Caption.\n");
+    let path = manifest.parent().unwrap().join("webforms/main-form.cfrm");
+    let mut lines = Vec::new();
+    for (n, ok) in [(0u32, false), (1, true), (64, true), (65, false)] {
+        let mut form = cobolt_forms::load_form(&path).unwrap();
+        form.instances = Some(n);
+        cobolt_forms::xml::save_form(&form, &path).unwrap();
+        let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+        if ok {
+            GeneratorBackend
+                .check(&req)
+                .unwrap_or_else(|e| panic!("Instances {n} is accepted: {e}"));
+            lines.push(format!("{n}: accepted"));
+        } else {
+            let ds = refusals(&manifest);
+            let d = ds
+                .iter()
+                .find(|d| d.kind == cobolt_project_tools::web::WebDiagnosticKind::InstancesOutOfRange)
+                .unwrap_or_else(|| panic!("{ds:?}"));
+            assert_eq!(d.location, "webforms/main-form.cfrm", "{d:?}");
+            assert_eq!(d.subject, "main-form", "the subject is the form: {d:?}");
+            assert!(d.message.contains("main-form") && d.message.contains(&n.to_string()), "{d:?}");
+            lines.push(format!("{n}: refused — {d}"));
+        }
+    }
+    eprintln!("Instances, 4 values: {}", lines.join("; "));
+    let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
 }
 
 // ── WASM-002 T14: the portable subset at Check and at Build (R3, AC3) ───────

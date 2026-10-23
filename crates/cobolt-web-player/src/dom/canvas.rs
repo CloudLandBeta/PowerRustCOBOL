@@ -167,6 +167,19 @@ impl Shared {
         }
     }
 
+    /// The page goes away (WASM-017 R14): every canvas's `Surface2D` is freed, whatever instance
+    /// it belonged to.
+    pub(crate) fn clear_all_canvases(&self) {
+        let dropped: Vec<CanvasRec> = self.canvas.borrow_mut().drain().map(|(_, r)| r).collect();
+        for r in dropped {
+            if let Some(o) = r.obj {
+                if let Some(f) = method(&o, "free") {
+                    let _ = f.call0(&o);
+                }
+            }
+        }
+    }
+
     /// An instance went away: its canvases are freed with it.
     pub(crate) fn clear_canvas(&self, inst: u32) {
         let dropped: Vec<CanvasRec> = {

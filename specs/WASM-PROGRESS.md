@@ -185,11 +185,12 @@ where it does not, the first version that does and its date. Sources, each read 
 **Stop gate (T1): not triggered.** Neither Safari nor the iOS web view has multi-memory in any version, so R9's WebKit rule stands as
 written: the single-memory variant is always built for iOS and for a matrix that includes Safari. T7 may start.
 
-**Finding for the operator (not changed here):** Firefox 122–124 are 2024 releases **without** multi-memory. With Q4's "2024 onwards",
+**Decided by the operator (2026-10-23): the Firefox minimum is 125.** Firefox 122–124 (2024 releases without multi-memory) are
+outside the declared matrix; the single-memory fallback stays a WebKit rule only. The finding that led to it:
+Firefox 122–124 are 2024 releases **without** multi-memory. With Q4's "2024 onwards",
 a matrix that includes Firefox needs either the single-memory variant for Firefox too, or a Firefox minimum of **125**. The working
 reading for T12/T13 is **Firefox 125** as the tested minimum for the multi-memory variant, with Firefox 122–124 served the single-memory
 variant (the same fallback WebKit gets); to confirm.
 
-**Minimum versions T12 and T13 test against:** Chromium 121 (Chrome, Edge, Android WebView), Firefox 125 for multi-memory (122 for the
-single-memory variant), Safari 17.3, iOS 17.3. Nothing in `scan::baseline_features()` is missing from any of them; JS String Builtins and
+**Minimum versions T12 and T13 test against:** Chromium 121 (Chrome, Edge, Android WebView), **Firefox 125**, Safari 17.3, iOS 17.3. Nothing in `scan::baseline_features()` is missing from any of them; JS String Builtins and
 ES-module source imports are on none of the oldest versions, so the bundle uses neither.

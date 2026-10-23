@@ -280,6 +280,8 @@ enum OwnedEvent {
         // 056 Responsive design
         responsive: bool,
         control_style: String,
+        // WASM-017 R2
+        instances: Option<u32>,
     },
     ControlStart(AttrPairs),
     // 056 — the form's layout bag (`<FormLayout …/>`), attributes only.
@@ -444,6 +446,10 @@ fn next_owned<R: std::io::BufRead>(
                         .unwrap_or(false);
                     // 079 — absent means the classic seeding.
                     let control_style = get_attr(e, b"control-style")?.unwrap_or_default();
+                    // WASM-017 R2 — absent means the default; a value out of
+                    // range is kept as written and refused at Build.
+                    let instances = get_attr(e, b"instances")?
+                        .and_then(|v| v.trim().parse::<u32>().ok());
                     let index_base = get_attr(e, b"index-base")?
                         .and_then(|v| v.trim().parse::<u8>().ok())
                         .unwrap_or(0);
@@ -489,6 +495,7 @@ fn next_owned<R: std::io::BufRead>(
                         start_position,
                         responsive,
                         control_style,
+                        instances,
                     })
                 }
                 b"FormLayout" => Ok(OwnedEvent::FormLayout(attr_pairs(e)?)),
@@ -673,6 +680,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 start_position,
                 responsive,
                 control_style,
+                instances,
             } => {
                 legacy_indexes = index_base < 1;
                 // Build a base Form using Form::new (populates default form_events)
@@ -712,6 +720,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.start_position = start_position;
                 f.responsive = responsive;
                 f.control_style = control_style;
+                f.instances = instances;
                 // form_events was pre-populated with empty OnLoad/OnClose stubs;
                 // parse_form_body will overwrite them if <form-events> is present.
                 parse_form_body(reader, &mut buf, &mut f)?;
@@ -1839,6 +1848,12 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         }
         if !form.control_style.is_empty() {
             elem.push_attribute(("control-style", form.control_style.as_str()));
+        }
+        // WASM-017 R2 — written only when set, so every other form is unchanged.
+        let instances_str;
+        if let Some(n) = form.instances {
+            instances_str = n.to_string();
+            elem.push_attribute(("instances", instances_str.as_str()));
         }
         w.write_event(Event::Start(elem))?;
 
@@ -3928,6 +3943,44 @@ Actor Caption:string</Property>
         assert_eq!(back.dock_to_opener, crate::model::DockEdge::Top);
         assert_eq!(back.dock_gap, 24);
         assert_eq!(back.dock_length, 60);
+    }
+
+    /// WASM-017 R2 — `Instances` round-trips as set, and a form that never
+    /// set it — an existing example among them — saves no `instances`
+    /// attribute and the same bytes on every re-save.
+    #[test]
+    fn instances_round_trips_and_an_unset_form_saves_unchanged_017() {
+        let path = std::env::temp_dir().join("cobolt_test_instances_017.cfrm");
+        let mut f = Form::new("CHILD", "Child", 400, 300);
+        f.instances = Some(7);
+        save_form(&f, &path).expect("save");
+        let saved = std::fs::read_to_string(&path).expect("read back");
+        assert!(saved.contains("instances=\"7\""), "the attribute is written");
+        assert_eq!(load_form_from_str(&saved).expect("reload").instances, Some(7));
+
+        // Out of range is kept as written (user code is sacred).
+        let zero = saved.replace("instances=\"7\"", "instances=\"0\"");
+        assert_eq!(load_form_from_str(&zero).expect("reload").instances, Some(0));
+
+        // Read at run time (not an `include_str!`), from the workspace's examples.
+        let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join("examples/PowerChat/forms/confirm-form.cfrm");
+        let input = std::fs::read_to_string(&example).expect("example fixture");
+        assert!(!input.contains(" instances="), "the fixture predates the attribute");
+        let loaded = load_form_from_str(&input).expect("load example");
+        assert_eq!(loaded.instances, None);
+        save_form(&loaded, &path).expect("save example");
+        let first = std::fs::read_to_string(&path).expect("read back");
+        save_form(&load_form_from_str(&first).expect("reload"), &path).expect("re-save");
+        let second = std::fs::read_to_string(&path).expect("read back");
+        let _ = std::fs::remove_file(&path);
+        assert!(!first.contains(" instances="), "an unset form writes no instances");
+        assert_eq!(first, input, "an unset form saves byte-identical to its input");
+        assert_eq!(first, second, "re-saving an unset form is byte-identical");
+        println!(
+            "instances: Some(7) round-trips, 0 kept as written; example {} bytes in, {} bytes re-saved twice identically",
+            input.len(),
+            first.len()
+        );
     }
 
     /// Indexes count from 1 (operator, 2026-10-03): a form saved before that

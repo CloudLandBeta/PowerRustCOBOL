@@ -244,6 +244,23 @@ fn yes() -> bool {
     true
 }
 
+/// The payload limit a project has unless it sets one (WASM-017 R8, D3):
+/// 384 KiB, the player's frame limit before the setting existed, so an older
+/// project behaves as it did.
+pub const DEFAULT_MAX_PAYLOAD_BYTES: u32 = 384 * 1024;
+
+fn default_max_payload() -> u32 {
+    DEFAULT_MAX_PAYLOAD_BYTES
+}
+
+fn is_default_max_payload(n: &u32) -> bool {
+    *n == DEFAULT_MAX_PAYLOAD_BYTES
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
 /// The browsers a Web build promises to run in (WASM-002 R18): the loader
 /// probes the browser it finds against this matrix and the WebAssembly feature
 /// baseline. All on by default.
@@ -278,6 +295,37 @@ impl BrowserMatrix {
     /// (WASM-017 R9).
     pub fn includes_webkit(&self) -> bool {
         self.safari || self.ios_webview
+    }
+
+    /// The WebKit engines in the matrix, by name.
+    pub fn webkit_browsers(&self) -> Vec<&'static str> {
+        let mut v = Vec::new();
+        if self.safari {
+            v.push("Safari");
+        }
+        if self.ios_webview {
+            v.push("iOS web view");
+        }
+        v
+    }
+}
+
+/// Why a Web project's variants cannot be built (WASM-017 R9, AC7): "multi-
+/// memory only" was asked for while the matrix has WebKit engines, which run
+/// only the single-memory module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantProblem {
+    /// The WebKit browsers of the matrix (`Safari`, `iOS web view`).
+    pub browsers: Vec<&'static str>,
+}
+
+impl std::fmt::Display for VariantProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the single-memory fallback is off, but the target browsers include {}, which run only the single-memory module; turn the fallback on or remove them from the browsers",
+            self.browsers.join(", ")
+        )
     }
 }
 
@@ -322,6 +370,18 @@ pub struct WebSettings {
     /// Written only when set, so an existing manifest is saved unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub player: Option<String>,
+    /// The largest text or JSON frame that crosses the boundary, in bytes
+    /// (WASM-017 R8, D3): the program module's transport-arena frame, the
+    /// player's frame limit and what the Backend is told to accept. Written
+    /// only when it is not the default.
+    #[serde(default = "default_max_payload", skip_serializing_if = "is_default_max_payload")]
+    pub max_payload_bytes: u32,
+    /// Carry the single-memory module beside the multi-memory one (WASM-017
+    /// R9, D5). On by default; off asks for "multi-memory only", which the
+    /// Build refuses while the matrix has a WebKit engine
+    /// ([`WebSettings::variant_problem`]). Written only when off.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub single_memory_fallback: bool,
 }
 
 impl Default for WebSettings {
@@ -333,20 +393,32 @@ impl Default for WebSettings {
             isolation: Isolation::default(),
             backend_url: String::new(),
             player: None,
+            max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            single_memory_fallback: true,
         }
     }
 }
 
 impl WebSettings {
-    /// The program-module variants this Web build emits (WASM-017 R9): the
-    /// multi-memory module when asked for, **and** the single-memory one
-    /// whenever multi-memory is off or the matrix includes Safari or the iOS
-    /// web view — the loader then probes which to use.
+    /// The program-module variants this Web build emits (WASM-017 R9, D5):
+    /// the multi-memory module when asked for, **and** the single-memory one
+    /// unless "multi-memory only" was asked for (the fallback off) on a matrix
+    /// with no WebKit engine — the loader then probes which to use. With WebKit
+    /// in the matrix the single-memory module is never dropped silently:
+    /// [`WebSettings::variant_problem`] refuses the build instead.
     pub fn module_variants(&self) -> ModuleVariants {
         ModuleVariants {
             multi_memory: self.multi_memory,
-            single_memory: !self.multi_memory || self.browsers.includes_webkit(),
+            single_memory: !self.multi_memory || self.single_memory_fallback || self.browsers.includes_webkit(),
         }
+    }
+
+    /// Why Check and Build refuse these variants: "multi-memory only" (the
+    /// fallback off, multi-memory on) with Safari or the iOS web view in the
+    /// matrix (WASM-017 AC7).
+    pub fn variant_problem(&self) -> Option<VariantProblem> {
+        let browsers = self.browsers.webkit_browsers();
+        (self.multi_memory && !self.single_memory_fallback && !browsers.is_empty()).then_some(VariantProblem { browsers })
     }
 }
 
@@ -374,6 +446,9 @@ pub struct MobileSettings {
     /// The player the Build copies, as [`WebSettings::player`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub player: Option<String>,
+    /// The payload limit, as [`WebSettings::max_payload_bytes`].
+    #[serde(default = "default_max_payload", skip_serializing_if = "is_default_max_payload")]
+    pub max_payload_bytes: u32,
 }
 
 fn auto() -> String {
@@ -396,6 +471,7 @@ impl MobileSettings {
             multi_memory: platform == MobilePlatform::Android,
             backend_url: String::new(),
             player: None,
+            max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
         }
     }
 
@@ -591,6 +667,23 @@ mod tests {
         assert_eq!(unpinned.player, None);
     }
 
+    /// WASM-017 R8, D3: one payload limit; an old `[web]`/`[mobile]` table
+    /// reads 384 KiB and is written back without the key; a set value
+    /// round-trips.
+    #[test]
+    fn the_payload_limit_defaults_to_384_kib_and_is_written_only_when_set_017() {
+        let old: WebSettings = toml::from_str("backend_url = \"wss://api.example.com/ws\"").unwrap();
+        assert_eq!(old.max_payload_bytes, 384 * 1024);
+        assert!(!toml::to_string_pretty(&old).unwrap().contains("max_payload_bytes"), "an old manifest is saved unchanged");
+        let set: WebSettings = toml::from_str("max_payload_bytes = 524288").unwrap();
+        assert_eq!(set.max_payload_bytes, 512 * 1024);
+        assert!(toml::to_string_pretty(&set).unwrap().contains("max_payload_bytes = 524288"));
+        let mobile: MobileSettings = toml::from_str("platform = \"ios\"\ndevice = \"phone\"").unwrap();
+        assert_eq!(mobile.max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
+        assert_eq!(MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone).max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
+        println!("payload limit: old table 393216, set 524288 round-trips, mobile default 393216");
+    }
+
     #[test]
     fn web_settings_round_trip_through_toml() {
         let mut s = WebSettings::default();
@@ -616,11 +709,48 @@ mod tests {
         let mut chromium_only = WebSettings::default();
         chromium_only.browsers = BrowserMatrix { chromium: true, firefox: true, safari: false, ios_webview: false, android_webview: true };
         let v = chromium_only.module_variants();
-        assert_eq!((v.multi_memory, v.single_memory), (true, false), "no WebKit engine: multi-memory only");
+        assert_eq!((v.multi_memory, v.single_memory), (true, true), "no WebKit engine, fallback on (the default): both");
+        chromium_only.single_memory_fallback = false;
+        let v = chromium_only.module_variants();
+        assert_eq!((v.multi_memory, v.single_memory), (true, false), "fallback off, no WebKit: multi-memory only");
+        assert_eq!(chromium_only.variant_problem(), None);
 
         chromium_only.multi_memory = false;
         let v = chromium_only.module_variants();
         assert_eq!((v.multi_memory, v.single_memory), (false, true), "multi-memory off: single only");
+    }
+
+    /// WASM-017 AC7, D5: "multi-memory only" is the fallback turned off; with
+    /// Safari or the iOS web view in the matrix it is refused naming them,
+    /// never dropped silently; an old table reads the fallback on and is
+    /// written back without the key.
+    #[test]
+    fn multi_memory_only_is_refused_while_webkit_is_in_the_matrix_017() {
+        let old: WebSettings = toml::from_str("multi_memory = true").unwrap();
+        assert!(old.single_memory_fallback, "an old table reads the fallback on");
+        assert!(!toml::to_string_pretty(&old).unwrap().contains("single_memory_fallback"));
+        let v = old.module_variants();
+        assert_eq!((v.multi_memory, v.single_memory), (true, true), "default Web: both");
+        assert_eq!(old.variant_problem(), None);
+
+        let mut off = WebSettings { single_memory_fallback: false, ..WebSettings::default() };
+        assert!(toml::to_string_pretty(&off).unwrap().contains("single_memory_fallback = false"));
+        let p = off.variant_problem().expect("refused with WebKit in the matrix");
+        assert_eq!(p.browsers, ["Safari", "iOS web view"]);
+        assert!(p.to_string().contains("Safari, iOS web view"), "{p}");
+        off.browsers.ios_webview = false;
+        assert_eq!(off.variant_problem().unwrap().browsers, ["Safari"]);
+        off.browsers.safari = false;
+        assert_eq!(off.variant_problem(), None);
+        let v = off.module_variants();
+        assert_eq!((v.multi_memory, v.single_memory), (true, false), "fallback off without WebKit: multi only");
+        off.multi_memory = false;
+        off.browsers.safari = true;
+        assert_eq!(off.variant_problem(), None, "multi-memory off is the single module, never refused");
+
+        let ios = MobileSettings::new(MobilePlatform::Ios, DeviceClass::Phone).module_variants();
+        assert_eq!((ios.multi_memory, ios.single_memory), (false, true), "iOS: single only by default");
+        println!("AC7: default both; fallback off + Safari/iOS refused naming them; off without WebKit multi only; iOS single only");
     }
 
     /// WASM-017 R9: an iOS build starts with multi-memory off and always carries the single-memory module.

@@ -54,7 +54,8 @@ pub fn built_player() -> PathBuf {
         let status = Command::new("cargo")
             .args(["run", "--quiet", "--manifest-path"])
             .arg(crate_dir.join("Cargo.toml"))
-            .args(["--example", "build_player", "--", "--variants", "plain", "--out"])
+            // The test bundles' player carries the test hooks (WASM-017 R15: the forced panic).
+            .args(["--example", "build_player", "--", "--variants", "plain", "--test-hooks", "--out"])
             .arg(&out)
             .status()
             .expect("cargo runs");

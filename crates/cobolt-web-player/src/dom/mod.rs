@@ -830,6 +830,7 @@ impl Shared {
             st.net_rec = None;
             st.crumb_rec = None;
             st.dialogs.clear();
+            self.clear_all_canvases();
             for (_, iv) in std::mem::take(&mut st.instances) {
                 iv.dispose();
             }

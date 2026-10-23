@@ -6225,8 +6225,10 @@ shown):
 [web]                       # a Web project
 style        = "spa"         # "spa" (single-page) or "standalone" (forms as separate pages)
 multi_memory = true          # emit the multi-memory program module
+single_memory_fallback = true  # also carry the single-memory module; false = multi-memory only
 isolation    = "require-corp"  # "off", "require-corp" or "credentialless": the COOP/COEP headers
 backend_url  = ""            # wss://..., or ws:// to this machine only (localhost, 127.0.0.1, ::1)
+max_payload_bytes = 393216   # the largest text or JSON frame between page, program and Backend (384 KB)
 # player     = "2.0.0"       # pin an older player this IDE keeps; absent = the player this IDE ships
 [web.browsers]               # the browsers the build promises to run in; all true
 chromium        = true
@@ -6243,6 +6245,7 @@ min_os       = "auto"        # an Android API level ("26") or an iOS version ("1
 style        = "spa"
 multi_memory = false         # false is the iOS default; true for Android
 backend_url  = ""
+max_payload_bytes = 393216   # as under [web]
 # player     = "2.0.0"       # as under [web]
 
 [backend]                   # a Web or Mobile project that has a Backend
@@ -6255,10 +6258,19 @@ have no run-time effect yet. A `backend_url` that is not `wss://` is refused
 unless it is plain `ws://` to the same machine, and a refused address is never
 written to the manifest.
 
-**Which program modules a build carries.** The single-memory module is carried
-whenever multi-memory is off, or the browser matrix includes Safari or the iOS
-web view; the multi-memory module whenever `multi_memory` is on. An iOS Mobile
-project always carries the single-memory one.
+**Which program modules a build carries.** The multi-memory module whenever
+`multi_memory` is on; the single-memory module beside it unless
+`single_memory_fallback = false` ("multi-memory only"), and always when
+multi-memory is off. "Multi-memory only" while the browsers include Safari or the
+iOS web view — engines that run only the single-memory module — is refused by
+Check and Build, naming those browsers; remove them from `[web.browsers]` or turn
+the fallback back on. An iOS Mobile project always carries the single-memory one.
+The loader picks the module the browser runs.
+
+**The payload limit.** `max_payload_bytes` is the largest text or JSON frame
+that crosses between the page and the program, or goes to the Backend in one
+call: the program module's transport frame, and the player refuses a larger
+request before sending it. Default 384 KB; the Backend keeps its own limit.
 
 **The player.** A bundle is the program module the compiler emits plus the
 **player**: a prebuilt WebAssembly form engine (drawn with Leptos) that the IDE
@@ -6371,6 +6383,16 @@ fn browser_subset_doc() -> String {
          events of the same form raised meanwhile run afterwards, in order. A failed remote call runs `ON EXCEPTION`, or is a \
          run-time error when the statement has none. `ACCEPT` from the operator does nothing (with a Build warning); \
          `ACCEPT … FROM DATE`/`TIME`/`DAY`/`DAY-OF-WEEK` read the browser's clock, in UTC.\n\n\
+         ### Form instances and storage\n\n\
+         - A form's data has a fixed region of the module's memory per instance: the form property `Instances` (1-64; default 1 for \
+         the main form, 4 for the others) is how many copies can be open at once. Opening one more is a run-time error naming the \
+         form. A value out of range stops Check and Build, naming the form.\n\
+         - The module's memory never grows. A project whose storage (each form's size times its `Instances`) would not fit a \
+         WebAssembly memory (4 GiB) stops the Build naming the form, its largest item and the sizes: lower `Instances` or the table. \
+         An item larger than that alone is refused by name.\n\
+         - A called program keeps its `WORKING-STORAGE` from its first `CALL` until `CANCEL`, or until its form instance closes; \
+         after `CANCEL` it starts again with its `VALUE`s. A program declared `IS INITIAL PROGRAM` starts fresh at every call in a \
+         browser module (the desktop runtime does not apply `INITIAL`).\n\n\
          ### Built-ins (`COBOL::\"NAME\"`)\n\n| Built-in | In a browser module | Browser feature | Instead |\n|---|---|---|---|\n",
     );
     for b in BUILTIN_TABLE {
@@ -8951,7 +8973,9 @@ fn controls_reference_doc() -> String {
          it is the opener's native child window, so the group moves as one while dragged), `DockGap` (Integer px, default 16 — the gap to the \
          opener) and `DockLength` (Integer 0-100, default 0 — the docked window's length \
          along that edge as a percentage of it, following the opener when it changes size; \
-         0 keeps the designed size; make the docked form responsive so it adapts). A floating toolbar, a tab strip and a rail around a dashboard are three \
+         0 keeps the designed size; make the docked form responsive so it adapts). `Instances` (Integer 1-64, Web and Mobile \
+         projects only; default 1 for the main form, 4 for the others) is how many copies of the form a browser module holds \
+         at once, each with its own fixed memory; written to the form only when set. A floating toolbar, a tab strip and a rail around a dashboard are three \
          forms docked Top, Bottom and Left, opened by the dashboard's onLoad with \
          OpenFormAsync.\n\n\
          Writing the form's own properties at run time — `me::X`, or `super::X` from a form it \

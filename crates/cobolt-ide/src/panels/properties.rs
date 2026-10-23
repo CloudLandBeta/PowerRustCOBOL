@@ -3843,6 +3843,10 @@ pub struct PropertiesPanel {
     /// `Non-Visuals` tab is active the form cannot be resized, so the form's
     /// `Width` and `Height` rows are read only.
     pub form_size_locked: bool,
+    /// WASM-017 R2 — set by its caller each frame: the open project is Web or
+    /// Mobile, so the form's `Instances` row is shown (a Desktop form has no
+    /// fixed memory and the property means nothing there).
+    pub web_project: bool,
     /// Spec 091 — set by the designer each frame: the layer the tab bar has active,
     /// when one is. With no control selected the pane then shows the layer — its
     /// name and its backdrop — instead of the form, since a layer has the form's
@@ -3976,6 +3980,7 @@ impl PropertiesPanel {
         Self {
             overridden: Default::default(),
             form_size_locked: false,
+            web_project: false,
             layer_view: None,
             hints: Default::default(),
             text_bufs: Default::default(),
@@ -11539,6 +11544,30 @@ impl PropertiesPanel {
                 }
             });
         }
+        // WASM-017 R2 — how many copies of the form a browser module holds.
+        // The row shows the default it would get while unset; a stored value
+        // out of range is shown as it is, with the Build's refusal beside it.
+        if self.web_project {
+            let range = cobolt_forms::model::INSTANCES_RANGE;
+            let mut n = i64::from(form.effective_instances(form.main_form));
+            property_row_keyed(ui, tr.lbl_instances, Some("Instances"), |ui| {
+                if ui
+                    .add(DragValue::new(&mut n).speed(1).range(i64::from(*range.start())..=i64::from(*range.end())))
+                    .changed()
+                {
+                    action.form_props.push(("Instances".into(), n.to_string()));
+                }
+            });
+            let bad = form.instances_problem().is_some();
+            if bad || !search_hides_extras() {
+                let hint = if bad {
+                    tr.msg_instances_out_of_range.replacen("{}", &form.name, 1)
+                } else {
+                    tr.lbl_instances_hint.to_owned()
+                };
+                ui.label(RichText::new(hint).small().color(Color32::GRAY).italics());
+            }
+        }
     }
 
     /// The inspector of a layer (spec 091 R15, R16, R24): its `Name` and the
@@ -15693,6 +15722,63 @@ mod tests {
         form.layout.insert("LayoutMode".into(), PropValue::String("Flex".into()));
         assert!(has(&labels(&form, tr), tr.lbl_flex_direction), "the form's own flex rows follow its LayoutMode");
         println!("056 AC40 (form inspector): Responsive switch always; layout, font scaling, minimum size and the breakpoint editor when on");
+    }
+
+    /// WASM-017 T4 — the form inspector lists `Instances` for a Web or Mobile
+    /// project only; setting it marks the form dirty and saves `instances`.
+    #[test]
+    fn the_form_inspector_shows_instances_for_a_web_project_only_017() {
+        fn labels(form: &Form, web: bool, tr: &Tr) -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            panel.web_project = web;
+            let mut out = Vec::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 4000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, None, &[], tr);
+                    });
+                },
+            );
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            full.textures_delta.clear();
+            out
+        }
+        let tr = &crate::i18n::Language::English.tr();
+        let has = |l: &[String], s: &str| l.iter().any(|t| t == s || t.starts_with(s));
+        let mut form = Form::new("F", "F", 800, 600);
+        let web = labels(&form, true, tr);
+        assert!(has(&web, tr.lbl_instances), "a Web project lists Instances");
+        assert!(!has(&web, tr.msg_instances_out_of_range));
+        assert!(!has(&labels(&form, false, tr), tr.lbl_instances), "a Desktop project does not");
+        form.instances = Some(0);
+        let said = tr.msg_instances_out_of_range.replacen("{}", "F", 1);
+        assert!(has(&labels(&form, true, tr), &said), "out of range is said, the form named");
+
+        let mut d = crate::panels::designer::DesignerPanel::new(Form::new("CHILD", "Child", 400, 300));
+        assert!(!d.dirty);
+        assert_eq!(d.get_form_prop("Instances").as_deref(), Some("4"), "unset: the default for a form that is not main");
+        d.set_form_prop("Instances", "7".into());
+        assert!(d.dirty, "setting Instances marks the form dirty");
+        let path = std::env::temp_dir().join(format!("prc-instances-017-{}.cfrm", std::process::id()));
+        cobolt_forms::xml::save_form(&d.form, &path).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(saved.contains("instances=\"7\""), "saved: {saved}");
+        println!("WASM-017 T4: Instances row in a Web project, absent in a Desktop one; out-of-range message shown; set 7 → dirty, saved instances=\"7\"");
     }
 
     /// **The control's type is readable beside its name.** The Identity header

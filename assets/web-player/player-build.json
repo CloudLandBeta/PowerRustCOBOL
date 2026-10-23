@@ -1,4 +1,5 @@
 {
+  "features": [],
   "files": [
     {
       "bytes": 15548,
@@ -31,24 +32,24 @@
       "sha256": "0dae18a33f3c0fd556d396fd4afc1d5a00717332e12e9bb1f46d7ea747927d3c"
     },
     {
-      "bytes": 80250,
+      "bytes": 80068,
       "path": "plain/player.js",
-      "sha256": "c04d847e231865d1fa23e65c3b38dee0a36fdf5dd635edf02cddc2874aefe9b0"
+      "sha256": "cc1bc93f3295fe6f25656992e7cc626b9a33285161399841cdd25d7a7feb32f7"
     },
     {
-      "bytes": 2849748,
+      "bytes": 2851350,
       "path": "plain/player_bg.wasm",
-      "sha256": "096e5ca3fe7c4125f599b4c2327ecd99e6a45c42140fc90bfb2b5b8903ec8bae"
+      "sha256": "1673686b9fa38023b90834112183e7390f3e23c14713a40bf5678db9c3d8bf95"
     },
     {
-      "bytes": 86862,
+      "bytes": 86680,
       "path": "threaded/player.js",
-      "sha256": "11dbb4c9e87e02e59908178d9191ee76dabb6c03764a513f5f86a5c66db38d11"
+      "sha256": "a0e6d54de600c56d7c28c3578849f7e69840d5e8dab28c4b10d30166d22560a4"
     },
     {
-      "bytes": 2674553,
+      "bytes": 2676235,
       "path": "threaded/player_bg.wasm",
-      "sha256": "c5d50a85c718eda135a5cf26d42eceb0332c1278d85479155e6d2373ec01f52c"
+      "sha256": "0a18f3bbf23b03b38e399c33e9b2e9056f851fda01f3c3c46c3fe2ceb2613a4a"
     },
     {
       "bytes": 4556,
@@ -66,20 +67,20 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 3083357,
-      "after_wasm_opt_bytes": 2849748,
-      "cargo_output_bytes": 4478721,
-      "glue_js_bytes": 80250,
-      "gzip_bytes": 931566,
+      "after_bindgen_bytes": 3084899,
+      "after_wasm_opt_bytes": 2851350,
+      "cargo_output_bytes": 4480025,
+      "glue_js_bytes": 80068,
+      "gzip_bytes": 932248,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 2877798,
-      "after_wasm_opt_bytes": 2674553,
-      "cargo_output_bytes": 4281193,
-      "glue_js_bytes": 86862,
-      "gzip_bytes": 914930,
+      "after_bindgen_bytes": 2879510,
+      "after_wasm_opt_bytes": 2676235,
+      "cargo_output_bytes": 4282681,
+      "glue_js_bytes": 86680,
+      "gzip_bytes": 915795,
       "opt_level": "s",
       "variant": "threaded"
     }
@@ -121,7 +122,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "afe57be71e4cc194c01b802435c0828fdb7101c2ea6c8b27fd9837ff0aef139d",
+  "source_hash": "93a01ce0c632bce94bc02f85f92b70be6f283b0abd2e032c36de6b334e94061d",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

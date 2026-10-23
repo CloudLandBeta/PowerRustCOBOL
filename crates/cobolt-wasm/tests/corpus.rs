@@ -53,6 +53,9 @@ enum Verdict {
     Excluded(String),
 }
 
+/// Modules scanned for `memory.grow` (none has one).
+static SCANNED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 fn judge(path: &Path) -> Verdict {
     let raw = std::fs::read(path).unwrap();
     let src = String::from_utf8_lossy(&raw).into_owned();
@@ -90,6 +93,10 @@ fn judge(path: &Path) -> Verdict {
             },
         )
         .unwrap();
+        // WASM-017 R7, AC5: fixed memory — no module of the corpus grows it.
+        let scan = cobolt_wasm_abi::scan::scan_module(&c.wasm).unwrap();
+        assert!(!scan.has_memory_grow, "{}: multi={multi}: memory.grow", path.display());
+        SCANNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let o = cobolt_wasm::host::run_program(&c.wasm).unwrap();
         if o.trapped.is_some() || !o.errors.is_empty() {
             return Verdict::Differs(format!(
@@ -155,6 +162,7 @@ fn the_corpus_inside_the_subset_matches_the_interpreter() {
         identical + differs.len(),
         differs.len()
     );
+    eprintln!("corpus: {} modules scanned, 0 with memory.grow (WASM-017 R7)", SCANNED.load(std::sync::atomic::Ordering::Relaxed));
     let unknown: Vec<_> = differs
         .iter()
         .filter(|(r, _)| !KNOWN.iter().any(|(k, _)| k == r))

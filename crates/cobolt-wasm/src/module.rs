@@ -9,6 +9,7 @@
 
 use crate::error::{GenError, GenResult};
 use crate::image::{self, InitOp};
+use crate::layout::Layout;
 use crate::ir::*;
 use crate::link::{Blob, Mapper};
 use crate::lower::{FormCtx, Lower, Lowered};
@@ -147,6 +148,47 @@ const INST_ROW: u32 = 32;
 
 const fn align(n: u32, a: u32) -> u32 {
     (n + a - 1) & !(a - 1)
+}
+
+/// The most pages memory 0 may have (WASM-017 R7): the 32-bit limit, 4 GiB.
+/// A lower product cap is the operator's to set (Q-17b, open).
+pub const MAX_DATA_PAGES: u32 = 65_536;
+
+/// Refuse a memory 0 that would end at `end` bytes past what [`MAX_DATA_PAGES`]
+/// allows, naming the form whose instances weigh most, its largest item and the
+/// arithmetic (WASM-017 R7, AC5) — `Instances` or the table is the lever.
+fn memory_ceiling(forms: &[FormSpec<'_>], layouts: &[&Layout], end: u64) -> GenResult<()> {
+    let limit = u64::from(MAX_DATA_PAGES) * 65_536;
+    if end.div_ceil(65_536) <= u64::from(MAX_DATA_PAGES) && end <= u64::from(u32::MAX) {
+        return Ok(());
+    }
+    let weight = |i: usize| (u64::from(layouts[i].total) + 15) / 16 * 16 * u64::from(forms[i].instances.max(1));
+    let fi = (0..forms.len()).max_by_key(|&i| weight(i)).unwrap_or(0);
+    let layout = layouts[fi];
+    let largest = layout
+        .roots
+        .iter()
+        .map(|&r| &layout.items[r])
+        .filter(|it| !it.hidden)
+        .max_by_key(|it| u64::from(it.size) * u64::from(it.occurs.as_ref().map_or(1, |o| o.0)));
+    let (item, item_bytes, line) = largest.map_or(("(none)".to_owned(), 0, 0), |it| {
+        (it.name.clone().unwrap_or_else(|| "FILLER".into()), u64::from(it.size) * u64::from(it.occurs.as_ref().map_or(1, |o| o.0)), it.span_line)
+    });
+    let region = (u64::from(layout.total) + 15) / 16 * 16;
+    let instances = forms[fi].instances.max(1);
+    Err(GenError::kinded(
+        line,
+        crate::error::ErrorKind::Other,
+        item.clone(),
+        format!(
+            "form {}: the data memory would be {end} bytes, more than the {limit} a WebAssembly memory holds; \
+             its storage is {region} bytes × {instances} instances = {} bytes, the largest item {item} ({item_bytes} bytes) — \
+             lower Instances or the table",
+            forms[fi].name,
+            region * u64::from(instances),
+        ),
+    )
+    .in_form(fi))
 }
 
 fn mem0(offset: u64, align: u32) -> MemArg {
@@ -407,11 +449,28 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let ftab_base = align(consts_base + pool.bytes.len() as u32, 16);
     let ftab_size = if project { forms.len() as u32 * FT_ROW } else { 0 };
     let mut cursor = align(ftab_base + ftab_size, 16);
+    // The ceiling before the images are built — their native build allocates
+    // each region — on everything but the templates; again, exactly, below.
+    let layouts: Vec<&Layout> = lowered_forms.iter().map(|(l, _)| &l.layout).collect();
+    let fixed_end = |start: u64| -> u64 {
+        let regions: u64 =
+            layouts.iter().zip(forms).map(|(l, f)| (u64::from(l.total) + 15) / 16 * 16 * u64::from(f.instances.max(1))).sum();
+        let insts: u64 = forms.iter().map(|f| u64::from(f.instances.max(1))).sum::<u64>() * u64::from(INST_ROW);
+        let heap = if lowered_forms.iter().any(|(l, _)| l.uses_heap) { u64::from(opts.file_heap & !15) + 16 } else { 0 };
+        (start + 15) / 16 * 16 + regions + 16 + insts + heap
+    };
+    memory_ceiling(forms, &layouts, fixed_end(u64::from(cursor)))?;
     let mut images: Vec<image::Image> = Vec::new();
     for (i, (l, _)) in lowered_forms.iter().enumerate() {
         images.push(image::build(&l.layout, forms[i].program.decimal_comma, forms[i].program.currency)?);
     }
     let mut template_bases: Vec<u32> = Vec::new();
+    let mut templates_end = u64::from(cursor);
+    for img in &images {
+        templates_end = (templates_end + 15) / 16 * 16 + img.blob.len() as u64;
+    }
+    memory_ceiling(forms, &layouts, fixed_end(templates_end))?;
+    drop(layouts);
     for img in &images {
         template_bases.push(cursor);
         cursor = align(cursor + img.blob.len() as u32, 16);

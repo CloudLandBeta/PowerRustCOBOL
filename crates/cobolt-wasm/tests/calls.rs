@@ -204,3 +204,53 @@ END PROGRAM SPLIT.
 "#;
     same_output(src);
 }
+
+/// WASM-017 R4, AC4: lifetime follows COBOL, not the call stack. A plain called
+/// program keeps its storage across calls until `CANCEL`, and starts fresh after
+/// it — the same on both engines and both memory variants. A program declared
+/// `INITIAL` starts fresh at every call: on the module, both variants; the
+/// interpreter ignores `INITIAL` (WASM-PARITY #11, a 1.x.x defect), so that half
+/// is held to the standard, not to the interpreter.
+#[test]
+fn initial_and_cancel() {
+    let kept_src = r#"IDENTIFICATION DIVISION.
+PROGRAM-ID. MAIN-PROG.
+PROCEDURE DIVISION.
+MAIN.
+    CALL "KEEPER".
+    CALL "KEEPER".
+    CALL "KEEPER".
+    CANCEL "KEEPER".
+    CALL "KEEPER".
+    CALL "KEEPER".
+    STOP RUN.
+END PROGRAM MAIN-PROG.
+IDENTIFICATION DIVISION.
+PROGRAM-ID. KEEPER.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 CALLS PIC 9 VALUE 0.
+PROCEDURE DIVISION.
+GO-ON.
+    ADD 1 TO CALLS.
+    DISPLAY "kept: " CALLS.
+    GOBACK.
+END PROGRAM KEEPER.
+"#;
+    let kept = same_output(kept_src);
+    assert_eq!(kept, ["kept: 1", "kept: 2", "kept: 3", "kept: 1", "kept: 2"], "kept until CANCEL, fresh after it");
+
+    let initial_src = kept_src.replace("PROGRAM-ID. KEEPER.", "PROGRAM-ID. KEEPER IS INITIAL PROGRAM.");
+    let mut calls = 0;
+    for multi in [true, false] {
+        let o = run_wasm(&initial_src, &cobolt_wasm::Options { multi_memory: multi, ..cobolt_wasm::Options::default() });
+        assert!(o.trapped.is_none() && o.errors.is_empty(), "multi={multi}: {o:?}");
+        let got = wasm_lines(&o);
+        assert_eq!(got, ["kept: 1"; 5], "multi={multi}: INITIAL starts fresh at every call");
+        calls += got.len();
+    }
+    let interp = run_interpreter(&initial_src);
+    println!(
+        "initial_and_cancel: plain 5 calls equal on both engines and variants ({kept:?}); INITIAL {calls} module calls all fresh; interpreter prints {interp:?} (WASM-PARITY #11)"
+    );
+}

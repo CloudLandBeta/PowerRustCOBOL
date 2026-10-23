@@ -123,6 +123,8 @@ pub fn diagnostic_text(d: &WebDiagnostic, tr: &Tr) -> String {
         WebDiagnosticKind::TooManyHostReads => Some(tr.wasm_diag_too_many_reads),
         WebDiagnosticKind::AcceptIgnored => Some(tr.wasm_warn_accept_ignored),
         WebDiagnosticKind::RedefinesMayDiffer => Some(tr.wasm_warn_redefines),
+        WebDiagnosticKind::InstancesOutOfRange => Some(tr.msg_instances_out_of_range),
+        WebDiagnosticKind::MultiMemoryOnlyWithWebKit => Some(tr.pk_err_multi_memory_only_with_webkit),
     };
     let text = match template {
         Some(t) => fill(t, &[&d.subject]),
@@ -1239,6 +1241,8 @@ mod tests {
             WebDiagnosticKind::TooManyHostReads,
             WebDiagnosticKind::AcceptIgnored,
             WebDiagnosticKind::RedefinesMayDiffer,
+            WebDiagnosticKind::InstancesOutOfRange,
+            WebDiagnosticKind::MultiMemoryOnlyWithWebKit,
         ];
         let mut said = 0;
         for &lang in Language::ALL {

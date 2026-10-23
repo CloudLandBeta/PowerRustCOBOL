@@ -153,6 +153,24 @@ impl Layout {
         None
     }
 
+    /// Where item `i` ends, every occurrence counted; an item that would end
+    /// past what a 32-bit WebAssembly memory addresses is refused by name
+    /// (WASM-017 R7: data that cannot be sized is a compile error).
+    fn end_of(&self, i: usize) -> GenResult<u32> {
+        let it = &self.items[i];
+        let n = u64::from(it.occurs.as_ref().map_or(1, |o| o.0));
+        let end = u64::from(it.off) + u64::from(it.size) * n;
+        u32::try_from(end).map_err(|_| {
+            let name = it.name.as_deref().unwrap_or("FILLER");
+            GenError::kinded(
+                it.span_line,
+                crate::error::ErrorKind::Other,
+                name,
+                format!("{name}: {} bytes × {n} occurrences do not fit in a WebAssembly memory (4 GiB)", it.size),
+            )
+        })
+    }
+
     /// Lay out one section's declarations after what is already there.
     pub fn add_section(&mut self, decls: &[DataDecl]) -> GenResult<()> {
         let first_root = self.roots.len();
@@ -181,8 +199,8 @@ impl Layout {
             let idx = self.add_decl(d, None, start, None, Usage::Display)?;
             self.items[idx].redefines = redef;
             self.roots.push(idx);
+            let end = self.end_of(idx)?;
             let it = &self.items[idx];
-            let end = it.off + it.size * it.occurs.as_ref().map_or(1, |o| o.0);
             let (it_off, it_len) = (it.off, end - it.off);
             if d.is_external {
                 self.mark_external(idx);
@@ -352,8 +370,7 @@ impl Layout {
                 Some(f) => self.items[idx].redefines = Some(f),
             }
             self.roots.push(idx);
-            let it = &self.items[idx];
-            end = end.max(it.off + it.size * it.occurs.as_ref().map_or(1, |o| o.0));
+            end = end.max(self.end_of(idx)?);
         }
         if external {
             // The records of an EXTERNAL FD are never initialised by the image.
@@ -444,8 +461,7 @@ impl Layout {
                         last_by_name.insert(n.clone(), ci);
                     }
                 }
-                let it = &self.items[ci];
-                let end = it.off + it.size * it.occurs.as_ref().map_or(1, |o| o.0);
+                let end = self.end_of(ci)?;
                 if redef.is_none() {
                     cursor = end;
                 }
@@ -747,6 +763,11 @@ impl Default for Layout {
 }
 
 /// The descriptor of an elementary item.
+/// The item's name as a refusal names it: upper-case, `FILLER` when it has none.
+fn decl_name(d: &DataDecl) -> String {
+    d.name.as_deref().map_or_else(|| "FILLER".to_owned(), str::to_ascii_uppercase)
+}
+
 fn item_fd(d: &DataDecl, sign: Option<SignClause>, usage: Usage) -> GenResult<Fd> {
     let line = d.span.line;
     let mut flags = 0u8;
@@ -763,14 +784,14 @@ fn item_fd(d: &DataDecl, sign: Option<SignClause>, usage: Usage) -> GenResult<Fd
             Usage::Index | Usage::Pointer | Usage::ObjectReference => {
                 Fd { kind: K_INDEX, flags: 0, digits: 9, scale: 0, len: 4, aux: 0 }
             }
-            _ => return Err(GenError::new(line, "an elementary item needs a PICTURE")),
+            _ => return Err(GenError::new(line, format!("{}: an elementary item needs a PICTURE", decl_name(d)))),
         });
     };
     let pic = pic::parse(&p.template, p.kind);
     Ok(match p.kind {
         PicKind::Numeric => {
             if pic.digits > 38 {
-                return Err(GenError::new(line, format!("PICTURE {} has more than 38 digits", p.template)));
+                return Err(GenError::new(line, format!("{}: PICTURE {} has more than 38 digits", decl_name(d), p.template)));
             }
             let mut f = flags | if pic.signed { F_SIGNED } else { 0 };
             let scale = pic.scale().clamp(-100, 100) as i8;

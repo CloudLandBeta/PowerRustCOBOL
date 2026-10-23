@@ -20119,6 +20119,8 @@ impl CoboltApp {
         // Before the closure takes `self`: the pane is told WHICH controls have
         // a key on file, never what the keys are.
         let stored_creds = self.controls_with_stored_credentials(&self.designers[idx].1.form);
+        // WASM-017 R2 — `Instances` is offered only where a form is fixed memory.
+        let web_project = self.is_web_project();
         let drawer = crate::panels::designer::show_props_drawer(
             panel_ui,
             idx,
@@ -20135,6 +20137,7 @@ impl CoboltApp {
                 // Spec 091 R30, R57 — the form's Width and Height are read only
                 // while a layer or the Non-Visuals tab is active.
                 d.properties.form_size_locked = !d.form_resizable();
+                d.properties.web_project = web_project;
                 // …and with a layer's tab active (and no control selected) the pane
                 // shows that layer.
                 d.properties.layer_view = d.tabs.active_layer().and_then(|name| {

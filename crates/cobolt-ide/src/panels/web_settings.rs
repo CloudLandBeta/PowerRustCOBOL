@@ -409,7 +409,32 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
         ui.checkbox(multi, "");
     });
     note(ui, lay, tr.pk_set_multi_memory_hint, dim);
+    // WASM-017 R9, D5 — "multi-memory only" is the fallback turned off; with
+    // WebKit in the matrix the Build refuses it, and so says the panel.
+    if draft.kind == ProjectKind::Web {
+        row(ui, lay, tr.pk_set_single_memory_fallback, |ui| {
+            ui.checkbox(&mut draft.web.single_memory_fallback, "");
+        });
+        note(ui, lay, tr.pk_set_single_memory_fallback_hint, dim);
+        if let Some(p) = draft.web.variant_problem() {
+            note(ui, lay, &tr.pk_err_multi_memory_only_with_webkit.replacen("{}", &p.browsers.join(", "), 1), theme.error);
+        }
+    }
     note(ui, lay, &tr.pk_set_variants.replacen("{}", &variants_text(tr, variants), 1), dim);
+    // WASM-017 R8 — one payload limit for the module, the player and the Backend.
+    let payload = match draft.kind {
+        ProjectKind::Web => Some(&mut draft.web.max_payload_bytes),
+        _ => draft.mobile.as_mut().map(|m| &mut m.max_payload_bytes),
+    };
+    if let Some(bytes) = payload {
+        row(ui, lay, tr.pk_set_max_payload, |ui| {
+            let mut kb = *bytes / 1024;
+            if ui.add(egui::DragValue::new(&mut kb).range(64..=16_384).speed(16)).changed() {
+                *bytes = kb * 1024;
+            }
+        });
+        note(ui, lay, tr.pk_set_max_payload_hint, dim);
+    }
 
     if draft.kind == ProjectKind::Web {
         row(ui, lay, tr.pk_set_isolation, |ui| {
@@ -501,9 +526,38 @@ mod tests {
         let mut draft = SettingsDraft::from_project(&p, &LlmConfig::load_defaults_for_test());
         assert_eq!(draft.web.module_variants().count(), 2, "the default matrix includes Safari");
         draft.web.browsers = BrowserMatrix { chromium: true, firefox: true, safari: false, ios_webview: false, android_webview: true };
-        assert_eq!(draft.web.module_variants().count(), 1);
+        assert_eq!(draft.web.module_variants().count(), 2, "WASM-017 D5: the fallback is on by default");
+        draft.web.single_memory_fallback = false;
+        assert_eq!(draft.web.module_variants().count(), 1, "fallback off, no WebKit: multi-memory only");
         draft.apply_kind(&mut p);
         assert!(!p.web.as_ref().unwrap().browsers.safari);
+        assert!(!p.web.as_ref().unwrap().single_memory_fallback);
+    }
+
+    /// WASM-017 T7: "multi-memory only" with Safari in the matrix is said in
+    /// the panel in every language, naming the browsers, and the payload limit
+    /// is written back.
+    #[test]
+    fn multi_memory_only_with_webkit_is_said_in_six_languages_017() {
+        let mut p = web_project();
+        let mut draft = SettingsDraft::from_project(&p, &LlmConfig::load_defaults_for_test());
+        assert!(draft.web.single_memory_fallback && draft.web.variant_problem().is_none());
+        draft.web.single_memory_fallback = false;
+        let problem = draft.web.variant_problem().expect("Safari is in the default matrix");
+        let mut said = 0;
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            for t in [tr.pk_set_single_memory_fallback, tr.pk_set_single_memory_fallback_hint, tr.pk_set_max_payload, tr.pk_set_max_payload_hint] {
+                assert!(!t.trim().is_empty() && !t.to_lowercase().contains("cobolt"), "{lang:?}: {t:?}");
+            }
+            let text = tr.pk_err_multi_memory_only_with_webkit.replacen("{}", &problem.browsers.join(", "), 1);
+            assert!(text.contains("Safari") && text.contains("iOS") && !text.contains("{}"), "{lang:?}: {text}");
+            said += 1;
+        }
+        draft.web.max_payload_bytes = 512 * 1024;
+        draft.apply_kind(&mut p);
+        assert_eq!(p.web.as_ref().unwrap().max_payload_bytes, 512 * 1024);
+        println!("WASM-017 T7: the refusal said in {said} languages naming {:?}; payload limit written back", problem.browsers);
     }
 
     /// WASM-001/002: the section reads the project and writes it back, and
