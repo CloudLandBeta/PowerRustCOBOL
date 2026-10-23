@@ -121,6 +121,8 @@ fn threaded_scripts() -> Vec<(String, String)> {
         }
     }
     let mut out = Vec::new();
+    // The committed player a Build copies (WASM-016 Q2): its threaded glue and worker helper.
+    walk(&support::repo_root().join("assets/web-player/threaded"), true, &mut out);
     let root = support::repo_root().join("crates/cobolt-web-player/target-player");
     for e in std::fs::read_dir(&root).into_iter().flatten().flatten() {
         if e.file_name().to_string_lossy().starts_with("out-") {
@@ -134,6 +136,10 @@ fn threaded_scripts() -> Vec<(String, String)> {
 fn the_threaded_players_glue_and_worker_helper_are_clean_too() {
     let files = threaded_scripts();
     println!("threaded scripts found: {}", files.len());
+    for (path, _) in &files {
+        println!("  {path}");
+    }
+    assert!(files.iter().any(|(p, _)| p.ends_with("workerHelpers.js")), "the committed threaded player's worker helper is scanned");
     let mut problems = Vec::new();
     for (path, text) in &files {
         for (needle, why) in FORBIDDEN {

@@ -21,6 +21,7 @@
 pub mod csp;
 pub mod devserver;
 pub mod hash;
+pub mod hostpage;
 pub mod secrets;
 
 use std::collections::BTreeMap;
@@ -33,18 +34,32 @@ use serde_json::{json, Value};
 
 pub use csp::CspOptions;
 
-const LOADER_JS: &str = include_str!("../assets/loader.js");
-const WORKER_JS: &str = include_str!("../assets/worker.js");
-const APP_JS: &str = include_str!("../assets/app.js");
-const APP_CSS: &str = include_str!("../assets/app.css");
-const PAGE_HTML: &str = include_str!("../assets/page.html");
-const COI_SW: &str = include_str!("../assets/coi-serviceworker.js");
-const COI_REGISTER: &str = include_str!("../assets/coi-register.js");
-
 /// The loader's version, in `PowerRustCOBOL.versions`.
 pub const LOADER_VERSION: u32 = 1;
 /// The version of the form-description format (WASM-016 R11): the sanitised `.cfrm`.
 pub const DESCRIPTION_VERSION: u32 = 1;
+
+/// The size budget of the first download (WASM-002 Q5, answered 2026-10-22 "5 MB", **to confirm**). Working
+/// assumption: it caps the first download — the larger program module the probe can pick, the plain
+/// player, the loader and the page's glue, the page and its stylesheet — counted in 10⁶ bytes; over it
+/// is a warning, never a failure, and there is no first-paint target yet.
+pub const FIRST_DOWNLOAD_BUDGET: u64 = 5_000_000;
+
+/// The first-download line of the report (WASM-002 R8, Q5).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BudgetLine {
+    pub first_download_bytes: u64,
+    pub budget_bytes: u64,
+}
+
+impl BudgetLine {
+    pub fn over(&self) -> bool {
+        self.first_download_bytes > self.budget_bytes
+    }
+}
+
+/// The start of the budget warning, for a caller that shows it in another language.
+pub const OVER_BUDGET_PREFIX: &str = "the first download is";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppStyle {
@@ -232,6 +247,8 @@ pub struct BuildReport {
     /// Every file with its size (WASM-002 R8).
     pub sizes: Vec<SizeLine>,
     pub total_bytes: u64,
+    /// The first download against [`FIRST_DOWNLOAD_BUDGET`].
+    pub budget: BudgetLine,
     pub csp_meta: String,
     pub csp_header: String,
     /// Directives (and modes) only a response header can deliver.
@@ -249,7 +266,9 @@ impl BuildReport {
         for l in &self.sizes {
             s.push_str(&format!("  {:>10}  {}\n", l.bytes, l.path));
         }
-        s.push_str(&format!("  {:>10}  total\n\n", self.total_bytes));
+        s.push_str(&format!("  {:>10}  total\n", self.total_bytes));
+        let over = if self.budget.over() { ", over" } else { "" };
+        s.push_str(&format!("  {:>10}  first download (budget {} bytes{over})\n\n", self.budget.first_download_bytes, self.budget.budget_bytes));
         s.push_str("Content-Security-Policy\n");
         s.push_str(&format!("  in the page (<meta>): {}\n", self.csp_meta));
         s.push_str(&format!("  only as a response header: {}\n", self.header_only.join(", ")));
@@ -642,11 +661,10 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     player_cfg.insert("parts".into(), Value::Object(parts_cfg));
 
     // the loader and the worker
-    let loader_path = b.add_hashed("loader.js", LOADER_JS.as_bytes().to_vec());
-    let worker_path = b.add_hashed("worker.js", WORKER_JS.as_bytes().to_vec());
-    let app_js = APP_JS.replace("__LOADER__", &loader_path);
-    let app_js_path = b.add_hashed("app.js", app_js.into_bytes());
-    let app_css_path = b.add_hashed("app.css", APP_CSS.as_bytes().to_vec());
+    let loader_path = b.add_hashed("loader.js", hostpage::loader_js().into_bytes());
+    let worker_path = b.add_hashed("worker.js", hostpage::worker_js().into_bytes());
+    let app_js_path = b.add_hashed("app.js", hostpage::app_js(&loader_path).into_bytes());
+    let app_css_path = b.add_hashed("app.css", hostpage::app_css().into_bytes());
 
     // texts, options and the config the loader reads
     let mut texts = serde_json::Map::new();
@@ -693,8 +711,8 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     // the page(s)
     let policy = csp::build(&csp_opts, &backend_origins, &o.embed);
     let shim_path = if o.service_worker_shim {
-        let sw = b.add_hashed("coi-serviceworker.js", COI_SW.as_bytes().to_vec());
-        b.add_hashed("coi-register.js", COI_REGISTER.as_bytes().to_vec());
+        let sw = b.add_hashed("coi-serviceworker.js", hostpage::coi_serviceworker_js().into_bytes());
+        b.add_hashed("coi-register.js", hostpage::coi_register_js().into_bytes());
         Some(sw)
     } else {
         None
@@ -714,23 +732,26 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         Embed::Element { .. } => ("", "pr-embedded"),
     };
     let (app_css_sri, loader_sri, app_js_sri) = (b.sri_of(&app_css_path), b.sri_of(&loader_path), b.sri_of(&app_js_path));
+    let csp_meta = policy.meta_content();
+    let noscript = texts_all("noscript", "This application needs JavaScript.");
     let render_page = |start: Option<&str>, title: &str| -> String {
-        PAGE_HTML
-            .replace("{{LANG}}", &esc(&o.locale))
-            .replace("{{CSP}}", &esc(&policy.meta_content()))
-            .replace("{{TITLE}}", &esc(title))
-            .replace("{{APP_CSS}}", &app_css_path)
-            .replace("{{APP_CSS_SRI}}", &app_css_sri)
-            .replace("{{LOADER}}", &loader_path)
-            .replace("{{LOADER_SRI}}", &loader_sri)
-            .replace("{{SHIM}}", &shim_html)
-            .replace("{{APP_JS}}", &app_js_path)
-            .replace("{{APP_JS_SRI}}", &app_js_sri)
-            .replace("{{BODY_CLASS}}", body_class)
-            .replace("{{APP_CLASS}}", app_class)
-            .replace("{{CONFIG}}", "config.json")
-            .replace("{{START_ATTR}}", &start.map(|s| format!(" data-pr-start=\"{}\"", esc(s))).unwrap_or_default())
-            .replace("{{NOSCRIPT}}", &esc(&texts_all("noscript", "This application needs JavaScript.")))
+        hostpage::page_html(&hostpage::Page {
+            lang: &o.locale,
+            csp: &csp_meta,
+            title,
+            app_css: &app_css_path,
+            app_css_sri: &app_css_sri,
+            loader: &loader_path,
+            loader_sri: &loader_sri,
+            shim: &shim_html,
+            app_js: &app_js_path,
+            app_js_sri: &app_js_sri,
+            body_class,
+            app_class,
+            config: "config.json",
+            start,
+            noscript: &noscript,
+        })
     };
     b.add("index.html".into(), render_page(None, &o.title).into_bytes());
     if o.style == AppStyle::Standalone {
@@ -786,6 +807,21 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         warnings.extend(warns.iter().map(|f| f.to_string()));
     }
 
+    // ── the first download against the budget (R8, Q5: a warning only) ─────
+    let size_of = |path: &str| b.files.iter().find(|f| f.path == path).map_or(0, |f| f.bytes.len() as u64);
+    let program_bytes = [&input.program_multi, &input.program_single].iter().filter_map(|p| p.as_ref().map(|v| v.len() as u64)).max().unwrap_or(0);
+    let player_bytes = input.player.plain.as_ref().map_or(0, |v| {
+        v.files.iter().filter(|(rel, _)| *rel == v.entry_js || *rel == v.entry_wasm).map(|(_, bytes)| bytes.len() as u64).sum()
+    });
+    let page_bytes = [&loader_path, &app_js_path, &app_css_path, "index.html"].iter().map(|p| size_of(p)).sum::<u64>();
+    let budget = BudgetLine { first_download_bytes: program_bytes + player_bytes + page_bytes, budget_bytes: FIRST_DOWNLOAD_BUDGET };
+    if budget.over() {
+        warnings.push(format!(
+            "{OVER_BUDGET_PREFIX} {} bytes, over the budget of {} bytes (the program module, the plain player, the loader, the page and its stylesheet)",
+            budget.first_download_bytes, budget.budget_bytes
+        ));
+    }
+
     // ── the report ─────────────────────────────────────────────────────────
     let mut sizes: Vec<SizeLine> = b.files.iter().map(|f| SizeLine { path: f.path.clone(), bytes: f.bytes.len() as u64 }).collect();
     sizes.sort_by(|a, c| a.path.cmp(&c.path));
@@ -794,6 +830,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     let report = BuildReport {
         sizes,
         total_bytes,
+        budget,
         csp_meta: policy.meta_content(),
         csp_header: policy.header_value(),
         header_only: policy.header_only_directives(),

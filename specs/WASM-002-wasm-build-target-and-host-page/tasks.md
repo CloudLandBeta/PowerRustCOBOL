@@ -45,7 +45,10 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
 
 ## The host page's code becomes generated (plan C1, §4.1 — Q6 decided)
 
-- [ ] **T10 — `hostpage.rs` emits today's text, byte for byte** (R10–R15, R19, R20; Q6)
+- [x] **T10 — `hostpage.rs` emits today's text, byte for byte** (R10–R15, R19, R20; Q6)
+  - *Done 2026-10-22:* `generated_host_page` — 7/7 texts identical (loader.js 36,622 B, worker.js 5,370, app.js 2,835,
+    coi-register.js 972, coi-serviceworker.js 1,922, page.html 696, app.css 999); crate green: unit 19, csp_origins 2, e2e_node 1
+    (14 scenarios, 0 failed), generated_host_page 1, no_string_execution 3.
   - Files: `crates/cobolt-web-bundle/src/hostpage.rs` (new), `src/lib.rs` (`mod hostpage;`), `tests/generated_host_page.rs` (new).
   - Do: one Rust function per file — `loader.js`, `worker.js`, `app.js`, `coi-register.js`, `coi-serviceworker.js`, the page, `app.css` —
     returning the same text the `include_str!` constants (`lib.rs:36-42`) hold today, the `{{…}}` placeholders included. The assembler is not
@@ -53,7 +56,15 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
   - Verify: `cargo test -p cobolt-web-bundle --test generated_host_page` — test (d) of plan §6: each generated text equals the tracked file;
     the whole crate still green (`cargo test -p cobolt-web-bundle --no-fail-fast`, every `test result` line read).
 
-- [ ] **T11 — The assembler writes the generated code; the tracked JS/HTML/CSS go** (R10–R15, R19, R20; PRIME DIRECTIVE)
+- [x] **T11 — The assembler writes the generated code; the tracked JS/HTML/CSS go** (R10–R15, R19, R20; PRIME DIRECTIVE)
+  - *Done 2026-10-22:* `hostpage.rs` writes the seven files with `BANNER_JS`/`BANNER_HTML`/`BANNER_CSS`; written in: the hashed
+    loader name and `{ loader, abi }` versions (`app.js`), the ABI version, `WORKERS_CAP = 8` and `DECLARED_BROWSERS` in the R15 message
+    (`loader.js`), the page from `hostpage::Page`. `assets/*.{js,html,css}` deleted from the working tree (unstaged: `git ls-files` lists
+    them until the pipeline records the deletion). `generated_host_page` 3/3 — banner on 9 files, 21 files byte-identical across two
+    builds, no `.js/.html/.css` under the crate; `no_string_execution` 3/3, now also over the committed
+    `assets/web-player/threaded` (`player.js`, `workerHelpers.js` — it found 0 threaded files before); `e2e_node` 14 scenarios, 0
+    failed; unit 19, `csp_origins` 2. **Chrome yield / fixed-memory measurements (T8) were not re-run** on the generated loader in
+    this session: no browser was driven here.
   - Files: `crates/cobolt-web-bundle/src/lib.rs` (the seven constants and the `replace` chains `:645-649`, `:717-734` give way to `hostpage`
     calls with the per-build values written in), `src/hostpage.rs`, `assets/{app.css,app.js,coi-register.js,coi-serviceworker.js,loader.js,page.html,worker.js}`
     (**deleted** — product source moving into Rust, not developer code), `tests/generated_host_page.rs`, `tests/no_string_execution.rs`.
@@ -68,7 +79,10 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
     (threaded glue and `workerHelpers.js` included); `e2e_node` still ≥ 14 scenarios, 0 failed. In Chrome on the generated loader: re-run the
     T8 yield and fixed-memory measurements and record the numbers here (or record that they were not re-run).
 
-- [ ] **T12 — The 5 MB budget line** (R8; plan C4, Q5 — *answered, to confirm*)
+- [x] **T12 — The 5 MB budget line** (R8; plan C4, Q5 — *answered, to confirm*)
+  - *Done 2026-10-22:* `FIRST_DOWNLOAD_BUDGET = 5_000_000`, `BuildReport.budget` (`BudgetLine`), a `first download` line in
+    `text()`, a warning starting `OVER_BUDGET_PREFIX` when over. `tests/budget.rs` 2/2: fixture bundle 50,449 B → line, no warning;
+    with a 5,000,000-byte player 5,049,449 B → warning, bundle still built. Q5 stays open (scope, unit, first paint).
   - Files: `crates/cobolt-web-bundle/src/lib.rs` (`BuildReport` `:231` gains the line; one constant for the budget).
   - Do: compare the first download — the program module(s) the probe can pick, the plain player, loader, page, stylesheet — with the budget;
     over it → a **warning**, never a failure. **Working assumption, not decided:** first download, 5 × 10⁶ bytes, no first-paint target —
@@ -79,6 +93,20 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
 ## The Build and the Check (plan C6, §4.2–§4.3)
 
 - [ ] **T13 — `WasmBuild`: project → bundle** (R1, R16, R17, R9; AC4b)
+  - **Owner decided (operator, 2026-10-22): the Web Build backend belongs to WASM-010 T19** (`GeneratorBackend`,
+    `compile_web_project`, the two `web::link` calls). This task and T14–T16 do not build a second one (`WasmBuild`):
+    they run WASM-010's backend from the Web Build and check what it writes (`dist/web`, AC4b; the portable subset; the
+    player copied; the backend linked). Order: WASM-010 (T8–T10, T19) runs next, then this spec resumes at T13.
+  - **BLOCKED 2026-10-22 on WASM-010 T8/T9/T10** (all unchecked in `specs/WASM-010-webassembly-code-generation/tasks.md`).
+    `compile_project` (`cobolt-wasm/src/module.rs:161`) has no caller anywhere and does not yet produce a bundleable module: its
+    exports are `memory`, `arena`, `pr_abi`, `pr_variant`, `pr_arena_base`, `pr_init`, `pr_run` (`module.rs:817-823`) — no
+    `pr_open_form`, `pr_close_form`, `pr_event`, `pr_resume`, `pr_cancel`, `pr_tick`, `pr_status` — and its embedded manifest is a
+    `json!` with `"forms": []` and no `names`/`events`/`builtins`/`sizes` (`module.rs:878-890`). `scan::bundle_problems`
+    (`cobolt-wasm-abi/src/scan.rs:196-213`) refuses a module missing a required export or exporting `pr_run`, and
+    `Manifest::parse` needs the missing fields, so `assemble_bundle` would refuse every module this Build could generate; the
+    verification (`dist/web` with the modules, AC4b) cannot pass. **Also for the operator:** WASM-010 T19 plans the same backend
+    (`web/generator.rs`, `GeneratorBackend`, the same two `web::link` calls) that this list plans as T13–T16 (`web/build.rs`,
+    `WasmBuild`); one of the two lists should own it. T14–T22 depend on T13 and were not started.
   - Files: `crates/cobolt-project-tools/Cargo.toml` (adds `cobolt-wasm = { path = "../cobolt-wasm", default-features = false }` — no `wasmi` —
     and `cobolt-web-bundle`), `src/web/build.rs` (new), `src/web/mod.rs` (`pub mod build;`; `NotYetLinked` stays as the fallback),
     `tests/web_build.rs` (new), a hello-world Web fixture under `tests/fixtures/`.
