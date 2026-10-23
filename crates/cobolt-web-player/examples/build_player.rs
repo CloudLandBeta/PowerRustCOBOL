@@ -280,6 +280,14 @@ fn main() {
     collect(&out, &out, &mut files);
     let info = serde_json::json!({
         "source_hash": cobolt_web_player::fingerprint::source_fingerprint(&repo_root),
+        // What a bundle needs to know of this player without running it (WASM-016 R11): the version triple
+        // `versions()` answers in the page, and the host imports it gives a program module (ABI v1 §3).
+        "versions": {
+            "abi": cobolt_wasm_abi::ABI_VERSION,
+            "description": cobolt_forms::description::DESCRIPTION_FORMAT,
+            "player": env!("CARGO_PKG_VERSION"),
+        },
+        "host_imports": cobolt_wasm_abi::codes::PRODUCTION_IMPORTS.iter().map(|n| format!("{}.{n}", cobolt_wasm_abi::codes::IMPORT_MODULE)).collect::<Vec<_>>(),
         "files": files,
         "profile": {"lto": true, "codegen_units": 1, "panic": "abort", "strip": true, "opt_level": args.opt_level, "wasm_opt": "-Os"},
         "tools": {"wasm_bindgen": bindgen_v, "wasm_opt": wasm_opt_v, "rustc_stable": rustc_v, "rustc_nightly": nightly_v, "nightly": NIGHTLY, "wasm_pack": "not used (WASM-017 R17)"},

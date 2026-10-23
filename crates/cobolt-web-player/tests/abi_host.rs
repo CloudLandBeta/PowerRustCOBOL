@@ -139,9 +139,13 @@ fn a_remote_request_suspends_the_task_and_events_raised_meanwhile_run_in_order_a
         assert!(rig.click(0, "BTN-QUERY"));
         assert_eq!(rig.get(0, LBL_OUT, "Caption"), "calling", "nothing ran behind the waiting task");
         assert_eq!(rig.host.borrow().pending_work(), 2);
+        // Pending, but nothing can run until the answer: a driver that restarted itself on pending work
+        // spun forever and froze the page (found in Chrome, WASM-016 T24).
+        assert!(!rig.host.borrow().can_run(), "events held behind a waiting task are not runnable");
         // The answer arrives.
         let answer = br#"{"id":1,"result":"pong"}"#.to_vec();
         rig.host.borrow_mut().remote_answer(reqs[0].0, answer.clone());
+        assert!(rig.host.borrow().can_run(), "the answered task can resume");
         rig.drive();
         // The resumed handler echoed the answer frame; then BTN-GO and BTN-QUERY ran, in order.
         let kinds: Vec<&str> = rig

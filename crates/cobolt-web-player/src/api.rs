@@ -704,8 +704,9 @@ fn pump(inner: &Rc<Inner>) {
     spawn_local(async move {
         drive(&inner, &link).await;
         inner.driving.set(false);
-        // Something may have arrived between the last look and the flag going down.
-        if !inner.inbox.borrow().is_empty() || inner.host.borrow().pending_work() > 0 {
+        // Something may have arrived between the last look and the flag going down. Work that waits behind
+        // a suspended task does not count: it runs when the task's answer comes, which pumps again.
+        if !inner.inbox.borrow().is_empty() || inner.host.borrow().can_run() {
             pump(&inner);
         }
     });
@@ -748,6 +749,23 @@ async fn drive(inner: &Rc<Inner>, link: &Rc<JsLink>) {
     }
 }
 
+/// The ABI host for the program whose manifest is `manifest_json`, set up as the page's configuration says.
+fn make_host(cfg: &PlayerConfig, manifest_json: &str) -> Result<Host, JsError> {
+    let manifest = Manifest::parse(manifest_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let opts = HostOptions {
+        debug_level: cfg.debug_level,
+        standalone: cfg.standalone,
+        max_queue: cfg.max_queue.unwrap_or(HostOptions::default().max_queue),
+    };
+    let mut host = Host::new(manifest, opts);
+    host.set_auth_defaults(
+        if cfg.auth_flow.eq_ignore_ascii_case("hosted") { crate::auth::Flow::Hosted } else { crate::auth::Flow::InApp },
+        &cfg.recaptcha_site_key,
+    );
+    host.policy = crate::weblink::Policy { extra_schemes: cfg.weblink_schemes.clone() };
+    Ok(host)
+}
+
 // ── the exported object ─────────────────────────────────────────────────────
 
 /// The one object the loader holds.
@@ -766,19 +784,8 @@ impl Player {
         } else {
             serde_json::from_str(config_json).map_err(|e| JsError::new(&format!("the player configuration is not valid: {e}")))?
         };
-        let manifest = Manifest::parse(manifest_json).map_err(|e| JsError::new(&e.to_string()))?;
-        let opts = HostOptions {
-            debug_level: cfg.debug_level,
-            standalone: cfg.standalone,
-            max_queue: cfg.max_queue.unwrap_or(HostOptions::default().max_queue),
-        };
-        let mut host = Host::new(manifest, opts);
-        host.set_auth_defaults(
-            if cfg.auth_flow.eq_ignore_ascii_case("hosted") { crate::auth::Flow::Hosted } else { crate::auth::Flow::InApp },
-            &cfg.recaptcha_site_key,
-        );
+        let host = make_host(&cfg, manifest_json)?;
         let hosted_return = (!cfg.hosted_code.is_empty()).then(|| (cfg.hosted_code.clone(), cfg.hosted_state.clone()));
-        host.policy = crate::weblink::Policy { extra_schemes: cfg.weblink_schemes.clone() };
         let inner = Rc::new(Inner {
             styles: RefCell::new(Styles { locale: cfg.locale.clone(), ..Styles::default() }),
             host: RefCell::new(host),
@@ -1004,7 +1011,7 @@ impl Player {
             for _ in 0..100_000 {
                 // Look first, and start the driver only when there is something for it: starting it
                 // sets `driving`, so pumping an idle player would make it look busy forever.
-                let queued = !inner.inbox.borrow().is_empty() || inner.host.borrow().pending_work() > 0 || inner.host.borrow().has_yielded();
+                let queued = !inner.inbox.borrow().is_empty() || inner.host.borrow().can_run() || inner.host.borrow().has_yielded();
                 if queued && !inner.driving.get() {
                     pump(&inner);
                 }
@@ -1071,6 +1078,46 @@ impl Player {
         self.inner.host.borrow_mut().open_form(id, None, crate::host::OpenMode::Panel);
         pump(&self.inner);
         Ok(())
+    }
+
+    /// The Preview's in-place update (WASM-016 R16): stop the application — every open instance is closed in the module
+    /// it runs in and leaves the page — and take the program whose manifest is `manifest_json` (the same one, or a new
+    /// module's). The player, the page, the stylesheets and the connection stay. When the promise resolves, register the
+    /// descriptions (`add_form`), give the module's link (`attach`) and `start()` again. A session the Authentication
+    /// control held is not kept: the application starts as it does on a fresh page.
+    pub fn reset(&self, manifest_json: String) -> Promise {
+        let inner = self.inner.clone();
+        future_to_promise(async move {
+            if inner.dead.get() {
+                return Err(JsError::new("the player was unmounted").into());
+            }
+            let fresh = make_host(&inner.cfg, &manifest_json)?;
+            for _ in 0..1000 {
+                if !inner.driving.get() {
+                    break;
+                }
+                next_turn().await;
+            }
+            // Nothing the old program asked for may reach the new one.
+            inner.driving.set(true);
+            let calls = inner.host.borrow_mut().teardown();
+            inner.inbox.borrow_mut().clear();
+            inner.timers.borrow_mut().clear();
+            let link = inner.link.borrow().clone();
+            if let Some(link) = link {
+                for c in &calls {
+                    let _ = link.run(c).await;
+                }
+            }
+            // The instances leave the page (teardown reported each one closed).
+            inner.process_effects();
+            *inner.host.borrow_mut() = fresh;
+            *inner.link.borrow_mut() = None;
+            inner.inbox.borrow_mut().clear();
+            inner.driving.set(false);
+            let closed = calls.iter().filter(|c| matches!(c, ModuleCall::CloseForm { .. })).count();
+            Ok(JsValue::from_str(&serde_json::json!({"closed": closed}).to_string()))
+        })
     }
 
     /// Unmount: close every instance, drop every listener and timer, close the socket (WASM-017 R5).

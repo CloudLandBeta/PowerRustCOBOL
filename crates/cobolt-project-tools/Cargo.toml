@@ -30,6 +30,8 @@ cobolt-semantic = { path = "../cobolt-semantic" }
 # 2026-10-22: wasmtime 44.0.3, the IDE included), and the bundler.
 cobolt-wasm       = { path = "../cobolt-wasm" }
 cobolt-web-bundle = { path = "../cobolt-web-bundle" }
+# The host-API version a pinned player must speak (WASM-016 R11).
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi" }
 cobolt-ast        = { path = "../cobolt-ast" }
 # For `builtins::BUILTINS` only — the kb_lookup tool's built-in entries.
 cobolt-runtime  = { path = "../cobolt-runtime" }

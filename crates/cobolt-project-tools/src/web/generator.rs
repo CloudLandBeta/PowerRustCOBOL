@@ -30,8 +30,8 @@ use cobolt_web_bundle::{
 };
 
 use super::{
-    BuildReport, BundleSize, WebBuildBackend, WebBuildError, WebBuildRequest, WebDiagnostic,
-    WebDiagnosticKind,
+    BuildReport, BundleSize, PartSize, PlayerPinError, WebBuildBackend, WebBuildError, WebBuildRequest,
+    WebDiagnostic, WebDiagnosticKind,
 };
 
 /// The generator and the bundler. Linked once where the program starts
@@ -315,9 +315,106 @@ pub fn player_dir_from(env: Option<PathBuf>, exe_dir: Option<PathBuf>) -> Result
             info.display()
         ));
     }
-    // The project's pin of an older player (WASM-016 R11) is not a manifest
-    // field yet; until it is, the current player is the one copied.
     Ok(dir.clone())
+}
+
+/// The sizes `build_player` recorded for the player in `dir` (WASM-016 R13):
+/// each variant at the record's chosen `opt-level`, then each part
+/// (`parts/<name>`), in bytes after `wasm-opt`. Empty when the record says none.
+pub fn player_sizes(dir: &Path) -> Vec<PartSize> {
+    let Some(rec) = std::fs::read_to_string(dir.join("player-build.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) else {
+        return Vec::new();
+    };
+    let level = rec["profile"]["opt_level"].as_str().unwrap_or("");
+    let mut out = Vec::new();
+    for m in rec["measurements"].as_array().into_iter().flatten() {
+        if m["opt_level"].as_str() == Some(level) {
+            if let (Some(name), Some(bytes)) = (m["variant"].as_str(), m["after_wasm_opt_bytes"].as_u64()) {
+                out.push(PartSize { name: name.to_owned(), bytes });
+            }
+        }
+    }
+    for p in rec["parts"].as_array().into_iter().flatten() {
+        if let (Some(name), Some(bytes)) = (p["name"].as_str(), p["after_wasm_opt_bytes"].as_u64()) {
+            out.push(PartSize { name: format!("parts/{name}"), bytes });
+        }
+    }
+    out
+}
+
+/// One player the IDE keeps: the current one, or an older one under
+/// `archive/<version>/` that a project may pin (WASM-016 R11, R12).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeptPlayer {
+    pub version: String,
+    /// The host-API version it gives a program module.
+    pub abi: u32,
+    /// The form-description format it reads.
+    pub description: u32,
+    pub dir: PathBuf,
+}
+
+impl KeptPlayer {
+    fn read(dir: &Path) -> Option<KeptPlayer> {
+        let text = std::fs::read_to_string(dir.join("player-build.json")).ok()?;
+        let rec: serde_json::Value = serde_json::from_str(&text).ok()?;
+        let v = &rec["versions"];
+        Some(KeptPlayer {
+            version: v["player"].as_str()?.to_owned(),
+            abi: v["abi"].as_u64()? as u32,
+            description: v["description"].as_u64()? as u32,
+            dir: dir.to_path_buf(),
+        })
+    }
+
+    /// Can this compiler build for it? It emits one host API and one
+    /// description format, the current ones.
+    pub fn buildable(&self) -> bool {
+        self.abi == cobolt_wasm_abi::ABI_VERSION && self.description == cobolt_web_bundle::DESCRIPTION_VERSION
+    }
+}
+
+/// The players kept in `dir` (the current player's folder): the current one
+/// first, then those of `archive/`, oldest first.
+pub fn kept_players(dir: &Path) -> Vec<KeptPlayer> {
+    let mut out: Vec<KeptPlayer> = KeptPlayer::read(dir).into_iter().collect();
+    let mut old: Vec<KeptPlayer> = std::fs::read_dir(dir.join("archive"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| KeptPlayer::read(&e.path()))
+        .collect();
+    old.sort_by(|a, b| version_order(&a.version, &b.version));
+    out.extend(old);
+    out
+}
+
+fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
+    match (semver::Version::parse(a), semver::Version::parse(b)) {
+        (Ok(x), Ok(y)) => x.cmp(&y),
+        _ => a.cmp(b),
+    }
+}
+
+/// The player a Build copies (WASM-016 R11, Q6): the current one in `dir`
+/// unless the project pins another; a pin must name a kept player this
+/// compiler can still build for.
+pub fn select_player(dir: &Path, pin: Option<&str>) -> Result<PathBuf, PlayerPinError> {
+    let Some(pinned) = pin.map(str::trim).filter(|p| !p.is_empty()) else {
+        return Ok(dir.to_path_buf());
+    };
+    let kept = kept_players(dir);
+    let Some(p) = kept.iter().find(|k| k.version == pinned) else {
+        let mut versions: Vec<String> = kept.iter().map(|k| k.version.clone()).collect();
+        versions.sort_by(|a, b| version_order(a, b));
+        return Err(PlayerPinError::NotKept { pinned: pinned.to_owned(), kept: versions });
+    };
+    if !p.buildable() {
+        let oldest = kept.iter().filter(|k| k.buildable()).min_by(|a, b| version_order(&a.version, &b.version)).map(|k| k.version.clone());
+        return Err(PlayerPinError::CannotEmit { pinned: pinned.to_owned(), abi: p.abi, description: p.description, oldest });
+    }
+    Ok(p.dir.clone())
 }
 
 fn files_under(dir: &Path) -> Vec<(String, Vec<u8>)> {
@@ -462,7 +559,12 @@ impl WebBuildBackend for GeneratorBackend {
         let started = Instant::now();
         let mut warnings: Vec<WebDiagnostic> = Vec::new();
         let (forms, modules) = self.compile(req, &mut warnings)?;
-        let player = player_dir().map_err(WebBuildError::Failed)?;
+        let player = match &req.player_dir {
+            Some(dir) => player_dir_from(Some(dir.clone()), None),
+            None => player_dir(),
+        }
+        .map_err(WebBuildError::Failed)?;
+        let player = select_player(&player, req.web.player.as_deref()).map_err(WebBuildError::PlayerPin)?;
         let mut menus = Vec::new();
         for f in &forms {
             let dir = req.project_dir.join(&f.rel);
@@ -560,6 +662,7 @@ impl WebBuildBackend for GeneratorBackend {
             warnings,
             duration_ms: started.elapsed().as_millis() as u64,
             connect_src: connect_src(&bundle.report.csp_meta),
+            player: player_sizes(&player),
         })
     }
 }
@@ -567,6 +670,44 @@ impl WebBuildBackend for GeneratorBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A kept player: a folder with the record a `build_player` writes (only what the pin reads).
+    fn kept(dir: &Path, version: &str, abi: u32, description: u32) {
+        std::fs::create_dir_all(dir).unwrap();
+        let rec = serde_json::json!({"versions": {"abi": abi, "description": description, "player": version}});
+        std::fs::write(dir.join("player-build.json"), rec.to_string()).unwrap();
+    }
+
+    /// WASM-016 R11, Q6: no pin is the current player; a pin names a kept one this compiler can build for;
+    /// a pin to a player not kept lists the kept ones; a pin to one the compiler can no longer emit for
+    /// names it and the oldest it can.
+    #[test]
+    fn a_pinned_player_is_chosen_from_the_kept_ones_or_refused_with_the_reason() {
+        let root = std::env::temp_dir().join(format!("pr-player-pin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let cur = root.join("web-player");
+        let (abi, fmt) = (cobolt_wasm_abi::ABI_VERSION, cobolt_web_bundle::DESCRIPTION_VERSION);
+        kept(&cur, "2.2.0", abi, fmt);
+        kept(&cur.join("archive/2.1.0"), "2.1.0", abi, fmt);
+        kept(&cur.join("archive/2.0.0"), "2.0.0", abi, fmt);
+        kept(&cur.join("archive/1.9.9"), "1.9.9", abi + 1, fmt);
+
+        assert_eq!(select_player(&cur, None).unwrap(), cur, "no pin: the current player");
+        assert_eq!(select_player(&cur, Some("  ")).unwrap(), cur, "an empty pin is no pin");
+        assert_eq!(select_player(&cur, Some("2.2.0")).unwrap(), cur, "pinned to the current one");
+        assert_eq!(select_player(&cur, Some("2.0.0")).unwrap(), cur.join("archive/2.0.0"));
+
+        let absent = select_player(&cur, Some("2.0.5")).unwrap_err();
+        assert_eq!(absent, PlayerPinError::NotKept { pinned: "2.0.5".into(), kept: vec!["1.9.9".into(), "2.0.0".into(), "2.1.0".into(), "2.2.0".into()] });
+        assert!(absent.to_string().contains("2.0.5") && absent.to_string().contains("1.9.9, 2.0.0, 2.1.0, 2.2.0"), "{absent}");
+
+        let old = select_player(&cur, Some("1.9.9")).unwrap_err();
+        assert_eq!(old, PlayerPinError::CannotEmit { pinned: "1.9.9".into(), abi: abi + 1, description: fmt, oldest: Some("2.0.0".into()) });
+        let text = WebBuildError::PlayerPin(old).to_string();
+        assert!(text.contains("pins player 1.9.9") && text.contains("oldest player it can build for is 2.0.0"), "{text}");
+        println!("{absent}\n{text}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn the_backend_origin_keeps_the_websocket_scheme() {

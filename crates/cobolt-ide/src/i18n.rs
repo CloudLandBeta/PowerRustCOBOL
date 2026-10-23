@@ -440,6 +440,12 @@ pub struct Tr {
     pub web_check_not_portable: &'static str,
     pub web_build_over_budget: &'static str,
     pub web_build_player_unavailable: &'static str,
+    // WASM-016 T27: the player's size in the Build report, and a pinned player the Build cannot use.
+    pub web_build_player_sizes: &'static str,
+    pub web_build_player_parts: &'static str,
+    pub web_build_pin_not_kept: &'static str,
+    pub web_build_pin_cannot_emit: &'static str,
+    pub web_build_pin_cannot_emit_none: &'static str,
     pub pk_build_package_note: &'static str,
     pub wasm_diag_backend_only: &'static str,
     pub wasm_diag_unsupported: &'static str,
@@ -2957,6 +2963,11 @@ const EN: Tr = Tr {
     web_check_not_portable: "Check: these lines cannot run in a browser:",
     web_build_over_budget: "The first download is larger than the size budget:",
     web_build_player_unavailable: "The web player is not available, so the Web build cannot copy it:",
+    web_build_player_sizes: "Player size: {}",
+    web_build_player_parts: "Loaded on first use: {}",
+    web_build_pin_not_kept: "This project pins player {}, which this IDE does not keep. The players it keeps: {}.",
+    web_build_pin_cannot_emit: "This project pins player {}, which this compiler can no longer build for. The oldest player it can build for is {}.",
+    web_build_pin_cannot_emit_none: "This project pins player {}, which this compiler can no longer build for. Remove the player setting to build with the current one.",
     pk_build_package_note: "The web bundle is built. The Android and iOS package step needs the mobile shell, which this program does not include yet.",
     wasm_diag_backend_only: "{} runs on the Backend, not in a browser: call a Backend program with CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_unsupported: "{} cannot run in a WebAssembly module; move it to the Backend.",
@@ -5029,6 +5040,11 @@ const ES: Tr = Tr {
     web_check_not_portable: "Comprobación: estas líneas no pueden ejecutarse en un navegador:",
     web_build_over_budget: "La primera descarga supera el presupuesto de tamaño:",
     web_build_player_unavailable: "El reproductor web no está disponible, así que la compilación web no puede copiarlo:",
+    web_build_player_sizes: "Tamaño del reproductor: {}",
+    web_build_player_parts: "Se carga al primer uso: {}",
+    web_build_pin_not_kept: "Este proyecto fija el reproductor {}, que este IDE no conserva. Los reproductores que conserva: {}.",
+    web_build_pin_cannot_emit: "Este proyecto fija el reproductor {}, para el que este compilador ya no puede compilar. El reproductor más antiguo para el que puede compilar es {}.",
+    web_build_pin_cannot_emit_none: "Este proyecto fija el reproductor {}, para el que este compilador ya no puede compilar. Quite el ajuste del reproductor para compilar con el actual.",
     pk_build_package_note: "El paquete web está compilado. El paso del paquete de Android e iOS necesita el contenedor móvil, que este programa aún no incluye.",
     wasm_diag_backend_only: "{} se ejecuta en el Backend, no en un navegador: llame a un programa del Backend con CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_unsupported: "{} no puede ejecutarse en un módulo WebAssembly; muévalo al Backend.",
@@ -7102,6 +7118,11 @@ const PT: Tr = Tr {
     web_check_not_portable: "Verificação: estas linhas não podem ser executadas em um navegador:",
     web_build_over_budget: "O primeiro download excede o orçamento de tamanho:",
     web_build_player_unavailable: "O player web não está disponível, então a compilação web não pode copiá-lo:",
+    web_build_player_sizes: "Tamanho do player: {}",
+    web_build_player_parts: "Carregado no primeiro uso: {}",
+    web_build_pin_not_kept: "Este projeto fixa o player {}, que este IDE não mantém. Os players que ele mantém: {}.",
+    web_build_pin_cannot_emit: "Este projeto fixa o player {}, para o qual este compilador não consegue mais compilar. O player mais antigo para o qual ele consegue compilar é {}.",
+    web_build_pin_cannot_emit_none: "Este projeto fixa o player {}, para o qual este compilador não consegue mais compilar. Remova a configuração do player para compilar com o atual.",
     pk_build_package_note: "O pacote web está compilado. A etapa do pacote Android e iOS precisa do contêiner móvel, que este programa ainda não inclui.",
     wasm_diag_backend_only: "{} é executado no Backend, não em um navegador: chame um programa do Backend com CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_unsupported: "{} não pode ser executado em um módulo WebAssembly; mova-o para o Backend.",
@@ -9175,6 +9196,11 @@ const JA: Tr = Tr {
     web_check_not_portable: "チェック: 次の行はブラウザーで実行できません:",
     web_build_over_budget: "最初のダウンロードがサイズの予算を超えています:",
     web_build_player_unavailable: "Web プレーヤーが見つからないため、Web ビルドでコピーできません:",
+    web_build_player_sizes: "プレーヤーのサイズ: {}",
+    web_build_player_parts: "初回使用時に読み込み: {}",
+    web_build_pin_not_kept: "このプロジェクトはプレーヤー {} を固定していますが、この IDE はそれを保持していません。保持しているプレーヤー: {}。",
+    web_build_pin_cannot_emit: "このプロジェクトはプレーヤー {} を固定していますが、このコンパイラーはそのプレーヤー向けにもうビルドできません。ビルドできる最も古いプレーヤーは {} です。",
+    web_build_pin_cannot_emit_none: "このプロジェクトはプレーヤー {} を固定していますが、このコンパイラーはそのプレーヤー向けにもうビルドできません。現在のプレーヤーでビルドするには、プレーヤーの設定を削除してください。",
     pk_build_package_note: "Web バンドルはビルドされました。Android と iOS のパッケージ手順にはモバイルシェルが必要ですが、このプログラムにはまだ含まれていません。",
     wasm_diag_backend_only: "{} はブラウザーではなく Backend で実行されます。CALL … WITH WEBSOCKET LINKAGE で Backend のプログラムを呼び出してください。",
     wasm_diag_unsupported: "{} は WebAssembly モジュールでは実行できません。Backend に移してください。",
@@ -11247,6 +11273,11 @@ const ZH: Tr = Tr {
     web_check_not_portable: "检查：以下行无法在浏览器中运行：",
     web_build_over_budget: "首次下载超出了大小预算：",
     web_build_player_unavailable: "Web 播放器不可用，因此 Web 构建无法复制它：",
+    web_build_player_sizes: "播放器大小：{}",
+    web_build_player_parts: "首次使用时加载：{}",
+    web_build_pin_not_kept: "此项目固定了播放器 {}，此 IDE 未保留该播放器。保留的播放器：{}。",
+    web_build_pin_cannot_emit: "此项目固定了播放器 {}，此编译器已无法再为其构建。它能构建的最旧播放器是 {}。",
+    web_build_pin_cannot_emit_none: "此项目固定了播放器 {}，此编译器已无法再为其构建。请删除播放器设置，以使用当前播放器构建。",
     pk_build_package_note: "Web 包已构建。Android 和 iOS 安装包这一步需要移动外壳，此程序尚未包含。",
     wasm_diag_backend_only: "{} 在后端运行，而不是在浏览器中：请用 CALL … WITH WEBSOCKET LINKAGE 调用后端程序。",
     wasm_diag_unsupported: "{} 无法在 WebAssembly 模块中运行；请将其移到后端。",
@@ -13326,6 +13357,11 @@ const FR: Tr = Tr {
     web_check_not_portable: "Vérification : ces lignes ne peuvent pas s'exécuter dans un navigateur :",
     web_build_over_budget: "Le premier téléchargement dépasse le budget de taille :",
     web_build_player_unavailable: "Le lecteur Web n'est pas disponible, la compilation Web ne peut donc pas le copier :",
+    web_build_player_sizes: "Taille du lecteur : {}",
+    web_build_player_parts: "Chargé à la première utilisation : {}",
+    web_build_pin_not_kept: "Ce projet fixe le lecteur {}, que cet IDE ne conserve pas. Les lecteurs qu'il conserve : {}.",
+    web_build_pin_cannot_emit: "Ce projet fixe le lecteur {}, pour lequel ce compilateur ne peut plus compiler. Le plus ancien lecteur pour lequel il peut compiler est {}.",
+    web_build_pin_cannot_emit_none: "Ce projet fixe le lecteur {}, pour lequel ce compilateur ne peut plus compiler. Supprimez le réglage du lecteur pour compiler avec le lecteur actuel.",
     pk_build_package_note: "Le paquet Web est compilé. L'étape du paquet Android et iOS nécessite la coque mobile, que ce programme n'inclut pas encore.",
     wasm_diag_backend_only: "{} s'exécute sur le Backend, pas dans un navigateur : appelez un programme du Backend avec CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_unsupported: "{} ne peut pas s'exécuter dans un module WebAssembly ; déplacez-le vers le Backend.",
@@ -15465,7 +15501,18 @@ mod i18n_tests {
     #[test]
     fn web_build_headings_in_six_languages() {
         let en = Language::English.tr();
-        let keys = |t: &Tr| [t.web_check_not_portable, t.web_build_over_budget, t.web_build_player_unavailable];
+        let keys = |t: &Tr| {
+            [
+                t.web_check_not_portable,
+                t.web_build_over_budget,
+                t.web_build_player_unavailable,
+                t.web_build_player_sizes,
+                t.web_build_player_parts,
+                t.web_build_pin_not_kept,
+                t.web_build_pin_cannot_emit,
+                t.web_build_pin_cannot_emit_none,
+            ]
+        };
         for &lang in Language::ALL {
             let t = lang.tr();
             for (s, e) in keys(&t).iter().zip(keys(&en)) {
@@ -15476,7 +15523,7 @@ mod i18n_tests {
                 }
             }
         }
-        println!("3 web build headings in {} languages", Language::ALL.len());
+        println!("8 web build texts in {} languages", Language::ALL.len());
     }
 
     #[test]

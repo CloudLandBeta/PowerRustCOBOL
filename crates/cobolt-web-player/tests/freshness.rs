@@ -84,6 +84,10 @@ fn every_shipped_file_is_exactly_what_the_build_wrote_and_nothing_else_is_there(
         for e in std::fs::read_dir(dir).unwrap().flatten() {
             let p = e.path();
             if p.is_dir() {
+                // The older players a project may pin have records of their own (checked below).
+                if p.parent() == Some(base) && p.file_name().is_some_and(|n| n == "archive") {
+                    continue;
+                }
                 walk(base, &p, out);
             } else if p.file_name().is_some_and(|n| n != "player-build.json") {
                 out.insert(p.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/"));
@@ -108,4 +112,43 @@ fn the_build_record_names_the_tools_and_the_pinned_nightly() {
     assert!(tools["wasm_opt"].as_str().unwrap().contains("wasm-opt"));
     assert!(tools["wasm_pack"].as_str().unwrap().contains("not used"));
     assert!(rec["variants"].as_array().unwrap().len() >= 2, "both variants");
+}
+
+#[test]
+fn the_build_record_states_the_version_triple_and_the_host_imports() {
+    // WASM-016 R11: a player on disk is identified without running it, and a bundle can tell whether it gives a
+    // program module every import the module needs.
+    let rec = record();
+    let v = &rec["versions"];
+    assert_eq!(v["abi"], cobolt_wasm_abi::ABI_VERSION, "{v}");
+    assert_eq!(v["description"], cobolt_forms::description::DESCRIPTION_FORMAT, "{v}");
+    assert_eq!(v["player"], env!("CARGO_PKG_VERSION"), "{v}");
+    let imports: Vec<&str> = rec["host_imports"].as_array().expect("host_imports").iter().filter_map(|i| i.as_str()).collect();
+    let want: Vec<String> = cobolt_wasm_abi::codes::PRODUCTION_IMPORTS.iter().map(|n| format!("{}.{n}", cobolt_wasm_abi::codes::IMPORT_MODULE)).collect();
+    assert_eq!(imports, want);
+}
+
+/// Every older player kept for a pin (`assets/web-player/archive/<version>/`, WASM-016 R12) is exactly what its own
+/// record lists, under the version its record states. An empty or absent archive passes: nothing is pinned yet.
+#[test]
+fn every_archived_player_is_what_its_record_says() {
+    let archive = shipped().join("archive");
+    let mut checked = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&archive) {
+        for e in rd.flatten().filter(|e| e.path().is_dir()) {
+            let dir = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            let text = std::fs::read_to_string(dir.join("player-build.json")).unwrap_or_else(|_| panic!("archive/{name} has no player-build.json"));
+            let rec: serde_json::Value = serde_json::from_str(&text).expect("an archived record is JSON");
+            assert_eq!(rec["versions"]["player"].as_str(), Some(name.as_str()), "archive/{name} holds the player its record calls {}", rec["versions"]["player"]);
+            for f in rec["files"].as_array().expect("the record lists its files") {
+                let path = f["path"].as_str().unwrap();
+                let p = dir.join(path);
+                assert!(p.is_file(), "archive/{name}/{path} is listed but missing");
+                assert_eq!(file_digest(&p), f["sha256"].as_str().unwrap(), "archive/{name}/{path} is not the file its build wrote");
+            }
+            checked.push(name);
+        }
+    }
+    println!("archived players checked: {} {checked:?}", checked.len());
 }

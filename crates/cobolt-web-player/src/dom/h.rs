@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! The DOM builder the player uses: nodes are created with `createElement`/`createElementNS` and
+//! The DOM helpers the player uses for the page's own elements: nodes are created with `createElement` and
 //! filled with `textContent`/`setAttribute`/CSSOM — **never** an HTML string (WASM-013 R5). There is no
 //! function here that takes markup, and a test greps the sources for the sinks that do.
 //!
@@ -15,8 +15,6 @@ use js_sys::Reflect;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{Document, Element, Event, EventTarget, HtmlElement};
-
-pub const SVG_NS: &str = "http://www.w3.org/2000/svg";
 
 pub fn document() -> Document {
     web_sys::window().and_then(|w| w.document()).expect("a document")
@@ -29,14 +27,6 @@ pub fn el(doc: &Document, tag: &str, classes: &[&str]) -> Element {
         let _ = e.set_attribute("class", &classes.join(" "));
     }
     e
-}
-
-pub fn svg(doc: &Document, tag: &str) -> Element {
-    doc.create_element_ns(Some(SVG_NS), tag).expect("a valid svg tag")
-}
-
-pub fn text(doc: &Document, s: &str) -> web_sys::Text {
-    doc.create_text_node(s)
 }
 
 pub fn attr(e: &Element, name: &str, value: &str) {

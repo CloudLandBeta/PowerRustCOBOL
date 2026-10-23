@@ -13,7 +13,7 @@
 //! |---|---|---|
 //! | The ABI host (WASM-ABI-v1) | [`host`], [`tree`], [`methods`] | no |
 //! | Policy and front halves | [`weblink`], [`auth`], [`kinds`], [`net`], [`par`], [`value`] | no |
-//! | The JavaScript boundary and the DOM | `api`, `dom` | yes (`wasm32` only) |
+//! | The JavaScript boundary and the page (drawn by Leptos) | `api`, `dom` | yes (`wasm32` only) |
 
 pub mod auth;
 pub mod base_css;

@@ -17,6 +17,24 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.42] — 2026-10-23
+
+*(Written on `features-2x`. WASM-016, the prebuilt player: tasks T22 (its automated part), T23, T24, T25, T26, T27, T14, T28, T15 and T29 of `specs/WASM-016-prebuilt-player/tasks.md`; stopped at T17, see below.)*
+
+### Feature: Leptos draws the page, a project can pin an older player, the Preview updates in place, and a real Chrome tests the player
+
+- **Leptos draws every element of the page (R1, R5).** A new node layer (`src/dom/reactive.rs`) gives each part of a control its own reactive owner and signals and draws any view through one generic Leptos view, children in a keyed list, so an element whose key and tag stay the same keeps its focus, caret and scroll; it runs to the end before the page reads elements back. The hand-written patch (`dom/apply.rs`) is gone; the attribute rules both used live in `dom/attrs.rs`, and `inner_html` is now a forbidden name in the player's source search. Cost: the plain player is 2,849,748 bytes after `wasm-opt` (gzip 931,566), +123,736 over 2.0.41.
+- **A test drives a real Chrome (operator's decision of 2026-10-23).** `cobolt-web-bundle/tests/e2e_chrome.rs` speaks the DevTools protocol over the `tungstenite` the tests already used (no new crate), serves the Build's bundle cross-origin isolated, and acts as a user — clicks, typing, resizing — on the page as the whole window and mounted in a `<div>` of another page, with a WebSocket backend that answers, holds and drops calls: load, geometry, a handler's `SET` in the DOM, `CALL` on a list, `DISPLAY` on the console, a modal dialog, 100 panels opened and closed, a remote call with clicks queued behind it, the backend lost and found again, the Preview's in-place update, unmount — 26 passed. It is skipped, saying why, where no Chrome is installed (`CHROME` names one).
+- **Two bugs the browser found, fixed.** A click made while a handler waited for the backend **froze the page**: the driver restarted itself while an event waited behind the suspended handler, forever (now it restarts only when something can run, `Host::can_run`). And every modeless panel window collapsed to its title bar (`flex: 1` overrode the body's height), so a panel's form could not be used.
+- **A project may pin an older player (R11, Q6).** `player = "<version>"` under `[web]` or `[mobile]`, absent = the player this IDE ships; an existing project file is read and saved unchanged. A pin to a player the IDE does not keep stops the Build and lists the kept ones; a pin to one this compiler can no longer build for names the oldest it can. The player's build record now states its version triple and the host imports it provides, and a bundle whose program needs an import its player lacks is refused at Build.
+- **The Build reports the player (R13).** After "Build done" the IDE says the player's size and each part's ("Player size: plain 2.72 MB, threaded 2.55 MB", "Loaded on first use: …"), and a pin it cannot use, in the six languages.
+- **The Preview updates in place (R16).** A rebuilt program module, a changed form description or a changed stylesheet is taken in by the open page — the application starts again in the same player — instead of reloading it; the page reloads only for a change it cannot take in that way.
+- **The IDE copies the player shipped beside it (T14),** never one found on the machine that built the IDE; a Web project builds with no `cargo`, `rustc` or `rustup` on the `PATH` (proved by a test, for the fixture and for a project compiled from COBOL).
+- **Charts, maps and the Viewer stay in the player (T26):** measured, everything they draw costs the player 86,162 bytes, less than any part on its own; the heavy work behind them (Mermaid, PDF, Canvas 2D) is already loaded on first use.
+- **Stopped at T17 (equality with the desktop form host).** It needs WASM-004's reference form and comparison harness (its T32 and T33), which are not built yet. The manual Chrome check of T22 is listed in the task for the operator's session.
+
+Tests: `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml` (lib 226, `abi_host` 22, `dependency_guard` 6, `freshness` 5, `sinks` 3); `cobolt-web-bundle` (`e2e_chrome` 26 scenarios, `e2e_node` 14, `no_toolchain`, `player_versions` 2, and the rest); `cobolt-project-tools` (the pin, the report's sizes, the given player folder, the toolchain-free build, the live-reload script); `cobolt-compiler` `project_kind` 14; `cobolt-ide` (`i18n`, `web_preview`, `bundled_directories_resolve_beside_the_executable`, the System KB, regenerated). `README.md` and `docs/` are untouched on this line.
+
 ## [PowerRustCOBOL 2.0.41] — 2026-10-23
 
 *(Written on `features-2x`. WASM-016, the prebuilt player: tasks T18, T19, T20, T21 and T16 of `specs/WASM-016-prebuilt-player/tasks.md`; stopped at T22, see below.)*

@@ -429,6 +429,27 @@ impl Builder {
     }
 }
 
+/// The imports a program module needs that the player does not give it (WASM-016 R11, AC6): a player and a
+/// module that disagree are a Build error, never a refusal at run time. The player's own record says what it
+/// gives (`host_imports` in `player-build.json`); a player without a record is not judged here.
+fn player_lacks_imports(input: &BundleInput) -> Vec<String> {
+    let Some(rec) = input.player.build_info.as_deref().and_then(|t| serde_json::from_str::<Value>(t).ok()) else { return Vec::new() };
+    let Some(given) = rec["host_imports"].as_array() else { return Vec::new() };
+    let given: Vec<&str> = given.iter().filter_map(Value::as_str).collect();
+    let player = rec["versions"]["player"].as_str().unwrap_or("?");
+    let mut out = Vec::new();
+    for (name, bytes) in [("program.wasm", &input.program_multi), ("program.single.wasm", &input.program_single)] {
+        let Some(scan) = bytes.as_deref().and_then(|b| scan::scan_module(b).ok()) else { continue };
+        for imp in &scan.imports {
+            let full = format!("{}.{}", imp.module, imp.name);
+            if !given.contains(&full.as_str()) && !out.iter().any(|p: &String| p.contains(&format!("`{full}`"))) {
+                out.push(format!("{name} imports `{full}`, which the player {player} does not provide: build with the player that matches this compiler, or pin one that provides it"));
+            }
+        }
+    }
+    out
+}
+
 /// Lay out the bundle, or say everything that is wrong.
 pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError> {
     let o = &input.options;
@@ -477,6 +498,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     if input.player.threaded.is_none() && o.threads == Threads::Auto {
         notes.push("no threaded player: the application runs on the main thread everywhere".into());
     }
+    problems.extend(player_lacks_imports(input));
 
     // ── options ────────────────────────────────────────────────────────────
     if o.release {

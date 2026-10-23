@@ -481,10 +481,20 @@ fn text_response(stream: &mut TcpStream, status: u16, reason: &str, body: &str, 
     respond(stream, status, reason, "text/plain; charset=utf-8", &[], body.as_bytes(), head_only, state)
 }
 
-/// The script added to `index.html`: poll the change count, reload on a change.
+/// The script added to `index.html`: poll the change count; on a change, hand the application its new
+/// configuration so that it takes the new module, descriptions and stylesheet in place, without reloading
+/// the page or the player (`app.update`, WASM-016 R16), and reload only when it answers that it cannot (or
+/// the page holds no application).
 fn reload_script() -> &'static str {
-    "(function(){var v=null;function poll(){fetch('/__prc/version',{cache:'no-store'})\
-     .then(function(r){return r.json();}).then(function(j){if(v===null){v=j.version;}else if(j.version!==v){location.reload();}})\
+    "(function(){var v=null;\
+     function inPlace(){var el=document.querySelector('[data-pr-config]');\
+     if(!el||!window.PowerRustCOBOL){return Promise.resolve('reload');}\
+     return PowerRustCOBOL.mount(el).then(function(app){if(!app||typeof app.update!=='function'){return 'reload';}\
+     return fetch(el.getAttribute('data-pr-config')||'config.json',{cache:'no-store'}).then(function(r){return r.json();})\
+     .then(function(c){return app.update(c);});});}\
+     function poll(){fetch('/__prc/version',{cache:'no-store'})\
+     .then(function(r){return r.json();}).then(function(j){if(v===null){v=j.version;return;}if(j.version===v){return;}v=j.version;\
+     return inPlace().then(function(a){if(a==='reload'||a==='unmounted'){location.reload();}},function(){location.reload();});})\
      .catch(function(){}).finally(function(){setTimeout(poll,400);});}poll();})();\n"
 }
 
@@ -824,7 +834,10 @@ mod tests {
         assert!(!std::fs::read_to_string(root.join("index.html")).unwrap().contains("livereload"), "the file on disk is untouched");
         let script = get(p, RELOAD_SCRIPT_PATH);
         assert_eq!(script.status, 200);
-        assert!(String::from_utf8_lossy(&script.body).contains("location.reload"));
+        let text = String::from_utf8_lossy(&script.body);
+        assert!(text.contains("location.reload"));
+        // WASM-016 R16: a change is offered to the application first, in place; a reload is the fallback.
+        assert!(text.contains("app.update(c)") && text.contains("a==='reload'"), "{text}");
 
         let before = server.version();
         let body = get(p, VERSION_PATH);

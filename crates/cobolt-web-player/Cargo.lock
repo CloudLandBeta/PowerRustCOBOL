@@ -335,8 +335,10 @@ dependencies = [
 name = "cobolt-web-player"
 version = "2.0.0"
 dependencies = [
+ "any_spawner",
  "cobolt-forms",
  "cobolt-wasm-abi",
+ "futures",
  "indexmap",
  "js-sys",
  "leptos",

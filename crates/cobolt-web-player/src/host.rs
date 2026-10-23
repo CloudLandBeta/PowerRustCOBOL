@@ -706,6 +706,32 @@ impl Host {
         self.work.len()
     }
 
+    /// Whether [`Host::next_call`] has a call to give now: a task whose wait is over, or work that is not
+    /// held behind its instance's live task. An event queued behind a task that waits for the backend is
+    /// pending work but cannot run until the answer comes, so a driver that restarted itself on pending
+    /// work alone would spin without ever giving the page a turn.
+    pub fn can_run(&self) -> bool {
+        self.inflight.is_none() && (self.ready_task().is_some() || self.runnable_work().is_some())
+    }
+
+    /// The task whose wait is satisfied (or whose yield may go on), first by id.
+    fn ready_task(&self) -> Option<i32> {
+        self.tasks.iter().find_map(|(id, t)| match &t.state {
+            TaskState::Suspended(w) if w.ready() => Some(*id),
+            TaskState::Yielded { resume: true } => Some(*id),
+            _ => None,
+        })
+    }
+
+    /// The first queued work that may run: an event waits behind the live task of its own instance.
+    fn runnable_work(&self) -> Option<usize> {
+        let blocked: Vec<u32> = self.tasks.values().map(|t| t.inst).collect();
+        self.work.iter().position(|w| match w {
+            Work::Event(e) => !blocked.contains(&e.inst) && self.trees.contains_key(&e.inst),
+            Work::Close { .. } | Work::Open { .. } | Work::Cancel => true,
+        })
+    }
+
     pub fn live_tasks(&self) -> usize {
         self.tasks.len()
     }
@@ -720,12 +746,7 @@ impl Host {
         self.aborted = false;
         self.reported_in_call = false;
         // 1. A task whose wait is satisfied.
-        let ready = self.tasks.iter().find_map(|(id, t)| match &t.state {
-            TaskState::Suspended(w) if w.ready() => Some(*id),
-            TaskState::Yielded { resume: true } => Some(*id),
-            _ => None,
-        });
-        if let Some(id) = ready {
+        if let Some(id) = self.ready_task() {
             let t = self.tasks.get_mut(&id).unwrap();
             let frame = match &mut t.state {
                 TaskState::Suspended(Wait::Remote { answer, .. }) => answer.take(),
@@ -739,11 +760,7 @@ impl Host {
             return Some(ModuleCall::Resume { task: id, frame });
         }
         // 2. New work, in order; an event waits behind the live task of its own instance.
-        let blocked: Vec<u32> = self.tasks.values().map(|t| t.inst).collect();
-        let pos = self.work.iter().position(|w| match w {
-            Work::Event(e) => !blocked.contains(&e.inst) && self.trees.contains_key(&e.inst),
-            Work::Close { .. } | Work::Open { .. } | Work::Cancel => true,
-        })?;
+        let pos = self.runnable_work()?;
         let w = self.work.remove(pos)?;
         self.stats.module_calls += 1;
         match w {

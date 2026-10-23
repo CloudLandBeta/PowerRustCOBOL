@@ -123,6 +123,25 @@ fn a_web_project_builds_to_modules_and_a_bundle() {
         "{:?}",
         report.size.parts
     );
+    // WASM-016 R13: the report states the player's size and each part's, as the player's build recorded them.
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(cobolt_project_tools::web::generator::player_dir().unwrap().join("player-build.json")).unwrap(),
+    )
+    .unwrap();
+    let level = record["profile"]["opt_level"].as_str().unwrap();
+    let mut want: Vec<(String, u64)> = record["measurements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["opt_level"] == level)
+        .map(|m| (m["variant"].as_str().unwrap().to_owned(), m["after_wasm_opt_bytes"].as_u64().unwrap()))
+        .collect();
+    want.extend(record["parts"].as_array().unwrap().iter().map(|p| (format!("parts/{}", p["name"].as_str().unwrap()), p["after_wasm_opt_bytes"].as_u64().unwrap())));
+    let got: Vec<(String, u64)> = report.player.iter().map(|p| (p.name.clone(), p.bytes)).collect();
+    assert_eq!(got, want);
+    assert!(got.iter().any(|(n, _)| n == "plain") && got.iter().any(|(n, _)| n.starts_with("parts/")), "{got:?}");
+    assert_eq!(report.to_json()["player"].as_array().unwrap().len(), got.len());
+    eprintln!("player sizes in the report: {got:?}");
     // A second build replaces the bundle in one step and leaves nothing beside it.
     let again = GeneratorBackend.build(&req).unwrap();
     assert_eq!(again.size.parts.len(), report.size.parts.len());
@@ -778,4 +797,82 @@ fn a_see_through_theme_gets_a_backdrop_and_another_theme_does_not() {
     let css = app_css(&plain);
     assert!(!css.contains("#4A4642"), "{css}");
     eprintln!("see-through backdrop: Spatial gets #4A4642 behind the app, Liquid Glass keeps the page colour");
+}
+
+/// WASM-016 R11, Q6: `player = "…"` in `[web]` pins an older player. A pin to a player this IDE does not keep
+/// stops the Build, lists the players it keeps (the current one among them), and writes no bundle.
+#[test]
+fn a_pin_to_a_player_that_is_not_kept_stops_the_build_and_lists_the_kept_ones() {
+    use cobolt_project_tools::web::PlayerPinError;
+    let manifest = project_with("pinned", "[web]\nmulti_memory = true\nplayer = \"0.0.1\"\n", &["main-form"]);
+    let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+    assert_eq!(req.web.player.as_deref(), Some("0.0.1"), "the pin is read from the manifest");
+    match GeneratorBackend.build(&req) {
+        Err(WebBuildError::PlayerPin(PlayerPinError::NotKept { pinned, kept })) => {
+            println!("pinned {pinned}; kept {kept:?}");
+            assert_eq!(pinned, "0.0.1");
+            let current = std::fs::read_to_string(cobolt_project_tools::web::generator::player_dir().unwrap().join("player-build.json")).unwrap();
+            let current: serde_json::Value = serde_json::from_str(&current).unwrap();
+            assert!(kept.iter().any(|k| Some(k.as_str()) == current["versions"]["player"].as_str()), "the current player is kept: {kept:?}");
+        }
+        other => panic!("expected the pin to stop the build, got {other:?}"),
+    }
+    assert!(!req.out_dir.exists(), "no bundle was written");
+    let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+}
+
+/// WASM-016 T14: the program that builds may name the player's folder (the IDE: beside its executable). A named
+/// folder is used, and one that is not there is the missing player, never another folder found by search.
+#[test]
+fn the_build_copies_the_player_from_the_folder_it_is_given() {
+    let manifest = project_with("playerdir", "[web]\nmulti_memory = true\n", &["main-form"]);
+    let mut req = WebBuildRequest::from_manifest(&manifest).unwrap();
+    req.player_dir = Some(cobolt_project_tools::web::generator::player_dir().unwrap());
+    let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+    assert!(report.player.iter().any(|p| p.name == "plain"), "{:?}", report.player);
+    req.player_dir = Some(manifest.parent().unwrap().join("no-such-player"));
+    match GeneratorBackend.build(&req) {
+        Err(WebBuildError::Failed(why)) => {
+            assert!(why.starts_with(cobolt_project_tools::web::PLAYER_UNAVAILABLE_PREFIX) && why.contains("no-such-player"), "{why}");
+        }
+        other => panic!("expected the missing player, got {other:?}"),
+    }
+    let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+}
+
+/// WASM-016 AC1: a Web project — COBOL compiled by the generator — builds with no Rust toolchain on the machine. The
+/// test runs itself again with a `PATH` of the system folders only (the child proves `cargo`, `rustc` and `rustup`
+/// cannot be started), building from the committed `assets/web-player`.
+#[test]
+fn a_web_project_builds_with_no_rust_toolchain_on_the_path() {
+    const CHILD: &str = "PR_WEB_BUILD_NO_TOOLCHAIN";
+    if std::env::var_os(CHILD).is_some() {
+        for tool in ["cargo", "rustc", "rustup"] {
+            assert!(std::process::Command::new(tool).arg("--version").output().is_err(), "{tool} can be started");
+        }
+        let manifest = project_with("notoolchain", "[web]\nmulti_memory = true\n", &["main-form"]);
+        let mut req = WebBuildRequest::from_manifest(&manifest).unwrap();
+        req.player_dir = Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/web-player"));
+        let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+        let names: Vec<&str> = report.size.parts.iter().map(|p| p.name.as_str()).collect();
+        for must in ["player/plain-", "player/threaded-", "program.", "program.single.", "index.html", "forms/main-form."] {
+            assert!(names.iter().any(|n| n.starts_with(must)), "no {must} in {names:?}");
+        }
+        println!("built with no toolchain: {} files, {} bytes", names.len(), report.size.total_bytes);
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+        return;
+    }
+    let system = if cfg!(windows) { r"C:\Windows\System32" } else { "/usr/bin:/bin" };
+    let run = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["a_web_project_builds_with_no_rust_toolchain_on_the_path", "--exact", "--nocapture"])
+        .env(CHILD, "1")
+        .env("PATH", system)
+        .env_remove("CARGO")
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(run.status.success(), "{stdout}\n{}", String::from_utf8_lossy(&run.stderr));
+    let line = stdout.lines().find(|l| l.starts_with("built with no toolchain")).expect("the child built");
+    println!("{line} (PATH = {system})");
 }

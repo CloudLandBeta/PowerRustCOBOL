@@ -6227,6 +6227,7 @@ style        = "spa"         # "spa" (single-page) or "standalone" (forms as sep
 multi_memory = true          # emit the multi-memory program module
 isolation    = "require-corp"  # "off", "require-corp" or "credentialless": the COOP/COEP headers
 backend_url  = ""            # wss://..., or ws:// to this machine only (localhost, 127.0.0.1, ::1)
+# player     = "2.0.0"       # pin an older player this IDE keeps; absent = the player this IDE ships
 [web.browsers]               # the browsers the build promises to run in; all true
 chromium        = true
 firefox         = true
@@ -6242,6 +6243,7 @@ min_os       = "auto"        # an Android API level ("26") or an iOS version ("1
 style        = "spa"
 multi_memory = false         # false is the iOS default; true for Android
 backend_url  = ""
+# player     = "2.0.0"       # as under [web]
 
 [backend]                   # a Web or Mobile project that has a Backend
 exports = ["HEALTH"]         # the only programs a remote caller can reach
@@ -6258,9 +6260,39 @@ whenever multi-memory is off, or the browser matrix includes Safari or the iOS
 web view; the multi-memory module whenever `multi_memory` is on. An iOS Mobile
 project always carries the single-memory one.
 
+**The player.** A bundle is the program module the compiler emits plus the
+**player**: a prebuilt WebAssembly form engine (drawn with Leptos) that the IDE
+ships in `assets/web-player/` beside its executable and copies into every Web
+and Mobile bundle, so a Web build needs no Rust toolchain. Its plain variant runs
+everywhere; its threaded variant runs on cross-origin isolated pages. Mermaid
+diagrams, the PDF reader and the Canvas 2D rasteriser are parts of it loaded the
+first time a form uses them. A rebuild copies the player of the IDE that builds;
+`player = "<version>"` in `[web]` or `[mobile]` pins an older player the IDE
+keeps. A pin to a player the IDE does not keep stops the Build and lists the
+players it keeps; a pin to a player this compiler can no longer build for (another
+host-API version or description format) stops it and names the oldest it can.
+A program module that needs a host import its player does not provide is refused
+at Build, never at run time.
+
+**Form descriptions.** The Build writes each form as a versioned JSON description
+(`forms/<name>.<hash>.json`) that the player draws from; the form file itself is
+never shipped, and a description holds no handler code and no credential value.
+
+| Field | What it holds |
+|---|---|
+| `format` | the description format, **1**; a player refuses a format it does not read, naming both numbers |
+| `name` | the form's name |
+| `form` | the form's own properties |
+| `layers` | the form layers in stack order, each with its name and backdrop (absent when the form has none) |
+| `controls` | each control: name, type, parent, layer (absent = `Form`), properties, the events bound to handlers |
+| `form_events` | the form's own events that are bound (`OnLoad`, `OnClose` …); the code is in the program module |
+| `data_bindings`, `animations`, `layout`, `breakpoints` | as the form file has them |
+| `stylesheet` | the bundle path of the form's stylesheet, when it has one |
+
 **Build and Preview.** On a Web or Mobile project the Build button (and the
 `build` tool) builds the bundle instead of a binary, and says how long it took,
-how big it is, how fast it starts and what warned; when the program does not
+how big it is, how big the player and each of its parts are, how fast it starts
+and what warned; when the program does not
 include the WebAssembly generator yet it says so, and the project can still be
 created, edited and checked. The designer's Preview button builds, serves the
 bundle on a loopback port with the right MIME types and the isolation headers,
@@ -6269,7 +6301,10 @@ the system browser when the helper is not installed). Its controls window picks
 a device (phone, tablet or desktop sizes), the orientation, the pixel ratio, the
 colour scheme, the page language and the safe-area insets; the page's console
 and uncaught errors reach the Output panel; a change to a form, a stylesheet,
-Common Code or the Backend builds again and the open page reloads. The Preview
+Common Code or the Backend builds again, and the open page takes the new program
+module, form descriptions and stylesheet in place — the application starts again
+in the same page, which is not reloaded; the page reloads only when the change is
+one it cannot take in that way (another player). The Preview
 shows only its own address: a page that tries to open another is stopped and the
 developer is offered to open it in the browser. Run opens the same server in the
 system browser. The IDE does not start a project's Backend yet.

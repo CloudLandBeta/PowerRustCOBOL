@@ -317,6 +317,11 @@ pub struct WebSettings {
     /// loopback `ws://…` in development. Empty until the developer sets it.
     #[serde(default)]
     pub backend_url: String,
+    /// The player the Build copies (WASM-016 R11, Q6): absent = the one this
+    /// IDE ships; a version (`"2.0.0"`) pins an older player the IDE keeps.
+    /// Written only when set, so an existing manifest is saved unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<String>,
 }
 
 impl Default for WebSettings {
@@ -327,6 +332,7 @@ impl Default for WebSettings {
             multi_memory: true,
             isolation: Isolation::default(),
             backend_url: String::new(),
+            player: None,
         }
     }
 }
@@ -365,6 +371,9 @@ pub struct MobileSettings {
     pub multi_memory: bool,
     #[serde(default)]
     pub backend_url: String,
+    /// The player the Build copies, as [`WebSettings::player`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<String>,
 }
 
 fn auto() -> String {
@@ -386,6 +395,7 @@ impl MobileSettings {
             style: ApplicationStyle::default(),
             multi_memory: platform == MobilePlatform::Android,
             backend_url: String::new(),
+            player: None,
         }
     }
 
@@ -563,6 +573,22 @@ mod tests {
         assert!(s.multi_memory && s.browsers.chromium && s.browsers.safari);
         assert_eq!(s.isolation, Isolation::RequireCorp);
         assert_eq!(s.style, ApplicationStyle::Spa);
+    }
+
+    /// WASM-016 R11: a project may pin an older player; a manifest without the
+    /// key reads as "the current one" and is written back without it.
+    #[test]
+    fn the_player_pin_is_optional_and_only_written_when_set() {
+        let old: WebSettings = toml::from_str("backend_url = \"wss://api.example.com/ws\"").unwrap();
+        assert_eq!(old.player, None);
+        assert!(!toml::to_string_pretty(&old).unwrap().contains("player"), "an old manifest is saved unchanged");
+        let pinned: WebSettings = toml::from_str("player = \"2.0.0\"").unwrap();
+        assert_eq!(pinned.player.as_deref(), Some("2.0.0"));
+        assert!(toml::to_string_pretty(&pinned).unwrap().contains("player = \"2.0.0\""));
+        let mobile: MobileSettings = toml::from_str("platform = \"android\"\ndevice = \"phone\"\nplayer = \"2.0.0\"").unwrap();
+        assert_eq!(mobile.player.as_deref(), Some("2.0.0"));
+        let unpinned: MobileSettings = toml::from_str("platform = \"ios\"\ndevice = \"tablet\"").unwrap();
+        assert_eq!(unpinned.player, None);
     }
 
     #[test]

@@ -697,7 +697,7 @@ export async function mount(target, options = {}) {
     const programResponse = await fetchChecked(env, url(pg.url), pg.integrity, 'The program');
     const module = await compile(env, programResponse);
     const embedded = readEmbeddedManifest(env, module);
-    const chosenManifestText = embedded || manifestText;
+    let chosenManifestText = embedded || manifestText;
     let manifest;
     try {
       manifest = JSON.parse(chosenManifestText);
@@ -714,7 +714,7 @@ export async function mount(target, options = {}) {
     // 7. the player object, then the link, then the module
     showStage(ui, texts.stage_start, 4, 6);
     const bridge = { player: null };
-    const link =
+    let link =
       choice.mode === 'worker'
         ? createWorkerLink(env, module, manifest, bridge, url(config.worker.url), policy)
         : createMainLink(env, module, manifest, bridge);
@@ -831,6 +831,68 @@ export async function mount(target, options = {}) {
       partModule: loadPart,
       async settled() {
         return player.settled();
+      },
+      // The Preview's in-place update (WASM-016 R16): take in what changed between the running configuration and
+      // `next`, without reloading the page or the player. The stylesheets are replaced as they are; a new program
+      // module or a new form description restarts the application in the same player (`player.reset`). A change this
+      // cannot take in (another player, worker or application style) answers 'reload' and changes nothing.
+      async update(next) {
+        if (unmounted) return 'unmounted';
+        const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+        if (!same(next.player, config.player) || !same(next.worker, config.worker) || next.style !== config.style) return 'reload';
+        const changed = [];
+        if (!headless && next.stylesheet && !same(next.stylesheet, config.stylesheet)) {
+          const sr = await fetchChecked(env, url(next.stylesheet.url), next.stylesheet.integrity, 'The application stylesheet');
+          player.set_stylesheet(await sr.text());
+          changed.push('stylesheet');
+        }
+        for (const f of next.forms) {
+          const old = config.forms.find((o) => o.name === f.name);
+          if (!headless && f.css && !same(f.css, old && old.css)) {
+            const sr = await fetchChecked(env, url(f.css.url), f.css.integrity, `The stylesheet of form ${f.name}`);
+            player.set_form_stylesheet(f.name, await sr.text());
+            changed.push(`stylesheet of ${f.name}`);
+          }
+        }
+        const programChanged = !same(next.program, config.program) || !same(next.manifest, config.manifest);
+        const formsChanged = !same(next.forms.map((f) => [f.name, f.url, f.integrity]), config.forms.map((f) => [f.name, f.url, f.integrity]));
+        if (programChanged || formsChanged) {
+          let nextManifest = chosenManifestText;
+          let nextLink = null;
+          if (programChanged) {
+            const npg = next.program[choice.program];
+            if (!npg) throw new LoadError(`The bundle has no ${choice.program}-memory program module.`, 'load');
+            const nmr = await fetchChecked(env, url(next.manifest.url), next.manifest.integrity, 'The manifest');
+            const nmText = await nmr.text();
+            const nmod = await compile(env, await fetchChecked(env, url(npg.url), npg.integrity, 'The program'));
+            nextManifest = readEmbeddedManifest(env, nmod) || nmText;
+            const nm = JSON.parse(nextManifest);
+            if (nm.abi !== ABI_VERSION) throw new LoadError(`This application was built for ABI ${nm.abi} and this player speaks ABI ${ABI_VERSION}: rebuild the application with the current IDE.`, 'abi');
+            checkProgramModule(env, nmod, nm.limits);
+            nextLink = choice.mode === 'worker' ? createWorkerLink(env, nmod, nm, bridge, url(next.worker.url), policy) : createMainLink(env, nmod, nm, bridge);
+          }
+          const descriptions = [];
+          for (const f of next.forms) {
+            const fr = await fetchChecked(env, url(f.url), f.integrity, `The form ${f.name}`);
+            descriptions.push(await fr.text());
+          }
+          await player.reset(nextManifest);
+          if (nextLink) {
+            link.dispose();
+            link = nextLink;
+            await link.instantiate();
+            link.part = callPart;
+            link.partModule = loadPart;
+            chosenManifestText = nextManifest;
+          }
+          for (const d of descriptions) player.add_form(d);
+          player.attach(link);
+          player.start();
+          changed.push(programChanged ? 'program' : 'forms');
+        }
+        config = next;
+        app.config = next;
+        return changed.length ? changed.join(', ') : 'unchanged';
       },
       async unmount() {
         if (unmounted) return '{"closed":0,"cancelled":0}';

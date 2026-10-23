@@ -73,6 +73,10 @@ pub struct WebBuildRequest {
     /// The project's default form theme (`[forms] theme`), for the backdrop a
     /// see-through theme needs on a page; `None` when the manifest sets none.
     pub form_theme: Option<String>,
+    /// The folder of the current player, as the program that builds resolves
+    /// its bundled assets (the IDE: beside its executable, WASM-016 T14);
+    /// `None` = [`generator::player_dir`].
+    pub player_dir: Option<PathBuf>,
 }
 
 impl WebBuildRequest {
@@ -108,6 +112,7 @@ impl WebBuildRequest {
                     multi_memory: mobile.multi_memory,
                     isolation: Isolation::Off,
                     backend_url: mobile.backend_url.clone(),
+                    player: mobile.player.clone(),
                 };
                 (web, mobile.module_variants())
             }
@@ -131,6 +136,7 @@ impl WebBuildRequest {
             backend: view.backend,
             assets: view.assets,
             form_theme,
+            player_dir: None,
         })
     }
 }
@@ -189,6 +195,10 @@ pub struct BuildReport {
     /// The page's `connect-src`: where it may connect — itself and the
     /// configured backend, nothing else (WASM-003 R23, WASM-002 R14).
     pub connect_src: String,
+    /// The player the bundle carries, as its build recorded it (WASM-016 R13):
+    /// each variant (`plain`, `threaded`) and each part loaded on first use
+    /// (`parts/mermaid` …), in bytes after `wasm-opt`.
+    pub player: Vec<PartSize>,
 }
 
 impl BuildReport {
@@ -204,6 +214,7 @@ impl BuildReport {
             "warnings": self.warnings.iter().map(WebDiagnostic::to_string).collect::<Vec<_>>(),
             "duration_ms": self.duration_ms,
             "connect_src": self.connect_src,
+            "player": self.player.iter().map(|p| serde_json::json!({"name": p.name, "bytes": p.bytes})).collect::<Vec<_>>(),
         })
     }
 }
@@ -280,6 +291,37 @@ pub enum WebBuildError {
     Refused(Vec<WebDiagnostic>),
     /// The build failed.
     Failed(String),
+    /// The project pins a player (`player = "…"`) the Build cannot use (WASM-016 R11).
+    PlayerPin(PlayerPinError),
+}
+
+/// Why a pinned player cannot be used (WASM-016 R11, Q6). The IDE says it in
+/// the developer's language; the tools in English ([`std::fmt::Display`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlayerPinError {
+    /// No player of that version is kept; `kept` lists the versions that are.
+    NotKept { pinned: String, kept: Vec<String> },
+    /// The pinned player speaks a host API or reads a description format this
+    /// compiler no longer emits; `oldest` is the oldest kept player it can
+    /// still build for.
+    CannotEmit { pinned: String, abi: u32, description: u32, oldest: Option<String> },
+}
+
+impl std::fmt::Display for PlayerPinError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PlayerPinError::NotKept { pinned, kept } => {
+                write!(f, "the project pins player {pinned}, which this IDE does not keep; the players it keeps are {}", kept.join(", "))
+            }
+            PlayerPinError::CannotEmit { pinned, abi, description, oldest } => {
+                write!(f, "the project pins player {pinned} (host API {abi}, description format {description}), which this compiler can no longer build for")?;
+                match oldest {
+                    Some(o) => write!(f, "; the oldest player it can build for is {o}"),
+                    None => Ok(()),
+                }
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for WebBuildError {
@@ -291,6 +333,7 @@ impl std::fmt::Display for WebBuildError {
                 write!(f, "the project uses what a browser cannot run:\n{}", lines.join("\n"))
             }
             WebBuildError::Failed(why) => write!(f, "the web build failed: {why}"),
+            WebBuildError::PlayerPin(e) => write!(f, "the web build failed: {e}"),
         }
     }
 }

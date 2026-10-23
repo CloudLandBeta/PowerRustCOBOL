@@ -9,6 +9,7 @@
 
 #![allow(dead_code)]
 
+pub mod cdp;
 pub mod harness;
 
 use std::path::{Path, PathBuf};

@@ -20617,6 +20617,23 @@ fn images_dir() -> PathBuf {
     PathBuf::from("assets/images")
 }
 
+/// Locate the bundled `assets/web-player` directory — the prebuilt player a
+/// Web or Mobile Build copies (WASM-016 R1, R12) — the way [`images_dir`]
+/// does: beside the executable first, then the working directory for
+/// `cargo run` from the repository root; never the build machine's path.
+pub(crate) fn web_player_dir() -> PathBuf {
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    {
+        let c = exe_dir.join("assets/web-player");
+        if c.is_dir() {
+            return c;
+        }
+    }
+    PathBuf::from("assets/web-player")
+}
+
 /// The welcome-pane background for today, cached in egui memory. Loads
 /// `assets/images/bg<day>.jpg`, falling back to `bg1.jpg`.
 fn welcome_bg_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
@@ -22081,7 +22098,7 @@ mod bundled_asset_path_tests {
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .expect("a test binary has a directory");
 
-        for dir in [images_dir(), CoboltApp::themes_dir()] {
+        for dir in [images_dir(), CoboltApp::themes_dir(), web_player_dir()] {
             let s = dir.to_string_lossy().into_owned();
             assert!(
                 !s.contains(env!("CARGO_MANIFEST_DIR")),
