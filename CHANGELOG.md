@@ -17,6 +17,18 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.47] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.46.)*
+
+### Feature: the remote call's wait and payload limit come from the project, and a pending call is proved live (WASM-005, T1–T4)
+
+- **Project limits (R11).** `[web]` and `[mobile]` now have `call_timeout_ms`. It defaults to 60 000 and is written only when changed, so older manifests load and save unchanged. The payload limit reuses WASM-017's `max_payload_bytes`.
+- **The client reads the limits.** The backend client reads `COBOLT_BACKEND_CALL_TIMEOUT_MS` and `COBOLT_BACKEND_MAX_PAYLOAD_BYTES`. A call frame larger than the smaller of the project limit and the backend's announced limit is refused before anything is sent, and before connecting when the project limit is the one exceeded. The refusal is `limit 7000`, the class and code the backend gives the same frame, and `ON EXCEPTION` runs. No host sets these variables from the manifest yet, the same as `COBOLT_BACKEND_URL`.
+- **AC6.** A new form-host test drives the real host and interpreter with a backend that holds the call for 2.5 s. During the call, the form shows the handler's state and a second click waits. Afterwards the log reads `CALL-END OTHER`, in that order. The headless script's `event` step accepts `"wait": false` so a script can click while a handler is busy.
+- **The WebAssembly guard (T2).** No generator change: WASM-010 already lowers `WEBSOCKET` calls in forms. A new test checks that outside a form the call is refused at its line and no module is produced.
+- **Still open.** The run stopped at T5, which waits for the operator to confirm Q7's second failure mechanism. T6–T19 have not started.
+
 ## [PowerRustCOBOL 2.0.46] — 2026-10-23
 
 *(Written on `features-2x`, after 2.0.45.)*

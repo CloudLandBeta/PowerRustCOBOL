@@ -59,3 +59,5 @@ pretty_assertions = { workspace = true }
 tempfile = "3"
 cobolt-lexer  = { path = "../cobolt-lexer" }
 cobolt-parser = { path = "../cobolt-parser" }
+# WASM-005 AC6: a scripted backend for a pending `CALL … WITH WEBSOCKET LINKAGE`.
+cobolt-wire   = { path = "../cobolt-wire" }

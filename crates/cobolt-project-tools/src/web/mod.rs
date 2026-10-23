@@ -114,6 +114,7 @@ impl WebBuildRequest {
                     backend_url: mobile.backend_url.clone(),
                     player: mobile.player.clone(),
                     max_payload_bytes: mobile.max_payload_bytes,
+                    call_timeout_ms: mobile.call_timeout_ms,
                     // A Mobile build's variants are its platform's (below).
                     single_memory_fallback: true,
                 };

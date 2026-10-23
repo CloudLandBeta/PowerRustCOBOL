@@ -19,12 +19,13 @@
 //! |---|---|
 //! | `{"set": {"control": "TXT-NAME", "property": "Text", "value": "Ann"}}` | as if typed |
 //! | `{"event": {"control": "BTN-OK", "name": "onClick"}}` | as if clicked |
+//! | `{"event": {…}, "wait": false}` | clicked, without waiting for the handler (a click while another handler is busy) |
 //! | `{"wait_ms": 300}` | lets timers and animations run |
 //! | `{"read": {"control": "LBL-TOTAL", "property": "Caption"}}` | the live value |
 //! | `{"open_form": "ORDERS-FORM"}` | a shell application: load a form into the ContentPane, as its menu item would |
 //!
 //! `set`, `event` and `read` act on the form on screen: in a shell, the form
-//! in the ContentPane. After every `set`, `event` and `open_form` the form is
+//! in the ContentPane. After every `set`, `event` (unless `"wait": false`) and `open_form` the form is
 //! run until the program has handled everything sent to it (or the time limit
 //! runs out).
 
@@ -180,8 +181,15 @@ pub fn run_headless(
         } else if let Some(ev) = step.get("event") {
             let (c, n) = (field(ev, "control"), field(ev, "name"));
             host.host_mut().script_event(&c, &n);
-            timed_out = !settle(&mut host, &mut raster);
-            steps.push(json!({"step": i, "done": !timed_out, "event": format!("{c}.{n}")}));
+            // `"wait": false` raises the event and goes on, as a second click
+            // does while a handler is still busy (WASM-005 AC6).
+            if step.get("wait").and_then(Value::as_bool) == Some(false) {
+                frame(&mut host, &mut raster);
+                steps.push(json!({"step": i, "done": true, "event": format!("{c}.{n}"), "waited": false}));
+            } else {
+                timed_out = !settle(&mut host, &mut raster);
+                steps.push(json!({"step": i, "done": !timed_out, "event": format!("{c}.{n}")}));
+            }
         } else if let Some(ms) = step.get("wait_ms").and_then(Value::as_u64) {
             run_for(&mut host, &mut raster, ms.min(30_000));
             steps.push(json!({"step": i, "done": true, "waited_ms": ms}));

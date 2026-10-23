@@ -257,6 +257,19 @@ fn is_default_max_payload(n: &u32) -> bool {
     *n == DEFAULT_MAX_PAYLOAD_BYTES
 }
 
+/// How long a `CALL … WITH WEBSOCKET LINKAGE` waits for its answer unless the
+/// project says otherwise (WASM-005 R11): 60 s, the backend client's wait
+/// before the setting existed, so an older project behaves as it did.
+pub const DEFAULT_CALL_TIMEOUT_MS: u32 = 60_000;
+
+fn default_call_timeout() -> u32 {
+    DEFAULT_CALL_TIMEOUT_MS
+}
+
+fn is_default_call_timeout(n: &u32) -> bool {
+    *n == DEFAULT_CALL_TIMEOUT_MS
+}
+
 fn is_true(b: &bool) -> bool {
     *b
 }
@@ -376,6 +389,11 @@ pub struct WebSettings {
     /// only when it is not the default.
     #[serde(default = "default_max_payload", skip_serializing_if = "is_default_max_payload")]
     pub max_payload_bytes: u32,
+    /// How long a remote call waits for the Backend's answer, in milliseconds
+    /// (WASM-005 R11); the client gives up with a transport timeout after it.
+    /// Written only when it is not the default.
+    #[serde(default = "default_call_timeout", skip_serializing_if = "is_default_call_timeout")]
+    pub call_timeout_ms: u32,
     /// Carry the single-memory module beside the multi-memory one (WASM-017
     /// R9, D5). On by default; off asks for "multi-memory only", which the
     /// Build refuses while the matrix has a WebKit engine
@@ -394,6 +412,7 @@ impl Default for WebSettings {
             backend_url: String::new(),
             player: None,
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            call_timeout_ms: DEFAULT_CALL_TIMEOUT_MS,
             single_memory_fallback: true,
         }
     }
@@ -449,6 +468,9 @@ pub struct MobileSettings {
     /// The payload limit, as [`WebSettings::max_payload_bytes`].
     #[serde(default = "default_max_payload", skip_serializing_if = "is_default_max_payload")]
     pub max_payload_bytes: u32,
+    /// The remote-call wait, as [`WebSettings::call_timeout_ms`].
+    #[serde(default = "default_call_timeout", skip_serializing_if = "is_default_call_timeout")]
+    pub call_timeout_ms: u32,
 }
 
 fn auto() -> String {
@@ -472,6 +494,7 @@ impl MobileSettings {
             backend_url: String::new(),
             player: None,
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            call_timeout_ms: DEFAULT_CALL_TIMEOUT_MS,
         }
     }
 
@@ -682,6 +705,24 @@ mod tests {
         assert_eq!(mobile.max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
         assert_eq!(MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone).max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
         println!("payload limit: old table 393216, set 524288 round-trips, mobile default 393216");
+    }
+
+    /// WASM-005 R11: an old `[web]`/`[mobile]` table reads the 60 s remote-call
+    /// wait and is written back without the key; a set value round-trips.
+    #[test]
+    fn the_call_timeout_defaults_to_60_s_and_is_written_only_when_set_005() {
+        let old: WebSettings = toml::from_str("backend_url = \"wss://api.example.com/ws\"").unwrap();
+        assert_eq!(old.call_timeout_ms, 60_000);
+        assert!(!toml::to_string_pretty(&old).unwrap().contains("call_timeout_ms"), "an old manifest is saved unchanged");
+        let set: WebSettings = toml::from_str("call_timeout_ms = 15000").unwrap();
+        assert_eq!(set.call_timeout_ms, 15_000);
+        assert!(toml::to_string_pretty(&set).unwrap().contains("call_timeout_ms = 15000"));
+        let mobile: MobileSettings = toml::from_str("platform = \"android\"\ndevice = \"tablet\"").unwrap();
+        assert_eq!(mobile.call_timeout_ms, DEFAULT_CALL_TIMEOUT_MS);
+        assert_eq!(MobileSettings::new(MobilePlatform::Ios, DeviceClass::Phone).call_timeout_ms, DEFAULT_CALL_TIMEOUT_MS);
+        let set: MobileSettings = toml::from_str("platform = \"ios\"\ndevice = \"phone\"\ncall_timeout_ms = 5000").unwrap();
+        assert_eq!(set.call_timeout_ms, 5_000);
+        println!("call timeout: old table 60000, set 15000 round-trips, mobile default 60000, mobile set 5000");
     }
 
     #[test]

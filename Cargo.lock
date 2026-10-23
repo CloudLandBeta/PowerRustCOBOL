@@ -2183,6 +2183,7 @@ dependencies = [
  "cobolt-os-blur",
  "cobolt-parser",
  "cobolt-runtime",
+ "cobolt-wire",
  "eframe",
  "egui",
  "egui_extras",

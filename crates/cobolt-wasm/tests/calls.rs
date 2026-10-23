@@ -254,3 +254,37 @@ END PROGRAM KEEPER.
         "initial_and_cancel: plain 5 calls equal on both engines and variants ({kept:?}); INITIAL {calls} module calls all fresh; interpreter prints {interp:?} (WASM-PARITY #11)"
     );
 }
+
+/// WASM-005 T2: a `WEBSOCKET` call is never lowered as a local `CALL`. Outside
+/// a form's handler (where WASM-010 suspends the task for it) the generator
+/// refuses it with the statement's line, and no module is produced — it never
+/// reaches the local path, where an unknown name would silently take
+/// `ON EXCEPTION`.
+#[test]
+fn a_websocket_call_outside_a_form_is_refused_with_its_line() {
+    let src = r#"IDENTIFICATION DIVISION.
+PROGRAM-ID. MAIN-PROG.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 CUSTOMER-REC.
+   05 CUST-ID   PIC 9(6) VALUE 42.
+   05 CUST-NAME PIC X(20).
+01 WS-STATE PIC X(3).
+PROCEDURE DIVISION.
+MAIN.
+    MOVE "NEW" TO WS-STATE.
+    CALL "GET-CUSTOMER" WITH WEBSOCKET LINKAGE USING CUSTOMER-REC
+        ON EXCEPTION MOVE "ERR" TO WS-STATE
+    END-CALL.
+    STOP RUN.
+"#;
+    let prog = parse(src);
+    let err = match cobolt_wasm::compile_program(&prog, &cobolt_wasm::Options::default()) {
+        Ok(_) => panic!("a WEBSOCKET call outside a form must not produce a module"),
+        Err(e) => e,
+    };
+    let all = err.all_kinded();
+    let remote = all.iter().find(|e| e.message.contains("WEBSOCKET")).unwrap_or_else(|| panic!("no WEBSOCKET refusal in {all:?}"));
+    assert_eq!(remote.line, 12, "the refusal names the CALL's line: {remote:?}");
+    println!("websocket outside a form: refused at line {} — {}", remote.line, remote.message);
+}

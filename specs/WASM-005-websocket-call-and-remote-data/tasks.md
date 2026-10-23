@@ -48,7 +48,11 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## The language half — what exists, re-verified
 
-- [ ] **T1 — Baseline: the existing tests of M1–M4 are green** (R1–R8, R10; AC1–AC5 as far as they exist)
+- [x] **T1 — Baseline: the existing tests of M1–M4 are green** (R1–R8, R10; AC1–AC5 as far as they exist)
+  - Counts (2026-10-23, run at 2.0.46): `cobolt-parser` 223 passed / 0 failed over 22 test binaries (`test_websocket_call` 10, `test_call_returning` 9,
+    `test_call_overflow_phrase` 3, `test_statements` 51) · `cobolt-semantic --test test_remote_calls` 15/0 · `cobolt-wire` 21 unit + `random_round_trip` 1
+    + `vectors` 1, 0 failed · `cobolt-runtime --test test_remote_call` 13/0, `--test test_group_json_vectors` 1/0 · `cobolt-server` `loopback` 15/0,
+    `client_contract` 13/0, `config_rules` 11/0 · `cobolt-compiler --lib a_built_application_starts_the_backend_client_only_when_it_calls_its_backend` 1/0.
   - Files: none changed.
   - Do: run the tests the plan cites as existing (plan §1.1, §6); none of them was seen green when the plan was written. A red test here is a
     defect to fix (a fix in this task, in the crate that owns it) before T2 starts.
@@ -61,7 +65,13 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## M6 — the WebAssembly generator stops lowering a remote call as a local one
 
-- [ ] **T2 — `cobolt-wasm` refuses `CallConvention::WebSocket` with its line** (R5b guard, plan D6)
+- [x] **T2 — `cobolt-wasm` refuses `CallConvention::WebSocket` with its line** (R5b guard, plan D6)
+  - **Done differently (2026-10-23): the premise had changed.** WASM-010 WP5 landed before this run: `crates/cobolt-wasm/src/lower.rs` (`Stmt::Call`
+    arm, now `:1914`) binds `convention: CallConvention::WebSocket` and routes it to `remote_call` (`src/lower_remote.rs`), which suspends the task
+    in a form's handler, and `tests/json_vectors.rs` runs the vectors. A blanket refusal would undo that, so no generator code changed. What
+    remains of the guard already exists in `remote_call`: outside a form the call is refused with its line. Pinned by the new
+    `tests/calls.rs::a_websocket_call_outside_a_form_is_refused_with_its_line` (refusal at line 12, no module). `cargo test -p cobolt-wasm --no-fail-fast`:
+    20 test binaries and the doc-tests, 81 passed, 0 failed (`calls` 6, `nist_nc_fixes` 15, `json_vectors` 1, `forms` 15).
   - Files: `crates/cobolt-wasm/src/lower.rs` (the `Stmt::Call` arm at `:1785` binds `convention`), `src/lower_call.rs` (or the error type the
     generator already uses for an unsupported statement), `crates/cobolt-wasm/tests/calls.rs`.
   - Do: a `WEBSOCKET` call becomes a generator error "not yet supported by the WebAssembly generator" carrying the statement's line, instead of
@@ -72,7 +82,26 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## M5 — limits, the pending call, the second failure mechanism
 
-- [ ] **T3 — The client's timeout and maximum payload come from the project** (R11)
+- [x] **T3 — The client's timeout and maximum payload come from the project** (R11)
+  - **Done 2026-10-23.** Key names: manifest `call_timeout_ms` (new, `[web]` and `[mobile]`, default `DEFAULT_CALL_TIMEOUT_MS` = 60 000, written only
+    when not the default) and `max_payload_bytes` (already there from WASM-017 R8 — reused, not duplicated); environment
+    `COBOLT_BACKEND_CALL_TIMEOUT_MS` and `COBOLT_BACKEND_MAX_PAYLOAD_BYTES`, read by `config_from_env` (now over `config_from_vars`, a pure
+    variable source) into `ClientConfig.call_timeout` and the new `ClientConfig.max_payload`. The actor refuses a call frame larger than
+    `min(project limit, hello.max_frame_bytes)` before sending it — the project's limit before connecting at all.
+  - **Class: `limit 7000` (`FRAME_TOO_LARGE`), not transport.** The task said "the transport class"; the wire defines `ErrorClass::Limit` for
+    "a size, rate, concurrency or time limit" (`cobolt-wire/src/error.rs`), the backend answers the same frame with `Limit`/`FRAME_TOO_LARGE`
+    (`cobolt-server/src/serve.rs`), and `client_contract.rs::ac4_limits_are_their_own_class_with_their_own_codes` pins that class — one
+    condition reads one way whichever end refuses it. `may_have_run` is `false`.
+  - **No host carries the values yet.** No host sets `COBOLT_BACKEND_URL` from `[web] backend_url` today (only tests set it:
+    `cobolt-cli/tests/backend_cli.rs`, `cobolt-compiler/tests/compiled_app_calls_backend.rs`), so per this task it stops at the manifest
+    fields plus the variables; the generated `main` already calls `install_default_from_env`, which now reads both. Wiring the IDE's Run of a
+    web/mobile project to set the four variables from the manifest is left to the host that first sets `COBOLT_BACKEND_URL`.
+  - Tests: `project_kind.rs::the_call_timeout_defaults_to_60_s_and_is_written_only_when_set_005`; `client.rs` unit tests
+    `the_projects_call_timeout_and_payload_limit_reach_the_client_config`, `an_over_limit_call_fails_before_anything_is_sent` (limit before any
+    connection attempt), `an_over_limit_call_runs_on_exception` (COBOL reads `LIMIT` / `07000`). `cargo test -p cobolt-server --no-fail-fast`:
+    lib 14, `client_contract` 13, `config_rules` 11, `dependency_guards` 5, `loopback` 15, `token_rules` 15 — 0 failed;
+    `cargo test -p cobolt-compiler -p cobolt-project-tools --no-fail-fast`: compiler lib 204 (1 ignored) + 9 integration binaries, project-tools
+    lib 103 + 11 integration binaries — 0 failed.
   - Files: `crates/cobolt-compiler/src/project_kind.rs` (`WebSettings`, `MobileSettings`: two `#[serde(default)]` fields, e.g.
     `call_timeout_ms` and `max_payload_bytes`, defaults equal to today's behaviour — 60 000 ms, and the server's announced frame size), `crates/cobolt-server/src/client.rs`
     (`config_from_env` reads two new variables beside `COBOLT_BACKEND_URL`; the payload check refuses a frame larger than
@@ -85,7 +114,16 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     transport class before any byte is sent and `ON EXCEPTION` runs; a `project_kind.rs` test that an old manifest parses with the defaults;
     `cargo test -p cobolt-server -p cobolt-compiler --no-fail-fast`.
 
-- [ ] **T4 — AC6: a pending call keeps the form live and queues its events in order** (R9, Q6)
+- [x] **T4 — AC6: a pending call keeps the form live and queues its events in order** (R9, Q6)
+  - **Done 2026-10-23.** The host already queues (the interpreter thread blocks in `Transport::call`, the UI thread keeps running frames,
+    the second click waits on the event channel) — no host fix was needed. One host change: `headless.rs` gains an optional `"wait": false`
+    on the `event` step (raise it and go on, one frame, no settle), because every `event` step settled until the program had handled it, so a
+    script could never click *during* a pending call. Additive: a step without the key behaves as before.
+  - `tests/remote_call_pending.rs` (own binary; `cobolt-wire` added as a path dev-dependency for `Transport`) builds the host and interpreter as
+    `cobolt-cli/src/form_gui.rs` does, registers a held transport as the process default, and drives `run_headless`. Measured: call held
+    2.51 s; during it `LBL-STATE` = `CALLING` (the handler's MOVE before the `CALL` reached the form) and `LBL-LOG` = `-` (BTN-OTHER not run);
+    after the release `LBL-STATE` = `Ana`, `LBL-LOG` = `CALL-END OTHER`; no step timed out. `cargo test -p cobolt-form-host --no-fail-fast`:
+    lib 180, `remote_call_pending` 1, `snackbar_stack` 21 — 0 failed.
   - Files: `crates/cobolt-form-host/tests/remote_call_pending.rs` (new; its own test binary, because `set_default_transport_factory` registers
     once per process), and a fixture form in the test.
   - Do: a scripted `Transport` that holds the call until the test releases it; through `headless.rs` the script clicks `BTN-CALL` (its handler
@@ -96,6 +134,8 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     has not run before the release; afterwards the log reads call-end then other-click, in that order.
 
 - [ ] **T5 — The second failure mechanism of Q7 — BLOCKED on O1** (R10; AC5)
+  - **Run of 2026-10-23 stopped here.** spec.md Q7 still reads *To confirm that "the first" is the built-in*, and the second mechanism is not
+    named. Nothing built. T1–T4 landed as 2.0.47; T6–T19 not started.
   - Files (when unblocked; depends on the mechanism): `crates/cobolt-runtime/src/interpreter/remote.rs` (fills it from the same `CallError` as
     `last_error`), and — for a special register — lexer, parser, semantic, runtime and `cobolt-wasm`; `builtins.rs` if it is a built-in;
     `crates/cobolt-runtime/tests/test_remote_call.rs`.
