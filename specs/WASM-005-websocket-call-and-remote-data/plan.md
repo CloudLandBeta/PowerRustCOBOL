@@ -109,7 +109,7 @@ No `README.md`, nothing under `docs/` (2.x.x rule). What 2.x.x says about itself
 
 **Open — working assumptions, not decisions:**
 
-- **O1 (Q7, *to confirm*):** "both mechanisms, carrying the same data; agents use the first". *Working assumption:* "the first" is the built-in `COBOL::"WS-LAST-ERROR"` (it is first in the spec's list and is what exists). The **second mechanism is not identified**: the spec lists a special register and `RETURN-CODE`. Only a special register can carry class, code **and** message, so *the same data* points to it; `RETURN-CODE` can carry the code only. **Nothing is built until the operator confirms**; M5's Q7 item is blocked on it.
+- **O1 (Q7, *to confirm*):** "both mechanisms, carrying the same data; agents use the first". *Working assumption:* "the first" is the built-in `COBOL::"WS-LAST-ERROR"` (it is first in the spec's list and is what exists). The **second mechanism is not identified**: the spec lists a special register and `RETURN-CODE`. Only a special register can carry class, code **and** message, so *the same data* points to it; `RETURN-CODE` can carry the code only. **Closed 2026-10-23 (operator):** the first is the built-in; the second is **`RETURN-CODE`**, holding the code only — the class and message stay with the built-in.
 - **O2 (Q4, *to confirm*):** trim on output, pad on input, `""` for all spaces, leading spaces kept — implemented as the working assumption (mapping-rules S1/S2).
 - **O3 (paging):** WASM-004 Q4 decided that bound grids are **paged on the server** and assigns the request shape to WASM-005; WASM-INDEX proposes WASM-023 for server-side paging, sorting, filtering and optimistic concurrency. *Working assumption:* this plan delivers the row window (`offset`, `count`) only; sorting, filtering and concurrency on Save are WASM-023's. To confirm when WASM-023 is accepted.
 - **O4 (D4, open in WASM-INDEX):** fresh `WORKING-STORAGE` per backend call. The generated programs of §1.3 are written to be correct either way (they keep no state between calls).
@@ -172,7 +172,7 @@ Manual check (the operator judges the look): the IDE's Build of a web project wi
 | M2 | `cobolt-wire` mapping, rules, vectors (R5, R5b native, R6) | exists |
 | M3 | interpreter adapter, `WS-LAST-ERROR` (R3, R10) | exists |
 | M4 | client, hosts, refresh-once (R8) | exists |
-| M5 | Q7 second mechanism (**blocked on O1**), R11 client limits, AC6 test, KB | to do |
+| M5 | Q7 second mechanism (`RETURN-CODE`, O1 closed), R11 client limits, AC6 test, KB | to do |
 | M6 | generator refusal of `WEBSOCKET` until WASM-010 WP5 | to do |
 | M7 | class C catalogue (`cobolt-wire::controls`) | to do |
 | M8 | backend generation (programs, generated exports, slots) + loader | to do |

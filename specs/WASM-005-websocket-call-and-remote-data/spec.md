@@ -177,7 +177,7 @@ its COBOL API; its work runs on the backend.
 - **Q6 — Concurrency of events while a call is pending:** queue them (recommended), disable the form's controls, or let handlers run re-entrantly (dangerous)?
   **Decided (operator, 2026-10-22):** queue the events.
 - **Q7 — How the failure is read:** a new built-in such as `COBOL::"WS-LAST-ERROR"( class message )`, a special register, or `RETURN-CODE`? Needs the operator's taste; the built-in is the project's convention.
-  **Decided (operator, 2026-10-22):** both mechanisms, carrying the same data. Agents (Codex) use the first, the built-in; humans may use either. *To confirm that "the first" is the built-in.*
+  **Decided (operator, 2026-10-22):** both mechanisms, carrying the same data. Agents (Codex) use the first, the built-in; humans may use either. **Confirmed (operator, 2026-10-23):** the first is the built-in `COBOL::"WS-LAST-ERROR"( class message )`; the second is `RETURN-CODE`, set to the failure's numeric code (for example 7000). `RETURN-CODE` carries only the code; the class and the message are read through the built-in.
 - **Q8 — `RestApi` / `AgentAi` bindings:** implement through the backend, or hide on the web and leave to a later spec?
   **Decided (operator, 2026-10-22):** through the backend, except COBOL tables, which stay local.
 - **Q9 — Wire format:** one JSON text frame per call (recommended), or a binary framing for large tables? The JSON mapping is the contract either way.
