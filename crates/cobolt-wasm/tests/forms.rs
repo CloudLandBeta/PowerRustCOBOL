@@ -599,3 +599,42 @@ fn yield_is_invisible() {
     assert!(runs[0].2 > 100 && runs[2].2 == 0, "budget 1 yields often, 20 000 never: {:?}", runs.iter().map(|r| r.2).collect::<Vec<_>>());
     eprintln!("yield: 6 runs (2 variants x 3 budgets), identical output and commands");
 }
+
+/// `STRING … INTO Ctrl::Property` writes the property, as the interpreter does.
+/// It is the Web template's own greeting: the generator used to assemble the
+/// text into the temporary holding the property's *old* value and never write
+/// it back, so the label showed a stray `\u{1}` instead of "Hello, Ada".
+#[test]
+fn string_into_a_property_writes_the_property() {
+    let greet = "    IF TXT-NAME::Text::Trim()::Len() = 0\n        SET LBL-RESULT::Caption TO \"Type your name first.\"\n    ELSE\n        MOVE SPACES TO LBL-RESULT::Caption\n        STRING \"Hello, \" TXT-NAME::Text::Trim() DELIMITED BY SIZE INTO LBL-RESULT::Caption\n    END-IF\n";
+    let main = form_source(
+        "MAIN-FORM",
+        "",
+        &[("BTN-GREET", "onClick", greet), ("BTN-SET", "onClick", "    MOVE \"  Ada\" TO TXT-NAME::Text\n")],
+    );
+    let p = Project::new().form(
+        "MAIN-FORM",
+        true,
+        1,
+        &[("TXT-NAME", "TextBox"), ("BTN-GREET", "Button"), ("LBL-RESULT", "Label"), ("BTN-SET", "Button")],
+        &main,
+    );
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let m = manifest_of(&c);
+        let click = m.event_index("onClick").unwrap() as i32;
+        let caption = name_id(&m, "Caption");
+        let id = |n: &str| m.forms[0].controls.iter().find(|c| c.name == n).unwrap().id;
+        let (greet_id, set_id, result_id) = (id("BTN-GREET"), id("BTN-SET"), id("LBL-RESULT"));
+        let mut host = FormHost::new(&c.wasm).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        assert_eq!(host.event(inst, greet_id as i32, click, &[]), 0, "{:?}", host.outcome());
+        assert_eq!(host.property(0, result_id, caption).as_deref(), Some("Type your name first."), "multi={multi}");
+        assert_eq!(host.event(inst, set_id as i32, click, &[]), 0, "{:?}", host.outcome());
+        assert_eq!(host.event(inst, greet_id as i32, click, &[]), 0, "{:?}", host.outcome());
+        let o = host.outcome();
+        assert!(o.trapped.is_none() && o.errors.is_empty(), "{o:?}");
+        assert_eq!(host.property(0, result_id, caption).as_deref(), Some("Hello, Ada"), "multi={multi}");
+    }
+    eprintln!("STRING INTO a property: the Web template's greeting reads \"Hello, Ada\" in both variants");
+}

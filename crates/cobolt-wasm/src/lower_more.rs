@@ -338,7 +338,17 @@ impl Lower<'_, '_> {
         on: &[Stmt],
         not_on: &[Stmt],
     ) -> GenResult<()> {
-        let into_o = self.receiver(into)?;
+        // A control's property is no data item: the text is built in a
+        // character temporary holding its current value (so `WITH POINTER`
+        // keeps what is there) and written back to the control afterwards, as
+        // the interpreter's `STRING … INTO Ctrl::Prop` does.
+        let line = into.span().line;
+        let (into_o, member_k) = if matches!(into, Expr::Member { .. }) {
+            let (k, o) = self.member_receiver(into, line)?;
+            (o, Some(k))
+        } else {
+            (self.receiver(into)?, None)
+        };
         let ptr = match pointer {
             Some(p) => self.receiver(p)?,
             None => 0,
@@ -355,6 +365,12 @@ impl Lower<'_, '_> {
         self.base();
         self.i32c(spec as i32);
         self.call_rt("rt_string");
+        if let Some(k) = member_k {
+            // The overflow flag stays on the stack below the write-back.
+            self.i32c(k as i32);
+            self.call_rt("rt_ctemp_rtrim");
+            self.member_set(into, into_o, line)?;
+        }
         self.overflow_tail(on, not_on)
     }
 

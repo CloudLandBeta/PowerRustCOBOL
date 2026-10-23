@@ -753,3 +753,29 @@ process.exit(0);\n"
         let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
     }
 }
+
+/// A see-through theme (Spatial, the Web template's) has nothing behind it on a
+/// page: the Build paints the stand-in desktop its pictures are drawn over, so
+/// its white text never sits on a light page. Any other theme leaves the page's
+/// own colour.
+#[test]
+fn a_see_through_theme_gets_a_backdrop_and_another_theme_does_not() {
+    let app_css = |manifest: &std::path::Path| -> String {
+        let req = WebBuildRequest::from_manifest(manifest).unwrap();
+        GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+        let web = manifest.parent().unwrap().join("dist/web");
+        let css = std::fs::read_dir(&web)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("app.") && n.to_string_lossy().ends_with(".css")))
+            .expect("app.css in the bundle");
+        std::fs::read_to_string(css).unwrap()
+    };
+    let spatial = project_with("seethrough", "[web]\nmulti_memory = true\n\n[forms]\ntheme = \"spatial\"\n", &["main-form"]);
+    let css = app_css(&spatial);
+    assert!(css.contains("background: #4A4642;"), "{css}");
+    let plain = project_with("opaque", "[web]\nmulti_memory = true\n", &["main-form"]);
+    let css = app_css(&plain);
+    assert!(!css.contains("#4A4642"), "{css}");
+    eprintln!("see-through backdrop: Spatial gets #4A4642 behind the app, Liquid Glass keeps the page colour");
+}

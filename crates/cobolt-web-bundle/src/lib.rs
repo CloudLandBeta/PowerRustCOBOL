@@ -182,6 +182,11 @@ pub struct BundleOptions {
     pub tile_url: Option<String>,
     /// Further origins images may be loaded from (`img-src`), beyond the bundle itself.
     pub image_origins: Vec<String>,
+    /// The colour painted behind the application when its form theme is see-through
+    /// (Spatial). On the desktop the blurred desktop shows through; a page has nothing
+    /// behind it, so without this the theme's white text sat on the page's own colour —
+    /// white in a light scheme. `None` leaves the page's colour.
+    pub backdrop: Option<String>,
 }
 
 impl Default for BundleOptions {
@@ -209,6 +214,7 @@ impl Default for BundleOptions {
             entropy_len: secrets::DEFAULT_ENTROPY_LEN,
             tile_url: None,
             image_origins: Vec::new(),
+            backdrop: None,
         }
     }
 }
@@ -672,7 +678,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     let loader_path = b.add_hashed("loader.js", hostpage::loader_js().into_bytes());
     let worker_path = b.add_hashed("worker.js", hostpage::worker_js().into_bytes());
     let app_js_path = b.add_hashed("app.js", hostpage::app_js(&loader_path).into_bytes());
-    let app_css_path = b.add_hashed("app.css", hostpage::app_css().into_bytes());
+    let app_css_path = b.add_hashed("app.css", hostpage::app_css(o.backdrop.as_deref()).into_bytes());
 
     // texts, options and the config the loader reads
     let mut texts = serde_json::Map::new();

@@ -17,6 +17,18 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.40] — 2026-10-23
+
+*(Written on `fixes-2x` (`7e6b6a08`, numbered 2.0.39 there), off `features-2x` at 2.0.38; applied to `features-2x` after WASM-003 took 2.0.39, so it is 2.0.40 here. Found running WASM-002's owed checks — T19 in Chrome, T20's suites — on 2.0.37.)*
+
+### Fixed: the Web template greets in the browser, reads on a light page, and the SDK ships what it links
+
+- **`STRING … INTO Ctrl::Property` wrote nothing to the control in a generated module.** The receiving field was the character temporary the property's *old* value had been read into; the text was built there and never written back, so the Web template's own greeting (`STRING "Hello, " TXT-NAME::Text::Trim() DELIMITED BY SIZE INTO LBL-RESULT::Caption`) left a stray `\u0001` in the label instead of "Hello, Ada". The text is now built in that temporary widened to its full capacity (keeping the property's text, as `WITH POINTER` needs) and written to the control afterwards with its trailing spaces dropped — what the interpreter does. Two routines join the generator's runtime (`rt_ctemp_widen`, `rt_ctemp_rtrim`; `rt.wasm` rebuilt).
+- **A see-through theme had nothing behind it on a page.** Spatial — the theme new Web projects get — leaves its window transparent so the desktop shows; a page has no desktop, so the form's white text sat on the page's own colour and vanished in a light colour scheme, the standalone page included. The Build now paints the same stand-in desktop the form pictures are drawn over (`#4A4642`) behind a form whose theme is see-through; any other theme keeps the page's colour. The colour and the "is see-through" test now live in `cobolt-forms::theme`, outside the render feature, and the painters read the same constant.
+- **The SDK left out two crates it links.** `cobolt-runtime` depends on `cobolt-decimal` (2.0.16) and `cobolt-forms` on `cobolt-numedit` (2.0.13), but neither was in `SDK_CRATES`, so a staged SDK did not close and four `cobolt-compiler` tests failed. Both are in the set now.
+
+Tests: `cobolt-wasm/tests/forms.rs` (`string_into_a_property_writes_the_property`, both memory variants), `cobolt-project-tools/tests/web_build.rs` (`a_see_through_theme_gets_a_backdrop_and_another_theme_does_not`), `cobolt-forms` (`the_see_through_test_without_the_painters_agrees_with_every_theme`); `cobolt-compiler --lib` 200 passed, 0 failed (4 failed before). `README.md` and `docs/` are untouched on this line.
+
 ## [PowerRustCOBOL 2.0.39] — 2026-10-23
 
 *(Written on `features-2x`, after 2.0.38.)*

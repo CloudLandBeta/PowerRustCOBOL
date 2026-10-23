@@ -8549,7 +8549,11 @@ pub const COMBO_PANEL_BASE: Color32 = Color32::from_rgb(22, 30, 58);
 /// What a see-through window (Spatial) is measured — and, off screen,
 /// pictured — over: the operating system blurs the real desktop behind it,
 /// which no painter can read, and the theme is designed for a darker one.
-pub const SEE_THROUGH_DESKTOP: Color32 = Color32::from_rgb(0x4A, 0x46, 0x42);
+pub const SEE_THROUGH_DESKTOP: Color32 = Color32::from_rgb(
+    crate::theme::SEE_THROUGH_BACKDROP_RGB.0,
+    crate::theme::SEE_THROUGH_BACKDROP_RGB.1,
+    crate::theme::SEE_THROUGH_BACKDROP_RGB.2,
+);
 /// The translucent card an undesigned dropdown frosts over [`COMBO_PANEL_BASE`].
 pub const COMBO_PANEL_TINT: Color32 = Color32::from_rgb(30, 42, 80);
 /// The rim an undesigned dropdown draws around itself.

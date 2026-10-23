@@ -70,6 +70,9 @@ pub struct WebBuildRequest {
     pub assets: Vec<String>,
     /// Where the bundle goes: `<project>/dist/web`.
     pub out_dir: PathBuf,
+    /// The project's default form theme (`[forms] theme`), for the backdrop a
+    /// see-through theme needs on a page; `None` when the manifest sets none.
+    pub form_theme: Option<String>,
 }
 
 impl WebBuildRequest {
@@ -84,6 +87,10 @@ impl WebBuildRequest {
             );
         }
         let project_dir = manifest.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+        let form_theme = std::fs::read_to_string(manifest)
+            .ok()
+            .and_then(|t| t.parse::<toml::Table>().ok())
+            .and_then(|t| t.get("forms")?.get("theme")?.as_str().map(str::to_owned));
         let (web, variants) = match (&view.web, &view.mobile) {
             (Some(web), _) if view.kind == ProjectKind::Web => (web.clone(), web.module_variants()),
             (_, Some(mobile)) if view.kind == ProjectKind::Mobile => {
@@ -123,6 +130,7 @@ impl WebBuildRequest {
             sources: view.sources,
             backend: view.backend,
             assets: view.assets,
+            form_theme,
         })
     }
 }
