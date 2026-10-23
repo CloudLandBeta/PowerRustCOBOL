@@ -69,7 +69,8 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
 
 ### Facts first
 
-- [ ] **T1 — Confirm the browser baseline and matrix** (R9, R12, R18, R19; Q4, Q-17d)
+- [x] **T1 — Confirm the browser baseline and matrix** (R9, R12, R18, R19; Q4, Q-17d)
+  - *Done 2026-10-23 outside the pipeline (its session had no web access): `specs/WASM-PROGRESS.md` §"WASM-017 baseline and matrix" — 5 engines × 9 features, every cell sourced and dated. Stop gate not triggered (WebKit has no multi-memory in any version). Finding to confirm: Firefox 122–124 lack multi-memory; working reading = Firefox 125 minimum for the multi-memory variant, 122–124 served the single-memory one.*
   - Files: `specs/WASM-PROGRESS.md` (new section "WASM-017 baseline and matrix").
   - Do: from MDN and Can I Use, for Chrome/Edge, Firefox, Safari (macOS), the iOS web view and the Android WebView **released from
     2024 onwards** (Q4): the oldest such version, and per engine multi-memory, threads + `SharedArrayBuffer` under isolation, JS String

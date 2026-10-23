@@ -159,3 +159,37 @@ Measured, not hoped. Commits on `features-2x`: `44371f53` … `42eac962` (2.0.11
 Work running in other worktrees when the session's usage limit was reached (each commits on its own branch, **none merged into `features-2x`**): `cobolt-graphics` (WASM-018 part 1); backend + `CALL … WITH WEBSOCKET LINKAGE` + JSON mapping + `cobolt-server` + identity backend (WASM-005/003/014/009); player + loader + host page + bundle (WASM-016/002/004/006/007/011); IDE project kinds, selector, tree entries, preview, tooling (WASM-001/008/015). Their reports have not been read. Not started: Tauri shell (WASM-012), security gates (WASM-013), the Canvas control integration (WASM-018 part 2), CLAUDE.md/memory refresh.
 
 Harness notes: `NIST_KEEP=1` keeps the work directories (they land under the *temp_dir*, which in this environment is a literal `${DaemonNameOrIdentifierHere}` TMPDIR — set `TMPDIR` explicitly before using it); drive the generator with `RCRUN=target/debug/examples/nist_wasm_run ./target/debug/examples/nist_conformance run NC`.
+
+## WASM-017 baseline and matrix (T1, 2026-10-23)
+
+Engines **released from 2024 onwards** (Q4), at the oldest such version. A cell says whether that oldest version has the feature;
+where it does not, the first version that does and its date. Sources, each read 2026-10-23:
+
+- **[WF]** [webassembly.org/features](https://webassembly.org/features/) data `features.json` (commit `3a8728d820`, 2026-10-21; read 2026-10-23) — every WebAssembly feature cell, including threads.
+- **[CIU]** [caniuse.com/sharedarraybuffer](https://caniuse.com/sharedarraybuffer) (read 2026-10-23) — `SharedArrayBuffer` enabled (the cross-origin isolation it needs is the page's COOP/COEP, WASM-002).
+- **Release dates:** Chrome — [chromiumdash milestone schedule](https://chromiumdash.appspot.com/schedule) (`fetch_milestone_schedule`:
+  120 = 2023-12-05, 121 = 2024-01-23, 130 = 2024-10-15); Firefox — [product-details](https://product-details.mozilla.org/1.0/firefox_history_major_releases.json)
+  (121 = 2023-12-19, 122 = 2024-01-23, 125.0.1 = 2024-04-16 — 125.0 was not released, 134 = 2025-01-07); Safari and iOS — [Apple security
+  releases](https://support.apple.com/en-us/100100) (Safari 17.3 and iOS/iPadOS 17.3 = 22 Jan 2024; Safari 26.2 and iOS 26.2 = 12 Dec 2025).
+- **ES-module source imports:** [WF] lists `esmIntegration` (phase 3) as supported by no browser; the syntax is TC39's
+  [source phase imports](https://github.com/tc39/proposal-source-phase-imports), Stage 3; [MDN `import source`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import/source).
+
+| Engine (oldest 2024+ release) | bulk memory | reference types | sign extension | non-trapping float→int | multi-value | **multi-memory** | threads + `SharedArrayBuffer` (isolated) | JS String Builtins | ES-module source imports |
+|---|---|---|---|---|---|---|---|---|---|
+| Chrome / Edge — Chromium 121 (2024-01-23) | yes (75) [WF] | yes (96) [WF] | yes (74) [WF] | yes (75) [WF] | yes (85) [WF] | **yes** (120, 2023-12-05) [WF] | yes (threads 74 [WF]; SAB 68 [CIU]) | no — from 130 (2024-10-15) [WF] | no [WF] |
+| Firefox 122 (2024-01-23) | yes (79) [WF] | yes (79) [WF] | yes (62) [WF] | yes (64) [WF] | yes (78) [WF] | **no — from 125 (2024-04-16)** [WF] | yes (threads 79 [WF]; SAB 79 [CIU]) | no — from 134 (2025-01-07) [WF] | no [WF] |
+| Safari (macOS) 17.3 (2024-01-22) | yes (15) [WF] | yes (15) [WF] | yes (14.1) [WF] | yes (15) [WF] | yes (13.1) [WF] | **no — in no version** [WF] | yes (threads 14.1 [WF]; SAB 15.2 [CIU]) | no — from 26.2 (2025-12-12) [WF] | no [WF] |
+| iOS web view (WKWebView) — iOS 17.3 (2024-01-22) | yes (iOS Safari) [WF] | yes [WF] | yes (iOS 14.5) [WF] | yes [WF] | yes [WF] | **no — in no version** [WF] | iOS Safari: threads 14.5 [WF], SAB 15.2 [CIU]; an app's web view must still serve COOP/COEP — WASM-017 Q5 (open) | no — from 26.2 [WF] | no [WF] |
+| Android WebView — Chromium 121 (2024-01-23) | yes (Chromium) [WF] | yes [WF] | yes [WF] | yes [WF] | yes [WF] | **yes** (Chromium 120) [WF] | threads: Chromium [WF]; [CIU] lists no WebView row, so isolation in a WebView is not established here | no — from Chromium 130 [WF] | no [WF] |
+
+**Stop gate (T1): not triggered.** Neither Safari nor the iOS web view has multi-memory in any version, so R9's WebKit rule stands as
+written: the single-memory variant is always built for iOS and for a matrix that includes Safari. T7 may start.
+
+**Finding for the operator (not changed here):** Firefox 122–124 are 2024 releases **without** multi-memory. With Q4's "2024 onwards",
+a matrix that includes Firefox needs either the single-memory variant for Firefox too, or a Firefox minimum of **125**. The working
+reading for T12/T13 is **Firefox 125** as the tested minimum for the multi-memory variant, with Firefox 122–124 served the single-memory
+variant (the same fallback WebKit gets); to confirm.
+
+**Minimum versions T12 and T13 test against:** Chromium 121 (Chrome, Edge, Android WebView), Firefox 125 for multi-memory (122 for the
+single-memory variant), Safari 17.3, iOS 17.3. Nothing in `scan::baseline_features()` is missing from any of them; JS String Builtins and
+ES-module source imports are on none of the oldest versions, so the bundle uses neither.

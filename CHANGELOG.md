@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.43] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.42. WASM-017 T1, done outside the pipeline, whose session had no web access.)*
+
+### Docs: the browser baseline and matrix for 2024-onwards engines (WASM-017 T1)
+
+`specs/WASM-PROGRESS.md` gains the table WASM-017 T1 asks for: Chromium 121, Firefox 122, Safari 17.3, the iOS 17.3 web view and the
+Chromium 121 Android WebView — the oldest releases from 2024 onwards — against the six baseline WebAssembly features, multi-memory,
+threads with `SharedArrayBuffer` under isolation, JS String Builtins and ES-module source imports, every cell citing webassembly.org's
+feature data, Can I Use, or the vendors' own release records. The stop gate is not triggered: WebKit has no multi-memory in any version,
+so the single-memory variant stays the rule for iOS and Safari. One finding is left for the operator: Firefox 122–124 are 2024 releases
+without multi-memory, so the working reading is Firefox 125 as the multi-memory minimum, with 122–124 served the single-memory variant.
+
 ## [PowerRustCOBOL 2.0.42] — 2026-10-23
 
 *(Written on `features-2x`. WASM-016, the prebuilt player: tasks T22 (its automated part), T23, T24, T25, T26, T27, T14, T28, T15 and T29 of `specs/WASM-016-prebuilt-player/tasks.md`; stopped at T17, see below.)*
