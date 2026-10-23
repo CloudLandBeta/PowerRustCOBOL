@@ -197,8 +197,20 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
 
 ### The R20 matrix
 
+- [ ] **T11a — The generator covers what the shared script's cells need** (operator, 2026-10-23; before T11)
+  - Do: the generated module reproduces the three things only the hand-written fixture could: **reading an event argument** in a
+    handler, **a deliberate trap** (a run-time error raised on purpose, reported with its line as R11 says), and **a raw (non-JSON)
+    answer** from the host taken as text. Each is a generator change in `cobolt-wasm` (and `cobolt-wasm-rt` with the blob rebuilt when it
+    needs a routine), held equal to the interpreter by a differential test where the interpreter has the construct.
+  - Verify: a `cobolt-wasm` test per case on both memory variants; then T11's script runs every cell on the fixture **and** the generated
+    module, none marked fixture-only.
+
 - [ ] **T11 — The scenario project in COBOL, and the core cells on a generated module** (R1, R2, R5, R11, R12, R20; AC1, AC2, AC3,
   AC6, AC8, AC9, AC10; plan §1.6) — after WASM-010 T9, T10, T16, T17 and WASM-002 T13
+  - **Decided by the operator (2026-10-23):** (1) **AC1 uses the Canvas part** (`part-canvas`, loaded when a form uses Canvas 2D/3D) in
+    place of a chart part, which WASM-016 T26 measured and chose not to split; the third form gets a Canvas control instead of a chart.
+    (2) **The generator is extended** (T11a) rather than marking cells fixture-only. (3) AC3 still waits for WASM-011 T11
+    (`PreservePreviousForm` regions): the loop runs WASM-017 again after WASM-011.
   - Files: new `crates/cobolt-web-bundle/tests/projects/core/` (three forms and Common Code: buttons GO, ECHO, QUERY, RAW, BURST,
     REMOTE, YIELD, TRAP, ERR, a child form, a chart on the third form; the form file kind is whatever WASM-002 T13's `WasmBuild` reads;
     English identifiers; no credentials — grep `APIKey|Password|Token` before staging), `tests/support/harness.rs`, `tests/e2e_node.rs`.

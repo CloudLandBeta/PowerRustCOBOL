@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.45] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.44.)*
+
+### Docs: the operator's decisions for WASM-017 T11
+
+AC1 is proved with the Canvas part (no chart part exists, WASM-016 T26), and the generator is to be extended so the shared test
+script's three fixture-only cells — an event argument, a deliberate trap, a raw answer — run on the generated module too (new task
+T11a). T11's AC3 still waits for WASM-011 T11, so WASM-017 runs again after WASM-011.
+
 ## [PowerRustCOBOL 2.0.44] — 2026-10-23
 
 *(Written on `features-2x`, after 2.0.43. WASM-017, module architecture and the JavaScript boundary: tasks T2–T10 of
