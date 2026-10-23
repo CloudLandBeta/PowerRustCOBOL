@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The prebuilt player (WASM-016)
 
-- **Status:** in progress. T1–T13 were done against the plan of 2026-10-20 and stay checked with their evidence. T14–T29 are
+- **Status:** in progress (stopped at T22, 2026-10-23: see T22). T1–T13 were done against the plan of 2026-10-20 and stay checked with their evidence. T14–T29 are
   this revision's work, against the plan of 2026-10-22 (Leptos adopted, JSON description, pinning, layers, `"s"`, `nightly-2026-10-22`).
 - **Plan:** ./plan.md   **Date:** 2026-10-22
 
@@ -57,15 +57,21 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
 
 ## To do (plan of 2026-10-22), in execution order
 
-- [ ] **T18 — Build profile and toolchain per the rulings** (R12, R13c; plan C5, C6)
+- [x] **T18 — Build profile and toolchain per the rulings** (R12, R13c; plan C5, C6)
   - Files: `examples/build_player.rs` (`NIGHTLY` at line 35 → `"nightly-2026-10-22"`; default `--opt-level` `s`; `wasm-opt -Oz` at
     lines 154 and 202 → `-Os`; the record's `profile.wasm_opt` at line 283), `Cargo.toml` (`[profile]` `opt-level = "z"` at line 108 → `"s"`,
     the comment at 104 states the ruling and the measured cost), `assets/web-player/` (rebuilt).
   - Do: change the profile, rebuild both variants and the three parts, run `--measure` and record the sizes against the T12 baseline.
   - Verify: `cargo run PLAYER --example build_player -- --out assets/web-player --measure` prints the sizes; `cargo test PLAYER --test freshness`
     green; `the_build_record_names_the_tools_and_the_pinned_nightly` asserts `nightly-2026-10-22` and `opt_level` `s`.
+  - **Done (2.0.41).** `nightly-2026-10-22` installed (`rustc 1.101.0-nightly (1a2c4797e 2026-10-21)`, recorded); `--measure` now builds the
+    chosen level into `--out` and the other into `target-player/measure-opt-*`, so `--out assets/web-player --measure` ships `s`. Sizes of the
+    final build (after T19–T21), wasm-opt / gzip bytes: plain **s 2,726,012 / 886,174** against z 2,218,108 / 766,650; threaded **s 2,552,720 /
+    870,352** against z 2,182,808 / 767,880; parts at s: Mermaid 2,218,954 / 798,551, Canvas 2D 654,896 / 233,657, PDF 217,066 / 100,680
+    (T12 baseline at z: plain 2,222,253, threaded 2,187,394, Mermaid 1,906,933, Canvas 469,419, PDF 219,273). The ruling costs +507,904 bytes on
+    the plain player after wasm-opt (+22.9 %). `freshness` 3/3 green.
 
-- [ ] **T19 — The form description: a versioned JSON schema in `cobolt-forms`** (R3, R4, R18; Q1; plan §1.3, §1.6, §3)
+- [x] **T19 — The form description: a versioned JSON schema in `cobolt-forms`** (R3, R4, R18; Q1; plan §1.3, §1.6, §3)
   - Files: `crates/cobolt-forms/src/description.rs` (new), `crates/cobolt-forms/src/lib.rs` (`pub mod description;`, model-only — not behind
     the `render` feature, since the player uses `default-features = false`, `crates/cobolt-web-player/Cargo.toml:55`).
   - Do: own types (`FormDescription`, `ControlDescription`, `LayerDescription`) with `DESCRIPTION_FORMAT: u32 = 1`; `describe(&Form)`,
@@ -77,8 +83,14 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
     `examples/` (prints the count); (b) the JSON of a form whose handlers carry code contains none of it (R4); (c) a form with no layers
     serialises no `layers` key, a layered form round-trips stack order and each control's layer (R18); (d) a description with a higher `format`
     is refused with both numbers named. `cargo test -p cobolt-forms --features render` still green.
+  - **Done (2.0.41).** `cobolt_forms::description`: `describe`, `to_form`, `from_json` (reads `format` first), `to_json`, `code_free` (the form a
+    description stands for: no code, credential values blank, the designer's grid at its default). Enumerations use the `.cfrm` spellings.
+    `cargo test -p cobolt-forms --features render --lib description`: 5/5 — **88 example forms, 2,344 controls** round-trip equal through
+    `form_to_string`; 7 code markers absent; layers in stack order, no `layers` key without them, a layer serialises only `name` and
+    `backdrop`; format 2 refused naming 2 and 1; a credential value is not described. **Deviation:** no `kind` field — the model carries no
+    form kind and the Build does not know one per form; the player draws both the same. Add it compatibly if a consumer needs it.
 
-- [ ] **T20 — The Build and the player read JSON** (R3, R4, R11; plan §1.3)
+- [x] **T20 — The Build and the player read JSON** (R3, R4, R11; plan §1.3)
   - Files: `crates/cobolt-web-bundle/src/lib.rs` (`form_description` at line 322 writes JSON through `describe`; the clearing at 337–340
     removed; `DESCRIPTION_VERSION` at 47 re-exports `DESCRIPTION_FORMAT`; the config's form `url` names a `.json` file), `crates/cobolt-web-bundle/src/devserver.rs`
     (`json` MIME, beside the `cfrm` arm at line 88), `crates/cobolt-web-bundle/src/secrets.rs` (scans the JSON), `src/api.rs`
@@ -87,24 +99,56 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
   - Verify: `cargo test -p cobolt-web-bundle` (assembler, CSP, `e2e_node`, `no_string_execution`) green; a new bundle test asserts every
     description is JSON with `format` = `DESCRIPTION_FORMAT` and that a planted secret in a property fails the scan; `cargo test PLAYER --lib`
     has a test that `add_form` of an unknown `format` returns an error naming both numbers. Player rebuilt (freshness rule).
+  - **Done (2.0.41).** The bundle writes `forms/<name>.<hash>.json` (the stylesheet first, so the description names it); no `.cfrm` ships.
+    `devserver.rs` and `secrets.rs` needed no change (`json` was already served and scanned). The player's `add_form(json)` goes through the
+    new native `Host::add_description`. `cargo test -p cobolt-web-bundle --no-fail-fast`: 19 + 2 + 2 + 1 + 2 + 3 + 3 green, `e2e_node` **14
+    scenarios passed, 0 failed** on the rebuilt player; new `tests/form_descriptions.rs` (every description JSON at format 1; a planted
+    connection string stops the bundle, `forms/main-form.<hash>.json: line 72`, value not shown); `host::description_tests` 3/3.
 
-- [ ] **T21 — Form layers in the player** (R18, R19; plan §1.6; AC12)
+- [x] **T21 — Form layers in the player** (R18, R19; plan §1.6; AC12)
   - Files: `src/host.rs` (per-instance `Visible` set, created empty when `pr_open_form` creates the instance, applied on the next frame,
     dropped with the instance), `src/tree.rs` (each control's layer), `src/view/*` (a layer is a stacking context; a hidden layer is `inert`, D20).
   - Depends on: ABI A9 in the generator and `forms[i].layers` in the manifest (`FormEntry`, `crates/cobolt-wasm-abi/src/manifest.rs:67`, has no
     `layers` field today) — WASM-004/010's work. Until it lands, the host tests drive layer ids `3 + n` directly through the fixture.
   - Verify: `cargo test PLAYER --lib layer` — a layered form opened, a layer shown, closed, opened again starts with every layer hidden, both
     times; after release the instance's layer state is gone (no entry for its id); a form with no layers allocates none. Player rebuilt.
+  - **Done (2.0.41).** A9 has landed in the generator (`cobolt-wasm/src/module.rs` writes `LayerEntry`), so the host uses real ids. State is
+    `FormTree::layers` (dies with the tree); `Target::Layer` in `resolve`/SET/GET/CALL/COUNT; `Name` refused with `-2`; a program-built layer
+    the description lacks is a pairing error. Views: mount order by layer then `ZOrder`; a hidden layer's controls are `hidden` + `inert`, with
+    `data-layer`. `cargo test PLAYER --lib layer`: 5 layer tests green (226 lib tests in all). **Not done here:** painting a layer's
+    *backdrop* in the page needs an element per layer, which `dom/` does not mount — left to the Leptos surface (T22); the backdrop
+    properties are stored and readable.
 
-- [ ] **T16 — Leptos admitted to the player's workspace** (R1; plan C1, §5 first risk)
+- [x] **T16 — Leptos admitted to the player's workspace** (R1; plan C1, §5 first risk)
   - Files: `Cargo.toml` (`leptos`, client-side rendering only), `Cargo.lock`, `tests/dependency_guard.rs` (Leptos's closure on the allow-list).
   - Do: pick the newest Leptos release whose MSRV is ≤ 1.92 and which accepts `wasm-bindgen = "=0.2.129"` (`Cargo.toml:75`), or move the
     pinned CLI and crate together; record the release, its MSRV and its licence in the `Cargo.toml` comment. **Gate: if no release qualifies,
     stop and report to the operator** — never pin a nightly for the plain variant.
   - Verify: `cargo test PLAYER --test dependency_guard` green (it lists what was admitted); `cargo build PLAYER --target wasm32-unknown-unknown`
     on stable 1.92; the licence check passes. Player rebuilt.
+  - **Done (2.0.41). The gate passed:** Leptos **0.8.22** (newest stable on 2026-10-23; 0.9 is `rc0`), MIT, `rust-version` 1.88,
+    `wasm-bindgen = "^0.2"` — the lock keeps `wasm-bindgen 0.2.129`. `wasm32` dependency, `default-features = false`, `features = ["csr"]`.
+    The browser closure grows from 66 to 189 packages (threaded adds the same 8). `tests/dependency_guard.rs` gains a licence and MSRV check
+    of the whole browser closure (cobolt-wasm's permissive list, MSRV 1.92): **197 packages, all permissive, none above 1.92**, and asserts
+    `leptos` is in the closure. One existing assertion was narrowed: `regex` now reaches the player through `leptos_config` (not optional in
+    Leptos 0.8); the guard allows that path only and still refuses it through the Mermaid renderer. `cargo +1.92 build --target
+    wasm32-unknown-unknown` finished. Rebuilt player (Leptos not yet used): plain s 2,726,137 / gzip 886,069, threaded 2,552,223 / 870,020.
 
-- [ ] **T22 — The Leptos `Surface`, beside `dom/`** (R5, R6, R7, R13b, R15; plan §1.2)
+- [ ] **T22 — The Leptos `Surface`, beside `dom/`** — **STOPPED here on 2026-10-23 (2.0.41): the verification cannot see the surface.**
+  - Why: `e2e_node` runs the player **headless** (`crates/cobolt-web-bundle/tests/support/harness.rs:131`, `headless: true`), and
+    `Player::mount` returns before any surface is created in a headless run (`src/api.rs:841-845`). Building the player "once with each
+    feature" therefore exercises neither `dom/` nor a Leptos surface, and T24's "`SET` in the DOM … re-proved on the Leptos surface by
+    `e2e_node`" cannot be met as written. `dom/` was proved in Chrome by hand (T4, T5, T9). Replacing it with a surface no automated test
+    mounts is the regression risk plan §5 names. **Needs the operator's decision** on how T22/T24 are verified: a Chrome-driven harness (no
+    CDP crate is in either workspace — a new dependency), a DOM for node (none is in the repository; the PRIME DIRECTIVE bars JavaScript
+    tooling in the tree), or manual Chrome checks recorded per scenario. T22–T24 wait on that answer; the tasks after them were not started. (R5, R6, R7, R13b, R15; plan §1.2)
+  - **Decided by the operator (2026-10-23): both.** (1) An automated test in Rust drives a real Chrome through the DevTools protocol
+    (a dev-dependency of the player's test harness — e.g. `chromiumoxide` — never of the shipped player or the IDE): it serves the
+    Build's bundle cross-origin isolated, mounts it standalone and in a `<div>`, clicks, types, resizes and asserts on the DOM and on
+    computed styles, for the `dom/` surface and the Leptos one. It finds Chrome on the machine (`/Applications/Google Chrome.app` here,
+    `CHROME` to override) and is **skipped with a printed reason** when none exists. Its crate set passes the dependency guard (licence,
+    MSRV, no `ring`/`aws-lc`/OpenSSL). (2) A manual check in Chrome, scenario by scenario, is run afterwards by the operator's session and
+    recorded under this task — **it does not block the pipeline**: write the scenarios to check here and leave the box open for them.
   - Files: a new module under `src/` implementing `pub(crate) trait Surface` (`src/api.rs:285`), a cargo feature selecting it, `src/api.rs`
     (mount on the element the loader hands over).
   - Do: one reactive store per instance (its `VNode` tree, page-only state, the layer `Visible` set of T21); one generic component renders a

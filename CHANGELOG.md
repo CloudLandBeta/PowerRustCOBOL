@@ -17,6 +17,22 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.41] — 2026-10-23
+
+*(Written on `features-2x`. WASM-016, the prebuilt player: tasks T18, T19, T20, T21 and T16 of `specs/WASM-016-prebuilt-player/tasks.md`; stopped at T22, see below.)*
+
+### Feature: the form description is versioned JSON, the player keeps each layer per instance, Leptos is admitted, and the player is built as ruled
+
+- **The form description is its own JSON format (WASM-016 R3, R4, R11; Q1).** A new `cobolt_forms::description` describes a form the one `.cfrm` parser loaded — controls, properties, layout, breakpoints, layers, data bindings, the names of the bound events — and has no place for program code: handler bodies, working storage, the COBOL-structure blocks, named procedures and the recycle bin cannot leak, and a credential's value is written empty. `format` is 1; a description of another format is refused with both numbers named. The Web bundle now ships `forms/<name>.<hash>.json` instead of a sanitised `.cfrm`, naming the form's stylesheet; the player's `add_form` reads it.
+- **Form layers in the player (R18, R19; ABI A9).** Each form instance holds its layers' state: every layer hidden when the instance is created, shown by the program's `SET` on the layer's id (`3 + n …`) on the next frame, gone when the instance is released. `Name` is read-only (`-2`); the backdrop properties are stored. A hidden layer's controls are not drawn and are `inert`; layers stack above the base in order. Painting a layer's backdrop is not done yet.
+- **Leptos is admitted to the player's workspace (R1).** Leptos 0.8.22 (MIT, Rust 1.88, client-side rendering only) keeps `wasm-bindgen` at 0.2.129; the player's dependency guard now checks the licence and Rust version of the whole browser closure (197 packages, all permissive, none above 1.92). Leptos is not yet used.
+- **The player is built as the operator ruled (WASM-017 Q8, Q9).** `opt-level = "s"` with `wasm-opt -Os`, and the threaded variant on `nightly-2026-10-22`. Plain player 2,726,137 bytes (gzip 886,069) against 2,218,593 at "z"; `build_player --measure` records both.
+- **Stopped at T22 (the Leptos surface).** The node end-to-end harness runs the player headless and never mounts a page, so the verification T22 and T24 name cannot tell a working Leptos surface from a broken one. Choosing how the surface is verified is left to the operator; until then the page is still drawn by the existing DOM layer.
+
+Tests: `cobolt-forms` `description` (5: 88 example forms and 2,344 controls round-trip equal, no code, layers, format refusal, credentials); `cobolt-web-bundle` `form_descriptions` (2) and `e2e_node` (14 scenarios, 0 failed); player `host::description_tests` (3), `host::layer_tests` (5), `dependency_guard` (6), `freshness` (3). `README.md` and `docs/` are untouched on this line.
+
+**Decided by the operator on 2026-10-23, for what follows:** the Leptos page layer (T22/T24) is verified both by a Rust test that drives a real Chrome (a test-only dependency, skipped when no Chrome is installed) and by a manual Chrome check recorded under T22; the player is built without `cargo-leptos` (Q-P1); the IDE keeps every `2.x.0` player plus the last `z` of the previous minor (Q-P2).
+
 ## [PowerRustCOBOL 2.0.40] — 2026-10-23
 
 *(Written on `fixes-2x` (`7e6b6a08`, numbered 2.0.39 there), off `features-2x` at 2.0.38; applied to `features-2x` after WASM-003 took 2.0.39, so it is 2.0.40 here. Found running WASM-002's owed checks — T19 in Chrome, T20's suites — on 2.0.37.)*

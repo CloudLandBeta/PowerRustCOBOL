@@ -39,7 +39,6 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, spawn_local, JsFuture};
 
-use cobolt_forms::xml::load_form_from_str;
 use cobolt_wasm_abi::manifest::Manifest;
 
 use crate::auth;
@@ -817,10 +816,9 @@ impl Player {
         Ok(Player { inner })
     }
 
-    /// Register the description (a `.cfrm`) of one form.
-    pub fn add_form(&self, xml: &str) -> Result<(), JsError> {
-        let form = load_form_from_str(xml).map_err(|e| JsError::new(&format!("a form description cannot be read: {e}")))?;
-        self.inner.host.borrow_mut().add_form(form).map_err(|e| JsError::new(&e))
+    /// Register the description (the JSON the Build writes, WASM-016 R3) of one form.
+    pub fn add_form(&self, json: &str) -> Result<(), JsError> {
+        self.inner.host.borrow_mut().add_description(json).map_err(|e| JsError::new(&e))
     }
 
     /// Forms the manifest lists that have no description yet.
@@ -1149,7 +1147,7 @@ pub fn force_panic_for_test() {
 pub fn versions() -> String {
     serde_json::json!({
         "abi": cobolt_wasm_abi::ABI_VERSION,
-        "description": 1,
+        "description": cobolt_forms::description::DESCRIPTION_FORMAT,
         "player": env!("CARGO_PKG_VERSION"),
         "threaded": cfg!(feature = "threaded"),
     })

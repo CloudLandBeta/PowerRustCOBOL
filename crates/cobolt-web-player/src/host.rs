@@ -456,6 +456,14 @@ impl Host {
         Ok(())
     }
 
+    /// Register a form from its description as the Build wrote it (WASM-016 R3; JSON, versioned): a
+    /// description of another format is refused with both numbers named.
+    pub fn add_description(&mut self, json: &str) -> Result<(), String> {
+        let d = cobolt_forms::description::from_json(json).map_err(|e| e.to_string())?;
+        let form = cobolt_forms::description::to_form(&d).map_err(|e| e.to_string())?;
+        self.add_form(form)
+    }
+
     /// Every form the program has must have a description before the application starts.
     pub fn missing_forms(&self) -> Vec<String> {
         self.manifest.forms.iter().filter(|f| self.forms[f.id as usize].is_none()).map(|f| f.name.clone()).collect()
@@ -1211,8 +1219,12 @@ impl Host {
             c => {
                 self.ensure_tree(path.inst)?;
                 let t = &self.trees[&path.inst];
-                let idx = t.by_abi(c).ok_or_else(|| CmdError::Unknown(format!("control id {c} is not in form `{}`", t.form_name)))?;
-                Ok(Target::Ctl { inst: path.inst, idx })
+                if let Some(idx) = t.by_abi(c) {
+                    return Ok(Target::Ctl { inst: path.inst, idx });
+                }
+                // A layer's ids follow the form's controls (A9).
+                let layer = t.layer_by_abi(c).ok_or_else(|| CmdError::Unknown(format!("control id {c} is not in form `{}`", t.form_name)))?;
+                Ok(Target::Layer { inst: path.inst, layer })
             }
         }
     }
@@ -1266,6 +1278,12 @@ impl Host {
                 self.enqueue_requests(inst, ev);
                 Ok(())
             }
+            Target::Layer { inst, layer } => {
+                if !seg.args.is_empty() {
+                    return Err(CmdError::Bad(format!("a layer's `{name}` takes no subscript")));
+                }
+                self.trees.get_mut(&inst).unwrap().layer_set(layer, &name, value).map_err(layer_error)
+            }
         }
     }
 
@@ -1308,6 +1326,7 @@ impl Host {
                 Ok(None)
             }
             Target::Ctl { inst, idx } => self.call_ctl(inst, idx, &name, &args),
+            Target::Layer { inst, layer } => Err(CmdError::Unknown(format!("layer `{}` has no method `{name}`", self.trees[&inst].layers[layer].name))),
         }
     }
 
@@ -1416,6 +1435,7 @@ impl Host {
                                 Ok(tree.get(idx, &name).lines().nth(n).unwrap_or("").to_owned())
                             }
                         }
+                        Target::Layer { inst, layer } => self.trees[&inst].layer_get(layer, &name).map_err(layer_error),
                     }
                 })();
                 r.map_err(|e| self.query_error(e))
@@ -1439,6 +1459,7 @@ impl Host {
                             let n = if text.trim().is_empty() { 0 } else { text.lines().count() };
                             Ok(n.to_string())
                         }
+                        Target::Layer { .. } => Ok("0".into()),
                     }
                 })();
                 r.map_err(|e| self.query_error(e))
@@ -1869,6 +1890,10 @@ impl Host {
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
+mod description_tests;
+#[cfg(test)]
+mod layer_tests;
+#[cfg(test)]
 mod params_tests;
 #[cfg(test)]
 mod super_tests;
@@ -1879,6 +1904,16 @@ enum Target {
     Ctl { inst: u32, idx: usize },
     /// `super::` in a window another window opened: the replica of that form (WASM-011 R11).
     Remote,
+    /// A layer of a form instance (A9), by its index in the stack.
+    Layer { inst: u32, layer: usize },
+}
+
+/// A layer write the program cannot make: `Name` is read-only (`-2`, A9); an unknown property is an unknown target.
+fn layer_error(e: crate::tree::LayerWriteError) -> CmdError {
+    match e {
+        crate::tree::LayerWriteError::ReadOnly(m) => CmdError::Bad(m),
+        crate::tree::LayerWriteError::Unknown(m) => CmdError::Unknown(m),
+    }
 }
 
 #[derive(Debug)]

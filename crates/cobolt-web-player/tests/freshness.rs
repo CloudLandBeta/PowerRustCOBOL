@@ -101,7 +101,9 @@ fn the_build_record_names_the_tools_and_the_pinned_nightly() {
     let rec = record();
     let tools = &rec["tools"];
     assert!(tools["wasm_bindgen"].as_str().unwrap().contains("0.2.129"), "{tools}");
-    assert_eq!(tools["nightly"], "nightly-2026-10-08");
+    assert_eq!(tools["nightly"], "nightly-2026-10-22");
+    assert_eq!(rec["profile"]["opt_level"], "s", "the operator's ruling (WASM-017 Q8)");
+    assert_eq!(rec["profile"]["wasm_opt"], "-Os");
     assert!(tools["rustc_nightly"].as_str().unwrap().contains("nightly"), "the threaded variant records the nightly it was built with");
     assert!(tools["wasm_opt"].as_str().unwrap().contains("wasm-opt"));
     assert!(tools["wasm_pack"].as_str().unwrap().contains("not used"));

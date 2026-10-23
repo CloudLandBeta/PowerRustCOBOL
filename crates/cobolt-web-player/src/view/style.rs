@@ -174,8 +174,9 @@ pub fn mount_of(ctls: &[Ctl], i: usize) -> (usize, super::Slot) {
     (p, slot)
 }
 
-/// The order to mount controls in: a parent before its children, and siblings by `ZOrder` (the
-/// desktop paints them in that order; the DOM paints later siblings on top).
+/// The order to mount controls in: a parent before its children, and siblings by layer, then by
+/// `ZOrder` (the desktop paints them in that order; the DOM paints later siblings on top). A layer
+/// above the base stacks over it and over the layers below it as one group (spec 091 R9, D20).
 pub fn mount_order(ctls: &[Ctl]) -> Vec<usize> {
     fn depth(ctls: &[Ctl], mut i: usize) -> usize {
         let mut d = 0;
@@ -189,7 +190,7 @@ pub fn mount_order(ctls: &[Ctl]) -> Vec<usize> {
         d
     }
     let mut order: Vec<usize> = (1..ctls.len()).collect();
-    order.sort_by_key(|&i| (depth(ctls, i), num(&ctls[i], "zorder").unwrap_or(0.0) as i64, i));
+    order.sort_by_key(|&i| (depth(ctls, i), ctls[i].layer.map_or(0, |l| l + 1), num(&ctls[i], "zorder").unwrap_or(0.0) as i64, i));
     order
 }
 

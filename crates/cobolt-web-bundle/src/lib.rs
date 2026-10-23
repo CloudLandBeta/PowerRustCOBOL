@@ -26,8 +26,9 @@ pub mod secrets;
 
 use std::collections::BTreeMap;
 
-use cobolt_forms::model::{ControlType, EventBinding, Form};
-use cobolt_forms::xml::{form_to_string, load_form_from_str};
+use cobolt_forms::description::{code_free, describe, to_json, FormDescription};
+use cobolt_forms::model::{ControlType, Form};
+use cobolt_forms::xml::load_form_from_str;
 use cobolt_wasm_abi::manifest::Manifest;
 use cobolt_wasm_abi::scan;
 use serde_json::{json, Value};
@@ -36,8 +37,8 @@ pub use csp::CspOptions;
 
 /// The loader's version, in `PowerRustCOBOL.versions`.
 pub const LOADER_VERSION: u32 = 1;
-/// The version of the form-description format (WASM-016 R11): the sanitised `.cfrm`.
-pub const DESCRIPTION_VERSION: u32 = 1;
+/// The version of the form-description format (WASM-016 R11): versioned JSON, owned by `cobolt-forms`.
+pub const DESCRIPTION_VERSION: u32 = cobolt_forms::description::DESCRIPTION_FORMAT;
 
 /// The size budget of the first download (WASM-002 Q5, answered 2026-10-22 "5 MB", **to confirm**). Working
 /// assumption: it caps the first download — the larger program module the probe can pick, the plain
@@ -340,31 +341,15 @@ fn manifest_of(bytes: &[u8]) -> Result<Manifest, String> {
     scan::scan_module(bytes)?.embedded_manifest()
 }
 
-/// The form description (WASM-016 R3/R4): the `.cfrm` with every piece of program code taken out —
-/// handler bodies, the working-storage text, the COBOL-structure blocks, the named procedures and
-/// the recycle bin. What is left is what the player draws: controls, properties, layout, the names
-/// of the events bound (their code is in the program module, referred to by id).
-pub fn form_description(cfrm: &str) -> Result<(Form, String), String> {
-    let mut form = load_form_from_str(cfrm).map_err(|e| e.to_string())?;
-    fn strip(events: &mut [EventBinding]) {
-        for e in events {
-            e.code.clear();
-        }
-    }
-    fn walk(controls: &mut [cobolt_forms::model::Control]) {
-        for c in controls {
-            strip(&mut c.events);
-            walk(&mut c.children);
-        }
-    }
-    walk(&mut form.controls);
-    strip(&mut form.form_events);
-    form.user_ws_source.clear();
-    form.cobol_structure = Default::default();
-    form.user_procedures.clear();
-    form.deleted_code.clear();
-    let text = form_to_string(&form).map_err(|e| e.to_string())?;
-    Ok((form, text))
+/// The form description (WASM-016 R3/R4): the `.cfrm` read by the one parser, then described as
+/// versioned JSON by `cobolt_forms::description`, which has no place for program code — handler
+/// bodies, the working-storage text, the COBOL-structure blocks, the named procedures, the recycle bin.
+/// What is left is what the player draws: controls, properties, layout, the names of the events bound
+/// (their code is in the program module, referred to by id). Also answers the code-free form, which
+/// the checks against the program read.
+pub fn form_description(cfrm: &str) -> Result<(Form, FormDescription), String> {
+    let form = load_form_from_str(cfrm).map_err(|e| e.to_string())?;
+    Ok((code_free(&form), describe(&form)))
 }
 
 /// Compare what the two variants (and the forms) say about the program: same forms, controls, names,
@@ -521,11 +506,11 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     }
 
     // ── the forms ──────────────────────────────────────────────────────────
-    let mut described: BTreeMap<String, (Form, String)> = BTreeMap::new();
+    let mut described: BTreeMap<String, (Form, FormDescription)> = BTreeMap::new();
     for f in &input.forms {
         match form_description(&f.cfrm) {
-            Ok((form, text)) => {
-                described.insert(f.name.to_ascii_lowercase(), (form, text));
+            Ok((form, description)) => {
+                described.insert(f.name.to_ascii_lowercase(), (form, description));
             }
             Err(e) => problems.push(format!("form `{}` cannot be read: {e}", f.name)),
         }
@@ -549,12 +534,17 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
 
     let mut forms_cfg = Vec::new();
     for mf in &manifest.forms {
-        let (_, text) = &described[&mf.name.to_ascii_lowercase()];
-        let path = b.add_hashed(&format!("forms/{}.cfrm", mf.name), text.clone().into_bytes());
-        let mut entry = json!({"name": mf.name, "url": path, "integrity": b.sri_of(&path), "main": mf.main, "entry": format!("{}.html", mf.name)});
-        if let Some(css) = input.forms.iter().find(|f| f.name.eq_ignore_ascii_case(&mf.name)).and_then(|f| f.stylesheet.clone()) {
+        let mut description = described[&mf.name.to_ascii_lowercase()].1.clone();
+        // The stylesheet first, so the description can name it (WASM-016 R3).
+        let css = input.forms.iter().find(|f| f.name.eq_ignore_ascii_case(&mf.name)).and_then(|f| f.stylesheet.clone()).map(|css| {
             let cp = b.add_hashed(&format!("forms/{}.css", mf.name), css.into_bytes());
-            entry["css"] = json!({"url": cp, "integrity": b.sri_of(&cp)});
+            description.stylesheet = Some(cp.clone());
+            json!({"url": cp, "integrity": b.sri_of(&cp)})
+        });
+        let path = b.add_hashed(&format!("forms/{}.json", mf.name), to_json(&description).into_bytes());
+        let mut entry = json!({"name": mf.name, "url": path, "integrity": b.sri_of(&path), "main": mf.main, "entry": format!("{}.html", mf.name)});
+        if let Some(css) = css {
+            entry["css"] = css;
         }
         forms_cfg.push(entry);
     }

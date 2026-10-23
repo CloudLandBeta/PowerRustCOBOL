@@ -28,6 +28,8 @@ pub mod code_site;
 pub mod containers;
 pub mod datagrid;
 pub mod dropzone;
+/// WASM-016 — the form description the browser player draws from: versioned JSON, no code (R3, R4).
+pub mod description;
 pub mod diagnostics;
 pub mod icons;
 pub mod items_file;

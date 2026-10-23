@@ -76,6 +76,10 @@ wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 wasm-bindgen-rayon = { version = "1.3", optional = true }
+# The browser half's framework (WASM-016 R1; plan C1): Leptos 0.8.22, the newest stable release on
+# 2026-10-23 (0.9 is a release candidate), MIT, rust-version 1.88, `wasm-bindgen = "^0.2"` — so it takes
+# the pinned 0.2.129 above. Client-side rendering only; no server functions, no hydration.
+leptos = { version = "=0.8.22", default-features = false, features = ["csr"] }
 web-sys = { version = "0.3", features = [
     "Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "HtmlSelectElement",
     "HtmlOptionElement", "HtmlButtonElement", "HtmlDialogElement", "HtmlCanvasElement", "HtmlImageElement",
@@ -103,11 +107,13 @@ tempfile = "3"
 cobolt-forms = { path = "../cobolt-forms", default-features = false, features = ["mermaid"] }
 cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["fixture", "scan"] }
 
-# The size-first profile of WASM-017 R16. `opt-level` is chosen by measurement ("z" against
-# "s": see plan.md); `panic = "abort"` is what lets a panic end the instance cleanly; symbols are
-# stripped; wasm-opt runs afterwards (examples/build_player.rs).
+# The size-first profile of WASM-017 R16. `opt-level = "s"` is the operator's ruling (WASM-017 Q8),
+# not the smaller choice: on the 2026-10-20 source "s" cost +581,902 bytes before wasm-opt against "z"
+# (2,718,057 against 2,136,155); `build_player --measure` records the current cost in player-build.json.
+# `panic = "abort"` is what lets a panic end the instance cleanly; symbols are stripped; `wasm-opt -Os`
+# runs afterwards (examples/build_player.rs).
 [profile.release]
-opt-level     = "z"
+opt-level     = "s"
 lto           = true
 codegen-units = 1
 panic         = "abort"
