@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.47] — 2026-10-23
+
+*(Written on `fixes-2x-template-icons`, off `features-2x` at 2.0.46; renumbered when it is applied to `features-2x`.)*
+
+### Fixed: the New Project dialog's template icons are in colour
+
+Every template icon was drawn in the text's own ink, so the list read as a column of white glyphs. Each icon now has its family's
+colour, after the operator's reference design: Desktop violet, the chatbots indigo, Web the WebAssembly purple, user controls
+lavender, Android green, iPhone and iPad blue, and *Recent Projects* a light violet. A template that cannot be created yet shows its
+icon faded, as its text is. Test: `every_template_icon_has_its_family_colour` (`panels/new_project.rs`).
+
 ## [PowerRustCOBOL 2.0.46] — 2026-10-23
 
 *(Written on `features-2x`, after 2.0.45.)*
