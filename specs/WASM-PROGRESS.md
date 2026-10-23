@@ -50,6 +50,18 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 
 - `CALL … RETURNING` (WASM-005 Q2, D6): fix `8a15f00d` (1.91.219) on `main`, forward-port `afe22c51` on 2.x.x — tests 14/14 runtime, NIST baselines held.
 
+## NIST NC, IF and IC rerun on `wasmtime` (2026-10-22, version 2.0.35, WASM-010 T3)
+
+The test host moved from `wasmi` 2.0 to `wasmtime` 44.0.3 (operator, 2026-10-22, WASM-010 Q2; `Config::wasm_multi_memory`, `cranelift_nan_canonicalization`). The batch is now decoded by `cobolt_wasm_abi::batch`, the codec the player uses. Same harness, same programs (`RCRUN=…/nist_wasm_run nist_conformance run NC|IF|IC`):
+
+| Module | Compiled | Programs reporting 0 failures | Assertions PASS / FAIL / DELETED | Before (`wasmi`) |
+|---|---|---|---|---|
+| NC (Nucleus) | **95 of 95** | **95 of 95** | **4 612 / 0 / 5** | 95/95, 4 612 / 0 / 5 |
+| IF (Intrinsic Function) | **45 of 45** | **45 of 45** | **841 / 0 / 0** | 45/45, 841 / 0 |
+| IC (Inter-Program Communication) | **25 of 25** | **25 of 25** | **309 / 0 / 4** | 25/25, 309 / 0 / 4 |
+
+No program was excluded, timed out or crashed: the engine change moved no number. Time per program, measured with a timing wrapper around `nist_wasm_run` (a throwaway script outside the repository), was at most **2.17 s** (NC105A, including the compile). The harness limit is 20 s. A full NC run takes 1 min 42 s, IF 40 s and IC 16 s. The root `[profile.dev.package.wasmi*]` entries are gone: `wasmi` is no longer in the root workspace's graph, so cargo warned that they matched no package. The player is a separate workspace with its own profiles, so they never applied to its `wasmi` tests.
+
 ## NIST NC on generated modules — finished (2026-10-20, version 2.0.19)
 
 GOLDEN RULE #9, module one, both axes. The generator compiles all 95 NC programs and each runs to completion on the test host; the two numbers are kept apart on purpose:

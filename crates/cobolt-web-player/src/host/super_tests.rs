@@ -23,7 +23,7 @@ fn host() -> Host {
         limits: Limits::default(),
         names: vec!["Status".into(), "Refresh".into()],
         events: vec!["onLoad".into()],
-        forms: vec![FormEntry { id: 0, name: "main-form".into(), main: true, instances: 4, region_size: 64, controls: vec![], handlers: vec![] }],
+        forms: vec![FormEntry { id: 0, name: "main-form".into(), main: true, instances: 4, region_size: 64, controls: vec![], handlers: vec![], layers: vec![] }],
         builtins: vec![],
         imports: vec![],
         sizes: Default::default(),

@@ -84,6 +84,11 @@ impl Lower<'_, '_> {
 
     /// Bind the arguments, push the call frame and jump into unit `c`.
     fn enter_callee(&mut self, c: usize, using: &[CallArg], after: BlockId, line: u32) -> GenResult<()> {
+        // An INITIAL program starts every call in its initial state (COBOL-85
+        // 6.8, WASM-PARITY #10): as if it had been CANCELled.
+        if self.units[c].initial {
+            self.emit(Ins::InitUnit(self.unit_base + c));
+        }
         self.bind_args(c, using, line)?;
         // Overflow check: psp >= end -> run-time error.
         self.emit(Ins::GlobalGet(G::Psp));
@@ -124,6 +129,27 @@ impl Lower<'_, '_> {
                 CallArg::ByReference(e) => (e, true),
                 CallArg::ByContent(e) | CallArg::ByValue(e) => (e, false),
             };
+            if let CallArg::ByValue(e) = arg {
+                // BY VALUE: the argument's value, moved into a copy that has the
+                // parameter's own description — its USAGE, its PICTURE
+                // (WASM-PARITY #9). BY CONTENT shares the argument's bytes, as
+                // COBOL-85 defines it for descriptions that agree.
+                let src = self.operand_or_temp(e)?;
+                let tmp = self.layout.alloc_hidden(p.size.max(1));
+                let pitem = self.layout.items[p.item].clone();
+                let pfd = self.pool.fd_with_spec(&pitem.fd, pitem.pic_template.as_deref(), self.prog.decimal_comma, self.prog.currency);
+                let dst = self.pool.opd_item(tmp, &pfd, &[], None);
+                self.base();
+                self.i32c(src as i32);
+                self.i32c(dst as i32);
+                self.call_rt("rt_move");
+                self.base();
+                self.base();
+                self.i32c(tmp as i32);
+                self.raw(I::I32Add);
+                self.raw(I::I32Store(wasm_encoder::MemArg { offset: p.slot as u64, align: 2, memory_index: 0 }));
+                continue;
+            }
             if by_ref && Self::is_item_ref(expr) {
                 let o = self.operand_or_temp(expr)?;
                 self.base();
@@ -222,6 +248,9 @@ impl Lower<'_, '_> {
         let missing = self.new_block("call-missing");
         let mut test = self.new_block("call-test");
         self.jump(test);
+        // Each callee returns to a block of its own, which moves that callee's
+        // RETURNING item (WASM-PARITY #9), then to the common continuation.
+        let mut returns: Vec<(usize, BlockId)> = Vec::new();
         for c in 1..self.units.len() {
             self.begin(test);
             let hit = self.new_block("call-unit");
@@ -232,15 +261,26 @@ impl Lower<'_, '_> {
             self.raw(I::I32Eq);
             self.branch(hit, next);
             self.begin(hit);
-            self.enter_callee(c, using, after, line)?;
+            let back = match returning {
+                Some(_) if self.units[c].returning.is_some() => {
+                    let b = self.new_block("after-call-unit");
+                    returns.push((c, b));
+                    b
+                }
+                _ => after,
+            };
+            self.enter_callee(c, using, back, line)?;
             test = next;
         }
-        // Found and returned: RETURNING, then NOT ON EXCEPTION. The callee that
-        // answered is not known here, so RETURNING is moved by the units that
-        // declare one (each at its own call site is not possible); a dynamic
-        // CALL ignores it.
+        if let Some(r) = returning {
+            for (c, b) in returns {
+                self.begin(b);
+                self.move_returning(c, r, line)?;
+                self.jump(after);
+            }
+        }
+        // Found and returned: NOT ON EXCEPTION.
         self.begin(after);
-        let _ = returning;
         self.stmts(not_exc)?;
         if self.cur.is_some() {
             self.jump(join);

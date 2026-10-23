@@ -631,3 +631,196 @@ pub fn initialize(base: u32, spec: u32) {
         }
     }
 }
+
+// ── value methods of data items (`X::Trim`, `X::Upper`, …) ──────────────────
+//
+// The interpreter's `eval_member` (`cobolt-runtime`, the `"REPLACE"` / `"TRIM"`
+// arms) applies these to the receiver's `as_display_string()`: an item's
+// characters as they are, a number as its decimal text. The results here are
+// those of Rust's `str::trim`, `to_uppercase`, `to_lowercase`, `replace`,
+// `chars().count()` and `split(..).next()`, computed without an allocator.
+
+pub const VM_TRIM: u32 = 1;
+pub const VM_UPPER: u32 = 2;
+pub const VM_LOWER: u32 = 3;
+pub const VM_REPLACE: u32 = 4;
+pub const VM_LEN: u32 = 5;
+pub const VM_SPLIT: u32 = 6;
+
+/// Room in the scratch area: the receiver, the two arguments, the result.
+const VM_RECV: u32 = 0;
+const VM_RECV_CAP: u32 = 12 * 1024;
+const VM_A: u32 = VM_RECV + VM_RECV_CAP;
+const VM_ARG_CAP: u32 = 2 * 1024;
+const VM_B: u32 = VM_A + VM_ARG_CAP;
+const VM_OUT: u32 = VM_B + VM_ARG_CAP;
+
+/// Copy the display text of operand `o` (0: none) to `dst`, at most `cap`
+/// bytes; its length.
+fn vm_text(base: u32, o: u32, dst: u32, cap: u32) -> u32 {
+    if o == 0 {
+        return 0;
+    }
+    let op = parse(o);
+    let mut num = [0u8; 64];
+    let number = |v: Val, num: &mut [u8; 64]| -> usize {
+        match v {
+            Val::Dec(d) => crate::disp::format_dec(&d, num),
+            Val::F(f) => crate::float::format_f64(f, num),
+        }
+    };
+    let (src, n): (Option<(u32, u32)>, usize) = match op.tag {
+        T_LIT_NUM | T_TEMP => (None, number(value(base, &op), &mut num)),
+        T_FIG => {
+            num[0] = fig_byte(op.fig);
+            (None, 1)
+        }
+        T_CTEMP | T_LIT_ALNUM | T_ALL => {
+            let l = locate(base, &op);
+            (Some((l.addr, l.len)), 0)
+        }
+        _ => {
+            let l = locate(base, &op);
+            if l.fd.is_numeric() {
+                (None, number(codec::load_value(&l), &mut num))
+            } else {
+                (Some((l.addr, l.len)), 0)
+            }
+        }
+    };
+    match src {
+        Some((a, l)) => {
+            let l = l.min(cap);
+            mem::copy(a, dst, l);
+            l
+        }
+        None => {
+            let l = (n as u32).min(cap);
+            mem::bytes_mut(dst, l).copy_from_slice(&num[..l as usize]);
+            l
+        }
+    }
+}
+
+/// Rust's `char::is_whitespace` for the ASCII range (what `str::trim` drops).
+fn is_space(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r')
+}
+
+/// The result buffer being filled.
+struct Out {
+    at: u32,
+    len: u32,
+    cap: u32,
+}
+
+impl Out {
+    fn push(&mut self, bytes: &[u8]) {
+        let n = (bytes.len() as u32).min(self.cap - self.len);
+        mem::bytes_mut(self.at + self.len, n).copy_from_slice(&bytes[..n as usize]);
+        self.len += n;
+    }
+}
+
+/// Case-map `t` into `out`: by `char` when `t` is UTF-8, by byte otherwise.
+fn case_map(t: &[u8], upper: bool, out: &mut Out) {
+    match core::str::from_utf8(t) {
+        Ok(s) => {
+            let mut buf = [0u8; 4];
+            for c in s.chars() {
+                if upper {
+                    for u in c.to_uppercase() {
+                        out.push(u.encode_utf8(&mut buf).as_bytes());
+                    }
+                } else {
+                    for u in c.to_lowercase() {
+                        out.push(u.encode_utf8(&mut buf).as_bytes());
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            for &b in t {
+                out.push(&[if upper { b.to_ascii_uppercase() } else { b.to_ascii_lowercase() }]);
+            }
+        }
+    }
+}
+
+/// The byte offsets of `t`'s characters (UTF-8 when it is, bytes otherwise),
+/// for `replace("", x)`, which inserts between every two characters.
+fn char_starts(t: &[u8]) -> impl Iterator<Item = usize> + '_ {
+    let utf8 = core::str::from_utf8(t).is_ok();
+    (0..t.len()).filter(move |&i| !utf8 || (t[i] & 0xC0) != 0x80)
+}
+
+/// `recv::Method(a, b)` into character temporary `k` (WASM-010 T11). `Len`
+/// leaves its count as decimal text marked as a number.
+pub fn value_method(base: u32, method: u32, recv: u32, a: u32, b: u32, k: u32) {
+    let (sc, _) = mv::scratch();
+    let rn = vm_text(base, recv, sc + VM_RECV, VM_RECV_CAP);
+    let an = vm_text(base, a, sc + VM_A, VM_ARG_CAP);
+    let bn = vm_text(base, b, sc + VM_B, VM_ARG_CAP);
+    let t = mem::bytes(sc + VM_RECV, rn);
+    let ta = mem::bytes(sc + VM_A, an);
+    let tb = mem::bytes(sc + VM_B, bn);
+    let mut out = Out { at: sc + VM_OUT, len: 0, cap: SCRATCH_SIZE - VM_OUT };
+    match method {
+        VM_TRIM => {
+            let s = t.iter().position(|&c| !is_space(c)).unwrap_or(t.len());
+            let e = t.iter().rposition(|&c| !is_space(c)).map_or(s, |i| i + 1).max(s);
+            out.push(&t[s..e]);
+        }
+        VM_UPPER => case_map(t, true, &mut out),
+        VM_LOWER => case_map(t, false, &mut out),
+        VM_REPLACE => {
+            if ta.is_empty() {
+                let mut last = 0;
+                for i in char_starts(t) {
+                    out.push(&t[last..i]);
+                    out.push(tb);
+                    last = i;
+                }
+                out.push(&t[last..]);
+                out.push(tb);
+            } else {
+                let mut i = 0;
+                while let Some(j) = find(t, ta, i) {
+                    out.push(&t[i..j]);
+                    out.push(tb);
+                    i = j + ta.len();
+                }
+                out.push(&t[i..]);
+            }
+        }
+        VM_LEN => {
+            let n = match core::str::from_utf8(t) {
+                Ok(s) => s.chars().count(),
+                Err(_) => t.len(),
+            };
+            let mut num = [0u8; 64];
+            let l = crate::disp::format_dec(&CobolNumeric::integer(n as i64), &mut num);
+            out.push(&num[..l]);
+        }
+        VM_SPLIT => {
+            // The separator is a space when none is given.
+            let sep: &[u8] = if a == 0 { b" " } else { ta };
+            if !sep.is_empty() {
+                let end = find(t, sep, 0).unwrap_or(t.len());
+                out.push(&t[..end]);
+            }
+        }
+        _ => crate::fail(err::BAD_OPERAND),
+    }
+    let s = st();
+    let n = out.len.min(crate::state::CTEMP_SIZE);
+    let k = (k as usize) % crate::state::NCTEMP;
+    let dst = s.ws + crate::state::WS_CTEMP + k as u32 * crate::state::CTEMP_SIZE;
+    mem::copy(out.at, dst, n);
+    s.ctemp_len[k] = n;
+    if method == VM_LEN {
+        s.ctemp_dynamic |= 1 << k;
+    } else {
+        s.ctemp_dynamic &= !(1 << k);
+    }
+}

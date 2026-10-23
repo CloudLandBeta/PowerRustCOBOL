@@ -32,75 +32,75 @@ Other facts the tasks rely on, each read: `cobolt-wasm/src/module.rs` (`Options`
   - **If MSRV > 1.92 or a C build script cannot be turned off: stop and ask the operator.** `wasmi` is not kept silently.
   - Verify: the paragraph names the version, each of the five numbers, and the decision "passes / stops".
 
-- [ ] **T2 — `cobolt-wasm`'s test host on `wasmtime`, guarded** (Q2, R13, D2)
+- [x] **T2 — `cobolt-wasm`'s test host on `wasmtime`, guarded** (Q2, R13, D2)
   - Files: root `Cargo.toml` + `Cargo.lock` (additions only), `crates/cobolt-wasm/Cargo.toml` (`host = ["dep:wasmtime"]`, `wasmi` removed; `cobolt-wasm-abi` added), `crates/cobolt-wasm/src/host.rs`, new `crates/cobolt-wasm/tests/dependency_guard.rs` (shape of `cobolt-graphics/tests/dependency_guard.rs`).
   - Do: rewrite `host.rs` over `wasmtime` with `Config::wasm_multi_memory(true)` and `cranelift_nan_canonicalization(true)`; replace the hand-rolled `varint`/`apply` with `cobolt_wasm_abi::batch`; keep `run_program`/`run_conformance` signatures. Root `[profile.dev.package.wasmi*]` stays (the player's tests, Q-new-2).
   - Verify: `cargo test -p cobolt-wasm --no-fail-fast` green (every existing test, both variants); `dependency_guard` asserts the licence set, MSRV ≤ 1.92 and no C-compiling build script, and is shown to fail on a planted package; `git diff Cargo.lock` shows additions plus the removal of `wasmi` from `cobolt-wasm` only.
 
-- [ ] **T3 — NIST NC, IF, IC rerun on `wasmtime`** (R16a, AC7)
+- [x] **T3 — NIST NC, IF, IC rerun on `wasmtime`** (R16a, AC7)
   - Files: `crates/cobolt-wasm/examples/nist_wasm*.rs` (only if the engine API leaks into them), `specs/WASM-PROGRESS.md`.
   - Do: run `nist_conformance run NC|IF|IC` with `RCRUN=…/nist_wasm_run`; compare with the ledger (NC 95/95 4 612, IF 45/45 841, IC 25/25 309, 0 failures). Any change is a finding written in the ledger, not noise. Note the per-program time against the 20 s harness limit.
   - Verify: the ledger section for this version has, per module, compiled / passed / excluded-with-construct in two numbers, 0 failures.
 
 ### Subset and diagnostics (WP3)
 
-- [ ] **T4 — The built-in table** (R7, R8, AC6, Q7)
+- [x] **T4 — The built-in table** (R7, R8, AC6, Q7)
   - Files: `crates/cobolt-wasm/src/support.rs` (`browser_builtin` → `builtin_support(name) -> Support`, every caller updated), new `crates/cobolt-wasm/tests/subset_table.rs`.
   - Do: one entry per name of `cobolt_runtime::builtins::BUILTINS` (68 today): *browser* / *backend only* / *unsupported*; entries depending on a browser API carry the engines that have it (Safari decides for iOS, else both Chrome and Safari).
   - Verify: `cargo test -p cobolt-wasm --test subset_table` — iterates `BUILTINS`, fails on a missing name, prints "N of 68 classified"; a planted unknown name fails it.
 
-- [ ] **T5 — Typed refusals and warnings** (R8, D6, spec §6 i18n)
+- [x] **T5 — Typed refusals and warnings** (R8, D6, spec §6 i18n)
   - Files: `crates/cobolt-wasm/src/error.rs` (`GenError.kind`, `GenWarning`), `module.rs` (`Compiled.warnings`), every `GenError` construction site in `lower*.rs`/`support.rs`.
   - Do: kinds = backend-only construct, unsupported construct, unknown layer, unknown layer property, write to `Layer`, too many host reads in one statement, in-memory file without a record limit; warnings = `ACCEPT` ignored, `REDEFINES` may differ (Q5 assumption). English text unchanged.
   - Verify: `cargo test -p cobolt-wasm --no-fail-fast` green; a unit test asserts each refusal path sets its kind and keeps the line.
 
-- [ ] **T6 — `ACCEPT` ignored, with a warning** (Q9, R7; user code is sacred)
+- [x] **T6 — `ACCEPT` ignored, with a warning** (Q9, R7; user code is sacred)
   - Files: `crates/cobolt-wasm/src/lower.rs::accept_`.
   - Do: in a non-conformance build, `ACCEPT` without `FROM` (or from a console mnemonic) emits no code and pushes the `ACCEPT` warning at its line; `FROM DATE/TIME/DAY/DAY-OF-WEEK` keep reading the host clock; conformance builds unchanged.
   - Verify: test: the receiving item keeps its value, one warning with the line; NIST IC/NC unaffected (T3 numbers rerun for NC).
 
-- [ ] **T7 — IDE diagnostics in six languages** (spec §6 i18n, D6)
+- [x] **T7 — IDE diagnostics in six languages** (spec §6 i18n, D6)
   - Files: `crates/cobolt-ide/src/i18n.rs` (one `Tr` key per kind/warning of T5, EN/ES/PT/JA/ZH/FR), `crates/cobolt-ide/src/panels/web_preview.rs` (translate `Refused`/warnings by kind).
   - Do: no "cobolt" in the text; say "browser module" / "WebAssembly module"; pt-BR spelling.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide i18n` green (no empty translation).
 
 ### The project module (WP2)
 
-- [ ] **T8 — Manifest through `cobolt-wasm-abi`** (R1, R2, R12, D3; ABI A7, A9)
+- [x] **T8 — Manifest through `cobolt-wasm-abi`** (R1, R2, R12, D3; ABI A7, A9)
   - Files: `crates/cobolt-wasm/src/module.rs` (replace the `serde_json::json!` manifest at :889).
   - Do: build `cobolt_wasm_abi::manifest::Manifest` with `forms[]` (id, name, main, instances, region_size, controls, handlers, layers), `names`, `events`, `builtins`, `limits` (task rows incl. spare), `sizes`, `imports`.
   - Verify: test: for a two-form project, `Manifest::validate` is clean and `scan::bundle_problems(bytes, false)` / `(…, true)` are empty for both variants.
 
-- [ ] **T9 — Form exports, task table, `ERROR` fields** (R1, R10, R11, R3; ABI §4, A1, A2, A4, A5)
+- [x] **T9 — Form exports, task table, `ERROR` fields** (R1, R10, R11, R3; ABI §4, A1, A2, A4, A5)
   - Files: `crates/cobolt-wasm/src/module.rs`, `crates/cobolt-wasm-rt/src/state.rs` (task rows), `crates/cobolt-wasm/src/host.rs` (form-driving API: `open_form`, `event`, `resume`, `cancel`, `close_form`, event queue), new `crates/cobolt-wasm/tests/forms.rs`.
   - Do: export `pr_open_form`, `pr_event`, `pr_resume`, `pr_cancel` (`-1` discards a trapped run's batch), `pr_tick`, `pr_status`, `pr_close_form` (region released and reinitialised on `DONE`), optional `pr_dbg_live`/`pr_dbg_region_used`; task table `Σ instances + spare`, exhaustion = run-time error naming the form; `glue.abort` writes magnitude, unit, form, event, `$line`; COBOL errors from 1000.
   - Verify: `forms.rs::button_handler_move_add_display` (**AC1**: expected `SET` commands and `DISPLAY` text on both variants; `scan_module` imports ⊆ ABI §3; prints commands / host calls); `forms.rs::runtime_error_has_line` (R11: divide by zero without `ON SIZE ERROR` → `ERROR` ≥ 1000 with line, form, event; the next event still runs); `forms.rs::instances_exhausted_is_an_error`.
 
-- [ ] **T10 — Imports, batching, line table** (R12, R14, AC9)
+- [x] **T10 — Imports, batching, line table** (R12, R14, AC9)
   - Files: `crates/cobolt-wasm/src/module.rs` (glue `query`, `random`, `remote`; flush at `DONE`/`SUSPEND`/`YIELD`/full batch; custom section `prlines`; `$line` exported; `Compiled.lines`), `crates/cobolt-wasm/Cargo.toml` (`cobolt-codegen` if `SourceMap` is taken directly).
   - Do: `prlines` = line id → unit, source line, column; for generated form code resolve through `cobolt_codegen::SourceMap::resolve`/`owner_of` (Grounding) — no second mapping.
   - Verify: `forms.rs::host_calls_per_handler` (one flush per handler end; reads see the handler's own earlier writes); `forms.rs::manifest_and_imports` (**AC9** part 2: a host missing `query` fails instantiation naming it); `forms.rs::error_line_maps_to_handler` (the reported line is the developer's handler line, as Check reports it).
 
 ### Phase D (WP4)
 
-- [ ] **T11 — Value methods on data items** (R7, R5)
+- [x] **T11 — Value methods on data items** (R7, R5)
   - Files: `crates/cobolt-wasm/src/lower_form.rs` (`member_read`/`member_call`: accept `cobolt_ast::methods::is_data_item_method`), `crates/cobolt-wasm-rt/src/strings.rs`; blob regenerated.
   - Do: lower every name of `DATA_ITEM_METHODS` as a value (into `T_CTEMP`) and as a `MOVE`/`SET`/`STRING` operand; other names keep the refusal with `DATA_ITEM_METHODS_TEXT`. `NCTEMP` stays 4; the refusal names the limit.
   - Verify: differential test through `tests/common::same_output`, one row per spelling (11), prints rows / equal; `rt_blob` green.
 
-- [ ] **T12 — Layers** (R19, R20, AC11; ABI A9)
+- [x] **T12 — Layers** (R19, R20, AC11; ABI A9)
   - Files: `crates/cobolt-wasm/src/module.rs` (`FormSpec.layers`), `lower_form.rs`.
   - Do: layer id `3 + n_controls + k`; `LAYER::Property` read/write through the control path; unknown layer / property → refusal naming the layer and listing `Name` (read-only), `Visible`, `Transparency`, `BackgroundColor`, the gradient properties, `BackgroundImage`, `BackgroundImageMode`; write to a control's `Layer` refused; no handler emitted or dispatched for a layer.
   - Verify: `forms.rs::unknown_layer_refused` (**AC11**: `LAYER-9::Visible` on a one-layer form fails naming the layer); `forms.rs::layer_visible_round_trip`; `forms.rs::no_layer_handler`.
 
-- [ ] **T13 — Parity gaps #7, #9, #10 and the `REDEFINES` warning** (R5, R16c, Q5 assumption)
+- [x] **T13 — Parity gaps #7, #9, #10 and the `REDEFINES` warning** (R5, R16c, Q5 assumption)
   - Files: `crates/cobolt-ast/src/program.rs` (`is_initial`, `is_common`, `#[serde(default)]`), `crates/cobolt-parser` (keep `INITIAL`/`COMMON`), `crates/cobolt-wasm/src/lower_call.rs`, `lower_more.rs`, `crates/cobolt-wasm-rt/src/func.rs`/`call.rs`; `specs/WASM-PARITY.md` rows #7/#9/#10 closed.
   - Do: #7 table-slice argument with the run-time count; #9 `BY VALUE` with the callee's `USAGE` and `RETURNING` on a dynamic `CALL`; #10 `INITIAL`/`COMMON`; recursion stays refused. `REDEFINES` warning only where a difference is shown not to be a bug (Q5 working assumption — the operator may say "refuse").
   - Verify: `cargo test -p cobolt-parser -p cobolt-ast -p cobolt-wasm --no-fail-fast` green; one differential test per gap; interpreter NIST regression of every finished module (NC, IF, IC, SM, ST, SQ, IX, RL) unchanged (GOLDEN RULE #9 — the AST changed).
 
-- [ ] **T14 — In-memory INDEXED and `SORT`/`MERGE`** (R7, R3, Q8) — **gated on Q-new-1**
-  - Files: `crates/cobolt-lexer`, `crates/cobolt-ast/src/program.rs` (`max_records: Option<u32>`), `crates/cobolt-parser`, `crates/cobolt-semantic` (the clause; working spelling `RECORD LIMIT IS n` pending the operator), IDE highlighting, `crates/cobolt-wasm/src/support.rs` (file verbs context-aware on `StorageMode`), new `crates/cobolt-wasm-rt/src/idx.rs` (`no_std` B-tree over the instance region); blob regenerated.
-  - Do: memory files compile; disk files stay *backend only*; `WITH PERSISTENCE` refused; a memory file without the limit refused in a browser build only (desktop unaffected). Status codes, key order and duplicates held to the interpreter's in-memory engine.
+- [ ] **T14 — In-memory INDEXED and `SORT`/`MERGE`** (R7, R3, Q8) — Q-new-1 **decided 2026-10-22**: no record limit and no new clause; when memory runs out the verb returns FILE STATUS `89` and keeps every record already held
+  - Files: no lexer/parser/semantic change (no clause); `crates/cobolt-wasm/src/support.rs` (file verbs context-aware on `StorageMode`), new `crates/cobolt-wasm-rt/src/idx.rs` (`no_std` B-tree over the instance region); blob regenerated.
+  - Do: memory files compile; disk files stay *backend only*; `WITH PERSISTENCE` refused; no limit is asked for; memory exhausted → status `89`, records kept (a test fills a module with a small memory cap until `89`, then reads back every record written before it). Status codes, key order and duplicates held to the interpreter's in-memory engine.
   - Verify: lexer/parser/semantic unit tests for the clause; differential tests (status codes, `START`, duplicates, `SORT` with `INPUT`/`OUTPUT PROCEDURE`), prints cases / equal; the region is released with the instance (`pr_dbg_region_used` back to its start value).
 
 ### Phase C (WP5)
@@ -137,7 +137,7 @@ Other facts the tasks rely on, each read: `cobolt-wasm/src/module.rs` (`Options`
   - Files: new `crates/cobolt-wasm/tests/corpus.rs`, `specs/WASM-PARITY.md`.
   - Verify: `cargo test -p cobolt-wasm --test corpus` prints compiled / identical / excluded (with construct); every difference is an open `WASM-PARITY.md` row, never `#[ignore]`.
 
-- [ ] **T21 — The player's ABI test on a generated module** (R12, D3; Q-new-2 assumption)
+- [ ] **T21 — The player's ABI test on a generated module** (R12, D3; Q-new-2 **decided 2026-10-22: the player's native tests move to `wasmtime` too**)
   - Files: `crates/cobolt-web-player/tests/abi_host.rs` (stays on `wasmi`).
   - Verify: `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test abi_host` green against the fixtures and a module from `compile_project`.
 

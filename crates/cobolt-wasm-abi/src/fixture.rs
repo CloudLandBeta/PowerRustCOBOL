@@ -863,6 +863,7 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
                 .map(|(i, (n, t))| ControlEntry { id: ctrl_id::FIRST_CONTROL + i as u32, name: n.clone(), kind: t.clone() })
                 .collect(),
             handlers: entry_handlers,
+            layers: vec![],
         });
     }
     assert!(b.seg_plan.len() < 250, "fixture: too many segments for the one-byte handler table");

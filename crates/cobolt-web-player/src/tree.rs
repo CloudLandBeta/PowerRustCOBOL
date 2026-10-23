@@ -685,6 +685,7 @@ two</Property></Control>
                     HandlerEntry { ctrl: 3, event: 2, entry: 0 },  // BTN-GO onClick
                     HandlerEntry { ctrl: 9, event: 3, entry: 1 },  // NUD-1 onChange
                 ],
+                layers: vec![],
             }],
             builtins: vec![],
             imports: vec![],

@@ -94,11 +94,15 @@ pub struct State {
     /// Character temporaries that hold a property read, whose text is a number
     /// when it spells one (bit `k`).
     pub ctemp_dynamic: u32,
+    /// The argument count the next intrinsic-function call uses instead of its
+    /// record's (an `ALL` over an `OCCURS … DEPENDING ON` table); `u32::MAX`
+    /// when the record's stands.
+    pub func_argc: u32,
 }
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0 }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0, func_argc: u32::MAX }
     }
 }
 

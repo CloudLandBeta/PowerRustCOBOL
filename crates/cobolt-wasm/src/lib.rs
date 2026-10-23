@@ -25,4 +25,5 @@ pub mod support;
 #[cfg(feature = "host")]
 pub mod host;
 
+pub use error::{ErrorKind, GenError, GenWarning, WarningKind};
 pub use module::{compile_program, Compiled, Options};

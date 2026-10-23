@@ -362,6 +362,13 @@ pub extern "C" fn rt_accept(base: u32, target: u32, kind: u32) {
     accept::accept(base, target, kind);
 }
 
+/// `ACCEPT target FROM DATE | TIME | DAY | DAY-OF-WEEK` only: the clock, with no
+/// file import behind it (what a browser module links).
+#[no_mangle]
+pub extern "C" fn rt_accept_clock(base: u32, target: u32, kind: u32) {
+    accept::accept_clock(base, target, kind);
+}
+
 /// Seed the program's external switches (conformance builds): `table` is
 /// `[count u32]` then, per switch, `[ext_addr, ext_len, mnemonic_addr,
 /// mnemonic_len, item_offset]` (all u32). The host is asked for the
@@ -413,6 +420,32 @@ pub extern "C" fn rt_find_program(base: u32, name: u32, table: u32) -> i32 {
 #[no_mangle]
 pub extern "C" fn rt_program_not_found() {
     call::not_found();
+}
+
+/// Discard what a run that trapped left half-built (ABI A5, `pr_cancel(-1)`):
+/// the staged batch, the command path and the registers, so the next run of
+/// the instance starts clean.
+#[no_mangle]
+pub extern "C" fn rt_cancel_run() {
+    let s = state::st();
+    s.batch_len = 0;
+    s.path_len = 0;
+    s.sp = 0;
+    s.snd = None;
+}
+
+/// `recv::Method(a, b)`, a value method of a data item, into character
+/// temporary `k` (`strings::VM_*`; `a`, `b` 0 when absent).
+#[no_mangle]
+pub extern "C" fn rt_value_method(base: u32, method: u32, recv: u32, a: u32, b: u32, k: u32) {
+    strings::value_method(base, method, recv, a, b, k);
+}
+
+/// The argument count of the next intrinsic-function call (an `ALL` over an
+/// `OCCURS … DEPENDING ON` table, WASM-PARITY #7).
+#[no_mangle]
+pub extern "C" fn rt_func_argc(n: u32) {
+    state::st().func_argc = n;
 }
 
 /// The form instance the module is running (for the paths of host commands).

@@ -41,7 +41,7 @@ use cobolt_compiler::project_kind::{DeviceClass, Isolation, Orientation, Project
 use cobolt_project_tools::web::devserver::{self, ServeOptions, ServerHandle};
 use cobolt_project_tools::web::presets::{self, PresetClass, Viewport, PIXEL_RATIOS, PRESETS};
 use cobolt_project_tools::web::preview::{self, Command, Emulation, Event, Mode, PreviewSession};
-use cobolt_project_tools::web::{BuildReport, WebBuildBackend, WebBuildError, WebBuildRequest};
+use cobolt_project_tools::web::{BuildReport, WebBuildBackend, WebBuildError, WebBuildRequest, WebDiagnostic, WebDiagnosticKind};
 
 use crate::i18n::Tr;
 
@@ -66,9 +66,9 @@ pub enum Note {
     Building,
     NotLinked,
     BuildDone { ms: u64, bytes: u64, files: usize, startup_ms: Option<f64> },
-    BuildWarning(String),
-    /// The lines `file:line: construct — alternative` of a refused build.
-    BuildRefused(Vec<String>),
+    BuildWarning(WebDiagnostic),
+    /// What a refused build could not compile: where, the construct, the alternative.
+    BuildRefused(Vec<WebDiagnostic>),
     BuildFailed(String),
     /// A Mobile build ends at the bundle until the mobile shell is linked.
     PackageNote,
@@ -103,6 +103,33 @@ fn fill(template: &str, args: &[&str]) -> String {
         out = out.replacen("{}", a, 1);
     }
     out
+}
+
+/// A diagnostic of the generator in the language of `tr`: a known kind is said
+/// from its `Tr` template with the subject filled in, free text as it is
+/// (WASM-010 D6). The location stays in front.
+pub fn diagnostic_text(d: &WebDiagnostic, tr: &Tr) -> String {
+    let template = match d.kind {
+        WebDiagnosticKind::Other => None,
+        WebDiagnosticKind::BackendOnly => Some(tr.wasm_diag_backend_only),
+        WebDiagnosticKind::Unsupported => Some(tr.wasm_diag_unsupported),
+        WebDiagnosticKind::UnknownLayer => Some(tr.wasm_diag_unknown_layer),
+        WebDiagnosticKind::UnknownLayerProperty => Some(tr.wasm_diag_unknown_layer_property),
+        WebDiagnosticKind::LayerWrite => Some(tr.wasm_diag_layer_write),
+        WebDiagnosticKind::TooManyHostReads => Some(tr.wasm_diag_too_many_reads),
+        WebDiagnosticKind::MemoryFileWithoutLimit => Some(tr.wasm_diag_memory_file_limit),
+        WebDiagnosticKind::AcceptIgnored => Some(tr.wasm_warn_accept_ignored),
+        WebDiagnosticKind::RedefinesMayDiffer => Some(tr.wasm_warn_redefines),
+    };
+    let text = match template {
+        Some(t) => fill(t, &[&d.subject]),
+        None => d.message.clone(),
+    };
+    if d.location.is_empty() {
+        text
+    } else {
+        format!("{}: {text}", d.location)
+    }
 }
 
 /// A size for people: `812 B`, `12.5 KB`, `1.20 MB`.
@@ -145,10 +172,10 @@ impl Note {
                 let startup = startup_ms.map_or_else(|| tr.pk_build_startup_none.to_owned(), |v| format!("{v:.0} ms"));
                 vec![fill(tr.pk_build_done, &[&ms.to_string(), &human_bytes(*bytes), &files.to_string(), &startup])]
             }
-            Note::BuildWarning(w) => vec![fill(tr.pk_build_warning, &[w])],
+            Note::BuildWarning(w) => vec![fill(tr.pk_build_warning, &[&diagnostic_text(w, tr)])],
             Note::BuildRefused(lines) => {
                 let mut out = vec![tr.pk_build_refused.to_owned()];
-                out.extend(lines.iter().map(|l| format!("  {l}")));
+                out.extend(lines.iter().map(|l| format!("  {}", diagnostic_text(l, tr))));
                 out
             }
             Note::BuildFailed(why) => vec![fill(tr.pk_build_failed, &[why])],
@@ -1158,6 +1185,38 @@ mod tests {
     }
 
     // ── notes ──
+
+    #[test]
+    fn every_generator_diagnostic_kind_is_said_in_all_six_languages() {
+        let kinds = [
+            WebDiagnosticKind::BackendOnly,
+            WebDiagnosticKind::Unsupported,
+            WebDiagnosticKind::UnknownLayer,
+            WebDiagnosticKind::UnknownLayerProperty,
+            WebDiagnosticKind::LayerWrite,
+            WebDiagnosticKind::TooManyHostReads,
+            WebDiagnosticKind::MemoryFileWithoutLimit,
+            WebDiagnosticKind::AcceptIgnored,
+            WebDiagnosticKind::RedefinesMayDiffer,
+        ];
+        let mut said = 0;
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            for kind in kinds {
+                let d = WebDiagnostic { location: "webforms/a.cfrm:7".into(), kind, subject: "SUBJ-9".into(), message: "english".into() };
+                let text = diagnostic_text(&d, &tr);
+                assert!(text.starts_with("webforms/a.cfrm:7: "), "{lang:?} {kind:?}: {text}");
+                assert!(text.contains("SUBJ-9") && !text.contains("{}") && !text.contains("english"), "{lang:?} {kind:?}: {text}");
+                assert!(!text.to_lowercase().contains("cobolt"), "{lang:?} {kind:?}: {text}");
+                said += 1;
+            }
+            // Free text is said as it is.
+            let other = WebDiagnostic::from("a.cfrm:3: EXEC RUST - move it to the Backend");
+            assert_eq!(diagnostic_text(&other, &tr), "a.cfrm:3: EXEC RUST - move it to the Backend");
+        }
+        eprintln!("generator diagnostics: {said} kind × language texts, none empty");
+        assert_eq!(said, kinds.len() * Language::ALL.len());
+    }
 
     #[test]
     fn every_note_reads_in_all_six_languages_without_a_gap() {

@@ -76,6 +76,9 @@ pub(crate) struct FileInfo {
 pub struct Names {
     pub list: Vec<String>,
     map: HashMap<String, u32>,
+    /// The verbs of the application object (`COBOL::`, ctrl 2) the program
+    /// uses: the manifest's `builtins` (ABI A7).
+    pub builtins: std::collections::BTreeSet<String>,
 }
 
 impl Names {
@@ -97,6 +100,12 @@ impl Names {
 pub struct FormCtx {
     /// Upper-case control name -> control id (from 3).
     pub controls: HashMap<String, u32>,
+    /// Upper-case layer name -> layer id (after the controls, ABI A9).
+    pub layers: HashMap<String, u32>,
+    /// The layers' names as written, in stack order.
+    pub layer_names: Vec<String>,
+    /// The form's name, for diagnostics.
+    pub name: String,
 }
 
 pub struct Lowered {
@@ -112,6 +121,13 @@ pub struct Lowered {
     pub park_slot: u32,
     /// The region offsets of the items `COBOL-EVENT-ID` / `COBOL-CONTROL-ID`.
     pub event_items: (u32, u32),
+    /// A form's `COBOL-QUIT` item and the literal `1`, as operand records:
+    /// closing the form sets it, as the desktop host does on `__QUIT__`.
+    pub quit: Option<(u32, u32)>,
+    /// What compiled but deserves a word to the developer.
+    pub warnings: Vec<crate::error::GenWarning>,
+    /// The source lines `$line` takes in this form's code (R14, `prlines`).
+    pub lines: std::collections::BTreeSet<u32>,
 }
 
 /// A parameter of a called program: the LINKAGE record it names.
@@ -138,6 +154,8 @@ pub(crate) struct UnitInfo {
     pub returning: Option<usize>,
     /// Units whose `GLOBAL` items this one sees, itself first.
     pub scope: Vec<u32>,
+    /// `IS INITIAL`: the unit's storage is put back before every call.
+    pub initial: bool,
 }
 
 /// A `USE AFTER ERROR` declarative, as an I/O verb in any unit may reach it.
@@ -192,6 +210,10 @@ pub struct Lower<'a, 'b> {
     pub(crate) program_end: BlockId,
     /// Constructs that could not be compiled; reported together at the end.
     pub(crate) diags: Vec<GenError>,
+    /// Constructs that compiled with a warning.
+    pub(crate) warnings: Vec<crate::error::GenWarning>,
+    /// Every line `$line` is set to.
+    pub(crate) lines_used: std::collections::BTreeSet<u32>,
     /// The NIST gate build: file verbs are compiled.
     pub(crate) conformance: bool,
     pub(crate) tolerant: bool,
@@ -341,6 +363,7 @@ impl<'a, 'b> Lower<'a, 'b> {
                 params,
                 returning,
                 scope: scope_of(u),
+                initial: p.is_initial,
             });
         }
         layout.set_scope(0, scope_of(0));
@@ -363,6 +386,8 @@ impl<'a, 'b> Lower<'a, 'b> {
             next_sentence: None,
             program_end: 0,
             diags: Vec::new(),
+            warnings: Vec::new(),
+            lines_used: std::collections::BTreeSet::new(),
             conformance,
             tolerant,
             files: HashMap::new(),
@@ -451,7 +476,17 @@ impl<'a, 'b> Lower<'a, 'b> {
         }
         let count = order.len();
         let park_slot = l.park_slot.unwrap_or(u32::MAX);
-        Ok(Lowered { entry: main_entry, layout: l.layout, units: count, stack_off, park_slot, event_items: (0, 0) })
+        let quit = if l.form.is_some() {
+            l.enter_unit(0, order[0].0);
+            let e = Expr::Identifier("COBOL-QUIT".into(), cobolt_lexer::Span::new(0, 0, 0, 0));
+            match l.resolve_item(&e) {
+                Ok(idx) => Some((l.item_operand(idx, &[], None, 0)?, l.pool.opd_lit_num(1, 0))),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+        Ok(Lowered { entry: main_entry, layout: l.layout, units: count, stack_off, park_slot, event_items: (0, 0), quit, warnings: l.warnings, lines: l.lines_used })
     }
 
     /// Make unit `u` (program `p`) the one being lowered.
@@ -689,8 +724,10 @@ impl<'a, 'b> Lower<'a, 'b> {
 
     pub(crate) fn file(&self, name: &str, line: u32) -> GenResult<FileInfo> {
         if !self.conformance {
-            return self.err(
+            return self.err_kind(
                 line,
+                crate::error::ErrorKind::BackendOnly,
+                "file input/output",
                 "file input/output is not available in a browser module: it runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE",
             );
         }
@@ -912,6 +949,7 @@ impl<'a, 'b> Lower<'a, 'b> {
     }
 
     pub(crate) fn line(&mut self, line: u32) {
+        self.lines_used.insert(line);
         self.i32c(line as i32);
         self.emit(Ins::GlobalSet(G::Line));
     }
@@ -1222,6 +1260,17 @@ impl<'a, 'b> Lower<'a, 'b> {
         Err(GenError::new(line, msg))
     }
 
+    /// A refusal of a known kind (WASM-010 D6).
+    pub(crate) fn err_kind<T>(&self, line: u32, kind: crate::error::ErrorKind, subject: impl Into<String>, msg: impl Into<String>) -> GenResult<T> {
+        Err(GenError::kinded(line, kind, subject, msg))
+    }
+
+    /// The refusal of a statement that reads one more host value than the
+    /// character temporaries hold.
+    pub(crate) fn too_many_reads<T>(&self, line: u32, msg: &str) -> GenResult<T> {
+        self.err_kind(line, crate::error::ErrorKind::TooManyHostReads, cobolt_wasm_rt::state::NCTEMP.to_string(), msg)
+    }
+
     pub(crate) fn quals_of(&self, mut e: &Expr) -> Vec<String> {
         let mut q = Vec::new();
         loop {
@@ -1333,7 +1382,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             // temporary; a numeric one is a computation (`push_expr`).
             Expr::FunctionCall { name, args, .. } => self.function_operand(name, args, line),
             // A control's property or method result is read from the host.
-            Expr::Member { .. } if self.is_host_member(e) => self.member_read(e, line).map(Some),
+            Expr::Member { .. } => self.member_value(e, line).map(Some),
             _ => Ok(None),
         }
     }
@@ -1430,12 +1479,21 @@ impl<'a, 'b> Lower<'a, 'b> {
                 if f.chars {
                     return self.err(line, format!("FUNCTION {name} yields characters, which arithmetic cannot use"));
                 }
+                self.func_argc(&f);
                 self.base();
                 self.i32c(f.rec as i32);
                 self.call_rt("rt_func");
                 Ok(())
             }
-            Expr::Member { .. } => self.err(line, "control members are not supported in this build of the generator yet"),
+            // A property, a method result or a value method in a computation:
+            // its text, as a number (`Len`, or a property that spells one).
+            Expr::Member { .. } => {
+                let o = self.member_value(e, line)?;
+                self.base();
+                self.i32c(o as i32);
+                self.call_rt("rt_push");
+                Ok(())
+            }
             _ => self.err(line, "this expression is not supported in a WebAssembly module yet"),
         }
     }
@@ -1803,8 +1861,11 @@ impl<'a, 'b> Lower<'a, 'b> {
             other => {
                 let name = crate::support::stmt_name(other);
                 match crate::support::support(other) {
-                    crate::support::Support::BackendOnly(why) | crate::support::Support::Unsupported(why) => {
-                        self.err(line, format!("{name} is not available in a browser module: {why}"))
+                    crate::support::Support::BackendOnly(why) => {
+                        self.err_kind(line, crate::error::ErrorKind::BackendOnly, name, format!("{name} is not available in a browser module: {why}"))
+                    }
+                    crate::support::Support::Unsupported(why) => {
+                        self.err_kind(line, crate::error::ErrorKind::Unsupported, name, format!("{name} is not available in a browser module: {why}"))
                     }
                     _ => self.err(line, format!("{name} is not yet supported by the WebAssembly generator")),
                 }
@@ -1930,8 +1991,8 @@ impl<'a, 'b> Lower<'a, 'b> {
         // A control member as a receiver is a write to the host.
         if to.iter().any(|t| matches!(t, Expr::Member { .. })) {
             if let Some(bad) = to.iter().find(|t| matches!(t, Expr::Member { .. }) && !self.is_host_member(t)) {
-                let _ = bad;
-                return self.err(line, "a value method cannot be a receiving field");
+                // `member_set` names the layer a mistyped root most likely was.
+                return self.member_set(&bad.clone(), 0, line);
             }
             let src = self.operand_or_temp(from)?;
             for t in to {
@@ -2840,21 +2901,31 @@ impl<'a, 'b> Lower<'a, 'b> {
     pub(crate) fn accept_(&mut self, target: &Expr, from: Option<&AcceptSource>, line: u32) -> GenResult<()> {
         use cobolt_wasm_rt::accept::*;
         let kind = match from {
-            None => {
-                if !self.conformance {
-                    return self.err(
-                        line,
-                        "ACCEPT from the operator has no meaning in a browser module: the form's controls are the input",
-                    );
-                }
-                ACC_CONSOLE
+            // `ACCEPT` from the operator (plain, or from a console mnemonic) has
+            // no meaning where the form's controls are the input: a browser
+            // module ignores it (operator, 2026-10-22, WASM-010 Q9). No code is
+            // emitted, the receiving item keeps its value, and the developer is
+            // told at the line; the statement stays in the source.
+            None | Some(AcceptSource::Mnemonic(_)) if !self.conformance => {
+                let what = match from {
+                    Some(AcceptSource::Mnemonic(m)) => format!("ACCEPT FROM {m}"),
+                    _ => "ACCEPT".to_string(),
+                };
+                self.warnings.push(crate::error::GenWarning {
+                    line,
+                    kind: crate::error::WarningKind::AcceptIgnored,
+                    message: format!("{what} from the operator is ignored in a browser module: the form's controls are the input; the receiving item keeps its value"),
+                    subject: what,
+                });
+                return Ok(());
             }
+            None => ACC_CONSOLE,
             Some(AcceptSource::Date) => ACC_DATE,
             Some(AcceptSource::Time) => ACC_TIME,
             Some(AcceptSource::Day) => ACC_DAY,
             Some(AcceptSource::DayOfWeek) => ACC_DAY_OF_WEEK,
             // A mnemonic bound to the console behaves as the plain form.
-            Some(AcceptSource::Mnemonic(_)) if self.conformance => ACC_CONSOLE,
+            Some(AcceptSource::Mnemonic(_)) => ACC_CONSOLE,
             Some(other) => {
                 return self.err(line, format!("ACCEPT FROM {other:?} is not supported in a WebAssembly module"));
             }
@@ -2863,7 +2934,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         self.base();
         self.i32c(t as i32);
         self.i32c(kind as i32);
-        self.call_rt("rt_accept");
+        self.call_rt(if kind == ACC_CONSOLE { "rt_accept" } else { "rt_accept_clock" });
         Ok(())
     }
 

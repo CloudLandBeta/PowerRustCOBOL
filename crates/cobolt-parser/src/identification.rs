@@ -37,9 +37,12 @@ pub(crate) fn parse_identification_division(p: &mut Parser) -> IdentificationDiv
         p.expect_period();
         let name = p.expect_identifier("PROGRAM-ID");
         // Optional COBOL program attributes: [IS] {COMMON | INITIAL | RECURSIVE}
-        // [PROGRAM]. Accepted and ignored — the interpreter resolves nested-program
-        // CALLs through a flat registry, so COMMON/INITIAL impose no runtime
-        // restriction (generated form modules emit user procedures `IS COMMON`).
+        // [PROGRAM]. The interpreter resolves nested-program CALLs through a
+        // flat registry, so COMMON/INITIAL impose no restriction there
+        // (generated form modules emit user procedures `IS COMMON`); they are
+        // kept on the `Program` for the WebAssembly generator (WASM-PARITY #10).
+        p.program_initial = false;
+        p.program_common = false;
         p.eat(&Token::Is);
         loop {
             if p.eat(&Token::Program) {
@@ -52,6 +55,13 @@ pub(crate) fn parse_identification_division(p: &mut Parser) -> IdentificationDiv
                                 "COMMON" | "INITIAL" | "RECURSIVE")
             );
             if is_attr {
+                if let Token::Identifier(s) = p.peek() {
+                    match s.to_ascii_uppercase().as_str() {
+                        "INITIAL" => p.program_initial = true,
+                        "COMMON" => p.program_common = true,
+                        _ => {}
+                    }
+                }
                 p.advance();
                 continue;
             }

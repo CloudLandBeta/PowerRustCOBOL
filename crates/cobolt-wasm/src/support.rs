@@ -142,12 +142,138 @@ pub fn stmt_name(s: &Stmt) -> &'static str {
     }
 }
 
-/// Is the built-in `name` (without `COBOL-`) one the page performs? The rest of
-/// `cobolt-runtime`'s `BUILTINS` reach a machine, a database or a provider, and
-/// belong to the desktop host or the backend (WASM-010 R7).
-pub fn browser_builtin(name: &str) -> bool {
-    matches!(
-        name,
-        "CHART-ADD-POINT" | "CHART-CLEAR" | "CHART-REFRESH" | "CHART-SET-TABLE" | "AUDIO-PLAY" | "AUDIO-PAUSE" | "AUDIO-RESUME" | "AUDIO-STOP"
-    )
+/// The browser engines that offer an API a built-in needs (WASM-010 Q7: an iOS
+/// application goes by Safari; every other target needs both).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Engines {
+    pub chrome: bool,
+    pub safari: bool,
+}
+
+/// One built-in of `cobolt-runtime`'s `BUILTINS`, classified for a browser
+/// module (WASM-010 R7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltinClass {
+    /// The name without `COBOL-`.
+    pub name: &'static str,
+    pub support: Support,
+    /// The browser API a *browser* entry relies on, and the engines that have it.
+    /// `None` when the player does the work with nothing beyond the page itself.
+    pub api: Option<(&'static str, Engines)>,
+}
+
+const BOTH: Engines = Engines { chrome: true, safari: true };
+const SQL: &str = "embedded SQL and databases run on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
+const FILES: &str = "files are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
+const HTTP: &str = "HTTP calls run on the backend, which holds the keys and is not bound by the page's CORS rules; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
+const SECRETS: &str = "keys and model providers stay on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
+const BACKEND_VERB: &str = "it is a verb of a backend program, which runs on the server";
+const NO_PATHS: &str = "a browser page has no file paths; let the backend hold the file";
+
+const fn c(name: &'static str, support: Support) -> BuiltinClass {
+    BuiltinClass { name, support, api: None }
+}
+const fn web(name: &'static str, api: &'static str, engines: Engines) -> BuiltinClass {
+    BuiltinClass { name, support: Support::Module, api: Some((api, engines)) }
+}
+
+/// Every built-in, alphabetically, as `BUILTINS` lists them. A test fails when a
+/// name of `BUILTINS` has no row here, or a row names no built-in (R8).
+pub const BUILTIN_TABLE: &[BuiltinClass] = &[
+    c("APPEND-FILE", Support::BackendOnly(FILES)),
+    web("AUDIO-PAUSE", "HTMLAudioElement", BOTH),
+    web("AUDIO-PLAY", "HTMLAudioElement", BOTH),
+    web("AUDIO-RESUME", "HTMLAudioElement", BOTH),
+    c("AUDIO-STATE", Support::Unsupported("its answers have no way back into a browser module yet")),
+    web("AUDIO-STOP", "HTMLAudioElement", BOTH),
+    c("AWS-CLEAR-CREDENTIALS", Support::BackendOnly(SECRETS)),
+    c("AWS-CREDENTIALS-SET", Support::BackendOnly(SECRETS)),
+    c("AWS-SET-CREDENTIALS", Support::BackendOnly(SECRETS)),
+    c("BINDING-LOAD", Support::BackendOnly(SQL)),
+    c("BINDING-MARK-CLEAN", Support::BackendOnly(SQL)),
+    c("BINDING-POPULATE", Support::BackendOnly(SQL)),
+    c("BINDING-SET-PENDING", Support::BackendOnly(SQL)),
+    c("BINDING-SET-READ-ONLY", Support::BackendOnly(SQL)),
+    c("BINDING-UPDATE", Support::BackendOnly(SQL)),
+    c("CHART-ADD-POINT", Support::Module),
+    c("CHART-CLEAR", Support::Module),
+    c("CHART-REFRESH", Support::Module),
+    c("CHART-SET-TABLE", Support::Module),
+    c("CLOSE-DB", Support::BackendOnly(SQL)),
+    c("EXEC-SQL", Support::BackendOnly(SQL)),
+    c("FETCH-ROW", Support::BackendOnly(SQL)),
+    c("FILE-STATUS", Support::BackendOnly(FILES)),
+    // `showDirectoryPicker` is Chrome's only: Q7's parity rule leaves it out.
+    c("FOLDER-DIALOG", Support::Unsupported("a browser page cannot choose a folder in every engine (showDirectoryPicker is Chrome's only)")),
+    c("GET-PROPERTY", Support::Module),
+    c("HTTP-CLEAR-HEADERS", Support::BackendOnly(HTTP)),
+    c("HTTP-DELETE", Support::BackendOnly(HTTP)),
+    c("HTTP-DOWNLOAD", Support::BackendOnly(HTTP)),
+    c("HTTP-GET", Support::BackendOnly(HTTP)),
+    c("HTTP-POST", Support::BackendOnly(HTTP)),
+    c("HTTP-PUT", Support::BackendOnly(HTTP)),
+    c("HTTP-SET-HEADER", Support::BackendOnly(HTTP)),
+    c("IMAGE-FIT", Support::BackendOnly(FILES)),
+    c("IMAGE-INFO", Support::BackendOnly(FILES)),
+    c("INIT-FORM", Support::Module),
+    c("KEY-IS-SET", Support::BackendOnly(SECRETS)),
+    c("KEY-REMOVE", Support::BackendOnly(SECRETS)),
+    c("KEY-SET", Support::BackendOnly(SECRETS)),
+    c("MCP-SEARCH", Support::BackendOnly(SECRETS)),
+    c("MODEL-COUNT", Support::BackendOnly(SECRETS)),
+    c("MODEL-GET", Support::BackendOnly(SECRETS)),
+    c("MODEL-LIST", Support::BackendOnly(SECRETS)),
+    c("MODEL-LIST-GET", Support::BackendOnly(SECRETS)),
+    c("MODEL-REMOVE", Support::BackendOnly(SECRETS)),
+    c("MODEL-SET", Support::BackendOnly(SECRETS)),
+    c("MODEL-TEST", Support::BackendOnly(SECRETS)),
+    c("NEXT-ROW", Support::BackendOnly(SQL)),
+    c("OPEN-DB", Support::BackendOnly(SQL)),
+    c("OPEN-FILE-DIALOG", Support::Unsupported(NO_PATHS)),
+    c("PROVIDER-COUNT", Support::BackendOnly(SECRETS)),
+    c("PROVIDER-GET", Support::BackendOnly(SECRETS)),
+    c("ROW-COUNT", Support::BackendOnly(SQL)),
+    c("SAVE-FILE-DIALOG", Support::Unsupported(NO_PATHS)),
+    c("SET-PROPERTY", Support::Module),
+    c("WAIT-EVENT", Support::Module),
+    c("WRITE-FILE", Support::BackendOnly(FILES)),
+    c("WS-CANCELLED", Support::BackendOnly(BACKEND_VERB)),
+    c("WS-CLAIM", Support::BackendOnly(BACKEND_VERB)),
+    c("WS-DOWNLOAD", Support::Unsupported(NO_PATHS)),
+    c("WS-EMIT", Support::BackendOnly(BACKEND_VERB)),
+    c("WS-FAIL", Support::BackendOnly(BACKEND_VERB)),
+    c("WS-FILE-PATH", Support::BackendOnly(BACKEND_VERB)),
+    c("WS-FILE-PUBLISH", Support::BackendOnly(BACKEND_VERB)),
+    c("WS-LAST-ERROR", Support::Unsupported("not in a browser module yet; the ON EXCEPTION phrase of the CALL reports the failure")),
+    c("WS-PAUSE", Support::BackendOnly(BACKEND_VERB)),
+    c("WS-PROGRESS", Support::BackendOnly(BACKEND_VERB)),
+    c("WS-UPLOAD", Support::Unsupported(NO_PATHS)),
+    c("WS-WARNING", Support::Unsupported("not in a browser module yet")),
+];
+
+/// The row of the built-in `name` (without `COBOL-`), if it is one.
+pub fn builtin_entry(name: &str) -> Option<&'static BuiltinClass> {
+    BUILTIN_TABLE.iter().find(|b| b.name == name)
+}
+
+/// How the built-in `name` (without `COBOL-`) fares in a browser module.
+pub fn builtin_support(name: &str) -> Support {
+    builtin_entry(name).map(|b| b.support).unwrap_or(Support::Unsupported("it is not a built-in of this version"))
+}
+
+/// Whether the built-in compiles into a module for this target (Q7): a
+/// *browser* entry whose API Safari lacks is unavailable on iOS, and one that
+/// either engine lacks is unavailable everywhere else.
+pub fn builtin_available(name: &str, ios: bool) -> bool {
+    match builtin_entry(name) {
+        Some(BuiltinClass { support: Support::Module, api: None, .. }) => true,
+        Some(BuiltinClass { support: Support::Module, api: Some((_, e)), .. }) => {
+            if ios {
+                e.safari
+            } else {
+                e.chrome && e.safari
+            }
+        }
+        _ => false,
+    }
 }

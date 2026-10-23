@@ -102,17 +102,28 @@ fn put(base: u32, target: u32, text: &[u8]) {
 
 pub fn accept(base: u32, target: u32, kind: u32) {
     if kind == ACC_CONSOLE {
-        // One line of operator input (conformance builds: handle 0).
-        let scratch = st().ws + WS_SCRATCH;
-        // SAFETY: the glue writes at most `cap` bytes into the scratch area.
-        let n = unsafe { host::file_read(0, scratch, SCRATCH_SIZE.min(4096)) };
-        let line: &[u8] = if n > 0 { mem::bytes(scratch, n as u32) } else { &[] };
-        let loc = locate(base, &parse(target));
-        if n >= 0 || loc.fd.is_alnum_like() {
-            put(base, target, line);
-        }
+        accept_console(base, target);
         return;
     }
+    accept_clock(base, target, kind);
+}
+
+/// One line of operator input (conformance builds: handle 0). Apart from the
+/// clock so that a browser module's `ACCEPT … FROM DATE` does not link the
+/// file import.
+pub fn accept_console(base: u32, target: u32) {
+    let scratch = st().ws + WS_SCRATCH;
+    // SAFETY: the glue writes at most `cap` bytes into the scratch area.
+    let n = unsafe { host::file_read(0, scratch, SCRATCH_SIZE.min(4096)) };
+    let line: &[u8] = if n > 0 { mem::bytes(scratch, n as u32) } else { &[] };
+    let loc = locate(base, &parse(target));
+    if n >= 0 || loc.fd.is_alnum_like() {
+        put(base, target, line);
+    }
+}
+
+/// `ACCEPT … FROM DATE | TIME | DAY | DAY-OF-WEEK`, from the host clock.
+pub fn accept_clock(base: u32, target: u32, kind: u32) {
     // SAFETY: plain host call.
     let ms = unsafe { host::now() };
     let mut out = [0u8; 16];

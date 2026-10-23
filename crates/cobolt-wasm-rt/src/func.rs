@@ -167,10 +167,15 @@ struct Call {
 
 impl Call {
     fn read(base: u32, rec: u32) -> Call {
-        let argc = mem::rd_u32(rec + 4) as usize;
-        if argc > MAX_ARGS {
+        let declared = mem::rd_u32(rec + 4) as usize;
+        if declared > MAX_ARGS {
             crate::fail(err::BAD_OPERAND);
         }
+        // An `ALL` over a variable-length table: the generator laid out every
+        // element up to the maximum and set the count the table has now.
+        let s = crate::state::st();
+        let live = core::mem::replace(&mut s.func_argc, u32::MAX);
+        let argc = if live == u32::MAX { declared } else { (live as usize).min(declared) };
         Call { base, rec, argc, decimal_comma: mem::rd_u32(rec + 8) & 1 != 0, currency: mem::rd_u32(rec + 12) as u8 }
     }
     fn addr(&self, i: usize) -> u32 {

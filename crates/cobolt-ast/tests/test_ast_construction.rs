@@ -491,6 +491,8 @@ fn program_construction() {
         currency: '$',
         span: dummy_span(),
         sql_cursors: Vec::new(),
+        is_initial: false,
+        is_common: false,
     };
 
     assert_eq!(prog.identification.program_id, "HELLO");

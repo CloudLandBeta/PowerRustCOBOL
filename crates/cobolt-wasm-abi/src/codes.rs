@@ -121,8 +121,9 @@ pub const REQUIRED_EXPORTS: &[&str] = &[
 ];
 
 /// Optional diagnostics exports (§4): a production host ignores them; the
-/// disposal test (WASM-017 R20) reads them.
-pub const DEBUG_EXPORTS: &[&str] = &["pr_dbg_live", "pr_dbg_region_used"];
+/// disposal test (WASM-017 R20) reads the first two; `pr_line` is the global
+/// `$line` of §10 (A10).
+pub const DEBUG_EXPORTS: &[&str] = &["pr_dbg_live", "pr_dbg_region_used", "pr_line"];
 
 /// The decoded form of a `pr_event`/`pr_resume`/`pr_status` return value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

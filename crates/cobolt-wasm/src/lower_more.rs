@@ -23,6 +23,10 @@ use wasm_encoder::Instruction as I;
 pub(crate) struct FuncCall {
     pub rec: u32,
     pub chars: bool,
+    /// For an `ALL` over an `OCCURS … DEPENDING ON` table (the last argument):
+    /// the counter's operand, the elements per occurrence and the arguments
+    /// before the table — the call's argument count is set at run time.
+    pub live: Option<(u32, u32, u32)>,
 }
 
 impl Lower<'_, '_> {
@@ -46,7 +50,7 @@ impl Lower<'_, '_> {
                 if up == "WHEN-COMPILED" {
                     return true;
                 }
-                let flat: Vec<Expr> = args.iter().flat_map(|a| self.all_elements(a).unwrap_or_else(|_| vec![a.clone()])).collect();
+                let flat: Vec<Expr> = args.iter().flat_map(|a| self.all_elements(a).map(|r| r.0).unwrap_or_else(|_| vec![a.clone()])).collect();
                 matches!(self.function_id(&up, &flat), Some(id) if id >= 64)
             }
             _ => false,
@@ -65,14 +69,16 @@ impl Lower<'_, '_> {
     }
 
     /// `ALL` subscripts spelled out: `T (ALL, 2)` is one element per occurrence
-    /// of the first dimension, row-major. A variable-length table is refused:
-    /// its count is a run-time fact.
-    fn all_elements(&mut self, e: &Expr) -> GenResult<Vec<Expr>> {
+    /// of the first dimension, row-major. Over an `OCCURS … DEPENDING ON`
+    /// dimension (the outermost) every element up to the maximum is laid out,
+    /// and the second value says how the count is found at run time: the
+    /// counter's name and the elements per occurrence.
+    fn all_elements(&mut self, e: &Expr) -> GenResult<(Vec<Expr>, Option<(String, u32)>)> {
         let Expr::Subscript { base, indices, span } = e else {
-            return Ok(vec![e.clone()]);
+            return Ok((vec![e.clone()], None));
         };
         if !indices.iter().any(|i| matches!(i, Expr::AllSubscript(_))) {
-            return Ok(vec![e.clone()]);
+            return Ok((vec![e.clone()], None));
         }
         let line = e.span().line;
         let idx = self.resolve_item(base)?;
@@ -81,11 +87,15 @@ impl Lower<'_, '_> {
             return self.err(line, "the subscripts do not match the table's dimensions");
         }
         let mut combos: Vec<Vec<Expr>> = vec![Vec::new()];
+        let mut live: Option<String> = None;
         for (pos, ix) in indices.iter().enumerate() {
             let choices: Vec<Expr> = if matches!(ix, Expr::AllSubscript(_)) {
                 let (_, max, odo) = &chain[pos];
-                if odo.is_some() {
-                    return self.err(line, "ALL over a variable-length table is not supported in a WebAssembly module yet");
+                if let Some(counter) = odo {
+                    if pos != 0 {
+                        return self.err(line, "ALL over a variable-length table is supported on its outermost dimension only in a WebAssembly module");
+                    }
+                    live = Some(counter.clone());
                 }
                 (1..=*max as i64).map(|n| Expr::Literal(Literal::Integer(n), *span)).collect()
             } else {
@@ -101,7 +111,25 @@ impl Lower<'_, '_> {
             }
             combos = next;
         }
-        Ok(combos.into_iter().map(|indices| Expr::Subscript { base: base.clone(), indices, span: *span }).collect())
+        let first = chain.first().map_or(1, |c| c.1.max(1));
+        let per = (combos.len() as u32) / first;
+        Ok((combos.into_iter().map(|indices| Expr::Subscript { base: base.clone(), indices, span: *span }).collect(), live.map(|c| (c, per))))
+    }
+
+    /// Before a call whose last argument is an `ALL` over a variable-length
+    /// table: set its argument count from the table's counter.
+    pub(crate) fn func_argc(&mut self, f: &FuncCall) {
+        if let Some((odo, per, prefix)) = f.live {
+            self.base();
+            self.i32c(odo as i32);
+            self.call_rt("rt_int");
+            self.emit(crate::ir::Ins::Raw(I::I32WrapI64));
+            self.i32c(per as i32);
+            self.emit(crate::ir::Ins::Raw(I::I32Mul));
+            self.i32c(prefix as i32);
+            self.emit(crate::ir::Ins::Raw(I::I32Add));
+            self.call_rt("rt_func_argc");
+        }
     }
 
     /// Lower a call: evaluate its arguments (nested calls and computed
@@ -109,8 +137,16 @@ impl Lower<'_, '_> {
     pub(crate) fn function_call(&mut self, name: &str, args: &[Expr], line: u32) -> GenResult<FuncCall> {
         let up = name.to_ascii_uppercase();
         let mut flat: Vec<Expr> = Vec::new();
-        for a in args {
-            flat.extend(self.all_elements(a)?);
+        let mut live: Option<(String, u32, u32)> = None;
+        for (i, a) in args.iter().enumerate() {
+            let (elems, l) = self.all_elements(a)?;
+            if let Some((counter, per)) = l {
+                if i + 1 != args.len() {
+                    return self.err(line, format!("FUNCTION {name}: ALL over a variable-length table is supported as the last argument only in a WebAssembly module"));
+                }
+                live = Some((counter, per, flat.len() as u32));
+            }
+            flat.extend(elems);
         }
         if flat.len() > cobolt_wasm_rt::func::MAX_ARGS {
             return self.err(line, format!("FUNCTION {name} takes at most {} arguments here", cobolt_wasm_rt::func::MAX_ARGS));
@@ -123,7 +159,14 @@ impl Lower<'_, '_> {
             words.push(self.operand_or_temp(a)?);
         }
         let rec = self.pool.spec(&words);
-        Ok(FuncCall { rec, chars: fid >= 64 })
+        let live = match live {
+            Some((counter, per, prefix)) => {
+                let di = self.layout.lookup(&counter, &[]).map_err(|m| crate::error::GenError::new(line, m))?;
+                Some((self.item_operand(di, &[], None, line)?, per, prefix))
+            }
+            None => None,
+        };
+        Ok(FuncCall { rec, chars: fid >= 64, live })
     }
 
     /// The operand for a character-valued function (evaluated into its
@@ -136,7 +179,7 @@ impl Lower<'_, '_> {
         }
         let mut flat: Vec<Expr> = Vec::new();
         for a in args {
-            flat.extend(self.all_elements(a)?);
+            flat.extend(self.all_elements(a)?.0);
         }
         match self.function_id(&up, &flat) {
             Some(id) if id >= 64 => {}
@@ -145,9 +188,10 @@ impl Lower<'_, '_> {
         let f = self.function_call(name, args, line)?;
         let k = self.ctemp_next;
         if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
-            return self.err(line, "this statement needs more than four character-valued functions");
+            return self.too_many_reads(line, "this statement needs more than four character-valued functions; split it into statements that use at most four");
         }
         self.ctemp_next += 1;
+        self.func_argc(&f);
         self.base();
         self.i32c(f.rec as i32);
         self.i32c(k as i32);

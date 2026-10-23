@@ -84,6 +84,10 @@ pub struct Compiled {
     pub wasm: Vec<u8>,
     pub manifest: serde_json::Value,
     pub sizes: Sizes,
+    /// What compiled with a word to the developer (`ACCEPT` ignored, …).
+    pub warnings: Vec<crate::error::GenWarning>,
+    /// The line table, as the `prlines` section carries it (R14).
+    pub lines: Vec<LineEntry>,
 }
 
 struct Types {
@@ -112,8 +116,24 @@ fn wp(v: &wasmparser::ValType) -> ValType {
     }
 }
 
+/// The globals the form exports add: the running form, the event delivered.
+const G_FORM: u32 = 9;
+const G_EVENT: u32 = 10;
+
 /// Bytes of one row of the form table, and of the instance table.
-const FT_ROW: u32 = 48;
+///
+/// Form table row: `+0` control-name table, `+4` number of control ids (3 +
+/// controls), `+8` first region, `+12` region size, `+16` first instance, `+20`
+/// instances, `+24` entry block, `+28` park slot, `+32` PERFORM-stack offset,
+/// `+36` `COBOL-QUIT` operand (0: none), `+40` the literal 1, `+44`/`+48` the
+/// `ERROR` command a full form answers with, `+52` 1 for the main form.
+///
+/// Instance (task) row (ABI A5: one task per instance): `+0` state (0 free, 1
+/// idle at `WAIT-EVENT`, 2 running or paused), `+4` form, `+8`/`+12` where the
+/// idle instance continues and its PERFORM-stack pointer, `+16`/`+20` the same
+/// for a paused (yielded or suspended) run, `+24` opener, `+28` flags (bit 0
+/// has an idle point, bit 1 closing, bit 2 paused).
+const FT_ROW: u32 = 64;
 const INST_ROW: u32 = 32;
 
 const fn align(n: u32, a: u32) -> u32 {
@@ -147,12 +167,43 @@ pub struct FormSpec<'a> {
     pub controls: Vec<(String, String)>,
     /// `(control name — empty for the form itself, event name)` of each bound handler.
     pub bindings: Vec<(String, String)>,
+    /// The form's layers above the base, in stack order (spec 091; ABI A9).
+    pub layers: Vec<String>,
+    /// Where each generated line came from, as the caller's source map resolves
+    /// it (`cobolt_codegen::SourceMap::resolve`, the mapping Check uses): the
+    /// line table maps a run-time error to the developer's line (R14). Empty
+    /// for a program that is its own source.
+    pub lines: Vec<SourceLine>,
+}
+
+/// One generated line and the place the developer wrote it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SourceLine {
+    /// The line of the generated `.cbl` (what `$line` holds).
+    pub gen_line: u32,
+    /// The site, as `CodeSite::display_path` writes it (`MAIN ▸ BTN-OK ▸ onClick`).
+    pub site: String,
+    /// The line within the site's own text.
+    pub line: u32,
+    pub column: u32,
+}
+
+/// One row of the module's line table (`prlines`): a value of `$line` in unit
+/// `unit` (a form's program, numbered as the manifest's forms) and where it is.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LineEntry {
+    pub unit: u32,
+    pub unit_name: String,
+    pub gen_line: u32,
+    pub site: String,
+    pub line: u32,
+    pub column: u32,
 }
 
 /// Compile one program as a module that runs to its end (`pr_run`): the form a
 /// conformance run, a test or a console program takes.
 pub fn compile_program(prog: &Program, opts: &Options) -> GenResult<Compiled> {
-    let spec = FormSpec { name: opts.name.clone(), main: true, instances: 1, program: prog, controls: vec![], bindings: vec![] };
+    let spec = FormSpec { name: opts.name.clone(), main: true, instances: 1, program: prog, controls: vec![], bindings: vec![], layers: vec![], lines: vec![] };
     compile_forms(std::slice::from_ref(&spec), opts, false)
 }
 
@@ -208,7 +259,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             for (i, (n, _)) in spec.controls.iter().enumerate() {
                 controls.insert(n.to_ascii_uppercase(), 3 + i as u32);
             }
-            Some(FormCtx { controls })
+            let first_layer = 3 + spec.controls.len() as u32;
+            let layers = spec.layers.iter().enumerate().map(|(k, n)| (n.to_ascii_uppercase(), first_layer + k as u32)).collect();
+            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), name: spec.name.clone() })
         } else {
             None
         };
@@ -226,6 +279,21 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         let first = unit_base;
         unit_base += l.units;
         lowered_forms.push((l, first));
+    }
+    let warnings: Vec<crate::error::GenWarning> = lowered_forms.iter().flat_map(|(l, _)| l.warnings.iter().cloned()).collect();
+    // The line table: every value `$line` takes, per form, and where the
+    // developer wrote it — through the caller's source map when it has one,
+    // the generated line itself otherwise.
+    let mut line_table: Vec<LineEntry> = Vec::new();
+    for (fi, (l, _)) in lowered_forms.iter().enumerate() {
+        let f = &forms[fi];
+        for &g in &l.lines {
+            let e = match f.lines.iter().find(|s| s.gen_line == g) {
+                Some(s) => LineEntry { unit: fi as u32, unit_name: f.name.clone(), gen_line: g, site: s.site.clone(), line: s.line, column: s.column },
+                None => LineEntry { unit: fi as u32, unit_name: f.name.clone(), gen_line: g, site: f.name.clone(), line: g, column: 0 },
+            };
+            line_table.push(e);
+        }
     }
 
     // Reachable blocks, entry first.
@@ -288,8 +356,20 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         ctrl_tbls.push(pool.spec(&pairs));
     }
     let quit_addr = pool.intern(b"__QUIT__");
+    let quit_ev_addr = pool.intern(b"Quit");
+    // The ERROR command `pr_open_form` flushes when every instance of a form is
+    // open (WASM-017 R2): built here, a constant of the module.
+    let mut full_cmds: Vec<(u32, u32)> = Vec::new();
+    for (fi, f) in forms.iter().enumerate() {
+        let mut w = cobolt_wasm_abi::batch::BatchWriter::new();
+        let msg = format!("no free instance of form {}: all {} are open", f.name, f.instances.max(1));
+        w.error((-cobolt_wasm_abi::codes::err::NO_FREE_INSTANCE) as u32, &msg, fi as u32, 0, fi as u32, 0);
+        let bytes = w.into_bytes();
+        full_cmds.push((pool.intern(&bytes), bytes.len() as u32));
+    }
     // The names the host commands carry by number (the manifest's `names`).
     let name_list: Vec<String> = names.list.clone();
+    let builtin_list: Vec<String> = names.builtins.iter().cloned().collect();
 
     // ── image and memory map, continued ──────────────────────────────────
     let mut built: Vec<Built> = Vec::new();
@@ -337,6 +417,11 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let mut roots: BTreeSet<&'static str> = BTreeSet::new();
     roots.insert("rt_init");
     roots.insert("rt_flush");
+    if project {
+        for r in ["rt_set_instance", "rt_deliver", "rt_cancel_run", "rt_move"] {
+            roots.insert(r);
+        }
+    }
     for &b in &order {
         for ins in &blocks[b].code {
             if let Ins::CallRt(n) = ins {
@@ -365,7 +450,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // The glue functions the module needs: the two it always has, plus the
     // file ones a conformance build's routines import. Each is backed by a
     // host import of the same name in the `pr` namespace.
-    const GLUE_ORDER: [&str; 8] = ["flush", "abort", "file_open", "file_close", "file_write", "file_read", "now", "switch_state"];
+    const GLUE_ORDER: [&str; 11] =
+        ["flush", "abort", "query", "remote", "now", "random", "file_open", "file_close", "file_write", "file_read", "switch_state"];
     let mut glue_needed: BTreeSet<&'static str> = BTreeSet::new();
     glue_needed.insert("flush");
     glue_needed.insert("abort");
@@ -375,8 +461,10 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         match name {
             Some(g) => {
                 if (g.starts_with("file_") || g == "switch_state") && !opts.conformance {
-                    return Err(GenError::new(
+                    return Err(GenError::kinded(
                         0,
+                        crate::error::ErrorKind::BackendOnly,
+                        "file input/output",
                         "file input/output is not available in a browser module: it runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE",
                     ));
                 }
@@ -394,7 +482,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let ty_f64_ret = types.intern(&[], &[ValType::F64]);
     let glue_types = |name: &str| -> (u32, u32) {
         match name {
-            "now" => (ty_f64_ret, ty_f64_ret),
+            "now" | "random" => (ty_f64_ret, ty_f64_ret),
+            "query" => (ty_i32_ret1, ty_i32_i32_i32_i32_ret),
+            "remote" => (ty_i32_ret1, ty_i32_i32_ret),
             "flush" => (ty_i32_void, ty_i32_i32_void),
             "abort" => (ty_i32_void, ty_i32_void),
             "file_open" => (ty_i32_i32_ret, ty_i32_i32_i32_ret),
@@ -558,6 +648,65 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         f.instruction(&I::End);
         defs[(glue_final["now"] - n_imports) as usize].body = Body::Encoded(f);
     }
+    if glue_final.contains_key("random") {
+        let mut f = Function::new([]);
+        f.instruction(&I::Call(imp_of("random")));
+        f.instruction(&I::End);
+        defs[(glue_final["random"] - n_imports) as usize].body = Body::Encoded(f);
+    }
+    if glue_final.contains_key("query") {
+        // glue.query(addr, len, ans, cap): the batch (commands and one query)
+        // goes to the arena batch; the host leaves the answer text in the
+        // arena answer region; min(n, cap) bytes are copied back to `ans`.
+        let mut f = Function::new([(1, ValType::I32)]);
+        emit(
+            &mut f,
+            &[
+                I::I32Const(arena_at as i32),
+                I::LocalGet(0),
+                I::LocalGet(1),
+                I::MemoryCopy { src_mem: 0, dst_mem: arena_mem },
+                I::LocalGet(1),
+                I::Call(imp_of("query")),
+                I::LocalSet(4),
+                I::LocalGet(4),
+                I::I32Const(0),
+                I::I32GtS,
+                I::If(BlockType::Empty),
+                I::LocalGet(2),
+                I::I32Const(answer_at as i32),
+                I::LocalGet(4),
+                I::LocalGet(3),
+                I::LocalGet(4),
+                I::LocalGet(3),
+                I::I32LtU,
+                I::Select,
+                I::MemoryCopy { src_mem: arena_mem, dst_mem: 0 },
+                I::End,
+                I::LocalGet(4),
+                I::End,
+            ],
+        );
+        defs[(glue_final["query"] - n_imports) as usize].body = Body::Encoded(f);
+    }
+    if glue_final.contains_key("remote") {
+        // glue.remote(addr, len): the request frame goes to frame-out (§2).
+        let frame_out = answer_at + opts.arena.answer;
+        let mut f = Function::new([]);
+        emit(
+            &mut f,
+            &[
+                I::I32Const(frame_out as i32),
+                I::LocalGet(0),
+                I::LocalGet(1),
+                I::MemoryCopy { src_mem: 0, dst_mem: arena_mem },
+                I::LocalGet(1),
+                I::Call(imp_of("remote")),
+                I::End,
+            ],
+        );
+        defs[(glue_final["remote"] - n_imports) as usize].body = Body::Encoded(f);
+    }
     if glue_final.contains_key("switch_state") {
         // glue.switch_state(addr, len): the name goes to the arena batch.
         let mut f = Function::new([]);
@@ -632,22 +781,46 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     }
     {
         // glue.abort(code): ERROR command with the line, then pr.abort, then trap.
+        // A run-time error of the routines is a COBOL run-time error: its code
+        // goes out as 1000 + the routine's number (ABI A4). Every varint is
+        // written at a fixed width (a padded LEB128 still decodes): code, unit,
+        // form and event in two bytes, the line in five.
         let mut f = Function::new([]);
         let st = |f: &mut Function, off: u32, v: i32| {
             f.instruction(&I::I32Const((arena_at + off) as i32));
             f.instruction(&I::I32Const(v));
             f.instruction(&I::I32Store8(MemArg { offset: 0, align: 0, memory_index: arena_mem }));
         };
+        // A two-byte varint of the value on top of a computation `push`.
+        let var2 = |f: &mut Function, off: u32, push: &dyn Fn(&mut Function)| {
+            f.instruction(&I::I32Const((arena_at + off) as i32));
+            push(f);
+            f.instruction(&I::I32Const(0x7F));
+            f.instruction(&I::I32And);
+            f.instruction(&I::I32Const(0x80));
+            f.instruction(&I::I32Or);
+            f.instruction(&I::I32Store8(MemArg { offset: 0, align: 0, memory_index: arena_mem }));
+            f.instruction(&I::I32Const((arena_at + off + 1) as i32));
+            push(f);
+            f.instruction(&I::I32Const(7));
+            f.instruction(&I::I32ShrU);
+            f.instruction(&I::I32Const(0x7F));
+            f.instruction(&I::I32And);
+            f.instruction(&I::I32Store8(MemArg { offset: 0, align: 0, memory_index: arena_mem }));
+        };
         st(&mut f, 0, 0x04);
-        // code (a single varint byte: codes are below 128)
-        f.instruction(&I::I32Const(arena_at as i32 + 1));
-        f.instruction(&I::LocalGet(0));
-        f.instruction(&I::I32Store8(MemArg { offset: 0, align: 0, memory_index: arena_mem }));
-        st(&mut f, 2, 0); // message length 0
-        st(&mut f, 3, 0); // unit
+        var2(&mut f, 1, &|f: &mut Function| {
+            f.instruction(&I::LocalGet(0));
+            f.instruction(&I::I32Const(1000));
+            f.instruction(&I::I32Add);
+        });
+        st(&mut f, 3, 0); // message length 0: the host owns the text
+        var2(&mut f, 4, &|f: &mut Function| {
+            f.instruction(&I::GlobalGet(G_FORM));
+        }); // unit: the form's program (prlines)
         for k in 0..5u32 {
             // line as a 5-byte padded varint
-            f.instruction(&I::I32Const((arena_at + 4 + k) as i32));
+            f.instruction(&I::I32Const((arena_at + 6 + k) as i32));
             f.instruction(&I::GlobalGet(4));
             f.instruction(&I::I32Const((7 * k) as i32));
             f.instruction(&I::I32ShrU);
@@ -659,9 +832,13 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             }
             f.instruction(&I::I32Store8(MemArg { offset: 0, align: 0, memory_index: arena_mem }));
         }
-        st(&mut f, 9, 0); // form
-        st(&mut f, 10, 0); // event
-        f.instruction(&I::I32Const(11));
+        var2(&mut f, 11, &|f: &mut Function| {
+            f.instruction(&I::GlobalGet(G_FORM));
+        });
+        var2(&mut f, 13, &|f: &mut Function| {
+            f.instruction(&I::GlobalGet(G_EVENT));
+        });
+        f.instruction(&I::I32Const(15));
         f.instruction(&I::Call(imp_abort));
         f.instruction(&I::Unreachable);
         f.instruction(&I::End);
@@ -753,6 +930,47 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         f.instruction(&I::End);
         defs.push(Def { name: "pr_run".into(), ty: ty_i32_ret, body: Body::Encoded(f) });
     }
+    let form_exports = if project {
+        let ft_rows: Vec<FormRow> = built
+            .iter()
+            .enumerate()
+            .map(|(fi, b)| FormRow {
+                ctrl_tbl: ctrl_tbls[fi],
+                n_ctrl: 3 + forms[fi].controls.len() as u32,
+                region_start: b.region_start,
+                region_size: b.region_size,
+                first_inst: b.first_inst,
+                instances: forms[fi].instances.max(1),
+                entry_pc: entry_pcs[fi],
+                park_slot: b.lowered.park_slot,
+                stack_off: b.lowered.stack_off,
+                quit: b.lowered.quit.unwrap_or((0, 0)),
+                full_cmd: full_cmds[fi],
+                main: forms[fi].main,
+            })
+            .collect();
+        let ctx = ProjectFns {
+            ftab_base,
+            inst_tbl_base,
+            total_instances,
+            n_forms: forms.len() as u32,
+            n_events: events.len() as u32,
+            ev_tbl,
+            quit_addr,
+            quit_ev_addr,
+            budget: opts.budget,
+            g_pc,
+            run_idx,
+            init_form_base,
+            g_flush,
+            rt: &rt_index_by_name,
+            ty_i32_ret,
+        };
+        let fx = emit_project_fns(&ctx, n_imports, &mut defs, &mut types);
+        Some((fx, ft_rows))
+    } else {
+        None
+    };
 
     // ── emit sections ────────────────────────────────────────────────────
     let mut module = Module::new();
@@ -807,20 +1025,32 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let mut globals = GlobalSection::new();
     let gt = GlobalType { val_type: ValType::I32, mutable: true, shared: false };
     globals.global(gt, &ConstExpr::i32_const(blob.stack_top as i32));
-    // 1 base, 2 psp, 3 fuel, 4 line, 5 pc, 6 resume, 7 task (instance + 1, or 0), 8 status
-    for _ in 1..=8 {
+    // 1 base, 2 psp, 3 fuel, 4 line, 5 pc, 6 resume, 7 task (instance + 1, or 0),
+    // 8 status, 9 the running form, 10 the event being delivered
+    for _ in 1..=10 {
         globals.global(gt, &ConstExpr::i32_const(0));
     }
     module.section(&globals);
 
     let mut exports = ExportSection::new();
     exports.export("memory", ExportKind::Memory, 0);
+    // `$line` (ABI §10, A10): the line of the statement about to run.
+    exports.export("pr_line", ExportKind::Global, 4);
     exports.export("arena", ExportKind::Memory, if opts.multi_memory { 1 } else { 0 });
     exports.export("pr_abi", ExportKind::Func, e_abi);
     exports.export("pr_variant", ExportKind::Func, e_variant);
     exports.export("pr_arena_base", ExportKind::Func, e_arena);
     exports.export("pr_init", ExportKind::Func, init_idx);
-    exports.export("pr_run", ExportKind::Func, run_prog_idx);
+    match &form_exports {
+        Some((fx, _)) => {
+            for (name, idx) in &fx.exports {
+                exports.export(name, ExportKind::Func, *idx);
+            }
+        }
+        None => {
+            exports.export("pr_run", ExportKind::Func, run_prog_idx);
+        }
+    }
     module.section(&exports);
 
     let mut elems = ElementSection::new();
@@ -861,6 +1091,30 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             data.active(0, &ConstExpr::i32_const(b.template_base as i32), b.img.blob.iter().copied());
         }
     }
+    if let Some((_, rows)) = &form_exports {
+        let mut bytes: Vec<u8> = Vec::with_capacity(rows.len() * FT_ROW as usize);
+        for r in rows {
+            let mut row = [0u32; (FT_ROW / 4) as usize];
+            row[0] = r.ctrl_tbl;
+            row[1] = r.n_ctrl;
+            row[2] = r.region_start;
+            row[3] = r.region_size;
+            row[4] = r.first_inst;
+            row[5] = r.instances;
+            row[6] = r.entry_pc;
+            row[7] = r.park_slot;
+            row[8] = r.stack_off;
+            row[9] = r.quit.0;
+            row[10] = r.quit.1;
+            row[11] = r.full_cmd.0;
+            row[12] = r.full_cmd.1;
+            row[13] = r.main as u32;
+            for w in row {
+                bytes.extend_from_slice(&w.to_le_bytes());
+            }
+        }
+        data.active(0, &ConstExpr::i32_const(ftab_base as i32), bytes);
+    }
     module.section(&data);
 
     // Names.
@@ -875,21 +1129,27 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     names.functions(&fnames);
     module.section(&names);
 
-    let manifest = serde_json::json!({
-        "abi": ABI_VERSION,
-        "generator": format!("cobolt-wasm {}", env!("CARGO_PKG_VERSION")),
-        "project": opts.name,
-        "variant": { "multi_memory": opts.multi_memory, "conformance": opts.conformance },
-        "limits": {
-            "arena_size": arena_total, "batch_size": opts.arena.batch, "answer_size": opts.arena.answer,
-            "frame_size": opts.arena.frame, "budget_blocks": opts.budget, "data_pages": data_pages
-        },
-        "imports": glue_list,
-        "regions": { "rt_workspace": rt_ws, "perform_stack": region_base + stack_off, "constants": consts_base, "template": template_base, "region": region_base },
-        "forms": [],
+    let abi_manifest = build_manifest(&ManifestInput {
+        opts,
+        forms,
+        built: &built,
+        events: &events,
+        names: &name_list,
+        builtins: builtin_list,
+        rt_functions: closure.funcs.len(),
+        rt_bytes,
+        imports: glue_list.iter().map(|g| g.to_string()).collect(),
+        arena_total,
+        data_pages,
+        total_instances,
     });
+    let mut manifest = serde_json::to_value(&abi_manifest).expect("the manifest serialises");
+    // Where the generator put things, for diagnostics; hosts ignore it.
+    manifest["regions"] = serde_json::json!({ "rt_workspace": rt_ws, "perform_stack": region_base + stack_off, "constants": consts_base, "template": template_base, "region": region_base });
     let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
     module.section(&CustomSection { name: std::borrow::Cow::Borrowed("prmanifest"), data: std::borrow::Cow::Borrowed(&manifest_bytes) });
+    let lines_bytes = serde_json::to_vec(&line_table).unwrap();
+    module.section(&CustomSection { name: std::borrow::Cow::Borrowed("prlines"), data: std::borrow::Cow::Borrowed(&lines_bytes) });
 
     let wasm = module.finish();
     let _ = BTreeMap::<u8, u8>::new();
@@ -900,5 +1160,681 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         blocks: order.len(),
         data_pages,
     };
-    Ok(Compiled { wasm, manifest, sizes })
+    Ok(Compiled { wasm, manifest, sizes, warnings, lines: line_table })
+}
+
+// ── the project module's form exports (ABI v1 §4, A1, A2, A5) ───────────────
+
+/// What one row of the form table holds (see [`FT_ROW`]).
+struct FormRow {
+    ctrl_tbl: u32,
+    n_ctrl: u32,
+    region_start: u32,
+    region_size: u32,
+    first_inst: u32,
+    instances: u32,
+    entry_pc: u32,
+    park_slot: u32,
+    stack_off: u32,
+    quit: (u32, u32),
+    full_cmd: (u32, u32),
+    main: bool,
+}
+
+/// What the form exports need to know of the module being assembled.
+struct ProjectFns<'a> {
+    ftab_base: u32,
+    inst_tbl_base: u32,
+    total_instances: u32,
+    n_forms: u32,
+    n_events: u32,
+    ev_tbl: u32,
+    quit_addr: u32,
+    quit_ev_addr: u32,
+    budget: i32,
+    g_pc: u32,
+    run_idx: u32,
+    init_form_base: u32,
+    g_flush: u32,
+    rt: &'a HashMap<&'static str, u32>,
+    ty_i32_ret: u32,
+}
+
+struct FormFns {
+    exports: Vec<(&'static str, u32)>,
+}
+
+fn emit(f: &mut Function, ins: &[I<'static>]) {
+    for i in ins {
+        f.instruction(i);
+    }
+}
+
+fn ld(off: u64) -> I<'static> {
+    I::I32Load(mem0(off, 2))
+}
+
+fn stw(off: u64) -> I<'static> {
+    I::I32Store(mem0(off, 2))
+}
+
+/// `dst = tbl + idx * row`.
+fn row_addr(f: &mut Function, idx: u32, tbl: u32, row: u32, dst: u32) {
+    emit(f, &[I::LocalGet(idx), I::I32Const(row as i32), I::I32Mul, I::I32Const(tbl as i32), I::I32Add, I::LocalSet(dst)]);
+}
+
+/// `dst = ft.region_start + (inst - ft.first_inst) * ft.region_size`.
+fn region_of(f: &mut Function, inst: u32, ft: u32, dst: u32) {
+    emit(
+        f,
+        &[
+            I::LocalGet(ft),
+            ld(8),
+            I::LocalGet(inst),
+            I::LocalGet(ft),
+            ld(16),
+            I::I32Sub,
+            I::LocalGet(ft),
+            ld(12),
+            I::I32Mul,
+            I::I32Add,
+            I::LocalSet(dst),
+        ],
+    );
+}
+
+/// Return `-4` (no such instance) or `-2` (busy) unless instance row `row` is
+/// idle; the status is recorded for `pr_status`.
+fn require_idle(f: &mut Function, row: u32, scratch: u32) {
+    emit(
+        f,
+        &[
+            I::LocalGet(row),
+            ld(0),
+            I::I32Const(1),
+            I::I32Ne,
+            I::If(BlockType::Empty),
+            I::I32Const(-4),
+            I::I32Const(-2),
+            I::LocalGet(row),
+            ld(0),
+            I::I32Eqz,
+            I::Select,
+            I::LocalTee(scratch),
+            I::GlobalSet(8),
+            I::LocalGet(scratch),
+            I::Return,
+            I::End,
+        ],
+    );
+}
+
+/// Return `-4` when `local` is not below `limit` (as unsigned: a negative id too).
+fn require_below(f: &mut Function, local: u32, limit: u32) {
+    emit(
+        f,
+        &[
+            I::LocalGet(local),
+            I::I32Const(limit as i32),
+            I::I32GeU,
+            I::If(BlockType::Empty),
+            I::I32Const(-4),
+            I::GlobalSet(8),
+            I::I32Const(-4),
+            I::Return,
+            I::End,
+        ],
+    );
+}
+
+fn emit_project_fns(c: &ProjectFns<'_>, n_imports: u32, defs: &mut Vec<Def>, types: &mut Types) -> FormFns {
+    let i32_ = ValType::I32;
+    let ty_ii_v = types.intern(&[i32_, i32_], &[]);
+    let ty_i_v = types.intern(&[i32_], &[]);
+    let ty_iii_r = types.intern(&[i32_; 3], &[i32_]);
+    let ty_ii_r = types.intern(&[i32_, i32_], &[i32_]);
+    let ty_i_r = types.intern(&[i32_], &[i32_]);
+    let ty_iiii_r = types.intern(&[i32_; 4], &[i32_]);
+    let rt = |n: &str| c.rt[n];
+    let (tbl, ft_base) = (c.inst_tbl_base, c.ftab_base);
+    let next = |defs: &mut Vec<Def>, name: &str, ty: u32, f: Function| -> u32 {
+        let idx = n_imports + defs.len() as u32;
+        defs.push(Def { name: name.into(), ty, body: Body::Encoded(f) });
+        idx
+    };
+
+    // init_dispatch(form, base): the form's initialiser on the region at base.
+    let mut f = Function::new([]);
+    for fi in 0..c.n_forms {
+        emit(&mut f, &[I::LocalGet(0), I::I32Const(fi as i32), I::I32Eq, I::If(BlockType::Empty), I::LocalGet(1), I::Call(c.init_form_base + fi), I::End]);
+    }
+    f.instruction(&I::End);
+    let init_dispatch = next(defs, "init_dispatch", ty_ii_v, f);
+
+    // release(inst): the region back to its initial state, the row free.
+    let mut f = Function::new([(4, i32_)]); // row 1, ft 2, base 3, form 4
+    row_addr(&mut f, 0, tbl, INST_ROW, 1);
+    emit(&mut f, &[I::LocalGet(1), ld(4), I::LocalSet(4)]);
+    row_addr(&mut f, 4, ft_base, FT_ROW, 2);
+    region_of(&mut f, 0, 2, 3);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(4),
+            I::LocalGet(3),
+            I::Call(init_dispatch),
+            I::LocalGet(1),
+            I::I32Const(0),
+            stw(0),
+            I::LocalGet(1),
+            I::I32Const(0),
+            stw(28),
+            I::End,
+        ],
+    );
+    let release = next(defs, "release", ty_i_v, f);
+
+    // run_task(inst, pc, psp) -> status: run the instance's task from `pc`
+    // until it parks, yields, suspends or ends.
+    let mut f = Function::new([(7, i32_)]); // row 3, ft 4, r 5, base 6, status 7, form 8, flags 9
+    row_addr(&mut f, 0, tbl, INST_ROW, 3);
+    emit(&mut f, &[I::LocalGet(3), ld(4), I::LocalSet(8)]);
+    row_addr(&mut f, 8, ft_base, FT_ROW, 4);
+    region_of(&mut f, 0, 4, 6);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(6),
+            I::GlobalSet(1),
+            I::LocalGet(2),
+            I::GlobalSet(2),
+            I::LocalGet(1),
+            I::GlobalSet(c.g_pc),
+            I::I32Const(c.budget),
+            I::GlobalSet(3),
+            I::LocalGet(0),
+            I::I32Const(1),
+            I::I32Add,
+            I::GlobalSet(7),
+            I::LocalGet(8),
+            I::GlobalSet(G_FORM),
+            I::LocalGet(3),
+            I::I32Const(2),
+            stw(0),
+            I::LocalGet(0),
+            I::Call(rt("rt_set_instance")),
+            I::Call(c.run_idx),
+            I::LocalSet(5),
+            I::LocalGet(3),
+            ld(28),
+            I::LocalSet(9),
+            I::Block(BlockType::Empty),
+            // PARK: idle at WAIT-EVENT — the handler is done.
+            I::LocalGet(5),
+            I::I32Const(ret::PARK),
+            I::I32Eq,
+            I::If(BlockType::Empty),
+            I::LocalGet(3),
+            I::GlobalGet(6),
+            stw(8),
+            I::LocalGet(3),
+            I::GlobalGet(2),
+            stw(12),
+            I::LocalGet(9),
+            I::I32Const(1),
+            I::I32Or,
+            I::I32Const(!4),
+            I::I32And,
+            I::LocalSet(9),
+            I::LocalGet(3),
+            I::LocalGet(9),
+            stw(28),
+            I::I32Const(0),
+            I::LocalSet(7),
+            I::LocalGet(9),
+            I::I32Const(2),
+            I::I32And,
+            I::If(BlockType::Empty),
+            I::LocalGet(0),
+            I::Call(release),
+            I::Else,
+            I::LocalGet(3),
+            I::I32Const(1),
+            stw(0),
+            I::End,
+            I::Br(1),
+            I::End,
+        ],
+    );
+    // YIELD (budget) and SUSPEND (a wait): paused, to be resumed.
+    for (code, pc_from, status) in [(-2, Some(c.g_pc), 2), (ret::SUSPEND, None, 1)] {
+        emit(&mut f, &[I::LocalGet(5), I::I32Const(code), I::I32Eq, I::If(BlockType::Empty), I::LocalGet(3)]);
+        f.instruction(&I::GlobalGet(pc_from.unwrap_or(6)));
+        emit(
+            &mut f,
+            &[
+                stw(16),
+                I::LocalGet(3),
+                I::GlobalGet(2),
+                stw(20),
+                I::LocalGet(3),
+                I::LocalGet(9),
+                I::I32Const(4),
+                I::I32Or,
+                stw(28),
+                I::Call(rt("rt_flush")),
+                I::I32Const(status),
+                I::LocalSet(7),
+                I::Br(1),
+                I::End,
+            ],
+        );
+    }
+    // DONE / STOP RUN: the form program ended; STOPPED for the main form.
+    emit(
+        &mut f,
+        &[
+            I::Call(rt("rt_flush")),
+            I::I32Const(0),
+            I::LocalSet(7),
+            I::LocalGet(9),
+            I::I32Const(2),
+            I::I32And,
+            I::I32Eqz,
+            I::If(BlockType::Empty),
+            I::LocalGet(4),
+            ld(52),
+            I::If(BlockType::Empty),
+            I::I32Const(3),
+            I::LocalSet(7),
+            I::End,
+            I::End,
+            I::LocalGet(0),
+            I::Call(release),
+            I::End,
+            I::LocalGet(7),
+            I::GlobalSet(8),
+            I::LocalGet(7),
+            I::End,
+        ],
+    );
+    let run_task = next(defs, "run_task", ty_iii_r, f);
+
+    // pr_open_form(form, opener) -> instance id
+    let mut f = Function::new([(5, i32_)]); // i 2, end 3, ft 4, row 5, base 6
+    require_below(&mut f, 0, c.n_forms);
+    row_addr(&mut f, 0, ft_base, FT_ROW, 4);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(4),
+            ld(16),
+            I::LocalSet(2),
+            I::LocalGet(2),
+            I::LocalGet(4),
+            ld(20),
+            I::I32Add,
+            I::LocalSet(3),
+            I::Block(BlockType::Empty),
+            I::Loop(BlockType::Empty),
+            I::LocalGet(2),
+            I::LocalGet(3),
+            I::I32GeU,
+            I::If(BlockType::Empty),
+            I::LocalGet(4),
+            ld(44),
+            I::LocalGet(4),
+            ld(48),
+            I::Call(c.g_flush),
+            I::I32Const(-3),
+            I::GlobalSet(8),
+            I::I32Const(-3),
+            I::Return,
+            I::End,
+        ],
+    );
+    row_addr(&mut f, 2, tbl, INST_ROW, 5);
+    emit(&mut f, &[I::LocalGet(5), ld(0), I::I32Eqz, I::BrIf(1), I::LocalGet(2), I::I32Const(1), I::I32Add, I::LocalSet(2), I::Br(0), I::End, I::End]);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(5),
+            I::LocalGet(0),
+            stw(4),
+            I::LocalGet(5),
+            I::LocalGet(1),
+            stw(24),
+            I::LocalGet(5),
+            I::I32Const(0),
+            stw(28),
+            I::LocalGet(5),
+            I::I32Const(2),
+            stw(0),
+        ],
+    );
+    region_of(&mut f, 2, 4, 6);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(0),
+            I::LocalGet(6),
+            I::Call(init_dispatch),
+            I::LocalGet(2),
+            I::LocalGet(4),
+            ld(24),
+            I::LocalGet(6),
+            I::LocalGet(4),
+            ld(32),
+            I::I32Add,
+            I::Call(run_task),
+            I::Drop,
+            I::LocalGet(2),
+            I::End,
+        ],
+    );
+    let open = next(defs, "pr_open_form", ty_ii_r, f);
+
+    // pr_event(inst, ctrl, event, argc) -> status
+    let mut f = Function::new([(6, i32_)]); // row 4, ft 5, base 6, form 7, cbl 8, ev 9
+    require_below(&mut f, 0, c.total_instances);
+    row_addr(&mut f, 0, tbl, INST_ROW, 4);
+    require_idle(&mut f, 4, 9);
+    emit(&mut f, &[I::LocalGet(4), ld(4), I::LocalSet(7)]);
+    row_addr(&mut f, 7, ft_base, FT_ROW, 5);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(1),
+            I::LocalGet(5),
+            ld(4),
+            I::I32GeU,
+            I::LocalGet(2),
+            I::I32Const(c.n_events as i32),
+            I::I32GeU,
+            I::I32Or,
+            I::If(BlockType::Empty),
+            I::I32Const(-4),
+            I::GlobalSet(8),
+            I::I32Const(-4),
+            I::Return,
+            I::End,
+        ],
+    );
+    region_of(&mut f, 0, 5, 6);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(5),
+            ld(0),
+            I::LocalGet(1),
+            I::I32Const(8),
+            I::I32Mul,
+            I::I32Add,
+            I::LocalSet(8),
+            I::LocalGet(2),
+            I::I32Const(8),
+            I::I32Mul,
+            I::I32Const(c.ev_tbl as i32),
+            I::I32Add,
+            I::LocalSet(9),
+            I::LocalGet(6),
+            I::LocalGet(5),
+            ld(28),
+            I::LocalGet(8),
+            ld(0),
+            I::LocalGet(8),
+            ld(4),
+            I::LocalGet(9),
+            ld(0),
+            I::LocalGet(9),
+            ld(4),
+            I::Call(rt("rt_deliver")),
+            I::LocalGet(2),
+            I::GlobalSet(G_EVENT),
+            I::LocalGet(0),
+            I::LocalGet(4),
+            ld(8),
+            I::LocalGet(4),
+            ld(12),
+            I::Call(run_task),
+            I::End,
+        ],
+    );
+    let event = next(defs, "pr_event", ty_iiii_r, f);
+
+    // pr_resume(task, len) -> status
+    let mut f = Function::new([(1, i32_)]); // row 2
+    require_below(&mut f, 0, c.total_instances);
+    row_addr(&mut f, 0, tbl, INST_ROW, 2);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(2),
+            ld(0),
+            I::I32Const(2),
+            I::I32Ne,
+            I::LocalGet(2),
+            ld(28),
+            I::I32Const(4),
+            I::I32And,
+            I::I32Eqz,
+            I::I32Or,
+            I::If(BlockType::Empty),
+            I::I32Const(-2),
+            I::GlobalSet(8),
+            I::I32Const(-2),
+            I::Return,
+            I::End,
+            I::LocalGet(0),
+            I::LocalGet(2),
+            ld(16),
+            I::LocalGet(2),
+            ld(20),
+            I::Call(run_task),
+            I::End,
+        ],
+    );
+    let resume = next(defs, "pr_resume", ty_ii_r, f);
+
+    // pr_cancel(task): -1 is the run that trapped (A5).
+    let mut f = Function::new([(1, i32_)]); // row 1
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(0),
+            I::I32Const(-1),
+            I::I32Eq,
+            I::If(BlockType::Empty),
+            I::GlobalGet(7),
+            I::I32Const(1),
+            I::I32Sub,
+            I::LocalSet(0),
+            I::End,
+            I::LocalGet(0),
+            I::I32Const(c.total_instances as i32),
+            I::I32GeU,
+            I::If(BlockType::Empty),
+            I::Return,
+            I::End,
+            I::Call(rt("rt_cancel_run")),
+        ],
+    );
+    row_addr(&mut f, 0, tbl, INST_ROW, 1);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(1),
+            ld(28),
+            I::I32Const(1),
+            I::I32And,
+            I::If(BlockType::Empty),
+            I::LocalGet(1),
+            I::I32Const(1),
+            stw(0),
+            I::LocalGet(1),
+            I::I32Const(1),
+            stw(28),
+            I::Else,
+            I::LocalGet(0),
+            I::Call(release),
+            I::End,
+            I::I32Const(0),
+            I::GlobalSet(7),
+            I::End,
+        ],
+    );
+    let cancel = next(defs, "pr_cancel", ty_i_v, f);
+
+    let mut f = Function::new([]);
+    emit(&mut f, &[I::GlobalGet(7), I::I32Const(1), I::I32Sub, I::End]);
+    let tick = next(defs, "pr_tick", c.ty_i32_ret, f);
+    let mut f = Function::new([]);
+    emit(&mut f, &[I::GlobalGet(8), I::End]);
+    let status = next(defs, "pr_status", c.ty_i32_ret, f);
+
+    // pr_close_form(inst) -> status: `__QUIT__` ends the form's event loop, as
+    // on the desktop; the region is released when the closing run is DONE (A2).
+    let mut f = Function::new([(4, i32_)]); // row 1, ft 2, base 3, form 4
+    require_below(&mut f, 0, c.total_instances);
+    row_addr(&mut f, 0, tbl, INST_ROW, 1);
+    require_idle(&mut f, 1, 4);
+    emit(&mut f, &[I::LocalGet(1), ld(4), I::LocalSet(4)]);
+    row_addr(&mut f, 4, ft_base, FT_ROW, 2);
+    region_of(&mut f, 0, 2, 3);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(1),
+            I::LocalGet(1),
+            ld(28),
+            I::I32Const(2),
+            I::I32Or,
+            stw(28),
+            I::LocalGet(2),
+            ld(36),
+            I::If(BlockType::Empty),
+            I::LocalGet(3),
+            I::LocalGet(2),
+            ld(40),
+            I::LocalGet(2),
+            ld(36),
+            I::Call(rt("rt_move")),
+            I::End,
+            I::LocalGet(3),
+            I::LocalGet(2),
+            ld(28),
+            I::I32Const(c.quit_addr as i32),
+            I::I32Const(8),
+            I::I32Const(c.quit_ev_addr as i32),
+            I::I32Const(4),
+            I::Call(rt("rt_deliver")),
+            I::I32Const(0),
+            I::GlobalSet(G_EVENT),
+            I::LocalGet(0),
+            I::LocalGet(1),
+            ld(8),
+            I::LocalGet(1),
+            ld(12),
+            I::Call(run_task),
+            I::End,
+        ],
+    );
+    let close = next(defs, "pr_close_form", ty_i_r, f);
+
+    // pr_dbg_live / pr_dbg_region_used (A3).
+    let dbg = |defs: &mut Vec<Def>, name: &str, bytes: bool| -> u32 {
+        let mut f = Function::new([(3, i32_)]); // i 0, n 1, row 2
+        emit(&mut f, &[I::Block(BlockType::Empty), I::Loop(BlockType::Empty), I::LocalGet(0), I::I32Const(c.total_instances as i32), I::I32GeU, I::BrIf(1)]);
+        row_addr(&mut f, 0, tbl, INST_ROW, 2);
+        emit(&mut f, &[I::LocalGet(2), ld(0), I::If(BlockType::Empty), I::LocalGet(1)]);
+        if bytes {
+            emit(&mut f, &[I::LocalGet(2), ld(4), I::I32Const(FT_ROW as i32), I::I32Mul, I::I32Const(ft_base as i32), I::I32Add, ld(12)]);
+        } else {
+            f.instruction(&I::I32Const(1));
+        }
+        emit(&mut f, &[I::I32Add, I::LocalSet(1), I::End, I::LocalGet(0), I::I32Const(1), I::I32Add, I::LocalSet(0), I::Br(0), I::End, I::End, I::LocalGet(1), I::End]);
+        let idx = n_imports + defs.len() as u32;
+        defs.push(Def { name: name.into(), ty: c.ty_i32_ret, body: Body::Encoded(f) });
+        idx
+    };
+    let live = dbg(defs, "pr_dbg_live", false);
+    let used = dbg(defs, "pr_dbg_region_used", true);
+
+    FormFns {
+        exports: vec![
+            ("pr_open_form", open),
+            ("pr_close_form", close),
+            ("pr_event", event),
+            ("pr_resume", resume),
+            ("pr_cancel", cancel),
+            ("pr_tick", tick),
+            ("pr_status", status),
+            ("pr_dbg_live", live),
+            ("pr_dbg_region_used", used),
+        ],
+    }
+}
+
+// ── the manifest (ABI v1 §10), through the ABI crate (WASM-010 D3) ──────────
+
+struct ManifestInput<'a, 'p> {
+    opts: &'a Options,
+    forms: &'a [FormSpec<'p>],
+    built: &'a [Built],
+    events: &'a [String],
+    names: &'a [String],
+    builtins: Vec<String>,
+    rt_functions: usize,
+    rt_bytes: usize,
+    imports: Vec<String>,
+    arena_total: u32,
+    data_pages: u32,
+    total_instances: u32,
+}
+
+fn build_manifest(m: &ManifestInput<'_, '_>) -> cobolt_wasm_abi::manifest::Manifest {
+    use cobolt_wasm_abi::manifest::*;
+    let forms = m
+        .forms
+        .iter()
+        .zip(m.built)
+        .enumerate()
+        .map(|(fi, (f, b))| {
+            let controls: Vec<ControlEntry> =
+                f.controls.iter().enumerate().map(|(i, (n, t))| ControlEntry { id: 3 + i as u32, name: n.clone(), kind: t.clone() }).collect();
+            let handlers = f
+                .bindings
+                .iter()
+                .filter_map(|(c, e)| {
+                    let ctrl = if c.is_empty() { Some(0) } else { controls.iter().find(|x| x.name.eq_ignore_ascii_case(c)).map(|x| x.id) }?;
+                    let event = m.events.iter().position(|x| x == e)? as u32;
+                    Some(HandlerEntry { ctrl, event, entry: 0 })
+                })
+                .collect();
+            let first_layer = 3 + controls.len() as u32;
+            let layers = f.layers.iter().enumerate().map(|(k, n)| LayerEntry { id: first_layer + k as u32, name: n.clone(), index: k as u32 }).collect();
+            FormEntry { id: fi as u32, name: f.name.clone(), main: f.main, instances: f.instances.max(1), region_size: b.region_size, controls, handlers, layers }
+        })
+        .collect();
+    Manifest {
+        abi: ABI_VERSION as u32,
+        generator: format!("cobolt-wasm {}", env!("CARGO_PKG_VERSION")),
+        project: m.opts.name.clone(),
+        variant: VariantInfo { multi_memory: m.opts.multi_memory, conformance: m.opts.conformance },
+        limits: Limits {
+            arena_size: m.arena_total,
+            batch_size: m.opts.arena.batch,
+            answer_size: m.opts.arena.answer,
+            frame_size: m.opts.arena.frame,
+            budget_blocks: m.opts.budget.max(0) as u32,
+            data_pages: m.data_pages,
+            tasks: m.total_instances,
+        },
+        names: m.names.to_vec(),
+        events: m.events.to_vec(),
+        forms,
+        builtins: m.builtins.clone(),
+        imports: m.imports.clone(),
+        sizes: Sizes { module: 0, rt_functions: m.rt_functions as u64, rt_bytes: m.rt_bytes as u64 },
+    }
 }

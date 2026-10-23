@@ -168,7 +168,7 @@ pub struct BuildReport {
     /// running the module's start-up, or `None` when it did not.
     pub startup_ms: Option<f64>,
     /// Things the developer should know that did not stop the build.
-    pub warnings: Vec<String>,
+    pub warnings: Vec<WebDiagnostic>,
     /// How long the build took.
     pub duration_ms: u64,
 }
@@ -183,9 +183,71 @@ impl BuildReport {
                 "parts": self.size.parts.iter().map(|p| serde_json::json!({"name": p.name, "bytes": p.bytes})).collect::<Vec<_>>(),
             },
             "startup_ms": self.startup_ms,
-            "warnings": self.warnings,
+            "warnings": self.warnings.iter().map(WebDiagnostic::to_string).collect::<Vec<_>>(),
             "duration_ms": self.duration_ms,
         })
+    }
+}
+
+/// What a diagnostic of the generator is about, so that the IDE can say it in
+/// the developer's language (WASM-010 D6). The tools keep the English text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WebDiagnosticKind {
+    /// Free text: said as it is.
+    #[default]
+    Other,
+    /// Refused: the construct runs on the Backend.
+    BackendOnly,
+    /// Refused: no WebAssembly build can run the construct.
+    Unsupported,
+    /// Refused: `LAYER::Property` names no layer of the form.
+    UnknownLayer,
+    /// Refused: a layer has no such property.
+    UnknownLayerProperty,
+    /// Refused: a write to a control's read-only `Layer`.
+    LayerWrite,
+    /// Refused: a statement reads more host values than one statement may.
+    TooManyHostReads,
+    /// Refused: an in-memory file without a record limit.
+    MemoryFileWithoutLimit,
+    /// Warning: `ACCEPT` from the operator is ignored.
+    AcceptIgnored,
+    /// Warning: a `REDEFINES` may give a different result than on the desktop.
+    RedefinesMayDiffer,
+}
+
+/// One refusal or warning of a web build: where, what kind, about what, and the
+/// English text the tools answer with.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WebDiagnostic {
+    /// `file:line`, or empty when the diagnostic is about the whole project.
+    pub location: String,
+    pub kind: WebDiagnosticKind,
+    /// The construct, layer, property or limit a translated message names.
+    pub subject: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for WebDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.location.is_empty() {
+            f.write_str(&self.message)
+        } else {
+            write!(f, "{}: {}", self.location, self.message)
+        }
+    }
+}
+
+impl From<String> for WebDiagnostic {
+    /// A line of free text (`file:line: construct — alternative`), kind `Other`.
+    fn from(message: String) -> Self {
+        WebDiagnostic { message, ..Default::default() }
+    }
+}
+
+impl From<&str> for WebDiagnostic {
+    fn from(message: &str) -> Self {
+        WebDiagnostic::from(message.to_owned())
     }
 }
 
@@ -195,9 +257,10 @@ pub enum WebBuildError {
     /// The generator and the bundler are not linked into this program yet.
     /// The IDE says so in the developer's language; the tools in English.
     NotYetLinked,
-    /// The project cannot run in a browser: each entry is one line of the form
-    /// `file:line: construct — alternative` (WASM-002 R3).
-    Refused(Vec<String>),
+    /// The project cannot run in a browser: each entry says where, the
+    /// construct and the alternative (`file:line: construct — alternative`
+    /// when shown as text, WASM-002 R3).
+    Refused(Vec<WebDiagnostic>),
     /// The build failed.
     Failed(String),
 }
@@ -207,6 +270,7 @@ impl std::fmt::Display for WebBuildError {
         match self {
             WebBuildError::NotYetLinked => f.write_str(NOT_YET_LINKED_MESSAGE),
             WebBuildError::Refused(lines) => {
+                let lines: Vec<String> = lines.iter().map(WebDiagnostic::to_string).collect();
                 write!(f, "the project uses what a browser cannot run:\n{}", lines.join("\n"))
             }
             WebBuildError::Failed(why) => write!(f, "the web build failed: {why}"),
