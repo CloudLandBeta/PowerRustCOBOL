@@ -55,3 +55,7 @@ native-tls = "0.2"
 tar        = "0.4"
 flate2     = { workspace = true }
 semver     = "1"
+
+[dev-dependencies]
+# The web build's tests read each program module's import section (WASM-002 AC4b).
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["scan"] }

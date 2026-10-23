@@ -2301,6 +2301,7 @@ dependencies = [
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-wasm",
+ "cobolt-wasm-abi",
  "cobolt-web-bundle",
  "dirs 5.0.1",
  "flate2",

@@ -419,6 +419,10 @@ pub struct Tr {
     pub pk_build_failed: &'static str,
     pub pk_build_refused: &'static str,
     pub pk_build_warning: &'static str,
+    // WASM-002: Check's portable-subset heading, the size-budget warning and the missing player.
+    pub web_check_not_portable: &'static str,
+    pub web_build_over_budget: &'static str,
+    pub web_build_player_unavailable: &'static str,
     pub pk_build_package_note: &'static str,
     pub wasm_diag_backend_only: &'static str,
     pub wasm_diag_unsupported: &'static str,
@@ -2922,6 +2926,9 @@ const EN: Tr = Tr {
     pk_build_failed: "The web build failed: {}",
     pk_build_refused: "The project uses what a browser cannot run:",
     pk_build_warning: "Warning: {}",
+    web_check_not_portable: "Check: these lines cannot run in a browser:",
+    web_build_over_budget: "The first download is larger than the size budget:",
+    web_build_player_unavailable: "The web player is not available, so the Web build cannot copy it:",
     pk_build_package_note: "The web bundle is built. The Android and iOS package step needs the mobile shell, which this program does not include yet.",
     wasm_diag_backend_only: "{} runs on the Backend, not in a browser: call a Backend program with CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_unsupported: "{} cannot run in a WebAssembly module; move it to the Backend.",
@@ -4980,6 +4987,9 @@ const ES: Tr = Tr {
     pk_build_failed: "Falló la compilación web: {}",
     pk_build_refused: "El proyecto usa algo que un navegador no puede ejecutar:",
     pk_build_warning: "Aviso: {}",
+    web_check_not_portable: "Comprobación: estas líneas no pueden ejecutarse en un navegador:",
+    web_build_over_budget: "La primera descarga supera el presupuesto de tamaño:",
+    web_build_player_unavailable: "El reproductor web no está disponible, así que la compilación web no puede copiarlo:",
     pk_build_package_note: "El paquete web está compilado. El paso del paquete de Android e iOS necesita el contenedor móvil, que este programa aún no incluye.",
     wasm_diag_backend_only: "{} se ejecuta en el Backend, no en un navegador: llame a un programa del Backend con CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_unsupported: "{} no puede ejecutarse en un módulo WebAssembly; muévalo al Backend.",
@@ -7039,6 +7049,9 @@ const PT: Tr = Tr {
     pk_build_failed: "A compilação web falhou: {}",
     pk_build_refused: "O projeto usa algo que um navegador não consegue executar:",
     pk_build_warning: "Aviso: {}",
+    web_check_not_portable: "Verificação: estas linhas não podem ser executadas em um navegador:",
+    web_build_over_budget: "O primeiro download excede o orçamento de tamanho:",
+    web_build_player_unavailable: "O player web não está disponível, então a compilação web não pode copiá-lo:",
     pk_build_package_note: "O pacote web está compilado. A etapa do pacote Android e iOS precisa do contêiner móvel, que este programa ainda não inclui.",
     wasm_diag_backend_only: "{} é executado no Backend, não em um navegador: chame um programa do Backend com CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_unsupported: "{} não pode ser executado em um módulo WebAssembly; mova-o para o Backend.",
@@ -9098,6 +9111,9 @@ const JA: Tr = Tr {
     pk_build_failed: "Web ビルドに失敗しました: {}",
     pk_build_refused: "このプロジェクトはブラウザーで実行できないものを使っています:",
     pk_build_warning: "警告: {}",
+    web_check_not_portable: "チェック: 次の行はブラウザーで実行できません:",
+    web_build_over_budget: "最初のダウンロードがサイズの予算を超えています:",
+    web_build_player_unavailable: "Web プレーヤーが見つからないため、Web ビルドでコピーできません:",
     pk_build_package_note: "Web バンドルはビルドされました。Android と iOS のパッケージ手順にはモバイルシェルが必要ですが、このプログラムにはまだ含まれていません。",
     wasm_diag_backend_only: "{} はブラウザーではなく Backend で実行されます。CALL … WITH WEBSOCKET LINKAGE で Backend のプログラムを呼び出してください。",
     wasm_diag_unsupported: "{} は WebAssembly モジュールでは実行できません。Backend に移してください。",
@@ -11156,6 +11172,9 @@ const ZH: Tr = Tr {
     pk_build_failed: "Web 构建失败：{}",
     pk_build_refused: "该项目使用了浏览器无法运行的内容：",
     pk_build_warning: "警告：{}",
+    web_check_not_portable: "检查：以下行无法在浏览器中运行：",
+    web_build_over_budget: "首次下载超出了大小预算：",
+    web_build_player_unavailable: "Web 播放器不可用，因此 Web 构建无法复制它：",
     pk_build_package_note: "Web 包已构建。Android 和 iOS 安装包这一步需要移动外壳，此程序尚未包含。",
     wasm_diag_backend_only: "{} 在后端运行，而不是在浏览器中：请用 CALL … WITH WEBSOCKET LINKAGE 调用后端程序。",
     wasm_diag_unsupported: "{} 无法在 WebAssembly 模块中运行；请将其移到后端。",
@@ -13221,6 +13240,9 @@ const FR: Tr = Tr {
     pk_build_failed: "La compilation Web a échoué : {}",
     pk_build_refused: "Le projet utilise ce qu'un navigateur ne peut pas exécuter :",
     pk_build_warning: "Avertissement : {}",
+    web_check_not_portable: "Vérification : ces lignes ne peuvent pas s'exécuter dans un navigateur :",
+    web_build_over_budget: "Le premier téléchargement dépasse le budget de taille :",
+    web_build_player_unavailable: "Le lecteur Web n'est pas disponible, la compilation Web ne peut donc pas le copier :",
     pk_build_package_note: "Le paquet Web est compilé. L'étape du paquet Android et iOS nécessite la coque mobile, que ce programme n'inclut pas encore.",
     wasm_diag_backend_only: "{} s'exécute sur le Backend, pas dans un navigateur : appelez un programme du Backend avec CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_unsupported: "{} ne peut pas s'exécuter dans un module WebAssembly ; déplacez-le vers le Backend.",
@@ -15352,6 +15374,26 @@ mod i18n_tests {
                 );
             }
         }
+    }
+
+    /// WASM-002 T21: Check's portable-subset heading, the size-budget warning
+    /// and the missing player, in all six languages, with the placeholders of
+    /// the English text (none) kept.
+    #[test]
+    fn web_build_headings_in_six_languages() {
+        let en = Language::English.tr();
+        let keys = |t: &Tr| [t.web_check_not_portable, t.web_build_over_budget, t.web_build_player_unavailable];
+        for &lang in Language::ALL {
+            let t = lang.tr();
+            for (s, e) in keys(&t).iter().zip(keys(&en)) {
+                assert!(!s.trim().is_empty(), "{lang:?}: empty");
+                assert_eq!(s.matches("{}").count(), e.matches("{}").count(), "{lang:?}: {s}");
+                if lang != Language::English {
+                    assert_ne!(*s, e, "{lang:?}: untranslated");
+                }
+            }
+        }
+        println!("3 web build headings in {} languages", Language::ALL.len());
     }
 
     #[test]

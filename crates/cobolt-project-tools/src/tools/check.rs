@@ -125,7 +125,41 @@ pub fn check_project<H: ProjectHost>(host: &H, root: &ProjectRoot) -> Result<Rep
             .findings
             .push(Finding::at(&root.manifest_name(), Severity::Error, e));
     }
+    // A Web or Mobile project: what a browser cannot run is an error at its
+    // line (WASM-002 R3), refused by the generator the Build runs. A form that
+    // cannot be read was reported above; a program without the generator
+    // linked checks the rest as before.
+    if !view.kind.is_desktop() {
+        if let Ok(req) = crate::web::WebBuildRequest::from_manifest(root.manifest()) {
+            if let Err(crate::web::WebBuildError::Refused(lines)) =
+                crate::web::backend().check(&req)
+            {
+                report.findings.extend(lines.iter().map(web_finding));
+            }
+        }
+    }
     Ok(report)
+}
+
+/// A refusal of the web build as a finding: `webforms/a.wcfrm (A ▸ BTN ▸ onClick):8`
+/// gives the file, the code site, the form and the line.
+fn web_finding(d: &crate::web::WebDiagnostic) -> Finding {
+    let (place, line) = match d.location.rsplit_once(':') {
+        Some((p, n)) if n.parse::<u32>().is_ok() => (p, n.parse().unwrap_or(0)),
+        _ => (d.location.as_str(), 0),
+    };
+    let (file, site) = match place.split_once(" (") {
+        Some((f, s)) => (f, s.strip_suffix(')').map(str::to_owned)),
+        None => (place, None),
+    };
+    let mut f = Finding::at(file, Severity::Error, d.message.clone());
+    f.line = line;
+    f.form = site
+        .as_deref()
+        .and_then(|s| s.split(" ▸ ").next())
+        .map(str::to_owned);
+    f.site = site;
+    f
 }
 
 /// One file, chosen by its extension.

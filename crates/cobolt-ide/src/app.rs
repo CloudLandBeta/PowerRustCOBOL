@@ -4501,6 +4501,7 @@ impl CoboltApp {
         self.output.push_status(crate::ui_text::idef("── Checking {} ──", &[&path.file_name().and_then(|n| n.to_str()).unwrap_or("?")]));
         self.warn_agents_without_tools();
         self.warn_forms_named_for_another_kind();
+        self.check_web_portability();
         self.editor.clear_diags();
 
         use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
@@ -4625,6 +4626,31 @@ impl CoboltApp {
             let new_name = Path::new(&new).file_name().and_then(|n| n.to_str()).unwrap_or(&new).to_owned();
             self.output
                 .push_status(tr.pk_check_form_name_kind.replacen("{}", &rel, 1).replacen("{}", &new_name, 1));
+        }
+    }
+
+    /// WASM-002 R3, T14 — Check on a Web or Mobile project runs the generator
+    /// the Build runs, writing nothing, and lists each line a browser cannot
+    /// run as an error, so Check and Build cannot disagree.
+    fn check_web_portability(&mut self) {
+        let Some(manifest) = self.project_path.clone() else {
+            return;
+        };
+        let Ok(request) = cobolt_project_tools::web::WebBuildRequest::from_manifest(&manifest) else {
+            return;
+        };
+        let Err(cobolt_project_tools::web::WebBuildError::Refused(lines)) =
+            cobolt_project_tools::web::backend().check(&request)
+        else {
+            return;
+        };
+        use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
+        let tr = self.lang.tr();
+        self.output.push_status(tr.web_check_not_portable.to_owned());
+        for d in &lines {
+            let text = crate::panels::web_preview::diagnostic_text(d, &tr);
+            self.output
+                .push_msg(&RunMsg::Diagnostic(DiagMsg::plain(DiagSeverity::Error, text, 0, 0)));
         }
     }
 

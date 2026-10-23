@@ -171,11 +171,20 @@ impl Note {
                 let startup = startup_ms.map_or_else(|| tr.pk_build_startup_none.to_owned(), |v| format!("{v:.0} ms"));
                 vec![fill(tr.pk_build_done, &[&ms.to_string(), &human_bytes(*bytes), &files.to_string(), &startup])]
             }
+            // The budget warning and the missing player are English report
+            // lines of the Build; the heading above them is the developer's
+            // language (WASM-002 T21).
+            Note::BuildWarning(w) if w.message.starts_with(cobolt_project_tools::web::OVER_BUDGET_PREFIX) => {
+                vec![tr.web_build_over_budget.to_owned(), format!("  {}", w.message)]
+            }
             Note::BuildWarning(w) => vec![fill(tr.pk_build_warning, &[&diagnostic_text(w, tr)])],
             Note::BuildRefused(lines) => {
                 let mut out = vec![tr.pk_build_refused.to_owned()];
                 out.extend(lines.iter().map(|l| format!("  {}", diagnostic_text(l, tr))));
                 out
+            }
+            Note::BuildFailed(why) if why.starts_with(cobolt_project_tools::web::PLAYER_UNAVAILABLE_PREFIX) => {
+                vec![tr.web_build_player_unavailable.to_owned(), format!("  {why}")]
             }
             Note::BuildFailed(why) => vec![fill(tr.pk_build_failed, &[why])],
             Note::PackageNote => vec![tr.pk_build_package_note.to_owned()],
@@ -1216,6 +1225,21 @@ mod tests {
         assert_eq!(said, kinds.len() * Language::ALL.len());
     }
 
+    /// WASM-002 T21: the budget warning and the missing player get the
+    /// developer's heading; the English detail follows it.
+    #[test]
+    fn the_budget_warning_and_the_missing_player_have_a_translated_heading() {
+        let over = format!("{} 5100000 bytes, over the budget", cobolt_project_tools::web::OVER_BUDGET_PREFIX);
+        let gone = format!("{}: no folder assets/web-player", cobolt_project_tools::web::PLAYER_UNAVAILABLE_PREFIX);
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            let w = Note::BuildWarning(over.clone().into()).lines(&tr);
+            assert_eq!(w, vec![tr.web_build_over_budget.to_owned(), format!("  {over}")], "{lang:?}");
+            let f = Note::BuildFailed(gone.clone()).lines(&tr);
+            assert_eq!(f, vec![tr.web_build_player_unavailable.to_owned(), format!("  {gone}")], "{lang:?}");
+        }
+    }
+
     #[test]
     fn every_note_reads_in_all_six_languages_without_a_gap() {
         let notes = vec![
@@ -1239,6 +1263,10 @@ mod tests {
             Note::BackendOff,
             Note::Console { level: "log".into(), text: "hi".into() },
             Note::PageError { message: "x is not defined".into(), source: "app.js".into(), line: 12 },
+            Note::BuildWarning(
+                format!("{} 5100000 bytes, over the budget of 5000000 bytes", cobolt_project_tools::web::OVER_BUDGET_PREFIX).into(),
+            ),
+            Note::BuildFailed(format!("{}: no folder assets/web-player", cobolt_project_tools::web::PLAYER_UNAVAILABLE_PREFIX)),
         ];
         let mut shown = 0;
         for &lang in Language::ALL {
@@ -1259,7 +1287,7 @@ mod tests {
         assert_eq!(notes[18].severity(), Severity::Info);
         assert_eq!(Note::Console { level: "error".into(), text: String::new() }.severity(), Severity::Error);
         assert_eq!(notes[14].severity(), Severity::Warn);
-        println!("web preview: {shown} note renderings (20 notes x 6 languages), none empty, none with a gap");
+        println!("web preview: {shown} note renderings (22 notes x 6 languages), none empty, none with a gap");
     }
 
     #[test]

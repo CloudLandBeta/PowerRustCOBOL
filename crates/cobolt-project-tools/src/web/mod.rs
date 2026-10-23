@@ -37,6 +37,12 @@ use cobolt_compiler::project_kind::{ModuleVariants, ProjectKind, WebSettings};
 
 pub use devserver::{ServeError, ServeOptions, ServerHandle};
 
+/// The start of a report line the IDE says in the developer's language
+/// (WASM-002 T21): the size-budget warning and the missing player. The tools
+/// keep the English text.
+pub use cobolt_web_bundle::OVER_BUDGET_PREFIX;
+pub use generator::PLAYER_UNAVAILABLE_PREFIX;
+
 /// Where a Build puts a Web bundle, relative to the project: the `dist/`
 /// folder every kind already delivers into, and `web` inside it.
 pub const BUNDLE_SUBDIR: &str = "dist/web";
@@ -301,6 +307,14 @@ pub trait WebBuildBackend: Send + Sync {
     /// reloads on a half-written bundle shows nothing. A build that fails must
     /// leave the previous bundle as it was — the Preview keeps showing it.
     fn build(&self, request: &WebBuildRequest) -> Result<BuildReport, WebBuildError>;
+
+    /// Check `request` against the portable subset (WASM-002 R3) the way
+    /// [`build`](Self::build) would, writing nothing: `Refused` lists every
+    /// construct a browser cannot run. Check and Build share one source of
+    /// refusals, the generator.
+    fn check(&self, _request: &WebBuildRequest) -> Result<(), WebBuildError> {
+        Err(WebBuildError::NotYetLinked)
+    }
 
     /// Where the bundle for `request` is (or will be).
     fn bundle_dir(&self, request: &WebBuildRequest) -> PathBuf {

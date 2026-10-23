@@ -17,6 +17,24 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.37] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.36.)*
+
+### Added: the Web Build checked end to end, Check refuses what a browser cannot run, and the player is found beside the program (WASM-002 T13–T19, T21)
+
+**What the Web Build writes** (T13, AC4b, R9, R17). The Web Build is WASM-010's `GeneratorBackend` (operator, 2026-10-22); no second backend was written. `tests/web_build.rs` now checks what it writes into `dist/web`: `index.html`, `config.json`, `_headers`, the player, and exactly the program modules `module_variants` asks for (multi-memory only for a Chromium-only matrix, single-memory only with `multi_memory = false`). Each module imports only `pr.flush` and `pr.abort` from ABI v1 §3 and passes the bundle scan. No file is an interpreter, an AST (no gzip stream) or a runtime. A standalone project gets one entry page per form. A refused second build leaves the first bundle byte-identical (25 files). A Desktop manifest is refused before anything is written. Build time measured from clean with `--timings`: the WebAssembly chain (`cobolt-wasm`, `-abi`, `cobolt-web-bundle`, wasmtime, cranelift, wasmparser, wasm-encoder) is 94.7 of 645.9 unit-seconds; `cobolt-project-tools` took 67.0 s of wall time.
+
+**Check refuses what a browser cannot run** (T14, R3, AC3). `WebBuildBackend` gains `check`, which by default answers `NotYetLinked`. `GeneratorBackend::check` runs the Build's own steps up to the generator and writes nothing, so Check and Build give the same lines. The agents' `check` tool (`check_project`) adds each refusal of a Web or Mobile project as an error, with its file, line, form and code site. The IDE's Check lists them under a translated heading. A handler `OPEN INPUT` of a disk file is refused at `webforms/main-form.cfrm (main-form ▸ BTN-OK ▸ onClick):2`, naming the file and the alternative, and no bundle is written. An INDEXED file `STORAGE IS MEMORY` and a `SORT` with input and output procedures build. Nine R3 constructs are each refused at the handler and name an alternative: a disk file, a disk INDEXED file, `WITH PERSISTENCE`, `EXEC SQL`, `COBOL-OPEN-DB`, `COBOL-HTTP-GET`, `COBOL-AWS-SET-CREDENTIALS`, `COBOL-KEY-SET` and `EXEC RUST`. **Working assumption, to confirm:** `STORAGE IS MEMORY … WITH PERSISTENCE` is refused because it writes to disk.
+
+**Which player is copied** (T15). The order is `PRC_WEB_PLAYER_DIR` when set, then `<exe dir>/assets/web-player`, then `assets/web-player`, then the repository's copy: the bundled-asset pattern of the IDE's themes. A missing folder or `player-build.json` fails with a message that names the path. The project's pin of an older player (WASM-016 R11) is not a manifest field yet, so the current player is used.
+
+**Secrets, tools, browsers** (T17, T18, T19). A test key in a `.wcfrm` Label stops the Build with `secret (cloud access key id)` and the bundle file `forms/main-form.<hash>.cfrm`, never the value, and `dist/web` is left as it was. The hello-world builds with `PATH` emptied, so it needs no `cargo`, `rustc`, `wasm-bindgen` or `node`. The Build's own hello-world answers a click under node v23.3.0 on both module variants. **Not run:** the Chrome half of AC1 and AC2. Writing the host test pages was not permitted in this session. `PRC_WEB_E2E_KEEP=1` keeps the bundle for that run.
+
+**i18n** (T21). Three keys in six languages: `web_check_not_portable`, `web_build_over_budget` and `web_build_player_unavailable`. `cobolt_project_tools::web` exports `OVER_BUDGET_PREFIX` and `PLAYER_UNAVAILABLE_PREFIX`. The Preview puts the translated heading above the English report line; the tools keep the English.
+
+**Owed:** the manual check through the MCP tools (`check`, then `build` answering `"engine": "cobolt-wasm"`). The MCP server did not connect in this session. `README.md` and `docs/` are untouched.
+
 ## [PowerRustCOBOL 2.0.36] — 2026-10-23
 
 *(Written on `features-2x`, after 2.0.35.)*

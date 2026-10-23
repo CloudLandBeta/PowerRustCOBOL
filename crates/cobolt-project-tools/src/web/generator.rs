@@ -179,6 +179,56 @@ impl GeneratorBackend {
         }
         Ok(forms)
     }
+
+    /// Steps 1–3 of the Build, shared with Check (WASM-002 R3, T14): read and
+    /// regenerate the forms, then run the generator on every variant asked
+    /// for. A construct a browser cannot run is a [`WebBuildError::Refused`]
+    /// line at the developer's own handler line.
+    fn compile(
+        &self,
+        req: &WebBuildRequest,
+        warnings: &mut Vec<WebDiagnostic>,
+    ) -> Result<(Vec<LoadedForm>, cobolt_wasm::WebModules), WebBuildError> {
+        let forms = self.load_forms(req, warnings)?;
+        let specs = form_specs(&forms);
+        let opts = cobolt_wasm::Options {
+            name: req.name.clone(),
+            ..cobolt_wasm::Options::default()
+        };
+        let modules = cobolt_wasm::compile_web_project(
+            &specs,
+            &opts,
+            req.variants.multi_memory,
+            req.variants.single_memory,
+        )
+        .map_err(|e| {
+            WebBuildError::Refused(
+                e.all_kinded()
+                    .into_iter()
+                    .map(|d| {
+                        diag(
+                            location(d.form.and_then(|i| forms.get(i)), d.line),
+                            kind_of(d.kind),
+                            d.subject.clone(),
+                            d.message.clone(),
+                        )
+                    })
+                    .collect(),
+            )
+        })?;
+        for w in &modules.warnings {
+            // A warning carries its line but not its form; the main form's
+            // lines are the first table, so it is named by line alone.
+            warnings.push(diag(
+                String::new(),
+                warning_kind(w.kind),
+                w.subject.clone(),
+                format!("line {}: {}", w.line, w.message),
+            ));
+        }
+        drop(specs);
+        Ok((forms, modules))
+    }
 }
 
 /// The form specs the generator takes: controls in the model's order, every
@@ -219,17 +269,55 @@ fn form_specs(forms: &[LoadedForm]) -> Vec<FormSpec<'_>> {
         .collect()
 }
 
-/// The built player: `PRC_WEB_PLAYER_DIR`, else the repository's
-/// `assets/web-player` (where `build_player` commits it).
-pub fn player_dir() -> Option<PathBuf> {
-    if let Ok(d) = std::env::var(PLAYER_DIR_ENV) {
-        let p = PathBuf::from(d);
-        if p.join("plain").is_dir() {
-            return Some(p);
-        }
+/// How a missing player is reported; the IDE shows its own heading above a
+/// line that starts with it (WASM-002 T21).
+pub const PLAYER_UNAVAILABLE_PREFIX: &str = "the web player is not available";
+
+/// The built player (WASM-002 T15): `PRC_WEB_PLAYER_DIR` when it is set, else
+/// the bundled-asset pattern the IDE and `rcrun` use for their other assets —
+/// `<exe dir>/assets/web-player` if it is a folder, else `assets/web-player` —
+/// and, in a clone, the repository's `assets/web-player` (where `build_player`
+/// commits it). Shipping it beside an installed IDE is WASM-016 R12's.
+pub fn player_dir() -> Result<PathBuf, String> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf));
+    player_dir_from(std::env::var_os(PLAYER_DIR_ENV).map(PathBuf::from), exe_dir)
+}
+
+/// [`player_dir`] with its inputs given: the variable's value and the
+/// executable's folder. `Err` names every folder looked at, or the folder
+/// whose `player-build.json` is missing.
+pub fn player_dir_from(env: Option<PathBuf>, exe_dir: Option<PathBuf>) -> Result<PathBuf, String> {
+    let candidates: Vec<PathBuf> = match env {
+        // Named by the developer: that folder or nothing.
+        Some(dir) => vec![dir],
+        None => exe_dir
+            .map(|d| d.join("assets/web-player"))
+            .into_iter()
+            .chain([
+                PathBuf::from("assets/web-player"),
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/web-player"),
+            ])
+            .collect(),
+    };
+    let Some(dir) = candidates.iter().find(|d| d.is_dir()) else {
+        let tried: Vec<String> = candidates.iter().map(|d| d.display().to_string()).collect();
+        return Err(format!(
+            "{PLAYER_UNAVAILABLE_PREFIX}: no folder {} (set {PLAYER_DIR_ENV} to the folder build_player wrote)",
+            tried.join(", ")
+        ));
+    };
+    let info = dir.join("player-build.json");
+    if !info.is_file() {
+        return Err(format!(
+            "{PLAYER_UNAVAILABLE_PREFIX}: {} is missing",
+            info.display()
+        ));
     }
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/web-player");
-    repo.join("plain").is_dir().then_some(repo)
+    // The project's pin of an older player (WASM-016 R11) is not a manifest
+    // field yet; until it is, the current player is the one copied.
+    Ok(dir.clone())
 }
 
 fn files_under(dir: &Path) -> Vec<(String, Vec<u8>)> {
@@ -342,49 +430,17 @@ impl WebBuildBackend for GeneratorBackend {
         "cobolt-wasm"
     }
 
+    fn check(&self, req: &WebBuildRequest) -> Result<(), WebBuildError> {
+        // The same steps as the Build up to the generator; the bytes are
+        // discarded, nothing is written (WASM-002 R3: Check and Build agree).
+        self.compile(req, &mut Vec::new()).map(|_| ())
+    }
+
     fn build(&self, req: &WebBuildRequest) -> Result<BuildReport, WebBuildError> {
         let started = Instant::now();
         let mut warnings: Vec<WebDiagnostic> = Vec::new();
-        let forms = self.load_forms(req, &mut warnings)?;
-        let specs = form_specs(&forms);
-        let opts = cobolt_wasm::Options {
-            name: req.name.clone(),
-            ..cobolt_wasm::Options::default()
-        };
-        let modules = cobolt_wasm::compile_web_project(
-            &specs,
-            &opts,
-            req.variants.multi_memory,
-            req.variants.single_memory,
-        )
-        .map_err(|e| {
-            WebBuildError::Refused(
-                e.all_kinded()
-                    .into_iter()
-                    .map(|d| {
-                        diag(
-                            location(d.form.and_then(|i| forms.get(i)), d.line),
-                            kind_of(d.kind),
-                            d.subject.clone(),
-                            d.message.clone(),
-                        )
-                    })
-                    .collect(),
-            )
-        })?;
-        for w in &modules.warnings {
-            // A warning carries its line but not its form; the main form's
-            // lines are the first table, so it is named by line alone.
-            warnings.push(diag(
-                String::new(),
-                warning_kind(w.kind),
-                w.subject.clone(),
-                format!("line {}: {}", w.line, w.message),
-            ));
-        }
-        let player = player_dir().ok_or_else(|| {
-            WebBuildError::Failed(format!("the web player is not installed: set {PLAYER_DIR_ENV} to the folder build_player wrote (assets/web-player in a clone)"))
-        })?;
+        let (forms, modules) = self.compile(req, &mut warnings)?;
+        let player = player_dir().map_err(WebBuildError::Failed)?;
         let mut menus = Vec::new();
         for f in &forms {
             let dir = req.project_dir.join(&f.rel);
