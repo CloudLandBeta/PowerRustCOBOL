@@ -93,6 +93,9 @@ pub struct Parser {
     pub(crate) in_subscript: bool,
     /// Spec 087: the SQL cursors declared so far by the program being parsed.
     pub(crate) sql_cursors: Vec<cobolt_ast::sql::SqlCursor>,
+    /// `IS INITIAL` / `IS COMMON` of the PROGRAM-ID just parsed.
+    pub(crate) program_initial: bool,
+    pub(crate) program_common: bool,
     /// Spec 087 R21: the `WHENEVER` declarations in force, in source order.
     pub(crate) sql_whenever: cobolt_ast::sql::SqlWhenever,
     /// Spec 087: the PROGRAM-ID of each program being parsed, innermost last.
@@ -134,6 +137,8 @@ impl Parser {
             pending: Vec::new(),
             in_subscript: false,
             sql_cursors: Vec::new(),
+            program_initial: false,
+            program_common: false,
             sql_whenever: Default::default(),
             sql_owner: Vec::new(),
             sql_in_file_section: false,
@@ -543,6 +548,8 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
 
     // IDENTIFICATION DIVISION (required)
     let identification = parse_identification_division(p);
+    // Read now: a nested program's PROGRAM-ID overwrites them.
+    let (is_initial, is_common) = (p.program_initial, p.program_common);
     // Spec 087: SQL statements and cursors name the program they are written
     // in (R28).
     p.sql_owner.push(identification.program_id.to_ascii_uppercase());
@@ -699,6 +706,8 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         collating_sequence,
         currency: p.currency,
         sql_cursors,
+        is_initial,
+        is_common,
     };
     p.sql_owner.pop();
     program

@@ -2647,6 +2647,25 @@ impl CobolEnvironment {
         Some(self.odo_count(&upper).unwrap_or(declared).min(declared))
     }
 
+    /// The **current** number of occurrences of dimension `dim` (0 = outermost)
+    /// of the table item `name`: the `OCCURS … DEPENDING ON` count of whichever
+    /// item opens that dimension — the item itself or one of its groups.
+    /// `None` when that dimension is a fixed table, so the caller keeps the
+    /// declared bound.
+    pub fn odo_dim_count(&self, name: &str, dim: usize) -> Option<usize> {
+        let upper = name.to_ascii_uppercase();
+        let base = base_name(&upper);
+        let sym = self.symbols.get(base)?;
+        let opens = |s: &ItemSym| s.occurs > 0 && s.dims.len() == dim + 1;
+        if opens(sym) {
+            return self.odo_count(base);
+        }
+        sym.quals
+            .iter()
+            .find(|q| self.symbols.get(q.as_str()).is_some_and(opens))
+            .and_then(|q| self.odo_count(q))
+    }
+
     fn occurrence_keys(&self, sym: &ItemSym, prefix: &[i64]) -> Vec<String> {
         let mut out = Vec::new();
         for ck in &sym.layout_keys {

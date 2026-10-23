@@ -269,6 +269,8 @@ the early rows are out of 434 and the closing row out of 420.
 ## IDENTIFICATION DIVISION paragraphs
 
 - ✅ `PROGRAM-ID. name [IS] [COMMON] [INITIAL] [RECURSIVE] [PROGRAM].`
+  `INITIAL` puts the program back in its initial state on every `CALL`
+  (COBOL-85 6.8). *(Before 1.91.221 it was accepted and ignored.)*
 - ✅ The **comment‑entry** paragraphs — `AUTHOR`, `INSTALLATION`,
   `DATE‑WRITTEN`, `DATE‑COMPILED`, `SECURITY` — in **any order and any subset**.
 - ✅ `REMARKS` is accepted too. It was deleted from COBOL in 1985, so it is not
@@ -700,6 +702,9 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   `COBOL-…` call — leaves `r` as it was.
 - ✅ `CANCEL program …` re-initialises the named program's WORKING-STORAGE so its
   next `CALL` starts fresh.
+- ✅ A **literal** passed `BY CONTENT` or `BY VALUE` reaches the called program
+  as its value, moved into the parameter's own PICTURE (`CALL "TRIPLE" USING BY
+  VALUE 5` hands over 5). *(Before 1.91.221 it arrived as zero.)*
 
 ### File verbs (the supported phrases — full coverage is in the file‑I/O suite)
 - ✅ `OPEN {INPUT|OUTPUT|I-O|EXTEND} f … [SHARING WITH {ALL OTHER|NO OTHER|READ
@@ -1084,6 +1089,8 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   *(Before 1.62.40 only the single-character figurative constants filled their
   item and `ALL "literal"` left it holding spaces.)*
 - ✅ `OCCURS n [TIMES] [DEPENDING ON id] [ASCENDING/DESCENDING KEY …] [INDEXED BY …]`.
+  `FUNCTION f (t (ALL))` over a `DEPENDING ON` table covers the occurrences its
+  depending item counts now. *(Before 1.91.221 it ran to the declared maximum.)*
 - ✅ `REDEFINES` — a **live** second reading of the same bytes. It adds no
   storage (so it does not widen the group that holds it), and a write through
   either description is visible through the other:

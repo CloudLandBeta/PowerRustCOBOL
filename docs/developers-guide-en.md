@@ -10888,6 +10888,14 @@ column:
            COMPUTE WS-COL2 = FUNCTION SUM(CELL(ALL, 2)).
 ```
 
+On a table declared `OCCURS … DEPENDING ON`, `ALL` stands for the occurrences
+the table has **now** — the count its depending item holds — not the room the
+`OCCURS` reserved. With `05 SAMPLE PIC 9(4) OCCURS 1 TO 50 DEPENDING ON
+WS-COUNT` and `WS-COUNT` at 3, `FUNCTION SUM(SAMPLE(ALL))` adds three readings.
+
+> ⚠️ **Before 1.91.221 `ALL` ran to the declared maximum** on such a table, so
+> leftover values in occurrences past the current count were added in too.
+
 An `OCCURS … DEPENDING ON` table expands against its count at the moment the
 function is called.
 
@@ -17573,6 +17581,13 @@ its values **persist between calls** — re-entering a handler does not reset it
 WORKING-STORAGE, and exiting does not cancel it. If you want a fresh value on
 each entry, that is your decision: use the COBOL **`INITIALIZE`** verb for the
 items you want reset, or `CANCEL "<name>"` to reset the whole procedure's state.
+
+A program declared **`IS INITIAL`** (`PROGRAM-ID. RATE-TABLE IS INITIAL.`) is
+the exception the standard provides: it starts **every** call from its initial
+values, as if each `CALL` were preceded by a `CANCEL`.
+
+> ⚠️ **Before 1.91.221 `IS INITIAL` was accepted and ignored** — such a program
+> kept its values between calls like any other.
 
 ### The Rust-FFI type bridge (preview)
 

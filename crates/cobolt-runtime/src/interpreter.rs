@@ -460,6 +460,10 @@ struct NestedProgram {
     /// value, when the program returns, is what a caller's `CALL … RETURNING`
     /// receives.
     returning: Option<String>,
+    /// `PROGRAM-ID. name IS INITIAL`: every CALL starts from the initial values
+    /// (COBOL-85 6.8), so nothing is kept between calls — as if each CALL were
+    /// preceded by a `CANCEL`.
+    is_initial: bool,
     /// This program's own `FILE STATUS IS` bindings, file name → status item,
     /// both uppercase.
     ///
@@ -728,6 +732,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             local_descriptive,
             using,
             returning,
+            is_initial: prog.is_initial,
             file_status,
         },
     );
@@ -12229,10 +12234,11 @@ impl Interpreter {
                     )
                 };
                 let callee_returning = self.nested_registry[&prog_name].returning.clone();
+                let callee_initial = self.nested_registry[&prog_name].is_initial;
 
                 // Pair each LINKAGE parameter with the caller's argument:
                 // (param-key, arg-key, by_reference).
-                let bindings: Vec<(String, String, bool)> = params
+                let bindings: Vec<(String, String, bool, Option<Expr>)> = params
                     .iter()
                     .zip(using.iter())
                     .map(|(p, a)| {
@@ -12262,7 +12268,15 @@ impl Interpreter {
                             _ => self.expr_to_name(arg).to_ascii_uppercase(),
                         };
                         let by_ref = matches!(a, CallArg::ByReference(_));
-                        (pk, ak, by_ref)
+                        // A literal (or any value that is not a data item) has no
+                        // storage to bind: it is moved into the parameter below.
+                        let value = (!by_ref
+                            && !matches!(
+                                arg,
+                                Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }
+                            ))
+                        .then(|| arg.clone());
+                        (pk, ak, by_ref, value)
                     })
                     .collect();
 
@@ -12319,7 +12333,7 @@ impl Interpreter {
                     Vec::new();
                 // Arguments wearing a parameter's edit template for the call.
                 let mut lent_templates: Vec<String> = Vec::new();
-                for (pk, ak, by_ref) in &bindings {
+                for (pk, ak, by_ref, value) in &bindings {
                     // The parameter, followed by everything subordinate to it.
                     // A **group** parameter is handed over whole and the callee
                     // reads its *fields* — under its own names for them, which
@@ -12398,6 +12412,25 @@ impl Interpreter {
                     let elem = |i: &Interpreter, k: &str| {
                         i.env.symbol(k).map_or(true, |s| s.layout_keys.is_empty())
                     };
+                    // **A literal BY VALUE / BY CONTENT is a value, not an
+                    // item.** Its "name" is no data item, so the copy below
+                    // found nothing and the parameter arrived as zero
+                    // (`CALL "THRICE" USING BY VALUE 5` computed 0). The
+                    // parameter gets a private slot in its own description,
+                    // and the value is MOVEd into it, as COBOL-85 passes it.
+                    if let Some(lit) = value {
+                        if elem(self, pk) {
+                            let q = activation_key(&prog_name, pk);
+                            if let Some(v) = self.env.get(pk).cloned() {
+                                self.env.set(&q, v);
+                            }
+                            self.env.mirror_descriptive(pk, &q);
+                            aliased.push((pk.clone(), self.env.alias_target(pk)));
+                            self.env.set_alias(pk, &q);
+                        }
+                        self.exec_move(lit, std::slice::from_ref(&Expr::Identifier(pk.clone(), span)))?;
+                        continue;
+                    }
                     if !*by_ref && elem(self, pk) && elem(self, ak) {
                         let q = activation_key(&prog_name, pk);
                         if let Some(v) = self.env.get(ak).cloned() {
@@ -12625,7 +12658,7 @@ impl Interpreter {
                 // no-op that keeps the two paths symmetrical. An aliased
                 // parameter needs nothing: every write went straight to the
                 // caller's storage as it happened.
-                for (pk, ak, by_ref) in &bindings {
+                for (pk, ak, by_ref, _) in &bindings {
                     if *by_ref && !alias_keys.contains(pk) {
                         if let Some(v) = self.env.get(pk).cloned() {
                             self.env.set(ak, v);
@@ -12640,7 +12673,13 @@ impl Interpreter {
                     let cur = self.env.get(k).cloned().unwrap_or_else(|| prev.clone());
                     saved.push((k.clone(), cur));
                 }
-                self.program_locals.insert(prog_name.clone(), saved);
+                // An INITIAL program keeps nothing: its next CALL starts from
+                // the DATA DIVISION, exactly as after a CANCEL (COBOL-85 6.8).
+                if callee_initial {
+                    self.program_locals.remove(&prog_name);
+                } else {
+                    self.program_locals.insert(prog_name.clone(), saved);
+                }
 
                 // The returned value goes to the caller's identifier as a
                 // `MOVE` would put it (COBOL 2002, CALL … RETURNING): the
@@ -18684,6 +18723,16 @@ impl Interpreter {
             .map(|(n, _)| n)
             .collect();
 
+        // An `OCCURS … DEPENDING ON` dimension runs to its current count, not
+        // the room reserved for it (COBOL-85: `ALL` references the occurrences
+        // the table has): `SUM (E (ALL))` with 3 of 5 current is E(1)+E(2)+E(3).
+        let limits: Vec<i64> = all_positions
+            .iter()
+            .map(|&pos| self.env.odo_dim_count(&key, pos).unwrap_or(dims[pos]) as i64)
+            .collect();
+        if limits.iter().any(|&l| l == 0) {
+            return Ok(());
+        }
         let mut counters = vec![1i64; all_positions.len()];
         loop {
             for (slot, &pos) in all_positions.iter().enumerate() {
@@ -18704,7 +18753,7 @@ impl Interpreter {
                     return Ok(());
                 }
                 slot -= 1;
-                let limit = dims[all_positions[slot]] as i64;
+                let limit = limits[slot];
                 if counters[slot] < limit {
                     counters[slot] += 1;
                     break;

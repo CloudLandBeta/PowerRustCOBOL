@@ -445,6 +445,18 @@ pub struct Program {
     ///
     /// 🔴 New fields belong at the END of this struct.
     pub sql_cursors: Vec<crate::sql::SqlCursor>,
+    /// `PROGRAM-ID. name IS INITIAL [PROGRAM]`: the program is put back in its
+    /// initial state every time it is called (COBOL-85 6.8). The interpreter
+    /// keeps none of its values between calls (1.91.221); the WebAssembly
+    /// generator reads it too (WASM-010, WASM-PARITY #10, #11).
+    ///
+    /// 🔴 New fields belong at the END of this struct.
+    #[serde(default)]
+    pub is_initial: bool,
+    /// `PROGRAM-ID. name IS COMMON [PROGRAM]`: a nested program its siblings
+    /// may call too (COBOL-85 10.2.6).
+    #[serde(default)]
+    pub is_common: bool,
 }
 
 /// How an `ALPHABET` clause defines a collating sequence.
