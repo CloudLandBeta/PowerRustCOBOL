@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.34] — 2026-10-22
+
+*(Written on `features-2x`, after 2.0.33.)*
+
+### Changed: WASM-010's engine probe stops the switch to `wasmtime` until the operator decides
+
+**The first task of WASM-010's implementation, the `wasmtime` probe, ended in its stop gate.** `wasmtime 44.0.3` is the newest release that builds on the project's minimum Rust 1.92: Apache-2.0 WITH LLVM-exception, 83 packages, an 18 s clean build. Its `runtime` feature, though, compiles a C helper (`helpers.c`, through `cc`) on macOS and Linux, and no feature set turns that off. Every newer release needs Rust 1.93 to 1.97. The task list says a C build script stops the work and goes to the operator, so the test host stays on `wasmi` for now, as a pending decision rather than a silent default. The measurements and the three possible answers are in `specs/WASM-010-webassembly-code-generation/plan.md` §1 WP1. They note that `cobolt-wasm`'s test graph already compiles C through SQLite. No code changed. `README.md` and `docs/` are untouched on this line.
+
+**Decided the same day:** the operator chose `wasmtime 44.0.3`, the IDE included, so the Build measures start-up natively (plan D5). Its `helpers.c` is the one C build script the guard allows for it; the switch itself (T2 onward) comes in the next change.
+
 ## [PowerRustCOBOL 2.0.33] — 2026-10-22
 
 *(Written on `features-2x`, after 2.0.32.)*

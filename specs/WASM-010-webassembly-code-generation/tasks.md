@@ -26,7 +26,7 @@ Other facts the tasks rely on, each read: `cobolt-wasm/src/module.rs` (`Options`
 
 ### Engine (WP1)
 
-- [ ] **T1 — Probe `wasmtime` (stop gate)** (Q2, spec §6 "probed at `/plan`", D2, D5)
+- [x] **T1 — Probe `wasmtime` (stop gate)** — done 2026-10-22, result **stops**: `wasmtime 44.0.3` (MSRV 1.92) compiles `helpers.c` with `cc` on unix; plan.md §1 WP1 "Probe result". The operator chose `wasmtime 44.0.3`, the IDE included (D5 as planned), on 2026-10-22: T2+ proceed (plan.md §1 WP1). (Q2, spec §6 "probed at `/plan`", D2, D5)
   - Files: none in the tree; the findings go into `plan.md` §1 WP1 as a dated "Probe result" paragraph.
   - Do: for the newest `wasmtime` whose `rust-version` ≤ 1.92, record licence, `rust-version`, whether any build script in its minimal feature set (`cranelift`, `runtime`, no `cache`/`wat` unless needed) compiles C (`cc`, `cmake`), transitive package count, clean-build time of `cobolt-wasm --features host`, and the added weight if the IDE gained it (input for Q-new-3).
   - **If MSRV > 1.92 or a C build script cannot be turned off: stop and ask the operator.** `wasmi` is not kept silently.
