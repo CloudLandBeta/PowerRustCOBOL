@@ -6,7 +6,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 # Tasks — The Backend project and the secure frontend–backend channel (WASM-003)
 
 - **Status:** draft — the 2026-10-20 work (M3) is done and kept below with its evidence; this list covers what the plan revised on
-  2026-10-22 adds (plan §0 C1–C5) and the two acceptance halves still open (AC9 IDE half, AC10). Nothing in T1–T13 is implemented.
+  2026-10-22 adds (plan §0 C1–C5) and the two acceptance halves that were open (AC9 IDE half, AC10). **All tasks T1–T14 done
+  (2026-10-23, 2.0.39)**; the evidence is under *Evidence (re-run)*; the open items below stay open.
 - **Plan:** ./plan.md   **Date:** 2026-10-22
 
 Ordered so the tree stays green after each task: the runtime prerequisite first (it can stop the `per-connection` work), then the single
@@ -263,7 +264,23 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
     the round-trip test updated; web_settings 11 pass; i18n 19 pass; the section drawn in 6 languages × 3 kinds (72 frames) within its width.
     The test calls `migrate_exports` directly — `open_project_at` is the one line that calls it; no test drives the IDE's window.
 
-- [ ] **T10 — Start and stop the backend from the IDE, its log in the Output panel** (R20; AC9 IDE half) — *design not in the plan*
+- [x] **T10 — Start and stop the backend from the IDE, its log in the Output panel** (R20; AC9 IDE half) — *design not in the plan*
+  - *Result (2026-10-23):* `crates/cobolt-ide/src/backend_run.rs` — `BackendRun::spawn(rcrun, project_dir)` runs `rcrun backend run
+    <project>` with stdout/stderr read on two threads; `poll` yields each line, the address (`Listening`) and an exit that came by itself;
+    `stop` kills and waits; `Drop` stops it, so the IDE's exit (and opening another project, `open_project_at`) leaves no backend behind.
+    `app.rs`: Run menu → **Start Backend** / **Stop Backend**, shown when the open Web/Mobile project has `backend/exports.toml`
+    (`backend_project_dir`), `start_backend`/`stop_backend`, `poll_backend` once a frame into the Output panel. `rcrun backend run` now
+    prints each log record to stderr **as it is written** (`DevOptions::echo`, `dev.rs` `EchoSink`) instead of all of them at Ctrl-C, so the
+    panel is live (the terminal sees the same lines, earlier). Five `Tr` keys ×6 (`backend_start`, `backend_stop`, `backend_running`,
+    `backend_stopped`, `backend_start_failed`). Guard: `dependency_guards::the_ide_runs_the_backend_as_a_child_and_links_none_of_the_server`
+    — IDE closure 705 crates, `cobolt-server` features `{"loader"}` only (through the compiler), none of `leptos`/`leptos_axum`/`server_fn`/
+    `axum`/`jsonwebtoken`/`tokio-tungstenite`. (The IDE does link `hyper` and `native-tls` through its HTTP and agents crates, as before.)
+    Tests: `backend_run::tests::the_ide_starts_the_backend_reads_its_log_and_stops_it` — a new Web project, listening line after 2205 ms
+    (`ws://127.0.0.1:65328/ws`), `GET /health` 200, 6 lines captured live incl. the `start` record, stopped in 0 ms, port free at once;
+    `a_folder_without_a_backend_exits_and_says_why` (the `exports.toml` message, `Exited(Some(1))`). The test needs `target/debug/rcrun`
+    built (`cargo build -p cobolt-cli --bin rcrun`; `--bin cobolt-ide` does not build it) and says so when it is missing. i18n 19 pass;
+    `backend_cli` 5 pass; `dependency_guards` 5 pass. Manual check (operator): Run → Start Backend on a Web project, `curl
+    http://127.0.0.1:8443/health` (the scaffold's `backend.toml` listens there, plain on loopback), Run → Stop Backend.
   - **Decided by the operator (2026-10-23): a child process.** The IDE runs `rcrun backend run <project>` (the `sibling_rcrun` pattern),
     streams its stdout/stderr into the Output panel and kills it on Stop and on IDE exit; the IDE links no `cobolt-server`, no Leptos and no
     socket/TLS/token crate (extend the T6 guard to assert it).
@@ -296,7 +313,32 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation`; `git diff --stat` shows
     `chunked.data` changed.
 
-- [ ] **T10a — The front runs on Leptos for real** (R2; O1 **decided 2026-10-23**: "use Leptos de fato")
+- [x] **T10a — The front runs on Leptos for real** (R2; O1 **decided 2026-10-23**: "use Leptos de fato")
+  - *Result (2026-10-23):* new `crates/cobolt-server/src/front.rs`. The closed route table is a **Leptos route table** —
+    `PlatformRoutes`, a `leptos_router` `<Router><Routes>` with `/`, `/ws`, `/dl/:token` — read once by
+    `leptos_axum::generate_route_list` (`front::route_list`) and mounted in `serve.rs` `front_router` with
+    `LeptosRoutes::leptos_routes_with_handler`: the upgrade listings → `upgrade`, the download listing → `download`, both unchanged.
+    `GET /health` is a **Leptos server function** (`#[server(prefix = "", endpoint = "health", input = GetUrl)] front::health`, JSON
+    output) run by `leptos_axum::handle_server_fns_with_context` with the server's `Arc<Shared>` provided as context; `serve::health_value`
+    is its body (the plain `health_listen` listener runs the same server function). Anything else: the 404 fallback, and
+    `method_not_allowed_fallback` keeps a wrong method on a Leptos route a 404 as before. `LeptosOptions: FromRef<ConnCtx>`
+    (`front::options`, defaults named `backend`) is what `leptos_axum`'s router extension asks of the state. No page, no hydration, no
+    client crate; still plain `cargo build`, no `cargo-leptos` (WASM-017 R17 holds). `session`, `on_hello`/`on_text`/`on_call`, `jwt.rs`,
+    the 431 cap and the handshake timeout untouched.
+  - Dependencies: `leptos_router` 0.8.17 (`ssr`) named directly; `leptos_axum` now keeps its **default features** — they are its tokio
+    executor (without them `generate_route_list` prints a "default-features = false" warning on every start) and `server_fn/axum`, the
+    server-function service. *Cost, stated:* `server_fn/axum` turns on `axum/ws`, so the server closure gains a second, TLS-free
+    `tokio-tungstenite`/`tungstenite` **0.29** (the session keeps 0.28), plus `tower-http` 0.6.11, `http-range-header`,
+    `serde_path_to_error`: 406 → 411 crates; none barred; highest `rust-version` in the closure 1.90 (`redb`). `Cargo.lock` +70/−4 (the
+    4 are dependency lines that now name `tokio-tungstenite`/`tungstenite` with their version; no existing crate changed version).
+  - Tests: `front::tests::the_platform_routes_are_leptos_s_table_and_the_probe_a_server_function` — table `["/", "/dl/{token}", "/ws"]`,
+    `/admin` absent, server functions `[("/health", "GET")]`. Unchanged and green on this front: cobolt-server **70** pass (lib 11,
+    `client_contract` 13, `config_rules` 11, `dependency_guards` 5, `loopback` 15, `token_rules` 15); `routes_are_closed`: `GET /health`
+    200; `POST /health`, `/dl/<bad>`, `/dl/../etc/passwd`, `GET /ws` and `GET /` without upgrade, `/admin`, `/api/anything`, `/ws/extra`,
+    `/health/` → 404; upgrade `/` and `/ws` → 101; `a_large_or_slow_request_head_is_refused`: 20 KiB head → 431, unfinished head closed
+    after 1503 ms (limit 1500). `backend_build_wasm003` 3 pass: **71 s** cold debug build, **67.2 MB** (T8 on the axum front: 40 s /
+    57.5 MB; hand-rolled: 29 s / 53.1 MB — the Leptos code is now used, so it is no longer dropped by the linker; the build time was
+    measured with other builds running); `backend_cli` 5 pass.
   - The operator ruled that a front built on hyper + axum with Leptos linked but never called does not satisfy R2. The HTTP front is served
     through Leptos: the router is `leptos_axum`'s, and the platform routes (health, hello/token exchange, the WebSocket upgrade, the static
     answers) go through Leptos server functions or Leptos-registered handlers rather than a bare axum table. The WebSocket session code, the
@@ -306,7 +348,23 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
     route registered only through Leptos answers, a route absent from Leptos's table gets 404); the dependency guard still holds; T13 then
     re-runs its evidence on this front.
 
-- [ ] **T12 — AC10 and R23: a secret stops the frontend build, the same value in `backend.toml` does not; `connect-src` printed**
+- [x] **T12 — AC10 and R23: a secret stops the frontend build, the same value in `backend.toml` does not; `connect-src` printed**
+  - *Result (2026-10-23):* the test is `crates/cobolt-project-tools/tests/backend_secret_not_scanned.rs`, **not** under
+    `cobolt-web-bundle/tests` as written below — the bundle crate takes already-assembled inputs, so "nothing under `backend/` reaches the
+    bundle" can only be shown where a project folder becomes a bundle (`web::generator::GeneratorBackend`, beside WASM-002 T17's
+    `secret_in_a_wcfrm_property_stops_the_build_naming_file_and_pattern`). One Web project with a Backend: the planted value (AWS's
+    documented example key, built from fragments) in a `.wcfrm` caption → stopped, "`forms/main-form.8b03d742.cfrm: line 10: secret
+    (cloud access key id); the value is not shown`", nothing written; the same value only as `backend/backend.toml` `[tls]
+    pkcs12_password` → built, 25 files / 7 429 584 bytes, no path from `backend/`, no file holding the value; `connect-src 'self'
+    wss://api.example.com`, and the page carries it.
+  - **Two code changes the test needed, stated:** (1) *a bug:* `generator.rs` turned `[web] backend_url` into an origin with
+    `cobolt_web_bundle::origin_of`, which answers `http(s)` only, so a `wss://` backend — the only kind `WebSettings::backend_url` documents
+    and the bundle accepts — was silently left out of `connect-src` (the first run printed `connect-src 'self'`). New
+    `generator::backend_origin` keeps the `ws`/`wss` scheme and passes any other value whole, for the bundle to refuse by name (as an
+    `https://` value already was); `generator::tests::the_backend_origin_keeps_the_websocket_scheme`. (2) *R23's "print":* no build path
+    reported the `connect-src` (the bundle's own `BuildReport.csp_meta` never reached the project report); `web::BuildReport` gains
+    `connect_src`, filled by the generator and answered in `to_json` (what `rcrun`/the agent tools print). The IDE's Output panel does
+    not show it yet — that needs a `Tr` label; left open, not done here.
   (R17, R23; AC10) — *the scan itself is WASM-002's (T2 there, done)*
   - Files: `crates/cobolt-web-bundle/tests/backend_secret_not_scanned.rs` (new, test only).
   - Do: one project fixture: a planted test secret in a form stops the bundle (naming file and pattern, never the value); the same value only
@@ -316,13 +374,13 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
 
 ## Evidence and finalize
 
-- [ ] **T13 — Evidence re-run on the Leptos front, recorded here** (AC1–AC10; plan §5 R5, R7)
+- [x] **T13 — Evidence re-run on the Leptos front, recorded here** (AC1–AC10; plan §5 R5, R7) — see *Evidence (re-run, 2026-10-23)* below
   - Do: `df -h .` first (a test sweep links many binaries). Re-run every suite the plan §6 names and append an **Evidence (re-run)** table to
     this file: one row per acceptance criterion, the test that proves it, the printed numbers; AC9 and AC10 rows from T10 and T12. State that
     Windows and Linux were not run, if they were not, and that no real identity provider was contacted. Cross-spec risk R1 (the player's
     `{"type":…}` envelope vs `proto.rs` `{"t":…}` with `hello`, `net.rs:264` vs `parse_client`) is recorded, not fixed — WASM-014/WASM-016 own it.
 
-- [ ] **T14 — Finalize** (all)
+- [x] **T14 — Finalize** (all) — `2.0.38` → **`2.0.39`** (once, this run), one CHANGELOG entry above 2.0.38; the sweep below
   - Files: `crates/cobolt-ide/src/version.rs` (bump `z` **once**: `2.0.29` → the next free `2.0.z` at the time), `CHANGELOG.md` (one entry
     **above** the previous heading, `## [PowerRustCOBOL 2.0.z] — <date>`, marked *Written on features-2x*, listing T1–T13). **No documentation
     task:** `README.md` and `docs/` are not touched on 2.x.x.
@@ -332,7 +390,7 @@ developer's machine. If the operator rules otherwise, T7 gains a tool check with
     `cargo test -p cobolt-web-bundle --no-fail-fast`, `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`; `cargo fmt --check`;
     the credential scan of the staged diff (no `AKIA`/`ASIA`/secret) before the pipeline commits.
 
-### State of this run (2026-10-23)
+### State of the previous run (2026-10-23, 2.0.38 — superseded by the evidence above)
 
 T1–T9 and T11 done; **stopped at T10** (an operator decision); T12 and T13 not run. T14's version and CHANGELOG parts were done because the
 run required them: `2.0.37` → `2.0.38`, one entry above 2.0.37. T14 stays unchecked. Sweep with `--no-fail-fast`, every `test result` line read:
@@ -357,6 +415,57 @@ None of the 9 failures touches this change:
 
 `cargo fmt --check` fails across 887 files of the workspace, most of them not touched here: the codebase is written in wide lines. Nothing was reformatted. The credential scan of the diff found nothing.
 
+### Evidence (re-run, 2026-10-23, on the Leptos front) — T13
+
+macOS (Darwin 24.5, aarch64), debug builds, real sockets on loopback; the numbers are what the tests printed. **Windows and Linux were
+not run. No real identity provider was contacted** (a local test issuer supplies the keys).
+
+| AC | Proved by | Result |
+|---|---|---|
+| AC1 exported vs non-exported, one executable | `loopback::an_exported_program_answers_and_nothing_else_does`; `backend_build_wasm003` (3) | pass; nine spellings `not-found 5000`; built binary 71 s / 67.2 MB, `/health` 200, `PING` → `pong`, `SECRET` answers like `NO-SUCH-PROGRAM` |
+| AC2 token refusals | `loopback::tokens_are_accepted_…`, `token_rules` (15) | pass |
+| AC3 role before start, subject readable | `loopback::a_role_is_checked_before_the_program_starts`, `backend_cli` (`WHOAMI`) | pass |
+| AC4 foreign Origin, non-loopback `ws` | `loopback::a_foreign_origin_…`, `config_rules::plain_ws_is_never_served_on_a_non_loopback_address` | pass |
+| AC5 payload validation | `loopback::a_payload_that_does_not_fit_…` | pass |
+| AC6 size, time, rate | `loopback::size_time_and_rate_limits_…`, `a_large_or_slow_request_head_is_refused` | pass; timeout at 702.7 ms (limit 700); burst 10 → 4 answered, 6 × 7001; 8 kB frame → 7000; 20 KiB head → 431; unfinished head closed at 1503 ms (limit 1500) |
+| AC7 concurrent clients isolated | `loopback::concurrent_callers_…`, `per_connection_state_is_kept_and_never_shared` | pass |
+| AC8 no token/password in the log | `loopback::the_log_has_neither_the_token_nor_a_field_…` | pass |
+| AC9 IDE start/stop, binary identical | `backend_run::tests::the_ide_starts_the_backend_reads_its_log_and_stops_it`, `a_folder_without_a_backend_exits_and_says_why`; `backend_cli` (5) | pass; address after 2205 ms, `/health` 200, live `start` record, stopped in 0 ms, port free. The IDE runs `rcrun backend run` itself, so the code is the standalone one. *Manual (operator):* Run → Start Backend / Stop Backend in the IDE window — not driven by the agent |
+| AC10 frontend secret stops build, backend's does not | `backend_secret_not_scanned::a_frontend_secret_stops_the_build_and_the_backends_own_does_not` | pass; `connect-src 'self' wss://api.example.com` |
+
+Routes (`loopback::routes_are_closed`, Leptos table): `GET /health` 200; `POST /health`, `/dl/<bad>`, `/dl/../etc/passwd`, `GET /ws` and
+`GET /` without upgrade, `/admin`, `/api/anything`, `/ws/extra`, `/health/` → 404; upgrade `/` and `/ws` → 101.
+Cross-spec risk R1 (the player's `{"type":…}` envelope, `cobolt-web-player` `net.rs`, vs `proto.rs` `{"t":…}` with `hello`) is
+**recorded, not fixed**: WASM-014/WASM-016 own it.
+
+Sweep (T14) with `--no-fail-fast`, every `test result` line summed (`df` before: 37 GiB free; after: 22 GiB):
+
+| Crate | `test result` lines | Passed | Failed | Ignored |
+|---|---|---|---|---|
+| cobolt-runtime | 183 | 1554 | 0 | 29 |
+| cobolt-wire | 4 | 23 | 0 | 0 |
+| cobolt-server | 7 | 70 | 0 | 0 |
+| cobolt-compiler | 11 | 207 | 4 | 5 |
+| cobolt-cli | 21 | 61 | 1 | 5 |
+| cobolt-project-tools | 12 | 158 | 0 | 1 |
+| cobolt-web-bundle | 7 | 30 | 0 | 0 |
+| cobolt-ide (`--bin cobolt-ide`) | 1 | 1877 | 5 | 4 |
+
+The 10 failures, none in code this run touched:
+- **cobolt-compiler (4):** the SDK crate set does not ship `cobolt-decimal`/`cobolt-numedit` — `sdk_crate_set_is_closed_under_path_dependencies`
+  and three `resolve_main_tests`; the same four as the previous run.
+- **cobolt-cli (1):** `aws_hosts::the_hosted_demos_pass_over_https_with_nothing_on_the_path` — the embedded `aws-agent-memory-demo`
+  answered `PASS 005 FAIL 002` during the sweep; re-run alone it **passes** (131.7 s). Sensitive to machine load, not to this change.
+- **cobolt-ide (5):** the same five as the previous run — `every_document_ships_in_every_language` (docs translations removed under
+  the 2.x.x rule), `every_completion_description_exists_in_six_languages` (12 English-only descriptions, none touched here),
+  `claude_validates_the_written_bundle` (external `claude` validator), `compatible_and_reserved_collisions_still_refuse` and
+  `live_resolver_verdicts` (live crates.io).
+
+`cargo fmt --check` is not clean for the workspace (887 files written in wide lines before this run); the new files follow the
+surrounding wide style and nothing was reformatted. Credential scan of the diff and the three new files: nothing found (the test's
+planted key is built from fragments). System KB: *Calling the backend* names Run → Start/Stop Backend and the live log;
+`chunked.data` regenerated (3554 records, 12 738 560 → 12 742 656 bytes). `README.md` and `docs/` untouched.
+
 ## Coverage (acceptance criteria → tasks)
 
 | AC | Covered by |
@@ -369,14 +478,14 @@ None of the 9 failures touches this change:
 | AC6 size, time, rate | D-b, T7 |
 | AC7 concurrent clients isolated | D-b, T5 (`per-call` unchanged, `per-connection` per connection) |
 | AC8 no token/password in the log | D-b, T5 (log gains only the mode), T7 |
-| AC9 IDE start/stop, binary identical | D-e, T10 (*working assumption to confirm*) |
+| AC9 IDE start/stop, binary identical | D-e, T10 |
 | AC10 frontend secret stops build, backend's does not | T12 |
 
 ## Open items carried (not decided by this list)
 
-- **O1** — how `cargo-leptos` enters (R2 vs WASM-017 R17): working assumption above T6; to confirm.
+- **O1** — decided by the operator 2026-10-23: the front runs on Leptos for real (T10a, done), plain `cargo build`; whether `cargo-leptos` must ever run the backend build stays **to confirm** (plan §7).
 - **O2** — the words `per-call` / `per-connection`: plan's spelling; the visible text is in Tr keys (T9).
-- **T10's hosting model** — child `rcrun` process vs in-process `DevServer`: working assumption stated; to confirm.
+- **T10's hosting model** — decided by the operator 2026-10-23: a child `rcrun backend run` (T10, done).
 - **D4 reading of R5** — loopback `ws` in a release start behind a reverse proxy; for the next `/clarify`.
 - **O3** — WASM-INDEX D4/D5 still say "Open"; another file, left to its owner.
 - **Plan §5 R1** — the player/server envelope mismatch; WASM-014/WASM-016.

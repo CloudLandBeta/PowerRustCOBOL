@@ -272,6 +272,7 @@ fn build_on_a_web_project_reports_the_bundle_or_says_why_not() {
                 startup_ms: Some(41.5),
                 warnings: vec!["the module is larger than 3 KiB".into()],
                 duration_ms: 9,
+                ..BuildReport::default()
             })
         }
     }

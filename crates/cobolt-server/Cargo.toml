@@ -30,7 +30,7 @@ server = [
     "loader", "net",
     "dep:cobolt-runtime", "dep:jsonwebtoken", "dep:ureq",
     "dep:sha2", "dep:base64", "dep:getrandom", "dep:tracing-subscriber",
-    "dep:leptos", "dep:leptos_axum", "dep:axum", "dep:hyper", "dep:hyper-util",
+    "dep:leptos", "dep:leptos_axum", "dep:leptos_router", "dep:axum", "dep:hyper", "dep:hyper-util",
 ]
 
 # The client a desktop or native host links to make `CALL … WITH WEBSOCKET
@@ -86,6 +86,7 @@ tracing-subscriber = { workspace = true, optional = true }
 # hyper, server side only. The developer's generated backend names none of them.
 leptos      = { workspace = true, optional = true }
 leptos_axum = { workspace = true, optional = true }
+leptos_router = { workspace = true, optional = true }
 axum        = { workspace = true, optional = true }
 hyper       = { workspace = true, optional = true }
 hyper-util  = { workspace = true, optional = true }

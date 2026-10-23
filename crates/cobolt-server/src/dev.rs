@@ -27,8 +27,22 @@ use std::sync::Arc;
 
 use crate::backend::Backend;
 use crate::config::{RunMode, ServerConfig};
-use crate::log::MemorySink;
+use crate::log::{LogRecord, LogSink, MemorySink};
 use crate::serve::{Options, ServerHandle};
+
+/// The memory sink, and each record also printed to standard error as it
+/// happens — `rcrun backend run`'s live log, which the IDE's Output panel
+/// reads from the child process (WASM-003 R20).
+struct EchoSink(MemorySink);
+
+impl LogSink for EchoSink {
+    fn emit(&self, record: &LogRecord) {
+        self.0.emit(record);
+        if let Ok(line) = serde_json::to_string(record) {
+            eprintln!("{line}");
+        }
+    }
+}
 
 /// What a development run is told.
 #[derive(Debug, Clone, Default)]
@@ -39,6 +53,8 @@ pub struct DevOptions {
     pub listen: Option<String>,
     /// The project's `[backend] state`.
     pub state: crate::backend::StateMode,
+    /// Also print each log record to standard error as it is written.
+    pub echo: bool,
 }
 
 pub struct DevServer {
@@ -77,7 +93,8 @@ impl DevServer {
         let resolved = cfg.resolve(RunMode::Development, &opts.backend_dir)?;
         let tls = resolved.tls.is_some();
         let sink = MemorySink::new();
-        let handle = crate::serve::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: None }).map_err(|e| vec![e])?;
+        let to: Arc<dyn LogSink> = if opts.echo { Arc::new(EchoSink(sink.clone())) } else { Arc::new(sink.clone()) };
+        let handle = crate::serve::start(resolved, backend, Options { sink: Some(to), fetcher: None }).map_err(|e| vec![e])?;
         let url = format!("{}://{}/ws", if tls { "wss" } else { "ws" }, handle.addr);
         Ok(DevServer { handle, sink, secret, url })
     }

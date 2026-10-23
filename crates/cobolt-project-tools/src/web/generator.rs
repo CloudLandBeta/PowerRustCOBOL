@@ -418,6 +418,28 @@ fn replace_dir(out: &Path, files: &[cobolt_web_bundle::BundleFile]) -> std::io::
 }
 
 /// `pr_init` + `pr_open_form(main)` of `wasm`, in milliseconds.
+/// `wss://host[:port]` (or `ws://…`) of the project's `backend_url`, which is a
+/// WebSocket address. `cobolt_web_bundle::origin_of` answers http(s) only, so a
+/// `wss://` backend went missing from the page's `connect-src` (WASM-003 R23).
+/// Any other scheme is passed on whole, for the bundle to refuse by name.
+fn backend_origin(url: &str) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    let Some((scheme, rest)) = url.split_once("://") else { return Some(url.to_owned()) };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if host.is_empty() || !(scheme.eq_ignore_ascii_case("wss") || scheme.eq_ignore_ascii_case("ws")) {
+        return Some(url.to_owned());
+    }
+    Some(format!("{}://{host}", scheme.to_ascii_lowercase()))
+}
+
+/// The `connect-src` directive of a policy, as written (`connect-src 'self' wss://…`).
+fn connect_src(policy: &str) -> String {
+    policy.split(';').map(str::trim).find(|d| d.starts_with("connect-src")).unwrap_or_default().to_owned()
+}
+
 fn measure_startup(wasm: &[u8]) -> Option<f64> {
     let t = Instant::now();
     let mut host = cobolt_wasm::host::FormHost::new(wasm).ok()?;
@@ -482,9 +504,7 @@ impl WebBuildBackend for GeneratorBackend {
                 Isolation::RequireCorp => cobolt_web_bundle::Isolation::RequireCorp,
                 Isolation::Credentialless => cobolt_web_bundle::Isolation::Credentialless,
             },
-            backend_origins: cobolt_web_bundle::origin_of(&req.web.backend_url)
-                .into_iter()
-                .collect(),
+            backend_origins: backend_origin(&req.web.backend_url).into_iter().collect(),
             ..BundleOptions::default()
         };
         let program_multi = modules.multi.as_ref().map(|c| c.wasm.clone());
@@ -526,6 +546,23 @@ impl WebBuildBackend for GeneratorBackend {
             startup_ms,
             warnings,
             duration_ms: started.elapsed().as_millis() as u64,
+            connect_src: connect_src(&bundle.report.csp_meta),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_backend_origin_keeps_the_websocket_scheme() {
+        assert_eq!(backend_origin("wss://api.example.com/ws"), Some("wss://api.example.com".into()));
+        assert_eq!(backend_origin("WSS://api.example.com:8443"), Some("wss://api.example.com:8443".into()));
+        assert_eq!(backend_origin("ws://127.0.0.1:8443/ws"), Some("ws://127.0.0.1:8443".into()));
+        assert_eq!(backend_origin("  "), None);
+        // Not a WebSocket address: passed on whole, and the bundle refuses it by name.
+        assert_eq!(backend_origin("https://api.example.com"), Some("https://api.example.com".into()));
+        assert_eq!(connect_src("default-src 'none'; connect-src 'self' wss://a.b; object-src 'none'"), "connect-src 'self' wss://a.b");
     }
 }

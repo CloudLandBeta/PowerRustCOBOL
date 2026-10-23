@@ -35,6 +35,8 @@ pub mod exec;
 #[cfg(feature = "server")]
 pub mod files;
 #[cfg(feature = "server")]
+pub mod front;
+#[cfg(feature = "server")]
 pub mod http;
 #[cfg(feature = "server")]
 pub mod idem;

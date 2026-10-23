@@ -178,6 +178,9 @@ pub struct BuildReport {
     pub warnings: Vec<WebDiagnostic>,
     /// How long the build took.
     pub duration_ms: u64,
+    /// The page's `connect-src`: where it may connect — itself and the
+    /// configured backend, nothing else (WASM-003 R23, WASM-002 R14).
+    pub connect_src: String,
 }
 
 impl BuildReport {
@@ -192,6 +195,7 @@ impl BuildReport {
             "startup_ms": self.startup_ms,
             "warnings": self.warnings.iter().map(WebDiagnostic::to_string).collect::<Vec<_>>(),
             "duration_ms": self.duration_ms,
+            "connect_src": self.connect_src,
         })
     }
 }
@@ -464,6 +468,7 @@ mod tests {
                     startup_ms: Some(12.5),
                     warnings: vec!["a warning".into()],
                     duration_ms: 3,
+                    ..BuildReport::default()
                 })
             }
         }

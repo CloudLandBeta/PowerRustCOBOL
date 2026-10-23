@@ -1054,6 +1054,7 @@ mod tests {
                 startup_ms: Some(12.0),
                 warnings: vec!["a warning".into()],
                 duration_ms: 3,
+                ..BuildReport::default()
             })
         }
     }

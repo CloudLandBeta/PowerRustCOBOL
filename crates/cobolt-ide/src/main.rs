@@ -24,6 +24,7 @@ pub mod agent_inspection;
 pub mod agents_db;
 mod app;
 pub mod aurora;
+mod backend_run;
 pub mod contrast;
 pub mod crash;
 pub mod data_binding_guardian;

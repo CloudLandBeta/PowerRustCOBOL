@@ -579,7 +579,9 @@ fn cmd_backend(args: &[String]) {
             println!("released: {}", path.display());
         }
         "run" => {
-            let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen, state };
+            // The log goes to standard error as it is written, so a terminal and
+            // the IDE's Output panel (which runs this as a child) both see it live.
+            let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen, state, echo: true };
             let server = cobolt_server::dev::DevServer::start(&opts).unwrap_or_else(|e| fail(e));
             let token = server.dev_token("developer", &["user", "admin"]);
             println!("backend listening on {}", server.url);
@@ -587,9 +589,6 @@ fn cmd_backend(args: &[String]) {
             println!("{token}");
             println!("Press Ctrl-C to stop.");
             cobolt_server::standalone::wait_for_interrupt();
-            for l in server.log_lines() {
-                eprintln!("{l}");
-            }
             server.stop();
         }
         _ => {

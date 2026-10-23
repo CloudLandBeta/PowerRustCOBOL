@@ -17,6 +17,37 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.39] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.38.)*
+
+### Added: the IDE starts and stops the Backend, the front runs on Leptos, and a frontend secret stops the Web Build while the Backend's own does not (WASM-003 T10, T10a, T12–T14)
+
+**Start and stop the Backend from the IDE** (T10; operator, 2026-10-23: a child process). In a Web or Mobile project with `backend/exports.toml`, the Run menu has two new entries, **Start Backend** and **Stop Backend**. Start runs `rcrun backend run <project>`, which is exactly the standalone development server. Its address, the development token and each log line appear in the Output panel.
+- Stop ends the backend, and so do opening another project and quitting the IDE.
+- `rcrun backend run` now prints each log record as it happens, not all of them at Ctrl-C.
+- The IDE links none of the server, its front or its token code. A new guard checks this: the IDE's `cobolt-server` is the loader alone.
+- There are five new `Tr` keys in all six languages.
+- Tested: a new Web project's backend gave its address 2.2 s after Start, answered `/health` with 200, and its `start` record reached the IDE live. Stop took 0 ms and freed the port at once.
+
+**The front runs on Leptos** (T10a; operator, 2026-10-23: "use Leptos de fato").
+- The closed route table is a `leptos_router` table (`/`, `/ws`, `/dl/:token`). `leptos_axum::generate_route_list` reads it, and `leptos_routes_with_handler` mounts it.
+- `GET /health` is a Leptos server function, answered through `leptos_axum::handle_server_fns_with_context`.
+- The WebSocket session, the Origin check, the download, the 431 cap and the handshake timeout are unchanged. Every earlier test passes on the new front: cobolt-server 70.
+- Still a plain `cargo build`, with no `cargo-leptos`.
+- `leptos_axum` keeps its default features, which bring a second, TLS-free `tungstenite` (0.29) through `axum/ws`. The server closure is 411 crates, none barred, and the highest `rust-version` is 1.90.
+- A built backend: 71 s cold debug build, 67.2 MB.
+
+**AC10 and R23** (T12). A key planted in a `.wcfrm` stops the Web Build, naming the file and the pattern but never the value. The same value only in `backend/backend.toml` does not stop it, and nothing from `backend/` reaches the bundle. This is tested on one Web project with a Backend.
+
+Two changes came out of that test:
+- A `wss://` `[web] backend_url` was silently left out of the page's `connect-src`: it went through an origin helper that knows `http(s)` only. It is now kept.
+- The Web Build's report now carries `connect_src` (`connect-src 'self' wss://api.example.com`), which the tools print.
+
+**System KB.** *Calling the backend* now names Run → Start/Stop Backend and the live log. `chunked.data` was regenerated: 3554 records.
+
+**Still open.** Showing the `connect-src` in the IDE's Output panel (it needs a `Tr` label). The `hello` member that would tell a client its state is new (WASM-014). The player/server envelope mismatch (WASM-014/WASM-016). Windows and Linux were not run, and no real identity provider was contacted.
+
 ## [PowerRustCOBOL 2.0.38] — 2026-10-23
 
 *(Written on `features-2x`, after 2.0.37.)*

@@ -90,10 +90,13 @@ flate2  = "1"
 sysinfo = "0.31"
 
 # WASM-003 R2 — the backend's HTTP front is built on Leptos's server integration.
-# Server side only (`ssr`): no client crate, no hydration, no default features.
+# Server side only (`ssr`): no client crate, no hydration. `leptos_axum` keeps its
+# defaults: they are its tokio executor and server-function service (`server_fn/axum`),
+# which the front runs on (WASM-003 T10a).
 # Guarded by crates/cobolt-server/tests/dependency_guards.rs (no ring/aws-lc/rustls/openssl).
-leptos      = { version = "0.8", default-features = false, features = ["ssr"] }
-leptos_axum = { version = "0.8", default-features = false }
+leptos        = { version = "0.8", default-features = false, features = ["ssr"] }
+leptos_axum   = { version = "0.8" }
+leptos_router = { version = "0.8", default-features = false, features = ["ssr"] }
 axum        = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 hyper       = { version = "1", default-features = false, features = ["http1", "server"] }
 hyper-util  = { version = "0.1", default-features = false, features = ["tokio", "service"] }

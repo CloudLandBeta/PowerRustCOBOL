@@ -283,7 +283,8 @@ async fn health_loop(shared: Arc<Shared>, listener: TcpListener) {
     }
 }
 
-fn health_body(shared: &Shared) -> String {
+/// What the health probe answers (the server function [`crate::front::health`]).
+pub(crate) fn health_value(shared: &Shared) -> serde_json::Value {
     serde_json::json!({
         "status": "ok",
         "contract": shared.backend.interface.contract,
@@ -293,7 +294,6 @@ fn health_body(shared: &Shared) -> String {
         "calls_failed": shared.stats.calls_failed.load(Ordering::SeqCst),
         "subscriptions": shared.stats.subscriptions_active.load(Ordering::SeqCst),
     })
-    .to_string()
 }
 
 // ── one connection ────────────────────────────────────────────────────────────
@@ -339,15 +339,24 @@ impl FromRef<ConnCtx> for Arc<Shared> {
     }
 }
 
-/// The closed route table (WASM-003 Q3, D6). A developer cannot add a route;
-/// the identity routes of WASM-009 are added here, beside these, when they exist.
+impl FromRef<ConnCtx> for leptos::config::LeptosOptions {
+    fn from_ref(_: &ConnCtx) -> leptos::config::LeptosOptions {
+        crate::front::options()
+    }
+}
+
+/// The closed route table (WASM-003 Q3, D6), Leptos's (T10a): the paths of
+/// [`crate::front::PlatformRoutes`] mounted through `leptos_axum`, each with
+/// its handler, and the health server function. A developer cannot add a
+/// route; the identity routes of WASM-009 are added to that table when they exist.
 fn front_router(ctx: ConnCtx) -> Router {
+    use leptos_axum::LeptosRoutes;
     Router::new()
-        .route("/health", any(health))
-        .route("/dl/{token}", any(download))
-        .route("/", any(upgrade))
-        .route("/ws", any(upgrade))
+        .route(crate::front::HEALTH_PATH, any(health))
+        .leptos_routes_with_handler(crate::front::listings(&crate::front::UPGRADE_PATHS), upgrade)
+        .leptos_routes_with_handler(crate::front::listings(&[crate::front::DOWNLOAD_PATH]), download)
         .fallback(not_found)
+        .method_not_allowed_fallback(not_found)
         .layer(axum::middleware::map_response(security_headers))
         .with_state(ctx)
 }
@@ -387,11 +396,13 @@ async fn security_headers(mut res: Response) -> Response {
     res
 }
 
-async fn health(State(shared): State<Arc<Shared>>, method: Method) -> Response {
-    if method != Method::GET {
+/// `GET /health` runs the server function [`crate::front::health`] through
+/// `leptos_axum`, with the server's state as its context.
+async fn health(State(shared): State<Arc<Shared>>, req: Request) -> Response {
+    if req.method() != Method::GET {
         return plain(StatusCode::NOT_FOUND, "not found");
     }
-    ([(header::CONTENT_TYPE, "application/json")], health_body(&shared)).into_response()
+    leptos_axum::handle_server_fns_with_context(move || leptos::prelude::provide_context(shared.clone()), req).await.into_response()
 }
 
 /// `GET /` or `GET /ws` with an upgrade: the Origin (R14), then the WebSocket with

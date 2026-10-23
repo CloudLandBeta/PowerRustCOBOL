@@ -951,6 +951,9 @@ pub struct CoboltApp {
     /// The web Preview of a Web or Mobile project: its build job, development
     /// server, web view and controls window (WASM-008).
     web_preview: WebPreview,
+    /// The project's backend started from the Run menu: a child
+    /// `rcrun backend run` (WASM-003 R20); dropping it stops it.
+    backend_run: Option<crate::backend_run::BackendRun>,
 
     // Cross-window pending actions
     /// A file path waiting to be opened in the code editor (set by a designer
@@ -2291,6 +2294,7 @@ impl CoboltApp {
             new_indexed_dir: None,
             new_project: NewProjectDialog::new(),
             web_preview: WebPreview::default(),
+            backend_run: None,
 
             pending_open_in_editor: None,
             pending_goto_paragraph: None,
@@ -2750,6 +2754,69 @@ impl CoboltApp {
         self.web_preview.show(ctx, &tr);
         if wants_frame {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
+    }
+
+    /// The folder of the open project when it has a backend to run
+    /// (`backend/exports.toml`, WASM-003 D5).
+    fn backend_project_dir(&self) -> Option<PathBuf> {
+        if !self.is_web_project() {
+            return None;
+        }
+        let dir = self.project_path.as_ref()?.parent()?.to_path_buf();
+        dir.join("backend").join("exports.toml").is_file().then_some(dir)
+    }
+
+    /// Run menu → Start Backend: `rcrun backend run <project>` as a child
+    /// (WASM-003 R20); a backend already running is stopped first.
+    fn start_backend(&mut self) {
+        let Some(dir) = self.backend_project_dir() else {
+            return;
+        };
+        self.stop_backend();
+        let tr = self.lang.tr();
+        match crate::backend_run::BackendRun::spawn(&crate::backend_run::rcrun(), &dir) {
+            Ok(run) => self.backend_run = Some(run),
+            Err(e) => self.output.push_status(tr.backend_start_failed.replacen("{}", &e.to_string(), 1)),
+        }
+    }
+
+    /// Run menu → Stop Backend, and a project change.
+    fn stop_backend(&mut self) {
+        if let Some(mut run) = self.backend_run.take() {
+            let was_running = run.is_running();
+            run.stop();
+            if was_running {
+                self.output.push_status(self.lang.tr().backend_stopped.to_owned());
+            }
+        }
+    }
+
+    /// Once a frame: hand the backend's lines to the Output panel.
+    fn poll_backend(&mut self, ctx: &Context) {
+        let Some(run) = self.backend_run.as_mut() else {
+            return;
+        };
+        let events = run.poll();
+        let running = run.is_running();
+        let tr = self.lang.tr();
+        for event in events {
+            match event {
+                crate::backend_run::BackendEvent::Line(line) => self.output.push_line(line),
+                crate::backend_run::BackendEvent::Listening(url) => {
+                    self.output.push_status(tr.backend_running.replacen("{}", &url, 1))
+                }
+                crate::backend_run::BackendEvent::Exited(code) => {
+                    // It ended by itself; the lines above say why.
+                    let why = code.map(|c| format!("exit {c}")).unwrap_or_else(|| "signal".to_owned());
+                    self.output.push_status(format!("{} ({why})", tr.backend_stopped));
+                }
+            }
+        }
+        if running {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        } else {
+            self.backend_run = None;
         }
     }
 
@@ -4851,8 +4918,9 @@ impl CoboltApp {
     }
 
     fn open_project_at(&mut self, path: PathBuf) {
-        // A Preview belongs to the project it was started for.
+        // A Preview belongs to the project it was started for; so does a backend.
         self.web_preview.close();
+        self.stop_backend();
         match load_project(&path) {
             Ok(mut proj) => {
                 let dir = path.parent().map(|p| p.to_owned());
@@ -16275,6 +16343,7 @@ impl eframe::App for CoboltApp {
         self.show_code_search_window(ctx);
         self.show_new_project_dialog(ctx);
         self.show_web_preview(ctx);
+        self.poll_backend(ctx);
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
@@ -16456,6 +16525,19 @@ impl eframe::App for CoboltApp {
                                 }
                                 ui.separator();
                                 if ui.button(tr.menu_check_only).clicked() { self.do_check(); ui.close(); }
+                                // WASM-003 R20 — the project's backend, beside its forms.
+                                if self.backend_project_dir().is_some() {
+                                    ui.separator();
+                                    let backend_up = self.backend_run.is_some();
+                                    if ui.add_enabled(!backend_up, egui::Button::new(tr.backend_start)).clicked() {
+                                        self.start_backend();
+                                        ui.close();
+                                    }
+                                    if ui.add_enabled(backend_up, egui::Button::new(tr.backend_stop)).clicked() {
+                                        self.stop_backend();
+                                        ui.close();
+                                    }
+                                }
                             });
                         }
                         crate::menu_layout::Menu::View => {

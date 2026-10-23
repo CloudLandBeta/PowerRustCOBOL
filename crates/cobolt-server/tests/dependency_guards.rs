@@ -101,3 +101,29 @@ fn the_client_a_desktop_host_links_has_the_channel_and_nothing_of_the_server() {
     assert_eq!(present(&client, LEPTOS_FRONT), Vec::<&str>::new(), "the client links no HTTP front");
     println!("client closure: {} crates; front/barred found: {:?}", client.len(), [present(&client, LEPTOS_FRONT), present(&client, NO_C_CRYPTO)].concat());
 }
+
+#[test]
+fn the_ide_runs_the_backend_as_a_child_and_links_none_of_the_server() {
+    // WASM-003 T10 (operator, 2026-10-23): the IDE starts `rcrun backend run` as a
+    // child process, so the server, its front and its token code stay out of it.
+    let ide = closure(&["-p", "cobolt-ide"]);
+    assert!(ide.contains("cobolt-compiler") && ide.contains("eframe"), "the guard looks at the real closure");
+    let server_only = ["leptos", "leptos_axum", "server_fn", "axum", "axum-core", "jsonwebtoken", "tokio-tungstenite", "tungstenite"];
+    assert_eq!(present(&ide, &server_only), Vec::<&str>::new(), "the IDE links no HTTP front, no WebSocket server and no token code");
+    // `cobolt-server` reaches the IDE only through the compiler, as the loader.
+    let cargo = option_env!("CARGO").unwrap_or("cargo");
+    let out = Command::new(cargo)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["tree", "--offline", "-e", "features", "-i", "cobolt-server", "-p", "cobolt-ide", "--prefix", "none"])
+        .output()
+        .expect("cargo tree runs");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let features: BTreeSet<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.strip_prefix("cobolt-server feature \""))
+        .filter_map(|l| l.split('"').next())
+        .map(str::to_owned)
+        .collect();
+    println!("ide closure: {} crates; cobolt-server features {features:?}; server-only found: {:?}", ide.len(), present(&ide, &server_only));
+    assert_eq!(features.into_iter().collect::<Vec<_>>(), ["loader"], "the IDE's cobolt-server is the loader alone");
+}
