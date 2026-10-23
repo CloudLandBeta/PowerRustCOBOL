@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.36] — 2026-10-23
+
+*(Forward-port of 1.91.221, `997c49be` on `fixes-interp-parity`. 2.0.35 is the last number held by `features-2x` (WASM-010 part 1), not on `2.x.x` yet, so this entry takes 2.0.36.)*
+
+### Fixed: three places where the interpreter departed from COBOL-85
+
+- **`ALL` over a table with `OCCURS … DEPENDING ON` ran to the declared maximum.** With 3 of 5 occurrences current, `FUNCTION SUM (E (ALL))` added all five slots — 961 where 60 was right — and `MAX`/`MIN` read the dormant ones too. `ALL` now covers the occurrences the depending item counts, for whichever item opens that dimension (the table itself or a group above it).
+- **A program declared `IS INITIAL` kept its values between calls.** The parser dropped the clause, so a counter in such a program read 1, then 2. The program now starts every `CALL` from its initial values (COBOL-85 6.8), as if a `CANCEL` preceded it; an ordinary program beside it still keeps its values. The clause is kept on the program (`is_initial`, and `is_common` for `COMMON`), the same two fields the 2.x.x line's generator already reads.
+- **A literal passed `BY VALUE` or `BY CONTENT` reached the called program as zero.** Its "name" was looked up as a data item and none existed, so `CALL "THRICE" USING BY VALUE 5` computed 0. The literal is now moved into a private copy of the parameter, in the parameter's own PICTURE: 5 arrives as 5, `BY CONTENT 7` as 7. A data item passed either way is handled as before.
+
+Tests: `cobolt-runtime/tests/test_interpreter_parity.rs` — the generator's own three programs, each failing before. The Developer's Guide (*Handing a whole table to a function*, *Procedures are static*) and `docs/cobol85-supported-syntax-en.md` (PROGRAM-ID, CALL, OCCURS) say the same.
+
+*This line does not carry those documentation changes: `docs/` is left as `main` publishes it.*
+
 ## [PowerRustCOBOL 2.0.34] — 2026-10-22
 
 *(Forward-port of 1.91.220, `c4a89e82` on `fixes-rust-object-reads`. 2.0.32 and 2.0.33 are held by `features-2x` (WASM-001 and the first part of WASM-002), not on `2.x.x` yet, so this entry takes 2.0.34.)*
