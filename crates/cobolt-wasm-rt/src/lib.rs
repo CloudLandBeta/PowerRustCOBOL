@@ -52,9 +52,12 @@ pub mod file;
 pub mod float;
 pub mod func;
 pub mod host;
+pub mod idx;
+pub mod json;
 pub mod mem;
 pub mod mv;
 pub mod opd;
+pub mod remote;
 pub mod state;
 pub mod strings;
 #[cfg(not(target_arch = "wasm32"))]
@@ -260,7 +263,7 @@ pub extern "C" fn rt_display_end(no_advancing: u32) {
 /// Hand the staged command batch to the host.
 #[no_mangle]
 pub extern "C" fn rt_flush() {
-    disp::flush();
+    disp::flush_all();
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -519,4 +522,126 @@ pub extern "C" fn rt_func_chars(base: u32, rec: u32, k: u32) {
 #[no_mangle]
 pub extern "C" fn rt_set_collation(table: u32) {
     state::st().collate = table;
+}
+
+// ── In-memory INDEXED files and SORT (WASM-010 R7, Q8; see `idx`) ──────────
+
+/// Give the routines the file heap (`pr_init`, after `rt_init`).
+#[no_mangle]
+pub extern "C" fn rt_heap_init(base: u32, size: u32) {
+    idx::heap_init(base, size);
+}
+
+/// Give back every heap block of instance `inst` (its form is being released).
+#[no_mangle]
+pub extern "C" fn rt_heap_release(inst: u32) {
+    idx::release(inst);
+}
+
+/// Bytes of the file heap in use (`pr_dbg_region_used`).
+#[no_mangle]
+pub extern "C" fn rt_heap_used() -> u32 {
+    idx::used()
+}
+
+/// `OPEN mode file` on an in-memory INDEXED file; the status.
+#[no_mangle]
+pub extern "C" fn rt_idx_open(base: u32, d: u32, mode: u32) -> u32 {
+    idx::open(base, d, mode)
+}
+
+/// `CLOSE file` (`how`: 0 plain, 1 `WITH LOCK`, 2 `REEL`).
+#[no_mangle]
+pub extern "C" fn rt_idx_close(base: u32, d: u32, how: u32) -> u32 {
+    idx::close(base, d, how)
+}
+
+/// `WRITE record` of `wlen` bytes.
+#[no_mangle]
+pub extern "C" fn rt_idx_write(base: u32, d: u32, wlen: u32) -> u32 {
+    idx::write(base, d, wlen)
+}
+
+/// `READ file` (see [`idx::read`]).
+#[no_mangle]
+pub extern "C" fn rt_idx_read(base: u32, d: u32, how: u32, kor: u32, ks: u32) -> u32 {
+    idx::read(base, d, how, kor, ks)
+}
+
+/// `REWRITE record`.
+#[no_mangle]
+pub extern "C" fn rt_idx_rewrite(base: u32, d: u32, random: u32) -> u32 {
+    idx::rewrite(base, d, random)
+}
+
+/// `DELETE file`.
+#[no_mangle]
+pub extern "C" fn rt_idx_delete(base: u32, d: u32, random: u32) -> u32 {
+    idx::delete(base, d, random)
+}
+
+/// `START file KEY rel …`.
+#[no_mangle]
+pub extern "C" fn rt_idx_start(base: u32, d: u32, rel: u32, kor: u32, ks: u32) -> u32 {
+    idx::start(base, d, rel, kor, ks)
+}
+
+/// Start a `SORT`.
+#[no_mangle]
+pub extern "C" fn rt_sort_begin(base: u32, d: u32) {
+    idx::sort_begin(base, d);
+}
+
+/// `RELEASE record`.
+#[no_mangle]
+pub extern "C" fn rt_sort_release(base: u32, d: u32) {
+    idx::sort_release(base, d);
+}
+
+/// Order the released records.
+#[no_mangle]
+pub extern "C" fn rt_sort_sort(base: u32, d: u32) {
+    idx::sort_sort(base, d);
+}
+
+/// `RETURN file`: 0, or 10 at the end.
+#[no_mangle]
+pub extern "C" fn rt_sort_return(base: u32, d: u32) -> u32 {
+    idx::sort_return(base, d)
+}
+
+/// The end of a `SORT`.
+#[no_mangle]
+pub extern "C" fn rt_sort_end(base: u32, d: u32) {
+    idx::sort_end(base, d);
+}
+
+// ── The group <-> JSON mapping (WASM-005 R5, R5b; see `json`) ──────────────
+
+/// Write the JSON text of the group at `addr` (descriptor `desc`) at `out`,
+/// at most `cap` bytes: the length, or a negated error code.
+#[no_mangle]
+pub extern "C" fn rt_json_encode(desc: u32, addr: u32, out: u32, cap: u32) -> i32 {
+    json::encode(desc, addr, out, cap)
+}
+
+/// Read the JSON text at `text` (`len` bytes) into the group at `addr`: 0, or a
+/// negated error code; the group is untouched on an error.
+#[no_mangle]
+pub extern "C" fn rt_json_decode(desc: u32, addr: u32, text: u32, len: u32) -> i32 {
+    json::decode(desc, addr, text, len)
+}
+
+// ── CALL … WITH WEBSOCKET LINKAGE (WASM-005 R9; see `remote`) ──────────────
+
+/// Build and send the request frame: the request id, or a negative code.
+#[no_mangle]
+pub extern "C" fn rt_remote_request(base: u32, name: u32, call: u32) -> i32 {
+    remote::request(base, name, call)
+}
+
+/// Read the answer into the call's groups: 0, or why not (`remote::FAILED` …).
+#[no_mangle]
+pub extern "C" fn rt_remote_result(base: u32, call: u32) -> i32 {
+    remote::result(base, call)
 }

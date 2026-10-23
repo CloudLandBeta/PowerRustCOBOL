@@ -93,8 +93,10 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [dev-dependencies]
-# The engine the native tests run the fixture module on (WASM-PLAN P7): pure Rust, no JIT.
-wasmi = "2"
+# The engine the native tests run the program modules on: the generator's own (operator,
+# 2026-10-22, WASM-010 Q2 and Q-new-2), pinned as in the main workspace. A dev-dependency of the
+# native tests only: the browser build never links it (tests/dependency_guard.rs).
+wasmtime = { version = "=44.0.3", default-features = false, features = ["cranelift", "runtime", "std"] }
 tempfile = "3"
 # The Mermaid renderer the browser player loads as a part: the native tests turn it on here to give the
 # view layer a real answer to read (the player itself depends on `cobolt-forms` without it).

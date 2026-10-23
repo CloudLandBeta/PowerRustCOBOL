@@ -26,7 +26,7 @@ fn every_builtin_of_the_interpreter_is_classified() {
     for n in &names {
         match builtin_support(n) {
             Support::Module | Support::Conformance => module += 1,
-            Support::BackendOnly(_) => backend += 1,
+            Support::BackendOnly(_) | Support::MemoryFiles(_) => backend += 1,
             Support::Unsupported(_) => unsupported += 1,
         }
     }
@@ -138,4 +138,49 @@ fn accept_from_the_operator_is_ignored_with_a_warning() {
         assert_eq!(common::wasm_lines(&o), vec!["KEEP".to_string()], "multi={multi}");
     }
     eprintln!("accept: 2 variants, 1 warning each, the item kept its value");
+}
+
+/// D7: the statement table the System KB is written from has one row per
+/// statement name `stmt_name` gives (read from its source, so a new `Stmt`
+/// variant with a name and no row fails here), and agrees with the exhaustive
+/// `support()` on every statement of the sample programs.
+#[test]
+fn the_statement_table_is_the_support_match() {
+    use cobolt_wasm::support::{statement_entry, stmt_name, support, STATEMENT_TABLE};
+    let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/support.rs")).unwrap();
+    let body = src.split("pub fn stmt_name").nth(1).unwrap().split("\n}\n").next().unwrap();
+    let names: Vec<&str> = body.lines().filter_map(|l| l.split("=> \"").nth(1)).map(|r| r.trim_end_matches("\",")).collect();
+    assert!(names.len() > 40, "{names:?}");
+    for n in &names {
+        assert!(statement_entry(n).is_some(), "statement {n} has no row in STATEMENT_TABLE");
+    }
+    assert_eq!(STATEMENT_TABLE.len(), names.len(), "a row names no statement");
+    // Agreement with support(), statement by statement.
+    let programs = [
+        "IDENTIFICATION DIVISION.\nPROGRAM-ID. S1.\nENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    SELECT F ASSIGN TO \"f\" ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC RECORD KEY IS K STORAGE IS MEMORY.\n    SELECT W ASSIGN TO \"w\".\n\
+         DATA DIVISION.\nFILE SECTION.\nFD F.\n01 R.\n    05 K PIC 9(4).\nSD W.\n01 WR PIC X(4).\nWORKING-STORAGE SECTION.\n01 A PIC 9(4).\n01 B PIC 9(4).\n01 T PIC X(10).\n01 G1.\n    05 A1 PIC 9.\n01 G2.\n    05 A1 PIC 9.\n01 TB.\n    05 E PIC 9 OCCURS 3 INDEXED BY IX.\n\
+         PROCEDURE DIVISION.\nP1.\n    MOVE 1 TO A.\n    ADD 1 TO A.\n    SUBTRACT 1 FROM A.\n    MULTIPLY 2 BY A.\n    DIVIDE 2 INTO A.\n    COMPUTE A = A + 1.\n\
+         \x20   ADD CORRESPONDING G1 TO G2.\n    SUBTRACT CORRESPONDING G1 FROM G2.\n    MOVE CORRESPONDING G1 TO G2.\n    IF A = 1 CONTINUE END-IF.\n    EVALUATE A WHEN 1 CONTINUE END-EVALUATE.\n    PERFORM P2.\n    INITIALIZE A.\n\
+         \x20   STRING \"A\" DELIMITED BY SIZE INTO T.\n    UNSTRING T INTO B.\n    INSPECT T TALLYING A FOR ALL \"A\".\n    SEARCH E AT END CONTINUE WHEN E (IX) = 1 CONTINUE END-SEARCH.\n    ALTER P2 TO PROCEED TO P3.\n    GO TO P2 DEPENDING ON A.\n\
+         \x20   OPEN I-O F.\n    READ F.\n    WRITE R.\n    REWRITE R.\n    DELETE F.\n    START F.\n    CLOSE F.\n    DISPLAY A.\n    ACCEPT A.\n    CALL \"X\".\n    CANCEL \"X\".\n\
+         \x20   SORT W ON ASCENDING KEY WR INPUT PROCEDURE P2 OUTPUT PROCEDURE P3.\n    GO TO P3.\nP2.\n    RELEASE WR.\n    NEXT SENTENCE.\nP3.\n    RETURN W AT END CONTINUE END-RETURN.\n    EXIT.\nP4.\n    STOP RUN.\n",
+        "IDENTIFICATION DIVISION.\nPROGRAM-ID. S2.\nPROCEDURE DIVISION.\n    EXEC SQL COMMIT END-EXEC.\n    EXEC RUST\n        let x = 1;\n    END-EXEC.\n    GOBACK.\n",
+    ];
+    let mut checked = 0;
+    let mut seen = std::collections::BTreeSet::new();
+    for p in programs {
+        let prog = common::parse(p);
+        let cobolt_ast::program::ProcedureBody::Paragraphs(ps) = &prog.procedure.body else { panic!("paragraphs") };
+        for para in ps {
+            for s in &para.stmts {
+                s.walk(&mut |s| {
+                    let name = stmt_name(s);
+                    assert_eq!(statement_entry(name), Some(support(s)), "{name}");
+                    seen.insert(name);
+                    checked += 1;
+                });
+            }
+        }
+    }
+    eprintln!("statement table: {} rows, one per statement name; {checked} parsed statements ({} kinds) agree with support(): {seen:?}", STATEMENT_TABLE.len(), seen.len());
 }

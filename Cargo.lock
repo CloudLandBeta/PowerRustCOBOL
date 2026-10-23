@@ -2013,8 +2013,10 @@ dependencies = [
  "cobolt-forms",
  "cobolt-lexer",
  "cobolt-parser",
+ "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-server",
+ "cobolt-wasm",
  "cobolt-wire",
  "flate2",
  "native-tls",
@@ -2287,6 +2289,7 @@ dependencies = [
 name = "cobolt-project-tools"
 version = "0.2.0"
 dependencies = [
+ "cobolt-ast",
  "cobolt-codegen",
  "cobolt-compiler",
  "cobolt-forms",
@@ -2297,6 +2300,8 @@ dependencies = [
  "cobolt-parser",
  "cobolt-runtime",
  "cobolt-semantic",
+ "cobolt-wasm",
+ "cobolt-web-bundle",
  "dirs 5.0.1",
  "flate2",
  "native-tls",
@@ -2440,6 +2445,7 @@ dependencies = [
  "cobolt-semantic",
  "cobolt-wasm-abi",
  "cobolt-wasm-rt",
+ "cobolt-wire",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

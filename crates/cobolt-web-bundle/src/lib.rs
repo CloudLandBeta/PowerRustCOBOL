@@ -374,7 +374,15 @@ fn variants_agree(a: &Manifest, b: &Manifest) -> Vec<String> {
     if serde_json::to_value(&a.forms).ok() != serde_json::to_value(&b.forms).ok() {
         p.push("the two program variants disagree about the forms, controls or handlers".into());
     }
-    if serde_json::to_value(&a.limits).ok() != serde_json::to_value(&b.limits).ok() {
+    // `data_pages` is the size of memory 0, which differs by construction: the
+    // single-memory variant holds the arena there (ABI §2). Every other limit
+    // must agree.
+    let same_limits = |m: &Manifest| {
+        let mut l = m.limits.clone();
+        l.data_pages = 0;
+        serde_json::to_value(&l).ok()
+    };
+    if same_limits(a) != same_limits(b) {
         p.push("the two program variants have different limits".into());
     }
     p

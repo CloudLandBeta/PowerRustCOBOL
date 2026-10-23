@@ -36,7 +36,7 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 | WASM-007 | CSS3 and the form stylesheet | ✔ | | | | |
 | WASM-008 | Web-view Preview | ✔ | | | | |
 | WASM-009 | Authentication control, identity providers | ✔ | | | | |
-| WASM-010 | WebAssembly code generation | ✔ | | | | |
+| WASM-010 | WebAssembly code generation | ✔ | ✔ | ✔ | V (2.0.36, natively) | T1–T25 done; see the 2.0.36 section; owed: the operator's manual check (plan §6) and a browser run against a live backend |
 | WASM-011 | Navigation, SPA and standalone styles | ✔ | | | | |
 | WASM-012 | Mobile shell (Tauri 2) | ✔ | | | | |
 | WASM-013 | Security architecture | ✔ | | | | |
@@ -49,6 +49,33 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 ## Done elsewhere
 
 - `CALL … RETURNING` (WASM-005 Q2, D6): fix `8a15f00d` (1.91.219) on `main`, forward-port `afe22c51` on 2.x.x — tests 14/14 runtime, NIST baselines held.
+
+## WASM-010 part 2 — the rest of the subset, suspension, the Build (2026-10-23, version 2.0.36, T14–T25)
+
+**NIST on the final module** (`RCRUN=…/nist_wasm_run nist_conformance run NC|IF|IC`), against 2.0.35:
+
+| Module | Compiled | Programs reporting 0 failures | Assertions PASS / FAIL / DELETED | 2.0.35 |
+|---|---|---|---|---|
+| NC (Nucleus) | **95 of 95** | **95 of 95** | **4 612 / 0 / 5** | the same |
+| IF (Intrinsic Function) | **45 of 45** | **45 of 45** | **841 / 0 / 0** | the same |
+| IC (Inter-Program Communication) | **25 of 25** | **25 of 25** | **309 / 0 / 4** | the same |
+
+No program excluded, timed out or crashed.
+
+**The interpreter, unchanged** (`cobolt-runtime` was not touched; release `rcrun`, `nist_conformance run`), every finished module against `NIST/progress.json`: NC 95/95 4 614 PASS, IF 45/45 841, IC 25/25 309, SM 16/16 311, ST 39/39 735, SQ 85/85 624, IX 41/41 574, RL 34/34 354 — 0 FAIL everywhere, equal to the ledger. The AC10 suites (`cobolt-runtime`, `-parser`, `-semantic`, `-server`, `-compiler`): 2 201 passed in 245 binaries, 4 failed — all pre-existing: `SDK_CRATES` lacks `cobolt-decimal` and `cobolt-numedit`, which `cobolt-runtime` and `cobolt-forms` already need at 2.0.35, so the SDK closure test and three SDK builds fail (a `fixes-2x` item).
+
+**Phases (R18)**, each with what measures it:
+
+| Phase | State | Evidence |
+|---|---|---|
+| A — layout, MOVE, arithmetic, IF, PERFORM, GO TO, EVALUATE, host properties and methods, events | done | NIST NC; `layout_golden.rs` (AC2, 148 bytes), `arith_table.rs` (AC3, 15 rows), `control_flow.rs` (AC4), `forms.rs` (AC1) |
+| B — tables, STRING/UNSTRING/INSPECT, numeric-edited, intrinsic functions, nested programs, local CALL | done | NIST IF and IC; `corpus.rs` (17 of 17 compiled `tests/cobol` programs identical) |
+| C — suspension, the remote CALL, the JSON mapping | done natively | `json_vectors.rs` (176 of 176 answers equal to `cobolt-wire`), `forms.rs::suspend_resume_with_queued_events` (AC5), `yield_is_invisible` (R9); **no browser run against a live backend yet** (WASM-014 T15) |
+| D — the rest of the subset | done, with named exclusions | value methods, layers, parity gaps #7/#9/#10/#13, in-memory INDEXED and SORT (`memory_files.rs`); refused with their construct: disk and sequential files, `MERGE`, `SORT … USING/GIVING`, national and UTF-8 literals and functions, `SET` pointer |
+
+**Sizes and start-up (Q6: measured, no budget set).** A one-form project (a button and a label): `program.wasm` 87 108 bytes, `program.single.wasm` 87 125 bytes, a 25-file bundle of 7 440 032 bytes (the player is most of it). Start-up as the Build reports it — `pr_init` + `pr_open_form(main)` on `wasmtime`, compilation included, in a **debug** build — 309 ms; a native proxy, not a browser figure. The player's generated fixture (one form, a handler that writes and displays): 96 499 / 96 516 bytes.
+
+**Found on the way:** the interpreter stops on `COMPUTE … / 0 ON SIZE ERROR` (`WASM-PARITY.md` #18, a 1.x.x fix); the generator did not bind a LINKAGE `RETURNING` record (#13, fixed) and sent `DISPLAY` in fragments the player printed as separate lines (ABI A13, fixed); the bundler refused two variants for the size of memory 0, which differs by construction (fixed).
 
 ## NIST NC, IF and IC rerun on `wasmtime` (2026-10-22, version 2.0.35, WASM-010 T3)
 

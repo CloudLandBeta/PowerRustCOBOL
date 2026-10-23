@@ -47,6 +47,10 @@ impl Default for Arena {
     }
 }
 
+/// The file heap a module with in-memory files gets unless told otherwise:
+/// 16 MiB, pages a browser commits only as they are written.
+pub const DEFAULT_FILE_HEAP: u32 = 16 * 1024 * 1024;
+
 #[derive(Debug, Clone)]
 pub struct Options {
     /// Two memories (arena in memory 1) or one.
@@ -63,11 +67,16 @@ pub struct Options {
     /// The 21 characters `FUNCTION WHEN-COMPILED` answers; `None` takes the
     /// time of the build (UTC), which a reproducible build overrides.
     pub when_compiled: Option<String>,
+    /// Bytes of memory 0 for the records of in-memory INDEXED files and SORT
+    /// work files (WASM-010 Q8). Reserved only when the program has such a
+    /// file; there is no record limit (Q-new-1): when it is full a WRITE ends
+    /// with FILE STATUS 89.
+    pub file_heap: u32,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None }
+        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP }
     }
 }
 
@@ -216,6 +225,27 @@ pub fn compile_project(forms: &[FormSpec<'_>], opts: &Options) -> GenResult<Comp
     compile_forms(forms, opts, true)
 }
 
+/// The program modules of a Web or Mobile project, as `ModuleVariants` asks
+/// for them (WASM-017 R9), and what they have to say.
+pub struct WebModules {
+    pub multi: Option<Compiled>,
+    pub single: Option<Compiled>,
+    pub warnings: Vec<crate::error::GenWarning>,
+}
+
+/// Compile the project's forms into the variants asked for: the
+/// multi-memory module, the single-memory one, or both (WASM-010 R1, T19).
+pub fn compile_web_project(forms: &[FormSpec<'_>], opts: &Options, multi: bool, single: bool) -> GenResult<WebModules> {
+    if !multi && !single {
+        return Err(GenError::new(0, "no program-module variant was asked for"));
+    }
+    let one = |m: bool| compile_project(forms, &Options { multi_memory: m, ..opts.clone() });
+    let multi = if multi { Some(one(true)?) } else { None };
+    let single = if single { Some(one(false)?) } else { None };
+    let warnings = multi.as_ref().or(single.as_ref()).map(|c| c.warnings.clone()).unwrap_or_default();
+    Ok(WebModules { multi, single, warnings })
+}
+
 struct Built {
     lowered: Lowered,
     img: image::Image,
@@ -275,7 +305,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             opts.conformance,
             opts.tolerate_undeclared,
             when_compiled.clone(),
-        )?;
+        )
+        .map_err(|e| if project { e.in_form(lowered_forms.len()) } else { e })?;
         let first = unit_base;
         unit_base += l.units;
         lowered_forms.push((l, first));
@@ -393,7 +424,14 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     }
     let total_instances: u32 = forms.iter().map(|f| f.instances.max(1)).sum();
     let inst_tbl_base = align(cursor, 16);
-    let end = inst_tbl_base + total_instances * INST_ROW;
+    let mut end = inst_tbl_base + total_instances * INST_ROW;
+    // The file heap (in-memory files, SORT) closes memory 0.
+    let uses_heap = lowered_forms.iter().any(|(l, _)| l.uses_heap);
+    let heap_base = align(end, 16);
+    let heap_size = if uses_heap { opts.file_heap & !15 } else { 0 };
+    if uses_heap {
+        end = heap_base + heap_size;
+    }
     for (i, ((l, fu), img)) in lowered_forms.into_iter().zip(images).enumerate() {
         built.push(Built {
             region_size: align(l.layout.total, 16),
@@ -417,6 +455,13 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let mut roots: BTreeSet<&'static str> = BTreeSet::new();
     roots.insert("rt_init");
     roots.insert("rt_flush");
+    if uses_heap {
+        roots.insert("rt_heap_init");
+        if project {
+            roots.insert("rt_heap_release");
+            roots.insert("rt_heap_used");
+        }
+    }
     if project {
         for r in ["rt_set_instance", "rt_deliver", "rt_cancel_run", "rt_move"] {
             roots.insert(r);
@@ -690,12 +735,20 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         defs[(glue_final["query"] - n_imports) as usize].body = Body::Encoded(f);
     }
     if glue_final.contains_key("remote") {
-        // glue.remote(addr, len): the request frame goes to frame-out (§2).
+        // glue.remote(addr, len): the request frame goes to frame-out (§2); a
+        // frame larger than frame-out is the host's -5 without a copy.
         let frame_out = answer_at + opts.arena.answer;
         let mut f = Function::new([]);
         emit(
             &mut f,
             &[
+                I::LocalGet(1),
+                I::I32Const(opts.arena.frame as i32),
+                I::I32GtU,
+                I::If(BlockType::Empty),
+                I::I32Const(-5),
+                I::Return,
+                I::End,
                 I::I32Const(frame_out as i32),
                 I::LocalGet(0),
                 I::LocalGet(1),
@@ -896,6 +949,11 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         let mut f = Function::new([]);
         f.instruction(&I::I32Const(rt_ws as i32));
         f.instruction(&I::Call(rt_index_by_name["rt_init"]));
+        if uses_heap {
+            f.instruction(&I::I32Const(heap_base as i32));
+            f.instruction(&I::I32Const(heap_size as i32));
+            f.instruction(&I::Call(rt_index_by_name["rt_heap_init"]));
+        }
         f.instruction(&I::I32Const((region_base + stack_off) as i32));
         f.instruction(&I::GlobalSet(2));
         f.instruction(&I::I32Const(opts.budget));
@@ -965,6 +1023,12 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             g_flush,
             rt: &rt_index_by_name,
             ty_i32_ret,
+            uses_heap,
+            frame_in_len_at: rt_ws + cobolt_wasm_rt::state::WS_FRAME_IN_LEN,
+            frame_at: rt_ws + cobolt_wasm_rt::state::WS_FRAME,
+            frame_cap: opts.arena.frame.min(cobolt_wasm_rt::state::FRAME_SIZE),
+            frame_in: arena_base + opts.arena.batch + opts.arena.answer + opts.arena.frame,
+            arena_mem: if opts.multi_memory { 1 } else { 0 },
         };
         let fx = emit_project_fns(&ctx, n_imports, &mut defs, &mut types);
         Some((fx, ft_rows))
@@ -1198,6 +1262,15 @@ struct ProjectFns<'a> {
     g_flush: u32,
     rt: &'a HashMap<&'static str, u32>,
     ty_i32_ret: u32,
+    /// The module has a file heap: a released instance gives its blocks back.
+    uses_heap: bool,
+    /// Where `pr_resume` leaves a remote answer for the routines (ABI §4):
+    /// its length word and its bytes in memory 0, how many fit, and frame-in.
+    frame_in_len_at: u32,
+    frame_at: u32,
+    frame_cap: u32,
+    frame_in: u32,
+    arena_mem: u32,
 }
 
 struct FormFns {
@@ -1311,8 +1384,12 @@ fn emit_project_fns(c: &ProjectFns<'_>, n_imports: u32, defs: &mut Vec<Def>, typ
     f.instruction(&I::End);
     let init_dispatch = next(defs, "init_dispatch", ty_ii_v, f);
 
-    // release(inst): the region back to its initial state, the row free.
+    // release(inst): the region back to its initial state, the row free, and
+    // the instance's records in the file heap given back.
     let mut f = Function::new([(4, i32_)]); // row 1, ft 2, base 3, form 4
+    if c.uses_heap {
+        emit(&mut f, &[I::LocalGet(0), I::Call(rt("rt_heap_release"))]);
+    }
     row_addr(&mut f, 0, tbl, INST_ROW, 1);
     emit(&mut f, &[I::LocalGet(1), ld(4), I::LocalSet(4)]);
     row_addr(&mut f, 4, ft_base, FT_ROW, 2);
@@ -1625,6 +1702,29 @@ fn emit_project_fns(c: &ProjectFns<'_>, n_imports: u32, defs: &mut Vec<Def>, typ
             I::I32Const(-2),
             I::Return,
             I::End,
+            // A remote answer of `len` bytes: into memory 0 for the routines, its
+            // length beside it (u32::MAX when it does not fit).
+            I::I32Const(c.frame_in_len_at as i32),
+            I::LocalGet(1),
+            I::I32Const(-1),
+            I::LocalGet(1),
+            I::I32Const(c.frame_cap as i32),
+            I::I32LeU,
+            I::Select,
+            stw(0),
+            I::LocalGet(1),
+            I::I32Const(0),
+            I::I32GtS,
+            I::LocalGet(1),
+            I::I32Const(c.frame_cap as i32),
+            I::I32LeU,
+            I::I32And,
+            I::If(BlockType::Empty),
+            I::I32Const(c.frame_at as i32),
+            I::I32Const(c.frame_in as i32),
+            I::LocalGet(1),
+            I::MemoryCopy { src_mem: c.arena_mem, dst_mem: 0 },
+            I::End,
             I::LocalGet(0),
             I::LocalGet(2),
             ld(16),
@@ -1752,7 +1852,12 @@ fn emit_project_fns(c: &ProjectFns<'_>, n_imports: u32, defs: &mut Vec<Def>, typ
         } else {
             f.instruction(&I::I32Const(1));
         }
-        emit(&mut f, &[I::I32Add, I::LocalSet(1), I::End, I::LocalGet(0), I::I32Const(1), I::I32Add, I::LocalSet(0), I::Br(0), I::End, I::End, I::LocalGet(1), I::End]);
+        emit(&mut f, &[I::I32Add, I::LocalSet(1), I::End, I::LocalGet(0), I::I32Const(1), I::I32Add, I::LocalSet(0), I::Br(0), I::End, I::End, I::LocalGet(1)]);
+        // An instance's data includes its records in the file heap.
+        if bytes && c.uses_heap {
+            emit(&mut f, &[I::Call(rt("rt_heap_used")), I::I32Add]);
+        }
+        f.instruction(&I::End);
         let idx = n_imports + defs.len() as u32;
         defs.push(Def { name: name.into(), ty: c.ty_i32_ret, body: Body::Encoded(f) });
         idx

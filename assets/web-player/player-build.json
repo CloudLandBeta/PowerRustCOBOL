@@ -113,7 +113,7 @@
     "strip": true,
     "wasm_opt": "-Oz"
   },
-  "source_hash": "4d6c26fe7fdfbce347c9368069c7c66ec9be9da05d645ecf01648bc45b2e2e49",
+  "source_hash": "fd8b73a002f545ca6ea1a923c29574dd657257f243a04a42afb69cd231401f6b",
   "tools": {
     "nightly": "nightly-2026-10-08",
     "rustc_nightly": "rustc 1.101.0-nightly (1d81eb4ad 2026-10-07)",

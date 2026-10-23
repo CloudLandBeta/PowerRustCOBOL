@@ -88,6 +88,10 @@ did not, for exactly this reason.
 4. Say in the commit **which** hosts were touched. "Fixed in the interpreter" is
    the sentence that hides a missed one.
 
+## The WebAssembly generator
+
+**A further consumer: the WebAssembly generator (WASM-010 R17, the 2.x.x line).** A Web or Mobile project's COBOL does not run on the interpreter at all: `cobolt-wasm` compiles it to a module, and the routines it links in (`cobolt-wasm-rt`, committed as `crates/cobolt-wasm/assets/rt.wasm`) are a second implementation of the language's behaviour. Two pieces are **shared source**, so a fix to them reaches both engines: `cobolt-decimal` (decimal arithmetic; the interpreter re-exports it) and `cobolt-numedit` (edited pictures; the interpreter reaches it through `cobolt-forms`). Everything else in `cobolt-wasm-rt` is the generator's own and is held equal to the interpreter **by measurement**: the NIST NC/IF/IC runs on generated modules (`specs/WASM-PROGRESS.md`), `crates/cobolt-wasm/tests/corpus.rs` over `tests/cobol/`, and the differential tests (`tests/common::same_output`). So a runtime change also asks whether the generator needs the same change — then change `cobolt-wasm`/`cobolt-wasm-rt` and rebuild the blob with `cargo run -p cobolt-wasm --example build_rt` — or whether it opens a divergence, which goes into `specs/WASM-PARITY.md` with who is right. A difference is never accepted silently.
+
 ## Not this skill
 
 - **Designer-canvas vs running-form RENDERING** parity (spec 017, one engine in

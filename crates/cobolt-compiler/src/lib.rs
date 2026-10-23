@@ -6264,9 +6264,65 @@ system browser. The IDE does not start a project's Backend yet.
 - **API keys** — never in the manifest. They resolve from the machine-local
   store by model-profile id, so a manifest can be committed and shared safely.
 "##;
-    docs.push(("project_model_and_settings.md", project_model.to_string()));
+    docs.push(("project_model_and_settings.md", format!("{project_model}{}", browser_subset_doc())));
 
     docs
+}
+
+/// "What runs in a browser module" (WASM-010 R7, R8, D7): the statements, the
+/// built-ins, the in-memory files and the waiting verbs of a Web or Mobile
+/// project's COBOL, written from the generator's own tables
+/// (`cobolt_wasm::support`) so that the System KB says exactly what the Build
+/// accepts.
+fn browser_subset_doc() -> String {
+    use cobolt_wasm::support::{Support, BUILTIN_TABLE, STATEMENT_TABLE};
+    let class = |s: &Support| -> (String, String) {
+        match s {
+            Support::Module => ("yes".into(), String::new()),
+            Support::Conformance => ("test builds only".into(), String::new()),
+            Support::MemoryFiles(why) => ("in-memory files only".into(), why.to_string()),
+            Support::BackendOnly(why) => ("backend only".into(), why.to_string()),
+            Support::Unsupported(why) => ("no".into(), why.to_string()),
+        }
+    };
+    let mut d = String::from(
+        "\n## What runs in a browser module (Web and Mobile projects)\n\n\
+         The COBOL of a Web or Mobile project is compiled to one WebAssembly module that runs in the browser; the Backend keeps the \
+         desktop runtime. A construct outside this subset is refused by the Build at its line, naming the construct and what to do \
+         instead. This section is written from the generator's own tables, so it is what the Build accepts.\n\n\
+         ### Statements\n\n| Statement | In a browser module | Instead |\n|---|---|---|\n",
+    );
+    for (name, s) in STATEMENT_TABLE {
+        let (yes, why) = class(s);
+        d.push_str(&format!("| {name} | {yes} | {why} |\n"));
+    }
+    d.push_str(
+        "\n### Files and SORT\n\n\
+         - An INDEXED file declared `STORAGE IS MEMORY` (without `WITH PERSISTENCE`) is held in the module, with the form instance \
+         that opened it, and is released when the form closes. `OPEN`, `READ` (by key and in sequence, `NEXT`/`PREVIOUS`), `WRITE`, \
+         `REWRITE`, `DELETE`, `START` and `CLOSE` behave as on the desktop's in-memory engine: the same FILE STATUS codes, key order \
+         and order of duplicates. It can be written to without `WITH PERSISTENCE` (the desktop answers 37 there): nothing is saved \
+         anywhere, and the records last as long as the form.\n\
+         - There is no record limit. When the module's memory cannot hold another record, the `WRITE` ends with FILE STATUS **89** \
+         and every record already written stays.\n\
+         - `WITH PERSISTENCE`, `STORAGE IS DISK`, and every SEQUENTIAL, LINE SEQUENTIAL and RELATIVE file are the Backend's: call a \
+         Backend program with `CALL … WITH WEBSOCKET LINKAGE`.\n\
+         - `SORT` sorts in memory when its records come from an `INPUT PROCEDURE` (`RELEASE`) and go to an `OUTPUT PROCEDURE` \
+         (`RETURN`); `USING`, `GIVING` and `MERGE` name files and are the Backend's.\n\n\
+         ### Statements that wait\n\n\
+         `CALL … WITH WEBSOCKET LINKAGE` (a Backend program), and `COBOL::MessageBox`, `Alert`, `Confirm`, `InputBox`, `Sleep`, \
+         `Wait`, `OpenFormSync` and `me::OpenFormSync`, pause the handler until the answer, the dialog, the timer or the child form; \
+         events of the same form raised meanwhile run afterwards, in order. A failed remote call runs `ON EXCEPTION`, or is a \
+         run-time error when the statement has none. `ACCEPT` from the operator does nothing (with a Build warning); \
+         `ACCEPT … FROM DATE`/`TIME`/`DAY`/`DAY-OF-WEEK` read the browser's clock, in UTC.\n\n\
+         ### Built-ins (`COBOL::\"NAME\"`)\n\n| Built-in | In a browser module | Browser feature | Instead |\n|---|---|---|---|\n",
+    );
+    for b in BUILTIN_TABLE {
+        let (yes, why) = class(&b.support);
+        let api = b.api.map(|(api, _)| api.to_string()).unwrap_or_default();
+        d.push_str(&format!("| {} | {yes} | {api} | {why} |\n", b.name));
+    }
+    d
 }
 
 // ── System Knowledge Base generation (controls + methods reference) ──────────
@@ -13950,6 +14006,27 @@ mod runtime_only_property_tests {
 
 #[cfg(test)]
 mod published_documentation_tests {
+    /// WASM-010 T22 (R7, D7): the System KB says, for every built-in of the
+    /// runtime and every statement, whether a browser module runs it.
+    #[test]
+    fn the_browser_subset_section_names_every_builtin_and_statement() {
+        let docs = super::system_documentation();
+        let (_, text) = docs.iter().find(|(n, _)| *n == "project_model_and_settings.md").expect("the project document");
+        let section = text.split("## What runs in a browser module").nth(1).expect("the section is there");
+        let mut builtins = 0;
+        for b in cobolt_runtime::builtins::BUILTINS {
+            assert!(section.contains(&format!("| {} |", b.name)), "built-in {} is not in the browser-subset section", b.name);
+            builtins += 1;
+        }
+        let mut statements = 0;
+        for (name, _) in cobolt_wasm::support::STATEMENT_TABLE {
+            assert!(section.contains(&format!("| {name} |")), "statement {name} is not in the section");
+            statements += 1;
+        }
+        assert!(section.contains("FILE STATUS **89**") && section.contains("STORAGE IS MEMORY"));
+        println!("browser subset: {builtins} built-ins and {statements} statements in the System KB");
+    }
+
     /// `system_documentation()` is exactly what publishing writes: the same
     /// eight files, the same bytes, nothing else in the folder (spec 080 T0.2).
     #[test]

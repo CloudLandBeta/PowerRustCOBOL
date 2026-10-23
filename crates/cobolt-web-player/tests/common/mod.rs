@@ -4,7 +4,8 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! The native rig: a fixture module run on `wasmi` with the real [`Host`] behind its imports.
+//! The native rig: a fixture module run on `wasmtime` with the real [`Host`] behind its imports
+//! (operator, WASM-010 Q-new-2: the player's native tests run on the engine the generator's do).
 //!
 //! It plays the part of the loader — instantiate, provide the six imports, take a fresh view of
 //! the arena at each use, perform the calls the host asks for — so every rule of the ABI host
@@ -19,7 +20,7 @@ use cobolt_forms::xml::load_form_from_str;
 use cobolt_wasm_abi::fixture::{build, standard_cfrm, standard_spec, Fixture};
 use cobolt_wasm_abi::manifest::ArenaLayout;
 use cobolt_web_player::host::{CallResult, Host, HostOptions, ModuleCall, Outbound};
-use wasmi::{Caller, Config, Engine, Instance, Linker, Memory, Module, Store};
+use wasmtime::{Caller, Config, Engine, Instance, Linker, Memory, Module, Store};
 
 pub type Shared = Rc<RefCell<Host>>;
 
@@ -36,16 +37,16 @@ pub struct Rig {
     pub calls: Vec<ModuleCall>,
 }
 
-fn read(caller: &Caller<'_, Shared>, base: u32, off: u32, len: usize) -> Vec<u8> {
+fn read(caller: &mut Caller<'_, Shared>, base: u32, off: u32, len: usize) -> Vec<u8> {
     let mem = caller.get_export("arena").and_then(|e| e.into_memory()).expect("the module exports `arena`");
     let mut buf = vec![0u8; len];
-    mem.read(caller, (base + off) as usize, &mut buf).expect("in bounds");
+    mem.read(&*caller, (base + off) as usize, &mut buf).expect("in bounds");
     buf
 }
 
 fn write(caller: &mut Caller<'_, Shared>, base: u32, off: u32, bytes: &[u8]) {
     let mem = caller.get_export("arena").and_then(|e| e.into_memory()).expect("the module exports `arena`");
-    mem.write(caller, (base + off) as usize, bytes).expect("in bounds");
+    mem.write(&mut *caller, (base + off) as usize, bytes).expect("in bounds");
 }
 
 impl Rig {
@@ -54,16 +55,24 @@ impl Rig {
     }
 
     pub fn with_spec(fixture: Fixture, multi: bool, opts: HostOptions) -> Rig {
+        let cfrms: Vec<String> = fixture.manifest.forms.iter().map(|f| standard_cfrm(&fixture, &f.name)).collect();
+        Rig::with_forms(fixture, &cfrms, multi, opts)
+    }
+
+    /// A module and the `.cfrm` of each of its forms: a module the generator built
+    /// (`tests/fixtures/generated/`), or the hand-assembled fixture.
+    pub fn with_forms(fixture: Fixture, cfrms: &[String], multi: bool, opts: HostOptions) -> Rig {
         let mut host = Host::new(fixture.manifest.clone(), opts);
-        for f in &fixture.manifest.forms {
-            let form = load_form_from_str(&standard_cfrm(&fixture, &f.name)).expect("the fixture's description loads");
+        for cfrm in cfrms {
+            let form = load_form_from_str(cfrm).expect("the form description loads");
             host.add_form(form).expect("paired");
         }
         let layout = host.layout();
         let host: Shared = Rc::new(RefCell::new(host));
         let mut cfg = Config::default();
         cfg.wasm_multi_memory(true);
-        let engine = Engine::new(&cfg);
+        cfg.cranelift_nan_canonicalization(true);
+        let engine = Engine::new(&cfg).expect("an engine");
         let module = Module::new(&engine, &fixture.wasm[..]).expect("the fixture validates");
         let mut store = Store::new(&engine, host.clone());
         let mut linker = <Linker<Shared>>::new(&engine);
@@ -71,15 +80,15 @@ impl Rig {
 
         let b = base.clone();
         linker
-            .func_wrap("pr", "flush", move |caller: Caller<'_, Shared>, len: i32| {
-                let bytes = read(&caller, b.load(Ordering::Relaxed), layout.batch_off, len as usize);
+            .func_wrap("pr", "flush", move |mut caller: Caller<'_, Shared>, len: i32| {
+                let bytes = read(&mut caller, b.load(Ordering::Relaxed), layout.batch_off, len as usize);
                 caller.data().clone().borrow_mut().flush(&bytes);
             })
             .unwrap();
         let b = base.clone();
         linker
             .func_wrap("pr", "query", move |mut caller: Caller<'_, Shared>, len: i32| -> i32 {
-                let bytes = read(&caller, b.load(Ordering::Relaxed), layout.batch_off, len as usize);
+                let bytes = read(&mut caller, b.load(Ordering::Relaxed), layout.batch_off, len as usize);
                 let host = caller.data().clone();
                 let r = host.borrow_mut().query(&bytes);
                 match r {
@@ -93,8 +102,8 @@ impl Rig {
             .unwrap();
         let b = base.clone();
         linker
-            .func_wrap("pr", "remote", move |caller: Caller<'_, Shared>, len: i32| -> i32 {
-                let frame = read(&caller, b.load(Ordering::Relaxed), layout.frame_out_off, len as usize);
+            .func_wrap("pr", "remote", move |mut caller: Caller<'_, Shared>, len: i32| -> i32 {
+                let frame = read(&mut caller, b.load(Ordering::Relaxed), layout.frame_out_off, len as usize);
                 let host = caller.data().clone();
                 let r = host.borrow_mut().remote(&frame);
                 match r {
@@ -107,27 +116,27 @@ impl Rig {
         linker.func_wrap("pr", "random", |_: Caller<'_, Shared>| -> f64 { 0.5 }).unwrap();
         let b = base.clone();
         linker
-            .func_wrap("pr", "abort", move |caller: Caller<'_, Shared>, len: i32| {
-                let bytes = read(&caller, b.load(Ordering::Relaxed), layout.batch_off, len as usize);
+            .func_wrap("pr", "abort", move |mut caller: Caller<'_, Shared>, len: i32| {
+                let bytes = read(&mut caller, b.load(Ordering::Relaxed), layout.batch_off, len as usize);
                 caller.data().clone().borrow_mut().abort(&bytes);
             })
             .unwrap();
 
-        let instance = linker.instantiate_and_start(&mut store, &module).expect("instantiates");
-        let arena = instance.get_memory(&store, "arena").expect("exports arena");
-        let init = instance.get_typed_func::<(), i32>(&store, "pr_init").unwrap();
+        let instance = linker.instantiate(&mut store, &module).expect("instantiates");
+        let arena = instance.get_memory(&mut store, "arena").expect("exports arena");
+        let init = instance.get_typed_func::<(), i32>(&mut store, "pr_init").unwrap();
         assert_eq!(init.call(&mut store, ()).unwrap(), 0);
-        let abi = instance.get_typed_func::<(), i32>(&store, "pr_abi").unwrap().call(&mut store, ()).unwrap();
+        let abi = instance.get_typed_func::<(), i32>(&mut store, "pr_abi").unwrap().call(&mut store, ()).unwrap();
         assert_eq!(abi, 1);
-        let variant = instance.get_typed_func::<(), i32>(&store, "pr_variant").unwrap().call(&mut store, ()).unwrap();
+        let variant = instance.get_typed_func::<(), i32>(&mut store, "pr_variant").unwrap().call(&mut store, ()).unwrap();
         assert_eq!(variant & 1 == 1, multi, "pr_variant bit 0 says which variant this is");
-        let ab = instance.get_typed_func::<(), i32>(&store, "pr_arena_base").unwrap().call(&mut store, ()).unwrap();
+        let ab = instance.get_typed_func::<(), i32>(&mut store, "pr_arena_base").unwrap().call(&mut store, ()).unwrap();
         base.store(ab as u32, Ordering::Relaxed);
         Rig { host, fixture, store, instance, arena, base, layout, multi, calls: Vec::new() }
     }
 
-    fn func<P: wasmi::WasmParams, R: wasmi::WasmResults>(&self, name: &str) -> wasmi::TypedFunc<P, R> {
-        self.instance.get_typed_func::<P, R>(&self.store, name).unwrap_or_else(|e| panic!("export {name}: {e}"))
+    fn func<P: wasmtime::WasmParams, R: wasmtime::WasmResults>(&mut self, name: &str) -> wasmtime::TypedFunc<P, R> {
+        self.instance.get_typed_func::<P, R>(&mut self.store, name).unwrap_or_else(|e| panic!("export {name}: {e}"))
     }
 
     fn tick(&mut self) -> i32 {
@@ -144,7 +153,7 @@ impl Rig {
         }
     }
 
-    fn perform_inner(&mut self, call: &ModuleCall) -> Result<CallResult, wasmi::Error> {
+    fn perform_inner(&mut self, call: &ModuleCall) -> Result<CallResult, wasmtime::Error> {
         let base = self.base.load(Ordering::Relaxed);
         Ok(match call {
             ModuleCall::OpenForm { form, opener } => {

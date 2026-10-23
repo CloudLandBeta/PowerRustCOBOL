@@ -24,6 +24,9 @@ cobolt-server   = { path = "../cobolt-server", default-features = false, feature
 cobolt-forms    = { path = "../cobolt-forms" }
 # A build regenerates the forms' generated COBOL first, as the IDE does.
 cobolt-codegen  = { path = "../cobolt-codegen" }
+# The System KB's "What runs in a browser module" is written from the WebAssembly
+# generator's own tables (WASM-010 D7). Without its engine: the compiler runs nothing.
+cobolt-wasm     = { path = "../cobolt-wasm", default-features = false }
 
 serde      = { workspace = true }
 serde_json = { workspace = true }
@@ -42,6 +45,8 @@ tracing   = { workspace = true }
 [dev-dependencies]
 # WASM-014: the parity test serves a backend in-process and runs a built binary against it.
 cobolt-server = { path = "../cobolt-server" }
+# WASM-010 T22: the browser-subset section must name every built-in of the runtime.
+cobolt-runtime = { path = "../cobolt-runtime" }
 ureq       = { version = "2", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
 tar        = "0.4"

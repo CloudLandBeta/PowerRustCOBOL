@@ -41,7 +41,9 @@ pub fn run_interpreter(src: &str) -> Vec<String> {
     let (_event_tx, event_rx) = std::sync::mpsc::channel();
     let (state_tx, _state_rx) = std::sync::mpsc::channel();
     let (display_tx, display_rx) = std::sync::mpsc::channel();
-    let mut interp = cobolt_runtime::interpreter::Interpreter::new_with_channels(prog, event_rx, state_tx, display_tx);
+    let mut interp = cobolt_runtime::interpreter::Interpreter::new_with_channels(
+        prog, event_rx, state_tx, display_tx,
+    );
     let _ = interp.run();
     display_rx.try_iter().collect()
 }
@@ -57,9 +59,17 @@ pub fn wasm_lines(o: &Outcome) -> Vec<String> {
 /// Run on both engines and require identical output.
 pub fn same_output(src: &str) -> Vec<String> {
     for multi in [true, false] {
-        let opts = Options { multi_memory: multi, ..Options::default() };
+        let opts = Options {
+            multi_memory: multi,
+            ..Options::default()
+        };
         let o = run_wasm(src, &opts);
-        assert!(o.trapped.is_none() && o.errors.is_empty(), "multi={multi}: trapped {:?} errors {:?}", o.trapped, o.errors);
+        assert!(
+            o.trapped.is_none() && o.errors.is_empty(),
+            "multi={multi}: trapped {:?} errors {:?}",
+            o.trapped,
+            o.errors
+        );
         let want = run_interpreter(src);
         assert_eq!(wasm_lines(&o), want, "multi_memory={multi}\n{src}");
     }

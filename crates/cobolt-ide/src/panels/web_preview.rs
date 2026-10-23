@@ -117,7 +117,6 @@ pub fn diagnostic_text(d: &WebDiagnostic, tr: &Tr) -> String {
         WebDiagnosticKind::UnknownLayerProperty => Some(tr.wasm_diag_unknown_layer_property),
         WebDiagnosticKind::LayerWrite => Some(tr.wasm_diag_layer_write),
         WebDiagnosticKind::TooManyHostReads => Some(tr.wasm_diag_too_many_reads),
-        WebDiagnosticKind::MemoryFileWithoutLimit => Some(tr.wasm_diag_memory_file_limit),
         WebDiagnosticKind::AcceptIgnored => Some(tr.wasm_warn_accept_ignored),
         WebDiagnosticKind::RedefinesMayDiffer => Some(tr.wasm_warn_redefines),
     };
@@ -1195,7 +1194,6 @@ mod tests {
             WebDiagnosticKind::UnknownLayerProperty,
             WebDiagnosticKind::LayerWrite,
             WebDiagnosticKind::TooManyHostReads,
-            WebDiagnosticKind::MemoryFileWithoutLimit,
             WebDiagnosticKind::AcceptIgnored,
             WebDiagnosticKind::RedefinesMayDiffer,
         ];

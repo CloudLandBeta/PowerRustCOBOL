@@ -411,3 +411,191 @@ fn no_layer_handler() {
     assert_eq!(host.event(inst, 5, m.event_index("onClick").unwrap() as i32, &[]), -4);
     assert_eq!(host.outcome().output, "");
 }
+
+/// A form whose BTN-GET asks the backend for a customer and whose BTN-COUNT
+/// counts clicks (T16).
+fn remote_form() -> Project {
+    let src = form_source(
+        "REMOTE-FORM",
+        "01 CUST GLOBAL.\n    05 CUST-ID PIC 9(4) VALUE 7.\n    05 NAME PIC X(10).\n    05 BAL PIC S9(5)V99.\n\
+         01 WS-STATE PIC X(4) VALUE SPACES GLOBAL.\n01 WS-COUNT PIC 9(2) VALUE 0 GLOBAL.\n01 WS-BAL-ED PIC -(5)9.99 GLOBAL.\n",
+        &[
+            (
+                "BTN-GET",
+                "onClick",
+                "    CALL \"get-customer\" WITH WEBSOCKET LINKAGE USING BY REFERENCE CUST\n        ON EXCEPTION MOVE \"ERR\" TO WS-STATE\n        NOT ON EXCEPTION MOVE \"OK\" TO WS-STATE\n    END-CALL\n\
+                 \x20   MOVE BAL TO WS-BAL-ED\n    DISPLAY \"STATE \" WS-STATE NAME WS-BAL-ED\n",
+            ),
+            ("BTN-COUNT", "onClick", "    ADD 1 TO WS-COUNT\n    DISPLAY \"COUNT \" WS-COUNT\n"),
+        ],
+    );
+    Project::new().form("REMOTE-FORM", true, 1, &[("BTN-GET", "Button"), ("BTN-COUNT", "Button")], &src)
+}
+
+/// AC5 (R9, R10; ABI A5, A6): a handler that calls the backend stops at the
+/// call (SUSPENDED); two events raised meanwhile are queued; the answer frame
+/// resumes it and its group takes the answer; the queued events then run, the
+/// second one calling again, and an error frame takes it to ON EXCEPTION
+/// with the group untouched.
+#[test]
+fn suspend_resume_with_queued_events() {
+    let p = remote_form();
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let m = manifest_of(&c);
+        assert!(m.imports.iter().any(|i| i == "remote"), "{:?}", m.imports);
+        let click = m.event_index("onClick").unwrap() as i32;
+        let mut host = FormHost::new(&c.wasm).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        assert_eq!(host.event(inst, 3, click, &[]), 1, "SUSPENDED at the call: {:?}", host.outcome());
+        let task = host.tick();
+        assert_eq!(task, inst);
+        let frames = host.remote_frames();
+        assert_eq!(
+            String::from_utf8(frames[0].clone()).unwrap(),
+            r#"{"program":"GET-CUSTOMER","args":[{"mode":"ref","json":{"CUST-ID":7,"NAME":"","BAL":0.00}}],"returning":false}"#
+        );
+        // Two events while the task waits: queued, nothing runs.
+        assert_eq!(host.post(inst, 4, click, &[]), None);
+        assert_eq!(host.post(inst, 3, click, &[]), None);
+        assert_eq!(host.queued(), 2);
+        assert!(host.outcome().output.is_empty(), "{:?}", host.outcome());
+        // The answer.
+        let answer = br#"{"id":0,"result":{"args":[{"CUST-ID":7,"NAME":"Ana","BAL":-12.5}]}}"#;
+        assert_eq!(host.resume(task, answer), 0, "{:?}", host.outcome());
+        // The queued events: COUNT runs, GET calls again and waits.
+        assert_eq!(host.pump(), Some(1));
+        assert_eq!(host.queued(), 0);
+        assert_eq!(host.remote_frames().len(), 2);
+        let refused = br#"{"id":1,"error":{"class":"transport","code":7,"message":"not connected","may_have_been_received":false}}"#;
+        let again = host.tick();
+        assert_eq!(host.resume(again, refused), 0, "{:?}", host.outcome());
+        let o = host.outcome();
+        assert!(o.trapped.is_none() && o.errors.is_empty(), "{o:?}");
+        assert_eq!(
+            common::wasm_lines(&o),
+            vec!["STATE OK  Ana          -12.50", "COUNT 01", "STATE ERR Ana          -12.50"],
+            "multi={multi}"
+        );
+        eprintln!(
+            "suspend/resume (multi={multi}): SUSPENDED, 2 events queued, result frame then error frame; {} remote frames, {} lines",
+            host.remote_frames().len(),
+            o.output.lines().count()
+        );
+    }
+}
+
+/// R9/R11: an answer that does not fit its group is a failure of the call
+/// (ON EXCEPTION, nothing written); without ON EXCEPTION a failed call is a
+/// run-time error and the application keeps running.
+#[test]
+fn a_bad_answer_or_a_call_without_on_exception() {
+    let src = form_source(
+        "R2-FORM",
+        "01 REC GLOBAL.\n    05 QTY PIC 9(2) VALUE 5.\n01 WS-STATE PIC X(4) VALUE SPACES GLOBAL.\n",
+        &[
+            (
+                "BTN-A",
+                "onClick",
+                "    CALL \"P\" WITH WEBSOCKET LINKAGE USING BY REFERENCE REC\n        ON EXCEPTION MOVE \"ERR\" TO WS-STATE\n    END-CALL\n    DISPLAY WS-STATE QTY\n",
+            ),
+            ("BTN-B", "onClick", "    CALL \"P\" WITH WEBSOCKET LINKAGE USING BY REFERENCE REC\n    DISPLAY \"NOT REACHED\"\n"),
+        ],
+    );
+    let p = Project::new().form("R2-FORM", true, 1, &[("BTN-A", "Button"), ("BTN-B", "Button")], &src);
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let click = manifest_of(&c).event_index("onClick").unwrap() as i32;
+        let mut host = FormHost::new(&c.wasm).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        assert_eq!(host.event(inst, 3, click, &[]), 1);
+        // QTY holds two digits: 123 does not fit, so nothing is written.
+        assert_eq!(host.resume(inst, br#"{"id":0,"result":{"args":[{"QTY":123}]}}"#), 0);
+        assert_eq!(common::wasm_lines(&host.outcome()), vec!["ERR 05"]);
+        assert_eq!(host.event(inst, 4, click, &[]), 1);
+        assert_eq!(host.resume(inst, br#"{"id":1,"error":{"class":"transport","code":7,"message":"down"}}"#), -10);
+        let o = host.outcome();
+        assert_eq!(o.error_positions.last().map(|e| e.0), Some(1110), "{o:?}");
+        assert!(!o.output.contains("NOT REACHED"));
+        assert_eq!(host.event(inst, 3, click, &[]), 1, "the application keeps running");
+        eprintln!("bad answer (multi={multi}): ON EXCEPTION with the group untouched; without it, run-time error 1110");
+    }
+}
+
+/// ABI §12.1: a verb that waits (a message box) suspends the handler, and
+/// `pr_resume` continues it after the dialog.
+#[test]
+fn a_message_box_suspends_the_handler() {
+    let src = form_source(
+        "MB-FORM",
+        "",
+        &[("BTN-ASK", "onClick", "    DISPLAY \"BEFORE\"\n    COBOL::MessageBox(\"Saved\", \"Title\", \"OK\")\n    DISPLAY \"AFTER\"\n")],
+    );
+    let p = Project::new().form("MB-FORM", true, 1, &[("BTN-ASK", "Button")], &src);
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let click = manifest_of(&c).event_index("onClick").unwrap() as i32;
+        let mut host = FormHost::new(&c.wasm).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        assert_eq!(host.event(inst, 3, click, &[]), 1, "{:?}", host.outcome());
+        let o = host.outcome();
+        assert_eq!(common::wasm_lines(&o), vec!["BEFORE"]);
+        assert_eq!(o.calls.len(), 1, "the dialog's CALL was flushed before the suspension: {o:?}");
+        assert_eq!(host.resume(inst, &[]), 0);
+        assert_eq!(common::wasm_lines(&host.outcome()), vec!["BEFORE", "AFTER"]);
+        eprintln!("message box (multi={multi}): SUSPENDED after 1 CALL, resumed to the end");
+    }
+}
+
+/// R9: a handler that runs longer than the budget yields at a loop back-edge
+/// and is resumed on the host's next turn; where it yielded is invisible —
+/// budgets of 1, 7 and 20 000 blocks give the same data and the same commands.
+#[test]
+fn yield_is_invisible() {
+    let src = form_source(
+        "LOOP-FORM",
+        "01 WS-I PIC 9(4) VALUE 0 GLOBAL.\n01 WS-TOTAL PIC 9(8) VALUE 0 GLOBAL.\n",
+        &[(
+            "BTN-RUN",
+            "onClick",
+            "    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 200\n        ADD WS-I TO WS-TOTAL\n        IF FUNCTION MOD(WS-I, 50) = 0\n            MOVE WS-TOTAL TO LBL-OUT::Caption\n            DISPLAY \"AT \" WS-I \" \" WS-TOTAL\n        END-IF\n    END-PERFORM\n    DISPLAY \"DONE \" WS-TOTAL\n",
+        )],
+    );
+    let p = Project::new().form("LOOP-FORM", true, 1, &[("BTN-RUN", "Button"), ("LBL-OUT", "Label")], &src);
+    let specs = p.form_specs();
+    let mut runs: Vec<(String, Vec<String>, u32, u32)> = Vec::new();
+    for multi in [true, false] {
+        for budget in [1, 7, 20_000] {
+            let c = compile_project(&specs, &Options { multi_memory: multi, budget, name: "loop".into(), ..Options::default() }).unwrap();
+            let click = manifest_of(&c).event_index("onClick").unwrap() as i32;
+            let mut host = FormHost::new(&c.wasm).unwrap();
+            let (inst, mut opening) = host.open_form(0, -1);
+            let mut yields = 0u32;
+            // The start-up run yields too under a small budget.
+            while opening == 2 {
+                yields += 1;
+                opening = host.resume(inst, &[]);
+            }
+            assert_eq!(opening, 0, "the form opened");
+            let mut status = host.event(inst, 3, click, &[]);
+            while status == 2 {
+                yields += 1;
+                assert!(host.pump().is_none(), "nothing else is delivered while the task is live");
+                status = host.resume(inst, &[]);
+            }
+            assert_eq!(status, 0, "budget {budget}: {:?}", host.outcome());
+            let o = host.outcome();
+            assert!(o.trapped.is_none() && o.errors.is_empty(), "{o:?}");
+            runs.push((o.output.clone(), o.commands.clone(), yields, o.flushes));
+            eprintln!("yield (multi={multi}, budget {budget}): {yields} yields, {} flushes, {} commands", o.flushes, o.commands.len());
+        }
+    }
+    let (out0, cmds0, _, _) = runs[0].clone();
+    assert!(out0.ends_with("DONE 00020100\n"), "{out0}");
+    assert_eq!(cmds0.len(), 4, "{cmds0:?}");
+    for (out, cmds, _, _) in &runs {
+        assert_eq!((out, cmds), (&out0, &cmds0));
+    }
+    assert!(runs[0].2 > 100 && runs[2].2 == 0, "budget 1 yields often, 20 000 never: {:?}", runs.iter().map(|r| r.2).collect::<Vec<_>>());
+    eprintln!("yield: 6 runs (2 variants x 3 budgets), identical output and commands");
+}

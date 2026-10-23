@@ -47,7 +47,7 @@ pub const STACK_BYTES: u32 = 4096;
 pub(crate) struct Para<'a> {
     name: String,
     section: Option<String>,
-    stmts: &'a [Stmt],
+    pub(crate) stmts: &'a [Stmt],
     line: u32,
 }
 
@@ -62,11 +62,26 @@ pub(crate) struct LoopCtx {
 #[derive(Clone, Copy)]
 pub(crate) struct FileInfo {
     /// Address of the static file descriptor.
-    desc: u32,
+    pub(crate) desc: u32,
     /// Region offset of the handle slot; the open mode is kept just after it.
-    handle_off: u32,
+    pub(crate) handle_off: u32,
     /// Layout item of the file's first record area.
-    rec_item: Option<usize>,
+    pub(crate) rec_item: Option<usize>,
+    /// What the file is in this module.
+    pub(crate) kind: FileKind,
+    /// Its row of `Lower::file_meta` (in-memory and SORT files).
+    pub(crate) meta: usize,
+}
+
+/// How a file is compiled.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FileKind {
+    /// Sequential, through the conformance host imports.
+    Seq,
+    /// INDEXED, held in memory (`crate::lower_idx`).
+    Memory,
+    /// A `SORT` work file.
+    Sort,
 }
 
 /// The names the host commands refer to by number (ABI v1 §5): properties,
@@ -128,6 +143,8 @@ pub struct Lowered {
     pub warnings: Vec<crate::error::GenWarning>,
     /// The source lines `$line` takes in this form's code (R14, `prlines`).
     pub lines: std::collections::BTreeSet<u32>,
+    /// The program keeps records in the file heap (in-memory files, `SORT`).
+    pub uses_heap: bool,
 }
 
 /// A parameter of a called program: the LINKAGE record it names.
@@ -262,6 +279,15 @@ pub struct Lower<'a, 'b> {
     pub(crate) unit_base: usize,
     /// `EXTERNAL` files: name -> the region slot holding the one open handle.
     pub(crate) external_handles: HashMap<String, u32>,
+    /// What the in-memory and SORT files of every unit are (`FileInfo::meta`).
+    pub(crate) file_meta: Vec<crate::lower_idx::FileMeta>,
+    /// The program holds records in the file heap (in-memory files, SORT).
+    pub(crate) uses_heap: bool,
+    /// Every program unit of the source, by unit number (for the declarations
+    /// a remote call's groups are described from).
+    pub(crate) programs: Vec<&'a Program>,
+    /// Per callee unit: the hidden area its LINKAGE `RETURNING` record is bound to.
+    pub(crate) returning_store: HashMap<usize, u32>,
 }
 
 /// The program units of a source: `prog`, then everything nested in it or
@@ -412,6 +438,10 @@ impl<'a, 'b> Lower<'a, 'b> {
             park_slot: None,
             unit_base,
             external_handles: HashMap::new(),
+            file_meta: Vec::new(),
+            uses_heap: false,
+            programs: order.iter().map(|(p, _)| *p).collect(),
+            returning_store: HashMap::new(),
         };
 
         // Phase A, every unit: find the paragraphs and make their blocks, so a
@@ -419,9 +449,9 @@ impl<'a, 'b> Lower<'a, 'b> {
         let mut states: Vec<UnitState<'a>> = Vec::new();
         for (u, (p, _)) in order.iter().enumerate() {
             l.enter_unit(u, p);
+            l.flatten()?;
             l.build_files()?;
             l.file_tables[u] = l.files.iter().map(|(n, f)| (n.clone(), (*f, l.global_files.contains(n)))).collect();
-            l.flatten()?;
             l.prescan()?;
             l.find_alters()?;
             l.prologue = l.new_block(if u == 0 { "program" } else { "program-prologue" });
@@ -486,7 +516,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         } else {
             None
         };
-        Ok(Lowered { entry: main_entry, layout: l.layout, units: count, stack_off, park_slot, event_items: (0, 0), quit, warnings: l.warnings, lines: l.lines_used })
+        Ok(Lowered { entry: main_entry, layout: l.layout, units: count, stack_off, park_slot, event_items: (0, 0), quit, warnings: l.warnings, lines: l.lines_used, uses_heap: l.uses_heap })
     }
 
     /// Make unit `u` (program `p`) the one being lowered.
@@ -651,12 +681,13 @@ impl<'a, 'b> Lower<'a, 'b> {
         Ok(())
     }
 
-    // ── files (conformance builds) ────────────────────────────────────────
+    // ── files ─────────────────────────────────────────────────────────────
 
+    /// The unit's files: INDEXED files held in memory and `SORT` work files in
+    /// every build (WASM-010 R7, Q8); sequential files in a conformance build.
+    /// Every record is mapped to its file either way, so a verb on a file the
+    /// module cannot hold is refused naming the file.
     pub(crate) fn build_files(&mut self) -> GenResult<()> {
-        if !self.conformance {
-            return Ok(());
-        }
         let prog = self.prog;
         let Some(io) = prog.environment.as_ref().and_then(|e| e.input_output.as_ref()) else { return Ok(()) };
         // record names per file, from the FILE SECTION
@@ -681,8 +712,33 @@ impl<'a, 'b> Lower<'a, 'b> {
                 }
             }
         }
+        let sort_files = self.sort_file_names(&records);
         for fc in &io.file_controls {
             let name = up(&fc.name);
+            let recs = records.get(&name).cloned().unwrap_or_default();
+            let mut rec_items = Vec::new();
+            for rn in &recs {
+                if let Ok(i) = self.layout.lookup(rn, &[]) {
+                    rec_items.push(i);
+                    self.record_file.insert(i, name.clone());
+                }
+            }
+            let in_memory = fc.organization == cobolt_ast::program::FileOrganization::Indexed
+                && fc.storage_mode == cobolt_ast::program::StorageMode::Memory
+                && !fc.persist;
+            if in_memory {
+                let fi = self.build_memory_file(fc, &rec_items)?;
+                self.files.insert(name, fi);
+                continue;
+            }
+            if sort_files.contains(&name) {
+                let fi = self.build_sort_file(&name, &rec_items)?;
+                self.files.insert(name, fi);
+                continue;
+            }
+            if !self.conformance {
+                continue;
+            }
             // An EXTERNAL file is one open file for every unit that declares it.
             let handle_off = if external_fds.contains(&name) {
                 match self.external_handles.get(&name).copied() {
@@ -708,40 +764,45 @@ impl<'a, 'b> Lower<'a, 'b> {
                 _ => 0,
             };
             let desc = self.pool.file_desc(fc.assign.as_bytes(), org, fc.optional, handle_off, status_opd);
-            let mut rec_item = None;
-            for (k, rn) in records.get(&name).cloned().unwrap_or_default().iter().enumerate() {
-                if let Ok(i) = self.layout.lookup(rn, &[]) {
-                    if k == 0 {
-                        rec_item = Some(i);
-                    }
-                    self.record_file.insert(i, name.clone());
-                }
-            }
-            self.files.insert(name, FileInfo { desc, handle_off, rec_item });
+            let rec_item = rec_items.first().copied();
+            self.files.insert(name, FileInfo { desc, handle_off, rec_item, kind: FileKind::Seq, meta: usize::MAX });
         }
         Ok(())
     }
 
+    /// The file `name`, as this unit sees it. A file the module cannot hold is
+    /// refused here, at the line of the verb (R8).
     pub(crate) fn file(&self, name: &str, line: u32) -> GenResult<FileInfo> {
-        if !self.conformance {
-            return self.err_kind(
-                line,
-                crate::error::ErrorKind::BackendOnly,
-                "file input/output",
-                "file input/output is not available in a browser module: it runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE",
-            );
-        }
         let n = up(name);
-        if let Some(f) = self.files.get(&n) {
-            return Ok(*f);
-        }
-        // A GLOBAL file of a unit that contains this one.
-        for &u in self.units[self.cur_unit].scope.iter().skip(1) {
-            if let Some((f, true)) = self.file_tables[u as usize].get(&n) {
-                return Ok(*f);
+        let mut found = self.files.get(&n).copied();
+        if found.is_none() {
+            // A GLOBAL file of a unit that contains this one.
+            for &u in self.units[self.cur_unit].scope.iter().skip(1) {
+                if let Some((f, true)) = self.file_tables[u as usize].get(&n) {
+                    found = Some(*f);
+                    break;
+                }
             }
         }
-        Err(GenError::new(line, format!("file {name} is not defined")))
+        match found {
+            Some(f) if f.kind != FileKind::Seq || self.conformance => Ok(f),
+            _ if !self.conformance => {
+                let persistent = self
+                    .prog
+                    .environment
+                    .as_ref()
+                    .and_then(|e| e.input_output.as_ref())
+                    .and_then(|io| io.file_controls.iter().find(|fc| up(&fc.name) == n))
+                    .is_some_and(|fc| fc.persist);
+                let why = if persistent {
+                    "WITH PERSISTENCE writes the file to disk, which a browser module does not have; without the phrase the file is kept in memory with the form, or call a backend program with CALL … WITH WEBSOCKET LINKAGE"
+                } else {
+                    crate::support::DISK_FILES
+                };
+                self.err_kind(line, crate::error::ErrorKind::BackendOnly, name.to_string(), format!("file {name} is not available in a browser module: {why}"))
+            }
+            _ => Err(GenError::new(line, format!("file {name} is not defined"))),
+        }
     }
 
     pub(crate) fn open_(&mut self, mode: OpenMode, files: &[String], line: u32) -> GenResult<()> {
@@ -799,9 +860,6 @@ impl<'a, 'b> Lower<'a, 'b> {
         advancing: Option<&AdvancingClause>,
         line: u32,
     ) -> GenResult<()> {
-        if !self.conformance {
-            return self.file("", line).map(|_| ());
-        }
         let (file_name, fi) = self.file_of_record(record, line)?;
         let rec = self.receiver(record)?;
         if let Some(src) = from {
@@ -1082,6 +1140,15 @@ impl<'a, 'b> Lower<'a, 'b> {
                                 if err.is_none() {
                                     err = Some(e)
                                 }
+                            }
+                        }
+                    }
+                    // A CALL that names a paragraph of this program performs it.
+                    if let Stmt::Call { program: Expr::Literal(Literal::String(n), _), convention: cobolt_ast::stmt::CallConvention::Local, .. } = s {
+                        let up = n.trim().to_ascii_uppercase();
+                        if !self.unit_by_name.contains_key(&up) {
+                            if let Some(v) = self.para_by_name.get(&up) {
+                                ends.push(v[0]);
                             }
                         }
                     }
@@ -1758,6 +1825,10 @@ impl<'a, 'b> Lower<'a, 'b> {
         if line > 0 {
             self.line(line);
         }
+        // Files held in memory and SORT work files (`lower_idx`).
+        if let Some(r) = self.memory_file_stmt(s, line) {
+            return r;
+        }
         match s {
             Stmt::Move { from, to, .. } => self.move_(from, to, line),
             Stmt::Add { operands, to, giving, on_size_error, not_on_size_error, .. } => {
@@ -1840,6 +1911,9 @@ impl<'a, 'b> Lower<'a, 'b> {
                 Ok(())
             }
             Stmt::GoBack { .. } => self.exit_program(),
+            Stmt::Call { program, using, returning, on_exception, not_on_exception, convention: cobolt_ast::stmt::CallConvention::WebSocket, .. } => {
+                self.remote_call(program, using, returning.as_ref(), on_exception, not_on_exception, line)
+            }
             Stmt::Call { program, using, returning, on_exception, not_on_exception, .. } => {
                 self.call_(program, using, returning.as_ref(), on_exception, not_on_exception, line)
             }
@@ -1861,7 +1935,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             other => {
                 let name = crate::support::stmt_name(other);
                 match crate::support::support(other) {
-                    crate::support::Support::BackendOnly(why) => {
+                    crate::support::Support::BackendOnly(why) | crate::support::Support::MemoryFiles(why) => {
                         self.err_kind(line, crate::error::ErrorKind::BackendOnly, name, format!("{name} is not available in a browser module: {why}"))
                     }
                     crate::support::Support::Unsupported(why) => {

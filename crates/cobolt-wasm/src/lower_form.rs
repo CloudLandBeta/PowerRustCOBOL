@@ -213,6 +213,9 @@ impl Lower<'_, '_> {
         self.check_layer_rules(root, ctrl, &segs, false, line)?;
         self.build_path(ctrl, &segs)?;
         self.call_rt("rt_cmd_call");
+        if let Some(last) = segs.last() {
+            self.suspend_if_waiting(ctrl, last.name);
+        }
         let _ = CMD_CALL;
         Ok(())
     }
@@ -327,6 +330,7 @@ impl Lower<'_, '_> {
             None => {
                 self.build_path(ctrl, std::slice::from_ref(&seg))?;
                 self.call_rt("rt_cmd_call");
+                self.suspend_if_waiting(ctrl, method);
             }
             Some(r) => {
                 let k = self.ctemp_next;
@@ -341,6 +345,7 @@ impl Lower<'_, '_> {
                 self.call_rt("rt_cmd_query");
                 let src = self.pool.opd_ctemp(k);
                 self.move_operand_to(src, r, line)?;
+                self.suspend_if_waiting(ctrl, method);
             }
         }
         Ok(())
@@ -462,8 +467,10 @@ impl Lower<'_, '_> {
                     })
                     .collect();
                 match crate::support::builtin_support(other) {
+                    // A verb of the application object the page implements (ABI §12.1).
+                    _ if crate::lower_remote::is_app_verb(other) => {}
                     crate::support::Support::Module | crate::support::Support::Conformance => {}
-                    crate::support::Support::BackendOnly(alt) => {
+                    crate::support::Support::BackendOnly(alt) | crate::support::Support::MemoryFiles(alt) => {
                         return self.err_kind(line, crate::error::ErrorKind::BackendOnly, format!("COBOL::\"{other}\""), format!("COBOL::\"{other}\" runs on the backend, not in a browser module: {alt}"));
                     }
                     crate::support::Support::Unsupported(why) => {
@@ -473,6 +480,7 @@ impl Lower<'_, '_> {
                 let seg = Seg { name: other, args: &args, parens: true };
                 self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
                 self.call_rt("rt_cmd_call");
+                self.suspend_if_waiting(CTRL_APP, other);
                 Ok(())
             }
         }

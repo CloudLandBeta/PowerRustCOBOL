@@ -78,6 +78,10 @@ fn main() {
     // share it, and so do the child forms a running form opens.
     cobolt_server::client::install_default_from_env();
 
+    // WASM-010 T19: the web build of a Web or Mobile project (the `build` tool
+    // of `rcrun mcp`) is the WebAssembly generator and the bundler.
+    cobolt_project_tools::web::link(std::sync::Arc::new(cobolt_project_tools::web::generator::GeneratorBackend));
+
     match args.get(1).map(|s| s.as_str()) {
         Some("run") => cmd_run(&args[2..]),
         Some("run-form") => form_gui::cmd_run_form(&args[2..]),

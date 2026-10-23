@@ -18,11 +18,20 @@ pub enum Support {
     Module,
     /// Compiled, but only in a conformance build (WASM-PLAN P6).
     Conformance,
+    /// Compiled on an INDEXED file declared `STORAGE IS MEMORY` (without `WITH
+    /// PERSISTENCE`) and on a `SORT` work file (WASM-010 R7, Q8); on any other
+    /// file it runs on the backend, and the text says what to do instead.
+    MemoryFiles(&'static str),
     /// Runs on the backend; the browser module refuses it with the alternative.
     BackendOnly(&'static str),
     /// Not available on any WebAssembly build.
     Unsupported(&'static str),
 }
+
+/// What a file verb on a file that is not in memory is told.
+pub const DISK_FILES: &str = "only an INDEXED file declared STORAGE IS MEMORY (without WITH PERSISTENCE) is held in a browser module; other files are on the backend: call a backend program with CALL … WITH WEBSOCKET LINKAGE";
+/// What a `SORT` with `USING` or `GIVING` is told.
+pub const SORT_FILES: &str = "a browser module sorts records given by an INPUT PROCEDURE and returned to an OUTPUT PROCEDURE; USING and GIVING name files, which are on the backend";
 
 pub fn support(s: &Stmt) -> Support {
     use Support::*;
@@ -65,19 +74,24 @@ pub fn support(s: &Stmt) -> Support {
         | Stmt::TryCatch { .. }
         | Stmt::Throw { .. }
         | Stmt::Accept { .. } => Module,
-        // Files: the browser has none; the gate builds them with host imports.
-        // Sequential files compile in a conformance build only.
-        Stmt::Open { .. } | Stmt::Close { .. } | Stmt::Read { .. } | Stmt::Write { .. } => Conformance,
-        Stmt::Rewrite { .. }
+        // Files: the browser has none on disk. An INDEXED file held in memory
+        // lives with the form instance (Q8); every other file is the
+        // backend's. The NIST gate also builds sequential files with host
+        // imports (conformance builds only).
+        Stmt::Open { .. }
+        | Stmt::Close { .. }
+        | Stmt::Read { .. }
+        | Stmt::Write { .. }
+        | Stmt::Rewrite { .. }
         | Stmt::Delete { .. }
-        | Stmt::Start { .. }
-        | Stmt::Unlock { .. }
-        | Stmt::Commit { .. }
-        | Stmt::Rollback { .. }
-        | Stmt::Sort { .. }
-        | Stmt::Merge { .. }
-        | Stmt::Release { .. }
-        | Stmt::Return { .. } => BackendOnly("file input/output runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"),
+        | Stmt::Start { .. } => MemoryFiles(DISK_FILES),
+        // A SORT whose records come from an INPUT PROCEDURE and go to an
+        // OUTPUT PROCEDURE sorts in memory; USING and GIVING name files.
+        Stmt::Sort { .. } | Stmt::Release { .. } | Stmt::Return { .. } => MemoryFiles(SORT_FILES),
+        Stmt::Merge { .. } => BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"),
+        Stmt::Unlock { .. } | Stmt::Commit { .. } | Stmt::Rollback { .. } => {
+            BackendOnly("file input/output runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE")
+        }
         Stmt::ExecRust { .. } => Unsupported("EXEC RUST needs a native build; move it to the backend"),
         Stmt::ExecSql(_) => BackendOnly("embedded SQL runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE"),
     }
@@ -276,4 +290,71 @@ pub fn builtin_available(name: &str, ios: bool) -> bool {
         }
         _ => false,
     }
+}
+
+const BACKEND_FILES: &str = "file input/output runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
+
+/// Every statement, by the name [`stmt_name`] gives it, with its class: what
+/// the System KB's "What runs in a browser module" lists (WASM-010 D7). The
+/// exhaustive [`support`] is the definition; `tests/subset_table.rs` holds this
+/// table equal to it statement by statement.
+pub const STATEMENT_TABLE: &[(&str, Support)] = &[
+    ("ACCEPT", Support::Module),
+    ("ADD", Support::Module),
+    ("ADD CORRESPONDING", Support::Module),
+    ("ALTER", Support::Module),
+    ("CALL", Support::Module),
+    ("CANCEL", Support::Module),
+    ("CLOSE", Support::MemoryFiles(DISK_FILES)),
+    ("COMMIT", Support::BackendOnly(BACKEND_FILES)),
+    ("COMPUTE", Support::Module),
+    ("CONTINUE", Support::Module),
+    ("DELETE", Support::MemoryFiles(DISK_FILES)),
+    ("DISPLAY", Support::Module),
+    ("DIVIDE", Support::Module),
+    ("EVALUATE", Support::Module),
+    ("EXEC RUST", Support::Unsupported("EXEC RUST needs a native build; move it to the backend")),
+    ("EXEC SQL", Support::BackendOnly("embedded SQL runs on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE")),
+    ("EXIT", Support::Module),
+    ("GO TO", Support::Module),
+    ("GO TO DEPENDING", Support::Module),
+    ("GOBACK", Support::Module),
+    ("IF", Support::Module),
+    ("INITIALIZE", Support::Module),
+    ("INSPECT", Support::Module),
+    ("INVOKE", Support::Module),
+    ("MERGE", Support::BackendOnly("MERGE reads files, which are on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE")),
+    ("MOVE", Support::Module),
+    ("MOVE CORRESPONDING", Support::Module),
+    ("MULTIPLY", Support::Module),
+    ("NEXT SENTENCE", Support::Module),
+    ("OPEN", Support::MemoryFiles(DISK_FILES)),
+    ("PERFORM", Support::Module),
+    ("READ", Support::MemoryFiles(DISK_FILES)),
+    ("RELEASE", Support::MemoryFiles(SORT_FILES)),
+    ("RETURN", Support::MemoryFiles(SORT_FILES)),
+    ("REWRITE", Support::MemoryFiles(DISK_FILES)),
+    ("ROLLBACK", Support::BackendOnly(BACKEND_FILES)),
+    ("SEARCH", Support::Module),
+    ("SET (pointer)", Support::Module),
+    ("SORT", Support::MemoryFiles(SORT_FILES)),
+    ("START", Support::MemoryFiles(DISK_FILES)),
+    ("STOP", Support::Module),
+    ("STRING", Support::Module),
+    ("SUBTRACT", Support::Module),
+    ("SUBTRACT CORRESPONDING", Support::Module),
+    ("THROW", Support::Module),
+    ("TRY", Support::Module),
+    ("UNLOCK", Support::BackendOnly(BACKEND_FILES)),
+    ("UNSTRING", Support::Module),
+    ("WRITE", Support::MemoryFiles(DISK_FILES)),
+    ("control assignment", Support::Module),
+    ("end of sentence", Support::Module),
+    ("member call", Support::Module),
+    ("window operation", Support::Module),
+];
+
+/// The row of [`STATEMENT_TABLE`] for a statement name.
+pub fn statement_entry(name: &str) -> Option<Support> {
+    STATEMENT_TABLE.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
 }

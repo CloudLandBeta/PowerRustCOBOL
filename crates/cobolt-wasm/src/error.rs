@@ -26,8 +26,6 @@ pub enum ErrorKind {
     LayerWrite,
     /// The statement reads more host values than the character temporaries hold.
     TooManyHostReads,
-    /// An in-memory file has no record limit, so its memory cannot be sized.
-    MemoryFileWithoutLimit,
 }
 
 /// A construct the generator cannot compile: it names the construct, the line
@@ -43,19 +41,29 @@ pub struct GenError {
     /// Further diagnostics found in the same program: the generator reports
     /// every construct it cannot compile, not only the first.
     pub more: Vec<GenError>,
+    /// The form (index in the project's forms) whose program the construct
+    /// is in, when the module is a project's.
+    pub form: Option<usize>,
 }
 
 impl GenError {
     pub fn new(line: u32, message: impl Into<String>) -> GenError {
-        GenError { line, message: message.into(), kind: ErrorKind::Other, subject: String::new(), more: Vec::new() }
+        GenError { line, message: message.into(), kind: ErrorKind::Other, subject: String::new(), more: Vec::new(), form: None }
     }
 
     /// A refusal of a known kind about `subject`.
     pub fn kinded(line: u32, kind: ErrorKind, subject: impl Into<String>, message: impl Into<String>) -> GenError {
-        GenError { line, message: message.into(), kind, subject: subject.into(), more: Vec::new() }
+        GenError { line, message: message.into(), kind, subject: subject.into(), more: Vec::new(), form: None }
     }
 
     /// Every diagnostic, the first one included, with its kind.
+    /// Say which form every diagnostic belongs to.
+    pub fn in_form(mut self, form: usize) -> GenError {
+        self.form = Some(form);
+        self.more = self.more.into_iter().map(|m| m.in_form(form)).collect();
+        self
+    }
+
     pub fn all_kinded(&self) -> Vec<&GenError> {
         let mut v = vec![self];
         v.extend(self.more.iter().flat_map(|m| m.all_kinded()));

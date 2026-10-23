@@ -74,6 +74,8 @@ struct State {
     random: f64,
     /// The request frames the module sent with `remote`, in order.
     remote_frames: Vec<Vec<u8>>,
+    /// Every batch the module flushed, byte for byte, when asked to keep them.
+    batches: Option<Vec<Vec<u8>>>,
 }
 
 /// Apply a command batch to the outcome, through the ABI's one codec.
@@ -88,7 +90,11 @@ fn apply(batch: &[u8], out: &mut Outcome) {
     };
     for c in cmds {
         match c {
-            Command::Display(t) => out.output.push_str(t),
+            // One command is one line of the console (ABI §5, WASM-010 T21).
+            Command::Display(t) => {
+                out.output.push_str(t);
+                out.output.push('\n');
+            }
             Command::Error { code, line, unit, form, event, .. } => {
                 out.errors.push(RtError { code, line });
                 out.error_positions.push((code, unit, line, form, event));
@@ -148,12 +154,18 @@ pub fn engine() -> Result<Engine, String> {
 
 /// Run a program-mode module (`pr_run`) to its end.
 pub fn run_program(wasm: &[u8]) -> Result<Outcome, String> {
-    run_with(wasm, None, 64 * 1024)
+    run_with(wasm, None, 64 * 1024, false).map(|(o, _)| o)
+}
+
+/// [`run_program`], and the module's data memory as the run left it (the
+/// byte-layout tests read their items out of it).
+pub fn run_program_memory(wasm: &[u8]) -> Result<(Outcome, Vec<u8>), String> {
+    run_with(wasm, None, 64 * 1024, true)
 }
 
 /// Run a conformance module: file verbs work against `conf.cwd`.
 pub fn run_conformance(wasm: &[u8], conf: Conformance) -> Result<Outcome, String> {
-    run_with(wasm, Some(conf), 64 * 1024)
+    run_with(wasm, Some(conf), 64 * 1024, false).map(|(o, _)| o)
 }
 
 fn new_state(out: Rc<RefCell<Outcome>>, conformance: Option<Conformance>, batch_size: u32) -> State {
@@ -169,6 +181,7 @@ fn new_state(out: Rc<RefCell<Outcome>>, conformance: Option<Conformance>, batch_
         now_ms: None,
         random: 0.5,
         remote_frames: Vec::new(),
+        batches: None,
     }
 }
 
@@ -186,6 +199,9 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
                 let mut o = out.borrow_mut();
                 o.flushes += 1;
                 apply(&batch, &mut o);
+            }
+            if let Some(b) = caller.data_mut().batches.as_mut() {
+                b.push(batch.clone());
             }
             remember_sets(&batch, &mut caller.data_mut().props);
         })
@@ -390,7 +406,7 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
     Ok(linker)
 }
 
-fn run_with(wasm: &[u8], conformance: Option<Conformance>, batch_size: u32) -> Result<Outcome, String> {
+fn run_with(wasm: &[u8], conformance: Option<Conformance>, batch_size: u32, keep_memory: bool) -> Result<(Outcome, Vec<u8>), String> {
     let engine = engine()?;
     let module = Module::new(&engine, wasm).map_err(|e| format!("invalid module: {e}"))?;
     let out = Rc::new(RefCell::new(Outcome::default()));
@@ -427,7 +443,11 @@ fn run_with(wasm: &[u8], conformance: Option<Conformance>, batch_size: u32) -> R
             outcome.trapped = Some(format!("{e:#}"));
         }
     }
-    Ok(outcome)
+    let memory = match (keep_memory, instance.get_memory(&mut store, "memory")) {
+        (true, Some(m)) => m.data(&store).to_vec(),
+        _ => Vec::new(),
+    };
+    Ok((outcome, memory))
 }
 
 // ── driving a project module's forms (ABI v1 §4) ────────────────────────────
@@ -441,6 +461,8 @@ pub struct HostOptions {
     pub now_ms: Option<f64>,
     /// What `random` answers (default 0.5).
     pub random: Option<f64>,
+    /// Keep every batch the module flushes ([`FormHost::batches`]).
+    pub record_batches: bool,
 }
 
 /// A host for a project module: it opens forms, delivers events, resumes and
@@ -470,6 +492,9 @@ impl FormHost {
         let out = Rc::new(RefCell::new(Outcome::default()));
         let mut state = new_state(out.clone(), None, manifest.limits.batch_size);
         state.now_ms = opts.now_ms;
+        if opts.record_batches {
+            state.batches = Some(Vec::new());
+        }
         if let Some(r) = opts.random {
             state.random = r;
         }
@@ -608,6 +633,12 @@ impl FormHost {
     /// The property value the module last set (`SET inst ctrl name`).
     pub fn property(&self, inst: u32, ctrl: u32, name: u32) -> Option<String> {
         self.store.data().props.get(&(inst, ctrl, name)).cloned()
+    }
+
+    /// The batches the module flushed, byte for byte (with
+    /// [`HostOptions::record_batches`]).
+    pub fn batches(&self) -> Vec<Vec<u8>> {
+        self.store.data().batches.clone().unwrap_or_default()
     }
 
     /// The request frames the module sent with `remote`.

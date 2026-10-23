@@ -26,6 +26,7 @@
 //! system browser. [`presets`] are the device sizes the Preview offers.
 
 pub mod devserver;
+pub mod generator;
 pub mod presets;
 pub mod preview;
 
@@ -208,8 +209,6 @@ pub enum WebDiagnosticKind {
     LayerWrite,
     /// Refused: a statement reads more host values than one statement may.
     TooManyHostReads,
-    /// Refused: an in-memory file without a record limit.
-    MemoryFileWithoutLimit,
     /// Warning: `ACCEPT` from the operator is ignored.
     AcceptIgnored,
     /// Warning: a `REDEFINES` may give a different result than on the desktop.

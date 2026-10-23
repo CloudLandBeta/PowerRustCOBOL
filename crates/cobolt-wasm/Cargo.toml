@@ -20,6 +20,10 @@ cobolt-ast      = { path = "../cobolt-ast" }
 # with the routines it links in: one definition, in the routines' crate.
 cobolt-wasm-rt  = { path = "../cobolt-wasm-rt" }
 cobolt-decimal  = { path = "../cobolt-decimal" }
+# The group <-> JSON mapping's layout rules (WASM-005 R5): the generator
+# describes a group to the routines from the same `Item` the interpreter and
+# the backend build, so a layout is accepted or refused by one definition.
+cobolt-wire     = { path = "../cobolt-wire" }
 # The form model's own tables (a layer's properties, spec 091 R33), without the
 # Viewer's readers: the model crate the player also builds on.
 cobolt-forms    = { path = "../cobolt-forms", default-features = false }

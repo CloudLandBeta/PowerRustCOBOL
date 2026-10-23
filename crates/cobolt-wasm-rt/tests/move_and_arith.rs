@@ -330,5 +330,6 @@ fn display_writes_commands_into_the_batch() {
         texts.push(String::from_utf8(b[i + 2..i + 2 + n].to_vec()).unwrap());
         i += 2 + n;
     }
-    assert_eq!(texts.concat(), "TOTAL=-01234" .to_string() + "0.5\n");
+    // One DISPLAY statement is one command, one line of the console (ABI §5).
+    assert_eq!(texts, vec!["TOTAL=-012340.5".to_string()]);
 }
