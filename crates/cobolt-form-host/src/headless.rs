@@ -22,6 +22,7 @@
 //! | `{"event": {…}, "wait": false}` | clicked, without waiting for the handler (a click while another handler is busy) |
 //! | `{"wait_ms": 300}` | lets timers and animations run |
 //! | `{"read": {"control": "LBL-TOTAL", "property": "Caption"}}` | the live value |
+//! | `{"dump": true}` | every control's live state at that point, in the step's `state` (`{"BTN-OK": {"visible": true, "enabled": true, "props": {…}}, …}`): the designed properties and what the program wrote (a property the program wrote is spelled as COBOL spells it, `CAPTION`, and replaces the designed `Caption`) |
 //! | `{"open_form": "ORDERS-FORM"}` | a shell application: load a form into the ContentPane, as its menu item would |
 //!
 //! `set`, `event` and `read` act on the form on screen: in a shell, the form
@@ -198,6 +199,8 @@ pub fn run_headless(
             let value = host.host().script_read(&c, &p);
             reads.insert(format!("{c}::{p}"), value.clone().map(Value::String).unwrap_or(Value::Null));
             steps.push(json!({"step": i, "done": true, "read": format!("{c}::{p}"), "value": value}));
+        } else if step.get("dump").is_some() {
+            steps.push(json!({"step": i, "done": true, "dump": true, "state": host.host().script_dump()}));
         } else if let Some(form) = step.get("open_form").and_then(Value::as_str) {
             match &mut host {
                 Driven::Shell(app) => {
@@ -215,7 +218,7 @@ pub fn run_headless(
                 }
             }
         } else {
-            steps.push(json!({"step": i, "done": false, "why": "unknown step: use set, event, wait_ms, read or open_form"}));
+            steps.push(json!({"step": i, "done": false, "why": "unknown step: use set, event, wait_ms, read, dump or open_form"}));
         }
         timed_out |= Instant::now() >= deadline;
     }

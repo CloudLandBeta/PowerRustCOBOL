@@ -17,6 +17,29 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.62] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.61.)*
+
+### Feature: a headless `run_form` can dump a form's whole live state in one step, and the player's view layer can be drawn as a static page and measured against the desktop (WASM-016 R14)
+
+Look-and-feel parity between the desktop and the web is a measurement, and the measurement needed two things that did not exist.
+
+- **`{"dump": true}` in the `run_form` script.** The step answers, in its `state`, every control of the form on screen: whether it is
+  visible and enabled, and its properties — the designed ones and what the program wrote. Keys and properties come in name order, so two
+  dumps of one state are the same text. A property the program wrote is spelled as COBOL spells it (`CAPTION`) and replaces the designed
+  `Caption`, so a reader compares names without regard to case. One step now takes the place of a `read` per property, which is what a
+  form with two hundred controls needs. The coding agent's `run_form` tool lists it.
+- **`parity_page` (an example of the web player).** It runs the player's view layer natively — the elements each control becomes and
+  the property-layer stylesheet its properties write — with no program module and no browser, and writes the result as one HTML page in
+  the player's own shadow root with its own base sheet, so a headless browser takes the picture the desktop's is compared with. `--state`
+  applies a dump to the tree the way a running program writes it; `--geometry` makes the page write every control's box into the
+  document, and `--compare` checks each box against the one the desktop's layout solver gives the control.
+
+Measured by `cargo test -p cobolt-form-host --test headless_dump`: the real host and interpreter, a form of three controls, a handler
+that writes a caption and shows a hidden label — the dump before the click holds the designed state, the dump after holds what the
+handler wrote, and both are in name order.
+
 ## [PowerRustCOBOL 2.0.61] — 2026-10-24
 
 *(Written on `features-2x`, after 2.0.60. Documentation tables only.)*

@@ -5987,6 +5987,21 @@ impl FormHost {
         })
     }
 
+    /// `run_form` `dump`: what the form on the pane holds for every control — its live properties
+    /// (the designed ones and what the program wrote), and whether it is visible and enabled.
+    /// `{"CONTROL-ID": {"visible": true, "enabled": true, "props": {"Caption": "…", …}}, …}`, keys
+    /// and properties in name order so two dumps of one state are equal text.
+    pub(crate) fn script_dump(&self) -> serde_json::Value {
+        let body = self.script_body_ref();
+        let sorted: std::collections::BTreeMap<&String, &CtrlState> = body.state.iter().collect();
+        let mut out = serde_json::Map::new();
+        for (key, s) in sorted {
+            let props: std::collections::BTreeMap<&String, &String> = s.props.iter().collect();
+            out.insert(key.clone(), serde_json::json!({"visible": s.visible, "enabled": s.enabled, "props": props}));
+        }
+        serde_json::Value::Object(out)
+    }
+
     /// The program has ended (STOP RUN, or the form closed).
     pub(crate) fn script_finished(&self) -> bool {
         self.root.finished.load(Ordering::Relaxed)
