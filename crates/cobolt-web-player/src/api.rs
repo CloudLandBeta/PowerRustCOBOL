@@ -426,6 +426,10 @@ impl Inner {
         };
         for o in outs {
             match o {
+                Out::Answer { id, frame } if crate::grid::is_grid_id(id) => {
+                    // A remote grid's call (WASM-005 T16): the rows or the save's outcome are the host's.
+                    self.host.borrow_mut().grid_answer(id, frame);
+                }
                 Out::Answer { id, frame } if auth::wire::is_auth_id(id) => {
                     // An Authentication control's call (WASM-009): the answer is the machine's, not the module's.
                     let answered = self.host.borrow_mut().auth_answer(id, auth::wire::decode(&frame), now_ms() as f64);
@@ -589,7 +593,11 @@ impl Inner {
                     // told, as for any lost connection.
                     if let Err(e) = self.net_submit(id, &frame) {
                         let f = net::error_frame(id, net::class::TRANSPORT, 7, &e, false);
-                        self.host.borrow_mut().remote_answer(id, f);
+                        if crate::grid::is_grid_id(id) {
+                            self.host.borrow_mut().grid_answer(id, f);
+                        } else {
+                            self.host.borrow_mut().remote_answer(id, f);
+                        }
                     }
                 }
                 Outbound::Cancel { id } => {

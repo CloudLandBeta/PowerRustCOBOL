@@ -762,11 +762,12 @@ pub mod wire {
     use super::{AuthResult, BackendCall};
     use serde_json::{json, Value};
 
-    /// Ids at or above this are the Authentication control's, below it the program module's.
+    /// Ids from this one up to the remote grids' range (`crate::grid::ID_BASE`) are the
+    /// Authentication control's; below it the program module's (ABI A8).
     pub const ID_BASE: u32 = 0x8000_0000;
 
     pub fn is_auth_id(id: u32) -> bool {
-        id >= ID_BASE
+        id >= ID_BASE && id < crate::grid::ID_BASE
     }
 
     /// The request frame for `call`.

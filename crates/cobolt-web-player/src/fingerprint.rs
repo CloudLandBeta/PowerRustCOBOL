@@ -43,6 +43,9 @@ pub const INPUTS: &[&str] = &[
     "crates/cobolt-wasm-abi/Cargo.toml",
     "crates/cobolt-ast/src",
     "crates/cobolt-ast/Cargo.toml",
+    // The remote grids' endpoint names and frame layouts (WASM-005 T16).
+    "crates/cobolt-wire/src",
+    "crates/cobolt-wire/Cargo.toml",
     // The Canvas 2D part is this crate's rasteriser (WASM-018).
     "crates/cobolt-graphics/src",
     "crates/cobolt-graphics/Cargo.toml",

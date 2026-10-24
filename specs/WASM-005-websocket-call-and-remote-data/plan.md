@@ -185,7 +185,7 @@ Manual check (the operator judges the look): the IDE's Build of a web project wi
 | M7 | class C catalogue (`cobolt-wire::controls`) | to do |
 | M8 | backend generation (programs, generated exports, slots) + loader | to do |
 | M9 | remote-lowering pass | to do |
-| M10 | remote bindings (IndexedFile, SQL, RestApi, AgentAi) in interpreter and player | interpreter half done for IndexedFile and SQL (2.0.58, T15); `RestApi`/`AgentAi` wait for the operator (T15); player part T16 |
+| M10 | remote bindings (IndexedFile, SQL, RestApi, AgentAi) in interpreter and player | interpreter half done for IndexedFile and SQL (2.0.58, T15); player half done (2.0.59, T16: `cobolt-web-player/src/grid.rs`, `host.rs`); `RestApi`/`AgentAi` wait for the operator (T15); browser-side differences in `WASM-PARITY.md` #21–#23 |
 | M11 | `BackendConfig`/`BackendRoles`, structural secret check, Tr ×6 | to do |
 | M12 | System KB: every class C note; regenerate `chunked.data` | to do |
 

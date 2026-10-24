@@ -255,6 +255,23 @@ pub enum Outbound {
     Cancel { id: u32 },
 }
 
+/// A remote grid's call in flight (WASM-005 T16).
+#[derive(Debug, Clone)]
+struct GridCall {
+    inst: u32,
+    ctl: usize,
+    op: GridOp,
+}
+
+#[derive(Debug, Clone)]
+enum GridOp {
+    /// A window of a refresh: the rows gathered so far.
+    Read { rows: Vec<Vec<String>> },
+    /// A save: how many changes, the grid row each concerns (`None` for a deleted row), and the rows
+    /// the grid showed when it was sent — what the grid holds once the backend has written them.
+    Save { changes: usize, rows: Vec<Option<usize>>, shown: Vec<Vec<String>> },
+}
+
 /// Counters the tests and the Build report read.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Stats {
@@ -378,6 +395,11 @@ pub struct Host {
     next_auth_id: u32,
     /// What the program asked of an Authentication control (`SignOut`, `Refresh`), until the driver gives the time.
     auth_queue: Vec<(u32, usize, crate::auth::Action)>,
+    /// Remote-bound grids (WASM-005 R13, T16): what the player knows of each, per instance and control.
+    grids: BTreeMap<(u32, usize), crate::grid::RemoteGrid>,
+    /// The grids' backend calls in flight: `id → what was asked`.
+    grid_calls: BTreeMap<u32, GridCall>,
+    next_grid_id: u32,
     /// Instances whose close was requested while their own task was running.
     close_after: Vec<u32>,
     started: bool,
@@ -434,6 +456,9 @@ impl Host {
             auth_captchas: BTreeMap::new(),
             next_auth_id: crate::auth::wire::ID_BASE,
             auth_queue: Vec::new(),
+            grids: BTreeMap::new(),
+            grid_calls: BTreeMap::new(),
+            next_grid_id: crate::grid::ID_BASE,
             close_after: Vec::new(),
             started: false,
             aborted: false,
@@ -1009,6 +1034,12 @@ impl Host {
         tree.policy = self.policy.clone();
         tree.params = params;
         self.trees.insert(inst, tree);
+        // The grids the backend serves (WASM-005 R13, T16), from the form's own bindings.
+        for (id, grid) in crate::grid::remote_grids(&desc) {
+            if let Some(ctl) = self.trees[&inst].by_name(&id) {
+                self.grids.insert((inst, ctl), grid);
+            }
+        }
         Ok(())
     }
 
@@ -1021,6 +1052,9 @@ impl Host {
         self.auth_calls.retain(|_, (i, _, _)| *i != inst);
         self.auth_captchas.retain(|_, (i, _)| *i != inst);
         self.auth_queue.retain(|(i, _, _)| *i != inst);
+        // A grid's answer that arrives after its form closed has nowhere to go.
+        self.grids.retain(|(i, _), _| *i != inst);
+        self.grid_calls.retain(|_, c| c.inst != inst);
         let dead: Vec<i32> = self.tasks.iter().filter(|(_, t)| t.inst == inst).map(|(id, _)| *id).collect();
         for id in dead {
             if let Some(t) = self.tasks.remove(&id) {
@@ -1369,6 +1403,14 @@ impl Host {
                 CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
             });
         }
+        // A grid the backend serves: its binding methods are the host's (WASM-005 T16).
+        if self.grids.contains_key(&(inst, idx)) {
+            if let Some(r) = self.grid_method(inst, idx, method) {
+                return r.map_err(|e| match e {
+                    CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
+                });
+            }
+        }
         let r = {
             let tree = self.trees.get_mut(&inst).expect("checked");
             methods::call(tree, idx, method, args)
@@ -1412,6 +1454,12 @@ impl Host {
         // Authentication is the host's: it holds the session (WASM-009).
         if crate::kinds::player_kind(&self.trees[&inst].ctls[idx]) == Some(crate::kinds::PlayerKind::Authentication) {
             return self.auth_method(inst, idx, name, args);
+        }
+        // A grid the backend serves: its binding methods are the host's (WASM-005 T16).
+        if self.grids.contains_key(&(inst, idx)) {
+            if let Some(r) = self.grid_method(inst, idx, name) {
+                return r;
+            }
         }
         let r = {
             let tree = self.trees.get_mut(&inst).unwrap();
@@ -1943,6 +1991,206 @@ impl Host {
 
     pub fn take_outbox(&mut self) -> Vec<Outbound> {
         std::mem::take(&mut self.outbox)
+    }
+
+    // ── remote-bound grids (WASM-005 R13, T16) ──────────────────────────────
+
+    /// Is `ctl` of `inst` a DataGrid the backend serves?
+    pub fn is_remote_grid(&self, inst: u32, ctl: usize) -> bool {
+        self.grids.contains_key(&(inst, ctl))
+    }
+
+    /// Send one call of a grid: an id of the grids' range, the frame to the outbox.
+    fn grid_send(&mut self, inst: u32, ctl: usize, frame: Vec<u8>, op: GridOp) -> u32 {
+        let id = self.next_grid_id;
+        self.next_grid_id = self.next_grid_id.wrapping_add(1).max(crate::grid::ID_BASE);
+        self.grid_calls.insert(id, GridCall { inst, ctl, op });
+        self.outbox.push(Outbound::Request { id, frame });
+        id
+    }
+
+    fn grid_set(&mut self, inst: u32, ctl: usize, prop: &str, value: &str) {
+        let events = match self.trees.get_mut(&inst) {
+            Some(t) => t.set(ctl, prop, value),
+            None => return,
+        };
+        self.enqueue_requests(inst, events);
+    }
+
+    fn grid_rows(&self, inst: u32, ctl: usize) -> Vec<Vec<String>> {
+        self.trees.get(&inst).map(|t| cobolt_forms::datagrid::parse_rows(&t.get(ctl, "Rows"))).unwrap_or_default()
+    }
+
+    fn grid_set_rows(&mut self, inst: u32, ctl: usize, rows: &[Vec<String>]) {
+        let text = rows.iter().map(|r| r.join("\t")).collect::<Vec<_>>().join("\n");
+        self.grid_set(inst, ctl, "Rows", &text);
+    }
+
+    fn grid_pending(&self, inst: u32, ctl: usize, save: bool) -> bool {
+        self.grid_calls.values().any(|c| c.inst == inst && c.ctl == ctl && matches!(c.op, GridOp::Save { .. }) == save)
+    }
+
+    /// The binding methods of a remote grid — `RefreshBinding`, `Save` / `CommitEdit`,
+    /// `DiscardEdit`; `None` for any other method, which the tree answers as for every grid.
+    ///
+    /// A module's call is synchronous and the backend is not: `RefreshBinding()` answers the count
+    /// the grid shows now and the rows arrive with the backend's answer; `Save()` answers `98`
+    /// (pending) once the unit is on its way, and `CommitStatus`, `SavedRows`, `onSaved` or
+    /// `onCommitError` carry the outcome (`specs/WASM-PARITY.md`).
+    fn grid_method(&mut self, inst: u32, ctl: usize, name: &str) -> Option<Result<Option<String>, CmdError>> {
+        match name.trim().to_ascii_uppercase().as_str() {
+            "REFRESHBINDING" => {
+                // One refresh at a time: a second request while one is on its way joins it.
+                if !self.grid_pending(inst, ctl, false) {
+                    let read = self.grids[&(inst, ctl)].read.clone();
+                    let frame = crate::grid::read_frame(&read, 0, cobolt_wire::controls::MAX_WINDOW_ROWS);
+                    self.grid_send(inst, ctl, frame, GridOp::Read { rows: Vec::new() });
+                }
+                Some(Ok(Some(self.grid_rows(inst, ctl).len().to_string())))
+            }
+            "SAVE" | "COMMITEDIT" => Some(Ok(Some(self.grid_save(inst, ctl)))),
+            "DISCARDEDIT" => {
+                let loaded = self.grids[&(inst, ctl)].loaded.clone();
+                self.grid_set_rows(inst, ctl, &loaded);
+                self.grid_set(inst, ctl, "CommitStatus", "00");
+                self.grid_set(inst, ctl, "LastError", "");
+                self.grid_set(inst, ctl, "_FailedCells", "");
+                Some(Ok(Some("00".into())))
+            }
+            _ => None,
+        }
+    }
+
+    /// `Save()`: the difference between what was loaded and what the grid shows, as one unit to the
+    /// backend. Answers the status the grid holds once the call is on its way.
+    fn grid_save(&mut self, inst: u32, ctl: usize) -> String {
+        let grid = self.grids[&(inst, ctl)].clone();
+        let shown = self.grid_rows(inst, ctl);
+        if !grid.writable {
+            // A grid that does not write back writes nothing, as on the desktop.
+            self.grid_set(inst, ctl, "CommitStatus", "00");
+            self.grid_set(inst, ctl, "SavedRows", "0");
+            return "00".into();
+        }
+        if self.grid_pending(inst, ctl, true) {
+            return "98".into();
+        }
+        let changes = match crate::grid::plan_changes(&grid, &shown) {
+            Ok(c) => c,
+            Err(message) => {
+                self.grid_failed(inst, ctl, "91", &message, None);
+                return "91".into();
+            }
+        };
+        if changes.is_empty() {
+            self.grid_set(inst, ctl, "CommitStatus", "00");
+            self.grid_set(inst, ctl, "LastError", "");
+            self.grid_set(inst, ctl, "SavedRows", "0");
+            return "00".into();
+        }
+        let limit = cobolt_wire::controls::MAX_CHANGES;
+        if changes.len() > limit {
+            let message = format!("the save carries {} changes; the backend takes at most {limit} in one unit", changes.len());
+            self.grid_failed(inst, ctl, "92", &message, None);
+            return "92".into();
+        }
+        let frame = crate::grid::save_frame(&grid.save, &changes.frames);
+        self.grid_send(inst, ctl, frame, GridOp::Save { changes: changes.len(), rows: changes.rows, shown });
+        self.grid_set(inst, ctl, "CommitStatus", "98");
+        self.grid_set(inst, ctl, "LastError", "the save is on its way to the backend");
+        "98".into()
+    }
+
+    /// A unit that failed: the status and the message, the grid put back as loaded, the refused cell
+    /// marked (`row,column` from 1), `onCommitError` raised.
+    fn grid_failed(&mut self, inst: u32, ctl: usize, code: &str, message: &str, mark: Option<(usize, usize)>) {
+        let loaded = self.grids.get(&(inst, ctl)).map(|g| g.loaded.clone()).unwrap_or_default();
+        self.grid_set_rows(inst, ctl, &loaded);
+        self.grid_set(inst, ctl, "CommitStatus", code);
+        self.grid_set(inst, ctl, "LastError", message);
+        self.grid_set(inst, ctl, "SavedRows", "0");
+        let mark = mark.map(|(row, col)| format!("{},{}", row + 1, col + 1)).unwrap_or_default();
+        self.grid_set(inst, ctl, "_FailedCells", &mark);
+        self.enqueue_requests(inst, vec![EventReq { ctl, event: "onCommitError" }]);
+    }
+
+    /// The backend answered a remote grid's call `id` (or the connection failed it: the frame then
+    /// carries the error).
+    pub fn grid_answer(&mut self, id: u32, frame: Vec<u8>) {
+        let Some(call) = self.grid_calls.remove(&id) else { return };
+        let (inst, ctl) = (call.inst, call.ctl);
+        if !self.grids.contains_key(&(inst, ctl)) {
+            return; // the form closed meanwhile
+        }
+        let answer = crate::grid::parse_answer(&frame);
+        match call.op {
+            GridOp::Read { mut rows } => match answer {
+                crate::grid::Answer::Error { message, .. } => self.grid_unreadable(inst, ctl, &message),
+                crate::grid::Answer::Result(v) => {
+                    let w = crate::grid::parse_window(&v);
+                    if w.status != "00" {
+                        self.grid_unreadable(inst, ctl, &w.message);
+                        return;
+                    }
+                    let got = w.rows.len();
+                    rows.extend(w.rows);
+                    if crate::grid::last_window(got, rows.len(), w.total) {
+                        self.grid_set_rows(inst, ctl, &rows);
+                        self.grid_set(inst, ctl, "LastError", "");
+                        if let Some(g) = self.grids.get_mut(&(inst, ctl)) {
+                            g.loaded = rows;
+                        }
+                    } else {
+                        let read = self.grids[&(inst, ctl)].read.clone();
+                        let frame = crate::grid::read_frame(&read, rows.len() as u64, cobolt_wire::controls::MAX_WINDOW_ROWS);
+                        self.grid_send(inst, ctl, frame, GridOp::Read { rows });
+                    }
+                }
+            },
+            GridOp::Save { changes, rows: blame, shown } => match answer {
+                crate::grid::Answer::Error { class, code, message } => {
+                    if crate::grid::may_retry(&class, code) {
+                        // The backend was not reached, or is busy: the changes stay for the next Save().
+                        self.grid_set(inst, ctl, "CommitStatus", "90");
+                        self.grid_set(inst, ctl, "LastError", &format!("the backend did not take the save: {message}"));
+                        self.grid_set(inst, ctl, "SavedRows", "0");
+                    } else {
+                        let code = if class == "validation" || class == "limit" { "92" } else { "90" };
+                        let mark = blame.iter().flatten().next().map(|row| (*row, 0));
+                        self.grid_failed(inst, ctl, code, &message, mark);
+                    }
+                }
+                crate::grid::Answer::Result(v) => {
+                    let s = crate::grid::parse_save(&v);
+                    if s.status == "00" {
+                        if let Some(g) = self.grids.get_mut(&(inst, ctl)) {
+                            g.loaded = shown;
+                        }
+                        self.grid_set(inst, ctl, "CommitStatus", "00");
+                        self.grid_set(inst, ctl, "LastError", "");
+                        self.grid_set(inst, ctl, "SavedRows", &changes.to_string());
+                        self.grid_set(inst, ctl, "_FailedCells", "");
+                        self.enqueue_requests(inst, vec![EventReq { ctl, event: "onSaved" }]);
+                    } else {
+                        // The backend names the field it refused (`CUST-NAME: …`): that cell carries the mark.
+                        let fields = self.grids[&(inst, ctl)].fields.clone();
+                        let named_col = s.message.split_once(':').and_then(|(f, _)| fields.iter().position(|x| x.eq_ignore_ascii_case(f.trim())));
+                        let mark = s.failed_change.checked_sub(1).and_then(|i| blame.get(i)).copied().flatten().map(|row| (row, named_col.unwrap_or(0)));
+                        let code = if s.status.is_empty() { "90".to_owned() } else { s.status.clone() };
+                        self.grid_failed(inst, ctl, &code, &s.message, mark);
+                    }
+                }
+            },
+        }
+    }
+
+    /// A refresh the backend refused or could not serve: an empty grid, and why, in `LastError`.
+    fn grid_unreadable(&mut self, inst: u32, ctl: usize, message: &str) {
+        self.grid_set_rows(inst, ctl, &[]);
+        self.grid_set(inst, ctl, "LastError", message);
+        if let Some(g) = self.grids.get_mut(&(inst, ctl)) {
+            g.loaded.clear();
+        }
     }
 
     /// The state of every instance, for tests: `{"<inst>": {"form": …, "controls": {…}}}`.

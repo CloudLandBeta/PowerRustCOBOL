@@ -57,6 +57,9 @@ test-hooks = []
 [dependencies]
 cobolt-forms    = { path = "../cobolt-forms", default-features = false }
 cobolt-wasm-abi = { path = "../cobolt-wasm-abi" }
+# WASM-005 T16: the remote grids' endpoints are named as the Build names them, and their frames
+# fit the catalogue's layouts. Pure Rust (serde, serde_json, cobolt-ast): nothing the browser lacks.
+cobolt-wire     = { path = "../cobolt-wire" }
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
 indexmap    = { version = "2", features = ["serde"] }

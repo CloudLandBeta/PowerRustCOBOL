@@ -17,6 +17,47 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.59] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.58.)*
+
+### Feature: in the browser, a remote-bound DataGrid fills and saves through the player's own calls (WASM-005, part 8: T16)
+
+A DataGrid bound to an indexed file or a SQL query on a web form now shows what the backend holds, in the browser as on the desktop
+(2.0.58): the **player** makes the calls, on its own connection and under ids of its own — `0xC000_0000` and above, the Authentication
+control's narrowed to `[0x8000_0000, 0xC000_0000)`, the program module's below both (ABI A8). `RefreshBinding()` asks the generated
+`…-READ` program window by window (100 rows a call, the windows the interpreter asks for) and answers at once with the count the grid
+shows now — the rows arrive with the backend's answers; `Save()` sends the difference between what was loaded and what the grid shows to
+the generated `…-SAVE` program as one unit (the rows gone, the rows whose cells changed, the rows added, in that order; cells padded to
+the bound fields) and answers `98` while the unit is on its way — `CommitStatus`, `SavedRows` and `onSaved`, or `CommitStatus`,
+`LastError`, the grid put back as loaded, the refused cell marked and `onCommitError`, carry the outcome. A backend not reached or busy
+keeps the changes in the grid for the next `Save()`; `DiscardEdit()` puts the grid back as loaded. The endpoints are named as the Build
+names them (`cobolt_wire::controls::endpoint_name`) from the form's own bindings, which the form description already carries (WASM-016
+R3). A COBOL table stays in the form (Q8).
+
+How: `crates/cobolt-web-player/src/grid.rs` (new) is the pure part — the grids of a form, the frames built as the module builds its
+`remote` frames, the answers read as the module reads its own, the diff a save carries; `host.rs` holds the grids per instance and
+control, takes the binding methods before `methods::call` (`grid_method`, `grid_save`, `grid_answer`), and `api.rs` routes an answer by
+id range and fails an unsent grid request as it fails the module's. `cobolt-wire` joins the player's dependencies (pure Rust) and the
+fingerprint's inputs. The shipped player was rebuilt from this source (`build_player`): plain 2,919,662 bytes (gzip 957,530), threaded
+2,741,616 (gzip 939,880) — about 65 KB more than 2.0.55's for the wire crate and the grid code; the parts are unchanged in size
+(Mermaid 2,218,954, Canvas 2D 654,896, PDF 217,066).
+
+Measured — the player's own suite, `cargo test` in `crates/cobolt-web-player`, all 0 failed: lib 237 (five new in `grid.rs`: the ids'
+range, the frames fit the catalogue's layouts through `cobolt_wire::mapping::decode`, the answers, the diff, the grids of a form),
+`abi_host` 22, `dependency_guard` 6, `exposed` 2, `freshness` 5, `grid_calls` 1 (new: the real host behind the real fixture module — a
+refresh in 2 windows of 100 + 50 rows, a second refresh joining the first, a save of DELETE + UPDATE + INSERT with `SavedRows` 3, a
+refusal `92` marked `1,2` with the rows restored, a transport failure that kept the change for the next `Save()`, `DiscardEdit`; 8
+calls, all of the grids' range), `sinks` 3.
+
+Recorded in `specs/WASM-PARITY.md`, not changed: #21 — the methods answer before the backend does (a module's call is synchronous, the
+network is not; by design, to confirm by the operator: a program that reads `Save()`'s answer as the outcome works on the desktop only,
+one that handles `onSaved`/`onCommitError` works on both); #22 — in the browser a row's identity is the binding's key field, where the
+desktop reads the `.cidx` primary key: the Build should write the primary key's parts into the description's binding; #23 — a key cell
+the program changes is a delete and an insert, where the desktop refuses it, because the browser grid has no operator cell editing yet
+(WASM-004 class A), so the changes a save carries are the program's own. The rows are loaded whole, not paged on scroll (WASM-004 Q4's
+server paging stays a follow-up). `README.md` and `docs/` untouched.
+
 ## [PowerRustCOBOL 2.0.58] — 2026-10-24
 
 *(Written on `features-2x`, after 2.0.57.)*

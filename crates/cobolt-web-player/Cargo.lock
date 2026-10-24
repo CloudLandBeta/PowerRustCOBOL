@@ -338,6 +338,7 @@ dependencies = [
  "any_spawner",
  "cobolt-forms",
  "cobolt-wasm-abi",
+ "cobolt-wire",
  "futures",
  "indexmap",
  "js-sys",
@@ -353,6 +354,15 @@ dependencies = [
  "wasm-bindgen-rayon",
  "wasmtime",
  "web-sys",
+]
+
+[[package]]
+name = "cobolt-wire"
+version = "0.2.0"
+dependencies = [
+ "cobolt-ast",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

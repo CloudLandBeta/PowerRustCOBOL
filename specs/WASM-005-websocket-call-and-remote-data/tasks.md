@@ -718,7 +718,30 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     through the backend; a `CobolTable` binding makes no remote call; `cargo test -p cobolt-runtime -p cobolt-form-host -p cobolt-server --no-fail-fast`.
     DataGrid guardrail: run the DataGrid Quality & Compatibility Agent (`.agents/agents/datagrid-quality-compatibility-agent.md`) on this change.
 
-- [ ] **T16 — The player's grid window and save calls** (R13; with WASM-004/016)
+- [x] **T16 — The player's grid window and save calls** (R13; with WASM-004/016)
+  - **Done, 2026-10-24 (2.0.59).** The DataGrid view was there (WASM-016, `view/data.rs`), so the task went ahead. The player owns
+    the calls as it owns the Authentication control's: `crates/cobolt-web-player/src/grid.rs` (new) names the endpoints from the
+    form's own bindings (`cobolt_wire::controls::endpoint_name`; the description carries the bindings, WASM-016 R3), builds the
+    `…-READ`/`…-SAVE` frames as the module builds its `remote` frames, reads the answers as the module reads its own, and plans
+    a save as the difference between what was loaded and what the grid shows (`DELETE`, `UPDATE`, `INSERT`, in the SAVE's
+    order; cells padded to the bound fields; two rows with one key refused). `host.rs` holds the grids per instance and
+    control (`create_tree`/`destroy`), takes `RefreshBinding`/`Save`/`CommitEdit`/`DiscardEdit` before `methods::call`
+    (`grid_method`; `RefreshBinding()` reads window by window, one refresh at a time, and answers the count shown now;
+    `Save()` sends one unit and answers `98` until the backend's answer sets `CommitStatus`/`SavedRows` and raises `onSaved`,
+    or marks the refused cell, restores the rows and raises `onCommitError`; a backend not reached or busy keeps the changes
+    for the next `Save()`), and takes the answers in `grid_answer`. Ids: `grid::ID_BASE = 0xC000_0000` and above; the
+    Authentication control's are `[0x8000_0000, 0xC000_0000)` (`auth::wire::is_auth_id` narrowed); `api.rs` routes an answer
+    by range and fails an unsent grid request as it fails the module's. `cobolt-wire` joins the player's dependencies and the
+    fingerprint's inputs. **Evidence:** `src/grid.rs` tests — ids of their own range, the frames fit the catalogue's layouts
+    through `cobolt_wire::mapping::decode`, the answers read, the diff; `tests/grid_calls.rs` — the real host behind the real
+    fixture module: a refresh in 2 windows (100 + 50 rows), a second refresh joining the first, a save of DELETE + UPDATE +
+    INSERT (`SavedRows` 3), a refusal `92` marked `1,2` with the rows restored, a transport failure that kept the change for the
+    next `Save()`, `DiscardEdit`; 8 calls, all of the grids' range. The shipped player was rebuilt (`build_player`), the
+    freshness test green. **Recorded, not done:** the browser-side differences `WASM-PARITY.md` #21 (the methods answer before
+    the backend does — by design, to confirm), #22 (row identity is the binding's key field; the Build should write the `.cidx`
+    primary key parts into the description) and #23 (a changed key cell is a delete + an insert; the browser grid has no
+    operator cell editing yet — WASM-004 class A); `AutoCommit` has nothing to settle until that editing exists; the rows are
+    loaded whole, not paged on scroll (WASM-004 Q4's server paging stays a follow-up).
   - Files: `crates/cobolt-web-player/src/net.rs`, the player's DataGrid view.
   - Do: the player calls the same `…-READ`/`…-SAVE` endpoints on its own connection with request ids from `0x80000000` (the range ABI A8 reserves
     for the player's own calls). If WASM-016's DataGrid view is not there yet, this task records the dependency and stops.
