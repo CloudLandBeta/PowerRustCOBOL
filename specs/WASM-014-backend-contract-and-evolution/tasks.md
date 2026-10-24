@@ -444,6 +444,7 @@ as completed.
     on Windows, Linux or behind a proxy; OQ1–OQ3 open), and this file's checkboxes and recorded counts.
   - Verify: every AC1–AC10 cites a test name or an owed row, and `git status` shows nothing under `docs/` and no `README.md` change.
 
+- [ ] **T19b — D21: the key exchange in the handshake** (R18; AC11) — added 2026-10-24 by the operator's ruling.
 - [ ] **T20 — Finalize: version, CHANGELOG, the tests of the touched crates**
   - Files:
     - `crates/cobolt-ide/src/version.rs`: `z` + 1, **once**. Go from `2.0.30` to the next free `2.0.z` at that time; never change `x` or `y`.

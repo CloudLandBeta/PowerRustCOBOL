@@ -86,6 +86,10 @@ as something with a version, a compatibility check at connection time, a stable 
 - **R16 (ubiquitous):** The contract's own rules (this spec) shall carry a version, so that a change to the handshake, the error list or the file protocol is a protocol-version change with the window of R3.
 - **R17 (constraint):** A Desktop project is unaffected.
 
+**The operator's ruling of 2026-10-24 (WASM-INDEX D21)**
+
+- **R18 (event):** When a connection opens, the handshake of R2 shall also carry the **key exchange** of WASM-003 R24: the public key of the key pair the backend generated when the application started, and what the frontend needs to encrypt to it. The key exchange shall be part of the contract's own version (R16), so that a change to it is a contract change; a connection that cannot complete the exchange shall be refused with the class *transport*.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — A frontend built against contract 1.0 connecting to a backend at 1.2 is accepted; to a backend whose major version differs is refused with an update message; one older than the protocol window is refused with an update message, not a decoding error.
@@ -99,8 +103,11 @@ as something with a version, a compatibility check at connection time, a stable 
 - [ ] **AC9** — A file larger than a single frame uploads in pieces, resumes after a forced disconnection, and arrives with a matching checksum; a name with `../` is refused; an expired download address is refused.
 - [ ] **AC10** — All the above run against a backend and a frontend in a test, in both directions of version skew the windows allow.
 
+- [ ] **AC11** — The handshake records the key exchange; a frontend built against a contract version without it is refused with the reason; a captured handshake from one start of the application does not decrypt a session of the next start.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D21 (operator, 2026-10-24):** this spec owns the key exchange of the asymmetric channel as part of the handshake and the contract's version (R18); the encryption itself is WASM-003 R24, the threat model WASM-013 R17.
 - **i18n:** only IDE strings (the build's compatibility report), six languages; wire messages are codes plus English text.
 - **Generated-code contract:** the interface description, the compatibility report and the generated clients' handling of versions and errors are generated artefacts, never hand-edited.
 - **System KB:** the error classes, the declarations (safe to repeat, long-running, stream, deprecated) and the events are language and control behaviour: update the compiler's documentation tables and `chunked.data`.

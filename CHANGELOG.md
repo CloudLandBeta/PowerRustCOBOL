@@ -17,6 +17,23 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.56] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.55. Specs only; no code.)*
+
+### Specs: the operator's ruling of 2026-10-24 on the frontend↔backend channel, in every WASM spec (WASM-INDEX D21)
+
+The operator, 2026-10-24: the communication between frontend and backend must be asymmetrically encrypted, with the key generated when the
+application starts; when the connection breaks, the frontend retries with a timeout of 10 s raised by 10 s on each retry, three cycles at most,
+then raises an exception; while it retries it blocks all mouse and keyboard input and shows a modal with an animation — the screen (desktop or
+mobile) trying to reach the server with a cloud between them, on a left-to-right gradient red → dark red → crimson → black with a white
+foreground — that appears when the connection breaks and disappears when it is re-established. Recorded as decision **D21** in `WASM-INDEX.md`
+and carried by every spec of the series: WASM-003 R24–R26 (the encrypted channel and the retry policy; R8 now points at R25) with AC11–AC12 and
+task T15; WASM-016 R20–R21 (the blocking "connecting" modal and the exception when the retries are exhausted; R9 and AC5 amended) with AC13–AC14
+and T29b; WASM-012 R15 (the device variant) with AC11 and T25b; WASM-005 R18 (a call in flight) with AC11 and T18b; WASM-014 R18 (the key
+exchange in the handshake) with AC11 and T19b; WASM-013 R17 (the threat model) with AC12 and T24b; the other twelve specs name the ruling in their
+§6. `README.md` and `docs/` untouched.
+
 ## [PowerRustCOBOL 2.0.55] — 2026-10-24
 
 *(Written on `features-2x`, after 2.0.54.)*

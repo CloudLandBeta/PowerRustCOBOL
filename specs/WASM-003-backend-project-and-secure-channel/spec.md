@@ -87,7 +87,7 @@ user obtains the JWT is WASM-009.
   either the result or an error with a class (WASM-005 R10). Requests may be in flight together; answers may arrive in any order.
 - **R7 (event):** When the connection drops, the caller shall learn of it (the call fails, WASM-005 R10); no call shall be lost silently and no
   call shall be run twice because of a reconnection unless the program is declared safe to repeat (Q4).
-- **R8 (ubiquitous):** The server shall send periodic keep-alives and drop dead connections, and the client shall reconnect with back-off.
+- **R8 (ubiquitous):** The server shall send periodic keep-alives and drop dead connections, and the client shall reconnect as R25 says (operator, 2026-10-24).
 
 **Authentication and authorisation**
 - **R9 (event):** When a request arrives, the backend shall require a valid **bearer JWT** before running any exported program except those the
@@ -130,6 +130,12 @@ user obtains the JWT is WASM-009.
 - **R23 (constraint):** The frontend shall connect only to the backend address(es) configured for it, and the build shall print the
   `connect-src` that implies (WASM-002 R14).
 
+**The operator's ruling of 2026-10-24 (WASM-INDEX D21)**
+
+- **R24 (ubiquitous):** The channel shall be **asymmetrically encrypted**, on top of the TLS of R5: a key pair shall be **generated when the application starts** — never written into the build or the bundle (R23, WASM-002 R7) — and the frontend shall encrypt what it sends to the public key the backend presents at connection time (WASM-014 R18 carries the exchange in the handshake), so that what travels is unreadable to anything that holds only the TLS endpoint, a terminating proxy included. The construction (an asymmetric handshake that protects a per-connection session key is the usual form) and the algorithms are the plan's, recorded in WASM-013 R17; the dependency rules of WASM-013 — pure Rust, no C-based cryptography — hold.
+- **R25 (event):** When the connection breaks, the frontend shall **retry**: a first attempt with a timeout of **10 s**, a second with **20 s**, a third with **30 s** — the timeout raised by 10 s on each retry, for **at most 3 cycles**. When the third attempt fails, it shall **give up and raise an exception**: every call waiting on the connection fails with the class *transport* (WASM-014 R7), the application learns that the backend is unreachable (the player's event, WASM-016 R21), and no further attempt starts on its own. When an attempt succeeds, the connection is re-established and the calls that were in flight follow R7 and WASM-014 R9: repeated only when their program is declared safe to repeat, otherwise reported with *transport* and whether they may have been received.
+- **R26 (state):** While the frontend retries, the application shall be **blocked**: all mouse and keyboard input ignored, and the "connecting" modal shown — WASM-016 R20 on the web, WASM-012 R15 on a device — from the moment the connection breaks until it is re-established or R25 gives up.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — A backend with one exported and one non-exported program builds to a single executable; a WebSocket client can call the first and
@@ -147,8 +153,12 @@ user obtains the JWT is WASM-009.
 - [ ] **AC9** — The IDE starts and stops the backend and shows its log; the standalone binary behaves identically.
 - [ ] **AC10** — A secret planted in a frontend form stops the frontend build (WASM-002 AC5) while the same value in the backend configuration does not.
 
+- [ ] **AC11** — A capture of the channel between a frontend and its backend, taken at the TLS endpoint (a terminating proxy), holds no readable frame: every call and answer is ciphertext under the key pair generated at this start of the application, and a restart of the application yields a different key pair, so the capture does not decrypt the next session either.
+- [ ] **AC12** — With the backend stopped, the frontend attempts to reconnect three times with timeouts of 10 s, 20 s and 30 s (measured), then raises the exception: the waiting call reaches `ON EXCEPTION` with the class *transport*, and no fourth attempt is made. With the backend back before the third timeout, the connection is re-established, the modal of WASM-016 AC13 disappears, a call whose program is declared safe to repeat completes, and another is reported with *transport*.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D21 (operator, 2026-10-24):** this spec owns the channel's asymmetric encryption and the retry policy (R24–R26); the blocking modal is WASM-016 R20 and WASM-012 R15, the key exchange in the handshake WASM-014 R18, a call in flight WASM-005 R18, the threat model WASM-013 R17.
 - **i18n:** yes — Output-panel and settings strings for the backend are IDE strings (six languages). The wire errors are codes plus English
   text; the frontend translates what it shows (WASM-005).
 - **Generated-code contract:** the interface description (R4) and the generated authentication programs (R22) are generated artefacts, banner and

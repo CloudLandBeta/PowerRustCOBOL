@@ -422,6 +422,7 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 ## M7 — finalize
 
+- [ ] **T25b — D21: the "connecting" modal on the device** (R15; AC11) — added 2026-10-24 by the operator's ruling.
 - [ ] **T26 — Finalize: version, CHANGELOG, tests of the touched crates**
   - Files: `crates/cobolt-ide/src/version.rs` (`z` +1 **once**: from the value at that time, `2.0.49` today, to the next `2.0.z`; never `x` or `y`);
     `CHANGELOG.md` (one entry above the previous heading, dated, "Written on features-2x", listing what landed and what stays open: O1–O10 and the T24

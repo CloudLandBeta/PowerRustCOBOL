@@ -171,6 +171,7 @@ bundle layout serve both.
 
 ## 6. Constraints & steering check
 
+- **The frontend↔backend channel (WASM-INDEX D21, operator 2026-10-24):** whatever this spec puts on the channel between the frontend and the backend obeys the series-wide ruling — the channel is asymmetrically encrypted with a key pair generated when the application starts; a broken connection is retried with a timeout of 10 s, raised by 10 s on each retry, for at most 3 cycles, then an exception is raised; while the frontend retries, all mouse and keyboard input is blocked and the "connecting" modal of WASM-016 R20 (WASM-012 R15 on a device) is shown, appearing when the connection breaks and disappearing when it is re-established. The ruling is owned by WASM-003 R24–R26, WASM-016 R20–R21, WASM-012 R15, WASM-005 R18, WASM-014 R18 and WASM-013 R17; this spec adds nothing of its own to it and must not contradict it.
 - **i18n (6 languages):** yes — toolchain messages, the portability diagnostics and the Build report are IDE strings.
 - **Generated-code contract:** the generated COBOL and its banner are unchanged; the web frontend is a *new build artefact* downstream of
   the generated `.cbl`, never hand-edited. Spec 017's "one renderer" is amended for the web kinds (the DOM is their renderer; WASM-004).

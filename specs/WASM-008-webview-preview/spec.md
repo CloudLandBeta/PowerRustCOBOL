@@ -129,6 +129,7 @@ viewport, and where a style change shows up as the browser draws it.
 
 ## 6. Constraints & steering check
 
+- **The frontend↔backend channel (WASM-INDEX D21, operator 2026-10-24):** whatever this spec puts on the channel between the frontend and the backend obeys the series-wide ruling — the channel is asymmetrically encrypted with a key pair generated when the application starts; a broken connection is retried with a timeout of 10 s, raised by 10 s on each retry, for at most 3 cycles, then an exception is raised; while the frontend retries, all mouse and keyboard input is blocked and the "connecting" modal of WASM-016 R20 (WASM-012 R15 on a device) is shown, appearing when the connection breaks and disappearing when it is re-established. The ruling is owned by WASM-003 R24–R26, WASM-016 R20–R21, WASM-012 R15, WASM-005 R18, WASM-014 R18 and WASM-013 R17; this spec adds nothing of its own to it and must not contradict it.
 - **i18n:** yes — presets, orientation, colour-scheme and error text, six languages.
 - **Self-resizing windows:** R4 and AC3 apply the golden rule (explicit size, one grip, children laid out from the stored size).
 - **Platform dependencies:** WebKitGTK on Linux and WebView2 on Windows are runtime dependencies of the IDE for this feature; the installers (`installer-look`, the `.deb`/`.rpm` text) and the toolchain

@@ -420,6 +420,7 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
     `cargo run -p cobolt-ide --example build_chunked_kb`: 3,559 records from 8 documents, `assets/knowledge/chunked.data`
     12,763,136 bytes; `prebuilt_chunked_kb_matches_the_published_documentation` 1/1.
 
+- [ ] **T29b — D21: the "connecting" modal and the exhausted-retries exception** (R20–R21; AC13–AC14; WASM-003 R25) — the blocking modal with its animation and gradient, the two captions in the host page's texts, the event; added 2026-10-24 by the operator's ruling.
 - [ ] **T30 — Finalize** (all)
   - Do: bump `z` **once** in `crates/cobolt-ide/src/version.rs` (`VERSION`, line 22; `2.0.29` at the time of writing — bump whatever it is then);
     add **one** `CHANGELOG.md` entry above the previous `## [PowerRustCOBOL …]` heading, dated, marked *Written on features-2x*. No

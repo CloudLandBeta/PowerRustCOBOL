@@ -466,6 +466,8 @@ surrounding wide style and nothing was reformatted. Credential scan of the diff 
 planted key is built from fragments). System KB: *Calling the backend* names Run → Start/Stop Backend and the live log;
 `chunked.data` regenerated (3554 records, 12 738 560 → 12 742 656 bytes). `README.md` and `docs/` untouched.
 
+- [ ] **T15 — D21: the asymmetric channel and the retry policy** (R24–R26; AC11–AC12) — the key pair generated at application start and exchanged in the handshake (with WASM-014 T19b), the ciphertext capture of AC11, the three timed attempts and the exception of AC12; a Finalize of its own closes it (version, CHANGELOG, the tests of every touched crate). Added 2026-10-24 by the operator's ruling, after T14 had finalized the spec.
+
 ## Coverage (acceptance criteria → tasks)
 
 | AC | Covered by |
@@ -480,6 +482,8 @@ planted key is built from fragments). System KB: *Calling the backend* names Run
 | AC8 no token/password in the log | D-b, T5 (log gains only the mode), T7 |
 | AC9 IDE start/stop, binary identical | D-e, T10 |
 | AC10 frontend secret stops build, backend's does not | T12 |
+| AC11 ciphertext on the wire, a new key pair per start | T15 |
+| AC12 three timed attempts, then the exception | T15 |
 
 ## Open items carried (not decided by this list)
 

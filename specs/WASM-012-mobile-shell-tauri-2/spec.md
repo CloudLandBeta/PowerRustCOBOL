@@ -93,6 +93,10 @@ JDK and the Rust Android targets, iOS needs macOS, Xcode and the Rust iOS target
 - **R13 (ubiquitous):** The Build shall print what the stores will ask for — iOS privacy declarations, Android data-safety items — derived from the declared features, as a checklist.
 - **R14 (constraint):** A Desktop or Web project shall be unchanged, and the Mobile kind's options in the New Project dialog (default orientation, minimum OS) shall be honoured.
 
+**The operator's ruling of 2026-10-24 (WASM-INDEX D21)**
+
+- **R15 (state):** While the connection to the backend is broken, the mobile shell shall show the "connecting" modal of WASM-016 R20 with the **device** — a phone or a tablet, as the application runs — drawn in the place of the desktop screen, blocking touch and keyboard input to the application, with the same animation, gradient and white drawing; a return from the background (R11) that finds the connection gone shall start the retries of WASM-003 R25 behind the same modal, and the exhausted retries shall raise the exception of WASM-016 R21.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — On a machine with the tools, a Mobile project builds an Android package; on a Mac it also builds an iOS archive; each starts on an emulator or simulator and shows the project's main form.
@@ -106,8 +110,11 @@ JDK and the Rust Android targets, iOS needs macOS, Xcode and the Rust iOS target
 - [ ] **AC9** — A page in the web view cannot call a native command that the capability list omits, and an external address opens in the system browser.
 - [ ] **AC10** — Web and Desktop projects build exactly as before.
 
+- [ ] **AC11** — On a device, cutting the network during a session shows the modal with the device drawn, blocks touches, and restoring the network within the three attempts removes it with the form unchanged; cutting it for good shows the failure caption after the third attempt.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D21 (operator, 2026-10-24):** this spec owns the device variant of the "connecting" modal (R15); the policy is WASM-003 R25, the modal itself WASM-016 R20.
 - **i18n:** yes — the toolchain messages, device list, signing and permission texts of the IDE, six languages; the application's name and rationale texts are translatable by the developer.
 - **Credentials:** R4 and AC4 apply the project's no-credentials-in-files rule; the signing material is the operator's, never the agent's.
 - **Generated-code contract:** the shell project (Tauri configuration, platform manifests) is a build artefact generated from the project, never hand-edited; the planners decide whether it lives in the build folder (specs 100/101).

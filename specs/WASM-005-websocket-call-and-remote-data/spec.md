@@ -133,6 +133,10 @@ its COBOL API; its work runs on the backend.
 - **R17 (ubiquitous):** The backend shall run only **statements and operations declared at design time** (a named query or file operation with bound parameters); it shall never execute SQL text, a shell
   command, a path or a URL supplied by the browser.
 
+**The operator's ruling of 2026-10-24 (WASM-INDEX D21)**
+
+- **R18 (event):** When the connection breaks while a `WEBSOCKET` call is in flight, the call shall **wait** while the frontend retries (WASM-003 R25; the user sees the modal of WASM-016 R20 and can do nothing else meanwhile). If the connection comes back, the call shall follow WASM-014 R9: repeated when its program is declared safe to repeat, otherwise failed with the class *transport* and whether it may have been received. If the retries are exhausted, `ON EXCEPTION` shall run with the class *transport* and a message saying the backend could not be reached; no call shall be lost silently and none shall run twice because of the retries.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — Parser and AST: the new phrase parses in all combinations of R1; every existing `CALL` test still passes; the new phrase with an elementary argument is rejected (or accepted, per Q1).
@@ -149,8 +153,11 @@ its COBOL API; its work runs on the backend.
 - [ ] **AC9** — A web form carrying a connection string or key for a class C control stops Build; the same configuration on the backend side builds.
 - [ ] **AC10** — `cargo test` for the parser, AST, semantic and runtime crates is green; the System KB gains the phrase and the new built-ins and the freshness test passes.
 
+- [ ] **AC11** — A call in flight when the backend goes away waits through the retries; with the backend back in time, a safe-to-repeat program's call completes and another program's call reports *transport* with "may have been received"; with the backend gone for good, `ON EXCEPTION` runs once the third attempt fails, with the class *transport*.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D21 (operator, 2026-10-24):** this spec owns what a `WEBSOCKET` call in flight does while the frontend retries and when the retries are exhausted (R18); the policy is WASM-003 R25, the modal WASM-016 R20.
 - **i18n:** the IDE strings (diagnostics, Output) — yes, six languages. Failure messages that reach the end user are the developer's.
 - **Generated-code contract:** the generated frontend calls and backend programs (R16) are build artefacts with the banner and regenerate-on-Build rules; codegen writes the inline built-in form
   (`COBOL::"NAME"`) where it needs a built-in (CLAUDE.md, 2026-09-28) and the codegen golden files (`crates/cobolt-codegen/tests/golden`) pin it.

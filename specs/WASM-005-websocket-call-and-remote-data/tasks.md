@@ -711,6 +711,7 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## Finalize
 
+- [ ] **T18b — D21: a call in flight while the frontend retries** (R18; AC11) — added 2026-10-24 by the operator's ruling.
 - [ ] **T19 — Finalize: version, CHANGELOG, the tests of every touched crate**
   - **Partial, run of 2026-10-23 (stopped at T11):** `z` bumped once to 2.0.51 (2.0.50 is `2.x.x`'s forward-port `7a8e4c1f`), one
     CHANGELOG entry, plan §3 *Project file* line carries T3's key names, the System KB gained the `backend/generated/` bullet and the
