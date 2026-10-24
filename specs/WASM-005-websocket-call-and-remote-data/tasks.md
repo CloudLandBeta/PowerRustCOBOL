@@ -337,8 +337,12 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
   - Verify: tests — merge works, a collision is reported, a backend with no generated folder loads as before; `cargo test -p cobolt-server --no-fail-fast`.
 
 - [ ] **T11 — Generated programs for the other class C controls, configuration resolved on the backend** (R12, R14, R16, R17)
-  - **Run of 2026-10-23 stopped here: three design points neither the spec nor the plan settles, each an operator decision.** Nothing
-    of T11 is written.
+  - **Decided (operator, 2026-10-24) — all three proposals below, as written:** (1) `[[configuration]]` entries in `backend.toml`
+    (`name` + the control's secret-bearing and deployment-overridable properties, each value plain, `env:NAME` or `file:/path`; SQL keeps
+    `[[sql-connections]]`); (2) option **(a)** — the backend seeds the typed control object from a declaration the Build writes beside the
+    program (class, design-time properties, `BackendConfig` name, secrets resolved by (1)); no new built-ins; (3) the generated program runs
+    the method to completion and returns value, `LastError` and the event's properties; the frontend sets them and raises the same event
+    the desktop raises. The run of 2026-10-23 stopped here before these answers; nothing of T11 is written yet.
     1. **Where a `BackendConfig` name resolves.** `backend/backend.toml` (`cobolt-server/src/config.rs` `ServerConfig`, sections
        `server tls auth limits files identity recaptcha`, `deny_unknown_fields`) has no table of named control configurations; WASM-003
        R17 says only "the backend's configuration or the operating system's secret store". A schema is a deployment-file format.
