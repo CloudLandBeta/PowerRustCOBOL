@@ -22,6 +22,28 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.67] — 2026-10-24
+
+*(Forward-port of 1.91.225, `1e09865e` on `fixes-binding-editor-data`. 2.0.66 is the last number in use on `2.x.x`, so this port takes 2.0.67.)*
+
+### Fixed: the Data Binding editor showed stand-ins, not the project's data
+
+The binding editor offered invented data in place of the project's. Picking an indexed file seeded six sample fields
+(`CUSTOMER-ID`, `BALANCE`, `CITY-ID` …) whatever the `.cidx` held, and the binding it saved named the record
+`CUSTOMER-RECORD` for every file, so a grid bound through the editor looked for a record the file did not have. The SQL
+picker listed four stand-in ids (`SQL-CUSTOMERS`, `SQL-ORDERS` …) instead of the form's `SqlDatabase` controls, a REST
+binding named a `REST-API` control no form has, and both the indexed and the SQL sections ended in a page selector over a
+fixed number of pages and a preview grid of made-up rows.
+
+The editor now reads the project: an indexed source's fields come from the selected `.cidx` — one row per leaf field with
+its PICTURE, a type read from it (a numeric picture with `V` is a decimal, any other an integer, the rest text) and its key
+flag — and the record name is the definition's own; choosing another definition reloads the rows, and a definition the
+IDE cannot read is refused on Apply by name. The SQL picker lists the form's `SqlDatabase` controls (and says so when there
+are none), a SQL source starts with no columns since its columns are the SELECT's — *+ Add field* adds one, named in the
+grid — and a column left unnamed is refused. The REST section gains a picker of the form's `RestClient` controls, and an
+Agent binding names the form's `AgentObject`. The fake page selector and preview grid are gone. The tests of the editor
+read a real `.cidx` written for the test; the dropdown stand-ins the runtime never reads stay as the documented fallback.
+
 ## [PowerRustCOBOL 2.0.66] — 2026-10-24
 
 *(Forward-port of 1.91.224, `67920b6f` on `fixes-facade-rollback`. 2.0.65 is the last number in use on `2.x.x`, so this port takes 2.0.66.)*
