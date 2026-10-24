@@ -8161,7 +8161,8 @@ An IndexedFile control named `IXF-1` is driven with `PERFORM` on the paragraphs 
 - `PERFORM IXF-1-READ-NEXT` / `IXF-1-READ-PREVIOUS` / `IXF-1-READ-FIRST` / `IXF-1-READ-LAST` — sequential reads; `WS-IXF-1-AT-END = 1` after the last record.\n\
 - `PERFORM IXF-1-READ-INVALID` — random read by key (INVALID KEY sets status `23`).\n\
 - `WRITE` / `REWRITE` / `DELETE` — use the plain COBOL verbs on the file's record.\n\
-- `PERFORM IXF-1-COMMIT` — flush pending writes (I-O mode).\n\
+- `PERFORM IXF-1-COMMIT` — make the writes since the last COMMIT durable (the COMMIT verb; the file stays open).\n\
+- `PERFORM IXF-1-ROLLBACK` — undo the writes since the last COMMIT (the ROLLBACK verb; the file stays open).\n\
 - `PERFORM IXF-1-CLOSE` — close the file.\n\
 The two-character file status lands in the `StatusDataItem` (or `WS-IXF-1-STATUS`).\n",
         "SqlDatabase" => "\
@@ -9354,7 +9355,7 @@ fn methods_reference_doc() -> String {
          IndexedFile controls are driven by the GENERATED PARAGRAPHS \
          (`PERFORM <id>-OPEN`, `<id>-START`, `<id>-READ-NEXT`, `<id>-READ-PREVIOUS`, \
          `<id>-READ-FIRST`, `<id>-READ-LAST`, `<id>-READ-INVALID`, `<id>-COMMIT`, \
-         `<id>-CLOSE`) and the plain COBOL verbs `WRITE` / `REWRITE` / `DELETE`. \
+         `<id>-ROLLBACK`, `<id>-CLOSE`) and the plain COBOL verbs `WRITE` / `REWRITE` / `DELETE`. \
          Do NOT call `::Open()` on an IndexedFile — that method belongs to SqlDatabase.\n",
     );
     d

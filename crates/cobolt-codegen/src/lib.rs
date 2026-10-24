@@ -2118,18 +2118,23 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control], user_ws
             out.push_str(&format!("           END-{verb}.\n\n"));
         }
 
+        // The COMMIT and ROLLBACK verbs: they act on every open indexed file
+        // and leave the file open where it is. These two paragraphs used to be
+        // CLOSE + OPEN, and every engine commits on CLOSE — so ROLLBACK made
+        // durable exactly what it was meant to discard, and COMMIT reopened an
+        // INPUT file I-O (1.91.224).
         out.push_str(&format!("       {id}-COMMIT.\n"));
         out.push_str(&format!(
-            "      *>  Flushes pending indexed-file changes for {file}.\n"
+            "      *>  Makes the changes to {file} since the last COMMIT durable (the COMMIT verb acts on every open indexed file); the file stays open.\n"
         ));
-        out.push_str(&format!("           CLOSE {file}\n"));
-        out.push_str(&format!("           OPEN I-O {file}\n"));
+        out.push_str("           COMMIT\n");
         out.push_str(&format!("           {status_call}.\n\n"));
 
         out.push_str(&format!("       {id}-ROLLBACK.\n"));
-        out.push_str("      *>  Transaction rollback is storage-engine dependent; reopen to discard pending cursor state.\n");
-        out.push_str(&format!("           CLOSE {file}\n"));
-        out.push_str(&format!("           OPEN {cobol_open_mode} {file}\n"));
+        out.push_str(&format!(
+            "      *>  Undoes the changes to {file} since the last COMMIT (the ROLLBACK verb acts on every open indexed file); the file stays open.\n"
+        ));
+        out.push_str("           ROLLBACK\n");
         out.push_str(&format!("           {status_call}.\n\n"));
 
         out.push_str(&format!("       {id}-CLOSE.\n"));
@@ -3482,6 +3487,43 @@ mod tests {
         assert!(src.contains("CustomerFile-WRITE."));
         assert!(src.contains("WRITE CUSTOMER-REC"));
         assert!(src.contains("CustomerFile-COMMIT."));
+    }
+
+    /// 1.91.224: `<id>-COMMIT` and `<id>-ROLLBACK` are the COMMIT and ROLLBACK
+    /// verbs. They used to be `CLOSE` + `OPEN`, and every engine commits on
+    /// CLOSE, so the rollback paragraph made durable exactly what it was meant
+    /// to discard, and the commit paragraph reopened an INPUT file I-O.
+    #[test]
+    fn the_indexed_facade_commit_and_rollback_are_the_verbs() {
+        fn paragraph<'a>(src: &'a str, name: &str, next: &str) -> &'a str {
+            let start = src.find(name).unwrap_or_else(|| panic!("{name} missing"));
+            let rest = &src[start..];
+            let end = rest
+                .find(next)
+                .unwrap_or_else(|| panic!("{next} missing after {name}"));
+            &rest[..end]
+        }
+
+        let mut form = Form::new("CUSTOMER-FORM", "Customers", 800, 600);
+        let mut idx = Control::new("CustomerFile", ControlType::IndexedFile, 0, 0);
+        idx.set_prop("IndexedFile", PropValue::String("indexed/customers.cidx".into()));
+        idx.set_prop("OpenMode", PropValue::String("INPUT".into()));
+        form.controls.push(idx);
+
+        let src = generate(&form);
+        let status = "COBOL::\"FILE-STATUS\" ( \"CUSTOMERS\" WS-CustomerFile-STATUS )";
+
+        let commit = paragraph(&src, "       CustomerFile-COMMIT.\n", "       CustomerFile-ROLLBACK.\n");
+        assert!(commit.contains("\n           COMMIT\n"), "{commit}");
+        assert!(!commit.contains("CLOSE CUSTOMERS"), "{commit}");
+        assert!(!commit.contains("OPEN "), "an INPUT file must not be reopened I-O: {commit}");
+        assert!(commit.contains(status), "{commit}");
+
+        let rollback = paragraph(&src, "       CustomerFile-ROLLBACK.\n", "       CustomerFile-CLOSE.\n");
+        assert!(rollback.contains("\n           ROLLBACK\n"), "{rollback}");
+        assert!(!rollback.contains("CLOSE CUSTOMERS"), "{rollback}");
+        assert!(!rollback.contains("OPEN "), "{rollback}");
+        assert!(rollback.contains(status), "{rollback}");
     }
 
     /// Property audit, 2026-09-26: the facade reports the engine's real

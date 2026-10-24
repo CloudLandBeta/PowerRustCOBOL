@@ -382,15 +382,13 @@
            END-DELETE.
 
        Idx-Menu-COMMIT.
-      *>  Flushes pending indexed-file changes for MENU.
-           CLOSE MENU
-           OPEN I-O MENU
+      *>  Makes the changes to MENU since the last COMMIT durable (the COMMIT verb acts on every open indexed file); the file stays open.
+           COMMIT
            COBOL::"FILE-STATUS" ( "MENU" WS-FS ).
 
        Idx-Menu-ROLLBACK.
-      *>  Transaction rollback is storage-engine dependent; reopen to discard pending cursor state.
-           CLOSE MENU
-           OPEN I-O MENU
+      *>  Undoes the changes to MENU since the last COMMIT (the ROLLBACK verb acts on every open indexed file); the file stays open.
+           ROLLBACK
            COBOL::"FILE-STATUS" ( "MENU" WS-FS ).
 
        Idx-Menu-CLOSE.

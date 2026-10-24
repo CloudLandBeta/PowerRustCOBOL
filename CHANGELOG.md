@@ -17,6 +17,21 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.224] — 2026-10-24
+
+*(Written on `fixes-facade-rollback`, off `main` at 1.91.223. Found while mapping the `IndexedFile` control for spec 108.)*
+
+### Fixed: the IndexedFile facade's ROLLBACK paragraph committed
+
+The paragraphs the IDE generates for an `IndexedFile` control ended a transaction by closing and reopening the file: `<id>-COMMIT`
+was `CLOSE` then `OPEN I-O`, and `<id>-ROLLBACK` was `CLOSE` then `OPEN` in the control's mode. Every indexed engine commits on
+`CLOSE`, so `<id>-ROLLBACK` made durable exactly the changes it was meant to discard, and `<id>-COMMIT` reopened as `I-O` a file
+the control had opened `INPUT`, lost the record position and dropped every record lock. Both paragraphs now use the verbs the
+runtime has had since the undo journal landed, `COMMIT` and `ROLLBACK`, which act on every open indexed file and leave the file
+open where it is; the status item still receives the engine's status afterwards. The golden `indexed-file.cbl` and the PowerDemo3
+corpus snapshot change accordingly, a codegen test pins the two paragraphs, and the System KB's IndexedFile page lists
+`<id>-ROLLBACK` beside `<id>-COMMIT`. The Developer's Guide does not describe these paragraphs, so it is unchanged.
+
 ## [PowerRustCOBOL 1.91.223] — 2026-10-24
 
 *(Written on `fixes-indexed-fd-record`, off `main` at 1.91.222. Found by the 2.x.x line's WASM-005 work, whose generated backend programs had to avoid it.)*
