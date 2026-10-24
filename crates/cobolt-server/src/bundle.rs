@@ -18,7 +18,7 @@ use std::path::Path;
 use cobolt_ast::program::Program;
 use serde::{Deserialize, Serialize};
 
-use crate::backend::{load_history, load_programs, Backend, ExportsFile, StateMode};
+use crate::backend::{load_all_programs, load_history, read_exports, Backend, ExportsFile, StateMode};
 
 #[derive(Serialize, Deserialize)]
 pub struct Bundle {
@@ -34,10 +34,11 @@ impl Bundle {
     /// Read a backend folder: the programs are parsed and analysed (every
     /// diagnostic reported together), `exports.toml` is checked.
     pub fn from_dir(dir: &Path) -> Result<Bundle, Vec<String>> {
-        let exports_toml = std::fs::read_to_string(dir.join("exports.toml")).map_err(|e| vec![format!("{}: {e}", dir.join("exports.toml").display())])?;
-        ExportsFile::from_toml(&exports_toml).map_err(|e| vec![e])?;
+        // The developer's exports and the Build's generated ones (WASM-005
+        // T10), as one text: the pack's format is unchanged.
+        let (exports_toml, _) = read_exports(dir)?;
         let mut errs = Vec::new();
-        let programs = load_programs(&dir.join("src"), &mut errs);
+        let programs = load_all_programs(dir, &mut errs);
         let released = dir.join("contract").join("released");
         let history_docs = load_history(&released, &mut errs);
         if !errs.is_empty() {

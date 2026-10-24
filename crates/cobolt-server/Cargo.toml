@@ -96,6 +96,12 @@ getrandom = { version = "0.4", optional = true }
 
 [dev-dependencies]
 cobolt-wire = { path = "../cobolt-wire" }
+# WASM-005 T10/T17: the backend programs the Build generates for a web form's
+# bound DataGrids, run here as the backend runs them — the SQL ones need the
+# runtime's SQLite. Test-only: `dependency_guards` reads normal edges.
+cobolt-codegen = { path = "../cobolt-codegen" }
+cobolt-forms   = { path = "../cobolt-forms" }
+cobolt-runtime = { path = "../cobolt-runtime", default-features = false, features = ["sql"] }
 # A self-signed certificate for the loopback tests, signed with RustCrypto
 # through rcgen's remote-key hook: no ring, no aws-lc-rs.
 rcgen = { version = "0.14", default-features = false, features = ["pem"] }

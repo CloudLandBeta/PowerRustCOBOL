@@ -6,8 +6,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 # Tasks — `CALL … WITH WEBSOCKET LINKAGE`, the group ⇄ JSON mapping, and the data controls through the backend (WASM-005)
 
 - **Status:** draft — written 2026-10-22 from plan revision 2. Milestones M1–M4 (the language half) exist in the code; T1 re-runs their tests before
-  anything is built on them. M5–M12 are the tasks below. **2026-10-23:** T1–T4 landed as 2.0.47; T5–T8 as 2.0.49; stopped at T9 (an
-  operator decision on the IndexedFile backend program, see T9).
+  anything is built on them. M5–M12 are the tasks below. **2026-10-23:** T1–T4 landed as 2.0.47; T5–T8 as 2.0.49; T9–T10 as 2.0.51
+  (with the System KB for what landed); stopped at T11 (three operator decisions on the other class C controls' backend programs, see T11).
 - **Plan:** ./plan.md   **Rules:** ./mapping-rules.md   **Date:** 2026-10-22
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it satisfies, and how to verify it. Check off as completed.
@@ -228,7 +228,46 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## M8 — the backend end, generated
 
-- [ ] **T9 — Generated backend programs for the SQL and IndexedFile DataGrid bindings** (R13, R16, R17; AC7, AC8)
+- [x] **T9 — Generated backend programs for the SQL and IndexedFile DataGrid bindings** (R13, R16, R17; AC7, AC8)
+  - **Done 2026-10-23.** `crates/cobolt-codegen/src/remote_controls.rs` (new; `cobolt-wire` added as a path dependency):
+    `generate_backend(forms, load_cidx)` gives one `READ` per DataGrid bound to an indexed file or an SQL query and a `SAVE` when the
+    binding is `Writable` over a writable source, named `endpoint(form, control, op)` (= `controls::endpoint_name` over `cobol_word`),
+    plus `GeneratedBackend::exports_toml()` (`[[export]]` only: roles from the grid's `BackendRoles`, `public = false`, `directions =
+    ["in"]`, `idempotent` for `READ`). Each program: the backend banner (`GENERATED_MARK`, `is_generated`), `PROCEDURE DIVISION USING
+    RC-PARAMS RETURNING RC-RESULT`, the LINKAGE groups written from the catalogue rows.
+    - *Indexed file:* `SELECT` from `generate_indexed_select` (access forced `DYNAMIC`) and the `FD` from `generate_indexed_fd`, made one
+      sentence (see the defect below); `READ NEXT` from the start, the window by offset/count, `ROW-TOTAL` = records seen; cells: text
+      `MOVE`, a numeric field (any `USAGE`) its digits without the point via `-(37)9` (`12.50` → `1250`, as the desktop shows DISPLAY),
+      a one-digit `PIC 9` `1`/`0`. `SAVE`: pass 1 checks every change (action, counts, each cell against its PICTURE with the desktop's
+      messages, key unchanged `21`, row found `23` / not already there `22`), pass 2 writes (`REWRITE`, `DELETE`, `WRITE`), then the
+      `COMMIT` verb — or the `ROLLBACK` verb if a write failed (`interpreter.rs` `Stmt::Rollback` undoes an open INDEXED file's changes
+      since the last COMMIT; the T9 premise "the facade's verbs have no rollback" overlooked the verb). A missing file reads as
+      `READ-STATUS 35`, no rows.
+    - *SQL:* `EXEC SQL CONNECT TO '<name>' AS RC-CONN` — the source SqlDatabase's `BackendConfig`, else its `SqlConnection`; neither is a
+      Build error. `SELECT COUNT(*)` and a cursor `SELECT <fields> FROM (<query>) AS RC_Q` (trailing `;` dropped), `NULL` through
+      indicators (an empty cell), `01004` taken as a row. `SAVE`: checks (number or empty, the desktop's yes/no words, key unchanged), then
+      `UPDATE` (non-key fields) / `INSERT` / `DELETE` with host variables only, an empty number written `NULL` by indicator, `02000` → `23`,
+      any other failure `90` with `SQLMSG`, `ROLLBACK` on the first failure, `COMMIT` otherwise.
+    - *Refused at Build, naming form and grid:* no connection name; an empty query; a field that is not a plain SQL name; a writable
+      binding with no key field, a key not among the columns, or a non-plain table name; a `.cidx` field that is a table, declared twice, or
+      named like an item the program declares (`RC-…`, the catalogue's members).
+  - **Catalogue:** DataGrid `READ` result gains `READ-STATUS X(2)` and `READ-MESSAGE X(256)` first (`cobolt-wire/src/controls.rs`).
+  - **Web build:** `cobolt-project-tools/src/web/generator.rs` — Check runs the generation (a refusal is a `Refused` line at the form);
+    Build writes `backend/generated/` through `write_backend_programs`, which replaces and removes only files carrying the banner and
+    refuses to overwrite one that does not.
+  - **Found, not fixed here (a 1.x.x fix for the operator):** `generate_indexed_fd` writes `FD name.` and then `RECORD CONTAINS n
+    CHARACTERS.` as its own sentence, which detaches the record from the file (the analyser then reports the key "not a field of its
+    record" and every field undeclared). It also feeds the `COPYBOOKS/<stem>.FD` copybooks; the generated backend programs join the two.
+  - **Working assumptions (not decided):** bound query parameters — the desktop's query takes none (`refresh_sql_binding` runs it as is),
+    so a `READ` with `PARAM-COUNT` > 0 answers `92`; a SAVE's `CELLS` carry every column in bound-field order and `KEYS` the primary key's
+    cells as loaded; an UPDATE writes every non-key column (round-trip exact for the cell forms above). RestApi/AgentAi bindings get their
+    programs with T15.
+  - Tests: `cobolt-codegen/tests/remote_controls.rs` (5): the program list, parse + analyser 0 errors for all five fixture programs, no value
+    spliced into SQL, refusals named, goldens `tests/golden/backend/` (5 programs + `exports.toml`); unit tests `decimal_places`,
+    `is_generated`; `cobolt-project-tools` `the_build_regenerates_backend_generated_and_leaves_the_developers_files`.
+    `cargo test -p cobolt-codegen --no-fail-fast`: lib 69, animation_dispatch 5, control_array_seed 3, datagrid_row_button_106 6,
+    example_corpus_codegen 1, generated_bytes_golden 2, grid_write_back_seed 2, nested_controls 2, remote_controls 5, textbox_picture 8 —
+    0 failed.
   - **Decided (operator, 2026-10-23): option (b)** — the IndexedFile program reads and writes through the generated facade with COBOL
     verbs; the three differences below (COMP as value, a signed field with its `-`, a two-pass save with no rollback) are accepted and
     recorded in spec AC7 and in `specs/WASM-PARITY.md`. No `GRID-READ`/`GRID-SAVE` built-ins. The run of 2026-10-23 stopped here before
@@ -272,13 +311,57 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     check the snapshot test is not stopping at a missing golden); a test parses and analyses every generated program with `cobolt-parser` and
     `cobolt-semantic` (zero errors); `cargo test -p cobolt-codegen --no-fail-fast`.
 
-- [ ] **T10 — The backend loader reads the generated exports beside the developer's** (R16)
+- [x] **T10 — The backend loader reads the generated exports beside the developer's** (R16)
+  - **Done 2026-10-23.** `crates/cobolt-server/src/backend.rs`: `GENERATED_DIR`; `read_exports(dir)` reads `exports.toml` and, when
+    present, `generated/exports.toml` (`[[export]]` only, `deny_unknown_fields`), refuses a program both export (naming it), and returns
+    the merged **text** with the parsed declaration — so `Bundle::from_dir` (`bundle.rs`) packs the generated exports without a change to
+    the pack's format; `load_all_programs(dir)` adds `generated/*.cbl`, parsed as free format (`parse_program_as`; the `*>` banner would
+    make `source_format` guess fixed), and refuses a `src` program with a generated PROGRAM-ID. `Backend::load`, `Bundle::from_dir` and
+    `exported_names` (the frontend's Check, `cobolt-compiler` `project_manifest_view`) go through them; a missing `generated/` is not an
+    error. The compiler's backend build (`backend_build.rs`) packs through `Bundle::from_dir` and scans every packed program for its
+    runtime features, so a generated `EXEC SQL` program links `sql`.
+  - Also run here (beyond the task's Verify): the generated programs of T9 **executed on the backend** (`exec::execute`) — the indexed
+    grid: missing file `35` on read and on save (a save never creates the file: the generated SAVE now opens INPUT first, as the
+    desktop's `apply_indexed` answers 35), three inserts, the rows `1 Ana -1250 1` / `2 Bruno 990 0` / `3 Carla 0 0` (numeric key without
+    zeros, the COMP-3 balance as its digits with its sign), a window, update + delete, refusals `21` and `92` (message names the field),
+    and **all or nothing**: a second insert of a taken key fails `22` at the write and the first insert is rolled back (2 rows after).
+    The SQL grid on SQLite through the installed catalog (`SALES`): three inserts (an empty number → `NULL` → empty cell, a quote in text
+    is data, `yes`/`true` → `1`), window, update + delete, a failure at change 2 (`23`) rolls change 1 back, `92` before the database,
+    and `2 OR 1=1` as a key deletes nothing (a host variable, never SQL text).
+  - Tests: `cobolt-server/tests/generated_backend.rs` (5; dev-dependencies `cobolt-codegen`, `cobolt-forms`, `cobolt-runtime` with `sql`
+    — `dependency_guards` reads normal edges and stays green). `cargo test -p cobolt-server --no-fail-fast`: lib 14, client_contract 13,
+    config_rules 11, dependency_guards 5, generated_backend 5, loopback 15, token_rules 15 — 0 failed.
   - Files: `crates/cobolt-server/src/backend.rs` (`Backend::load` `:244`), `crates/cobolt-server/tests/` (new test or `config_rules.rs`).
   - Do: `load` reads `backend/generated/exports.toml` when present, merges it with `exports.toml` and the generated programs; a program
     exported by both is a load error naming it; a missing generated file is not an error.
   - Verify: tests — merge works, a collision is reported, a backend with no generated folder loads as before; `cargo test -p cobolt-server --no-fail-fast`.
 
 - [ ] **T11 — Generated programs for the other class C controls, configuration resolved on the backend** (R12, R14, R16, R17)
+  - **Run of 2026-10-23 stopped here: three design points neither the spec nor the plan settles, each an operator decision.** Nothing
+    of T11 is written.
+    1. **Where a `BackendConfig` name resolves.** `backend/backend.toml` (`cobolt-server/src/config.rs` `ServerConfig`, sections
+       `server tls auth limits files identity recaptcha`, `deny_unknown_fields`) has no table of named control configurations; WASM-003
+       R17 says only "the backend's configuration or the operating system's secret store". A schema is a deployment-file format.
+       *Proposal:* `[[configuration]]` entries in `backend.toml` — `name`, then the control's secret-bearing properties by their catalogue
+       names (`ConnectionString`, `AuthToken`, `AgentAPIKey`, `EmbeddingAPIKey`, `ApiKey`) plus the non-secret ones a deployment overrides
+       (`BaseUrl`…), every value allowed as `env:NAME` / `file:/path` like the file's other secrets (`resolve_secret`). SQL keeps the
+       existing catalog (`[[sql-connections]]` in the project, `sql-connections.toml` beside a built binary).
+    2. **How a generated backend program reaches a control's implementation.** The runtime routes methods by the object's **class**
+       (`is_knowledge_base`, `is_aws`: `object_class`), and only a host seeds typed objects (`Interpreter::seed_objects`); a program can
+       create none — `COBOL::"SET-PROPERTY"` on an unknown name registers class `Control` (`objects.rs` `set_property`). So either
+       **(a)** `exec` seeds the control (class, the form's design-time properties, the secrets resolved by point 1) from a declaration the
+       Build writes beside the program — no new built-in, the runtime's own code runs; or **(b)** new built-ins (an object constructor and a
+       configuration read: `BUILTINS`, KB). *Recommendation:* (a), for the same reason the T9 choice weighed parity.
+    3. **Asynchronous methods.** `RestClient` verbs are asynchronous unless `Mode = Sync`, `AgentObject.Ask` always is (since 1.65.63),
+       and KnowledgeBase/AWS/Maps answer through queued events with payloads; a backend program has no event loop. *Proposal:* the
+       generated program runs the method to completion (sync mode, or waiting on the worker) and returns the value, `LastError` and the
+       properties the event would have set (`PROPS`); the frontend's lowering (T14) sets them and raises the same event
+       (`onComplete`/`onResponse`/`onError`) the desktop raises — an event map per control the catalogue does not yet carry.
+  - **Also found (deployment, belongs with point 1):** the standalone backend binary (`cobolt-server/src/standalone.rs`) installs no SQL
+    catalog, so a generated `CONNECT TO 'NAME'` (T9) resolves there only once a `sql-connections.toml` is read beside it; `rcrun backend
+    run` now installs the project's `[[sql-connections]]` as `rcrun run` does (`cobolt-cli/src/main.rs`, this run).
+  - T12–T18 not started: T12 (slots) and T13 (the secret check per control) are independent of the three points but follow T11 in the
+    order; T14–T17 build on T11's programs.
   - Files: `crates/cobolt-codegen/src/remote_controls.rs`, goldens; `crates/cobolt-server/src/config.rs` if a configuration-name lookup is missing.
   - Do: programs for the T7 rows, reaching the runtime's existing implementations (SqlDatabase, RestClient, AgentObject, KnowledgeBase, WebSearch,
     Maps geocode/directions, AWS) with the connection string, key or credentials looked up on the backend by the control's `BackendConfig` name
@@ -356,6 +439,15 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 ## Finalize
 
 - [ ] **T19 — Finalize: version, CHANGELOG, the tests of every touched crate**
+  - **Partial, run of 2026-10-23 (stopped at T11):** `z` bumped once to 2.0.51 (2.0.50 is `2.x.x`'s forward-port `7a8e4c1f`), one
+    CHANGELOG entry, plan §3 *Project file* line carries T3's key names, the System KB gained the `backend/generated/` bullet and the
+    `rcrun backend run` SQL connections (chunked.data regenerated: 3569 records, 12 800 000 bytes). Sweep with `--no-fail-fast`:
+    `cobolt-ast parser semantic runtime wire server wasm codegen compiler form-host web-bundle project-tools cli` — 337 test binaries,
+    2987 passed, 0 failed, 40 ignored (`cobolt-web-player` is excluded from the workspace and untouched); `cobolt-forms --features render`
+    — 0 failed (lib 1368); `cobolt-ide --bin cobolt-ide` — 1881 passed, **5 failed, none from this run**: `docs_embed` (no pt
+    translations on 2.x), `claude_code::bundle` (the external plugin validator), two `external_crates_service` flow tests (live crates.io
+    now offers egui 0.37), `every_completion_description_exists_in_six_languages` (12 English-only descriptions of the existing `WS-…`
+    built-ins); the KB freshness tests pass.
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`, this file (check-offs, T1 counts, T3 key names, blocked items), `plan.md` §3
     *Project file* line (the key names of T3).
   - Do: bump `z` **once** in `crates/cobolt-ide/src/version.rs` (the next `z` after whatever it holds then; never the minor); add **one** entry to

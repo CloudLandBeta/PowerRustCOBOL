@@ -579,6 +579,12 @@ fn cmd_backend(args: &[String]) {
             println!("released: {}", path.display());
         }
         "run" => {
+            // The project's SQL connections, as `rcrun run` publishes them: an
+            // `EXEC SQL CONNECT TO 'NAME'` in a backend program — the Build's
+            // generated grid programs among them (WASM-005 T9) — resolves here.
+            if let Some(manifest) = cobolt_compiler::find_project_manifest(&project_dir) {
+                install_project_sql_catalog(&manifest);
+            }
             // The log goes to standard error as it is written, so a terminal and
             // the IDE's Output panel (which runs this as a child) both see it live.
             let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen, state, echo: true };

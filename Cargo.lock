@@ -2114,6 +2114,7 @@ dependencies = [
  "cobolt-lexer",
  "cobolt-parser",
  "cobolt-semantic",
+ "cobolt-wire",
  "indexmap",
  "serde",
 ]
@@ -2508,6 +2509,8 @@ dependencies = [
  "base64 0.22.1",
  "bincode",
  "cobolt-ast",
+ "cobolt-codegen",
+ "cobolt-forms",
  "cobolt-lexer",
  "cobolt-parser",
  "cobolt-runtime",

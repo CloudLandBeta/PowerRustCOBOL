@@ -90,7 +90,8 @@ No `README.md`, nothing under `docs/` (2.x.x rule). What 2.x.x says about itself
 - **AST:** unchanged from revision 1 — `CallConvention { Local, WebSocket }`, the last field of `Stmt::Call`; serialised ASTs of 1.x.x decode as `Local` (bincode by ordinal; `Local` = 0).
 - **`.wcfrm`/`.mcfrm`:** new properties `BackendConfig` and `BackendRoles` on class C controls, default empty / "authenticated". Desktop `.cfrm` unchanged. A web form saved before M11 loads with the defaults.
 - **Generated artefacts:** `backend/generated/*.cbl`, `backend/generated/exports.toml`, the slot declarations — banner, regenerated on Build, never edited by hand.
-- **Project file:** the client limits of R11 (key names fixed in M5; defaults: the client's current 60 s call / 10 s connect, the arena's frame size of ABI §2).
+- **Project file:** the client limits of R11 (key names fixed in M5; defaults: the client's current 60 s call / 10 s connect, the arena's frame size of ABI §2). **Fixed by T3 (2.0.47):** `[web]` / `[mobile]` `call_timeout_ms` (default 60 000, written only when set) and the existing `max_payload_bytes` (WASM-017 R8); the hosts read them as `COBOLT_BACKEND_CALL_TIMEOUT_MS` and `COBOLT_BACKEND_MAX_PAYLOAD_BYTES`.
+- **Backend folder:** `backend/generated/` — the Build's programs for bound DataGrids and their `exports.toml` (`[[export]]` only), loaded beside `backend/exports.toml` and `backend/src` (T9, T10, 2.0.50).
 - **Wire:** unchanged — one JSON text frame per call (Q9), the envelope of ABI A8, the error frame of A6.
 
 ## 4. Key decisions & alternatives

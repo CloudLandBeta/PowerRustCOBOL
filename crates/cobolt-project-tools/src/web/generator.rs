@@ -259,6 +259,84 @@ impl GeneratorBackend {
     }
 }
 
+/// The backend programs of the forms' data controls (WASM-005 T9): a `READ`
+/// per DataGrid bound to an indexed file or an SQL query, a `SAVE` when the
+/// binding is writable. A grid the backend cannot serve refuses Check and
+/// Build alike, at its form.
+fn backend_programs(
+    req: &WebBuildRequest,
+    forms: &[LoadedForm],
+) -> Result<cobolt_codegen::remote_controls::GeneratedBackend, WebBuildError> {
+    let load = |path: &str| {
+        let p = Path::new(path);
+        let full = if p.is_absolute() { p.to_path_buf() } else { req.project_dir.join(p) };
+        cobolt_indexed::load_indexed(&full).map_err(|e| format!("{e:?}"))
+    };
+    let mut all = cobolt_codegen::remote_controls::GeneratedBackend::default();
+    let mut refused = Vec::new();
+    for f in forms {
+        match cobolt_codegen::remote_controls::generate_backend(std::slice::from_ref(&f.form), &load) {
+            Ok(mut g) => all.programs.append(&mut g.programs),
+            Err(errs) => {
+                refused.extend(errs.into_iter().map(|e| diag(f.rel.clone(), WebDiagnosticKind::Other, String::new(), e)))
+            }
+        }
+    }
+    if refused.is_empty() {
+        Ok(all)
+    } else {
+        Err(WebBuildError::Refused(refused))
+    }
+}
+
+/// Put the generated backend programs in `backend/generated/`, replacing what
+/// an earlier Build left there. Only files a Build generated (they carry its
+/// banner) are ever removed or overwritten; anything else in the folder is
+/// the developer's and stays.
+pub fn write_backend_programs(
+    project_dir: &Path,
+    generated: &cobolt_codegen::remote_controls::GeneratedBackend,
+) -> std::io::Result<()> {
+    use cobolt_codegen::remote_controls::{is_generated, EXPORTS_FILE, GENERATED_DIR};
+    let dir = project_dir.join("backend").join(GENERATED_DIR);
+    let mut wanted: Vec<(String, String)> =
+        generated.programs.iter().map(|p| (p.file_name.clone(), p.source.clone())).collect();
+    if !generated.is_empty() {
+        wanted.push((EXPORTS_FILE.to_owned(), generated.exports_toml()));
+    }
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            let ours = std::fs::read_to_string(&path).map(|t| is_generated(&t)).unwrap_or(false);
+            if ours && !wanted.iter().any(|(n, _)| *n == name) {
+                std::fs::remove_file(&path)?;
+            }
+        }
+    }
+    for (name, text) in &wanted {
+        let path = dir.join(name);
+        if let Ok(old) = std::fs::read_to_string(&path) {
+            if !is_generated(&old) {
+                return Err(std::io::Error::other(format!(
+                    "{} is not a generated file; move it out of backend/{GENERATED_DIR}/, which the Build owns",
+                    path.display()
+                )));
+            }
+            if old == *text {
+                continue;
+            }
+        }
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(&path, text)?;
+    }
+    // An emptied folder the Build made goes with its last file.
+    if generated.is_empty() && std::fs::read_dir(&dir).is_ok_and(|mut d| d.next().is_none()) {
+        let _ = std::fs::remove_dir(&dir);
+    }
+    Ok(())
+}
+
 /// The form specs the generator takes: controls in the model's order, every
 /// bound event, the layers above the base, the form's `Instances` (WASM-017
 /// R2). The first form of the manifest is the main form.
@@ -580,13 +658,20 @@ impl WebBuildBackend for GeneratorBackend {
     fn check(&self, req: &WebBuildRequest) -> Result<(), WebBuildError> {
         // The same steps as the Build up to the generator; the bytes are
         // discarded, nothing is written (WASM-002 R3: Check and Build agree).
-        self.compile(req, &mut Vec::new()).map(|_| ())
+        let (forms, _) = self.compile(req, &mut Vec::new())?;
+        backend_programs(req, &forms).map(|_| ())
     }
 
     fn build(&self, req: &WebBuildRequest) -> Result<BuildReport, WebBuildError> {
         let started = Instant::now();
         let mut warnings: Vec<WebDiagnostic> = Vec::new();
         let (forms, modules) = self.compile(req, &mut warnings)?;
+        // WASM-005 T9: the backend end of the forms' data controls, regenerated
+        // on every Build like the forms' own programs.
+        let backend = backend_programs(req, &forms)?;
+        write_backend_programs(&req.project_dir, &backend).map_err(|e| {
+            WebBuildError::Failed(format!("cannot write backend/{}: {e}", cobolt_codegen::remote_controls::GENERATED_DIR))
+        })?;
         let player = match &req.player_dir {
             Some(dir) => player_dir_from(Some(dir.clone()), None),
             None => player_dir(),
@@ -735,6 +820,49 @@ mod tests {
         let text = WebBuildError::PlayerPin(old).to_string();
         assert!(text.contains("pins player 1.9.9") && text.contains("oldest player it can build for is 2.0.0"), "{text}");
         println!("{absent}\n{text}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// WASM-005 T9: Build owns `backend/generated/` — it writes the programs
+    /// and their exports, removes a program it no longer generates, and never
+    /// touches (or overwrites) a file it did not write.
+    #[test]
+    fn the_build_regenerates_backend_generated_and_leaves_the_developers_files() {
+        use cobolt_codegen::remote_controls::{fixtures, generate_backend, GeneratedBackend};
+        let root = std::env::temp_dir().join(format!("pr-backend-gen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("backend").join("generated");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("NOTES.txt"), "mine").unwrap();
+        let load = |_: &str| Ok(fixtures::customers_cidx("data/customers.idx"));
+        let g = generate_backend(&fixtures::grid_forms(), &load).unwrap();
+
+        write_backend_programs(&root, &g).unwrap();
+        let mut names: Vec<String> =
+            std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names.len(), g.programs.len() + 2, "{names:?}");
+        assert!(names.contains(&"exports.toml".to_string()) && names.contains(&"NOTES.txt".to_string()));
+
+        // One grid less: its programs go, everything else stays.
+        let fewer = GeneratedBackend { programs: g.programs[..2].to_vec() };
+        write_backend_programs(&root, &fewer).unwrap();
+        assert!(!dir.join(&g.programs[4].file_name).exists(), "a program no longer generated is removed");
+        assert!(dir.join(&g.programs[0].file_name).exists());
+        assert_eq!(std::fs::read_to_string(dir.join("NOTES.txt")).unwrap(), "mine");
+
+        // A file of the developer's under a generated name is never overwritten.
+        std::fs::write(dir.join(&g.programs[1].file_name), "hand written").unwrap();
+        let err = write_backend_programs(&root, &fewer).unwrap_err();
+        assert!(err.to_string().contains("is not a generated file"), "{err}");
+        assert_eq!(std::fs::read_to_string(dir.join(&g.programs[1].file_name)).unwrap(), "hand written");
+
+        // Nothing generated: the generated files go, the developer's stay.
+        std::fs::remove_file(dir.join(&g.programs[1].file_name)).unwrap();
+        write_backend_programs(&root, &GeneratedBackend::default()).unwrap();
+        let left: Vec<String> =
+            std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(left, vec!["NOTES.txt".to_string()]);
         let _ = std::fs::remove_dir_all(&root);
     }
 

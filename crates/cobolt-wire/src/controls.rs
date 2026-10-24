@@ -191,7 +191,11 @@ pub const CATALOGUE: &[Operation] = &[
             Field { name: "PARAM-COUNT", role: Role::Count, shape: Shape::Count(2) },
             Field { name: "PARAMS", role: Role::Parameter, shape: Shape::Table { max: MAX_PARAMS, counter: "PARAM-COUNT", of: PARAM } },
         ],
+        // The read's own outcome first: a source that cannot be read (FILE
+        // STATUS 35, a refused CONNECT) is not an empty source.
         result: &[
+            Field { name: "READ-STATUS", role: Role::Status, shape: Shape::Text(2) },
+            Field { name: "READ-MESSAGE", role: Role::Message, shape: Shape::Text(256) },
             Field { name: "ROW-TOTAL", role: Role::Count, shape: Shape::Count(9) },
             Field { name: "ROWS-RETURNED", role: Role::Count, shape: Shape::Count(4) },
             Field { name: "ROWS", role: Role::Rows, shape: Shape::Table { max: MAX_WINDOW_ROWS, counter: "ROWS-RETURNED", of: ROW } },

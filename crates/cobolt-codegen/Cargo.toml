@@ -15,7 +15,10 @@ license.workspace     = true
 [dependencies]
 cobolt-forms   = { path = "../cobolt-forms" }
 cobolt-indexed = { path = "../cobolt-indexed" }
-indexmap       = { workspace = true }
+# The class C catalogue (WASM-005): the layouts and endpoint names of the
+# backend programs `remote_controls` generates. Small and runtime-free.
+cobolt-wire    = { path = "../cobolt-wire" }
+indexmap      = { workspace = true }
 serde          = { workspace = true }
 
 [dev-dependencies]

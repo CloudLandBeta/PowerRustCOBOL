@@ -1,0 +1,1434 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! The backend end of a web form's data controls (WASM-005 R13, R16, R17; T9).
+//!
+//! On the web a DataGrid bound to an indexed file or to an SQL query keeps its
+//! COBOL API, but the rows are read and saved on the backend: every operation is
+//! a remote call to a program the Build generates here, one per *(form, grid,
+//! operation)*, named by [`cobolt_wire::controls::endpoint_name`]. The browser
+//! sends a row window or a change set; what is read and written — the file, the
+//! query, the table — is fixed in the generated program at design time (R17).
+//!
+//! Each program is ordinary COBOL the backend runs like the developer's own: an
+//! exported program (`backend/generated/exports.toml`, authenticated, restricted
+//! by the grid's `BackendRoles`) whose `LINKAGE SECTION` is the catalogue's
+//! parameter and result groups. The developer's `backend/exports.toml` and
+//! `backend/src` are never written.
+//!
+//! - **An indexed file** is read and written through the same `SELECT`/`FD` the
+//!   Indexed File Editor's facade uses ([`crate::generate_indexed_select`],
+//!   [`crate::generate_indexed_fd`]) with COBOL verbs (operator, 2026-10-23,
+//!   T9 option (b)). A cell is what the desktop grid shows for the field, with
+//!   the differences recorded in `specs/WASM-PARITY.md` row 19: a `COMP`/`COMP-3`
+//!   field shows its value, a signed field its `-`. A save checks every change
+//!   first, then writes them, and undoes them with the `ROLLBACK` verb if a
+//!   write fails.
+//! - **An SQL query** runs on the backend's named connection (`EXEC SQL CONNECT
+//!   TO`), its rows by a cursor over the design-time query with the columns
+//!   matched by name, the window by offset and count, `NULL` through indicator
+//!   variables. A save is one unit of `UPDATE`/`INSERT`/`DELETE` with **host
+//!   variables** — a value is never spliced into SQL text — and `ROLLBACK` on the
+//!   first failure.
+
+use cobolt_forms::{
+    web_class, BindingDataType, BindingMode, BindingSourceDescriptor, BindingTargetDescriptor, Control,
+    DataBindingDef, Form,
+};
+use cobolt_indexed::{parse_pic, AccessMode, FieldUsage, IndexedDefinition, IndexedField, PicCategory};
+use cobolt_wire::controls::{self, Field, Operation, Shape};
+
+/// The folder, under `backend/`, the Build owns.
+pub const GENERATED_DIR: &str = "generated";
+/// The generated programs' `[[export]]` entries, beside them.
+pub const EXPORTS_FILE: &str = "exports.toml";
+/// A line every generated file carries: what a Build may replace or remove.
+pub const GENERATED_MARK: &str = "This code was generated automatically by PowerRustCOBOL RAD.";
+
+/// The parameter group of every generated program; its name never travels (E1).
+const PARAMS: &str = "RC-PARAMS";
+/// The `RETURNING` group.
+const RESULT: &str = "RC-RESULT";
+
+/// One generated backend program.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendProgram {
+    /// The endpoint name, which is also the `PROGRAM-ID`.
+    pub program_id: String,
+    /// `<PROGRAM-ID>.cbl`.
+    pub file_name: String,
+    pub source: String,
+    /// Who may call it; empty = any authenticated caller. Never public.
+    pub roles: Vec<String>,
+    /// A read can be repeated safely; a save cannot.
+    pub idempotent: bool,
+}
+
+/// Everything the Build writes under `backend/generated/`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GeneratedBackend {
+    pub programs: Vec<BackendProgram>,
+}
+
+impl GeneratedBackend {
+    pub fn is_empty(&self) -> bool {
+        self.programs.is_empty()
+    }
+
+    /// `backend/generated/exports.toml`: one `[[export]]` per program, the
+    /// parameter group read only (`in`), the answer in the `RETURNING` group.
+    pub fn exports_toml(&self) -> String {
+        let mut out = String::new();
+        for line in banner_lines() {
+            out.push_str(&format!("#{}{line}\n", if line.is_empty() { "" } else { " " }));
+        }
+        for p in &self.programs {
+            out.push_str("\n[[export]]\n");
+            out.push_str(&format!("program = \"{}\"\n", p.program_id));
+            if !p.roles.is_empty() {
+                let roles: Vec<String> = p.roles.iter().map(|r| format!("\"{}\"", toml_escape(r))).collect();
+                out.push_str(&format!("roles = [{}]\n", roles.join(", ")));
+            }
+            out.push_str("public = false\n");
+            if p.idempotent {
+                out.push_str("idempotent = true\n");
+            }
+            out.push_str("directions = [\"in\"]\n");
+        }
+        out
+    }
+}
+
+/// The endpoint of `operation` on control `control_id` of `form`: the name the
+/// frontend calls and the backend exports. Form and control names go through
+/// [`crate::cobol_word`] first, as every generated identifier does.
+pub fn endpoint(form: &Form, control_id: &str, operation: &str) -> Result<String, String> {
+    controls::endpoint_name(&crate::cobol_word(&form.name), &crate::cobol_word(control_id), operation)
+}
+
+/// Is `text` a file a Build generated (and may therefore replace or remove)?
+pub fn is_generated(text: &str) -> bool {
+    text.lines().take(4).any(|l| l.contains(GENERATED_MARK))
+}
+
+/// The backend programs of `forms` (a web or mobile project's forms): a `READ`
+/// for every DataGrid bound to an indexed file or an SQL query, and a `SAVE`
+/// when the binding is writable. `load_cidx` reads a binding's `.cidx` by the
+/// path the form stores. Every problem of every form is reported together,
+/// each naming its form and grid.
+pub fn generate_backend(
+    forms: &[Form],
+    load_cidx: &dyn Fn(&str) -> Result<IndexedDefinition, String>,
+) -> Result<GeneratedBackend, Vec<String>> {
+    let mut out = GeneratedBackend::default();
+    let mut errs = Vec::new();
+    for form in forms {
+        let all = crate::collect_all_controls(&form.controls);
+        let mut bindings: Vec<&DataBindingDef> = form.data_bindings.iter().collect();
+        bindings.sort_by(|a, b| a.id.cmp(&b.id));
+        for binding in bindings {
+            let BindingTargetDescriptor::DataGrid { control_id } = &binding.target else { continue };
+            if !matches!(binding.source, BindingSourceDescriptor::IndexedFile { .. } | BindingSourceDescriptor::Sql { .. }) {
+                continue;
+            }
+            let at = format!("{}: DataGrid {control_id}", form.name);
+            let Some(grid) = all.iter().find(|c| c.id.eq_ignore_ascii_case(control_id)) else {
+                errs.push(format!("{at}: binding {} feeds a grid the form does not have", binding.id));
+                continue;
+            };
+            match grid_programs(form, grid, binding, &all, load_cidx) {
+                Ok(mut programs) => out.programs.append(&mut programs),
+                Err(e) => errs.push(format!("{at}: {e}")),
+            }
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    for p in &out.programs {
+        if !seen.insert(p.program_id.clone()) {
+            errs.push(format!("{}: two grids make the same backend program", p.program_id));
+        }
+    }
+    if errs.is_empty() {
+        Ok(out)
+    } else {
+        Err(errs)
+    }
+}
+
+/// The `READ` (and, when writable, `SAVE`) program of one bound grid.
+fn grid_programs(
+    form: &Form,
+    grid: &Control,
+    binding: &DataBindingDef,
+    all: &[&Control],
+    load_cidx: &dyn Fn(&str) -> Result<IndexedDefinition, String>,
+) -> Result<Vec<BackendProgram>, String> {
+    let writable = binding.mode == BindingMode::Writable && binding.source.is_writable();
+    let roles = web_class::backend_roles(grid);
+    let read_op = controls::find("DataGrid", "READ").ok_or("the catalogue has no DataGrid READ")?;
+    let save_op = controls::find("DataGrid", "SAVE").ok_or("the catalogue has no DataGrid SAVE")?;
+    let read_id = endpoint(form, &grid.id, "READ")?;
+    let save_id = endpoint(form, &grid.id, "SAVE")?;
+    let about = |op: &str, source: &str| Header { form: &form.name, grid: &grid.id, binding: &binding.id, op: op.to_owned(), source: source.to_owned() };
+    let mut programs = Vec::new();
+    match &binding.source {
+        BindingSourceDescriptor::IndexedFile { definition_path, fields, .. } => {
+            let def = load_cidx(definition_path).map_err(|e| format!("cannot read {definition_path}: {e}"))?;
+            let ix = IndexedSource::new(&def, fields.iter().map(|f| f.name.clone()).collect(), writable)?;
+            let source = format!("the indexed file {} ({definition_path})", def.name);
+            programs.push(program(read_id.clone(), indexed_read(&about("READ", &source), &read_id, read_op, &ix), &roles, true));
+            if writable {
+                programs.push(program(save_id.clone(), indexed_save(&about("SAVE", &source), &save_id, save_op, &ix), &roles, false));
+            }
+        }
+        BindingSourceDescriptor::Sql { source_control_id, fields, key_fields, query, table_name, .. } => {
+            let sql = SqlSource::new(source_control_id, fields, key_fields, query, table_name, writable, all)?;
+            let source = format!("the SQL query of {source_control_id} on the connection '{}'", sql.connection);
+            programs.push(program(read_id.clone(), sql_read(&about("READ", &source), &read_id, read_op, &sql), &roles, true));
+            if writable {
+                programs.push(program(save_id.clone(), sql_save(&about("SAVE", &source), &save_id, save_op, &sql), &roles, false));
+            }
+        }
+        _ => {}
+    }
+    Ok(programs)
+}
+
+fn program(program_id: String, source: String, roles: &[String], idempotent: bool) -> BackendProgram {
+    BackendProgram { file_name: format!("{program_id}.cbl"), program_id, source, roles: roles.to_vec(), idempotent }
+}
+
+// ── The parts every program shares ───────────────────────────────────────────
+
+fn banner_lines() -> [&'static str; 9] {
+    [
+        "───────────────────────────────────────────────────────────",
+        " This code was generated automatically by PowerRustCOBOL RAD.",
+        "",
+        " DO NOT MODIFY IT DIRECTLY: it is regenerated on every Build of",
+        " the project, so manual edits are lost. Edit the form and its",
+        " data binding in the Form Designer instead.",
+        "",
+        " PowerRustCOBOL and its components are distributed under the",
+        " Apache 2.0 License.",
+    ]
+}
+
+/// What a program is for, written under its banner.
+struct Header<'a> {
+    form: &'a str,
+    grid: &'a str,
+    binding: &'a str,
+    op: String,
+    source: String,
+}
+
+fn write_head(out: &mut String, h: &Header, program_id: &str) {
+    for line in banner_lines() {
+        out.push_str(&format!("      *>{}{line}\n", if line.is_empty() { "" } else { " " }));
+    }
+    out.push_str("      *> ───────────────────────────────────────────────────────────\n\n");
+    out.push_str("       IDENTIFICATION DIVISION.\n");
+    out.push_str(&format!("       PROGRAM-ID. {program_id}.\n"));
+    out.push_str(&format!("      *> {} of DataGrid {} on form {} (binding {}),\n", h.op, h.grid, h.form, h.binding));
+    out.push_str(&format!("      *> run on the backend over {}.\n", h.source));
+}
+
+/// The catalogue's groups as COBOL: `01 RC-PARAMS` and `01 RC-RESULT`.
+fn write_linkage(out: &mut String, op: &Operation) {
+    out.push_str("       LINKAGE SECTION.\n");
+    for (name, fields) in [(PARAMS, op.params), (RESULT, op.result)] {
+        out.push_str(&format!("       01 {name}.\n"));
+        write_fields(out, fields, 5, 10);
+    }
+}
+
+fn write_fields(out: &mut String, fields: &[Field], level: u8, indent: usize) {
+    let pad = " ".repeat(indent);
+    for f in fields {
+        match f.shape {
+            Shape::Text(n) => out.push_str(&format!("{pad}{level:02} {} PIC X({n}).\n", f.name)),
+            Shape::Count(d) => out.push_str(&format!("{pad}{level:02} {} PIC 9({d}).\n", f.name)),
+            Shape::Table { max, counter, of } => {
+                out.push_str(&format!("{pad}{level:02} {} OCCURS 0 TO {max} TIMES\n", f.name));
+                out.push_str(&format!("{pad}      DEPENDING ON {counter}.\n"));
+                write_fields(out, of, level + 5, indent + 3);
+            }
+        }
+    }
+}
+
+/// Every name the catalogue's groups declare: a source field may not share one.
+fn linkage_names(op: &Operation) -> Vec<String> {
+    fn walk(fields: &[Field], out: &mut Vec<String>) {
+        for f in fields {
+            out.push(f.name.to_owned());
+            if let Shape::Table { of, .. } = f.shape {
+                walk(of, out);
+            }
+        }
+    }
+    let mut out = vec![PARAMS.to_owned(), RESULT.to_owned()];
+    walk(op.params, &mut out);
+    walk(op.result, &mut out);
+    out
+}
+
+/// A COBOL alphanumeric literal: quotes doubled.
+fn lit(text: &str) -> String {
+    format!("\"{}\"", text.replace('"', "\"\""))
+}
+
+fn toml_escape(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// `10 ** n` as a literal for a small `n`, the expression otherwise.
+fn power_of_ten(n: u16) -> String {
+    if n <= 17 {
+        format!("1{}", "0".repeat(n as usize))
+    } else {
+        format!("10 ** {n}")
+    }
+}
+
+// ── An indexed file ──────────────────────────────────────────────────────────
+
+/// How a field's cell text is made and read back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cell {
+    /// The characters, trailing spaces dropped (by the wire).
+    Text { len: usize },
+    /// The digits of the value with the point dropped (`12.50` in `9(5)V99` is
+    /// `1250`, as the desktop grid shows a DISPLAY field), a `-` when negative.
+    Number { digits: u16, scale: u16, signed: bool },
+    /// A one-digit `PIC 9`: `1` or `0`.
+    Indicator,
+}
+
+/// One column of the grid: its field, or nothing when the record has none of
+/// that name (the cell is then empty, as on the desktop).
+struct Column {
+    field: Option<IndexedField>,
+    cell: Cell,
+}
+
+/// What the programs of an indexed-file grid need from its `.cidx`.
+struct IndexedSource {
+    def: IndexedDefinition,
+    columns: Vec<Column>,
+    /// The primary key's fields, in key order, with their grid column.
+    keys: Vec<(IndexedField, usize, Cell)>,
+}
+
+impl IndexedSource {
+    fn new(def: &IndexedDefinition, mut fields: Vec<String>, writable: bool) -> Result<IndexedSource, String> {
+        let root = def.record_root().ok_or_else(|| format!("{} declares no record", def.name))?;
+        let leaves = root.all_leaves();
+        // A binding that names no field shows every leaf (the desktop's quick-bind).
+        if fields.is_empty() {
+            fields = leaves.iter().map(|l| l.name.clone()).collect();
+        }
+        if fields.is_empty() {
+            return Err(format!("the record of {} has no field to show", def.name));
+        }
+        let read = controls::find("DataGrid", "READ").map(linkage_names).unwrap_or_default();
+        let save = controls::find("DataGrid", "SAVE").map(linkage_names).unwrap_or_default();
+        let mut taken: Vec<String> = Vec::new();
+        fn names(f: &IndexedField, out: &mut Vec<String>) {
+            out.push(f.name.to_ascii_uppercase());
+            f.children.iter().for_each(|c| names(c, out));
+        }
+        def.fields.iter().for_each(|f| names(f, &mut taken));
+        taken.push(def.name.to_ascii_uppercase());
+        for name in &taken {
+            if name.starts_with("RC-") || read.iter().chain(save.iter()).any(|n| n.eq_ignore_ascii_case(name)) {
+                return Err(format!(
+                    "{} names an item {name}, which the generated backend program declares itself; rename it in the .cidx",
+                    def.name
+                ));
+            }
+        }
+        let leaf_of = |name: &str| -> Result<Option<IndexedField>, String> {
+            let found: Vec<&&IndexedField> = leaves.iter().filter(|l| l.name.eq_ignore_ascii_case(name)).collect();
+            match found.as_slice() {
+                [] => Ok(None),
+                [one] if one.occurs.is_some() => Err(format!("field {name} of {} is a table; a grid column shows one item", def.name)),
+                [one] => Ok(Some((**one).clone())),
+                _ => Err(format!("{} declares field {name} more than once; a grid column must name one item", def.name)),
+            }
+        };
+        let mut columns = Vec::new();
+        for name in &fields {
+            let field = leaf_of(name)?;
+            let cell = field.as_ref().map_or(Cell::Text { len: 0 }, cell_of);
+            columns.push(Column { field, cell });
+        }
+        let mut keys = Vec::new();
+        if writable {
+            if def.keys.primary.parts.is_empty() {
+                return Err(format!("{} has no primary key, so a row cannot be found to write it", def.name));
+            }
+            for part in &def.keys.primary.parts {
+                let Some(col) = fields.iter().position(|f| f.eq_ignore_ascii_case(&part.field_name)) else {
+                    return Err(format!("the key field {} is not one of the grid's columns, so a row cannot be found to write it", part.field_name));
+                };
+                let field = leaf_of(&part.field_name)?.ok_or_else(|| format!("the key field {} is not a field of the record", part.field_name))?;
+                let cell = cell_of(&field);
+                keys.push((field, col, cell));
+            }
+        }
+        Ok(IndexedSource { def: def.clone(), columns, keys })
+    }
+
+    fn record(&self) -> &str {
+        self.def.record_root().map(|r| r.name.as_str()).unwrap_or_default()
+    }
+}
+
+fn cell_of(field: &IndexedField) -> Cell {
+    let pic = parse_pic(&field.pic);
+    let numeric = |pic: &cobolt_indexed::ParsedPic| {
+        let scale = decimal_places(&field.pic);
+        Cell::Number { digits: pic.width as u16, scale, signed: pic.signed }
+    };
+    match (field.usage, pic.category) {
+        (FieldUsage::Display, PicCategory::Numeric) => numeric(&pic),
+        (FieldUsage::Display, PicCategory::Indicator) => Cell::Indicator,
+        (FieldUsage::Display, _) => Cell::Text { len: field.length.unwrap_or(pic.width as u32) as usize },
+        // COMP, COMP-3 and the rest: the value (WASM-PARITY row 19).
+        _ => numeric(&pic),
+    }
+}
+
+/// The digit positions after the `V` of a picture.
+fn decimal_places(pic: &str) -> u16 {
+    let upper = pic.trim_start_matches('\u{200B}').trim().to_ascii_uppercase();
+    let Some((_, after)) = upper.split_once('V') else { return 0 };
+    let chars: Vec<char> = after.chars().collect();
+    let (mut n, mut i) = (0u16, 0usize);
+    while i < chars.len() {
+        if chars[i] == '9' {
+            if chars.get(i + 1) == Some(&'(') {
+                let end = chars[i + 2..].iter().position(|c| *c == ')').map(|p| i + 2 + p).unwrap_or(chars.len());
+                n += chars[i + 2..end].iter().collect::<String>().trim().parse::<u16>().unwrap_or(1);
+                i = end + 1;
+                continue;
+            }
+            n += 1;
+        }
+        i += 1;
+    }
+    n
+}
+
+/// The statements that put `field` into `target` as the grid shows it.
+fn write_cell_out(out: &mut String, pad: &str, field: &str, cell: Cell, target: &str) {
+    match cell {
+        Cell::Text { .. } => out.push_str(&format!("{pad}MOVE {field} TO {target}\n")),
+        Cell::Number { scale, .. } => {
+            if scale == 0 {
+                out.push_str(&format!("{pad}MOVE {field} TO RC-NUMBER\n"));
+            } else {
+                out.push_str(&format!("{pad}COMPUTE RC-NUMBER = {field} * {}\n", power_of_ten(scale)));
+            }
+            out.push_str(&format!("{pad}MOVE FUNCTION TRIM(RC-NUMBER) TO {target}\n"));
+        }
+        Cell::Indicator => {
+            out.push_str(&format!("{pad}IF {field} = 1\n"));
+            out.push_str(&format!("{pad}    MOVE \"1\" TO {target}\n"));
+            out.push_str(&format!("{pad}ELSE\n"));
+            out.push_str(&format!("{pad}    MOVE \"0\" TO {target}\n"));
+            out.push_str(&format!("{pad}END-IF\n"));
+        }
+    }
+}
+
+/// The statements that put cell text `source` into `field` — the inverse of
+/// [`write_cell_out`]. The text has been checked by [`write_cell_check`].
+fn write_cell_in(out: &mut String, pad: &str, source: &str, cell: Cell, field: &str) {
+    match cell {
+        Cell::Text { .. } => out.push_str(&format!("{pad}MOVE {source} TO {field}\n")),
+        Cell::Number { scale, .. } => {
+            if scale == 0 {
+                out.push_str(&format!("{pad}COMPUTE {field} = FUNCTION NUMVAL({source})\n"));
+            } else {
+                out.push_str(&format!("{pad}COMPUTE {field} = FUNCTION NUMVAL({source}) / {}\n", power_of_ten(scale)));
+            }
+        }
+        Cell::Indicator => {
+            out.push_str(&format!("{pad}EVALUATE {source}\n"));
+            for word in INDICATOR_ON {
+                out.push_str(&format!("{pad}    WHEN {}\n", lit(word)));
+            }
+            out.push_str(&format!("{pad}        MOVE 1 TO {field}\n"));
+            out.push_str(&format!("{pad}    WHEN OTHER\n"));
+            out.push_str(&format!("{pad}        MOVE 0 TO {field}\n"));
+            out.push_str(&format!("{pad}END-EVALUATE\n"));
+        }
+    }
+}
+
+/// The words an indicator cell reads as on / off — the desktop's own
+/// (`cobolt_indexed::pic` `encode_indicator`).
+const INDICATOR_ON: [&str; 7] = ["1", "Y", "y", "YES", "yes", "TRUE", "true"];
+const INDICATOR_OFF: [&str; 7] = ["0", "N", "n", "NO", "no", "FALSE", "false"];
+
+/// The statements that refuse cell text `source` the field cannot hold: they
+/// set `RC-WHY`, which the caller turns into status `92`.
+fn write_cell_check(out: &mut String, pad: &str, source: &str, cell: Cell, name: &str) {
+    match cell {
+        // Longer than the field: something but spaces past its last byte.
+        Cell::Text { len } if len < controls::CELL_BYTES => {
+            out.push_str(&format!("{pad}IF {source}({}:) NOT = SPACES\n", len + 1));
+            out.push_str(&format!("{pad}    MOVE {} TO RC-WHY\n", lit(&format!("{name}: value length exceeds PIC"))));
+            out.push_str(&format!("{pad}END-IF\n"));
+        }
+        Cell::Text { .. } => out.push_str(&format!("{pad}CONTINUE\n")),
+        Cell::Number { digits, signed, .. } => {
+            out.push_str(&format!("{pad}EVALUATE TRUE\n"));
+            out.push_str(&format!("{pad}    WHEN {source} = SPACES\n"));
+            out.push_str(&format!("{pad}        MOVE {} TO RC-WHY\n", lit(&format!("{name}: value required"))));
+            out.push_str(&format!("{pad}    WHEN FUNCTION TEST-NUMVAL({source}) NOT = 0\n"));
+            out.push_str(&format!("{pad}        MOVE {} TO RC-WHY\n", lit(&format!("{name}: invalid characters for PIC"))));
+            out.push_str(&format!(
+                "{pad}    WHEN FUNCTION NUMVAL({source}) NOT = FUNCTION INTEGER-PART(FUNCTION NUMVAL({source}))\n"
+            ));
+            out.push_str(&format!("{pad}        MOVE {} TO RC-WHY\n", lit(&format!("{name}: invalid characters for PIC"))));
+            if !signed {
+                out.push_str(&format!("{pad}    WHEN FUNCTION NUMVAL({source}) < 0\n"));
+                out.push_str(&format!("{pad}        MOVE {} TO RC-WHY\n", lit(&format!("{name}: invalid characters for PIC"))));
+            }
+            out.push_str(&format!("{pad}    WHEN FUNCTION ABS(FUNCTION NUMVAL({source})) >= {}\n", power_of_ten(digits)));
+            out.push_str(&format!("{pad}        MOVE {} TO RC-WHY\n", lit(&format!("{name}: value too large for PIC"))));
+            out.push_str(&format!("{pad}    WHEN OTHER\n"));
+            out.push_str(&format!("{pad}        CONTINUE\n"));
+            out.push_str(&format!("{pad}END-EVALUATE\n"));
+        }
+        Cell::Indicator => {
+            out.push_str(&format!("{pad}EVALUATE {source}\n"));
+            for word in INDICATOR_ON.iter().chain(INDICATOR_OFF.iter()) {
+                out.push_str(&format!("{pad}    WHEN {}\n", lit(word)));
+            }
+            out.push_str(&format!("{pad}    WHEN SPACES\n"));
+            out.push_str(&format!("{pad}        CONTINUE\n"));
+            out.push_str(&format!("{pad}    WHEN OTHER\n"));
+            out.push_str(&format!("{pad}        MOVE {} TO RC-WHY\n", lit(&format!("{name}: indicator must be 0 or 1"))));
+            out.push_str(&format!("{pad}END-EVALUATE\n"));
+        }
+    }
+}
+
+/// `ENVIRONMENT DIVISION` and `FILE SECTION` of an indexed-file program: the
+/// facade's `SELECT` and `FD`, with dynamic access (the read walks the file,
+/// the save reads by key).
+fn write_indexed_file(out: &mut String, ix: &IndexedSource) {
+    let mut def = ix.def.clone();
+    def.access_mode = AccessMode::Dynamic;
+    out.push_str("\n       ENVIRONMENT DIVISION.\n");
+    out.push_str("       INPUT-OUTPUT SECTION.\n");
+    out.push_str("       FILE-CONTROL.\n");
+    out.push_str(&crate::generate_indexed_select(&def));
+    out.push_str("\n       DATA DIVISION.\n");
+    out.push_str("       FILE SECTION.\n");
+    // One sentence: `FD name.` followed by a `RECORD CONTAINS` sentence of its
+    // own detaches the record from the file (the parser ends the FD entry at
+    // the first period), so the clause stays inside the entry.
+    let fd = crate::generate_indexed_fd(&def);
+    out.push_str(&fd.replacen(&format!("       FD  {}.\n", def.name), &format!("       FD  {}\n", def.name), 1));
+}
+
+fn file_status_call(file: &str) -> String {
+    format!("COBOL::\"FILE-STATUS\" ( \"{file}\" RC-FILE-STATUS )")
+}
+
+fn indexed_read(h: &Header, program_id: &str, op: &Operation, ix: &IndexedSource) -> String {
+    let file = ix.def.name.as_str();
+    let mut out = String::new();
+    write_head(&mut out, h, program_id);
+    write_indexed_file(&mut out, ix);
+    out.push_str("       WORKING-STORAGE SECTION.\n");
+    out.push_str("       01 RC-FILE-STATUS PIC XX.\n");
+    out.push_str("       01 RC-SEEN PIC 9(9) VALUE 0.\n");
+    out.push_str("       01 RC-ROW PIC 9(4) VALUE 0.\n");
+    out.push_str("       01 RC-WANT PIC 9(4) VALUE 0.\n");
+    out.push_str("       01 RC-AT-END PIC 9 VALUE 0.\n");
+    out.push_str("       01 RC-NUMBER PIC -(37)9.\n");
+    write_linkage(&mut out, op);
+    out.push_str(&format!("\n       PROCEDURE DIVISION USING {PARAMS} RETURNING {RESULT}.\n"));
+    out.push_str("       RC-MAIN.\n");
+    out.push_str("           MOVE \"00\" TO READ-STATUS\n");
+    out.push_str("           MOVE SPACES TO READ-MESSAGE\n");
+    out.push_str("           MOVE 0 TO ROW-TOTAL ROWS-RETURNED\n");
+    write_window_and_params(&mut out);
+    out.push_str(&format!("           OPEN INPUT {file}\n"));
+    out.push_str(&format!("           {}\n", file_status_call(file)));
+    out.push_str("           IF RC-FILE-STATUS = \"35\"\n");
+    out.push_str("      *>       No file yet is an empty grid, as on the desktop.\n");
+    out.push_str("               MOVE \"35\" TO READ-STATUS\n");
+    out.push_str("               MOVE \"the file does not exist yet\" TO READ-MESSAGE\n");
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+    out.push_str("           IF RC-FILE-STATUS(1:1) NOT = \"0\"\n");
+    out.push_str("               MOVE RC-FILE-STATUS TO READ-STATUS\n");
+    out.push_str("               MOVE \"the file cannot be opened\" TO READ-MESSAGE\n");
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+    out.push_str("           PERFORM UNTIL RC-AT-END = 1\n");
+    out.push_str(&format!("               READ {file} NEXT\n"));
+    out.push_str("                   AT END\n");
+    out.push_str("                       MOVE 1 TO RC-AT-END\n");
+    out.push_str("                   NOT AT END\n");
+    out.push_str("                       PERFORM RC-TAKE-RECORD\n");
+    out.push_str("               END-READ\n");
+    out.push_str(&format!("               {}\n", file_status_call(file)));
+    out.push_str("               IF RC-FILE-STATUS(1:1) NOT = \"0\"\n");
+    out.push_str("                   MOVE 1 TO RC-AT-END\n");
+    out.push_str("               END-IF\n");
+    out.push_str("           END-PERFORM\n");
+    out.push_str("           IF RC-FILE-STATUS NOT = \"10\"\n");
+    out.push_str("               MOVE RC-FILE-STATUS TO READ-STATUS\n");
+    out.push_str("               MOVE \"the file cannot be read\" TO READ-MESSAGE\n");
+    out.push_str("           END-IF\n");
+    out.push_str("           MOVE RC-SEEN TO ROW-TOTAL\n");
+    out.push_str(&format!("           CLOSE {file}\n"));
+    out.push_str("           GOBACK.\n\n");
+    out.push_str("       RC-TAKE-RECORD.\n");
+    out.push_str("           ADD 1 TO RC-SEEN\n");
+    out.push_str("           IF RC-SEEN > ROW-OFFSET AND ROWS-RETURNED < RC-WANT\n");
+    out.push_str("               ADD 1 TO ROWS-RETURNED\n");
+    out.push_str("               MOVE ROWS-RETURNED TO RC-ROW\n");
+    out.push_str(&format!("               MOVE {} TO CELL-COUNT (RC-ROW)\n", ix.columns.len()));
+    for (i, col) in ix.columns.iter().enumerate() {
+        let target = format!("CELL-TEXT (RC-ROW {})", i + 1);
+        match &col.field {
+            Some(field) => write_cell_out(&mut out, "               ", &field.name, col.cell, &target),
+            None => out.push_str(&format!("               MOVE SPACES TO {target}\n")),
+        }
+    }
+    out.push_str("           END-IF.\n");
+    out
+}
+
+/// The row window, capped at the catalogue's most, and the refusal of bound
+/// parameters the design-time source does not take.
+fn write_window_and_params(out: &mut String) {
+    out.push_str(&format!("           MOVE FUNCTION MIN(ROW-COUNT {}) TO RC-WANT\n", controls::MAX_WINDOW_ROWS));
+    out.push_str("           IF PARAM-COUNT NOT = 0\n");
+    out.push_str("               MOVE \"92\" TO READ-STATUS\n");
+    out.push_str("               MOVE \"this source takes no parameters\" TO READ-MESSAGE\n");
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+}
+
+fn indexed_save(h: &Header, program_id: &str, op: &Operation, ix: &IndexedSource) -> String {
+    let file = ix.def.name.as_str();
+    let record = ix.record();
+    let ncols = ix.columns.len();
+    let nkeys = ix.keys.len();
+    let key_cols: Vec<usize> = ix.keys.iter().map(|(_, c, _)| *c).collect();
+    let mut out = String::new();
+    write_head(&mut out, h, program_id);
+    write_indexed_file(&mut out, ix);
+    out.push_str("       WORKING-STORAGE SECTION.\n");
+    out.push_str("       01 RC-FILE-STATUS PIC XX.\n");
+    out.push_str("       01 RC-CHANGE PIC 9(4) VALUE 0.\n");
+    out.push_str("       01 RC-WHY PIC X(256) VALUE SPACES.\n");
+    out.push_str("       01 RC-FOUND PIC 9 VALUE 0.\n");
+    write_linkage(&mut out, op);
+    out.push_str(&format!("\n       PROCEDURE DIVISION USING {PARAMS} RETURNING {RESULT}.\n"));
+    out.push_str("       RC-MAIN.\n");
+    out.push_str("           MOVE \"00\" TO COMMIT-STATUS\n");
+    out.push_str("           MOVE SPACES TO COMMIT-MESSAGE\n");
+    out.push_str("           MOVE 0 TO FAILED-CHANGE\n");
+    out.push_str("      *>   A save never makes the file (OPEN I-O would): no file is 35,\n");
+    out.push_str("      *>   as on the desktop.\n");
+    out.push_str(&format!("           OPEN INPUT {file}\n"));
+    out.push_str(&format!("           {}\n", file_status_call(file)));
+    out.push_str("           IF RC-FILE-STATUS = \"35\"\n");
+    out.push_str("               MOVE \"35\" TO COMMIT-STATUS\n");
+    out.push_str("               MOVE \"the file does not exist\" TO COMMIT-MESSAGE\n");
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+    out.push_str("           IF RC-FILE-STATUS(1:1) = \"0\"\n");
+    out.push_str(&format!("               CLOSE {file}\n"));
+    out.push_str("           END-IF\n");
+    out.push_str(&format!("           OPEN I-O {file}\n"));
+    out.push_str(&format!("           {}\n", file_status_call(file)));
+    out.push_str("           IF RC-FILE-STATUS(1:1) NOT = \"0\"\n");
+    out.push_str("               MOVE RC-FILE-STATUS TO COMMIT-STATUS\n");
+    out.push_str("               MOVE \"the file cannot be opened for writing\" TO COMMIT-MESSAGE\n");
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+    out.push_str("      *>   Every change is checked before the first one is written.\n");
+    out.push_str("           PERFORM RC-CHECK-CHANGE VARYING RC-CHANGE FROM 1 BY 1\n");
+    out.push_str("               UNTIL RC-CHANGE > CHANGE-COUNT OR COMMIT-STATUS NOT = \"00\"\n");
+    out.push_str("           IF COMMIT-STATUS = \"00\"\n");
+    out.push_str("               PERFORM RC-APPLY-CHANGE VARYING RC-CHANGE FROM 1 BY 1\n");
+    out.push_str("                   UNTIL RC-CHANGE > CHANGE-COUNT OR COMMIT-STATUS NOT = \"00\"\n");
+    out.push_str("           END-IF\n");
+    out.push_str("      *>   All or nothing: a write that failed undoes the ones before it.\n");
+    out.push_str("           IF COMMIT-STATUS = \"00\"\n");
+    out.push_str("               COMMIT\n");
+    out.push_str("           ELSE\n");
+    out.push_str("               ROLLBACK\n");
+    out.push_str("           END-IF\n");
+    out.push_str(&format!("           CLOSE {file}\n"));
+    out.push_str("           GOBACK.\n\n");
+
+    // RC-REFUSE: the change in RC-CHANGE fails with the status already moved.
+    out.push_str("       RC-REFUSE.\n");
+    out.push_str("           MOVE RC-WHY TO COMMIT-MESSAGE\n");
+    out.push_str("           MOVE RC-CHANGE TO FAILED-CHANGE.\n\n");
+
+    out.push_str("       RC-CHECK-CHANGE.\n");
+    out.push_str("           MOVE SPACES TO RC-WHY\n");
+    out.push_str("           EVALUATE CHANGE-ACTION (RC-CHANGE)\n");
+    out.push_str("               WHEN \"UPDATE\"\n");
+    write_count_check(&mut out, "KEY-COUNT", nkeys, "key cells");
+    write_count_check(&mut out, "CELL-COUNT", ncols, "cells");
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-CHECK-KEYS\n");
+    out.push_str("                   END-IF\n");
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-CHECK-CELLS\n");
+    out.push_str("                   END-IF\n");
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-KEY-UNCHANGED\n");
+    out.push_str("                   END-IF\n");
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-KEY-FROM-KEYS\n");
+    out.push_str("                       PERFORM RC-FIND\n");
+    out.push_str("                       IF RC-FOUND = 0\n");
+    out.push_str("                           MOVE \"23\" TO COMMIT-STATUS\n");
+    out.push_str("                           MOVE \"the record is no longer in the file\" TO RC-WHY\n");
+    out.push_str("                       END-IF\n");
+    out.push_str("                   END-IF\n");
+    out.push_str("               WHEN \"DELETE\"\n");
+    write_count_check(&mut out, "KEY-COUNT", nkeys, "key cells");
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-CHECK-KEYS\n");
+    out.push_str("                   END-IF\n");
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-KEY-FROM-KEYS\n");
+    out.push_str("                       PERFORM RC-FIND\n");
+    out.push_str("                       IF RC-FOUND = 0\n");
+    out.push_str("                           MOVE \"23\" TO COMMIT-STATUS\n");
+    out.push_str("                           MOVE \"a deleted row is no longer in the file\" TO RC-WHY\n");
+    out.push_str("                       END-IF\n");
+    out.push_str("                   END-IF\n");
+    out.push_str("               WHEN \"INSERT\"\n");
+    write_count_check(&mut out, "CELL-COUNT", ncols, "cells");
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-CHECK-CELLS\n");
+    out.push_str("                   END-IF\n");
+    for (field, col, _) in &ix.keys {
+        out.push_str(&format!("                   IF RC-WHY = SPACES AND CELL-TEXT (RC-CHANGE {}) = SPACES\n", col + 1));
+        out.push_str(&format!(
+            "                       MOVE {} TO RC-WHY\n",
+            lit(&format!("'{}' is part of the key; a new row needs it", field.name))
+        ));
+        out.push_str("                   END-IF\n");
+    }
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-KEY-FROM-CELLS\n");
+    out.push_str("                       PERFORM RC-FIND\n");
+    out.push_str("                       IF RC-FOUND = 1\n");
+    out.push_str("                           MOVE \"22\" TO COMMIT-STATUS\n");
+    out.push_str("                           MOVE \"a record with this key is already in the file\" TO RC-WHY\n");
+    out.push_str("                       END-IF\n");
+    out.push_str("                   END-IF\n");
+    out.push_str("               WHEN OTHER\n");
+    out.push_str("                   MOVE \"the change is not UPDATE, INSERT or DELETE\" TO RC-WHY\n");
+    out.push_str("           END-EVALUATE\n");
+    out.push_str("           IF RC-WHY NOT = SPACES\n");
+    out.push_str("               IF COMMIT-STATUS = \"00\"\n");
+    out.push_str("                   MOVE \"92\" TO COMMIT-STATUS\n");
+    out.push_str("               END-IF\n");
+    out.push_str("               PERFORM RC-REFUSE\n");
+    out.push_str("           END-IF.\n\n");
+
+    out.push_str("       RC-CHECK-KEYS.\n");
+    for (i, (field, _, cell)) in ix.keys.iter().enumerate() {
+        out.push_str("           IF RC-WHY = SPACES\n");
+        write_cell_check(&mut out, "               ", &format!("KEY-TEXT (RC-CHANGE {})", i + 1), *cell, &field.name);
+        out.push_str("           END-IF\n");
+    }
+    out.push_str("           CONTINUE.\n\n");
+
+    out.push_str("       RC-CHECK-CELLS.\n");
+    for (i, col) in ix.columns.iter().enumerate() {
+        if let Some(field) = &col.field {
+            out.push_str("           IF RC-WHY = SPACES\n");
+            write_cell_check(&mut out, "               ", &format!("CELL-TEXT (RC-CHANGE {})", i + 1), col.cell, &field.name);
+            out.push_str("           END-IF\n");
+        }
+    }
+    out.push_str("           CONTINUE.\n\n");
+
+    // A row is found by its key: the key cells of an update are what it was loaded with.
+    out.push_str("       RC-KEY-UNCHANGED.\n");
+    for (i, (_, col, _)) in ix.keys.iter().enumerate() {
+        out.push_str(&format!(
+            "           IF FUNCTION TRIM(CELL-TEXT (RC-CHANGE {})) NOT = FUNCTION TRIM(KEY-TEXT (RC-CHANGE {}))\n",
+            col + 1,
+            i + 1
+        ));
+        out.push_str("               MOVE \"21\" TO COMMIT-STATUS\n");
+        out.push_str("               MOVE \"the key of the row was changed; a row is found by its key\" TO RC-WHY\n");
+        out.push_str("           END-IF\n");
+    }
+    out.push_str("           CONTINUE.\n\n");
+
+    out.push_str("       RC-KEY-FROM-KEYS.\n");
+    for (i, (field, _, cell)) in ix.keys.iter().enumerate() {
+        write_cell_in(&mut out, "           ", &format!("KEY-TEXT (RC-CHANGE {})", i + 1), *cell, &field.name);
+    }
+    out.push_str("           CONTINUE.\n\n");
+
+    out.push_str("       RC-KEY-FROM-CELLS.\n");
+    for (field, col, cell) in &ix.keys {
+        write_cell_in(&mut out, "           ", &format!("CELL-TEXT (RC-CHANGE {})", col + 1), *cell, &field.name);
+    }
+    out.push_str("           CONTINUE.\n\n");
+
+    out.push_str("       RC-FIND.\n");
+    out.push_str(&format!("           READ {file}\n"));
+    out.push_str("               INVALID KEY\n");
+    out.push_str("                   MOVE 0 TO RC-FOUND\n");
+    out.push_str("               NOT INVALID KEY\n");
+    out.push_str("                   MOVE 1 TO RC-FOUND\n");
+    out.push_str("           END-READ.\n\n");
+
+    out.push_str("       RC-APPLY-CHANGE.\n");
+    out.push_str("           MOVE SPACES TO RC-WHY\n");
+    out.push_str("           EVALUATE CHANGE-ACTION (RC-CHANGE)\n");
+    out.push_str("               WHEN \"UPDATE\"\n");
+    out.push_str("                   PERFORM RC-KEY-FROM-KEYS\n");
+    out.push_str("                   PERFORM RC-FIND\n");
+    out.push_str("                   IF RC-FOUND = 1\n");
+    for (i, col) in ix.columns.iter().enumerate() {
+        if let Some(field) = &col.field {
+            if !key_cols.contains(&i) {
+                write_cell_in(&mut out, "                       ", &format!("CELL-TEXT (RC-CHANGE {})", i + 1), col.cell, &field.name);
+            }
+        }
+    }
+    out.push_str(&format!("                       REWRITE {record}\n"));
+    out.push_str("                           INVALID KEY CONTINUE\n");
+    out.push_str("                       END-REWRITE\n");
+    out.push_str("                   END-IF\n");
+    out.push_str("               WHEN \"DELETE\"\n");
+    out.push_str("                   PERFORM RC-KEY-FROM-KEYS\n");
+    out.push_str(&format!("                   DELETE {file}\n"));
+    out.push_str("                       INVALID KEY CONTINUE\n");
+    out.push_str("                   END-DELETE\n");
+    out.push_str("               WHEN \"INSERT\"\n");
+    out.push_str(&format!("                   INITIALIZE {record}\n"));
+    for (i, col) in ix.columns.iter().enumerate() {
+        if let Some(field) = &col.field {
+            write_cell_in(&mut out, "                   ", &format!("CELL-TEXT (RC-CHANGE {})", i + 1), col.cell, &field.name);
+        }
+    }
+    out.push_str(&format!("                   WRITE {record}\n"));
+    out.push_str("                       INVALID KEY CONTINUE\n");
+    out.push_str("                   END-WRITE\n");
+    out.push_str("           END-EVALUATE\n");
+    out.push_str(&format!("           {}\n", file_status_call(file)));
+    out.push_str("           IF RC-FILE-STATUS(1:1) NOT = \"0\"\n");
+    out.push_str("               MOVE RC-FILE-STATUS TO COMMIT-STATUS\n");
+    out.push_str("               MOVE \"the file refused the change\" TO RC-WHY\n");
+    out.push_str("               PERFORM RC-REFUSE\n");
+    out.push_str("           END-IF.\n");
+    out
+}
+
+/// A change carries exactly as many key cells or cells as the source has.
+fn write_count_check(out: &mut String, counter: &str, expected: usize, what: &str) {
+    out.push_str(&format!("                   IF RC-WHY = SPACES AND {counter} (RC-CHANGE) NOT = {expected}\n"));
+    out.push_str(&format!("                       MOVE {} TO RC-WHY\n", lit(&format!("the change does not carry {expected} {what}"))));
+    out.push_str("                   END-IF\n");
+}
+
+// ── An SQL query ─────────────────────────────────────────────────────────────
+
+/// What a value is when it is written: the desktop's own three kinds
+/// (`cobolt-form-host` `sql_grid_seed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SqlKind {
+    Number,
+    Boolean,
+    Text,
+}
+
+struct SqlSource {
+    connection: String,
+    query: String,
+    table: String,
+    fields: Vec<(String, SqlKind)>,
+    /// The key fields, in order, with their grid column.
+    keys: Vec<(String, usize)>,
+}
+
+impl SqlSource {
+    fn new(
+        source_control_id: &str,
+        fields: &[cobolt_forms::BindingField],
+        key_fields: &[String],
+        query: &str,
+        table: &str,
+        writable: bool,
+        all: &[&Control],
+    ) -> Result<SqlSource, String> {
+        let control = all
+            .iter()
+            .find(|c| c.id.eq_ignore_ascii_case(source_control_id))
+            .ok_or_else(|| format!("the SQL source {source_control_id} is not a control of the form"))?;
+        // The backend's connection: the control's `BackendConfig`, else the
+        // project connection its `SqlConnection` names. Never a connection string.
+        let mut connection = web_class::backend_config(control);
+        if connection.is_empty() {
+            connection = control.get_prop("SqlConnection").map(|v| v.as_str().trim().to_owned()).unwrap_or_default();
+        }
+        if connection.is_empty() {
+            return Err(format!(
+                "{source_control_id} names no backend connection: set its BackendConfig (or SqlConnection) to a connection the backend knows"
+            ));
+        }
+        let query = query.trim().trim_end_matches(';').trim().to_owned();
+        if query.is_empty() {
+            return Err("the SQL binding has no query".to_owned());
+        }
+        if query.to_ascii_uppercase().contains("END-EXEC") {
+            return Err("the SQL binding's query holds END-EXEC".to_owned());
+        }
+        if fields.is_empty() {
+            return Err("the SQL binding names no field".to_owned());
+        }
+        let mut out = Vec::new();
+        for f in fields {
+            if !plain_name(&f.name) {
+                return Err(format!("field '{}' is not a plain SQL name (a letter or _, then letters, digits, _ and .)", f.name));
+            }
+            let kind = match f.data_type {
+                BindingDataType::Integer | BindingDataType::Decimal => SqlKind::Number,
+                BindingDataType::Boolean => SqlKind::Boolean,
+                _ => SqlKind::Text,
+            };
+            out.push((f.name.clone(), kind));
+        }
+        let mut keys = Vec::new();
+        if writable {
+            if !plain_name(table) {
+                return Err(format!("the table '{table}' an edit updates is not a plain SQL name"));
+            }
+            if key_fields.is_empty() {
+                return Err("a writable SQL binding names no key field, so a row cannot be found to write it".to_owned());
+            }
+            for k in key_fields {
+                let Some(col) = out.iter().position(|(n, _)| n.eq_ignore_ascii_case(k)) else {
+                    return Err(format!("the key field {k} is not one of the grid's columns, so a row cannot be found to write it"));
+                };
+                keys.push((out[col].0.clone(), col));
+            }
+        }
+        Ok(SqlSource { connection, query, table: table.to_owned(), fields: out, keys })
+    }
+}
+
+/// A name the backend may put in a statement unquoted (the Guardian's rule, as
+/// the desktop's `grid_edit::is_plain_name`).
+fn plain_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && name.len() <= 128
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+}
+
+fn write_sql_status_items(out: &mut String) {
+    out.push_str("       01 SQLSTATE PIC X(5).\n");
+    out.push_str("       01 SQLCODE PIC S9(9) COMP-5.\n");
+    out.push_str("       01 SQLMSG PIC X(200).\n");
+}
+
+fn write_connect(out: &mut String, sql: &SqlSource, status: &str, message: &str) {
+    out.push_str(&format!(
+        "           EXEC SQL CONNECT TO '{}' AS RC-CONN END-EXEC\n",
+        sql.connection.replace('\'', "''")
+    ));
+    out.push_str("           IF SQLSTATE NOT = \"00000\"\n");
+    out.push_str(&format!("               MOVE \"90\" TO {status}\n"));
+    out.push_str(&format!("               MOVE SQLMSG TO {message}\n"));
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+}
+
+/// The design-time query, one line of it per line, as the inner `SELECT`.
+fn write_query(out: &mut String, sql: &SqlSource, pad: &str) {
+    out.push_str(&format!("{pad}FROM (\n"));
+    for line in sql.query.lines() {
+        if !line.trim().is_empty() {
+            out.push_str(&format!("{pad}    {}\n", line.trim_end()));
+        }
+    }
+    out.push_str(&format!("{pad}) AS RC_Q\n"));
+}
+
+fn sql_read(h: &Header, program_id: &str, op: &Operation, sql: &SqlSource) -> String {
+    let n = sql.fields.len();
+    let mut out = String::new();
+    write_head(&mut out, h, program_id);
+    out.push_str("\n       DATA DIVISION.\n");
+    out.push_str("       WORKING-STORAGE SECTION.\n");
+    write_sql_status_items(&mut out);
+    out.push_str("       01 RC-TOTAL PIC 9(9) VALUE 0.\n");
+    out.push_str("       01 RC-SEEN PIC 9(9) VALUE 0.\n");
+    out.push_str("       01 RC-ROW PIC 9(4) VALUE 0.\n");
+    out.push_str("       01 RC-WANT PIC 9(4) VALUE 0.\n");
+    out.push_str("       01 RC-DONE PIC 9 VALUE 0.\n");
+    for i in 1..=n {
+        out.push_str(&format!("       01 RC-V{i} PIC X({}).\n", controls::CELL_BYTES));
+        out.push_str(&format!("       01 RC-I{i} PIC S9(4) COMP-5.\n"));
+    }
+    write_linkage(&mut out, op);
+    out.push_str(&format!("\n       PROCEDURE DIVISION USING {PARAMS} RETURNING {RESULT}.\n"));
+    out.push_str("       RC-MAIN.\n");
+    out.push_str("           MOVE \"00\" TO READ-STATUS\n");
+    out.push_str("           MOVE SPACES TO READ-MESSAGE\n");
+    out.push_str("           MOVE 0 TO ROW-TOTAL ROWS-RETURNED\n");
+    write_window_and_params(&mut out);
+    write_connect(&mut out, sql, "READ-STATUS", "READ-MESSAGE");
+    out.push_str("           EXEC SQL SELECT COUNT(*) INTO :RC-TOTAL\n");
+    write_query(&mut out, sql, "               ");
+    out.push_str("           END-EXEC\n");
+    out.push_str("           IF SQLSTATE NOT = \"00000\"\n");
+    out.push_str("               PERFORM RC-FAILED\n");
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+    out.push_str("           MOVE RC-TOTAL TO ROW-TOTAL\n");
+    out.push_str("      *>   The bound fields, found in the query's result by name.\n");
+    out.push_str("           EXEC SQL DECLARE RC-ROWS CURSOR FOR\n");
+    let names: Vec<&str> = sql.fields.iter().map(|(n, _)| n.as_str()).collect();
+    out.push_str(&format!("               SELECT {}\n", names.join(", ")));
+    write_query(&mut out, sql, "               ");
+    out.push_str("           END-EXEC\n");
+    out.push_str("           EXEC SQL OPEN RC-ROWS END-EXEC\n");
+    out.push_str("           IF SQLSTATE NOT = \"00000\"\n");
+    out.push_str("               PERFORM RC-FAILED\n");
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+    out.push_str("           IF RC-WANT = 0\n");
+    out.push_str("               MOVE 1 TO RC-DONE\n");
+    out.push_str("           END-IF\n");
+    out.push_str("           PERFORM UNTIL RC-DONE = 1\n");
+    let vs: Vec<String> = (1..=n).map(|i| format!("RC-V{i}")).collect();
+    out.push_str(&format!("               MOVE SPACES TO {}\n", vs.join(" ")));
+    let into: Vec<String> = (1..=n).map(|i| format!(":RC-V{i}:RC-I{i}")).collect();
+    out.push_str(&format!("               EXEC SQL FETCH RC-ROWS INTO {}\n", into.join(", ")));
+    out.push_str("               END-EXEC\n");
+    out.push_str("               EVALUATE TRUE\n");
+    out.push_str("                   WHEN SQLSTATE = \"02000\"\n");
+    out.push_str("                       MOVE 1 TO RC-DONE\n");
+    out.push_str("                   WHEN SQLSTATE(1:2) = \"00\" OR SQLSTATE(1:2) = \"01\"\n");
+    out.push_str("                       PERFORM RC-TAKE-ROW\n");
+    out.push_str("                   WHEN OTHER\n");
+    out.push_str("                       PERFORM RC-FAILED\n");
+    out.push_str("                       MOVE 1 TO RC-DONE\n");
+    out.push_str("               END-EVALUATE\n");
+    out.push_str("           END-PERFORM\n");
+    out.push_str("           EXEC SQL CLOSE RC-ROWS END-EXEC\n");
+    out.push_str("           EXEC SQL DISCONNECT RC-CONN END-EXEC\n");
+    out.push_str("           GOBACK.\n\n");
+    out.push_str("       RC-TAKE-ROW.\n");
+    out.push_str("           ADD 1 TO RC-SEEN\n");
+    out.push_str("           IF RC-SEEN > ROW-OFFSET\n");
+    out.push_str("               ADD 1 TO ROWS-RETURNED\n");
+    out.push_str("               MOVE ROWS-RETURNED TO RC-ROW\n");
+    out.push_str(&format!("               MOVE {n} TO CELL-COUNT (RC-ROW)\n"));
+    for i in 1..=n {
+        out.push_str(&format!("               MOVE RC-V{i} TO CELL-TEXT (RC-ROW {i})\n"));
+    }
+    out.push_str("               IF ROWS-RETURNED >= RC-WANT\n");
+    out.push_str("                   MOVE 1 TO RC-DONE\n");
+    out.push_str("               END-IF\n");
+    out.push_str("           END-IF.\n\n");
+    out.push_str("       RC-FAILED.\n");
+    out.push_str("           MOVE \"90\" TO READ-STATUS\n");
+    out.push_str("           MOVE SQLMSG TO READ-MESSAGE\n");
+    out.push_str("           MOVE 0 TO ROWS-RETURNED\n");
+    out.push_str("           EXEC SQL DISCONNECT RC-CONN END-EXEC.\n");
+    out
+}
+
+fn sql_save(h: &Header, program_id: &str, op: &Operation, sql: &SqlSource) -> String {
+    let n = sql.fields.len();
+    let nkeys = sql.keys.len();
+    let key_cols: Vec<usize> = sql.keys.iter().map(|(_, c)| *c).collect();
+    let mut out = String::new();
+    write_head(&mut out, h, program_id);
+    out.push_str("\n       DATA DIVISION.\n");
+    out.push_str("       WORKING-STORAGE SECTION.\n");
+    write_sql_status_items(&mut out);
+    out.push_str("       01 RC-CHANGE PIC 9(4) VALUE 0.\n");
+    out.push_str("       01 RC-WHY PIC X(256) VALUE SPACES.\n");
+    for i in 1..=n {
+        out.push_str(&format!("       01 RC-V{i} PIC X({}).\n", controls::CELL_BYTES));
+        out.push_str(&format!("       01 RC-I{i} PIC S9(4) COMP-5.\n"));
+    }
+    for i in 1..=nkeys {
+        out.push_str(&format!("       01 RC-K{i} PIC X({}).\n", controls::CELL_BYTES));
+    }
+    write_linkage(&mut out, op);
+    out.push_str(&format!("\n       PROCEDURE DIVISION USING {PARAMS} RETURNING {RESULT}.\n"));
+    out.push_str("       RC-MAIN.\n");
+    out.push_str("           MOVE \"00\" TO COMMIT-STATUS\n");
+    out.push_str("           MOVE SPACES TO COMMIT-MESSAGE\n");
+    out.push_str("           MOVE 0 TO FAILED-CHANGE\n");
+    out.push_str("      *>   Every change is checked before the database is reached.\n");
+    out.push_str("           PERFORM RC-CHECK-CHANGE VARYING RC-CHANGE FROM 1 BY 1\n");
+    out.push_str("               UNTIL RC-CHANGE > CHANGE-COUNT OR COMMIT-STATUS NOT = \"00\"\n");
+    out.push_str("           IF COMMIT-STATUS NOT = \"00\"\n");
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+    write_connect(&mut out, sql, "COMMIT-STATUS", "COMMIT-MESSAGE");
+    out.push_str("           PERFORM RC-APPLY-CHANGE VARYING RC-CHANGE FROM 1 BY 1\n");
+    out.push_str("               UNTIL RC-CHANGE > CHANGE-COUNT OR COMMIT-STATUS NOT = \"00\"\n");
+    out.push_str("      *>   One unit: all of it, or none of it.\n");
+    out.push_str("           IF COMMIT-STATUS = \"00\"\n");
+    out.push_str("               EXEC SQL COMMIT END-EXEC\n");
+    out.push_str("               IF SQLSTATE NOT = \"00000\"\n");
+    out.push_str("                   MOVE \"90\" TO COMMIT-STATUS\n");
+    out.push_str("                   MOVE SQLMSG TO COMMIT-MESSAGE\n");
+    out.push_str("                   EXEC SQL ROLLBACK END-EXEC\n");
+    out.push_str("               END-IF\n");
+    out.push_str("           ELSE\n");
+    out.push_str("               EXEC SQL ROLLBACK END-EXEC\n");
+    out.push_str("           END-IF\n");
+    out.push_str("           EXEC SQL DISCONNECT RC-CONN END-EXEC\n");
+    out.push_str("           GOBACK.\n\n");
+
+    out.push_str("       RC-REFUSE.\n");
+    out.push_str("           MOVE RC-WHY TO COMMIT-MESSAGE\n");
+    out.push_str("           MOVE RC-CHANGE TO FAILED-CHANGE.\n\n");
+
+    out.push_str("       RC-CHECK-CHANGE.\n");
+    out.push_str("           MOVE SPACES TO RC-WHY\n");
+    out.push_str("           EVALUATE CHANGE-ACTION (RC-CHANGE)\n");
+    out.push_str("               WHEN \"UPDATE\"\n");
+    write_count_check(&mut out, "KEY-COUNT", nkeys, "key cells");
+    write_count_check(&mut out, "CELL-COUNT", n, "cells");
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-CHECK-CELLS\n");
+    out.push_str("                   END-IF\n");
+    for (i, col) in key_cols.iter().enumerate() {
+        out.push_str(&format!(
+            "                   IF RC-WHY = SPACES AND FUNCTION TRIM(CELL-TEXT (RC-CHANGE {})) NOT = FUNCTION TRIM(KEY-TEXT (RC-CHANGE {}))\n",
+            col + 1,
+            i + 1
+        ));
+        out.push_str("                       MOVE \"21\" TO COMMIT-STATUS\n");
+        out.push_str("                       MOVE \"the key of the row was changed; a row is found by its key\" TO RC-WHY\n");
+        out.push_str("                   END-IF\n");
+    }
+    out.push_str("               WHEN \"DELETE\"\n");
+    write_count_check(&mut out, "KEY-COUNT", nkeys, "key cells");
+    out.push_str("               WHEN \"INSERT\"\n");
+    write_count_check(&mut out, "CELL-COUNT", n, "cells");
+    out.push_str("                   IF RC-WHY = SPACES\n");
+    out.push_str("                       PERFORM RC-CHECK-CELLS\n");
+    out.push_str("                   END-IF\n");
+    out.push_str("               WHEN OTHER\n");
+    out.push_str("                   MOVE \"the change is not UPDATE, INSERT or DELETE\" TO RC-WHY\n");
+    out.push_str("           END-EVALUATE\n");
+    out.push_str("           IF RC-WHY NOT = SPACES\n");
+    out.push_str("               IF COMMIT-STATUS = \"00\"\n");
+    out.push_str("                   MOVE \"92\" TO COMMIT-STATUS\n");
+    out.push_str("               END-IF\n");
+    out.push_str("               PERFORM RC-REFUSE\n");
+    out.push_str("           END-IF.\n\n");
+
+    // The desktop's checks (`grid_edit::sql_literal`): a number is a number or
+    // empty (NULL), a flag one of the yes/no words; text is taken as it is.
+    out.push_str("       RC-CHECK-CELLS.\n");
+    for (i, (name, kind)) in sql.fields.iter().enumerate() {
+        let cell = format!("CELL-TEXT (RC-CHANGE {})", i + 1);
+        match kind {
+            SqlKind::Number => {
+                out.push_str(&format!("           IF RC-WHY = SPACES AND {cell} NOT = SPACES\n"));
+                out.push_str(&format!("               IF FUNCTION TEST-NUMVAL({cell}) NOT = 0\n"));
+                out.push_str(&format!("                   MOVE {} TO RC-WHY\n", lit(&format!("{name}: the value is not a number"))));
+                out.push_str("               END-IF\n");
+                out.push_str("           END-IF\n");
+            }
+            SqlKind::Boolean => {
+                out.push_str("           IF RC-WHY = SPACES\n");
+                out.push_str(&format!("               EVALUATE FUNCTION LOWER-CASE(FUNCTION TRIM({cell}))\n"));
+                for w in SQL_YES.iter().chain(SQL_NO.iter()) {
+                    out.push_str(&format!("                   WHEN {}\n", lit(w)));
+                }
+                out.push_str("                       CONTINUE\n");
+                out.push_str("                   WHEN OTHER\n");
+                out.push_str(&format!("                       MOVE {} TO RC-WHY\n", lit(&format!("{name}: the value is not a yes/no value"))));
+                out.push_str("               END-EVALUATE\n");
+                out.push_str("           END-IF\n");
+            }
+            SqlKind::Text => {}
+        }
+    }
+    out.push_str("           CONTINUE.\n\n");
+
+    // The values into host variables: a number left empty is NULL, a flag 1 or 0.
+    out.push_str("       RC-TAKE-VALUES.\n");
+    for (i, (_, kind)) in sql.fields.iter().enumerate() {
+        let k = i + 1;
+        let cell = format!("CELL-TEXT (RC-CHANGE {k})");
+        out.push_str(&format!("           MOVE {cell} TO RC-V{k}\n"));
+        out.push_str(&format!("           MOVE 0 TO RC-I{k}\n"));
+        match kind {
+            SqlKind::Number => {
+                out.push_str(&format!("           IF RC-V{k} = SPACES\n"));
+                out.push_str(&format!("               MOVE -1 TO RC-I{k}\n"));
+                out.push_str("           END-IF\n");
+            }
+            SqlKind::Boolean => {
+                out.push_str(&format!("           EVALUATE FUNCTION LOWER-CASE(FUNCTION TRIM(RC-V{k}))\n"));
+                for w in SQL_YES {
+                    out.push_str(&format!("               WHEN {}\n", lit(w)));
+                }
+                out.push_str(&format!("                   MOVE \"1\" TO RC-V{k}\n"));
+                out.push_str("               WHEN OTHER\n");
+                out.push_str(&format!("                   MOVE \"0\" TO RC-V{k}\n"));
+                out.push_str("           END-EVALUATE\n");
+            }
+            SqlKind::Text => {}
+        }
+    }
+    for i in 1..=nkeys {
+        out.push_str(&format!("           MOVE KEY-TEXT (RC-CHANGE {i}) TO RC-K{i}\n"));
+    }
+    out.push_str("           CONTINUE.\n\n");
+
+    let table = &sql.table;
+    let where_keys: Vec<String> = sql.keys.iter().enumerate().map(|(i, (name, _))| format!("{name} = :RC-K{}", i + 1)).collect();
+    let sets: Vec<String> = sql
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !key_cols.contains(i))
+        .map(|(i, (name, _))| format!("{name} = :RC-V{k}:RC-I{k}", k = i + 1))
+        .collect();
+    out.push_str("       RC-APPLY-CHANGE.\n");
+    out.push_str("           PERFORM RC-TAKE-VALUES\n");
+    out.push_str("           EVALUATE CHANGE-ACTION (RC-CHANGE)\n");
+    out.push_str("               WHEN \"UPDATE\"\n");
+    if sets.is_empty() {
+        out.push_str("      *>           Every column is a key: there is nothing an update can change.\n");
+        out.push_str("                   MOVE \"00000\" TO SQLSTATE\n");
+    } else {
+        out.push_str(&format!("                   EXEC SQL UPDATE {table}\n"));
+        for (i, s) in sets.iter().enumerate() {
+            let lead = if i == 0 { "SET" } else { "   " };
+            let comma = if i + 1 < sets.len() { "," } else { "" };
+            out.push_str(&format!("                       {lead} {s}{comma}\n"));
+        }
+        out.push_str(&format!("                       WHERE {}\n", where_keys.join(" AND ")));
+        out.push_str("                   END-EXEC\n");
+    }
+    out.push_str("               WHEN \"INSERT\"\n");
+    let names: Vec<&str> = sql.fields.iter().map(|(n, _)| n.as_str()).collect();
+    let values: Vec<String> = (1..=n).map(|k| format!(":RC-V{k}:RC-I{k}")).collect();
+    out.push_str(&format!("                   EXEC SQL INSERT INTO {table} ({})\n", names.join(", ")));
+    out.push_str(&format!("                       VALUES ({})\n", values.join(", ")));
+    out.push_str("                   END-EXEC\n");
+    out.push_str("               WHEN \"DELETE\"\n");
+    out.push_str(&format!("                   EXEC SQL DELETE FROM {table}\n"));
+    out.push_str(&format!("                       WHERE {}\n", where_keys.join(" AND ")));
+    out.push_str("                   END-EXEC\n");
+    out.push_str("           END-EVALUATE\n");
+    out.push_str("           EVALUATE TRUE\n");
+    out.push_str("               WHEN SQLSTATE = \"02000\"\n");
+    out.push_str("                   MOVE \"23\" TO COMMIT-STATUS\n");
+    out.push_str("                   MOVE \"no row has this key\" TO RC-WHY\n");
+    out.push_str("                   PERFORM RC-REFUSE\n");
+    out.push_str("               WHEN SQLSTATE(1:2) = \"00\" OR SQLSTATE(1:2) = \"01\"\n");
+    out.push_str("                   CONTINUE\n");
+    out.push_str("               WHEN OTHER\n");
+    out.push_str("                   MOVE \"90\" TO COMMIT-STATUS\n");
+    out.push_str("                   MOVE SQLMSG TO RC-WHY\n");
+    out.push_str("                   PERFORM RC-REFUSE\n");
+    out.push_str("           END-EVALUATE.\n");
+    out
+}
+
+/// The desktop's yes/no words (`grid_edit::sql_literal`), lower case.
+const SQL_YES: [&str; 4] = ["1", "true", "yes", "y"];
+const SQL_NO: [&str; 4] = ["0", "false", "no", "n"];
+
+/// The forms and the `.cidx` the generator's tests pin, shared with the
+/// backend's tests that run what it generates (as `code_site::all_sites_fixture`).
+#[doc(hidden)]
+pub mod fixtures {
+    use cobolt_forms::{
+        BindingDataType, BindingField, BindingMode, BindingSourceDescriptor, BindingTargetDescriptor, Control,
+        ControlType, DataBindingDef, Form, PropValue,
+    };
+    use cobolt_indexed::{
+        FieldUsage, IndexedDefinition, IndexedField, KeyDef, KeyEncodingDef, KeyOrderingDef, KeyPartDef, KeySchema,
+        RecordFormatDef,
+    };
+
+    /// The path the fixture forms store for [`customers_cidx`].
+    pub const CIDX_PATH: &str = "indexed/customers.cidx";
+
+    fn leaf(level: u8, name: &str, pic: &str, usage: FieldUsage, offset: u32, length: u32) -> IndexedField {
+        IndexedField {
+            level,
+            name: name.into(),
+            pic: pic.into(),
+            usage,
+            offset: Some(offset),
+            length: Some(length),
+            comment: String::new(),
+            grid_control: None,
+            occurs: None,
+            redefines: None,
+            synchronized: false,
+            children: Vec::new(),
+        }
+    }
+
+    /// A customer file: a numeric key, a name, a signed packed balance and an
+    /// indicator — one field of each kind a cell is made from.
+    pub fn customers_cidx(assign_path: &str) -> IndexedDefinition {
+        let mut def = IndexedDefinition::new("CUSTOMER-FILE", assign_path);
+        def.record_format = RecordFormatDef::Fixed { length: 30 };
+        def.keys = KeySchema {
+            primary: KeyDef {
+                name: Some("CUST-ID".into()),
+                parts: vec![KeyPartDef { field_name: "CUST-ID".into(), offset: 0, length: 5, encoding: KeyEncodingDef::Bytes }],
+                duplicates_allowed: false,
+                ordering: KeyOrderingDef::Ascending,
+            },
+            alternates: Vec::new(),
+        };
+        let mut root = leaf(1, "CUSTOMER-REC", "", FieldUsage::Display, 0, 30);
+        root.offset = None;
+        root.length = None;
+        root.children = vec![
+            leaf(5, "CUST-ID", "9(5)", FieldUsage::Display, 0, 5),
+            leaf(5, "CUST-NAME", "X(20)", FieldUsage::Display, 5, 20),
+            leaf(5, "CUST-BALANCE", "S9(5)V99", FieldUsage::Comp3, 25, 4),
+            leaf(5, "CUST-ACTIVE", "9", FieldUsage::Display, 29, 1),
+        ];
+        def.fields = vec![root];
+        def
+    }
+
+    fn field(name: &str, t: BindingDataType) -> BindingField {
+        BindingField::new(name, t)
+    }
+
+    /// `ORDERS`: an indexed-file grid (writable) and an SQL grid (writable);
+    /// `REPORT`: a read-only SQL grid.
+    pub fn grid_forms() -> Vec<Form> {
+        let mut orders = Form::new("ORDERS", "Orders", 800, 600);
+        orders.controls.push(Control::new("GRID-CUST", ControlType::DataGrid, 10, 10));
+        orders.controls.push(Control::new("GRID-ITEMS", ControlType::DataGrid, 10, 300));
+        let mut db = Control::new("DB-SALES", ControlType::SqlDatabase, 0, 0);
+        db.set_prop(cobolt_forms::web_class::BACKEND_CONFIG, PropValue::String("SALES".into()));
+        orders.controls.push(db);
+        orders.controls[0].set_prop(cobolt_forms::web_class::BACKEND_ROLES, PropValue::String("clerk, manager".into()));
+        let mut ix = DataBindingDef::new(
+            "customers",
+            "Customers",
+            BindingSourceDescriptor::IndexedFile {
+                definition_path: CIDX_PATH.into(),
+                record_name: "CUSTOMER-REC".into(),
+                fields: vec![
+                    field("CUST-ID", BindingDataType::Integer).key(),
+                    field("CUST-NAME", BindingDataType::Text),
+                    field("CUST-BALANCE", BindingDataType::Decimal),
+                    field("CUST-ACTIVE", BindingDataType::Boolean),
+                ],
+                key_field: Some("CUST-ID".into()),
+                writable: true,
+            },
+            BindingTargetDescriptor::DataGrid { control_id: "GRID-CUST".into() },
+        );
+        ix.mode = BindingMode::Writable;
+        orders.data_bindings.push(ix);
+        let mut sql = DataBindingDef::new(
+            "items",
+            "Items",
+            BindingSourceDescriptor::Sql {
+                source_control_id: "DB-SALES".into(),
+                query_name: "items".into(),
+                result_set_name: "items".into(),
+                fields: vec![
+                    field("ID", BindingDataType::Integer).key(),
+                    field("NAME", BindingDataType::Text),
+                    field("PRICE", BindingDataType::Decimal),
+                    field("IN_STOCK", BindingDataType::Boolean),
+                ],
+                key_fields: vec!["ID".into()],
+                writable: true,
+                query: "SELECT ID, NAME, PRICE, IN_STOCK\nFROM ITEMS\nORDER BY ID;".into(),
+                table_name: "ITEMS".into(),
+            },
+            BindingTargetDescriptor::DataGrid { control_id: "GRID-ITEMS".into() },
+        );
+        sql.mode = BindingMode::Writable;
+        orders.data_bindings.push(sql);
+
+        let mut report = Form::new("REPORT", "Report", 800, 600);
+        report.controls.push(Control::new("GRID-TOTALS", ControlType::DataGrid, 10, 10));
+        let mut db = Control::new("DB-SALES", ControlType::SqlDatabase, 0, 0);
+        db.set_prop("SqlConnection", PropValue::String("SALES".into()));
+        report.controls.push(db);
+        report.data_bindings.push(DataBindingDef::new(
+            "totals",
+            "Totals",
+            BindingSourceDescriptor::Sql {
+                source_control_id: "DB-SALES".into(),
+                query_name: "totals".into(),
+                result_set_name: "totals".into(),
+                fields: vec![field("NAME", BindingDataType::Text), field("TOTAL", BindingDataType::Decimal)],
+                key_fields: Vec::new(),
+                writable: false,
+                query: "SELECT NAME, SUM(PRICE) AS TOTAL FROM ITEMS GROUP BY NAME".into(),
+                table_name: String::new(),
+            },
+            BindingTargetDescriptor::DataGrid { control_id: "GRID-TOTALS".into() },
+        ));
+        vec![orders, report]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decimal_places_reads_the_digits_after_the_point() {
+        assert_eq!(decimal_places("9(5)V99"), 2);
+        assert_eq!(decimal_places("S9(7)V9(3)"), 3);
+        assert_eq!(decimal_places("9(4)"), 0);
+        assert_eq!(decimal_places("SV999"), 3);
+    }
+
+    #[test]
+    fn a_generated_file_is_recognised_by_its_banner() {
+        let mut s = String::new();
+        write_head(
+            &mut s,
+            &Header { form: "F", grid: "G", binding: "b", op: "READ".into(), source: "x".into() },
+            "RC-1-F-1-G-READ",
+        );
+        assert!(is_generated(&s));
+        assert!(is_generated(&GeneratedBackend::default().exports_toml()));
+        assert!(!is_generated("       IDENTIFICATION DIVISION.\n"));
+    }
+}
