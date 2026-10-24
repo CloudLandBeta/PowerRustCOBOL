@@ -7366,7 +7366,17 @@ impl Interpreter {
         not_on_size_error: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let val = self.eval_expr(expr, span)?;
+        let val = match self.eval_expr(expr, span) {
+            Ok(v) => v,
+            // A division by zero in the expression **is** the size error
+            // condition (COBOL-85 6.4.4), as it is for DIVIDE: ON SIZE ERROR
+            // runs, NOT ON SIZE ERROR does not, and every receiver keeps its
+            // value. Stopping the run here ignored the developer's phrase.
+            Err(RuntimeError::DivisionByZero { .. }) => {
+                return self.run_size_error(true, on_size_error, not_on_size_error);
+            }
+            Err(e) => return Err(e),
+        };
         let has = Self::size_error_phrase(on_size_error, not_on_size_error);
         let mut size_err = false;
         for (target, rounded) in targets {

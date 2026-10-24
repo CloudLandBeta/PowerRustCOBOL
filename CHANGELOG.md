@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.50] — 2026-10-23
+
+*(Forward-port of 1.91.222, `f29f58cf` on `fixes-compute-size-error`. 2.0.49 is the last number held by `features-2x`, so this port takes 2.0.50.)*
+
+### Fixed: a division by zero in `COMPUTE` runs `ON SIZE ERROR`
+
+`COMPUTE R = A / C ON SIZE ERROR …` with `C` at zero stopped the run with a division-by-zero error at the statement, the
+developer's phrase notwithstanding. A division by zero in an arithmetic expression is the size error condition (COBOL-85), as it
+already was for `DIVIDE`: `ON SIZE ERROR` now runs, `NOT ON SIZE ERROR` does not, and every receiver keeps its value. With no phrase
+the statement behaves as any other unguarded size error — on a form it raises the exception `onUnhandledException` receives, in a
+console program it keeps the standard's silence — which is what the Developer's Guide already said (*An unguarded size error is an
+exception*). Test: `cobolt-runtime/tests/test_interpreter_parity.rs::compute_division_by_zero_runs_on_size_error`.
+
 ## [PowerRustCOBOL 2.0.36] — 2026-10-23
 
 *(Forward-port of 1.91.221, `997c49be` on `fixes-interp-parity`. 2.0.35 is the last number held by `features-2x` (WASM-010 part 1), not on `2.x.x` yet, so this entry takes 2.0.36.)*

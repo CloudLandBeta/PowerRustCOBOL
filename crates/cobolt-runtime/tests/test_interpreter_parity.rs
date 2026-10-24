@@ -4,9 +4,9 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Three places where the interpreter departed from COBOL-85, found when the
+//! Places where the interpreter departed from COBOL-85, found when the
 //! WebAssembly generator of the 2.x.x line was held to it (`WASM-PARITY.md`
-//! #7, #11, #12). Each program here is the generator's own differential test,
+//! #7, #11, #12, #18). Each program here is the generator's own differential test,
 //! so both engines answer to the same lines.
 
 use std::sync::mpsc;
@@ -174,4 +174,40 @@ GO-ON.
 END PROGRAM KEEPER.
 "#;
     assert_eq!(run_capture(src), ["initial: 1", "initial: 1", "kept: 1", "kept: 2"]);
+}
+
+/// #18 — a division by zero inside `COMPUTE` is the size error condition, as
+/// it is for `DIVIDE`: `ON SIZE ERROR` runs, `NOT ON SIZE ERROR` does not, and
+/// the receiver keeps its value. The run used to stop at the statement.
+#[test]
+fn compute_division_by_zero_runs_on_size_error() {
+    let src = r#"IDENTIFICATION DIVISION.
+PROGRAM-ID. DIV-ZERO.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 A PIC 9(3) VALUE 10.
+01 C PIC 9(3) VALUE 0.
+01 R0 PIC 9(7) VALUE 9.
+PROCEDURE DIVISION.
+MAIN.
+    COMPUTE R0 = A / C
+        ON SIZE ERROR DISPLAY "SIZE " R0
+        NOT ON SIZE ERROR DISPLAY "NO"
+    END-COMPUTE.
+    DISPLAY "AFTER " R0.
+    COMPUTE R0 = (A + 1) * 2 / C
+        NOT ON SIZE ERROR DISPLAY "NO"
+    END-COMPUTE.
+    DISPLAY "NOT-ONLY " R0.
+    MOVE 5 TO C.
+    COMPUTE R0 = A / C
+        ON SIZE ERROR DISPLAY "SIZE"
+        NOT ON SIZE ERROR DISPLAY "OK " R0
+    END-COMPUTE.
+    STOP RUN.
+"#;
+    assert_eq!(
+        run_capture(src),
+        ["SIZE 0000009", "AFTER 0000009", "NOT-ONLY 0000009", "OK 0000002"]
+    );
 }
