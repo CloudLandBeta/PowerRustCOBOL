@@ -438,6 +438,13 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
       `../escape.csv`, `sub/dir.csv`, `..\win.csv`, `/etc/passwd.csv` refused; a caller without `clerk` refused (authorisation);
       afterwards the only new files are `uploads/files/<id>` and its `.meta`. `remote_controls.rs::a_file_drop_zone_makes_an_upload_slot_with_its_own_limits`.
       `cargo test -p cobolt-server -p cobolt-codegen --no-fail-fast`: 20 result lines, 0 failed.
+    - **Decided (operator, 2026-10-24) — the Viewer on the web:** (a) `SaveAs` and `SaveAsPdf` **download** the document to the
+      user through the browser (its path argument is ignored on the web); no backend is involved, so both leave class C — the
+      `VIEWER_EXCEPTIONS` rows for them change from C to the browser's own handling, and their `cobolt-wire` catalogue rows go.
+      (b) A document is opened **either** from a file the user picks (an upload into a Viewer slot) **or** from a file the backend
+      offers by name (`WS-DOWNLOAD`); the browser never names a backend path. (c) The Viewer gains **`AllowedExtensions`** and
+      **`MaximumFileSizeKB`**, as FileDropZone has, defaulting to the types the Viewer renders and 10 MB (10240 KB); the slot is built
+      from them and `BackendRoles`. (d) `SaveAsPdf`'s PDF is made **in the browser**. The text below is the question as it was asked.
     - *Open — operator decision (why the run stops):* **Viewer open and Save As on the web.** The Viewer has no allow-list or size
       property to derive a slot from ("from its AllowedTypes and size limit" has nothing to read), and which way each moves a file is
       not settled: on the desktop `SaveAs(path)`/`SaveAsPdf(path)` write a local file and `LoadBytes` reads one
