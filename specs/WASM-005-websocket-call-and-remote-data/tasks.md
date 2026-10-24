@@ -229,7 +229,10 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 ## M8 — the backend end, generated
 
 - [ ] **T9 — Generated backend programs for the SQL and IndexedFile DataGrid bindings** (R13, R16, R17; AC7, AC8)
-  - **Run of 2026-10-23 stopped here: the IndexedFile half needs an operator decision.** Nothing of T9 is written.
+  - **Decided (operator, 2026-10-23): option (b)** — the IndexedFile program reads and writes through the generated facade with COBOL
+    verbs; the three differences below (COMP as value, a signed field with its `-`, a two-pass save with no rollback) are accepted and
+    recorded in spec AC7 and in `specs/WASM-PARITY.md`. No `GRID-READ`/`GRID-SAVE` built-ins. The run of 2026-10-23 stopped here before
+    the choice; nothing of T9 is written yet.
     - *Rows.* The desktop grid's cells are `cobolt_indexed::format_field_display` of the record's **bytes**
       (`cobolt-runtime/src/interpreter.rs` `refresh_indexed_file_binding`; `cobolt-indexed/src/pic.rs`): a numeric DISPLAY field
       shows all its digits without the decimal point and leading zeros (`0001250` → `1250`), a non-DISPLAY field (COMP, COMP-3…)

@@ -65,6 +65,9 @@ JDK and the Rust Android targets, iOS needs macOS, Xcode and the Rust iOS target
   the reason.
 - **R3 (event):** When the developer runs the application on a device, the IDE shall list the emulators, simulators and connected devices, start the chosen one, install and launch the application, reload the frontend on a
   change, show the device log in the Output panel and stop it on request.
+- **R3a (event, operator ruling 2026-10-23):** The IDE's **Preview and Run** of a Mobile project shall be R3's run on an emulator, simulator or device — the IDE has no
+  other preview surface for mobile (WASM-008 §0, R14). When the machine has no emulator or simulator for the platform, they fall back to the browser at a phone
+  width with a notice that it is not the device (WASM-008 R15).
 
 **Identity and signing**
 - **R4 (ubiquitous):** Release signing shall use the developer's own credentials — an Android keystore, an Apple developer certificate and provisioning profile — referenced by name from the project; **passwords and keys shall be

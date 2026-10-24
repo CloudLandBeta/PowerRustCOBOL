@@ -144,6 +144,7 @@ its COBOL API; its work runs on the backend.
   class is readable; with none of them, `NOT ON EXCEPTION` runs.
 - [ ] **AC6** — During a pending call the form repaints and a click on it is queued and handled afterwards, in order.
 - [ ] **AC7** — A web form with a DataGrid bound to an indexed file and another bound to an SQL query fills, edits and saves through the backend and shows the same rows the desktop shows for the same data.
+  **Amended (operator, 2026-10-23, T9 choice (b)):** for the indexed-file grid, "the same rows" holds except three recorded differences — a COMP/COMP-3 field shows its **value** (the desktop shows its bytes in hex), a signed field shows its `-` (the desktop drops an overpunched sign), and Save validates every change and then writes, **without a rollback** if a write fails partway (the desktop rolls back). The SQL grid has no difference.
 - [ ] **AC8** — A browser that sends SQL text, a file path or a URL to a generated endpoint gets a refusal; the backend log shows no execution (R17).
 - [ ] **AC9** — A web form carrying a connection string or key for a class C control stops Build; the same configuration on the backend side builds.
 - [ ] **AC10** — `cargo test` for the parser, AST, semantic and runtime crates is green; the System KB gains the phrase and the new built-ins and the freshness test passes.
