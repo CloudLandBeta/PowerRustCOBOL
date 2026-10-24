@@ -28,3 +28,5 @@ cobolt-lexer = { path = "../cobolt-lexer" }
 # crate depends on this one, so there is no cycle.
 cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
+# The FD test reads the parsed FILE SECTION back (records, RECORD CONTAINS).
+cobolt-ast      = { path = "../cobolt-ast" }

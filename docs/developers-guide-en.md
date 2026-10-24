@@ -2062,7 +2062,7 @@ same form the editor's raw-text view shows you:
 
 ```cobol
       *> Customer master — one row per account
-       FD  CUSTOMER-FILE.
+       FD  CUSTOMER-FILE
            RECORD CONTAINS 80 CHARACTERS.
            01 CUSTOMER-RECORD. *> The record
                05 CUST-ID PIC 9(8). *> Primary key

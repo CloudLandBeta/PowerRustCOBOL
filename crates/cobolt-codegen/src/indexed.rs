@@ -112,7 +112,10 @@ pub fn generate_indexed_select(def: &IndexedDefinition) -> String {
 pub fn generate_indexed_fd(def: &IndexedDefinition) -> String {
     let mut out = String::with_capacity(1024);
     write_file_purpose(&mut out, def);
-    out.push_str(&format!("       FD  {}.\n", def.name));
+    // No period after the name: `RECORD CONTAINS` is a clause of this FD
+    // entry, and a period here ended the entry, so the clause became a
+    // sentence of its own and the parser dropped the record under it.
+    out.push_str(&format!("       FD  {}\n", def.name));
     match def.record_format {
         RecordFormatDef::Fixed { length } => {
             out.push_str(&format!(
@@ -198,7 +201,10 @@ fn write_file_section(out: &mut String, def: &IndexedDefinition) {
     out.push_str("       DATA DIVISION.\n");
     out.push_str("       FILE SECTION.\n");
     write_file_purpose(out, def);
-    out.push_str(&format!("       FD  {}.\n", def.name));
+    // No period after the name: `RECORD CONTAINS` is a clause of this FD
+    // entry, and a period here ended the entry, so the clause became a
+    // sentence of its own and the parser dropped the record under it.
+    out.push_str(&format!("       FD  {}\n", def.name));
     match def.record_format {
         RecordFormatDef::Fixed { length } => {
             out.push_str(&format!(
@@ -399,6 +405,54 @@ mod tests {
         );
         // Both FD writers agree.
         assert!(generate_indexed_fd(&def).contains("      *> Customer master"));
+    }
+
+    /// The FD's records reach the parser. `FD  NAME.` followed by
+    /// `RECORD CONTAINS n CHARACTERS.` ended the entry at the name, so the
+    /// clause became a sentence of its own and the parser skipped the `01`
+    /// under it: the copybook declared a file with no record. Both writers
+    /// — the `COPYBOOKS/<stem>.FD` copybook and `generate_indexed` — must
+    /// parse cleanly and leave the record and its length on the FD.
+    #[test]
+    fn the_generated_fd_keeps_its_record() {
+        use cobolt_ast::program::DataSection;
+        use cobolt_lexer::{tokenize, SourceFormat};
+
+        let def = sample();
+        let copybook = format!(
+            "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. FD-CHECK.\n{}       DATA DIVISION.\n       FILE SECTION.\n{}       PROCEDURE DIVISION.\n           STOP RUN.\n",
+            {
+                let mut env = String::new();
+                write_environment(&mut env, &def);
+                env
+            },
+            generate_indexed_fd(&def)
+        );
+        // `generate_indexed` is the ENVIRONMENT and DATA divisions a form
+        // pastes in; give it the head and tail of a program to parse.
+        let divisions = format!(
+            "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. FD-CHECK.\n{}       PROCEDURE DIVISION.\n           STOP RUN.\n",
+            generate_indexed(&def)
+        );
+        for (what, src) in [("FD copybook", copybook), ("generated divisions", divisions)] {
+            let parsed = cobolt_parser::parse(tokenize(&src, SourceFormat::Free));
+            let errors: Vec<_> = parsed.diagnostics.iter().filter(|d| d.is_error()).collect();
+            assert!(errors.is_empty(), "{what}: parse errors {errors:?}\n{src}");
+            let program = parsed.program.expect("no program");
+            let fd = program
+                .data
+                .as_ref()
+                .and_then(|d| {
+                    d.sections.iter().find_map(|s| match s {
+                        DataSection::FileSection(fds) => fds.first().cloned(),
+                        _ => None,
+                    })
+                })
+                .unwrap_or_else(|| panic!("{what}: no FD\n{src}"));
+            assert_eq!(fd.name, def.name, "{what}");
+            assert_eq!(fd.records.len(), 1, "{what}: the record was dropped\n{src}");
+            assert!(fd.record_sizing.is_some(), "{what}: RECORD CONTAINS was lost\n{src}");
+        }
     }
 
     /// A field with nothing to say gets no marker — the common case must stay

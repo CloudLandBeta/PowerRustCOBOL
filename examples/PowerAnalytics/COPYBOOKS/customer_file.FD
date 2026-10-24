@@ -1,4 +1,4 @@
-       FD  CUSTOMER-FILE.
+       FD  CUSTOMER-FILE
            RECORD CONTAINS 208 CHARACTERS.
            01 CUSTOMER-FILE-RECORD.
                05 RECORD-KEY PIC X(8).

@@ -17,6 +17,21 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.223] — 2026-10-24
+
+*(Written on `fixes-indexed-fd-record`, off `main` at 1.91.222. Found by the 2.x.x line's WASM-005 work, whose generated backend programs had to avoid it.)*
+
+### Fixed: an indexed file's generated FD keeps its record
+
+The Indexed File Editor wrote `FD  NAME.` and then `RECORD CONTAINS n CHARACTERS.` as a sentence of its own. The period after the
+name ended the FD entry, so the parser read the `RECORD CONTAINS` line as a stray sentence and skipped the `01` record under it: a
+program that copied `COPYBOOKS/<stem>.FD` declared the file with **no record**, and every field of it was undeclared. Both writers —
+the `COPYBOOKS/<stem>.FD` copybook and the `generated/<stem>-indexed.cbl` fragment — now write `FD  NAME` with the clause in the same
+entry, as `fd_text` already did. The three copybooks the examples ship (PowerDemo3 `actors.FD` and `menu.FD`, PowerAnalytics
+`customer_file.FD`) are corrected the same way; any other is rewritten the next time its `.cidx` is saved or generated. The
+Developer's Guide's example (*Indexed File Editor & Grid Browser*) shows the corrected FD. Test:
+`cobolt-codegen` `indexed::tests::the_generated_fd_keeps_its_record` (both writers parse cleanly and keep the record and its length).
+
 ## [PowerRustCOBOL 1.91.222] — 2026-10-23
 
 *(Written on `fixes-compute-size-error`, off `main` at 1.91.221. Found by the WebAssembly generator of the 2.x.x line — `specs/WASM-PARITY.md` #18, `crates/cobolt-wasm/tests/arith_table.rs::compute_division_by_zero_is_a_size_error`.)*
