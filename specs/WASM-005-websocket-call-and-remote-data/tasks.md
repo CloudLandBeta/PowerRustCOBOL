@@ -532,6 +532,12 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 ## M9 — the frontend end: one lowering pass for both engines
 
 - [ ] **T14 — `web_remote.rs`: class C member calls become `CALL … WITH WEBSOCKET LINKAGE`** (R12, R16; parity)
+  - **Decided (operator, 2026-10-24):** (1) **(a)** — a new built-in `COBOL::"RAISE-EVENT" ( control event argument )` that
+    queues the event as the desktop control would, in **both engines** (interpreter `exec_call` + `builtins.rs` `BUILTINS` + System
+    KB; the module through an amendment to `specs/WASM-ABI-v1.md`); (2) **(a)** — the module's `SET-PROPERTY` accepts a property
+    named by a data item, as the interpreter does; (3) **match the desktop** — with no `ON EXCEPTION` written, the lowering supplies
+    one that sets the control's `LastError` and raises `onError`. T13's working assumption (the model's default `ConnectionString`
+    `sqlite::memory:` is not a secret) stands unless the operator says otherwise. The text below is the question as it was asked.
   - **Run of 2026-10-24 stopped here — operator decision needed; nothing of T14 is written.** The operator's T11 decision (3)
     says the frontend "sets [the properties] and raises the same event the desktop raises". Neither half has a mechanism in
     both engines today:
