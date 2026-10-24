@@ -1183,6 +1183,116 @@ impl Stmt {
         out
     }
 
+    /// The statement lists nested directly inside this one, mutable, in source
+    /// order — what [`Self::child_stmts`] reads, as the lists that hold them, so
+    /// an AST → AST pass can insert or replace statements in place. Exhaustive
+    /// for the same reason as `child_stmts`.
+    pub fn child_lists_mut(&mut self) -> Vec<&mut Vec<Stmt>> {
+        let mut out: Vec<&mut Vec<Stmt>> = Vec::new();
+        match self {
+            Stmt::Add { on_size_error, not_on_size_error, .. }
+            | Stmt::Subtract { on_size_error, not_on_size_error, .. }
+            | Stmt::Multiply { on_size_error, not_on_size_error, .. }
+            | Stmt::Divide { on_size_error, not_on_size_error, .. }
+            | Stmt::Compute { on_size_error, not_on_size_error, .. } => {
+                out.push(on_size_error);
+                out.push(not_on_size_error);
+            }
+            Stmt::If { then_stmts, else_stmts, .. } => {
+                out.push(then_stmts);
+                out.push(else_stmts);
+            }
+            Stmt::Evaluate { whens, other_stmts, .. } => {
+                for w in whens {
+                    out.push(&mut w.stmts);
+                }
+                out.push(other_stmts);
+            }
+            Stmt::Perform { target, .. } => match target {
+                PerformTarget::Inline { stmts }
+                | PerformTarget::Times { stmts, .. }
+                | PerformTarget::Until { stmts, .. }
+                | PerformTarget::Varying { stmts, .. } => out.push(stmts),
+                PerformTarget::Paragraph(..)
+                | PerformTarget::Section(..)
+                | PerformTarget::QualifiedParagraph { .. }
+                | PerformTarget::Thru { .. } => {}
+            },
+            Stmt::Search { at_end, whens, .. } => {
+                out.push(at_end);
+                for (_, stmts) in whens {
+                    out.push(stmts);
+                }
+            }
+            Stmt::Read { at_end, not_at_end, invalid_key, not_invalid_key, .. } => {
+                out.push(at_end);
+                out.push(not_at_end);
+                out.push(invalid_key);
+                out.push(not_invalid_key);
+            }
+            Stmt::Write { invalid_key, not_invalid_key, .. }
+            | Stmt::Rewrite { invalid_key, not_invalid_key, .. }
+            | Stmt::Delete { invalid_key, not_invalid_key, .. }
+            | Stmt::Start { invalid_key, not_invalid_key, .. } => {
+                out.push(invalid_key);
+                out.push(not_invalid_key);
+            }
+            Stmt::String_ { on_overflow, not_on_overflow, .. } | Stmt::Unstring { on_overflow, not_on_overflow, .. } => {
+                out.push(on_overflow);
+                out.push(not_on_overflow);
+            }
+            Stmt::Return { at_end, not_at_end, .. } => {
+                out.push(at_end);
+                out.push(not_at_end);
+            }
+            Stmt::Call { on_exception, not_on_exception, .. } => {
+                out.push(on_exception);
+                out.push(not_on_exception);
+            }
+            Stmt::TryCatch { try_stmts, catch_stmts, rust_catch_stmts, finally_stmts, .. } => {
+                out.push(try_stmts);
+                out.push(catch_stmts);
+                out.push(rust_catch_stmts);
+                out.push(finally_stmts);
+            }
+            Stmt::Move { .. }
+            | Stmt::MoveCorresponding { .. }
+            | Stmt::AddCorresponding { .. }
+            | Stmt::SubtractCorresponding { .. }
+            | Stmt::Initialize { .. }
+            | Stmt::Alter { .. }
+            | Stmt::Unlock { .. }
+            | Stmt::Commit { .. }
+            | Stmt::Rollback { .. }
+            | Stmt::SetPointer { .. }
+            | Stmt::GoTo { .. }
+            | Stmt::GoToDepending { .. }
+            | Stmt::Continue { .. }
+            | Stmt::Exit { .. }
+            | Stmt::NextSentence { .. }
+            | Stmt::SentenceEnd { .. }
+            | Stmt::Open { .. }
+            | Stmt::Close { .. }
+            | Stmt::Accept { .. }
+            | Stmt::Display { .. }
+            | Stmt::Inspect { .. }
+            | Stmt::Sort { .. }
+            | Stmt::Merge { .. }
+            | Stmt::Release { .. }
+            | Stmt::Invoke { .. }
+            | Stmt::InvokeExpr { .. }
+            | Stmt::Cancel { .. }
+            | Stmt::Stop { .. }
+            | Stmt::GoBack { .. }
+            | Stmt::WindowOp { .. }
+            | Stmt::ControlSet { .. }
+            | Stmt::ExecRust { .. }
+            | Stmt::Throw { .. }
+            | Stmt::ExecSql(_) => {}
+        }
+        out
+    }
+
     /// Visit this statement and every statement nested inside it, depth-first
     /// in source order.
     pub fn walk(&self, f: &mut impl FnMut(&Stmt)) {

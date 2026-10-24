@@ -50,6 +50,10 @@ struct LoadedForm {
     cfrm: String,
     program: cobolt_ast::program::Program,
     lines: Vec<SourceLine>,
+    /// The class C method calls of the program as the developer wrote them,
+    /// before the lowering replaced them (the backend's programs are made from
+    /// these; WASM-005 T11, T14).
+    sites: Vec<cobolt_codegen::remote_controls::CallSite>,
 }
 
 /// Every control of a form, nested ones included, in the model's order.
@@ -185,6 +189,7 @@ impl GeneratorBackend {
                 cfrm,
                 program: parsed.program.expect("checked above"),
                 lines,
+                sites: Vec::new(),
             };
             for w in cobolt_compiler::link_common_code(&path, &mut loaded.program) {
                 warnings.push(diag(
@@ -193,6 +198,16 @@ impl GeneratorBackend {
                     String::new(),
                     w,
                 ));
+            }
+            // WASM-005 T14: a class C control's method runs on the backend —
+            // the call becomes `CALL … WITH WEBSOCKET LINKAGE` to the program
+            // the Build generates for it, in the parsed program only.
+            loaded.sites = cobolt_compiler::web_remote::class_c_call_sites(&loaded.program, &loaded.form);
+            if let Err(errs) = cobolt_compiler::web_remote::lower_class_c_calls(&mut loaded.program, &loaded.form) {
+                refused.extend(errs.into_iter().map(|e| {
+                    diag(location_in(rel, &loaded.lines, e.line), WebDiagnosticKind::Other, String::new(), e.message)
+                }));
+                continue;
             }
             forms.push(loaded);
         }
@@ -300,8 +315,7 @@ fn backend_programs(
         }
         // T11: a program per method call on a class C control, refused at
         // the developer's own handler line when the backend cannot serve it.
-        let sites = cobolt_compiler::web_remote::class_c_call_sites(&f.program, &f.form);
-        match cobolt_codegen::remote_controls::generate_control_programs(&f.form, &sites) {
+        match cobolt_codegen::remote_controls::generate_control_programs(&f.form, &f.sites) {
             Ok(mut programs) => all.programs.append(&mut programs),
             Err(errs) => refused.extend(
                 errs.into_iter().map(|e| diag(location_in(&f.rel, &f.lines, e.line), WebDiagnosticKind::Other, String::new(), e.message)),

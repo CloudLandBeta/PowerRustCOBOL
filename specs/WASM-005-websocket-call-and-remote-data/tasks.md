@@ -11,7 +11,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   **2026-10-24:** T11 and T12's FileDropZone half landed as 2.0.53 (2.0.52 is `2.x.x`'s); stopped at T12 (the Viewer half needs an
   operator decision, see T12). **2026-10-24 (second run):** T12's Viewer half (operator's decisions) and T13 landed as 2.0.54;
   stopped at T14 (two operator decisions on how the frontend raises the reported events and sets the reported properties,
-  see T14).
+  see T14). **2026-10-24 (third run):** T14 landed as 2.0.55 (the operator's three decisions); stopped at T15 (what a `RestApi`
+  and an `AgentAi` binding read and save on the backend, see T15).
 - **Plan:** ./plan.md   **Rules:** ./mapping-rules.md   **Date:** 2026-10-22
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it satisfies, and how to verify it. Check off as completed.
@@ -531,7 +532,76 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## M9 — the frontend end: one lowering pass for both engines
 
-- [ ] **T14 — `web_remote.rs`: class C member calls become `CALL … WITH WEBSOCKET LINKAGE`** (R12, R16; parity)
+- [x] **T14 — `web_remote.rs`: class C member calls become `CALL … WITH WEBSOCKET LINKAGE`** (R12, R16; parity)
+  - **Done 2026-10-24 (third run), per the operator's decisions (1)–(3) below.**
+    - *The pass:* `cobolt-compiler/src/web_remote.rs` `lower_class_c_calls(program, form)` — AST → AST over every program of the
+      form (handlers nested, declaratives, sections), sites and numbers from `class_c_call_sites` + `remote_controls::served_sites`,
+      so the endpoint is the backend program's by construction (`RC-4-SHOP-6-REST-1-POST-1`). Statement lists are walked with the new
+      exhaustive `cobolt-ast` `Stmt::child_lists_mut` (beside `child_stmts`). Per site, before the statement that holds it: `MOVE n TO
+      ARG-COUNT OF RC-PARAMS`, the sent arguments (positions the row does not `fixed`, R17) into `ARG-VALUE OF RC-PARAMS (k)`, then
+      `CALL "<endpoint>" WITH WEBSOCKET LINKAGE USING BY VALUE RC-PARAMS RETURNING RC-RESULT` with **NOT ON EXCEPTION** = value into
+      the site's `RC-VALUE-n`, every reported property set by name (`COBOL-SET-PROPERTY`, decision 2), `LastError` from the answer,
+      every reported event raised (`COBOL-RAISE-EVENT`, decision 1), and a supplied **ON EXCEPTION** = `RC-VALUE-n` spaces,
+      `COBOL-WS-LAST-ERROR` → the control's `LastError`, `onError` raised (decision 3). The site's expression becomes `RC-VALUE-n`;
+      `INVOKE … RETURNING r` becomes the call and a `MOVE`; a method used as a statement becomes the call alone. Every span of the
+      inserted statements is the developer's statement's. The template is parsed and its shape checked (moves + one call with 4 and
+      4 statements in its phrases; every inner `CALL` has `END-CALL`, else the outer `NOT ON EXCEPTION` would attach to it) — any
+      failure is a Build refusal, never a silently un-lowered call.
+    - *Declarations:* `cobolt-codegen` `remote_controls::frontend_working_storage(row, sites)` writes, from the catalogue,
+      `01 RC-PARAMS GLOBAL` / `01 RC-RESULT GLOBAL` (the backend LINKAGE's names and members, so JSON keys match), `RC-I`,
+      `RC-ERR-CLASS/CODE/MESSAGE`, one `RC-VALUE-n PIC X(2048)` per site — parsed into the form program's WORKING-STORAGE. One pair
+      serves every call: one task per instance, events queued while a call is pending (R9). `frontend_names` lists the reserved names.
+    - *Refused at Build, at the handler's line:* a site in a `PERFORM` condition, a `SEARCH`, an `EVALUATE … WHEN`, or under an
+      `AND`/`OR` (the desktop would call conditionally or repeatedly; one hoisted call cannot); a form item named like a member of
+      the groups (`EVENTS`, `ARGS`, …, `RC-VALUE-…`). A site in an `IF`'s single comparison, an `EVALUATE` subject, or nested in
+      another site's arguments is lowered (inner first).
+    - *Web build:* `cobolt-project-tools/src/web/generator.rs` `load_forms` — after `link_common_code`, keeps the sites
+      (`LoadedForm.sites`, which T11's `backend_programs` now uses) and lowers; a refusal is a `Refused` line at the handler. The
+      Preview loads that build's module. Desktop forms never pass through it (pinned by a source scan: only `web_remote.rs` and
+      `generator.rs` name the function).
+    - *Interpreter:* `COBOL::"RAISE-EVENT" ( object event [argument] )` (`interpreter.rs`, beside `SET-PROPERTY`) →
+      `queue_control_event`: presented by the next `WAIT-EVENT`, after the running handler, in order, under the form's spelling;
+      the async queue carries no value, as for a control's own events (the argument is for a host that delivers one). `BUILTINS` row.
+    - *Module (ABI amendment A14, `specs/WASM-ABI-v1.md`):* commands `SET_NAMED` (`0x06`) and `RAISE` (`0x07`)
+      (`cobolt-wasm-abi` `Command::SetNamed`/`Raise`, writer, decoder); `cobolt-wasm-rt` `cmd::set_named`/`raise`, exports
+      `rt_cmd_set_named`, `rt_cmd_raise`; `cobolt-wasm` `lower_form.rs` `builtin_call`: `SET-PROPERTY` with the property in a data
+      item, `RAISE-EVENT`, and `WS-LAST-ERROR` (needed by decision 3 in the module — it was `Unsupported`, WASM-010's): the rt keeps
+      the error frame's class (upper-cased), code and message, or its own refusal before sending (`TRANSPORT`/1000, `LIMIT`/7000,
+      `VALIDATION`/4000), spaces/0 after a success (`remote::last_error`, `rt_ws_last_error`; a 4th `detail` argument is refused in
+      a module). `support.rs`: `RAISE-EVENT` and `WS-LAST-ERROR` → Module. Player (`cobolt-web-player/src/host.rs`
+      `cmd_set_named`, `cmd_raise` → `dom_event`, only when bound); test host (`cobolt-wasm/src/host.rs`) records both.
+    - **Found and changed — the module's decoder could not take the answer:** `JSON_SHADOW_SIZE` was 32 KiB and the catalogue's
+      method result group is ~470 KB (its `ROWS` window, 100 × 32 × 128), so every lowered answer failed (`-E_INTERNAL`, reported as
+      "the answer does not fit its group"). Raised to 512 KiB (`cobolt-wasm-rt/src/state.rs`): **every module's fixed data memory
+      grows by 480 KiB** (8 pages). Rebuilt with it: `assets/rt.wasm` (`build_rt`), the player's generated fixture
+      (`UPDATE_PLAYER_FIXTURE=1`), and the shipped player `assets/web-player` (`build_player`, its source changed).
+    - *System KB:* `cobolt-compiler/src/lib.rs` — the `RAISE-EVENT` table row and the bullet *The browser end of a class C control's
+      method* (the T11 bullet no longer says the browser does not call them); the browser-subset table follows the support table;
+      `chunked.data` regenerated (3585 records, 12 869 632 bytes). IDE completion text for `RAISE-EVENT` in six languages
+      (`ide_text_data.rs`).
+    - **Working assumptions / known limits (not decided):** after a lowered call `RETURN-CODE` holds the call's code (as after any
+      `WEBSOCKET` call; a desktop method call leaves it). A class C method that is not a catalogue row (`SqlDatabase::Fetch`,
+      `RestClient::SetHeader`, …) is not lowered: it still reaches the player as a member call; in particular a `Query`'s rows come
+      back in `ROWS` but no frontend `Fetch` serves them yet. The `onError` raised for a failed call carries no argument (§12.2 lists
+      none for these controls). A Common Code program and the form's program share line numbers: a site is matched by control, line
+      and column, so two sites on the same control at the same line and column of different units would collide (not seen).
+    - Tests: `cobolt-compiler/tests/web_remote_lowering.rs` (8/0) — the scripted answer decodes against the catalogue's result layout;
+      the lowered program passes `cobolt-semantic`; **interpreter** with a scripted transport: one call to `RC-4-SHOP-6-REST-1-POST-1`,
+      `BY VALUE` `{"ARG-COUNT":1,"ARGS":[{"ARG-VALUE":"two lamps"}]}` ("orders" fixed at Build), lines `CLICK-END`, `COMPLETE 201 []`,
+      `ANSWER=[order 9 made]` (onComplete after the handler; StatusCode set by name); a transport failure → `ERROR [the backend is
+      down]`, `ANSWER=[]`; **module** (both memory variants) on the test host: the same request frame byte for byte, then
+      `SET_NAMED (0,3,StatusCode,201)` and `RAISE (0,3,onComplete)`, and on an error frame `SET LastError = "the backend is down"` and
+      `RAISE onError`; refusals (loop, `AND`, `WHEN`, a reserved name); a program with no served site is byte-identical; only the web
+      build calls the pass. `web_remote::tests` 3/0 (the call's shape, placeholders filled, spans). `cobolt-runtime/tests/test_raise_event.rs`
+      2/0. `cobolt-wasm-abi` `a_named_set_and_a_raise_have_the_bytes_amendment_a14_describes`. `cobolt-codegen`
+      `the_frontend_groups_are_the_backend_programs_linkage_made_global_005`. Player `host::raise_tests` 2/0.
+    - Verify runs: `cargo test -p cobolt-compiler -p cobolt-codegen --no-fail-fast` — codegen lib 70 + 9 integration binaries, compiler
+      lib 207 (1 ignored) + 11 integration binaries — 0 failed. `cargo test -p cobolt-project-tools -p cobolt-web-bundle -p cobolt-wasm
+      -p cobolt-wasm-abi --features cobolt-wasm-abi/fixture --no-fail-fast`: 47 result lines, 304 passed, 0 failed, 1 ignored. Player
+      (`--manifest-path crates/cobolt-web-player/Cargo.toml --no-fail-fast`): 232 + 22 + 6 + 2 + 5 + 3, 0 failed (freshness green after
+      the rebuild). `cobolt-runtime` `--lib builtins` 1/0, `test_remote_call` 13/0, `test_class_c_catalogue` 2/0, `test_group_json_vectors`
+      1/0; `cobolt-wasm-rt` 9 + 15, 0 failed. `cobolt-ide --bin cobolt-ide` KB freshness 2/2, `i18n` 19/0; completion descriptions:
+      the same 12 English-only `WS-…` texts as before, `RAISE-EVENT`'s is translated.
   - **Decided (operator, 2026-10-24):** (1) **(a)** — a new built-in `COBOL::"RAISE-EVENT" ( control event argument )` that
     queues the event as the desktop control would, in **both engines** (interpreter `exec_call` + `builtins.rs` `BUILTINS` + System
     KB; the module through an amendment to `specs/WASM-ABI-v1.md`); (2) **(a)** — the module's `SET-PROPERTY` accepts a property
@@ -579,6 +649,29 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 ## M10 — bindings driven by the host
 
 - [ ] **T15 — Remote bindings in the interpreter: IndexedFile, Sql, RestApi, AgentAi** (R13, Q8; AC7)
+  - **Run of 2026-10-24 (third) stopped here — operator decision needed; nothing of T15 is written.** Q8 decided that `RestApi`
+    and `AgentAi` bindings run *through the backend*, and this task's Verify asks that both "fill through the backend"; T9 left
+    their backend programs to T15. But there is no behaviour to carry there: the desktop has no refresh or save path for either
+    (`cobolt-runtime/src/interpreter.rs` `refresh_binding_rows` `:13678` returns 0 for any kind but IndexedFile, Sql and
+    CobolTable), and what their descriptor names is not defined:
+    1. **`RestApi { source_control_id, endpoint_name, response_data_item, fields, update }`** (`cobolt-forms/src/model.rs`
+       `BindingSourceDescriptor`). `endpoint_name` is a URL in one place (`cobolt-ide/src/panels/properties.rs` test,
+       `https://api.example.com/v1/products`) and a COBOL-style name in others (`model.rs` fixture `GET-CUSTOMERS`; the binding
+       panel's default `<CONTROL>-ENDPOINT`, `panels/data_binding.rs`); `response_data_item` names a data item of the *form*
+       (`REST-RESPONSE`), which a backend program does not have. To decide: what the generated `READ` program calls (a resource
+       relative to the source RestClient's `BaseURL`, whose value lives in its `[[configuration]]`, as T11 does — and with R17 a
+       literal fixed at Build, never a URL the browser sends), how the response becomes rows (*proposal:* a JSON array of objects,
+       each object's keys matched to the binding's field names as the SQL grid matches columns by name, nested values refused),
+       and what `SAVE` sends through `update` (`BindingUpdateMetadata { request_schema_name, key_fields, approved_target_ids }`:
+       which HTTP verb per action, and what `request_schema_name` names).
+    2. **`AgentAi { source_control_id, output_name, fields, update }`.** To decide: what question the `READ` program asks the
+       source AgentObject (a design-time prompt? `output_name` is only a name, default `<CONTROL>-OUTPUT`), how its answer becomes
+       rows (*proposal:* the agent is asked for a JSON array of objects with the binding's field names, and an answer that is not
+       one is `READ-STATUS 90` with the model's text in `READ-MESSAGE`), and whether an AgentAi binding can be writable at all
+       (its `update`).
+    3. *(Not blocking, recorded for the same answer.)* With Q8's two kinds decided, the IndexedFile/Sql half (the interpreter's
+       remote branch, `_BindingRemote` seeding, the loopback test window by window) is independent of them and can be built in
+       the same run; it was not started here so that T15 lands as one verified task.
   - Files: `crates/cobolt-form-host/src/seeding.rs` (`_BindingRemote` seeded for web forms; never for `CobolTable`),
     `crates/cobolt-runtime/src/interpreter.rs` (`refresh_binding_rows` `:13649`), `src/interpreter/grid_edit.rs` (`save_method` `:378`, the
     auto-commit path), a loopback test in `crates/cobolt-server/tests/`.
@@ -644,6 +737,14 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     1881 passed, **5 failed, the same five as the 2026-10-23 run, none from this run** (`docs_embed`, `claude_code::bundle`,
     two `external_crates_service` flow tests, `every_completion_description_exists_in_six_languages`); the KB freshness tests
     pass.
+  - **Partial, third run of 2026-10-24 (stopped at T15):** `z` bumped once, 2.0.54 → **2.0.55**, one CHANGELOG entry; plan §3
+    gains the *Module/player* line (ABI A14, the larger decoder shadow); System KB (`cobolt-compiler/src/lib.rs`) gained the
+    `RAISE-EVENT` row and the browser-end bullet, `chunked.data` regenerated (3585 records, 12 869 632 bytes). Sweeps with
+    `--no-fail-fast`: see T14's *Verify runs* (compiler, codegen, project-tools, web-bundle, wasm, wasm-abi, wasm-rt, player,
+    runtime's remote and catalogue tests, IDE KB/i18n), and `cargo test -p cobolt-runtime -p cobolt-ast --no-fail-fast`: 191 result
+    lines, 1631 passed, 0 failed, 29 ignored. Not re-run here: `cobolt-forms --features render` (not touched) and the full
+    `cobolt-ide --bin cobolt-ide` sweep (only `version.rs` and one `ide_text_data.rs` text changed; its KB, i18n and completion
+    tests ran) — the disk was down to 12 GiB free after the runtime sweep.
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`, this file (check-offs, T1 counts, T3 key names, blocked items), `plan.md` §3
     *Project file* line (the key names of T3).
   - Do: bump `z` **once** in `crates/cobolt-ide/src/version.rs` (the next `z` after whatever it holds then; never the minor); add **one** entry to

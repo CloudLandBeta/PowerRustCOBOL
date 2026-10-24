@@ -25,6 +25,10 @@ pub mod op {
     pub const ERROR: u8 = 0x04;
     /// Diagnostic output.
     pub const LOG: u8 = 0x05;
+    /// Assign a property named by text, not by a names-table id (A14).
+    pub const SET_NAMED: u8 = 0x06;
+    /// Queue an event of a control, as the control would raise it (A14).
+    pub const RAISE: u8 = 0x07;
     /// First and last opcode of the queries.
     pub const QUERY_FIRST: u8 = 0x10;
     pub const QUERY_LAST: u8 = 0x1F;

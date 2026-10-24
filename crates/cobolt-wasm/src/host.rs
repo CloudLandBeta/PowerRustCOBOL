@@ -57,6 +57,10 @@ pub struct Outcome {
     pub queries: u32,
     /// The full `ERROR` commands: `(code, unit, line, form, event)`.
     pub error_positions: Vec<(u32, u32, u32, u32, u32)>,
+    /// The `SET_NAMED` commands (A14): `(instance, control, property, value)`.
+    pub named_sets: Vec<(u32, u32, String, String)>,
+    /// The `RAISE` commands (A14): `(instance, control, event, argument)`.
+    pub raised: Vec<(u32, u32, String, String)>,
 }
 
 struct State {
@@ -107,6 +111,14 @@ fn apply(batch: &[u8], out: &mut Outcome) {
                 let args = path.last().map(|s| s.args.iter().map(|a| a.to_string()).collect()).unwrap_or_default();
                 out.calls.push((path.inst, path.ctrl, path.segs.iter().map(|s| s.name).collect(), args));
                 out.commands.push(format!("{:?}", Command::Call { path }));
+            }
+            Command::SetNamed { inst, ctrl, name, value } => {
+                out.named_sets.push((inst, ctrl, name.to_string(), value.to_string()));
+                out.commands.push(format!("{c:?}"));
+            }
+            Command::Raise { inst, ctrl, event, arg } => {
+                out.raised.push((inst, ctrl, event.to_string(), arg.to_string()));
+                out.commands.push(format!("{c:?}"));
             }
             other => out.commands.push(format!("{other:?}")),
         }

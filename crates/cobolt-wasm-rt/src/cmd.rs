@@ -30,6 +30,9 @@ pub const CMD_CALL: u8 = 0x02;
 pub const Q_GET: u8 = 0x10;
 pub const Q_CALLR: u8 = 0x11;
 pub const Q_COUNT: u8 = 0x12;
+/// ABI amendment A14: a property named by text, and an event raised.
+pub const OP_SET_NAMED: u8 = 0x06;
+pub const OP_RAISE: u8 = 0x07;
 
 fn put(bytes: &[u8]) {
     let s = st();
@@ -154,6 +157,52 @@ pub fn set(base: u32, value_opd: u32) {
     disp::batch_put(path_bytes());
     disp::batch_put(&tl[..n]);
     disp::batch_put(text);
+}
+
+/// One command of opcode `op` naming control `ctrl` of the running instance
+/// and two texts, the operands `a` and `b` (ABI amendment A14).
+fn named_command(op: u8, base: u32, ctrl: u32, a: u32, b: u32) {
+    let mut num = [0u8; 64];
+    // The first text is copied out before the second is read: both may be
+    // numbers, which are formatted in the same scratch area.
+    let mut first = [0u8; 256];
+    let (fa, fl) = text_of(base, &parse(a), &mut num);
+    let fl = (fl as usize).min(first.len());
+    first[..fl].copy_from_slice(&mem::bytes(fa, fl as u32)[..fl]);
+    let (sa, sl) = text_of(base, &parse(b), &mut num);
+    let second = mem::bytes(sa, sl);
+    let mut head = [0u8; 21];
+    head[0] = op;
+    let mut n = 1;
+    for v in [st().inst, ctrl, fl as u32] {
+        n += disp::put_varint_pub(&mut head[n..], v);
+    }
+    let mut tl = [0u8; 5];
+    let tn = disp::put_varint_pub(&mut tl, sl);
+    let total = n + fl + tn + sl as usize;
+    if total > crate::state::BATCH_SIZE as usize {
+        crate::fail(err::SCRATCH_OVERFLOW);
+    }
+    if (st().batch_len as usize) + total > crate::state::BATCH_SIZE as usize {
+        disp::flush();
+    }
+    disp::batch_put(&head[..n]);
+    disp::batch_put(&first[..fl]);
+    disp::batch_put(&tl[..tn]);
+    disp::batch_put(second);
+}
+
+/// `SET_NAMED`: the property whose name operand `name` holds, of control
+/// `ctrl`, gets the text of `value` (`COBOL::"SET-PROPERTY"` with the property
+/// in a data item).
+pub fn set_named(base: u32, ctrl: u32, name: u32, value: u32) {
+    named_command(OP_SET_NAMED, base, ctrl, name, value);
+}
+
+/// `RAISE`: queue the event operand `event` names on control `ctrl`, with the
+/// text of `arg` as its argument (`COBOL::"RAISE-EVENT"`).
+pub fn raise(base: u32, ctrl: u32, event: u32, arg: u32) {
+    named_command(OP_RAISE, base, ctrl, event, arg);
 }
 
 /// `CALL path` (the result, if any, is discarded).

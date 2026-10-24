@@ -2133,6 +2133,7 @@ dependencies = [
  "cobolt-semantic",
  "cobolt-server",
  "cobolt-wasm",
+ "cobolt-wasm-abi",
  "cobolt-wire",
  "flate2",
  "native-tls",

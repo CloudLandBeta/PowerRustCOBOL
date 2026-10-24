@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.55] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.54.)*
+
+### Feature: a class C control's method runs on the backend from a web form, and `COBOL::"RAISE-EVENT"` (WASM-005, part 6: T14)
+
+- **The browser end of a class C control's method (T14, the operator's decisions of 2026-10-24).** Your COBOL does not change. When the web Build compiles a Web or Mobile form, it turns each call of a SqlDatabase, RestClient, AgentObject, KnowledgeBase, WebSearch, Maps or AWS control's method in your handlers (`REST-1::Post("orders" WS-BODY)`, `INVOKE AGENT-1 "Ask" …`) into a `CALL … WITH WEBSOCKET LINKAGE` to the backend program generated for that call. This happens in the program it compiles, never in your source. The arguments fixed at Build, such as a statement or a resource, are not sent. When the answer comes, the method's value is used where you called it, and the properties the backend's control changed are set on your control. `LastError` is set, and the events the control raised (`onComplete`, `onQueryComplete`, …) are raised on your control, so their handlers run after the running handler, as on the desktop. When the call fails, `LastError` holds the reason and `onError` is raised. The interpreter and the browser module run the same lowered program.
+- **Refused at Build, at your line.** A call the desktop would make conditionally or more than once is refused: one in a `PERFORM … UNTIL`/`VARYING` condition, a `SEARCH`, a `WHEN` of an `EVALUATE`, or an `AND`/`OR`. Move it into a statement of its own. A form whose own item is named like a member of the call's groups (`EVENTS`, `ARGS`, `ROWS`, `RC-VALUE-…`, …) is also refused.
+- **`COBOL::"RAISE-EVENT" ( control event [argument] )`.** A new built-in, on the desktop and in the browser: it queues a control's event as the control itself raises one, and the event's handler runs after the running one.
+- **In the browser module.** ABI amendment A14 adds two commands: `SET_NAMED`, which sets a property whose name is in a data item (`COBOL::"SET-PROPERTY"` now accepts one in a module), and `RAISE`. The player applies both and delivers a raised event only when a handler is bound. `COBOL::"WS-LAST-ERROR"` now works in a module: it reads the class, code and message of the error frame. **Every module's fixed memory grows by 480 KiB**: the module's JSON decoder could hold a group of only 32 KiB, and a method's answer group is about 470 KB. The routine blob, the player's test fixture and the shipped player were rebuilt.
+- **Measured.** In the interpreter, with a scripted backend, a click makes exactly one call to `RC-4-SHOP-6-REST-1-POST-1`, sending `{"ARG-COUNT":1,"ARGS":[{"ARG-VALUE":"two lamps"}]}`. The handler ends, `onComplete` then runs and reads `StatusCode` 201, and the receiver holds `order 9 made`. A failed call shows `LastError` "the backend is down" in `onError`. The browser module, in both memory variants, sends the same request frame byte for byte, and applies the answer as `SET_NAMED StatusCode 201` and `RAISE onComplete`.
+- **Still open.** T15 waits for operator decisions: what a `RestApi` and an `AgentAi` binding read and save on the backend. Their `endpoint_name` is a URL in one place and a name in another, and the desktop has no refresh path for them to mirror. T16–T18 are not started, apart from the System KB text for what landed here. A SqlDatabase's `Fetch` after a `Query` is not served in the browser yet. The WebAssembly generator still refuses a web form with a SqlDatabase for the generated `OPEN-DB`/`EXEC-SQL` paragraphs.
+
 ## [PowerRustCOBOL 2.0.54] — 2026-10-24
 
 *(Written on `features-2x`, after 2.0.53.)*

@@ -47,8 +47,10 @@ pub const PATH_SIZE: u32 = 2048;
 /// a decode writes before it commits, the path of the item being mapped (the
 /// one an error names), and the paths of the variable tables a decode read.
 pub const WS_JSON_SHADOW: u32 = WS_PATH + PATH_SIZE;
-/// The largest group a decode can take, in bytes.
-pub const JSON_SHADOW_SIZE: u32 = 32 * 1024;
+/// The largest group a decode can take, in bytes: the answer group of a class
+/// C control's method (`cobolt_wire::controls`, ~470 KB with its row window)
+/// must fit, or no lowered call could read its answer (WASM-005 T14).
+pub const JSON_SHADOW_SIZE: u32 = 512 * 1024;
 pub const WS_JSON_PATH: u32 = WS_JSON_SHADOW + JSON_SHADOW_SIZE;
 pub const JSON_PATH_SIZE: u32 = 1024;
 pub const WS_JSON_ODO: u32 = WS_JSON_PATH + JSON_PATH_SIZE;
@@ -64,8 +66,15 @@ pub const FRAME_SIZE: u32 = 64 * 1024;
 /// command when the statement ends (`crate::disp`).
 pub const WS_DISP: u32 = WS_FRAME + FRAME_SIZE;
 pub const DISP_SIZE: u32 = 4096;
+/// How the last `CALL … WITH WEBSOCKET LINKAGE` failed, for
+/// `COBOL::"WS-LAST-ERROR"` (`crate::remote`): `u32` class length, the class
+/// word, `u32` code, `u32` message length, the message.
+pub const WS_LAST_ERR: u32 = WS_DISP + DISP_SIZE;
+pub const LAST_ERR_CLASS: u32 = 16;
+pub const LAST_ERR_MESSAGE: u32 = 512;
+pub const LAST_ERR_SIZE: u32 = 4 + LAST_ERR_CLASS + 4 + 4 + LAST_ERR_MESSAGE;
 /// Total workspace size the generator must reserve.
-pub const WS_SIZE: u32 = WS_DISP + DISP_SIZE;
+pub const WS_SIZE: u32 = WS_LAST_ERR + LAST_ERR_SIZE;
 
 /// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
 /// owns the message text, so the IDE and the page can translate it.

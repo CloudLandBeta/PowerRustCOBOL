@@ -11543,6 +11543,21 @@ impl Interpreter {
                 }
             }
 
+            // COBOL-RAISE-EVENT obj event [argument] — queue the event as the
+            // control itself raises one: presented by the next WAIT-EVENT, after
+            // the running handler, in order (WASM-005 T14: a class C call on a web
+            // form raises on the frontend the events the backend reported). A
+            // control's own events carry no value on this queue, so neither does
+            // a raised one; the argument is for a host that delivers one.
+            "COBOL-RAISE-EVENT" | "COBOLT-RAISE-EVENT" if using.len() >= 2 => {
+                let obj = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let event = self.eval_call_arg(&using[1], span)?.as_display_string();
+                let (obj, event) = (obj.trim(), event.trim());
+                if !obj.is_empty() && !event.is_empty() {
+                    self.queue_control_event(obj, event);
+                }
+            }
+
             // COBOL-GET-PROPERTY obj prop dest
             "COBOL-GET-PROPERTY" | "COBOLT-GET-PROPERTY" if using.len() >= 3 => {
                 let obj = self.eval_call_arg(&using[0], span)?.as_display_string();

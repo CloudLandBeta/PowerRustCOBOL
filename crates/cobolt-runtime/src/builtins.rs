@@ -84,6 +84,7 @@ pub const BUILTINS: &[Builtin] = &[
     b("OPEN-FILE-DIALOG", "title in, [filter in], [start-folder in], path out", "Ask the operator for a file to open; spaces when cancelled"),
     b("PROVIDER-COUNT", "count out", "How many model providers there are"),
     b("PROVIDER-GET", "index in, [id out], [label out], [endpoint out], [needs-key out]", "One provider's details (1-based)"),
+    b("RAISE-EVENT", "object in, event in, [argument in]", "Queue a control's event as the control raises it: its handler runs after the running one"),
     b("ROW-COUNT", "handle in, count out", "How many rows the last result set has"),
     b("SAVE-FILE-DIALOG", "title in, [filter in], [file-name in], [start-folder in], path out", "Ask the operator where to save; spaces when cancelled"),
     b("SET-PROPERTY", "object in, property in, value in", "Set a control's property"),

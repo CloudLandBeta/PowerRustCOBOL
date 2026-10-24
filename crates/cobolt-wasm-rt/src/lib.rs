@@ -501,6 +501,18 @@ pub extern "C" fn rt_cmd_call() {
     cmd::call();
 }
 
+/// `SET_NAMED ctrl name value` (A14): a property named at run time.
+#[no_mangle]
+pub extern "C" fn rt_cmd_set_named(base: u32, ctrl: u32, name: u32, value: u32) {
+    cmd::set_named(base, ctrl, name, value);
+}
+
+/// `RAISE ctrl event argument` (A14): queue a control's event.
+#[no_mangle]
+pub extern "C" fn rt_cmd_raise(base: u32, ctrl: u32, event: u32, arg: u32) {
+    cmd::raise(base, ctrl, event, arg);
+}
+
 /// Query the path (`GET`, `CALLR`, `COUNT`); the answer text is left in
 /// character temporary `k`.
 #[no_mangle]
@@ -658,4 +670,10 @@ pub extern "C" fn rt_remote_request(base: u32, name: u32, call: u32) -> i32 {
 #[no_mangle]
 pub extern "C" fn rt_remote_result(base: u32, call: u32) -> i32 {
     remote::result(base, call)
+}
+
+/// `COBOL::"WS-LAST-ERROR"( class code message )`; an operand of 0 is skipped.
+#[no_mangle]
+pub extern "C" fn rt_ws_last_error(base: u32, class: u32, code: u32, message: u32) {
+    remote::last_error(base, class, code, message);
 }

@@ -47,6 +47,10 @@ tracing   = { workspace = true }
 cobolt-server = { path = "../cobolt-server" }
 # WASM-010 T22: the browser-subset section must name every built-in of the runtime.
 cobolt-runtime = { path = "../cobolt-runtime" }
-ureq       = { version = "2", default-features = false, features = ["native-tls"] }
+# WASM-005 T14: the lowered program run as a browser module on the generator's
+# own test host (`host`), and its manifest read (`scan`).
+cobolt-wasm     = { path = "../cobolt-wasm" }
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["scan"] }
+ureq      = { version = "2", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
 tar        = "0.4"

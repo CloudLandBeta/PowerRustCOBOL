@@ -97,6 +97,9 @@ No `README.md`, nothing under `docs/` (2.x.x rule). What 2.x.x says about itself
   properties `AllowedExtensions` (default: the types it renders) and `MaximumFileSizeKB` (default 10 240), written only when
   set — a desktop `.cfrm` is unchanged; its `SaveAs`/`SaveAsPdf` are no longer class C (they download in the browser).
 - **Wire:** unchanged — one JSON text frame per call (Q9), the envelope of ABI A8, the error frame of A6.
+- **Module/player (T14, 2.0.55):** ABI amendment A14 — commands `SET_NAMED` (`0x06`) and `RAISE` (`0x07`), `COBOL::"RAISE-EVENT"`
+  in both engines, `COBOL::"WS-LAST-ERROR"` in a module; the module's JSON decoder shadow grows from 32 KiB to 512 KiB (a method's
+  answer group is ~470 KB), so every module's fixed data memory grows by 480 KiB.
 
 ## 4. Key decisions & alternatives
 

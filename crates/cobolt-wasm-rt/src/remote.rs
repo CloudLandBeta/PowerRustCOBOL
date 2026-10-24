@@ -25,10 +25,13 @@
 //! `n_args × [mode (1 = BY REFERENCE), group descriptor, operand]`, then the
 //! `RETURNING` group's descriptor and operand (0 when none).
 
+use crate::fd::{Fd, K_ALNUM, K_NUM_DISPLAY};
 use crate::json::{self, members, skip, string_char, Out, Text};
 use crate::mem;
-use crate::opd::{locate, parse};
-use crate::state::{st, FRAME_SIZE, WS_FRAME, WS_FRAME_IN_LEN};
+use crate::mv::Sender;
+use crate::opd::{locate, parse, Loc};
+use crate::state::{st, FRAME_SIZE, LAST_ERR_CLASS, LAST_ERR_MESSAGE, WS_FRAME, WS_FRAME_IN_LEN, WS_LAST_ERR};
+use crate::val::Val;
 
 /// What [`result`] answers.
 pub const OK: i32 = 0;
@@ -98,6 +101,7 @@ pub fn request(base: u32, name: u32, call: u32) -> i32 {
         });
         let addr = locate(base, &parse(opd)).addr;
         if let Err(e) = json::encode_into(desc, addr, &mut o) {
+            note_error(b"VALIDATION", 4000, b"an argument of the call cannot travel as JSON");
             return -(100 + e);
         }
         o.byte(b'}');
@@ -108,10 +112,96 @@ pub fn request(base: u32, name: u32, call: u32) -> i32 {
         b"],\"returning\":false}"
     });
     if o.full {
+        note_error(b"LIMIT", 7000, b"the request is larger than the frame the module can send");
         return -5;
     }
     // SAFETY: the glue copies the frame out of memory 0.
-    unsafe { crate::host::remote(at, o.n) }
+    let id = unsafe { crate::host::remote(at, o.n) };
+    if id < 0 {
+        // The host could not send it (ABI §9): nothing reached the backend.
+        note_error(b"TRANSPORT", 1000, b"the backend cannot be reached from this page");
+    }
+    id
+}
+
+// ── how the last call failed (`COBOL::"WS-LAST-ERROR"`) ────────────────────
+
+fn note_error(class: &[u8], code: u32, message: &[u8]) {
+    let at = st().ws + WS_LAST_ERR;
+    let c = class.len().min(LAST_ERR_CLASS as usize);
+    mem::wr_u32(at, c as u32);
+    mem::bytes_mut(at + 4, c as u32).copy_from_slice(&class[..c]);
+    mem::wr_u32(at + 4 + LAST_ERR_CLASS, code);
+    let m = message.len().min(LAST_ERR_MESSAGE as usize);
+    mem::wr_u32(at + 8 + LAST_ERR_CLASS, m as u32);
+    mem::bytes_mut(at + 12 + LAST_ERR_CLASS, m as u32).copy_from_slice(&message[..m]);
+}
+
+fn clear_error() {
+    note_error(b"", 0, b"");
+}
+
+/// The text of the JSON string at `i` as UTF-8, at most `cap` bytes.
+fn string_bytes(t: &Text, i: u32, out: &mut [u8]) -> usize {
+    let mut n = 0;
+    let mut k = i + 1;
+    while let Ok((Some(cp), next)) = string_char(t, k) {
+        let mut buf = [0u8; 4];
+        let s = char::from_u32(cp).unwrap_or('?').encode_utf8(&mut buf);
+        if n + s.len() > out.len() {
+            break;
+        }
+        out[n..n + s.len()].copy_from_slice(s.as_bytes());
+        n += s.len();
+        k = next;
+    }
+    n
+}
+
+/// Record the error frame's `{"class":…,"code":…,"message":…}` (ABI A6).
+fn note_error_frame(t: &Text, err: u32) {
+    let mut class = [0u8; LAST_ERR_CLASS as usize];
+    let mut c = 0;
+    if let Some(v) = member(t, err, b"class").filter(|v| t.get(*v) == Some(b'"')) {
+        c = string_bytes(t, v, &mut class);
+        class[..c].make_ascii_uppercase();
+    }
+    let mut code: u32 = 0;
+    if let Some(mut v) = member(t, err, b"code") {
+        while let Some(d @ b'0'..=b'9') = t.get(v) {
+            code = code.saturating_mul(10).saturating_add((d - b'0') as u32);
+            v += 1;
+        }
+    }
+    let mut message = [0u8; LAST_ERR_MESSAGE as usize];
+    let m = match member(t, err, b"message").filter(|v| t.get(*v) == Some(b'"')) {
+        Some(v) => string_bytes(t, v, &mut message),
+        None => 0,
+    };
+    note_error(&class[..c], code, &message[..m]);
+}
+
+/// `COBOL::"WS-LAST-ERROR"( class code message )`: how the last remote call
+/// failed — spaces and zero after one that succeeded — as the interpreter
+/// answers it (`remote.rs` `builtin_ws_last_error`). An operand of 0 is
+/// skipped.
+pub fn last_error(base: u32, class: u32, code: u32, message: u32) {
+    let at = st().ws + WS_LAST_ERR;
+    let text = |off: u32, len_at: u32| {
+        let len = mem::rd_u32(at + len_at);
+        Loc { addr: at + off, len, fd: Fd { kind: K_ALNUM, flags: 0, digits: 0, scale: 0, len, aux: 0 } }
+    };
+    if class != 0 {
+        crate::mv::move_to(base, &Sender::Bytes(text(4, 0), false), &parse(class));
+    }
+    if code != 0 {
+        let v = Val::int(mem::rd_u32(at + 4 + LAST_ERR_CLASS) as i64);
+        let fd = Fd { kind: K_NUM_DISPLAY, flags: 0, digits: 10, scale: 0, len: 10, aux: 0 };
+        crate::mv::move_to(base, &Sender::Num(v, fd), &parse(code));
+    }
+    if message != 0 {
+        crate::mv::move_to(base, &Sender::Bytes(text(12 + LAST_ERR_CLASS, 8 + LAST_ERR_CLASS), false), &parse(message));
+    }
 }
 
 /// Is the string at `i` the ASCII text `lit`?
@@ -160,6 +250,17 @@ fn element(t: &Text, arr: u32, i: u32) -> Option<u32> {
 /// call described at `call`: [`OK`], [`FAILED`], [`BAD_ANSWER`] or [`BAD_FRAME`].
 /// Nothing is written unless everything fits.
 pub fn result(base: u32, call: u32) -> i32 {
+    let r = read_answer(base, call);
+    match r {
+        OK => clear_error(),
+        BAD_ANSWER => note_error(b"VALIDATION", 4000, b"the answer does not fit its group"),
+        BAD_FRAME => note_error(b"VALIDATION", 4001, b"the answer is not a frame of the ABI"),
+        _ => {} // FAILED: the error frame was recorded as it was read
+    }
+    r
+}
+
+fn read_answer(base: u32, call: u32) -> i32 {
     let c = Call { d: call };
     let ws = st().ws;
     let len = mem::rd_u32(ws + WS_FRAME_IN_LEN);
@@ -177,7 +278,8 @@ pub fn result(base: u32, call: u32) -> i32 {
     if t.get(top) != Some(b'{') {
         return BAD_FRAME;
     }
-    if member(&t, top, b"error").is_some() {
+    if let Some(e) = member(&t, top, b"error") {
+        note_error_frame(&t, e);
         return FAILED;
     }
     let Some(r) = member(&t, top, b"result") else {

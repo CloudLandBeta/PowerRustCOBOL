@@ -437,6 +437,21 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
+    /// The control a built-in's first argument names: a literal holding a
+    /// control's name (as generated code writes it), or the control itself.
+    fn literal_control(&mut self, builtin: &str, obj: &Expr, line: u32) -> GenResult<u32> {
+        let name = match obj {
+            Expr::Literal(Literal::String(o), _) => o.trim().to_string(),
+            Expr::Identifier(o, _) => o.clone(),
+            _ => return self.err(line, format!("COBOL::\"{builtin}\" in a browser module names the control in a literal")),
+        };
+        let root = Expr::Identifier(name.clone(), cobolt_lexer::Span::new(0, 0, line, 0));
+        match self.host_root(&root) {
+            Some(ctrl) => Ok(ctrl),
+            None => self.err(line, format!("COBOL::\"{builtin}\": {name} is not a control of this form")),
+        }
+    }
+
     /// A built-in `CALL "COBOL-NAME"` that belongs to the page.
     pub(crate) fn builtin_call(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
         match name {
@@ -444,12 +459,26 @@ impl Lower<'_, '_> {
             "INIT-FORM" => Ok(()),
             "WAIT-EVENT" => self.wait_event(using, line),
             // `COBOL-SET-PROPERTY obj prop value` / `COBOL-GET-PROPERTY obj prop dest`
-            // name the control and the property in literals.
+            // name the control and the property in literals; SET-PROPERTY may
+            // also take the property's name from a data item, as the
+            // interpreter does (WASM-005 T14: the backend's answer names the
+            // properties it set at run time) — ABI amendment A14's SET_NAMED.
             "SET-PROPERTY" | "GET-PROPERTY" if using.len() >= 3 => {
                 let ex = |a: &CallArg| match a {
                     CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
                 };
                 let (obj, prop, third) = (ex(&using[0]), ex(&using[1]), ex(&using[2]));
+                if name == "SET-PROPERTY" && !matches!(prop, Expr::Literal(Literal::String(_), _)) {
+                    let ctrl = self.literal_control(name, &obj, line)?;
+                    let p = self.operand_or_temp(&prop)?;
+                    let v = self.operand_or_temp(&third)?;
+                    self.base();
+                    self.i32c(ctrl as i32);
+                    self.i32c(p as i32);
+                    self.i32c(v as i32);
+                    self.call_rt("rt_cmd_set_named");
+                    return Ok(());
+                }
                 let (Expr::Literal(Literal::String(o), _), Expr::Literal(Literal::String(p), _)) = (&obj, &prop) else {
                     return self.err(line, format!("COBOL::\"{name}\" in a browser module names the control and the property in literals"));
                 };
@@ -478,6 +507,45 @@ impl Lower<'_, '_> {
                     let src = self.pool.opd_ctemp(k);
                     self.move_operand_to(src, &third, line)?;
                 }
+                Ok(())
+            }
+            // `COBOL::"RAISE-EVENT" ( control event [argument] )`: the page
+            // queues the event as the control would raise it (A14's RAISE).
+            "RAISE-EVENT" if using.len() >= 2 => {
+                let ex = |a: &CallArg| match a {
+                    CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+                };
+                let ctrl = self.literal_control(name, &ex(&using[0]), line)?;
+                let ev = self.operand_or_temp(&ex(&using[1]))?;
+                let arg = match using.get(2) {
+                    Some(a) => self.operand_or_temp(&ex(a))?,
+                    None => self.operand_or_temp(&Expr::Literal(Literal::String(String::new()), cobolt_lexer::Span::new(0, 0, line, 0)))?,
+                };
+                self.base();
+                self.i32c(ctrl as i32);
+                self.i32c(ev as i32);
+                self.i32c(arg as i32);
+                self.call_rt("rt_cmd_raise");
+                Ok(())
+            }
+            // `COBOL::"WS-LAST-ERROR" ( class [code [message]] )`: how the last
+            // remote call failed, kept by the module from the error frame.
+            "WS-LAST-ERROR" => {
+                if using.len() > 3 {
+                    return self.err(line, "COBOL::\"WS-LAST-ERROR\" in a browser module answers the class, the code and the message; the detail stays with the backend's log");
+                }
+                let mut opds = [0u32; 3];
+                for (i, a) in using.iter().take(3).enumerate() {
+                    let e = match a {
+                        CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e,
+                    };
+                    opds[i] = self.receiver(e)?;
+                }
+                self.base();
+                for o in opds {
+                    self.i32c(o as i32);
+                }
+                self.call_rt("rt_ws_last_error");
                 Ok(())
             }
             other => {

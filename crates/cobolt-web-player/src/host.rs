@@ -1144,6 +1144,17 @@ impl Host {
                         self.report_cmd_error(e);
                     }
                 }
+                Command::SetNamed { inst, ctrl, name, value } => {
+                    self.stats.sets += 1;
+                    if let Err(e) = self.cmd_set_named(inst, ctrl, name, value) {
+                        self.report_cmd_error(e);
+                    }
+                }
+                Command::Raise { inst, ctrl, event, arg } => {
+                    if let Err(e) = self.cmd_raise(inst, ctrl, event, arg) {
+                        self.report_cmd_error(e);
+                    }
+                }
                 Command::Display(t) => self.effects.push(Effect::Display(t.to_owned())),
                 Command::Log { level, text } => {
                     if level <= self.opts.debug_level {
@@ -1302,6 +1313,49 @@ impl Host {
                 self.trees.get_mut(&inst).unwrap().layer_set(layer, &name, value).map_err(layer_error)
             }
         }
+    }
+
+    /// `SET_NAMED` (ABI A14): a control's property named by text — the module's
+    /// `COBOL::"SET-PROPERTY"` with the property in a data item (WASM-005 T14).
+    fn cmd_set_named(&mut self, inst: u32, ctrl: u32, name: &str, value: &str) -> Result<(), CmdError> {
+        if name.trim().is_empty() {
+            return Ok(());
+        }
+        let path = Path { inst, ctrl, segs: Vec::new() };
+        match self.resolve(&path)? {
+            Target::Ctl { inst, idx } => {
+                let ev = self.trees.get_mut(&inst).unwrap().set(idx, name.trim(), value);
+                self.enqueue_requests(inst, ev);
+                Ok(())
+            }
+            Target::App => {
+                self.app_set(name.trim(), value);
+                Ok(())
+            }
+            Target::Remote => {
+                if let Some(r) = &mut self.remote_opener {
+                    r.props.insert(name.trim().to_ascii_lowercase(), value.to_owned());
+                }
+                self.effects.push(Effect::SuperSet { prop: name.trim().to_owned(), value: value.to_owned() });
+                Ok(())
+            }
+            Target::Layer { inst, layer } => self.trees.get_mut(&inst).unwrap().layer_set(layer, name.trim(), value).map_err(layer_error),
+        }
+    }
+
+    /// `RAISE` (ABI A14): queue an event of a control as the control would raise
+    /// it — after the running task, in order, and only when a handler is bound
+    /// (`COBOL::"RAISE-EVENT"`; WASM-005 T14 raises the events the backend's
+    /// control raised).
+    fn cmd_raise(&mut self, inst: u32, ctrl: u32, event: &str, arg: &str) -> Result<(), CmdError> {
+        let path = Path { inst, ctrl, segs: Vec::new() };
+        let (inst, idx) = match self.resolve(&path)? {
+            Target::Ctl { inst, idx } => (inst, idx),
+            _ => return Err(CmdError::Bad("RAISE names a control of the form".into())),
+        };
+        let args = if arg.is_empty() { Vec::new() } else { vec![arg.to_owned()] };
+        self.dom_event(inst, idx, event.trim(), args);
+        Ok(())
     }
 
     /// Call a method of a control from outside the program (the host page, the tests): the same call
@@ -1912,6 +1966,8 @@ mod description_tests;
 mod layer_tests;
 #[cfg(test)]
 mod params_tests;
+#[cfg(test)]
+mod raise_tests;
 #[cfg(test)]
 mod super_tests;
 
