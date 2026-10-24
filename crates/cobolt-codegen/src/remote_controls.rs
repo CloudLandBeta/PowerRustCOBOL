@@ -101,21 +101,23 @@ pub struct ControlDeclaration {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GeneratedBackend {
     pub programs: Vec<BackendProgram>,
-    /// The upload slots of the forms' FileDropZones (T12).
+    /// The upload slots of the forms' FileDropZones and Viewers (T12).
     pub slots: Vec<UploadSlot>,
 }
 
-/// A FileDropZone's upload slot (T12, R15): the backend takes into it only
-/// what the zone itself would take, and names every file it stores.
+/// A FileDropZone's or a Viewer's upload slot (T12, R15): the backend takes
+/// into it only what the control itself would take, and names every file it
+/// stores.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UploadSlot {
-    /// `RC-<form>-<zone>-COMMITFILES`, the name the frontend uploads to.
+    /// `RC-<form>-<zone>-COMMITFILES` or `RC-<form>-<viewer>-OPEN`, the name
+    /// the frontend uploads to.
     pub name: String,
-    /// The zone's `AllowedExtensions`, lower case, without dots; empty: any.
+    /// The control's `AllowedExtensions`, lower case, without dots; empty: any.
     pub extensions: Vec<String>,
-    /// The zone's `MaximumFileSizeKB`, in bytes; `None` when it sets none.
+    /// The control's `MaximumFileSizeKB`, in bytes; `None` when it sets none.
     pub max_bytes: Option<u64>,
-    /// The zone's `BackendRoles`; empty: any authenticated caller.
+    /// The control's `BackendRoles`; empty: any authenticated caller.
     pub roles: Vec<String>,
 }
 
@@ -176,24 +178,24 @@ impl GeneratedBackend {
     }
 }
 
-/// The upload slots of `form`'s FileDropZones (T12): one per zone, named by
-/// the catalogue's `COMMITFILES` endpoint, with the zone's own limits.
+/// The upload slots of `form`'s FileDropZones and Viewers (T12): one per
+/// control, named by the catalogue's `COMMITFILES` (a zone) or `OPEN` (a
+/// Viewer) endpoint, with the control's own limits
+/// (`web_class::upload_slot_limits`: a Viewer's default to the types it
+/// renders, up to 10 MB).
 pub fn generate_slots(form: &Form) -> Result<Vec<UploadSlot>, Vec<String>> {
     let mut out = Vec::new();
     let mut errs = Vec::new();
     for ctrl in crate::collect_all_controls(&form.controls) {
-        if ctrl.control_type.as_str() != "FileDropZone" {
-            continue;
-        }
-        let name = match endpoint(form, &ctrl.id, "COMMITFILES") {
+        let Some((filter, kb)) = web_class::upload_slot_limits(ctrl) else { continue };
+        let operation = if ctrl.control_type.as_str() == "Viewer" { "OPEN" } else { "COMMITFILES" };
+        let name = match endpoint(form, &ctrl.id, operation) {
             Ok(n) => n,
             Err(e) => {
-                errs.push(format!("{}: FileDropZone {}: {e}", form.name, ctrl.id));
+                errs.push(format!("{}: {} {}: {e}", form.name, ctrl.control_type.as_str(), ctrl.id));
                 continue;
             }
         };
-        let filter = ctrl.get_prop("AllowedExtensions").map(|v| v.as_str().to_owned()).unwrap_or_default();
-        let kb = ctrl.get_prop("MaximumFileSizeKB").map(|v| v.as_i64()).unwrap_or(0);
         out.push(UploadSlot {
             name,
             extensions: cobolt_forms::dropzone::parse_extensions(&filter),
@@ -1673,6 +1675,39 @@ fn method_program(form: &Form, ctrl: &Control, row: &'static Operation, site: &C
 /// The SQL connection a SqlDatabase reaches on the backend.
 fn sql_connection(decl: &ControlDeclaration) -> &str {
     decl.properties.iter().find(|(k, _)| k == "SqlConnection").map(|(_, v)| v.as_str()).unwrap_or("")
+}
+
+/// A connection string or a key typed into a control of a web or mobile form
+/// (R14, T13): the control and the property — there is no field for the value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretOnForm {
+    pub control: String,
+    pub property: String,
+}
+
+/// Every secret-bearing property (the catalogue's `secrets_of` its control
+/// type) that a control of `form` holds a value in. The structural check
+/// beside the bundle's shape scan: a connection string without a password,
+/// which no shape gives away, is found as surely as a key. The value the
+/// model itself seeds (a SqlDatabase's `sqlite::memory:`) names no server and
+/// holds no secret, so it is not one.
+pub fn secrets_on_form(form: &Form) -> Vec<SecretOnForm> {
+    let mut out = Vec::new();
+    for ctrl in crate::collect_all_controls(&form.controls) {
+        let secrets = controls::secrets_of(ctrl.control_type.as_str());
+        if secrets.is_empty() {
+            continue;
+        }
+        let seeded = Control::new("SEED", ctrl.control_type.clone(), 0, 0);
+        for name in secrets {
+            let value = ctrl.get_prop(name).map(|v| v.to_xml_string()).unwrap_or_default();
+            let default = seeded.get_prop(name).map(|v| v.to_xml_string()).unwrap_or_default();
+            if !value.trim().is_empty() && value != default {
+                out.push(SecretOnForm { control: ctrl.id.clone(), property: (*name).to_owned() });
+            }
+        }
+    }
+    out
 }
 
 /// What the backend seeds for `ctrl`: its design-time properties as the

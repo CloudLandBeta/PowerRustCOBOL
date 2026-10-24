@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.54] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.53.)*
+
+### Feature: a Viewer's upload slot, and no connection string or key on a web form (WASM-005, part 5: T12 completed, T13)
+
+- **The Viewer on the web (T12, the operator's decisions of 2026-10-24).** A document the user opens goes through the Viewer's own upload slot, `RC-…-<VIEWER>-OPEN`, which the web Build now writes to `backend/generated/exports.toml` beside a FileDropZone's. It takes only the Viewer's `AllowedExtensions` and at most its `MaximumFileSizeKB`, from its BackendRoles. These two properties are new on a Viewer of a Web or Mobile form; they are shown in the Properties panel's Backend section and written only when you set them, so a desktop form is saved as before. When unset, the slot takes the 17 types the Viewer shows, up to 10 MB. A document the backend offers is fetched with `COBOL::"WS-DOWNLOAD"`, and the browser never names a backend path. `SaveAs` and `SaveAsPdf` no longer go through the backend: on the web they download the document to the user, with the PDF made in the browser.
+- **No connection string or key on a web form (T13).** Check and Build of a Web or Mobile project now stop when a control holds a value in a property that carries a secret: a SqlDatabase's `ConnectionString`, a RestClient's `AuthToken`, an AgentObject's `AgentAPIKey`, a KnowledgeBase's `EmbeddingAPIKey` or a WebSearch's `ApiKey`. This includes a connection string with no password, which the bundle's secret scan lets through; the default `sqlite::memory:` is allowed. The message names the control and the property, never the value, and tells you to move the value to a `[[configuration]]` of `backend/backend.toml` and name it in BackendConfig. The message is translated into the six languages. The check runs before anything is generated, so it is reported whatever else the form holds.
+- **Measured.** Over the TLS loopback, a Viewer's default slot stores a PDF under the backend's own name. It refuses a `.exe`, a file of 10 485 761 bytes and three path-like names, and writes nothing else. A web project whose form holds a password-less `postgres://` connection string and a hand-written `AgentAPIKey` stops Check and Build with `DB-1.ConnectionString` and `AGENT-1.AgentAPIKey`, and neither value appears in any message. The same key in `backend.toml`, named in BackendConfig, builds.
+- **Still open.** T14, the browser's calls to the generated programs, waits for two operator decisions: how the frontend raises the events the backend reports, since no program can queue an event on its own control in either engine, and how the browser module sets a property whose name arrives at run time. The player does not yet do the Viewer's download, its in-browser PDF, or its slot upload. T15–T18 are not started, except the System KB bullets for what landed here. Until T14, a web form with a SqlDatabase is still refused by the WebAssembly generator for its generated database calls.
+
 ## [PowerRustCOBOL 2.0.53] — 2026-10-24
 
 *(Written on `features-2x`, after 2.0.51. 2.0.52 is held by `2.x.x`'s fix of the indexed file's generated FD (`f67e7dda`), so this takes 2.0.53.)*

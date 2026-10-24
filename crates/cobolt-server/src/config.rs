@@ -184,7 +184,7 @@ pub struct UploadSlot {
     #[serde(default)]
     pub roles: Vec<String>,
     /// The file name extensions allowed, without the dot, any case; empty: any
-    /// (a web form's FileDropZone's `AllowedExtensions`, WASM-005 T12).
+    /// (a web form's FileDropZone's or Viewer's `AllowedExtensions`, WASM-005 T12).
     #[serde(default)]
     pub extensions: Vec<String>,
     /// The largest file the slot takes, bytes; `files.max_upload_bytes` still

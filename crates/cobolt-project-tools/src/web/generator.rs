@@ -135,6 +135,22 @@ impl GeneratorBackend {
                 ));
                 continue;
             }
+            // WASM-005 T13 (R14, AC9): a connection string or a key belongs to the
+            // backend's `[[configuration]]`, named by the control's BackendConfig —
+            // never to a form a browser downloads. Checked before anything is
+            // generated; named by control and property, never by value.
+            for s in cobolt_codegen::remote_controls::secrets_on_form(&form) {
+                let subject = format!("{}.{}", s.control, s.property);
+                refused.push(diag(
+                    rel.clone(),
+                    WebDiagnosticKind::SecretOnForm,
+                    subject.clone(),
+                    format!(
+                        "{subject} holds a connection string or a key on a web form: clear it, put the value in a [[configuration]] of backend/backend.toml and name that configuration in {}",
+                        cobolt_forms::web_class::BACKEND_CONFIG
+                    ),
+                ));
+            }
             let (src, map) = cobolt_codegen::generate_with_map(&form);
             let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(
                 &src,
@@ -291,7 +307,7 @@ fn backend_programs(
                 errs.into_iter().map(|e| diag(location_in(&f.rel, &f.lines, e.line), WebDiagnosticKind::Other, String::new(), e.message)),
             ),
         }
-        // T12: a FileDropZone's files go to an upload slot with its own limits.
+        // T12: a FileDropZone's files and a Viewer's opened document go to an upload slot with its own limits.
         match cobolt_codegen::remote_controls::generate_slots(&f.form) {
             Ok(mut slots) => all.slots.append(&mut slots),
             Err(errs) => {

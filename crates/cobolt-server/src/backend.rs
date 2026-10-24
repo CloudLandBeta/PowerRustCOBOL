@@ -204,9 +204,9 @@ pub struct ExportDecl {
     pub control: Option<ControlDecl>,
 }
 
-/// An upload slot of a web form's FileDropZone (WASM-005 T12, R15): what the
-/// zone takes — its `AllowedExtensions`, its `MaximumFileSizeKB` — so the
-/// backend refuses on its own what the zone would refuse. The backend names
+/// An upload slot of a web form's FileDropZone or Viewer (WASM-005 T12, R15): what the
+/// control takes — its `AllowedExtensions`, its `MaximumFileSizeKB` — so the
+/// backend refuses on its own what the control would refuse. The backend names
 /// the stored files, as for every slot.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -260,7 +260,7 @@ pub struct ExportsFile {
     pub contract: ContractDecl,
     #[serde(default, rename = "export")]
     pub exports: Vec<ExportDecl>,
-    /// The upload slots of web forms' FileDropZones (WASM-005 T12): only the
+    /// The upload slots of web forms' FileDropZones and Viewers (WASM-005 T12): only the
     /// Build's `generated/exports.toml` declares one.
     #[serde(default, rename = "slot")]
     pub slots: Vec<SlotDecl>,
@@ -314,7 +314,7 @@ pub struct Backend {
     exports: HashMap<String, Arc<ExportedProgram>>,
     /// Whether `WORKING-STORAGE` outlives a call (the project's `[backend] state`).
     pub state: StateMode,
-    /// The upload slots of the web forms' FileDropZones (WASM-005 T12).
+    /// The upload slots of the web forms' FileDropZones and Viewers (WASM-005 T12).
     pub slots: Vec<SlotDecl>,
 }
 

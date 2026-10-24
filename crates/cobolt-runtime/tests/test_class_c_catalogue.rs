@@ -40,7 +40,8 @@ fn every_class_c_control_has_a_row() {
         }
     }
     assert!(missing.is_empty(), "class C controls with no catalogue row: {missing:?}");
-    // Maps and Viewer are class B with class C operations: they have rows too.
+    // Maps is class B with class C operations, the Viewer class B with an upload
+    // slot: they have rows too.
     assert!(of_control("Maps").next().is_some());
     assert!(of_control("Viewer").next().is_some());
 }
@@ -54,6 +55,10 @@ fn every_row_names_an_operation_the_runtime_has() {
             // `[ops."AwsS3.GetObject"]` — the route the AWS dispatch looks up.
             let key = format!("[ops.\"{}.{}\"]", op.control, op.method);
             AWS_ROUTES.contains(&key)
+        } else if op.control == "Viewer" && op.operation == "OPEN" {
+            // The upload slot of a document the user opens: on the desktop, the
+            // Viewer's `Source`, which the property layer resolves onto `View1Source`.
+            op.method == "Source" && INTERPRETER.contains("prop.eq_ignore_ascii_case(\"Source\")")
         } else if op.control == "IndexedFile" {
             // The facade paragraph `<id>-<OP>.` codegen writes.
             CODEGEN.contains(&format!("{{id}}-{}.\\n", op.operation))

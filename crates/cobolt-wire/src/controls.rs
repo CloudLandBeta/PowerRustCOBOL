@@ -260,9 +260,11 @@ pub const CATALOGUE: &[Operation] = &[
     m("KnowledgeBase", "LISTDOCUMENTS", "ListDocuments", &["EmbeddingAPIKey"], &[]),
     m("WebSearch", "SEARCH", "Search", &["ApiKey"], &[]),
     // ── FileDropZone and Viewer: files through the backend's slots (R15).
+    //    Each row names its control's slot; neither makes a program. A Viewer's
+    //    `OPEN` is a document the user picks for its `Source`; its Save As
+    //    downloads in the browser and is not a row (operator, 2026-10-24).
     m("FileDropZone", "COMMITFILES", "CommitFiles", &[], &[]),
-    m("Viewer", "SAVEAS", "SaveAs", &[], &[(1, Fixed::File)]),
-    m("Viewer", "SAVEASPDF", "SaveAsPdf", &[], &[(1, Fixed::File)]),
+    m("Viewer", "OPEN", "Source", &[], &[]),
     // ── Maps: the data operations (its tiles stay class B).
     m("Maps", "GEOCODE", "Geocode", &[], &[]),
     m("Maps", "REVERSEGEOCODE", "ReverseGeocode", &[], &[]),
@@ -624,6 +626,13 @@ mod tests {
         assert_eq!(find("SqlDatabase", "OPEN").unwrap().fixed, &[(1, Fixed::Connector)]);
         assert_eq!(find("SqlDatabase", "QUERY").unwrap().fixed, &[(1, Fixed::Statement)]);
         assert_eq!(find("RestClient", "GET").unwrap().fixed, &[(1, Fixed::Resource)]);
+    }
+
+    #[test]
+    fn the_viewer_has_its_open_slot_and_no_save_as_row() {
+        assert!(find("Viewer", "OPEN").is_some());
+        assert!(find("Viewer", "SAVEAS").is_none() && find("Viewer", "SAVEASPDF").is_none(), "Save As downloads in the browser");
+        assert_eq!(endpoint_name("Docs", "VWR-1", "OPEN").unwrap(), "RC-4-DOCS-5-VWR-1-OPEN");
     }
 
     #[test]

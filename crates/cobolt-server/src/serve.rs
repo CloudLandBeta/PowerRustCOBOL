@@ -162,12 +162,12 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
             )
         })
         .collect();
-    // A web form's FileDropZone slots (WASM-005 T12) join the deployment's; a
+    // A web form's FileDropZone and Viewer slots (WASM-005 T12) join the deployment's; a
     // name in both is the deployment's mistake to fix, not one to guess at.
     let mut files_cfg = cfg.files.clone();
     for s in &backend.slots {
         if files_cfg.slots.iter().any(|d| d.name.eq_ignore_ascii_case(&s.name)) {
-            missing.push(format!("backend.toml's [files] slots have one named \"{}\", the name of a web form's FileDropZone slot: rename it", s.name));
+            missing.push(format!("backend.toml's [files] slots have one named \"{}\", the name of a web form's upload slot (a FileDropZone or a Viewer): rename it", s.name));
             continue;
         }
         files_cfg.slots.push(crate::config::UploadSlot {

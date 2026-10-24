@@ -102,7 +102,7 @@ pub const TABLE: &[Row] = &[
     r("Maps", B, "tile <img> grid", "C for geocode and directions"),
     r("WebSearch", C, "no element", ""),
     r("Snackbar", A, "a stack of role=status notifications", ""),
-    r("Viewer", B, "DOM nodes built from a parsed, allow-listed tree", "C for open and save; D for print and share"),
+    r("Viewer", B, "DOM nodes built from a parsed, allow-listed tree", "a document the user opens goes through an upload slot; Save As downloads; D for print and share"),
     r("AwsMcp", C, "no element", ""),
     r("AwsLambda", C, "no element", ""),
     r("AwsKnowledgeBase", C, "no element", ""),
@@ -246,9 +246,11 @@ const MAPS_EXCEPTIONS: &[Exception] = &[
 ];
 
 // `LoadBytes` is not an exception: it takes bytes the program already holds, no disk.
+// Nor are `SaveAs` and `SaveAsPdf` (operator, 2026-10-24, WASM-005 T12): on the web they
+// download the document to the user, the PDF made in the browser — the page's own work,
+// the path argument ignored. A document the user opens comes through the Viewer's upload
+// slot ([`upload_slot_limits`]), one the backend offers through `WS-DOWNLOAD`.
 const VIEWER_EXCEPTIONS: &[Exception] = &[
-    x(Operation::Method("SaveAs"), C, THROUGH_THE_BACKEND),
-    x(Operation::Method("SaveAsPdf"), C, THROUGH_THE_BACKEND),
     x(Operation::Method("Print"), D, "use the browser's own Print command, or SaveAsPdf and let the user print the file"),
     x(Operation::Method("Share"), D, "offer a Hyperlink to the document instead"),
 ];
@@ -317,12 +319,42 @@ pub const BACKEND_ROLES: &str = "BackendRoles";
 /// `BackendRoles` when unset: any authenticated caller. A generated endpoint is never public.
 pub const DEFAULT_BACKEND_ROLES: &str = "authenticated";
 
-/// Does a control of type `t` do work on the backend on the web — class C, or a class B control
-/// with class C operations (Maps geocode and directions, Viewer open and save)? These carry
-/// [`BACKEND_CONFIG`] and [`BACKEND_ROLES`] on a web or mobile form.
+/// Does a control of type `t` do work on the backend on the web — class C, a class B control
+/// with class C operations (Maps geocode and directions), or one with an upload slot (the
+/// Viewer's open)? These carry [`BACKEND_CONFIG`] and [`BACKEND_ROLES`] on a web or mobile form.
 pub fn uses_backend(t: &ControlType) -> bool {
-    class_of(t) == C || exceptions_of(t).iter().any(|e| e.class == C)
+    class_of(t) == C || exceptions_of(t).iter().any(|e| e.class == C) || has_upload_slot(t)
 }
+
+/// Does the Build give a control of type `t` on a web form an upload slot on the backend
+/// (WASM-005 T12, R15)? A FileDropZone's dropped files and a Viewer's document the user opens.
+pub fn has_upload_slot(t: &ControlType) -> bool {
+    matches!(t, ControlType::FileDropZone | ControlType::Viewer)
+}
+
+/// The `AllowedExtensions` filter and `MaximumFileSizeKB` of a control's upload slot, read as
+/// the control reads them (`dropzone::parse_extensions`, `0` = no limit); `None` for a control
+/// with no slot. A FileDropZone's are its own properties (empty / `0` when unset: any file, any
+/// size). A Viewer carries the two properties on a web form only, written when the developer
+/// sets them (a desktop `.cfrm` is unchanged); unset, it takes the types it renders
+/// ([`crate::viewer::RENDERED_EXTENSIONS`]) up to 10 MB (operator, 2026-10-24).
+pub fn upload_slot_limits(ctrl: &crate::model::Control) -> Option<(String, i64)> {
+    let text = |name: &str| ctrl.get_prop(name).map(|v| v.as_str().trim().to_owned());
+    let kb = || ctrl.get_prop(MAXIMUM_FILE_SIZE_KB).map(|v| v.as_i64());
+    match ctrl.control_type {
+        ControlType::FileDropZone => Some((text(ALLOWED_EXTENSIONS).unwrap_or_default(), kb().unwrap_or(0))),
+        ControlType::Viewer => Some((
+            text(ALLOWED_EXTENSIONS).filter(|t| !t.is_empty()).unwrap_or_else(|| crate::viewer::RENDERED_EXTENSIONS.to_owned()),
+            kb().unwrap_or(crate::viewer::DEFAULT_MAXIMUM_FILE_SIZE_KB),
+        )),
+        _ => None,
+    }
+}
+
+/// The property listing the extensions a control's upload slot takes.
+pub const ALLOWED_EXTENSIONS: &str = "AllowedExtensions";
+/// The property bounding one file of a control's upload slot, in KB.
+pub const MAXIMUM_FILE_SIZE_KB: &str = "MaximumFileSizeKB";
 
 /// The control's `BackendConfig`, trimmed; empty when unset (a form saved before WASM-005 T8).
 pub fn backend_config(ctrl: &crate::model::Control) -> String {
@@ -480,7 +512,8 @@ mod tests {
                 }
             }
         }
-        assert_eq!(n, 15, "Maps 6, Viewer 4, ToolBar 4, DataGrid 1");
+        assert_eq!(n, 13, "Maps 6, Viewer 2 (Save As downloads since WASM-005 T12), ToolBar 4, DataGrid 1");
+        assert!(exceptions_of(&ControlType::Viewer).iter().all(|e| e.class != C), "nothing of the Viewer is class C");
         assert_eq!(unavailable_operation(&ControlType::Viewer, "PRINT").map(|e| e.class), Some(D));
         assert!(unavailable_operation(&ControlType::Viewer, "LoadBytes").is_none(), "no disk: not an exception");
         assert!(unavailable_operation(&ControlType::Maps, "Geocode").is_none(), "C is available");
@@ -528,6 +561,35 @@ mod tests {
         let mut c = Control::new("X", ControlType::RestClient, 0, 0);
         c.set_prop(BACKEND_ROLES, PropValue::String(DEFAULT_BACKEND_ROLES.into()));
         assert!(backend_roles(&c).is_empty(), "\"authenticated\" is the default, not a role");
+    }
+
+    /// WASM-005 T12 (operator, 2026-10-24) — the Viewer's upload slot: unset, the types it
+    /// renders up to 10 MB; set on a web form, its own; a desktop Viewer saves as before.
+    #[test]
+    fn a_viewer_has_an_upload_slot_with_its_own_limits_or_the_rendered_types_005() {
+        use crate::model::{Control, Form, PropValue};
+        use crate::xml::{form_to_string, load_form_from_str};
+
+        assert!(uses_backend(&ControlType::Viewer), "its open goes through an upload slot");
+        assert!(has_upload_slot(&ControlType::FileDropZone) && !has_upload_slot(&ControlType::Maps));
+        let v = Control::new("VWR-1", ControlType::Viewer, 0, 0);
+        assert!(v.get_prop(ALLOWED_EXTENSIONS).is_none() && v.get_prop(MAXIMUM_FILE_SIZE_KB).is_none(), "not seeded");
+        assert_eq!(upload_slot_limits(&v), Some((crate::viewer::RENDERED_EXTENSIONS.to_owned(), 10_240)));
+        let zone = Control::new("DROP-1", ControlType::FileDropZone, 0, 0);
+        assert_eq!(upload_slot_limits(&zone), Some((String::new(), 0)), "a zone: any file, any size");
+        assert_eq!(upload_slot_limits(&Control::new("B", ControlType::Button, 0, 0)), None);
+
+        let mut desktop = Form::new("DOCS", "Docs", 800, 600);
+        desktop.controls.push(v);
+        let text = form_to_string(&desktop).unwrap();
+        assert!(!text.contains(ALLOWED_EXTENSIONS) && !text.contains(MAXIMUM_FILE_SIZE_KB), "a desktop Viewer is unchanged");
+
+        let mut web = desktop.clone();
+        let c = web.controls.iter_mut().find(|c| c.id == "VWR-1").unwrap();
+        c.set_prop(ALLOWED_EXTENSIONS, PropValue::String("pdf, .MD".into()));
+        c.set_prop(MAXIMUM_FILE_SIZE_KB, PropValue::Int(512));
+        let back = load_form_from_str(&form_to_string(&web).unwrap()).unwrap();
+        assert_eq!(upload_slot_limits(back.find_control("VWR-1").unwrap()), Some(("pdf, .MD".to_owned(), 512)));
     }
 
     #[test]

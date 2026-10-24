@@ -194,6 +194,13 @@ fn extension_of(path: &str) -> Option<String> {
     }
 }
 
+/// What a Viewer on a web form takes into its upload slot when its own
+/// `AllowedExtensions` is unset (WASM-005 T12, operator 2026-10-24): every
+/// extension [`format_from_extension`] renders.
+pub const RENDERED_EXTENSIONS: &str = "txt, text, log, md, markdown, png, jpg, jpeg, gif, webp, bmp, tiff, tif, svg, pdf, html, htm";
+/// A web Viewer's `MaximumFileSizeKB` when unset: 10 MB.
+pub const DEFAULT_MAXIMUM_FILE_SIZE_KB: i64 = 10_240;
+
 fn format_from_extension(ext: &str) -> Option<ViewerFormat> {
     match ext {
         "txt" | "text" | "log" => Some(ViewerFormat::Text),
@@ -5641,6 +5648,15 @@ mod tests {
         let got = detect_format(None, &junk);
         println!("unrecognized binary blob -> {got:?}");
         assert_eq!(got, None, "R4's trigger case: nothing recognized it");
+    }
+
+    #[test]
+    fn every_default_slot_extension_is_one_the_viewer_renders_005() {
+        let list: Vec<&str> = RENDERED_EXTENSIONS.split(", ").collect();
+        assert_eq!(list.len(), 17);
+        for ext in list {
+            assert!(format_from_extension(ext).is_some(), "{ext} is not rendered");
+        }
     }
 
     #[test]

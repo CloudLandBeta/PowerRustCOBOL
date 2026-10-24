@@ -252,6 +252,10 @@ pub enum WebDiagnosticKind {
     /// Refused: "multi-memory only" with WebKit engines in the matrix; the
     /// subject names them (WASM-017 R9, AC7).
     MultiMemoryOnlyWithWebKit,
+    /// Refused: a control holds a connection string or a key on a web or
+    /// mobile form; the subject is `CONTROL.Property`, never the value
+    /// (WASM-005 R14, AC9).
+    SecretOnForm,
 }
 
 /// One refusal or warning of a web build: where, what kind, about what, and the

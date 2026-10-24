@@ -9,7 +9,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   anything is built on them. M5–M12 are the tasks below. **2026-10-23:** T1–T4 landed as 2.0.47; T5–T8 as 2.0.49; T9–T10 as 2.0.51
   (with the System KB for what landed); stopped at T11 (three operator decisions on the other class C controls' backend programs, see T11).
   **2026-10-24:** T11 and T12's FileDropZone half landed as 2.0.53 (2.0.52 is `2.x.x`'s); stopped at T12 (the Viewer half needs an
-  operator decision, see T12).
+  operator decision, see T12). **2026-10-24 (second run):** T12's Viewer half (operator's decisions) and T13 landed as 2.0.54;
+  stopped at T14 (two operator decisions on how the frontend raises the reported events and sets the reported properties,
+  see T14).
 - **Plan:** ./plan.md   **Rules:** ./mapping-rules.md   **Date:** 2026-10-22
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it satisfies, and how to verify it. Check off as completed.
@@ -423,7 +425,37 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
   - Verify: goldens; generated programs parse and analyse; a loopback test for one key-bearing control (RestClient against a local HTTP stub)
     answers with the configuration read on the backend; `cargo test -p cobolt-codegen -p cobolt-server --no-fail-fast`.
 
-- [ ] **T12 — Files through slots: FileDropZone and Viewer** (R15)
+- [x] **T12 — Files through slots: FileDropZone and Viewer** (R15)
+  - **Done 2026-10-24 (second run), the Viewer half, per the operator's decisions (a)–(d) below:**
+    - *(a) Save As leaves class C.* `cobolt-forms/src/web_class.rs` `VIEWER_EXCEPTIONS` drops `SaveAs`/`SaveAsPdf` (they take
+      the Viewer's primary class B: the page's own work; the exception test forbids an exception repeating the primary class),
+      the TABLE note says so; `cobolt-wire` loses the `Viewer SAVEAS`/`SAVEASPDF` rows. Exceptions 15 → 13.
+    - *(b)/(c) Open through a slot.* `web_class::has_upload_slot` (FileDropZone, Viewer), `uses_backend` includes it (so a web
+      Viewer still shows `BackendRoles`), `upload_slot_limits(ctrl)` reads `ALLOWED_EXTENSIONS`/`MAXIMUM_FILE_SIZE_KB` — a
+      zone's as before, a Viewer's defaulting to `viewer::RENDERED_EXTENSIONS` (the 17 extensions `format_from_extension`
+      renders) and `viewer::DEFAULT_MAXIMUM_FILE_SIZE_KB` = 10 240. The two Viewer properties are **not seeded** by
+      `Control::new` (as T8's): written only when set on a web form, so a desktop `.cfrm` is unchanged. Catalogue row
+      `Viewer OPEN` (method `Source`, the desktop's way to open a document; no program, `NOT_METHOD_PROGRAMS`), so the slot
+      is `RC-<form>-<viewer>-OPEN`; `cobolt-codegen` `generate_slots` makes it from `upload_slot_limits` and `BackendRoles`.
+      A file the backend offers is the developer's `WS-DOWNLOAD`, unchanged. The server needed no change (slots are
+      control-agnostic); its comments and the slot-collision message name the Viewer too.
+    - IDE: `PropertiesPanel::show_backend_section` adds, for a Viewer on a web form, the extensions row (placeholder: the
+      rendered list) and the size row (default 10 240 KB), Tr keys `lbl_viewer_open_extensions`, `lbl_viewer_open_max_size`,
+      `lbl_viewer_open_hint` in all six languages.
+    - **Not done here — the player's half (WASM-016's crate, outside this task's files):** the browser's Save As download and
+      (d) the PDF made in the browser. `cobolt-web-player/src/methods.rs` still refuses `SAVEAS`/`SAVEASPDF` with a class D
+      message; the desktop's PDF writer (`cobolt-forms` `viewer_pdf` over `pdf_paint`) needs the `render` painter (egui),
+      which the player does not link, so (d) is a player work item of its own.
+    - Tests: `web_class` `every_exception_names_an_operation_the_control_has` (13),
+      `a_viewer_has_an_upload_slot_with_its_own_limits_or_the_rendered_types_005`; `viewer`
+      `every_default_slot_extension_is_one_the_viewer_renders_005` (`cargo test -p cobolt-forms --features render --lib --
+      web_class viewer::tests::every_default`: 9/0); `cobolt-wire` `the_viewer_has_its_open_slot_and_no_save_as_row` (lib
+      29/0, `random_round_trip` 1, `vectors` 1); `cobolt-runtime --test test_class_c_catalogue` 2/0 (the `OPEN` row checked
+      against the interpreter's `Source` alias); `cobolt-codegen --test remote_controls`
+      `a_viewer_makes_an_open_slot_of_the_types_it_renders_or_its_own` (12/0); `cobolt-server --test generated_controls`
+      `a_viewers_slot_takes_the_documents_it_renders_up_to_ten_mb` over the TLS loopback — a PDF stored under
+      `uploads/files/<id>`, `.exe` refused (4000), 10 485 761 bytes refused (7004), three path names refused, nothing else
+      written (6/0); `cobolt-ide --bin cobolt-ide -- i18n the_backend_rows_show_on_a_web_form_only_005` 20/0.
   - **Run of 2026-10-24 stopped here — the FileDropZone half done, the Viewer half needs an operator decision.**
     - *Done (FileDropZone):* `cobolt-codegen` `generate_slots(form)` — one slot per zone, `RC-<form>-<zone>-COMMITFILES`
       (`endpoint(…, "COMMITFILES")`), `extensions` = the zone's `AllowedExtensions` read by `dropzone::parse_extensions`,
@@ -463,7 +495,32 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
   - Verify: loopback tests — an allowed type within the limit is stored; a disallowed type and an over-limit file are refused; a request carrying a
     path is refused and nothing is written outside the slot; `cargo test -p cobolt-server --no-fail-fast`.
 
-- [ ] **T13 — Build refuses a secret on a web form, per class C control** (R14; AC9)
+- [x] **T13 — Build refuses a secret on a web form, per class C control** (R14; AC9)
+  - **Done 2026-10-24.** `cobolt-codegen/src/remote_controls.rs` `secrets_on_form(form) -> Vec<SecretOnForm { control, property }>`
+    (no field for the value): every property `cobolt_wire::controls::secrets_of` names for the control's type, nested controls
+    included, holding a non-empty value. `cobolt-project-tools/src/web/generator.rs` `load_forms` runs it beside the `Instances`
+    check — **before** the form's program is generated, so Check and Build both stop on it whatever else the form holds — as
+    `WebDiagnosticKind::SecretOnForm` (new, `web/mod.rs`), subject `CONTROL.Property`; the IDE says it from the new Tr key
+    `wasm_diag_secret_on_form` (six languages, `panels/web_preview.rs` `diagnostic_text`).
+    - **Working assumption (not decided):** the value the model itself seeds is not a secret — a SqlDatabase's
+      `ConnectionString` is seeded `sqlite::memory:` (`model.rs`), which names no server and holds no secret; refusing it would
+      stop every web SqlDatabase until the developer blanked a default. Any other non-empty value is refused, a password-less
+      connection string included.
+    - **Found:** the designer never writes a credential into a form (`cobolt-forms` `connections::CREDENTIAL_PROPS`,
+      `xml.rs`), so `AgentAPIKey`/`ApiKey`/`AuthToken`/`EmbeddingAPIKey` reach a `.wcfrm` only by a hand edit — which the
+      check catches (the test plants one in the XML). `ConnectionString` is not in that list and is saved.
+    - **Found, for T14:** a web form with a SqlDatabase is refused by the WebAssembly generator for the database calls its
+      generated form code makes (`OPEN-DB`, `EXEC-SQL`, `FETCH-ROW`, `NEXT-ROW`, `CLOSE-DB` as `BackendOnly`) until the
+      remote-lowering pass replaces them; so AC9's "builds" is shown with the AgentObject, and for the SqlDatabase as "no secret
+      refusal".
+    - Tests: `cobolt-codegen/tests/remote_controls.rs` `a_connection_string_or_key_on_a_control_is_found_and_the_value_is_never_kept`
+      (13/0); `cobolt-project-tools/tests/class_c_secret_on_form.rs` — a `.wcfrm` with a password-less `postgres://` connection
+      string and a hand-planted `AgentAPIKey` stops Check and Build with `DB-1.ConnectionString` and `AGENT-1.AgentAPIKey`, the
+      values in no message, nothing written; the key in `backend/backend.toml` `[[configuration]] ASSISTANT` and the form naming
+      it in `BackendConfig` builds (9 067 824 bytes); the SqlDatabase named by `BackendConfig` gets no secret refusal.
+      `cargo test -p cobolt-web-bundle -p cobolt-project-tools --no-fail-fast`: 23 result lines, 207 passed, 0 failed,
+      1 ignored. `cargo test -p cobolt-ide --bin cobolt-ide -- i18n every_generator_diagnostic_kind_is_said_in_all_six_languages
+      the_backend_rows_show_on_a_web_form_only_005`: 21/0.
   - Files: `crates/cobolt-web-bundle/src/secrets.rs` or the web build check in `crates/cobolt-project-tools/src/web/mod.rs`, `crates/cobolt-ide/src/i18n.rs`.
   - Do: a structural check beside the shape scan: for each class C control on a `.wcfrm`/`.mcfrm`, any non-empty secret-bearing property named
     by its catalogue row (T7) — `ConnectionString` included even without a password, which the shape scan passes today — stops Build, naming the
@@ -475,6 +532,36 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 ## M9 — the frontend end: one lowering pass for both engines
 
 - [ ] **T14 — `web_remote.rs`: class C member calls become `CALL … WITH WEBSOCKET LINKAGE`** (R12, R16; parity)
+  - **Run of 2026-10-24 stopped here — operator decision needed; nothing of T14 is written.** The operator's T11 decision (3)
+    says the frontend "sets [the properties] and raises the same event the desktop raises". Neither half has a mechanism in
+    both engines today:
+    1. **Raising the reported events (`EVENTS` of the answer).** No COBOL statement or built-in raises an event on a control:
+       the interpreter queues one only internally (`Interpreter::queue_control_event`, e.g. the Viewer's `onLoaded` in
+       `exec_method` `"LOADBYTES"`), `BUILTINS` has none (`cobolt-runtime/src/builtins.rs`), and the module has no command for
+       it (`specs/WASM-ABI-v1.md` §4: the *host* raises events; `cobolt-wasm/src/lower_remote.rs` `APP_VERBS` has none).
+       Options: **(a)** a new built-in `COBOL::"RAISE-EVENT"( control event )` that queues the event on the form's own queue,
+       run after the current handler as the desktop's queue runs it — interpreter: `queue_control_event`; module: an ABI v1
+       amendment (a command asking the player to queue the event for the instance); `BUILTINS` + System KB. Parity of order
+       with the desktop by construction; costs a public built-in and an ABI amendment. **(b)** no built-in: after the `CALL`
+       the lowering `CALL`s the bound handler program of each reported event, inline — the handler then runs **before** the
+       rest of the calling handler, which the desktop never does (its `onComplete` runs after the caller returns). **(c)** no
+       built-in: the lowering appends those handler calls at the calling handler's end — desktop order in the common case,
+       but every exit of the handler (`GOBACK`, `EXIT PROGRAM`, a `PERFORM`ed paragraph making the call) must be covered.
+       *Recommendation:* (a).
+    2. **Setting the reported properties (`PROPS`) by name in the browser module.** The module's `COBOL::"SET-PROPERTY"`
+       takes the control and the property as **literals** only (`cobolt-wasm/src/lower_form.rs` `builtin_call`, refused
+       otherwise), and the answer names its properties at run time (T11's refinement: the backend reports what changed, so
+       no per-control map can drift). Options: **(a)** the module gains a property set by a name held in a data item (a
+       generator change on the `rt_cmd_set` path, no COBOL change); **(b)** the lowering expands `PROPS` into an `EVALUATE`
+       over a name list per control type — a list the catalogue would have to carry, the drift T11 avoided.
+       *Recommendation:* (a).
+    3. *(Working assumption to confirm with 1.)* A lowered member call carries no `ON EXCEPTION` of the developer's, and a
+       failed `WEBSOCKET` call without one is a run-time error (D7). Proposed: the lowering adds one that puts the failure's
+       message in the control's `LastError` and raises `onError`, as a failing method does on the desktop.
+    - What is ready for T14: the sites and their numbering (`web_remote::class_c_call_sites`, `remote_controls::served_sites`),
+      the endpoint names, the parameter/answer layouts (`cobolt_wire::controls` `METHOD_PARAMS`/`METHOD_RESULT`), and the
+      module's `WEBSOCKET` call in a form's handler (WASM-010 WP5). Found by T13: until T14, a web form with a SqlDatabase is
+      refused by the generator for its generated form code's `OPEN-DB`/`EXEC-SQL`/`FETCH-ROW`/`NEXT-ROW`/`CLOSE-DB`.
   - Files: `crates/cobolt-compiler/src/web_remote.rs` (new), the web build path that already links Common Code; `crates/cobolt-codegen` (the
     argument groups in the form's generated `WORKING-STORAGE`, banner included).
   - Do: an AST → AST pass, run for web and mobile forms only, after `link_common_code`: a member call or `INVOKE` on a class C control becomes
@@ -542,6 +629,15 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     607 passed, 0 failed, 6 ignored; `cobolt-ide --bin cobolt-ide` `the_system_kb_teaches_every_builtin_inline` and
     `prebuilt_chunked_kb_matches_the_published_documentation` 1/0 each. Not re-run here: the full `cobolt-ide` and
     `cobolt-forms --features render` sweeps (neither crate changed).
+  - **Partial, second run of 2026-10-24 (stopped at T14):** `z` bumped once, 2.0.53 → **2.0.54** (`2.x.x` holds 2.0.52), one
+    CHANGELOG entry, plan §3 *Backend folder* line carries the Viewer slot; System KB (`cobolt-compiler/src/lib.rs`, section
+    *Calling the backend*) gained the Viewer-on-the-web and no-secret-on-a-web-form bullets, `chunked.data` regenerated
+    (3580 records, 12 849 152 bytes). Sweeps with `--no-fail-fast`: `cobolt-wire server codegen compiler project-tools
+    web-bundle` — 59 result lines, 650 passed, 0 failed, 6 ignored; `cobolt-forms --features render` — 91 result lines,
+    1704 passed, 0 failed, 2 ignored; `cobolt-runtime --test test_class_c_catalogue` 2/0; `cobolt-ide --bin cobolt-ide` —
+    1881 passed, **5 failed, the same five as the 2026-10-23 run, none from this run** (`docs_embed`, `claude_code::bundle`,
+    two `external_crates_service` flow tests, `every_completion_description_exists_in_six_languages`); the KB freshness tests
+    pass.
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`, this file (check-offs, T1 counts, T3 key names, blocked items), `plan.md` §3
     *Project file* line (the key names of T3).
   - Do: bump `z` **once** in `crates/cobolt-ide/src/version.rs` (the next `z` after whatever it holds then; never the minor); add **one** entry to

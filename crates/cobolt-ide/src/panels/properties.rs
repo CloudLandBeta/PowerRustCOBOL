@@ -11591,6 +11591,19 @@ impl PropertiesPanel {
                 ui.label(RichText::new(hint).small().color(Color32::GRAY).italics());
             }
         }
+        // WASM-005 T12: what a Viewer's upload slot takes. Written only when set here,
+        // so a Viewer on a desktop form never carries them.
+        if ctrl.control_type == ControlType::Viewer {
+            use cobolt_forms::web_class::{ALLOWED_EXTENSIONS, MAXIMUM_FILE_SIZE_KB};
+            let exts = ctrl.get_prop(ALLOWED_EXTENSIONS).map(|v| v.as_str().to_owned()).unwrap_or_default();
+            let placeholder = cobolt_forms::viewer::RENDERED_EXTENSIONS;
+            text_row_hint(ui, &mut self.hints, id, ALLOWED_EXTENSIONS, &exts, tr.lbl_viewer_open_extensions, placeholder, action);
+            let default_kb = cobolt_forms::viewer::DEFAULT_MAXIMUM_FILE_SIZE_KB;
+            int_prop_row(ui, id, MAXIMUM_FILE_SIZE_KB, tr.lbl_viewer_open_max_size, ctrl, action, 1..=1_048_576, Some(" KB"), default_kb);
+            if !search_hides_extras() {
+                ui.label(RichText::new(tr.lbl_viewer_open_hint).small().color(Color32::GRAY).italics());
+            }
+        }
         ui.add_space(4.0);
     }
 
@@ -15854,6 +15867,18 @@ mod tests {
         let desktop = labels(&form, "DB-1", false, tr);
         assert!(!has(&desktop, tr.lbl_backend_config), "a desktop form does not");
         assert!(!has(&labels(&form, "BTN-1", true, tr), tr.lbl_backend_config), "a Button never works through the backend");
+        // WASM-005 T12: a Viewer's upload slot rows, on a web form only.
+        form.controls.push(Control::new("VWR-1", ControlType::Viewer, 0, 80));
+        for lang in crate::i18n::Language::ALL {
+            let tr = &lang.tr();
+            for s in [tr.lbl_viewer_open_extensions, tr.lbl_viewer_open_max_size, tr.lbl_viewer_open_hint] {
+                assert!(!s.trim().is_empty(), "{lang:?}: an empty Viewer slot string");
+            }
+        }
+        let web = labels(&form, "VWR-1", true, tr);
+        assert!(has(&web, tr.lbl_viewer_open_extensions) && has(&web, tr.lbl_viewer_open_max_size), "a web Viewer lists its slot rows");
+        assert!(!has(&labels(&form, "VWR-1", false, tr), tr.lbl_viewer_open_extensions), "a desktop Viewer does not");
+        assert!(!has(&labels(&form, "DB-1", true, tr), tr.lbl_viewer_open_extensions), "only a Viewer has them");
         println!("WASM-005 T8: Backend rows on a web SqlDatabase, none on a desktop one or on a web Button");
     }
 

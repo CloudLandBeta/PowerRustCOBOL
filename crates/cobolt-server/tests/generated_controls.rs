@@ -300,3 +300,48 @@ async fn a_file_drop_zones_slot_takes_what_the_zone_takes_and_nothing_else() {
     assert_eq!(kept, vec![format!("uploads/files/{file}"), format!("uploads/files/{file}.meta")]);
     println!("slot {slot}: 1 stored ({} bytes), .exe refused, {} bytes refused, 4 path names refused, a guest refused", csv.len(), big.len());
 }
+
+/// WASM-005 T12, the Viewer half (operator, 2026-10-24): a document the user
+/// opens goes into the Viewer's slot — the types the Viewer renders, up to
+/// 10 MB, when the form sets neither — and the backend names the file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_viewers_slot_takes_the_documents_it_renders_up_to_ten_mb() {
+    use cobolt_forms::{Control, ControlType, Form};
+    let dir = backend_dir("t12-viewer", EXPORTS, &[]);
+    let mut form = Form::new("DOCS", "Docs", 800, 600);
+    form.controls.push(Control::new("VWR-1", ControlType::Viewer, 0, 0));
+    let g = GeneratedBackend { slots: generate_slots(&form).expect("slots"), ..Default::default() };
+    std::fs::create_dir_all(dir.join("generated")).unwrap();
+    std::fs::write(dir.join("generated").join("exports.toml"), g.exports_toml()).unwrap();
+    let slot = g.slots[0].name.clone();
+    assert_eq!(slot, "RC-4-DOCS-5-VWR-1-OPEN");
+    let before = files_under(&dir);
+    let rig = rig(dir.clone(), "[files]\ndir = \"uploads\"\n");
+    let user = rig.issuer.access("reader-1", AUDIENCE, 600, serde_json::json!({}));
+    let mut c = Raw::connect(&rig, Some(ORIGIN)).await.expect("connect");
+    assert_eq!(c.hello("1.0.0").await["accepted"], "ok");
+    assert_eq!(c.auth(&user).await["t"], "auth-ok");
+
+    let pdf = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n";
+    let r = upload(&mut c, 10, &slot, "Report.PDF", pdf, "application/pdf").await;
+    assert_eq!(r["t"], "put-done", "{r}");
+    let file = r["file"].as_str().unwrap().to_owned();
+    assert_eq!(std::fs::read(dir.join("uploads").join("files").join(&file)).unwrap(), pdf);
+    // A type the Viewer does not render, and a document over 10 MB, are refused.
+    let r = upload(&mut c, 20, &slot, "tool.exe", b"MZ....", "application/octet-stream").await;
+    assert_eq!((class(&r).as_str(), code(&r)), ("validation", 4000), "{r}");
+    let big = vec![b'x'; 10_240 * 1024 + 1];
+    let r = upload(&mut c, 30, &slot, "big.txt", &big, "text/plain").await;
+    assert_eq!((class(&r).as_str(), code(&r)), ("limit", 7004), "{r}");
+    for name in ["../escape.pdf", "sub/dir.md", "/etc/passwd.txt"] {
+        let r = upload(&mut c, 40, &slot, name, pdf, "application/pdf").await;
+        assert_eq!(class(&r), "validation", "{name}: {r}");
+    }
+    rig.server.stop();
+
+    let after: Vec<String> = files_under(&dir).into_iter().filter(|p| !before.contains(p)).collect();
+    let kept: Vec<String> =
+        after.into_iter().filter(|p| !p.ends_with(".pem") && !p.ends_with(".token") && !p.starts_with("uploads/incoming/")).collect();
+    assert_eq!(kept, vec![format!("uploads/files/{file}"), format!("uploads/files/{file}.meta")]);
+    println!("slot {slot}: a PDF stored, .exe refused, {} bytes refused, 3 path names refused", big.len());
+}

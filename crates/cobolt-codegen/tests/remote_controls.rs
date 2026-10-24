@@ -299,3 +299,68 @@ fn a_file_drop_zone_makes_an_upload_slot_with_its_own_limits() {
     let exports = GeneratedBackend { slots, ..Default::default() }.exports_toml();
     assert!(exports.contains("[[slot]]\nname = \"RC-4-SHOP-6-DROP-1-COMMITFILES\"\nextensions = [\"csv\", \"xlsx\"]\nmax_bytes = 65536\nroles = [\"clerk\"]\n"), "{exports}");
 }
+
+// ── T13: a secret on a web form, per class C control ────────────────────────
+
+#[test]
+fn a_connection_string_or_key_on_a_control_is_found_and_the_value_is_never_kept() {
+    use cobolt_codegen::remote_controls::{secrets_on_form, SecretOnForm};
+    use cobolt_forms::{web_class, Control, ControlType, Form, PropValue};
+    let mut form = Form::new("SHOP", "Shop", 800, 600);
+    // Seeded as the model seeds them: no finding (`sqlite::memory:` names no server).
+    form.controls.push(Control::new("DB-0", ControlType::SqlDatabase, 0, 0));
+    form.controls.push(Control::new("AGENT-0", ControlType::AgentObject, 0, 0));
+    assert!(secrets_on_form(&form).is_empty());
+    // A connection string with no password — the shape scan passes it — and a key.
+    let mut db = Control::new("DB-1", ControlType::SqlDatabase, 0, 0);
+    db.set_prop("ConnectionString", PropValue::String("postgres://db.example.com/sales".into()));
+    let mut agent = Control::new("AGENT-1", ControlType::AgentObject, 0, 0);
+    agent.set_prop("AgentAPIKey", PropValue::String("not-a-known-shape-0042".into()));
+    // Nested in a panel: found all the same.
+    let mut panel = Control::new("PNL-1", ControlType::Panel, 0, 0);
+    panel.children.push(agent);
+    form.controls.push(db);
+    form.controls.push(panel);
+    // A name in BackendConfig is what a web form should hold: not a finding.
+    let mut rest = Control::new("REST-1", ControlType::RestClient, 0, 0);
+    rest.set_prop(web_class::BACKEND_CONFIG, PropValue::String("CRM".into()));
+    form.controls.push(rest);
+    let found = secrets_on_form(&form);
+    assert_eq!(
+        found,
+        vec![
+            SecretOnForm { control: "DB-1".into(), property: "ConnectionString".into() },
+            SecretOnForm { control: "AGENT-1".into(), property: "AgentAPIKey".into() },
+        ]
+    );
+    assert!(!format!("{found:?}").contains("example.com") && !format!("{found:?}").contains("0042"), "the value is never kept");
+}
+
+// ── T12: a Viewer's upload slot (operator, 2026-10-24) ──────────────────────
+
+#[test]
+fn a_viewer_makes_an_open_slot_of_the_types_it_renders_or_its_own() {
+    use cobolt_codegen::remote_controls::generate_slots;
+    use cobolt_forms::{web_class, Control, ControlType, Form, PropValue};
+    let mut form = Form::new("DOCS", "Docs", 800, 600);
+    form.controls.push(Control::new("VWR-1", ControlType::Viewer, 0, 0));
+    let slots = generate_slots(&form).unwrap();
+    assert_eq!(slots.len(), 1);
+    let s = &slots[0];
+    assert_eq!(s.name, "RC-4-DOCS-5-VWR-1-OPEN");
+    assert_eq!(s.extensions.len(), 17, "unset: every type the Viewer renders");
+    assert!(s.extensions.iter().any(|e| e == "pdf") && !s.extensions.iter().any(|e| e == "exe"));
+    assert_eq!(s.max_bytes, Some(10_240 * 1024), "unset: 10 MB");
+    assert!(s.roles.is_empty());
+    // Set on the web form: its own limits and roles.
+    let v = form.controls.iter_mut().find(|c| c.id == "VWR-1").unwrap();
+    v.set_prop(web_class::ALLOWED_EXTENSIONS, PropValue::String("pdf, .MD".into()));
+    v.set_prop(web_class::MAXIMUM_FILE_SIZE_KB, PropValue::Int(512));
+    v.set_prop(web_class::BACKEND_ROLES, PropValue::String("reader".into()));
+    let s = &generate_slots(&form).unwrap()[0];
+    assert_eq!(s.extensions, vec!["pdf".to_string(), "md".to_string()]);
+    assert_eq!(s.max_bytes, Some(512 * 1024));
+    assert_eq!(s.roles, vec!["reader".to_string()]);
+    // Neither Save As nor any other Viewer method makes a backend program.
+    assert!(generate_control_programs(&form, &[]).unwrap().is_empty());
+}

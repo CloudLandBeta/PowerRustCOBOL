@@ -125,6 +125,7 @@ pub fn diagnostic_text(d: &WebDiagnostic, tr: &Tr) -> String {
         WebDiagnosticKind::RedefinesMayDiffer => Some(tr.wasm_warn_redefines),
         WebDiagnosticKind::InstancesOutOfRange => Some(tr.msg_instances_out_of_range),
         WebDiagnosticKind::MultiMemoryOnlyWithWebKit => Some(tr.pk_err_multi_memory_only_with_webkit),
+        WebDiagnosticKind::SecretOnForm => Some(tr.wasm_diag_secret_on_form),
     };
     let text = match template {
         Some(t) => fill(t, &[&d.subject]),
@@ -1243,6 +1244,7 @@ mod tests {
             WebDiagnosticKind::RedefinesMayDiffer,
             WebDiagnosticKind::InstancesOutOfRange,
             WebDiagnosticKind::MultiMemoryOnlyWithWebKit,
+            WebDiagnosticKind::SecretOnForm,
         ];
         let mut said = 0;
         for &lang in Language::ALL {
