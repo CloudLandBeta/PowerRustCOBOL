@@ -25,6 +25,16 @@
 //! and `WS-EMIT` send things while it runs; a cancel request is seen through
 //! `WS-CANCELLED` and at the safe points, and the call then ends as *cancelled*
 //! (the program's effects are not undone).
+//!
+//! A program the Build generated for a web form's control (WASM-005 T11)
+//! declares that control: it is seeded before the program runs — its
+//! design-time properties, then the values of the `[[configuration]]` its
+//! `BackendConfig` names, the secrets among them — so the method runs on the
+//! runtime's own implementation, as on the desktop. While such a program runs,
+//! its event channel receives a [`controls::WAIT_TICK`] at a steady pace, which
+//! is how it waits for an asynchronous method without blocking on a channel no
+//! user will ever write to. When it ends, the control's properties the call
+//! changed go back in the answer's `PROPS` — never one the configuration gave.
 
 use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
@@ -35,9 +45,11 @@ use cobolt_runtime::error::RuntimeError;
 use cobolt_runtime::interpreter::remote::BackendHooks;
 use cobolt_runtime::{ExternalStore, FormEvent, Interpreter, StateUpdate};
 use cobolt_wire::call::BackendFiles;
+use cobolt_wire::controls;
 use cobolt_wire::error::{codes, CallError, ErrorClass};
 
-use crate::backend::ExportedProgram;
+use crate::backend::{ControlDecl, ExportedProgram};
+use crate::config::Configurations;
 
 /// What a call needs besides its arguments.
 pub struct ExecOptions {
@@ -56,12 +68,89 @@ pub struct ExecOptions {
     pub emit: Option<Box<dyn Fn(&str) -> bool + Send>>,
     /// The files the caller may reach.
     pub files: Option<Arc<dyn BackendFiles>>,
+    /// `backend.toml`'s `[[configuration]]` entries, for a declared control.
+    pub configurations: Arc<Configurations>,
 }
 
 impl ExecOptions {
     pub fn plain(cancel: Arc<AtomicBool>, file_lock_wait: std::time::Duration) -> Self {
-        ExecOptions { claims: HashMap::new(), cancel, cancel_requested: Arc::new(AtomicBool::new(false)), file_lock_wait, progress: None, emit: None, files: None }
+        ExecOptions {
+            claims: HashMap::new(),
+            cancel,
+            cancel_requested: Arc::new(AtomicBool::new(false)),
+            file_lock_wait,
+            progress: None,
+            emit: None,
+            files: None,
+            configurations: Arc::default(),
+        }
     }
+}
+
+/// How often a declared control's program is sent a [`controls::WAIT_TICK`]:
+/// the interpreter's own poll interval for asynchronous work.
+const WAIT_TICK_EVERY: std::time::Duration = std::time::Duration::from_millis(40);
+
+/// The declared control's properties as they stand: `(PROPERTY, text)`.
+fn control_props(interp: &Interpreter, id: &str) -> HashMap<String, String> {
+    interp
+        .objects
+        .scalar_snapshot()
+        .into_iter()
+        .filter(|((obj, _), _)| obj.eq_ignore_ascii_case(id))
+        .map(|((_, prop), v)| (prop, v))
+        .collect()
+}
+
+/// Seed the declared control, unless this run unit already has it (a
+/// `per-connection` program called again keeps its control as it left it).
+/// Answers the properties the configuration gave, which never travel back.
+fn seed_control(interp: &mut Interpreter, c: &ControlDecl, configurations: &Configurations) -> Result<Vec<String>, CallError> {
+    let mut props: Vec<(String, String)> = c.properties.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let mut configured = Vec::new();
+    if !c.configuration.trim().is_empty() {
+        let Some(values) = configurations.get(&c.configuration) else {
+            tracing::error!(target: "exec", control = %c.id, "backend.toml has no [[configuration]] named {}", c.configuration);
+            return Err(CallError::new(ErrorClass::Server, codes::INTERNAL, "the backend is not configured for this control"));
+        };
+        for (k, v) in values {
+            props.retain(|(p, _)| !p.eq_ignore_ascii_case(k));
+            props.push((k.clone(), v.expose().to_owned()));
+            configured.push(k.to_ascii_uppercase());
+        }
+    }
+    if !interp.objects.contains(&c.id) {
+        interp.seed_objects([(c.id.clone(), c.class.clone(), props)]);
+    }
+    Ok(configured)
+}
+
+/// The leading part of `text` that fits `bytes` bytes, cut at a character.
+fn fit(text: &str, bytes: usize) -> &str {
+    if text.len() <= bytes {
+        return text;
+    }
+    let mut end = bytes;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// The answer's `PROPS`: what the call changed on the control, in name order,
+/// as many as the answer holds; never a property the configuration gave.
+fn changed_props_json(before: &HashMap<String, String>, after: &HashMap<String, String>, configured: &[String]) -> String {
+    let mut changed: Vec<(&String, &String)> = after
+        .iter()
+        .filter(|(k, v)| before.get(*k) != Some(*v) && !configured.iter().any(|c| c.eq_ignore_ascii_case(k)))
+        .collect();
+    changed.sort();
+    changed.truncate(controls::MAX_PROPS);
+    let props: Vec<serde_json::Value> = changed
+        .iter()
+        .map(|(k, v)| serde_json::json!({ "PROP-NAME": fit(k, 64), "PROP-VALUE": fit(v.trim_end(), controls::ARG_BYTES) }))
+        .collect();
+    serde_json::json!({ "PROP-COUNT": props.len(), "PROPS": props }).to_string()
 }
 
 /// What a finished call produced.
@@ -82,7 +171,9 @@ fn cancelled() -> CallError {
 struct Unit {
     interp: Interpreter,
     display_rx: mpsc::Receiver<String>,
-    _event_tx: mpsc::Sender<FormEvent>,
+    /// Kept open so `COBOL-WAIT-EVENT` waits rather than ends; a declared
+    /// control's program is sent its wait ticks through it.
+    event_tx: mpsc::Sender<FormEvent>,
     _state_rx: mpsc::Receiver<StateUpdate>,
 }
 
@@ -92,7 +183,7 @@ impl Unit {
         let (state_tx, state_rx) = mpsc::channel();
         let (display_tx, display_rx) = mpsc::channel();
         let interp = Interpreter::new_with_channels_and_store(prog.program.clone(), event_rx, state_tx, display_tx, external);
-        Unit { interp, display_rx, _event_tx: event_tx, _state_rx: state_rx }
+        Unit { interp, display_rx, event_tx, _state_rx: state_rx }
     }
 }
 
@@ -191,10 +282,34 @@ fn run_call(unit: &mut Unit, prog: &ExportedProgram, args: &[String], opts: Exec
     for (name, json) in prog.params.iter().zip(args.iter()) {
         interp.group_from_json(name, json)?;
     }
+    // The declared control, and what it holds before the method runs.
+    let control = match &prog.control {
+        Some(c) => {
+            let configured = seed_control(interp, c, &opts.configurations)?;
+            Some((c.id.clone(), configured, control_props(interp, &c.id)))
+        }
+        None => None,
+    };
     *sound = false;
 
-    // 2. Run.
+    // 2. Run — a declared control's program with its wait ticks.
+    let ticking = Arc::new(AtomicBool::new(control.is_some()));
+    let ticker = control.is_some().then(|| {
+        let (tx, on) = (unit.event_tx.clone(), ticking.clone());
+        std::thread::spawn(move || {
+            while on.load(Ordering::SeqCst) {
+                std::thread::sleep(WAIT_TICK_EVERY);
+                if tx.send(FormEvent::new("", controls::WAIT_TICK)).is_err() {
+                    break;
+                }
+            }
+        })
+    });
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| interp.run()));
+    ticking.store(false, Ordering::SeqCst);
+    if let Some(t) = ticker {
+        let _ = t.join();
+    }
     let display: Vec<String> = unit.display_rx.try_iter().collect();
     // `run` treats a cancellation as a clean end, so the flags are what tell.
     if cancel.load(Ordering::SeqCst) {
@@ -239,6 +354,10 @@ fn run_call(unit: &mut Unit, prog: &ExportedProgram, args: &[String], opts: Exec
         out.args.push(interp.group_to_json(name)?);
     }
     if let Some(r) = &prog.returning {
+        if let Some((id, configured, before)) = &control {
+            let after = control_props(interp, id);
+            interp.group_from_json(r, &changed_props_json(before, &after, configured))?;
+        }
         out.returning = Some(interp.group_to_json(r)?);
     }
     Ok(out)

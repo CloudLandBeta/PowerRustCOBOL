@@ -53,6 +53,9 @@ pub enum Role {
     Message,
     /// The name of one of the control's own properties an answer sets.
     Property,
+    /// The name of an event the operation raised on the control on the
+    /// backend, which the frontend raises in its place.
+    Event,
 }
 
 /// The words a [`Role::Action`] member may hold.
@@ -328,12 +331,21 @@ pub const MAX_ARGS: usize = 8;
 pub const ARG_BYTES: usize = 2048;
 /// The most properties one answer sets.
 pub const MAX_PROPS: usize = 32;
+/// The most events one answer raises.
+pub const MAX_EVENTS: usize = 16;
+/// The event a backend program's control waits on (T11): the backend sends it
+/// to the program's event channel at a steady pace while it runs, and
+/// `COBOL-WAIT-EVENT` hands it over only when no event of the control is
+/// queued — so a program that sees it while its control is not busy knows the
+/// method has finished and raised everything it was going to.
+pub const WAIT_TICK: &str = "RC-TICK";
 
 const ARG: &[Field] = &[Field { name: "ARG-VALUE", role: Role::Value, shape: Shape::Text(ARG_BYTES) }];
 const PROP: &[Field] = &[
     Field { name: "PROP-NAME", role: Role::Property, shape: Shape::Text(64) },
     Field { name: "PROP-VALUE", role: Role::Value, shape: Shape::Text(ARG_BYTES) },
 ];
+const EVENT: &[Field] = &[Field { name: "EVENT-NAME", role: Role::Event, shape: Shape::Text(64) }];
 
 /// A method's parameters: the arguments that are not fixed at Build, in order.
 const METHOD_PARAMS: &[Field] = &[
@@ -342,12 +354,16 @@ const METHOD_PARAMS: &[Field] = &[
 ];
 
 /// A method's answer: its value, the properties it set (`LastError`,
-/// `StatusCode`, a provider's fields), and the rows of a tabular answer.
+/// `StatusCode`, a provider's fields), the events it raised on the control, in
+/// order (the desktop's own: `onResponse`, `onQueryComplete`, `onError`…), and
+/// the rows of a tabular answer.
 const METHOD_RESULT: &[Field] = &[
     Field { name: "RESULT-VALUE", role: Role::Value, shape: Shape::Text(ARG_BYTES) },
     Field { name: "LAST-ERROR", role: Role::Message, shape: Shape::Text(512) },
     Field { name: "PROP-COUNT", role: Role::Count, shape: Shape::Count(2) },
     Field { name: "PROPS", role: Role::Value, shape: Shape::Table { max: MAX_PROPS, counter: "PROP-COUNT", of: PROP } },
+    Field { name: "EVENT-COUNT", role: Role::Count, shape: Shape::Count(2) },
+    Field { name: "EVENTS", role: Role::Event, shape: Shape::Table { max: MAX_EVENTS, counter: "EVENT-COUNT", of: EVENT } },
     Field { name: "ROWS-RETURNED", role: Role::Count, shape: Shape::Count(4) },
     Field { name: "ROWS", role: Role::Rows, shape: Shape::Table { max: MAX_WINDOW_ROWS, counter: "ROWS-RETURNED", of: ROW } },
 ];
@@ -563,7 +579,7 @@ mod tests {
             for f in op.all_params() {
                 let ok = match f.role {
                     Role::Key | Role::Value | Role::Parameter | Role::RowOffset | Role::RowCount | Role::Count => true,
-                    Role::Rows | Role::Changes | Role::Action | Role::Status | Role::Message | Role::Property => true,
+                    Role::Rows | Role::Changes | Role::Action | Role::Status | Role::Message | Role::Property | Role::Event => true,
                 };
                 assert!(ok);
                 let name = f.name.to_ascii_uppercase();

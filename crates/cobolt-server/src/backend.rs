@@ -91,6 +91,8 @@ pub const GENERATED_DIR: &str = "generated";
 struct GeneratedExports {
     #[serde(default, rename = "export")]
     exports: Vec<ExportDecl>,
+    #[serde(default, rename = "slot")]
+    slots: Vec<SlotDecl>,
 }
 
 /// The exports of `dir` as one declaration, and its text: `exports.toml`, with
@@ -101,6 +103,27 @@ pub fn read_exports(dir: &Path) -> Result<(String, ExportsFile), Vec<String>> {
     let path = dir.join("exports.toml");
     let mut text = std::fs::read_to_string(&path).map_err(|e| vec![format!("{}: {e}", path.display())])?;
     let mine = ExportsFile::from_toml(&text).map_err(|e| vec![e])?;
+    // A seeded control is the Build's to declare, from a form: a hand-written
+    // program creates no typed object of its own.
+    let declared: Vec<String> = mine
+        .exports
+        .iter()
+        .filter(|e| e.control.is_some())
+        .map(|e| {
+            format!(
+                "exports.toml: export {} declares a control; only the Build's {GENERATED_DIR}/exports.toml does",
+                e.program.to_ascii_uppercase()
+            )
+        })
+        .collect();
+    if !declared.is_empty() {
+        return Err(declared);
+    }
+    if !mine.slots.is_empty() {
+        return Err(vec![format!(
+            "exports.toml declares an upload slot; a deployment's slots are backend.toml's [files] slots, a form's the Build's {GENERATED_DIR}/exports.toml"
+        )]);
+    }
     let gen_path = dir.join(GENERATED_DIR).join("exports.toml");
     let Ok(gen_text) = std::fs::read_to_string(&gen_path) else {
         return Ok((text, mine));
@@ -175,6 +198,47 @@ pub struct ExportDecl {
     pub directions: Vec<String>,
     #[serde(default)]
     pub deprecated: Option<DeprecatedDecl>,
+    /// The control a generated program calls a method on (WASM-005 T11):
+    /// only the Build's `generated/exports.toml` declares one.
+    #[serde(default)]
+    pub control: Option<ControlDecl>,
+}
+
+/// An upload slot of a web form's FileDropZone (WASM-005 T12, R15): what the
+/// zone takes — its `AllowedExtensions`, its `MaximumFileSizeKB` — so the
+/// backend refuses on its own what the zone would refuse. The backend names
+/// the stored files, as for every slot.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SlotDecl {
+    pub name: String,
+    /// File name extensions, without the dot; empty: any.
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    /// The largest file, bytes; none: the backend's own limit only.
+    #[serde(default)]
+    pub max_bytes: Option<u64>,
+    /// Who may upload; empty: any authenticated caller.
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
+/// A control the backend seeds before a generated program runs (WASM-005 T11,
+/// operator 2026-10-24, point 2): a program cannot create a typed object, so
+/// the Build declares it here — its class, its design-time properties and the
+/// name of the `[[configuration]]` of `backend.toml` laid over them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlDecl {
+    /// The control's name, as the program calls it.
+    pub id: String,
+    /// The control type, which routes its methods (`RestClient`).
+    pub class: String,
+    /// The configuration whose values are laid over the properties; empty: none.
+    #[serde(default)]
+    pub configuration: String,
+    #[serde(default)]
+    pub properties: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -196,6 +260,10 @@ pub struct ExportsFile {
     pub contract: ContractDecl,
     #[serde(default, rename = "export")]
     pub exports: Vec<ExportDecl>,
+    /// The upload slots of web forms' FileDropZones (WASM-005 T12): only the
+    /// Build's `generated/exports.toml` declares one.
+    #[serde(default, rename = "slot")]
+    pub slots: Vec<SlotDecl>,
 }
 
 impl ExportsFile {
@@ -234,6 +302,8 @@ pub struct ExportedProgram {
     /// The names of the `USING` parameters, in order.
     pub params: Vec<String>,
     pub returning: Option<String>,
+    /// The control the backend seeds before the program runs (WASM-005 T11).
+    pub control: Option<ControlDecl>,
 }
 
 /// Everything the server runs.
@@ -244,6 +314,8 @@ pub struct Backend {
     exports: HashMap<String, Arc<ExportedProgram>>,
     /// Whether `WORKING-STORAGE` outlives a call (the project's `[backend] state`).
     pub state: StateMode,
+    /// The upload slots of the web forms' FileDropZones (WASM-005 T12).
+    pub slots: Vec<SlotDecl>,
 }
 
 impl Backend {
@@ -348,7 +420,13 @@ impl Backend {
             interface.programs.push(sig.clone());
             map.insert(
                 name.clone(),
-                Arc::new(ExportedProgram { sig, program: top, params: params_names, returning: prog.procedure.returning.clone() }),
+                Arc::new(ExportedProgram {
+                    sig,
+                    program: top,
+                    params: params_names,
+                    returning: prog.procedure.returning.clone(),
+                    control: decl.control.clone(),
+                }),
             );
         }
         let _ = exported_names;
@@ -356,7 +434,7 @@ impl Backend {
             return Err(errs);
         }
         interface.programs.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(Backend { interface, history, exports: map, state: StateMode::default() })
+        Ok(Backend { interface, history, exports: map, state: StateMode::default(), slots: exports.slots.clone() })
     }
 
     /// Read a backend folder: `exports.toml`, `src/*.cbl`, the Build's

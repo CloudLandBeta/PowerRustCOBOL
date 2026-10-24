@@ -33,6 +33,15 @@
 //!   variables. A save is one unit of `UPDATE`/`INSERT`/`DELETE` with **host
 //!   variables** — a value is never spliced into SQL text — and `ROLLBACK` on the
 //!   first failure.
+//!
+//! **A class C control's method** (T11, [`generate_control_programs`]) — a
+//! RestClient's `Get`, an AgentObject's `Ask`, an AWS control's route — gets one
+//! program per *call site* in the form's handlers. The backend seeds the control
+//! from the program's [`ControlDeclaration`] with its secrets laid over from
+//! `backend.toml`'s `[[configuration]]`; the program calls the method as the
+//! handler wrote it, the arguments that R17 keeps away from the browser compiled
+//! in as the handler's literals, waits until the control has finished, and
+//! answers its value, `LastError` and the events it raised.
 
 use cobolt_forms::{
     web_class, BindingDataType, BindingMode, BindingSourceDescriptor, BindingTargetDescriptor, Control,
@@ -65,17 +74,54 @@ pub struct BackendProgram {
     pub roles: Vec<String>,
     /// A read can be repeated safely; a save cannot.
     pub idempotent: bool,
+    /// The control the program drives, which the backend seeds before it runs
+    /// (a class C method, T11); `None` for a grid's program.
+    pub control: Option<ControlDeclaration>,
+}
+
+/// The control a generated program calls a method on, as the backend must
+/// build it (operator, 2026-10-24, T11 point 2): the program cannot create a
+/// typed object, so the backend seeds it from this — written by the Build into
+/// the program's `[export.control]` entry of `backend/generated/exports.toml`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlDeclaration {
+    /// The control's name, as the form spells it.
+    pub id: String,
+    /// The control type (`RestClient`), which routes its methods.
+    pub class: String,
+    /// The `[[configuration]]` of `backend.toml` whose values are laid over
+    /// the properties (its `BackendConfig`); empty when it names none.
+    pub configuration: String,
+    /// The design-time properties, as the desktop host seeds them — never one
+    /// that holds a secret: that comes only from the configuration (R14).
+    pub properties: Vec<(String, String)>,
 }
 
 /// Everything the Build writes under `backend/generated/`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GeneratedBackend {
     pub programs: Vec<BackendProgram>,
+    /// The upload slots of the forms' FileDropZones (T12).
+    pub slots: Vec<UploadSlot>,
+}
+
+/// A FileDropZone's upload slot (T12, R15): the backend takes into it only
+/// what the zone itself would take, and names every file it stores.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadSlot {
+    /// `RC-<form>-<zone>-COMMITFILES`, the name the frontend uploads to.
+    pub name: String,
+    /// The zone's `AllowedExtensions`, lower case, without dots; empty: any.
+    pub extensions: Vec<String>,
+    /// The zone's `MaximumFileSizeKB`, in bytes; `None` when it sets none.
+    pub max_bytes: Option<u64>,
+    /// The zone's `BackendRoles`; empty: any authenticated caller.
+    pub roles: Vec<String>,
 }
 
 impl GeneratedBackend {
     pub fn is_empty(&self) -> bool {
-        self.programs.is_empty()
+        self.programs.is_empty() && self.slots.is_empty()
     }
 
     /// `backend/generated/exports.toml`: one `[[export]]` per program, the
@@ -97,8 +143,69 @@ impl GeneratedBackend {
                 out.push_str("idempotent = true\n");
             }
             out.push_str("directions = [\"in\"]\n");
+            if let Some(c) = &p.control {
+                out.push_str("\n[export.control]\n");
+                out.push_str(&format!("id = \"{}\"\n", toml_escape(&c.id)));
+                out.push_str(&format!("class = \"{}\"\n", toml_escape(&c.class)));
+                if !c.configuration.is_empty() {
+                    out.push_str(&format!("configuration = \"{}\"\n", toml_escape(&c.configuration)));
+                }
+                if !c.properties.is_empty() {
+                    out.push_str("\n[export.control.properties]\n");
+                    for (k, v) in &c.properties {
+                        out.push_str(&format!("\"{}\" = \"{}\"\n", toml_escape(k), toml_escape(v)));
+                    }
+                }
+            }
+        }
+        let list = |items: &[String]| items.iter().map(|i| format!("\"{}\"", toml_escape(i))).collect::<Vec<_>>().join(", ");
+        for s in &self.slots {
+            out.push_str("\n[[slot]]\n");
+            out.push_str(&format!("name = \"{}\"\n", s.name));
+            if !s.extensions.is_empty() {
+                out.push_str(&format!("extensions = [{}]\n", list(&s.extensions)));
+            }
+            if let Some(max) = s.max_bytes {
+                out.push_str(&format!("max_bytes = {max}\n"));
+            }
+            if !s.roles.is_empty() {
+                out.push_str(&format!("roles = [{}]\n", list(&s.roles)));
+            }
         }
         out
+    }
+}
+
+/// The upload slots of `form`'s FileDropZones (T12): one per zone, named by
+/// the catalogue's `COMMITFILES` endpoint, with the zone's own limits.
+pub fn generate_slots(form: &Form) -> Result<Vec<UploadSlot>, Vec<String>> {
+    let mut out = Vec::new();
+    let mut errs = Vec::new();
+    for ctrl in crate::collect_all_controls(&form.controls) {
+        if ctrl.control_type.as_str() != "FileDropZone" {
+            continue;
+        }
+        let name = match endpoint(form, &ctrl.id, "COMMITFILES") {
+            Ok(n) => n,
+            Err(e) => {
+                errs.push(format!("{}: FileDropZone {}: {e}", form.name, ctrl.id));
+                continue;
+            }
+        };
+        let filter = ctrl.get_prop("AllowedExtensions").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        let kb = ctrl.get_prop("MaximumFileSizeKB").map(|v| v.as_i64()).unwrap_or(0);
+        out.push(UploadSlot {
+            name,
+            extensions: cobolt_forms::dropzone::parse_extensions(&filter),
+            // `0` (or less) is no limit, as on the desktop (`dropzone::size_allowed`).
+            max_bytes: (kb > 0).then(|| (kb as u64).saturating_mul(1024)),
+            roles: web_class::backend_roles(ctrl),
+        });
+    }
+    if errs.is_empty() {
+        Ok(out)
+    } else {
+        Err(errs)
     }
 }
 
@@ -198,7 +305,7 @@ fn grid_programs(
 }
 
 fn program(program_id: String, source: String, roles: &[String], idempotent: bool) -> BackendProgram {
-    BackendProgram { file_name: format!("{program_id}.cbl"), program_id, source, roles: roles.to_vec(), idempotent }
+    BackendProgram { file_name: format!("{program_id}.cbl"), program_id, source, roles: roles.to_vec(), idempotent, control: None }
 }
 
 // ── The parts every program shares ───────────────────────────────────────────
@@ -282,8 +389,22 @@ fn lit(text: &str) -> String {
     format!("\"{}\"", text.replace('"', "\"\""))
 }
 
+/// The inside of a TOML basic string: a property value may hold a newline
+/// (`DefaultHeaders`) or a tab, which a basic string must escape.
 fn toml_escape(text: &str) -> String {
-    text.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// `10 ** n` as a literal for a small `n`, the expression otherwise.
@@ -1270,6 +1391,329 @@ const SQL_NO: [&str; 4] = ["0", "false", "no", "n"];
 /// The forms and the `.cidx` the generator's tests pin, shared with the
 /// backend's tests that run what it generates (as `code_site::all_sites_fixture`).
 #[doc(hidden)]
+// ── A class C control's method (T11) ─────────────────────────────────────────
+
+/// One member call on a class C control in a form's handlers — `REST-1::Get(
+/// "orders")`, `INVOKE AGENT-1 "Ask" USING …` — as the web build finds it in
+/// the parsed program (`cobolt_compiler::web_remote`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallSite {
+    /// The control, as the handler names it.
+    pub control: String,
+    /// The member called (the parser upper-cases a `::` member).
+    pub method: String,
+    /// Where it is in the form's generated program.
+    pub line: u32,
+    pub column: u32,
+    pub args: Vec<SiteArg>,
+}
+
+/// One argument of a [`CallSite`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SiteArg {
+    /// A literal, as text (`"orders"`, `42`).
+    Literal(String),
+    /// Anything else: its value is only known when the handler runs.
+    Expression,
+}
+
+/// A call site the backend cannot serve, at its line of the generated program.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiteError {
+    pub line: u32,
+    pub message: String,
+}
+
+/// The control types whose catalogue rows are not member calls served here:
+/// an IndexedFile's operations are the facade's `PERFORM`ed paragraphs, and
+/// FileDropZone and Viewer move files through the backend's slots (T12).
+const NOT_METHOD_PROGRAMS: &[&str] = &["DataGrid", "IndexedFile", "FileDropZone", "Viewer"];
+
+/// The catalogue row a call of `method` on a control of type `class` is, when
+/// the backend serves it as a generated program.
+pub fn method_row(class: &str, method: &str) -> Option<&'static Operation> {
+    if NOT_METHOD_PROGRAMS.iter().any(|c| c.eq_ignore_ascii_case(class)) {
+        return None;
+    }
+    let method = method.trim().trim_matches('"').trim_matches('\'');
+    controls::of_control(class).find(|r| r.serves.is_empty() && r.method.eq_ignore_ascii_case(method))
+}
+
+/// A call site the backend serves: its control, its catalogue row, its number
+/// among the sites of that *(control, operation)*, and its endpoint.
+pub struct ServedSite<'a> {
+    pub site: &'a CallSite,
+    pub control: &'a Control,
+    pub row: &'static Operation,
+    pub number: usize,
+    /// `RC-<form>-<control>-<OP>-<number>`; an error when a name cannot make one.
+    pub endpoint: Result<String, String>,
+}
+
+/// The sites of `sites` the backend serves, in source order, numbered per
+/// *(control, operation)* from 1. One program per site, because the arguments
+/// R17 fixes are the site's own literals. The frontend's lowering (T14) names
+/// its `CALL` by this same function, so both ends agree on every name.
+pub fn served_sites<'a>(form: &'a Form, sites: &'a [CallSite]) -> Vec<ServedSite<'a>> {
+    let all = crate::collect_all_controls(&form.controls);
+    let mut ordered: Vec<&CallSite> = sites.iter().collect();
+    ordered.sort_by_key(|s| (s.line, s.column));
+    let mut numbers: std::collections::HashMap<(String, &'static str), usize> = std::collections::HashMap::new();
+    let mut out = Vec::new();
+    for site in ordered {
+        let Some(ctrl) = all.iter().find(|c| c.id.eq_ignore_ascii_case(site.control.trim())).copied() else { continue };
+        let Some(row) = method_row(ctrl.control_type.as_str(), &site.method) else { continue };
+        let n = numbers.entry((ctrl.id.to_ascii_uppercase(), row.operation)).or_insert(0);
+        *n += 1;
+        let endpoint = endpoint(form, &ctrl.id, row.operation).map(|e| format!("{e}-{n}"));
+        out.push(ServedSite { site, control: ctrl, row, number: *n, endpoint });
+    }
+    out
+}
+
+/// The backend programs of the class C method calls in `form`'s handlers.
+/// Every site the backend cannot serve is reported, at its line.
+pub fn generate_control_programs(form: &Form, sites: &[CallSite]) -> Result<Vec<BackendProgram>, Vec<SiteError>> {
+    let mut out = Vec::new();
+    let mut errs = Vec::new();
+    for s in served_sites(form, sites) {
+        let at = |m: String| SiteError { line: s.site.line, message: format!("{}: {}::{} — {m}", form.name, s.control.id, s.row.method) };
+        let generated = s.endpoint.clone().and_then(|id| method_program(form, s.control, s.row, s.site, s.number, &id));
+        match generated {
+            Ok(p) => out.push(p),
+            Err(e) => errs.push(at(e)),
+        }
+    }
+    if errs.is_empty() {
+        Ok(out)
+    } else {
+        Err(errs)
+    }
+}
+
+/// How one argument of the method call is written in the backend program.
+enum Arg {
+    /// The `k`-th value the browser sends, from 1.
+    Sent(usize),
+    /// A literal fixed at Build (R17).
+    Fixed(String),
+}
+
+fn method_program(form: &Form, ctrl: &Control, row: &'static Operation, site: &CallSite, n: usize, id: &str) -> Result<BackendProgram, String> {
+    // The arguments: what R17 fixes is the handler's literal, never a value
+    // the browser sends; the rest travel in ARGS, in order.
+    let mut args = Vec::new();
+    let mut sent = 0;
+    for (i, a) in site.args.iter().enumerate() {
+        let pos = (i + 1) as u8;
+        match (row.fixed.iter().find(|(p, _)| *p == pos).map(|(_, f)| *f), a) {
+            (None, _) => {
+                sent += 1;
+                args.push(Arg::Sent(sent));
+            }
+            (Some(controls::Fixed::Connector), _) => {
+                return Err(format!(
+                    "argument {pos} is a connection string, which never leaves the backend on the web; leave it out and name the backend's connection in {}",
+                    web_class::BACKEND_CONFIG
+                ));
+            }
+            (Some(controls::Fixed::File), _) => {
+                return Err(format!(
+                    "argument {pos} is a local file; on the web a file moves through a backend slot, which this control does not have yet (WASM-005 T12)"
+                ));
+            }
+            (Some(_), SiteArg::Literal(text)) => args.push(Arg::Fixed(text.clone())),
+            (Some(f), SiteArg::Expression) => {
+                let what = if f == controls::Fixed::Statement { "the statement" } else { "what is reached" };
+                return Err(format!(
+                    "argument {pos} ({what}) must be a literal: on the web it is fixed when the backend program is built, never chosen by the browser (R17)"
+                ));
+            }
+        }
+    }
+    let decl = declaration(ctrl)?;
+    let ctrl_name = crate::cobol_word(&ctrl.id);
+    let is_sql = ctrl.control_type.as_str() == "SqlDatabase";
+    let needs_open = is_sql && matches!(row.operation, "QUERY" | "EXECUTE");
+    let takes_rows = is_sql && row.operation == "QUERY";
+
+    let mut out = String::new();
+    for line in banner_lines() {
+        out.push_str(&format!("      *>{}{line}\n", if line.is_empty() { "" } else { " " }));
+    }
+    out.push_str("      *> ───────────────────────────────────────────────────────────\n\n");
+    out.push_str("       IDENTIFICATION DIVISION.\n");
+    out.push_str(&format!("       PROGRAM-ID. {id}.\n"));
+    out.push_str(&format!(
+        "      *> {} of {} {} on form {} (call site {n}), run on the backend\n",
+        row.method,
+        ctrl.control_type.as_str(),
+        ctrl.id,
+        form.name
+    ));
+    out.push_str(&match (is_sql, decl.configuration.is_empty()) {
+        (true, _) => format!("      *> over the connection '{}'.\n", sql_connection(&decl)),
+        (false, false) => format!("      *> with the configuration '{}' of backend.toml.\n", decl.configuration),
+        (false, true) => "      *> with its design-time properties.\n".to_owned(),
+    });
+    out.push_str("\n       DATA DIVISION.\n");
+    out.push_str("       WORKING-STORAGE SECTION.\n");
+    out.push_str("       01 RC-EVENT PIC X(64).\n");
+    out.push_str("       01 RC-SOURCE PIC X(64).\n");
+    out.push_str("       01 RC-BUSY PIC X(8).\n");
+    out.push_str("       01 RC-WAITING PIC 9 VALUE 0.\n");
+    out.push_str("       01 RC-KEEP PIC 9 VALUE 1.\n");
+    if needs_open {
+        out.push_str("       01 RC-OPENED PIC 9 VALUE 0.\n");
+    }
+    if takes_rows {
+        out.push_str("       01 RC-LINE PIC X(8192).\n");
+        out.push_str("       01 RC-COLS PIC 9(3) VALUE 0.\n");
+        out.push_str("       01 RC-C PIC 9(3) VALUE 0.\n");
+        out.push_str("       01 RC-PTR PIC 9(5) VALUE 0.\n");
+        out.push_str("       01 RC-ROW PIC 9(4) VALUE 0.\n");
+        out.push_str("       01 RC-DONE PIC 9 VALUE 0.\n");
+    }
+    write_linkage(&mut out, row);
+    out.push_str(&format!("\n       PROCEDURE DIVISION USING {PARAMS} RETURNING {RESULT}.\n"));
+    out.push_str("       RC-MAIN.\n");
+    out.push_str("           MOVE SPACES TO RESULT-VALUE LAST-ERROR\n");
+    out.push_str("           MOVE 0 TO PROP-COUNT EVENT-COUNT ROWS-RETURNED\n");
+    out.push_str(&format!("           IF ARG-COUNT NOT = {sent}\n"));
+    out.push_str(&format!(
+        "               COBOL::\"WS-FAIL\" ( 1 {} )\n",
+        lit(&format!("{id} takes {sent} argument(s)"))
+    ));
+    out.push_str("               GOBACK\n");
+    out.push_str("           END-IF\n");
+    if needs_open {
+        out.push_str("      *>   No connection outlives a call: open it on the first one.\n");
+        out.push_str("           IF RC-OPENED = 0\n");
+        out.push_str("               MOVE 1 TO RC-OPENED\n");
+        out.push_str(&format!("               {ctrl_name}::Open()\n"));
+        out.push_str("               MOVE 0 TO RC-KEEP\n");
+        out.push_str("               PERFORM RC-WAIT\n");
+        out.push_str("               MOVE 1 TO RC-KEEP\n");
+        out.push_str(&format!("               IF {ctrl_name}::StatusCode NOT = 0\n"));
+        out.push_str(&format!("                   MOVE {ctrl_name}::LastError TO LAST-ERROR\n"));
+        out.push_str("                   MOVE 0 TO RC-OPENED\n");
+        out.push_str("                   GOBACK\n");
+        out.push_str("               END-IF\n");
+        out.push_str("           END-IF\n");
+    }
+    let written: Vec<String> = args
+        .iter()
+        .map(|a| match a {
+            Arg::Sent(k) => format!("ARG-VALUE ( {k} )"),
+            Arg::Fixed(text) => lit(text),
+        })
+        .collect();
+    out.push_str(&format!("           MOVE {ctrl_name}::{}( {} ) TO RESULT-VALUE\n", row.method, written.join(" ")));
+    out.push_str("           PERFORM RC-WAIT\n");
+    if takes_rows {
+        out.push_str("           PERFORM RC-TAKE-ROWS\n");
+    }
+    out.push_str(&format!("           MOVE {ctrl_name}::LastError TO LAST-ERROR\n"));
+    out.push_str("           GOBACK.\n\n");
+    out.push_str("      *>   Wait until the control has finished, as the desktop's event\n");
+    out.push_str(&format!(
+        "      *>   loop would, keeping the events it raised (RC-KEEP = 1). The\n      *>   backend's {} reaches this program only when no event\n",
+        controls::WAIT_TICK
+    ));
+    out.push_str("      *>   is queued, so a tick while the control is not busy ends it.\n");
+    out.push_str("       RC-WAIT.\n");
+    out.push_str("           MOVE 1 TO RC-WAITING\n");
+    out.push_str("           PERFORM UNTIL RC-WAITING = 0\n");
+    out.push_str("               COBOL::\"WAIT-EVENT\" ( RC-EVENT RC-SOURCE )\n");
+    out.push_str("               EVALUATE TRUE\n");
+    out.push_str(&format!("                   WHEN RC-EVENT = {}\n", lit(controls::WAIT_TICK)));
+    out.push_str(&format!("                       MOVE {ctrl_name}::Busy TO RC-BUSY\n"));
+    out.push_str("                       IF RC-BUSY NOT = \"1\" AND RC-BUSY NOT = \"true\"\n");
+    out.push_str("                           MOVE 0 TO RC-WAITING\n");
+    out.push_str("                       END-IF\n");
+    out.push_str(&format!("                   WHEN RC-KEEP = 1 AND EVENT-COUNT < {}\n", controls::MAX_EVENTS));
+    out.push_str("                       ADD 1 TO EVENT-COUNT\n");
+    out.push_str("                       MOVE RC-EVENT TO EVENT-NAME (EVENT-COUNT)\n");
+    out.push_str("               END-EVALUATE\n");
+    out.push_str("           END-PERFORM.\n");
+    if takes_rows {
+        out.push_str("\n      *>   No result set outlives a call: its rows travel with the answer,\n");
+        out.push_str("      *>   fetched here; the fetches' own events are not the call's.\n");
+        out.push_str("       RC-TAKE-ROWS.\n");
+        out.push_str(&format!("           MOVE {ctrl_name}::ColumnCount() TO RC-COLS\n"));
+        out.push_str(&format!("           IF RC-COLS > {}\n", controls::MAX_CELLS));
+        out.push_str(&format!("               MOVE {} TO RC-COLS\n", controls::MAX_CELLS));
+        out.push_str("           END-IF\n");
+        out.push_str("           MOVE 0 TO RC-DONE\n");
+        out.push_str(&format!("           PERFORM UNTIL RC-DONE = 1 OR ROWS-RETURNED >= {}\n", controls::MAX_WINDOW_ROWS));
+        out.push_str(&format!("               MOVE {ctrl_name}::Fetch() TO RC-LINE\n"));
+        out.push_str("               IF RC-LINE = SPACES\n");
+        out.push_str("                   MOVE 1 TO RC-DONE\n");
+        out.push_str("               ELSE\n");
+        out.push_str("                   ADD 1 TO ROWS-RETURNED\n");
+        out.push_str("                   MOVE ROWS-RETURNED TO RC-ROW\n");
+        out.push_str("                   MOVE RC-COLS TO CELL-COUNT (RC-ROW)\n");
+        out.push_str("                   MOVE 1 TO RC-PTR\n");
+        out.push_str("                   PERFORM VARYING RC-C FROM 1 BY 1 UNTIL RC-C > RC-COLS\n");
+        out.push_str("                       UNSTRING RC-LINE DELIMITED BY X\"09\"\n");
+        out.push_str("                           INTO CELL-TEXT (RC-ROW RC-C) WITH POINTER RC-PTR\n");
+        out.push_str("                       END-UNSTRING\n");
+        out.push_str("                   END-PERFORM\n");
+        out.push_str("               END-IF\n");
+        out.push_str("           END-PERFORM\n");
+        out.push_str("           MOVE 0 TO RC-KEEP\n");
+        out.push_str("           PERFORM RC-WAIT\n");
+        out.push_str("           MOVE 1 TO RC-KEEP.\n");
+    }
+    let mut p = program(id.to_owned(), out, &web_class::backend_roles(ctrl), false);
+    p.control = Some(decl);
+    Ok(p)
+}
+
+/// The SQL connection a SqlDatabase reaches on the backend.
+fn sql_connection(decl: &ControlDeclaration) -> &str {
+    decl.properties.iter().find(|(k, _)| k == "SqlConnection").map(|(_, v)| v.as_str()).unwrap_or("")
+}
+
+/// What the backend seeds for `ctrl`: its design-time properties as the
+/// desktop host seeds them, without its secrets and without the two Backend
+/// properties, which are the Build's. A SqlDatabase reaches a connection of
+/// the backend's SQL catalogue by name — its `BackendConfig`, else its
+/// `SqlConnection` — as a bound grid does (T9); it needs no configuration.
+fn declaration(ctrl: &Control) -> Result<ControlDeclaration, String> {
+    let class = ctrl.control_type.as_str();
+    let secrets = controls::secrets_of(class);
+    let mut properties: Vec<(String, String)> = ctrl
+        .properties
+        .iter()
+        .filter(|(k, _)| {
+            !secrets.iter().any(|s| s.eq_ignore_ascii_case(k))
+                && !k.eq_ignore_ascii_case(web_class::BACKEND_CONFIG)
+                && !k.eq_ignore_ascii_case(web_class::BACKEND_ROLES)
+        })
+        .map(|(k, v)| (k.clone(), cobolt_forms::model::property_runtime_text(class, k, &v.to_xml_string())))
+        .collect();
+    properties.push(("Name".into(), ctrl.id.clone()));
+    let mut configuration = web_class::backend_config(ctrl);
+    if class == "SqlDatabase" {
+        let named = if configuration.is_empty() {
+            ctrl.get_prop("SqlConnection").map(|v| v.as_str().trim().to_owned()).unwrap_or_default()
+        } else {
+            std::mem::take(&mut configuration)
+        };
+        if named.is_empty() {
+            return Err(format!(
+                "{} names no backend connection: set its {} (or SqlConnection) to a connection of the backend",
+                ctrl.id,
+                web_class::BACKEND_CONFIG
+            ));
+        }
+        properties.retain(|(k, _)| !k.eq_ignore_ascii_case("SqlConnection"));
+        properties.push(("SqlConnection".into(), named));
+    }
+    Ok(ControlDeclaration { id: ctrl.id.clone(), class: class.to_owned(), configuration, properties })
+}
+
 pub mod fixtures {
     use cobolt_forms::{
         BindingDataType, BindingField, BindingMode, BindingSourceDescriptor, BindingTargetDescriptor, Control,
@@ -1404,6 +1848,55 @@ pub mod fixtures {
             BindingTargetDescriptor::DataGrid { control_id: "GRID-TOTALS".into() },
         ));
         vec![orders, report]
+    }
+
+    /// `SHOP`: a RestClient, an AgentObject, a SqlDatabase and a DynamoDB
+    /// control, each with a configuration name, and the calls its handlers
+    /// make (T11) — the RestClient's `Get` twice, so two sites of one
+    /// operation are numbered.
+    pub fn control_form() -> (Form, Vec<super::CallSite>) {
+        use super::{CallSite, SiteArg};
+        let mut shop = Form::new("SHOP", "Shop", 800, 600);
+        let mut rest = Control::new("REST-1", ControlType::RestClient, 0, 0);
+        rest.set_prop("BaseURL", PropValue::String("https://api.example.test/v1".into()));
+        rest.set_prop("AuthType", PropValue::String("Bearer".into()));
+        rest.set_prop("AuthToken", PropValue::String("typed-on-the-form".into()));
+        rest.set_prop(cobolt_forms::web_class::BACKEND_CONFIG, PropValue::String("CRM".into()));
+        rest.set_prop(cobolt_forms::web_class::BACKEND_ROLES, PropValue::String("clerk".into()));
+        shop.controls.push(rest);
+        let mut agent = Control::new("AGENT-1", ControlType::AgentObject, 0, 0);
+        agent.set_prop(cobolt_forms::web_class::BACKEND_CONFIG, PropValue::String("ASSISTANT".into()));
+        shop.controls.push(agent);
+        let mut db = Control::new("DB-1", ControlType::SqlDatabase, 0, 0);
+        db.set_prop(cobolt_forms::web_class::BACKEND_CONFIG, PropValue::String("SALES".into()));
+        shop.controls.push(db);
+        shop.controls.push(Control::new("ORDERS-TABLE", ControlType::AwsDynamoDB, 0, 0));
+        // A FileDropZone makes an upload slot, never a method program (T12).
+        let mut drop = Control::new("DROP-1", ControlType::FileDropZone, 0, 0);
+        drop.set_prop("AllowedExtensions", PropValue::String("csv, .XLSX".into()));
+        drop.set_prop("MaximumFileSizeKB", PropValue::Int(64));
+        drop.set_prop(cobolt_forms::web_class::BACKEND_ROLES, PropValue::String("clerk".into()));
+        shop.controls.push(drop);
+        let site =|control: &str, method: &str, line: u32, args: Vec<SiteArg>| CallSite {
+            control: control.into(),
+            method: method.into(),
+            line,
+            column: 12,
+            args,
+        };
+        let text = |t: &str| SiteArg::Literal(t.into());
+        let sites = vec![
+            // Listed out of order on purpose: numbering follows the source.
+            site("REST-1", "Get", 40, vec![text("customers/7")]),
+            site("REST-1", "get", 20, vec![text("customers")]),
+            site("REST-1", "Post", 30, vec![text("orders"), SiteArg::Expression]),
+            site("AGENT-1", "Ask", 50, vec![SiteArg::Expression]),
+            site("DB-1", "Query", 60, vec![text("SELECT NAME, PRICE FROM ITEMS ORDER BY NAME")]),
+            site("ORDERS-TABLE", "GetItem", 70, vec![SiteArg::Expression, SiteArg::Expression]),
+            // Not a class C member: no program.
+            site("REST-1", "Caption", 80, Vec::new()),
+        ];
+        (shop, sites)
     }
 }
 

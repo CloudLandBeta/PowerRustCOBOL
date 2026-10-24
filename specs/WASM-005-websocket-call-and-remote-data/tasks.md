@@ -8,6 +8,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - **Status:** draft — written 2026-10-22 from plan revision 2. Milestones M1–M4 (the language half) exist in the code; T1 re-runs their tests before
   anything is built on them. M5–M12 are the tasks below. **2026-10-23:** T1–T4 landed as 2.0.47; T5–T8 as 2.0.49; T9–T10 as 2.0.51
   (with the System KB for what landed); stopped at T11 (three operator decisions on the other class C controls' backend programs, see T11).
+  **2026-10-24:** T11 and T12's FileDropZone half landed as 2.0.53 (2.0.52 is `2.x.x`'s); stopped at T12 (the Viewer half needs an
+  operator decision, see T12).
 - **Plan:** ./plan.md   **Rules:** ./mapping-rules.md   **Date:** 2026-10-22
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it satisfies, and how to verify it. Check off as completed.
@@ -336,7 +338,55 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     exported by both is a load error naming it; a missing generated file is not an error.
   - Verify: tests — merge works, a collision is reported, a backend with no generated folder loads as before; `cargo test -p cobolt-server --no-fail-fast`.
 
-- [ ] **T11 — Generated programs for the other class C controls, configuration resolved on the backend** (R12, R14, R16, R17)
+- [x] **T11 — Generated programs for the other class C controls, configuration resolved on the backend** (R12, R14, R16, R17)
+  - **Done 2026-10-24.** One program per **call site** of a class C method in a web form's handlers (not per *(form, control,
+    operation)*: the arguments R17 fixes are the site's own literals), named `endpoint(form, control, op)-<n>`, `n` from 1 per
+    *(control, operation)* in source order (`cobolt-codegen/src/remote_controls.rs` `served_sites`, which T14 must use to name its `CALL`).
+    - *Sites:* `cobolt-compiler/src/web_remote.rs` `class_c_call_sites(program, form)` — every `CTRL::Method(…)` (parens) and
+      `INVOKE CTRL "Method"` on a form control whose type has catalogue rows, each argument's literal text or `Expression`; the walk
+      goes over the serialised AST (every statement kind, nested programs included), each node read back as the typed `Expr`/`Stmt`.
+      The web build (`cobolt-project-tools/src/web/generator.rs` `backend_programs`) generates them beside T9's, a refusal at the
+      developer's handler line.
+    - *Programs* (`generate_control_programs`): the method called as the handler wrote it, the sent arguments as `ARG-VALUE (k)`
+      (checked against `ARG-COUNT`, else `WS-FAIL` 1), a `Statement`/`Resource` position as the handler's literal; refused at Build:
+      such a position that is not a literal, a `Connector` argument (a connection string never leaves the backend), a `File` argument
+      (needs T12's slots). Then a wait loop on `COBOL::"WAIT-EVENT"` that keeps the events the control raised, ended by the backend's
+      `RC-TICK` (`controls::WAIT_TICK`) seen while the control is not `Busy`; `LastError` into `LAST-ERROR`. SqlDatabase `Query`/`Execute`
+      open the connection first (no connection outlives a call; the Open's events are discarded), and `Query` fetches its rows into `ROWS`
+      (≤ 100 × 32 cells, tab-split), the fetches' events discarded. IndexedFile (facade paragraphs, `PERFORM`ed), FileDropZone and
+      Viewer (T12) make no method program.
+    - *Declaration* (point 2, option a): `[export.control]` in `backend/generated/exports.toml` — `id`, `class`, `configuration`
+      (`BackendConfig`), `[export.control.properties]` = the design-time properties as the desktop host seeds them
+      (`property_runtime_text`), **without** the secret-bearing ones, `BackendConfig` and `BackendRoles`. A SqlDatabase names a
+      connection of the SQL catalogue (`SqlConnection` = its `BackendConfig`, else its own; neither = Build error), no configuration.
+      Only the Build's file may declare a control (`backend.rs` `read_exports` refuses one in the developer's `exports.toml`).
+    - *Configuration* (point 1): `[[configuration]]` in `backend.toml` (`config.rs` `ConfigurationEntry`, `Configurations`): `name`
+      + any property, each value plain / `env:` / `file:` (`resolve_secret`), held as `Secret` (never printed); an empty or repeated
+      name, or an unreadable value, stops the start. `serve::start` refuses a backend whose declared control names a configuration
+      `backend.toml` lacks.
+    - *Run* (point 3, `exec.rs`): the control is seeded (declaration, then the configuration laid over it) unless the run unit already
+      has it (`per-connection`); while the program runs a thread sends `RC-TICK` every 40 ms on its event channel; afterwards the
+      properties the call changed go into `PROPS` (≤ 32, values ≤ 2048 bytes), **never one the configuration gave**.
+    - **Refinement of point 3, recorded:** the answer carries the events the control actually raised (`EVENT-COUNT`/`EVENTS`, new
+      `Role::Event`, ≤ 16) instead of a per-control event map in the catalogue — the runtime decides, so no map can drift. Measured
+      on the way: an async RestClient raises `onComplete`, not `onResponse` as the proposal guessed.
+    - Compiled backend: `backend_build.rs` adds `runtime_features::scan_control_class` of every declared control (SqlDatabase → sql,
+      RestClient → http, Maps/WebSearch → maps, KnowledgeBase → kb, AgentObject → smb, `Aws*` → aws).
+  - **Known limits (working assumptions, not decided):** (O4) with fresh state per call, what a control keeps between calls is lost
+    — an AgentObject's conversation, an AwsCognito session, a SqlDatabase transaction; `per-connection` keeps them per program, not
+    across programs. Maps and WebSearch read their keys from the runtime's own `_ResolvedMapsApiKey` / `_ResolvedSearchApiKey`
+    (the desktop host fills them from the environment), so on the backend a configuration has to give those names; T13/T18 should
+    settle the spelling. `RESULT-VALUE` and a property travel up to 2048 bytes (catalogue `ARG_BYTES`).
+  - Tests: `cobolt-codegen/tests/remote_controls.rs` +5 (site numbering, declaration without secrets, parse + analyser 0 errors for the
+    six fixture programs, refusals at their lines, goldens `tests/golden/backend/controls/` — 6 programs + `exports.toml`);
+    `cobolt-compiler` `web_remote::tests` 2; `cobolt-server/tests/generated_controls.rs` 4 — over the TLS loopback rig,
+    `RC-4-SHOP-6-REST-1-GET-1` reaches a local HTTP stub at the configured `BaseURL` with `Bearer <token read from file:>`, answers
+    `onComplete`, `RESPONSEBODY`, `STATUSCODE` 200 in 185 ms, the token in neither the reply nor the log, an extra argument refused
+    (`application`) with no request made; a missing configuration stops the start naming the program; configurations resolve and never
+    print; a developer's control declaration is refused. `generated_backend.rs` runs the SqlDatabase `Query` program on SQLite: 2 rows,
+    events `["onQueryComplete"]`. `cargo test -p cobolt-codegen -p cobolt-server -p cobolt-wire --no-fail-fast`: codegen lib 69 +
+    9 integration binaries (remote_controls 10), server lib 14, client_contract 13, config_rules 11, dependency_guards 5,
+    generated_backend 5, generated_controls 4, loopback 15, token_rules 15, wire lib 28, random_round_trip 1, vectors 1 — 0 failed.
   - **Decided (operator, 2026-10-24) — all three proposals below, as written:** (1) `[[configuration]]` entries in `backend.toml`
     (`name` + the control's secret-bearing and deployment-overridable properties, each value plain, `env:NAME` or `file:/path`; SQL keeps
     `[[sql-connections]]`); (2) option **(a)** — the backend seeds the typed control object from a declaration the Build writes beside the
@@ -374,6 +424,32 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     answers with the configuration read on the backend; `cargo test -p cobolt-codegen -p cobolt-server --no-fail-fast`.
 
 - [ ] **T12 — Files through slots: FileDropZone and Viewer** (R15)
+  - **Run of 2026-10-24 stopped here — the FileDropZone half done, the Viewer half needs an operator decision.**
+    - *Done (FileDropZone):* `cobolt-codegen` `generate_slots(form)` — one slot per zone, `RC-<form>-<zone>-COMMITFILES`
+      (`endpoint(…, "COMMITFILES")`), `extensions` = the zone's `AllowedExtensions` read by `dropzone::parse_extensions`,
+      `max_bytes` = `MaximumFileSizeKB` × 1024 (0 = none, as `dropzone::size_allowed`), `roles` = its `BackendRoles`; written as
+      `[[slot]]` in `backend/generated/exports.toml` (the web build's `backend_programs`). `cobolt-server`: `backend.rs` `SlotDecl`
+      (only the Build's file may declare one), `Backend.slots`; `config.rs` `UploadSlot` gains `extensions` and `max_bytes`
+      (`#[serde(default)]`: a deployment's `[files] slots` read as before); `files.rs` `begin` refuses an over-limit file
+      (`limit 7004`) and a name without an allowed extension (`validation 4000`) before any byte is kept, and `*/*` matches any
+      type; `serve::start` joins the generated slots to the deployment's (`mime = ["*/*"]`), a name in both stops the start.
+    - *Verify (zone half):* `generated_controls.rs::a_file_drop_zones_slot_takes_what_the_zone_takes_and_nothing_else` over the TLS
+      loopback — `Customers.CSV` stored under `uploads/files/<id>`; `setup.exe` refused (4000), 65 537 bytes refused (7004),
+      `../escape.csv`, `sub/dir.csv`, `..\win.csv`, `/etc/passwd.csv` refused; a caller without `clerk` refused (authorisation);
+      afterwards the only new files are `uploads/files/<id>` and its `.meta`. `remote_controls.rs::a_file_drop_zone_makes_an_upload_slot_with_its_own_limits`.
+      `cargo test -p cobolt-server -p cobolt-codegen --no-fail-fast`: 20 result lines, 0 failed.
+    - *Open — operator decision (why the run stops):* **Viewer open and Save As on the web.** The Viewer has no allow-list or size
+      property to derive a slot from ("from its AllowedTypes and size limit" has nothing to read), and which way each moves a file is
+      not settled: on the desktop `SaveAs(path)`/`SaveAsPdf(path)` write a local file and `LoadBytes` reads one
+      (`interpreter.rs` `"SAVEAS"`, `"SAVEASPDF"`, `"LOADBYTES"`); WASM-004 marks only `SaveAs`/`SaveAsPdf` as C (`web_class.rs`
+      `VIEWER_EXCEPTIONS`). To decide: (a) does Save As **upload** the Viewer's document into a backend slot (the backend keeps it)
+      or **download** it to the user (then a browser can do it alone and it is not C); (b) does "open" mean loading a file the backend
+      offers (`WS-DOWNLOAD`) or one the user uploads; (c) which types and what size a Viewer slot takes; (d) whether `SaveAsPdf`'s
+      PDF is written in the browser or on the backend (`pdf` feature).
+    - *Also open, for T14/T16 (not this task's decision):* what `CommitFiles` lands on the backend. On the desktop it copies into
+      the zone's `DestinationFolder` (`commit_staged_files`); through a slot the files land in `files/<id>` under the backend's name
+      and the program reaches them with `WS-FILE-PATH`. Whether a generated program should then copy them into a backend
+      `DestinationFolder` is not decided here.
   - Files: `crates/cobolt-codegen/src/remote_controls.rs` (a generated slot per control, from its `AllowedTypes` and size limit),
     `crates/cobolt-server/src/files.rs` (reads the generated slot declarations if it does not already accept a second source), tests in `cobolt-server`.
   - Do: `CommitFiles` and Viewer open/Save As go through `WS-UPLOAD` / `WS-DOWNLOAD` and the generated slot; the backend names every file.
@@ -452,6 +528,13 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     translations on 2.x), `claude_code::bundle` (the external plugin validator), two `external_crates_service` flow tests (live crates.io
     now offers egui 0.37), `every_completion_description_exists_in_six_languages` (12 English-only descriptions of the existing `WS-…`
     built-ins); the KB freshness tests pass.
+  - **Partial, run of 2026-10-24 (stopped at T12's Viewer half):** `z` bumped once, 2.0.51 → **2.0.53** (2.0.52 is `2.x.x`'s
+    `f67e7dda`), one CHANGELOG entry, plan §3 *Backend folder* line carries the new file entries, the System KB gained the
+    method-program / `[[configuration]]` and FileDropZone-slot bullets (`chunked.data` regenerated: 3576 records, 12 832 768 bytes).
+    Sweep with `--no-fail-fast` over the touched crates `cobolt-wire server codegen compiler project-tools`: 47 result lines,
+    607 passed, 0 failed, 6 ignored; `cobolt-ide --bin cobolt-ide` `the_system_kb_teaches_every_builtin_inline` and
+    `prebuilt_chunked_kb_matches_the_published_documentation` 1/0 each. Not re-run here: the full `cobolt-ide` and
+    `cobolt-forms --features render` sweeps (neither crate changed).
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`, this file (check-offs, T1 counts, T3 key names, blocked items), `plan.md` §3
     *Project file* line (the key names of T3).
   - Do: bump `z` **once** in `crates/cobolt-ide/src/version.rs` (the next `z` after whatever it holds then; never the minor); add **one** entry to

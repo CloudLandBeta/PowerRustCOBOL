@@ -11,7 +11,7 @@
 //! diff. Every program must parse and pass the analyser with no error — the
 //! backend refuses to load one that does not.
 
-use cobolt_codegen::remote_controls::{fixtures, generate_backend, is_generated, GeneratedBackend};
+use cobolt_codegen::remote_controls::{fixtures, generate_backend, generate_control_programs, is_generated, GeneratedBackend};
 use std::path::PathBuf;
 
 fn generated() -> GeneratedBackend {
@@ -138,4 +138,164 @@ fn generated_backend_programs_match_their_goldens() {
     if !update {
         assert_eq!(compared, 6, "every generated file is compared");
     }
+}
+
+// ── T11: the programs of a class C control's method calls ────────────────────
+
+fn control_programs() -> GeneratedBackend {
+    let (form, sites) = fixtures::control_form();
+    let programs = generate_control_programs(&form, &sites).unwrap_or_else(|e| panic!("generation failed: {e:#?}"));
+    GeneratedBackend { programs, ..Default::default() }
+}
+
+#[test]
+fn one_program_per_call_site_numbered_in_source_order() {
+    let g = control_programs();
+    let ids: Vec<&str> = g.programs.iter().map(|p| p.program_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![
+            "RC-4-SHOP-6-REST-1-GET-1",
+            "RC-4-SHOP-6-REST-1-POST-1",
+            "RC-4-SHOP-6-REST-1-GET-2",
+            "RC-4-SHOP-7-AGENT-1-ASK-1",
+            "RC-4-SHOP-4-DB-1-QUERY-1",
+            "RC-4-SHOP-12-ORDERS-TABLE-GETITEM-1",
+        ],
+        "a property read (REST-1::Caption) makes no program"
+    );
+    for p in &g.programs {
+        assert!(is_generated(&p.source), "{}: no banner", p.program_id);
+        assert!(!p.idempotent, "{}: a method may change the world", p.program_id);
+        assert!(p.control.is_some(), "{}: the backend must know what to seed", p.program_id);
+    }
+    assert_eq!(g.programs[0].roles, vec!["clerk".to_string()]);
+    // The resource is the handler's literal, compiled in; nothing else is.
+    assert!(g.programs[0].source.contains("MOVE REST-1::Get( \"customers\" ) TO RESULT-VALUE"), "{}", g.programs[0].source);
+    assert!(g.programs[0].source.contains("IF ARG-COUNT NOT = 0"));
+    assert!(g.programs[1].source.contains("REST-1::Post( \"orders\" ARG-VALUE ( 1 ) )"));
+    assert!(g.programs[1].source.contains("IF ARG-COUNT NOT = 1"));
+    assert!(g.programs[4].source.contains("DB-1::Query( \"SELECT NAME, PRICE FROM ITEMS ORDER BY NAME\" )"));
+    assert!(g.programs[4].source.contains("DB-1::Open()"), "no connection outlives a call");
+    assert!(g.programs[4].source.contains("RC-TAKE-ROWS"), "a query's rows travel with its answer");
+}
+
+#[test]
+fn the_declaration_carries_the_configuration_name_and_never_a_secret() {
+    let g = control_programs();
+    let rest = g.programs[0].control.as_ref().unwrap();
+    assert_eq!((rest.id.as_str(), rest.class.as_str(), rest.configuration.as_str()), ("REST-1", "RestClient", "CRM"));
+    let get = |k: &str| rest.properties.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map(|(_, v)| v.as_str());
+    assert_eq!(get("BaseURL"), Some("https://api.example.test/v1"));
+    assert_eq!(get("AuthToken"), None, "a secret typed on the form never reaches the backend's files (R14)");
+    assert_eq!(get("BackendConfig"), None);
+    assert_eq!(get("BackendRoles"), None);
+    let db = g.programs[4].control.as_ref().unwrap();
+    assert_eq!(db.configuration, "", "SQL keeps its catalogue");
+    assert!(db.properties.iter().any(|(k, v)| k == "SqlConnection" && v == "SALES"));
+    let exports = g.exports_toml();
+    assert!(!exports.contains("typed-on-the-form"), "{exports}");
+    assert_eq!(exports.matches("[export.control]").count(), 6);
+    assert!(exports.contains("configuration = \"CRM\""));
+    println!("exports.toml with declarations: {} bytes", exports.len());
+}
+
+#[test]
+fn every_method_program_parses_and_analyses_clean() {
+    let g = control_programs();
+    for p in &g.programs {
+        let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&p.source, cobolt_lexer::SourceFormat::Free));
+        let errors: Vec<String> =
+            parsed.diagnostics.iter().filter(|d| d.is_error()).map(|d| format!("line {}: {}", d.span.line, d.message)).collect();
+        assert!(errors.is_empty(), "{} does not parse:\n{}\n{}", p.program_id, errors.join("\n"), p.source);
+        let program = parsed.program.unwrap_or_else(|| panic!("{}: no program", p.program_id));
+        assert_eq!(program.procedure.using, vec!["RC-PARAMS".to_string()]);
+        assert_eq!(program.procedure.returning.as_deref(), Some("RC-RESULT"));
+        let sem: Vec<String> =
+            cobolt_semantic::analyze(&program).errors().map(|d| format!("line {}: {}", d.span.line, d.message)).collect();
+        assert!(sem.is_empty(), "{} fails the analyser:\n{}\n{}", p.program_id, sem.join("\n"), p.source);
+        println!("  {:<38} {:>4} lines  parse 0 errors, analyser 0 errors", p.program_id, p.source.lines().count());
+    }
+}
+
+#[test]
+fn a_call_the_backend_cannot_serve_is_refused_at_its_line() {
+    use cobolt_codegen::remote_controls::{CallSite, SiteArg};
+    let (form, _) = fixtures::control_form();
+    let site = |control: &str, method: &str, line: u32, args: Vec<SiteArg>| CallSite { control: control.into(), method: method.into(), line, column: 1, args };
+    let sites = vec![
+        // The resource is a value only the handler knows: the browser would choose it.
+        site("REST-1", "Get", 11, vec![SiteArg::Expression]),
+        // A connection string in the handler: never on the web.
+        site("DB-1", "Open", 12, vec![SiteArg::Literal("Server=x;Password=y".into())]),
+        // A local file: through a slot, not yet.
+        site("ORDERS-TABLE", "Query", 13, vec![SiteArg::Expression]),
+    ];
+    let errs = generate_control_programs(&form, &sites).unwrap_err();
+    let lines: Vec<u32> = errs.iter().map(|e| e.line).collect();
+    assert_eq!(lines, vec![11, 12, 13], "{errs:#?}");
+    assert!(errs[0].message.starts_with("SHOP: REST-1::Get — argument 1 (what is reached) must be a literal"), "{}", errs[0].message);
+    assert!(errs[1].message.contains("connection string"), "{}", errs[1].message);
+    assert!(!errs[1].message.contains("Password=y"), "a refusal never repeats the value");
+    assert!(errs[2].message.contains("argument 1 (the statement) must be a literal"), "{}", errs[2].message);
+    // A SqlDatabase with no connection name at all.
+    let mut bare = form.clone();
+    bare.controls[2].properties.shift_remove(cobolt_forms::web_class::BACKEND_CONFIG);
+    let errs = generate_control_programs(&bare, &[site("DB-1", "Execute", 9, vec![SiteArg::Literal("DELETE FROM T".into())])]).unwrap_err();
+    assert!(errs[0].message.contains("names no backend connection"), "{}", errs[0].message);
+}
+
+#[test]
+fn generated_method_programs_match_their_goldens() {
+    let update = std::env::var("UPDATE_GOLDEN").is_ok();
+    let dir = golden_dir().join("controls");
+    let g = control_programs();
+    let mut files: Vec<(String, String)> = g.programs.iter().map(|p| (p.file_name.clone(), p.source.clone())).collect();
+    files.push(("exports.toml".into(), g.exports_toml()));
+    let mut compared = 0;
+    for (name, text) in &files {
+        let path = dir.join(name);
+        if update {
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(&path, text).unwrap();
+            println!("  {name:<42} WRITTEN ({} bytes)", text.len());
+            continue;
+        }
+        let golden = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("missing golden {path:?} ({e}); run once with UPDATE_GOLDEN=1 and review"));
+        if *text != golden {
+            let line = text.lines().zip(golden.lines()).position(|(a, b)| a != b).map(|i| i + 1);
+            panic!("{name} moved; first differing line {line:?}. If deliberate, regenerate with UPDATE_GOLDEN=1 and review.");
+        }
+        compared += 1;
+        println!("  {name:<42} {:>6} bytes identical", text.len());
+    }
+    if !update {
+        assert_eq!(compared, 7, "every generated file is compared");
+    }
+}
+
+// ── T12: a FileDropZone's upload slot ────────────────────────────────────────
+
+#[test]
+fn a_file_drop_zone_makes_an_upload_slot_with_its_own_limits() {
+    use cobolt_codegen::remote_controls::generate_slots;
+    let (form, sites) = fixtures::control_form();
+    let slots = generate_slots(&form).unwrap();
+    assert_eq!(slots.len(), 1);
+    let s = &slots[0];
+    assert_eq!(s.name, "RC-4-SHOP-6-DROP-1-COMMITFILES");
+    assert_eq!(s.extensions, vec!["csv".to_string(), "xlsx".to_string()], "the zone's own reading of AllowedExtensions");
+    assert_eq!(s.max_bytes, Some(64 * 1024));
+    assert_eq!(s.roles, vec!["clerk".to_string()]);
+    // No program for the zone, and a zone that sets no limit has none.
+    assert!(generate_control_programs(&form, &sites).unwrap().iter().all(|p| !p.program_id.contains("DROP-1")));
+    let mut open = form.clone();
+    let z = open.controls.iter_mut().find(|c| c.id == "DROP-1").unwrap();
+    z.set_prop("AllowedExtensions", cobolt_forms::PropValue::String(String::new()));
+    z.set_prop("MaximumFileSizeKB", cobolt_forms::PropValue::Int(0));
+    let open = generate_slots(&open).unwrap();
+    assert!(open[0].extensions.is_empty() && open[0].max_bytes.is_none());
+    let exports = GeneratedBackend { slots, ..Default::default() }.exports_toml();
+    assert!(exports.contains("[[slot]]\nname = \"RC-4-SHOP-6-DROP-1-COMMITFILES\"\nextensions = [\"csv\", \"xlsx\"]\nmax_bytes = 65536\nroles = [\"clerk\"]\n"), "{exports}");
 }

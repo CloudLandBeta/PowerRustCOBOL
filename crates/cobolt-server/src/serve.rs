@@ -149,6 +149,39 @@ impl Drop for ServerHandle {
 
 /// Start the server on its own runtime and thread. Returns when it is listening.
 pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<ServerHandle, String> {
+    // A generated program's control names a configuration of backend.toml
+    // (WASM-005 T11): one that is not there stops the start, not the first call.
+    let mut missing: Vec<String> = backend
+        .programs()
+        .filter_map(|p| p.control.as_ref().map(|c| (p.sig.name.as_str(), c)))
+        .filter(|(_, c)| !c.configuration.trim().is_empty() && cfg.configurations.get(&c.configuration).is_none())
+        .map(|(name, c)| {
+            format!(
+                "backend.toml has no [[configuration]] named \"{}\", which {} (control {}) needs: add it, with the control's secrets",
+                c.configuration, name, c.id
+            )
+        })
+        .collect();
+    // A web form's FileDropZone slots (WASM-005 T12) join the deployment's; a
+    // name in both is the deployment's mistake to fix, not one to guess at.
+    let mut files_cfg = cfg.files.clone();
+    for s in &backend.slots {
+        if files_cfg.slots.iter().any(|d| d.name.eq_ignore_ascii_case(&s.name)) {
+            missing.push(format!("backend.toml's [files] slots have one named \"{}\", the name of a web form's FileDropZone slot: rename it", s.name));
+            continue;
+        }
+        files_cfg.slots.push(crate::config::UploadSlot {
+            name: s.name.clone(),
+            mime: vec!["*/*".into()],
+            roles: s.roles.clone(),
+            extensions: s.extensions.clone(),
+            max_bytes: s.max_bytes,
+        });
+    }
+    if !missing.is_empty() {
+        missing.sort();
+        return Err(missing.join("\n"));
+    }
     let cfg = Arc::new(cfg);
     let sink: Arc<dyn LogSink> = options.sink.unwrap_or_else(|| Arc::new(StdoutSink));
     let tls = match &cfg.tls {
@@ -178,7 +211,7 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         jwks,
         shutdown: stop_rx,
         idem: idem::Store::new(Duration::from_secs(cfg.limits.idempotency_ttl), cfg.limits.idempotency_max_entries),
-        files: Arc::new(FileStore::new(&cfg.files)),
+        files: Arc::new(FileStore::new(&files_cfg)),
     });
 
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(SocketAddr, Option<SocketAddr>), String>>();
@@ -1137,6 +1170,7 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
     let shared = shared.clone();
     let conn_id = conn.id;
     let file_lock_wait_ms = shared.cfg.limits.file_lock_wait_ms;
+    let configurations = shared.cfg.configurations.clone();
     let files: Option<Arc<dyn BackendFiles>> = subject.clone().map(|s| Arc::new(CallFiles { store: shared.files.clone(), subject: s }) as Arc<dyn BackendFiles>);
     let progress: Option<Box<dyn Fn(u8, &str) + Send>> = if prog.sig.long_running {
         let (ptx, last) = (tx.clone(), Mutex::new(Instant::now() - Duration::from_secs(1)));
@@ -1176,6 +1210,7 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
             progress,
             emit: None,
             files,
+            configurations,
         };
         let args2 = arg_texts.clone();
         let mode = if session.is_some() { StateMode::PerConnection } else { StateMode::PerCall };
@@ -1425,6 +1460,7 @@ async fn on_subscribe(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<M
             progress: None,
             emit: Some(emit),
             files,
+            configurations: shared.cfg.configurations.clone(),
         };
         let prog2 = prog.clone();
         let outcome = tokio::task::spawn_blocking(move || exec::execute(&prog2, &arg_texts, opts)).await;

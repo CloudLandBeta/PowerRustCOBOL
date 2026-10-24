@@ -266,6 +266,37 @@ pub fn scan_forms<'a>(forms: impl IntoIterator<Item = &'a cobolt_forms::Form>) -
     found
 }
 
+/// What a backend program's declared control needs (WASM-005 T11): the
+/// backend seeds a typed control for a web form's generated program, and its
+/// methods are member calls no statement scan can tell apart — so the class
+/// says, as the form does in [`scan_forms`]. The backend has no renderer, so
+/// HTTP is linked only for a control that reaches the network.
+pub fn scan_control_class(class: &str) -> RuntimeFeatures {
+    let mut found = RuntimeFeatures::default();
+    match class {
+        "SqlDatabase" => found.sql = true,
+        "RestClient" => found.http = true,
+        "Maps" | "WebSearch" => {
+            found.http = true;
+            found.maps = true;
+        }
+        "KnowledgeBase" => {
+            found.http = true;
+            found.kb = true;
+        }
+        "AgentObject" => {
+            found.http = true;
+            found.smb = true;
+        }
+        c if c.starts_with("Aws") => {
+            found.http = true;
+            found.aws = true;
+        }
+        _ => {}
+    }
+    found
+}
+
 /// Every control in the tree, containers included.
 fn flatten(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Control> {
     let mut out = Vec::new();

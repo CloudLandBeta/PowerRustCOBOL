@@ -129,6 +129,12 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     let programs_in_bundle = bundle.programs.len();
     let history = bundle.history.clone();
     let backend = bundle.into_backend().map_err(|errs| CompilerError::Semantic { file: "backend".into(), message: errs.join("\n") })?;
+    // A generated program's declared control (WASM-005 T11) needs what its class reaches.
+    for p in backend.programs() {
+        if let Some(c) = &p.control {
+            features = features.union(runtime_features::scan_control_class(&c.class));
+        }
+    }
     let contract = backend.interface.contract.clone();
     log(&format!("   {} program(s), {} exported, contract {contract}", programs_in_bundle, backend.interface.programs.len()));
 

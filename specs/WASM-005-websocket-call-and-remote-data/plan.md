@@ -92,6 +92,7 @@ No `README.md`, nothing under `docs/` (2.x.x rule). What 2.x.x says about itself
 - **Generated artefacts:** `backend/generated/*.cbl`, `backend/generated/exports.toml`, the slot declarations — banner, regenerated on Build, never edited by hand.
 - **Project file:** the client limits of R11 (key names fixed in M5; defaults: the client's current 60 s call / 10 s connect, the arena's frame size of ABI §2). **Fixed by T3 (2.0.47):** `[web]` / `[mobile]` `call_timeout_ms` (default 60 000, written only when set) and the existing `max_payload_bytes` (WASM-017 R8); the hosts read them as `COBOLT_BACKEND_CALL_TIMEOUT_MS` and `COBOLT_BACKEND_MAX_PAYLOAD_BYTES`.
 - **Backend folder:** `backend/generated/` — the Build's programs for bound DataGrids and their `exports.toml` (`[[export]]` only), loaded beside `backend/exports.toml` and `backend/src` (T9, T10, 2.0.50).
+  **T11/T12 (2.0.53):** the generated `exports.toml` also carries `[export.control]` (id, class, configuration, `[export.control.properties]`) for a class C method's program and `[[slot]]` (name, extensions, max_bytes, roles) for a FileDropZone — both refused in the developer's `exports.toml`. `backend/backend.toml` gains `[[configuration]]` (`name` + the control's property names, values plain / `env:` / `file:`), and `[files] slots` entries gain the optional `extensions` and `max_bytes`; files written before read unchanged.
 - **Wire:** unchanged — one JSON text frame per call (Q9), the envelope of ABI A8, the error frame of A6.
 
 ## 4. Key decisions & alternatives

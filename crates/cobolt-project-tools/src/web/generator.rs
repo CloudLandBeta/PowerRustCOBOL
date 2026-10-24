@@ -261,8 +261,9 @@ impl GeneratorBackend {
 
 /// The backend programs of the forms' data controls (WASM-005 T9): a `READ`
 /// per DataGrid bound to an indexed file or an SQL query, a `SAVE` when the
-/// binding is writable. A grid the backend cannot serve refuses Check and
-/// Build alike, at its form.
+/// binding is writable; and one per method call on a class C control (T11).
+/// A grid or a call the backend cannot serve refuses Check and Build alike,
+/// at its form.
 fn backend_programs(
     req: &WebBuildRequest,
     forms: &[LoadedForm],
@@ -277,6 +278,22 @@ fn backend_programs(
     for f in forms {
         match cobolt_codegen::remote_controls::generate_backend(std::slice::from_ref(&f.form), &load) {
             Ok(mut g) => all.programs.append(&mut g.programs),
+            Err(errs) => {
+                refused.extend(errs.into_iter().map(|e| diag(f.rel.clone(), WebDiagnosticKind::Other, String::new(), e)))
+            }
+        }
+        // T11: a program per method call on a class C control, refused at
+        // the developer's own handler line when the backend cannot serve it.
+        let sites = cobolt_compiler::web_remote::class_c_call_sites(&f.program, &f.form);
+        match cobolt_codegen::remote_controls::generate_control_programs(&f.form, &sites) {
+            Ok(mut programs) => all.programs.append(&mut programs),
+            Err(errs) => refused.extend(
+                errs.into_iter().map(|e| diag(location_in(&f.rel, &f.lines, e.line), WebDiagnosticKind::Other, String::new(), e.message)),
+            ),
+        }
+        // T12: a FileDropZone's files go to an upload slot with its own limits.
+        match cobolt_codegen::remote_controls::generate_slots(&f.form) {
+            Ok(mut slots) => all.slots.append(&mut slots),
             Err(errs) => {
                 refused.extend(errs.into_iter().map(|e| diag(f.rel.clone(), WebDiagnosticKind::Other, String::new(), e)))
             }
@@ -845,7 +862,7 @@ mod tests {
         assert!(names.contains(&"exports.toml".to_string()) && names.contains(&"NOTES.txt".to_string()));
 
         // One grid less: its programs go, everything else stays.
-        let fewer = GeneratedBackend { programs: g.programs[..2].to_vec() };
+        let fewer = GeneratedBackend { programs: g.programs[..2].to_vec(), ..Default::default() };
         write_backend_programs(&root, &fewer).unwrap();
         assert!(!dir.join(&g.programs[4].file_name).exists(), "a program no longer generated is removed");
         assert!(dir.join(&g.programs[0].file_name).exists());

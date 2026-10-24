@@ -335,5 +335,27 @@ fn an_sql_grid_is_read_and_saved_through_its_generated_programs() {
     assert_eq!(s["COMMIT-STATUS"], "23", "{s}");
     assert_eq!(call(&b, READ, window(0, 10))["ROW-TOTAL"], 2, "nothing was deleted");
     println!("SQL grid: read, window, insert x3 (NULL, quote), update, delete, rollback after 23, 92, injected key refused");
+
+    // T11: a SqlDatabase's `Query` on a web form, on the same connection: the
+    // backend opens it, runs the handler's statement, and the rows travel
+    // with the answer — the events are the Query's, not the fetches'.
+    let (form, sites) = fixtures::control_form();
+    let programs = cobolt_codegen::remote_controls::generate_control_programs(&form, &sites).expect("generates");
+    let methods = scratch("sql-method");
+    std::fs::write(methods.join("exports.toml"), "[contract]\nversion = \"1.0.0\"\n").unwrap();
+    std::fs::create_dir_all(methods.join("generated")).unwrap();
+    for p in &programs {
+        std::fs::write(methods.join("generated").join(&p.file_name), &p.source).unwrap();
+    }
+    std::fs::write(methods.join("generated").join("exports.toml"), GeneratedBackend { programs, ..Default::default() }.exports_toml()).unwrap();
+    let mb = Backend::load(&methods).unwrap_or_else(|e| panic!("{e:#?}"));
+    let q = call(&mb, "RC-4-SHOP-4-DB-1-QUERY-1", json!({"ARG-COUNT": 0, "ARGS": []}));
+    assert_eq!(q["LAST-ERROR"], "", "{q}");
+    assert_eq!(q["RESULT-VALUE"], "2", "Query answers its row count: {q}");
+    assert_eq!(rows(&q), vec![vec!["Ink (blue)", "2.25"], vec!["O'Brien pad", "4"]], "{q}");
+    let events: Vec<&str> = q["EVENTS"].as_array().unwrap().iter().map(|e| e["EVENT-NAME"].as_str().unwrap()).collect();
+    assert_eq!(events, vec!["onQueryComplete"], "{q}");
+    println!("SqlDatabase Query through the backend: {} rows, events {events:?}", rows(&q).len());
+    let _ = std::fs::remove_dir_all(&methods);
     let _ = std::fs::remove_dir_all(&dir);
 }

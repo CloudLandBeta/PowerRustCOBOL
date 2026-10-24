@@ -150,7 +150,20 @@ pub fn sniff(mime: &str, head: &[u8]) -> bool {
 }
 
 fn mime_allowed(allowed: &[String], mime: &str) -> bool {
-    allowed.iter().any(|a| a == mime || (a.ends_with("/*") && mime.starts_with(&a[..a.len() - 1])))
+    allowed.iter().any(|a| a == "*/*" || a == mime || (a.ends_with("/*") && mime.starts_with(&a[..a.len() - 1])))
+}
+
+/// Does the display name carry one of the slot's extensions? An empty list
+/// takes any name, one without an extension included — the FileDropZone's own
+/// rule (`cobolt_forms::dropzone::extension_allowed`).
+fn extension_allowed(allowed: &[String], name: &str) -> bool {
+    if allowed.is_empty() {
+        return true;
+    }
+    match Path::new(name).extension().and_then(|e| e.to_str()) {
+        Some(ext) => allowed.iter().any(|a| a.trim_start_matches('.').eq_ignore_ascii_case(ext)),
+        None => false,
+    }
 }
 
 fn sha256_of(path: &Path) -> std::io::Result<(u64, String)> {
@@ -207,6 +220,18 @@ impl FileStore {
         let name = display_name(&req.name)?;
         if req.size > self.max_upload {
             return Err(CallError::new(ErrorClass::Limit, codes::FILE_TOO_LARGE, format!("the file is {} bytes; this backend accepts {} at most", req.size, self.max_upload)));
+        }
+        if let Some(max) = slot.max_bytes {
+            if req.size > max {
+                return Err(CallError::new(
+                    ErrorClass::Limit,
+                    codes::FILE_TOO_LARGE,
+                    format!("the file is {} bytes; the slot \"{}\" takes {max} at most", req.size, slot.name),
+                ));
+            }
+        }
+        if !extension_allowed(&slot.extensions, &name) {
+            return Err(bad(format!("the slot \"{}\" takes only {} files", slot.name, slot.extensions.join(", "))));
         }
         if !mime_allowed(&slot.mime, &req.mime) {
             return Err(bad(format!("the type \"{}\" is not allowed in the slot \"{}\"", req.mime, slot.name)));
@@ -388,7 +413,7 @@ mod tests {
         let cfg = FilesResolved {
             dir: dir.clone(),
             max_upload_bytes: 1000,
-            slots: vec![UploadSlot { name: "docs".into(), mime: vec!["text/plain".into(), "image/*".into()], roles: vec![] }, UploadSlot { name: "private".into(), mime: vec!["text/plain".into()], roles: vec!["clerk".into()] }],
+            slots: vec![UploadSlot { name: "docs".into(), mime: vec!["text/plain".into(), "image/*".into()], roles: vec![], extensions: vec![], max_bytes: None }, UploadSlot { name: "private".into(), mime: vec!["text/plain".into()], roles: vec!["clerk".into()], extensions: vec![], max_bytes: None }],
             download_ttl: ttl,
         };
         (FileStore::new(&cfg), dir)
