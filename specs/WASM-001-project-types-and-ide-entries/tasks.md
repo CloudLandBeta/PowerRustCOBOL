@@ -311,6 +311,8 @@ search `"cfrm"|\.cfrm"` over `crates/` (plan §5) and either convert or justify 
     SDK does not ship"* — since 2.0.16) and three `resolve_main_tests` that fail the same way (`cobolt-decimal` missing
     from the staged SDK). They are reported, not fixed here.
 
+- [ ] **T19 — D22: the native-project step in New Project and its manifest record** (R19; AC8; WASM-012 R16–R17) — added 2026-10-24 by the operator's ruling, after T18 had finalized the spec; a Finalize of its own closes it.
+
 ## Done criteria
 
 | Acceptance criterion | Covered by |

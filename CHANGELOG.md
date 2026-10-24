@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.57] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.56. Specs only; no code.)*
+
+### Specs: a Mobile project is created with its Android Studio / Xcode project (WASM-INDEX D22)
+
+The operator, 2026-10-24: when a Mobile project for Android or iOS is created, the IDE must also create the project Android Studio or Xcode
+opens, for preview, with the same name as the PowerRustCOBOL AI Mobile project; if the developer cancels that creation, Project Settings must
+be able to create it later; the native project holds the stub that loads the project's WASM binary. Recorded as decision **D22** in
+`WASM-INDEX.md`; WASM-012 gains R16–R18 (the native project, its stub, Project Settings), AC12, task T25c and the open question Q7 (where the
+native project lives, against the plan's build-folder shape); WASM-001 gains R19 (the cancellable step in New Project and its manifest record),
+AC8 and task T19; WASM-008 names it in §6. `README.md` and `docs/` untouched.
+
 ## [PowerRustCOBOL 2.0.56] — 2026-10-24
 
 *(Written on `features-2x`, after 2.0.55. Specs only; no code.)*
