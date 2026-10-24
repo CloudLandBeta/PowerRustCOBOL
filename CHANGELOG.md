@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.49] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.48.)*
+
+### Feature: `RETURN-CODE` after a remote call, the class C catalogue, and where a web control names its backend (WASM-005, T5–T8)
+
+- **The second way to read a failure (Q7, T5).** After `CALL … WITH WEBSOCKET LINKAGE`, `RETURN-CODE` holds the failure's numeric code, the same one `COBOL::"WS-LAST-ERROR"` reports (7001 for a rate limit, for example). It is 0 after a success. The class and the message are still read through the built-in. This covers the interpreter, so `rcrun`, embedded child forms, the compiled binary and the backend. A browser module has no `RETURN-CODE` and no `WS-LAST-ERROR` yet: a program that names one there is refused when the module is generated.
+- **The class C catalogue (T6, T7).** A new module, `cobolt-wire::controls`, has one row for each operation that runs on the backend when the control is on the web: 89 rows over 26 control types. That covers the DataGrid's `READ` (offset and count) and `SAVE`, IndexedFile, SqlDatabase, RestClient, AgentObject, KnowledgeBase, WebSearch, FileDropZone, Viewer and Maps, and the 16 AWS controls (one row per route). Each row gives the layouts that travel, typed by a closed set of roles that has nothing for SQL, a path, a URL or a command (R17). It also lists the arguments fixed at Build: the SQL of `Query`, the resource of a REST `Get`, a file path, a connection string. Endpoint names are `RC-<len>-<FORM>-<len>-<CONTROL>-<OP>`; the lengths prevent collisions. A test reads the interpreter's method dispatch, the AWS route table and the IndexedFile facade, and checks that every row names an operation that already exists.
+- **`BackendConfig` and `BackendRoles` (T8).** On a web or mobile form, a control that works through the backend shows a *Backend* section in the Properties pane with two settings: the name of its configuration in `backend/backend.toml`, and who may call it (`authenticated` by default, or a list of roles). The labels and explanations are in all six languages. A desktop form never shows or writes them, so a `.cfrm` saves exactly as before, and a web form saved earlier reads the defaults.
+- **Stopped at T9.** The backend program for an IndexedFile-bound grid needs a decision from the operator. The desktop formats each cell from the record's bytes and saves all or nothing with a rollback; a COBOL program reading through the facade sees values, not bytes, and its COBOL verbs have no rollback. `tasks.md` lays out the two options and recommends one. The SQL half is designed and is written with it. T10–T19 have not started.
+
 ## [PowerRustCOBOL 2.0.48] — 2026-10-23
 
 *(Written on `fixes-2x-template-icons` as 2.0.47, off `features-2x` at 2.0.46; renumbered 2.0.48 here, after WASM-005 part 1 took 2.0.47.)*

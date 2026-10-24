@@ -4340,6 +4340,9 @@ impl PropertiesPanel {
                     TypeSection::Basic,
                 );
 
+                // ── Backend (WASM-005 R14, R16) — web and mobile forms only ─────────
+                self.show_backend_section(ui, ctrl, &id, action, tr);
+
                 // Non-visual controls (Timer, AgentObject, RestClient, SqlDatabase,
                 // IndexedFile) only
                 // show geometry + type-specific settings + events — no style, no animations.
@@ -11570,6 +11573,27 @@ impl PropertiesPanel {
         }
     }
 
+    /// WASM-005 R14, R16 — on a web or mobile form a control that works through the backend
+    /// names its backend configuration and who may call it. A desktop form never shows (or
+    /// writes) these rows, so a `.cfrm` is saved exactly as before.
+    fn show_backend_section(&mut self, ui: &mut Ui, ctrl: &Control, id: &str, action: &mut InspectorAction, tr: &Tr) {
+        use cobolt_forms::web_class::{backend_config, uses_backend, BACKEND_CONFIG, BACKEND_ROLES, DEFAULT_BACKEND_ROLES};
+        if !self.web_project || !uses_backend(&ctrl.control_type) {
+            return;
+        }
+        section_header(ui, tr.sec_backend);
+        let config = backend_config(ctrl);
+        text_row_hint(ui, &mut self.hints, id, BACKEND_CONFIG, &config, tr.lbl_backend_config, "", action);
+        let roles = ctrl.get_prop(BACKEND_ROLES).map(|v| v.as_str().to_owned()).unwrap_or_default();
+        text_row_hint(ui, &mut self.hints, id, BACKEND_ROLES, &roles, tr.lbl_backend_roles, DEFAULT_BACKEND_ROLES, action);
+        if !search_hides_extras() {
+            for hint in [tr.lbl_backend_config_hint, tr.lbl_backend_roles_hint] {
+                ui.label(RichText::new(hint).small().color(Color32::GRAY).italics());
+            }
+        }
+        ui.add_space(4.0);
+    }
+
     /// The inspector of a layer (spec 091 R15, R16, R24): its `Name` and the
     /// form's own background properties, with the same meaning and ranges — and
     /// nothing else. No `CornerRadius` and no window property (R16), no `Visible`
@@ -15779,6 +15803,58 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert!(saved.contains("instances=\"7\""), "saved: {saved}");
         println!("WASM-017 T4: Instances row in a Web project, absent in a Desktop one; out-of-range message shown; set 7 → dirty, saved instances=\"7\"");
+    }
+
+    /// WASM-005 T8 — a control that works through the backend shows `BackendConfig` and
+    /// `BackendRoles` on a web or mobile form only; a Button never does.
+    #[test]
+    fn the_backend_rows_show_on_a_web_form_only_005() {
+        fn labels(form: &Form, id: &str, web: bool, tr: &Tr) -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            panel.web_project = web;
+            let mut out = Vec::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 6000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, form.find_control(id), &[], tr);
+                    });
+                },
+            );
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            full.textures_delta.clear();
+            out
+        }
+        let has = |l: &[String], s: &str| l.iter().any(|t| t == s || t.starts_with(s));
+        let mut form = Form::new("F", "F", 800, 600);
+        form.controls.push(Control::new("DB-1", ControlType::SqlDatabase, 0, 0));
+        form.controls.push(Control::new("BTN-1", ControlType::Button, 0, 40));
+        for lang in crate::i18n::Language::ALL {
+            let tr = &lang.tr();
+            for s in [tr.sec_backend, tr.lbl_backend_config, tr.lbl_backend_roles, tr.lbl_backend_config_hint, tr.lbl_backend_roles_hint] {
+                assert!(!s.trim().is_empty(), "{lang:?}: an empty backend string");
+            }
+        }
+        let tr = &crate::i18n::Language::English.tr();
+        let web = labels(&form, "DB-1", true, tr);
+        assert!(has(&web, tr.lbl_backend_config) && has(&web, tr.lbl_backend_roles), "a web form lists both rows");
+        let desktop = labels(&form, "DB-1", false, tr);
+        assert!(!has(&desktop, tr.lbl_backend_config), "a desktop form does not");
+        assert!(!has(&labels(&form, "BTN-1", true, tr), tr.lbl_backend_config), "a Button never works through the backend");
+        println!("WASM-005 T8: Backend rows on a web SqlDatabase, none on a desktop one or on a web Button");
     }
 
     /// **The control's type is readable beside its name.** The Identity header

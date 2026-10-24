@@ -278,7 +278,13 @@ impl Interpreter {
     ) -> Result<(), RuntimeError> {
         let name = self.eval_expr(program, span)?.as_display_string().trim().to_ascii_uppercase();
 
-        match self.remote_round_trip(&name, using, returning, span) {
+        let outcome = self.remote_round_trip(&name, using, returning, span);
+        // The second way to read the failure (Q7): `RETURN-CODE` holds the
+        // same numeric code `WS-LAST-ERROR` reports, 0 after a success. Only
+        // the code — the class and the message are the built-in's.
+        let code = outcome.as_ref().err().map_or(0, |e| e.code as i64);
+        self.env.set("RETURN-CODE", CobolValue::from_i64(code));
+        match outcome {
             Ok(()) => {
                 self.remote.last_error = None;
                 if !not_on_exception.is_empty() {

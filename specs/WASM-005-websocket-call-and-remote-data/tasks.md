@@ -6,7 +6,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 # Tasks — `CALL … WITH WEBSOCKET LINKAGE`, the group ⇄ JSON mapping, and the data controls through the backend (WASM-005)
 
 - **Status:** draft — written 2026-10-22 from plan revision 2. Milestones M1–M4 (the language half) exist in the code; T1 re-runs their tests before
-  anything is built on them. M5–M12 are the tasks below.
+  anything is built on them. M5–M12 are the tasks below. **2026-10-23:** T1–T4 landed as 2.0.47; T5–T8 as 2.0.49; stopped at T9 (an
+  operator decision on the IndexedFile backend program, see T9).
 - **Plan:** ./plan.md   **Rules:** ./mapping-rules.md   **Date:** 2026-10-22
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it satisfies, and how to verify it. Check off as completed.
@@ -133,10 +134,19 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
   - Verify: `cargo test -p cobolt-form-host --test remote_call_pending` — frames keep completing while the call is held; `BTN-OTHER`'s handler
     has not run before the release; afterwards the log reads call-end then other-click, in that order.
 
-- [ ] **T5 — The second failure mechanism of Q7: `RETURN-CODE`** (R10; AC5; O1 closed 2026-10-23)
+- [x] **T5 — The second failure mechanism of Q7: `RETURN-CODE`** (R10; AC5; O1 closed 2026-10-23)
   - **Run of 2026-10-23 stopped here.** spec.md Q7 still reads *To confirm that "the first" is the built-in*, and the second mechanism is not
     named. Nothing built. T1–T4 landed as 2.0.47; T6–T19 not started.
   - **Unblocked 2026-10-23:** the operator confirmed the first is `COBOL::"WS-LAST-ERROR"` and named the second: **`RETURN-CODE`**.
+  - **Done 2026-10-23 (interpreter).** `exec_remote_call` (`cobolt-runtime/src/interpreter/remote.rs`) sets `RETURN-CODE` from the same
+    `CallError.code` it stores in `last_error`, 0 on success — so `rcrun`, embedded child forms, the compiled binary and the backend agree.
+    `test_remote_call.rs`: the failure-class test reads `RETURN-CODE` after each of the nine classes (equals the built-in's code); the success
+    test now fails a first call (`LIMIT 07001`) and shows both cleared to `00000` by the second. 13 passed, 0 failed.
+  - **Browser module: not done, and why.** `cobolt-wasm` has no `RETURN-CODE` register at all (no name in `src/`; an undeclared name is
+    an error outside a conformance build, `lower.rs` `resolve_item`), and `WS-LAST-ERROR` is itself `Unsupported` there
+    (`src/support.rs:261`); `cobolt-wasm-rt/src/remote.rs` `result` answers `FAILED` without reading the error frame's code. The module
+    half — a `RETURN-CODE` register and the error frame's `code` written into it — belongs with the module's `WS-LAST-ERROR`, which is
+    WASM-010's; until then a module program naming `RETURN-CODE` is refused at generation, never silently wrong.
   - Files: `crates/cobolt-runtime/src/interpreter/remote.rs` (sets `RETURN-CODE` from the same `CallError` as `last_error`), the
     `cobolt-wasm` lowering of the remote call (same value in the module), `crates/cobolt-runtime/tests/test_remote_call.rs`.
   - Do: after a failed remote call `RETURN-CODE` holds the failure's numeric code (e.g. 7000 for `limit`), the same code the built-in
@@ -148,7 +158,16 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## M7 — the class C catalogue
 
-- [ ] **T6 — `cobolt-wire::controls`: the catalogue, endpoint names, and the DataGrid binding rows** (R13, R16, R17; AC8 structural half)
+- [x] **T6 — `cobolt-wire::controls`: the catalogue, endpoint names, and the DataGrid binding rows** (R13, R16, R17; AC8 structural half)
+  - **Done 2026-10-23.** `crates/cobolt-wire/src/controls.rs`: `Operation` rows (`CATALOGUE`, `find`, `of_control`, `for_binding`), fields
+    typed by the closed `Role` enum (key, value, bound parameter, row offset/count, count, rows, changes, action, status, message — no
+    variant for SQL, a path, a URL or a command), layouts built as `layout::Item`s (`param_layout`/`result_layout`, `check` = `validate`).
+    DataGrid `READ` (`ROW-OFFSET 9(9)`, `ROW-COUNT 9(4)`, up to 16 bound parameters → `ROW-TOTAL`, up to 100 rows × 32 cells × 128 bytes,
+    `DEPENDING ON` counters) and `SAVE` (up to 100 changes: action, key cells, cells → `COMMIT-STATUS`, `COMMIT-MESSAGE`, `FAILED-CHANGE`),
+    each serving IndexedFile, Sql, RestApi, AgentAi (the last two save through their `update` metadata, `model.rs` `is_writable`).
+    `endpoint_name(form, control, op)` = `RC-<len>-<FORM>-<len>-<CONTROL>-<OP>`: length-prefixed, so collision-free whatever hyphens the
+    names hold; refuses an empty name, a non-COBOL character and an operation the catalogue lacks. 5 new unit tests;
+    `cargo test -p cobolt-wire --no-fail-fast`: lib 26, `random_round_trip` 1, `vectors` 1 — 0 failed. No new dependency.
   - Files: `crates/cobolt-wire/src/controls.rs` (new), `src/lib.rs` (`pub mod controls;`).
   - Do: one row per *(control type, operation)*: parameter and result layouts as `cobolt_wire::layout::Item`s, whether it suspends, the binding
     kinds it serves. Parameters are typed by a closed enum of roles (key, value, row window, change set…) that has **no** variant for SQL text,
@@ -159,7 +178,27 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     inputs; a walk of the catalogue finds no parameter that can carry SQL, a path, a URL or a command; `CobolTable` is absent;
     `cargo test -p cobolt-wire --no-fail-fast`.
 
-- [ ] **T7 — Catalogue rows for the other class C controls** (R12, R14, R15)
+- [x] **T7 — Catalogue rows for the other class C controls** (R12, R14, R15)
+  - **Done 2026-10-23.** 87 more rows (89 in all): IndexedFile × 13 (the facade's `<id>-<OP>` paragraphs, `cobolt-codegen/src/lib.rs`
+    `write_indexed_file_stubs`; stateless per O4 — key and record travel with every call), SqlDatabase × 4 (`Open`, `Query`, `Execute`,
+    `Close`), RestClient × 4, AgentObject `Ask`, KnowledgeBase × 6 (`interpreter/kb.rs`), WebSearch `Search`, FileDropZone `CommitFiles`,
+    Viewer `SaveAs`/`SaveAsPdf`, Maps × 6 (the six exceptions of `cobolt-forms/src/web_class.rs`), and the 16 AWS controls, one row per
+    route of `cobolt-runtime/src/aws/routes.toml` (48).
+  - **R17 finding, built into the rows:** several existing methods take what R17 forbids the browser to choose as an *argument* —
+    `SqlDatabase.Query/Execute(sql)`, `RestClient.Get(path)`, DynamoDB's condition/update expressions, `AwsMcp.Call(tool)`, file paths of
+    `Viewer.SaveAs`, `AwsS3.GetObject`, Rekognition/Textract sources. Each row lists those positions in `fixed` (`Fixed::Statement`,
+    `Resource`, `File`, `Connector`): they are **never** in the parameter group; the remote-lowering pass (T14) must take the call's literal
+    at Build and compile it into the backend program, and refuse a call whose argument there is not a literal. Consequence for T11/T14:
+    one endpoint per *call site* for those rows, not per *(form, control, operation)* — the row test reserves a trailing `-<digits>` on
+    operation names for that number. **Working assumption, not decided:** multi-call SQL transactions (`BeginTransaction`/`Commit`) and
+    `Fetch` across calls are not rows — with no state between backend calls (O4) `Query` answers its rows in one reply.
+  - Secret-bearing properties per row (`secrets`, `secrets_of`): SqlDatabase `ConnectionString`, RestClient `AuthToken`, AgentObject
+    `AgentAPIKey`, KnowledgeBase `EmbeddingAPIKey`, WebSearch `ApiKey` (the model's defaults, `cobolt-forms/src/model.rs`, and
+    `connections.rs` `CREDENTIAL_PROPS`); Maps holds only `ApiKeySource`, the AWS controls a connection *name*.
+  - Tests: `cobolt-wire` `each_row_is_listed_once_and_its_fixed_arguments_are_sound`, `the_secret_bearing_properties_are_named_per_control`
+    (lib 28/0, the R17 walk included); new `cobolt-runtime/tests/test_class_c_catalogue.rs` reads `interpreter.rs` (`exec_method`), `kb.rs`,
+    `aws/routes.toml` and the codegen facade with `include_str!`: every class C control of `web_class::TABLE` (24) has a row, all 89 rows name
+    an operation the runtime has (and `is_known_method` for member calls) — 2 passed, 0 failed.
   - Files: `crates/cobolt-wire/src/controls.rs`.
   - Do: rows for IndexedFile, SqlDatabase, KnowledgeBase, RestClient, AgentObject, WebSearch, FileDropZone, Maps (geocode, directions), Viewer
     (open, save) and the 16 AWS controls (WASM-004 spec `:65`), each operation named after the control's existing COBOL method so the API is unchanged
@@ -169,7 +208,18 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## The web form model
 
-- [ ] **T8 — `BackendConfig` and `BackendRoles` on class C controls in `.wcfrm`/`.mcfrm`, with the IDE panel and Tr keys** (R14, R16)
+- [x] **T8 — `BackendConfig` and `BackendRoles` on class C controls in `.wcfrm`/`.mcfrm`, with the IDE panel and Tr keys** (R14, R16)
+  - **Done 2026-10-23.** The names and readers live in `crates/cobolt-forms/src/web_class.rs` beside the classification they depend on
+    (not `model.rs`): `BACKEND_CONFIG`, `BACKEND_ROLES`, `DEFAULT_BACKEND_ROLES` (`authenticated`), `uses_backend` (class C, or class B with
+    class C operations: Maps, Viewer), `backend_config`, `backend_roles` (empty = any authenticated caller). Nothing is seeded by
+    `Control::new` and no form is rewritten on load: the properties are written when the developer sets them on a web or mobile form,
+    so a desktop `.cfrm` and an older web form save exactly as before, and read the defaults.
+  - IDE: `PropertiesPanel::show_backend_section` (`panels/properties.rs`), drawn after each control's Basic section only when the pane's
+    existing `web_project` flag is set (`app.rs` sets it from `is_web_project`, as for `Instances`); Tr keys `sec_backend`,
+    `lbl_backend_config(_hint)`, `lbl_backend_roles(_hint)` in all six languages (`i18n.rs`).
+  - Tests: `web_class::tests::backend_properties_round_trip_on_a_web_form_and_never_touch_a_desktop_one_005` (`cargo test -p cobolt-forms
+    --features render --lib web_class`: 7 passed, 0 failed); `panels::properties::tests::the_backend_rows_show_on_a_web_form_only_005`
+    (1 passed) and `cargo test -p cobolt-ide --bin cobolt-ide i18n` (19 passed, 0 failed). The full `cobolt-forms` sweep runs at T19.
   - Files: `crates/cobolt-forms/src/model.rs`, the IDE properties panel, `crates/cobolt-ide/src/i18n.rs`.
   - Do: two properties, default empty / "authenticated"; written only for web and mobile forms; desktop `.cfrm` unchanged; a web form saved before
     this task loads with the defaults. Labels and tooltips are `Tr` keys in all six languages.
@@ -179,6 +229,34 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 ## M8 — the backend end, generated
 
 - [ ] **T9 — Generated backend programs for the SQL and IndexedFile DataGrid bindings** (R13, R16, R17; AC7, AC8)
+  - **Run of 2026-10-23 stopped here: the IndexedFile half needs an operator decision.** Nothing of T9 is written.
+    - *Rows.* The desktop grid's cells are `cobolt_indexed::format_field_display` of the record's **bytes**
+      (`cobolt-runtime/src/interpreter.rs` `refresh_indexed_file_binding`; `cobolt-indexed/src/pic.rs`): a numeric DISPLAY field
+      shows all its digits without the decimal point and leading zeros (`0001250` → `1250`), a non-DISPLAY field (COMP, COMP-3…)
+      shows its bytes in hex, and only a field whose bytes begin with `-` shows a sign (`format_numeric_display` keeps the
+      ASCII digits of anything else, so an overpunched last character is dropped). A generated COBOL program that
+      reads through the facade's SELECT/FD gets **values**, not bytes (the interpreter holds COMP/COMP-3 as values, spec §1), so
+      it cannot show the same rows for COMP fields or signed fields — AC7 says "the same rows the desktop shows".
+    - *Save.* The desktop writes a grid's changes as one unit, all or nothing, through `GridSession` and its `rollback`
+      (`interpreter/grid_unit.rs` `apply_indexed`). The facade's COBOL verbs have no rollback (`<id>-ROLLBACK` only reopens the
+      file, `cobolt-codegen/src/lib.rs` `write_indexed_file_stubs`), so a SAVE that fails at its third change has written two.
+    - **The choice (operator):** **(a)** the generated program stays COBOL (D2 holds: an exported program, authenticated, roled,
+      logged) but its work is one new runtime built-in that runs the desktop's own code — e.g. `COBOL::"GRID-READ"` /
+      `COBOL::"GRID-SAVE"` taking the design-time `.cidx` path, fields and keys as literals of the generated program and the
+      browser's row window or changes — parity and atomicity by construction; costs two built-ins (BUILTINS table, KB). **(b)** the
+      facade and COBOL verbs as T9 says, with the divergences recorded: COMP fields shown as their value, a signed field with
+      its `-`, and a two-pass save (validate every change, then write) instead of a rollback. *Recommendation:* (a) — it is the
+      only one that meets AC7 as written, and it reuses the code AC7 compares against.
+    - *The SQL half has no such gap* and is designed, to be written with T9 once (a)/(b) is decided: `EXEC SQL CONNECT TO
+      '<BackendConfig>' AS RC-CONN` (a catalog name, as `tests/cobol/esql/ac9_named_connection.cbl`; the source SqlDatabase's
+      `SqlConnection` name when `BackendConfig` is empty; neither → a Build error), a cursor over `SELECT <bound fields> FROM
+      (<design-time query>) AS RC_Q` (the desktop matches columns by name, `grid_edit.rs` `refresh_sql_binding`), NULL through
+      indicator variables, the window by offset/count, `ROW-TOTAL` from `SELECT COUNT(*)`; SAVE as one unit of `UPDATE`/`INSERT`/
+      `DELETE` with **host variables** (never values spliced into SQL text), `ROLLBACK` on the first failure, `TEST-NUMVAL` for a
+      number (status `92` as the desktop's `sql_literal`), an empty number as NULL. Concurrency checks on Save stay WASM-023's (O3).
+    - *Found on the way, for T15:* the catalogue's DataGrid `READ` result has no status or message, so a backend read that fails
+      (file status 30, a refused CONNECT) is indistinguishable from an empty source; T9 should add `READ-STATUS`/`READ-MESSAGE`
+      to the row (`cobolt-wire/src/controls.rs`) when it is written.
   - Files: `crates/cobolt-codegen/src/remote_controls.rs` (new), `src/lib.rs`, `crates/cobolt-codegen/tests/golden/` (new goldens), the web
     build path that writes `backend/generated/`.
   - Do: for each web form, one COBOL program per used catalogue operation under `backend/generated/`, named by T6's function, with the

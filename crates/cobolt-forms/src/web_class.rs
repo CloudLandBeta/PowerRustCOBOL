@@ -307,6 +307,39 @@ pub fn available_on_web(t: &ControlType) -> bool {
     class_of(t) != D
 }
 
+// ── The backend's side of a class C control (WASM-005 R14, R16) ──────────────
+
+/// The property naming the configuration in `backend/backend.toml` that holds a class C control's
+/// connection, key or credentials. A web or mobile form holds the name only.
+pub const BACKEND_CONFIG: &str = "BackendConfig";
+/// The property restricting who may call the control's generated backend programs.
+pub const BACKEND_ROLES: &str = "BackendRoles";
+/// `BackendRoles` when unset: any authenticated caller. A generated endpoint is never public.
+pub const DEFAULT_BACKEND_ROLES: &str = "authenticated";
+
+/// Does a control of type `t` do work on the backend on the web — class C, or a class B control
+/// with class C operations (Maps geocode and directions, Viewer open and save)? These carry
+/// [`BACKEND_CONFIG`] and [`BACKEND_ROLES`] on a web or mobile form.
+pub fn uses_backend(t: &ControlType) -> bool {
+    class_of(t) == C || exceptions_of(t).iter().any(|e| e.class == C)
+}
+
+/// The control's `BackendConfig`, trimmed; empty when unset (a form saved before WASM-005 T8).
+pub fn backend_config(ctrl: &crate::model::Control) -> String {
+    ctrl.get_prop(BACKEND_CONFIG).map(|v| v.as_str().trim().to_owned()).unwrap_or_default()
+}
+
+/// The roles that may call the control's generated programs. An empty list means any
+/// authenticated caller — what an unset or `authenticated` `BackendRoles` says.
+pub fn backend_roles(ctrl: &crate::model::Control) -> Vec<String> {
+    let text = ctrl.get_prop(BACKEND_ROLES).map(|v| v.as_str().to_owned()).unwrap_or_default();
+    text.split(',')
+        .map(str::trim)
+        .filter(|r| !r.is_empty() && !r.eq_ignore_ascii_case(DEFAULT_BACKEND_ROLES))
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Controls that exist only in the browser series and that the model carries as `Custom`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerKind {
@@ -453,6 +486,48 @@ mod tests {
         assert!(unavailable_operation(&ControlType::Maps, "Geocode").is_none(), "C is available");
         assert!(alternative_of(&ControlType::from_str("acme:thing")).is_some());
         assert!(alternative_of(&ControlType::Button).is_none());
+    }
+
+    /// WASM-005 T8 — `BackendConfig`/`BackendRoles` round-trip on a web form, an older web form
+    /// reads the defaults, and a desktop form saves exactly as before (nothing is added to it).
+    #[test]
+    fn backend_properties_round_trip_on_a_web_form_and_never_touch_a_desktop_one_005() {
+        use crate::model::{Control, Form, PropValue};
+        use crate::xml::{form_to_string, load_form_from_str};
+
+        assert!(uses_backend(&ControlType::SqlDatabase));
+        assert!(uses_backend(&ControlType::DataGrid));
+        assert!(uses_backend(&ControlType::Maps), "class B with class C operations");
+        assert!(uses_backend(&ControlType::AwsS3));
+        assert!(!uses_backend(&ControlType::Button));
+
+        // A web form saved before T8: no such properties, so the defaults.
+        let mut old = Form::new("ORDERS", "Orders", 800, 600);
+        old.controls.push(Control::new("DB-1", ControlType::SqlDatabase, 0, 0));
+        let text = form_to_string(&old).unwrap();
+        assert!(!text.contains(BACKEND_CONFIG) && !text.contains(BACKEND_ROLES));
+        let back = load_form_from_str(&text).unwrap();
+        let db = back.find_control("DB-1").unwrap();
+        assert_eq!(backend_config(db), "");
+        assert!(backend_roles(db).is_empty(), "unset is any authenticated caller");
+
+        // A desktop form: load and save again, byte for byte the same.
+        assert_eq!(form_to_string(&back).unwrap(), text, "a desktop form is saved exactly as before");
+
+        // A web form with the properties set: they survive save and load.
+        let mut web = old.clone();
+        let c = web.controls.iter_mut().find(|c| c.id == "DB-1").unwrap();
+        c.set_prop(BACKEND_CONFIG, PropValue::String("orders-db".into()));
+        c.set_prop(BACKEND_ROLES, PropValue::String("clerk, manager".into()));
+        let text = form_to_string(&web).unwrap();
+        let back = load_form_from_str(&text).unwrap();
+        let db = back.find_control("DB-1").unwrap();
+        assert_eq!(backend_config(db), "orders-db");
+        assert_eq!(backend_roles(db), vec!["clerk".to_owned(), "manager".to_owned()]);
+        assert_eq!(form_to_string(&back).unwrap(), text, "stable on a second save");
+        let mut c = Control::new("X", ControlType::RestClient, 0, 0);
+        c.set_prop(BACKEND_ROLES, PropValue::String(DEFAULT_BACKEND_ROLES.into()));
+        assert!(backend_roles(&c).is_empty(), "\"authenticated\" is the default, not a role");
     }
 
     #[test]
