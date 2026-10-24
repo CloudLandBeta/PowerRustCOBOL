@@ -750,7 +750,17 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## AC8 end to end
 
-- [ ] **T17 — A browser cannot make a generated endpoint run its text** (R17; AC8)
+- [x] **T17 — A browser cannot make a generated endpoint run its text** (R17; AC8)
+  - **Done, 2026-10-24 (2.0.60):** `crates/cobolt-server/tests/generated_refusals.rs`, on the loopback rig's TLS server with
+    T9's generated programs for both grids and the developer's `SETUP-DB`, driven by the raw client (what the player never
+    sends): a READ frame carrying an extra `sql`, `path`, `url` or `command` member is refused by the mapping before the
+    program runs (class `validation`, the member named, the frame's text never repeated) — 4 on the indexed grid's READ, 1 on
+    the SQL grid's; SQL text where a key goes is a value — the indexed grid's numeric key refuses it as a value it cannot hold
+    (`92`, `CUST-ID` named), the SQL grid's key matches no row (`23`) and nothing is deleted; SQL text where a cell goes is
+    stored as the name it is (one that fits the field; a longer one is `92` as any value would be) and read back as such. The
+    log (`rig.sink.records()`): the refused frames are `call` records with outcome `validation`, never `ok` (4 refused / 2 ran
+    for the indexed READ, 1 / 1 for the SQL READ; every save ran, as values), and none of the frames' texts (`DROP TABLE`,
+    `etc/passwd`, `evil.example`, `rm -rf`, `1=1`) is in it. 17 records in all.
   - Files: `crates/cobolt-server/tests/loopback.rs` (or a new test file using its rig).
   - Do/Verify: against a backend with T9's generated programs, frames to a generated endpoint carrying an extra `sql`, `path`, `url` or
     `command` member, or SQL text in a key parameter, are refused (`unknown-key`, or the bound parameter matches no row — never executed as SQL);

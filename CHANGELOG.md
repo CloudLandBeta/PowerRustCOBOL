@@ -17,6 +17,21 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.60] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.59. A test; no code.)*
+
+### Test: a browser cannot make a generated endpoint run its text (WASM-005, part 9: T17, AC8)
+
+`crates/cobolt-server/tests/generated_refusals.rs`: against a real TLS loopback backend holding the programs the Build generates for a
+bound grid (the indexed and the SQL grid of the fixture form, and the developer's `SETUP-DB`), a raw client sends what the player never
+would. A READ frame carrying an extra `sql`, `path`, `url` or `command` member is refused by the mapping before the program runs — class
+`validation`, the member named, the frame's text never repeated; SQL text where a key goes is a value: the indexed grid's numeric key
+refuses it as a value it cannot hold (`92`, `CUST-ID` named), the SQL grid's key matches no row (`23`), and nothing is deleted; SQL text
+where a cell goes is stored as the name it is and read back as such. The backend's log says so: the refused frames are `call` records
+with the refusal's class, never `ok` (4 refused and 2 run for the indexed READ, 1 and 1 for the SQL READ; every save ran, its texts as
+values), and none of the frames' texts is in it. 17 log records in all; 1 test, 0 failed. `README.md` and `docs/` untouched.
+
 ## [PowerRustCOBOL 2.0.59] — 2026-10-24
 
 *(Written on `features-2x`, after 2.0.58.)*
