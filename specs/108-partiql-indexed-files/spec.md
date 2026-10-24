@@ -70,15 +70,23 @@ only").
 *Mapped 2026-10-24 against `main` at 1.91.223 and the working tree. Line
 numbers are the working tree's.*
 
-**The `IndexedFile` control has no `::` methods.** Its "facade" is a set of
-PERFORM paragraphs that `cobolt-codegen` writes into the *outer* form program
-(`<id>-OPEN`, `-START`, `-READ-NEXT`, `-READ-PREVIOUS`, `-READ-FIRST`,
-`-READ-LAST`, `-READ-INVALID`, `-WRITE`, `-REWRITE`, `-DELETE`, `-COMMIT`,
-`-ROLLBACK`, `-CLOSE`; `crates/cobolt-codegen/src/lib.rs:1956-2147`). A handler
-is a nested program and cannot `PERFORM` them; the compiler's own reference
-says so in as many words (`crates/cobolt-compiler/src/lib.rs:4866`: "IndexedFile
-controls have no `::` methods … There is currently no supported way to drive an
-IndexedFile control from an event handler"), and a test pins it
+**The `IndexedFile` control has thirteen file methods, generated as PERFORM
+paragraphs; what it lacks is only the inline `::` form.** Its file-method
+facade — OPEN, START, READ-NEXT, READ-PREVIOUS, READ-FIRST, READ-LAST,
+READ-INVALID, WRITE, REWRITE, DELETE, COMMIT, ROLLBACK and CLOSE — is written
+by `cobolt-codegen` into the *outer* form program as the paragraphs
+`<id>-<OP>` (`crates/cobolt-codegen/src/lib.rs:1956-2147`); the generated main
+program performs OPEN before `onLoad` when `AutoOpen` is on and CLOSE after
+the event loop. What a handler cannot do is call one of them inline, as it
+calls every other control's methods (`IXF-1::ReadNext()`): a handler is a
+nested program and cannot `PERFORM` the outer program's paragraphs, the
+run-time method dispatch has no arm for the control — `IXF-1::Open()` lands in
+the SqlDatabase `OPEN` arm and any other name is read or written as a property
+(`crates/cobolt-runtime/src/interpreter.rs:16098-16151`, `:17620`,
+`:17792-17819`) — the compiler's own reference says so in as many words
+(`crates/cobolt-compiler/src/lib.rs:4866`: "IndexedFile controls have no `::`
+methods … There is currently no supported way to drive an IndexedFile control
+from an event handler"), and a test pins it
 (`crates/cobolt-ide/src/form_runtime.rs:1288-1324`). In practice a handler
 reaches the file with the plain COBOL verbs on an `FD … IS GLOBAL` the
 developer declares by hand in the form's COBOL structure, which the facade's
@@ -87,9 +95,7 @@ own `OPEN <file>` also needs. The control's properties are `IndexedFile` (the
 `RecordName`, `KeyName`, `CurrentKeyDataItem`, `StatusDataItem`,
 `CurrentRecordDataItem` and `OperatorName` (`crates/cobolt-forms/src/model.rs:6441-6456`);
 it declares `onError`, `onComplete`, `onCancelled` and `onTimeout`, and nothing
-raises them (`model.rs:3908-3914`). The run-time method dispatch has no arm for
-it: `IXF-1::Open()` lands in the SqlDatabase `OPEN` arm
-(`crates/cobolt-runtime/src/interpreter.rs:16098-16151`, `:17620`).
+raises them (`model.rs:3908-3914`).
 
 **The `.cidx` is the schema.** `IndexedDefinition { name, assign_path,
 access_mode, record_format, storage, compression, persistence, keys, fields, … }`
@@ -893,7 +899,7 @@ GOLDEN RULE #7 result block.
 - **Form file:** one new binding source inside `<DataBindings>` (JSON, serde
   default) and two new properties: `AutoCommit` on `IndexedFile`, `BindingQuery`
   on bound targets (run-time). Old `.cfrm` files load unchanged (R40).
-- **The control's first methods:** the run-time dispatch needs an `IndexedFile`
+- **The control's first `::` methods:** the run-time dispatch needs an `IndexedFile`
   arm before the shared `match` (today `::Open()` lands in SqlDatabase's), the
   parser's known-method vocabulary gains the names (R43), and the test
   `indexedfile_paragraphs_are_not_reachable_from_a_handler` keeps its claim
@@ -933,7 +939,7 @@ GOLDEN RULE #7 result block.
   WASM-PARITY row and its own work. Nothing in this spec touches `README.md`
   or `docs/` on `2.x.x`.
 - **Classification precedents:** none applies in the other direction — a
-  query language and the control's first methods are new capabilities, not
+  query language and the control's first `::` methods are new capabilities, not
   debt (`CLAUDE.md`, Classification precedents).
 - **Fix vs feature:** **feature.** `features` branch; `z` bump per change; the
   defects of §2 ("Defects met on the way") are fixes for `fixes`, in their own
