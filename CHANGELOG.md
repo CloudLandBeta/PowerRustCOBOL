@@ -22,6 +22,25 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.64] — 2026-10-24
+
+*(Written on `features-2x`, after the merge of 2.0.63.)*
+
+### Fixed: what the merge left to do — the knowledge-base store, and a test that pinned a divergence `2.x.x` had closed
+
+- **`assets/knowledge/chunked.data` regenerated** from the merged documentation tables: 3,596 records from 8 documents. The store `features-2x`
+  built (3,595) knew nothing of the 1.91.220 paragraph on bound Rust items that came across from `2.x.x`, and `2.x.x`'s knew nothing of the grid
+  and class C paragraphs of 2.0.61. `prebuilt_chunked_kb_matches_the_published_documentation` is green on the merged tree.
+- **`cobolt-wasm/tests/arith_table.rs`.** WASM-PARITY #18 — a division by zero in `COMPUTE … ON SIZE ERROR` — was fixed in the interpreter at 1.91.222
+  and forward-ported as 2.0.50, so the standalone test that asserted "the interpreter still stops here" turned red by design the moment the two
+  lines met. The case now sits in the arithmetic table (`COMPUTE`, *SIZE ERROR (by zero)*), where the generated module is held to the interpreter's
+  answer in both memory variants. The ledger row says so.
+
+Measured on the merged tree: `cobolt-ast`, `cobolt-parser`, `cobolt-semantic`, `cobolt-codegen`, `cobolt-compiler` and `cobolt-wasm` (21 test
+binaries) pass in full; `cobolt-runtime` passes its 506 library tests and twelve of its integration binaries (the interpreter parity, the Rust
+bridge, conditions, arithmetic receivers, control flow, the hierarchy, the value methods, subscripts, `CALL … RETURNING`, the `COBOL::` object call
+and the code style).
+
 ## [PowerRustCOBOL 2.0.63] — 2026-10-24
 
 *(Written on `2.x.x`: the merge of `features-2x` (2.0.32 to 2.0.62) into the integration branch, which until now held only the fixes forward-ported from 1.x.x.)*

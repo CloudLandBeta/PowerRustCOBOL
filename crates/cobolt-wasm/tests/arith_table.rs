@@ -54,6 +54,13 @@ fn rows() -> Vec<(&'static str, &'static str, String)> {
         "SIZE ERROR (by zero)",
         "    MOVE 0 TO C\n    MOVE 9 TO R0\n    DIVIDE A BY C GIVING R0 ON SIZE ERROR DISPLAY \"ZERO \" R0 END-DIVIDE\n    DIVIDE C INTO A GIVING R0 ON SIZE ERROR DISPLAY \"ZERO2 \" R0 END-DIVIDE\n".to_string(),
     ));
+    // WASM-PARITY #18, closed at 1.91.222 / 2.0.50: a division by zero in COMPUTE is a size error
+    // condition, as it is in DIVIDE; the phrase runs and the receiver is left as it was.
+    v.push((
+        "COMPUTE",
+        "SIZE ERROR (by zero)",
+        "    MOVE 0 TO C\n    MOVE 9 TO R0\n    COMPUTE R0 = A / C ON SIZE ERROR DISPLAY \"SIZE \" R0 NOT ON SIZE ERROR DISPLAY \"NO\" END-COMPUTE\n    DISPLAY \"AFTER \" R0\n".to_string(),
+    ));
     v.push((
         "ADD",
         "18 digits",
@@ -99,33 +106,4 @@ fn arithmetic_matches_the_interpreter() {
         }
     }
     eprintln!("arithmetic table: {} rows, {equal} equal on both engines and both memory variants ({lines} lines)", rows.len());
-}
-
-/// `COMPUTE … / 0` with `ON SIZE ERROR` is a size error condition (COBOL-85:
-/// division by zero), so the phrase runs and the receiver is left alone. The
-/// interpreter stops with `DivisionByZero` instead (`WASM-PARITY.md` #18, a
-/// 1.x.x fix); this pins the module's answer until the two agree.
-#[test]
-fn compute_division_by_zero_is_a_size_error() {
-    let src = program(
-        "    MOVE 0 TO C\n    MOVE 9 TO R0\n    COMPUTE R0 = A / C ON SIZE ERROR DISPLAY \"SIZE \" R0 NOT ON SIZE ERROR DISPLAY \"NO\" END-COMPUTE\n    DISPLAY \"AFTER \" R0\n",
-    );
-    for multi in [true, false] {
-        let o = common::run_wasm(
-            &src,
-            &cobolt_wasm::Options {
-                multi_memory: multi,
-                ..cobolt_wasm::Options::default()
-            },
-        );
-        assert_eq!(
-            common::wasm_lines(&o),
-            vec!["SIZE 0000009", "AFTER 0000009"],
-            "multi={multi}"
-        );
-    }
-    assert!(
-        common::run_interpreter(&src).is_empty(),
-        "the interpreter still stops here; when it is fixed, move this case into the table"
-    );
 }
