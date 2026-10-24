@@ -769,7 +769,23 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## M12 — System KB
 
-- [ ] **T18 — System KB: the limits, every class C note, the generated endpoints** (AC10)
+- [x] **T18 — System KB: the limits, every class C note, the generated endpoints** (AC10)
+  - **Done, 2026-10-24 (2.0.61).** `crates/cobolt-compiler/src/lib.rs`: the section *Calling the backend* gained **how a bound grid uses
+    its generated programs** (windows of 100 rows until the source is exhausted; one SAVE unit; the grid's refusals first, the
+    backend's naming the change and the cell; `90` kept for a backend not reached; **in the browser the player makes the calls**, so
+    `RefreshBinding()` answers the count shown now and `Save()` answers `98` — handle `onSaved`/`onCommitError` for the outcome on
+    both desktop and web; the browser's differences: key field identity, no operator cell editing yet, a changed key is a delete
+    and an insert; a COBOL table never calls the backend) and a paragraph on **the AWS controls** (class C; the control holds the
+    NAME of a connection, never a key; the literal-statement/resource and local-file rules apply); the project-file reference
+    lists **`call_timeout_ms`** (`[web]` and `[mobile]`, default 60 000 ms, then `TRANSPORT` 1002) and a paragraph explains it;
+    and one note per class C control's one-liner — AgentObject, RestClient, SqlDatabase, IndexedFile, FileDropZone, WebSearch, Maps,
+    KnowledgeBase — says its API is unchanged on the web, that it runs on the Backend, which `[[configuration]]` its
+    **BackendConfig** names and what Check and Build refuse (the Viewer's and the DataGrid's notes were there). The queued events
+    of a pending call (T4) and the payload limit (T3) were documented already. `assets/knowledge/chunked.data` regenerated: 3 595
+    records from 8 documents. **Evidence:** `cargo test -p cobolt-ide --bin cobolt-ide` — `the_system_kb_teaches_every_builtin_inline`
+    and `prebuilt_chunked_kb_matches_the_published_documentation` both ok; `cargo test -p cobolt-compiler` — lib 207 passed, every
+    integration target ok. The IndexedFile note says what is true today: the control's own `<id>-OPEN … -CLOSE` paragraphs are not
+    served by the Backend yet; a grid bound to the file is.
   - Files: `crates/cobolt-compiler/src/lib.rs` (the doc tables and the section *Calling the backend* `:5130`), `crates/cobolt-runtime/src/builtins.rs`
     `BUILTINS` (only if T5 adds a built-in), `assets/knowledge/chunked.data` (regenerated).
   - Do: document the R11 keys (T3), queued events while a call is pending (T4), one note per class C control (its API is unchanged on the web,

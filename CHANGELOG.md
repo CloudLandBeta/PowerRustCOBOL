@@ -17,6 +17,32 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.61] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.60. Documentation tables only.)*
+
+### Docs: the System KB teaches how a bound grid and the class C controls work on the web (WASM-005, part 10: T18)
+
+The System KB (what Grace and the coding agent read) is built from the compiler's documentation tables, and it said nothing about 2.0.58's
+and 2.0.59's remote bindings, the call timeout, or what each class C control does on a Web or Mobile form. It does now.
+
+- **A bound grid on the web.** The section *Calling the backend* says how a DataGrid bound to an indexed file or a SQL query uses its
+  generated programs: windows of 100 rows until the source is exhausted, one `SAVE` unit, the grid's own refusals first and the backend's
+  naming the change and the cell, `90` kept for a backend not reached. And the difference that matters to a program: **in the browser the
+  player makes the calls**, so `RefreshBinding()` answers the count shown now and `Save()` answers `98` — handle `onSaved` and
+  `onCommitError` to learn a save's outcome on both the desktop and the web. A COBOL table never calls the backend.
+- **The call timeout.** `call_timeout_ms` is in the project-file reference under `[web]` and `[mobile]` (default 60 000 ms, then
+  `TRANSPORT` 1002), with a paragraph on what it ends.
+- **One note per class C control.** AgentObject, RestClient, SqlDatabase, IndexedFile, FileDropZone, WebSearch, Maps and KnowledgeBase
+  now say that their API is unchanged on the web, that every call runs on the Backend, which `[[configuration]]` their **BackendConfig**
+  names and what Check and Build refuse; the sixteen AWS controls have a paragraph of their own (the control holds the NAME of a
+  connection, never a key). The IndexedFile note is exact about today: its own `<id>-OPEN … -CLOSE` paragraphs are not served by the
+  Backend yet, a grid bound to the file is.
+
+`assets/knowledge/chunked.data` regenerated (3 595 records from 8 documents). Measured, 0 failed: `cobolt-ide` —
+`the_system_kb_teaches_every_builtin_inline` and `prebuilt_chunked_kb_matches_the_published_documentation`; `cobolt-compiler` — lib 207
+passed, every integration target ok. `README.md` and `docs/` untouched.
+
 ## [PowerRustCOBOL 2.0.60] — 2026-10-24
 
 *(Written on `features-2x`, after 2.0.59. A test; no code.)*
