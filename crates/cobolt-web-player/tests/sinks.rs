@@ -26,6 +26,7 @@ const FORBIDDEN: &[(&str, &str)] = &[
     ("insertAdjacentHTML", "inserts markup"),
     ("insert_adjacent_html", "inserts markup"),
     ("set_inner_html", "inserts markup"),
+    ("inner_html", "inserts markup (Leptos's `inner_html` attribute, WASM-016 R15)"),
     ("set_outer_html", "inserts markup"),
     ("insert_adjacent_element_html", "inserts markup"),
     ("createContextualFragment", "inserts markup"),
@@ -112,13 +113,18 @@ fn the_players_sources_insert_no_markup_run_no_string_and_leak_no_closure() {
 
 #[test]
 fn every_node_the_page_gets_is_made_with_the_dom_builder_and_the_viewer_never_takes_markup() {
-    // The positive half: the code that makes elements is `dom/h.rs` and `dom/apply.rs`, and the
-    // Viewer's view module has no function that takes a string of markup into the page.
+    // The positive half: the elements of the page are made by Leptos's element builders in
+    // `dom/reactive.rs` (the page's own few by `dom/h.rs`, with `createElement`), their attributes
+    // and styles are set through `dom/attrs.rs` with `setAttribute` and the CSSOM, and the Viewer's
+    // view module has no function that takes a string of markup into the page.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let h = std::fs::read_to_string(root.join("src/dom/h.rs")).unwrap();
-    assert!(h.contains("create_element") && h.contains("create_text_node"), "the builder uses createElement and text nodes");
-    let apply = std::fs::read_to_string(root.join("src/dom/apply.rs")).unwrap();
-    assert!(apply.contains("set_text_content") && apply.contains("set_attribute"), "the patch sets text through textContent and attributes through setAttribute");
+    assert!(h.contains("create_element"), "the page's own elements are made with createElement");
+    let attrs = std::fs::read_to_string(root.join("src/dom/attrs.rs")).unwrap();
+    assert!(attrs.contains("set_attribute") && attrs.contains("h::css("), "attributes through setAttribute, styles through the CSSOM");
+    let reactive = std::fs::read_to_string(root.join("src/dom/reactive.rs")).unwrap();
+    assert!(reactive.contains("leptos::html::custom") && reactive.contains("super::attrs::"), "the Leptos layer builds elements with Leptos and applies attributes by the shared rules");
+    assert!(!root.join("src/dom/apply.rs").exists(), "the hand-written patch is retired (WASM-016 T24)");
     let viewer = std::fs::read_to_string(root.join("src/view/viewer.rs")).unwrap();
     let code: String = without_tests(&viewer).lines().filter(|l| is_code(l)).collect::<Vec<_>>().join("\n");
     assert!(code.contains("VNode::new(\"p\")") && code.contains("RawHtml"), "the Viewer builds nodes and keeps raw HTML as text");
@@ -128,7 +134,7 @@ fn every_node_the_page_gets_is_made_with_the_dom_builder_and_the_viewer_never_ta
 #[test]
 fn the_search_itself_finds_what_it_looks_for() {
     // A planted violation is found by the same rule the real search uses.
-    let sample = "let _ = el.set_inner_html(&s);\n// an explanation: never innerHTML\nlet c = Closure::forget(f);";
+    let sample = "let _ = el.set_inner_html(&s);\n// an explanation: never innerHTML\nlet v = view! { <div inner_html=s /> };\nlet c = Closure::forget(f);";
     let found: Vec<&str> = sample.lines().filter(|l| is_code(l)).flat_map(|l| FORBIDDEN.iter().filter(move |(n, _)| l.contains(n)).map(|(n, _)| *n)).collect();
-    assert_eq!(found, ["set_inner_html", "Closure::forget"], "the comment line is not code");
+    assert_eq!(found, ["set_inner_html", "inner_html", "inner_html", "Closure::forget"], "the comment line is not code; Leptos's `inner_html` is caught");
 }

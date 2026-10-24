@@ -8618,6 +8618,13 @@ impl DesignerPanel {
                     self.dirty = true;
                 }
             }
+            // WASM-017 R2 — kept as written; the Build refuses out of range.
+            "Instances" => {
+                if let Ok(v) = value.trim().parse::<u32>() {
+                    self.form.instances = Some(v);
+                    self.dirty = true;
+                }
+            }
             "ModalOverlayStyle" => {
                 self.form.modal_overlay_style = cobolt_forms::model::ModalOverlayStyle::from_str(&value);
                 self.dirty = true;
@@ -8771,6 +8778,7 @@ impl DesignerPanel {
             "DockToOpener" => Some(self.form.dock_to_opener.as_str().to_string()),
             "DockGap" => Some(self.form.dock_gap.to_string()),
             "DockLength" => Some(self.form.dock_length.to_string()),
+            "Instances" => Some(self.form.effective_instances(self.form.main_form).to_string()),
             "ModalOverlayStyle" => Some(self.form.modal_overlay_style.as_str().to_string()),
             "WindowEffects" => Some(bool_str(self.form.window_effects)),
             "FormFormat" => Some(self.form.form_format.as_str().to_string()),
@@ -16410,7 +16418,7 @@ impl DesignerPanel {
                     }
                     continue;
                 }
-                if path.extension().and_then(|x| x.to_str()) != Some("cfrm") {
+                if !cobolt_compiler::project_kind::is_form_path(&path) {
                     continue;
                 }
                 let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
@@ -18020,6 +18028,8 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "DockToOpener",
     "DockGap",
     "DockLength",
+    // WASM-017 R2 — Web and Mobile forms
+    "Instances",
     // 051 R19/R28
     "ModalOverlayStyle",
     "WindowEffects",

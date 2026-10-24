@@ -408,9 +408,11 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         "SETFILTER" | "CLEARFILTERS" | "FREEZECOLUMNS" | "FREEZEROWS" | "SETROWHEIGHT" | "SETCOLUMNWIDTH" | "SETCOLUMNTITLE" => {
             tree.command(ctl, &m.to_ascii_lowercase(), args.iter().map(|s| (*s).to_owned()).collect());
         }
+        // A grid bound to an indexed file or a SQL query is the host's (`Host::grid_method`,
+        // WASM-005 T16) and never reaches this arm; any other grid has no source the player can call.
         "REFRESHBINDING" | "COMMITEDIT" | "DISCARDEDIT" | "SAVE" if is_class(&tree.ctls[ctl], ControlType::DataGrid) => {
             return Err(MethodError::Unsupported(format!(
-                "{method} works through the backend (class C control): the application's remote data layer performs it"
+                "{method} needs a data binding the backend serves (an indexed file or a SQL query, WASM-005 R13); this grid has none"
             )))
         }
         // ── Timer ───────────────────────────────────────────────────────────

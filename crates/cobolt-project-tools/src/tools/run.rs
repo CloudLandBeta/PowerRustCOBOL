@@ -180,8 +180,8 @@ pub fn in_shell(host: &mut impl ProjectHost, root: &ProjectRoot, runner: Option<
 /// Run `run_form`: regenerate the form's COBOL, run it, and answer.
 pub fn run(host: &mut impl ProjectHost, root: &ProjectRoot, runner: Option<&FormRunner>, rel: &str, steps: &[Value], limit_s: u64) -> Result<(Option<Vec<u8>>, Value), String> {
     let runner = runner.ok_or("run_form is not available in this server")?;
-    if !rel.to_ascii_lowercase().ends_with(".cfrm") {
-        return Err("run_form takes a form (.cfrm)".to_owned());
+    if !cobolt_compiler::project_kind::is_form_path(Path::new(rel)) {
+        return Err("run_form takes a form (.cfrm, .wcfrm or .mcfrm)".to_owned());
     }
     let cfrm = root.resolve(rel)?;
     if !cfrm.is_file() {

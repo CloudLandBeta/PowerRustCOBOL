@@ -140,7 +140,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                 ),
                 input_schema: json!({
                     "type": "object",
-                    "properties": { "path": path_arg("Optional project-relative .cfrm, .cidx or COBOL source; omit for the whole project.") },
+                    "properties": { "path": path_arg("Optional project-relative form (.cfrm, .wcfrm or .mcfrm), .cidx or COBOL source; omit for the whole project.") },
                     "additionalProperties": false
                 }),
                 annotations: None,
@@ -155,7 +155,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                 ),
                 input_schema: json!({
                     "type": "object",
-                    "properties": { "path": path_arg("Optional project-relative .cfrm or .cidx; omit for all.") },
+                    "properties": { "path": path_arg("Optional project-relative form (.cfrm, .wcfrm or .mcfrm) or .cidx; omit for all.") },
                     "additionalProperties": false
                 }),
                 annotations: None,
@@ -255,7 +255,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                 ),
                 input_schema: json!({
                     "type": "object",
-                    "properties": { "path": path_arg("Project-relative .cfrm or .cidx.") },
+                    "properties": { "path": path_arg("Project-relative form (.cfrm, .wcfrm or .mcfrm) or .cidx.") },
                     "required": ["path"],
                     "additionalProperties": false
                 }),
@@ -299,7 +299,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                 input_schema: json!({
                     "type": "object",
                     "properties": {
-                        "path": { "type": "string", "description": "Project-relative .cfrm, e.g. forms/ORDERS.cfrm" },
+                        "path": { "type": "string", "description": "Project-relative form, e.g. forms/ORDERS.cfrm (webforms/*.wcfrm and mobileforms/*.mcfrm in a Web or Mobile project)" },
                         "scale": { "type": "number", "minimum": 0.25, "maximum": 3,
                                    "description": "Picture scale, 1 = one pixel per designed point (default 1)." },
                         "width": { "type": "number", "minimum": 64, "maximum": 8000,
@@ -319,7 +319,8 @@ impl<H: ProjectHost> ProjectTools<H> {
                 description: Some(
                     "Run a form off screen, with its real program, through a script of steps — \
                      {\"set\": {control, property, value}} as if typed, {\"event\": {control, name}} \
-                     as if clicked, {\"wait_ms\": n}, {\"read\": {control, property}}, and in an \
+                     as if clicked, {\"wait_ms\": n}, {\"read\": {control, property}}, \
+                     {\"dump\": true} for every control's live properties at that point, and in an \
                      application shell {\"open_form\": name} to load a form into the ContentPane \
                      (set, event and read then act on it) — and answer \
                      with what the program DISPLAYed, the values read, any runtime error and a \
@@ -330,7 +331,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                 input_schema: json!({
                     "type": "object",
                     "properties": {
-                        "path": { "type": "string", "description": "Project-relative .cfrm" },
+                        "path": { "type": "string", "description": "Project-relative form (.cfrm, .wcfrm or .mcfrm)" },
                         "steps": { "type": "array", "items": { "type": "object" },
                                    "description": "The script, in order." },
                         "time_limit_s": { "type": "integer", "minimum": 1, "maximum": 120,

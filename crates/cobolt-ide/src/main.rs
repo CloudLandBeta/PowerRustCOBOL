@@ -24,6 +24,7 @@ pub mod agent_inspection;
 pub mod agents_db;
 mod app;
 pub mod aurora;
+mod backend_run;
 pub mod contrast;
 pub mod crash;
 pub mod data_binding_guardian;
@@ -97,6 +98,9 @@ pub fn mr8(v: f32) -> i8 {
 }
 
 fn main() -> eframe::Result<()> {
+    // WASM-010 T19: Build of a Web or Mobile project is the WebAssembly
+    // generator and the bundler; Preview and the tools see it through the trait.
+    cobolt_project_tools::web::link(std::sync::Arc::new(cobolt_project_tools::web::generator::GeneratorBackend));
     // `--seed-examples`: copy the shipped example project into the developer's
     // own folder and exit, without opening a window.
     //

@@ -10,6 +10,8 @@
 //! * [`node`] — the value of a group, a tree shaped like its layout.
 //! * [`mapping`] — the COBOL group <-> JSON mapping, in both directions, with
 //!   the rules and the error list the golden vectors pin.
+//! * [`controls`] — the class C catalogue: one row per control operation that
+//!   runs on the backend on the web, its layouts and its endpoint name.
 //! * [`json`], [`number`] — the strict JSON reader and the exact decimal text
 //!   the mapping is built on.
 //!
@@ -21,6 +23,7 @@
 pub mod call;
 pub mod compat;
 pub mod contract;
+pub mod controls;
 pub mod error;
 pub mod evolution;
 pub mod json;

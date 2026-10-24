@@ -17,6 +17,259 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+> **Note — the fix number ran twice again, 2.0.34 and 2.0.36.** Two fixes forward-ported to `2.x.x` from 1.x.x (1.91.220 and 1.91.221) were
+> numbered 2.0.34 and 2.0.36 while `features-2x` was using the same numbers for WASM-010 (the engine probe, and the in-memory files, `SORT`
+> and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
+> has been renumbered; 2.0.63 carries the version forward past them all.
+
+## [PowerRustCOBOL 2.0.63] — 2026-10-24
+
+*(Written on `2.x.x`: the merge of `features-2x` (2.0.32 to 2.0.62) into the integration branch, which until now held only the fixes forward-ported from 1.x.x.)*
+
+### Merged: the WebAssembly work of `features-2x` joins `2.x.x`
+
+Thirty-six commits of `features-2x` — the Web and Mobile form files (WASM-001), the Web Build and its host page (WASM-002), the backend that keeps
+a state per connection (WASM-003), the WebAssembly generator on `wasmtime` (WASM-010), the Leptos player and the browser matrix (WASM-016,
+WASM-017), the remote calls and the class C controls (WASM-005, parts 1 to 10) and the headless `dump` step — meet the four fixes `2.x.x` had taken
+from `main`: 1.91.220 (here 2.0.34), 1.91.221 (2.0.36), 1.91.222 (2.0.50) and 1.91.223 (2.0.52).
+
+Five files conflicted, none of them in logic:
+
+- **`CHANGELOG.md`** — both records kept, in version order. 2.0.34 and 2.0.36 each name two entries (the note at the top says which).
+- **`crates/cobolt-ide/src/version.rs`** — 2.0.63.
+- **`crates/cobolt-ast/src/program.rs` and `crates/cobolt-parser/src/identification.rs`** — the comments on the `IS INITIAL` field. The two sides
+  described the same field; the forward-port's, which says the interpreter honours it since 1.91.221, is the true one and is kept.
+- **`assets/knowledge/chunked.data`** — a binary that each side had rebuilt from its own documentation tables. `features-2x`'s is carried here
+  and is regenerated from the merged tables in the next commit.
+
+*This line does not carry the Developer's Guide: `docs/` describes 1.x.x and is not touched here.*
+
+## [PowerRustCOBOL 2.0.62] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.61.)*
+
+### Feature: a headless `run_form` can dump a form's whole live state in one step, and the player's view layer can be drawn as a static page and measured against the desktop (WASM-016 R14)
+
+Look-and-feel parity between the desktop and the web is a measurement, and the measurement needed two things that did not exist.
+
+- **`{"dump": true}` in the `run_form` script.** The step answers, in its `state`, every control of the form on screen: whether it is
+  visible and enabled, and its properties — the designed ones and what the program wrote. Keys and properties come in name order, so two
+  dumps of one state are the same text. A property the program wrote is spelled as COBOL spells it (`CAPTION`) and replaces the designed
+  `Caption`, so a reader compares names without regard to case. One step now takes the place of a `read` per property, which is what a
+  form with two hundred controls needs. The coding agent's `run_form` tool lists it.
+- **`parity_page` (an example of the web player).** It runs the player's view layer natively — the elements each control becomes and
+  the property-layer stylesheet its properties write — with no program module and no browser, and writes the result as one HTML page in
+  the player's own shadow root with its own base sheet, so a headless browser takes the picture the desktop's is compared with. `--state`
+  applies a dump to the tree the way a running program writes it; `--geometry` makes the page write every control's box into the
+  document, and `--compare` checks each box against the one the desktop's layout solver gives the control.
+
+Measured by `cargo test -p cobolt-form-host --test headless_dump`: the real host and interpreter, a form of three controls, a handler
+that writes a caption and shows a hidden label — the dump before the click holds the designed state, the dump after holds what the
+handler wrote, and both are in name order.
+
+## [PowerRustCOBOL 2.0.61] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.60. Documentation tables only.)*
+
+### Docs: the System KB teaches how a bound grid and the class C controls work on the web (WASM-005, part 10: T18)
+
+The System KB (what Grace and the coding agent read) is built from the compiler's documentation tables, and it said nothing about 2.0.58's
+and 2.0.59's remote bindings, the call timeout, or what each class C control does on a Web or Mobile form. It does now.
+
+- **A bound grid on the web.** The section *Calling the backend* says how a DataGrid bound to an indexed file or a SQL query uses its
+  generated programs: windows of 100 rows until the source is exhausted, one `SAVE` unit, the grid's own refusals first and the backend's
+  naming the change and the cell, `90` kept for a backend not reached. And the difference that matters to a program: **in the browser the
+  player makes the calls**, so `RefreshBinding()` answers the count shown now and `Save()` answers `98` — handle `onSaved` and
+  `onCommitError` to learn a save's outcome on both the desktop and the web. A COBOL table never calls the backend.
+- **The call timeout.** `call_timeout_ms` is in the project-file reference under `[web]` and `[mobile]` (default 60 000 ms, then
+  `TRANSPORT` 1002), with a paragraph on what it ends.
+- **One note per class C control.** AgentObject, RestClient, SqlDatabase, IndexedFile, FileDropZone, WebSearch, Maps and KnowledgeBase
+  now say that their API is unchanged on the web, that every call runs on the Backend, which `[[configuration]]` their **BackendConfig**
+  names and what Check and Build refuse; the sixteen AWS controls have a paragraph of their own (the control holds the NAME of a
+  connection, never a key). The IndexedFile note is exact about today: its own `<id>-OPEN … -CLOSE` paragraphs are not served by the
+  Backend yet, a grid bound to the file is.
+
+`assets/knowledge/chunked.data` regenerated (3 595 records from 8 documents). Measured, 0 failed: `cobolt-ide` —
+`the_system_kb_teaches_every_builtin_inline` and `prebuilt_chunked_kb_matches_the_published_documentation`; `cobolt-compiler` — lib 207
+passed, every integration target ok. `README.md` and `docs/` untouched.
+
+## [PowerRustCOBOL 2.0.60] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.59. A test; no code.)*
+
+### Test: a browser cannot make a generated endpoint run its text (WASM-005, part 9: T17, AC8)
+
+`crates/cobolt-server/tests/generated_refusals.rs`: against a real TLS loopback backend holding the programs the Build generates for a
+bound grid (the indexed and the SQL grid of the fixture form, and the developer's `SETUP-DB`), a raw client sends what the player never
+would. A READ frame carrying an extra `sql`, `path`, `url` or `command` member is refused by the mapping before the program runs — class
+`validation`, the member named, the frame's text never repeated; SQL text where a key goes is a value: the indexed grid's numeric key
+refuses it as a value it cannot hold (`92`, `CUST-ID` named), the SQL grid's key matches no row (`23`), and nothing is deleted; SQL text
+where a cell goes is stored as the name it is and read back as such. The backend's log says so: the refused frames are `call` records
+with the refusal's class, never `ok` (4 refused and 2 run for the indexed READ, 1 and 1 for the SQL READ; every save ran, its texts as
+values), and none of the frames' texts is in it. 17 log records in all; 1 test, 0 failed. `README.md` and `docs/` untouched.
+
+## [PowerRustCOBOL 2.0.59] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.58.)*
+
+### Feature: in the browser, a remote-bound DataGrid fills and saves through the player's own calls (WASM-005, part 8: T16)
+
+A DataGrid bound to an indexed file or a SQL query on a web form now shows what the backend holds, in the browser as on the desktop
+(2.0.58): the **player** makes the calls, on its own connection and under ids of its own — `0xC000_0000` and above, the Authentication
+control's narrowed to `[0x8000_0000, 0xC000_0000)`, the program module's below both (ABI A8). `RefreshBinding()` asks the generated
+`…-READ` program window by window (100 rows a call, the windows the interpreter asks for) and answers at once with the count the grid
+shows now — the rows arrive with the backend's answers; `Save()` sends the difference between what was loaded and what the grid shows to
+the generated `…-SAVE` program as one unit (the rows gone, the rows whose cells changed, the rows added, in that order; cells padded to
+the bound fields) and answers `98` while the unit is on its way — `CommitStatus`, `SavedRows` and `onSaved`, or `CommitStatus`,
+`LastError`, the grid put back as loaded, the refused cell marked and `onCommitError`, carry the outcome. A backend not reached or busy
+keeps the changes in the grid for the next `Save()`; `DiscardEdit()` puts the grid back as loaded. The endpoints are named as the Build
+names them (`cobolt_wire::controls::endpoint_name`) from the form's own bindings, which the form description already carries (WASM-016
+R3). A COBOL table stays in the form (Q8).
+
+How: `crates/cobolt-web-player/src/grid.rs` (new) is the pure part — the grids of a form, the frames built as the module builds its
+`remote` frames, the answers read as the module reads its own, the diff a save carries; `host.rs` holds the grids per instance and
+control, takes the binding methods before `methods::call` (`grid_method`, `grid_save`, `grid_answer`), and `api.rs` routes an answer by
+id range and fails an unsent grid request as it fails the module's. `cobolt-wire` joins the player's dependencies (pure Rust) and the
+fingerprint's inputs. The shipped player was rebuilt from this source (`build_player`): plain 2,919,662 bytes (gzip 957,530), threaded
+2,741,616 (gzip 939,880) — about 65 KB more than 2.0.55's for the wire crate and the grid code; the parts are unchanged in size
+(Mermaid 2,218,954, Canvas 2D 654,896, PDF 217,066).
+
+Measured — the player's own suite, `cargo test` in `crates/cobolt-web-player`, all 0 failed: lib 237 (five new in `grid.rs`: the ids'
+range, the frames fit the catalogue's layouts through `cobolt_wire::mapping::decode`, the answers, the diff, the grids of a form),
+`abi_host` 22, `dependency_guard` 6, `exposed` 2, `freshness` 5, `grid_calls` 1 (new: the real host behind the real fixture module — a
+refresh in 2 windows of 100 + 50 rows, a second refresh joining the first, a save of DELETE + UPDATE + INSERT with `SavedRows` 3, a
+refusal `92` marked `1,2` with the rows restored, a transport failure that kept the change for the next `Save()`, `DiscardEdit`; 8
+calls, all of the grids' range), `sinks` 3.
+
+Recorded in `specs/WASM-PARITY.md`, not changed: #21 — the methods answer before the backend does (a module's call is synchronous, the
+network is not; by design, to confirm by the operator: a program that reads `Save()`'s answer as the outcome works on the desktop only,
+one that handles `onSaved`/`onCommitError` works on both); #22 — in the browser a row's identity is the binding's key field, where the
+desktop reads the `.cidx` primary key: the Build should write the primary key's parts into the description's binding; #23 — a key cell
+the program changes is a delete and an insert, where the desktop refuses it, because the browser grid has no operator cell editing yet
+(WASM-004 class A), so the changes a save carries are the program's own. The rows are loaded whole, not paged on scroll (WASM-004 Q4's
+server paging stays a follow-up). `README.md` and `docs/` untouched.
+
+## [PowerRustCOBOL 2.0.58] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.57.)*
+
+### Feature: a web form's bound DataGrid reads and saves through the backend (WASM-005, part 7: T15, the IndexedFile and SQL half)
+
+On a Web or Mobile form, a DataGrid bound to an indexed file or to a SQL query no longer reaches the file or the connection itself:
+`RefreshBinding()` fills it from the backend's generated `…-READ` program, window by window (100 rows a call; offset and count only, plan
+O3), and `Save()` and `AutoCommit` send the unit — the deleted rows, the edited rows and the added rows, in that order — as one `…-SAVE`
+call the backend writes in one transaction. The refusals are the backend's (`COMMIT-STATUS`, `COMMIT-MESSAGE`; `FAILED-CHANGE` names the
+change, and the grid marks that change's cell as it marks its own) and the grid's own still come first (a changed key is `21` before any
+call). A backend that cannot be reached leaves the edits waiting (`90`, as a connection in Async mode does); a source that cannot be read is
+an empty grid, reported on the File I/O channel under the endpoint's name and, for a SQL binding, in the source control's `LastError`. A
+COBOL table stays in the form (Q8).
+
+How: the host seeds the grid as remote — `_BindingRemote`, `_BindingRemoteRead`, `_BindingRemoteSave`, the endpoints named as the Build
+names its programs (`cobolt_wire::controls::endpoint_name`) — when the run is a Web or Mobile project's (`cobolt-form-host`'s
+`seeding::publish_remote_bindings`; `rcrun run-form` publishes it from the form file's extension, for the root form and the child forms it
+opens). The interpreter gained `interpreter/remote_binding.rs` (the window loop and `call_generated`), `Kind::Remote` and `apply_remote` in
+`grid_unit.rs`, and `send_request` in `remote.rs`: the one door to the transport, which the `CALL … WITH WEBSOCKET LINKAGE` statement and
+the binding share (the same idempotency-key rule, the same `WS-LAST-ERROR`). The ledger, the plan of a save and the restore after a
+failure are the desktop's own code, unchanged.
+
+Measured — `crates/cobolt-server/tests/remote_bindings.rs`, the real interpreter, `rcrun`'s WebSocket client, a TLS loopback server and
+the generated programs of the fixture form `ORDERS`: 250 customers filled in 3 windows and 3 items; an explicit save, an auto-commit, a
+refusal `92` marked at (1,3) with the grid restored, a key change `21` without a call, a delete plus an insert in one unit (`SavedRows` 2);
+the COBOL-table grid made no call; 15 remote calls in all; against the desktop path over the same file, all 250 rows equal in id and name.
+The seeding is pinned by `a_web_forms_bound_grid_goes_through_the_backend_and_a_cobol_table_does_not`; the keys of a remote indexed grid
+and the retry rule of a save by two unit tests in `grid_unit.rs`. Regressions, all 0 failed: `cobolt-runtime` lib 506, `test_grid_write_back`
+55 + 1, `test_remote_call` 13, `test_backend_hooks` 11; `cobolt-form-host` lib 181, `remote_call_pending` 1; `cobolt-server`
+`generated_backend` 5, `loopback` 15.
+
+**Found on the way (not fixed here):** the runtime lays a `COMP-3` (and a binary `COMP`) field of a file record out as `digits + decimals`
+DISPLAY bytes (`cobolt-runtime/src/files.rs`, `compute_layout`; `decl_class` sizes only national and UTF-8 items) — seven for `S9(5)V99` —
+while a `.cidx` gives it its packed width, four. The desktop grid and the Indexed File Browser read by the `.cidx`, so on a file the
+runtime wrote they show the hex of the first four digit bytes for such a field and take its fifth digit for the next column: the active
+flag was wrong on 124 of the 250 rows. The backend reads with the FD the file was written with and is right. WASM-005 AC7's amendment
+recorded the hex, not the shift. The fix belongs to the 1.x.x line, where the runtime is shared, and is forward-ported as every fix is;
+the test pins the misread so the fixer sees it.
+
+Reviewed by the DataGrid Quality & Compatibility Agent (`.agents/agents/`): of its nine findings, seven are fixed in this change — a
+remote indexed grid takes its keys from the `.cidx` primary key, every part of it, as the desktop and the generated SAVE do (the binding
+records at most one key field, or none); a save the backend did not take is retried only after a transport failure or a busy backend (rate
+or concurrency limit, call time) and otherwise fails the unit once (an unknown program, a refused role, a version), so nothing is re-sent
+at every settle; cell lists are padded to the bound fields (an `AddRow()` row has the designed columns); the refused change's mark goes on
+the field the backend names; a missing endpoint is a permanent failure that reaches the File I/O channel; cells keep their leading spaces.
+Two are recorded, not fixed: the lost update and offset paging under concurrent writers (`WASM-PARITY.md` #20, a WASM-023 matter), and a
+`DataSource` quick-bind on a web form, which still reads the local `.cidx` under `rcrun run-form` and which the Build and Check should
+refuse (a follow-up in T15's note).
+
+Not done: the `RestApi` and `AgentAi` bindings (Q8) wait for the operator's answers recorded in T15; T16–T19 follow. `README.md` and
+`docs/` untouched.
+
+## [PowerRustCOBOL 2.0.57] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.56. Specs only; no code.)*
+
+### Specs: a Mobile project is created with its Android Studio / Xcode project (WASM-INDEX D22)
+
+The operator, 2026-10-24: when a Mobile project for Android or iOS is created, the IDE must also create the project Android Studio or Xcode
+opens, for preview, with the same name as the PowerRustCOBOL AI Mobile project; if the developer cancels that creation, Project Settings must
+be able to create it later; the native project holds the stub that loads the project's WASM binary. Recorded as decision **D22** in
+`WASM-INDEX.md`; WASM-012 gains R16–R18 (the native project, its stub, Project Settings), AC12, task T25c and the open question Q7 (where the
+native project lives, against the plan's build-folder shape); WASM-001 gains R19 (the cancellable step in New Project and its manifest record),
+AC8 and task T19; WASM-008 names it in §6. `README.md` and `docs/` untouched.
+
+## [PowerRustCOBOL 2.0.56] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.55. Specs only; no code.)*
+
+### Specs: the operator's ruling of 2026-10-24 on the frontend↔backend channel, in every WASM spec (WASM-INDEX D21)
+
+The operator, 2026-10-24: the communication between frontend and backend must be asymmetrically encrypted, with the key generated when the
+application starts; when the connection breaks, the frontend retries with a timeout of 10 s raised by 10 s on each retry, three cycles at most,
+then raises an exception; while it retries it blocks all mouse and keyboard input and shows a modal with an animation — the screen (desktop or
+mobile) trying to reach the server with a cloud between them, on a left-to-right gradient red → dark red → crimson → black with a white
+foreground — that appears when the connection breaks and disappears when it is re-established. Recorded as decision **D21** in `WASM-INDEX.md`
+and carried by every spec of the series: WASM-003 R24–R26 (the encrypted channel and the retry policy; R8 now points at R25) with AC11–AC12 and
+task T15; WASM-016 R20–R21 (the blocking "connecting" modal and the exception when the retries are exhausted; R9 and AC5 amended) with AC13–AC14
+and T29b; WASM-012 R15 (the device variant) with AC11 and T25b; WASM-005 R18 (a call in flight) with AC11 and T18b; WASM-014 R18 (the key
+exchange in the handshake) with AC11 and T19b; WASM-013 R17 (the threat model) with AC12 and T24b; the other twelve specs name the ruling in their
+§6. `README.md` and `docs/` untouched.
+
+## [PowerRustCOBOL 2.0.55] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.54.)*
+
+### Feature: a class C control's method runs on the backend from a web form, and `COBOL::"RAISE-EVENT"` (WASM-005, part 6: T14)
+
+- **The browser end of a class C control's method (T14, the operator's decisions of 2026-10-24).** Your COBOL does not change. When the web Build compiles a Web or Mobile form, it turns each call of a SqlDatabase, RestClient, AgentObject, KnowledgeBase, WebSearch, Maps or AWS control's method in your handlers (`REST-1::Post("orders" WS-BODY)`, `INVOKE AGENT-1 "Ask" …`) into a `CALL … WITH WEBSOCKET LINKAGE` to the backend program generated for that call. This happens in the program it compiles, never in your source. The arguments fixed at Build, such as a statement or a resource, are not sent. When the answer comes, the method's value is used where you called it, and the properties the backend's control changed are set on your control. `LastError` is set, and the events the control raised (`onComplete`, `onQueryComplete`, …) are raised on your control, so their handlers run after the running handler, as on the desktop. When the call fails, `LastError` holds the reason and `onError` is raised. The interpreter and the browser module run the same lowered program.
+- **Refused at Build, at your line.** A call the desktop would make conditionally or more than once is refused: one in a `PERFORM … UNTIL`/`VARYING` condition, a `SEARCH`, a `WHEN` of an `EVALUATE`, or an `AND`/`OR`. Move it into a statement of its own. A form whose own item is named like a member of the call's groups (`EVENTS`, `ARGS`, `ROWS`, `RC-VALUE-…`, …) is also refused.
+- **`COBOL::"RAISE-EVENT" ( control event [argument] )`.** A new built-in, on the desktop and in the browser: it queues a control's event as the control itself raises one, and the event's handler runs after the running one.
+- **In the browser module.** ABI amendment A14 adds two commands: `SET_NAMED`, which sets a property whose name is in a data item (`COBOL::"SET-PROPERTY"` now accepts one in a module), and `RAISE`. The player applies both and delivers a raised event only when a handler is bound. `COBOL::"WS-LAST-ERROR"` now works in a module: it reads the class, code and message of the error frame. **Every module's fixed memory grows by 480 KiB**: the module's JSON decoder could hold a group of only 32 KiB, and a method's answer group is about 470 KB. The routine blob, the player's test fixture and the shipped player were rebuilt.
+- **Measured.** In the interpreter, with a scripted backend, a click makes exactly one call to `RC-4-SHOP-6-REST-1-POST-1`, sending `{"ARG-COUNT":1,"ARGS":[{"ARG-VALUE":"two lamps"}]}`. The handler ends, `onComplete` then runs and reads `StatusCode` 201, and the receiver holds `order 9 made`. A failed call shows `LastError` "the backend is down" in `onError`. The browser module, in both memory variants, sends the same request frame byte for byte, and applies the answer as `SET_NAMED StatusCode 201` and `RAISE onComplete`.
+- **Still open.** T15 waits for operator decisions: what a `RestApi` and an `AgentAi` binding read and save on the backend. Their `endpoint_name` is a URL in one place and a name in another, and the desktop has no refresh path for them to mirror. T16–T18 are not started, apart from the System KB text for what landed here. A SqlDatabase's `Fetch` after a `Query` is not served in the browser yet. The WebAssembly generator still refuses a web form with a SqlDatabase for the generated `OPEN-DB`/`EXEC-SQL` paragraphs.
+
+## [PowerRustCOBOL 2.0.54] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.53.)*
+
+### Feature: a Viewer's upload slot, and no connection string or key on a web form (WASM-005, part 5: T12 completed, T13)
+
+- **The Viewer on the web (T12, the operator's decisions of 2026-10-24).** A document the user opens goes through the Viewer's own upload slot, `RC-…-<VIEWER>-OPEN`, which the web Build now writes to `backend/generated/exports.toml` beside a FileDropZone's. It takes only the Viewer's `AllowedExtensions` and at most its `MaximumFileSizeKB`, from its BackendRoles. These two properties are new on a Viewer of a Web or Mobile form; they are shown in the Properties panel's Backend section and written only when you set them, so a desktop form is saved as before. When unset, the slot takes the 17 types the Viewer shows, up to 10 MB. A document the backend offers is fetched with `COBOL::"WS-DOWNLOAD"`, and the browser never names a backend path. `SaveAs` and `SaveAsPdf` no longer go through the backend: on the web they download the document to the user, with the PDF made in the browser.
+- **No connection string or key on a web form (T13).** Check and Build of a Web or Mobile project now stop when a control holds a value in a property that carries a secret: a SqlDatabase's `ConnectionString`, a RestClient's `AuthToken`, an AgentObject's `AgentAPIKey`, a KnowledgeBase's `EmbeddingAPIKey` or a WebSearch's `ApiKey`. This includes a connection string with no password, which the bundle's secret scan lets through; the default `sqlite::memory:` is allowed. The message names the control and the property, never the value, and tells you to move the value to a `[[configuration]]` of `backend/backend.toml` and name it in BackendConfig. The message is translated into the six languages. The check runs before anything is generated, so it is reported whatever else the form holds.
+- **Measured.** Over the TLS loopback, a Viewer's default slot stores a PDF under the backend's own name. It refuses a `.exe`, a file of 10 485 761 bytes and three path-like names, and writes nothing else. A web project whose form holds a password-less `postgres://` connection string and a hand-written `AgentAPIKey` stops Check and Build with `DB-1.ConnectionString` and `AGENT-1.AgentAPIKey`, and neither value appears in any message. The same key in `backend.toml`, named in BackendConfig, builds.
+- **Still open.** T14, the browser's calls to the generated programs, waits for two operator decisions: how the frontend raises the events the backend reports, since no program can queue an event on its own control in either engine, and how the browser module sets a property whose name arrives at run time. The player does not yet do the Viewer's download, its in-browser PDF, or its slot upload. T15–T18 are not started, except the System KB bullets for what landed here. Until T14, a web form with a SqlDatabase is still refused by the WebAssembly generator for its generated database calls.
+
+## [PowerRustCOBOL 2.0.53] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.51. 2.0.52 is held by `2.x.x`'s fix of the indexed file's generated FD (`f67e7dda`), so this takes 2.0.53.)*
+
+### Feature: the backend end of a class C control's method and a FileDropZone's upload slot, generated by the Build (WASM-005, part 4: T11, T12 in part)
+
+- **A program per method call (T11).** For each call of a SqlDatabase, RestClient, AgentObject, KnowledgeBase, WebSearch, Maps or AWS control's method in a Web or Mobile form's handlers, the web Build writes one backend program to `backend/generated/`, named `RC-…-<CONTROL>-<OPERATION>-<k>` (`k` counts that control's calls of that operation in source order). The program runs the method as the handler wrote it, waits until the control is no longer busy, and answers the method's value, `LastError`, the events the control raised and the properties the call changed. A SqlDatabase opens its connection at every call and returns a `Query`'s rows with the answer. The calls are found in the form's parsed program (`cobolt-compiler` `web_remote`).
+- **Fixed at Build, never chosen by the browser (R17).** An SQL statement, a REST resource, or a function, tool or job name must be a literal in the handler, and it is compiled into the program. Check and Build stop at the developer's handler line when such an argument is not a literal, when a call passes a connection string, or when it passes a local file (files go through slots).
+- **The control on the backend.** Each program's `[export.control]` entry declares the control: its class, its design-time properties without the secret-bearing ones, and the name in its **BackendConfig**. The backend seeds the control from that entry and lays over it the values of the matching `[[configuration]]` in `backend/backend.toml` (`name`, then the control's own property names; each value plain, `env:NAME` or `file:PATH`). Those values are never printed, never logged and never sent back. A missing configuration stops the backend from starting. Only the Build's `generated/exports.toml` may declare a control. While such a program runs, the backend sends its event channel a wait tick every 40 ms, so an asynchronous method is waited for without blocking a thread forever.
+- **A FileDropZone's slot (T12, the zone's half).** Each FileDropZone on a web form gets an upload slot that takes only the zone's `AllowedExtensions` and at most its `MaximumFileSizeKB`, from the zone's BackendRoles. Upload slots gain `extensions` and `max_bytes`, and `*/*` means any type. A deployment slot with the same name stops the start.
+- **Compiled backend.** `rcrun backend build` links what each declared control's class needs: SQL, HTTP, Maps, KB, SMB or AWS.
+- **Measured.** Over the TLS loopback, the generated `REST-1::Get("customers")` program reaches a local HTTP stub at the configured address with `Bearer <token read from file:>` and answers `onComplete`, the response body and status 200 in 167–185 ms. The token appears in neither the reply nor the log. An extra argument is refused and no request is made. A SqlDatabase `Query` program on SQLite returns 2 rows with one `onQueryComplete`. The slot stores an allowed `.CSV` under the backend's own name and refuses a `.exe`, a file 1 byte over 64 KB, four path-like names and a caller without the role; nothing else is written. The six generated method programs parse and pass the analyser with 0 errors; goldens are in `crates/cobolt-codegen/tests/golden/backend/controls/`.
+- **Still open.** T12's Viewer half waits for an operator decision: on the web, what Viewer open and Save As move, in which direction, with which types and size limit (the Viewer has no allow-list property). T13–T18 are not started. The browser does not call any of these programs yet; that is the lowering of T14 and the player of T16. Known limits: with fresh state per call, an AgentObject's conversation, a Cognito session and a SQL transaction do not survive a call. Maps and WebSearch read their keys as `_ResolvedMapsApiKey` / `_ResolvedSearchApiKey`. `RESULT-VALUE` and each property carry up to 2048 bytes.
+
 ## [PowerRustCOBOL 2.0.52] — 2026-10-24
 
 *(Forward-port of 1.91.223, `f91da487` on `fixes-indexed-fd-record`. 2.0.51 is the last number held by `features-2x`, so this port takes 2.0.52.)*
@@ -34,6 +287,19 @@ Developer's Guide's example (*Indexed File Editor & Grid Browser*) shows the cor
 
 *This line does not carry the Developer's Guide change: `docs/` describes 1.x.x and reached its readers through `main`.*
 
+## [PowerRustCOBOL 2.0.51] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.49. 2.0.50 is held by `2.x.x`'s forward-port of the `COMPUTE` division-by-zero fix (`7a8e4c1f`), so this takes 2.0.51.)*
+
+### Feature: the backend end of a bound DataGrid on a web form, generated by the Build and loaded by the backend (WASM-005, part 3: T9–T10)
+
+- **Generated backend programs (T9).** For each DataGrid on a Web or Mobile form that is bound to an indexed file or to an SQL query, the web Build writes the backend programs that serve it to `backend/generated/`. There is one `READ` per grid, which returns a window of rows (offset and count) with the total and a read status. A writable binding also gets one `SAVE`, which writes a set of updates, inserts and deletes as one unit: every change is checked first, then written, and all of them are undone if one write fails. Their `[[export]]` entries go in `backend/generated/exports.toml`. Only the roles in the grid's `BackendRoles` may call them (any signed-in user when it is empty), and they are never public. The query, the file and the table are fixed when the project is built. A value reaches the database only as a host variable, never as SQL text. The connection is the name in the source SqlDatabase's `BackendConfig`, or else its `SqlConnection`; a connection string is never used. An indexed-file cell shows what the desktop grid shows, with the two differences the operator accepted: a `COMP`/`COMP-3` field shows its value, and a signed field shows its `-`. The third difference the operator accepted does not happen: a save that fails partway is rolled back with the COBOL `ROLLBACK` verb. Check and Build stop, naming the form and the grid, when a grid cannot be served (no connection name, no query, a field that is not a plain SQL name, a writable binding without its key among the columns). A Build replaces only the files that carry its banner, so a file of yours in that folder is left alone.
+- **The backend loads them (T10).** The backend reads `backend/generated/` beside `backend/exports.toml` and `backend/src`, and so do the packed backend of a built server and the frontend's Check. A program exported by both files, or a program in `src` with a generated PROGRAM-ID, stops the backend from loading with a message that names it. A backend with no `generated/` folder loads as before.
+- **`rcrun backend run` reads the project's SQL connections**, as `rcrun run` does, so `EXEC SQL CONNECT TO 'NAME'` resolves in a backend program.
+- **Proven by running them.** The new tests run the generated programs on the backend against a real indexed file and SQLite. They cover reads, a window of rows, inserts, updates and deletes, a key that is already taken, NULL, a quote inside text, `2 OR 1=1` sent as a key (it deletes nothing), and the rollback of a save that fails partway.
+- **Found, not fixed here:** `generate_indexed_fd` (used by the Indexed File Editor's `COPYBOOKS/<stem>.FD`) writes `FD name.` and then `RECORD CONTAINS …` as a separate sentence, which detaches the record from the file. The generated backend programs write the two as one sentence. The copybook generator needs the same fix on 1.x.x.
+- **Stopped at T11.** The backend programs for the other class C controls (RestClient, AgentObject, KnowledgeBase, WebSearch, Maps, AWS) need three decisions from the operator: where a `BackendConfig` name resolves in `backend.toml`, how a backend program gets a control object of the right type, and how asynchronous methods answer on the backend. `tasks.md` sets out each one with a proposal. The standalone backend binary does not read SQL connections yet. T12–T19 have not started, except the version and the System KB.
+
 ## [PowerRustCOBOL 2.0.50] — 2026-10-23
 
 *(Forward-port of 1.91.222, `f29f58cf` on `fixes-compute-size-error`. 2.0.49 is the last number held by `features-2x`, so this port takes 2.0.50.)*
@@ -46,6 +312,264 @@ already was for `DIVIDE`: `ON SIZE ERROR` now runs, `NOT ON SIZE ERROR` does not
 the statement behaves as any other unguarded size error — on a form it raises the exception `onUnhandledException` receives, in a
 console program it keeps the standard's silence — which is what the Developer's Guide already said (*An unguarded size error is an
 exception*). Test: `cobolt-runtime/tests/test_interpreter_parity.rs::compute_division_by_zero_runs_on_size_error`.
+
+## [PowerRustCOBOL 2.0.49] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.48.)*
+
+### Feature: `RETURN-CODE` after a remote call, the class C catalogue, and where a web control names its backend (WASM-005, T5–T8)
+
+- **The second way to read a failure (Q7, T5).** After `CALL … WITH WEBSOCKET LINKAGE`, `RETURN-CODE` holds the failure's numeric code, the same one `COBOL::"WS-LAST-ERROR"` reports (7001 for a rate limit, for example). It is 0 after a success. The class and the message are still read through the built-in. This covers the interpreter, so `rcrun`, embedded child forms, the compiled binary and the backend. A browser module has no `RETURN-CODE` and no `WS-LAST-ERROR` yet: a program that names one there is refused when the module is generated.
+- **The class C catalogue (T6, T7).** A new module, `cobolt-wire::controls`, has one row for each operation that runs on the backend when the control is on the web: 89 rows over 26 control types. That covers the DataGrid's `READ` (offset and count) and `SAVE`, IndexedFile, SqlDatabase, RestClient, AgentObject, KnowledgeBase, WebSearch, FileDropZone, Viewer and Maps, and the 16 AWS controls (one row per route). Each row gives the layouts that travel, typed by a closed set of roles that has nothing for SQL, a path, a URL or a command (R17). It also lists the arguments fixed at Build: the SQL of `Query`, the resource of a REST `Get`, a file path, a connection string. Endpoint names are `RC-<len>-<FORM>-<len>-<CONTROL>-<OP>`; the lengths prevent collisions. A test reads the interpreter's method dispatch, the AWS route table and the IndexedFile facade, and checks that every row names an operation that already exists.
+- **`BackendConfig` and `BackendRoles` (T8).** On a web or mobile form, a control that works through the backend shows a *Backend* section in the Properties pane with two settings: the name of its configuration in `backend/backend.toml`, and who may call it (`authenticated` by default, or a list of roles). The labels and explanations are in all six languages. A desktop form never shows or writes them, so a `.cfrm` saves exactly as before, and a web form saved earlier reads the defaults.
+- **Stopped at T9.** The backend program for an IndexedFile-bound grid needs a decision from the operator. The desktop formats each cell from the record's bytes and saves all or nothing with a rollback; a COBOL program reading through the facade sees values, not bytes, and its COBOL verbs have no rollback. `tasks.md` lays out the two options and recommends one. The SQL half is designed and is written with it. T10–T19 have not started.
+
+## [PowerRustCOBOL 2.0.48] — 2026-10-23
+
+*(Written on `fixes-2x-template-icons` as 2.0.47, off `features-2x` at 2.0.46; renumbered 2.0.48 here, after WASM-005 part 1 took 2.0.47.)*
+
+### Fixed: the New Project dialog's template icons are in colour
+
+Every template icon was drawn in the text's own ink, so the list read as a column of white glyphs. Each icon now has its family's
+colour, after the operator's reference design: Desktop violet, the chatbots indigo, Web the WebAssembly purple, user controls
+lavender, Android green, iPhone and iPad blue, and *Recent Projects* a light violet. A template that cannot be created yet shows its
+icon faded, as its text is. Test: `every_template_icon_has_its_family_colour` (`panels/new_project.rs`).
+
+## [PowerRustCOBOL 2.0.47] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.46.)*
+
+### Feature: the remote call's wait and payload limit come from the project, and a pending call is proved live (WASM-005, T1–T4)
+
+- **Project limits (R11).** `[web]` and `[mobile]` now have `call_timeout_ms`. It defaults to 60 000 and is written only when changed, so older manifests load and save unchanged. The payload limit reuses WASM-017's `max_payload_bytes`.
+- **The client reads the limits.** The backend client reads `COBOLT_BACKEND_CALL_TIMEOUT_MS` and `COBOLT_BACKEND_MAX_PAYLOAD_BYTES`. A call frame larger than the smaller of the project limit and the backend's announced limit is refused before anything is sent, and before connecting when the project limit is the one exceeded. The refusal is `limit 7000`, the class and code the backend gives the same frame, and `ON EXCEPTION` runs. No host sets these variables from the manifest yet, the same as `COBOLT_BACKEND_URL`.
+- **AC6.** A new form-host test drives the real host and interpreter with a backend that holds the call for 2.5 s. During the call, the form shows the handler's state and a second click waits. Afterwards the log reads `CALL-END OTHER`, in that order. The headless script's `event` step accepts `"wait": false` so a script can click while a handler is busy.
+- **The WebAssembly guard (T2).** No generator change: WASM-010 already lowers `WEBSOCKET` calls in forms. A new test checks that outside a form the call is refused at its line and no module is produced.
+- **Still open.** The run stopped at T5, which waits for the operator to confirm Q7's second failure mechanism. T6–T19 have not started.
+
+## [PowerRustCOBOL 2.0.46] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.45.)*
+
+### Feature: one web table for classes, exceptions and fidelity (WASM-004, T12–T13)
+
+`cobolt_forms::web_class` now also holds each control's operations that take a different class:
+- Maps' six geocoding and routing methods are C.
+- Viewer `SaveAs`/`SaveAsPdf` are C, and `Print`/`Share` are D.
+- ToolBar `run-app`, `open-terminal`, `print` and `share` are D.
+- DataGrid's in-memory `Rows` is A.
+
+Each D entry has the English alternative that Check will print. The module also holds the series name **Hyperlink**; the old spelling `WebLink` is still recognised. Finally, it holds the property-fidelity rows (exact, approximate, not on the web) that the player kept in `css.rs` until now. The player now reads those rows and keeps only the CSS for each one. Its non-visual set is the model's `ControlType::is_non_visual()`. A guard test checks that every property name the view reads is one the model has. Player tests: 230 passed. The run stopped at T14, which waits for WASM-007's CSS that reproduces the desktop look.
+
+## [PowerRustCOBOL 2.0.45] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.44.)*
+
+### Docs: the operator's decisions for WASM-017 T11
+
+AC1 is proved with the Canvas part (no chart part exists, WASM-016 T26), and the generator is to be extended so the shared test
+script's three fixture-only cells — an event argument, a deliberate trap, a raw answer — run on the generated module too (new task
+T11a). T11's AC3 still waits for WASM-011 T11, so WASM-017 runs again after WASM-011.
+
+## [PowerRustCOBOL 2.0.44] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.43. WASM-017, module architecture and the JavaScript boundary: tasks T2–T10 of
+`specs/WASM-017-module-architecture-and-js-boundary/tasks.md`, plus the System KB for what they changed; stopped at T11, see below.)*
+
+### Feature: form instances, a memory ceiling, one payload limit, "multi-memory only" refused with WebKit, the loader's optional probes, the exposure list
+
+- **`Instances`, a form property of Web and Mobile projects (R2).** How many copies of a form a browser module holds at once, each with
+  its own fixed region: 1–64, default 1 for the main form and 4 for the others. Written to the form (`instances="…"`) only when set, so
+  every existing `.cfrm` saves byte for byte as before; a value out of range is kept as written and refused by Check and Build naming the
+  form. The Build now gives the generator each form's `Instances` (it passed 1 for every form). The Properties panel shows the row for a
+  Web or Mobile project only; label, hint, refusal and hover help in six languages.
+- **Fixed memory has a ceiling (R7, AC5).** A project whose storage would not fit a 32-bit WebAssembly memory stops the Build naming the
+  form, its largest item and the arithmetic (`region × Instances`), checked before the initial image is built; an item larger than a
+  memory by itself is refused by name instead of overflowing. "Needs a PICTURE" and "more than 38 digits" now name the item. The corpus
+  test asserts no module has `memory.grow` (34 modules).
+- **One payload limit (R8, D3).** `max_payload_bytes` in `[web]`/`[mobile]` (default 384 KB, written only when changed) is the module's
+  transport frame and the player's frame limit (`config.json` `backend.max_frame`); the player refuses a larger request before sending
+  it. Project Settings shows it. The hand-off to the Backend waits for WASM-002 T16.
+- **"Multi-memory only" is the fallback turned off (R9, AC7, D5).** `single_memory_fallback` (default true): with Safari or the iOS web
+  view among the browsers, turning it off is refused by Check and Build naming them, never built without the module they need.
+  **Behaviour change:** a Chromium-only Web project now carries both program modules unless the fallback is turned off.
+- **The loader probes JS String Builtins and ES-module source imports (R3, R12, D2)** and reports them in its choice; it uses neither.
+  A source search proves no memory view outlives its call and no JavaScript string is built on the call path. The plan's debug
+  conversion counter was not added: since WASM-016 the loader hands arena bytes to the player untouched and has no conversion to count.
+- **The exposure list (R14, R15, AC11).** `cobolt_web_player::EXPOSED` names every `#[wasm_bindgen]` type and its disposal, checked by a
+  source scan. Found and fixed: the player's unmount never freed the canvases' `Surface2D` objects. `force_panic_for_test` exists only
+  in test bundles (`build_player --test-hooks`); the shipped player has none and its record says `features: []`. A forced panic shows
+  the readable error with Reload and raises `pr-error` (node and Chrome).
+- **`INITIAL` and `CANCEL` (R4, AC4).** A plain called program keeps its storage until `CANCEL` on both engines; `INITIAL` starts fresh
+  at every call on the module (the interpreter ignores `INITIAL`, WASM-PARITY #11).
+
+**Stopped at T11.** Its AC3 needs `PreservePreviousForm` to keep a data region in the browser (WASM-011 T11, not done); its AC1 asks for
+a chart part, which WASM-016 T26 measured and decided not to split; and generated COBOL cannot reproduce the fixture's event argument,
+deliberate trap and raw answer frame, so how the generated cells may differ from the fixture's is the operator's decision. T12–T15 and
+T17 are not started.
+
+**Tests (2026-10-23):** cobolt-forms (render), cobolt-wasm, cobolt-wasm-abi (fixture), cobolt-compiler, cobolt-project-tools and
+cobolt-web-bundle: 148 result lines, 2,217 passed, 0 failed (after the forced-panic scenario learned that the shipped player has no
+hook); the player: 265 passed; node end to end: 15 scenarios; Chrome: 28 passed; cobolt-ide: 1,879 passed, 5 failed, none of them this
+work's (docs translations, the external `claude` validator, two live crates.io resolver checks, 12 English-only completion texts of
+the Backend verbs).
+
+**Open, with the working assumption used:** Q2 first half (yield budget in ms; not used yet); Q5 (Mobile runs the plain player on the
+main thread); Q-17a (`Instances` default 1 main / 4 others); Q-17b (no product cap below 4 GiB); Q-17c (the Rayon pool lives with the
+page).
+
+## [PowerRustCOBOL 2.0.43] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.42. WASM-017 T1, done outside the pipeline, whose session had no web access.)*
+
+### Docs: the browser baseline and matrix for 2024-onwards engines (WASM-017 T1)
+
+`specs/WASM-PROGRESS.md` gains the table WASM-017 T1 asks for: Chromium 121, Firefox 122, Safari 17.3, the iOS 17.3 web view and the
+Chromium 121 Android WebView — the oldest releases from 2024 onwards — against the six baseline WebAssembly features, multi-memory,
+threads with `SharedArrayBuffer` under isolation, JS String Builtins and ES-module source imports, every cell citing webassembly.org's
+feature data, Can I Use, or the vendors' own release records. The stop gate is not triggered: WebKit has no multi-memory in any version,
+so the single-memory variant stays the rule for iOS and Safari. One finding is left for the operator: Firefox 122–124 are 2024 releases
+without multi-memory, so the working reading is Firefox 125 as the multi-memory minimum, with 122–124 served the single-memory variant.
+
+## [PowerRustCOBOL 2.0.42] — 2026-10-23
+
+*(Written on `features-2x`. WASM-016, the prebuilt player: tasks T22 (its automated part), T23, T24, T25, T26, T27, T14, T28, T15 and T29 of `specs/WASM-016-prebuilt-player/tasks.md`; stopped at T17, see below.)*
+
+### Feature: Leptos draws the page, a project can pin an older player, the Preview updates in place, and a real Chrome tests the player
+
+- **Leptos draws every element of the page (R1, R5).** A new node layer (`src/dom/reactive.rs`) gives each part of a control its own reactive owner and signals and draws any view through one generic Leptos view, children in a keyed list, so an element whose key and tag stay the same keeps its focus, caret and scroll; it runs to the end before the page reads elements back. The hand-written patch (`dom/apply.rs`) is gone; the attribute rules both used live in `dom/attrs.rs`, and `inner_html` is now a forbidden name in the player's source search. Cost: the plain player is 2,849,748 bytes after `wasm-opt` (gzip 931,566), +123,736 over 2.0.41.
+- **A test drives a real Chrome (operator's decision of 2026-10-23).** `cobolt-web-bundle/tests/e2e_chrome.rs` speaks the DevTools protocol over the `tungstenite` the tests already used (no new crate), serves the Build's bundle cross-origin isolated, and acts as a user — clicks, typing, resizing — on the page as the whole window and mounted in a `<div>` of another page, with a WebSocket backend that answers, holds and drops calls: load, geometry, a handler's `SET` in the DOM, `CALL` on a list, `DISPLAY` on the console, a modal dialog, 100 panels opened and closed, a remote call with clicks queued behind it, the backend lost and found again, the Preview's in-place update, unmount — 26 passed. It is skipped, saying why, where no Chrome is installed (`CHROME` names one).
+- **Two bugs the browser found, fixed.** A click made while a handler waited for the backend **froze the page**: the driver restarted itself while an event waited behind the suspended handler, forever (now it restarts only when something can run, `Host::can_run`). And every modeless panel window collapsed to its title bar (`flex: 1` overrode the body's height), so a panel's form could not be used.
+- **A project may pin an older player (R11, Q6).** `player = "<version>"` under `[web]` or `[mobile]`, absent = the player this IDE ships; an existing project file is read and saved unchanged. A pin to a player the IDE does not keep stops the Build and lists the kept ones; a pin to one this compiler can no longer build for names the oldest it can. The player's build record now states its version triple and the host imports it provides, and a bundle whose program needs an import its player lacks is refused at Build.
+- **The Build reports the player (R13).** After "Build done" the IDE says the player's size and each part's ("Player size: plain 2.72 MB, threaded 2.55 MB", "Loaded on first use: …"), and a pin it cannot use, in the six languages.
+- **The Preview updates in place (R16).** A rebuilt program module, a changed form description or a changed stylesheet is taken in by the open page — the application starts again in the same player — instead of reloading it; the page reloads only for a change it cannot take in that way.
+- **The IDE copies the player shipped beside it (T14),** never one found on the machine that built the IDE; a Web project builds with no `cargo`, `rustc` or `rustup` on the `PATH` (proved by a test, for the fixture and for a project compiled from COBOL).
+- **Charts, maps and the Viewer stay in the player (T26):** measured, everything they draw costs the player 86,162 bytes, less than any part on its own; the heavy work behind them (Mermaid, PDF, Canvas 2D) is already loaded on first use.
+- **Stopped at T17 (equality with the desktop form host).** It needs WASM-004's reference form and comparison harness (its T32 and T33), which are not built yet. The manual Chrome check of T22 is listed in the task for the operator's session.
+
+Tests: `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml` (lib 226, `abi_host` 22, `dependency_guard` 6, `freshness` 5, `sinks` 3); `cobolt-web-bundle` (`e2e_chrome` 26 scenarios, `e2e_node` 14, `no_toolchain`, `player_versions` 2, and the rest); `cobolt-project-tools` (the pin, the report's sizes, the given player folder, the toolchain-free build, the live-reload script); `cobolt-compiler` `project_kind` 14; `cobolt-ide` (`i18n`, `web_preview`, `bundled_directories_resolve_beside_the_executable`, the System KB, regenerated). `README.md` and `docs/` are untouched on this line.
+
+## [PowerRustCOBOL 2.0.41] — 2026-10-23
+
+*(Written on `features-2x`. WASM-016, the prebuilt player: tasks T18, T19, T20, T21 and T16 of `specs/WASM-016-prebuilt-player/tasks.md`; stopped at T22, see below.)*
+
+### Feature: the form description is versioned JSON, the player keeps each layer per instance, Leptos is admitted, and the player is built as ruled
+
+- **The form description is its own JSON format (WASM-016 R3, R4, R11; Q1).** A new `cobolt_forms::description` describes a form the one `.cfrm` parser loaded — controls, properties, layout, breakpoints, layers, data bindings, the names of the bound events — and has no place for program code: handler bodies, working storage, the COBOL-structure blocks, named procedures and the recycle bin cannot leak, and a credential's value is written empty. `format` is 1; a description of another format is refused with both numbers named. The Web bundle now ships `forms/<name>.<hash>.json` instead of a sanitised `.cfrm`, naming the form's stylesheet; the player's `add_form` reads it.
+- **Form layers in the player (R18, R19; ABI A9).** Each form instance holds its layers' state: every layer hidden when the instance is created, shown by the program's `SET` on the layer's id (`3 + n …`) on the next frame, gone when the instance is released. `Name` is read-only (`-2`); the backdrop properties are stored. A hidden layer's controls are not drawn and are `inert`; layers stack above the base in order. Painting a layer's backdrop is not done yet.
+- **Leptos is admitted to the player's workspace (R1).** Leptos 0.8.22 (MIT, Rust 1.88, client-side rendering only) keeps `wasm-bindgen` at 0.2.129; the player's dependency guard now checks the licence and Rust version of the whole browser closure (197 packages, all permissive, none above 1.92). Leptos is not yet used.
+- **The player is built as the operator ruled (WASM-017 Q8, Q9).** `opt-level = "s"` with `wasm-opt -Os`, and the threaded variant on `nightly-2026-10-22`. Plain player 2,726,137 bytes (gzip 886,069) against 2,218,593 at "z"; `build_player --measure` records both.
+- **Stopped at T22 (the Leptos surface).** The node end-to-end harness runs the player headless and never mounts a page, so the verification T22 and T24 name cannot tell a working Leptos surface from a broken one. Choosing how the surface is verified is left to the operator; until then the page is still drawn by the existing DOM layer.
+
+Tests: `cobolt-forms` `description` (5: 88 example forms and 2,344 controls round-trip equal, no code, layers, format refusal, credentials); `cobolt-web-bundle` `form_descriptions` (2) and `e2e_node` (14 scenarios, 0 failed); player `host::description_tests` (3), `host::layer_tests` (5), `dependency_guard` (6), `freshness` (3). `README.md` and `docs/` are untouched on this line.
+
+**Decided by the operator on 2026-10-23, for what follows:** the Leptos page layer (T22/T24) is verified both by a Rust test that drives a real Chrome (a test-only dependency, skipped when no Chrome is installed) and by a manual Chrome check recorded under T22; the player is built without `cargo-leptos` (Q-P1); the IDE keeps every `2.x.0` player plus the last `z` of the previous minor (Q-P2).
+
+## [PowerRustCOBOL 2.0.40] — 2026-10-23
+
+*(Written on `fixes-2x` (`7e6b6a08`, numbered 2.0.39 there), off `features-2x` at 2.0.38; applied to `features-2x` after WASM-003 took 2.0.39, so it is 2.0.40 here. Found running WASM-002's owed checks — T19 in Chrome, T20's suites — on 2.0.37.)*
+
+### Fixed: the Web template greets in the browser, reads on a light page, and the SDK ships what it links
+
+- **`STRING … INTO Ctrl::Property` wrote nothing to the control in a generated module.** The receiving field was the character temporary the property's *old* value had been read into; the text was built there and never written back, so the Web template's own greeting (`STRING "Hello, " TXT-NAME::Text::Trim() DELIMITED BY SIZE INTO LBL-RESULT::Caption`) left a stray `\u0001` in the label instead of "Hello, Ada". The text is now built in that temporary widened to its full capacity (keeping the property's text, as `WITH POINTER` needs) and written to the control afterwards with its trailing spaces dropped — what the interpreter does. Two routines join the generator's runtime (`rt_ctemp_widen`, `rt_ctemp_rtrim`; `rt.wasm` rebuilt).
+- **A see-through theme had nothing behind it on a page.** Spatial — the theme new Web projects get — leaves its window transparent so the desktop shows; a page has no desktop, so the form's white text sat on the page's own colour and vanished in a light colour scheme, the standalone page included. The Build now paints the same stand-in desktop the form pictures are drawn over (`#4A4642`) behind a form whose theme is see-through; any other theme keeps the page's colour. The colour and the "is see-through" test now live in `cobolt-forms::theme`, outside the render feature, and the painters read the same constant.
+- **The SDK left out two crates it links.** `cobolt-runtime` depends on `cobolt-decimal` (2.0.16) and `cobolt-forms` on `cobolt-numedit` (2.0.13), but neither was in `SDK_CRATES`, so a staged SDK did not close and four `cobolt-compiler` tests failed. Both are in the set now.
+
+Tests: `cobolt-wasm/tests/forms.rs` (`string_into_a_property_writes_the_property`, both memory variants), `cobolt-project-tools/tests/web_build.rs` (`a_see_through_theme_gets_a_backdrop_and_another_theme_does_not`), `cobolt-forms` (`the_see_through_test_without_the_painters_agrees_with_every_theme`); `cobolt-compiler --lib` 200 passed, 0 failed (4 failed before). `README.md` and `docs/` are untouched on this line.
+
+## [PowerRustCOBOL 2.0.39] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.38.)*
+
+### Added: the IDE starts and stops the Backend, the front runs on Leptos, and a frontend secret stops the Web Build while the Backend's own does not (WASM-003 T10, T10a, T12–T14)
+
+**Start and stop the Backend from the IDE** (T10; operator, 2026-10-23: a child process). In a Web or Mobile project with `backend/exports.toml`, the Run menu has two new entries, **Start Backend** and **Stop Backend**. Start runs `rcrun backend run <project>`, which is exactly the standalone development server. Its address, the development token and each log line appear in the Output panel.
+- Stop ends the backend, and so do opening another project and quitting the IDE.
+- `rcrun backend run` now prints each log record as it happens, not all of them at Ctrl-C.
+- The IDE links none of the server, its front or its token code. A new guard checks this: the IDE's `cobolt-server` is the loader alone.
+- There are five new `Tr` keys in all six languages.
+- Tested: a new Web project's backend gave its address 2.2 s after Start, answered `/health` with 200, and its `start` record reached the IDE live. Stop took 0 ms and freed the port at once.
+
+**The front runs on Leptos** (T10a; operator, 2026-10-23: "use Leptos de fato").
+- The closed route table is a `leptos_router` table (`/`, `/ws`, `/dl/:token`). `leptos_axum::generate_route_list` reads it, and `leptos_routes_with_handler` mounts it.
+- `GET /health` is a Leptos server function, answered through `leptos_axum::handle_server_fns_with_context`.
+- The WebSocket session, the Origin check, the download, the 431 cap and the handshake timeout are unchanged. Every earlier test passes on the new front: cobolt-server 70.
+- Still a plain `cargo build`, with no `cargo-leptos`.
+- `leptos_axum` keeps its default features, which bring a second, TLS-free `tungstenite` (0.29) through `axum/ws`. The server closure is 411 crates, none barred, and the highest `rust-version` is 1.90.
+- A built backend: 71 s cold debug build, 67.2 MB.
+
+**AC10 and R23** (T12). A key planted in a `.wcfrm` stops the Web Build, naming the file and the pattern but never the value. The same value only in `backend/backend.toml` does not stop it, and nothing from `backend/` reaches the bundle. This is tested on one Web project with a Backend.
+
+Two changes came out of that test:
+- A `wss://` `[web] backend_url` was silently left out of the page's `connect-src`: it went through an origin helper that knows `http(s)` only. It is now kept.
+- The Web Build's report now carries `connect_src` (`connect-src 'self' wss://api.example.com`), which the tools print.
+
+**System KB.** *Calling the backend* now names Run → Start/Stop Backend and the live log. `chunked.data` was regenerated: 3554 records.
+
+**Still open.** Showing the `connect-src` in the IDE's Output panel (it needs a `Tr` label). The `hello` member that would tell a client its state is new (WASM-014). The player/server envelope mismatch (WASM-014/WASM-016). Windows and Linux were not run, and no real identity provider was contacted.
+
+## [PowerRustCOBOL 2.0.38] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.37.)*
+
+### Added: the Backend keeps state per connection when the project says so, one list of exports, and its HTTPS front on axum and hyper (WASM-003 T1–T9, T11; T10 waits for the operator)
+
+**One interpreter, entered again** (T1, T1a). One `Interpreter` runs a program twice and keeps its `WORKING-STORAGE` (`0001` then `0002`), with no SQL session left after either run. It was not `Send`: `OpenFile::Indexed` held a `Box<dyn IndexedStore>`. `IndexedStore` is now `Send`; every engine already was, and no host's behaviour changes. One interpreter now runs on three threads in turn and counts `0001`, `0002`, `0003`.
+
+**A new project's Backend can start** (T2). New Web and Mobile projects get `backend/exports.toml` (`HEALTH`, public) and a development `backend/backend.toml` (loopback, no secret, no `unsafe_*`). `[backend] exports` is no longer written into the project file. `rcrun backend check` on a new project gives `contract 1.0.0: 1 exported program(s)`, and `rcrun backend run` answers `/health`.
+
+**`[backend] state`** (T3, T5; WASM-003 Q2, decided by the operator). `per-call` is the default, so existing projects are unchanged. `per-connection` keeps one run unit per exported program for the life of a connection:
+- its calls run in turn;
+- it serves only the user it first served (another subject's token is refused `authorisation 3000`);
+- a call that is cut off, cancelled or faults starts that program afresh;
+- a reconnection starts empty.
+
+The Build, `rcrun backend` and the project Check refuse any other word, naming the two. The bundle carries the mode, and every call's log record names it.
+
+Tested: interleaved, alice counts 1, 2, 3 and bob counts 1, 2, 3; after reconnecting, 1; `per-call` counts 1, 1, 1. A file one connection holds open makes another wait 404 ms (limit 400) and get 93, and then 00 once it is closed or the holder disconnects. The runtime gains `Interpreter::new_with_channels_and_store`.
+
+**`unsafe_plain_ws` is gone** (T4). Plain `ws://` is served on loopback only, in every mode. A `backend.toml` that still names the setting is told it was removed and why.
+
+**The HTTPS front** (T6–T8). Leptos 0.8 (`ssr`), `leptos_axum`, `axum` 0.8, `hyper` 1 and `hyper-util` are behind `cobolt-server`'s `server` feature, and nothing barred came with them. The server closure is 406 crates; the loader (47 crates) and the client (227) carry none of the five. The highest `rust-version` in the closure is 1.89.
+
+The accept loop keeps the connection limit and the TLS handshake timeout, then hands each connection to hyper with a closed axum route table:
+- `/health` and `/dl/{token}`;
+- the upgrade on `/` and `/ws`;
+- 404 for everything else.
+
+The security headers are a response layer. A 20 KiB request head gets 431, and an unfinished head is closed after 1502 ms (limit 1500). The WebSocket session code is unchanged, and `httparse`, `read_head`, `Replay` and `respond` are gone.
+
+No Leptos API is called yet: the four platform routes need no page or server function. That reading of R2 is left with open item O1.
+
+A built backend: 40 s cold debug build, 57.5 MB (was 29 s / 53.1 MB). Over its own WebSocket, `PING` answers `pong`. A non-exported program answers exactly like a name that never existed.
+
+**The IDE edits `backend/exports.toml`** (T9). The exports box reads the file and writes it on Save, and only when the box was edited. Entries that stay keep their roles, flags and comments. A project whose exports were only in the project file gets the file once, when it is opened, and the project file is left byte for byte. A choice for the state is added. There are six new `Tr` keys in all six languages.
+
+**System KB** (T11). *Calling the backend* now covers the state property, the one exports file, the loopback-only `ws://` and the route table. `chunked.data` was regenerated: 3553 records.
+
+**Not done here.** T10, starting and stopping the backend from the IDE, waits for the operator to choose how the IDE hosts it. T12 and T13 were not run. Two items stay open:
+- the `hello` member that would tell a client its state is new belongs to WASM-014;
+- R2's "built on Leptos" (O1).
+
+**Decided by the operator on 2026-10-23, for what follows:** the IDE hosts the backend as a child `rcrun backend run` (T10); the front must run on Leptos for real, not hyper + axum with Leptos linked and unused (O1, new task T10a). Also recorded here: WASM-002's owed checks, run outside the pipeline on 2.0.37 — T16's MCP check passes, T19's AC2 passes in Chrome 152, T19's AC1 fails in Chrome on the Web template's `STRING … INTO LBL-RESULT::Caption` (a generator defect), and T20 shows the four known SDK failures.
+
+## [PowerRustCOBOL 2.0.37] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.36.)*
+
+### Added: the Web Build checked end to end, Check refuses what a browser cannot run, and the player is found beside the program (WASM-002 T13–T19, T21)
+
+**What the Web Build writes** (T13, AC4b, R9, R17). The Web Build is WASM-010's `GeneratorBackend` (operator, 2026-10-22); no second backend was written. `tests/web_build.rs` now checks what it writes into `dist/web`: `index.html`, `config.json`, `_headers`, the player, and exactly the program modules `module_variants` asks for (multi-memory only for a Chromium-only matrix, single-memory only with `multi_memory = false`). Each module imports only `pr.flush` and `pr.abort` from ABI v1 §3 and passes the bundle scan. No file is an interpreter, an AST (no gzip stream) or a runtime. A standalone project gets one entry page per form. A refused second build leaves the first bundle byte-identical (25 files). A Desktop manifest is refused before anything is written. Build time measured from clean with `--timings`: the WebAssembly chain (`cobolt-wasm`, `-abi`, `cobolt-web-bundle`, wasmtime, cranelift, wasmparser, wasm-encoder) is 94.7 of 645.9 unit-seconds; `cobolt-project-tools` took 67.0 s of wall time.
+
+**Check refuses what a browser cannot run** (T14, R3, AC3). `WebBuildBackend` gains `check`, which by default answers `NotYetLinked`. `GeneratorBackend::check` runs the Build's own steps up to the generator and writes nothing, so Check and Build give the same lines. The agents' `check` tool (`check_project`) adds each refusal of a Web or Mobile project as an error, with its file, line, form and code site. The IDE's Check lists them under a translated heading. A handler `OPEN INPUT` of a disk file is refused at `webforms/main-form.cfrm (main-form ▸ BTN-OK ▸ onClick):2`, naming the file and the alternative, and no bundle is written. An INDEXED file `STORAGE IS MEMORY` and a `SORT` with input and output procedures build. Nine R3 constructs are each refused at the handler and name an alternative: a disk file, a disk INDEXED file, `WITH PERSISTENCE`, `EXEC SQL`, `COBOL-OPEN-DB`, `COBOL-HTTP-GET`, `COBOL-AWS-SET-CREDENTIALS`, `COBOL-KEY-SET` and `EXEC RUST`. **Working assumption, to confirm:** `STORAGE IS MEMORY … WITH PERSISTENCE` is refused because it writes to disk.
+
+**Which player is copied** (T15). The order is `PRC_WEB_PLAYER_DIR` when set, then `<exe dir>/assets/web-player`, then `assets/web-player`, then the repository's copy: the bundled-asset pattern of the IDE's themes. A missing folder or `player-build.json` fails with a message that names the path. The project's pin of an older player (WASM-016 R11) is not a manifest field yet, so the current player is used.
+
+**Secrets, tools, browsers** (T17, T18, T19). A test key in a `.wcfrm` Label stops the Build with `secret (cloud access key id)` and the bundle file `forms/main-form.<hash>.cfrm`, never the value, and `dist/web` is left as it was. The hello-world builds with `PATH` emptied, so it needs no `cargo`, `rustc`, `wasm-bindgen` or `node`. The Build's own hello-world answers a click under node v23.3.0 on both module variants. **Not run:** the Chrome half of AC1 and AC2. Writing the host test pages was not permitted in this session. `PRC_WEB_E2E_KEEP=1` keeps the bundle for that run.
+
+**i18n** (T21). Three keys in six languages: `web_check_not_portable`, `web_build_over_budget` and `web_build_player_unavailable`. `cobolt_project_tools::web` exports `OVER_BUDGET_PREFIX` and `PLAYER_UNAVAILABLE_PREFIX`. The Preview puts the translated heading above the English report line; the tools keep the English.
+
+**Owed:** the manual check through the MCP tools (`check`, then `build` answering `"engine": "cobolt-wasm"`). The MCP server did not connect in this session. `README.md` and `docs/` are untouched.
 
 ## [PowerRustCOBOL 2.0.36] — 2026-10-23
 
@@ -60,6 +584,50 @@ exception*). Test: `cobolt-runtime/tests/test_interpreter_parity.rs::compute_div
 Tests: `cobolt-runtime/tests/test_interpreter_parity.rs` — the generator's own three programs, each failing before. The Developer's Guide (*Handing a whole table to a function*, *Procedures are static*) and `docs/cobol85-supported-syntax-en.md` (PROGRAM-ID, CALL, OCCURS) say the same.
 
 *This line does not carry those documentation changes: `docs/` is left as `main` publishes it.*
+
+## [PowerRustCOBOL 2.0.36] — 2026-10-23
+
+*(Written on `features-2x`, after 2.0.35.)*
+
+### Added: in-memory files and SORT, the group ⇄ JSON mapping, the remote CALL and the waits, the Web Build, and the conformance tests (WASM-010 T14–T25)
+
+**In-memory INDEXED files and `SORT` in a browser module** (Q8, Q-new-1). An INDEXED file declared `STORAGE IS MEMORY` (without `WITH PERSISTENCE`) is held in a new **file heap** at the end of memory 0 (`Options::file_heap`, 16 MiB by default, reserved only when the program has such a file). Its blocks belong to the form instance that wrote them and go with it. `OPEN`, `READ` (by key, `NEXT`, `PREVIOUS`), `WRITE`, `REWRITE`, `DELETE`, `START` and `CLOSE` follow the interpreter's in-memory engine, statement by statement: status codes, key order, the join order of duplicates, the cursor a `START` leaves, 46 after the end, 43 without a `READ`, 21 out of sequence, `CLOSE WITH LOCK`/`REEL`. There is no record limit; a `WRITE` the heap cannot hold ends with FILE STATUS **89** and every record stays (ABI amendment A11). `SORT` with `INPUT`/`OUTPUT PROCEDURE` sorts in memory (`RELEASE`, `RETURN`, stable). `SORT … USING/GIVING`, `MERGE`, `WITH PERSISTENCE` and every other file are refused naming the file and the alternative. Measured (`tests/memory_files.rs`): 8 INDEXED cases and a SORT case equal to the interpreter in both variants; 512 records then status 89 in a 64 KiB heap, all 512 read back; the heap back to 0 bytes when the form closes. The obsolete diagnostic "an in-memory file needs a record limit" is gone, with its six `Tr` texts. **Working assumption, for the operator to confirm** (`WASM-PARITY.md` #15): a memory file without `WITH PERSISTENCE` can be written in a browser module, where the desktop answers 37 (its read-only-copy rule of 2026-10-01); Q8 and Q-new-1 only make sense if it can.
+
+**The group ⇄ JSON mapping inside the module** (WASM-005 R5b). New `no_std` routines (`cobolt-wasm-rt/src/json.rs`: strict reader, encoder, decoder into a shadow copy so that an error writes nothing) and a descriptor built from `cobolt_wire::from_decl`, so a layout is accepted or refused by the definition the interpreter and the backend use. All 26 golden vectors pass with the reference runner's exact tally (23 encodings, 22 round trips, 61 reads accepted, 92 refused, 3 layouts refused); 176 of 176 answers equal `cobolt-wire`'s. A national item keeps the module's byte storage (`WASM-PARITY.md` #17).
+
+**The remote `CALL` and the statements that wait** (R9, R10, R11, AC5). `CALL … WITH WEBSOCKET LINKAGE` builds its request frame from the `USING` groups, hands it to `remote`, and suspends. `pr_resume` copies the answer into the module, and the by-reference groups and `RETURNING` are written only when all of them fit. An error frame, an answer that does not fit, or a send that failed runs `ON EXCEPTION`, or is run-time error 1110 without it. `COBOL::MessageBox`, `Alert`, `Confirm`, `InputBox`, `Sleep`, `Wait`, `OpenFormSync` and `me::OpenFormSync` suspend after their `CALL` command. The `COBOL::` verbs of ABI §12.1 are accepted by name, as the page implements them. ABI amendment A12 records the shapes. **Working assumption:** the request frame is `proto::Call` without `t`/`id`/`key` and the success `result` is `proto::Reply` without `t`/`id` (WASM-014 Δ5's assumption; WASM-014 T6 is not built). Measured: AC5 on both variants (SUSPENDED, two events queued, a result frame then an error frame, the data as expected); budgets of 1, 7 and 20 000 blocks give identical output and commands (409, 101 and 0 yields).
+
+**The Web Build is linked.** `cobolt_wasm::compile_web_project` emits the variants a project asks for, and refusals now say which form they are in. `cobolt_project_tools::web::generator::GeneratorBackend` regenerates each form's COBOL in memory with `cobolt-codegen`, parses it, links the Common Code, compiles, bundles with the player and replaces `dist/web` in one step. The IDE and `rcrun` link it where they start. Per the operator's T1 decision (wasmtime in the IDE), the Build measures start-up: `pr_init` + `pr_open_form(main)` on wasmtime, compilation included. That is 309 ms in a debug build for a one-form project whose modules are 87 108 and 87 125 bytes in a 25-file bundle: a native proxy, not a browser figure. An `EXEC SQL` handler is refused at `webforms/main-form.cfrm (main-form ▸ BTN-OK ▸ onClick):2`. The player is taken from `PRC_WEB_PLAYER_DIR` or the repository's `assets/web-player`; shipping it in an installer is WASM-002's. `cobolt-web-bundle` no longer refuses two variants for the size of memory 0, which differs by construction.
+
+**Conformance.** AC2: group images after `VALUE` and after `MOVE`s, 148 bytes equal to hand-written golden bytes. AC3: 15 arithmetic rows equal to the interpreter, among them truncation and `ROUNDED` for each verb (the language has no `ROUNDED MODE`), 18-digit and computed 38-digit operands, and SIZE ERROR at 39 digits. AC4: `GO TO … DEPENDING`, `ALTER`, `PERFORM … THRU` and `EXIT PERFORM`, 19 lines equal. R13: 583 batch bytes identical over two runs. AC8: 57 `tests/cobol` programs; all 17 that compile are identical, and 40 are excluded with their construct. Two generator gaps were fixed on the way: a callee's LINKAGE `RETURNING` record is bound (#13 closed), and `CALL "paragraph"` performs it. The player's native tests now run on wasmtime (Q-new-2; `wasmi` has left both workspaces). Its ABI test runs a module the generator built (committed fixture, kept fresh by `cobolt-wasm/tests/player_fixture.rs`). That test found that the generator sent `DISPLAY` in fragments the player printed as separate lines; one statement is now one command, one line (ABI A13). The player was rebuilt because its manifest is a fingerprint input; its wasm is byte-identical.
+
+**NIST, both engines.** The generated modules are unchanged: NC 95/95 (4 612 / 0 / 5), IF 45/45 (841), IC 25/25 (309). The interpreter, untouched, is equal to `NIST/progress.json` on every finished module: NC 4 614, IF 841, IC 309, SM 311, ST 735, SQ 624, IX 574, RL 354, 0 FAIL. **Interpreter defect found** (1.x.x fix, open for the operator): `COMPUTE … / 0 ON SIZE ERROR` stops the run with `DivisionByZero` instead of taking the phrase (`WASM-PARITY.md` #18). **Pre-existing, not fixed here:** four `cobolt-compiler` tests fail because `SDK_CRATES` lacks `cobolt-decimal` and `cobolt-numedit`, which `cobolt-runtime` and `cobolt-forms` already depended on at 2.0.35 (a fix for `fixes-2x`); the other 2 201 tests of the AC10 crates pass.
+
+**System KB.** `project_model_and_settings.md` ends with "What runs in a browser module", written from the generator's own tables (`support::STATEMENT_TABLE`, new, held equal to the exhaustive `support()`, and `BUILTIN_TABLE`): 53 statements, 68 built-ins, the in-memory file rule, the waiting statements. `assets/knowledge/chunked.data` regenerated (3 551 records). **R17:** the interpreter/binary-parity rule names the generator, with `cobolt-decimal` and `cobolt-numedit` as shared source, in the skill and in `specs/steering/tech.md`. The same paragraph was added to `CLAUDE.md`, which is the untracked local-settings file and not part of this commit.
+
+**Still open, stated rather than decided:** Q3 (option (a), as built); Q5's "avoid `REDEFINES`" (no warning emitted, because no difference has been shown not to be a bug); the writable in-memory file (#15). Owed to the operator: the manual check of plan §6 (a Web project, a button that sets a Label, Build, Preview); no browser run was made, and none against a live backend. `README.md` and `docs/` are untouched.
+
+## [PowerRustCOBOL 2.0.35] — 2026-10-22
+
+*(Written on `features-2x`, after 2.0.34.)*
+
+### Added: the generator's project module — forms, events, tasks, line table — on `wasmtime`, with value methods, layers and three parity gaps closed (WASM-010 T2–T13)
+
+**The test host runs on `wasmtime` 44.0.3** (operator, Q2). `cobolt-wasm`'s `host` feature now uses `wasmtime` (`default-features = false`, `cranelift` + `runtime` + `std`, pinned `=44.0.3`) with multi-memory and NaN canonicalisation, and decodes every batch with `cobolt_wasm_abi::batch`. `wasmi` has left the root workspace's graph, and so have the four `[profile.dev.package.wasmi*]` entries, which matched no package any more. The player is its own workspace and keeps `wasmi` for its tests. A new `tests/dependency_guard.rs` walks the host tree (123 packages, 22 build scripts) and allows exactly one C build script, `wasmtime`'s `helpers.c`; a planted `cc` build script makes it fail. **NIST on the new engine, unchanged:** NC 95/95 (4 612 PASS / 0 FAIL), IF 45/45 (841), IC 25/25 (309); the slowest program took 2.17 s against the harness's 20 s limit.
+
+**What runs in a browser module is one table.** `support::BUILTIN_TABLE` classifies all 68 built-ins of `cobolt_runtime::builtins::BUILTINS`: 12 browser, 48 backend only, 8 unsupported. An API-dependent entry carries the engines that have it (Q7), and a test fails on a missing or stale row. Refusals are typed (`GenError.kind`, `subject`) and warnings exist (`Compiled.warnings`). The IDE says nine kinds in six languages (`wasm_diag_*`, `wasm_warn_*`) through the new `cobolt_project_tools::web::WebDiagnostic`; `WebBuildError::Refused` and `BuildReport.warnings` carry it, and free text still converts. **`ACCEPT` from the operator is ignored** in a browser module (Q9): no code, the item keeps its value, and a warning names the line. **Working assumption:** warn rather than stay silent. `ACCEPT … FROM DATE/TIME/DAY/DAY-OF-WEEK` now has a clock-only routine, so it no longer pulls in the file import and is refused no more.
+
+**The project module has its form exports** (ABI §4, A1–A5): `pr_open_form`, `pr_event`, `pr_resume`, `pr_cancel` (`-1` discards a run that trapped), `pr_tick`, `pr_status`, `pr_close_form` (it delivers `Quit` and sets `COBOL-QUIT` as the desktop host does; the region is released when the closing run ends) and `pr_dbg_live`/`pr_dbg_region_used`. A form and instance table lives in fixed memory, with one task per instance; the task table is Σ instances, with no spare rows. When every instance of a form is open, the open answers `-3` with an `ERROR` that names the form. A run-time error goes out as 1000 + the routine's code, with the unit, the line, the form and the event, and the next event still runs. The manifest is built as `cobolt_wasm_abi::manifest::Manifest`; it validates, and both variants pass `bundle_problems`. The glue gained `query`, `remote` and `random`, and a module imports only what it reaches. A host that lacks one refuses to start and names it. `$line` is exported as `pr_line`. The custom section `prlines` maps each line to the developer's site and line through the source map the caller passes on `FormSpec.lines`. ABI amendment **A10** records these, plus `limits.tasks`. Measured: a handler that writes, reads and displays makes one query and one flush, and its error maps to `ERR-FORM ▸ BTN-BAD ▸ onClick` line 8 of a form generated by `cobolt-codegen`.
+
+**Value methods on data items** (`Trim`, `Upper`, `Lower`, `Replace`, `Len`, `Split` and the five older spellings, from `cobolt_ast::methods`) are a new routine, `rt_value_method`. They chain, follow a host read, and work in computations. All 15 differential rows equal the interpreter in both variants. **Layers** (R19, R20, A9): `FormSpec.layers`; ids follow the controls; the manifest gains `forms[].layers` (`LayerEntry`). A layer's properties come from `cobolt_forms::model::LAYER_PROPS` (`cobolt-forms` without default features). An unknown layer, an unknown property, a write to `Name` or to a control's `Layer` are build errors (AC11), and no handler is listed or delivered for a layer.
+
+**Parity gaps closed in the generator:** #7 (`ALL` over `OCCURS DEPENDING ON` follows the current count), #9 (`RETURNING` on a dynamic `CALL`; `BY VALUE` moves into the parameter's own description), #10 (the AST keeps `INITIAL`/`COMMON`, `Program::is_initial`/`is_common`; an `INITIAL` program starts every call fresh). **Interpreter defects found, open for the operator (1.x.x fixes, `specs/WASM-PARITY.md`):** #7, where the interpreter sums the maximum, not the current count; #11, `INITIAL` ignored; #12, a literal passed `BY VALUE` arrives as zero. Also recorded: #13, a generator gap (a `RETURNING` item in LINKAGE is unbound), and #14, by design under Q5 (differing argument and parameter descriptions: bytes against values). No `REDEFINES` warning is emitted, because no difference has been shown not to be a bug (Q5 working assumption). **The AST change left the interpreter unchanged:** NC 95/95 (4 614), IF 45/45 (841), IC 25/25 (309), SM 16/16 (311), ST 39/39 (735), SQ 85/85 (624), IX 41/41 (574), RL 34/34 (354), 0 FAIL. The shipped player (`assets/web-player`) was rebuilt, because its fingerprint covers `cobolt-wasm-abi`.
+
+**Deviation from the task text:** R11's test raises `FUNCTION MOD(x, 0)`. `DIVIDE` by zero without `ON SIZE ERROR` is a size condition in the interpreter, not an error, and R11 says "behave as in the interpreter".
+
+**Stopped at T14:** in-memory INDEXED files and `SORT` need the record-limit clause, Q-new-1, which the operator has not answered. T14–T25 are not done, among them the suspension of phase C, the Build link and the System KB section. Still open: Q3 (option (a) stands, as the code already does), Q5's "avoid", Q-new-1, Q-new-2 and the `ACCEPT` warning. `README.md` and `docs/` are untouched on this line.
+
+**Decided by the operator on 2026-10-22, for what comes next (T14 onward):** an in-memory file has no record limit and no new clause; when the module runs out of memory the verb returns FILE STATUS `89` and keeps every record it already holds (Q-new-1). The player's native ABI tests move to `wasmtime` too (Q-new-2). An operator `ACCEPT` in a Web build is ignored **with** a warning, as built here.
 
 ## [PowerRustCOBOL 2.0.34] — 2026-10-22
 
@@ -80,6 +648,40 @@ All three run-time fixes are in the interpreter every host shares — Run Form, 
 Tests: `cobolt-runtime/tests/test_rust_ffi.rs` (`a_string_sender_that_is_an_object_reference_sends_its_value`, `get_property_into_an_object_reference_updates_the_object`, `a_property_write_keeps_a_leading_tab`) and `cobolt-semantic/tests/test_object_reference_move.rs`. The Developer's Guide (*Rust inside COBOL*, the DataGrid's `Rows`) and the System KB say the same.
 
 *This line does not carry the Developer's Guide part of the fix: `docs/` is left as `main` publishes it. The System KB part is here, and `chunked.data` is regenerated on this line.*
+
+## [PowerRustCOBOL 2.0.34] — 2026-10-22
+
+*(Written on `features-2x`, after 2.0.33.)*
+
+### Changed: WASM-010's engine probe stops the switch to `wasmtime` until the operator decides
+
+**The first task of WASM-010's implementation, the `wasmtime` probe, ended in its stop gate.** `wasmtime 44.0.3` is the newest release that builds on the project's minimum Rust 1.92: Apache-2.0 WITH LLVM-exception, 83 packages, an 18 s clean build. Its `runtime` feature, though, compiles a C helper (`helpers.c`, through `cc`) on macOS and Linux, and no feature set turns that off. Every newer release needs Rust 1.93 to 1.97. The task list says a C build script stops the work and goes to the operator, so the test host stays on `wasmi` for now, as a pending decision rather than a silent default. The measurements and the three possible answers are in `specs/WASM-010-webassembly-code-generation/plan.md` §1 WP1. They note that `cobolt-wasm`'s test graph already compiles C through SQLite. No code changed. `README.md` and `docs/` are untouched on this line.
+
+**Decided the same day:** the operator chose `wasmtime 44.0.3`, the IDE included, so the Build measures start-up natively (plan D5). Its `helpers.c` is the one C build script the guard allows for it; the switch itself (T2 onward) comes in the next change.
+
+## [PowerRustCOBOL 2.0.33] — 2026-10-22
+
+*(Written on `features-2x`, after 2.0.32.)*
+
+### Changed: the Web bundle's host page is written by the Build, and the report carries a 5 MB budget line (WASM-002)
+
+**The host page's code is generated at every Build** (the operator's decision Q6 of 2026-10-22). The page, its stylesheet and the five scripts of a Web bundle — the loader, the program Worker, the page's glue and the optional isolation shim with its registration — are now written by Rust code in `cobolt-web-bundle` (`hostpage.rs`) instead of being copied from tracked files; the seven `.js`, `.html` and `.css` files under `crates/cobolt-web-bundle/assets/` are gone, which also ends their conflict with the PRIME DIRECTIVE. Every file the Build writes for the page starts with *Generated by PowerRustCOBOL AI at Build. Do not edit: it is written again at every Build.* and carries no timestamp, so two Builds of the same project give byte-identical, identically named files. What the Build writes in: the loader's hashed name and the version numbers, the ABI version, the default Worker count (`hardwareConcurrency − 1`, at most 8, WASM-017 Q2) and, in the message a browser below the baseline gets, the declared matrix — Chrome, Edge, Firefox or Safari released in 2024 or later (WASM-017 Q4) — instead of the old "Chrome 91, Firefox 79, Safari 15". The script scan that refuses string evaluation and markup insertion now also covers the committed threaded player (`player.js`, `workerHelpers.js`), which it had not found before.
+
+**The size report has a first-download line** checked against a 5 MB budget (Q5, answered; *to confirm*): the larger program module, the plain player, the loader and glue, the page and its stylesheet. Over the budget is a warning; the bundle is still built. Working assumption until the operator confirms: it caps the first download, 5 × 10⁶ bytes, no first-paint target.
+
+**Not done: the Build itself.** The Web Build and Check (WASM-002 T13 onwards) wait for the generator: `compile_project` does not yet export the form entry points (`pr_open_form`, `pr_event`, …) or write the full manifest (WASM-010 T8–T10), so the bundler would refuse its modules. `README.md` and `docs/` are untouched on this line.
+
+## [PowerRustCOBOL 2.0.32] — 2026-10-22
+
+*(Written on `features-2x`, after 2.0.31.)*
+
+### Added: Web and Mobile forms get their own file names, and the toolbox follows the project's kind (WASM-001)
+
+**Web forms are `.wcfrm`, mobile forms `.mcfrm`** (the operator's decision of 2026-10-20); Desktop forms stay `.cfrm`. The format inside is the same; only the name differs. A new Web project's main form is `webforms/main-form.wcfrm`, a Mobile one's `mobileforms/main-form.mcfrm`, from the New Project dialog and from the `create_project` tool alike (the two still make byte-identical projects). One test decides what a form file is — `is_form_extension` in `cobolt-compiler` — and every reader now asks it: the project tree and its add-file filter, the New Form and pasted-form file names, the designer's form picker, the coding-agent tools (`check`, `validate`, `regenerate`, `run_form`, `render_form`, `list_files`), `rcrun run-form`'s `open-form:` lookup, the dev servers and the Web build's secret scan. A Web project made before this version keeps its `.cfrm`: it opens exactly as before and nothing is renamed on open (the operator's ruling D-T15b, 2026-10-22). `check` — the coding-agent tool and the IDE's own Check alike — warns once per such file, and the form's row in the project tree offers **Rename to main-form.wcfrm** (or `.mcfrm`, or back to `.cfrm` for a Web form copied into a Desktop project): it renames the file and its `files.forms` entry, follows any tab the form is open in, and refuses when a file already has the new name. Its label, the Check note and the two Output messages are in all six languages. The agent rules and the System KB's *Project kinds* table name the extensions (`assets/knowledge/chunked.data` regenerated).
+
+**The toolbox offers what the project's kind can run.** WASM-004's class table moved from the browser player into `cobolt-forms` (`web_class`), so the IDE and the player read one table; the player re-exports it and its shipped build under `assets/web-player/` was rebuilt. A Web or Mobile project's toolbox leaves out class-D controls, and a user control is offered only when every control in it is. Today no built-in control is class D, so the toolbox shows the same 62 controls in every kind.
+
+Still open: the Backend's authentication programs wait for WASM-009; whether the dialog's Recent view is the operator's *Recent Projects* is still to confirm (Q6). `README.md` and `docs/` are untouched on this line.
 
 ## [PowerRustCOBOL 2.0.31] — 2026-10-22
 

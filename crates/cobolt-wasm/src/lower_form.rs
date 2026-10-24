@@ -72,8 +72,71 @@ impl Lower<'_, '_> {
             if let Some(&id) = f.controls.get(&name) {
                 return Some(id);
             }
+            if let Some(&id) = f.layers.get(&name) {
+                return Some(id);
+            }
         }
         None
+    }
+
+    /// Is `ctrl` one of the form's layers?
+    fn is_layer(&self, ctrl: u32) -> bool {
+        self.form.as_ref().is_some_and(|f| f.layers.values().any(|&id| id == ctrl))
+    }
+
+    /// The rules of spec 091 for a member chain on the host (R19, R37, Q11): a
+    /// layer has its properties and nothing else, and `Name` is read only; a
+    /// control's `Layer` is read only.
+    fn check_layer_rules(&self, root: &Expr, ctrl: u32, segs: &[Seg<'_>], write: bool, line: u32) -> GenResult<()> {
+        use crate::error::ErrorKind;
+        use cobolt_forms::model::{layer_prop, layer_writable};
+        let root_name = match root {
+            Expr::Identifier(n, _) => n.as_str(),
+            _ => "",
+        };
+        if self.is_layer(ctrl) {
+            let prop = match segs {
+                [s] if s.args.is_empty() && !s.parens => s.name,
+                _ => {
+                    let what = segs.iter().map(|s| s.name).collect::<Vec<_>>().join("::");
+                    return self.err_kind(line, ErrorKind::UnknownLayerProperty, what.clone(), format!("{root_name}::{what}: a layer has no members but its properties; a layer has {}", layer_props_text()));
+                }
+            };
+            if !layer_prop(prop) {
+                return self.err_kind(line, ErrorKind::UnknownLayerProperty, prop, format!("the layer {root_name} has no property {prop}; a layer has {}", layer_props_text()));
+            }
+            if write && !layer_writable(prop) {
+                return self.err(line, format!("{root_name}::{prop} can be read but not written: a layer is renamed in the designer"));
+            }
+        } else if write && ctrl >= 3 && segs.last().is_some_and(|s| s.name.eq_ignore_ascii_case("Layer")) {
+            return self.err_kind(line, ErrorKind::LayerWrite, format!("{root_name}::Layer"), format!("{root_name}::Layer can be read but not written: a control is moved to another layer in the designer"));
+        }
+        Ok(())
+    }
+
+    /// A chain whose root is neither the host, a control, a layer nor a data
+    /// item: on a form that has layers it is most likely a layer's name
+    /// mistyped, and the refusal names the layers there are (spec 091 R37).
+    fn unknown_root(&mut self, root: &Expr, line: u32) -> Option<crate::error::GenError> {
+        let Expr::Identifier(name, _) = root else { return None };
+        if self.resolve_item(root).is_ok() {
+            return None;
+        }
+        let f = self.form.as_ref()?;
+        if f.layer_names.is_empty() {
+            return None;
+        }
+        Some(crate::error::GenError::kinded(
+            line,
+            crate::error::ErrorKind::UnknownLayer,
+            name.clone(),
+            format!(
+                "{name} is not a layer of form {}: its layers are {}; a layer has {}",
+                f.name,
+                f.layer_names.join(", "),
+                layer_props_text()
+            ),
+        ))
     }
 
     /// Does `e` start a chain that reaches the host?
@@ -96,6 +159,11 @@ impl Lower<'_, '_> {
             }
             arg_opds.push(v);
         }
+        if ctrl == CTRL_APP {
+            if let Some(first) = segs.first() {
+                self.names.builtins.insert(first.name.to_string());
+            }
+        }
         self.i32c(ctrl as i32);
         self.call_rt("rt_path_begin");
         for (s, opds) in segs.iter().zip(arg_opds) {
@@ -117,13 +185,40 @@ impl Lower<'_, '_> {
             return self.err(line, "a control property was expected as the receiving field");
         };
         let Some(ctrl) = self.host_root(root) else {
+            if let Some(e) = self.unknown_root(root, line) {
+                return Err(e);
+            }
             return self.err(line, "a value method cannot be a receiving field");
         };
+        self.check_layer_rules(root, ctrl, &segs, true, line)?;
         self.build_path(ctrl, &segs)?;
         self.base();
         self.i32c(value as i32);
         self.call_rt("rt_cmd_set");
         Ok(())
+    }
+
+    /// A control property as the receiving field of `STRING`: its current text
+    /// in a character temporary widened to the temporary's full capacity, so
+    /// the statement can write into it. Answers the temporary's index and its
+    /// operand; the caller trims it (`rt_ctemp_rtrim`) and writes it back with
+    /// [`Self::member_set`].
+    pub(crate) fn member_receiver(&mut self, target: &Expr, line: u32) -> GenResult<(u32, u32)> {
+        let Some((root, segs)) = Self::chain(target) else {
+            return self.err(line, "a control property was expected as the receiving field");
+        };
+        let Some(ctrl) = self.host_root(root) else {
+            if let Some(e) = self.unknown_root(root, line) {
+                return Err(e);
+            }
+            return self.err(line, "a value method cannot be a receiving field");
+        };
+        self.check_layer_rules(root, ctrl, &segs, true, line)?;
+        let k = self.ctemp_next;
+        let opd = self.host_read(ctrl, &segs, line)?;
+        self.i32c(k as i32);
+        self.call_rt("rt_ctemp_widen");
+        Ok((k, opd))
     }
 
     /// `Ctrl::Method(args)` as a statement: the call, its result discarded.
@@ -132,11 +227,18 @@ impl Lower<'_, '_> {
             return self.err(line, "a control member was expected");
         };
         let Some(ctrl) = self.host_root(root) else {
+            if let Some(e) = self.unknown_root(root, line) {
+                return Err(e);
+            }
             // A value method used as a statement has no effect.
             return Ok(());
         };
+        self.check_layer_rules(root, ctrl, &segs, false, line)?;
         self.build_path(ctrl, &segs)?;
         self.call_rt("rt_cmd_call");
+        if let Some(last) = segs.last() {
+            self.suspend_if_waiting(ctrl, last.name);
+        }
         let _ = CMD_CALL;
         Ok(())
     }
@@ -150,18 +252,94 @@ impl Lower<'_, '_> {
         let Some(ctrl) = self.host_root(root) else {
             return self.err(line, "not a control member");
         };
-        let k = self.ctemp_next;
-        if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
-            return self.err(line, "this statement reads more than four properties or character-valued functions");
-        }
-        self.ctemp_next += 1;
-        self.build_path(ctrl, &segs)?;
+        self.host_read(ctrl, &segs, line)
+    }
+
+    /// Read `ctrl::segs…` from the host into a new character temporary.
+    fn host_read(&mut self, ctrl: u32, segs: &[Seg<'_>], line: u32) -> GenResult<u32> {
+        let k = self.next_ctemp(line)?;
+        self.build_path(ctrl, segs)?;
         let last_parens = segs.last().map(|s| s.parens).unwrap_or(false);
         self.i32c(if last_parens { Q_CALLR as i32 } else { Q_GET as i32 });
         self.i32c(k as i32);
         self.i32c(1);
         self.call_rt("rt_cmd_query");
         Ok(self.pool.opd_ctemp(k))
+    }
+
+    fn next_ctemp(&mut self, line: u32) -> GenResult<u32> {
+        let k = self.ctemp_next;
+        if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
+            return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
+        }
+        self.ctemp_next += 1;
+        Ok(k)
+    }
+
+    /// A member chain as a value (WASM-010 T11). As the interpreter's
+    /// `eval_member` does, a value method (`Trim`, `Upper`, `Lower`, `Replace`,
+    /// `Len`, `Split` and their older spellings, `cobolt_ast::methods`) applies
+    /// to the value before it — a data item, a literal, or what the host
+    /// answered for the segments before it; the segments up to the first value
+    /// method after a control are the host's.
+    pub(crate) fn member_value(&mut self, e: &Expr, line: u32) -> GenResult<u32> {
+        use cobolt_ast::methods::is_data_item_method;
+        let Some((root, segs)) = Self::chain(e) else {
+            return self.err(line, "a member was expected");
+        };
+        let (mut recv, local) = match self.host_root(root) {
+            Some(ctrl) => {
+                let host_len = segs.iter().skip(1).position(|s| is_data_item_method(s.name)).map_or(segs.len(), |i| i + 1);
+                self.check_layer_rules(root, ctrl, &segs[..host_len], false, line)?;
+                let r = self.host_read(ctrl, &segs[..host_len], line)?;
+                if host_len == segs.len() {
+                    return Ok(r);
+                }
+                (r, &segs[host_len..])
+            }
+            None => {
+                if let Some(e) = self.unknown_root(root, line) {
+                    return Err(e);
+                }
+                (self.operand_or_temp(root)?, &segs[..])
+            }
+        };
+        let mut k = None;
+        for s in local {
+            let Some(code) = value_method_code(s.name) else {
+                return self.err(
+                    line,
+                    format!("{} is not a value method of a data item: a data item answers {}", s.name, cobolt_ast::methods::DATA_ITEM_METHODS_TEXT),
+                );
+            };
+            let a = match s.args.first() {
+                Some(x) => self.operand_or_temp(x)?,
+                None => 0,
+            };
+            let b = match s.args.get(1) {
+                Some(x) => self.operand_or_temp(x)?,
+                None => 0,
+            };
+            // Every method of the chain writes the same temporary: the routine
+            // reads its operands before it writes the result.
+            let slot = match k {
+                Some(k) => k,
+                None => {
+                    let n = self.next_ctemp(line)?;
+                    k = Some(n);
+                    n
+                }
+            };
+            self.base();
+            self.i32c(code as i32);
+            self.i32c(recv as i32);
+            self.i32c(a as i32);
+            self.i32c(b as i32);
+            self.i32c(slot as i32);
+            self.call_rt("rt_value_method");
+            recv = self.pool.opd_ctemp(slot);
+        }
+        Ok(recv)
     }
 
     /// `INVOKE Ctrl 'Method' USING args [RETURNING x]`.
@@ -175,11 +353,12 @@ impl Lower<'_, '_> {
             None => {
                 self.build_path(ctrl, std::slice::from_ref(&seg))?;
                 self.call_rt("rt_cmd_call");
+                self.suspend_if_waiting(ctrl, method);
             }
             Some(r) => {
                 let k = self.ctemp_next;
                 if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
-                    return self.err(line, "this statement reads more than four properties or character-valued functions");
+                    return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
                 }
                 self.ctemp_next += 1;
                 self.build_path(ctrl, std::slice::from_ref(&seg))?;
@@ -189,6 +368,7 @@ impl Lower<'_, '_> {
                 self.call_rt("rt_cmd_query");
                 let src = self.pool.opd_ctemp(k);
                 self.move_operand_to(src, r, line)?;
+                self.suspend_if_waiting(ctrl, method);
             }
         }
         Ok(())
@@ -257,6 +437,21 @@ impl Lower<'_, '_> {
         Ok(())
     }
 
+    /// The control a built-in's first argument names: a literal holding a
+    /// control's name (as generated code writes it), or the control itself.
+    fn literal_control(&mut self, builtin: &str, obj: &Expr, line: u32) -> GenResult<u32> {
+        let name = match obj {
+            Expr::Literal(Literal::String(o), _) => o.trim().to_string(),
+            Expr::Identifier(o, _) => o.clone(),
+            _ => return self.err(line, format!("COBOL::\"{builtin}\" in a browser module names the control in a literal")),
+        };
+        let root = Expr::Identifier(name.clone(), cobolt_lexer::Span::new(0, 0, line, 0));
+        match self.host_root(&root) {
+            Some(ctrl) => Ok(ctrl),
+            None => self.err(line, format!("COBOL::\"{builtin}\": {name} is not a control of this form")),
+        }
+    }
+
     /// A built-in `CALL "COBOL-NAME"` that belongs to the page.
     pub(crate) fn builtin_call(&mut self, name: &str, using: &[CallArg], line: u32) -> GenResult<()> {
         match name {
@@ -264,12 +459,26 @@ impl Lower<'_, '_> {
             "INIT-FORM" => Ok(()),
             "WAIT-EVENT" => self.wait_event(using, line),
             // `COBOL-SET-PROPERTY obj prop value` / `COBOL-GET-PROPERTY obj prop dest`
-            // name the control and the property in literals.
+            // name the control and the property in literals; SET-PROPERTY may
+            // also take the property's name from a data item, as the
+            // interpreter does (WASM-005 T14: the backend's answer names the
+            // properties it set at run time) — ABI amendment A14's SET_NAMED.
             "SET-PROPERTY" | "GET-PROPERTY" if using.len() >= 3 => {
                 let ex = |a: &CallArg| match a {
                     CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
                 };
                 let (obj, prop, third) = (ex(&using[0]), ex(&using[1]), ex(&using[2]));
+                if name == "SET-PROPERTY" && !matches!(prop, Expr::Literal(Literal::String(_), _)) {
+                    let ctrl = self.literal_control(name, &obj, line)?;
+                    let p = self.operand_or_temp(&prop)?;
+                    let v = self.operand_or_temp(&third)?;
+                    self.base();
+                    self.i32c(ctrl as i32);
+                    self.i32c(p as i32);
+                    self.i32c(v as i32);
+                    self.call_rt("rt_cmd_set_named");
+                    return Ok(());
+                }
                 let (Expr::Literal(Literal::String(o), _), Expr::Literal(Literal::String(p), _)) = (&obj, &prop) else {
                     return self.err(line, format!("COBOL::\"{name}\" in a browser module names the control and the property in literals"));
                 };
@@ -287,7 +496,7 @@ impl Lower<'_, '_> {
                 } else {
                     let k = self.ctemp_next;
                     if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
-                        return self.err(line, "this statement reads more than four properties or character-valued functions");
+                        return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
                     }
                     self.ctemp_next += 1;
                     self.build_path(ctrl, std::slice::from_ref(&seg))?;
@@ -300,6 +509,45 @@ impl Lower<'_, '_> {
                 }
                 Ok(())
             }
+            // `COBOL::"RAISE-EVENT" ( control event [argument] )`: the page
+            // queues the event as the control would raise it (A14's RAISE).
+            "RAISE-EVENT" if using.len() >= 2 => {
+                let ex = |a: &CallArg| match a {
+                    CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
+                };
+                let ctrl = self.literal_control(name, &ex(&using[0]), line)?;
+                let ev = self.operand_or_temp(&ex(&using[1]))?;
+                let arg = match using.get(2) {
+                    Some(a) => self.operand_or_temp(&ex(a))?,
+                    None => self.operand_or_temp(&Expr::Literal(Literal::String(String::new()), cobolt_lexer::Span::new(0, 0, line, 0)))?,
+                };
+                self.base();
+                self.i32c(ctrl as i32);
+                self.i32c(ev as i32);
+                self.i32c(arg as i32);
+                self.call_rt("rt_cmd_raise");
+                Ok(())
+            }
+            // `COBOL::"WS-LAST-ERROR" ( class [code [message]] )`: how the last
+            // remote call failed, kept by the module from the error frame.
+            "WS-LAST-ERROR" => {
+                if using.len() > 3 {
+                    return self.err(line, "COBOL::\"WS-LAST-ERROR\" in a browser module answers the class, the code and the message; the detail stays with the backend's log");
+                }
+                let mut opds = [0u32; 3];
+                for (i, a) in using.iter().take(3).enumerate() {
+                    let e = match a {
+                        CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e,
+                    };
+                    opds[i] = self.receiver(e)?;
+                }
+                self.base();
+                for o in opds {
+                    self.i32c(o as i32);
+                }
+                self.call_rt("rt_ws_last_error");
+                Ok(())
+            }
             other => {
                 // Any other service the page offers is a call on the application
                 // object with the arguments as text.
@@ -309,16 +557,49 @@ impl Lower<'_, '_> {
                         CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
                     })
                     .collect();
-                if !crate::support::browser_builtin(other) {
-                    return self.err(line, format!("COBOL::\"{other}\" runs on the desktop or the backend, not in a browser module"));
+                match crate::support::builtin_support(other) {
+                    // A verb of the application object the page implements (ABI §12.1).
+                    _ if crate::lower_remote::is_app_verb(other) => {}
+                    crate::support::Support::Module | crate::support::Support::Conformance => {}
+                    crate::support::Support::BackendOnly(alt) | crate::support::Support::MemoryFiles(alt) => {
+                        return self.err_kind(line, crate::error::ErrorKind::BackendOnly, format!("COBOL::\"{other}\""), format!("COBOL::\"{other}\" runs on the backend, not in a browser module: {alt}"));
+                    }
+                    crate::support::Support::Unsupported(why) => {
+                        return self.err_kind(line, crate::error::ErrorKind::Unsupported, format!("COBOL::\"{other}\""), format!("COBOL::\"{other}\" is not available in a browser module: {why}"));
+                    }
                 }
                 let seg = Seg { name: other, args: &args, parens: true };
                 self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
                 self.call_rt("rt_cmd_call");
+                self.suspend_if_waiting(CTRL_APP, other);
                 Ok(())
             }
         }
     }
+}
+
+/// What a layer answers, as the end of a refusal: `Name (read only), Visible, …`.
+fn layer_props_text() -> String {
+    cobolt_forms::model::LAYER_PROPS
+        .iter()
+        .map(|p| if p.eq_ignore_ascii_case("Name") { format!("{p} (read only)") } else { (*p).to_string() })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The routine's code for a value method, by any of its spellings.
+fn value_method_code(name: &str) -> Option<u32> {
+    use cobolt_wasm_rt::strings::*;
+    let canonical = cobolt_ast::methods::canonical_data_item_method(name).unwrap_or(name);
+    Some(match canonical.to_ascii_uppercase().as_str() {
+        "TRIM" => VM_TRIM,
+        "UPPER" => VM_UPPER,
+        "LOWER" => VM_LOWER,
+        "REPLACE" => VM_REPLACE,
+        "LEN" => VM_LEN,
+        "SPLIT" => VM_SPLIT,
+        _ => return None,
+    })
 }
 
 #[allow(dead_code)]

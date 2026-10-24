@@ -148,6 +148,10 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
 - **R17 (constraint):** The dialog shall not resize itself: it owns an explicit size and a single grip is the only writer of it.
 - **R18 (constraint):** A project already on disk shall open exactly as before; no existing file is rewritten merely by opening it.
 
+**The operator's ruling of 2026-10-24 on the native project (WASM-INDEX D22)**
+
+- **R19 (event):** When a Mobile template is created (R6), the New Project flow shall include, as a step of its own that the developer may **cancel**, the creation of the native development project of WASM-012 R16 — an Android Studio project for Android, an Xcode project for iOS, named as the PowerRustCOBOL AI Mobile project — and shall record in the manifest, per platform, whether it was created; a cancelled step shall leave the native project creatable later from Project Settings (WASM-012 R17). A Web or Desktop template shall show no such step.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — The dialog shows the left list and right pane of the mock-up; selecting each template changes the title and the
@@ -163,8 +167,12 @@ selected template ("New Desktop Project"). The mock-up is "suggestive": it fixes
 - [ ] **AC7** — The existing desktop test suites are unaffected (no new failure in `cargo test -p cobolt-ide --bin cobolt-ide` and
   `-p cobolt-project-tools`).
 
+- [ ] **AC8** — Creating a Mobile project with the native-project step accepted yields the Android Studio project (and, on a Mac, the Xcode project) named after the project, and the manifest says so; cancelling the step yields the Mobile project alone and a manifest that says the native project is missing; a Web or Desktop template shows no such step.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D22 (operator, 2026-10-24):** the New Project flow of a Mobile template gains the cancellable step that creates the native Android Studio / Xcode project (R19, AC8); the native project itself is WASM-012 R16–R18.
+- **The frontend↔backend channel (WASM-INDEX D21, operator 2026-10-24):** whatever this spec puts on the channel between the frontend and the backend obeys the series-wide ruling — the channel is asymmetrically encrypted with a key pair generated when the application starts; a broken connection is retried with a timeout of 10 s, raised by 10 s on each retry, for at most 3 cycles, then an exception is raised; while the frontend retries, all mouse and keyboard input is blocked and the "connecting" modal of WASM-016 R20 (WASM-012 R15 on a device) is shown, appearing when the connection breaks and disappearing when it is re-established. The ruling is owned by WASM-003 R24–R26, WASM-016 R20–R21, WASM-012 R15, WASM-005 R18, WASM-014 R18 and WASM-013 R17; this spec adds nothing of its own to it and must not contradict it.
 - **i18n (6 languages):** yes — R16.
 - **Generated-code contract:** unchanged here; each kind's generated output is defined in WASM-002/003.
 - **Docs:** the English Developer's Guide is **not** touched on the 2.x.x line (CLAUDE.md, 2026-10-19: README.md and `docs/` describe

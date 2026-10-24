@@ -61,6 +61,7 @@ pub mod runtime_features;
 pub mod external_crates;
 pub mod main_form_guard;
 pub mod project_kind;
+pub mod web_remote;
 
 pub use external_crates::ExternalCrate;
 pub use project_kind::ProjectKind;
@@ -1106,8 +1107,18 @@ pub struct ManifestView {
     pub web: Option<project_kind::WebSettings>,
     /// `[mobile]`, when the manifest has one.
     pub mobile: Option<project_kind::MobileSettings>,
-    /// `[backend] exports` — the programs a remote caller can reach.
+    /// The programs a remote caller can reach: the `program` of each
+    /// `[[export]]` in `backend/exports.toml` beside the manifest (WASM-003 D5).
     pub backend_exports: Vec<String>,
+    /// `[backend] state` as written; `per-call` when absent.
+    pub backend_state: String,
+}
+
+impl ManifestView {
+    /// `[backend] state` as the server reads it; `Err` names the two values.
+    pub fn backend_state_mode(&self) -> Result<cobolt_server::backend::StateMode, String> {
+        cobolt_server::backend::StateMode::parse(&self.backend_state)
+    }
 }
 
 /// The manifest subset [`project_manifest_view`] reads. Its own mirror, like
@@ -1146,6 +1157,10 @@ pub fn project_manifest_view(manifest_path: &Path) -> Result<ManifestView, Strin
         .map_err(|e| format!("the project file cannot be read ({e})"))?;
     let m: ViewManifest = toml::from_str(&text)
         .map_err(|e| format!("the project file cannot be parsed ({e})"))?;
+    let backend_exports = match manifest_path.parent() {
+        Some(dir) if m.project.kind.has_backend() => cobolt_server::backend::exported_names(&dir.join(project_kind::BACKEND_FOLDER)),
+        _ => Vec::new(),
+    };
     Ok(ManifestView {
         name: m.project.name,
         structure: m.project.structure,
@@ -1160,7 +1175,8 @@ pub fn project_manifest_view(manifest_path: &Path) -> Result<ManifestView, Strin
         kind: m.project.kind,
         web: m.web,
         mobile: m.mobile,
-        backend_exports: m.backend.map(|b| b.exports).unwrap_or_default(),
+        backend_exports,
+        backend_state: m.backend.unwrap_or_default().state,
     })
 }
 
@@ -3611,9 +3627,12 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 16] = [
+pub const SDK_CRATES: [&str; 18] = [
     "cobolt-ast",
     "cobolt-codegen",
+    // Decimal arithmetic, shared by the interpreter and the WebAssembly
+    // generator's routines (2.0.16). `cobolt-runtime` depends on it.
+    "cobolt-decimal",
     // spec 074 — document import. `cobolt-kb` depends on it.
     "cobolt-docs",
     "cobolt-form-host",
@@ -3627,6 +3646,9 @@ pub const SDK_CRATES: [&str; 16] = [
     // depends on it, so the closure guard below requires it here.
     "cobolt-mcp",
     "cobolt-media",
+    // Edited pictures, shared by the interpreter (through `cobolt-forms`) and
+    // the WebAssembly generator's routines (2.0.13). `cobolt-forms` depends on it.
+    "cobolt-numedit",
     // spec 083 — desktop blur behind a see-through (Spatial) form window.
     // `cobolt-form-host` depends on it, so the closure guard requires it.
     "cobolt-os-blur",
@@ -5093,6 +5115,7 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"OPEN-FILE-DIALOG"` | title in, [filter in], [start-folder in], path out | Ask the operator for a file to open; spaces when cancelled |
 | `COBOL::"PROVIDER-COUNT"` | count out | How many model providers there are |
 | `COBOL::"PROVIDER-GET"` | index in, [id out], [label out], [endpoint out], [needs-key out] | One provider's details (1-based) |
+| `COBOL::"RAISE-EVENT"` | object in, event in, [argument in] | Queue a control's event as the control raises it: its handler runs after the running one |
 | `COBOL::"ROW-COUNT"` | handle in, count out | How many rows the last result set has |
 | `COBOL::"SAVE-FILE-DIALOG"` | title in, [filter in], [file-name in], [start-folder in], path out | Ask the operator where to save; spaces when cancelled |
 | `COBOL::"SET-PROPERTY"` | object in, property in, value in | Set a control's property |
@@ -5149,12 +5172,12 @@ A Web or Mobile project has a backend (the `backend/` folder) that runs on the n
 - **The arguments are groups.** Each operand of `USING`, and the `RETURNING` receiver, is a data item declared in WORKING-STORAGE (or LINKAGE), written as its name — never a literal, an expression, a table element or a file record. A group travels as a JSON object built from its own declaration; an elementary item travels as its bare scalar (a number or a string). `BY VALUE` sends the group and never changes the caller's copy; `BY REFERENCE` (the default when no `BY` is written) also writes the backend's final values of that parameter back into it; `RETURNING` writes the backend's returned item into the named group. `BY CONTENT` does not exist here — write `BY VALUE`.
 - **Nothing else is the developer's.** The connection, the bearer token, the framing, the correlation, the keep-alive, the reconnection and the token refresh are the runtime's. While the call is pending the form keeps repainting and its events queue up in order; the statement after the `CALL` does not run until the call has finished.
 - **The group-to-JSON mapping.** A member's key is its data-name **as declared** (the spelling of the declaration, case included); `FILLER`, 88-level condition-names, level-66 `RENAMES` and the **redefining** half of a `REDEFINES` are not members and are never written, and a key naming one is an unknown key. Members come out in declaration order and are read **by name**, in any order; a key the answer leaves out leaves its item unchanged. `OCCURS n` is an array of n elements (an array shorter than the table leaves the rest unchanged; a longer one is an error); `OCCURS min TO max DEPENDING ON item` is an array of the current count, the count item must be an integer declared earlier **inside the same group**, reading an array sets the count, and a count that disagrees with the array, or lies outside min..max, is an error. A numeric item is a JSON number written from its decimal text with the PICTURE scale (`PIC S9(5)V99` holding 12.5 is `12.50`) — never through a binary float, so 38 digits survive; `USAGE COMP`, `COMP-3`, `COMP-5` and `PACKED-DECIMAL` are sent as their value, and `COMP-1`/`COMP-2`, `INDEX`, `POINTER` and `OBJECT REFERENCE` items are refused at Check time. A `PIC X(n)` item is a JSON string of at most n **bytes** of UTF-8 with its trailing spaces trimmed (all spaces is `""`); `PIC N(n)` counts UTF-16 code units and `PIC U(n)` characters; an edited picture travels as its edited image. Reading is strict: an unknown key, a value of the wrong JSON type, a number that does not fit its PICTURE (too many digits, too many decimals, a negative for an unsigned item), a string longer than its PIC or a table longer than its OCCURS is an **error naming the item**, never a truncation, and **nothing is written** when any part of an answer is refused.
-- **Failure.** When a call cannot be completed — no connection, a timeout, a missing/invalid/expired token, a refused role, a payload that does not fit, an unknown program, a version mismatch, a limit, a failure the backend's program reported, or a backend fault — `ON EXCEPTION` runs; without it a failed call is a run-time error. `COBOL::"WS-LAST-ERROR" ( class code message [detail] )` reads why: the class is one of `TRANSPORT`, `AUTHENTICATION`, `AUTHORISATION`, `VALIDATION`, `NOT-FOUND`, `VERSION`, `LIMIT`, `APPLICATION`, `SERVER`; the code is stable (1000 no connection, 1002 timeout, 1003 no backend configured, 2000-2002 token missing/invalid/expired, 3000 role refused, 4000 payload does not fit, 5000 unknown program, 6000-6002 version, 7000-7004 limits, 9000-9002 server); an `APPLICATION` failure carries the backend program's own code and `detail`. `NOT ON EXCEPTION` runs when the call succeeded.
+- **Failure.** When a call cannot be completed — no connection, a timeout, a missing/invalid/expired token, a refused role, a payload that does not fit, an unknown program, a version mismatch, a limit, a failure the backend's program reported, or a backend fault — `ON EXCEPTION` runs; without it a failed call is a run-time error. `COBOL::"WS-LAST-ERROR" ( class code message [detail] )` reads why: the class is one of `TRANSPORT`, `AUTHENTICATION`, `AUTHORISATION`, `VALIDATION`, `NOT-FOUND`, `VERSION`, `LIMIT`, `APPLICATION`, `SERVER`; the code is stable (1000 no connection, 1002 timeout, 1003 no backend configured, 2000-2002 token missing/invalid/expired, 3000 role refused, 4000 payload does not fit, 5000 unknown program, 6000-6002 version, 7000-7004 limits, 9000-9002 server); an `APPLICATION` failure carries the backend program's own code and `detail`. `RETURN-CODE` holds the same numeric code after a failed call and 0 after a successful one — the code only; the class and the message are read through `WS-LAST-ERROR`. `NOT ON EXCEPTION` runs when the call succeeded.
 - **At Check time** the backend's interface description (`backend/contract/interface.json`, written when the backend is built) is imported: the name must be a program the backend exports (an `ON EXCEPTION` does not excuse a name the contract does not list), the argument count must match, and each group must fit the parameter it lands on — names compared as declared, capacities, scale, sign and OCCURS.
-- **The backend's side.** `backend/exports.toml` names the contract version (`[contract] version = "1.2.0"`) and, in `[[export]]` entries, the programs a caller may reach: `program` (the PROGRAM-ID), `roles` (any one of them is enough; empty means any authenticated caller), `public` (answers with no token), `independent` (not queued behind the caller's other calls), `directions` (`in`, `out` or `inout` per parameter). **Only an exported program can be called**, whatever its name; the others are ordinary procedures the exported ones `CALL`. Every call runs in a fresh interpreter: no WORKING-STORAGE survives from one call to the next, and files are the only shared state. Inside an exported program `COBOL::"WS-CLAIM" ( "sub" WS-USER )` reads a claim of the caller's validated token (`sub`, `email`, `roles`, any scalar claim; a nested one with dotted names such as `realm_access.roles`); it is spaces when the token lacks it.
-- **Files shared between calls** wait for each other: a program that opens an indexed file for output holds it exclusively until its `CLOSE`, readers share it, and an `OPEN` that cannot get the file within `file_lock_wait_ms` (default 5000) answers file status 93. Close a file as soon as the work on it is done.
+- **The backend's side.** `backend/exports.toml` names the contract version (`[contract] version = "1.2.0"`) and, in `[[export]]` entries, the programs a caller may reach: `program` (the PROGRAM-ID), `roles` (any one of them is enough; empty means any authenticated caller), `public` (answers with no token), `independent` (not queued behind the caller's other calls), `directions` (`in`, `out` or `inout` per parameter). **Only an exported program can be called**, whatever its name; the others are ordinary procedures the exported ones `CALL`. `backend/exports.toml` is the one list: the IDE's Backend settings edit it, and an older project's `[backend] exports` list in the project file is copied into it once, when the project is opened. **State between calls** is the project's `[backend] state`: `per-call` (the default) runs every call in a fresh interpreter — no WORKING-STORAGE survives from one call to the next, and files and databases are the only shared state; `per-connection` keeps one run unit per exported program for the life of a connection, so WORKING-STORAGE carries over from one call of that connection to the next as for a program `CALL`ed again, the connection's calls run in turn (`independent` is ignored), a connection serves only the user it first served, a call that times out, is cancelled or fails with a fault starts that program afresh, and nothing is kept when the connection ends — a reconnection starts fresh. In `per-connection` a file a program leaves open stays open, and keeps its lock, across that connection's calls. Inside an exported program `COBOL::"WS-CLAIM" ( "sub" WS-USER )` reads a claim of the caller's validated token (`sub`, `email`, `roles`, any scalar claim; a nested one with dotted names such as `realm_access.roles`); it is spaces when the token lacks it.
+- **Files shared between calls** wait for each other: a program that opens an indexed file for output holds it exclusively until its `CLOSE`, readers share it, and an `OPEN` that cannot get the file within `file_lock_wait_ms` (default 5000) answers file status 93. Close a file as soon as the work on it is done — in `per-connection` state a file left open makes every other connection wait for it, or get 93, until a later call closes it or the connection ends.
 - **The contract is versioned** (`major.minor.patch`). Between two releases an old client keeps working only if the new interface still accepts what the old one sent and still carries every member the old one reads: adding a member or a program, or widening an item that only travels to the backend, is compatible; removing or renaming a member (in a request **or** an answer), changing a scale or a sign, narrowing a picture, widening an item the backend also sends back (an old client has no room for it), removing a program, or changing who may call it is breaking and needs a new **major** version. A **release** build is refused when it breaks the last released contract (`backend/contract/released/<version>.json`, written by `rcrun backend release`).
-- **Developing and building the backend.** `rcrun backend run [dir]` serves the backend on a loopback address with a development token printed at start (valid for that run only); `rcrun backend check` compares the contract with the released ones; `rcrun backend describe` writes and prints `interface.json`; `rcrun backend release` records the current contract as released; `rcrun backend build` produces the headless server binary `bin/<name>-backend`. The built backend reads `backend.toml` (address, TLS identity, token issuer, allowed origins, limits; a secret is written as `env:NAME` or `file:PATH`, never in a form) and refuses to start on any setting named `unsafe_…`.
+- **Developing and building the backend.** `rcrun backend run [dir]` serves the backend on a loopback address with a development token printed at start (valid for that run only), and prints each log record as it happens; it publishes the project's `[[sql-connections]]` as `rcrun run` does, so `EXEC SQL CONNECT TO 'NAME'` in a backend program resolves; in the IDE, **Run → Start Backend** runs exactly that for the open Web or Mobile project, shows its output in the Output panel, and **Run → Stop Backend** (or closing the project or the IDE) stops it; `rcrun backend check` compares the contract with the released ones; `rcrun backend describe` writes and prints `interface.json`; `rcrun backend release` records the current contract as released; `rcrun backend build` produces the headless server binary `bin/<name>-backend`. The built backend reads `backend.toml` (address, TLS identity, token issuer, allowed origins, limits; a secret is written as `env:NAME` or `file:PATH`, never in a form) and refuses to start on any setting named `unsafe_…`. Plain `ws://` is served on a loopback address only, in every mode — on a network address give `backend.toml` a `[tls]` section, or put a reverse proxy that terminates TLS in front and listen on loopback. A new Web or Mobile project starts with `backend/exports.toml` (`HEALTH`, public) and a development `backend/backend.toml` (loopback, no secret). Besides the WebSocket the backend answers `GET /health`; every other path is 404.
 - **A failure the backend program reports itself.** `COBOL::"WS-FAIL" ( 4201 "card declined" '{"retry":false}' )` ends the call: the caller's `ON EXCEPTION` runs with class `APPLICATION`, the code 4201, the message and the detail (`COBOL::"WS-LAST-ERROR" ( class code message detail )`), and the parameters the program changed are **not** sent back. A program's own codes are 1 to 7999; 8000 is the platform's *cancelled*.
 - **Repeating a call.** The runtime gives every call an idempotency key. After a lost connection a program declared `idempotent = true` in `exports.toml` is sent again once, on a new connection; any other call fails with class `TRANSPORT`, code 1001 and `may_have_run` true, and when the same `CALL` is made again right away it reuses the key, so the backend answers from what it kept for `idempotency_ttl_seconds` (600) **without running the program a second time** (the same key with other data is refused). A timeout, a limit and a cancel are not kept, so they can be tried again. Calls of one connection run in the order they were made unless the program is declared `independent = true`.
 - **Long calls.** A program declared `long_running = true` may run for `long_call_timeout_ms` (10 minutes) and reports with `COBOL::"WS-PROGRESS" ( percent message )`; the caller asks to cancel and the program sees it as `COBOL::"WS-CANCELLED" ( flag )` = `Y`, and `WS-PROGRESS` is a safe point where the call ends. A program that reaches no safe point is stopped `cancel_grace_ms` (10 s) after the request. A cancelled call fails with `APPLICATION` 8000; what the program already did is not undone. `COBOL::"WS-PAUSE" ( milliseconds )` waits and ends early on a cancel.
@@ -5162,6 +5185,13 @@ A Web or Mobile project has a backend (the `backend/` folder) that runs on the n
 - **Files.** Uploads go to a *slot* the deployment declares in `[files]` (a name, the mime types it takes, the roles that may use it), in pieces, with the size and the SHA-256 declared first; a lost connection resumes where it stopped; the file is checked (size, checksum, and the first bytes of images, PDF and ZIP against the declared type) before it is placed under the backend's own name (the browser's name is only a label and is refused if it holds `/`, `\`, `..` or a control character). `COBOL::"WS-FILE-PATH" ( file-id path status )` gives a program the path of a file the **caller** uploaded (`OK`, or `NOFILE` for anything else, someone else's included); `COBOL::"WS-FILE-PUBLISH" ( path file-id status )` offers a file the program holds to the caller, who is issued a short-lived address (`download_ttl_seconds`, 60) tied to the caller and the source it was issued to, and downloads from it with resume. In the application, `COBOL::"WS-UPLOAD" ( slot path mime file-id status )` and `COBOL::"WS-DOWNLOAD" ( file-id path status )` answer `OK`, `NOFILE`, `REFUSED` (why is in `WS-LAST-ERROR`), `FAILED` or `NOBACKEND`.
 - **Versions and warnings.** The application says the contract it was built against when it connects: the same major with a lower minor is served in the shape it was built for (a member added since is not sent to it) and told to update; a higher minor than the backend has, or another major, is refused with an update message. A call to a program marked `deprecated = { message, removal }` works and carries a warning, which `COBOL::"WS-WARNING" ( message )` reads.
 - **Where the application finds its backend.** `COBOLT_BACKEND_URL` (the `wss://` address; `ws://` only to loopback), `COBOLT_BACKEND_TOKEN` (the token, or `env:NAME` / `file:PATH`), `COBOLT_BACKEND_INTERFACE` (the backend's `interface.json`), `COBOLT_BACKEND_CERT` (one more trusted certificate, PEM). `rcrun run`, `rcrun run-form` and a built application read them, once, and every form of the application shares one connection. An expired token is exchanged for a fresh one and the call is repeated, once.
+- **The backend end of a bound DataGrid (`backend/generated/`).** For every DataGrid of a Web or Mobile form bound to an indexed file or an SQL query, the web Build generates the backend programs that serve it, one per grid and operation: `RC-<n>-<FORM>-<n>-<GRID>-READ` (a window of rows — offset and count, at most 100 rows of up to 32 cells of 128 bytes — with the total and `READ-STATUS`/`READ-MESSAGE`: `35` when the indexed file does not exist yet, `90` with the database's message when the query fails) and, for a **writable** binding, `…-SAVE` (`UPDATE`/`INSERT`/`DELETE` changes written as one unit: every change is checked first, then written, and all are undone if one fails; `COMMIT-STATUS` carries the desktop grid's codes — `00`, `21` a key changed, `22` the key exists, `23` no such row, `35` no file, `90` the database refused, `92` a value the field cannot hold — with the failed change's number and a message). They are written to `backend/generated/` with their `[[export]]` entries in `backend/generated/exports.toml` — callable by the roles in the grid's **BackendRoles** (any authenticated caller by default), never public — regenerated on every Build, and loaded by the backend beside `backend/exports.toml` and `backend/src`; a program both files export, or a `src` program with a generated PROGRAM-ID, stops the backend from loading. Keep nothing of your own there: the Build replaces and removes the files that carry its banner and refuses to overwrite one that does not. What a program reads is fixed at design time — the `.cidx` the binding names, or the binding's query on the backend connection named by the source SqlDatabase's **BackendConfig** (else its `SqlConnection`), never a connection string — and a value reaches the database only as a host variable. An indexed cell is what the desktop grid shows, except that a `COMP`/`COMP-3` field shows its value's digits and a signed field its `-`. Check and Build stop, naming the form and the grid, when the SqlDatabase names no connection, the query is empty, a field is not a plain SQL name, or a writable binding has no key among its columns. **How the grid uses them.** On a Web or Mobile form the grid reads and writes only through these programs: `RefreshBinding()` asks `…-READ` window by window (100 rows a call) until the source is exhausted and shows every row, as the desktop does; `Save()` sends the unit — the rows deleted, the rows whose cells changed, the rows added, in that order — as one `…-SAVE` call the backend writes as one transaction, and `AutoCommit` sends the cell edits the same way; the grid's own refusals come first (a changed key is `21` before any call), the backend's name the change and the cell the mark goes on, and a backend that cannot be reached, or is busy, leaves the changes in the grid for the next `Save()` (`CommitStatus` `90`). Run from the IDE (`rcrun run-form` on the web form), the interpreter makes the calls and the methods answer as on the desktop — the count, the status. **In the browser the player makes the calls**, on its own connection, and a program's method cannot wait for the network: `RefreshBinding()` answers the count the grid shows *now* and the rows arrive with the backend's answers; `Save()` answers `98` while the unit is on its way, and the outcome comes as `CommitStatus` and `SavedRows` with `onSaved`, or `CommitStatus`, `LastError`, the grid put back as it was loaded, the refused cell marked and `onCommitError` — handle those two events to learn a save's outcome on both the desktop and the web, and do not read `Save()`'s answer as the outcome. In the browser a row is told by the binding's key field, the grid has no operator cell editing yet (the changes a save carries are the program's own `AddRow`, `DeleteRow` and `SetCellValue`), and a key cell the program changes is a delete and an insert, not a refused edit. A grid bound to a COBOL table never calls the backend.
+- **The backend end of a class C control's method (`backend/generated/`, `[[configuration]]`).** For every call of a SqlDatabase, RestClient, AgentObject, KnowledgeBase, WebSearch, Maps or AWS control's method in a Web or Mobile form's handlers (`REST-1::Get("customers")`, `INVOKE AGENT-1 "Ask" USING …`), the web Build generates one backend program per call site, `RC-<n>-<FORM>-<n>-<CONTROL>-<OPERATION>-<k>` (`k` counts that control's calls of that operation from 1, in source order), exported like a grid's (the control's **BackendRoles**, never public). The backend seeds the control with its design-time properties — never one that holds a secret — and then with the values of the `[[configuration]]` of `backend/backend.toml` its **BackendConfig** names: `name = "CRM"` followed by the control's own property names, `BaseURL = "https://crm.example.com/api"`, `AuthToken = "env:CRM_TOKEN"` (any value may be `env:NAME` or `file:PATH`; none is ever printed or sent back). The program runs the method as the handler wrote it, waits until the control is no longer busy, and answers its value, `LastError`, the events it raised (an asynchronous RestClient raises `onComplete`) and the properties the call changed. A SqlDatabase names a connection of the backend's SQL catalogue instead (its BackendConfig, else its `SqlConnection`), opens it at every call and returns a `Query`'s rows with the answer (at most 100 rows of 32 cells). What the browser could otherwise choose is fixed at Build: the SQL statement, the REST resource, a function, tool or job name must be a **literal** in the handler, and Check and Build stop at the handler's line when it is not, when a call passes a connection string, or when it passes a local file. The backend does not start when a named configuration is missing from `backend.toml`. Nothing is kept between two calls unless `[backend] state = "per-connection"`, so an AgentObject's conversation or a Cognito session does not survive a call. A Maps or WebSearch configuration gives its key as `_ResolvedMapsApiKey` / `_ResolvedSearchApiKey`.
+- **The browser end of a class C control's method.** The developer's COBOL does not change: the web Build turns each such call, in the program it compiles (never in your source), into `CALL "<that program>" WITH WEBSOCKET LINKAGE`, sending the arguments that are not fixed at Build. When the answer comes, the call's value is used where the handler called the method, the properties the backend's control changed are set on the form's control, its `LastError` is set, and the events it raised (`onComplete`, `onQueryComplete`, …) are raised on the form's control — their handlers run **after** the running handler, as on the desktop. When the call fails (no connection, a timeout, a refusal) the control's `LastError` holds the reason and `onError` is raised; the value is spaces. Check and Build stop, at the handler's line, a call the desktop would make conditionally or more than once — in a `PERFORM … UNTIL`/`VARYING` condition, a `SEARCH` condition, a `WHEN` of an `EVALUATE`, or an `AND`/`OR` — move it into a statement of its own and use the item it fills; and a form whose own item is named like a member of the call's groups (`RC-PARAMS`, `RC-RESULT`, `ARG-COUNT`, `ARGS`, `ARG-VALUE`, `RESULT-VALUE`, `LAST-ERROR`, `PROP-COUNT`, `PROPS`, `PROP-NAME`, `PROP-VALUE`, `EVENT-COUNT`, `EVENTS`, `EVENT-NAME`, `ROWS-RETURNED`, `ROWS`, `CELL-COUNT`, `CELLS`, `CELL-TEXT`, `RC-I`, `RC-ERR-…`, `RC-VALUE-…`). A program raises a control's event itself with `COBOL::"RAISE-EVENT" ( "REST-1" "onComplete" )`, on the desktop and in the browser. After such a call `RETURN-CODE` holds the call's code, as after any `WEBSOCKET` call. A SqlDatabase's `Fetch` after a `Query` is not served yet: the rows come back with the answer, not to the control.
+- **A FileDropZone's upload slot.** Each FileDropZone of a Web or Mobile form gets an upload slot `RC-<n>-<FORM>-<n>-<ZONE>-COMMITFILES` in `backend/generated/exports.toml` that takes only the zone's `AllowedExtensions` and at most its `MaximumFileSizeKB` (`0`: the backend's own limit), from the zone's **BackendRoles**; the backend names every stored file, and a name that could mean a path is refused. A slot of that name in `backend.toml`'s `[files] slots` stops the start. The browser's zone does not upload to it yet.
+- **A Viewer on the web.** A document the user opens goes through the Viewer's own upload slot, `RC-<n>-<FORM>-<n>-<VIEWER>-OPEN`; a document the backend offers is fetched with `COBOL::"WS-DOWNLOAD"`, and the browser never names a backend path. On a Web or Mobile form the Viewer has two more properties for that slot: `AllowedExtensions` (blank: the types the Viewer shows — txt, text, log, md, markdown, png, jpg, jpeg, gif, webp, bmp, tiff, tif, svg, pdf, html, htm) and `MaximumFileSizeKB` (default `10240`, 10 MB); a desktop form never carries them. `SaveAs` and `SaveAsPdf` do not go through the backend: on the web they download the document to the user, the PDF made in the browser, and their path argument is ignored. The browser's side of both is not in the player yet.
+- **The AWS controls on the web.** The sixteen AWS controls (`AwsMcp` … `AwsCognito`) are class C like the SqlDatabase and the RestClient: a call of one of their routes (DynamoDB `GetItem`, S3 `List`, Lambda `Invoke`, …) in a handler runs on the Backend through a program the Build generates for the call site, the rules above about a literal statement, resource or function name and about local files apply to them, and the control holds only the NAME of a connection (`Connection`), never a key.
+- **No connection string or key on a web form.** Check and Build of a Web or Mobile project stop when a control holds a value in a property that carries a secret — a SqlDatabase's `ConnectionString` (even without a password; the default `sqlite::memory:` is allowed), a RestClient's `AuthToken`, an AgentObject's `AgentAPIKey`, a KnowledgeBase's `EmbeddingAPIKey`, a WebSearch's `ApiKey` — naming the control and the property (`DB-1.ConnectionString`), never the value. Clear it, put the value in a `[[configuration]]` of `backend/backend.toml`, and write that configuration's name in the control's **BackendConfig**.
 
 ### Sound — the `AUDIO-…` built-ins
 Any program, console or form, can play a sound file; there is no audio control. An audio player in a form is composed from ordinary controls: Play/Pause/Stop buttons, a ProgressBar and a Label, refreshed from a Timer's `onTick` that calls `COBOL::"AUDIO-STATE"`.
@@ -6180,13 +6210,15 @@ and unavailable); the coding-agent `create_project` tool takes `kind`
 (`desktop`, `web`, `mobile`) and, for Mobile, `platform` (`android`, `ios`) and
 `device` (`phone`, `tablet`) — and it is not changed by editing the manifest.
 
-| Kind | Forms live in | Tree node | Build makes |
-|---|---|---|---|
-| Desktop | `forms/` | Forms | a native executable in `bin/` |
-| Web | `webforms/` | WebForms | a static WebAssembly bundle in `dist/web/` |
-| Mobile | `mobileforms/` | MobileForms | the same bundle; the Android or iOS package step needs the mobile shell, which the product does not include yet |
+| Kind | Forms live in | Form file | Tree node | Build makes |
+|---|---|---|---|---|
+| Desktop | `forms/` | `<name>.cfrm` | Forms | a native executable in `bin/` |
+| Web | `webforms/` | `<name>.wcfrm` | WebForms | a static WebAssembly bundle in `dist/web/` |
+| Mobile | `mobileforms/` | `<name>.mcfrm` | MobileForms | the same bundle; the Android or iOS package step needs the mobile shell, which the product does not include yet |
 
-Every kind lists its forms under `[files] forms`. A Web or Mobile project may
+Every kind lists its forms under `[files] forms`. The three form files are one
+format; only the name differs. A form named for another kind (a `.cfrm` in a Web
+project made before 2.0.32) still loads, and Check warns about its name. A Web or Mobile project may
 also have a **Backend** — COBOL under `backend/src/` with `backend/COPYBOOKS/`,
 listed under `[files] backend`. In the project tree a Web or Mobile project shows
 its WebForms (or MobileForms) node in place of Forms, then a **Backend** node,
@@ -6202,8 +6234,12 @@ shown):
 [web]                       # a Web project
 style        = "spa"         # "spa" (single-page) or "standalone" (forms as separate pages)
 multi_memory = true          # emit the multi-memory program module
+single_memory_fallback = true  # also carry the single-memory module; false = multi-memory only
 isolation    = "require-corp"  # "off", "require-corp" or "credentialless": the COOP/COEP headers
 backend_url  = ""            # wss://..., or ws:// to this machine only (localhost, 127.0.0.1, ::1)
+max_payload_bytes = 393216   # the largest text or JSON frame between page, program and Backend (384 KB)
+call_timeout_ms = 60000      # how long a remote call waits for the Backend's answer (60 s); then TRANSPORT 1002
+# player     = "2.0.0"       # pin an older player this IDE keeps; absent = the player this IDE ships
 [web.browsers]               # the browsers the build promises to run in; all true
 chromium        = true
 firefox         = true
@@ -6219,6 +6255,9 @@ min_os       = "auto"        # an Android API level ("26") or an iOS version ("1
 style        = "spa"
 multi_memory = false         # false is the iOS default; true for Android
 backend_url  = ""
+max_payload_bytes = 393216   # as under [web]
+call_timeout_ms = 60000      # as under [web]
+# player     = "2.0.0"       # as under [web]
 
 [backend]                   # a Web or Mobile project that has a Backend
 exports = ["HEALTH"]         # the only programs a remote caller can reach
@@ -6230,14 +6269,59 @@ have no run-time effect yet. A `backend_url` that is not `wss://` is refused
 unless it is plain `ws://` to the same machine, and a refused address is never
 written to the manifest.
 
-**Which program modules a build carries.** The single-memory module is carried
-whenever multi-memory is off, or the browser matrix includes Safari or the iOS
-web view; the multi-memory module whenever `multi_memory` is on. An iOS Mobile
-project always carries the single-memory one.
+**Which program modules a build carries.** The multi-memory module whenever
+`multi_memory` is on; the single-memory module beside it unless
+`single_memory_fallback = false` ("multi-memory only"), and always when
+multi-memory is off. "Multi-memory only" while the browsers include Safari or the
+iOS web view — engines that run only the single-memory module — is refused by
+Check and Build, naming those browsers; remove them from `[web.browsers]` or turn
+the fallback back on. An iOS Mobile project always carries the single-memory one.
+The loader picks the module the browser runs.
+
+**The payload limit.** `max_payload_bytes` is the largest text or JSON frame
+that crosses between the page and the program, or goes to the Backend in one
+call: the program module's transport frame, and the player refuses a larger
+request before sending it. Default 384 KB; the Backend keeps its own limit.
+
+**The call timeout.** `call_timeout_ms` is how long a `CALL … WITH WEBSOCKET
+LINKAGE` — and a bound grid's read or save — waits for the Backend's answer
+before it fails with class `TRANSPORT`, code 1002 (`ON EXCEPTION` runs; a bound
+grid keeps its changes for the next `Save()`). Default 60 000 ms; a program
+declared `long_running` on the Backend has its own, longer limit.
+
+**The player.** A bundle is the program module the compiler emits plus the
+**player**: a prebuilt WebAssembly form engine (drawn with Leptos) that the IDE
+ships in `assets/web-player/` beside its executable and copies into every Web
+and Mobile bundle, so a Web build needs no Rust toolchain. Its plain variant runs
+everywhere; its threaded variant runs on cross-origin isolated pages. Mermaid
+diagrams, the PDF reader and the Canvas 2D rasteriser are parts of it loaded the
+first time a form uses them. A rebuild copies the player of the IDE that builds;
+`player = "<version>"` in `[web]` or `[mobile]` pins an older player the IDE
+keeps. A pin to a player the IDE does not keep stops the Build and lists the
+players it keeps; a pin to a player this compiler can no longer build for (another
+host-API version or description format) stops it and names the oldest it can.
+A program module that needs a host import its player does not provide is refused
+at Build, never at run time.
+
+**Form descriptions.** The Build writes each form as a versioned JSON description
+(`forms/<name>.<hash>.json`) that the player draws from; the form file itself is
+never shipped, and a description holds no handler code and no credential value.
+
+| Field | What it holds |
+|---|---|
+| `format` | the description format, **1**; a player refuses a format it does not read, naming both numbers |
+| `name` | the form's name |
+| `form` | the form's own properties |
+| `layers` | the form layers in stack order, each with its name and backdrop (absent when the form has none) |
+| `controls` | each control: name, type, parent, layer (absent = `Form`), properties, the events bound to handlers |
+| `form_events` | the form's own events that are bound (`OnLoad`, `OnClose` …); the code is in the program module |
+| `data_bindings`, `animations`, `layout`, `breakpoints` | as the form file has them |
+| `stylesheet` | the bundle path of the form's stylesheet, when it has one |
 
 **Build and Preview.** On a Web or Mobile project the Build button (and the
 `build` tool) builds the bundle instead of a binary, and says how long it took,
-how big it is, how fast it starts and what warned; when the program does not
+how big it is, how big the player and each of its parts are, how fast it starts
+and what warned; when the program does not
 include the WebAssembly generator yet it says so, and the project can still be
 created, edited and checked. The designer's Preview button builds, serves the
 bundle on a loopback port with the right MIME types and the isolation headers,
@@ -6246,7 +6330,10 @@ the system browser when the helper is not installed). Its controls window picks
 a device (phone, tablet or desktop sizes), the orientation, the pixel ratio, the
 colour scheme, the page language and the safe-area insets; the page's console
 and uncaught errors reach the Output panel; a change to a form, a stylesheet,
-Common Code or the Backend builds again and the open page reloads. The Preview
+Common Code or the Backend builds again, and the open page takes the new program
+module, form descriptions and stylesheet in place — the application starts again
+in the same page, which is not reloaded; the page reloads only when the change is
+one it cannot take in that way (another player). The Preview
 shows only its own address: a page that tries to open another is stopped and the
 developer is offered to open it in the browser. Run opens the same server in the
 system browser. The IDE does not start a project's Backend yet.
@@ -6262,9 +6349,75 @@ system browser. The IDE does not start a project's Backend yet.
 - **API keys** — never in the manifest. They resolve from the machine-local
   store by model-profile id, so a manifest can be committed and shared safely.
 "##;
-    docs.push(("project_model_and_settings.md", project_model.to_string()));
+    docs.push(("project_model_and_settings.md", format!("{project_model}{}", browser_subset_doc())));
 
     docs
+}
+
+/// "What runs in a browser module" (WASM-010 R7, R8, D7): the statements, the
+/// built-ins, the in-memory files and the waiting verbs of a Web or Mobile
+/// project's COBOL, written from the generator's own tables
+/// (`cobolt_wasm::support`) so that the System KB says exactly what the Build
+/// accepts.
+fn browser_subset_doc() -> String {
+    use cobolt_wasm::support::{Support, BUILTIN_TABLE, STATEMENT_TABLE};
+    let class = |s: &Support| -> (String, String) {
+        match s {
+            Support::Module => ("yes".into(), String::new()),
+            Support::Conformance => ("test builds only".into(), String::new()),
+            Support::MemoryFiles(why) => ("in-memory files only".into(), why.to_string()),
+            Support::BackendOnly(why) => ("backend only".into(), why.to_string()),
+            Support::Unsupported(why) => ("no".into(), why.to_string()),
+        }
+    };
+    let mut d = String::from(
+        "\n## What runs in a browser module (Web and Mobile projects)\n\n\
+         The COBOL of a Web or Mobile project is compiled to one WebAssembly module that runs in the browser; the Backend keeps the \
+         desktop runtime. A construct outside this subset is refused by the Build at its line, naming the construct and what to do \
+         instead. This section is written from the generator's own tables, so it is what the Build accepts.\n\n\
+         ### Statements\n\n| Statement | In a browser module | Instead |\n|---|---|---|\n",
+    );
+    for (name, s) in STATEMENT_TABLE {
+        let (yes, why) = class(s);
+        d.push_str(&format!("| {name} | {yes} | {why} |\n"));
+    }
+    d.push_str(
+        "\n### Files and SORT\n\n\
+         - An INDEXED file declared `STORAGE IS MEMORY` (without `WITH PERSISTENCE`) is held in the module, with the form instance \
+         that opened it, and is released when the form closes. `OPEN`, `READ` (by key and in sequence, `NEXT`/`PREVIOUS`), `WRITE`, \
+         `REWRITE`, `DELETE`, `START` and `CLOSE` behave as on the desktop's in-memory engine: the same FILE STATUS codes, key order \
+         and order of duplicates. It can be written to without `WITH PERSISTENCE` (the desktop answers 37 there): nothing is saved \
+         anywhere, and the records last as long as the form.\n\
+         - There is no record limit. When the module's memory cannot hold another record, the `WRITE` ends with FILE STATUS **89** \
+         and every record already written stays.\n\
+         - `WITH PERSISTENCE`, `STORAGE IS DISK`, and every SEQUENTIAL, LINE SEQUENTIAL and RELATIVE file are the Backend's: call a \
+         Backend program with `CALL … WITH WEBSOCKET LINKAGE`.\n\
+         - `SORT` sorts in memory when its records come from an `INPUT PROCEDURE` (`RELEASE`) and go to an `OUTPUT PROCEDURE` \
+         (`RETURN`); `USING`, `GIVING` and `MERGE` name files and are the Backend's.\n\n\
+         ### Statements that wait\n\n\
+         `CALL … WITH WEBSOCKET LINKAGE` (a Backend program), and `COBOL::MessageBox`, `Alert`, `Confirm`, `InputBox`, `Sleep`, \
+         `Wait`, `OpenFormSync` and `me::OpenFormSync`, pause the handler until the answer, the dialog, the timer or the child form; \
+         events of the same form raised meanwhile run afterwards, in order. A failed remote call runs `ON EXCEPTION`, or is a \
+         run-time error when the statement has none. `ACCEPT` from the operator does nothing (with a Build warning); \
+         `ACCEPT … FROM DATE`/`TIME`/`DAY`/`DAY-OF-WEEK` read the browser's clock, in UTC.\n\n\
+         ### Form instances and storage\n\n\
+         - A form's data has a fixed region of the module's memory per instance: the form property `Instances` (1-64; default 1 for \
+         the main form, 4 for the others) is how many copies can be open at once. Opening one more is a run-time error naming the \
+         form. A value out of range stops Check and Build, naming the form.\n\
+         - The module's memory never grows. A project whose storage (each form's size times its `Instances`) would not fit a \
+         WebAssembly memory (4 GiB) stops the Build naming the form, its largest item and the sizes: lower `Instances` or the table. \
+         An item larger than that alone is refused by name.\n\
+         - A called program keeps its `WORKING-STORAGE` from its first `CALL` until `CANCEL`, or until its form instance closes; \
+         after `CANCEL` it starts again with its `VALUE`s. A program declared `IS INITIAL PROGRAM` starts fresh at every call in a \
+         browser module (the desktop runtime does not apply `INITIAL`).\n\n\
+         ### Built-ins (`COBOL::\"NAME\"`)\n\n| Built-in | In a browser module | Browser feature | Instead |\n|---|---|---|---|\n",
+    );
+    for b in BUILTIN_TABLE {
+        let (yes, why) = class(&b.support);
+        let api = b.api.map(|(api, _)| api.to_string()).unwrap_or_default();
+        d.push_str(&format!("| {} | {yes} | {api} | {why} |\n", b.name));
+    }
+    d
 }
 
 // ── System Knowledge Base generation (controls + methods reference) ──────────
@@ -7835,11 +7988,11 @@ fn control_purpose(name: &str) -> &'static str {
         "Splitter" => "A themed PANEL divided in two by a draggable line — as of 1.61.164 it IS a container, and the two halves are real controls. Dropping one creates `<id>-Pane1` and `<id>-Pane2`: borderless, transparent Panels parented to the splitter, which you drop controls into exactly like any other Panel. Their geometry is DERIVED from the division and is not editable — moving the line moves them. `Orientation` names how the PANES sit, not the line: `Horizontal` = pane 1 LEFT, pane 2 RIGHT, divided by a vertical line; `Vertical` = pane 1 TOP, pane 2 BOTTOM. (This is the opposite of what `Orientation` meant before 1.61.164, when the control was a bar between two neighbouring controls; a form saved earlier opens with its panes the other way round.) `SplitPosition` is a PERCENTAGE 0–100 of the inner span, not a pixel offset, so it survives the splitter being resized; 0 and 100 are legal and close one pane completely, and the grip is clipped by the splitter's edge so half of it stays visible there. Drag the line (or its grip) to redistribute, double-click it to go back to 50 %, and the pointer becomes a grab hand over it — on the designer canvas and in the running form alike. Style it with `LineColor`, `LineSize`, `GripStyle` (FilledPill | HollowPill | FilledCircle | HollowCircle), `GripSize` and `GripColor`; the panel itself follows the form theme until `BackgroundColor` / `BorderStyle` / `BorderColor` say otherwise. Each pane also carries `ResizeBehavior` — what it does with the controls inside it when the line moves (Translate with divider by default, or Scale within the pane, or Anchor to the outer edge), set per pane so the two halves can differ; dragging the division in the RAD rewrites those children's X/Y for real, as one undo step. A CONTAINER inside a pane (Panel, GroupBox, TabControl) carries its whole subtree: the container reflows per the pane's ResizeBehavior and its contents travel rigidly with it — under Scale too, where spreading a container's contents by their own fractions would tear them out of it — on the canvas, in preview and at run time alike. This holds to ANY depth, a SPLITTER INSIDE A PANE included: the inner splitter travels with the outer division, and its own panes and their contents travel with it. A PANE NEVER RESIZES WHAT IS IN IT: moving the division changes the pane's own rectangle and the POSITIONS of its contents, never their Width or Height — the pane is a viewport, and a control too big for it is clipped by the pane's edge, not shrunk to fit. STILL NOT: `AllowEdit` (no in-place rename surface) — never tell a developer it works.",
         "Shape" => "Decorative rectangle / circle / triangle.",
         "Animator" => "Plays an animated image (GIF / WebP / APNG).",
-        "AgentObject" => "Non-visual LLM client (ask a model from COBOL).",
-        "KnowledgeBase" => "Non-visual application Knowledge Base (spec 068): collections of the application's users' documents, each with a searchable index derived from them, kept under `Location` (default `<app>/assets/KB`). NOT the IDE's System or Project Knowledge Base, and a built application links nothing of the IDE for it. Documents may be Word (.docx and its macro/template variants), PowerPoint (.pptx family), Excel (.xlsx, and old .xls), OpenDocument text and spreadsheets (.odt, .ods), CSV/TSV tables, PDF (page text, no OCR), HTML, Markdown and plain text, and ZIP/TAR archives of any of these (spec 074). The format is recognised by content before name. Structure is kept, so a hit names its heading, `Slide N`, sheet or `Page N`, and a document inside an archive is named through it (`old.zip › legal/nda.docx`). Archives are read in memory within `ArchiveMaximumMegabytes`/`ArchiveMaximumFiles`/`ArchiveMaximumDepth`; nothing a document contains is executed. A document that cannot be read — old .doc/.ppt, password protected, a scanned PDF, damaged, unsupported — is skipped and reported by name with a code in `SkippedDocuments`, and never stops the rest. Every operation that writes or searches runs in the background and reports through events that carry their own property values — `onProgress`, then `onIndexed`, `onSearchComplete`, `onBusy` or `onError`. Several applications, on one machine or on a LAN share, can search and write one collection at once; a writer waits `WriteWaitMilliseconds` for another and then raises `onBusy`. Embedder `Lexical` matches words; `Endpoint` uses an embedding model on a server; `Builtin` runs the semantic model inside the application (project setting `[rag] embedder = \"builtin\"`, fetched once per installation with `FetchModel`). When the configured embedder cannot be used, search falls back to lexical and `SearchModeReason` says why. An AgentObject is given a collection as a tool with `AllowKnowledgeBase`; the model then searches it and cites the document each passage came from.",
-        "RestClient" => "Non-visual HTTP/REST client (async by default).",
-        "SqlDatabase" => "Non-visual SQL connection (sqlite / postgres / mysql / mssql).",
-        "IndexedFile" => "Non-visual COBOL indexed-file access (driven by generated PERFORM paragraphs).",
+        "AgentObject" => "Non-visual LLM client (ask a model from COBOL). On a Web or Mobile form its API is unchanged and every call runs on the Backend, through the program the Build generates for the call site; the model, the endpoint and the key come from the `[[configuration]]` of `backend/backend.toml` its **BackendConfig** names, and Check and Build stop a form that holds `AgentAPIKey` itself.",
+        "KnowledgeBase" => "Non-visual application Knowledge Base (spec 068): collections of the application's users' documents, each with a searchable index derived from them, kept under `Location` (default `<app>/assets/KB`). NOT the IDE's System or Project Knowledge Base, and a built application links nothing of the IDE for it. Documents may be Word (.docx and its macro/template variants), PowerPoint (.pptx family), Excel (.xlsx, and old .xls), OpenDocument text and spreadsheets (.odt, .ods), CSV/TSV tables, PDF (page text, no OCR), HTML, Markdown and plain text, and ZIP/TAR archives of any of these (spec 074). The format is recognised by content before name. Structure is kept, so a hit names its heading, `Slide N`, sheet or `Page N`, and a document inside an archive is named through it (`old.zip › legal/nda.docx`). Archives are read in memory within `ArchiveMaximumMegabytes`/`ArchiveMaximumFiles`/`ArchiveMaximumDepth`; nothing a document contains is executed. A document that cannot be read — old .doc/.ppt, password protected, a scanned PDF, damaged, unsupported — is skipped and reported by name with a code in `SkippedDocuments`, and never stops the rest. Every operation that writes or searches runs in the background and reports through events that carry their own property values — `onProgress`, then `onIndexed`, `onSearchComplete`, `onBusy` or `onError`. Several applications, on one machine or on a LAN share, can search and write one collection at once; a writer waits `WriteWaitMilliseconds` for another and then raises `onBusy`. Embedder `Lexical` matches words; `Endpoint` uses an embedding model on a server; `Builtin` runs the semantic model inside the application (project setting `[rag] embedder = \"builtin\"`, fetched once per installation with `FetchModel`). When the configured embedder cannot be used, search falls back to lexical and `SearchModeReason` says why. An AgentObject is given a collection as a tool with `AllowKnowledgeBase`; the model then searches it and cites the document each passage came from. On a Web or Mobile form its API is unchanged and every operation runs on the Backend, through the program the Build generates for the call site, over collections kept with the Backend (`Location` is a Backend path); the embedding endpoint and key come from the `[[configuration]]` its **BackendConfig** names, and Check and Build stop a form that holds `EmbeddingAPIKey` itself.",
+        "RestClient" => "Non-visual HTTP/REST client (async by default). On a Web or Mobile form its API is unchanged and every call runs on the Backend, through the program the Build generates for the call site; `BaseURL`, the authentication and the token come from the `[[configuration]]` its **BackendConfig** names, the resource must be a literal in the handler, and Check and Build stop a form that holds `AuthToken` itself.",
+        "SqlDatabase" => "Non-visual SQL connection (sqlite / postgres / mysql / mssql). On a Web or Mobile form its API is unchanged and every call runs on the Backend: a `Query`, `Execute` or other method through the program the Build generates for the call site (the statement a literal in the handler; the rows come back with the answer, `Fetch` is not served yet), and a DataGrid bound to one of its queries through the grid's own generated `…-READ`/`…-SAVE` programs. The connection is the Backend's SQL catalogue entry its **BackendConfig** names (else its `SqlConnection`), never a connection string: Check and Build stop a form that holds `ConnectionString`.",
+        "IndexedFile" => "Non-visual COBOL indexed-file access (driven by generated PERFORM paragraphs). On a Web or Mobile form the file lives with the Backend: a DataGrid bound to the indexed file reads and writes it through the grid's generated `…-READ`/`…-SAVE` programs, but the control's own `<id>-OPEN … -CLOSE` paragraphs are not served by the Backend yet, and a browser module has no disk file to run them on — bind a grid, or read and write the file from a Backend program.",
         "Slider" => "Draggable value selector within Minimum..Maximum.",
         "BarChart" => "Bar chart.",
         "LineChart" => "Line chart.",
@@ -7851,9 +8004,9 @@ fn control_purpose(name: &str) -> &'static str {
         "Knob" => "Rotary dial that sets a numeric Value within Minimum..Maximum by dragging.",
         "Gauge" => "Read-only KPI display (Radial | Linear | Donut) — never changed by user interaction. With BOTH `WarningThreshold` and `CriticalThreshold` set, the fill KEEPS EACH ZONE'S COLOUR ALONG ITS OWN STRETCH (1.61.172): green up to the warning mark, amber from there to the critical one, red beyond — so a gauge reading 88 against marks at 70/90 is green to 70 and amber from 70 to 88, with no red at all. Before that the whole fill took the current zone's colour, which read as 'all red' the moment the needle crossed a mark. The NEEDLE (and a Linear's thumb) still takes the colour of the zone the reading is IN, so the current state is still legible at a glance. Thresholds are FRACTIONS of the Minimum..Maximum span (0.0-1.0), not readings on it.",
         "Switch" => "Boolean on/off visual toggle.",
-        "FileDropZone" => "Non-visual: accepts files via drag-and-drop or a native file-picker click.",
-        "Maps" => "Embedded, pannable/zoomable OpenStreetMap view with optional google_maps-backed location data (Directions/Geocoding/Places/Distance-Matrix). Wheel zoom is continuous: one notch is one level, released a slice per frame, and while it travels the map is drawn BETWEEN levels by scaling the tiles it already has, with the point under the pointer held fixed and markers/routes/regions scaling along with the basemap.",
-        "WebSearch" => "Non-visual Google Custom Search JSON API client (async by default, same lifecycle as RestClient).",
+        "FileDropZone" => "Non-visual: accepts files via drag-and-drop or a native file-picker click. On a Web or Mobile form the dropped files travel to the Backend through the zone's own upload slot (`RC-<n>-<FORM>-<n>-<ZONE>-COMMITFILES`, the zone's `AllowedExtensions` and `MaximumFileSizeKB`, its **BackendRoles**); the program sees the Backend's name for each file, never the browser's path.",
+        "Maps" => "Embedded, pannable/zoomable OpenStreetMap view with optional google_maps-backed location data (Directions/Geocoding/Places/Distance-Matrix). Wheel zoom is continuous: one notch is one level, released a slice per frame, and while it travels the map is drawn BETWEEN levels by scaling the tiles it already has, with the point under the pointer held fixed and markers/routes/regions scaling along with the basemap. On a Web or Mobile form the map itself is drawn in the browser, while the location data (geocoding, directions, places, distances) runs on the Backend through the program the Build generates for the call site, with the key from the `[[configuration]]` its **BackendConfig** names (`_ResolvedMapsApiKey`).",
+        "WebSearch" => "Non-visual Google Custom Search JSON API client (async by default, same lifecycle as RestClient). On a Web or Mobile form its API is unchanged and every search runs on the Backend, through the program the Build generates for the call site; the key comes from the `[[configuration]]` its **BackendConfig** names (`_ResolvedSearchApiKey`), and Check and Build stop a form that holds `ApiKey` itself.",
         "AwsLambda" => "Non-visual: invokes AWS Lambda functions with a JSON payload and reads their answer, through the control's AWS connection. Async by default; refused unless `AllowWrite` is on, since running a function can change anything.",
         "AwsMcp" => "Non-visual escape hatch to AWS: calls any tool of one of the connection's AWS servers by name with a JSON argument, and lists the tools it offers; `AwsCall` makes any single AWS API call by service and operation name (CloudFormation, DynamoDB's CreateTable …) through the AWS MCP Server. A tool the server does not mark read-only, and every `AwsCall`, is refused unless `AllowWrite` is on.",
         "AwsKnowledgeBase" => "Non-visual: asks an Amazon Bedrock knowledge base a question in plain language and returns the matching passages as rows (text, source, score) — retrieval for a chatbot or a search screen. Read-only.",
@@ -8837,7 +8990,9 @@ fn controls_reference_doc() -> String {
          it is the opener's native child window, so the group moves as one while dragged), `DockGap` (Integer px, default 16 — the gap to the \
          opener) and `DockLength` (Integer 0-100, default 0 — the docked window's length \
          along that edge as a percentage of it, following the opener when it changes size; \
-         0 keeps the designed size; make the docked form responsive so it adapts). A floating toolbar, a tab strip and a rail around a dashboard are three \
+         0 keeps the designed size; make the docked form responsive so it adapts). `Instances` (Integer 1-64, Web and Mobile \
+         projects only; default 1 for the main form, 4 for the others) is how many copies of the form a browser module holds \
+         at once, each with its own fixed memory; written to the form only when set. A floating toolbar, a tab strip and a rail around a dashboard are three \
          forms docked Top, Bottom and Left, opened by the dashboard's onLoad with \
          OpenFormAsync.\n\n\
          Writing the form's own properties at run time — `me::X`, or `super::X` from a form it \
@@ -13948,6 +14103,27 @@ mod runtime_only_property_tests {
 
 #[cfg(test)]
 mod published_documentation_tests {
+    /// WASM-010 T22 (R7, D7): the System KB says, for every built-in of the
+    /// runtime and every statement, whether a browser module runs it.
+    #[test]
+    fn the_browser_subset_section_names_every_builtin_and_statement() {
+        let docs = super::system_documentation();
+        let (_, text) = docs.iter().find(|(n, _)| *n == "project_model_and_settings.md").expect("the project document");
+        let section = text.split("## What runs in a browser module").nth(1).expect("the section is there");
+        let mut builtins = 0;
+        for b in cobolt_runtime::builtins::BUILTINS {
+            assert!(section.contains(&format!("| {} |", b.name)), "built-in {} is not in the browser-subset section", b.name);
+            builtins += 1;
+        }
+        let mut statements = 0;
+        for (name, _) in cobolt_wasm::support::STATEMENT_TABLE {
+            assert!(section.contains(&format!("| {name} |")), "statement {name} is not in the section");
+            statements += 1;
+        }
+        assert!(section.contains("FILE STATUS **89**") && section.contains("STORAGE IS MEMORY"));
+        println!("browser subset: {builtins} built-ins and {statements} statements in the System KB");
+    }
+
     /// `system_documentation()` is exactly what publishing writes: the same
     /// eight files, the same bytes, nothing else in the folder (spec 080 T0.2).
     #[test]

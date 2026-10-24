@@ -43,6 +43,7 @@ fn host(bound: &[&str], props: &str) -> Host {
             region_size: 64,
             controls: vec![ControlEntry { id: 3, name: "AUTH-1".into(), kind: "Authentication".into() }],
             handlers,
+            layers: vec![],
         }],
         builtins: vec![],
         imports: vec![],

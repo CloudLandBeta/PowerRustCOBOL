@@ -349,10 +349,8 @@ pub fn decide(snapshot: &Snapshot, tool: &str, target: Option<&Path>) -> Decisio
             .unsaved
             .iter()
             .find(|p| {
-                matches!(
-                    p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(),
-                    Some("cfrm") | Some("cidx")
-                )
+                cobolt_compiler::project_kind::is_form_path(p)
+                    || p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("cidx"))
             })
             .cloned()
     };

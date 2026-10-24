@@ -58,6 +58,26 @@ pub fn connections() -> &'static [cobolt_forms::connections::RestConnection] {
     CONNECTIONS.get().map(|v| v.as_slice()).unwrap_or(&[])
 }
 
+/// Whether this process runs a **Web or Mobile** project's forms (WASM-005
+/// R13): then a grid bound to an indexed file or a SQL query reads and saves
+/// through the backend, and is seeded so. Published once by the host that knows
+/// the form's kind — `rcrun run-form`, from the form file's extension — and read
+/// for every form of the process, the embedded child forms included, which are
+/// the same project's. Never published: a desktop run, where every binding
+/// stays local.
+static REMOTE_BINDINGS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Publish whether this run's bound grids go through the backend. The first
+/// call wins, as for the connections.
+pub fn publish_remote_bindings(remote: bool) {
+    let _ = REMOTE_BINDINGS.set(remote);
+}
+
+/// Do this run's bound grids go through the backend? `false` until published.
+pub fn remote_bindings() -> bool {
+    REMOTE_BINDINGS.get().copied().unwrap_or(false)
+}
+
 /// Publish the project's web-search connections. First call wins.
 pub fn publish_search_connections(
     connections: Vec<cobolt_forms::connections::SearchConnection>,
@@ -404,6 +424,18 @@ pub fn append_data_binding_seed_props(
     control_id: &str,
     props: &mut Vec<(String, String)>,
 ) {
+    append_data_binding_seed_props_for(form, control_id, props, remote_bindings());
+}
+
+/// [`append_data_binding_seed_props`], told whether the run is a Web or Mobile
+/// project's (`remote`, see [`publish_remote_bindings`]) — so a test need not
+/// publish it for its whole process.
+pub fn append_data_binding_seed_props_for(
+    form: &cobolt_forms::Form,
+    control_id: &str,
+    props: &mut Vec<(String, String)>,
+    remote: bool,
+) {
     let binding = form.data_bindings.iter().find(|binding| {
         match &binding.target {
             cobolt_forms::BindingTargetDescriptor::DataGrid {
@@ -435,6 +467,23 @@ pub fn append_data_binding_seed_props(
     // may be written at all, and which fields identify a row.
     if matches!(&binding.target, cobolt_forms::BindingTargetDescriptor::DataGrid { .. }) {
         for (name, value) in grid_write_seed(binding) {
+            props.push((name.to_owned(), value));
+        }
+    }
+    // WASM-005 R13: on a web form the backend holds an indexed file's or a SQL
+    // query's rows, and the grid reads and saves through the endpoints the
+    // Build generated for it (`cobolt-codegen`'s `remote_controls`), named here
+    // as the Build names them. A COBOL table stays in the form (Q8); `RestApi`
+    // and `AgentAi` wait for their programs. The local seeds below stay: the
+    // plan of a save still needs the fields and the keys.
+    if remote
+        && matches!(&binding.target, cobolt_forms::BindingTargetDescriptor::DataGrid { .. })
+        && matches!(
+            &binding.source,
+            cobolt_forms::BindingSourceDescriptor::IndexedFile { .. } | cobolt_forms::BindingSourceDescriptor::Sql { .. }
+        )
+    {
+        for (name, value) in remote_grid_seed(&form.name, control_id) {
             props.push((name.to_owned(), value));
         }
     }
@@ -697,6 +746,87 @@ mod tests {
         assert_eq!(value(&sql, "_BindingFieldTypes").as_deref(), Some("number,text"));
         assert_eq!(value(&sql, "_BindingWritable").as_deref(), Some("1"));
         assert_eq!(value(&sql, "_BindingKeyFields").as_deref(), Some("ACTOR-ID"));
+    }
+
+    /// WASM-005 R13: on a Web or Mobile project's form a grid bound to an indexed
+    /// file or a SQL query is seeded to read and save through the backend — its
+    /// endpoints named as the Build names the programs it generates — and a grid
+    /// bound to a COBOL table is not (Q8). A desktop run seeds none of it.
+    #[test]
+    fn a_web_forms_bound_grid_goes_through_the_backend_and_a_cobol_table_does_not() {
+        use cobolt_forms::{
+            BindingDataType, BindingField, BindingMode, BindingSourceDescriptor, BindingTargetDescriptor,
+            DataBindingDef,
+        };
+        let fields = vec![
+            BindingField::new("CUST-ID", BindingDataType::Integer).key(),
+            BindingField::new("CUST-NAME", BindingDataType::Text),
+        ];
+        let seeds = |source: BindingSourceDescriptor, remote: bool| {
+            let mut form = Form::new("ORDERS", "Orders", 800, 600);
+            form.controls.push(Control::new("GRID-CUST", ControlType::DataGrid, 0, 0));
+            let mut binding = DataBindingDef::new(
+                "customers",
+                "Customers",
+                source,
+                BindingTargetDescriptor::DataGrid { control_id: "GRID-CUST".into() },
+            );
+            binding.mode = BindingMode::Writable;
+            form.data_bindings.push(binding);
+            let mut props = Vec::new();
+            append_data_binding_seed_props_for(&form, "GRID-CUST", &mut props, remote);
+            props
+        };
+        let value = |props: &[(String, String)], name: &str| props.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
+        let indexed = BindingSourceDescriptor::IndexedFile {
+            definition_path: "indexed/customers.cidx".into(),
+            record_name: "CUSTOMER-REC".into(),
+            fields: fields.clone(),
+            key_field: Some("CUST-ID".into()),
+            writable: true,
+        };
+        let sql = BindingSourceDescriptor::Sql {
+            source_control_id: "DB-SALES".into(),
+            query_name: "customers".into(),
+            result_set_name: "customers".into(),
+            fields: fields.clone(),
+            key_fields: vec!["CUST-ID".into()],
+            writable: true,
+            query: "SELECT CUST_ID, CUST_NAME FROM CUSTOMERS".into(),
+            table_name: "CUSTOMERS".into(),
+        };
+        let table = BindingSourceDescriptor::CobolTable {
+            table_name: "WS-CUSTOMERS".into(),
+            occurs_item: "WS-CUSTOMER".into(),
+            fields: fields.clone(),
+            key_fields: vec!["CUST-ID".into()],
+            writable: true,
+        };
+
+        // The same names the generator writes for the ORDERS form's GRID-CUST
+        // (`cobolt-codegen/tests/golden/backend/RC-6-ORDERS-9-GRID-CUST-*.cbl`).
+        let web = seeds(indexed.clone(), true);
+        assert_eq!(value(&web, "_BindingRemote").as_deref(), Some("1"));
+        assert_eq!(value(&web, "_BindingRemoteRead").as_deref(), Some("RC-6-ORDERS-9-GRID-CUST-READ"));
+        assert_eq!(value(&web, "_BindingRemoteSave").as_deref(), Some("RC-6-ORDERS-9-GRID-CUST-SAVE"));
+        // The local seeds stay beside them: a save's plan needs the fields and the keys.
+        assert_eq!(value(&web, "_BindingKind").as_deref(), Some("IndexedFile"));
+        assert_eq!(value(&web, "_BindingKeyFields").as_deref(), Some("CUST-ID"));
+        assert_eq!(value(&web, "_BindingWritable").as_deref(), Some("1"));
+        let web_sql = seeds(sql.clone(), true);
+        assert_eq!(value(&web_sql, "_BindingRemote").as_deref(), Some("1"));
+        assert_eq!(value(&web_sql, "_BindingRemoteRead").as_deref(), Some("RC-6-ORDERS-9-GRID-CUST-READ"));
+        assert_eq!(value(&web_sql, "_BindingRemoteSave").as_deref(), Some("RC-6-ORDERS-9-GRID-CUST-SAVE"));
+        assert_eq!(value(&web_sql, "_BindingSqlControl").as_deref(), Some("DB-SALES"));
+
+        let local_table = seeds(table, true);
+        assert_eq!(value(&local_table, "_BindingRemote"), None, "a COBOL table stays in the form (Q8)");
+        assert_eq!(value(&local_table, "_BindingKind").as_deref(), Some("CobolTable"));
+        for source in [indexed, sql] {
+            let desktop = seeds(source, false);
+            assert_eq!(value(&desktop, "_BindingRemote"), None, "a desktop run reads its sources itself");
+            assert_eq!(value(&desktop, "_BindingRemoteRead"), None);
+        }
     }
 
     /// **A control on LOCAL settings gets its credential from the environment,
@@ -1253,6 +1383,22 @@ pub fn sql_grid_seed(
         ("_BindingTable", table.to_owned()),
         ("_BindingFields", fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join("\n")),
         ("_BindingFieldTypes", types),
+    ]
+}
+
+/// The seeds that send a bound grid to the backend (WASM-005 R13):
+/// `_BindingRemote`, and in `_BindingRemoteRead` / `_BindingRemoteSave` the
+/// generated endpoints its reads and saves call, named as the Build names them
+/// (`cobolt_wire::controls::endpoint_name`). A form or control whose name a
+/// COBOL word cannot hold has no endpoint: the Build refuses such a form, and
+/// the grid then shows nothing rather than read a file the browser never reaches.
+pub fn remote_grid_seed(form_name: &str, control_id: &str) -> Vec<(&'static str, String)> {
+    let endpoint =
+        |operation: &str| cobolt_wire::controls::endpoint_name(form_name, control_id, operation).unwrap_or_default();
+    vec![
+        ("_BindingRemote", "1".to_owned()),
+        ("_BindingRemoteRead", endpoint("READ")),
+        ("_BindingRemoteSave", endpoint("SAVE")),
     ]
 }
 

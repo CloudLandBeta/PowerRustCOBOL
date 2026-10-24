@@ -15,7 +15,7 @@ use crate::codec;
 use crate::host;
 use crate::mem;
 use crate::opd::*;
-use crate::state::{st, BATCH_SIZE, WS_BATCH};
+use crate::state::{st, BATCH_SIZE, DISP_SIZE, WS_BATCH, WS_DISP};
 use crate::val::Val;
 
 /// ABI v1 §5 opcodes.
@@ -146,7 +146,7 @@ pub fn display_val(v: &Val) {
         Val::Dec(d) => format_dec(d, &mut out),
         Val::F(f) => crate::float::format_f64(*f, &mut out),
     };
-    emit_text(&out[..n]);
+    line_text(&out[..n]);
 }
 
 /// A numeric item as `DISPLAY` shows it: its digit positions zero-padded to
@@ -167,7 +167,7 @@ fn display_numeric_item(loc: &Loc) {
     let neg = n.mantissa < 0 && fd.signed();
     if fd.blank_when_zero() && n.mantissa == 0 {
         let blanks = [b' '; 48];
-        emit_text(&blanks[..w + usize::from(fd.sign_separate())]);
+        line_text(&blanks[..w + usize::from(fd.sign_separate())]);
         return;
     }
     if fd.sign_separate() && fd.signed() && fd.sign_leading() {
@@ -183,7 +183,7 @@ fn display_numeric_item(loc: &Loc) {
         out[k] = if neg { b'-' } else { b'+' };
         k += 1;
     }
-    emit_text(&out[..k]);
+    line_text(&out[..k]);
 }
 
 /// `DISPLAY` one operand (no newline).
@@ -193,30 +193,68 @@ pub fn display_operand(base: u32, o: u32) {
         T_LIT_NUM => display_val(&value(base, &op)),
         T_FIG => {
             let b = fig_byte(op.fig);
-            emit_text(&[b]);
+            line_text(&[b]);
         }
         T_ALL => {
             let l = locate(base, &op);
-            emit_text(mem::bytes(l.addr, l.len));
+            line_text(mem::bytes(l.addr, l.len));
         }
         T_LIT_ALNUM => {
             let l = locate(base, &op);
-            emit_text(mem::bytes(l.addr, l.len));
+            line_text(mem::bytes(l.addr, l.len));
         }
         _ => {
             let loc = locate(base, &op);
             if loc.fd.is_numeric() {
                 display_numeric_item(&loc);
             } else {
-                emit_text(mem::bytes(loc.addr, loc.len));
+                line_text(mem::bytes(loc.addr, loc.len));
             }
         }
     }
 }
 
-/// End a `DISPLAY` statement: the newline, unless `NO ADVANCING`.
+/// End a `DISPLAY` statement: its line goes out as one `DISPLAY` command (ABI
+/// §5: one command, one line of the host's console), unless `NO ADVANCING`
+/// keeps the line open for the next `DISPLAY`.
 pub fn display_end(no_advancing: bool) {
     if !no_advancing {
-        emit_text(b"\n");
+        end_line();
     }
+}
+
+/// Add `text` to the line being displayed; a line longer than the buffer goes
+/// out in pieces.
+fn line_text(text: &[u8]) {
+    let mut rest = text;
+    while !rest.is_empty() {
+        let s = st();
+        let room = (DISP_SIZE - s.disp_len) as usize;
+        if room == 0 {
+            end_line();
+            continue;
+        }
+        let n = rest.len().min(room);
+        let at = s.ws + WS_DISP + s.disp_len;
+        mem::bytes_mut(at, n as u32).copy_from_slice(&rest[..n]);
+        s.disp_len += n as u32;
+        rest = &rest[n..];
+    }
+}
+
+/// The line being displayed, as one command.
+fn end_line() {
+    let s = st();
+    let (at, n) = (s.ws + WS_DISP, s.disp_len);
+    s.disp_len = 0;
+    emit_text(mem::bytes(at, n));
+}
+
+/// [`flush`], after a line a `NO ADVANCING` left open: the task is giving the
+/// host control, and what it displayed must reach the console.
+pub fn flush_all() {
+    if st().disp_len > 0 {
+        end_line();
+    }
+    flush();
 }

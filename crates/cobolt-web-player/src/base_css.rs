@@ -213,7 +213,7 @@ pub const BASE_CSS: &str = r#"
 .pr-dialog .pr-dialog-field { padding: 0 16px 8px; } .pr-dialog .pr-dialog-field input { width: 100%; font: inherit; color: var(--pr-field-text); background: var(--pr-field); border: 1px solid var(--pr-border); border-radius: 4px; padding: 4px 6px; }
 .pr-panelwin { position: absolute; border: 1px solid var(--pr-border); border-radius: var(--pr-radius); background: var(--pr-surface); box-shadow: 0 6px 24px rgba(0,0,0,.4); display: flex; flex-direction: column; }
 .pr-panelwin > .pr-titlebar { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: var(--pr-surface-2); cursor: move; touch-action: none; user-select: none; }
-.pr-panelwin > .pr-body { position: relative; flex: 1; overflow: hidden; }
+.pr-panelwin > .pr-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .pr-panelwin > .pr-body > .pr-form { position: absolute; inset: 0; }
 .pr-toasts-host { position: absolute; left: 12px; bottom: 12px; z-index: 40; pointer-events: none; }
 .pr-snackbars { display: flex; flex-direction: column; gap: 8px; }

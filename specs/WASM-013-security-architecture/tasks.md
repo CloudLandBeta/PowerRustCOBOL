@@ -487,6 +487,7 @@ as completed.
 
 ## M12 — finalize
 
+- [ ] **T24b — D21: the channel's encryption in the threat model** (R17; AC12) — added 2026-10-24 by the operator's ruling.
 - [ ] **T25 — Finalize: version, CHANGELOG, the tests of the touched crates**
   - Files:
     - `crates/cobolt-ide/src/version.rs`: `z` + 1, **once**. Go from `2.0.30` to the next free `2.0.z` at that time; never change `x` or `y`.

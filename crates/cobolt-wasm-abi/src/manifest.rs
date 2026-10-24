@@ -34,12 +34,16 @@ pub struct Limits {
     pub budget_blocks: u32,
     #[serde(default)]
     pub data_pages: u32,
+    /// Rows of the module's task table: one per form instance, fixed at compile
+    /// time (WASM-010 R3, ABI A5). `0` when the producer does not say.
+    #[serde(default)]
+    pub tasks: u32,
 }
 
 impl Default for Limits {
     /// The defaults of §2: a 1 MiB arena, 64 KiB batch and answer, 384 KiB frames.
     fn default() -> Self {
-        Limits { arena_size: 1 << 20, batch_size: 64 * 1024, answer_size: 64 * 1024, frame_size: 384 * 1024, budget_blocks: 20_000, data_pages: 17 }
+        Limits { arena_size: 1 << 20, batch_size: 64 * 1024, answer_size: 64 * 1024, frame_size: 384 * 1024, budget_blocks: 20_000, data_pages: 17, tasks: 0 }
     }
 }
 
@@ -76,6 +80,18 @@ pub struct FormEntry {
     pub controls: Vec<ControlEntry>,
     #[serde(default)]
     pub handlers: Vec<HandlerEntry>,
+    /// The form's layers above the base, in stack order (A9).
+    #[serde(default)]
+    pub layers: Vec<LayerEntry>,
+}
+
+/// A layer of a form (A9): addressed by `id`, which follows the form's
+/// controls; `index` is its place in the stack (0 = just above the base).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayerEntry {
+    pub id: u32,
+    pub name: String,
+    pub index: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -291,6 +307,7 @@ mod tests {
                 region_size: 4096,
                 controls: vec![ControlEntry { id: 3, name: "BTN-OK".into(), kind: "Button".into() }],
                 handlers: vec![HandlerEntry { ctrl: 3, event: 0, entry: 17 }],
+                layers: vec![],
             }],
             builtins: vec![],
             imports: vec!["flush".into(), "query".into()],

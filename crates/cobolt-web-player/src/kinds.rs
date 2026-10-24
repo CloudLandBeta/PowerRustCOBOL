@@ -27,159 +27,9 @@ use cobolt_forms::model::ControlType;
 
 use crate::tree::{Ctl, Kind};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Class {
-    A,
-    B,
-    C,
-    D,
-    E,
-}
-
-/// One row of the table.
-#[derive(Debug, Clone, Copy)]
-pub struct Row {
-    pub control: &'static str,
-    pub class: Class,
-    /// What it becomes in the browser.
-    pub becomes: &'static str,
-    /// Operations that take another class than the primary one.
-    pub note: &'static str,
-}
-
-const fn r(control: &'static str, class: Class, becomes: &'static str, note: &'static str) -> Row {
-    Row { control, class, becomes, note }
-}
-
-use Class::*;
-
-/// The table: every `ControlType::ALL` entry, once.
-pub const TABLE: &[Row] = &[
-    r("Button", A, "<button>", ""),
-    r("TextBox", A, "<input> / <textarea>", ""),
-    r("Label", A, "<span>", ""),
-    r("CheckBox", A, "<input type=checkbox> in a <label>", ""),
-    r("RadioButton", A, "<input type=radio> in a <label>", ""),
-    r("ListBox", A, "<ul role=listbox>", ""),
-    r("ComboBox", A, "<select>", ""),
-    r("GroupBox", A, "<fieldset>", ""),
-    r("Panel", A, "<div>", ""),
-    r("TabControl", A, "tablist + panels (ARIA tabs)", ""),
-    r("DataGrid", C, "<table> with virtualised rows", "A for in-memory Rows; C for IndexedFile and SQL bindings"),
-    r("PictureBox", A, "<img> / <div> with background", ""),
-    r("Animator", B, "<img> (the browser plays GIF/WebP/APNG)", "the control's richer API is carried by commands"),
-    r("ProgressBar", A, "<progress>", ""),
-    r("MenuBar", A, "role=menubar", ""),
-    r("SideMenu", A, "<nav> rail with a ContentPane", ""),
-    r("ToolBar", A, "role=toolbar", "D for the actions that start a program"),
-    r("StatusBar", A, "<footer role=status>", ""),
-    r("Line", A, "<div> border / inline SVG line", ""),
-    r("DateTimePicker", A, "<input type=date|time|datetime-local>", ""),
-    r("NumericUpDown", A, "<input type=number>", ""),
-    r("TreeView", A, "<ul role=tree>", ""),
-    r("Splitter", A, "two panes and a drag handle", ""),
-    r("Timer", A, "no element; a timer in the player", ""),
-    r("Shape", A, "inline SVG", ""),
-    r("AgentObject", C, "no element", "the model key stays on the backend"),
-    r("RestClient", C, "no element", ""),
-    r("SqlDatabase", C, "no element", ""),
-    r("IndexedFile", C, "no element", ""),
-    r("KnowledgeBase", C, "no element", ""),
-    r("Slider", A, "<input type=range>", ""),
-    r("BarChart", B, "inline SVG", ""),
-    r("LineChart", B, "inline SVG", ""),
-    r("PieChart", B, "inline SVG", ""),
-    r("AreaChart", B, "inline SVG", ""),
-    r("ScatterChart", B, "inline SVG", ""),
-    r("DonutChart", B, "inline SVG", ""),
-    r("RadarChart", B, "inline SVG", ""),
-    r("Knob", B, "inline SVG", ""),
-    r("Gauge", B, "inline SVG", ""),
-    r("Switch", A, "<button role=switch>", ""),
-    r("FileDropZone", C, "drop target and <input type=file>", "the player moves the bytes; the program never sees them (WASM-017 R13)"),
-    r("Maps", B, "tile <img> grid", "C for geocode and directions"),
-    r("WebSearch", C, "no element", ""),
-    r("Snackbar", A, "a stack of role=status notifications", ""),
-    r("Viewer", B, "DOM nodes built from a parsed, allow-listed tree", "C for open and save; D for print and share"),
-    r("AwsMcp", C, "no element", ""),
-    r("AwsLambda", C, "no element", ""),
-    r("AwsKnowledgeBase", C, "no element", ""),
-    r("AwsAgentCore", C, "no element", ""),
-    r("AwsAgentMemory", C, "no element", ""),
-    r("AwsS3Tables", C, "no element", ""),
-    r("AwsGlue", C, "no element", ""),
-    r("AwsDynamoDB", C, "no element", ""),
-    r("AwsS3", C, "no element", ""),
-    r("AwsS3Vectors", C, "no element", ""),
-    r("AwsRekognition", C, "no element", ""),
-    r("AwsPolly", C, "no element", ""),
-    r("AwsComprehend", C, "no element", ""),
-    r("AwsTextract", C, "no element", ""),
-    r("AwsEC2", C, "no element", ""),
-    r("AwsCognito", C, "no element", "a desktop/backend control: the Authentication control replaces it in a browser"),
-];
-
-/// The class of a control type by its model name. `Custom` plugin controls are class D
-/// (WASM-004: until a later spec); the player-level kinds are listed in [`PLAYER_KINDS`].
-pub fn class_of(t: &ControlType) -> Class {
-    if let Some(k) = player_kind_of(t) {
-        return k.class();
-    }
-    let name = t.as_str();
-    TABLE.iter().find(|row| row.control == name).map(|row| row.class).unwrap_or(D)
-}
-
-/// Controls that exist only in the browser series and that the model carries as `Custom`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlayerKind {
-    WebLink,
-    Authentication,
-    Canvas2D,
-    Canvas3D,
-    ImageBuffer,
-    Plot,
-    Scene3D,
-    Physics2D,
-    Physics3D,
-}
-
-pub const PLAYER_KINDS: &[(PlayerKind, &str)] = &[
-    (PlayerKind::WebLink, "WebLink"),
-    (PlayerKind::Authentication, "Authentication"),
-    (PlayerKind::Canvas2D, "Canvas2D"),
-    (PlayerKind::Canvas3D, "Canvas3D"),
-    (PlayerKind::ImageBuffer, "ImageBuffer"),
-    (PlayerKind::Plot, "Plot"),
-    (PlayerKind::Scene3D, "Scene3D"),
-    (PlayerKind::Physics2D, "Physics2D"),
-    (PlayerKind::Physics3D, "Physics3D"),
-];
-
-impl PlayerKind {
-    pub fn name(self) -> &'static str {
-        PLAYER_KINDS.iter().find(|(k, _)| *k == self).map(|(_, n)| *n).unwrap()
-    }
-    pub fn class(self) -> Class {
-        match self {
-            PlayerKind::WebLink => A,
-            PlayerKind::Authentication => C,
-            PlayerKind::Canvas2D | PlayerKind::Canvas3D => B,
-            _ => E,
-        }
-    }
-    /// Does it have a place on the page?
-    pub fn visual(self) -> bool {
-        matches!(self, PlayerKind::WebLink | PlayerKind::Authentication | PlayerKind::Canvas2D | PlayerKind::Canvas3D)
-    }
-}
-
-/// The player-level kind of a `Custom` control the model holds under one of those names.
-pub fn player_kind_of(t: &ControlType) -> Option<PlayerKind> {
-    match t {
-        ControlType::Custom { control_id, .. } => PLAYER_KINDS.iter().find(|(_, n)| n.eq_ignore_ascii_case(control_id)).map(|(k, _)| *k),
-        _ => None,
-    }
-}
+// The table, the classes and the series kinds live in `cobolt-forms` (WASM-001 T14, plan D-T14a):
+// the IDE's toolbox reads the same rows. No row is repeated here.
+pub use cobolt_forms::web_class::{available_on_web, class_of, player_kind_of, Class, PlayerKind, Row, PLAYER_KINDS, TABLE};
 
 pub fn player_kind(c: &Ctl) -> Option<PlayerKind> {
     match &c.kind {
@@ -188,49 +38,20 @@ pub fn player_kind(c: &Ctl) -> Option<PlayerKind> {
     }
 }
 
-/// Is this control a thing with no element (a non-visual service object)?
+/// Is this control a thing with no element (a non-visual service object)? For a model type the
+/// model's own predicate answers (WASM-004 R21: one set, the Designer's Non-Visuals tab's); for a
+/// series kind the model carries as `Custom`, whether it has a place on the page.
 pub fn is_non_visual(t: &ControlType) -> bool {
-    if let Some(k) = player_kind_of(t) {
-        return !k.visual();
+    match player_kind_of(t) {
+        Some(k) => !k.visual(),
+        None => t.is_non_visual(),
     }
-    matches!(
-        t,
-        ControlType::Timer
-            | ControlType::AgentObject
-            | ControlType::RestClient
-            | ControlType::SqlDatabase
-            | ControlType::IndexedFile
-            | ControlType::KnowledgeBase
-            | ControlType::WebSearch
-            | ControlType::Snackbar
-    ) || t.is_aws()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
-
-    #[test]
-    fn the_table_and_the_model_agree_on_every_control() {
-        // WASM-004 AC1: ControlType::ALL and the table disagree -> the test fails.
-        let model: BTreeSet<&str> = ControlType::ALL.iter().map(|t| t.as_str()).collect();
-        let table: Vec<&str> = TABLE.iter().map(|r| r.control).collect();
-        let table_set: BTreeSet<&str> = table.iter().copied().collect();
-        assert_eq!(table.len(), table_set.len(), "a control is listed twice");
-        assert_eq!(model.difference(&table_set).collect::<Vec<_>>(), Vec::<&&str>::new(), "controls missing from the table");
-        assert_eq!(table_set.difference(&model).collect::<Vec<_>>(), Vec::<&&str>::new(), "table rows the model does not have");
-        assert_eq!(TABLE.len(), 62, "the catalogue is 62 types; count it, do not trust this line");
-    }
-
-    #[test]
-    fn the_classes_have_the_sizes_the_spec_describes() {
-        let n = |c: Class| TABLE.iter().filter(|r| r.class == c).count();
-        println!("class A: {}  B: {}  C: {}  D: {}  E: {}", n(A), n(B), n(C), n(D), n(E));
-        assert_eq!(n(A) + n(B) + n(C) + n(D) + n(E), 62);
-        assert_eq!(n(B), 12, "7 charts, Knob, Gauge, Animator, Maps, Viewer");
-        assert_eq!(n(C), 8 + 16, "8 service controls (+ DataGrid, FileDropZone) and the 16 AWS controls");
-    }
 
     #[test]
     fn the_series_controls_are_found_by_name() {
@@ -245,5 +66,72 @@ mod tests {
         assert!(is_non_visual(&ControlType::from_str("ImageBuffer")));
         assert!(is_non_visual(&ControlType::Timer));
         assert!(!is_non_visual(&ControlType::Button));
+    }
+
+    #[test]
+    fn the_non_visual_set_is_the_models_and_every_client_object_is_non_visual() {
+        // WASM-004 R21: the player's set equals `ControlType::is_non_visual` over the catalogue.
+        let differ: Vec<&str> = ControlType::ALL.iter().filter(|t| is_non_visual(t) != t.is_non_visual()).map(|t| t.as_str()).collect();
+        assert!(differ.is_empty(), "the player and the model disagree on {differ:?}");
+        let n = ControlType::ALL.iter().filter(|t| is_non_visual(t)).count();
+        println!("non-visual model types: {n} of {}", ControlType::ALL.len());
+        for (k, name) in PLAYER_KINDS {
+            if k.class() == Class::E {
+                assert!(is_non_visual(&ControlType::from_str(name)), "{name} is a client object and has no element");
+            }
+        }
+    }
+
+    /// Every property name the player's view reads by name (`tree.get(i, "…")`).
+    fn names_the_view_reads() -> BTreeSet<String> {
+        const SOURCES: &[&str] = &[
+            include_str!("view/mod.rs"),
+            include_str!("view/controls.rs"),
+            include_str!("view/interact.rs"),
+            include_str!("view/style.rs"),
+            include_str!("view/data.rs"),
+            include_str!("view/shell.rs"),
+            include_str!("view/charts.rs"),
+            include_str!("view/maps.rs"),
+            include_str!("view/viewer.rs"),
+            include_str!("view/auth.rs"),
+        ];
+        let mut out = BTreeSet::new();
+        for src in SOURCES {
+            let mut rest = *src;
+            while let Some(at) = rest.find("tree.get(") {
+                rest = &rest[at + "tree.get(".len()..];
+                let Some(comma) = rest.find(',') else { break };
+                let after = rest[comma + 1..].trim_start();
+                if let Some(lit) = after.strip_prefix('"') {
+                    if let Some(end) = lit.find('"') {
+                        out.insert(lit[..end].to_owned());
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_property_the_view_reads_is_a_model_or_a_layer_property() {
+        // WASM-004 R1, R7: the web introduces no member by accident. A name is known when a
+        // catalogue type has it (`property_names_for`, field-backed geometry included), lists it as
+        // a runtime property, or it is a layer property. Two more are the desktop host's own
+        // run-time state, read by its painter too: names with a leading `_` (`__ChartData`,
+        // `paint.rs`) and the TreeView's `SelectedNode` (`render.rs`, the interpreter's
+        // `GetSelectedNode`), which the model's runtime list does not name.
+        use cobolt_forms::model::{property_names_for, runtime_property_names_for, LAYER_PROPS};
+        let mut known: BTreeSet<String> = ["selectednode".to_owned()].into();
+        for t in ControlType::ALL {
+            known.extend(property_names_for(t.as_str()).iter().map(|k| k.to_ascii_lowercase()));
+            known.extend(runtime_property_names_for(t.as_str()).iter().map(|k| k.to_ascii_lowercase()));
+        }
+        known.extend(LAYER_PROPS.iter().map(|k| k.to_ascii_lowercase()));
+        let read = names_the_view_reads();
+        let unknown: Vec<&String> = read.iter().filter(|n| !n.starts_with('_') && !known.contains(&n.to_ascii_lowercase())).collect();
+        println!("the view reads {} names; {} known to the model", read.len(), read.len() - unknown.len());
+        assert!(read.len() > 50, "the scan found the view's reads");
+        assert!(unknown.is_empty(), "names the model does not have: {unknown:?}");
     }
 }

@@ -65,6 +65,9 @@ JDK and the Rust Android targets, iOS needs macOS, Xcode and the Rust iOS target
   the reason.
 - **R3 (event):** When the developer runs the application on a device, the IDE shall list the emulators, simulators and connected devices, start the chosen one, install and launch the application, reload the frontend on a
   change, show the device log in the Output panel and stop it on request.
+- **R3a (event, operator ruling 2026-10-23):** The IDE's **Preview and Run** of a Mobile project shall be R3's run on an emulator, simulator or device — the IDE has no
+  other preview surface for mobile (WASM-008 §0, R14). When the machine has no emulator or simulator for the platform, they fall back to the browser at a phone
+  width with a notice that it is not the device (WASM-008 R15).
 
 **Identity and signing**
 - **R4 (ubiquitous):** Release signing shall use the developer's own credentials — an Android keystore, an Apple developer certificate and provisioning profile — referenced by name from the project; **passwords and keys shall be
@@ -90,6 +93,16 @@ JDK and the Rust Android targets, iOS needs macOS, Xcode and the Rust iOS target
 - **R13 (ubiquitous):** The Build shall print what the stores will ask for — iOS privacy declarations, Android data-safety items — derived from the declared features, as a checklist.
 - **R14 (constraint):** A Desktop or Web project shall be unchanged, and the Mobile kind's options in the New Project dialog (default orientation, minimum OS) shall be honoured.
 
+**The operator's ruling of 2026-10-24 (WASM-INDEX D21)**
+
+- **R15 (state):** While the connection to the backend is broken, the mobile shell shall show the "connecting" modal of WASM-016 R20 with the **device** — a phone or a tablet, as the application runs — drawn in the place of the desktop screen, blocking touch and keyboard input to the application, with the same animation, gradient and white drawing; a return from the background (R11) that finds the connection gone shall start the retries of WASM-003 R25 behind the same modal, and the exhausted retries shall raise the exception of WASM-016 R21.
+
+**The operator's ruling of 2026-10-24 on the native project (WASM-INDEX D22)**
+
+- **R16 (event):** When a Mobile project is created (WASM-001 R6, R19), the IDE shall also create, for each platform the project selected, the **native development project** the platform's own tools open — an **Android Studio** project (Gradle) for Android, an **Xcode** project for iOS — **with the same name as the PowerRustCOBOL AI Mobile project** and the application's identity of R6. The native project shall hold the **stub that loads the project's WASM binary**: the shell's web view opened on the bundle of WASM-002 (host page, player and program module) as the Build places it, and nothing else of the application. The stub shall be generated, never hand-written by the product (plan D-Native), and refreshed with the bundle at every Build and every Preview or Run (R3, R3a), so that opening the native project in Android Studio or Xcode and running it on an emulator, a simulator or a device shows the current application. On a machine without a platform's tools (R2: no Android SDK; no Xcode, or not macOS) the IDE shall create the project files it can, name the missing tool, and offer the platform as unavailable for the preview, as R2 says.
+- **R17 (event):** When the developer **cancels** the creation of the native project in New Project (a step of its own, WASM-001 R19), the Mobile project shall still be created without it, and **Project Settings** shall offer, on its Mobile page, to **create the Android Studio project and/or the Xcode project later** — showing for each platform whether the native project exists and where, with a button that creates it with the result of R16 — so that a developer who declined at creation, or deleted the folder, recovers it without recreating the project.
+- **R18 (constraint):** The native project shall contain no COBOL, no form and no secret (R4, WASM-002 R7); its stub and the packages of R1 shall load the **same bundle**, so that what the developer previews in Android Studio or Xcode is what the store package shows. The project's manifest shall record, per platform, whether the native project was created and where it is, and the coding-agent project tools shall report the same.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — On a machine with the tools, a Mobile project builds an Android package; on a Mac it also builds an iOS archive; each starts on an emulator or simulator and shows the project's main form.
@@ -103,8 +116,14 @@ JDK and the Rust Android targets, iOS needs macOS, Xcode and the Rust iOS target
 - [ ] **AC9** — A page in the web view cannot call a native command that the capability list omits, and an external address opens in the system browser.
 - [ ] **AC10** — Web and Desktop projects build exactly as before.
 
+- [ ] **AC11** — On a device, cutting the network during a session shows the modal with the device drawn, blocks touches, and restoring the network within the three attempts removes it with the form unchanged; cutting it for good shows the failure caption after the third attempt.
+
+- [ ] **AC12** — On a machine with the Android SDK, creating a Mobile project for Android creates an Android Studio project named after the PowerRustCOBOL AI project, which Android Studio opens and runs on an emulator showing the main form after a Build; on a Mac with Xcode, the same for iOS. Cancelling the step at creation leaves no native project, Project Settings ▸ Mobile shows it as missing and creates it later with the same result; on a machine without Xcode the iOS project is offered as unavailable with the reason; a scan of the native project finds no COBOL, no form and no secret.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D22 (operator, 2026-10-24):** this spec owns the native Android Studio / Xcode project created with a Mobile project, its stub and its re-creation from Project Settings (R16–R18, AC12); the step in New Project is WASM-001 R19, and the Preview runs through it (WASM-008 §6). Where the native project lives is Q7.
+- **WASM-INDEX D21 (operator, 2026-10-24):** this spec owns the device variant of the "connecting" modal (R15); the policy is WASM-003 R25, the modal itself WASM-016 R20.
 - **i18n:** yes — the toolchain messages, device list, signing and permission texts of the IDE, six languages; the application's name and rationale texts are translatable by the developer.
 - **Credentials:** R4 and AC4 apply the project's no-credentials-in-files rule; the signing material is the operator's, never the agent's.
 - **Generated-code contract:** the shell project (Tauri configuration, platform manifests) is a build artefact generated from the project, never hand-edited; the planners decide whether it lives in the build folder (specs 100/101).
@@ -128,3 +147,4 @@ JDK and the Rust Android targets, iOS needs macOS, Xcode and the Rust iOS target
   **Decided (operator, 2026-10-22):** track the IDE.
 - **Q6 — Certificate pinning and similar hardening** for the backend connection: optional, in WASM-013, or later.
   **Decided (operator, 2026-10-22):** optional, in WASM-013.
+- **Q7 — Where the native project lives.** The plan's D-Shape generated the shell into the build folder, per build; the ruling of 2026-10-24 (D22) makes the native project something the developer opens by name, created once with the project and kept. Recommended: inside the project folder — `android/` and `ios/` beside `mobileforms/` and `backend/` — with the stub regenerated in place and the bundle copied into it by Build and Preview, the two folders marked generated for the product's own scans; the build folder keeps the per-build shell of R1. To decide at `/clarify`.

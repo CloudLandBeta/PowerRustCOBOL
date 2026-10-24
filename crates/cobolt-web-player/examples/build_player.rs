@@ -9,8 +9,12 @@
 //!
 //! ```text
 //! cargo run --manifest-path crates/cobolt-web-player/Cargo.toml --example build_player -- \
-//!     --out target/player [--variants plain,threaded] [--opt-level z|s] [--measure]
+//!     --out target/player [--variants plain,threaded] [--opt-level s|z] [--measure] [--test-hooks]
 //! ```
+//!
+//! `--test-hooks` builds the test bundles' player (the `test-hooks` feature: `force_panic_for_test`,
+//! WASM-017 R15), in a target folder of its own; `assets/web-player/` is never built with it, and the
+//! record names the feature set.
 //!
 //! * **plain** — stable Rust, `wasm32-unknown-unknown`, no shared memory: the baseline.
 //! * **threaded** — the pinned nightly of [`NIGHTLY`], `-Zbuild-std`, atomics + bulk memory +
@@ -19,7 +23,7 @@
 //!
 //! Each variant: `cargo build --release` (the size-first profile of Cargo.toml: `lto`,
 //! `codegen-units = 1`, `panic = "abort"`, stripped, the chosen `opt-level`) → `wasm-bindgen --target
-//! web` (the CLI pinned to the crate version, never `wasm-pack`) → `wasm-opt -Oz`. The result is
+//! web` (the CLI pinned to the crate version, never `wasm-pack`) → `wasm-opt -Os`. The result is
 //! `<out>/<variant>/player.js`, `player_bg.wasm` (+ the rayon worker snippet for the threaded one)
 //! and `<out>/player-build.json`, which records the tool versions, the nightly date, the profile and
 //! the sizes before and after `wasm-opt` (WASM-017 AC12).
@@ -32,7 +36,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// The pinned nightly (WASM-017 R16/R17, Q9). Recorded in every build.
-const NIGHTLY: &str = "nightly-2026-10-08";
+const NIGHTLY: &str = "nightly-2026-10-22";
 /// `wasm-bindgen`'s CLI must equal the crate's version exactly.
 const WASM_BINDGEN: &str = "0.2.129";
 
@@ -47,18 +51,20 @@ struct Args {
     opt_level: String,
     measure: bool,
     no_parts: bool,
+    test_hooks: bool,
 }
 
 fn parse() -> Args {
-    let mut a = Args { out: PathBuf::from("target/player"), variants: vec!["plain".into(), "threaded".into()], opt_level: "z".into(), measure: false, no_parts: false };
+    let mut a = Args { out: PathBuf::from("target/player"), variants: vec!["plain".into(), "threaded".into()], opt_level: "s".into(), measure: false, no_parts: false, test_hooks: false };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
         match k.as_str() {
             "--out" => a.out = it.next().expect("--out <dir>").into(),
             "--variants" => a.variants = it.next().expect("--variants plain,threaded").split(',').map(str::to_owned).collect(),
-            "--opt-level" => a.opt_level = it.next().expect("--opt-level z|s"),
+            "--opt-level" => a.opt_level = it.next().expect("--opt-level s|z"),
             "--measure" => a.measure = true,
             "--no-parts" => a.no_parts = true,
+            "--test-hooks" => a.test_hooks = true,
             other => panic!("unknown argument {other}"),
         }
     }
@@ -118,9 +124,9 @@ struct Built {
     js: u64,
 }
 
-fn build_variant(crate_dir: &Path, target_dir: &Path, out: &Path, variant: &str, opt_level: &str) -> Built {
+fn build_variant(crate_dir: &Path, target_dir: &Path, out: &Path, variant: &str, opt_level: &str, test_hooks: bool) -> Built {
     let threaded = variant == "threaded";
-    let tdir = target_dir.join(if threaded { "threaded" } else { "plain" });
+    let tdir = target_dir.join(format!("{}{}", if threaded { "threaded" } else { "plain" }, if test_hooks { "-test-hooks" } else { "" }));
     let mut cargo = if threaded { let mut c = Command::new("cargo"); c.arg(format!("+{NIGHTLY}")); c } else { Command::new("cargo") };
     cargo
         .arg("build")
@@ -132,8 +138,17 @@ fn build_variant(crate_dir: &Path, target_dir: &Path, out: &Path, variant: &str,
         .arg("--target-dir")
         .arg(&tdir)
         .env("CARGO_PROFILE_RELEASE_OPT_LEVEL", opt_level);
+    let features = match (threaded, test_hooks) {
+        (true, true) => "threaded,test-hooks",
+        (true, false) => "threaded",
+        (false, true) => "test-hooks",
+        (false, false) => "",
+    };
+    if !features.is_empty() {
+        cargo.args(["--features", features]);
+    }
     if threaded {
-        cargo.args(["--features", "threaded", "-Z", "build-std=std,panic_abort"]).env("RUSTFLAGS", THREADED_RUSTFLAGS);
+        cargo.args(["-Z", "build-std=std,panic_abort"]).env("RUSTFLAGS", THREADED_RUSTFLAGS);
     }
     run(&mut cargo, &format!("cargo build ({variant}, opt-level {opt_level})"));
     let raw_wasm = tdir.join("wasm32-unknown-unknown/release/cobolt_web_player.wasm");
@@ -151,7 +166,7 @@ fn build_variant(crate_dir: &Path, target_dir: &Path, out: &Path, variant: &str,
     let bindgen = size(&bg);
     let opt = vdir.join("player_bg.opt.wasm");
     let mut wo = Command::new("wasm-opt");
-    wo.args(["-Oz", "--enable-bulk-memory", "--enable-sign-ext", "--enable-mutable-globals", "--enable-nontrapping-float-to-int", "--enable-reference-types", "--enable-multivalue"]);
+    wo.args(["-Os", "--enable-bulk-memory", "--enable-sign-ext", "--enable-mutable-globals", "--enable-nontrapping-float-to-int", "--enable-reference-types", "--enable-multivalue"]);
     if threaded {
         wo.arg("--enable-threads");
     }
@@ -199,7 +214,7 @@ fn build_part(crate_dir: &Path, target_dir: &Path, out: &Path, name: &str, packa
     let opt = vdir.join(format!("{name}_bg.opt.wasm"));
     run(
         Command::new("wasm-opt")
-            .args(["-Oz", "--enable-bulk-memory", "--enable-sign-ext", "--enable-mutable-globals", "--enable-nontrapping-float-to-int", "--enable-reference-types", "--enable-multivalue"])
+            .args(["-Os", "--enable-bulk-memory", "--enable-sign-ext", "--enable-mutable-globals", "--enable-nontrapping-float-to-int", "--enable-reference-types", "--enable-multivalue"])
             .arg(&bg)
             .arg("-o")
             .arg(&opt),
@@ -223,22 +238,24 @@ fn main() {
     let rustc_v = capture(Command::new("rustc").arg("--version"));
     let nightly_v = if args.variants.iter().any(|v| v == "threaded") { capture(Command::new("rustc").arg(format!("+{NIGHTLY}")).arg("--version")) } else { String::new() };
 
+    // `--measure` also builds the other `opt-level`, into a scratch directory, so the record states what the
+    // ruling (WASM-017 Q8: "s") costs against "z"; only the chosen level is written to `--out`.
     let mut levels = vec![args.opt_level.clone()];
     if args.measure {
-        levels = vec!["z".into(), "s".into()];
+        levels.push(if args.opt_level == "s" { "z".into() } else { "s".into() });
     }
     let mut report = Vec::new();
     let mut chosen: Vec<Built> = Vec::new();
     for level in &levels {
         for v in &args.variants {
-            let sub_out = if args.measure { out.join(format!("opt-{level}")) } else { out.clone() };
-            let b = build_variant(&crate_dir, &target_dir, &sub_out, v, level);
+            let sub_out = if level == &levels[0] { out.clone() } else { target_dir.join(format!("measure-opt-{level}")) };
+            let b = build_variant(&crate_dir, &target_dir, &sub_out, v, level, args.test_hooks);
             report.push(serde_json::json!({
                 "variant": b.variant, "opt_level": level, "cargo_output_bytes": b.raw, "after_bindgen_bytes": b.bindgen,
                 "after_wasm_opt_bytes": b.optimised, "gzip_bytes": b.gzip, "glue_js_bytes": b.js,
             }));
             println!("{:<9} opt-level {level}: cargo {:>9}  bindgen {:>9}  wasm-opt {:>9}  gzip {:>9}  glue {:>7}", b.variant, b.raw, b.bindgen, b.optimised, b.gzip, b.js);
-            if level == &levels[0] || !args.measure {
+            if level == &levels[0] {
                 chosen.push(b);
             }
         }
@@ -246,9 +263,8 @@ fn main() {
     // The parts: one build each, in the directory the bundle assembler reads (`<out>/parts/<name>`).
     let mut parts = Vec::new();
     if !args.no_parts {
-        let part_out = if args.measure { out.join(format!("opt-{}", levels[0])) } else { out.clone() };
         for (name, package) in PARTS {
-            let b = build_part(&crate_dir, &target_dir, &part_out, name, package, &levels[0]);
+            let b = build_part(&crate_dir, &target_dir, &out, name, package, &levels[0]);
             println!("part {name:<8} opt-level {}: cargo {:>9}  bindgen {:>9}  wasm-opt {:>9}  gzip {:>9}  glue {:>7}", levels[0], b.raw, b.bindgen, b.optimised, b.gzip, b.js);
             parts.push(serde_json::json!({
                 "name": name, "opt_level": levels[0], "cargo_output_bytes": b.raw, "after_bindgen_bytes": b.bindgen,
@@ -279,8 +295,18 @@ fn main() {
     collect(&out, &out, &mut files);
     let info = serde_json::json!({
         "source_hash": cobolt_web_player::fingerprint::source_fingerprint(&repo_root),
+        // What a bundle needs to know of this player without running it (WASM-016 R11): the version triple
+        // `versions()` answers in the page, and the host imports it gives a program module (ABI v1 §3).
+        "versions": {
+            "abi": cobolt_wasm_abi::ABI_VERSION,
+            "description": cobolt_forms::description::DESCRIPTION_FORMAT,
+            "player": env!("CARGO_PKG_VERSION"),
+        },
+        "host_imports": cobolt_wasm_abi::codes::PRODUCTION_IMPORTS.iter().map(|n| format!("{}.{n}", cobolt_wasm_abi::codes::IMPORT_MODULE)).collect::<Vec<_>>(),
         "files": files,
-        "profile": {"lto": true, "codegen_units": 1, "panic": "abort", "strip": true, "opt_level": args.opt_level, "wasm_opt": "-Oz"},
+        // The optional features this player was built with: empty for the shipped one (WASM-017 R15).
+        "features": if args.test_hooks { vec!["test-hooks"] } else { Vec::new() },
+        "profile": {"lto": true, "codegen_units": 1, "panic": "abort", "strip": true, "opt_level": args.opt_level, "wasm_opt": "-Os"},
         "tools": {"wasm_bindgen": bindgen_v, "wasm_opt": wasm_opt_v, "rustc_stable": rustc_v, "rustc_nightly": nightly_v, "nightly": NIGHTLY, "wasm_pack": "not used (WASM-017 R17)"},
         "measurements": report,
         "parts": parts,

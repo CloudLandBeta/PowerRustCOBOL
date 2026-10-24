@@ -323,9 +323,9 @@ async fn a_foreign_origin_is_refused_and_plain_ws_is_loopback_only() {
     let cfg = cobolt_server::config::ServerConfig::from_toml("[server]\nlisten = \"0.0.0.0:8080\"\n[auth]\nissuer = [\"https://i.example.test\"]\naudiences = [\"a\"]\n").unwrap();
     let e = cfg.resolve(cobolt_server::config::RunMode::Release, std::path::Path::new(".")).unwrap_err();
     assert!(e.iter().any(|m| m.contains("not a loopback address") && m.contains("TLS")), "{e:?}");
-    // …unless the relaxation is named unsafe, and then a release start still refuses it.
-    let cfg = cobolt_server::config::ServerConfig::from_toml("[server]\nlisten = \"0.0.0.0:8080\"\nallowed_origins=[\"https://a.test\"]\nunsafe_plain_ws = true\n[auth]\nissuer = [\"https://i.example.test\"]\naudiences = [\"a\"]\n");
-    assert!(cfg.is_err() || cfg.unwrap().resolve(cobolt_server::config::RunMode::Release, std::path::Path::new(".")).is_err());
+    // …and the relaxation that once allowed it was removed (WASM-003 D4): a file naming it does not load.
+    let cfg = cobolt_server::config::ServerConfig::from_toml("unsafe_plain_ws = true\n[server]\nlisten = \"0.0.0.0:8080\"\nallowed_origins=[\"https://a.test\"]\n[auth]\nissuer = [\"https://i.example.test\"]\naudiences = [\"a\"]\n");
+    assert!(cfg.is_err_and(|e| e.contains("was removed")));
     rig.server.stop();
 }
 
@@ -618,4 +618,195 @@ async fn calls_that_share_a_file_take_turns_and_none_is_lost() {
     rig.server.stop();
     let _ = std::fs::remove_file(&data);
     let _ = std::fs::remove_file(format!("{}.lck", data.display()));
+}
+
+// ── WASM-003 Q2: `per-connection` state (T5) ─────────────────────────────────
+
+/// The COUNTER a call answers, as a number.
+async fn count(c: &mut Raw, id: u64) -> u64 {
+    let r = c.call(id, "COUNTER", &[("ref", r#"{"WHO":"","SEEN":0}"#)], false).await;
+    assert_eq!(r["t"], "reply", "{r}");
+    r["args"][0]["SEEN"].as_u64().unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn per_connection_state_is_kept_and_never_shared() {
+    use cobolt_server::backend::StateMode;
+    let rig = rig_with_state(backend_dir("q2-conn", EXPORTS, &sources()), "", StateMode::PerConnection);
+    let (alice, bob) = (good_token(&rig, "alice", json!({})), good_token(&rig, "bob", json!({})));
+    let mut a = ready(&rig, &alice).await;
+    let mut b = ready(&rig, &bob).await;
+
+    // Interleaved: each connection counts on its own.
+    let (mut seen_a, mut seen_b) = (Vec::new(), Vec::new());
+    for i in 0..3 {
+        seen_a.push(count(&mut a, 10 + i).await);
+        seen_b.push(count(&mut b, 10 + i).await);
+    }
+    assert_eq!(seen_a, [1, 2, 3], "alice's connection keeps its WORKING-STORAGE");
+    assert_eq!(seen_b, [1, 2, 3], "bob's connection has its own");
+
+    // A call carrying another subject's token is refused before the program runs.
+    a.send(json!({"t": "call", "id": 20, "program": "COUNTER", "args": [{"mode": "ref", "json": {"WHO": "", "SEEN": 0}}], "returning": false, "token": bob})).await;
+    let r = a.next().await.unwrap();
+    assert_eq!(class(&r), "authorisation", "{r}");
+    assert_eq!(count(&mut a, 21).await, 4, "the refused call left alice's state alone");
+
+    // A new connection starts fresh: nothing is resumed.
+    drop(a);
+    let mut a2 = ready(&rig, &alice).await;
+    let reconnected = count(&mut a2, 30).await;
+    assert_eq!(reconnected, 1);
+    let records = rig.sink.records();
+    assert!(records.iter().filter(|r| r.event == "call" && r.outcome.as_deref() == Some("ok")).all(|r| r.state == Some("per-connection")), "the log names the mode");
+    rig.server.stop();
+
+    // The default keeps nothing.
+    let rig = new_rig("q2-call", "");
+    let mut c = ready(&rig, &good_token(&rig, "alice", json!({}))).await;
+    let mut per_call = Vec::new();
+    for i in 0..3 {
+        per_call.push(count(&mut c, 40 + i).await);
+    }
+    assert_eq!(per_call, [1, 1, 1]);
+    assert!(rig.sink.records().iter().filter(|r| r.event == "call").all(|r| r.state == Some("per-call")));
+    println!("\n  per-connection: alice {seen_a:?}, bob {seen_b:?} (interleaved); bob's token on alice's connection → {}; alice again → 4; reconnected → {reconnected}\n  per-call: {per_call:?}", code(&r));
+    rig.server.stop();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_held_open_across_calls_makes_others_wait_or_93() {
+    use cobolt_server::backend::StateMode;
+    let data = std::env::temp_dir().join(format!("prc-q2-hold-{}.idx", std::process::id()));
+    let _ = std::fs::remove_file(&data);
+    let _ = std::fs::remove_file(format!("{}.lck", data.display()));
+    let mut progs = file_programs(&data.display().to_string());
+    // HOLD opens the file on one call and closes it on a later one.
+    let hold = progs[1].1.replace("PROGRAM-ID. ADD-ROW.", "PROGRAM-ID. HOLD.").replace(
+        "LINKAGE SECTION.\n01 LK-ROW.\n    05 K PIC X(8).\n    05 V PIC X(8).\n    05 ST PIC XX.\nPROCEDURE DIVISION USING LK-ROW.\nMAIN.\n    OPEN I-O ROWS\n    IF WS-ST NOT = \"00\"\n        MOVE WS-ST TO ST\n        GOBACK\n    END-IF\n    MOVE K TO ROW-KEY\n    MOVE V TO ROW-VAL\n    WRITE ROW-REC\n    MOVE WS-ST TO ST\n    CLOSE ROWS\n    GOBACK.\n",
+        "LINKAGE SECTION.\n01 LK-H.\n    05 OP PIC X(5).\n    05 ST PIC XX.\nPROCEDURE DIVISION USING LK-H.\nMAIN.\n    IF OP = \"OPEN\"\n        OPEN I-O ROWS\n    ELSE\n        CLOSE ROWS\n    END-IF\n    MOVE WS-ST TO ST\n    GOBACK.\n",
+    );
+    assert!(hold.contains("PROGRAM-ID. HOLD.") && hold.contains("OP = \"OPEN\""), "the HOLD program was made");
+    progs.push(("hold.cbl".into(), hold));
+    let exports = "[contract]\nversion = \"1.0.0\"\n[[export]]\nprogram = \"MAKE-ROWS\"\n[[export]]\nprogram = \"ADD-ROW\"\n[[export]]\nprogram = \"HOLD\"\n";
+    let srcs: Vec<(&str, &str)> = progs.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+    let wait_ms = 400u64;
+    let rig = rig_with_state(backend_dir("q2-hold", exports, &srcs), &format!("[limits]\nfile_lock_wait_ms = {wait_ms}\n"), StateMode::PerConnection);
+    let token = good_token(&rig, "keeper", json!({}));
+    let mut holder = ready_as(&rig, &token, "1.0.0").await;
+    let r = holder.call(1, "MAKE-ROWS", &[("ref", r#"{"ST":""}"#)], false).await;
+    assert_eq!(r["args"][0]["ST"], "00", "{r}");
+    let r = holder.call(2, "HOLD", &[("ref", r#"{"OP":"OPEN","ST":""}"#)], false).await;
+    assert_eq!(r["args"][0]["ST"], "00", "{r}");
+
+    // Another connection: its OPEN waits for the configured time, then answers 93 — it never hangs.
+    let other_token = good_token(&rig, "other", json!({}));
+    let mut other = ready_as(&rig, &other_token, "1.0.0").await;
+    let t0 = Instant::now();
+    let r = other.call(3, "ADD-ROW", &[("ref", r#"{"K":"k1","V":"v1","ST":""}"#)], false).await;
+    let waited = t0.elapsed();
+    assert_eq!(r["args"][0]["ST"], "93", "{r}");
+    assert!(waited >= Duration::from_millis(wait_ms) && waited < Duration::from_millis(wait_ms + 5000), "waited {waited:?}");
+
+    // The holder closes on a later call; the other connection's OPEN then succeeds.
+    let r = holder.call(4, "HOLD", &[("ref", r#"{"OP":"CLOSE","ST":""}"#)], false).await;
+    assert_eq!(r["args"][0]["ST"], "00", "the file was still open in the session: {r}");
+    let r = other.call(5, "ADD-ROW", &[("ref", r#"{"K":"k2","V":"v2","ST":""}"#)], false).await;
+    assert_eq!(r["args"][0]["ST"], "00", "{r}");
+
+    // A dropped connection releases what its session held.
+    let r = holder.call(6, "HOLD", &[("ref", r#"{"OP":"OPEN","ST":""}"#)], false).await;
+    assert_eq!(r["args"][0]["ST"], "00", "{r}");
+    drop(holder);
+    let t1 = Instant::now();
+    let mut after = "??".to_string();
+    while t1.elapsed() < Duration::from_secs(10) {
+        let r = other.call(7 + t1.elapsed().as_millis() as u64, "ADD-ROW", &[("ref", r#"{"K":"k3","V":"v3","ST":""}"#)], false).await;
+        after = r["args"][0]["ST"].as_str().unwrap_or("??").to_string();
+        if after == "00" {
+            break;
+        }
+    }
+    assert_eq!(after, "00", "the lock went with the connection");
+    println!("\n  per-connection file lock: another connection waited {:.0} ms (limit {wait_ms}) → 93; after CLOSE on the holder's next call → 00; after the holder disconnected → 00 in {:.0} ms", waited.as_secs_f64() * 1000.0, t1.elapsed().as_secs_f64() * 1000.0);
+    rig.server.stop();
+    let _ = std::fs::remove_file(&data);
+    let _ = std::fs::remove_file(format!("{}.lck", data.display()));
+}
+
+// ── the HTTPS front (WASM-003 R2, Q3; D6): a closed route table ──────────────
+
+/// Send `request` over TLS and read until the server closes; the status, or 0 when nothing came back.
+async fn raw_request(rig: &Rig, request: &[u8]) -> (u16, String) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let tcp = tokio::net::TcpStream::connect(rig.server.addr).await.unwrap();
+    let connector = cobolt_server::tlsutil::connector(Some(rig.cert.cert_pem.as_bytes())).unwrap();
+    let mut tls = connector.connect("localhost", tcp).await.unwrap();
+    let _ = tls.write_all(request).await;
+    let mut raw = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(15), tls.read_to_end(&mut raw)).await;
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    (text.split(' ').nth(1).and_then(|s| s.parse().ok()).unwrap_or(0), text)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn routes_are_closed() {
+    // A short handshake limit: an upgraded test connection that never says hello is closed soon.
+    let rig = new_rig("routes", "[limits]\nhandshake_timeout_ms = 1000\n");
+    let upgrade = |path: &str| format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nOrigin: {ORIGIN}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+    let get = |path: &str| format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    let cases: Vec<(String, String, u16)> = vec![
+        ("GET /health".into(), get("/health"), 200),
+        ("POST /health".into(), "POST /health HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n".into(), 404),
+        ("GET /dl/<bad>".into(), get(&format!("/dl/{}", "0".repeat(64))), 404),
+        ("GET /dl/../etc/passwd".into(), get("/dl/../etc/passwd"), 404),
+        ("GET /ws, no upgrade".into(), get("/ws"), 404),
+        ("GET /, no upgrade".into(), get("/"), 404),
+        ("GET /admin".into(), get("/admin"), 404),
+        ("GET /api/anything".into(), get("/api/anything"), 404),
+        ("GET /ws/extra".into(), upgrade("/ws/extra"), 404),
+        ("GET /health/".into(), get("/health/"), 404),
+    ];
+    let mut report = Vec::new();
+    for (what, req, want) in &cases {
+        let (status, text) = raw_request(&rig, req.as_bytes()).await;
+        assert_eq!(status, *want, "{what}: {text}");
+        if status != 101 {
+            assert!(text.contains("Strict-Transport-Security") && text.contains("X-Content-Type-Options: nosniff"), "{what}: {text}");
+        }
+        report.push(format!("{what} → {status}"));
+    }
+    // `/` and `/ws` upgrade (header names compare without case).
+    for path in ["/", "/ws"] {
+        let (status, text) = raw_request(&rig, format!("{}", upgrade(path)).as_bytes()).await;
+        assert_eq!(status, 101, "{path}: {text}");
+        assert!(text.to_ascii_lowercase().contains("sec-websocket-accept: s3pplmbitxaq9kygzzhzrbk+xoo="), "{text}");
+        report.push(format!("upgrade {path} → {status}"));
+    }
+    println!("\n  routes: {}", report.join("; "));
+    rig.server.stop();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_large_or_slow_request_head_is_refused() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let rig = new_rig("head", "[limits]\nhandshake_timeout_ms = 1500\n");
+    // A head over the cap.
+    let big = format!("GET /health HTTP/1.1\r\nHost: localhost\r\nX-Pad: {}\r\n\r\n", "a".repeat(20 * 1024));
+    let (status, _) = raw_request(&rig, big.as_bytes()).await;
+    assert_eq!(status, 431);
+    // A head that never ends: closed within the handshake time.
+    let tcp = tokio::net::TcpStream::connect(rig.server.addr).await.unwrap();
+    let connector = cobolt_server::tlsutil::connector(Some(rig.cert.cert_pem.as_bytes())).unwrap();
+    let mut tls = connector.connect("localhost", tcp).await.unwrap();
+    tls.write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n").await.unwrap();
+    let t0 = Instant::now();
+    let mut rest = Vec::new();
+    let r = tokio::time::timeout(Duration::from_secs(10), tls.read_to_end(&mut rest)).await;
+    let closed_after = t0.elapsed();
+    assert!(r.is_ok(), "the server must close a head that never ends");
+    assert!(closed_after < Duration::from_millis(1500 + 2000), "{closed_after:?}");
+    assert!(!String::from_utf8_lossy(&rest).starts_with("HTTP/1.1 200"), "no answer to half a head");
+    println!("\n  a 20 KiB head → {status}; an unfinished head closed after {:.0} ms (limit 1500)", closed_after.as_secs_f64() * 1000.0);
+    rig.server.stop();
 }

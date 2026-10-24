@@ -39,7 +39,6 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, spawn_local, JsFuture};
 
-use cobolt_forms::xml::load_form_from_str;
 use cobolt_wasm_abi::manifest::Manifest;
 
 use crate::auth;
@@ -59,6 +58,8 @@ pub struct PlayerConfig {
     pub debug_level: u32,
     pub backend_origins: Vec<String>,
     pub call_timeout_ms: Option<u64>,
+    /// The project's payload limit (WASM-017 R8); `None` keeps the default.
+    pub max_frame: Option<usize>,
     pub unsafe_plain_ws: bool,
     pub weblink_schemes: Vec<String>,
     pub recaptcha_site_key: String,
@@ -425,6 +426,10 @@ impl Inner {
         };
         for o in outs {
             match o {
+                Out::Answer { id, frame } if crate::grid::is_grid_id(id) => {
+                    // A remote grid's call (WASM-005 T16): the rows or the save's outcome are the host's.
+                    self.host.borrow_mut().grid_answer(id, frame);
+                }
                 Out::Answer { id, frame } if auth::wire::is_auth_id(id) => {
                     // An Authentication control's call (WASM-009): the answer is the machine's, not the module's.
                     let answered = self.host.borrow_mut().auth_answer(id, auth::wire::decode(&frame), now_ms() as f64);
@@ -588,7 +593,11 @@ impl Inner {
                     // told, as for any lost connection.
                     if let Err(e) = self.net_submit(id, &frame) {
                         let f = net::error_frame(id, net::class::TRANSPORT, 7, &e, false);
-                        self.host.borrow_mut().remote_answer(id, f);
+                        if crate::grid::is_grid_id(id) {
+                            self.host.borrow_mut().grid_answer(id, f);
+                        } else {
+                            self.host.borrow_mut().remote_answer(id, f);
+                        }
                     }
                 }
                 Outbound::Cancel { id } => {
@@ -705,8 +714,9 @@ fn pump(inner: &Rc<Inner>) {
     spawn_local(async move {
         drive(&inner, &link).await;
         inner.driving.set(false);
-        // Something may have arrived between the last look and the flag going down.
-        if !inner.inbox.borrow().is_empty() || inner.host.borrow().pending_work() > 0 {
+        // Something may have arrived between the last look and the flag going down. Work that waits behind
+        // a suspended task does not count: it runs when the task's answer comes, which pumps again.
+        if !inner.inbox.borrow().is_empty() || inner.host.borrow().can_run() {
             pump(&inner);
         }
     });
@@ -749,6 +759,23 @@ async fn drive(inner: &Rc<Inner>, link: &Rc<JsLink>) {
     }
 }
 
+/// The ABI host for the program whose manifest is `manifest_json`, set up as the page's configuration says.
+fn make_host(cfg: &PlayerConfig, manifest_json: &str) -> Result<Host, JsError> {
+    let manifest = Manifest::parse(manifest_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let opts = HostOptions {
+        debug_level: cfg.debug_level,
+        standalone: cfg.standalone,
+        max_queue: cfg.max_queue.unwrap_or(HostOptions::default().max_queue),
+    };
+    let mut host = Host::new(manifest, opts);
+    host.set_auth_defaults(
+        if cfg.auth_flow.eq_ignore_ascii_case("hosted") { crate::auth::Flow::Hosted } else { crate::auth::Flow::InApp },
+        &cfg.recaptcha_site_key,
+    );
+    host.policy = crate::weblink::Policy { extra_schemes: cfg.weblink_schemes.clone() };
+    Ok(host)
+}
+
 // ── the exported object ─────────────────────────────────────────────────────
 
 /// The one object the loader holds.
@@ -767,19 +794,8 @@ impl Player {
         } else {
             serde_json::from_str(config_json).map_err(|e| JsError::new(&format!("the player configuration is not valid: {e}")))?
         };
-        let manifest = Manifest::parse(manifest_json).map_err(|e| JsError::new(&e.to_string()))?;
-        let opts = HostOptions {
-            debug_level: cfg.debug_level,
-            standalone: cfg.standalone,
-            max_queue: cfg.max_queue.unwrap_or(HostOptions::default().max_queue),
-        };
-        let mut host = Host::new(manifest, opts);
-        host.set_auth_defaults(
-            if cfg.auth_flow.eq_ignore_ascii_case("hosted") { crate::auth::Flow::Hosted } else { crate::auth::Flow::InApp },
-            &cfg.recaptcha_site_key,
-        );
+        let host = make_host(&cfg, manifest_json)?;
         let hosted_return = (!cfg.hosted_code.is_empty()).then(|| (cfg.hosted_code.clone(), cfg.hosted_state.clone()));
-        host.policy = crate::weblink::Policy { extra_schemes: cfg.weblink_schemes.clone() };
         let inner = Rc::new(Inner {
             styles: RefCell::new(Styles { locale: cfg.locale.clone(), ..Styles::default() }),
             host: RefCell::new(host),
@@ -803,24 +819,21 @@ impl Player {
         });
         *inner.weak.borrow_mut() = Rc::downgrade(&inner);
         if !inner.cfg.backend_origins.is_empty() {
-            let mut ncfg = net::Config {
-                origins: inner.cfg.backend_origins.clone(),
-                unsafe_plain_ws: inner.cfg.unsafe_plain_ws,
-                ..net::Config::default()
-            };
-            if let Some(t) = inner.cfg.call_timeout_ms {
-                ncfg.call_timeout_ms = t;
-            }
+            let ncfg = net::Config::from_page(
+                inner.cfg.backend_origins.clone(),
+                inner.cfg.unsafe_plain_ws,
+                inner.cfg.call_timeout_ms,
+                inner.cfg.max_frame,
+            );
             let sock = WsSocket { inner: Rc::downgrade(&inner), ws: None, handlers: Vec::new() };
             *inner.net.borrow_mut() = Some(Client::new(ncfg, sock));
         }
         Ok(Player { inner })
     }
 
-    /// Register the description (a `.cfrm`) of one form.
-    pub fn add_form(&self, xml: &str) -> Result<(), JsError> {
-        let form = load_form_from_str(xml).map_err(|e| JsError::new(&format!("a form description cannot be read: {e}")))?;
-        self.inner.host.borrow_mut().add_form(form).map_err(|e| JsError::new(&e))
+    /// Register the description (the JSON the Build writes, WASM-016 R3) of one form.
+    pub fn add_form(&self, json: &str) -> Result<(), JsError> {
+        self.inner.host.borrow_mut().add_description(json).map_err(|e| JsError::new(&e))
     }
 
     /// Forms the manifest lists that have no description yet.
@@ -1006,7 +1019,7 @@ impl Player {
             for _ in 0..100_000 {
                 // Look first, and start the driver only when there is something for it: starting it
                 // sets `driving`, so pumping an idle player would make it look busy forever.
-                let queued = !inner.inbox.borrow().is_empty() || inner.host.borrow().pending_work() > 0 || inner.host.borrow().has_yielded();
+                let queued = !inner.inbox.borrow().is_empty() || inner.host.borrow().can_run() || inner.host.borrow().has_yielded();
                 if queued && !inner.driving.get() {
                     pump(&inner);
                 }
@@ -1075,6 +1088,46 @@ impl Player {
         Ok(())
     }
 
+    /// The Preview's in-place update (WASM-016 R16): stop the application — every open instance is closed in the module
+    /// it runs in and leaves the page — and take the program whose manifest is `manifest_json` (the same one, or a new
+    /// module's). The player, the page, the stylesheets and the connection stay. When the promise resolves, register the
+    /// descriptions (`add_form`), give the module's link (`attach`) and `start()` again. A session the Authentication
+    /// control held is not kept: the application starts as it does on a fresh page.
+    pub fn reset(&self, manifest_json: String) -> Promise {
+        let inner = self.inner.clone();
+        future_to_promise(async move {
+            if inner.dead.get() {
+                return Err(JsError::new("the player was unmounted").into());
+            }
+            let fresh = make_host(&inner.cfg, &manifest_json)?;
+            for _ in 0..1000 {
+                if !inner.driving.get() {
+                    break;
+                }
+                next_turn().await;
+            }
+            // Nothing the old program asked for may reach the new one.
+            inner.driving.set(true);
+            let calls = inner.host.borrow_mut().teardown();
+            inner.inbox.borrow_mut().clear();
+            inner.timers.borrow_mut().clear();
+            let link = inner.link.borrow().clone();
+            if let Some(link) = link {
+                for c in &calls {
+                    let _ = link.run(c).await;
+                }
+            }
+            // The instances leave the page (teardown reported each one closed).
+            inner.process_effects();
+            *inner.host.borrow_mut() = fresh;
+            *inner.link.borrow_mut() = None;
+            inner.inbox.borrow_mut().clear();
+            inner.driving.set(false);
+            let closed = calls.iter().filter(|c| matches!(c, ModuleCall::CloseForm { .. })).count();
+            Ok(JsValue::from_str(&serde_json::json!({"closed": closed}).to_string()))
+        })
+    }
+
     /// Unmount: close every instance, drop every listener and timer, close the socket (WASM-017 R5).
     /// The returned promise resolves when the module has been told.
     pub fn unmount(&self) -> Promise {
@@ -1139,6 +1192,9 @@ pub fn install_panic_hook(f: Function) {
 }
 
 /// Force a panic (the test of R15: the page must show the readable error and the reload action).
+/// Only in a player built with the `test-hooks` feature: a shipped player has no export a page
+/// script could end the application with.
+#[cfg(feature = "test-hooks")]
 #[wasm_bindgen]
 pub fn force_panic_for_test() {
     panic!("forced panic (test)");
@@ -1149,7 +1205,7 @@ pub fn force_panic_for_test() {
 pub fn versions() -> String {
     serde_json::json!({
         "abi": cobolt_wasm_abi::ABI_VERSION,
-        "description": 1,
+        "description": cobolt_forms::description::DESCRIPTION_FORMAT,
         "player": env!("CARGO_PKG_VERSION"),
         "threaded": cfg!(feature = "threaded"),
     })

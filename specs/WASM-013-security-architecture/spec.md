@@ -106,6 +106,10 @@ chain, the "unsafe" switches, and the checks that prove them — so that no corn
   form's region and an unmounted application's module and Workers completely (WASM-017 R2, R5, R7–R8), so a hostile payload or repeated opening cannot exhaust the page's memory.
 - **R16 (event):** When the series reaches a release candidate, a **review by someone other than the author** — and, if the operator decides (Q1), an external penetration test — shall be recorded before the line is released.
 
+**The channel (operator, 2026-10-24 — WASM-INDEX D21)**
+
+- **R17 (ubiquitous):** The threat model shall include the **asymmetric encryption of the frontend↔backend channel** (WASM-003 R24): what it protects against — a TLS endpoint or terminating proxy that reads frames, a captured session replayed against a later start of the application, a frame injected by a party that holds the TLS session — and what it does not (an attacker inside the browser, a compromised backend). The plan shall record the construction and the algorithms here, from pure-Rust crates (the dependency rules above and the C-free TLS constraint of spec 103 R10), and the key pair shall be generated at application start and never persisted; R8 applies to any key that is.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — The threat model exists, names every boundary of R1, and each row points to a control and a test; the `/analyze` of each later spec updates it.
@@ -120,8 +124,11 @@ chain, the "unsafe" switches, and the checks that prove them — so that no corn
 - [ ] **AC10** — A full sign-in and call flow leaves no token, password or marked field in the backend log, the browser console or a crash report (a test greps all three).
 - [ ] **AC11** — The fuzz targets of R15 exist and run within their budget without a crash.
 
+- [ ] **AC12** — The threat model names the channel's encryption with its protections and its limits; a dependency audit of the chosen crates finds no C code; a captured session does not decrypt after the application restarts.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D21 (operator, 2026-10-24):** this spec owns the channel's asymmetric encryption in the threat model — what it protects against, what it does not, the construction and its pure-Rust crates (R17); the requirement on the channel is WASM-003 R24.
 - **i18n:** yes — the IDE's warnings for unsafe switches and scan failures, six languages.
 - **Credentials rule:** the scan's own tests plant fake secrets in fixtures only; nothing real is committed, and no real value is printed (the operator's no-credentials rule and the commit-gate practice).
 - **Generated-code contract:** the CSP, headers, SBOM and capability list are generated artefacts, never hand-edited.

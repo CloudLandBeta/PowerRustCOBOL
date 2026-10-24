@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — The Preview is a web view
 
-- **Status:** draft (needs `/clarify`)
+- **Status:** draft — **re-scoped by the operator on 2026-10-23** (§0): the interactive Preview and Run open in a browser, not in a web view of the IDE's own.
 - **Folder:** specs/WASM-008-webview-preview/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-10-19
 - **Branch:** `features-2x` (version line 2.x.x). Part of the WASM series, see `specs/WASM-INDEX.md`.
@@ -13,6 +13,23 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - **Depends on:** WASM-001, WASM-002, WASM-004, WASM-007. **Related:** WASM-003 (the dev backend), WASM-009 (the dev sign-in).
 - **Prior art:** spec 006's Preview was `trunk serve` plus the default browser (removed 2026-10-14). Spec 039 once considered `wry` for the Maps control and rejected it (`specs/039-*/plan.md:298`) because
   hand-rolled tiles made it unnecessary; the reason does not apply here.
+
+## 0. Operator ruling (2026-10-23) — read first
+
+> "o preview/run de apps mobile deve ser em emuladores android/iOS. Da mesma forma, preview de apps web deve ser no browser do sistema (ou um
+> browser configurado nas configurações do projeto)." — the operator, 2026-10-23.
+
+It overrides every requirement and acceptance criterion below that says otherwise, and §4 states it as R12–R16:
+
+- **Web project:** Preview and Run open the form in the **system's default browser**, or in the browser the project names in its settings. No
+  window of the IDE shows the page.
+- **Mobile project:** Preview and Run go to an **Android emulator** or an **iOS simulator** (or a connected device), through the mobile shell of
+  WASM-012. When the machine has no emulator or simulator for the platform, they **fall back to the browser** at a phone width, with a notice that
+  says it is not the device (operator's answer, 2026-10-23).
+- **The web-view helper (`prc-web-preview`, wry + tao, shipped at 2.0.20) stays, headless only:** it is the engine behind `render_form`, `run_form`
+  and the tests (R9; WASM-015 Q1). Its visible window and its controls window go (operator's answer, 2026-10-23).
+- **Device presets, orientation, pixel ratio and safe-area insets are not the IDE's on the web:** the browser's own responsive/device tools cover
+  them, and a mobile project is tried on the emulator (operator's answer, 2026-10-23).
 
 ## 1. Overview
 
@@ -37,7 +54,7 @@ viewport, and where a style change shows up as the browser draws it.
   - The developer tools of the web view available, and the page's console in the IDE's Output panel.
   - A headless counterpart for tests and agents.
 - **Non-goals:**
-  - Android emulators, iOS simulators and on-device runs (the mobile platform spec proposed in WASM-INDEX).
+  - ~~Android emulators, iOS simulators and on-device runs~~ — **now in scope** (§0, R14): the Preview of a Mobile project goes to them; the emulator and device machinery itself is WASM-012's (R3).
   - Replacing the Form Designer's canvas with a web view (a later, separate decision).
   - Remote device debugging.
 
@@ -68,6 +85,21 @@ viewport, and where a style change shows up as the browser draws it.
   MCP tools `render_form` and `run_form`, with the same shape of answer they give for desktop forms.
 - **R10 (state):** While the project kind is desktop, the Preview and Run Form shall be exactly as today.
 
+**The operator's ruling of 2026-10-23 (§0) — these override R1, R2, R4, R5 and R8 where they differ**
+- **R12 (event):** When the developer starts Preview or Run on a **web** form, the IDE shall build it as R1 says, serve it from the project's loopback development
+  origin, and open that address in the **browser the project names** (a project setting, Q7) or, when none is named, in the **system's default browser**. The IDE
+  shall open no window of its own for the page. A named browser that cannot be started shall be reported in the Output panel, and the system browser used instead.
+- **R13 (state):** While the page is open in the browser, R3's in-place update shall reach it from the development server (the player's in-place update, WASM-016
+  R16), and R5's console output and uncaught errors shall be relayed by the served page to the IDE's Output panel. The browser's own developer tools replace the
+  helper's; R4's presets, orientation, pixel ratio and insets are left to the browser's responsive/device mode, and the IDE offers none for the web.
+- **R14 (event):** When the developer starts Preview or Run on a **mobile** form, the IDE shall run it on an **Android emulator or iOS simulator** (or a connected
+  device) through WASM-012 R3 — list, start the chosen one, install, launch, reload on a change, device log in the Output panel.
+- **R15 (state):** While the machine has no emulator or simulator for the project's platform (WASM-012 R2's toolchain check finds none), Preview and Run of a mobile
+  form shall **fall back to the browser** of R12 at a phone width, and the Output panel and the IDE's status shall say that this is the browser, not the device,
+  and what to install to run on the emulator.
+- **R16 (ubiquitous):** The web-view helper (`prc-web-preview`) shall remain only as the **headless** engine of R9 (`render_form`, `run_form`, tests; WASM-015 Q1);
+  it shall open no visible window. R2 (crash isolation) applies to the browser and the emulator for free, and to the helper's headless runs as before.
+
 **Layers (spec 091, adapted to HTML)**
 - **R11 (state):** The Preview and the Run of a layered web form shall show what the program shows: every layer starts hidden (WASM-004 R15; spec 091 R35). The visibility the developer set on the designer's layer tabs is not part of the form description and is not carried into the Preview.
 
@@ -85,8 +117,20 @@ viewport, and where a style change shows up as the browser draws it.
 - [ ] **AC9** — A desktop project's Preview and Run Form behave as before: the existing tests stay green and no new window or action appears for the desktop kind.
 - [ ] **AC10** — Opening a layered form in the Preview shows none of its layers until the program shows one (R11).
 
+**Acceptance under the ruling of 2026-10-23** (AC1, AC3, AC6 and AC7 above are read through these)
+- [ ] **AC11** — Preview of a hello-world **web** form opens it in the system's default browser; with a browser named in the project settings, in that one; a click on
+  its button changes what it shows; no IDE window shows the page.
+- [ ] **AC12** — With the page open in the browser, changing a property, a class rule and the stylesheet each updates it in place (AC2's times), and a
+  `console.error` and an uncaught exception appear in the Output panel with the form name (AC4).
+- [ ] **AC13** — Preview of a **mobile** form on a machine with an emulator (or simulator) starts it, installs and shows the form, and the device log reaches the Output panel.
+- [ ] **AC14** — On a machine with neither, Preview of a mobile form opens the browser at a phone width and the Output panel says it is not the device and what to install.
+- [ ] **AC15** — `render_form` and `run_form` on a web form still answer from the headless helper (AC8), and no visible helper window opens in any Preview or Run.
+- AC3 (presets, the window's own rectangle) and AC6 (killing the web view's process) **no longer apply** to the interactive Preview; AC7 is the browser's own behaviour.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D22 (operator, 2026-10-24):** Preview and Run of a Mobile project (R14) go through the native Android Studio / Xcode project that WASM-012 R16 creates with the project, whose stub loads the bundle; the browser fallback of R15 is unchanged.
+- **The frontend↔backend channel (WASM-INDEX D21, operator 2026-10-24):** whatever this spec puts on the channel between the frontend and the backend obeys the series-wide ruling — the channel is asymmetrically encrypted with a key pair generated when the application starts; a broken connection is retried with a timeout of 10 s, raised by 10 s on each retry, for at most 3 cycles, then an exception is raised; while the frontend retries, all mouse and keyboard input is blocked and the "connecting" modal of WASM-016 R20 (WASM-012 R15 on a device) is shown, appearing when the connection breaks and disappearing when it is re-established. The ruling is owned by WASM-003 R24–R26, WASM-016 R20–R21, WASM-012 R15, WASM-005 R18, WASM-014 R18 and WASM-013 R17; this spec adds nothing of its own to it and must not contradict it.
 - **i18n:** yes — presets, orientation, colour-scheme and error text, six languages.
 - **Self-resizing windows:** R4 and AC3 apply the golden rule (explicit size, one grip, children laid out from the stored size).
 - **Platform dependencies:** WebKitGTK on Linux and WebView2 on Windows are runtime dependencies of the IDE for this feature; the installers (`installer-look`, the `.deb`/`.rpm` text) and the toolchain
@@ -107,4 +151,6 @@ viewport, and where a style change shows up as the browser draws it.
   **Decided (operator, 2026-10-22):** a development token may be used.
 - **Q5 — Update budget.** A number for R3 ("a style change shows within N ms") is needed before the AC can be checked; measure a prototype first.
   **Answered (operator, 2026-10-22), to confirm:** "as short as possible". A number is still needed before the acceptance criterion can be checked.
+- **Q7 — The project's browser setting** (R12): its name and carrier (proposal: `[web] preview_browser`, a browser name or an application path, empty = the
+  system default) and whether a Mobile project's fallback (R15) uses it too (proposal: yes). Decide at `/plan`.
 - **Q6 — Does Preview replace Run Form** for web kinds, or are they two actions (Preview = quick, Run = the full bundle with the backend)? Recommended: two, as on desktop.

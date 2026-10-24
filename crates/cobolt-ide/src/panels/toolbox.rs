@@ -10,6 +10,7 @@
 
 use crate::i18n::Tr;
 use crate::project_model::UserControlDef;
+use cobolt_compiler::project_kind::ProjectKind;
 use cobolt_forms::ControlType;
 use egui::{Color32, Pos2, RichText, Sense, Stroke, Ui, Vec2};
 
@@ -430,6 +431,27 @@ pub struct ToolboxPanel {
     /// `Non-Visuals` tab is active every visual entry is drawn greyed and takes
     /// no press, click or drag. The non-visual ones stay as they were.
     pub visual_disabled: bool,
+    /// WASM-001 R14 — set by the designer each frame: the open project's kind.
+    /// A Web or Mobile project is offered only the controls the browser can
+    /// run (WASM-004's class table); a Desktop project, the whole catalogue.
+    pub project_kind: ProjectKind,
+}
+
+/// Is this control offered to a project of `kind`? Desktop: every control.
+/// Web and Mobile: everything but class D (`cobolt_forms::web_class`).
+fn offered_to(kind: ProjectKind, ct: &ControlType) -> bool {
+    kind.is_desktop() || cobolt_forms::web_class::available_on_web(ct)
+}
+
+/// A user control follows the rule through what it is made of: it is offered
+/// only when every control inside it is.
+fn user_control_offered_to(kind: ProjectKind, def: &UserControlDef) -> bool {
+    def.controls.iter().all(|c| offered_to(kind, &ControlType::from_str(&c.control_type)))
+}
+
+/// The toolbox entries a project of `kind` is offered, in catalogue order.
+fn tools_for(kind: ProjectKind) -> impl Iterator<Item = &'static ToolEntry> {
+    TOOLS.iter().filter(move |e| offered_to(kind, &e.ct))
 }
 
 impl ToolboxPanel {
@@ -438,6 +460,7 @@ impl ToolboxPanel {
             filter: String::new(),
             collapsed: std::collections::HashSet::new(),
             visual_disabled: false,
+            project_kind: ProjectKind::Desktop,
         }
     }
 
@@ -468,6 +491,7 @@ impl ToolboxPanel {
         };
         // The hint a disabled visual entry shows (R58), when entries are disabled.
         let locked = self.visual_disabled.then_some(tr.toolbox_visual_disabled_hint);
+        let kind = self.project_kind;
 
         // Collapsed: render only a narrow, vertically-scrolling ICON rail (plus
         // the expand chevron). No labels, no search, no forms list — the rail is
@@ -513,7 +537,7 @@ impl ToolboxPanel {
                         for &(cat_id, _) in CATEGORIES {
                             let cat_label = tr.category_name(cat_id);
                             let tools_in_cat: Vec<&ToolEntry> =
-                                TOOLS.iter().filter(|e| e.category == cat_id).collect();
+                                tools_for(kind).filter(|e| e.category == cat_id).collect();
                             if tools_in_cat.is_empty() {
                                 continue;
                             }
@@ -556,14 +580,13 @@ impl ToolboxPanel {
                                 ui.add_space(4.0);
                             }
                         }
-                        render_user_controls(ui, tr, user_controls, &filter_lo, &mut action, locked);
+                        render_user_controls(ui, tr, user_controls, kind, &filter_lo, &mut action, locked);
                     } else {
-                        let filtered: Vec<&ToolEntry> = TOOLS
-                            .iter()
+                        let filtered: Vec<&ToolEntry> = tools_for(kind)
                             .filter(|e| e.label.to_ascii_lowercase().contains(&filter_lo))
                             .collect();
                         render_icon_grid(ui, &filtered, &mut action, locked);
-                        render_user_controls(ui, tr, user_controls, &filter_lo, &mut action, locked);
+                        render_user_controls(ui, tr, user_controls, kind, &filter_lo, &mut action, locked);
                     }
                 });
         });
@@ -593,7 +616,7 @@ impl ToolboxPanel {
                 // At the rail's fixed width `render_icon_grid` naturally computes
                 // a single column (one 59px cell won't fit twice), giving a clean
                 // vertical icon stack.
-                let all: Vec<&ToolEntry> = TOOLS.iter().collect();
+                let all: Vec<&ToolEntry> = tools_for(self.project_kind).collect();
                 render_icon_grid(ui, &all, action, locked);
             });
     }
@@ -670,6 +693,7 @@ fn render_user_controls(
     ui: &mut Ui,
     tr: &Tr,
     user_controls: &[UserControlDef],
+    kind: ProjectKind,
     filter_lo: &str,
     action: &mut ToolboxAction,
     // `Some(hint)` while visual entries are disabled (spec 091 R58): a user
@@ -678,6 +702,7 @@ fn render_user_controls(
 ) {
     let entries: Vec<&UserControlDef> = user_controls
         .iter()
+        .filter(|def| user_control_offered_to(kind, def))
         .filter(|def| filter_lo.is_empty() || def.name.to_ascii_lowercase().contains(filter_lo))
         .collect();
     if entries.is_empty() {
@@ -2480,5 +2505,56 @@ mod non_visuals_tab_091 {
         assert_eq!(on_timer.pressed, Some(ControlType::Timer));
         assert!(on_timer.payload, "a Timer still drags");
         assert_eq!(on_timer.placed, Some(ControlType::Timer), "and still clicks");
+    }
+}
+
+#[cfg(test)]
+mod project_kind_tests {
+    //! WASM-001 R14 — the toolbox offers what the project's kind can run.
+    use super::*;
+    use crate::project_model::UserControlEntry;
+
+    fn offered(kind: ProjectKind) -> Vec<&'static str> {
+        tools_for(kind).map(|e| e.label).collect()
+    }
+
+    #[test]
+    fn a_desktop_project_is_offered_the_whole_catalogue_and_web_and_mobile_lose_only_class_d() {
+        let desktop = offered(ProjectKind::Desktop);
+        println!("desktop toolbox: {} controls (the catalogue: {})", desktop.len(), TOOLS.len());
+        assert_eq!(desktop.len(), TOOLS.len(), "a Desktop project keeps today's toolbox (R11)");
+        let class_d: Vec<&str> = TOOLS
+            .iter()
+            .filter(|e| cobolt_forms::web_class::class_of(&e.ct) == cobolt_forms::web_class::Class::D)
+            .map(|e| e.label)
+            .collect();
+        for kind in [ProjectKind::Web, ProjectKind::Mobile] {
+            let list = offered(kind);
+            let hidden: Vec<&str> = desktop.iter().copied().filter(|l| !list.contains(l)).collect();
+            println!("{} toolbox: {} controls, {} hidden {:?}", kind.as_str(), list.len(), hidden.len(), hidden);
+            assert_eq!(list.len(), desktop.len() - class_d.len());
+            assert_eq!(hidden, class_d, "exactly the class D controls are hidden");
+        }
+    }
+
+    #[test]
+    fn a_user_control_is_offered_only_when_everything_inside_it_is() {
+        let entry = |ty: &str| UserControlEntry {
+            id: "c".into(),
+            control_type: ty.into(),
+            parent: None,
+            x: 0,
+            y: 0,
+            w: 10,
+            h: 10,
+            z_order: 0,
+            properties: Default::default(),
+        };
+        let plain = UserControlDef { name: "Plain".into(), width: 10, height: 10, controls: vec![entry("Button"), entry("Label")] };
+        let plug_in = UserControlDef { name: "WithPlugIn".into(), width: 10, height: 10, controls: vec![entry("Button"), entry("acme:thing")] };
+        assert!(user_control_offered_to(ProjectKind::Desktop, &plug_in), "Desktop is offered everything");
+        assert!(user_control_offered_to(ProjectKind::Web, &plain));
+        assert!(!user_control_offered_to(ProjectKind::Web, &plug_in), "a plug-in control inside it hides it on the web");
+        assert!(!user_control_offered_to(ProjectKind::Mobile, &plug_in));
     }
 }

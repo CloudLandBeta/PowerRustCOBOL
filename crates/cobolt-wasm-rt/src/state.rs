@@ -43,8 +43,38 @@ pub const WS_CTEMP: u32 = WS_SCRATCH + SCRATCH_SIZE;
 /// The path of the host command being built (ABI v1 §5).
 pub const WS_PATH: u32 = WS_CTEMP + NCTEMP as u32 * CTEMP_SIZE;
 pub const PATH_SIZE: u32 = 2048;
+/// The group ⇄ JSON mapping's work area (see [`crate::json`]): the shadow copy
+/// a decode writes before it commits, the path of the item being mapped (the
+/// one an error names), and the paths of the variable tables a decode read.
+pub const WS_JSON_SHADOW: u32 = WS_PATH + PATH_SIZE;
+/// The largest group a decode can take, in bytes: the answer group of a class
+/// C control's method (`cobolt_wire::controls`, ~470 KB with its row window)
+/// must fit, or no lowered call could read its answer (WASM-005 T14).
+pub const JSON_SHADOW_SIZE: u32 = 512 * 1024;
+pub const WS_JSON_PATH: u32 = WS_JSON_SHADOW + JSON_SHADOW_SIZE;
+pub const JSON_PATH_SIZE: u32 = 1024;
+pub const WS_JSON_ODO: u32 = WS_JSON_PATH + JSON_PATH_SIZE;
+pub const JSON_ODO_SIZE: u32 = 4096;
+/// A remote call's frames in memory 0 (WASM-010 T16): the request is built
+/// here before the glue copies it to frame-out, and `pr_resume` copies the
+/// answer here from frame-in, with its length in the word at `WS_FRAME_IN_LEN`
+/// (`u32::MAX` when it did not fit).
+pub const WS_FRAME_IN_LEN: u32 = WS_JSON_ODO + JSON_ODO_SIZE;
+pub const WS_FRAME: u32 = WS_FRAME_IN_LEN + 8;
+pub const FRAME_SIZE: u32 = 64 * 1024;
+/// The line a `DISPLAY` statement is building: it goes to the host as one
+/// command when the statement ends (`crate::disp`).
+pub const WS_DISP: u32 = WS_FRAME + FRAME_SIZE;
+pub const DISP_SIZE: u32 = 4096;
+/// How the last `CALL … WITH WEBSOCKET LINKAGE` failed, for
+/// `COBOL::"WS-LAST-ERROR"` (`crate::remote`): `u32` class length, the class
+/// word, `u32` code, `u32` message length, the message.
+pub const WS_LAST_ERR: u32 = WS_DISP + DISP_SIZE;
+pub const LAST_ERR_CLASS: u32 = 16;
+pub const LAST_ERR_MESSAGE: u32 = 512;
+pub const LAST_ERR_SIZE: u32 = 4 + LAST_ERR_CLASS + 4 + 4 + LAST_ERR_MESSAGE;
 /// Total workspace size the generator must reserve.
-pub const WS_SIZE: u32 = WS_PATH + PATH_SIZE;
+pub const WS_SIZE: u32 = WS_LAST_ERR + LAST_ERR_SIZE;
 
 /// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
 /// owns the message text, so the IDE and the page can translate it.
@@ -61,6 +91,12 @@ pub mod err {
     pub const UNBOUND_LINKAGE: u32 = 107;
     /// `CALL` of a program that is not in the module, with no `ON EXCEPTION`.
     pub const PROGRAM_NOT_FOUND: u32 = 108;
+    /// The file heap cannot hold a `RELEASE`d record (a `SORT` has no FILE
+    /// STATUS to report it in).
+    pub const MEMORY_FULL: u32 = 109;
+    /// `CALL … WITH WEBSOCKET LINKAGE` failed and the statement has no
+    /// `ON EXCEPTION` (WASM-005 R9: a failed call is a run-time error).
+    pub const REMOTE_FAILED: u32 = 110;
 }
 
 pub struct State {
@@ -94,11 +130,25 @@ pub struct State {
     /// Character temporaries that hold a property read, whose text is a number
     /// when it spells one (bit `k`).
     pub ctemp_dynamic: u32,
+    /// The argument count the next intrinsic-function call uses instead of its
+    /// record's (an `ALL` over an `OCCURS … DEPENDING ON` table); `u32::MAX`
+    /// when the record's stands.
+    pub func_argc: u32,
+    /// The file heap of in-memory files and `SORT` (see [`crate::idx`]):
+    /// `[heap_base, heap_end)`, and where the next allocation looks first.
+    pub heap_base: u32,
+    pub heap_end: u32,
+    pub heap_rover: u32,
+    /// Bytes of the path at `WS_JSON_PATH` (the item the mapping is at, or the
+    /// one its last error names).
+    pub json_path_len: u32,
+    /// Bytes of the `DISPLAY` line at `WS_DISP`.
+    pub disp_len: u32,
 }
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0 }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0 }
     }
 }
 

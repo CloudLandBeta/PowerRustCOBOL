@@ -21,30 +21,46 @@
 pub mod csp;
 pub mod devserver;
 pub mod hash;
+pub mod hostpage;
 pub mod secrets;
 
 use std::collections::BTreeMap;
 
-use cobolt_forms::model::{ControlType, EventBinding, Form};
-use cobolt_forms::xml::{form_to_string, load_form_from_str};
+use cobolt_forms::description::{code_free, describe, to_json, FormDescription};
+use cobolt_forms::model::{ControlType, Form};
+use cobolt_forms::xml::load_form_from_str;
 use cobolt_wasm_abi::manifest::Manifest;
 use cobolt_wasm_abi::scan;
 use serde_json::{json, Value};
 
 pub use csp::CspOptions;
 
-const LOADER_JS: &str = include_str!("../assets/loader.js");
-const WORKER_JS: &str = include_str!("../assets/worker.js");
-const APP_JS: &str = include_str!("../assets/app.js");
-const APP_CSS: &str = include_str!("../assets/app.css");
-const PAGE_HTML: &str = include_str!("../assets/page.html");
-const COI_SW: &str = include_str!("../assets/coi-serviceworker.js");
-const COI_REGISTER: &str = include_str!("../assets/coi-register.js");
-
 /// The loader's version, in `PowerRustCOBOL.versions`.
 pub const LOADER_VERSION: u32 = 1;
-/// The version of the form-description format (WASM-016 R11): the sanitised `.cfrm`.
-pub const DESCRIPTION_VERSION: u32 = 1;
+/// The version of the form-description format (WASM-016 R11): versioned JSON, owned by `cobolt-forms`.
+pub const DESCRIPTION_VERSION: u32 = cobolt_forms::description::DESCRIPTION_FORMAT;
+
+/// The size budget of the first download (WASM-002 Q5, answered 2026-10-22 "5 MB", **to confirm**). Working
+/// assumption: it caps the first download — the larger program module the probe can pick, the plain
+/// player, the loader and the page's glue, the page and its stylesheet — counted in 10⁶ bytes; over it
+/// is a warning, never a failure, and there is no first-paint target yet.
+pub const FIRST_DOWNLOAD_BUDGET: u64 = 5_000_000;
+
+/// The first-download line of the report (WASM-002 R8, Q5).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BudgetLine {
+    pub first_download_bytes: u64,
+    pub budget_bytes: u64,
+}
+
+impl BudgetLine {
+    pub fn over(&self) -> bool {
+        self.first_download_bytes > self.budget_bytes
+    }
+}
+
+/// The start of the budget warning, for a caller that shows it in another language.
+pub const OVER_BUDGET_PREFIX: &str = "the first download is";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppStyle {
@@ -160,6 +176,9 @@ pub struct BundleOptions {
     pub unsafe_plain_ws: bool,
     pub skip_secret_scan: bool,
     pub call_timeout_ms: Option<u64>,
+    /// The largest frame the player sends or accepts, in bytes (WASM-017 R8:
+    /// the project's payload limit); `None` keeps the player's own default.
+    pub max_frame: Option<u32>,
     /// The longest run flagged as high-entropy by the secret scan; 0 turns that off.
     pub entropy_len: usize,
     /// The Maps tile address template (`{z}`, `{x}`, `{y}`); `None` = the OpenStreetMap server, whose
@@ -167,6 +186,11 @@ pub struct BundleOptions {
     pub tile_url: Option<String>,
     /// Further origins images may be loaded from (`img-src`), beyond the bundle itself.
     pub image_origins: Vec<String>,
+    /// The colour painted behind the application when its form theme is see-through
+    /// (Spatial). On the desktop the blurred desktop shows through; a page has nothing
+    /// behind it, so without this the theme's white text sat on the page's own colour —
+    /// white in a light scheme. `None` leaves the page's colour.
+    pub backdrop: Option<String>,
 }
 
 impl Default for BundleOptions {
@@ -191,9 +215,11 @@ impl Default for BundleOptions {
             unsafe_plain_ws: false,
             skip_secret_scan: false,
             call_timeout_ms: None,
+            max_frame: None,
             entropy_len: secrets::DEFAULT_ENTROPY_LEN,
             tile_url: None,
             image_origins: Vec::new(),
+            backdrop: None,
         }
     }
 }
@@ -232,6 +258,8 @@ pub struct BuildReport {
     /// Every file with its size (WASM-002 R8).
     pub sizes: Vec<SizeLine>,
     pub total_bytes: u64,
+    /// The first download against [`FIRST_DOWNLOAD_BUDGET`].
+    pub budget: BudgetLine,
     pub csp_meta: String,
     pub csp_header: String,
     /// Directives (and modes) only a response header can deliver.
@@ -249,7 +277,9 @@ impl BuildReport {
         for l in &self.sizes {
             s.push_str(&format!("  {:>10}  {}\n", l.bytes, l.path));
         }
-        s.push_str(&format!("  {:>10}  total\n\n", self.total_bytes));
+        s.push_str(&format!("  {:>10}  total\n", self.total_bytes));
+        let over = if self.budget.over() { ", over" } else { "" };
+        s.push_str(&format!("  {:>10}  first download (budget {} bytes{over})\n\n", self.budget.first_download_bytes, self.budget.budget_bytes));
         s.push_str("Content-Security-Policy\n");
         s.push_str(&format!("  in the page (<meta>): {}\n", self.csp_meta));
         s.push_str(&format!("  only as a response header: {}\n", self.header_only.join(", ")));
@@ -315,31 +345,15 @@ fn manifest_of(bytes: &[u8]) -> Result<Manifest, String> {
     scan::scan_module(bytes)?.embedded_manifest()
 }
 
-/// The form description (WASM-016 R3/R4): the `.cfrm` with every piece of program code taken out —
-/// handler bodies, the working-storage text, the COBOL-structure blocks, the named procedures and
-/// the recycle bin. What is left is what the player draws: controls, properties, layout, the names
-/// of the events bound (their code is in the program module, referred to by id).
-pub fn form_description(cfrm: &str) -> Result<(Form, String), String> {
-    let mut form = load_form_from_str(cfrm).map_err(|e| e.to_string())?;
-    fn strip(events: &mut [EventBinding]) {
-        for e in events {
-            e.code.clear();
-        }
-    }
-    fn walk(controls: &mut [cobolt_forms::model::Control]) {
-        for c in controls {
-            strip(&mut c.events);
-            walk(&mut c.children);
-        }
-    }
-    walk(&mut form.controls);
-    strip(&mut form.form_events);
-    form.user_ws_source.clear();
-    form.cobol_structure = Default::default();
-    form.user_procedures.clear();
-    form.deleted_code.clear();
-    let text = form_to_string(&form).map_err(|e| e.to_string())?;
-    Ok((form, text))
+/// The form description (WASM-016 R3/R4): the `.cfrm` read by the one parser, then described as
+/// versioned JSON by `cobolt_forms::description`, which has no place for program code — handler
+/// bodies, the working-storage text, the COBOL-structure blocks, the named procedures, the recycle bin.
+/// What is left is what the player draws: controls, properties, layout, the names of the events bound
+/// (their code is in the program module, referred to by id). Also answers the code-free form, which
+/// the checks against the program read.
+pub fn form_description(cfrm: &str) -> Result<(Form, FormDescription), String> {
+    let form = load_form_from_str(cfrm).map_err(|e| e.to_string())?;
+    Ok((code_free(&form), describe(&form)))
 }
 
 /// Compare what the two variants (and the forms) say about the program: same forms, controls, names,
@@ -355,7 +369,15 @@ fn variants_agree(a: &Manifest, b: &Manifest) -> Vec<String> {
     if serde_json::to_value(&a.forms).ok() != serde_json::to_value(&b.forms).ok() {
         p.push("the two program variants disagree about the forms, controls or handlers".into());
     }
-    if serde_json::to_value(&a.limits).ok() != serde_json::to_value(&b.limits).ok() {
+    // `data_pages` is the size of memory 0, which differs by construction: the
+    // single-memory variant holds the arena there (ABI §2). Every other limit
+    // must agree.
+    let same_limits = |m: &Manifest| {
+        let mut l = m.limits.clone();
+        l.data_pages = 0;
+        serde_json::to_value(&l).ok()
+    };
+    if same_limits(a) != same_limits(b) {
         p.push("the two program variants have different limits".into());
     }
     p
@@ -411,6 +433,27 @@ impl Builder {
     }
 }
 
+/// The imports a program module needs that the player does not give it (WASM-016 R11, AC6): a player and a
+/// module that disagree are a Build error, never a refusal at run time. The player's own record says what it
+/// gives (`host_imports` in `player-build.json`); a player without a record is not judged here.
+fn player_lacks_imports(input: &BundleInput) -> Vec<String> {
+    let Some(rec) = input.player.build_info.as_deref().and_then(|t| serde_json::from_str::<Value>(t).ok()) else { return Vec::new() };
+    let Some(given) = rec["host_imports"].as_array() else { return Vec::new() };
+    let given: Vec<&str> = given.iter().filter_map(Value::as_str).collect();
+    let player = rec["versions"]["player"].as_str().unwrap_or("?");
+    let mut out = Vec::new();
+    for (name, bytes) in [("program.wasm", &input.program_multi), ("program.single.wasm", &input.program_single)] {
+        let Some(scan) = bytes.as_deref().and_then(|b| scan::scan_module(b).ok()) else { continue };
+        for imp in &scan.imports {
+            let full = format!("{}.{}", imp.module, imp.name);
+            if !given.contains(&full.as_str()) && !out.iter().any(|p: &String| p.contains(&format!("`{full}`"))) {
+                out.push(format!("{name} imports `{full}`, which the player {player} does not provide: build with the player that matches this compiler, or pin one that provides it"));
+            }
+        }
+    }
+    out
+}
+
 /// Lay out the bundle, or say everything that is wrong.
 pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError> {
     let o = &input.options;
@@ -459,6 +502,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     if input.player.threaded.is_none() && o.threads == Threads::Auto {
         notes.push("no threaded player: the application runs on the main thread everywhere".into());
     }
+    problems.extend(player_lacks_imports(input));
 
     // ── options ────────────────────────────────────────────────────────────
     if o.release {
@@ -488,11 +532,11 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     }
 
     // ── the forms ──────────────────────────────────────────────────────────
-    let mut described: BTreeMap<String, (Form, String)> = BTreeMap::new();
+    let mut described: BTreeMap<String, (Form, FormDescription)> = BTreeMap::new();
     for f in &input.forms {
         match form_description(&f.cfrm) {
-            Ok((form, text)) => {
-                described.insert(f.name.to_ascii_lowercase(), (form, text));
+            Ok((form, description)) => {
+                described.insert(f.name.to_ascii_lowercase(), (form, description));
             }
             Err(e) => problems.push(format!("form `{}` cannot be read: {e}", f.name)),
         }
@@ -516,12 +560,17 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
 
     let mut forms_cfg = Vec::new();
     for mf in &manifest.forms {
-        let (_, text) = &described[&mf.name.to_ascii_lowercase()];
-        let path = b.add_hashed(&format!("forms/{}.cfrm", mf.name), text.clone().into_bytes());
-        let mut entry = json!({"name": mf.name, "url": path, "integrity": b.sri_of(&path), "main": mf.main, "entry": format!("{}.html", mf.name)});
-        if let Some(css) = input.forms.iter().find(|f| f.name.eq_ignore_ascii_case(&mf.name)).and_then(|f| f.stylesheet.clone()) {
+        let mut description = described[&mf.name.to_ascii_lowercase()].1.clone();
+        // The stylesheet first, so the description can name it (WASM-016 R3).
+        let css = input.forms.iter().find(|f| f.name.eq_ignore_ascii_case(&mf.name)).and_then(|f| f.stylesheet.clone()).map(|css| {
             let cp = b.add_hashed(&format!("forms/{}.css", mf.name), css.into_bytes());
-            entry["css"] = json!({"url": cp, "integrity": b.sri_of(&cp)});
+            description.stylesheet = Some(cp.clone());
+            json!({"url": cp, "integrity": b.sri_of(&cp)})
+        });
+        let path = b.add_hashed(&format!("forms/{}.json", mf.name), to_json(&description).into_bytes());
+        let mut entry = json!({"name": mf.name, "url": path, "integrity": b.sri_of(&path), "main": mf.main, "entry": format!("{}.html", mf.name)});
+        if let Some(css) = css {
+            entry["css"] = css;
         }
         forms_cfg.push(entry);
     }
@@ -642,11 +691,10 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     player_cfg.insert("parts".into(), Value::Object(parts_cfg));
 
     // the loader and the worker
-    let loader_path = b.add_hashed("loader.js", LOADER_JS.as_bytes().to_vec());
-    let worker_path = b.add_hashed("worker.js", WORKER_JS.as_bytes().to_vec());
-    let app_js = APP_JS.replace("__LOADER__", &loader_path);
-    let app_js_path = b.add_hashed("app.js", app_js.into_bytes());
-    let app_css_path = b.add_hashed("app.css", APP_CSS.as_bytes().to_vec());
+    let loader_path = b.add_hashed("loader.js", hostpage::loader_js().into_bytes());
+    let worker_path = b.add_hashed("worker.js", hostpage::worker_js().into_bytes());
+    let app_js_path = b.add_hashed("app.js", hostpage::app_js(&loader_path).into_bytes());
+    let app_css_path = b.add_hashed("app.css", hostpage::app_css(o.backdrop.as_deref()).into_bytes());
 
     // texts, options and the config the loader reads
     let mut texts = serde_json::Map::new();
@@ -668,7 +716,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         "forms": forms_cfg,
         "menus": menus_cfg,
         "assets": Value::Object(assets_cfg),
-        "backend": {"origins": backend_origins, "unsafe_plain_ws": o.unsafe_plain_ws, "call_timeout_ms": o.call_timeout_ms},
+        "backend": {"origins": backend_origins, "unsafe_plain_ws": o.unsafe_plain_ws, "call_timeout_ms": o.call_timeout_ms, "max_frame": o.max_frame},
         "options": {
             "threads": if o.threads == Threads::Off { "off" } else { "auto" },
             "workers": o.workers,
@@ -693,8 +741,8 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     // the page(s)
     let policy = csp::build(&csp_opts, &backend_origins, &o.embed);
     let shim_path = if o.service_worker_shim {
-        let sw = b.add_hashed("coi-serviceworker.js", COI_SW.as_bytes().to_vec());
-        b.add_hashed("coi-register.js", COI_REGISTER.as_bytes().to_vec());
+        let sw = b.add_hashed("coi-serviceworker.js", hostpage::coi_serviceworker_js().into_bytes());
+        b.add_hashed("coi-register.js", hostpage::coi_register_js().into_bytes());
         Some(sw)
     } else {
         None
@@ -714,23 +762,26 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         Embed::Element { .. } => ("", "pr-embedded"),
     };
     let (app_css_sri, loader_sri, app_js_sri) = (b.sri_of(&app_css_path), b.sri_of(&loader_path), b.sri_of(&app_js_path));
+    let csp_meta = policy.meta_content();
+    let noscript = texts_all("noscript", "This application needs JavaScript.");
     let render_page = |start: Option<&str>, title: &str| -> String {
-        PAGE_HTML
-            .replace("{{LANG}}", &esc(&o.locale))
-            .replace("{{CSP}}", &esc(&policy.meta_content()))
-            .replace("{{TITLE}}", &esc(title))
-            .replace("{{APP_CSS}}", &app_css_path)
-            .replace("{{APP_CSS_SRI}}", &app_css_sri)
-            .replace("{{LOADER}}", &loader_path)
-            .replace("{{LOADER_SRI}}", &loader_sri)
-            .replace("{{SHIM}}", &shim_html)
-            .replace("{{APP_JS}}", &app_js_path)
-            .replace("{{APP_JS_SRI}}", &app_js_sri)
-            .replace("{{BODY_CLASS}}", body_class)
-            .replace("{{APP_CLASS}}", app_class)
-            .replace("{{CONFIG}}", "config.json")
-            .replace("{{START_ATTR}}", &start.map(|s| format!(" data-pr-start=\"{}\"", esc(s))).unwrap_or_default())
-            .replace("{{NOSCRIPT}}", &esc(&texts_all("noscript", "This application needs JavaScript.")))
+        hostpage::page_html(&hostpage::Page {
+            lang: &o.locale,
+            csp: &csp_meta,
+            title,
+            app_css: &app_css_path,
+            app_css_sri: &app_css_sri,
+            loader: &loader_path,
+            loader_sri: &loader_sri,
+            shim: &shim_html,
+            app_js: &app_js_path,
+            app_js_sri: &app_js_sri,
+            body_class,
+            app_class,
+            config: "config.json",
+            start,
+            noscript: &noscript,
+        })
     };
     b.add("index.html".into(), render_page(None, &o.title).into_bytes());
     if o.style == AppStyle::Standalone {
@@ -786,6 +837,21 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         warnings.extend(warns.iter().map(|f| f.to_string()));
     }
 
+    // ── the first download against the budget (R8, Q5: a warning only) ─────
+    let size_of = |path: &str| b.files.iter().find(|f| f.path == path).map_or(0, |f| f.bytes.len() as u64);
+    let program_bytes = [&input.program_multi, &input.program_single].iter().filter_map(|p| p.as_ref().map(|v| v.len() as u64)).max().unwrap_or(0);
+    let player_bytes = input.player.plain.as_ref().map_or(0, |v| {
+        v.files.iter().filter(|(rel, _)| *rel == v.entry_js || *rel == v.entry_wasm).map(|(_, bytes)| bytes.len() as u64).sum()
+    });
+    let page_bytes = [&loader_path, &app_js_path, &app_css_path, "index.html"].iter().map(|p| size_of(p)).sum::<u64>();
+    let budget = BudgetLine { first_download_bytes: program_bytes + player_bytes + page_bytes, budget_bytes: FIRST_DOWNLOAD_BUDGET };
+    if budget.over() {
+        warnings.push(format!(
+            "{OVER_BUDGET_PREFIX} {} bytes, over the budget of {} bytes (the program module, the plain player, the loader, the page and its stylesheet)",
+            budget.first_download_bytes, budget.budget_bytes
+        ));
+    }
+
     // ── the report ─────────────────────────────────────────────────────────
     let mut sizes: Vec<SizeLine> = b.files.iter().map(|f| SizeLine { path: f.path.clone(), bytes: f.bytes.len() as u64 }).collect();
     sizes.sort_by(|a, c| a.path.cmp(&c.path));
@@ -794,6 +860,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     let report = BuildReport {
         sizes,
         total_bytes,
+        budget,
         csp_meta: policy.meta_content(),
         csp_header: policy.header_value(),
         header_only: policy.header_only_directives(),

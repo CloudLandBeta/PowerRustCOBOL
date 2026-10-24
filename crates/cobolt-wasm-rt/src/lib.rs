@@ -52,9 +52,12 @@ pub mod file;
 pub mod float;
 pub mod func;
 pub mod host;
+pub mod idx;
+pub mod json;
 pub mod mem;
 pub mod mv;
 pub mod opd;
+pub mod remote;
 pub mod state;
 pub mod strings;
 #[cfg(not(target_arch = "wasm32"))]
@@ -260,7 +263,7 @@ pub extern "C" fn rt_display_end(no_advancing: u32) {
 /// Hand the staged command batch to the host.
 #[no_mangle]
 pub extern "C" fn rt_flush() {
-    disp::flush();
+    disp::flush_all();
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -316,6 +319,20 @@ pub extern "C" fn rt_save_temp(k: u32) {
     state::st().temps[(k as usize) % state::NTEMP] = v;
 }
 
+/// Make character temporary `k` a receiving field of its full capacity: its
+/// current text, then spaces (`STRING … INTO Ctrl::Prop`).
+#[no_mangle]
+pub extern "C" fn rt_ctemp_widen(k: u32) {
+    func::ctemp_widen(k);
+}
+
+/// Drop the trailing spaces of character temporary `k`, as a property write
+/// does on the interpreter.
+#[no_mangle]
+pub extern "C" fn rt_ctemp_rtrim(k: u32) {
+    func::ctemp_rtrim(k);
+}
+
 /// Store the integer `n` into numeric item `o` (an index, a counter).
 #[no_mangle]
 pub extern "C" fn rt_set_int(base: u32, o: u32, n: i64) {
@@ -360,6 +377,13 @@ pub extern "C" fn rt_class_user(base: u32, o: u32, table: u32) -> i32 {
 #[no_mangle]
 pub extern "C" fn rt_accept(base: u32, target: u32, kind: u32) {
     accept::accept(base, target, kind);
+}
+
+/// `ACCEPT target FROM DATE | TIME | DAY | DAY-OF-WEEK` only: the clock, with no
+/// file import behind it (what a browser module links).
+#[no_mangle]
+pub extern "C" fn rt_accept_clock(base: u32, target: u32, kind: u32) {
+    accept::accept_clock(base, target, kind);
 }
 
 /// Seed the program's external switches (conformance builds): `table` is
@@ -415,6 +439,32 @@ pub extern "C" fn rt_program_not_found() {
     call::not_found();
 }
 
+/// Discard what a run that trapped left half-built (ABI A5, `pr_cancel(-1)`):
+/// the staged batch, the command path and the registers, so the next run of
+/// the instance starts clean.
+#[no_mangle]
+pub extern "C" fn rt_cancel_run() {
+    let s = state::st();
+    s.batch_len = 0;
+    s.path_len = 0;
+    s.sp = 0;
+    s.snd = None;
+}
+
+/// `recv::Method(a, b)`, a value method of a data item, into character
+/// temporary `k` (`strings::VM_*`; `a`, `b` 0 when absent).
+#[no_mangle]
+pub extern "C" fn rt_value_method(base: u32, method: u32, recv: u32, a: u32, b: u32, k: u32) {
+    strings::value_method(base, method, recv, a, b, k);
+}
+
+/// The argument count of the next intrinsic-function call (an `ALL` over an
+/// `OCCURS … DEPENDING ON` table, WASM-PARITY #7).
+#[no_mangle]
+pub extern "C" fn rt_func_argc(n: u32) {
+    state::st().func_argc = n;
+}
+
 /// The form instance the module is running (for the paths of host commands).
 #[no_mangle]
 pub extern "C" fn rt_set_instance(inst: u32) {
@@ -449,6 +499,18 @@ pub extern "C" fn rt_cmd_set(base: u32, value: u32) {
 #[no_mangle]
 pub extern "C" fn rt_cmd_call() {
     cmd::call();
+}
+
+/// `SET_NAMED ctrl name value` (A14): a property named at run time.
+#[no_mangle]
+pub extern "C" fn rt_cmd_set_named(base: u32, ctrl: u32, name: u32, value: u32) {
+    cmd::set_named(base, ctrl, name, value);
+}
+
+/// `RAISE ctrl event argument` (A14): queue a control's event.
+#[no_mangle]
+pub extern "C" fn rt_cmd_raise(base: u32, ctrl: u32, event: u32, arg: u32) {
+    cmd::raise(base, ctrl, event, arg);
 }
 
 /// Query the path (`GET`, `CALLR`, `COUNT`); the answer text is left in
@@ -486,4 +548,132 @@ pub extern "C" fn rt_func_chars(base: u32, rec: u32, k: u32) {
 #[no_mangle]
 pub extern "C" fn rt_set_collation(table: u32) {
     state::st().collate = table;
+}
+
+// ── In-memory INDEXED files and SORT (WASM-010 R7, Q8; see `idx`) ──────────
+
+/// Give the routines the file heap (`pr_init`, after `rt_init`).
+#[no_mangle]
+pub extern "C" fn rt_heap_init(base: u32, size: u32) {
+    idx::heap_init(base, size);
+}
+
+/// Give back every heap block of instance `inst` (its form is being released).
+#[no_mangle]
+pub extern "C" fn rt_heap_release(inst: u32) {
+    idx::release(inst);
+}
+
+/// Bytes of the file heap in use (`pr_dbg_region_used`).
+#[no_mangle]
+pub extern "C" fn rt_heap_used() -> u32 {
+    idx::used()
+}
+
+/// `OPEN mode file` on an in-memory INDEXED file; the status.
+#[no_mangle]
+pub extern "C" fn rt_idx_open(base: u32, d: u32, mode: u32) -> u32 {
+    idx::open(base, d, mode)
+}
+
+/// `CLOSE file` (`how`: 0 plain, 1 `WITH LOCK`, 2 `REEL`).
+#[no_mangle]
+pub extern "C" fn rt_idx_close(base: u32, d: u32, how: u32) -> u32 {
+    idx::close(base, d, how)
+}
+
+/// `WRITE record` of `wlen` bytes.
+#[no_mangle]
+pub extern "C" fn rt_idx_write(base: u32, d: u32, wlen: u32) -> u32 {
+    idx::write(base, d, wlen)
+}
+
+/// `READ file` (see [`idx::read`]).
+#[no_mangle]
+pub extern "C" fn rt_idx_read(base: u32, d: u32, how: u32, kor: u32, ks: u32) -> u32 {
+    idx::read(base, d, how, kor, ks)
+}
+
+/// `REWRITE record`.
+#[no_mangle]
+pub extern "C" fn rt_idx_rewrite(base: u32, d: u32, random: u32) -> u32 {
+    idx::rewrite(base, d, random)
+}
+
+/// `DELETE file`.
+#[no_mangle]
+pub extern "C" fn rt_idx_delete(base: u32, d: u32, random: u32) -> u32 {
+    idx::delete(base, d, random)
+}
+
+/// `START file KEY rel …`.
+#[no_mangle]
+pub extern "C" fn rt_idx_start(base: u32, d: u32, rel: u32, kor: u32, ks: u32) -> u32 {
+    idx::start(base, d, rel, kor, ks)
+}
+
+/// Start a `SORT`.
+#[no_mangle]
+pub extern "C" fn rt_sort_begin(base: u32, d: u32) {
+    idx::sort_begin(base, d);
+}
+
+/// `RELEASE record`.
+#[no_mangle]
+pub extern "C" fn rt_sort_release(base: u32, d: u32) {
+    idx::sort_release(base, d);
+}
+
+/// Order the released records.
+#[no_mangle]
+pub extern "C" fn rt_sort_sort(base: u32, d: u32) {
+    idx::sort_sort(base, d);
+}
+
+/// `RETURN file`: 0, or 10 at the end.
+#[no_mangle]
+pub extern "C" fn rt_sort_return(base: u32, d: u32) -> u32 {
+    idx::sort_return(base, d)
+}
+
+/// The end of a `SORT`.
+#[no_mangle]
+pub extern "C" fn rt_sort_end(base: u32, d: u32) {
+    idx::sort_end(base, d);
+}
+
+// ── The group <-> JSON mapping (WASM-005 R5, R5b; see `json`) ──────────────
+
+/// Write the JSON text of the group at `addr` (descriptor `desc`) at `out`,
+/// at most `cap` bytes: the length, or a negated error code.
+#[no_mangle]
+pub extern "C" fn rt_json_encode(desc: u32, addr: u32, out: u32, cap: u32) -> i32 {
+    json::encode(desc, addr, out, cap)
+}
+
+/// Read the JSON text at `text` (`len` bytes) into the group at `addr`: 0, or a
+/// negated error code; the group is untouched on an error.
+#[no_mangle]
+pub extern "C" fn rt_json_decode(desc: u32, addr: u32, text: u32, len: u32) -> i32 {
+    json::decode(desc, addr, text, len)
+}
+
+// ── CALL … WITH WEBSOCKET LINKAGE (WASM-005 R9; see `remote`) ──────────────
+
+/// Build and send the request frame: the request id, or a negative code.
+#[no_mangle]
+pub extern "C" fn rt_remote_request(base: u32, name: u32, call: u32) -> i32 {
+    remote::request(base, name, call)
+}
+
+/// Read the answer into the call's groups: 0, or why not (`remote::FAILED` …).
+#[no_mangle]
+pub extern "C" fn rt_remote_result(base: u32, call: u32) -> i32 {
+    remote::result(base, call)
+}
+
+/// `COBOL::"WS-LAST-ERROR"( class code message )`; an operand of 0 is skipped.
+#[no_mangle]
+pub extern "C" fn rt_ws_last_error(base: u32, class: u32, code: u32, message: u32) {
+    remote::last_error(base, class, code, message);
 }

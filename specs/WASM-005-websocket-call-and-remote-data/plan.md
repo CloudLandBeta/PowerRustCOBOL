@@ -76,7 +76,7 @@ One idea carries all of it: **every class C operation is a remote call to a prog
 | `crates/cobolt-codegen` (new module, e.g. `src/remote_controls.rs`) | backend programs, `backend/generated/exports.toml`, slots; argument groups in the form's generated WORKING-STORAGE; goldens in `crates/cobolt-codegen/tests/golden` | M8 |
 | `crates/cobolt-server/src/backend.rs` | read `backend/generated/exports.toml` beside the developer's; collision is an error | M8 |
 | `crates/cobolt-compiler/src/web_remote.rs` (new), web build path | the remote-lowering pass | M9 |
-| `crates/cobolt-runtime/src/interpreter.rs` `refresh_binding_rows`, `interpreter/grid_edit.rs`; `crates/cobolt-form-host/src/seeding.rs` | remote branch for bindings; `_BindingRemote` seeding | M10 |
+| `crates/cobolt-runtime/src/interpreter.rs` `refresh_binding_rows`, `interpreter/remote_binding.rs` (new), `interpreter/grid_unit.rs` (`Kind::Remote`, `apply_remote`), `interpreter/remote.rs` (`send_request`); `crates/cobolt-form-host/src/seeding.rs` (`publish_remote_bindings`, `remote_grid_seed`); `crates/cobolt-cli/src/form_gui.rs` | remote branch for bindings; `_BindingRemote` seeding, published by `rcrun run-form` from the form file's kind | M10 |
 | `crates/cobolt-web-player` (`net.rs`, the DataGrid view) | the player's grid window/save calls (with WASM-004/016) | M10 |
 | `crates/cobolt-forms/src/model.rs`, the IDE properties panel, `crates/cobolt-ide/src/i18n.rs` | `BackendConfig` (and `BackendRoles`) on class C controls in `.wcfrm`/`.mcfrm`; Tr keys ×6 | M11 |
 | `crates/cobolt-web-bundle` (or the web build check in `cobolt-project-tools/src/web/mod.rs`) | structural secret check per class C control | M11 |
@@ -90,8 +90,16 @@ No `README.md`, nothing under `docs/` (2.x.x rule). What 2.x.x says about itself
 - **AST:** unchanged from revision 1 — `CallConvention { Local, WebSocket }`, the last field of `Stmt::Call`; serialised ASTs of 1.x.x decode as `Local` (bincode by ordinal; `Local` = 0).
 - **`.wcfrm`/`.mcfrm`:** new properties `BackendConfig` and `BackendRoles` on class C controls, default empty / "authenticated". Desktop `.cfrm` unchanged. A web form saved before M11 loads with the defaults.
 - **Generated artefacts:** `backend/generated/*.cbl`, `backend/generated/exports.toml`, the slot declarations — banner, regenerated on Build, never edited by hand.
-- **Project file:** the client limits of R11 (key names fixed in M5; defaults: the client's current 60 s call / 10 s connect, the arena's frame size of ABI §2).
+- **Project file:** the client limits of R11 (key names fixed in M5; defaults: the client's current 60 s call / 10 s connect, the arena's frame size of ABI §2). **Fixed by T3 (2.0.47):** `[web]` / `[mobile]` `call_timeout_ms` (default 60 000, written only when set) and the existing `max_payload_bytes` (WASM-017 R8); the hosts read them as `COBOLT_BACKEND_CALL_TIMEOUT_MS` and `COBOLT_BACKEND_MAX_PAYLOAD_BYTES`.
+- **Backend folder:** `backend/generated/` — the Build's programs for bound DataGrids and their `exports.toml` (`[[export]]` only), loaded beside `backend/exports.toml` and `backend/src` (T9, T10, 2.0.50).
+  **T11/T12 (2.0.53):** the generated `exports.toml` also carries `[export.control]` (id, class, configuration, `[export.control.properties]`) for a class C method's program and `[[slot]]` (name, extensions, max_bytes, roles) for a FileDropZone — both refused in the developer's `exports.toml`. `backend/backend.toml` gains `[[configuration]]` (`name` + the control's property names, values plain / `env:` / `file:`), and `[files] slots` entries gain the optional `extensions` and `max_bytes`; files written before read unchanged.
+  **T12 Viewer half (2.0.54):** a Viewer on a web form gets a `[[slot]]` too (`RC-<form>-<viewer>-OPEN`), from its new web-form
+  properties `AllowedExtensions` (default: the types it renders) and `MaximumFileSizeKB` (default 10 240), written only when
+  set — a desktop `.cfrm` is unchanged; its `SaveAs`/`SaveAsPdf` are no longer class C (they download in the browser).
 - **Wire:** unchanged — one JSON text frame per call (Q9), the envelope of ABI A8, the error frame of A6.
+- **Module/player (T14, 2.0.55):** ABI amendment A14 — commands `SET_NAMED` (`0x06`) and `RAISE` (`0x07`), `COBOL::"RAISE-EVENT"`
+  in both engines, `COBOL::"WS-LAST-ERROR"` in a module; the module's JSON decoder shadow grows from 32 KiB to 512 KiB (a method's
+  answer group is ~470 KB), so every module's fixed data memory grows by 480 KiB.
 
 ## 4. Key decisions & alternatives
 
@@ -109,7 +117,7 @@ No `README.md`, nothing under `docs/` (2.x.x rule). What 2.x.x says about itself
 
 **Open — working assumptions, not decisions:**
 
-- **O1 (Q7, *to confirm*):** "both mechanisms, carrying the same data; agents use the first". *Working assumption:* "the first" is the built-in `COBOL::"WS-LAST-ERROR"` (it is first in the spec's list and is what exists). The **second mechanism is not identified**: the spec lists a special register and `RETURN-CODE`. Only a special register can carry class, code **and** message, so *the same data* points to it; `RETURN-CODE` can carry the code only. **Nothing is built until the operator confirms**; M5's Q7 item is blocked on it.
+- **O1 (Q7, *to confirm*):** "both mechanisms, carrying the same data; agents use the first". *Working assumption:* "the first" is the built-in `COBOL::"WS-LAST-ERROR"` (it is first in the spec's list and is what exists). The **second mechanism is not identified**: the spec lists a special register and `RETURN-CODE`. Only a special register can carry class, code **and** message, so *the same data* points to it; `RETURN-CODE` can carry the code only. **Closed 2026-10-23 (operator):** the first is the built-in; the second is **`RETURN-CODE`**, holding the code only — the class and message stay with the built-in.
 - **O2 (Q4, *to confirm*):** trim on output, pad on input, `""` for all spaces, leading spaces kept — implemented as the working assumption (mapping-rules S1/S2).
 - **O3 (paging):** WASM-004 Q4 decided that bound grids are **paged on the server** and assigns the request shape to WASM-005; WASM-INDEX proposes WASM-023 for server-side paging, sorting, filtering and optimistic concurrency. *Working assumption:* this plan delivers the row window (`offset`, `count`) only; sorting, filtering and concurrency on Save are WASM-023's. To confirm when WASM-023 is accepted.
 - **O4 (D4, open in WASM-INDEX):** fresh `WORKING-STORAGE` per backend call. The generated programs of §1.3 are written to be correct either way (they keep no state between calls).
@@ -172,12 +180,12 @@ Manual check (the operator judges the look): the IDE's Build of a web project wi
 | M2 | `cobolt-wire` mapping, rules, vectors (R5, R5b native, R6) | exists |
 | M3 | interpreter adapter, `WS-LAST-ERROR` (R3, R10) | exists |
 | M4 | client, hosts, refresh-once (R8) | exists |
-| M5 | Q7 second mechanism (**blocked on O1**), R11 client limits, AC6 test, KB | to do |
+| M5 | Q7 second mechanism (`RETURN-CODE`, O1 closed), R11 client limits, AC6 test, KB | to do |
 | M6 | generator refusal of `WEBSOCKET` until WASM-010 WP5 | to do |
 | M7 | class C catalogue (`cobolt-wire::controls`) | to do |
 | M8 | backend generation (programs, generated exports, slots) + loader | to do |
 | M9 | remote-lowering pass | to do |
-| M10 | remote bindings (IndexedFile, SQL, RestApi, AgentAi) in interpreter and player | to do; player part with WASM-016 |
+| M10 | remote bindings (IndexedFile, SQL, RestApi, AgentAi) in interpreter and player | interpreter half done for IndexedFile and SQL (2.0.58, T15); player half done (2.0.59, T16: `cobolt-web-player/src/grid.rs`, `host.rs`); `RestApi`/`AgentAi` wait for the operator (T15); browser-side differences in `WASM-PARITY.md` #21–#23 |
 | M11 | `BackendConfig`/`BackendRoles`, structural secret check, Tr ×6 | to do |
 | M12 | System KB: every class C note; regenerate `chunked.data` | to do |
 

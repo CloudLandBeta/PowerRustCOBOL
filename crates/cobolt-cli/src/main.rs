@@ -78,6 +78,10 @@ fn main() {
     // share it, and so do the child forms a running form opens.
     cobolt_server::client::install_default_from_env();
 
+    // WASM-010 T19: the web build of a Web or Mobile project (the `build` tool
+    // of `rcrun mcp`) is the WebAssembly generator and the bundler.
+    cobolt_project_tools::web::link(std::sync::Arc::new(cobolt_project_tools::web::generator::GeneratorBackend));
+
     match args.get(1).map(|s| s.as_str()) {
         Some("run") => cmd_run(&args[2..]),
         Some("run-form") => form_gui::cmd_run_form(&args[2..]),
@@ -539,6 +543,8 @@ fn cmd_backend(args: &[String]) {
         }
         process::exit(1);
     };
+    // `[backend] state` (WASM-003 Q2): checked by every verb, used by `run`.
+    let state = cobolt_compiler::backend_build::backend_state(&project_dir).unwrap_or_else(|e| fail(vec![e.to_string()]));
 
     match verb {
         "describe" => {
@@ -573,7 +579,15 @@ fn cmd_backend(args: &[String]) {
             println!("released: {}", path.display());
         }
         "run" => {
-            let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen };
+            // The project's SQL connections, as `rcrun run` publishes them: an
+            // `EXEC SQL CONNECT TO 'NAME'` in a backend program — the Build's
+            // generated grid programs among them (WASM-005 T9) — resolves here.
+            if let Some(manifest) = cobolt_compiler::find_project_manifest(&project_dir) {
+                install_project_sql_catalog(&manifest);
+            }
+            // The log goes to standard error as it is written, so a terminal and
+            // the IDE's Output panel (which runs this as a child) both see it live.
+            let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen, state, echo: true };
             let server = cobolt_server::dev::DevServer::start(&opts).unwrap_or_else(|e| fail(e));
             let token = server.dev_token("developer", &["user", "admin"]);
             println!("backend listening on {}", server.url);
@@ -581,9 +595,6 @@ fn cmd_backend(args: &[String]) {
             println!("{token}");
             println!("Press Ctrl-C to stop.");
             cobolt_server::standalone::wait_for_interrupt();
-            for l in server.log_lines() {
-                eprintln!("{l}");
-            }
             server.stop();
         }
         _ => {

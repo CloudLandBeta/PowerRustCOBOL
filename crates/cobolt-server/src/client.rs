@@ -103,6 +103,11 @@ pub struct ClientConfig {
     pub connect_timeout: Duration,
     /// How long a call may take on the client's clock.
     pub call_timeout: Duration,
+    /// The largest call frame this application sends, in bytes (the project's
+    /// `max_payload_bytes`, WASM-005 R11). A larger one fails with
+    /// `limit 7000` before a byte of it is sent; the backend's own announced
+    /// limit applies as well. `None`: only the backend's.
+    pub max_payload: Option<u64>,
     /// How long a call interrupted by a lost connection waits for a new one.
     pub reconnect_deadline: Duration,
 }
@@ -119,6 +124,7 @@ impl ClientConfig {
             origin: None,
             connect_timeout: Duration::from_secs(10),
             call_timeout: Duration::from_secs(60),
+            max_payload: None,
             reconnect_deadline: Duration::from_secs(20),
         }
     }
@@ -463,27 +469,39 @@ impl Transport for WsClient {
 /// | `COBOLT_BACKEND_CONTRACT` | the contract version, when there is no interface file (default `1.0.0`) |
 /// | `COBOLT_BACKEND_CERT` | a PEM file with one more trusted root (a development certificate) |
 /// | `COBOLT_BACKEND_ORIGIN` | the `Origin` to present (a browser sends its own) |
+/// | `COBOLT_BACKEND_CALL_TIMEOUT_MS` | how long a call waits for its answer (the project's `call_timeout_ms`; default 60 000) |
+/// | `COBOLT_BACKEND_MAX_PAYLOAD_BYTES` | the largest call frame sent (the project's `max_payload_bytes`; default: only the backend's announced limit) |
 pub fn config_from_env() -> Option<ClientConfig> {
-    let url = std::env::var("COBOLT_BACKEND_URL").ok().filter(|u| !u.trim().is_empty())?;
-    let interface = std::env::var("COBOLT_BACKEND_INTERFACE")
-        .ok()
+    config_from_vars(|name| std::env::var(name).ok())
+}
+
+/// [`config_from_env`] over any source of variables.
+pub fn config_from_vars(var: impl Fn(&str) -> Option<String>) -> Option<ClientConfig> {
+    let url = var("COBOLT_BACKEND_URL").filter(|u| !u.trim().is_empty())?;
+    let interface = var("COBOLT_BACKEND_INTERFACE")
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|t| InterfaceDescription::from_json(&t).ok());
     let contract = interface
         .as_ref()
         .map(|i| i.contract.clone())
-        .or_else(|| std::env::var("COBOLT_BACKEND_CONTRACT").ok())
+        .or_else(|| var("COBOLT_BACKEND_CONTRACT"))
         .unwrap_or_else(|| "1.0.0".to_string());
     let mut cfg = ClientConfig::new(url.trim(), contract);
     cfg.interface = interface;
     cfg.client_name = format!("rcrun/{}", env!("CARGO_PKG_VERSION"));
-    if let Ok(t) = std::env::var("COBOLT_BACKEND_TOKEN") {
+    if let Some(t) = var("COBOLT_BACKEND_TOKEN") {
         if !t.trim().is_empty() {
             cfg.token = Some(Arc::new(SpecToken(t)));
         }
     }
-    cfg.extra_root_pem = std::env::var("COBOLT_BACKEND_CERT").ok().and_then(|p| std::fs::read(p).ok());
-    cfg.origin = std::env::var("COBOLT_BACKEND_ORIGIN").ok().filter(|o| !o.trim().is_empty());
+    cfg.extra_root_pem = var("COBOLT_BACKEND_CERT").and_then(|p| std::fs::read(p).ok());
+    cfg.origin = var("COBOLT_BACKEND_ORIGIN").filter(|o| !o.trim().is_empty());
+    // A value that is not a positive number is ignored: the default stands.
+    let positive = |name: &str| var(name).and_then(|v| v.trim().parse::<u64>().ok()).filter(|n| *n > 0);
+    if let Some(ms) = positive("COBOLT_BACKEND_CALL_TIMEOUT_MS") {
+        cfg.call_timeout = Duration::from_millis(ms);
+    }
+    cfg.max_payload = positive("COBOLT_BACKEND_MAX_PAYLOAD_BYTES");
     Some(cfg)
 }
 
@@ -757,7 +775,18 @@ impl Actor {
             }
             Cmd::Call { id, program, args, returning, key, safe, deadline, notes } => {
                 let mut pc = PendingCall { program, args, returning, key, safe, deadline, notes, sent: false, attempts: 1, refreshed: false, token: None };
+                // The project's limit is known before connecting: an oversized call
+                // never opens a connection.
+                if let Some(e) = self.oversized(&pc, id, None) {
+                    let _ = pc.notes.send(Note::Done(Err(e)));
+                    return;
+                }
                 if let Err(e) = self.ensure().await {
+                    let _ = pc.notes.send(Note::Done(Err(e)));
+                    return;
+                }
+                let announced = self.hello.as_ref().map(|h| h.max_frame_bytes).filter(|n| *n > 0);
+                if let Some(e) = self.oversized(&pc, id, announced) {
                     let _ = pc.notes.send(Note::Done(Err(e)));
                     return;
                 }
@@ -809,6 +838,21 @@ impl Actor {
                 }
             }
         }
+    }
+
+    /// A call frame larger than `min(the project's limit, announced)` is refused
+    /// here, with the class and code the backend gives the same frame
+    /// (`limit 7000`), and nothing of it is sent (WASM-005 R11).
+    fn oversized(&self, pc: &PendingCall, id: u64, announced: Option<u64>) -> Option<CallError> {
+        let limit = match (self.cfg.max_payload, announced) {
+            (Some(a), Some(b)) => a.min(b),
+            (a, b) => a.or(b)?,
+        };
+        let size = pc.frame(id).len() as u64;
+        (size > limit).then(|| {
+            CallError::new(ErrorClass::Limit, codes::FRAME_TOO_LARGE, format!("the call to {} is {size} bytes, larger than the {limit} bytes this application sends", pc.program))
+                .may_have_run(false)
+        })
     }
 
     fn sub_frame(&self, id: u64) -> String {
@@ -1080,4 +1124,112 @@ async fn http_get_range(cfg: &ClientConfig, uri: &Uri, path: &str, from: u64, pa
 async fn tcp_tls_plain(cfg: &ClientConfig, tls: bool, host: &str, port: u16) -> Result<Box<dyn Io>, CallError> {
     let uri: Uri = format!("{}://{host}:{port}/", if tls { "wss" } else { "ws" }).parse().map_err(|_| CallError::transport(codes::NOT_CONFIGURED, "bad address"))?;
     tcp_tls(cfg, &uri).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobolt_wire::call::ArgPayload;
+
+    fn vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: HashMap<String, String> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        move |name| map.get(name).cloned()
+    }
+
+    /// A loopback address nothing listens on: reaching it fails `transport 1000`,
+    /// so a `limit 7000` answer proves the client never tried.
+    const NOBODY: &str = "ws://127.0.0.1:1/ws";
+
+    /// WASM-005 R11: the project's wait and payload limit reach the client.
+    #[test]
+    fn the_projects_call_timeout_and_payload_limit_reach_the_client_config() {
+        let cfg = config_from_vars(vars(&[
+            ("COBOLT_BACKEND_URL", NOBODY),
+            ("COBOLT_BACKEND_CALL_TIMEOUT_MS", "15000"),
+            ("COBOLT_BACKEND_MAX_PAYLOAD_BYTES", "524288"),
+        ]))
+        .expect("a URL configures the client");
+        assert_eq!(cfg.call_timeout, Duration::from_millis(15_000));
+        assert_eq!(cfg.max_payload, Some(524_288));
+
+        let plain = config_from_vars(vars(&[("COBOLT_BACKEND_URL", NOBODY)])).unwrap();
+        assert_eq!(plain.call_timeout, Duration::from_secs(60), "the default wait is unchanged");
+        assert_eq!(plain.max_payload, None, "without the setting only the backend's limit applies");
+
+        let junk = config_from_vars(vars(&[("COBOLT_BACKEND_URL", NOBODY), ("COBOLT_BACKEND_CALL_TIMEOUT_MS", "soon"), ("COBOLT_BACKEND_MAX_PAYLOAD_BYTES", "0")])).unwrap();
+        assert_eq!((junk.call_timeout, junk.max_payload), (Duration::from_secs(60), None), "a value that is not a positive number is ignored");
+
+        assert!(config_from_vars(vars(&[("COBOLT_BACKEND_CALL_TIMEOUT_MS", "15000")])).is_none(), "no URL, no client");
+        println!("client limits: set 15000 ms / 524288 B reach ClientConfig; defaults 60 s / backend's; junk ignored");
+    }
+
+    fn big_call(len: usize) -> CallRequest {
+        CallRequest {
+            program: "GET-CUSTOMER".into(),
+            args: vec![ArgPayload { mode: ArgMode::Reference, json: format!("{{\"CUST-NAME\":\"{}\"}}", "x".repeat(len)) }],
+            wants_returning: false,
+            idempotency_key: None,
+        }
+    }
+
+    /// WASM-005 R11: a call larger than the project's limit fails as a limit,
+    /// before the client connects; one within it goes on to the connection.
+    #[test]
+    fn an_over_limit_call_fails_before_anything_is_sent() {
+        let mut cfg = ClientConfig::new(NOBODY, "1.0.0");
+        cfg.max_payload = Some(256);
+        cfg.connect_timeout = Duration::from_millis(300);
+        let mut client = WsClient::new(cfg);
+        let e = client.call(&big_call(1000)).unwrap_err();
+        assert_eq!((e.class, e.code), (ErrorClass::Limit, codes::FRAME_TOO_LARGE), "{e}");
+        assert_eq!(e.may_have_run, Some(false), "nothing was sent");
+        assert!(e.message.contains("256"), "the message names the limit: {e}");
+        let small = client.call(&big_call(10)).unwrap_err();
+        assert_eq!(small.class, ErrorClass::Transport, "within the limit the call reaches the (absent) backend: {small}");
+        println!("over-limit call: {e}; within the limit: {small}");
+    }
+
+    /// … and the program's `ON EXCEPTION` runs with the class readable.
+    #[cfg(feature = "loader")]
+    #[test]
+    fn an_over_limit_call_runs_on_exception() {
+        let src = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 CUSTOMER.
+          05 CUST-NAME  PIC X(900).
+       01 CLASS-NAME PIC X(16).
+       01 ERR-CODE   PIC 9(5).
+       01 ERR-TEXT   PIC X(80).
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           MOVE ALL \"x\" TO CUST-NAME
+           CALL \"GET-CUSTOMER\" WITH WEBSOCKET LINKAGE USING CUSTOMER
+               ON EXCEPTION
+                   COBOL::\"WS-LAST-ERROR\" ( CLASS-NAME ERR-CODE ERR-TEXT )
+                   DISPLAY \"CLASS=[\" CLASS-NAME \"]\"
+                   DISPLAY \"CODE=[\" ERR-CODE \"]\"
+               NOT ON EXCEPTION
+                   DISPLAY \"OK\"
+           END-CALL
+           STOP RUN.
+";
+        let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free));
+        let program = parsed.program.expect("the caller parses");
+        let (_event_tx, event_rx) = std_mpsc::channel();
+        let (state_tx, _state_rx) = std_mpsc::channel();
+        let (display_tx, display_rx) = std_mpsc::channel();
+        let mut interp = cobolt_runtime::Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+        let mut cfg = ClientConfig::new(NOBODY, "1.0.0");
+        cfg.max_payload = Some(512);
+        interp.set_remote_transport(Box::new(WsClient::new(cfg)));
+        interp.run().expect("ON EXCEPTION handles the failure");
+        let shown: Vec<String> = display_rx.try_iter().map(|s: String| s.trim_end().to_owned()).collect();
+        assert!(shown.iter().any(|l| l.starts_with("CLASS=[LIMIT ")), "{shown:?}");
+        assert!(shown.iter().any(|l| l == "CODE=[07000]"), "{shown:?}");
+        assert!(!shown.iter().any(|l| l == "OK"), "{shown:?}");
+        println!("over-limit call in COBOL: {shown:?}");
+    }
 }

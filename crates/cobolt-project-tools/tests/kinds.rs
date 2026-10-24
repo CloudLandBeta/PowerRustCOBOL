@@ -66,7 +66,8 @@ fn every_creatable_template_makes_a_project_that_checks_clean() {
         }
         if view.kind != cobolt_compiler::ProjectKind::Desktop {
             assert!(!folder.join("forms").exists() && !folder.join("bin").exists(), "{template}");
-            assert_eq!(view.forms, [format!("{}/main-form.cfrm", view.kind.forms_folder())]);
+            // WASM-001 Q2: a web form is .wcfrm, a mobile form .mcfrm.
+            assert_eq!(view.forms, [format!("{}/main-form.{}", view.kind.forms_folder(), view.kind.form_extension())]);
             assert!(folder.join(&view.forms[0]).is_file());
             // The designation is sealed: the runtime accepts the main form.
             assert_eq!(
@@ -124,7 +125,9 @@ fn the_kind_and_its_options_pick_the_template_and_shape_the_project() {
     assert_eq!(doc["project"]["kind"].as_str(), Some("web"));
     assert_eq!(doc["web"]["style"].as_str(), Some("standalone"));
     assert_eq!(doc["web"]["isolation"].as_str(), Some("require-corp"));
-    assert_eq!(doc["backend"]["exports"][0].as_str(), Some("HEALTH"));
+    // WASM-003 D5: the exports live in backend/exports.toml, not in the manifest.
+    assert!(doc.get("backend").is_none(), "no [backend] table in a new manifest");
+    assert!(std::fs::read_to_string(f.join("backend/exports.toml")).unwrap().contains("program = \"HEALTH\""));
 
     // `kind: mobile` needs a platform and a device; with them it is that template.
     let e = make(&mut tools, "m0", json!({"kind": "mobile"})).unwrap_err();
@@ -139,7 +142,7 @@ fn the_kind_and_its_options_pick_the_template_and_shape_the_project() {
     assert_eq!(doc["mobile"]["orientation"].as_str(), Some("landscape"));
     assert_eq!(doc["mobile"]["min_os"].as_str(), Some("17.0"));
     assert_eq!(doc["mobile"]["multi_memory"].as_bool(), Some(false), "iOS starts with multi-memory off (WASM-017 R9)");
-    assert!(f.join("mobileforms/main-form.cfrm").is_file());
+    assert!(f.join("mobileforms/main-form.mcfrm").is_file());
 
     // Clearing the Backend leaves a Web project without one.
     let (f, made) = make(&mut tools, "nobackend", json!({"kind": "web", "options": {"backend": false}})).unwrap();
@@ -152,7 +155,7 @@ fn the_kind_and_its_options_pick_the_template_and_shape_the_project() {
     // Without the sample there is no form and no main.
     let (f, made) = make(&mut tools, "nosample", json!({"kind": "web", "options": {"sample": "false"}})).unwrap();
     assert_eq!(made["main"], "");
-    assert!(!f.join("webforms/main-form.cfrm").exists());
+    assert!(!f.join("webforms/main-form.wcfrm").exists());
 
     // Refusals say what would have worked.
     let e = make(&mut tools, "r1", json!({"kind": "tablet"})).unwrap_err();
@@ -205,7 +208,7 @@ fn list_files_shows_the_backend_and_the_web_assets_of_a_web_project() {
     let listed = call(&mut tools, "list_files", json!({})).unwrap();
     assert_eq!(listed["kind"], "web");
     assert_eq!(listed["forms_folder"], "webforms");
-    assert_eq!(listed["files"]["forms"][0]["path"], "webforms/main-form.cfrm");
+    assert_eq!(listed["files"]["forms"][0]["path"], "webforms/main-form.wcfrm");
     assert_eq!(listed["files"]["backend"][0], json!({"path": "backend/src/health.cbl", "exists": true}));
     assert_eq!(listed["backend"]["folder"], "backend");
     assert_eq!(listed["backend"]["exports"][0], "HEALTH");
@@ -269,6 +272,7 @@ fn build_on_a_web_project_reports_the_bundle_or_says_why_not() {
                 startup_ms: Some(41.5),
                 warnings: vec!["the module is larger than 3 KiB".into()],
                 duration_ms: 9,
+                ..BuildReport::default()
             })
         }
     }
@@ -304,5 +308,131 @@ fn build_on_a_web_project_reports_the_bundle_or_says_why_not() {
     let v = call(&mut again, "build", json!({})).unwrap();
     assert_eq!(v["status"], "refused", "{v}");
     web::unlink();
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// WASM-001 Q2 (T15.3): every tool that takes a form treats a Web project's
+/// `.wcfrm` and a Mobile project's `.mcfrm` as one.
+#[test]
+fn every_form_tool_takes_the_web_and_mobile_form_extensions() {
+    use cobolt_mcp::McpHandler;
+    use cobolt_project_tools::tools::{render::Renderer, run::{FormRunner, RunOutcome}, Shared};
+    use std::path::Path;
+    let base = scratch("ext");
+    for (kind, template, form) in [("web", "web", "webforms/main-form.wcfrm"), ("mobile", "android-phone", "mobileforms/main-form.mcfrm")] {
+        let folder = base.join(kind);
+        call(&mut bare(), "create_project", json!({"folder": folder.to_string_lossy(), "name": "Ext", "template": template})).unwrap();
+        let renderer: Renderer = Arc::new(|cfrm: &Path, _: &Path, _: &cobolt_project_tools::tools::render::Picture| {
+            assert!(cobolt_compiler::project_kind::is_form_path(cfrm));
+            Ok((vec![0x89, b'P', b'N', b'G'], [10, 10]))
+        });
+        let runner: FormRunner = Arc::new(|cfrm: &Path, cbl: &Path, _: &[Value], _: u64| {
+            assert!(cobolt_compiler::project_kind::is_form_path(cfrm) && cbl.is_file());
+            Ok(RunOutcome { report: json!({"ran": true}), display: vec![], png: None })
+        });
+        let shared = Arc::new(Shared::new().with_renderer(renderer).with_runner(runner));
+        let mut tools = ProjectTools::with_shared(HeadlessHost::new(&folder, "test"), shared);
+
+        let listed = call(&mut tools, "list_files", json!({})).unwrap();
+        assert_eq!(listed["files"]["forms"][0]["path"], form);
+        println!("{kind:<6} list_files  lists {form} among the forms");
+        let validated = call(&mut tools, "validate", json!({"path": form})).unwrap();
+        assert_eq!(validated["valid"], true, "{validated}");
+        println!("{kind:<6} validate    loads {form} as a form ({} controls)", validated["controls"]);
+        let regenerated = call(&mut tools, "regenerate", json!({"path": form})).unwrap();
+        println!("{kind:<6} regenerate  wrote {}", regenerated["written"]);
+        assert!(regenerated.to_string().contains("generated/"), "{regenerated}");
+        let checked = call(&mut tools, "check", json!({"path": form})).unwrap();
+        assert_eq!(checked["errors"], 0, "{checked}");
+        println!("{kind:<6} check       checks {form} as a form, {} errors", checked["errors"]);
+        let r = tools.call_tool("run_form", &json!({"path": form}));
+        assert_eq!(r.is_error, None, "{:?}", r.content);
+        println!("{kind:<6} run_form    runs {form}");
+        let r = tools.call_tool("render_form", &json!({"path": form}));
+        assert_eq!(r.is_error, None, "{:?}", r.content);
+        println!("{kind:<6} render_form pictures {form}");
+        let added = call(&mut tools, "add_to_project", json!({"path": form})).unwrap_or_else(|e| json!({"refused": e}));
+        assert!(added.get("list").is_none_or(|l| l == "forms"), "{added}");
+    }
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// WASM-001 Q2, plan D-T15b/c (T15.7): a form named for another kind is kept,
+/// checked, and warned about exactly once; a matching name draws no warning.
+#[test]
+fn check_warns_once_about_a_form_named_for_another_kind() {
+    let base = scratch("mismatch");
+    let folder = base.join("Old");
+    call(&mut bare(), "create_project", json!({"folder": folder.to_string_lossy(), "name": "Old", "template": "web"})).unwrap();
+    let mut tools = ProjectTools::new(HeadlessHost::new(&folder, "test"));
+    let mismatch = |v: &Value| -> Vec<String> {
+        v["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["severity"] == "warning" && d["message"].as_str().unwrap().contains("form file name"))
+            .map(|d| d["message"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let clean = call(&mut tools, "check", json!({})).unwrap();
+    assert!(mismatch(&clean).is_empty(), "a matching .wcfrm draws no warning: {clean}");
+
+    // What 2.0.x made: the same form named `.cfrm`.
+    std::fs::rename(folder.join("webforms/main-form.wcfrm"), folder.join("webforms/main-form.cfrm")).unwrap();
+    let manifest = folder.join("Old.project.toml");
+    let text = std::fs::read_to_string(&manifest).unwrap().replace("main-form.wcfrm", "main-form.cfrm");
+    std::fs::write(&manifest, &text).unwrap();
+    let checked = call(&mut tools, "check", json!({})).unwrap();
+    let found = mismatch(&checked);
+    println!("check on a Web project with webforms/main-form.cfrm: {} mismatch warning(s): {found:?}", found.len());
+    assert_eq!(found.len(), 1, "{checked}");
+    assert!(found[0].contains("rename it to main-form.wcfrm"), "{}", found[0]);
+    assert_eq!(checked["errors"], 0, "the form still loads and checks: {checked}");
+    assert!(folder.join("webforms/main-form.cfrm").is_file() && !folder.join("webforms/main-form.wcfrm").exists(), "nothing renamed");
+    assert_eq!(std::fs::read_to_string(&manifest).unwrap(), text, "the manifest is untouched");
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// WASM-003 T2 (R1, R22; C5): a new Web or Mobile project's Backend has its
+/// list of exports — `HEALTH`, public — and a development deployment with no
+/// secret and no `unsafe_*`; neither is in `[files] backend`, and creating
+/// over an existing `exports.toml` leaves it byte for byte.
+#[test]
+fn a_new_backend_has_its_exports_and_a_development_deployment() {
+    use cobolt_project_tools::create::{self, CreateRequest, BACKEND_CONFIG, BACKEND_EXPORTS};
+    let base = scratch("backend-scaffold");
+    for template in ["web", "android-phone"] {
+        let folder = base.join(template);
+        let started = Instant::now();
+        create::create_project_with(&folder, &CreateRequest::new("Shop").template(template)).unwrap();
+        let exports = std::fs::read_to_string(folder.join(BACKEND_EXPORTS)).unwrap();
+        let parsed: toml::Value = toml::from_str(&exports).unwrap();
+        assert_eq!(parsed["contract"]["version"].as_str(), Some("1.0.0"), "{template}");
+        let list = parsed["export"].as_array().unwrap();
+        assert_eq!(list.len(), 1, "{template}");
+        assert_eq!(list[0]["program"].as_str(), Some("HEALTH"));
+        assert_eq!(list[0]["public"].as_bool(), Some(true));
+
+        let config = std::fs::read_to_string(folder.join(BACKEND_CONFIG)).unwrap();
+        let parsed: toml::Value = toml::from_str(&config).unwrap();
+        let listen = parsed["server"]["listen"].as_str().unwrap();
+        assert!(listen.parse::<std::net::SocketAddr>().unwrap().ip().is_loopback(), "{template}: {listen}");
+        let keys: Vec<&String> = parsed.as_table().unwrap().keys().collect();
+        assert_eq!(keys, ["server"], "{template}: only [server], no unsafe_* and no secret");
+        assert!(!config.contains("password") && !config.contains("secret ="), "{template}");
+
+        let view = cobolt_compiler::project_manifest_view(&folder.join("Shop.project.toml")).unwrap();
+        assert_eq!(view.backend, ["backend/src/health.cbl"], "{template}: the settings files are not COBOL");
+        println!("    {template:<14} exports.toml {:>3} bytes, backend.toml {:>3} bytes, listen {listen}, {:.1} ms", exports.len(), config.len(), started.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    // Written once: the developer's thereafter.
+    let folder = base.join("web");
+    let mine = "[contract]\nversion = \"2.1.0\"\n\n[[export]]\nprogram = \"HEALTH\"\npublic = true\nroles = []\n";
+    std::fs::write(folder.join(BACKEND_EXPORTS), mine).unwrap();
+    let plan = create::plan(&CreateRequest::new("Shop").template("web"), &cobolt_project_tools::templates::builtin()).unwrap();
+    plan.write_into(&folder, &plan.manifest_name).unwrap();
+    assert_eq!(std::fs::read_to_string(folder.join(BACKEND_EXPORTS)).unwrap(), mine, "an existing exports.toml is never rewritten");
+    println!("  an existing exports.toml ({} bytes) is left byte for byte", mine.len());
     let _ = std::fs::remove_dir_all(base);
 }

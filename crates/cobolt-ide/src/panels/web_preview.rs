@@ -41,7 +41,7 @@ use cobolt_compiler::project_kind::{DeviceClass, Isolation, Orientation, Project
 use cobolt_project_tools::web::devserver::{self, ServeOptions, ServerHandle};
 use cobolt_project_tools::web::presets::{self, PresetClass, Viewport, PIXEL_RATIOS, PRESETS};
 use cobolt_project_tools::web::preview::{self, Command, Emulation, Event, Mode, PreviewSession};
-use cobolt_project_tools::web::{BuildReport, WebBuildBackend, WebBuildError, WebBuildRequest};
+use cobolt_project_tools::web::{BuildReport, PartSize, PlayerPinError, WebBuildBackend, WebBuildError, WebBuildRequest, WebDiagnostic, WebDiagnosticKind};
 
 use crate::i18n::Tr;
 
@@ -66,10 +66,14 @@ pub enum Note {
     Building,
     NotLinked,
     BuildDone { ms: u64, bytes: u64, files: usize, startup_ms: Option<f64> },
-    BuildWarning(String),
-    /// The lines `file:line: construct — alternative` of a refused build.
-    BuildRefused(Vec<String>),
+    BuildWarning(WebDiagnostic),
+    /// What a refused build could not compile: where, the construct, the alternative.
+    BuildRefused(Vec<WebDiagnostic>),
     BuildFailed(String),
+    /// The player the bundle carries: its variants, then the parts loaded on first use (WASM-016 R13).
+    PlayerSizes(Vec<PartSize>),
+    /// The project pins a player the Build cannot use (WASM-016 R11).
+    PlayerPin(PlayerPinError),
     /// A Mobile build ends at the bundle until the mobile shell is linked.
     PackageNote,
     NoBundle,
@@ -105,6 +109,35 @@ fn fill(template: &str, args: &[&str]) -> String {
     out
 }
 
+/// A diagnostic of the generator in the language of `tr`: a known kind is said
+/// from its `Tr` template with the subject filled in, free text as it is
+/// (WASM-010 D6). The location stays in front.
+pub fn diagnostic_text(d: &WebDiagnostic, tr: &Tr) -> String {
+    let template = match d.kind {
+        WebDiagnosticKind::Other => None,
+        WebDiagnosticKind::BackendOnly => Some(tr.wasm_diag_backend_only),
+        WebDiagnosticKind::Unsupported => Some(tr.wasm_diag_unsupported),
+        WebDiagnosticKind::UnknownLayer => Some(tr.wasm_diag_unknown_layer),
+        WebDiagnosticKind::UnknownLayerProperty => Some(tr.wasm_diag_unknown_layer_property),
+        WebDiagnosticKind::LayerWrite => Some(tr.wasm_diag_layer_write),
+        WebDiagnosticKind::TooManyHostReads => Some(tr.wasm_diag_too_many_reads),
+        WebDiagnosticKind::AcceptIgnored => Some(tr.wasm_warn_accept_ignored),
+        WebDiagnosticKind::RedefinesMayDiffer => Some(tr.wasm_warn_redefines),
+        WebDiagnosticKind::InstancesOutOfRange => Some(tr.msg_instances_out_of_range),
+        WebDiagnosticKind::MultiMemoryOnlyWithWebKit => Some(tr.pk_err_multi_memory_only_with_webkit),
+        WebDiagnosticKind::SecretOnForm => Some(tr.wasm_diag_secret_on_form),
+    };
+    let text = match template {
+        Some(t) => fill(t, &[&d.subject]),
+        None => d.message.clone(),
+    };
+    if d.location.is_empty() {
+        text
+    } else {
+        format!("{}: {text}", d.location)
+    }
+}
+
 /// A size for people: `812 B`, `12.5 KB`, `1.20 MB`.
 pub fn human_bytes(bytes: u64) -> String {
     const K: f64 = 1024.0;
@@ -121,7 +154,12 @@ pub fn human_bytes(bytes: u64) -> String {
 impl Note {
     pub fn severity(&self) -> Severity {
         match self {
-            Note::BuildFailed(_) | Note::BuildRefused(_) | Note::ServerFailed(_) | Note::HelperFailed(_) | Note::PageError { .. } => {
+            Note::BuildFailed(_)
+            | Note::BuildRefused(_)
+            | Note::PlayerPin(_)
+            | Note::ServerFailed(_)
+            | Note::HelperFailed(_)
+            | Note::PageError { .. } => {
                 Severity::Error
             }
             Note::Console { level, .. } if level == "error" => Severity::Error,
@@ -145,13 +183,38 @@ impl Note {
                 let startup = startup_ms.map_or_else(|| tr.pk_build_startup_none.to_owned(), |v| format!("{v:.0} ms"));
                 vec![fill(tr.pk_build_done, &[&ms.to_string(), &human_bytes(*bytes), &files.to_string(), &startup])]
             }
-            Note::BuildWarning(w) => vec![fill(tr.pk_build_warning, &[w])],
+            // The budget warning and the missing player are English report
+            // lines of the Build; the heading above them is the developer's
+            // language (WASM-002 T21).
+            Note::BuildWarning(w) if w.message.starts_with(cobolt_project_tools::web::OVER_BUDGET_PREFIX) => {
+                vec![tr.web_build_over_budget.to_owned(), format!("  {}", w.message)]
+            }
+            Note::BuildWarning(w) => vec![fill(tr.pk_build_warning, &[&diagnostic_text(w, tr)])],
             Note::BuildRefused(lines) => {
                 let mut out = vec![tr.pk_build_refused.to_owned()];
-                out.extend(lines.iter().map(|l| format!("  {l}")));
+                out.extend(lines.iter().map(|l| format!("  {}", diagnostic_text(l, tr))));
                 out
             }
+            Note::BuildFailed(why) if why.starts_with(cobolt_project_tools::web::PLAYER_UNAVAILABLE_PREFIX) => {
+                vec![tr.web_build_player_unavailable.to_owned(), format!("  {why}")]
+            }
             Note::BuildFailed(why) => vec![fill(tr.pk_build_failed, &[why])],
+            Note::PlayerSizes(sizes) => {
+                let list = |parts: bool| {
+                    sizes.iter().filter(|p| p.name.starts_with("parts/") == parts).map(|p| format!("{} {}", p.name.trim_start_matches("parts/"), human_bytes(p.bytes))).collect::<Vec<_>>().join(", ")
+                };
+                let (variants, parts) = (list(false), list(true));
+                let mut out = vec![fill(tr.web_build_player_sizes, &[&variants])];
+                if !parts.is_empty() {
+                    out.push(fill(tr.web_build_player_parts, &[&parts]));
+                }
+                out
+            }
+            Note::PlayerPin(PlayerPinError::NotKept { pinned, kept }) => vec![fill(tr.web_build_pin_not_kept, &[pinned, &kept.join(", ")])],
+            Note::PlayerPin(PlayerPinError::CannotEmit { pinned, oldest: Some(oldest), .. }) => {
+                vec![fill(tr.web_build_pin_cannot_emit, &[pinned, oldest])]
+            }
+            Note::PlayerPin(PlayerPinError::CannotEmit { pinned, oldest: None, .. }) => vec![fill(tr.web_build_pin_cannot_emit_none, &[pinned])],
             Note::PackageNote => vec![tr.pk_build_package_note.to_owned()],
             Note::NoBundle => vec![tr.pk_prev_no_bundle.to_owned()],
             Note::Serving { name, url } => vec![fill(tr.pk_prev_serving, &[name, url])],
@@ -568,10 +631,14 @@ impl WebPreview {
         let spawned = std::thread::Builder::new().name("web-build".into()).spawn(move || {
             let done = match WebBuildRequest::from_manifest(&manifest) {
                 Err(e) => Done { outcome: Err(WebBuildError::Failed(e)), bundle: None, isolation: Isolation::Off },
-                Ok(request) => Done {
+                Ok(mut request) => Done {
                     bundle: Some(backend.bundle_dir(&request)),
                     isolation: request.web.isolation,
-                    outcome: backend.build(&request),
+                    outcome: {
+                        // The player shipped beside this IDE (WASM-016 T14), not a path of the machine that built it.
+                        request.player_dir = Some(crate::app::web_player_dir());
+                        backend.build(&request)
+                    },
                 },
             };
             let _ = tx.send(done);
@@ -642,6 +709,9 @@ impl WebPreview {
                     files: report.size.parts.len(),
                     startup_ms: report.startup_ms,
                 });
+                if !report.player.is_empty() {
+                    self.say(Note::PlayerSizes(report.player));
+                }
                 for w in report.warnings {
                     self.say(Note::BuildWarning(w));
                 }
@@ -652,6 +722,7 @@ impl WebPreview {
             }
             Err(WebBuildError::Refused(lines)) => self.say(Note::BuildRefused(lines)),
             Err(WebBuildError::Failed(why)) => self.say(Note::BuildFailed(why)),
+            Err(WebBuildError::PlayerPin(e)) => self.say(Note::PlayerPin(e)),
         }
         match kind {
             // A Build ends here; a Mobile one says where it stops.
@@ -962,7 +1033,7 @@ impl WebPreview {
 mod tests {
     use super::*;
     use crate::i18n::Language;
-    use cobolt_project_tools::web::{BundleSize, PartSize};
+    use cobolt_project_tools::web::BundleSize;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -1019,6 +1090,7 @@ mod tests {
                 startup_ms: Some(12.0),
                 warnings: vec!["a warning".into()],
                 duration_ms: 3,
+                ..BuildReport::default()
             })
         }
     }
@@ -1160,6 +1232,55 @@ mod tests {
     // ── notes ──
 
     #[test]
+    fn every_generator_diagnostic_kind_is_said_in_all_six_languages() {
+        let kinds = [
+            WebDiagnosticKind::BackendOnly,
+            WebDiagnosticKind::Unsupported,
+            WebDiagnosticKind::UnknownLayer,
+            WebDiagnosticKind::UnknownLayerProperty,
+            WebDiagnosticKind::LayerWrite,
+            WebDiagnosticKind::TooManyHostReads,
+            WebDiagnosticKind::AcceptIgnored,
+            WebDiagnosticKind::RedefinesMayDiffer,
+            WebDiagnosticKind::InstancesOutOfRange,
+            WebDiagnosticKind::MultiMemoryOnlyWithWebKit,
+            WebDiagnosticKind::SecretOnForm,
+        ];
+        let mut said = 0;
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            for kind in kinds {
+                let d = WebDiagnostic { location: "webforms/a.cfrm:7".into(), kind, subject: "SUBJ-9".into(), message: "english".into() };
+                let text = diagnostic_text(&d, &tr);
+                assert!(text.starts_with("webforms/a.cfrm:7: "), "{lang:?} {kind:?}: {text}");
+                assert!(text.contains("SUBJ-9") && !text.contains("{}") && !text.contains("english"), "{lang:?} {kind:?}: {text}");
+                assert!(!text.to_lowercase().contains("cobolt"), "{lang:?} {kind:?}: {text}");
+                said += 1;
+            }
+            // Free text is said as it is.
+            let other = WebDiagnostic::from("a.cfrm:3: EXEC RUST - move it to the Backend");
+            assert_eq!(diagnostic_text(&other, &tr), "a.cfrm:3: EXEC RUST - move it to the Backend");
+        }
+        eprintln!("generator diagnostics: {said} kind × language texts, none empty");
+        assert_eq!(said, kinds.len() * Language::ALL.len());
+    }
+
+    /// WASM-002 T21: the budget warning and the missing player get the
+    /// developer's heading; the English detail follows it.
+    #[test]
+    fn the_budget_warning_and_the_missing_player_have_a_translated_heading() {
+        let over = format!("{} 5100000 bytes, over the budget", cobolt_project_tools::web::OVER_BUDGET_PREFIX);
+        let gone = format!("{}: no folder assets/web-player", cobolt_project_tools::web::PLAYER_UNAVAILABLE_PREFIX);
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            let w = Note::BuildWarning(over.clone().into()).lines(&tr);
+            assert_eq!(w, vec![tr.web_build_over_budget.to_owned(), format!("  {over}")], "{lang:?}");
+            let f = Note::BuildFailed(gone.clone()).lines(&tr);
+            assert_eq!(f, vec![tr.web_build_player_unavailable.to_owned(), format!("  {gone}")], "{lang:?}");
+        }
+    }
+
+    #[test]
     fn every_note_reads_in_all_six_languages_without_a_gap() {
         let notes = vec![
             Note::Building,
@@ -1182,6 +1303,18 @@ mod tests {
             Note::BackendOff,
             Note::Console { level: "log".into(), text: "hi".into() },
             Note::PageError { message: "x is not defined".into(), source: "app.js".into(), line: 12 },
+            Note::BuildWarning(
+                format!("{} 5100000 bytes, over the budget of 5000000 bytes", cobolt_project_tools::web::OVER_BUDGET_PREFIX).into(),
+            ),
+            Note::BuildFailed(format!("{}: no folder assets/web-player", cobolt_project_tools::web::PLAYER_UNAVAILABLE_PREFIX)),
+            Note::PlayerSizes(vec![
+                PartSize { name: "plain".into(), bytes: 2_846_052 },
+                PartSize { name: "threaded".into(), bytes: 2_670_938 },
+                PartSize { name: "parts/mermaid".into(), bytes: 2_218_954 },
+            ]),
+            Note::PlayerPin(PlayerPinError::NotKept { pinned: "1.0.0".into(), kept: vec!["2.0.0".into(), "2.1.0".into()] }),
+            Note::PlayerPin(PlayerPinError::CannotEmit { pinned: "1.9.9".into(), abi: 2, description: 1, oldest: Some("2.0.0".into()) }),
+            Note::PlayerPin(PlayerPinError::CannotEmit { pinned: "1.9.9".into(), abi: 2, description: 1, oldest: None }),
         ];
         let mut shown = 0;
         for &lang in Language::ALL {
@@ -1202,7 +1335,13 @@ mod tests {
         assert_eq!(notes[18].severity(), Severity::Info);
         assert_eq!(Note::Console { level: "error".into(), text: String::new() }.severity(), Severity::Error);
         assert_eq!(notes[14].severity(), Severity::Warn);
-        println!("web preview: {shown} note renderings (20 notes x 6 languages), none empty, none with a gap");
+        // WASM-016 T27: the player's sizes, its parts on a line of their own, and the pin's facts in the sentence.
+        let sizes = notes[22].lines(&en);
+        assert_eq!(sizes, ["Player size: plain 2.71 MB, threaded 2.55 MB", "Loaded on first use: mermaid 2.12 MB"], "{sizes:?}");
+        assert!(notes[23].text(&en).contains("1.0.0") && notes[23].text(&en).contains("2.0.0, 2.1.0"));
+        assert!(notes[24].text(&en).contains("1.9.9") && notes[24].text(&en).contains("2.0.0"));
+        assert_eq!(notes[25].severity(), Severity::Error);
+        println!("web preview: {shown} note renderings ({} notes x 6 languages), none empty, none with a gap", notes.len());
     }
 
     #[test]

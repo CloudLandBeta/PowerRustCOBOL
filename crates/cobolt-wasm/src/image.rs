@@ -136,7 +136,8 @@ pub fn build(layout: &Layout, decimal_comma: bool, currency: char) -> GenResult<
         let chain = layout.occurs_chain(idx);
         let total: u64 = chain.iter().map(|c| c.1 as u64).product::<u64>().max(1);
         if total > 5_000_000 {
-            return Err(GenError::new(item.span_line, "a table of more than five million entries cannot be initialised"));
+            let name = item.name.as_deref().unwrap_or("FILLER");
+            return Err(GenError::new(item.span_line, format!("{name}: a table of more than five million entries cannot be initialised")));
         }
         let (src_for, numeric) = (default_or_value(&mut pool, item)?, item.fd.is_numeric());
         let _ = numeric;

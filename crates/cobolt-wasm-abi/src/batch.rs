@@ -156,6 +156,15 @@ pub enum Command<'a> {
     Get(Path<'a>),
     CallR(Path<'a>),
     Count(Path<'a>),
+    /// `SET_NAMED` (A14): `varint inst, varint ctrl, text name, text value` —
+    /// the property `name` of control `ctrl`, the name known only at run time
+    /// (`COBOL::"SET-PROPERTY"` with the property in a data item).
+    SetNamed { inst: u32, ctrl: u32, name: &'a str, value: &'a str },
+    /// `RAISE` (A14): `varint inst, varint ctrl, text event, text argument` —
+    /// queue `event` of control `ctrl` as if the control had raised it
+    /// (`COBOL::"RAISE-EVENT"`): delivered after the running task, in order, and
+    /// only when a handler is bound to it.
+    Raise { inst: u32, ctrl: u32, event: &'a str, arg: &'a str },
 }
 
 impl Command<'_> {
@@ -172,6 +181,8 @@ impl Command<'_> {
             Command::Get(_) => op::GET,
             Command::CallR(_) => op::CALLR,
             Command::Count(_) => op::COUNT,
+            Command::SetNamed { .. } => op::SET_NAMED,
+            Command::Raise { .. } => op::RAISE,
         }
     }
 }
@@ -253,6 +264,18 @@ impl<'a> BatchReader<'a> {
             op::GET => Command::Get(read_path(buf, pos)?),
             op::CALLR => Command::CallR(read_path(buf, pos)?),
             op::COUNT => Command::Count(read_path(buf, pos)?),
+            op::SET_NAMED => {
+                let inst = read_varint(buf, pos)?;
+                let ctrl = read_varint(buf, pos)?;
+                let name = read_text(buf, pos)?;
+                Command::SetNamed { inst, ctrl, name, value: read_text(buf, pos)? }
+            }
+            op::RAISE => {
+                let inst = read_varint(buf, pos)?;
+                let ctrl = read_varint(buf, pos)?;
+                let event = read_text(buf, pos)?;
+                Command::Raise { inst, ctrl, event, arg: read_text(buf, pos)? }
+            }
             other => return Err(DecodeError::UnknownOp { op: other, at }),
         };
         if cmd.is_query() {
@@ -392,6 +415,22 @@ impl BatchWriter {
         write_path(&mut self.buf, path);
         self
     }
+    pub fn set_named(&mut self, inst: u32, ctrl: u32, name: &str, value: &str) -> &mut Self {
+        self.buf.push(op::SET_NAMED);
+        write_varint(&mut self.buf, inst);
+        write_varint(&mut self.buf, ctrl);
+        write_text(&mut self.buf, name);
+        write_text(&mut self.buf, value);
+        self
+    }
+    pub fn raise(&mut self, inst: u32, ctrl: u32, event: &str, arg: &str) -> &mut Self {
+        self.buf.push(op::RAISE);
+        write_varint(&mut self.buf, inst);
+        write_varint(&mut self.buf, ctrl);
+        write_text(&mut self.buf, event);
+        write_text(&mut self.buf, arg);
+        self
+    }
 }
 
 // ── event arguments (§7) ────────────────────────────────────────────────────
@@ -506,6 +545,24 @@ mod tests {
         let mut w = BatchWriter::new();
         w.set(&PathSpec::prop(0, 3, 7), "OK");
         assert_eq!(w.as_bytes(), [0x01, 0x00, 0x03, 0x01, 0x07, 0x00, 0x02, b'O', b'K']);
+    }
+
+    #[test]
+    fn a_named_set_and_a_raise_have_the_bytes_amendment_a14_describes() {
+        // SET_NAMED inst=1 ctrl=4 text("LastError") text("down"); RAISE inst=1 ctrl=4 text("onError") text("")
+        let mut w = BatchWriter::new();
+        w.set_named(1, 4, "LastError", "down").raise(1, 4, "onError", "");
+        let mut want = vec![0x06, 0x01, 0x04, 9];
+        want.extend_from_slice(b"LastError");
+        want.extend_from_slice(&[4, b'd', b'o', b'w', b'n', 0x07, 0x01, 0x04, 7]);
+        want.extend_from_slice(b"onError");
+        want.push(0);
+        assert_eq!(w.as_bytes(), want.as_slice());
+        let cmds = decode_batch(w.as_bytes()).unwrap();
+        assert_eq!(cmds[0], Command::SetNamed { inst: 1, ctrl: 4, name: "LastError", value: "down" });
+        assert_eq!(cmds[1], Command::Raise { inst: 1, ctrl: 4, event: "onError", arg: "" });
+        assert!(!cmds[0].is_query() && !cmds[1].is_query());
+        assert_eq!((cmds[0].opcode(), cmds[1].opcode()), (op::SET_NAMED, op::RAISE));
     }
 
     #[test]

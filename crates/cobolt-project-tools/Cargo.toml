@@ -25,6 +25,14 @@ cobolt-indexed  = { path = "../cobolt-indexed" }
 cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
+# The web build (WASM-010 T19): the WebAssembly generator, with its `host` feature
+# so the Build measures the module's start-up natively on wasmtime (operator,
+# 2026-10-22: wasmtime 44.0.3, the IDE included), and the bundler.
+cobolt-wasm       = { path = "../cobolt-wasm" }
+cobolt-web-bundle = { path = "../cobolt-web-bundle" }
+# The host-API version a pinned player must speak (WASM-016 R11).
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi" }
+cobolt-ast        = { path = "../cobolt-ast" }
 # For `builtins::BUILTINS` only — the kb_lookup tool's built-in entries.
 cobolt-runtime  = { path = "../cobolt-runtime" }
 # kb_search reads the System KB store through its shared reader (spec 084 T5).
@@ -49,3 +57,7 @@ native-tls = "0.2"
 tar        = "0.4"
 flate2     = { workspace = true }
 semver     = "1"
+
+[dev-dependencies]
+# The web build's tests read each program module's import section (WASM-002 AC4b).
+cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["scan"] }

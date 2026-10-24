@@ -70,6 +70,35 @@ impl ProjectKind {
             ProjectKind::Mobile => "mobileforms",
         }
     }
+
+    /// The extension of the kind's form files, without the dot (WASM-001 Q2):
+    /// one form model, three names, so the kind stays visible on disk.
+    pub fn form_extension(self) -> &'static str {
+        match self {
+            ProjectKind::Desktop => "cfrm",
+            ProjectKind::Web => "wcfrm",
+            ProjectKind::Mobile => "mcfrm",
+        }
+    }
+
+    /// The kind a form file's extension names, if it names one.
+    pub fn of_form_extension(ext: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.form_extension().eq_ignore_ascii_case(ext))
+    }
+}
+
+/// Every form file extension, Desktop's first (WASM-001 Q2).
+pub const FORM_EXTENSIONS: [&str; 3] = ["cfrm", "wcfrm", "mcfrm"];
+
+/// Is `ext` (without the dot, any case) the extension of a form file of any kind?
+/// The one test every reader uses instead of comparing with `"cfrm"` (plan D-T15a).
+pub fn is_form_extension(ext: &str) -> bool {
+    FORM_EXTENSIONS.iter().any(|e| e.eq_ignore_ascii_case(ext))
+}
+
+/// Is `path` a form file of any kind, judged by its extension?
+pub fn is_form_path(path: &std::path::Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(is_form_extension)
 }
 
 /// The folder of the Backend part of a Web or Mobile project (WASM-001 Q8).
@@ -215,6 +244,36 @@ fn yes() -> bool {
     true
 }
 
+/// The payload limit a project has unless it sets one (WASM-017 R8, D3):
+/// 384 KiB, the player's frame limit before the setting existed, so an older
+/// project behaves as it did.
+pub const DEFAULT_MAX_PAYLOAD_BYTES: u32 = 384 * 1024;
+
+fn default_max_payload() -> u32 {
+    DEFAULT_MAX_PAYLOAD_BYTES
+}
+
+fn is_default_max_payload(n: &u32) -> bool {
+    *n == DEFAULT_MAX_PAYLOAD_BYTES
+}
+
+/// How long a `CALL … WITH WEBSOCKET LINKAGE` waits for its answer unless the
+/// project says otherwise (WASM-005 R11): 60 s, the backend client's wait
+/// before the setting existed, so an older project behaves as it did.
+pub const DEFAULT_CALL_TIMEOUT_MS: u32 = 60_000;
+
+fn default_call_timeout() -> u32 {
+    DEFAULT_CALL_TIMEOUT_MS
+}
+
+fn is_default_call_timeout(n: &u32) -> bool {
+    *n == DEFAULT_CALL_TIMEOUT_MS
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
 /// The browsers a Web build promises to run in (WASM-002 R18): the loader
 /// probes the browser it finds against this matrix and the WebAssembly feature
 /// baseline. All on by default.
@@ -249,6 +308,37 @@ impl BrowserMatrix {
     /// (WASM-017 R9).
     pub fn includes_webkit(&self) -> bool {
         self.safari || self.ios_webview
+    }
+
+    /// The WebKit engines in the matrix, by name.
+    pub fn webkit_browsers(&self) -> Vec<&'static str> {
+        let mut v = Vec::new();
+        if self.safari {
+            v.push("Safari");
+        }
+        if self.ios_webview {
+            v.push("iOS web view");
+        }
+        v
+    }
+}
+
+/// Why a Web project's variants cannot be built (WASM-017 R9, AC7): "multi-
+/// memory only" was asked for while the matrix has WebKit engines, which run
+/// only the single-memory module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantProblem {
+    /// The WebKit browsers of the matrix (`Safari`, `iOS web view`).
+    pub browsers: Vec<&'static str>,
+}
+
+impl std::fmt::Display for VariantProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the single-memory fallback is off, but the target browsers include {}, which run only the single-memory module; turn the fallback on or remove them from the browsers",
+            self.browsers.join(", ")
+        )
     }
 }
 
@@ -288,6 +378,28 @@ pub struct WebSettings {
     /// loopback `ws://…` in development. Empty until the developer sets it.
     #[serde(default)]
     pub backend_url: String,
+    /// The player the Build copies (WASM-016 R11, Q6): absent = the one this
+    /// IDE ships; a version (`"2.0.0"`) pins an older player the IDE keeps.
+    /// Written only when set, so an existing manifest is saved unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<String>,
+    /// The largest text or JSON frame that crosses the boundary, in bytes
+    /// (WASM-017 R8, D3): the program module's transport-arena frame, the
+    /// player's frame limit and what the Backend is told to accept. Written
+    /// only when it is not the default.
+    #[serde(default = "default_max_payload", skip_serializing_if = "is_default_max_payload")]
+    pub max_payload_bytes: u32,
+    /// How long a remote call waits for the Backend's answer, in milliseconds
+    /// (WASM-005 R11); the client gives up with a transport timeout after it.
+    /// Written only when it is not the default.
+    #[serde(default = "default_call_timeout", skip_serializing_if = "is_default_call_timeout")]
+    pub call_timeout_ms: u32,
+    /// Carry the single-memory module beside the multi-memory one (WASM-017
+    /// R9, D5). On by default; off asks for "multi-memory only", which the
+    /// Build refuses while the matrix has a WebKit engine
+    /// ([`WebSettings::variant_problem`]). Written only when off.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub single_memory_fallback: bool,
 }
 
 impl Default for WebSettings {
@@ -298,20 +410,34 @@ impl Default for WebSettings {
             multi_memory: true,
             isolation: Isolation::default(),
             backend_url: String::new(),
+            player: None,
+            max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            call_timeout_ms: DEFAULT_CALL_TIMEOUT_MS,
+            single_memory_fallback: true,
         }
     }
 }
 
 impl WebSettings {
-    /// The program-module variants this Web build emits (WASM-017 R9): the
-    /// multi-memory module when asked for, **and** the single-memory one
-    /// whenever multi-memory is off or the matrix includes Safari or the iOS
-    /// web view — the loader then probes which to use.
+    /// The program-module variants this Web build emits (WASM-017 R9, D5):
+    /// the multi-memory module when asked for, **and** the single-memory one
+    /// unless "multi-memory only" was asked for (the fallback off) on a matrix
+    /// with no WebKit engine — the loader then probes which to use. With WebKit
+    /// in the matrix the single-memory module is never dropped silently:
+    /// [`WebSettings::variant_problem`] refuses the build instead.
     pub fn module_variants(&self) -> ModuleVariants {
         ModuleVariants {
             multi_memory: self.multi_memory,
-            single_memory: !self.multi_memory || self.browsers.includes_webkit(),
+            single_memory: !self.multi_memory || self.single_memory_fallback || self.browsers.includes_webkit(),
         }
+    }
+
+    /// Why Check and Build refuse these variants: "multi-memory only" (the
+    /// fallback off, multi-memory on) with Safari or the iOS web view in the
+    /// matrix (WASM-017 AC7).
+    pub fn variant_problem(&self) -> Option<VariantProblem> {
+        let browsers = self.browsers.webkit_browsers();
+        (self.multi_memory && !self.single_memory_fallback && !browsers.is_empty()).then_some(VariantProblem { browsers })
     }
 }
 
@@ -336,6 +462,15 @@ pub struct MobileSettings {
     pub multi_memory: bool,
     #[serde(default)]
     pub backend_url: String,
+    /// The player the Build copies, as [`WebSettings::player`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<String>,
+    /// The payload limit, as [`WebSettings::max_payload_bytes`].
+    #[serde(default = "default_max_payload", skip_serializing_if = "is_default_max_payload")]
+    pub max_payload_bytes: u32,
+    /// The remote-call wait, as [`WebSettings::call_timeout_ms`].
+    #[serde(default = "default_call_timeout", skip_serializing_if = "is_default_call_timeout")]
+    pub call_timeout_ms: u32,
 }
 
 fn auto() -> String {
@@ -357,6 +492,9 @@ impl MobileSettings {
             style: ApplicationStyle::default(),
             multi_memory: platform == MobilePlatform::Android,
             backend_url: String::new(),
+            player: None,
+            max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            call_timeout_ms: DEFAULT_CALL_TIMEOUT_MS,
         }
     }
 
@@ -372,12 +510,39 @@ impl MobileSettings {
 }
 
 /// `[backend]` — the Backend part of a Web or Mobile project (WASM-003 R1).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackendSettings {
-    /// The programs a remote caller can reach, by name. A program that is not
-    /// listed is unreachable from the channel, whatever its name.
-    #[serde(default)]
+    /// Retired as the list of exported programs (WASM-003 D5): that is
+    /// `backend/exports.toml`, which carries roles and `public` as well. Still
+    /// read, so an older manifest loads and the IDE can migrate it once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exports: Vec<String>,
+    /// `per-call` (the default: fresh `WORKING-STORAGE` at every call) or
+    /// `per-connection` (WASM-003 Q2). Written only when it is not the default,
+    /// so an existing manifest is saved unchanged.
+    #[serde(default = "per_call", skip_serializing_if = "is_per_call")]
+    pub state: String,
+}
+
+impl Default for BackendSettings {
+    fn default() -> Self {
+        BackendSettings { exports: Vec::new(), state: per_call() }
+    }
+}
+
+impl BackendSettings {
+    /// `state` as the server reads it; `Err` names the two values.
+    pub fn state_mode(&self) -> Result<cobolt_server::backend::StateMode, String> {
+        cobolt_server::backend::StateMode::parse(&self.state)
+    }
+}
+
+fn per_call() -> String {
+    cobolt_server::backend::StateMode::PER_CALL.to_owned()
+}
+
+fn is_per_call(state: &String) -> bool {
+    state.trim().is_empty() || state == cobolt_server::backend::StateMode::PER_CALL
 }
 
 /// `[desktop]` — the options of the Desktop templates the New Project dialog
@@ -461,6 +626,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn each_kind_has_its_own_form_extension_and_only_those_are_forms() {
+        for k in ProjectKind::ALL {
+            println!("{:<8} forms are .{}", k.as_str(), k.form_extension());
+            assert_eq!(ProjectKind::of_form_extension(k.form_extension()), Some(k));
+            assert!(FORM_EXTENSIONS.contains(&k.form_extension()));
+        }
+        assert_eq!(ProjectKind::Desktop.form_extension(), "cfrm");
+        assert_eq!(ProjectKind::Web.form_extension(), "wcfrm");
+        assert_eq!(ProjectKind::Mobile.form_extension(), "mcfrm");
+        for yes in ["cfrm", "wcfrm", "mcfrm", "WCFRM", "Cfrm"] {
+            assert!(is_form_extension(yes), "{yes} is a form extension");
+        }
+        for no in ["cfrmx", "frm", "", "cbl", ".cfrm"] {
+            assert!(!is_form_extension(no), "{no:?} is not a form extension");
+        }
+        assert!(is_form_path(std::path::Path::new("webforms/main-form.wcfrm")));
+        assert!(!is_form_path(std::path::Path::new("webforms/main-form")));
+    }
+
+    #[test]
     fn a_kind_round_trips_and_parses() {
         for k in ProjectKind::ALL {
             assert_eq!(ProjectKind::parse(k.as_str()), Some(k));
@@ -489,6 +674,57 @@ mod tests {
         assert_eq!(s.style, ApplicationStyle::Spa);
     }
 
+    /// WASM-016 R11: a project may pin an older player; a manifest without the
+    /// key reads as "the current one" and is written back without it.
+    #[test]
+    fn the_player_pin_is_optional_and_only_written_when_set() {
+        let old: WebSettings = toml::from_str("backend_url = \"wss://api.example.com/ws\"").unwrap();
+        assert_eq!(old.player, None);
+        assert!(!toml::to_string_pretty(&old).unwrap().contains("player"), "an old manifest is saved unchanged");
+        let pinned: WebSettings = toml::from_str("player = \"2.0.0\"").unwrap();
+        assert_eq!(pinned.player.as_deref(), Some("2.0.0"));
+        assert!(toml::to_string_pretty(&pinned).unwrap().contains("player = \"2.0.0\""));
+        let mobile: MobileSettings = toml::from_str("platform = \"android\"\ndevice = \"phone\"\nplayer = \"2.0.0\"").unwrap();
+        assert_eq!(mobile.player.as_deref(), Some("2.0.0"));
+        let unpinned: MobileSettings = toml::from_str("platform = \"ios\"\ndevice = \"tablet\"").unwrap();
+        assert_eq!(unpinned.player, None);
+    }
+
+    /// WASM-017 R8, D3: one payload limit; an old `[web]`/`[mobile]` table
+    /// reads 384 KiB and is written back without the key; a set value
+    /// round-trips.
+    #[test]
+    fn the_payload_limit_defaults_to_384_kib_and_is_written_only_when_set_017() {
+        let old: WebSettings = toml::from_str("backend_url = \"wss://api.example.com/ws\"").unwrap();
+        assert_eq!(old.max_payload_bytes, 384 * 1024);
+        assert!(!toml::to_string_pretty(&old).unwrap().contains("max_payload_bytes"), "an old manifest is saved unchanged");
+        let set: WebSettings = toml::from_str("max_payload_bytes = 524288").unwrap();
+        assert_eq!(set.max_payload_bytes, 512 * 1024);
+        assert!(toml::to_string_pretty(&set).unwrap().contains("max_payload_bytes = 524288"));
+        let mobile: MobileSettings = toml::from_str("platform = \"ios\"\ndevice = \"phone\"").unwrap();
+        assert_eq!(mobile.max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
+        assert_eq!(MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone).max_payload_bytes, DEFAULT_MAX_PAYLOAD_BYTES);
+        println!("payload limit: old table 393216, set 524288 round-trips, mobile default 393216");
+    }
+
+    /// WASM-005 R11: an old `[web]`/`[mobile]` table reads the 60 s remote-call
+    /// wait and is written back without the key; a set value round-trips.
+    #[test]
+    fn the_call_timeout_defaults_to_60_s_and_is_written_only_when_set_005() {
+        let old: WebSettings = toml::from_str("backend_url = \"wss://api.example.com/ws\"").unwrap();
+        assert_eq!(old.call_timeout_ms, 60_000);
+        assert!(!toml::to_string_pretty(&old).unwrap().contains("call_timeout_ms"), "an old manifest is saved unchanged");
+        let set: WebSettings = toml::from_str("call_timeout_ms = 15000").unwrap();
+        assert_eq!(set.call_timeout_ms, 15_000);
+        assert!(toml::to_string_pretty(&set).unwrap().contains("call_timeout_ms = 15000"));
+        let mobile: MobileSettings = toml::from_str("platform = \"android\"\ndevice = \"tablet\"").unwrap();
+        assert_eq!(mobile.call_timeout_ms, DEFAULT_CALL_TIMEOUT_MS);
+        assert_eq!(MobileSettings::new(MobilePlatform::Ios, DeviceClass::Phone).call_timeout_ms, DEFAULT_CALL_TIMEOUT_MS);
+        let set: MobileSettings = toml::from_str("platform = \"ios\"\ndevice = \"phone\"\ncall_timeout_ms = 5000").unwrap();
+        assert_eq!(set.call_timeout_ms, 5_000);
+        println!("call timeout: old table 60000, set 15000 round-trips, mobile default 60000, mobile set 5000");
+    }
+
     #[test]
     fn web_settings_round_trip_through_toml() {
         let mut s = WebSettings::default();
@@ -514,11 +750,48 @@ mod tests {
         let mut chromium_only = WebSettings::default();
         chromium_only.browsers = BrowserMatrix { chromium: true, firefox: true, safari: false, ios_webview: false, android_webview: true };
         let v = chromium_only.module_variants();
-        assert_eq!((v.multi_memory, v.single_memory), (true, false), "no WebKit engine: multi-memory only");
+        assert_eq!((v.multi_memory, v.single_memory), (true, true), "no WebKit engine, fallback on (the default): both");
+        chromium_only.single_memory_fallback = false;
+        let v = chromium_only.module_variants();
+        assert_eq!((v.multi_memory, v.single_memory), (true, false), "fallback off, no WebKit: multi-memory only");
+        assert_eq!(chromium_only.variant_problem(), None);
 
         chromium_only.multi_memory = false;
         let v = chromium_only.module_variants();
         assert_eq!((v.multi_memory, v.single_memory), (false, true), "multi-memory off: single only");
+    }
+
+    /// WASM-017 AC7, D5: "multi-memory only" is the fallback turned off; with
+    /// Safari or the iOS web view in the matrix it is refused naming them,
+    /// never dropped silently; an old table reads the fallback on and is
+    /// written back without the key.
+    #[test]
+    fn multi_memory_only_is_refused_while_webkit_is_in_the_matrix_017() {
+        let old: WebSettings = toml::from_str("multi_memory = true").unwrap();
+        assert!(old.single_memory_fallback, "an old table reads the fallback on");
+        assert!(!toml::to_string_pretty(&old).unwrap().contains("single_memory_fallback"));
+        let v = old.module_variants();
+        assert_eq!((v.multi_memory, v.single_memory), (true, true), "default Web: both");
+        assert_eq!(old.variant_problem(), None);
+
+        let mut off = WebSettings { single_memory_fallback: false, ..WebSettings::default() };
+        assert!(toml::to_string_pretty(&off).unwrap().contains("single_memory_fallback = false"));
+        let p = off.variant_problem().expect("refused with WebKit in the matrix");
+        assert_eq!(p.browsers, ["Safari", "iOS web view"]);
+        assert!(p.to_string().contains("Safari, iOS web view"), "{p}");
+        off.browsers.ios_webview = false;
+        assert_eq!(off.variant_problem().unwrap().browsers, ["Safari"]);
+        off.browsers.safari = false;
+        assert_eq!(off.variant_problem(), None);
+        let v = off.module_variants();
+        assert_eq!((v.multi_memory, v.single_memory), (true, false), "fallback off without WebKit: multi only");
+        off.multi_memory = false;
+        off.browsers.safari = true;
+        assert_eq!(off.variant_problem(), None, "multi-memory off is the single module, never refused");
+
+        let ios = MobileSettings::new(MobilePlatform::Ios, DeviceClass::Phone).module_variants();
+        assert_eq!((ios.multi_memory, ios.single_memory), (false, true), "iOS: single only by default");
+        println!("AC7: default both; fallback off + Safari/iOS refused naming them; off without WebKit multi only; iOS single only");
     }
 
     /// WASM-017 R9: an iOS build starts with multi-memory off and always carries the single-memory module.
@@ -599,5 +872,32 @@ mod tests {
             Some(BackendUrlProblem::PlainNotLoopback),
             "userinfo does not make a host loopback"
         );
+    }
+
+    /// WASM-003 T3 (Q2): `[backend] state` — absent is `per-call`, `per-connection`
+    /// survives a save, the default is not written, any other word is refused
+    /// naming the two values; the old `exports` list still loads.
+    #[test]
+    fn backend_state_round_trips_and_refuses_an_unknown_word() {
+        #[derive(Serialize, Deserialize)]
+        struct T {
+            backend: BackendSettings,
+        }
+        let absent: T = toml::from_str("[backend]\nexports = [\"HEALTH\"]\n").unwrap();
+        assert_eq!(absent.backend.state, "per-call");
+        assert_eq!(absent.backend.exports, ["HEALTH"], "an older manifest still loads");
+        assert_eq!(absent.backend.state_mode(), Ok(cobolt_server::backend::StateMode::PerCall));
+        let saved = toml::to_string(&absent).unwrap();
+        assert!(!saved.contains("state"), "the default is not written: {saved}");
+
+        let kept: T = toml::from_str("[backend]\nstate = \"per-connection\"\n").unwrap();
+        let saved = toml::to_string(&kept).unwrap();
+        let again: T = toml::from_str(&saved).unwrap();
+        assert_eq!(again.backend.state_mode(), Ok(cobolt_server::backend::StateMode::PerConnection), "{saved}");
+
+        let wrong: T = toml::from_str("[backend]\nstate = \"session\"\n").unwrap();
+        let e = wrong.backend.state_mode().unwrap_err();
+        assert!(e.contains("\"session\"") && e.contains("per-call") && e.contains("per-connection"), "{e}");
+        println!("absent → per-call (not written back); per-connection → {:?}; \"session\" → {e}", saved.trim());
     }
 }

@@ -25,6 +25,10 @@ pub mod op {
     pub const ERROR: u8 = 0x04;
     /// Diagnostic output.
     pub const LOG: u8 = 0x05;
+    /// Assign a property named by text, not by a names-table id (A14).
+    pub const SET_NAMED: u8 = 0x06;
+    /// Queue an event of a control, as the control would raise it (A14).
+    pub const RAISE: u8 = 0x07;
     /// First and last opcode of the queries.
     pub const QUERY_FIRST: u8 = 0x10;
     pub const QUERY_LAST: u8 = 0x1F;
@@ -121,8 +125,9 @@ pub const REQUIRED_EXPORTS: &[&str] = &[
 ];
 
 /// Optional diagnostics exports (§4): a production host ignores them; the
-/// disposal test (WASM-017 R20) reads them.
-pub const DEBUG_EXPORTS: &[&str] = &["pr_dbg_live", "pr_dbg_region_used"];
+/// disposal test (WASM-017 R20) reads the first two; `pr_line` is the global
+/// `$line` of §10 (A10).
+pub const DEBUG_EXPORTS: &[&str] = &["pr_dbg_live", "pr_dbg_region_used", "pr_line"];
 
 /// The decoded form of a `pr_event`/`pr_resume`/`pr_status` return value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

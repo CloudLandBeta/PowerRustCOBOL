@@ -50,11 +50,11 @@ pub fn run<H: ProjectHost>(host: &mut H, root: &ProjectRoot, path: Option<&str>)
     let mut written: Vec<PathBuf> = Vec::new();
     for abs in &targets {
         match ext(abs).as_str() {
-            "cfrm" => written.push(write_form(host, root, &view.generated, abs)?),
+            e if cobolt_compiler::project_kind::is_form_extension(e) => written.push(write_form(host, root, &view.generated, abs)?),
             "cidx" => written.extend(write_indexed(host, root, &view.generated, abs)?),
             _ => {
                 return Err(format!(
-                    "'{}' is not a form (.cfrm) or an indexed definition (.cidx)",
+                    "'{}' is not a form (.cfrm, .wcfrm or .mcfrm) or an indexed definition (.cidx)",
                     root.relative(abs).unwrap_or_default()
                 ))
             }

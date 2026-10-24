@@ -167,10 +167,15 @@ struct Call {
 
 impl Call {
     fn read(base: u32, rec: u32) -> Call {
-        let argc = mem::rd_u32(rec + 4) as usize;
-        if argc > MAX_ARGS {
+        let declared = mem::rd_u32(rec + 4) as usize;
+        if declared > MAX_ARGS {
             crate::fail(err::BAD_OPERAND);
         }
+        // An `ALL` over a variable-length table: the generator laid out every
+        // element up to the maximum and set the count the table has now.
+        let s = crate::state::st();
+        let live = core::mem::replace(&mut s.func_argc, u32::MAX);
+        let argc = if live == u32::MAX { declared } else { (live as usize).min(declared) };
         Call { base, rec, argc, decimal_comma: mem::rd_u32(rec + 8) & 1 != 0, currency: mem::rd_u32(rec + 12) as u8 }
     }
     fn addr(&self, i: usize) -> u32 {
@@ -861,6 +866,28 @@ pub fn ctemp_number(k: u32) -> Option<Val> {
     }
     let (at, len) = ctemp_loc(k as u32);
     crate::codec::parse_text(mem::bytes(at, len)).map(Val::Dec)
+}
+
+/// Widen character temporary `k` to `CTEMP_SIZE` bytes: its text, then spaces.
+/// It is no longer a number the host spelt.
+pub fn ctemp_widen(k: u32) {
+    let k = (k as usize) % NCTEMP;
+    let (at, len) = ctemp_loc(k as u32);
+    mem::fill(at + len, CTEMP_SIZE - len, b' ');
+    st().ctemp_len[k] = CTEMP_SIZE;
+    st().ctemp_dynamic &= !(1 << k);
+}
+
+/// Shorten character temporary `k` to its text without trailing spaces.
+pub fn ctemp_rtrim(k: u32) {
+    let k = (k as usize) % NCTEMP;
+    let (at, len) = ctemp_loc(k as u32);
+    let b = mem::bytes(at, len);
+    let mut n = len as usize;
+    while n > 0 && b[n - 1] == b' ' {
+        n -= 1;
+    }
+    st().ctemp_len[k] = n as u32;
 }
 
 /// The location a `T_CTEMP` operand names.

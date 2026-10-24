@@ -60,6 +60,10 @@ fn the_loader_the_player_and_the_program_run_together_under_node() {
         println!("  {name}: {m}");
     }
     assert!(failed.is_empty(), "failed scenarios:\n{}", failed.join("\n"));
-    // Four (variant x mode) cores plus the probing, choosing, isolation, baseline, integrity, ABI and loading scenarios.
-    assert!(passed >= 13, "only {passed} scenarios ran");
+    // The test bundle's player carries the hook: the forced panic really ran (WASM-017 T9).
+    let panic = report["metrics"].as_object().unwrap().iter().find(|(n, _)| n.starts_with("panic:")).map(|(_, m)| m.clone()).expect("the panic scenario reported");
+    assert_eq!(panic["events"], 1, "the forced panic ran on the test bundle: {panic}");
+    // Four (variant x mode) cores plus the probing, choosing, isolation, baseline, integrity, ABI and loading scenarios,
+    // the parts, the hosted sign-in return and the forced panic (WASM-017 T9).
+    assert!(passed >= 15, "only {passed} scenarios ran");
 }

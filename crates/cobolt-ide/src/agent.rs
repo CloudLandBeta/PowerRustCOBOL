@@ -737,6 +737,8 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
             | "docktoopener"
             | "dockgap"
             | "docklength"
+            // WASM-017 R2 — copies of a Web/Mobile form a browser module holds
+            | "instances"
             // 051 R19/R28 — how this form looks while blocked by its own modal child
             | "modaloverlaystyle"
             // 038 window effects opt-out

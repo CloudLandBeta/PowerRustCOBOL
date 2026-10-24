@@ -10,12 +10,15 @@ pub mod collate;
 pub mod error;
 pub mod image;
 pub mod ir;
+pub mod json_layout;
 pub mod layout;
 pub mod link;
 pub mod lower;
 pub mod lower_call;
 pub mod lower_form;
+pub mod lower_idx;
 pub mod lower_more;
+pub mod lower_remote;
 pub mod pic;
 pub mod pool;
 pub mod module;
@@ -25,4 +28,5 @@ pub mod support;
 #[cfg(feature = "host")]
 pub mod host;
 
-pub use module::{compile_program, Compiled, Options};
+pub use error::{ErrorKind, GenError, GenWarning, WarningKind};
+pub use module::{compile_program, compile_web_project, Compiled, Options, WebModules};

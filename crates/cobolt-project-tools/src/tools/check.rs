@@ -119,13 +119,51 @@ pub fn check_project<H: ProjectHost>(host: &H, root: &ProjectRoot) -> Result<Rep
     for rel in &view.backend {
         check_source(root, rel, &crates, &mut report);
     }
+    // `[backend] state` is one of two spellings (WASM-003 Q2).
+    if let Err(e) = view.backend_state_mode() {
+        report.findings.push(Finding::at(&root.manifest_name(), Severity::Error, e));
+    }
     // Exactly one main form (spec 037).
     if let Err(e) = cobolt_compiler::main_form_guard::read_designation(root.dir(), &view.forms) {
         report
             .findings
             .push(Finding::at(&root.manifest_name(), Severity::Error, e));
     }
+    // A Web or Mobile project: what a browser cannot run is an error at its
+    // line (WASM-002 R3), refused by the generator the Build runs. A form that
+    // cannot be read was reported above; a program without the generator
+    // linked checks the rest as before.
+    if !view.kind.is_desktop() {
+        if let Ok(req) = crate::web::WebBuildRequest::from_manifest(root.manifest()) {
+            if let Err(crate::web::WebBuildError::Refused(lines)) =
+                crate::web::backend().check(&req)
+            {
+                report.findings.extend(lines.iter().map(web_finding));
+            }
+        }
+    }
     Ok(report)
+}
+
+/// A refusal of the web build as a finding: `webforms/a.wcfrm (A ▸ BTN ▸ onClick):8`
+/// gives the file, the code site, the form and the line.
+fn web_finding(d: &crate::web::WebDiagnostic) -> Finding {
+    let (place, line) = match d.location.rsplit_once(':') {
+        Some((p, n)) if n.parse::<u32>().is_ok() => (p, n.parse().unwrap_or(0)),
+        _ => (d.location.as_str(), 0),
+    };
+    let (file, site) = match place.split_once(" (") {
+        Some((f, s)) => (f, s.strip_suffix(')').map(str::to_owned)),
+        None => (place, None),
+    };
+    let mut f = Finding::at(file, Severity::Error, d.message.clone());
+    f.line = line;
+    f.form = site
+        .as_deref()
+        .and_then(|s| s.split(" ▸ ").next())
+        .map(str::to_owned);
+    f.site = site;
+    f
 }
 
 /// One file, chosen by its extension.
@@ -139,7 +177,7 @@ pub fn check_one<H: ProjectHost>(host: &H, root: &ProjectRoot, rel: &str) -> Res
     let crates = host.external_crates();
     let mut report = Report::default();
     match ext(&rel).as_str() {
-        "cfrm" => check_form(root, &view, &rel, &crates, &mut report),
+        e if cobolt_compiler::project_kind::is_form_extension(e) => check_form(root, &view, &rel, &crates, &mut report),
         "cidx" => check_indexed(root, &rel, &mut report),
         "cbl" | "cob" | "cpy" => check_source(root, &rel, &crates, &mut report),
         _ => return Err(format!("'{rel}' is not a form, an indexed definition or COBOL source")),
@@ -169,6 +207,9 @@ fn check_form(
         return;
     };
     report.forms += 1;
+    if let Some(w) = form_name_mismatch(rel, view.kind) {
+        report.findings.push(Finding::at(rel, Severity::Warning, w));
+    }
     let form = match cobolt_forms::load_form(&abs) {
         Ok(f) => f,
         Err(e) => {
@@ -225,6 +266,24 @@ fn check_form(
         finding.form = Some(form.name.clone());
         report.findings.push(finding);
     }
+}
+
+/// WASM-001 Q2, plan D-T15b/c: a form whose file name belongs to another kind
+/// (a `.cfrm` made by 2.0.x in a Web project, a `.wcfrm` copied into a Desktop
+/// one) still loads and is checked; this warning says so. Nothing is renamed.
+fn form_name_mismatch(rel: &str, kind: cobolt_compiler::ProjectKind) -> Option<String> {
+    let path = Path::new(rel);
+    let named = cobolt_compiler::ProjectKind::of_form_extension(path.extension()?.to_str()?)?;
+    if named == kind {
+        return None;
+    }
+    let stem = path.file_stem()?.to_string_lossy();
+    Some(format!(
+        "'{rel}' is a {} form file name in a {} project; rename it to {stem}.{} (the form loads as it is)",
+        named.as_str(),
+        kind.as_str(),
+        kind.form_extension()
+    ))
 }
 
 fn check_indexed(root: &ProjectRoot, rel: &str, report: &mut Report) {

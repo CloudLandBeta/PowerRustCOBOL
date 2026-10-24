@@ -28,10 +28,152 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cobolt_ast::program::{DataSection, Program};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use cobolt_wire::contract::{Deprecation, Direction, InterfaceDescription, Param, ProgramSig};
 use cobolt_wire::layout::from_decl;
+
+/// Whether a call's `WORKING-STORAGE` outlives it — the project's `[backend]
+/// state` (WASM-003 Q2, decided by the operator 2026-10-22: a project property,
+/// fresh per call by default).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum StateMode {
+    /// Every call starts with fresh `WORKING-STORAGE`.
+    #[default]
+    PerCall,
+    /// A connection keeps one run unit per exported program it has called;
+    /// its calls take turns, and it ends with the connection.
+    PerConnection,
+}
+
+impl StateMode {
+    pub const PER_CALL: &'static str = "per-call";
+    pub const PER_CONNECTION: &'static str = "per-connection";
+
+    /// The manifest's spelling; an empty value is the default.
+    pub fn parse(text: &str) -> Result<StateMode, String> {
+        match text.trim() {
+            "" | Self::PER_CALL => Ok(StateMode::PerCall),
+            Self::PER_CONNECTION => Ok(StateMode::PerConnection),
+            other => Err(format!(
+                "[backend] state \"{other}\" is not one of \"{}\" (fresh WORKING-STORAGE at every call, the default) or \"{}\" (kept for the connection)",
+                Self::PER_CALL,
+                Self::PER_CONNECTION
+            )),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StateMode::PerCall => Self::PER_CALL,
+            StateMode::PerConnection => Self::PER_CONNECTION,
+        }
+    }
+}
+
+/// The names `backend_dir` exports, in file order — the developer's
+/// `exports.toml`, then the Build's `generated/exports.toml`; empty when they
+/// cannot be read.
+pub fn exported_names(backend_dir: &Path) -> Vec<String> {
+    read_exports(backend_dir).map(|(_, f)| f.exports.into_iter().map(|e| e.program).collect()).unwrap_or_default()
+}
+
+/// The folder, under `backend/`, where the Build writes the programs of a web
+/// form's data controls and their `exports.toml` (WASM-005 R16): the Build's,
+/// never the developer's, which is why it is read beside `exports.toml` and
+/// `src/` rather than merged into them.
+pub const GENERATED_DIR: &str = "generated";
+
+/// `generated/exports.toml`: `[[export]]` entries only — the contract version
+/// is the developer's.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GeneratedExports {
+    #[serde(default, rename = "export")]
+    exports: Vec<ExportDecl>,
+    #[serde(default, rename = "slot")]
+    slots: Vec<SlotDecl>,
+}
+
+/// The exports of `dir` as one declaration, and its text: `exports.toml`, with
+/// the entries of `generated/exports.toml` after it when that file exists. A
+/// program both files export is an error naming it. The text is what a packed
+/// backend carries, so a built backend reads exactly what `load` read.
+pub fn read_exports(dir: &Path) -> Result<(String, ExportsFile), Vec<String>> {
+    let path = dir.join("exports.toml");
+    let mut text = std::fs::read_to_string(&path).map_err(|e| vec![format!("{}: {e}", path.display())])?;
+    let mine = ExportsFile::from_toml(&text).map_err(|e| vec![e])?;
+    // A seeded control is the Build's to declare, from a form: a hand-written
+    // program creates no typed object of its own.
+    let declared: Vec<String> = mine
+        .exports
+        .iter()
+        .filter(|e| e.control.is_some())
+        .map(|e| {
+            format!(
+                "exports.toml: export {} declares a control; only the Build's {GENERATED_DIR}/exports.toml does",
+                e.program.to_ascii_uppercase()
+            )
+        })
+        .collect();
+    if !declared.is_empty() {
+        return Err(declared);
+    }
+    if !mine.slots.is_empty() {
+        return Err(vec![format!(
+            "exports.toml declares an upload slot; a deployment's slots are backend.toml's [files] slots, a form's the Build's {GENERATED_DIR}/exports.toml"
+        )]);
+    }
+    let gen_path = dir.join(GENERATED_DIR).join("exports.toml");
+    let Ok(gen_text) = std::fs::read_to_string(&gen_path) else {
+        return Ok((text, mine));
+    };
+    let generated: GeneratedExports =
+        toml::from_str(&gen_text).map_err(|e| vec![format!("{GENERATED_DIR}/exports.toml: {e}")])?;
+    let clashes: Vec<String> = generated
+        .exports
+        .iter()
+        .filter(|g| mine.exports.iter().any(|m| m.program.eq_ignore_ascii_case(&g.program)))
+        .map(|g| {
+            format!(
+                "exports.toml: {} is exported by exports.toml and by the Build's {GENERATED_DIR}/exports.toml; rename the program in backend/src",
+                g.program.to_ascii_uppercase()
+            )
+        })
+        .collect();
+    if !clashes.is_empty() {
+        return Err(clashes);
+    }
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push('\n');
+    text.push_str(&gen_text);
+    let merged = ExportsFile::from_toml(&text).map_err(|e| vec![e])?;
+    Ok((text, merged))
+}
+
+/// The programs of `dir`: `src/*.cbl`, then the Build's `generated/*.cbl`
+/// (free format, as every generated program). A generated program whose
+/// PROGRAM-ID a program of `src` also has is an error naming both.
+pub fn load_all_programs(dir: &Path, errs: &mut Vec<String>) -> Vec<Program> {
+    let mut programs = load_programs(&dir.join("src"), errs);
+    let generated_dir = dir.join(GENERATED_DIR);
+    if generated_dir.is_dir() {
+        for p in load_programs_as(&generated_dir, Some(cobolt_lexer::SourceFormat::Free), errs) {
+            let id = &p.identification.program_id;
+            if programs.iter().any(|q| q.identification.program_id.eq_ignore_ascii_case(id)) {
+                errs.push(format!(
+                    "backend/src has a program with the PROGRAM-ID {} of a program the Build generated in {GENERATED_DIR}/; rename it",
+                    id.to_ascii_uppercase()
+                ));
+                continue;
+            }
+            programs.push(p);
+        }
+    }
+    programs
+}
 
 /// The `[[export]]` entries of `exports.toml`.
 #[derive(Debug, Clone, Deserialize)]
@@ -56,6 +198,47 @@ pub struct ExportDecl {
     pub directions: Vec<String>,
     #[serde(default)]
     pub deprecated: Option<DeprecatedDecl>,
+    /// The control a generated program calls a method on (WASM-005 T11):
+    /// only the Build's `generated/exports.toml` declares one.
+    #[serde(default)]
+    pub control: Option<ControlDecl>,
+}
+
+/// An upload slot of a web form's FileDropZone or Viewer (WASM-005 T12, R15): what the
+/// control takes — its `AllowedExtensions`, its `MaximumFileSizeKB` — so the
+/// backend refuses on its own what the control would refuse. The backend names
+/// the stored files, as for every slot.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SlotDecl {
+    pub name: String,
+    /// File name extensions, without the dot; empty: any.
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    /// The largest file, bytes; none: the backend's own limit only.
+    #[serde(default)]
+    pub max_bytes: Option<u64>,
+    /// Who may upload; empty: any authenticated caller.
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
+/// A control the backend seeds before a generated program runs (WASM-005 T11,
+/// operator 2026-10-24, point 2): a program cannot create a typed object, so
+/// the Build declares it here — its class, its design-time properties and the
+/// name of the `[[configuration]]` of `backend.toml` laid over them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlDecl {
+    /// The control's name, as the program calls it.
+    pub id: String,
+    /// The control type, which routes its methods (`RestClient`).
+    pub class: String,
+    /// The configuration whose values are laid over the properties; empty: none.
+    #[serde(default)]
+    pub configuration: String,
+    #[serde(default)]
+    pub properties: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,6 +260,10 @@ pub struct ExportsFile {
     pub contract: ContractDecl,
     #[serde(default, rename = "export")]
     pub exports: Vec<ExportDecl>,
+    /// The upload slots of web forms' FileDropZones and Viewers (WASM-005 T12): only the
+    /// Build's `generated/exports.toml` declares one.
+    #[serde(default, rename = "slot")]
+    pub slots: Vec<SlotDecl>,
 }
 
 impl ExportsFile {
@@ -115,6 +302,8 @@ pub struct ExportedProgram {
     /// The names of the `USING` parameters, in order.
     pub params: Vec<String>,
     pub returning: Option<String>,
+    /// The control the backend seeds before the program runs (WASM-005 T11).
+    pub control: Option<ControlDecl>,
 }
 
 /// Everything the server runs.
@@ -123,6 +312,10 @@ pub struct Backend {
     /// Released contracts, oldest first (for answering older clients, WASM-014 R4).
     pub history: Vec<InterfaceDescription>,
     exports: HashMap<String, Arc<ExportedProgram>>,
+    /// Whether `WORKING-STORAGE` outlives a call (the project's `[backend] state`).
+    pub state: StateMode,
+    /// The upload slots of the web forms' FileDropZones and Viewers (WASM-005 T12).
+    pub slots: Vec<SlotDecl>,
 }
 
 impl Backend {
@@ -227,7 +420,13 @@ impl Backend {
             interface.programs.push(sig.clone());
             map.insert(
                 name.clone(),
-                Arc::new(ExportedProgram { sig, program: top, params: params_names, returning: prog.procedure.returning.clone() }),
+                Arc::new(ExportedProgram {
+                    sig,
+                    program: top,
+                    params: params_names,
+                    returning: prog.procedure.returning.clone(),
+                    control: decl.control.clone(),
+                }),
             );
         }
         let _ = exported_names;
@@ -235,17 +434,17 @@ impl Backend {
             return Err(errs);
         }
         interface.programs.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(Backend { interface, history, exports: map })
+        Ok(Backend { interface, history, exports: map, state: StateMode::default(), slots: exports.slots.clone() })
     }
 
-    /// Read a backend folder: `exports.toml`, `src/*.cbl`, the released
+    /// Read a backend folder: `exports.toml`, `src/*.cbl`, the Build's
+    /// `generated/` programs and exports when there are any, the released
     /// interfaces. Every program is parsed and analysed; the diagnostics of all
     /// of them are reported together.
     pub fn load(dir: &Path) -> Result<Backend, Vec<String>> {
-        let exports_text = std::fs::read_to_string(dir.join("exports.toml")).map_err(|e| vec![format!("{}: {e}", dir.join("exports.toml").display())])?;
-        let exports = ExportsFile::from_toml(&exports_text).map_err(|e| vec![e])?;
+        let (_, exports) = read_exports(dir)?;
         let mut errs = Vec::new();
-        let programs = load_programs(&dir.join("src"), &mut errs);
+        let programs = load_all_programs(dir, &mut errs);
         let history = load_history(&dir.join("contract").join("released"), &mut errs);
         if !errs.is_empty() {
             return Err(errs);
@@ -269,6 +468,12 @@ pub fn source_format(source: &str) -> cobolt_lexer::SourceFormat {
 
 /// Parse and analyse every `*.cbl` / `*.cob` under `src`.
 pub fn load_programs(src: &Path, errs: &mut Vec<String>) -> Vec<Program> {
+    load_programs_as(src, None, errs)
+}
+
+/// [`load_programs`], in `format` when given, else each file's own
+/// ([`source_format`]).
+fn load_programs_as(src: &Path, format: Option<cobolt_lexer::SourceFormat>, errs: &mut Vec<String>) -> Vec<Program> {
     let mut files: Vec<PathBuf> = match std::fs::read_dir(src) {
         Ok(rd) => rd
             .filter_map(|e| e.ok().map(|e| e.path()))
@@ -289,7 +494,7 @@ pub fn load_programs(src: &Path, errs: &mut Vec<String>) -> Vec<Program> {
                 continue;
             }
         };
-        match parse_program(&text, &f) {
+        match parse_program_as(&text, &f, format.unwrap_or_else(|| source_format(&text))) {
             Ok(p) => programs.push(p),
             Err(mut e) => errs.append(&mut e),
         }
@@ -299,7 +504,11 @@ pub fn load_programs(src: &Path, errs: &mut Vec<String>) -> Vec<Program> {
 
 /// Lex (with COPY expanded), parse and analyse one source.
 pub fn parse_program(text: &str, path: &Path) -> Result<Program, Vec<String>> {
-    let format = source_format(text);
+    parse_program_as(text, path, source_format(text))
+}
+
+/// [`parse_program`] in a given source format.
+pub fn parse_program_as(text: &str, path: &Path, format: cobolt_lexer::SourceFormat) -> Result<Program, Vec<String>> {
     let tokens = match cobolt_lexer::preprocess_program(text, path, format) {
         Some(exp) => {
             if !exp.errors.is_empty() {

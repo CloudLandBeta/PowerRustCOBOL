@@ -250,10 +250,10 @@ the Rayon DataGrid sort, parts on first use, and the operator's look at the refe
 
 ## 8. Open questions
 
-- **Q-P1 — `cargo-leptos` for the player (to confirm).** Working assumption: the player is built by `build_player` with `cargo`,
+- **Q-P1 — `cargo-leptos` for the player — decided by the operator (2026-10-23): no.** As the working assumption below: the player is built by `build_player` with `cargo`,
   the pinned `wasm-bindgen` CLI and `wasm-opt`; `cargo-leptos` builds the server (WASM-003 R2). Confirm, or require `cargo-leptos`
   for the player as well.
-- **Q-P2 — Which older players the IDE keeps (to confirm).** Working assumption: every player released on a `2.x.0` version, plus
+- **Q-P2 — Which older players the IDE keeps — decided by the operator (2026-10-23): the working assumption.** every player released on a `2.x.0` version, plus
   the last `z` of the previous minor; a pin to a version not kept fails the Build with the list of kept versions.
 - **Spec questions:** Q1–Q6 are all decided; none is left open in the spec. WASM-017 Q5 (isolation on the mobile shell) is still
   **not answered** and bears on R13c for Mobile: until it is, the Mobile kind is assumed to run the plain player.

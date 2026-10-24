@@ -45,17 +45,6 @@ members = [
 exclude = ["crates/cobolt-web-player"]
 resolver = "2"
 
-# WASM-010 — the conformance host runs generated modules in the wasmi
-# interpreter; unoptimised it is slow enough to time the NIST harness out.
-[profile.dev.package.wasmi]
-opt-level = 1
-[profile.dev.package.wasmi_core]
-opt-level = 1
-[profile.dev.package.wasmi_ir]
-opt-level = 1
-[profile.dev.package.wasmi_collections]
-opt-level = 1
-
 # ── Shared package metadata ────────────────────────────────────────────────────
 [workspace.package]
 version      = "0.2.0"
@@ -99,6 +88,18 @@ flate2  = "1"
 
 # Run Form inspector — cross-platform process/system metrics (CPU%, RSS, children)
 sysinfo = "0.31"
+
+# WASM-003 R2 — the backend's HTTP front is built on Leptos's server integration.
+# Server side only (`ssr`): no client crate, no hydration. `leptos_axum` keeps its
+# defaults: they are its tokio executor and server-function service (`server_fn/axum`),
+# which the front runs on (WASM-003 T10a).
+# Guarded by crates/cobolt-server/tests/dependency_guards.rs (no ring/aws-lc/rustls/openssl).
+leptos        = { version = "0.8", default-features = false, features = ["ssr"] }
+leptos_axum   = { version = "0.8" }
+leptos_router = { version = "0.8", default-features = false, features = ["ssr"] }
+axum        = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+hyper       = { version = "1", default-features = false, features = ["http1", "server"] }
+hyper-util  = { version = "0.1", default-features = false, features = ["tokio", "service"] }
 
 # Dev / test utilities
 pretty_assertions = "1"

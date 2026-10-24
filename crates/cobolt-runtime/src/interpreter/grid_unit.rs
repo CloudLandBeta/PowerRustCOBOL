@@ -35,7 +35,11 @@
 use std::collections::{BTreeMap, HashSet};
 
 use cobolt_indexed::{encode_field_display, format_field_display, IndexedDefinition, IndexedField};
+use cobolt_wire::controls::MAX_CHANGES;
+use cobolt_wire::error::{codes, CallError, ErrorClass};
+use serde_json::{json, Value};
 
+use super::remote_binding::text_of;
 use super::grid_edit::{
     file_status, is_plain_name, names, sql_literal, CommitError, LoadedRow, PendingEdit, CONFLICT, IO_ERROR,
     KEY_CHANGED, NOT_FOUND, NOT_WRITABLE, OK, REJECTED,
@@ -57,6 +61,9 @@ pub(super) enum Kind {
     Indexed,
     Table,
     Sql,
+    /// The backend holds the source (WASM-005 R13): an indexed file or a SQL
+    /// table a web form's grid reaches through its generated endpoints.
+    Remote,
 }
 
 /// A bound grid's source, read once: the kind, the field behind each column and
@@ -183,6 +190,33 @@ impl Interpreter {
     /// The source the grid writes to, or why it has none.
     pub(super) fn grid_source(&self, grid: &str) -> Result<Source, CommitError> {
         let kind = self.obj_get(grid, "_BindingKind");
+        // WASM-005 R13: the backend holds a remote grid's source. The seeds carry
+        // what a save's plan needs — the fields behind the columns and the keys
+        // — so neither the `.cidx` nor a connection is read here.
+        if self.binding_is_remote(grid) {
+            let fields = names(&self.obj_get(grid, "_BindingFields"));
+            if fields.is_empty() {
+                return Err(CommitError::new(NOT_WRITABLE, "the remote binding names no fields"));
+            }
+            // The keys of an indexed file are its `.cidx` primary key, every part
+            // of it, as the desktop arm below and the generated SAVE take them (a
+            // binding records at most one key field, and the Designer may record
+            // none); the binding's own key fields stand in when the definition
+            // cannot be read, and are the keys of a SQL source.
+            let mut keys = names(&self.obj_get(grid, "_BindingKeyFields"));
+            if kind.trim().eq_ignore_ascii_case("indexedfile") {
+                let def_path = self.obj_get(grid, "_BindingIndexedPath");
+                if !def_path.trim().is_empty() {
+                    if let Ok(def) = cobolt_indexed::load_indexed(&cobolt_forms::assets::resolve(def_path.trim())) {
+                        let primary: Vec<String> = def.keys.primary.parts.iter().map(|part| part.field_name.clone()).collect();
+                        if !primary.is_empty() {
+                            keys = primary;
+                        }
+                    }
+                }
+            }
+            return Ok(Self::source_of(Kind::Remote, fields, keys, None));
+        }
         let (kind, fields, keys, def) = match kind.trim().to_ascii_lowercase().as_str() {
             "indexedfile" => {
                 let def_path = self.obj_get(grid, "_BindingIndexedPath");
@@ -211,6 +245,12 @@ impl Interpreter {
             "coboltable" => (Kind::Table, names(&self.obj_get(grid, "_BindingFields")), Vec::new(), None),
             _ => return Err(CommitError::new(NOT_WRITABLE, "the grid is not bound to a source that can be written")),
         };
+        Ok(Self::source_of(kind, fields, keys, def))
+    }
+
+    /// A [`Source`] from its parts: which grid column each key is shown in, and
+    /// the first key that is not shown.
+    fn source_of(kind: Kind, fields: Vec<String>, keys: Vec<String>, def: Option<IndexedDefinition>) -> Source {
         let mut key_cols = Vec::new();
         let mut missing = None;
         for key in &keys {
@@ -221,7 +261,7 @@ impl Interpreter {
                 }
             }
         }
-        Ok(Source { kind, fields, keys, key_cols, missing, def })
+        Source { kind, fields, keys, key_cols, missing, def }
     }
 
     // ── The unit ─────────────────────────────────────────────────────────────
@@ -243,7 +283,7 @@ impl Interpreter {
         };
         match source.kind {
             Kind::Table => self.commit_table(grid, &source, explicit),
-            Kind::Indexed | Kind::Sql => self.commit_rows(grid, &source, explicit),
+            Kind::Indexed | Kind::Sql | Kind::Remote => self.commit_rows(grid, &source, explicit),
         }
     }
 
@@ -292,6 +332,7 @@ impl Interpreter {
         }
         let outcome = match source.kind {
             Kind::Indexed => self.apply_indexed(source, &plan),
+            Kind::Remote => self.apply_remote(grid, source, &plan),
             _ => self.apply_sql(grid, source, &plan),
         };
         match outcome {
@@ -1013,5 +1054,261 @@ impl Interpreter {
             return Err(general(CommitError::new(IO_ERROR, message)));
         }
         Ok(written)
+    }
+
+    // ── The backend (WASM-005 R13) ───────────────────────────────────────────
+
+    /// A remote grid's unit goes to its `…-SAVE` endpoint as **one call** carrying
+    /// every change — the deletes, the updates and the inserts, in that order —
+    /// and the backend writes them as one transaction or none: its own check of
+    /// every change first, then the writes, then `COMMIT` or `ROLLBACK`. An
+    /// update carries the row's key as loaded and every cell as the grid shows
+    /// it; an insert its cells; a delete its key. `FAILED-CHANGE` names the
+    /// change the backend refused, and the grid marks that change's cell as it
+    /// marks its own refusals. A backend that was not reached, or did not
+    /// answer, leaves the edits waiting — as a connection in Async mode does.
+    ///
+    /// The cells stay as typed: the backend answers no values, and the next
+    /// refresh shows the source's own spelling of them.
+    fn apply_remote(&mut self, grid: &str, source: &Source, plan: &Plan) -> Result<Written, UnitError> {
+        let endpoint = self.obj_get(grid, "_BindingRemoteSave").trim().to_owned();
+        if endpoint.is_empty() {
+            // Permanent: the form's or the control's name is not a COBOL word, so the
+            // Build wrote no program (the seeding left the endpoint empty).
+            return Err(UnitError::from(CommitError::new(NOT_WRITABLE, "the binding has no SAVE endpoint on the backend")));
+        }
+        let rows = self.datagrid_rows(grid);
+        let keys = |origin: &str| -> Vec<Value> {
+            source.key_values(origin).into_iter().map(|key| json!({ "KEY-TEXT": key })).collect()
+        };
+        // The generated SAVE wants exactly one cell per bound field; a row the
+        // program added has as many cells as the designed columns, which may differ.
+        let width = source.fields.len();
+        let cells = |cells: &[String]| -> Vec<Value> {
+            (0..width).map(|at| json!({ "CELL-TEXT": cells.get(at).map_or("", String::as_str) })).collect()
+        };
+        let mut changes: Vec<Value> = Vec::new();
+        // The cell to blame per change, in the order sent; a deleted row has none.
+        let mut blame: Vec<Option<(usize, usize)>> = Vec::new();
+        for row in &plan.deletes {
+            changes.push(json!({ "CHANGE-ACTION": "DELETE", "KEYS": keys(&row.origin), "CELLS": [] }));
+            blame.push(None);
+        }
+        for update in &plan.updates {
+            let shown = rows.get(update.row).cloned().unwrap_or_default();
+            changes.push(json!({ "CHANGE-ACTION": "UPDATE", "KEYS": keys(&update.origin), "CELLS": cells(&shown) }));
+            blame.push(Some((update.row, update.cells.first().map_or(0, |cell| cell.col))));
+        }
+        for insert in &plan.inserts {
+            changes.push(json!({ "CHANGE-ACTION": "INSERT", "KEYS": [], "CELLS": cells(&insert.cells) }));
+            blame.push(Some((insert.row, 0)));
+        }
+        if changes.len() > MAX_CHANGES {
+            return Err(UnitError::refused(
+                REJECTED,
+                format!("the save carries {} changes; the backend takes at most {MAX_CHANGES} in one unit", changes.len()),
+            ));
+        }
+        let first = blame.iter().flatten().next().copied();
+        let at_change = |n: usize| n.checked_sub(1).and_then(|at| blame.get(at)).copied().flatten();
+        let answer = match self.call_generated(&endpoint, json!({ "CHANGES": changes })) {
+            Ok(answer) => answer,
+            // The backend was not reached, or is busy: the same save may be made
+            // again as it is, so the edits stay waiting (as with an Async connection).
+            Err(e) if save_may_retry(&e) => {
+                return Err(UnitError::refused(IO_ERROR, format!("the backend did not take the save: {e}")));
+            }
+            // Over: a value the wire refused (a cell wider than it carries), or a call
+            // that can never succeed as it is — a program the Build did not generate, a
+            // role refused, a version. A failure at the change the error names, else at
+            // the first cell this unit writes.
+            Err(e) => {
+                let code = if matches!(e.class, ErrorClass::Validation | ErrorClass::Limit) { REJECTED } else { IO_ERROR };
+                let error = CommitError::new(code, e.message);
+                let at = e.detail.as_deref().and_then(change_in_path).and_then(at_change).or(first);
+                return Err(match at {
+                    Some((row, col)) => UnitError::at(error, row, col),
+                    None => UnitError::from(error),
+                });
+            }
+        };
+        let status = text_of(&answer, "COMMIT-STATUS");
+        if status == OK {
+            return Ok(Vec::new());
+        }
+        let code = if status.is_empty() { IO_ERROR.to_owned() } else { status };
+        let message = text_of(&answer, "COMMIT-MESSAGE");
+        // The backend checks every cell of a change and names the field it refused
+        // (`CUST-BALANCE: value too large for PIC`): that cell carries the mark, as on
+        // the desktop; the change's first edited cell when no field is named.
+        let named_col = message
+            .split_once(':')
+            .and_then(|(field, _)| source.fields.iter().position(|f| f.eq_ignore_ascii_case(field.trim())));
+        let failed = answer.get("FAILED-CHANGE").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let error = CommitError::new(&code, message);
+        Err(match at_change(failed) {
+            Some((row, col)) => UnitError::at(error, row, named_col.unwrap_or(col)),
+            None => UnitError::from(error),
+        })
+    }
+}
+
+/// May a save the backend did not take be made again exactly as it is? Yes when
+/// the backend was not reached or is busy (a transport failure; a rate or
+/// concurrency limit; a call that ran out of time): the edits stay pending and
+/// the next `Save()` or settle sends them again. No for everything else — a value
+/// the wire refused, a program the Build did not generate, a role refused, a
+/// version — which is over and is reported as a failed unit.
+fn save_may_retry(e: &CallError) -> bool {
+    match e.class {
+        ErrorClass::Transport => true,
+        ErrorClass::Limit => matches!(e.code, codes::RATE_LIMITED | codes::TOO_MANY_CALLS | codes::CALL_TIMEOUT),
+        _ => false,
+    }
+}
+
+/// The change (1-based) a mapping error's path names: `…CHANGES(3)…` or
+/// `…CHANGES[3]…`; `None` when the path names no change.
+fn change_in_path(path: &str) -> Option<usize> {
+    let rest = &path[path.find("CHANGES")? + "CHANGES".len()..];
+    let digits: String = rest.trim_start_matches(['(', '[']).chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok().filter(|n| *n > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobolt_indexed::{
+        FieldUsage, IndexedDefinition, IndexedField, KeyDef, KeyEncodingDef, KeyOrderingDef, KeyPartDef,
+        RecordFormatDef,
+    };
+    use cobolt_lexer::{tokenize, SourceFormat};
+    use cobolt_parser::parse;
+
+    fn leaf(name: &str, pic: &str, offset: u32, length: u32) -> IndexedField {
+        IndexedField {
+            level: 5,
+            name: name.to_owned(),
+            pic: pic.to_owned(),
+            usage: FieldUsage::Display,
+            offset: Some(offset),
+            length: Some(length),
+            comment: String::new(),
+            grid_control: None,
+            occurs: None,
+            redefines: None,
+            synchronized: false,
+            children: Vec::new(),
+        }
+    }
+
+    /// An interpreter holding one DataGrid seeded with `seed`.
+    fn with_grid(seed: Vec<(&str, &str)>) -> Interpreter {
+        let parsed = parse(tokenize(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. GRID-SOURCE.\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n",
+            SourceFormat::Free,
+        ));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.seed_objects([(
+            "GRID-1".to_owned(),
+            "DataGrid".to_owned(),
+            seed.into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect::<Vec<_>>(),
+        )]);
+        interp
+    }
+
+    /// WASM-005 R13: a remote indexed grid identifies a row by the `.cidx` primary
+    /// key — every part of it, as the desktop and the generated SAVE do — whatever
+    /// the binding recorded as its key field; without the definition the binding's
+    /// key fields stand in, and a SQL source's are always the binding's.
+    #[test]
+    fn a_remote_indexed_grid_takes_its_keys_from_the_definitions_primary_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let cidx = dir.path().join("orders.cidx");
+        let mut def = IndexedDefinition::new("ORDER-FILE", dir.path().join("orders.idx").to_string_lossy().into_owned());
+        def.record_format = RecordFormatDef::Fixed { length: 24 };
+        def.keys.primary = KeyDef {
+            name: Some("ORDER-KEY".into()),
+            parts: vec![
+                KeyPartDef { field_name: "ORD-YEAR".into(), offset: 0, length: 4, encoding: KeyEncodingDef::Bytes },
+                KeyPartDef { field_name: "ORD-SEQ".into(), offset: 4, length: 6, encoding: KeyEncodingDef::Bytes },
+            ],
+            duplicates_allowed: false,
+            ordering: KeyOrderingDef::Ascending,
+        };
+        let mut root = leaf("ORDER-REC", "", 0, 24);
+        root.level = 1;
+        root.children = vec![leaf("ORD-YEAR", "9(4)", 0, 4), leaf("ORD-SEQ", "9(6)", 4, 6), leaf("ORD-NOTE", "X(14)", 10, 14)];
+        def.fields = vec![root];
+        def.finalized = true;
+        cobolt_indexed::save_indexed(&cidx, &def).expect("write the .cidx");
+        let cidx = cidx.to_string_lossy().into_owned();
+
+        fn seed<'a>(path: &'a str, key_fields: &'a str) -> Vec<(&'a str, &'a str)> {
+            vec![
+                ("_BindingRemote", "1"),
+                ("_BindingKind", "IndexedFile"),
+                ("_BindingIndexedPath", path),
+                ("_BindingFields", "ORD-YEAR\nORD-SEQ\nORD-NOTE"),
+                ("_BindingKeyFields", key_fields),
+                ("_BindingWritable", "1"),
+            ]
+        }
+        // The Designer recorded one key field, or none: the definition decides.
+        for recorded in ["ORD-YEAR", ""] {
+            let interp = with_grid(seed(&cidx, recorded));
+            let source = interp.grid_source("GRID-1").expect("a source");
+            assert_eq!(source.kind, Kind::Remote);
+            assert_eq!(source.keys, vec!["ORD-YEAR".to_owned(), "ORD-SEQ".to_owned()], "recorded {recorded:?}");
+            assert_eq!(source.key_cols, vec![0, 1]);
+            assert!(source.missing_key().is_none() && source.def.is_none());
+        }
+        // No readable definition: the binding's key fields stand in.
+        let interp = with_grid(seed("nowhere/missing.cidx", "ORD-SEQ"));
+        assert_eq!(interp.grid_source("GRID-1").unwrap().keys, vec!["ORD-SEQ".to_owned()]);
+        // A SQL source: the binding's key fields, as the generated SAVE expects them.
+        let interp = with_grid(vec![
+            ("_BindingRemote", "1"),
+            ("_BindingKind", "Sql"),
+            ("_BindingFields", "ID\nNAME"),
+            ("_BindingKeyFields", "ID"),
+            ("_BindingWritable", "1"),
+        ]);
+        let sql = interp.grid_source("GRID-1").unwrap();
+        assert_eq!((sql.kind, sql.keys), (Kind::Remote, vec!["ID".to_owned()]));
+        // No fields at all is not a source.
+        let interp = with_grid(vec![("_BindingRemote", "1"), ("_BindingKind", "Sql"), ("_BindingWritable", "1")]);
+        assert_eq!(interp.grid_source("GRID-1").err().map(|e| e.code), Some(NOT_WRITABLE.to_owned()));
+    }
+
+    /// A save the backend did not take is made again only when it may succeed as
+    /// it is; the refusals that are over fail the unit, so the operator is told once
+    /// and nothing is re-sent at every settle.
+    #[test]
+    fn a_save_is_retried_only_for_a_transport_failure_or_a_busy_backend() {
+        let limit = |code: u32| CallError::new(ErrorClass::Limit, code, "limit");
+        assert!(save_may_retry(&CallError::transport(codes::NOT_CONFIGURED, "no backend")));
+        assert!(save_may_retry(&CallError::transport(codes::TIMEOUT, "timed out")));
+        for code in [codes::RATE_LIMITED, codes::TOO_MANY_CALLS, codes::CALL_TIMEOUT] {
+            assert!(save_may_retry(&limit(code)), "{code}");
+        }
+        for code in [codes::FRAME_TOO_LARGE, codes::FILE_TOO_LARGE] {
+            assert!(!save_may_retry(&limit(code)), "{code}");
+        }
+        assert!(!save_may_retry(&CallError::validation("too long", "RC-PARAMS.CHANGES(2).CELLS(1).CELL-TEXT")));
+        for (class, code) in [
+            (ErrorClass::NotFound, codes::UNKNOWN_PROGRAM),
+            (ErrorClass::Authorisation, codes::ROLE_REFUSED),
+            (ErrorClass::Authentication, codes::TOKEN_EXPIRED),
+            (ErrorClass::Version, codes::CLIENT_TOO_OLD),
+            (ErrorClass::Server, codes::INTERNAL),
+        ] {
+            assert!(!save_may_retry(&CallError::new(class, code, "over")), "{code}");
+        }
+        // The change a mapping error names, for the mark.
+        assert_eq!(change_in_path("RC-PARAMS.CHANGES(2).CELLS(1).CELL-TEXT"), Some(2));
+        assert_eq!(change_in_path("CHANGES[7].KEYS[1].KEY-TEXT"), Some(7));
+        assert_eq!(change_in_path("RC-PARAMS.CHANGE-COUNT"), None);
+        assert_eq!(change_in_path("CHANGES(0)"), None);
     }
 }

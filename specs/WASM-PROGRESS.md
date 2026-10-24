@@ -36,7 +36,7 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 | WASM-007 | CSS3 and the form stylesheet | ✔ | | | | |
 | WASM-008 | Web-view Preview | ✔ | | | | |
 | WASM-009 | Authentication control, identity providers | ✔ | | | | |
-| WASM-010 | WebAssembly code generation | ✔ | | | | |
+| WASM-010 | WebAssembly code generation | ✔ | ✔ | ✔ | V (2.0.36, natively) | T1–T25 done; see the 2.0.36 section; owed: the operator's manual check (plan §6) and a browser run against a live backend |
 | WASM-011 | Navigation, SPA and standalone styles | ✔ | | | | |
 | WASM-012 | Mobile shell (Tauri 2) | ✔ | | | | |
 | WASM-013 | Security architecture | ✔ | | | | |
@@ -49,6 +49,45 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 ## Done elsewhere
 
 - `CALL … RETURNING` (WASM-005 Q2, D6): fix `8a15f00d` (1.91.219) on `main`, forward-port `afe22c51` on 2.x.x — tests 14/14 runtime, NIST baselines held.
+
+## WASM-010 part 2 — the rest of the subset, suspension, the Build (2026-10-23, version 2.0.36, T14–T25)
+
+**NIST on the final module** (`RCRUN=…/nist_wasm_run nist_conformance run NC|IF|IC`), against 2.0.35:
+
+| Module | Compiled | Programs reporting 0 failures | Assertions PASS / FAIL / DELETED | 2.0.35 |
+|---|---|---|---|---|
+| NC (Nucleus) | **95 of 95** | **95 of 95** | **4 612 / 0 / 5** | the same |
+| IF (Intrinsic Function) | **45 of 45** | **45 of 45** | **841 / 0 / 0** | the same |
+| IC (Inter-Program Communication) | **25 of 25** | **25 of 25** | **309 / 0 / 4** | the same |
+
+No program excluded, timed out or crashed.
+
+**The interpreter, unchanged** (`cobolt-runtime` was not touched; release `rcrun`, `nist_conformance run`), every finished module against `NIST/progress.json`: NC 95/95 4 614 PASS, IF 45/45 841, IC 25/25 309, SM 16/16 311, ST 39/39 735, SQ 85/85 624, IX 41/41 574, RL 34/34 354 — 0 FAIL everywhere, equal to the ledger. The AC10 suites (`cobolt-runtime`, `-parser`, `-semantic`, `-server`, `-compiler`): 2 201 passed in 245 binaries, 4 failed — all pre-existing: `SDK_CRATES` lacks `cobolt-decimal` and `cobolt-numedit`, which `cobolt-runtime` and `cobolt-forms` already need at 2.0.35, so the SDK closure test and three SDK builds fail (a `fixes-2x` item).
+
+**Phases (R18)**, each with what measures it:
+
+| Phase | State | Evidence |
+|---|---|---|
+| A — layout, MOVE, arithmetic, IF, PERFORM, GO TO, EVALUATE, host properties and methods, events | done | NIST NC; `layout_golden.rs` (AC2, 148 bytes), `arith_table.rs` (AC3, 15 rows), `control_flow.rs` (AC4), `forms.rs` (AC1) |
+| B — tables, STRING/UNSTRING/INSPECT, numeric-edited, intrinsic functions, nested programs, local CALL | done | NIST IF and IC; `corpus.rs` (17 of 17 compiled `tests/cobol` programs identical) |
+| C — suspension, the remote CALL, the JSON mapping | done natively | `json_vectors.rs` (176 of 176 answers equal to `cobolt-wire`), `forms.rs::suspend_resume_with_queued_events` (AC5), `yield_is_invisible` (R9); **no browser run against a live backend yet** (WASM-014 T15) |
+| D — the rest of the subset | done, with named exclusions | value methods, layers, parity gaps #7/#9/#10/#13, in-memory INDEXED and SORT (`memory_files.rs`); refused with their construct: disk and sequential files, `MERGE`, `SORT … USING/GIVING`, national and UTF-8 literals and functions, `SET` pointer |
+
+**Sizes and start-up (Q6: measured, no budget set).** A one-form project (a button and a label): `program.wasm` 87 108 bytes, `program.single.wasm` 87 125 bytes, a 25-file bundle of 7 440 032 bytes (the player is most of it). Start-up as the Build reports it — `pr_init` + `pr_open_form(main)` on `wasmtime`, compilation included, in a **debug** build — 309 ms; a native proxy, not a browser figure. The player's generated fixture (one form, a handler that writes and displays): 96 499 / 96 516 bytes.
+
+**Found on the way:** the interpreter stops on `COMPUTE … / 0 ON SIZE ERROR` (`WASM-PARITY.md` #18, a 1.x.x fix); the generator did not bind a LINKAGE `RETURNING` record (#13, fixed) and sent `DISPLAY` in fragments the player printed as separate lines (ABI A13, fixed); the bundler refused two variants for the size of memory 0, which differs by construction (fixed).
+
+## NIST NC, IF and IC rerun on `wasmtime` (2026-10-22, version 2.0.35, WASM-010 T3)
+
+The test host moved from `wasmi` 2.0 to `wasmtime` 44.0.3 (operator, 2026-10-22, WASM-010 Q2; `Config::wasm_multi_memory`, `cranelift_nan_canonicalization`). The batch is now decoded by `cobolt_wasm_abi::batch`, the codec the player uses. Same harness, same programs (`RCRUN=…/nist_wasm_run nist_conformance run NC|IF|IC`):
+
+| Module | Compiled | Programs reporting 0 failures | Assertions PASS / FAIL / DELETED | Before (`wasmi`) |
+|---|---|---|---|---|
+| NC (Nucleus) | **95 of 95** | **95 of 95** | **4 612 / 0 / 5** | 95/95, 4 612 / 0 / 5 |
+| IF (Intrinsic Function) | **45 of 45** | **45 of 45** | **841 / 0 / 0** | 45/45, 841 / 0 |
+| IC (Inter-Program Communication) | **25 of 25** | **25 of 25** | **309 / 0 / 4** | 25/25, 309 / 0 / 4 |
+
+No program was excluded, timed out or crashed: the engine change moved no number. Time per program, measured with a timing wrapper around `nist_wasm_run` (a throwaway script outside the repository), was at most **2.17 s** (NC105A, including the compile). The harness limit is 20 s. A full NC run takes 1 min 42 s, IF 40 s and IC 16 s. The root `[profile.dev.package.wasmi*]` entries are gone: `wasmi` is no longer in the root workspace's graph, so cargo warned that they matched no package. The player is a separate workspace with its own profiles, so they never applied to its `wasmi` tests.
 
 ## NIST NC on generated modules — finished (2026-10-20, version 2.0.19)
 
@@ -120,3 +159,38 @@ Measured, not hoped. Commits on `features-2x`: `44371f53` … `42eac962` (2.0.11
 Work running in other worktrees when the session's usage limit was reached (each commits on its own branch, **none merged into `features-2x`**): `cobolt-graphics` (WASM-018 part 1); backend + `CALL … WITH WEBSOCKET LINKAGE` + JSON mapping + `cobolt-server` + identity backend (WASM-005/003/014/009); player + loader + host page + bundle (WASM-016/002/004/006/007/011); IDE project kinds, selector, tree entries, preview, tooling (WASM-001/008/015). Their reports have not been read. Not started: Tauri shell (WASM-012), security gates (WASM-013), the Canvas control integration (WASM-018 part 2), CLAUDE.md/memory refresh.
 
 Harness notes: `NIST_KEEP=1` keeps the work directories (they land under the *temp_dir*, which in this environment is a literal `${DaemonNameOrIdentifierHere}` TMPDIR — set `TMPDIR` explicitly before using it); drive the generator with `RCRUN=target/debug/examples/nist_wasm_run ./target/debug/examples/nist_conformance run NC`.
+
+## WASM-017 baseline and matrix (T1, 2026-10-23)
+
+Engines **released from 2024 onwards** (Q4), at the oldest such version. A cell says whether that oldest version has the feature;
+where it does not, the first version that does and its date. Sources, each read 2026-10-23:
+
+- **[WF]** [webassembly.org/features](https://webassembly.org/features/) data `features.json` (commit `3a8728d820`, 2026-10-21; read 2026-10-23) — every WebAssembly feature cell, including threads.
+- **[CIU]** [caniuse.com/sharedarraybuffer](https://caniuse.com/sharedarraybuffer) (read 2026-10-23) — `SharedArrayBuffer` enabled (the cross-origin isolation it needs is the page's COOP/COEP, WASM-002).
+- **Release dates:** Chrome — [chromiumdash milestone schedule](https://chromiumdash.appspot.com/schedule) (`fetch_milestone_schedule`:
+  120 = 2023-12-05, 121 = 2024-01-23, 130 = 2024-10-15); Firefox — [product-details](https://product-details.mozilla.org/1.0/firefox_history_major_releases.json)
+  (121 = 2023-12-19, 122 = 2024-01-23, 125.0.1 = 2024-04-16 — 125.0 was not released, 134 = 2025-01-07); Safari and iOS — [Apple security
+  releases](https://support.apple.com/en-us/100100) (Safari 17.3 and iOS/iPadOS 17.3 = 22 Jan 2024; Safari 26.2 and iOS 26.2 = 12 Dec 2025).
+- **ES-module source imports:** [WF] lists `esmIntegration` (phase 3) as supported by no browser; the syntax is TC39's
+  [source phase imports](https://github.com/tc39/proposal-source-phase-imports), Stage 3; [MDN `import source`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import/source).
+
+| Engine (oldest 2024+ release) | bulk memory | reference types | sign extension | non-trapping float→int | multi-value | **multi-memory** | threads + `SharedArrayBuffer` (isolated) | JS String Builtins | ES-module source imports |
+|---|---|---|---|---|---|---|---|---|---|
+| Chrome / Edge — Chromium 121 (2024-01-23) | yes (75) [WF] | yes (96) [WF] | yes (74) [WF] | yes (75) [WF] | yes (85) [WF] | **yes** (120, 2023-12-05) [WF] | yes (threads 74 [WF]; SAB 68 [CIU]) | no — from 130 (2024-10-15) [WF] | no [WF] |
+| Firefox 122 (2024-01-23) | yes (79) [WF] | yes (79) [WF] | yes (62) [WF] | yes (64) [WF] | yes (78) [WF] | **no — from 125 (2024-04-16)** [WF] | yes (threads 79 [WF]; SAB 79 [CIU]) | no — from 134 (2025-01-07) [WF] | no [WF] |
+| Safari (macOS) 17.3 (2024-01-22) | yes (15) [WF] | yes (15) [WF] | yes (14.1) [WF] | yes (15) [WF] | yes (13.1) [WF] | **no — in no version** [WF] | yes (threads 14.1 [WF]; SAB 15.2 [CIU]) | no — from 26.2 (2025-12-12) [WF] | no [WF] |
+| iOS web view (WKWebView) — iOS 17.3 (2024-01-22) | yes (iOS Safari) [WF] | yes [WF] | yes (iOS 14.5) [WF] | yes [WF] | yes [WF] | **no — in no version** [WF] | iOS Safari: threads 14.5 [WF], SAB 15.2 [CIU]; an app's web view must still serve COOP/COEP — WASM-017 Q5 (open) | no — from 26.2 [WF] | no [WF] |
+| Android WebView — Chromium 121 (2024-01-23) | yes (Chromium) [WF] | yes [WF] | yes [WF] | yes [WF] | yes [WF] | **yes** (Chromium 120) [WF] | threads: Chromium [WF]; [CIU] lists no WebView row, so isolation in a WebView is not established here | no — from Chromium 130 [WF] | no [WF] |
+
+**Stop gate (T1): not triggered.** Neither Safari nor the iOS web view has multi-memory in any version, so R9's WebKit rule stands as
+written: the single-memory variant is always built for iOS and for a matrix that includes Safari. T7 may start.
+
+**Decided by the operator (2026-10-23): the Firefox minimum is 125.** Firefox 122–124 (2024 releases without multi-memory) are
+outside the declared matrix; the single-memory fallback stays a WebKit rule only. The finding that led to it:
+Firefox 122–124 are 2024 releases **without** multi-memory. With Q4's "2024 onwards",
+a matrix that includes Firefox needs either the single-memory variant for Firefox too, or a Firefox minimum of **125**. The working
+reading for T12/T13 is **Firefox 125** as the tested minimum for the multi-memory variant, with Firefox 122–124 served the single-memory
+variant (the same fallback WebKit gets); to confirm.
+
+**Minimum versions T12 and T13 test against:** Chromium 121 (Chrome, Edge, Android WebView), **Firefox 125**, Safari 17.3, iOS 17.3. Nothing in `scan::baseline_features()` is missing from any of them; JS String Builtins and
+ES-module source imports are on none of the oldest versions, so the bundle uses neither.

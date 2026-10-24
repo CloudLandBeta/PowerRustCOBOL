@@ -88,6 +88,17 @@ opt-level = 3
     )
 }
 
+/// The project's `[backend] state` (WASM-003 Q2): `per-call` when the folder
+/// has no manifest, the manifest has no `[backend]` or it says nothing; a
+/// value that is neither spelling stops the build.
+pub fn backend_state(project_dir: &Path) -> Result<cobolt_server::backend::StateMode, CompilerError> {
+    let Some(manifest) = crate::find_project_manifest(project_dir).filter(|m| m.parent().and_then(|p| p.canonicalize().ok()) == project_dir.canonicalize().ok()) else {
+        return Ok(cobolt_server::backend::StateMode::default());
+    };
+    let view = crate::project_manifest_view(&manifest).map_err(CompilerError::Workspace)?;
+    view.backend_state_mode().map_err(|message| CompilerError::Semantic { file: manifest.display().to_string().into(), message })
+}
+
 /// Build the backend of the project in `project_dir`.
 pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<BackendBuildResult, CompilerError> {
     let log = |m: &str| {
@@ -106,7 +117,10 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     log(&format!("Building the backend of {} for {host}…", project_dir.display()));
 
     // 1. Read and check.
-    let bundle = cobolt_server::bundle::Bundle::from_dir(&backend_dir).map_err(|errs| CompilerError::Parse { file: "backend".into(), message: errs.join("\n") })?;
+    let state = backend_state(project_dir)?;
+    let mut bundle = cobolt_server::bundle::Bundle::from_dir(&backend_dir).map_err(|errs| CompilerError::Parse { file: "backend".into(), message: errs.join("\n") })?;
+    bundle.state = state;
+    log(&format!("   state: {}", state.as_str()));
     let bytes = bundle.to_bytes().map_err(CompilerError::Serialize)?;
     let mut features = runtime_features::RuntimeFeatures::default();
     for p in &bundle.programs {
@@ -115,6 +129,12 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     let programs_in_bundle = bundle.programs.len();
     let history = bundle.history.clone();
     let backend = bundle.into_backend().map_err(|errs| CompilerError::Semantic { file: "backend".into(), message: errs.join("\n") })?;
+    // A generated program's declared control (WASM-005 T11) needs what its class reaches.
+    for p in backend.programs() {
+        if let Some(c) = &p.control {
+            features = features.union(runtime_features::scan_control_class(&c.class));
+        }
+    }
     let contract = backend.interface.contract.clone();
     log(&format!("   {} program(s), {} exported, contract {contract}", programs_in_bundle, backend.interface.programs.len()));
 
@@ -131,6 +151,14 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
         .filter_map(|h| cobolt_wire::contract::InterfaceDescription::from_json(h).ok())
         .collect();
     let report = cobolt_wire::evolution::check_against_released(&backend.interface, &released);
+    // A connection that keeps its state runs its calls in turn (WASM-003 Q2).
+    if state == cobolt_server::backend::StateMode::PerConnection {
+        for p in backend.interface.programs.iter().filter(|p| p.independent) {
+            let n = format!("{} is declared independent, which per-connection state ignores: a connection's calls run in turn", p.name);
+            log(&format!("   note: {n}"));
+            notes.push(n);
+        }
+    }
     for n in &report.notes {
         notes.push(n.clone());
         log(&format!("   note: {n}"));

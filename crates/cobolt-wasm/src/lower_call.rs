@@ -54,6 +54,15 @@ impl Lower<'_, '_> {
             }
             return match self.unit_by_name.get(&up).copied() {
                 Some(c) if c != 0 => self.call_unit(c, using, returning, not_exc, line),
+                // A paragraph of this program: the interpreter runs it (its
+                // "internal paragraph CALL"), returning no value.
+                _ if self.para_by_name.contains_key(&up) => {
+                    let p = self.para_by_name[&up][0];
+                    let after = self.new_block("after-paragraph-call");
+                    self.call_range(p, p, after);
+                    self.begin(after);
+                    self.stmts(not_exc)
+                }
                 // Not a program of this module: the exception path.
                 _ => self.call_missing(on_exc),
             };
@@ -84,6 +93,11 @@ impl Lower<'_, '_> {
 
     /// Bind the arguments, push the call frame and jump into unit `c`.
     fn enter_callee(&mut self, c: usize, using: &[CallArg], after: BlockId, line: u32) -> GenResult<()> {
+        // An INITIAL program starts every call in its initial state (COBOL-85
+        // 6.8, WASM-PARITY #10): as if it had been CANCELled.
+        if self.units[c].initial {
+            self.emit(Ins::InitUnit(self.unit_base + c));
+        }
         self.bind_args(c, using, line)?;
         // Overflow check: psp >= end -> run-time error.
         self.emit(Ins::GlobalGet(G::Psp));
@@ -124,6 +138,27 @@ impl Lower<'_, '_> {
                 CallArg::ByReference(e) => (e, true),
                 CallArg::ByContent(e) | CallArg::ByValue(e) => (e, false),
             };
+            if let CallArg::ByValue(e) = arg {
+                // BY VALUE: the argument's value, moved into a copy that has the
+                // parameter's own description — its USAGE, its PICTURE
+                // (WASM-PARITY #9). BY CONTENT shares the argument's bytes, as
+                // COBOL-85 defines it for descriptions that agree.
+                let src = self.operand_or_temp(e)?;
+                let tmp = self.layout.alloc_hidden(p.size.max(1));
+                let pitem = self.layout.items[p.item].clone();
+                let pfd = self.pool.fd_with_spec(&pitem.fd, pitem.pic_template.as_deref(), self.prog.decimal_comma, self.prog.currency);
+                let dst = self.pool.opd_item(tmp, &pfd, &[], None);
+                self.base();
+                self.i32c(src as i32);
+                self.i32c(dst as i32);
+                self.call_rt("rt_move");
+                self.base();
+                self.base();
+                self.i32c(tmp as i32);
+                self.raw(I::I32Add);
+                self.raw(I::I32Store(wasm_encoder::MemArg { offset: p.slot as u64, align: 2, memory_index: 0 }));
+                continue;
+            }
             if by_ref && Self::is_item_ref(expr) {
                 let o = self.operand_or_temp(expr)?;
                 self.base();
@@ -154,6 +189,34 @@ impl Lower<'_, '_> {
             self.i32c(dst as i32);
             self.i32c(tmp_len as i32);
             self.call_rt("rt_bind_content");
+        }
+        // A RETURNING record in the callee's LINKAGE SECTION that no USING
+        // parameter brings: the callee writes it, so it gets storage of its own
+        // (one area per callee), and the caller reads it back after the call
+        // (WASM-PARITY #13).
+        if let Some(ri) = self.units[c].returning {
+            let mut root = ri;
+            while let Some(p) = self.layout.items[root].parent {
+                root = p;
+            }
+            let passed = params.iter().any(|p| p.item == root);
+            if let (Some(slot), false) = (self.layout.items[root].link, passed) {
+                let off = match self.returning_store.get(&c) {
+                    Some(&o) => o,
+                    None => {
+                        let it = &self.layout.items[root];
+                        let size = (it.size * it.occurs.as_ref().map_or(1, |o| o.0)).max(1);
+                        let o = self.layout.alloc_hidden(size);
+                        self.returning_store.insert(c, o);
+                        o
+                    }
+                };
+                self.base();
+                self.base();
+                self.i32c(off as i32);
+                self.raw(I::I32Add);
+                self.raw(I::I32Store(wasm_encoder::MemArg { offset: slot as u64, align: 2, memory_index: 0 }));
+            }
         }
         let _ = line;
         Ok(())
@@ -222,6 +285,9 @@ impl Lower<'_, '_> {
         let missing = self.new_block("call-missing");
         let mut test = self.new_block("call-test");
         self.jump(test);
+        // Each callee returns to a block of its own, which moves that callee's
+        // RETURNING item (WASM-PARITY #9), then to the common continuation.
+        let mut returns: Vec<(usize, BlockId)> = Vec::new();
         for c in 1..self.units.len() {
             self.begin(test);
             let hit = self.new_block("call-unit");
@@ -232,15 +298,26 @@ impl Lower<'_, '_> {
             self.raw(I::I32Eq);
             self.branch(hit, next);
             self.begin(hit);
-            self.enter_callee(c, using, after, line)?;
+            let back = match returning {
+                Some(_) if self.units[c].returning.is_some() => {
+                    let b = self.new_block("after-call-unit");
+                    returns.push((c, b));
+                    b
+                }
+                _ => after,
+            };
+            self.enter_callee(c, using, back, line)?;
             test = next;
         }
-        // Found and returned: RETURNING, then NOT ON EXCEPTION. The callee that
-        // answered is not known here, so RETURNING is moved by the units that
-        // declare one (each at its own call site is not possible); a dynamic
-        // CALL ignores it.
+        if let Some(r) = returning {
+            for (c, b) in returns {
+                self.begin(b);
+                self.move_returning(c, r, line)?;
+                self.jump(after);
+            }
+        }
+        // Found and returned: NOT ON EXCEPTION.
         self.begin(after);
-        let _ = returning;
         self.stmts(not_exc)?;
         if self.cur.is_some() {
             self.jump(join);
@@ -331,6 +408,13 @@ impl Lower<'_, '_> {
     /// to this file or to the mode it is open in. `eof_covered` is true when
     /// the statement has an `AT END` phrase, which owns status 10.
     pub(crate) fn file_verb_done(&mut self, file: &str, handle_off: u32, eof_covered: bool) {
+        self.file_verb_done_cover(file, handle_off, if eof_covered { Cover::Eof } else { Cover::None });
+    }
+
+    /// [`Self::file_verb_done`], with what the statement's own phrase covers:
+    /// a status it covers performs no USE procedure (`fire_declarative`'s
+    /// `phrase_present`).
+    pub(crate) fn file_verb_done_cover(&mut self, file: &str, handle_off: u32, cover: Cover) {
         let hold = self.status_slot();
         // [status] -> hold
         self.raw(I::LocalSet(0));
@@ -344,7 +428,7 @@ impl Lower<'_, '_> {
         for &u in self.units[self.cur_unit].scope.clone().iter().skip(1) {
             hs.extend(self.handlers[u as usize].iter().filter(|h| h.global).cloned());
         }
-        if hs.is_empty() {
+        if hs.is_empty() || cover == Cover::All {
             return;
         }
         let guard = self.guard_slot();
@@ -356,12 +440,25 @@ impl Lower<'_, '_> {
         self.raw(I::I32Load(wasm_encoder::MemArg { offset: hold as u64, align: 2, memory_index: 0 }));
         self.i32c(10);
         self.raw(I::I32GeU);
-        if eof_covered {
-            self.base();
-            self.raw(I::I32Load(wasm_encoder::MemArg { offset: hold as u64, align: 2, memory_index: 0 }));
-            self.i32c(10);
-            self.raw(I::I32Ne);
-            self.raw(I::I32And);
+        match cover {
+            Cover::Eof => {
+                self.base();
+                self.raw(I::I32Load(wasm_encoder::MemArg { offset: hold as u64, align: 2, memory_index: 0 }));
+                self.i32c(10);
+                self.raw(I::I32Ne);
+                self.raw(I::I32And);
+            }
+            // 21 to 24, the INVALID KEY conditions: (status - 21) > 3, unsigned.
+            Cover::Keys => {
+                self.base();
+                self.raw(I::I32Load(wasm_encoder::MemArg { offset: hold as u64, align: 2, memory_index: 0 }));
+                self.i32c(21);
+                self.raw(I::I32Sub);
+                self.i32c(3);
+                self.raw(I::I32GtU);
+                self.raw(I::I32And);
+            }
+            Cover::None | Cover::All => {}
         }
         self.base();
         self.raw(I::I32Load(wasm_encoder::MemArg { offset: guard as u64, align: 2, memory_index: 0 }));
@@ -418,4 +515,18 @@ impl Lower<'_, '_> {
         self.jump(join);
         self.begin(join);
     }
+}
+
+/// Which statuses of a file verb the statement's own phrase handles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Cover {
+    /// None: every error status goes to the USE procedures.
+    None,
+    /// `AT END` handles status 10.
+    Eof,
+    /// `INVALID KEY` on a keyed `READ` handles 21 to 24.
+    Keys,
+    /// The statement handles every status (an `INVALID KEY` phrase on
+    /// `WRITE`/`REWRITE`/`DELETE`), or performs no USE procedure (`START`).
+    All,
 }

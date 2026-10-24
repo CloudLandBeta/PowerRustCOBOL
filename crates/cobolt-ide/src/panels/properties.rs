@@ -3843,6 +3843,10 @@ pub struct PropertiesPanel {
     /// `Non-Visuals` tab is active the form cannot be resized, so the form's
     /// `Width` and `Height` rows are read only.
     pub form_size_locked: bool,
+    /// WASM-017 R2 — set by its caller each frame: the open project is Web or
+    /// Mobile, so the form's `Instances` row is shown (a Desktop form has no
+    /// fixed memory and the property means nothing there).
+    pub web_project: bool,
     /// Spec 091 — set by the designer each frame: the layer the tab bar has active,
     /// when one is. With no control selected the pane then shows the layer — its
     /// name and its backdrop — instead of the form, since a layer has the form's
@@ -3976,6 +3980,7 @@ impl PropertiesPanel {
         Self {
             overridden: Default::default(),
             form_size_locked: false,
+            web_project: false,
             layer_view: None,
             hints: Default::default(),
             text_bufs: Default::default(),
@@ -4334,6 +4339,9 @@ impl PropertiesPanel {
                     tr,
                     TypeSection::Basic,
                 );
+
+                // ── Backend (WASM-005 R14, R16) — web and mobile forms only ─────────
+                self.show_backend_section(ui, ctrl, &id, action, tr);
 
                 // Non-visual controls (Timer, AgentObject, RestClient, SqlDatabase,
                 // IndexedFile) only
@@ -11539,6 +11547,64 @@ impl PropertiesPanel {
                 }
             });
         }
+        // WASM-017 R2 — how many copies of the form a browser module holds.
+        // The row shows the default it would get while unset; a stored value
+        // out of range is shown as it is, with the Build's refusal beside it.
+        if self.web_project {
+            let range = cobolt_forms::model::INSTANCES_RANGE;
+            let mut n = i64::from(form.effective_instances(form.main_form));
+            property_row_keyed(ui, tr.lbl_instances, Some("Instances"), |ui| {
+                if ui
+                    .add(DragValue::new(&mut n).speed(1).range(i64::from(*range.start())..=i64::from(*range.end())))
+                    .changed()
+                {
+                    action.form_props.push(("Instances".into(), n.to_string()));
+                }
+            });
+            let bad = form.instances_problem().is_some();
+            if bad || !search_hides_extras() {
+                let hint = if bad {
+                    tr.msg_instances_out_of_range.replacen("{}", &form.name, 1)
+                } else {
+                    tr.lbl_instances_hint.to_owned()
+                };
+                ui.label(RichText::new(hint).small().color(Color32::GRAY).italics());
+            }
+        }
+    }
+
+    /// WASM-005 R14, R16 — on a web or mobile form a control that works through the backend
+    /// names its backend configuration and who may call it. A desktop form never shows (or
+    /// writes) these rows, so a `.cfrm` is saved exactly as before.
+    fn show_backend_section(&mut self, ui: &mut Ui, ctrl: &Control, id: &str, action: &mut InspectorAction, tr: &Tr) {
+        use cobolt_forms::web_class::{backend_config, uses_backend, BACKEND_CONFIG, BACKEND_ROLES, DEFAULT_BACKEND_ROLES};
+        if !self.web_project || !uses_backend(&ctrl.control_type) {
+            return;
+        }
+        section_header(ui, tr.sec_backend);
+        let config = backend_config(ctrl);
+        text_row_hint(ui, &mut self.hints, id, BACKEND_CONFIG, &config, tr.lbl_backend_config, "", action);
+        let roles = ctrl.get_prop(BACKEND_ROLES).map(|v| v.as_str().to_owned()).unwrap_or_default();
+        text_row_hint(ui, &mut self.hints, id, BACKEND_ROLES, &roles, tr.lbl_backend_roles, DEFAULT_BACKEND_ROLES, action);
+        if !search_hides_extras() {
+            for hint in [tr.lbl_backend_config_hint, tr.lbl_backend_roles_hint] {
+                ui.label(RichText::new(hint).small().color(Color32::GRAY).italics());
+            }
+        }
+        // WASM-005 T12: what a Viewer's upload slot takes. Written only when set here,
+        // so a Viewer on a desktop form never carries them.
+        if ctrl.control_type == ControlType::Viewer {
+            use cobolt_forms::web_class::{ALLOWED_EXTENSIONS, MAXIMUM_FILE_SIZE_KB};
+            let exts = ctrl.get_prop(ALLOWED_EXTENSIONS).map(|v| v.as_str().to_owned()).unwrap_or_default();
+            let placeholder = cobolt_forms::viewer::RENDERED_EXTENSIONS;
+            text_row_hint(ui, &mut self.hints, id, ALLOWED_EXTENSIONS, &exts, tr.lbl_viewer_open_extensions, placeholder, action);
+            let default_kb = cobolt_forms::viewer::DEFAULT_MAXIMUM_FILE_SIZE_KB;
+            int_prop_row(ui, id, MAXIMUM_FILE_SIZE_KB, tr.lbl_viewer_open_max_size, ctrl, action, 1..=1_048_576, Some(" KB"), default_kb);
+            if !search_hides_extras() {
+                ui.label(RichText::new(tr.lbl_viewer_open_hint).small().color(Color32::GRAY).italics());
+            }
+        }
+        ui.add_space(4.0);
     }
 
     /// The inspector of a layer (spec 091 R15, R16, R24): its `Name` and the
@@ -15693,6 +15759,127 @@ mod tests {
         form.layout.insert("LayoutMode".into(), PropValue::String("Flex".into()));
         assert!(has(&labels(&form, tr), tr.lbl_flex_direction), "the form's own flex rows follow its LayoutMode");
         println!("056 AC40 (form inspector): Responsive switch always; layout, font scaling, minimum size and the breakpoint editor when on");
+    }
+
+    /// WASM-017 T4 — the form inspector lists `Instances` for a Web or Mobile
+    /// project only; setting it marks the form dirty and saves `instances`.
+    #[test]
+    fn the_form_inspector_shows_instances_for_a_web_project_only_017() {
+        fn labels(form: &Form, web: bool, tr: &Tr) -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            panel.web_project = web;
+            let mut out = Vec::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 4000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, None, &[], tr);
+                    });
+                },
+            );
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            full.textures_delta.clear();
+            out
+        }
+        let tr = &crate::i18n::Language::English.tr();
+        let has = |l: &[String], s: &str| l.iter().any(|t| t == s || t.starts_with(s));
+        let mut form = Form::new("F", "F", 800, 600);
+        let web = labels(&form, true, tr);
+        assert!(has(&web, tr.lbl_instances), "a Web project lists Instances");
+        assert!(!has(&web, tr.msg_instances_out_of_range));
+        assert!(!has(&labels(&form, false, tr), tr.lbl_instances), "a Desktop project does not");
+        form.instances = Some(0);
+        let said = tr.msg_instances_out_of_range.replacen("{}", "F", 1);
+        assert!(has(&labels(&form, true, tr), &said), "out of range is said, the form named");
+
+        let mut d = crate::panels::designer::DesignerPanel::new(Form::new("CHILD", "Child", 400, 300));
+        assert!(!d.dirty);
+        assert_eq!(d.get_form_prop("Instances").as_deref(), Some("4"), "unset: the default for a form that is not main");
+        d.set_form_prop("Instances", "7".into());
+        assert!(d.dirty, "setting Instances marks the form dirty");
+        let path = std::env::temp_dir().join(format!("prc-instances-017-{}.cfrm", std::process::id()));
+        cobolt_forms::xml::save_form(&d.form, &path).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(saved.contains("instances=\"7\""), "saved: {saved}");
+        println!("WASM-017 T4: Instances row in a Web project, absent in a Desktop one; out-of-range message shown; set 7 → dirty, saved instances=\"7\"");
+    }
+
+    /// WASM-005 T8 — a control that works through the backend shows `BackendConfig` and
+    /// `BackendRoles` on a web or mobile form only; a Button never does.
+    #[test]
+    fn the_backend_rows_show_on_a_web_form_only_005() {
+        fn labels(form: &Form, id: &str, web: bool, tr: &Tr) -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            panel.web_project = web;
+            let mut out = Vec::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 6000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, form.find_control(id), &[], tr);
+                    });
+                },
+            );
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            full.textures_delta.clear();
+            out
+        }
+        let has = |l: &[String], s: &str| l.iter().any(|t| t == s || t.starts_with(s));
+        let mut form = Form::new("F", "F", 800, 600);
+        form.controls.push(Control::new("DB-1", ControlType::SqlDatabase, 0, 0));
+        form.controls.push(Control::new("BTN-1", ControlType::Button, 0, 40));
+        for lang in crate::i18n::Language::ALL {
+            let tr = &lang.tr();
+            for s in [tr.sec_backend, tr.lbl_backend_config, tr.lbl_backend_roles, tr.lbl_backend_config_hint, tr.lbl_backend_roles_hint] {
+                assert!(!s.trim().is_empty(), "{lang:?}: an empty backend string");
+            }
+        }
+        let tr = &crate::i18n::Language::English.tr();
+        let web = labels(&form, "DB-1", true, tr);
+        assert!(has(&web, tr.lbl_backend_config) && has(&web, tr.lbl_backend_roles), "a web form lists both rows");
+        let desktop = labels(&form, "DB-1", false, tr);
+        assert!(!has(&desktop, tr.lbl_backend_config), "a desktop form does not");
+        assert!(!has(&labels(&form, "BTN-1", true, tr), tr.lbl_backend_config), "a Button never works through the backend");
+        // WASM-005 T12: a Viewer's upload slot rows, on a web form only.
+        form.controls.push(Control::new("VWR-1", ControlType::Viewer, 0, 80));
+        for lang in crate::i18n::Language::ALL {
+            let tr = &lang.tr();
+            for s in [tr.lbl_viewer_open_extensions, tr.lbl_viewer_open_max_size, tr.lbl_viewer_open_hint] {
+                assert!(!s.trim().is_empty(), "{lang:?}: an empty Viewer slot string");
+            }
+        }
+        let web = labels(&form, "VWR-1", true, tr);
+        assert!(has(&web, tr.lbl_viewer_open_extensions) && has(&web, tr.lbl_viewer_open_max_size), "a web Viewer lists its slot rows");
+        assert!(!has(&labels(&form, "VWR-1", false, tr), tr.lbl_viewer_open_extensions), "a desktop Viewer does not");
+        assert!(!has(&labels(&form, "DB-1", true, tr), tr.lbl_viewer_open_extensions), "only a Viewer has them");
+        println!("WASM-005 T8: Backend rows on a web SqlDatabase, none on a desktop one or on a web Button");
     }
 
     /// **The control's type is readable beside its name.** The Identity header

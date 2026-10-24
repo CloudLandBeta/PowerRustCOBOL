@@ -69,7 +69,8 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
 
 ### Facts first
 
-- [ ] **T1 — Confirm the browser baseline and matrix** (R9, R12, R18, R19; Q4, Q-17d)
+- [x] **T1 — Confirm the browser baseline and matrix** (R9, R12, R18, R19; Q4, Q-17d)
+  - *Done 2026-10-23 outside the pipeline (its session had no web access): `specs/WASM-PROGRESS.md` §"WASM-017 baseline and matrix" — 5 engines × 9 features, every cell sourced and dated. Stop gate not triggered (WebKit has no multi-memory in any version). **Decided by the operator 2026-10-23: Firefox minimum = 125** (122–124 lack multi-memory and are outside the matrix; the single-memory fallback stays WebKit-only).*
   - Files: `specs/WASM-PROGRESS.md` (new section "WASM-017 baseline and matrix").
   - Do: from MDN and Can I Use, for Chrome/Edge, Firefox, Safari (macOS), the iOS web view and the Android WebView **released from
     2024 onwards** (Q4): the oldest such version, and per engine multi-memory, threads + `SharedArrayBuffer` under isolation, JS String
@@ -81,7 +82,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
 
 ### Form instances (R2)
 
-- [ ] **T2 — `Form.instances` in the model and the XML** (R2; plan §1.1, §3; Q-17a assumption)
+- [x] **T2 — `Form.instances` in the model and the XML** (R2; plan §1.1, §3; Q-17a assumption)
   - Files: `crates/cobolt-forms/src/model.rs` (`Form.instances: Option<u32>`, `Form::effective_instances(is_main: bool) -> u32`,
     `Form::new` sets `None`), `crates/cobolt-forms/src/xml.rs` (read and write the attribute `instances`, kebab-case like `dock-gap`;
     written only when `Some`), every `Form { … }` literal the compiler flags.
@@ -92,7 +93,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
     tests: `instances` round trip (`Some(7)` back as `Some(7)`); a form without it saves byte-identical to its input (an existing
     fixture under `examples/` loaded and re-saved); `effective_instances` gives 1/4/the set value.
 
-- [ ] **T3 — The range check, with the form named** (R2; plan §1.1, §2)
+- [x] **T3 — The range check, with the form named** (R2; plan §1.1, §2)
   - Files: `crates/cobolt-forms/src/model.rs` (`Form::instances_problem() -> Option<String>`: 1 to 64, the bound the plan chose, the
     operator may change it), `crates/cobolt-project-tools/src/web/mod.rs` (the Web/Mobile build path at :81/:98/:103 refuses with the
     existing `WebBuildError::Refused`, naming the form).
@@ -101,7 +102,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
   - Verify: `cargo test -p cobolt-forms -p cobolt-project-tools --no-fail-fast` green; tests: 0 and 65 refused with the form's name, 1 and
     64 accepted; a Desktop project with `instances="0"` builds as before.
 
-- [ ] **T4 — `Instances` in the Properties panel, six languages** (R2; plan §1.1, §7 i18n)
+- [x] **T4 — `Instances` in the Properties panel, six languages** (R2; plan §1.1, §7 i18n)
   - Files: `crates/cobolt-ide/src/panels/properties.rs` (a row in `show_form_geometry`, `property_row_keyed(ui, tr.lbl_instances,
     Some("Instances"), …)`, `DragValue` 1..=64, pushed to `action.form_props`; shown only when the inspector is told the project is
     Web or Mobile — a new field set by its caller in `app.rs`), `crates/cobolt-ide/src/panels/designer.rs` (`"Instances"` in the
@@ -113,7 +114,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
 
 ### Memory model (R7, R8, R9)
 
-- [ ] **T5 — Fixed memory has a ceiling** (R7, AC5; plan §1.2; Q-17b assumption)
+- [x] **T5 — Fixed memory has a ceiling** (R7, AC5; plan §1.2; Q-17b assumption)
   - Files: `crates/cobolt-wasm/src/module.rs` (`compile_forms`, after `data_pages` at :333), new `crates/cobolt-wasm/tests/memory_limits.rs`.
   - Do: refuse when `data_pages + (single-memory ? arena pages : 0) > 65 536` with a `GenError` naming **the form, its largest item**,
     `region_size × instances` and the total. `MAX_DATA_PAGES` = 65 536 until the operator sets a lower product cap (Q-17b open).
@@ -122,7 +123,8 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
     name the item; `scan_module(..).has_memory_grow == false` for every module the file compiles (prints modules scanned / with
     `memory.grow`). When WASM-010 T20 lands, `tests/corpus.rs` gains the same assertion over the corpus.
 
-- [ ] **T6 — One payload limit** (R8, AC6; plan §1.3 "Payload limit", D3)
+- [x] **T6 — One payload limit** (R8, AC6; plan §1.3 "Payload limit", D3)
+  - *Done 2026-10-23. The hand-off to the Backend waits for WASM-002 T16 (not done): the Backend keeps enforcing its own limit. The IDE's Project Settings also shows the limit (plan §6 manual check).*
   - Files: `crates/cobolt-compiler/src/project_kind.rs` (`max_payload_bytes: u32` on `WebSettings` and `MobileSettings`,
     `#[serde(default)]` → 384 KiB), `crates/cobolt-project-tools/src/web/mod.rs` (passes it to `Options.arena.frame` and to the
     bundle), `crates/cobolt-web-bundle/src/lib.rs` (`config.json` gains `max_frame`, additive), the player's configuration reader and
@@ -133,7 +135,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
     freshness green; tests: an old `cobolt.toml` reads 384 KiB; a project setting of 512 KiB reaches the module manifest's `frame_size`
     and `config.json`'s `max_frame`; the player refuses a 513 KiB frame and accepts a 512 KiB one.
 
-- [ ] **T7 — "Multi-memory only", refused when WebKit is in the matrix** (R9, AC7; plan §1.3, D5) — after T1's stop gate
+- [x] **T7 — "Multi-memory only", refused when WebKit is in the matrix** (R9, AC7; plan §1.3, D5) — after T1's stop gate
   - Files: `crates/cobolt-compiler/src/project_kind.rs` (`WebSettings.single_memory_fallback: bool`, serde default `true`;
     `module_variants` keeps its signature; new `WebSettings::variant_problem() -> Option<VariantProblem>` naming the WebKit browsers),
     `crates/cobolt-project-tools/src/web/mod.rs` (the build refuses on `variant_problem()`), `crates/cobolt-ide/src/panels/web_settings.rs`
@@ -150,8 +152,15 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
 
 ### The boundary (R3, R10–R12, R14, R15)
 
-- [ ] **T8 — Optional probes and the conversion counter in the generated loader** (R3, R6, R12, R18, AC9; plan §1.4, D2) — after
+- [x] **T8 — Optional probes and the conversion counter in the generated loader** (R3, R6, R12, R18, AC9; plan §1.4, D2) — after
   WASM-002 T11
+  - *Done 2026-10-23, with one divergence from the plan, stated here rather than forced through: the loader no longer has a
+    `TextDecoder`/`TextEncoder` site on the call path — since WASM-016 it hands the arena bytes to the player untouched (Rust copies
+    them once), and its one `TextDecoder` reads the embedded manifest at load. A `stats()` counter would count nothing, so none was
+    added; `generated_host_page.rs::no_view_is_kept_and_no_string_is_built_on_the_call_path_017` instead proves zero conversions on
+    the call path by source search (1 decoder, the manifest's; 0 encoders; the worker builds no string). T11's "decodes = answers,
+    encodes = arguments" follows the same reading. JS String Builtins and source-phase imports are probed (the latter through
+    `WebAssembly.Module`'s prototype chain) and reported; neither is used (D2).*
   - Files: `crates/cobolt-web-bundle/src/hostpage.rs` (WASM-002's Rust-generated loader; **no JavaScript file is added**),
     `crates/cobolt-web-bundle/tests/generated_host_page.rs`.
   - Do: probe JS String Builtins (`WebAssembly.validate` of a module importing `wasm:js-string` with `{builtins: ['js-string']}`) and
@@ -160,7 +169,12 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
   - Verify: `cargo test -p cobolt-web-bundle --no-fail-fast`; the generated text contains both probes and, in a release bundle, no
     `stats`; the **AC10** source search: no `.buffer` view stored outside the call that made it (prints views found / stored).
 
-- [ ] **T9 — The exposure list and a test-only panic hook** (R14, R15, AC11; plan §1.5, §5)
+- [x] **T9 — The exposure list and a test-only panic hook** (R14, R15, AC11; plan §1.5, §5)
+  - *Done 2026-10-23. `EXPOSED` is in `src/lib.rs`, not `api.rs`: `api` compiles for wasm32 only and the native test must read
+    it. The scan found a real gap and it is fixed: the player's `unmount()` never freed the canvases' `Surface2D` objects
+    (`dom/canvas.rs::clear_all_canvases`, called from `Shared::unmount`). The part's `Canvas` is page-owned (the player never
+    makes one). Node: 15 scenarios, the `Player` pointer 0 after `unmount()` in the 4 core cells, the forced panic raises
+    `pr-error`; Chrome: 28 passed, the panic shows the message with Reload and Try again in both placements.*
   - Files: `crates/cobolt-web-player/src/api.rs` (`pub const EXPOSED: &[&str]`; `force_panic_for_test` behind
     `#[cfg(feature = "test-hooks")]`), `crates/cobolt-web-player/Cargo.toml` (feature `test-hooks = []`), `examples/build_player.rs`
     (enables it for the node and browser test bundles only, never for `assets/web-player/`; the record names the feature set), new
@@ -172,7 +186,10 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
     shipped `assets/web-player/*/player.js` has no `force_panic_for_test` (search); node scenario "unmount" asserts every listed object's
     pointer is 0 after `unmount()`; forced panic (test bundle) shows the reload action and raises the error event.
 
-- [ ] **T10 — `INITIAL` and `CANCEL` on both engines** (R4, AC4; plan §1.6) — the `INITIAL` half after WASM-010 T13
+- [x] **T10 — `INITIAL` and `CANCEL` on both engines** (R4, AC4; plan §1.6) — the `INITIAL` half after WASM-010 T13
+  - *Done 2026-10-23. The `CANCEL` half is `same_output` on both engines and both variants (1,2,3 then 1,2). The `INITIAL` half
+    cannot be: the interpreter ignores `INITIAL` (WASM-PARITY #11, a 1.x.x defect), so it is held to the standard on both
+    module variants (10 calls, all fresh) and the interpreter's output is printed beside it, as WASM-010's parity test does.*
   - Files: `crates/cobolt-wasm/tests/calls.rs` (`initial_and_cancel`).
   - Do: a plain called program counts up across calls and after `CANCEL` counts from the start (works today: `Ins::InitUnit`,
     `lower_call.rs:257-266`); a program declared `INITIAL` returns its first value on every call (needs `Program.is_initial`, WASM-010 T13).
@@ -180,8 +197,20 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
 
 ### The R20 matrix
 
+- [ ] **T11a — The generator covers what the shared script's cells need** (operator, 2026-10-23; before T11)
+  - Do: the generated module reproduces the three things only the hand-written fixture could: **reading an event argument** in a
+    handler, **a deliberate trap** (a run-time error raised on purpose, reported with its line as R11 says), and **a raw (non-JSON)
+    answer** from the host taken as text. Each is a generator change in `cobolt-wasm` (and `cobolt-wasm-rt` with the blob rebuilt when it
+    needs a routine), held equal to the interpreter by a differential test where the interpreter has the construct.
+  - Verify: a `cobolt-wasm` test per case on both memory variants; then T11's script runs every cell on the fixture **and** the generated
+    module, none marked fixture-only.
+
 - [ ] **T11 — The scenario project in COBOL, and the core cells on a generated module** (R1, R2, R5, R11, R12, R20; AC1, AC2, AC3,
   AC6, AC8, AC9, AC10; plan §1.6) — after WASM-010 T9, T10, T16, T17 and WASM-002 T13
+  - **Decided by the operator (2026-10-23):** (1) **AC1 uses the Canvas part** (`part-canvas`, loaded when a form uses Canvas 2D/3D) in
+    place of a chart part, which WASM-016 T26 measured and chose not to split; the third form gets a Canvas control instead of a chart.
+    (2) **The generator is extended** (T11a) rather than marking cells fixture-only. (3) AC3 still waits for WASM-011 T11
+    (`PreservePreviousForm` regions): the loop runs WASM-017 again after WASM-011.
   - Files: new `crates/cobolt-web-bundle/tests/projects/core/` (three forms and Common Code: buttons GO, ECHO, QUERY, RAW, BURST,
     REMOTE, YIELD, TRAP, ERR, a child form, a chart on the third form; the form file kind is whatever WASM-002 T13's `WasmBuild` reads;
     English identifiers; no credentials — grep `APIKey|Password|Token` before staging), `tests/support/harness.rs`, `tests/e2e_node.rs`.
@@ -233,7 +262,11 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
     and T8's probe results. Nothing in code: R6 is met by plain imports and exports (ABI v1 §3/§4).
   - Verify: the section exists and cites T1's table.
 
-- [ ] **T16 — System KB** (steering: System KB rule; spec §6)
+- [x] **T16 — System KB** (steering: System KB rule; spec §6)
+  - *Done 2026-10-23, ahead of T11–T15 because the System KB rule binds the behaviour T2–T10 changed: `Instances` in the form
+    property text, `max_payload_bytes` and `single_memory_fallback` in the `[web]`/`[mobile]` table and the variant rule, and "Form
+    instances and storage" (the ceiling, `CANCEL`, `INITIAL` in a browser) in "What runs in a browser module"; `chunked.data`
+    regenerated (3564 records); both freshness tests green.*
   - Files: `crates/cobolt-compiler/src/lib.rs` (form property table near :8837: `Instances`, Integer 1–64, default 1 main / 4 others,
     Web and Mobile only; the `[web]`/`[mobile]` settings table near :6202: `max_payload_bytes`, `single_memory_fallback`; a short
     paragraph: in a browser a called program keeps its storage until `CANCEL` or its form instance closes, `INITIAL` starts fresh),

@@ -10,10 +10,12 @@
 //! model, so it is written down here once:
 //!
 //! **Connection.** accept TCP → connection limit → TLS (when configured) →
-//! read the HTTP head within the handshake timeout → route (`/health`, or the
-//! WebSocket upgrade) → **Origin check** (R14) → upgrade, with the frame and
-//! message size capped → the first message must be `hello` within the
-//! handshake timeout, and its versions are negotiated (WASM-014 R2).
+//! hyper reads the HTTP head within the handshake timeout and under its size
+//! cap → the closed route table (`/health`, `/dl/<token>`, the WebSocket
+//! upgrade on `/` or `/ws`, 404 for the rest) → **Origin check** (R14) →
+//! upgrade, with the frame and message size capped → the first message must
+//! be `hello` within the handshake timeout, and its versions are negotiated
+//! (WASM-014 R2).
 //!
 //! **Call.** rate limit (connection) → *if the program is not public*, a valid
 //! token (an unknown name is answered as "no token" to an unauthenticated
@@ -35,6 +37,17 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch, Semaphore};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
+use tokio_tungstenite::tungstenite::protocol::Role;
+
+use axum::body::Body;
+use axum::extract::{FromRef, Path, Request, State};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::any;
+use axum::Router;
+use hyper_util::rt::{TokioIo, TokioTimer};
+use hyper_util::service::TowerToHyperService;
 
 use cobolt_wire::contract::{InterfaceDescription, PROTOCOL, PROTOCOL_MIN};
 use cobolt_wire::error::{codes, CallError, ErrorClass};
@@ -42,11 +55,11 @@ use cobolt_wire::mapping;
 use cobolt_wire::call::BackendFiles;
 use cobolt_wire::proto::{self, Accepted, AuthOk, ClientFrame, ErrorMsg, Event, FileUrl, Mode, Progress, PutDone, PutReady, Reply, ServerHello, SubEnd, Subscribed, Unsubscribed};
 
-use crate::backend::{parse_semver, Backend, ExportedProgram};
+use crate::backend::{parse_semver, Backend, ExportedProgram, StateMode};
 use crate::config::Resolved;
 use crate::exec::{self, ExecOptions};
 use crate::files::FileStore;
-use crate::http::{self, Head, HeadError, Replay};
+use crate::http;
 use crate::idem;
 use crate::jwks::{HttpFetcher, Jwks, JwksFetcher};
 use crate::jwt::{Claims, TokenValidator};
@@ -136,6 +149,39 @@ impl Drop for ServerHandle {
 
 /// Start the server on its own runtime and thread. Returns when it is listening.
 pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<ServerHandle, String> {
+    // A generated program's control names a configuration of backend.toml
+    // (WASM-005 T11): one that is not there stops the start, not the first call.
+    let mut missing: Vec<String> = backend
+        .programs()
+        .filter_map(|p| p.control.as_ref().map(|c| (p.sig.name.as_str(), c)))
+        .filter(|(_, c)| !c.configuration.trim().is_empty() && cfg.configurations.get(&c.configuration).is_none())
+        .map(|(name, c)| {
+            format!(
+                "backend.toml has no [[configuration]] named \"{}\", which {} (control {}) needs: add it, with the control's secrets",
+                c.configuration, name, c.id
+            )
+        })
+        .collect();
+    // A web form's FileDropZone and Viewer slots (WASM-005 T12) join the deployment's; a
+    // name in both is the deployment's mistake to fix, not one to guess at.
+    let mut files_cfg = cfg.files.clone();
+    for s in &backend.slots {
+        if files_cfg.slots.iter().any(|d| d.name.eq_ignore_ascii_case(&s.name)) {
+            missing.push(format!("backend.toml's [files] slots have one named \"{}\", the name of a web form's upload slot (a FileDropZone or a Viewer): rename it", s.name));
+            continue;
+        }
+        files_cfg.slots.push(crate::config::UploadSlot {
+            name: s.name.clone(),
+            mime: vec!["*/*".into()],
+            roles: s.roles.clone(),
+            extensions: s.extensions.clone(),
+            max_bytes: s.max_bytes,
+        });
+    }
+    if !missing.is_empty() {
+        missing.sort();
+        return Err(missing.join("\n"));
+    }
     let cfg = Arc::new(cfg);
     let sink: Arc<dyn LogSink> = options.sink.unwrap_or_else(|| Arc::new(StdoutSink));
     let tls = match &cfg.tls {
@@ -165,7 +211,7 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         jwks,
         shutdown: stop_rx,
         idem: idem::Store::new(Duration::from_secs(cfg.limits.idempotency_ttl), cfg.limits.idempotency_max_entries),
-        files: Arc::new(FileStore::new(&cfg.files)),
+        files: Arc::new(FileStore::new(&files_cfg)),
     });
 
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(SocketAddr, Option<SocketAddr>), String>>();
@@ -253,31 +299,25 @@ async fn run(shared: Arc<Shared>, ready: std::sync::mpsc::Sender<Result<(SocketA
     shared.sink.emit(&r);
 }
 
+/// The plain-HTTP health listener (`server.health_listen`): `/health` and nothing else.
 async fn health_loop(shared: Arc<Shared>, listener: TcpListener) {
     let mut shutdown = shared.shutdown.clone();
     loop {
         tokio::select! {
             _ = shutdown.changed() => return,
             a = listener.accept() => {
-                let Ok((mut s, _)) = a else { continue };
-                let sh = shared.clone();
+                let Ok((s, _)) = a else { continue };
+                let router = Router::new().route("/health", any(health)).fallback(not_found).layer(axum::middleware::map_response(security_headers)).with_state(shared.clone());
                 tokio::spawn(async move {
-                    let _ = tokio::time::timeout(Duration::from_secs(5), async {
-                        if let Ok(head) = http::read_head(&mut s).await {
-                            if head.path == "/health" {
-                                http::respond(&mut s, 200, "OK", "application/json", health_body(&sh).as_bytes(), "").await;
-                            } else {
-                                http::respond(&mut s, 404, "Not Found", "text/plain", b"not found", "").await;
-                            }
-                        }
-                    }).await;
+                    let _ = tokio::time::timeout(Duration::from_secs(5), http1_builder(Duration::from_secs(5)).serve_connection(TokioIo::new(s), TowerToHyperService::new(router))).await;
                 });
             }
         }
     }
 }
 
-fn health_body(shared: &Shared) -> String {
+/// What the health probe answers (the server function [`crate::front::health`]).
+pub(crate) fn health_value(shared: &Shared) -> serde_json::Value {
     serde_json::json!({
         "status": "ok",
         "contract": shared.backend.interface.contract,
@@ -287,7 +327,6 @@ fn health_body(shared: &Shared) -> String {
         "calls_failed": shared.stats.calls_failed.load(Ordering::SeqCst),
         "subscriptions": shared.stats.subscriptions_active.load(Ordering::SeqCst),
     })
-    .to_string()
 }
 
 // ── one connection ────────────────────────────────────────────────────────────
@@ -300,81 +339,177 @@ async fn connection(shared: Arc<Shared>, tcp: TcpStream, peer: SocketAddr) {
             Ok(Ok(s)) => s,
             _ => return, // a failed or stalled TLS handshake says nothing worth logging per attempt
         };
-        serve_stream(shared, tls, peer, conn_id).await;
+        serve_http(shared, tls, peer, conn_id).await;
     } else {
-        serve_stream(shared, tcp, peer, conn_id).await;
+        serve_http(shared, tcp, peer, conn_id).await;
     }
 }
 
-async fn serve_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(shared: Arc<Shared>, mut s: S, peer: SocketAddr, conn_id: u64) {
+/// HTTP/1.1 as the front speaks it: one request per connection, the head within
+/// the handshake time and under [`http::MAX_HEAD`] (hyper answers 431 past it).
+fn http1_builder(head_timeout: Duration) -> hyper::server::conn::http1::Builder {
+    let mut b = hyper::server::conn::http1::Builder::new();
+    b.timer(TokioTimer::new())
+        .header_read_timeout(head_timeout)
+        .max_buf_size(http::MAX_HEAD)
+        .title_case_headers(true);
+    b
+}
+
+/// What a route of one connection knows.
+#[derive(Clone)]
+struct ConnCtx {
+    shared: Arc<Shared>,
+    peer: SocketAddr,
+    conn_id: u64,
+    /// The WebSocket session the upgrade started; the connection lasts as long as it does.
+    session: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+}
+
+impl FromRef<ConnCtx> for Arc<Shared> {
+    fn from_ref(c: &ConnCtx) -> Arc<Shared> {
+        c.shared.clone()
+    }
+}
+
+impl FromRef<ConnCtx> for leptos::config::LeptosOptions {
+    fn from_ref(_: &ConnCtx) -> leptos::config::LeptosOptions {
+        crate::front::options()
+    }
+}
+
+/// The closed route table (WASM-003 Q3, D6), Leptos's (T10a): the paths of
+/// [`crate::front::PlatformRoutes`] mounted through `leptos_axum`, each with
+/// its handler, and the health server function. A developer cannot add a
+/// route; the identity routes of WASM-009 are added to that table when they exist.
+fn front_router(ctx: ConnCtx) -> Router {
+    use leptos_axum::LeptosRoutes;
+    Router::new()
+        .route(crate::front::HEALTH_PATH, any(health))
+        .leptos_routes_with_handler(crate::front::listings(&crate::front::UPGRADE_PATHS), upgrade)
+        .leptos_routes_with_handler(crate::front::listings(&[crate::front::DOWNLOAD_PATH]), download)
+        .fallback(not_found)
+        .method_not_allowed_fallback(not_found)
+        .layer(axum::middleware::map_response(security_headers))
+        .with_state(ctx)
+}
+
+/// The accept loop hands each connection here: the router runs on hyper, and a
+/// WebSocket upgrade continues in [`session`] after hyper lets go of the stream.
+async fn serve_http<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(shared: Arc<Shared>, io: S, peer: SocketAddr, conn_id: u64) {
     let handshake = Duration::from_millis(shared.cfg.limits.handshake_timeout_ms);
-    let head = match tokio::time::timeout(handshake, http::read_head(&mut s)).await {
-        Ok(Ok(h)) => h,
-        Ok(Err(HeadError::TooLarge)) => {
-            http::respond(&mut s, 431, "Request Header Fields Too Large", "text/plain", b"request too large", "").await;
-            return;
+    let session = Arc::new(Mutex::new(None));
+    let router = front_router(ConnCtx { shared, peer, conn_id, session: session.clone() });
+    let _ = http1_builder(handshake).serve_connection(TokioIo::new(io), TowerToHyperService::new(router)).with_upgrades().await;
+    let running = session.lock().ok().and_then(|mut s| s.take());
+    if let Some(s) = running {
+        let _ = s.await;
+    }
+}
+
+fn plain(status: StatusCode, body: &'static str) -> Response {
+    (status, [(header::CONTENT_TYPE, "text/plain")], body).into_response()
+}
+
+async fn not_found() -> Response {
+    plain(StatusCode::NOT_FOUND, "not found")
+}
+
+/// Every answer of the HTTPS surface carries the security headers (WASM-013 R4)
+/// and ends its connection: one request per connection. The `101` of an upgrade
+/// is not an answer but the start of the WebSocket.
+async fn security_headers(mut res: Response) -> Response {
+    if res.status() != StatusCode::SWITCHING_PROTOCOLS {
+        let h = res.headers_mut();
+        for (name, value) in http::SECURITY_HEADERS {
+            h.insert(*name, HeaderValue::from_static(value));
         }
-        _ => return,
-    };
-    if head.path == "/health" && head.method.eq_ignore_ascii_case("GET") {
-        http::respond(&mut s, 200, "OK", "application/json", health_body(&shared).as_bytes(), "").await;
-        return;
+        h.insert(header::CONNECTION, HeaderValue::from_static("close"));
     }
-    // A short-lived download address a client was issued for a file (WASM-014 R15).
-    if let Some(token) = head.path.strip_prefix("/dl/") {
-        if head.method.eq_ignore_ascii_case("GET") {
-            serve_download(&shared, &head, token, &mut s, peer).await;
-            return;
-        }
+    res
+}
+
+/// `GET /health` runs the server function [`crate::front::health`] through
+/// `leptos_axum`, with the server's state as its context.
+async fn health(State(shared): State<Arc<Shared>>, req: Request) -> Response {
+    if req.method() != Method::GET {
+        return plain(StatusCode::NOT_FOUND, "not found");
     }
-    if !head.is_websocket_upgrade() || (head.path != "/" && head.path != "/ws") {
-        http::respond(&mut s, 404, "Not Found", "text/plain", b"not found", "").await;
-        return;
+    leptos_axum::handle_server_fns_with_context(move || leptos::prelude::provide_context(shared.clone()), req).await.into_response()
+}
+
+/// `GET /` or `GET /ws` with an upgrade: the Origin (R14), then the WebSocket with
+/// its frame and message size capped, then the session.
+async fn upgrade(State(c): State<ConnCtx>, mut req: Request) -> Response {
+    let h = req.headers();
+    let has = |name: header::HeaderName, word: &str| h.get_all(name).iter().filter_map(|v| v.to_str().ok()).any(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case(word)));
+    if req.method() != Method::GET || !has(header::UPGRADE, "websocket") || !has(header::CONNECTION, "upgrade") {
+        return plain(StatusCode::NOT_FOUND, "not found");
     }
+    let shared = c.shared.clone();
     // R14: the Origin of a browser connection must be one the deployment lists.
-    if !origin_allowed(&shared.cfg, &head) {
+    if !origin_allowed(&shared.cfg, h.get(header::ORIGIN).and_then(|v| v.to_str().ok())) {
         shared.stats.refused_origin.fetch_add(1, Ordering::SeqCst);
         let mut r = LogRecord::new("refused");
-        r.connection = Some(conn_id);
+        r.connection = Some(c.conn_id);
         r.note = Some("origin not allowed".into());
         shared.sink.emit(&r);
-        http::respond(&mut s, 403, "Forbidden", "text/plain", b"origin not allowed", "").await;
-        return;
+        return plain(StatusCode::FORBIDDEN, "origin not allowed");
     }
+    let version_13 = h.get(header::SEC_WEBSOCKET_VERSION).is_some_and(|v| v.as_bytes() == b"13");
+    let Some(accept) = h.get(header::SEC_WEBSOCKET_KEY).filter(|_| version_13).map(|k| derive_accept_key(k.as_bytes())) else {
+        return plain(StatusCode::BAD_REQUEST, "not a WebSocket handshake");
+    };
+    let on_upgrade = hyper::upgrade::on(&mut req);
+    let handshake = Duration::from_millis(shared.cfg.limits.handshake_timeout_ms);
     let cfg = WebSocketConfig::default()
         .max_message_size(Some(shared.cfg.limits.max_frame_bytes))
         .max_frame_size(Some(shared.cfg.limits.max_frame_bytes))
         .read_buffer_size(16 * 1024);
-    let replay = Replay::new(head.raw.clone(), s);
-    let ws = match tokio::time::timeout(handshake, tokio_tungstenite::accept_async_with_config(replay, Some(cfg))).await {
-        Ok(Ok(ws)) => ws,
-        _ => return,
-    };
-    let mut r = LogRecord::new("connect");
-    r.connection = Some(conn_id);
-    shared.sink.emit(&r);
-    session(shared.clone(), ws, peer, conn_id).await;
-    let mut r = LogRecord::new("disconnect");
-    r.connection = Some(conn_id);
-    shared.sink.emit(&r);
+    let (peer, conn_id) = (c.peer, c.conn_id);
+    let running = tokio::spawn(async move {
+        let Ok(Ok(upgraded)) = tokio::time::timeout(handshake, on_upgrade).await else { return };
+        let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, Some(cfg)).await;
+        let mut r = LogRecord::new("connect");
+        r.connection = Some(conn_id);
+        shared.sink.emit(&r);
+        session(shared.clone(), ws, peer, conn_id).await;
+        let mut r = LogRecord::new("disconnect");
+        r.connection = Some(conn_id);
+        shared.sink.emit(&r);
+    });
+    if let Ok(mut s) = c.session.lock() {
+        *s = Some(running);
+    }
+    let mut res = Response::new(Body::empty());
+    *res.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
+    let rh = res.headers_mut();
+    rh.insert(header::UPGRADE, HeaderValue::from_static("websocket"));
+    rh.insert(header::CONNECTION, HeaderValue::from_static("Upgrade"));
+    if let Ok(v) = HeaderValue::from_str(&accept) {
+        rh.insert(header::SEC_WEBSOCKET_ACCEPT, v);
+    }
+    res
 }
 
 /// `GET /dl/<token>`: the bytes of a file, with `Range` for resuming. An address that
 /// never existed, expired, or was issued to another source is the same plain 404.
-async fn serve_download<S: AsyncRead + AsyncWrite + Unpin>(shared: &Arc<Shared>, head: &Head, token: &str, s: &mut S, peer: SocketAddr) {
-    use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-    let Some(d) = shared.files.download(token, peer.ip()) else {
-        http::respond(s, 404, "Not Found", "text/plain", b"not found", "").await;
-        return;
+async fn download(State(c): State<ConnCtx>, method: Method, Path(token): Path<String>, headers: HeaderMap) -> Response {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    if method != Method::GET {
+        return plain(StatusCode::NOT_FOUND, "not found");
+    }
+    let Some(d) = c.shared.files.download(&token, c.peer.ip()) else {
+        return plain(StatusCode::NOT_FOUND, "not found");
     };
     let Ok(mut file) = tokio::fs::File::open(&d.path).await else {
-        http::respond(s, 404, "Not Found", "text/plain", b"not found", "").await;
-        return;
+        return plain(StatusCode::NOT_FOUND, "not found");
     };
     let size = file.metadata().await.map(|m| m.len()).unwrap_or(d.size);
     // `bytes=N-` and `bytes=N-M`; anything else is served whole.
-    let (start, end) = head
-        .header("range")
+    let (start, end) = headers
+        .get(header::RANGE)
+        .and_then(|r| r.to_str().ok())
         .and_then(|r| r.strip_prefix("bytes="))
         .and_then(|r| r.split_once('-'))
         .and_then(|(a, b)| {
@@ -385,46 +520,51 @@ async fn serve_download<S: AsyncRead + AsyncWrite + Unpin>(shared: &Arc<Shared>,
         .unwrap_or((0, size.saturating_sub(1)));
     let partial = start != 0 || end != size.saturating_sub(1);
     let len = if size == 0 { 0 } else { end - start + 1 };
-    let name: String = d.name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ') { c } else { '_' }).collect();
-    let cors = if head.header("origin").is_some() && origin_allowed(&shared.cfg, head) {
-        format!("Access-Control-Allow-Origin: {}\r\nVary: Origin\r\n", head.header("origin").unwrap_or(""))
-    } else {
-        String::new()
-    };
-    let (status, reason, range) = if partial { (206, "Partial Content", format!("Content-Range: bytes {start}-{end}/{size}\r\n")) } else { (200, "OK", String::new()) };
-    let response_head = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/octet-stream\r\nContent-Length: {len}\r\nAccept-Ranges: bytes\r\nContent-Disposition: attachment; filename=\"{name}\"\r\n{range}{cors}Connection: close\r\n{}\r\n",
-        http::SECURITY_HEADERS
-    );
-    if s.write_all(response_head.as_bytes()).await.is_err() {
-        return;
-    }
     if start > 0 && file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
-        return;
+        return plain(StatusCode::NOT_FOUND, "not found");
     }
-    let mut left = len;
-    let mut buf = vec![0u8; 64 * 1024];
-    while left > 0 {
-        let want = (buf.len() as u64).min(left) as usize;
-        match file.read(&mut buf[..want]).await {
-            Ok(0) | Err(_) => break,
+    let name: String = d.name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ') { c } else { '_' }).collect();
+    let body = Body::from_stream(futures_util::stream::unfold((file, len), |(mut file, left)| async move {
+        if left == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; (64 * 1024).min(left as usize)];
+        match file.read(&mut buf).await {
+            Ok(0) | Err(_) => None,
             Ok(n) => {
-                if s.write_all(&buf[..n]).await.is_err() {
-                    return;
-                }
-                left -= n as u64;
+                buf.truncate(n);
+                Some((Ok::<_, std::io::Error>(axum::body::Bytes::from(buf)), (file, left - n as u64)))
             }
         }
+    }));
+    let mut res = Response::new(body);
+    if partial {
+        *res.status_mut() = StatusCode::PARTIAL_CONTENT;
     }
-    let _ = s.flush().await;
-    let _ = s.shutdown().await;
+    let rh = res.headers_mut();
+    rh.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    rh.insert(header::CONTENT_LENGTH, HeaderValue::from(len));
+    rh.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    if let Ok(v) = HeaderValue::from_str(&format!("attachment; filename=\"{name}\"")) {
+        rh.insert(header::CONTENT_DISPOSITION, v);
+    }
+    if partial {
+        if let Ok(v) = HeaderValue::from_str(&format!("bytes {start}-{end}/{size}")) {
+            rh.insert(header::CONTENT_RANGE, v);
+        }
+    }
+    if let Some(origin) = headers.get(header::ORIGIN).filter(|o| origin_allowed(&c.shared.cfg, o.to_str().ok())) {
+        rh.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
+        rh.insert(header::VARY, HeaderValue::from_static("Origin"));
+    }
+    res
 }
 
-pub(crate) fn origin_allowed(cfg: &Resolved, head: &Head) -> bool {
+pub(crate) fn origin_allowed(cfg: &Resolved, origin: Option<&str>) -> bool {
     if cfg.allow_any_origin {
         return true;
     }
-    match head.header("origin") {
+    match origin {
         Some(o) => cfg.allowed_origins.iter().any(|a| a == o),
         None => cfg.allow_missing_origin,
     }
@@ -448,6 +588,8 @@ struct Conn {
     /// The ticket machinery that keeps calls of one connection in order.
     next_ticket: u64,
     served: Arc<watch::Sender<u64>>,
+    /// `per-connection` mode: this connection's run units (WASM-003 Q2).
+    state: Option<Arc<Mutex<exec::Session>>>,
 }
 
 /// A call or a subscription that is running: the two ways to stop it.
@@ -535,6 +677,7 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         upload: None,
         next_ticket: 0,
         served: Arc::new(served_tx),
+        state: (shared.backend.state == StateMode::PerConnection).then(|| Arc::new(Mutex::new(exec::Session::new()))),
     };
 
     let hello_deadline = Instant::now() + Duration::from_millis(shared.cfg.limits.handshake_timeout_ms);
@@ -921,6 +1064,14 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
         refuse!(CallError::new(ErrorClass::Validation, codes::BAD_MESSAGE, "this program is a stream: subscribe to it"), subject.as_deref(), Some(&name));
     }
 
+    // `per-connection`: the state belongs to the first user this connection served (WASM-003 Q2).
+    if let Some(state) = &conn.state {
+        let admitted = state.lock().unwrap_or_else(|e| e.into_inner()).admit(subject.as_deref());
+        if let Err(e) = admitted {
+            refuse!(e, subject.as_deref(), Some(&name));
+        }
+    }
+
     // How long this call may take: the client's own limit, never above the backend's.
     let ceiling = if prog.sig.long_running { shared.cfg.limits.long_call_timeout_ms } else { shared.cfg.limits.call_timeout_ms };
     let timeout_ms = call.timeout_ms.map(|t| t.min(ceiling)).unwrap_or(ceiling);
@@ -999,8 +1150,10 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
     }
 
     // Ordering: calls of one connection run in the order they were made, unless the
-    // program is declared independent.
-    let ticket = if prog.sig.independent {
+    // program is declared independent — which a connection that keeps state ignores:
+    // its calls take turns.
+    let session = conn.state.clone();
+    let ticket = if prog.sig.independent && session.is_none() {
         None
     } else {
         let t = conn.next_ticket;
@@ -1017,6 +1170,7 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
     let shared = shared.clone();
     let conn_id = conn.id;
     let file_lock_wait_ms = shared.cfg.limits.file_lock_wait_ms;
+    let configurations = shared.cfg.configurations.clone();
     let files: Option<Arc<dyn BackendFiles>> = subject.clone().map(|s| Arc::new(CallFiles { store: shared.files.clone(), subject: s }) as Arc<dyn BackendFiles>);
     let progress: Option<Box<dyn Fn(u8, &str) + Send>> = if prog.sig.long_running {
         let (ptx, last) = (tx.clone(), Mutex::new(Instant::now() - Duration::from_secs(1)));
@@ -1056,9 +1210,15 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
             progress,
             emit: None,
             files,
+            configurations,
         };
         let args2 = arg_texts.clone();
-        let work = tokio::task::spawn_blocking(move || exec::execute(&prog2, &args2, opts));
+        let mode = if session.is_some() { StateMode::PerConnection } else { StateMode::PerCall };
+        let work = tokio::task::spawn_blocking(move || match session {
+            // The claims are installed again at every call, so a refreshed token is what the program sees.
+            Some(s) => s.lock().unwrap_or_else(|e| e.into_inner()).execute(&prog2, &args2, opts),
+            None => exec::execute(&prog2, &args2, opts),
+        });
         let outcome: Result<exec::ExecResult, CallError> = match tokio::time::timeout(Duration::from_millis(timeout_ms), work).await {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => Err(CallError::new(ErrorClass::Server, codes::PROGRAM_FAULT, "the program failed unexpectedly")),
@@ -1092,6 +1252,7 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
         rec.subject = subject.clone();
         rec.duration_ms = Some(started.elapsed().as_secs_f64() * 1000.0);
         rec.bytes_in = Some(bytes_in);
+        rec.state = Some(mode.as_str());
         match outcome {
             Ok(res) => {
                 let texts: Vec<Option<String>> = res.args.iter().map(|a| Some(a.clone())).collect();
@@ -1299,6 +1460,7 @@ async fn on_subscribe(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<M
             progress: None,
             emit: Some(emit),
             files,
+            configurations: shared.cfg.configurations.clone(),
         };
         let prog2 = prog.clone();
         let outcome = tokio::task::spawn_blocking(move || exec::execute(&prog2, &arg_texts, opts)).await;

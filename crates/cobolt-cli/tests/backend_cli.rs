@@ -212,3 +212,57 @@ fn a_program_run_by_rcrun_calls_its_backend_with_the_token_the_development_serve
     let _ = backend.wait();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// WASM-003 T2 (R22; C5): the Backend a new Web project is created with checks
+/// clean and starts as it is — its `exports.toml` and its development
+/// `backend.toml` are the scaffold's, untouched.
+#[test]
+fn a_new_web_projects_backend_checks_clean_and_answers_its_health_probe() {
+    let dir = std::env::temp_dir().join(format!("prc-cli-backend-scaffold-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let request = cobolt_project_tools::create::CreateRequest::new("Shop").template("web");
+    cobolt_project_tools::create::create_project_with(&dir, &request).unwrap();
+
+    let (code, out, err) = rcrun(&["check"], &dir);
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(out.contains("contract 1.0.0: 1 exported program(s)") && out.trim_end().ends_with("ok"), "{out}");
+
+    // backend.toml names a fixed loopback port; --listen moves it so the test never collides.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rcrun"))
+        .args(["backend", "run", "--listen", "127.0.0.1:0"])
+        .arg(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("starts");
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let started = Instant::now();
+    let mut url = String::new();
+    while started.elapsed() < Duration::from_secs(60) {
+        match lines.next() {
+            Some(Ok(l)) if l.starts_with("backend listening on ") => {
+                url = l["backend listening on ".len()..].to_string();
+                break;
+            }
+            Some(_) => {}
+            None => break,
+        }
+    }
+    if url.is_empty() {
+        let _ = child.kill();
+        let mut e = String::new();
+        let _ = child.stderr.take().unwrap().read_to_string(&mut e);
+        panic!("the scaffolded backend did not start: {e}");
+    }
+    let port: u16 = url["ws://127.0.0.1:".len()..].split('/').next().unwrap().parse().unwrap();
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    write!(s, "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+    let mut raw = String::new();
+    let _ = s.read_to_string(&mut raw);
+    assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
+    println!("new Web project: `rcrun backend check` → {:?}; `backend run` up on {url} in {:.0} ms; /health 200", out.lines().next().unwrap_or(""), started.elapsed().as_secs_f64() * 1000.0);
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}

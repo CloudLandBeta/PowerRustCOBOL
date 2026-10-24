@@ -67,6 +67,77 @@ fn get(port: u16, path: &str) -> Option<(u16, String)> {
     Some((status, body))
 }
 
+/// A backend program that is not exported: other programs may CALL it, no caller may reach it.
+const SECRET: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SECRET.
+DATA DIVISION.
+LINKAGE SECTION.
+01 LK-S.
+    05 S PIC X(8).
+PROCEDURE DIVISION USING LK-S.
+MAIN.
+    MOVE "leaked" TO S
+    GOBACK.
+"#;
+
+/// A minimal WebSocket client over plain loopback `ws://`: the handshake, then
+/// masked text frames out and unmasked text frames in (enough for hello and a call).
+struct Ws(TcpStream);
+
+impl Ws {
+    fn connect(port: u16) -> Option<Ws> {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).ok()?;
+        s.set_read_timeout(Some(Duration::from_secs(10))).ok()?;
+        write!(s, "GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").ok()?;
+        let mut head = Vec::new();
+        let mut b = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            s.read_exact(&mut b).ok()?;
+            head.push(b[0]);
+        }
+        String::from_utf8_lossy(&head).starts_with("HTTP/1.1 101").then_some(Ws(s))
+    }
+
+    fn send(&mut self, text: &str) {
+        let p = text.as_bytes();
+        let mut f = vec![0x81u8];
+        match p.len() {
+            n if n < 126 => f.push(0x80 | n as u8),
+            n => {
+                f.push(0x80 | 126);
+                f.extend_from_slice(&(n as u16).to_be_bytes());
+            }
+        }
+        let mask = [7u8, 13, 29, 41];
+        f.extend_from_slice(&mask);
+        f.extend(p.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
+        self.0.write_all(&f).unwrap();
+    }
+
+    fn recv(&mut self) -> serde_json::Value {
+        loop {
+            let mut h = [0u8; 2];
+            self.0.read_exact(&mut h).unwrap();
+            let mut len = (h[1] & 0x7f) as usize;
+            if len == 126 {
+                let mut l = [0u8; 2];
+                self.0.read_exact(&mut l).unwrap();
+                len = u16::from_be_bytes(l) as usize;
+            } else if len == 127 {
+                let mut l = [0u8; 8];
+                self.0.read_exact(&mut l).unwrap();
+                len = u64::from_be_bytes(l) as usize;
+            }
+            let mut body = vec![0u8; len];
+            self.0.read_exact(&mut body).unwrap();
+            if h[0] & 0x0f == 1 {
+                return serde_json::from_slice(&body).unwrap();
+            }
+        }
+    }
+}
+
 struct Killed(std::process::Child);
 
 impl Drop for Killed {
@@ -118,6 +189,7 @@ fn a_project_without_a_backend_is_told_what_is_missing() {
 #[test]
 fn the_built_backend_is_a_binary_that_checks_describes_and_answers_its_health_probe() {
     let dir = project("built", EXPORTS, PING);
+    std::fs::write(dir.join("backend").join("src").join("secret.cbl"), SECRET).unwrap();
     // The generated Cargo project and its target folder go to a folder of this
     // test's own, removed at the end (a backend build is some hundreds of MB).
     let staging = std::env::temp_dir().join(format!("prc-backend-e2e-build-{}", std::process::id()));
@@ -130,6 +202,14 @@ fn the_built_backend_is_a_binary_that_checks_describes_and_answers_its_health_pr
     assert_eq!(built.contract, "1.0.0");
     assert_eq!(built.programs, 1);
     assert!(built.interface.is_file());
+
+    // The generated project names the server crate and no Leptos crate: the front is inside cobolt-server (R2, D2).
+    let generated = std::fs::read_dir(&staging).unwrap().flatten().map(|e| e.path().join("Cargo.toml")).find(|p| p.is_file()).expect("the generated Cargo.toml");
+    let manifest = std::fs::read_to_string(&generated).unwrap();
+    assert!(manifest.contains("cobolt-server"), "{manifest}");
+    for name in ["leptos", "axum", "hyper"] {
+        assert!(!manifest.contains(name), "the developer's backend project names {name}: {manifest}");
+    }
 
     // --version
     let v = Command::new(&built.binary).arg("--version").output().unwrap();
@@ -150,7 +230,8 @@ fn the_built_backend_is_a_binary_that_checks_describes_and_answers_its_health_pr
 
     // A release binary refuses an unsafe setting.
     let health = free_port();
-    let base = format!("[server]\nlisten = \"127.0.0.1:0\"\nhealth_listen = \"127.0.0.1:{health}\"\nallow_missing_origin = true\n[auth]\nissuer = [\"https://idp.example.test/pool\"]\naudiences = [\"prc-api\"]\n");
+    let listen = free_port();
+    let base = format!("[server]\nlisten = \"127.0.0.1:{listen}\"\nhealth_listen = \"127.0.0.1:{health}\"\nallow_missing_origin = true\n[auth]\nissuer = [\"https://idp.example.test/pool\"]\naudiences = [\"prc-api\"]\n");
     let unsafe_cfg = dir.join("unsafe.toml");
     std::fs::write(&unsafe_cfg, format!("unsafe_allow_any_origin = true\n{base}")).unwrap();
     let refused = Command::new(&built.binary).args(["--check", "--config"]).arg(&unsafe_cfg).output().unwrap();
@@ -183,8 +264,27 @@ fn the_built_backend_is_a_binary_that_checks_describes_and_answers_its_health_pr
     assert_eq!(h["contract"], "1.0.0");
     assert_eq!(get(health, "/other").map(|a| a.0), Some(404));
 
+    // The front of the built binary: the exported program answers. The program that is
+    // not exported cannot be told apart from a name that never existed — to a caller
+    // without a token both are "no token", so names cannot be enumerated (with a token
+    // both are not-found 5000: loopback::an_exported_program_answers_and_nothing_else_does).
+    let mut ws = Ws::connect(listen).expect("the WebSocket upgrade on the built binary");
+    ws.send(r#"{"t":"hello","protocol":1,"contract":"1.0.0","client":"test"}"#);
+    assert_eq!(ws.recv()["accepted"], "ok");
+    ws.send(r#"{"t":"call","id":1,"program":"PING","args":[],"returning":true}"#);
+    let pong = ws.recv();
+    assert_eq!(pong["returning"]["REPLY"], "pong", "{pong}");
+    let mut answers = Vec::new();
+    for (i, name) in ["SECRET", "secret", " SECRET ", "NO-SUCH-PROGRAM"].iter().enumerate() {
+        ws.send(&format!(r#"{{"t":"call","id":{},"program":"{name}","args":[{{"mode":"ref","json":{{"S":""}}}}],"returning":false}}"#, 10 + i));
+        let r = ws.recv();
+        answers.push((r["class"].as_str().unwrap_or("").to_string(), r["code"].as_u64().unwrap_or(0), r["message"].as_str().unwrap_or("").to_string()));
+    }
+    assert!(answers.iter().all(|a| *a == answers[3]), "SECRET answers like a name that never existed: {answers:?}");
+    assert_ne!(answers[0].0, "", "and it is refused");
+
     let size = std::fs::metadata(&built.binary).unwrap().len();
-    println!("\n  backend build: {build_secs:.0} s (debug), binary {:.1} MB, health 200 with contract {}", size as f64 / 1e6, h["contract"]);
+    println!("\n  backend build: {build_secs:.0} s (debug, cold staging), binary {:.1} MB, health 200 with contract {}; PING → pong; SECRET (3 spellings) and NO-SUCH-PROGRAM → {} {}", size as f64 / 1e6, h["contract"], answers[0].0, answers[0].1);
     drop(_guard);
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&staging);

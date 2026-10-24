@@ -20,25 +20,45 @@ cobolt-ast      = { path = "../cobolt-ast" }
 # with the routines it links in: one definition, in the routines' crate.
 cobolt-wasm-rt  = { path = "../cobolt-wasm-rt" }
 cobolt-decimal  = { path = "../cobolt-decimal" }
+# The group <-> JSON mapping's layout rules (WASM-005 R5): the generator
+# describes a group to the routines from the same `Item` the interpreter and
+# the backend build, so a layout is accepted or refused by one definition.
+cobolt-wire     = { path = "../cobolt-wire" }
+# The form model's own tables (a layer's properties, spec 091 R33), without the
+# Viewer's readers: the model crate the player also builds on.
+cobolt-forms    = { path = "../cobolt-forms", default-features = false }
 wasm-encoder    = { version = "0.244", features = ["wasmparser"] }
 wasmparser      = "0.244"
 serde           = { workspace = true }
 serde_json      = { workspace = true }
 thiserror       = { workspace = true }
 
-# The host that runs generated modules for tests and for the NIST gate. A
-# generated module's only contact with the outside is ABI v1, which this host
-# implements over files and a console (WASM-ABI-v1 §8).
-[dependencies.wasmi]
-version  = "2.0"
-optional = true
+# The host that runs generated modules for tests, for the NIST gate and for the
+# Build's start-up measurement. A generated module's only contact with the
+# outside is ABI v1, which this host implements over files and a console
+# (WASM-ABI-v1 §8). `wasmtime` (operator, 2026-10-22, WASM-010 Q2): pinned to
+# 44.0.3, the newest line whose `rust-version` is 1.92; its `runtime` feature
+# compiles one C helper (`helpers.c`), allowed by `tests/dependency_guard.rs`.
+[dependencies.wasmtime]
+version          = "=44.0.3"
+default-features = false
+features         = ["cranelift", "runtime", "std"]
+optional         = true
+
+# The ABI's one codec, manifest and module scanner (WASM-010 D3). `scan` uses
+# the wasmparser this crate already has.
+[dependencies.cobolt-wasm-abi]
+path     = "../cobolt-wasm-abi"
+features = ["scan"]
 
 [features]
 default = ["host"]
-host    = ["dep:wasmi"]
+host    = ["dep:wasmtime"]
 
 [dev-dependencies]
 wasmparser      = { version = "0.244", features = ["validate", "features"] }
 cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-runtime  = { path = "../cobolt-runtime" }
+# A form generated the way the Build generates it, and its source map (R14).
+cobolt-codegen  = { path = "../cobolt-codegen" }

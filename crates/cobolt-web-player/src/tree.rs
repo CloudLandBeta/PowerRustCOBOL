@@ -65,6 +65,10 @@ pub struct Ctl {
     pub bound: Vec<String>,
     /// Bumped on every change; the renderer compares it to know what to redraw.
     pub rev: u64,
+    /// The layer this control sits in, as an index into [`FormTree::layers`] (its place in the stack);
+    /// `None` is the base. Only a direct child of the form carries one: a control inside a container
+    /// belongs to its container's layer (spec 091 R8), and a name the form does not define is the base (R40).
+    pub layer: Option<usize>,
 }
 
 impl Ctl {
@@ -128,6 +132,56 @@ impl Ctl {
     }
 }
 
+/// One layer of a form instance (spec 091; ABI A9): its backdrop properties, and whether it is shown —
+/// the player's state for this instance only, `false` when the instance is created (WASM-016 R19), and
+/// dropped with the instance.
+#[derive(Debug, Clone)]
+pub struct LayerState {
+    pub name: String,
+    /// The ABI id the program addresses it by (`3 + n …`, A9); `None` when the program never does.
+    pub abi_id: Option<u32>,
+    /// Lower-case property name → stored text: `name` and the backdrop properties.
+    pub props: IndexMap<String, String>,
+    pub visible: bool,
+}
+
+/// The backdrop properties of a layer a program may write (A9). `Name` is read-only.
+const LAYER_WRITABLE: &[&str] = &[
+    "visible",
+    "transparency",
+    "backgroundcolor",
+    "backgroundgradientenabled",
+    "backgroundgradientstartcolor",
+    "backgroundgradientendcolor",
+    "backgroundgradientdirection",
+    "backgroundimage",
+    "backgroundimagemode",
+];
+
+/// Why a layer write was not done.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayerWriteError {
+    /// `Name` cannot be written (A9: the program sees `-2`).
+    ReadOnly(String),
+    /// A layer has no such property.
+    Unknown(String),
+}
+
+fn layer_props(l: &cobolt_forms::model::Layer) -> IndexMap<String, String> {
+    let b = &l.backdrop;
+    let mut p: IndexMap<String, String> = IndexMap::new();
+    p.insert("name".into(), l.name.clone());
+    p.insert("transparency".into(), b.transparency.to_string());
+    p.insert("backgroundcolor".into(), b.color.clone());
+    p.insert("backgroundgradientenabled".into(), if b.gradient_enabled { "1" } else { "0" }.into());
+    p.insert("backgroundgradientstartcolor".into(), b.gradient_start_color.clone());
+    p.insert("backgroundgradientendcolor".into(), b.gradient_end_color.clone());
+    p.insert("backgroundgradientdirection".into(), b.gradient_direction.clone());
+    p.insert("backgroundimage".into(), b.image.clone());
+    p.insert("backgroundimagemode".into(), b.image_mode.as_str().to_owned());
+    p
+}
+
 /// Something the renderer must project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
@@ -154,7 +208,10 @@ pub struct FormTree {
     pub main: bool,
     pub design_size: (u32, u32),
     pub ctls: Vec<Ctl>,
+    /// The form's layers, in stack order, with this instance's state of each (empty for a form with none).
+    pub layers: Vec<LayerState>,
     abi_index: HashMap<u32, usize>,
+    layer_abi: HashMap<u32, usize>,
     name_index: HashMap<String, usize>,
     pub layout_bag: BTreeMap<String, PropValue>,
     pub breakpoints: Vec<Breakpoint>,
@@ -284,7 +341,27 @@ impl FormTree {
             props: form_props(form),
             bound: bound_for(cobolt_wasm_abi::codes::ctrl::FORM),
             rev: 0,
+            layer: None,
         });
+        // The layers: every one starts hidden in a new instance (spec 091 R35, WASM-016 R19).
+        let layers: Vec<LayerState> = form
+            .layers
+            .iter()
+            .map(|l| LayerState {
+                name: l.name.clone(),
+                abi_id: entry.layers.iter().find(|e| e.name.eq_ignore_ascii_case(&l.name)).map(|e| e.id),
+                props: layer_props(l),
+                visible: false,
+            })
+            .collect();
+        for listed in &entry.layers {
+            if !layers.iter().any(|l| l.name.eq_ignore_ascii_case(&listed.name)) {
+                return Err(PairError(format!(
+                    "the program addresses layer `{}` of form `{}`, which the form description does not contain: rebuild the application",
+                    listed.name, entry.name
+                )));
+            }
+        }
 
         let mut name_index: HashMap<String, usize> = HashMap::new();
         name_index.insert(form.name.to_ascii_uppercase(), 0);
@@ -305,6 +382,10 @@ impl FormTree {
             }
             let idx = ctls.len();
             name_index.insert(c.id.to_ascii_uppercase(), idx);
+            let layer = match (&c.parent, &c.layer) {
+                (None, Some(name)) => layers.iter().position(|l| l.name.eq_ignore_ascii_case(name)),
+                _ => None,
+            };
             ctls.push(Ctl {
                 name: c.id.clone(),
                 abi_id: abi.map(|a| a.id),
@@ -315,6 +396,7 @@ impl FormTree {
                 props: control_props(c),
                 bound: abi.map(|a| bound_for(a.id)).unwrap_or_default(),
                 rev: 0,
+                layer,
             });
         }
         // Parent links, from the flat list.
@@ -339,6 +421,7 @@ impl FormTree {
                 abi_index.insert(a, i);
             }
         }
+        let layer_abi = layers.iter().enumerate().filter_map(|(k, l)| l.abi_id.map(|a| (a, k))).collect();
         Ok(FormTree {
             inst,
             form_idx: entry.id as usize,
@@ -347,7 +430,9 @@ impl FormTree {
             main: entry.main,
             design_size: (form.width, form.height),
             ctls,
+            layers,
             abi_index,
+            layer_abi,
             name_index,
             layout_bag: form.layout.clone(),
             breakpoints: form.breakpoints.clone(),
@@ -365,6 +450,61 @@ impl FormTree {
     /// The index of the control with this ABI id (`0` is the form).
     pub fn by_abi(&self, id: u32) -> Option<usize> {
         self.abi_index.get(&id).copied()
+    }
+
+    /// The layer with this ABI id (A9).
+    pub fn layer_by_abi(&self, id: u32) -> Option<usize> {
+        self.layer_abi.get(&id).copied()
+    }
+
+    pub fn layer_by_name(&self, name: &str) -> Option<usize> {
+        self.layers.iter().position(|l| l.name.eq_ignore_ascii_case(name.trim()))
+    }
+
+    /// The layer control `i` belongs to: its own, or the one of the direct child of the form it sits in.
+    pub fn layer_of(&self, mut i: usize) -> Option<usize> {
+        while let Some(p) = self.ctls[i].parent.filter(|&p| p != 0) {
+            i = p;
+        }
+        self.ctls[i].layer
+    }
+
+    /// Is control `i` in a layer that is hidden? (It is then not drawn and not reachable: `inert`, D20.)
+    pub fn in_hidden_layer(&self, i: usize) -> bool {
+        self.layer_of(i).is_some_and(|l| !self.layers[l].visible)
+    }
+
+    /// A layer's property as the program reads it.
+    pub fn layer_get(&self, l: usize, name: &str) -> Result<String, LayerWriteError> {
+        let key = name.trim().to_ascii_lowercase();
+        let layer = &self.layers[l];
+        if key == "visible" {
+            return Ok(property_runtime_text("Layer", "Visible", if layer.visible { "1" } else { "0" }));
+        }
+        layer.props.get(&key).cloned().ok_or_else(|| LayerWriteError::Unknown(format!("a layer has no property `{}`", name.trim())))
+    }
+
+    /// A program's write to a layer (A9): `Visible` is this instance's state, shown on the next frame;
+    /// the backdrop properties are stored; `Name` is refused. Every control of the layer is marked for
+    /// redrawing, so the change reaches the page in the next render pass.
+    pub fn layer_set(&mut self, l: usize, name: &str, value: &str) -> Result<(), LayerWriteError> {
+        let key = name.trim().to_ascii_lowercase();
+        if key == "name" {
+            return Err(LayerWriteError::ReadOnly(format!("the name of layer `{}` cannot be changed", self.layers[l].name)));
+        }
+        if !LAYER_WRITABLE.contains(&key.as_str()) {
+            return Err(LayerWriteError::Unknown(format!("a layer has no property `{}`", name.trim())));
+        }
+        if key == "visible" {
+            self.layers[l].visible = turned_on(value);
+        } else {
+            self.layers[l].props.insert(key.clone(), value.to_owned());
+        }
+        let members: Vec<usize> = (1..self.ctls.len()).filter(|&i| self.ctls[i].layer == Some(l)).collect();
+        for i in members {
+            self.touch(i, &key);
+        }
+        Ok(())
     }
 
     pub fn by_name(&self, name: &str) -> Option<usize> {
@@ -685,6 +825,7 @@ two</Property></Control>
                     HandlerEntry { ctrl: 3, event: 2, entry: 0 },  // BTN-GO onClick
                     HandlerEntry { ctrl: 9, event: 3, entry: 1 },  // NUD-1 onChange
                 ],
+                layers: vec![],
             }],
             builtins: vec![],
             imports: vec![],

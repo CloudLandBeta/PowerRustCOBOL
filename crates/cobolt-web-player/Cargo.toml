@@ -50,10 +50,16 @@ threaded = ["rayon", "dep:wasm-bindgen-rayon"]
 # Rayon alone (no wasm-bindgen glue): lets the native tests prove that the parallel sort gives the
 # same result as the sequential one.
 rayon = ["dep:rayon"]
+# Exports used only by the test bundles (WASM-017 R15, AC11): `force_panic_for_test`. `build_player`
+# turns it on with `--test-hooks` for the node and browser tests, never for `assets/web-player/`.
+test-hooks = []
 
 [dependencies]
 cobolt-forms    = { path = "../cobolt-forms", default-features = false }
 cobolt-wasm-abi = { path = "../cobolt-wasm-abi" }
+# WASM-005 T16: the remote grids' endpoints are named as the Build names them, and their frames
+# fit the catalogue's layouts. Pure Rust (serde, serde_json, cobolt-ast): nothing the browser lacks.
+cobolt-wire     = { path = "../cobolt-wire" }
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
 indexmap    = { version = "2", features = ["serde"] }
@@ -76,6 +82,14 @@ wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 wasm-bindgen-rayon = { version = "1.3", optional = true }
+# The browser half's framework (WASM-016 R1; plan C1): Leptos 0.8.22, the newest stable release on
+# 2026-10-23 (0.9 is a release candidate), MIT, rust-version 1.88, `wasm-bindgen = "^0.2"` — so it takes
+# the pinned 0.2.129 above. Client-side rendering only; no server functions, no hydration.
+leptos = { version = "=0.8.22", default-features = false, features = ["csr"] }
+# Leptos's executor interface and the local pool the node layer runs it on, so a render pass is applied
+# before the page reads the elements back (src/dom/reactive.rs). Both were already in Leptos's closure.
+any_spawner = "=0.3.0"
+futures = { version = "0.3", default-features = false, features = ["std", "executor"] }
 web-sys = { version = "0.3", features = [
     "Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "HtmlSelectElement",
     "HtmlOptionElement", "HtmlButtonElement", "HtmlDialogElement", "HtmlCanvasElement", "HtmlImageElement",
@@ -93,19 +107,23 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [dev-dependencies]
-# The engine the native tests run the fixture module on (WASM-PLAN P7): pure Rust, no JIT.
-wasmi = "2"
+# The engine the native tests run the program modules on: the generator's own (operator,
+# 2026-10-22, WASM-010 Q2 and Q-new-2), pinned as in the main workspace. A dev-dependency of the
+# native tests only: the browser build never links it (tests/dependency_guard.rs).
+wasmtime = { version = "=44.0.3", default-features = false, features = ["cranelift", "runtime", "std"] }
 tempfile = "3"
 # The Mermaid renderer the browser player loads as a part: the native tests turn it on here to give the
 # view layer a real answer to read (the player itself depends on `cobolt-forms` without it).
 cobolt-forms = { path = "../cobolt-forms", default-features = false, features = ["mermaid"] }
 cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["fixture", "scan"] }
 
-# The size-first profile of WASM-017 R16. `opt-level` is chosen by measurement ("z" against
-# "s": see plan.md); `panic = "abort"` is what lets a panic end the instance cleanly; symbols are
-# stripped; wasm-opt runs afterwards (examples/build_player.rs).
+# The size-first profile of WASM-017 R16. `opt-level = "s"` is the operator's ruling (WASM-017 Q8),
+# not the smaller choice: on the 2026-10-20 source "s" cost +581,902 bytes before wasm-opt against "z"
+# (2,718,057 against 2,136,155); `build_player --measure` records the current cost in player-build.json.
+# `panic = "abort"` is what lets a panic end the instance cleanly; symbols are stripped; `wasm-opt -Os`
+# runs afterwards (examples/build_player.rs).
 [profile.release]
-opt-level     = "z"
+opt-level     = "s"
 lto           = true
 codegen-units = 1
 panic         = "abort"

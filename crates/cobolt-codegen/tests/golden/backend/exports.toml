@@ -1,0 +1,39 @@
+# ───────────────────────────────────────────────────────────
+#  This code was generated automatically by PowerRustCOBOL RAD.
+#
+#  DO NOT MODIFY IT DIRECTLY: it is regenerated on every Build of
+#  the project, so manual edits are lost. Edit the form and its
+#  data binding in the Form Designer instead.
+#
+#  PowerRustCOBOL and its components are distributed under the
+#  Apache 2.0 License.
+
+[[export]]
+program = "RC-6-ORDERS-9-GRID-CUST-READ"
+roles = ["clerk", "manager"]
+public = false
+idempotent = true
+directions = ["in"]
+
+[[export]]
+program = "RC-6-ORDERS-9-GRID-CUST-SAVE"
+roles = ["clerk", "manager"]
+public = false
+directions = ["in"]
+
+[[export]]
+program = "RC-6-ORDERS-10-GRID-ITEMS-READ"
+public = false
+idempotent = true
+directions = ["in"]
+
+[[export]]
+program = "RC-6-ORDERS-10-GRID-ITEMS-SAVE"
+public = false
+directions = ["in"]
+
+[[export]]
+program = "RC-6-REPORT-11-GRID-TOTALS-READ"
+public = false
+idempotent = true
+directions = ["in"]

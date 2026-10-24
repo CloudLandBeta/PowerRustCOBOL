@@ -951,6 +951,9 @@ pub struct CoboltApp {
     /// The web Preview of a Web or Mobile project: its build job, development
     /// server, web view and controls window (WASM-008).
     web_preview: WebPreview,
+    /// The project's backend started from the Run menu: a child
+    /// `rcrun backend run` (WASM-003 R20); dropping it stops it.
+    backend_run: Option<crate::backend_run::BackendRun>,
 
     // Cross-window pending actions
     /// A file path waiting to be opened in the code editor (set by a designer
@@ -1721,11 +1724,12 @@ fn same_file_path(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// Spec 046 R5 — the `.cfrm` file name a pasted form registers under,
+/// Spec 046 R5 — the form file name a pasted form registers under,
 /// matching `create_new_form`'s own convention (`form_name.to_lowercase()`)
-/// so a pasted and a hand-created form are indistinguishable on disk.
-fn pasted_form_file_name(form_name: &str) -> String {
-    format!("{}.cfrm", form_name.to_lowercase())
+/// so a pasted and a hand-created form are indistinguishable on disk. The
+/// extension is the project kind's (WASM-001 Q2): `.cfrm`, `.wcfrm`, `.mcfrm`.
+fn pasted_form_file_name(form_name: &str, kind: cobolt_compiler::ProjectKind) -> String {
+    format!("{}.{}", form_name.to_lowercase(), kind.form_extension())
 }
 
 /// Spec 046 R3/R4 — the text of the first `Event::Paste` in this frame's
@@ -2290,6 +2294,7 @@ impl CoboltApp {
             new_indexed_dir: None,
             new_project: NewProjectDialog::new(),
             web_preview: WebPreview::default(),
+            backend_run: None,
 
             pending_open_in_editor: None,
             pending_goto_paragraph: None,
@@ -2749,6 +2754,69 @@ impl CoboltApp {
         self.web_preview.show(ctx, &tr);
         if wants_frame {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
+    }
+
+    /// The folder of the open project when it has a backend to run
+    /// (`backend/exports.toml`, WASM-003 D5).
+    fn backend_project_dir(&self) -> Option<PathBuf> {
+        if !self.is_web_project() {
+            return None;
+        }
+        let dir = self.project_path.as_ref()?.parent()?.to_path_buf();
+        dir.join("backend").join("exports.toml").is_file().then_some(dir)
+    }
+
+    /// Run menu → Start Backend: `rcrun backend run <project>` as a child
+    /// (WASM-003 R20); a backend already running is stopped first.
+    fn start_backend(&mut self) {
+        let Some(dir) = self.backend_project_dir() else {
+            return;
+        };
+        self.stop_backend();
+        let tr = self.lang.tr();
+        match crate::backend_run::BackendRun::spawn(&crate::backend_run::rcrun(), &dir) {
+            Ok(run) => self.backend_run = Some(run),
+            Err(e) => self.output.push_status(tr.backend_start_failed.replacen("{}", &e.to_string(), 1)),
+        }
+    }
+
+    /// Run menu → Stop Backend, and a project change.
+    fn stop_backend(&mut self) {
+        if let Some(mut run) = self.backend_run.take() {
+            let was_running = run.is_running();
+            run.stop();
+            if was_running {
+                self.output.push_status(self.lang.tr().backend_stopped.to_owned());
+            }
+        }
+    }
+
+    /// Once a frame: hand the backend's lines to the Output panel.
+    fn poll_backend(&mut self, ctx: &Context) {
+        let Some(run) = self.backend_run.as_mut() else {
+            return;
+        };
+        let events = run.poll();
+        let running = run.is_running();
+        let tr = self.lang.tr();
+        for event in events {
+            match event {
+                crate::backend_run::BackendEvent::Line(line) => self.output.push_line(line),
+                crate::backend_run::BackendEvent::Listening(url) => {
+                    self.output.push_status(tr.backend_running.replacen("{}", &url, 1))
+                }
+                crate::backend_run::BackendEvent::Exited(code) => {
+                    // It ended by itself; the lines above say why.
+                    let why = code.map(|c| format!("exit {c}")).unwrap_or_else(|| "signal".to_owned());
+                    self.output.push_status(format!("{} ({why})", tr.backend_stopped));
+                }
+            }
+        }
+        if running {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        } else {
+            self.backend_run = None;
         }
     }
 
@@ -4499,6 +4567,8 @@ impl CoboltApp {
         self.output.clear_run_output();
         self.output.push_status(crate::ui_text::idef("── Checking {} ──", &[&path.file_name().and_then(|n| n.to_str()).unwrap_or("?")]));
         self.warn_agents_without_tools();
+        self.warn_forms_named_for_another_kind();
+        self.check_web_portability();
         self.editor.clear_diags();
 
         use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
@@ -4605,6 +4675,52 @@ impl CoboltApp {
     /// Spec 063 R65 — say, at design time, which forms hold two or more agents set to offer no
     /// tools. Such an application still runs (it answers without tool calling, R66); the
     /// developer is told so that it is not a surprise. The designers' live forms win over disk.
+    /// WASM-001 Q2, D-T15b — Check names each form whose file is named for
+    /// another kind of project (it still loads) and the rename that fixes it.
+    fn warn_forms_named_for_another_kind(&mut self) {
+        let Some(proj) = &self.cobolt_project else {
+            return;
+        };
+        let kind = proj.kind();
+        let notes: Vec<(String, String)> = proj
+            .files
+            .forms
+            .iter()
+            .filter_map(|rel| crate::project_model::form_rename_for_kind(rel, kind).map(|new| (rel.clone(), new)))
+            .collect();
+        let tr = self.lang.tr();
+        for (rel, new) in notes {
+            let new_name = Path::new(&new).file_name().and_then(|n| n.to_str()).unwrap_or(&new).to_owned();
+            self.output
+                .push_status(tr.pk_check_form_name_kind.replacen("{}", &rel, 1).replacen("{}", &new_name, 1));
+        }
+    }
+
+    /// WASM-002 R3, T14 — Check on a Web or Mobile project runs the generator
+    /// the Build runs, writing nothing, and lists each line a browser cannot
+    /// run as an error, so Check and Build cannot disagree.
+    fn check_web_portability(&mut self) {
+        let Some(manifest) = self.project_path.clone() else {
+            return;
+        };
+        let Ok(request) = cobolt_project_tools::web::WebBuildRequest::from_manifest(&manifest) else {
+            return;
+        };
+        let Err(cobolt_project_tools::web::WebBuildError::Refused(lines)) =
+            cobolt_project_tools::web::backend().check(&request)
+        else {
+            return;
+        };
+        use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
+        let tr = self.lang.tr();
+        self.output.push_status(tr.web_check_not_portable.to_owned());
+        for d in &lines {
+            let text = crate::panels::web_preview::diagnostic_text(d, &tr);
+            self.output
+                .push_msg(&RunMsg::Diagnostic(DiagMsg::plain(DiagSeverity::Error, text, 0, 0)));
+        }
+    }
+
     fn warn_agents_without_tools(&mut self) {
         let mut forms: Vec<(PathBuf, Form)> =
             self.designers.iter().map(|(p, d)| (p.clone(), d.form.clone())).collect();
@@ -4802,8 +4918,9 @@ impl CoboltApp {
     }
 
     fn open_project_at(&mut self, path: PathBuf) {
-        // A Preview belongs to the project it was started for.
+        // A Preview belongs to the project it was started for; so does a backend.
         self.web_preview.close();
+        self.stop_backend();
         match load_project(&path) {
             Ok(mut proj) => {
                 let dir = path.parent().map(|p| p.to_owned());
@@ -4893,10 +5010,23 @@ impl CoboltApp {
                 }
                 // Initialize (or reset) the in-pane project Settings form and show it
                 // by default (fills the main area to the right of the tree, no editor chrome).
+                // WASM-003 C5: a project whose exports are still only in its
+                // project file gets backend/exports.toml, once; the project
+                // file is left as it is.
+                if let (Some(p), Some(root)) = (&self.cobolt_project, self.project_path.as_ref().and_then(|p| p.parent())) {
+                    let tr = self.lang.tr();
+                    match crate::panels::web_settings::migrate_exports(root, p) {
+                        Ok(Some(written)) => self.output.push_status(tr.pk_set_exports_migrated.replacen("{}", &written.display().to_string(), 1)),
+                        Ok(None) => {}
+                        Err(e) => self.output.push_status(tr.pk_set_exports_write_failed.replacen("{}", &e, 1)),
+                    }
+                }
                 if let Some(p) = &self.cobolt_project {
-                    self.settings_form = Some(crate::panels::settings_form::SettingsForm::new(
-                        p, &self.llm,
-                    ));
+                    let mut form = crate::panels::settings_form::SettingsForm::new(p, &self.llm);
+                    if let Some(root) = self.project_path.as_ref().and_then(|p| p.parent()) {
+                        form.load_backend_exports(root);
+                    }
+                    self.settings_form = Some(form);
                     self.show_project_settings = true;
                     self.show_grace_chat = false;
                     self.inspect = None;
@@ -7109,7 +7239,7 @@ impl CoboltApp {
         let spec = crate::file_dialog::DialogSpec::open().directory(proj_dir);
         let spec = match kind {
             FileKind::Source => spec.filter("COBOL Source", &["cbl", "cob", "cpy"]),
-            FileKind::Form => spec.filter("RustCOBOL Form", &["cfrm"]),
+            FileKind::Form => spec.filter("RustCOBOL Form", &cobolt_compiler::project_kind::FORM_EXTENSIONS),
             FileKind::Indexed => spec.filter("Indexed data file", &["idx", "dat"]),
             FileKind::Documentation => spec.filter(
                 "Knowledge Base documents",
@@ -11059,6 +11189,15 @@ impl CoboltApp {
             return;
         };
         form.draft.apply(proj, &mut self.llm);
+        // The exported programs live in backend/exports.toml (WASM-003 D5).
+        let project_dir = self.project_path.as_ref().and_then(|p| p.parent()).map(|d| d.to_path_buf());
+        if let Some(dir) = project_dir.filter(|_| form.exports_edited() && form.draft.has_backend && form.draft.kind.has_backend()) {
+            let names = crate::panels::web_settings::parse_exports(&form.draft.exports_text);
+            if let Err(e) = crate::panels::web_settings::write_exports(&dir, &names) {
+                let tr = self.lang.tr();
+                self.output.push_status(tr.pk_set_exports_write_failed.replacen("{}", &e, 1));
+            }
+        }
         form.mark_saved();
         self.persist_active_project_ai();
         // The background image or its opacity may have just changed: drop the
@@ -14612,7 +14751,8 @@ impl CoboltApp {
     /// and its own runtime process, so nothing here can collide with an
     /// unrelated form already in the project).
     fn register_pasted_form(&mut self, form: Form, dest_dir: &Path) {
-        let path = dest_dir.join(pasted_form_file_name(&form.name));
+        let kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
+        let path = dest_dir.join(pasted_form_file_name(&form.name, kind));
         if let Err(e) = save_form(&form, &path) {
             self.output.push_status(crate::ui_text::idef("Could not paste form: {}", &[&e]));
             return;
@@ -14739,14 +14879,16 @@ impl CoboltApp {
             form.background_color = "00000000".into(); // transparent — matches IDE glass
         }
 
-        let default_name = format!("{}.cfrm", form_name.to_lowercase());
+        // The kind names the file (WASM-001 Q2): `.cfrm`, `.wcfrm` or `.mcfrm`.
+        let kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
+        let default_name = pasted_form_file_name(&form_name, kind);
         let mut spec = crate::file_dialog::DialogSpec::save()
-            .filter("RustCOBOL Form", &["cfrm"])
+            .filter("RustCOBOL Form", &[kind.form_extension()])
             .file_name(default_name);
         // Default into the folder whose [+] was clicked, or the project's forms
         // folder (`forms/`, `webforms/` or `mobileforms/` by its kind) when the
         // create came from the category header.
-        let forms_folder = self.cobolt_project.as_ref().map_or("forms", |p| p.kind().forms_folder());
+        let forms_folder = kind.forms_folder();
         if let Some(dir) = self.project_dir() {
             let dest = dir.join(self.new_form.target_dir.as_deref().unwrap_or(forms_folder));
             let _ = std::fs::create_dir_all(&dest);
@@ -16201,6 +16343,7 @@ impl eframe::App for CoboltApp {
         self.show_code_search_window(ctx);
         self.show_new_project_dialog(ctx);
         self.show_web_preview(ctx);
+        self.poll_backend(ctx);
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
@@ -16382,6 +16525,19 @@ impl eframe::App for CoboltApp {
                                 }
                                 ui.separator();
                                 if ui.button(tr.menu_check_only).clicked() { self.do_check(); ui.close(); }
+                                // WASM-003 R20 — the project's backend, beside its forms.
+                                if self.backend_project_dir().is_some() {
+                                    ui.separator();
+                                    let backend_up = self.backend_run.is_some();
+                                    if ui.add_enabled(!backend_up, egui::Button::new(tr.backend_start)).clicked() {
+                                        self.start_backend();
+                                        ui.close();
+                                    }
+                                    if ui.add_enabled(backend_up, egui::Button::new(tr.backend_stop)).clicked() {
+                                        self.stop_backend();
+                                        ui.close();
+                                    }
+                                }
                             });
                         }
                         crate::menu_layout::Menu::View => {
@@ -16623,6 +16779,7 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::CopyForm(path) => {
                         self.copy_form(ctx, &path);
                     }
+                    ProjectPanelEvent::RenameFormForKind(rel) => self.do_rename_form_for_kind(rel),
                     ProjectPanelEvent::PasteForm { dir_rel } => {
                         if let Some(root) = self.project_dir() {
                             let dest = root.join(&dir_rel);
@@ -18808,6 +18965,38 @@ impl CoboltApp {
     }
 
     /// Move a tracked file into another folder via drag-and-drop (spec 033, R9).
+    /// WASM-001 Q2, D-T15b — the tree's *Rename to …* on a form named for
+    /// another kind: the file and its `files.forms` entry take the project
+    /// kind's extension, open tabs follow, and nothing else changes. A file
+    /// already holding the new name is never overwritten.
+    fn do_rename_form_for_kind(&mut self, rel: String) {
+        let Some(root) = self.project_dir() else {
+            return;
+        };
+        let Some(new) = self
+            .cobolt_project
+            .as_ref()
+            .and_then(|p| crate::project_model::form_rename_for_kind(&rel, p.kind()))
+        else {
+            return;
+        };
+        if root.join(&new).exists() {
+            let tr = self.lang.tr();
+            self.set_alert_error(tr.folder_err_exists);
+            return;
+        }
+        if let Err(e) = std::fs::rename(root.join(&rel), root.join(&new)) {
+            self.output.push_status(crate::ui_text::idef("Could not rename {}: {}", &[&rel, &e]));
+            return;
+        }
+        if let Some(proj) = &mut self.cobolt_project {
+            proj.move_entry(&rel, &new);
+        }
+        self.rewrite_open_paths(&root, &rel, &new);
+        self.do_save_project();
+        self.output.push_status(crate::ui_text::idef("Renamed {} → {}", &[&rel, &new]));
+    }
+
     fn do_move_tracked_file(&mut self, src_rel: String, dest_dir_rel: String) {
         let Some(root) = self.project_dir() else {
             return;
@@ -19430,6 +19619,8 @@ impl CoboltApp {
             .as_ref()
             .map(|project| project.user_controls.clone())
             .unwrap_or_default();
+        // WASM-001 R14 — the toolbox offers what the open project's kind can run.
+        let project_kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
 
         // The toolbar spans the whole window: it is drawn BEFORE the sidebar,
         // so the toolbox sits under it on the left (operator, 2026-09-30).
@@ -19796,6 +19987,7 @@ impl CoboltApp {
                     // Spec 091 R58, R59 — while `Non-Visuals` is the active tab the
                     // visual entries are greyed and take no press.
                     d.toolbox.visual_disabled = d.tabs.is_non_visuals();
+                    d.toolbox.project_kind = project_kind;
                     d.toolbox.show(ui, tr, &user_controls, false, h.toolbox, magnifier)
                 });
                 tb.toggle_collapse |= collapse_clicked;
@@ -19927,6 +20119,8 @@ impl CoboltApp {
         // Before the closure takes `self`: the pane is told WHICH controls have
         // a key on file, never what the keys are.
         let stored_creds = self.controls_with_stored_credentials(&self.designers[idx].1.form);
+        // WASM-017 R2 — `Instances` is offered only where a form is fixed memory.
+        let web_project = self.is_web_project();
         let drawer = crate::panels::designer::show_props_drawer(
             panel_ui,
             idx,
@@ -19943,6 +20137,7 @@ impl CoboltApp {
                 // Spec 091 R30, R57 — the form's Width and Height are read only
                 // while a layer or the Non-Visuals tab is active.
                 d.properties.form_size_locked = !d.form_resizable();
+                d.properties.web_project = web_project;
                 // …and with a layer's tab active (and no control selected) the pane
                 // shows that layer.
                 d.properties.layer_view = d.tabs.active_layer().and_then(|name| {
@@ -20423,6 +20618,23 @@ fn images_dir() -> PathBuf {
         }
     }
     PathBuf::from("assets/images")
+}
+
+/// Locate the bundled `assets/web-player` directory — the prebuilt player a
+/// Web or Mobile Build copies (WASM-016 R1, R12) — the way [`images_dir`]
+/// does: beside the executable first, then the working directory for
+/// `cargo run` from the repository root; never the build machine's path.
+pub(crate) fn web_player_dir() -> PathBuf {
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    {
+        let c = exe_dir.join("assets/web-player");
+        if c.is_dir() {
+            return c;
+        }
+    }
+    PathBuf::from("assets/web-player")
 }
 
 /// The welcome-pane background for today, cached in egui memory. Loads
@@ -21889,7 +22101,7 @@ mod bundled_asset_path_tests {
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .expect("a test binary has a directory");
 
-        for dir in [images_dir(), CoboltApp::themes_dir()] {
+        for dir in [images_dir(), CoboltApp::themes_dir(), web_player_dir()] {
             let s = dir.to_string_lossy().into_owned();
             assert!(
                 !s.contains(env!("CARGO_MANIFEST_DIR")),
@@ -22219,8 +22431,12 @@ mod form_paste_tests {
     /// hand-created form would be.
     #[test]
     fn pasted_form_file_name_matches_the_create_convention() {
-        assert_eq!(pasted_form_file_name("MAIN-FORM"), "main-form.cfrm");
-        assert_eq!(pasted_form_file_name("Login"), "login.cfrm");
+        use cobolt_compiler::ProjectKind;
+        assert_eq!(pasted_form_file_name("MAIN-FORM", ProjectKind::Desktop), "main-form.cfrm");
+        assert_eq!(pasted_form_file_name("Login", ProjectKind::Desktop), "login.cfrm");
+        // WASM-001 Q2: a Web or Mobile project's pasted form carries its kind's extension.
+        assert_eq!(pasted_form_file_name("Login", ProjectKind::Web), "login.wcfrm");
+        assert_eq!(pasted_form_file_name("Login", ProjectKind::Mobile), "login.mcfrm");
     }
 
     /// Spec 046 R3/R4 — Paste Form reports an empty clipboard and a

@@ -13,7 +13,7 @@ use cobolt_forms::xml::load_form_from_str;
 use cobolt_wasm_abi::manifest::{FormEntry, Limits, VariantInfo};
 
 fn form_entry(id: u32, name: &str, main: bool) -> FormEntry {
-    FormEntry { id, name: name.into(), main, instances: 4, region_size: 64, controls: vec![], handlers: vec![] }
+    FormEntry { id, name: name.into(), main, instances: 4, region_size: 64, controls: vec![], handlers: vec![], layers: vec![] }
 }
 
 fn host(standalone: bool) -> Host {

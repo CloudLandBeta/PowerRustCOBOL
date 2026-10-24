@@ -25,7 +25,7 @@
 use std::path::Path;
 
 use cobolt_compiler::project_kind::{
-    BackendSettings, DesktopSettings, MobileSettings, ProjectKind, WebSettings, BACKEND_FOLDER,
+    DesktopSettings, MobileSettings, ProjectKind, WebSettings, BACKEND_FOLDER,
 };
 use serde_json::{json, Value};
 
@@ -80,6 +80,10 @@ pub const DEFAULT_MAIN: &str = "src/main.cbl";
 pub const MAIN_FORM_NAME: &str = "MAIN-FORM";
 /// The first program of a Backend: a health check, the one every Backend exports.
 pub const BACKEND_STARTER: &str = "backend/src/health.cbl";
+/// The list of the programs a remote caller can reach — the only one (WASM-003 D5).
+pub const BACKEND_EXPORTS: &str = "backend/exports.toml";
+/// The Backend's deployment: address, TLS, identity provider, limits.
+pub const BACKEND_CONFIG: &str = "backend/backend.toml";
 
 /// The manifest New Project writes, with `"@@PROJECT-NAME@@"` and
 /// `"@@PROJECT-MAIN@@"` where the name and the main program go.
@@ -143,14 +147,14 @@ pub fn starter_main(project_name: &str, main_rel: &str) -> String {
 }
 
 /// The first program of a Backend: `HEALTH`, which answers `OK`. A remote
-/// caller reaches only the programs the `[backend] exports` list names, and
-/// this is the one a new Backend names.
+/// caller reaches only the programs `backend/exports.toml` names, and this is
+/// the one a new Backend names.
 pub fn starter_backend(project_name: &str) -> String {
     format!(
         "       IDENTIFICATION DIVISION.\n\
          \x20      PROGRAM-ID. HEALTH.\n\
          \x20     *> {project_name} — Backend health check. A caller that is allowed to ask\n\
-         \x20     *> gets OK back; it is the first program in [backend] exports.\n\
+         \x20     *> gets OK back; it is the first program in backend/exports.toml.\n\
          \n\
          \x20      DATA DIVISION.\n\
          \n\
@@ -160,6 +164,43 @@ pub fn starter_backend(project_name: &str) -> String {
          \x20      PROCEDURE DIVISION USING LK-STATUS.\n\
          \x20          MOVE    \"OK\"                          TO    LK-STATUS\n\
          \x20          GOBACK.\n"
+    )
+}
+
+/// The starter `backend/exports.toml`: `HEALTH`, public, so a new Backend
+/// answers its health check before anyone has signed in.
+pub fn starter_backend_exports(project_name: &str) -> String {
+    format!(
+        "# {project_name} — the programs of the Backend a remote caller can reach.\n\
+         # A program that is not listed here cannot be called, whatever its name.\n\
+         # Each [[export]] may also say: roles = [\"admin\"], idempotent, independent,\n\
+         # long_running, stream, directions = [\"in\", \"out\"].\n\
+         \n\
+         [contract]\n\
+         version = \"1.0.0\"\n\
+         \n\
+         [[export]]\n\
+         program = \"HEALTH\"\n\
+         public = true\n"
+    )
+}
+
+/// The starter `backend/backend.toml`: a development deployment — loopback,
+/// no TLS, no identity provider, no secret and no `unsafe_*` setting. A
+/// release start asks for the identity provider and the frontend's origins.
+pub fn starter_backend_config(project_name: &str) -> String {
+    format!(
+        "# {project_name} — where and how the Backend runs.\n\
+         # Plain ws:// is served on a loopback address only. For a network address,\n\
+         # add a [tls] section, or terminate TLS in a reverse proxy in front of it.\n\
+         # A secret is never written here by value: use \"env:NAME\" or \"file:PATH\".\n\
+         \n\
+         [server]\n\
+         listen = \"127.0.0.1:8443\"\n\
+         \n\
+         # Before a release, name the frontend's origins and the identity provider:\n\
+         # [server]  allowed_origins = [\"https://app.example.com\"]\n\
+         # [auth]    issuer = [\"https://login.example.com\"], audiences = [\"api\"]\n"
     )
 }
 
@@ -359,14 +400,15 @@ pub fn plan(request: &CreateRequest, catalogue: &[TemplateDescriptor]) -> Result
     } else {
         if !request.main.trim().is_empty() {
             return Err(format!(
-                "a {} project's entry is its main form, {}/{}.cfrm; 'main' is for a Desktop project",
+                "a {} project's entry is its main form, {}/{}.{}; 'main' is for a Desktop project",
                 kind.as_str(),
                 kind.forms_folder(),
-                MAIN_FORM_NAME.to_lowercase()
+                MAIN_FORM_NAME.to_lowercase(),
+                kind.form_extension()
             ));
         }
         if sample {
-            let rel = format!("{}/{}.cfrm", kind.forms_folder(), MAIN_FORM_NAME.to_lowercase());
+            let rel = format!("{}/{}.{}", kind.forms_folder(), MAIN_FORM_NAME.to_lowercase(), kind.form_extension());
             files.push(PlannedFile { rel: rel.clone(), contents: starter_form(&stored, kind, t.mobile, wears_spatial) });
             forms.push(rel.clone());
             rel
@@ -377,6 +419,10 @@ pub fn plan(request: &CreateRequest, catalogue: &[TemplateDescriptor]) -> Result
     if backend {
         files.push(PlannedFile { rel: BACKEND_STARTER.to_owned(), contents: starter_backend(&stored) });
         backend_files.push(BACKEND_STARTER.to_owned());
+        // The exports and the deployment are the Backend's settings, not COBOL:
+        // written once, never listed in `[files] backend`.
+        files.push(PlannedFile { rel: BACKEND_EXPORTS.to_owned(), contents: starter_backend_exports(&stored) });
+        files.push(PlannedFile { rel: BACKEND_CONFIG.to_owned(), contents: starter_backend_config(&stored) });
     }
 
     let manifest = build_manifest(
@@ -419,10 +465,6 @@ struct WebTable<'a> {
 #[derive(serde::Serialize)]
 struct MobileTable<'a> {
     mobile: &'a MobileSettings,
-}
-#[derive(serde::Serialize)]
-struct BackendTable<'a> {
-    backend: &'a BackendSettings,
 }
 
 fn table_text<T: serde::Serialize>(table: &T) -> Result<String, String> {
@@ -526,10 +568,6 @@ fn build_manifest(
             tables.push(table_text(&MobileTable { mobile: &mobile })?);
         }
         _ => {}
-    }
-    if backend {
-        let exports = BackendSettings { exports: vec!["HEALTH".to_owned()] };
-        tables.push(table_text(&BackendTable { backend: &exports })?);
     }
     for table in tables {
         if !out.ends_with("\n\n") {
@@ -727,4 +765,32 @@ pub fn create_project_with(folder: &Path, request: &CreateRequest) -> Result<Val
         "backend": plan.backend,
         "theme": if plan.theme.is_empty() { Value::Null } else { Value::String(plan.theme.clone()) },
     }))
+}
+
+#[cfg(test)]
+mod form_extension_tests {
+    use super::*;
+
+    /// WASM-001 Q2: each kind's entry form carries the kind's own extension.
+    #[test]
+    fn create_plans_the_entry_form_with_the_kinds_extension() {
+        let catalogue = templates::builtin();
+        for (template, expected) in [
+            ("web", "webforms/main-form.wcfrm"),
+            ("android-phone", "mobileforms/main-form.mcfrm"),
+            ("ipad", "mobileforms/main-form.mcfrm"),
+        ] {
+            let p = plan(&CreateRequest::new("Shop").template(template), &catalogue).unwrap();
+            println!("{template:<14} entry form {}", p.main);
+            assert_eq!(p.main, expected);
+            assert_eq!(p.forms, [expected]);
+            assert!(p.files.iter().any(|f| f.rel == expected), "{template}: the form file is planned");
+        }
+        let desktop = plan(&CreateRequest::new("Shop"), &catalogue).unwrap();
+        assert!(desktop.forms.is_empty() && desktop.main == DEFAULT_MAIN, "Desktop is unchanged");
+        let mut wrong = CreateRequest::new("Shop").template("web");
+        wrong.main = "src/x.cbl".into();
+        let e = plan(&wrong, &catalogue).unwrap_err();
+        assert!(e.contains("webforms/main-form.wcfrm"), "{e}");
+    }
 }

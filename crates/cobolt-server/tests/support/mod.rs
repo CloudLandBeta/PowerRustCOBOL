@@ -251,6 +251,11 @@ pub const ORIGIN: &str = "https://app.example.test";
 
 /// Start a TLS server with the backend in `dir`, trusting `issuer`.
 pub fn rig(dir: std::path::PathBuf, extra_toml: &str) -> Rig {
+    rig_with_state(dir, extra_toml, cobolt_server::backend::StateMode::PerCall)
+}
+
+/// [`rig`], with the project's `[backend] state` (WASM-003 Q2).
+pub fn rig_with_state(dir: std::path::PathBuf, extra_toml: &str, state: cobolt_server::backend::StateMode) -> Rig {
     let serial = Serial::take();
     let cert = test_cert();
     let issuer = Arc::new(Issuer::new("https://idp.example.test/pool", "k1"));
@@ -276,7 +281,8 @@ jwks_uri = "https://idp.example.test/pool/.well-known/jwks.json"
     );
     let cfg = ServerConfig::from_toml(&config_text).expect("config");
     let resolved = cfg.resolve(RunMode::Release, &dir).expect("resolve");
-    let backend = Backend::load(&dir).expect("backend");
+    let mut backend = Backend::load(&dir).expect("backend");
+    backend.state = state;
     let iface = backend.interface.clone();
     let sink = MemorySink::new();
     let server = cobolt_server::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: Some(jwks.clone()) }).expect("start");

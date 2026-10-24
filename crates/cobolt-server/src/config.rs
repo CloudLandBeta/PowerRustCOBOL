@@ -178,11 +178,19 @@ pub struct FilesSection {
 #[serde(deny_unknown_fields)]
 pub struct UploadSlot {
     pub name: String,
-    /// Allowed MIME types (exact, or `type/*`).
+    /// Allowed MIME types (exact, `type/*`, or `*/*` for any).
     pub mime: Vec<String>,
     /// Role required to upload (any of); empty: any authenticated caller.
     #[serde(default)]
     pub roles: Vec<String>,
+    /// The file name extensions allowed, without the dot, any case; empty: any
+    /// (a web form's FileDropZone's or Viewer's `AllowedExtensions`, WASM-005 T12).
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    /// The largest file the slot takes, bytes; `files.max_upload_bytes` still
+    /// bounds every slot.
+    #[serde(default)]
+    pub max_bytes: Option<u64>,
 }
 
 /// The identity backend (WASM-009): which provider the generated public programs talk to.
@@ -214,6 +222,78 @@ pub struct RecaptchaSection {
     pub endpoint: Option<String>,
 }
 
+/// A named configuration of a web form's control (WASM-005 T11, operator
+/// 2026-10-24, point 1): the values a control's `BackendConfig` names — its
+/// secret-bearing properties (`AuthToken`, `AgentAPIKey`, `EmbeddingAPIKey`,
+/// `ApiKey`) and the ones a deployment overrides (`BaseURL`…), by the
+/// control's own property names. Each value may be `env:NAME` or `file:/path`,
+/// like the file's other secrets. SQL connections keep their own catalogue.
+///
+/// ```toml
+/// [[configuration]]
+/// name = "CRM"
+/// BaseURL = "https://crm.example.com/api"
+/// AuthToken = "env:CRM_TOKEN"
+/// ```
+#[derive(Clone, Deserialize)]
+pub struct ConfigurationEntry {
+    pub name: String,
+    #[serde(flatten)]
+    pub properties: std::collections::BTreeMap<String, String>,
+}
+
+// Printing a configuration prints its property names, never a value.
+impl std::fmt::Debug for ConfigurationEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConfigurationEntry")
+            .field("name", &self.name)
+            .field("properties", &self.properties.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+/// The `[[configuration]]` entries with their values read, by name. Every
+/// value is a [`Secret`]: which of a control's properties hold one is the
+/// control's business, so none of them is ever printed.
+#[derive(Debug, Clone, Default)]
+pub struct Configurations(Vec<(String, Vec<(String, Secret)>)>);
+
+impl Configurations {
+    /// The values of the configuration called `name` (any case).
+    pub fn get(&self, name: &str) -> Option<&[(String, Secret)]> {
+        self.0.iter().find(|(n, _)| n.eq_ignore_ascii_case(name.trim())).map(|(_, v)| v.as_slice())
+    }
+
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(|(n, _)| n.as_str())
+    }
+
+    /// Read the entries: a name given once, every value resolved.
+    fn resolve(entries: &[ConfigurationEntry], errs: &mut Vec<String>) -> Configurations {
+        let mut out: Vec<(String, Vec<(String, Secret)>)> = Vec::new();
+        for e in entries {
+            let name = e.name.trim();
+            if name.is_empty() {
+                errs.push("configuration: an entry has an empty name".to_string());
+                continue;
+            }
+            if out.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
+                errs.push(format!("configuration \"{name}\" is given twice"));
+                continue;
+            }
+            let mut values = Vec::new();
+            for (k, spec) in &e.properties {
+                match resolve_secret(spec) {
+                    Ok(v) => values.push((k.clone(), Secret::new(v))),
+                    Err(err) => errs.push(format!("configuration \"{name}\" {k}: {err}")),
+                }
+            }
+            out.push((name.to_owned(), values));
+        }
+        Configurations(out)
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ServerConfig {
@@ -223,15 +303,20 @@ pub struct ServerConfig {
     pub limits: LimitsSection,
     pub files: FilesSection,
     pub identity: Option<IdentitySection>,
+    /// The named configurations of web forms' controls (WASM-005 T11).
+    #[serde(rename = "configuration")]
+    pub configurations: Vec<ConfigurationEntry>,
 
     // ── the relaxations: each says `unsafe`, each stops a release start ──────
     /// Accept HS256 tokens signed with this secret (a development token, WASM-003 Q5).
     pub unsafe_dev_token_secret: Option<Secret>,
     /// Accept any `Origin`.
     pub unsafe_allow_any_origin: bool,
-    /// Serve plain `ws://` even on a non-loopback address.
-    pub unsafe_plain_ws: bool,
 }
+
+/// The relaxation that served plain `ws://` on a network address — removed
+/// (WASM-003 D4): R5 and Q7 allow plain `ws://` on loopback only, in every mode.
+const REMOVED_PLAIN_WS: &str = "unsafe_plain_ws";
 
 // The provider settings hold the client secret next to the region and the pool;
 // printing the section prints the names of the settings and none of the values.
@@ -262,6 +347,8 @@ pub struct Resolved {
     pub files: FilesResolved,
     pub identity: Option<IdentitySection>,
     pub dev_token_secret: Option<Secret>,
+    /// The controls' named configurations, read (WASM-005 T11).
+    pub configurations: std::sync::Arc<Configurations>,
     /// Warnings to print at start (an `unsafe_*` in a development run).
     pub warnings: Vec<String>,
 }
@@ -338,6 +425,12 @@ pub fn resolve_secret(spec: &str) -> Result<String, String> {
 
 impl ServerConfig {
     pub fn from_toml(text: &str) -> Result<Self, String> {
+        // A removed relaxation is named, not reported as an unknown field.
+        if text.parse::<toml::Table>().is_ok_and(|t| t.contains_key(REMOVED_PLAIN_WS)) {
+            return Err(format!(
+                "backend.toml: `{REMOVED_PLAIN_WS}` was removed: plain ws:// is served on a loopback address only (WASM-003 R5); use TLS (a [tls] section), or terminate TLS in a reverse proxy in front and listen on loopback — then delete the line"
+            ));
+        }
         toml::from_str(text).map_err(|e| format!("backend.toml: {e}"))
     }
 
@@ -349,7 +442,7 @@ impl ServerConfig {
     /// Apply the defaults, check every rule, read the secrets. `base` resolves relative paths.
     ///
     /// The rules (all of them report together, so one start shows every fault):
-    /// - a non-loopback address needs TLS (`ws://` only for loopback, WASM-003 R5), unless `unsafe_plain_ws`;
+    /// - a non-loopback address needs TLS (`ws://` only for loopback, WASM-003 R5, in every mode);
     /// - TLS is given as a PEM pair or a PKCS#12 identity, never half of either;
     /// - a release run refuses every `unsafe_*` setting (WASM-013 R11);
     /// - `none` and the HMAC algorithms are never accepted from a token (only the dev token uses HS256);
@@ -413,13 +506,9 @@ impl ServerConfig {
         };
         if let Some(addr) = listen {
             if tls.is_none() && !addr.ip().is_loopback() {
-                if self.unsafe_plain_ws {
-                    warnings.push(format!("unsafe_plain_ws: serving plain ws:// on {addr}, which is not a loopback address"));
-                } else {
-                    errs.push(format!(
-                        "server.listen {addr} is not a loopback address and no TLS identity is configured: ws:// is served only on loopback (WASM-003 R5); configure [tls], or terminate TLS in front and listen on loopback"
-                    ));
-                }
+                errs.push(format!(
+                    "server.listen {addr} is not a loopback address and no TLS identity is configured: ws:// is served only on loopback (WASM-003 R5); configure [tls], or terminate TLS in front and listen on loopback"
+                ));
             }
         }
 
@@ -430,9 +519,6 @@ impl ServerConfig {
         }
         if self.unsafe_allow_any_origin {
             unsafe_set.push("unsafe_allow_any_origin");
-        }
-        if self.unsafe_plain_ws {
-            unsafe_set.push("unsafe_plain_ws");
         }
         for u in &unsafe_set {
             match mode {
@@ -535,6 +621,8 @@ impl ServerConfig {
             None => None,
         };
 
+        let configurations = Configurations::resolve(&self.configurations, &mut errs);
+
         if !errs.is_empty() {
             return Err(errs);
         }
@@ -563,6 +651,7 @@ impl ServerConfig {
             files,
             identity: self.identity.clone(),
             dev_token_secret,
+            configurations: std::sync::Arc::new(configurations),
             warnings,
         })
     }

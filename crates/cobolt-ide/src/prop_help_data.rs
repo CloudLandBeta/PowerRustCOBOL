@@ -3001,6 +3001,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "停靠窗口沿打开它的窗体边的长度，按该边的百分比（1-100）计算。窗体大小改变时随之调整。0 保持设计尺寸。",
         "La longueur d'une fenêtre ancrée le long du bord du formulaire qui l'a ouverte, en pourcentage de ce bord (1-100). Elle suit quand le formulaire change de taille. 0 garde la taille conçue.",
     ] },
+    PropHelp { ty: "Form", prop: "Instances", text: [
+        "Web and Mobile projects: how many copies of this form can be open at once in the browser (1-64). Each copy has its own fixed memory; opening one more is a run-time error naming the form. Default 1 for the main form, 4 for the others.",
+        "Proyectos Web y Móvil: cuántas copias de este formulario pueden estar abiertas a la vez en el navegador (1-64). Cada copia tiene su propia memoria fija; abrir una más es un error en tiempo de ejecución que nombra el formulario. Por defecto 1 para el formulario principal, 4 para los demás.",
+        "Projetos Web e Mobile: quantas cópias deste formulário podem estar abertas ao mesmo tempo no navegador (1-64). Cada cópia tem sua própria memória fixa; abrir mais uma é um erro em tempo de execução que nomeia o formulário. Padrão 1 para o formulário principal, 4 para os demais.",
+        "Web およびモバイルのプロジェクト: ブラウザーで同時に開けるこのフォームのコピー数（1～64）。各コピーは固定メモリを持ち、それ以上開くとフォーム名を示す実行時エラーになります。既定はメインフォームが 1、その他が 4。",
+        "Web 和移动项目：浏览器中可同时打开的此窗体副本数（1-64）。每个副本都有自己的固定内存；再多打开一个会产生指明该窗体的运行时错误。默认主窗体为 1，其他窗体为 4。",
+        "Projets Web et Mobile : nombre de copies de ce formulaire pouvant être ouvertes en même temps dans le navigateur (1-64). Chaque copie a sa propre mémoire fixe ; en ouvrir une de plus est une erreur d'exécution qui nomme le formulaire. Par défaut 1 pour le formulaire principal, 4 pour les autres.",
+    ] },
     PropHelp { ty: "Form", prop: "Transparency", text: [
         "How see-through the form is, 0 to 100 % (0 = opaque): above 0 the main window shows the desktop through it. It also fades the gradient and image.",
         "Cuánto se transparenta el formulario, de 0 a 100 % (0 = opaco): por encima de 0 la ventana principal deja ver el escritorio. También atenúa el degradado y la imagen.",

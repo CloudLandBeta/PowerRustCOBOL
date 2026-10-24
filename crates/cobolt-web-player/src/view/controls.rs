@@ -69,6 +69,14 @@ pub fn root(cx: &ViewCtx, i: usize, tag: &'static str) -> VNode {
     if !c.visible() {
         n = n.flag("hidden", true);
     }
+    // A control of a layer (spec 091; WASM-004 R13–R24): named, and while the layer is hidden neither
+    // drawn nor reachable by focus or the pointer (`inert`, D20). A container's contents go with it.
+    if let Some(l) = c.layer {
+        n = n.attr("data-layer", cx.tree.layers[l].name.clone());
+        if !cx.tree.layers[l].visible {
+            n = n.flag("hidden", true).flag("inert", true);
+        }
+    }
     if !c.enabled() {
         n = n.class("pr-disabled").attr("aria-disabled", "true");
     }

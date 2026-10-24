@@ -133,6 +133,10 @@ its COBOL API; its work runs on the backend.
 - **R17 (ubiquitous):** The backend shall run only **statements and operations declared at design time** (a named query or file operation with bound parameters); it shall never execute SQL text, a shell
   command, a path or a URL supplied by the browser.
 
+**The operator's ruling of 2026-10-24 (WASM-INDEX D21)**
+
+- **R18 (event):** When the connection breaks while a `WEBSOCKET` call is in flight, the call shall **wait** while the frontend retries (WASM-003 R25; the user sees the modal of WASM-016 R20 and can do nothing else meanwhile). If the connection comes back, the call shall follow WASM-014 R9: repeated when its program is declared safe to repeat, otherwise failed with the class *transport* and whether it may have been received. If the retries are exhausted, `ON EXCEPTION` shall run with the class *transport* and a message saying the backend could not be reached; no call shall be lost silently and none shall run twice because of the retries.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — Parser and AST: the new phrase parses in all combinations of R1; every existing `CALL` test still passes; the new phrase with an elementary argument is rejected (or accepted, per Q1).
@@ -144,12 +148,16 @@ its COBOL API; its work runs on the backend.
   class is readable; with none of them, `NOT ON EXCEPTION` runs.
 - [ ] **AC6** — During a pending call the form repaints and a click on it is queued and handled afterwards, in order.
 - [ ] **AC7** — A web form with a DataGrid bound to an indexed file and another bound to an SQL query fills, edits and saves through the backend and shows the same rows the desktop shows for the same data.
+  **Amended (operator, 2026-10-23, T9 choice (b)):** for the indexed-file grid, "the same rows" holds except three recorded differences — a COMP/COMP-3 field shows its **value** (the desktop shows its bytes in hex), a signed field shows its `-` (the desktop drops an overpunched sign), and Save validates every change and then writes, **without a rollback** if a write fails partway (the desktop rolls back). The SQL grid has no difference.
 - [ ] **AC8** — A browser that sends SQL text, a file path or a URL to a generated endpoint gets a refusal; the backend log shows no execution (R17).
 - [ ] **AC9** — A web form carrying a connection string or key for a class C control stops Build; the same configuration on the backend side builds.
 - [ ] **AC10** — `cargo test` for the parser, AST, semantic and runtime crates is green; the System KB gains the phrase and the new built-ins and the freshness test passes.
 
+- [ ] **AC11** — A call in flight when the backend goes away waits through the retries; with the backend back in time, a safe-to-repeat program's call completes and another program's call reports *transport* with "may have been received"; with the backend gone for good, `ON EXCEPTION` runs once the third attempt fails, with the class *transport*.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D21 (operator, 2026-10-24):** this spec owns what a `WEBSOCKET` call in flight does while the frontend retries and when the retries are exhausted (R18); the policy is WASM-003 R25, the modal WASM-016 R20.
 - **i18n:** the IDE strings (diagnostics, Output) — yes, six languages. Failure messages that reach the end user are the developer's.
 - **Generated-code contract:** the generated frontend calls and backend programs (R16) are build artefacts with the banner and regenerate-on-Build rules; codegen writes the inline built-in form
   (`COBOL::"NAME"`) where it needs a built-in (CLAUDE.md, 2026-09-28) and the codegen golden files (`crates/cobolt-codegen/tests/golden`) pin it.
@@ -177,7 +185,7 @@ its COBOL API; its work runs on the backend.
 - **Q6 — Concurrency of events while a call is pending:** queue them (recommended), disable the form's controls, or let handlers run re-entrantly (dangerous)?
   **Decided (operator, 2026-10-22):** queue the events.
 - **Q7 — How the failure is read:** a new built-in such as `COBOL::"WS-LAST-ERROR"( class message )`, a special register, or `RETURN-CODE`? Needs the operator's taste; the built-in is the project's convention.
-  **Decided (operator, 2026-10-22):** both mechanisms, carrying the same data. Agents (Codex) use the first, the built-in; humans may use either. *To confirm that "the first" is the built-in.*
+  **Decided (operator, 2026-10-22):** both mechanisms, carrying the same data. Agents (Codex) use the first, the built-in; humans may use either. **Confirmed (operator, 2026-10-23):** the first is the built-in `COBOL::"WS-LAST-ERROR"( class message )`; the second is `RETURN-CODE`, set to the failure's numeric code (for example 7000). `RETURN-CODE` carries only the code; the class and the message are read through the built-in.
 - **Q8 — `RestApi` / `AgentAi` bindings:** implement through the backend, or hide on the web and leave to a later spec?
   **Decided (operator, 2026-10-22):** through the backend, except COBOL tables, which stay local.
 - **Q9 — Wire format:** one JSON text frame per call (recommended), or a binary framing for large tables? The JSON mapping is the contract either way.

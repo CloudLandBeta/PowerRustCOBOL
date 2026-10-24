@@ -118,7 +118,7 @@ New:
   missed site would otherwise reappear as "the file is not a form" in one tool only. Rejected: adding `| "wcfrm" | "mcfrm"` at
   each site (the same drift that made the manifest shape exist three times).
 - **D-T15b — an existing `.cfrm` in a Web/Mobile project is kept, loaded and listed; it is never renamed silently.**
-  *Proposal, to be confirmed by the operator* (the spec's Q2 does not say; tasks.md T15 left it to `/plan`). Behaviour: the
+  **Confirmed by the operator 2026-10-22** ("Manter + avisar + Renomear"; the spec's Q2 does not say; tasks.md T15 left it to `/plan`). Behaviour: the
   tree, loaders and tools accept it as a form of that project; Check reports one **warning** per such file ("`webforms/x.cfrm`
   is a desktop form file name in a Web project; rename it to `x.wcfrm`"), and the tree offers an explicit *Rename to .wcfrm*
   action that renames the file, its `files.forms` entry and nothing else. New forms are always written with the kind's

@@ -16,7 +16,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::Element;
 
-use super::apply::{self, Dispatch, NodeRec};
+use super::nodes::{self, Dispatch, NodeRec};
 use super::h::{self, Listener};
 use super::sheets::Sheet;
 use super::{InstChanges, Route, Shared};
@@ -169,8 +169,8 @@ impl Shared {
         for &i in &built.order {
             if let Some(v) = &built.vnodes[i] {
                 let dispatch = self.dispatch(Route::Ctl { inst, ctl: i });
-                let rec = apply::create(doc, v, None, &dispatch);
-                let slots = apply::slots(&rec);
+                let rec = nodes::create(doc, v, None, &dispatch);
+                let slots = nodes::slots(&rec);
                 ctls[i] = Some(CtlView { rec, slots, dispatch });
             }
         }
@@ -240,8 +240,8 @@ impl Shared {
             OpenMode::Modal => {
                 let frame = shell::modal_frame(&built.title, true, if built.responsive { None } else { Some(built.size) });
                 let d = self.dispatch(Route::Frame(inst));
-                let rec = apply::create(doc, &frame, None, &d);
-                if let Some(body) = apply::find_key(&rec, "body") {
+                let rec = nodes::create(doc, &frame, None, &d);
+                if let Some(body) = nodes::find_key(&rec, "body") {
                     h::append(&body, &root);
                 }
                 h::append(&self.root, &rec.el);
@@ -253,8 +253,8 @@ impl Shared {
                 let offset = (24.0 + (n % 8) as f64 * 28.0, 24.0 + (n % 8) as f64 * 28.0);
                 let frame = shell::panel_frame(&built.title, if built.responsive { None } else { Some(built.size) }, offset);
                 let d = self.dispatch(Route::Frame(inst));
-                let rec = apply::create(doc, &frame, None, &d);
-                if let Some(body) = apply::find_key(&rec, "body") {
+                let rec = nodes::create(doc, &frame, None, &d);
+                if let Some(body) = nodes::find_key(&rec, "body") {
                     h::append(&body, &root);
                 }
                 h::append(&self.chrome.layer, &rec.el);
@@ -423,8 +423,8 @@ impl Shared {
                 let i = *i;
                 let replaced = {
                     let Some(cv) = iv.ctls[i].as_mut() else { continue };
-                    let r = apply::patch(&self.doc, &mut cv.rec, v, None, &cv.dispatch);
-                    cv.slots = apply::slots(&cv.rec);
+                    let r = nodes::patch(&self.doc, &mut cv.rec, v, None, &cv.dispatch);
+                    cv.slots = nodes::slots(&cv.rec);
                     r
                 };
                 if replaced {
@@ -447,7 +447,7 @@ impl Shared {
                 iv.sheet.set(&style::wrap_layer(&iv.css));
             }
             if let Some(f) = &iv.frame {
-                if let Some(t) = apply::find_key(f, "title") {
+                if let Some(t) = nodes::find_key(f, "title") {
                     if t.text_content().as_deref() != Some(plan.title.as_str()) {
                         t.set_text_content(Some(&plan.title));
                     }

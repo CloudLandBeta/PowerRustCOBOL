@@ -77,7 +77,7 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 - **R7 (event):** When the user acts on a control, the player shall deliver the event (an id, the control, the parameters) to the program module (WASM-010 R10) and, while the module runs, carry out what it asks through the **host API** (WASM-010 R12): read and write a control's
   property, call a control's method, write `DISPLAY` output to the console, give the time and a random number, and make a remote call.
 - **R8 (event):** When the module stops at a call that waits (WASM-010 R9), the player shall perform the wait — a remote call, a dialog, a timer — and resume the module with the answer; events raised meanwhile shall be queued in order (WASM-005 R9).
-- **R9 (ubiquitous):** The player shall own the **connection to the backend**: it opens the WebSocket, adds the bearer token (WASM-009 R5), frames and correlates calls (WASM-003 R6, WASM-014), reconnects with back-off, refreshes the token, and enforces the timeouts; the program
+- **R9 (ubiquitous):** The player shall own the **connection to the backend**: it opens the WebSocket, adds the bearer token (WASM-009 R5), frames and correlates calls (WASM-003 R6, WASM-014), reconnects as WASM-003 R25 says (operator, 2026-10-24), refreshes the token, and enforces the timeouts; the program
   module sees only "send this JSON, give me the answer" (WASM-005 R8). The player shall connect only to the configured backend addresses.
 - **R10 (ubiquitous):** The player shall implement routing and the two application styles (WASM-011): the SPA's shell, routes and history, and the standalone forms' pages, windows and `super` messaging.
 
@@ -105,13 +105,18 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 - **R18 (ubiquitous):** The form description shall carry the layers in stack order, each with its name and its backdrop properties other than `Visible` (spec 091 R39), and each control with its `Layer` (default `Form`). A form with no layers shall carry none of this (WASM-004 R24).
 - **R19 (state):** The player shall hold each layer's `Visible` state for each form instance, start every layer hidden when the instance is created, apply the program's changes on the next frame, and release the state with the instance (WASM-017 R5), so that a form opened again starts hidden as its description says (spec 091 R35; WASM-004 R15).
 
+**The operator's ruling of 2026-10-24 (WASM-INDEX D21)**
+
+- **R20 (state):** While the connection to the backend is broken and the player retries (WASM-003 R25), the player shall show a **modal** over the whole application and **block all mouse and keyboard input** to it — the rest of the page `inert`, focus held by the modal, every pointer and key event dropped. The modal shall show an **animation**: a **screen** (a desktop monitor; the mobile shell draws the device instead, WASM-012 R15) on the left trying to reach a **server** on the right, with a **cloud between them**, the attempt animated for as long as the player retries. The modal's background shall be a **left-to-right multi-stop gradient red → dark red → crimson → black**, and everything drawn on it — the screen, the cloud, the server and the caption — **white**; the caption is one of the host page's translatable texts (WASM-002 R15). The modal shall **appear when the connection breaks** and **disappear when it is re-established**, leaving the application exactly as it was.
+- **R21 (event):** When the retries are exhausted (WASM-003 R25), the player shall raise the exception: the modal shall show that the backend could not be reached (a second translatable caption) with the host page's own recovery (reload), every call in flight shall fail with the class *transport* (WASM-005 R18), and the player shall raise an event the application can handle. The modal's drawing is the player's own code (no HTML string, D14) and needs no network to show.
+
 ## 5. Acceptance criteria
 
 - [ ] **AC1** — On a machine with no Rust toolchain, a Web project builds to a bundle that contains exactly the player (plain and threaded) and the program module (multi-memory and single-memory variants), the host page, form descriptions, stylesheet and assets, and runs in a headless browser.
 - [ ] **AC2** — A form with one control of every class A and B type is drawn by the player from its description, with the properties set; the DOM shows each, and the property round-trip of WASM-004 R11 passes.
 - [ ] **AC3** — A click on a bound button reaches the program module's handler; a property written by the handler appears in the DOM; a method call reaches the control; `DISPLAY` reaches the console.
 - [ ] **AC4** — A handler that makes a remote call stops, the player performs it against a test backend with the token attached, and the handler resumes with the answer; two events raised meanwhile are handled afterwards in order.
-- [ ] **AC5** — With the backend stopped the player reconnects with back-off; the program sees `ON EXCEPTION` for the call in flight and not for later ones after reconnection.
+- [ ] **AC5** — With the backend stopped the player retries three times (10 s, 20 s, 30 s — WASM-003 R25) behind the modal of R20, then raises the exception; the program sees `ON EXCEPTION` for the call in flight, and not for calls made after a successful reconnection.
 - [ ] **AC6** — A bundle whose player lacks a host-API entry the module needs fails the Build; a module started against such a player refuses to start with a message.
 - [ ] **AC7** — The freshness test fails when the player's source changes without the shipped player being rebuilt, and passes when it is rebuilt.
 - [ ] **AC8** — The Build reports the player's size; a form with no chart, map or Viewer does not load their parts (a test inspects what was fetched).
@@ -120,8 +125,12 @@ shell per application (WASM-012), but the frontend inside it is the same two fil
 - [ ] **AC11** — In an open Preview, replacing the module, a form description and the stylesheet each updates the page without a reload of the player.
 - [ ] **AC12** — A form with layers opened twice in a row starts both times with every layer hidden, and no layer state survives the release of the instance (R19).
 
+- [ ] **AC13** — With the backend stopped during a session, the modal appears within one frame of the break, covers the application, ignores clicks and keys sent to the form behind it (a text box behind it does not change), animates, and its background samples red at the left edge, then dark red, crimson and black at the right edge, with white drawing on it; when the backend returns, the modal disappears and the form behind it is unchanged.
+- [ ] **AC14** — With the backend down for good, the modal shows the failure caption after the third attempt (10 s, 20 s and 30 s, measured) and the application's handler for the player's event runs; both captions appear in the language of the host page.
+
 ## 6. Constraints & steering check
 
+- **WASM-INDEX D21 (operator, 2026-10-24):** this spec owns the "connecting" modal that blocks the application while the player retries, and the exception when the retries are exhausted (R20–R21); the retry policy itself is WASM-003 R25, the device variant WASM-012 R15.
 - **i18n:** the player's own fixed texts (loading, error, retry) are the host page's (WASM-002 R15) and are translatable by the developer; IDE strings (the Build report) are six languages.
 - **Generated-code contract:** form descriptions, the host page and the stylesheet are generated artefacts, never hand-edited; the player is a built artefact with a freshness test, like `chunked.data`.
 - **Tech steering:** the player is the one place where Leptos, `wasm-bindgen` and `web-sys` enter the workspace; they go through the dependency guards, the licence check and MSRV 1.92 at `/plan`. The toolchain they need (the `wasm32` target, the bundler) is needed **by the product's build**, not by the developer's.

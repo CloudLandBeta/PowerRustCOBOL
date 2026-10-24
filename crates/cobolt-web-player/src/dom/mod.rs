@@ -7,8 +7,8 @@
 //! **The page** (WASM-016): the DOM projection of the form instances the host holds.
 //!
 //! What each control becomes, and what each DOM event asks of the host, is decided by the pure
-//! `view` modules and tested natively. This module is the browser half: it creates the elements,
-//! keeps them equal to the views ([`apply`]), owns the page's own furniture — the shell, the dialogs,
+//! `view` modules and tested natively. This module is the browser half: it has Leptos draw the
+//! elements and keep them equal to the views (`reactive`), owns the page's own furniture — the shell, the dialogs,
 //! the notifications, the error banner — and routes the browser's events to the driver's inbox.
 //!
 //! # Rules this module keeps
@@ -21,7 +21,7 @@
 //!   synchronously from inside one (a removed element blurs); a listener therefore only `try_borrow`s,
 //!   and queues what the user did into the driver's inbox instead of acting at once.
 
-mod apply;
+mod attrs;
 mod canvas;
 pub(crate) mod captcha;
 mod find;
@@ -29,7 +29,11 @@ mod h;
 mod instance;
 mod ops;
 mod payload;
+mod reactive;
 mod sheets;
+
+// The node layer: every element of the page is drawn by Leptos (WASM-016 R1, T24).
+use reactive as nodes;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -47,7 +51,7 @@ use crate::view::interact::{self, Act, UiOp};
 use crate::view::shell::{self, Crumb, DialogSpec, Toast};
 use crate::view::ViewCtx;
 
-use apply::{Dispatch, NodeRec};
+use nodes::{Dispatch, NodeRec};
 use instance::InstanceView;
 use sheets::{Scope, Sheet};
 
@@ -347,7 +351,7 @@ impl Shared {
                         let label = b.get_attribute("data-id").unwrap_or_default();
                         if d.spec.kind == DialogKind::Input {
                             if label == "OK" {
-                                apply::find_key(&d.rec, "input").map(|i| js_value(&i)).unwrap_or_default()
+                                nodes::find_key(&d.rec, "input").map(|i| js_value(&i)).unwrap_or_default()
                             } else {
                                 String::new()
                             }
@@ -360,7 +364,7 @@ impl Shared {
                     let key = js_str(ev.as_ref(), "key");
                     if key == "Enter" && d.spec.kind == DialogKind::Input && ev.target().and_then(|t| t.dyn_into::<Element>().ok()).is_some_and(|t| t.tag_name().eq_ignore_ascii_case("input")) {
                         ev.prevent_default();
-                        apply::find_key(&d.rec, "input").map(|i| js_value(&i))
+                        nodes::find_key(&d.rec, "input").map(|i| js_value(&i))
                     } else {
                         None
                     }
@@ -462,10 +466,10 @@ impl Shared {
                 let v = shell::banner_view(&text, reload);
                 match st.banner_rec.as_mut() {
                     Some(rec) => {
-                        apply::patch(&self.doc, rec, &v, None, &self.dispatch(Route::Banner));
+                        nodes::patch(&self.doc, rec, &v, None, &self.dispatch(Route::Banner));
                     }
                     None => {
-                        let rec = apply::create(&self.doc, &v, None, &self.dispatch(Route::Banner));
+                        let rec = nodes::create(&self.doc, &v, None, &self.dispatch(Route::Banner));
                         h::append(&self.chrome.banner, &rec.el);
                         st.banner_rec = Some(rec);
                     }
@@ -484,10 +488,10 @@ impl Shared {
         let v = shell::toast_stack(&st.toasts);
         match st.toast_rec.as_mut() {
             Some(rec) => {
-                apply::patch(&self.doc, rec, &v, None, &self.dispatch(Route::Toasts));
+                nodes::patch(&self.doc, rec, &v, None, &self.dispatch(Route::Toasts));
             }
             None => {
-                let rec = apply::create(&self.doc, &v, None, &self.dispatch(Route::Toasts));
+                let rec = nodes::create(&self.doc, &v, None, &self.dispatch(Route::Toasts));
                 h::append(&self.chrome.toasts, &rec.el);
                 st.toast_rec = Some(rec);
             }
@@ -551,12 +555,12 @@ impl Shared {
 
     pub(crate) fn show_dialog(self: &Rc<Self>, spec: DialogSpec) {
         let v = shell::dialog_view(&spec);
-        let rec = apply::create(&self.doc, &v, None, &self.dispatch(Route::Dialog(spec.id)));
+        let rec = nodes::create(&self.doc, &v, None, &self.dispatch(Route::Dialog(spec.id)));
         h::append(&self.root, &rec.el);
         // `showModal` puts it in the top layer: everything behind it is inert, focus is trapped and
         // Escape closes it (the `cancel` event).
         let _ = js_sys::Reflect::get(&rec.el, &"showModal".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()).map(|f| f.call0(&rec.el));
-        if let Some(input) = apply::find_key(&rec, "input") {
+        if let Some(input) = nodes::find_key(&rec, "input") {
             h::focus(&input);
         }
         if let Ok(mut st) = self.state.try_borrow_mut() {
@@ -577,10 +581,10 @@ impl Shared {
         let v = shell::breadcrumb(&st.chain, "");
         match st.crumb_rec.as_mut() {
             Some(rec) => {
-                apply::patch(&self.doc, rec, &v, None, &self.dispatch(Route::Crumb));
+                nodes::patch(&self.doc, rec, &v, None, &self.dispatch(Route::Crumb));
             }
             None => {
-                let rec = apply::create(&self.doc, &v, None, &self.dispatch(Route::Crumb));
+                let rec = nodes::create(&self.doc, &v, None, &self.dispatch(Route::Crumb));
                 h::append(&self.chrome.crumb, &rec.el);
                 st.crumb_rec = Some(rec);
             }
@@ -681,7 +685,7 @@ impl Surface for Dom {
     fn render(&self, inner: &Rc<Inner>) {
         self.sh.render_all(inner);
         // An element the pass made with `autofocus` (the next screen of a sign-in form) takes the focus now.
-        apply::focus_requested();
+        nodes::focus_requested();
     }
 
     fn effect(&self, inner: &Rc<Inner>, e: &Effect) {
@@ -701,10 +705,10 @@ impl Surface for Dom {
                 let v = shell::net_badge(t);
                 match st.net_rec.as_mut() {
                     Some(rec) => {
-                        apply::patch(&sh.doc, rec, &v, None, &sh.dispatch(Route::Banner));
+                        nodes::patch(&sh.doc, rec, &v, None, &sh.dispatch(Route::Banner));
                     }
                     None => {
-                        let rec = apply::create(&sh.doc, &v, None, &sh.dispatch(Route::Banner));
+                        let rec = nodes::create(&sh.doc, &v, None, &sh.dispatch(Route::Banner));
                         h::append(&sh.chrome.net, &rec.el);
                         st.net_rec = Some(rec);
                     }
@@ -826,6 +830,7 @@ impl Shared {
             st.net_rec = None;
             st.crumb_rec = None;
             st.dialogs.clear();
+            self.clear_all_canvases();
             for (_, iv) in std::mem::take(&mut st.instances) {
                 iv.dispose();
             }

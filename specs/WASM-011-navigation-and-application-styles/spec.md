@@ -107,6 +107,7 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
 
 ## 6. Constraints & steering check
 
+- **The frontend↔backend channel (WASM-INDEX D21, operator 2026-10-24):** whatever this spec puts on the channel between the frontend and the backend obeys the series-wide ruling — the channel is asymmetrically encrypted with a key pair generated when the application starts; a broken connection is retried with a timeout of 10 s, raised by 10 s on each retry, for at most 3 cycles, then an exception is raised; while the frontend retries, all mouse and keyboard input is blocked and the "connecting" modal of WASM-016 R20 (WASM-012 R15 on a device) is shown, appearing when the connection breaks and disappearing when it is re-established. The ruling is owned by WASM-003 R24–R26, WASM-016 R20–R21, WASM-012 R15, WASM-005 R18, WASM-014 R18 and WASM-013 R17; this spec adds nothing of its own to it and must not contradict it.
 - **i18n:** yes — the popup hint, the not-found text and the unsaved-changes wording, six languages; the application's own texts are the developer's.
 - **Generated-code contract:** routes and entry pages are generated from the form list, never hand-edited.
 - **System KB:** new behaviour of `OpenFormSync`/`OpenFormAsync`, `super` and any new event (not-found, popup-blocked, leave-confirmation) goes into the compiler's documentation tables and `chunked.data`.

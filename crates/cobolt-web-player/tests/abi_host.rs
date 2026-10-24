@@ -5,7 +5,7 @@
 // See the LICENSE file in the project root for full license information.
 
 //! The ABI host against a real module (WASM-015, WASM-017 R20): the fixture module of
-//! `cobolt-wasm-abi` runs on `wasmi` with [`Host`] behind its imports, on **both** variants
+//! `cobolt-wasm-abi` runs on `wasmtime` with [`Host`] behind its imports, on **both** variants
 //! (multi-memory and single-memory). Each test states which rule of the ABI or of WASM-017 it
 //! proves.
 
@@ -139,9 +139,13 @@ fn a_remote_request_suspends_the_task_and_events_raised_meanwhile_run_in_order_a
         assert!(rig.click(0, "BTN-QUERY"));
         assert_eq!(rig.get(0, LBL_OUT, "Caption"), "calling", "nothing ran behind the waiting task");
         assert_eq!(rig.host.borrow().pending_work(), 2);
+        // Pending, but nothing can run until the answer: a driver that restarted itself on pending work
+        // spun forever and froze the page (found in Chrome, WASM-016 T24).
+        assert!(!rig.host.borrow().can_run(), "events held behind a waiting task are not runnable");
         // The answer arrives.
         let answer = br#"{"id":1,"result":"pong"}"#.to_vec();
         rig.host.borrow_mut().remote_answer(reqs[0].0, answer.clone());
+        assert!(rig.host.borrow().can_run(), "the answered task can resume");
         rig.drive();
         // The resumed handler echoed the answer frame; then BTN-GO and BTN-QUERY ran, in order.
         let kinds: Vec<&str> = rig
@@ -409,4 +413,30 @@ fn the_player_refuses_a_form_description_that_is_not_in_the_program() {
     let e = rig.host.borrow_mut().add_form(alien).unwrap_err();
     assert!(e.contains("alien") && e.contains("rebuild"), "{e}");
     assert!(rig.host.borrow().missing_forms().is_empty());
+}
+
+/// WASM-010 T21 (R12, D3): a module the **generator** built — not the hand-assembled fixture —
+/// runs in the player's host on both variants: it opens, a click reaches its handler, and what the
+/// handler writes and displays arrives through the batch. `cobolt-wasm`'s `player_fixture` test
+/// keeps `tests/fixtures/generated/` equal to what the generator writes today.
+#[test]
+fn a_module_the_generator_built_runs_in_the_player() {
+    use cobolt_wasm_abi::fixture::Fixture;
+    use cobolt_web_player::host::HostOptions;
+    let cfrm = include_str!("fixtures/generated/main-form.cfrm").to_owned();
+    for (multi, wasm) in [(true, &include_bytes!("fixtures/generated/program.wasm")[..]), (false, &include_bytes!("fixtures/generated/program.single.wasm")[..])] {
+        let manifest = cobolt_wasm_abi::scan::scan_module(wasm).unwrap().embedded_manifest().unwrap();
+        assert!(cobolt_wasm_abi::scan::bundle_problems(wasm, !multi).is_empty(), "multi={multi}");
+        let mut rig = Rig::with_forms(Fixture { wasm: wasm.to_vec(), manifest }, std::slice::from_ref(&cfrm), multi, HostOptions::default());
+        rig.start();
+        assert_eq!(rig.module_live(), 1, "multi={multi}");
+        assert!(rig.click(0, "BTN-GO"));
+        assert!(rig.click(0, "BTN-GO"));
+        assert_eq!(rig.get(0, "LBL-OUT", "Caption"), "from the module", "multi={multi}");
+        let displays: Vec<String> =
+            rig.host.borrow().effects.iter().filter_map(|e| if let Effect::Display(t) = e { Some(t.clone()) } else { None }).collect();
+        assert_eq!(displays, ["clicked 001", "clicked 002"], "multi={multi}");
+        assert!(errors(&rig).is_empty(), "{:?}", errors(&rig));
+        println!("generated module (multi={multi}): opened, 2 clicks, caption written, {} displays, {} module calls", displays.len(), rig.calls.len());
+    }
 }

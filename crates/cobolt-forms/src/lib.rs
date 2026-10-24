@@ -28,6 +28,8 @@ pub mod code_site;
 pub mod containers;
 pub mod datagrid;
 pub mod dropzone;
+/// WASM-016 — the form description the browser player draws from: versioned JSON, no code (R3, R4).
+pub mod description;
 pub mod diagnostics;
 pub mod icons;
 pub mod items_file;
@@ -63,6 +65,8 @@ pub mod style;
 pub mod templates;
 pub mod theme;
 pub mod theme_pack;
+/// WASM-004's class of every control for the web — the one table the toolbox and the player read.
+pub mod web_class;
 pub mod xml;
 /// The Viewer's pure parts (spec 058) — format resolution, plain-text
 /// page-break indexing and on-demand page decoding. Deliberately NOT behind

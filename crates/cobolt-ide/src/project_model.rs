@@ -1399,7 +1399,7 @@ impl FileKind {
             .to_ascii_lowercase();
         match ext.as_str() {
             "cbl" | "cob" | "cpy" => FileKind::Source,
-            "cfrm" => FileKind::Form,
+            e if cobolt_compiler::project_kind::is_form_extension(e) => FileKind::Form,
             "cidx" => FileKind::Indexed,
             "md" | "markdown" | "txt" | "rst" | "adoc" | "pdf" | "html" | "htm" => {
                 FileKind::Documentation
@@ -1437,6 +1437,20 @@ impl FileKind {
 /// Recursively collect every file under `project_dir/category.root_subdir()`,
 /// as project-relative paths using `/` separators, at any nesting depth.
 /// Returns an empty list if the folder does not exist.
+/// WASM-001 Q2, plan D-T15b: the name a form file takes in a project of
+/// `kind` when its extension names another kind — `webforms/x.cfrm`, made by
+/// 2.0.x in a Web project, becomes `webforms/x.wcfrm`. `None` when the name
+/// already matches the kind, or `rel` is not a form file. Only the extension
+/// changes; the folder and the stem stay.
+pub fn form_rename_for_kind(rel: &str, kind: ProjectKind) -> Option<String> {
+    let path = Path::new(rel);
+    let named = ProjectKind::of_form_extension(path.extension()?.to_str()?)?;
+    if named == kind {
+        return None;
+    }
+    Some(path.with_extension(kind.form_extension()).to_string_lossy().replace('\\', "/"))
+}
+
 pub fn recursive_category_files(project_dir: &Path, category: Category) -> Vec<String> {
     // The forms of a project sit in `forms/`, `webforms/` or `mobileforms/` by
     // its kind; asked for "Forms", the walk covers whichever the project has
@@ -2876,6 +2890,77 @@ mod project_kind_tests {
         assert_eq!(back.kind(), ProjectKind::Mobile);
     }
 
+    /// WASM-001 Q2 (T15.4): `.wcfrm` and `.mcfrm` are forms, listed under the
+    /// kind's own entry.
+    #[test]
+    fn web_and_mobile_form_files_are_forms_listed_under_their_entry() {
+        for rel in ["forms/a.cfrm", "webforms/a.wcfrm", "mobileforms/a.MCFRM"] {
+            assert_eq!(FileKind::from_path(rel), FileKind::Form, "{rel}");
+        }
+        let mut web = CoboltProject::new("W", "");
+        web.project.kind = ProjectKind::Web;
+        web.add_file("webforms/orders.wcfrm");
+        assert_eq!(web.files.forms, ["webforms/orders.wcfrm"]);
+        assert_eq!(web.category_of_path("webforms/orders.wcfrm"), Category::WebForms);
+        assert_eq!(web.files_in(Category::WebForms), ["webforms/orders.wcfrm"]);
+        let mut mob = CoboltProject::new("M", "");
+        mob.project.kind = ProjectKind::Mobile;
+        mob.add_file("mobileforms/login.mcfrm");
+        assert_eq!(mob.files.forms, ["mobileforms/login.mcfrm"]);
+        assert_eq!(mob.category_of_path("mobileforms/login.mcfrm"), Category::MobileForms);
+        let dir = scratch("ext-walk");
+        std::fs::create_dir_all(dir.join("webforms/sub")).unwrap();
+        std::fs::write(dir.join("webforms/sub/b.wcfrm"), "<Form/>").unwrap();
+        assert_eq!(recursive_category_files(&dir, Category::WebForms), ["webforms/sub/b.wcfrm"]);
+        println!("forms by kind: .cfrm Desktop, .wcfrm under WebForms, .mcfrm under MobileForms");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// WASM-001 Q2, R18, plan D-T15b (T15.7, the non-destructive half): a Web
+    /// project made before the extensions existed keeps its `.cfrm`. Opening it
+    /// renames nothing and writes nothing, and the form is listed under WebForms.
+    #[test]
+    fn a_web_project_holding_a_legacy_cfrm_opens_unmodified_and_lists_it() {
+        let dir = scratch("legacy");
+        let plan = create::plan(&CreateRequest::new("Old Web").template("web"), &templates::builtin()).unwrap();
+        plan.write_into(&dir, &plan.manifest_name).unwrap();
+        // What 2.0.x wrote: the same project with the form named `.cfrm`.
+        std::fs::rename(dir.join("webforms/main-form.wcfrm"), dir.join("webforms/main-form.cfrm")).unwrap();
+        let manifest = dir.join(&plan.manifest_name);
+        let text = std::fs::read_to_string(&manifest).unwrap().replace("main-form.wcfrm", "main-form.cfrm");
+        std::fs::write(&manifest, text).unwrap();
+        let before = tree(&dir);
+
+        let p = load_project(&manifest).unwrap();
+        assert_eq!(p.kind(), ProjectKind::Web);
+        assert_eq!(p.files.forms, ["webforms/main-form.cfrm"], "the name is kept");
+        assert_eq!(p.category_of_path("webforms/main-form.cfrm"), Category::WebForms);
+        assert_eq!(p.files_in(Category::WebForms), ["webforms/main-form.cfrm"]);
+        assert_eq!(recursive_category_files(&dir, Category::WebForms), ["webforms/main-form.cfrm"]);
+        assert_eq!(tree(&dir), before, "opening renamed or rewrote nothing");
+        println!("legacy web form: {} files unchanged by opening; webforms/main-form.cfrm listed under WebForms", before.len());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// D-T15b (confirmed by the operator 2026-10-22): the tree offers *Rename to …*
+    /// only for a form named for another kind, and only the extension changes.
+    #[test]
+    fn the_rename_offered_for_a_form_named_for_another_kind() {
+        let cases = [
+            ("webforms/main-form.cfrm", ProjectKind::Web, Some("webforms/main-form.wcfrm")),
+            ("webforms/sub/a.mcfrm", ProjectKind::Web, Some("webforms/sub/a.wcfrm")),
+            ("mobileforms/a.cfrm", ProjectKind::Mobile, Some("mobileforms/a.mcfrm")),
+            ("forms/a.wcfrm", ProjectKind::Desktop, Some("forms/a.cfrm")),
+            ("webforms/main-form.wcfrm", ProjectKind::Web, None),
+            ("forms/a.cfrm", ProjectKind::Desktop, None),
+            ("src/main.cbl", ProjectKind::Web, None),
+        ];
+        for (rel, kind, want) in cases {
+            assert_eq!(form_rename_for_kind(rel, kind).as_deref(), want, "{rel} in a {kind:?} project");
+        }
+        println!("rename offered: {} cases, a matching name and a non-form offer none", cases.len());
+    }
+
     /// WASM-001 R11, R12 / AC4: the tree of each kind.
     #[test]
     fn the_tree_follows_the_kind() {
@@ -2992,6 +3077,7 @@ mod project_kind_tests {
             }
         }
         let mut checked = 0usize;
+        let mut named_forms = 0usize;
         for (i, request) in variants.iter().enumerate() {
             // The IDE's route.
             let ide_dir = base.join(format!("ide-{i}"));
@@ -3006,6 +3092,11 @@ mod project_kind_tests {
             let written = std::fs::read_to_string(&manifest).unwrap();
             let loaded = load_project(&manifest).unwrap_or_else(|e| panic!("variant {i} does not load: {e}\n{written}"));
             assert_eq!(loaded.kind(), plan.kind, "variant {i}");
+            // WASM-001 Q2: the forms carry the kind's own extension.
+            for f in &loaded.files.forms {
+                assert!(f.ends_with(&format!(".{}", plan.kind.form_extension())), "variant {i}: {f}");
+                named_forms += 1;
+            }
             let resaved = scratch(&format!("resave-{i}"));
             // The seal covers the name and the form files: save beside them.
             for f in &loaded.files.forms {
@@ -3025,7 +3116,8 @@ mod project_kind_tests {
             let _ = std::fs::remove_dir_all(&resaved);
             checked += 1;
         }
-        println!("create/save agreement: {checked} requests over 6 templates; each made one tree by both routes, and each manifest saved back byte for byte");
+        println!("create/save agreement: {checked} requests over 6 templates; each made one tree by both routes, and each manifest saved back byte for byte; {named_forms} forms named with their kind's extension");
+        assert!(named_forms > 0, "the Web and Mobile variants make forms");
         let _ = std::fs::remove_dir_all(base);
     }
 
@@ -3057,7 +3149,7 @@ mod project_kind_tests {
         let dest = base.join("Copy");
         let done = create::clone_project(&src.join("Source.project.toml"), &dest, "Copy.project").unwrap();
         assert_eq!(done.manifest, dest.join("Copy.project.toml"));
-        assert!(dest.join("webforms/main-form.cfrm").is_file() && dest.join("backend/src/health.cbl").is_file());
+        assert!(dest.join("webforms/main-form.wcfrm").is_file() && dest.join("backend/src/health.cbl").is_file());
         assert!(dest.join("docs-note.md").is_file(), "the developer's own files");
         assert!(!dest.join("dist/web/index.html").exists() && !dest.join("temp/scratch.txt").exists(), "no build output");
         assert!(!dest.join("Source.project.toml").exists(), "the source's manifest stays behind");
@@ -3066,7 +3158,7 @@ mod project_kind_tests {
         assert_eq!(copy.kind(), ProjectKind::Web);
         assert_eq!(copy.project.built_with_version, "");
         assert_eq!(
-            cobolt_compiler::main_form_guard::authorize_form_start(&dest.join("webforms/main-form.cfrm"), None),
+            cobolt_compiler::main_form_guard::authorize_form_start(&dest.join("webforms/main-form.wcfrm"), None),
             cobolt_compiler::main_form_guard::StartVerdict::Allowed,
             "the seal covers the new name"
         );

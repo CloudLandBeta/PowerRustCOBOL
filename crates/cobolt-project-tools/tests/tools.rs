@@ -112,6 +112,24 @@ fn check_reports_the_form_site_and_line_inside_the_handler() {
     println!("check (clean fixture): 0 errors; one-file check of the form and of src/helper.cbl agree");
 }
 
+/// WASM-017 T3: `Instances` is fixed memory in a browser module only; a
+/// Desktop project whose form carries `instances="0"` checks as before.
+#[test]
+fn a_desktop_form_with_instances_zero_checks_as_before_017() {
+    let dir = fixture("instances-desktop");
+    make_clean(&dir);
+    let p = dir.join("forms/MAIN-FORM.cfrm");
+    let mut form = cobolt_forms::load_form(&p).unwrap();
+    form.instances = Some(0);
+    cobolt_forms::save_form(&form, &p).unwrap();
+    assert!(std::fs::read_to_string(&p).unwrap().contains("instances=\"0\""));
+    let mut tools = ProjectTools::new(HeadlessHost::new(&dir, "test"));
+    let v = call(&mut tools, "check", json!({})).unwrap();
+    assert_eq!(v["errors"], 0, "{v:#}");
+    println!("desktop check with instances=\"0\": 0 errors, {} diagnostic(s)", v["diagnostics"].as_array().unwrap().len());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn check_reports_a_second_main_form() {
     let dir = fixture("two-mains");

@@ -84,6 +84,23 @@ impl Default for Config {
     }
 }
 
+impl Config {
+    /// The connection the page's configuration asks for: its origins and
+    /// unsafe setting, and its call timeout and frame limit where it gives
+    /// them (WASM-017 R8: `max_frame` is the project's payload limit), the
+    /// defaults otherwise.
+    pub fn from_page(origins: Vec<String>, unsafe_plain_ws: bool, call_timeout_ms: Option<u64>, max_frame: Option<usize>) -> Config {
+        let d = Config::default();
+        Config {
+            origins,
+            unsafe_plain_ws,
+            call_timeout_ms: call_timeout_ms.unwrap_or(d.call_timeout_ms),
+            max_frame: max_frame.unwrap_or(d.max_frame),
+            ..d
+        }
+    }
+}
+
 #[derive(Debug)]
 struct InFlight {
     sent_at: u64,
@@ -444,6 +461,34 @@ mod tests {
 
     fn sent_json(c: &Client<Mock>) -> Vec<Value> {
         c.sock.sent.iter().map(|s| serde_json::from_str(s).unwrap()).collect()
+    }
+
+    /// WASM-017 T6: the page's `max_frame` (the project's payload limit) is
+    /// the limit — a 512 KiB setting accepts 512 KiB and refuses 513 KiB; a
+    /// page that gives none keeps 384 KiB.
+    #[test]
+    fn the_pages_frame_limit_is_the_projects_payload_limit_017() {
+        assert_eq!(Config::from_page(vec![], false, None, None).max_frame, 384 * 1024);
+        let limit = 512 * 1024;
+        let mut c = Client::new(Config::from_page(cfg().origins, false, Some(5_000), Some(limit)), Mock::default());
+        assert_eq!(c.cfg.call_timeout_ms, 5_000);
+        c.set_token(None);
+        c.connect("wss://api.example.com/ws", 0).unwrap();
+        let frame = |n: usize| {
+            let mut f = br#"{"program":"P","payload":""#.to_vec();
+            f.resize(n - 2, b'x');
+            f.extend_from_slice(br#""}"#);
+            assert_eq!(f.len(), n);
+            f
+        };
+        let refused = |out: &[Out]| out.iter().any(|o| matches!(o, Out::Answer { frame, .. } if String::from_utf8_lossy(frame).contains("larger than the connection allows")));
+        c.request(&frame(limit), 0);
+        assert!(!refused(&c.take_out()), "512 KiB is accepted");
+        assert_eq!(c.in_flight(), 1);
+        c.request(&frame(limit + 1024), 0);
+        assert!(refused(&c.take_out()), "513 KiB is refused");
+        assert_eq!(c.in_flight(), 1);
+        println!("frame limit 524288: 524288 bytes accepted, 525312 bytes refused; no setting: 393216");
     }
 
     #[test]

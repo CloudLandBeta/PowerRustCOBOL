@@ -26,6 +26,7 @@
 //! system browser. [`presets`] are the device sizes the Preview offers.
 
 pub mod devserver;
+pub mod generator;
 pub mod presets;
 pub mod preview;
 
@@ -35,6 +36,12 @@ use std::sync::{Arc, RwLock};
 use cobolt_compiler::project_kind::{ModuleVariants, ProjectKind, WebSettings};
 
 pub use devserver::{ServeError, ServeOptions, ServerHandle};
+
+/// The start of a report line the IDE says in the developer's language
+/// (WASM-002 T21): the size-budget warning and the missing player. The tools
+/// keep the English text.
+pub use cobolt_web_bundle::OVER_BUDGET_PREFIX;
+pub use generator::PLAYER_UNAVAILABLE_PREFIX;
 
 /// Where a Build puts a Web bundle, relative to the project: the `dist/`
 /// folder every kind already delivers into, and `web` inside it.
@@ -63,6 +70,13 @@ pub struct WebBuildRequest {
     pub assets: Vec<String>,
     /// Where the bundle goes: `<project>/dist/web`.
     pub out_dir: PathBuf,
+    /// The project's default form theme (`[forms] theme`), for the backdrop a
+    /// see-through theme needs on a page; `None` when the manifest sets none.
+    pub form_theme: Option<String>,
+    /// The folder of the current player, as the program that builds resolves
+    /// its bundled assets (the IDE: beside its executable, WASM-016 T14);
+    /// `None` = [`generator::player_dir`].
+    pub player_dir: Option<PathBuf>,
 }
 
 impl WebBuildRequest {
@@ -77,6 +91,10 @@ impl WebBuildRequest {
             );
         }
         let project_dir = manifest.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+        let form_theme = std::fs::read_to_string(manifest)
+            .ok()
+            .and_then(|t| t.parse::<toml::Table>().ok())
+            .and_then(|t| t.get("forms")?.get("theme")?.as_str().map(str::to_owned));
         let (web, variants) = match (&view.web, &view.mobile) {
             (Some(web), _) if view.kind == ProjectKind::Web => (web.clone(), web.module_variants()),
             (_, Some(mobile)) if view.kind == ProjectKind::Mobile => {
@@ -94,6 +112,11 @@ impl WebBuildRequest {
                     multi_memory: mobile.multi_memory,
                     isolation: Isolation::Off,
                     backend_url: mobile.backend_url.clone(),
+                    player: mobile.player.clone(),
+                    max_payload_bytes: mobile.max_payload_bytes,
+                    call_timeout_ms: mobile.call_timeout_ms,
+                    // A Mobile build's variants are its platform's (below).
+                    single_memory_fallback: true,
                 };
                 (web, mobile.module_variants())
             }
@@ -116,6 +139,8 @@ impl WebBuildRequest {
             sources: view.sources,
             backend: view.backend,
             assets: view.assets,
+            form_theme,
+            player_dir: None,
         })
     }
 }
@@ -168,9 +193,16 @@ pub struct BuildReport {
     /// running the module's start-up, or `None` when it did not.
     pub startup_ms: Option<f64>,
     /// Things the developer should know that did not stop the build.
-    pub warnings: Vec<String>,
+    pub warnings: Vec<WebDiagnostic>,
     /// How long the build took.
     pub duration_ms: u64,
+    /// The page's `connect-src`: where it may connect — itself and the
+    /// configured backend, nothing else (WASM-003 R23, WASM-002 R14).
+    pub connect_src: String,
+    /// The player the bundle carries, as its build recorded it (WASM-016 R13):
+    /// each variant (`plain`, `threaded`) and each part loaded on first use
+    /// (`parts/mermaid` …), in bytes after `wasm-opt`.
+    pub player: Vec<PartSize>,
 }
 
 impl BuildReport {
@@ -183,9 +215,81 @@ impl BuildReport {
                 "parts": self.size.parts.iter().map(|p| serde_json::json!({"name": p.name, "bytes": p.bytes})).collect::<Vec<_>>(),
             },
             "startup_ms": self.startup_ms,
-            "warnings": self.warnings,
+            "warnings": self.warnings.iter().map(WebDiagnostic::to_string).collect::<Vec<_>>(),
             "duration_ms": self.duration_ms,
+            "connect_src": self.connect_src,
+            "player": self.player.iter().map(|p| serde_json::json!({"name": p.name, "bytes": p.bytes})).collect::<Vec<_>>(),
         })
+    }
+}
+
+/// What a diagnostic of the generator is about, so that the IDE can say it in
+/// the developer's language (WASM-010 D6). The tools keep the English text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WebDiagnosticKind {
+    /// Free text: said as it is.
+    #[default]
+    Other,
+    /// Refused: the construct runs on the Backend.
+    BackendOnly,
+    /// Refused: no WebAssembly build can run the construct.
+    Unsupported,
+    /// Refused: `LAYER::Property` names no layer of the form.
+    UnknownLayer,
+    /// Refused: a layer has no such property.
+    UnknownLayerProperty,
+    /// Refused: a write to a control's read-only `Layer`.
+    LayerWrite,
+    /// Refused: a statement reads more host values than one statement may.
+    TooManyHostReads,
+    /// Warning: `ACCEPT` from the operator is ignored.
+    AcceptIgnored,
+    /// Warning: a `REDEFINES` may give a different result than on the desktop.
+    RedefinesMayDiffer,
+    /// Refused: a form's `Instances` is out of range; the subject is the form
+    /// (WASM-017 R2).
+    InstancesOutOfRange,
+    /// Refused: "multi-memory only" with WebKit engines in the matrix; the
+    /// subject names them (WASM-017 R9, AC7).
+    MultiMemoryOnlyWithWebKit,
+    /// Refused: a control holds a connection string or a key on a web or
+    /// mobile form; the subject is `CONTROL.Property`, never the value
+    /// (WASM-005 R14, AC9).
+    SecretOnForm,
+}
+
+/// One refusal or warning of a web build: where, what kind, about what, and the
+/// English text the tools answer with.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WebDiagnostic {
+    /// `file:line`, or empty when the diagnostic is about the whole project.
+    pub location: String,
+    pub kind: WebDiagnosticKind,
+    /// The construct, layer, property or limit a translated message names.
+    pub subject: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for WebDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.location.is_empty() {
+            f.write_str(&self.message)
+        } else {
+            write!(f, "{}: {}", self.location, self.message)
+        }
+    }
+}
+
+impl From<String> for WebDiagnostic {
+    /// A line of free text (`file:line: construct — alternative`), kind `Other`.
+    fn from(message: String) -> Self {
+        WebDiagnostic { message, ..Default::default() }
+    }
+}
+
+impl From<&str> for WebDiagnostic {
+    fn from(message: &str) -> Self {
+        WebDiagnostic::from(message.to_owned())
     }
 }
 
@@ -195,11 +299,43 @@ pub enum WebBuildError {
     /// The generator and the bundler are not linked into this program yet.
     /// The IDE says so in the developer's language; the tools in English.
     NotYetLinked,
-    /// The project cannot run in a browser: each entry is one line of the form
-    /// `file:line: construct — alternative` (WASM-002 R3).
-    Refused(Vec<String>),
+    /// The project cannot run in a browser: each entry says where, the
+    /// construct and the alternative (`file:line: construct — alternative`
+    /// when shown as text, WASM-002 R3).
+    Refused(Vec<WebDiagnostic>),
     /// The build failed.
     Failed(String),
+    /// The project pins a player (`player = "…"`) the Build cannot use (WASM-016 R11).
+    PlayerPin(PlayerPinError),
+}
+
+/// Why a pinned player cannot be used (WASM-016 R11, Q6). The IDE says it in
+/// the developer's language; the tools in English ([`std::fmt::Display`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlayerPinError {
+    /// No player of that version is kept; `kept` lists the versions that are.
+    NotKept { pinned: String, kept: Vec<String> },
+    /// The pinned player speaks a host API or reads a description format this
+    /// compiler no longer emits; `oldest` is the oldest kept player it can
+    /// still build for.
+    CannotEmit { pinned: String, abi: u32, description: u32, oldest: Option<String> },
+}
+
+impl std::fmt::Display for PlayerPinError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PlayerPinError::NotKept { pinned, kept } => {
+                write!(f, "the project pins player {pinned}, which this IDE does not keep; the players it keeps are {}", kept.join(", "))
+            }
+            PlayerPinError::CannotEmit { pinned, abi, description, oldest } => {
+                write!(f, "the project pins player {pinned} (host API {abi}, description format {description}), which this compiler can no longer build for")?;
+                match oldest {
+                    Some(o) => write!(f, "; the oldest player it can build for is {o}"),
+                    None => Ok(()),
+                }
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for WebBuildError {
@@ -207,9 +343,11 @@ impl std::fmt::Display for WebBuildError {
         match self {
             WebBuildError::NotYetLinked => f.write_str(NOT_YET_LINKED_MESSAGE),
             WebBuildError::Refused(lines) => {
+                let lines: Vec<String> = lines.iter().map(WebDiagnostic::to_string).collect();
                 write!(f, "the project uses what a browser cannot run:\n{}", lines.join("\n"))
             }
             WebBuildError::Failed(why) => write!(f, "the web build failed: {why}"),
+            WebBuildError::PlayerPin(e) => write!(f, "the web build failed: {e}"),
         }
     }
 }
@@ -238,6 +376,14 @@ pub trait WebBuildBackend: Send + Sync {
     /// reloads on a half-written bundle shows nothing. A build that fails must
     /// leave the previous bundle as it was — the Preview keeps showing it.
     fn build(&self, request: &WebBuildRequest) -> Result<BuildReport, WebBuildError>;
+
+    /// Check `request` against the portable subset (WASM-002 R3) the way
+    /// [`build`](Self::build) would, writing nothing: `Refused` lists every
+    /// construct a browser cannot run. Check and Build share one source of
+    /// refusals, the generator.
+    fn check(&self, _request: &WebBuildRequest) -> Result<(), WebBuildError> {
+        Err(WebBuildError::NotYetLinked)
+    }
 
     /// Where the bundle for `request` is (or will be).
     fn bundle_dir(&self, request: &WebBuildRequest) -> PathBuf {
@@ -387,6 +533,7 @@ mod tests {
                     startup_ms: Some(12.5),
                     warnings: vec!["a warning".into()],
                     duration_ms: 3,
+                    ..BuildReport::default()
                 })
             }
         }

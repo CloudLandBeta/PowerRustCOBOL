@@ -118,9 +118,10 @@ fn run_web<H: ProjectHost>(
             "status": "refused",
             "kind": view.kind.as_str(),
             "reason": "the project uses what a browser cannot run",
-            "portable_subset": lines,
+            "portable_subset": lines.iter().map(|d| d.to_string()).collect::<Vec<_>>(),
         }),
         Err(WebBuildError::Failed(why)) => json!({ "status": "failed", "kind": view.kind.as_str(), "errors": why }),
+        Err(WebBuildError::PlayerPin(e)) => json!({ "status": "failed", "kind": view.kind.as_str(), "errors": e.to_string() }),
     };
     answer["elapsed_ms"] = json!(started.elapsed().as_millis() as u64);
     if view.kind == cobolt_compiler::ProjectKind::Mobile && answer["status"] == "built" {

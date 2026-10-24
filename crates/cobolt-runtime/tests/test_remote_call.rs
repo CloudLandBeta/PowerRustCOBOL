@@ -278,6 +278,8 @@ fn every_failure_class_reaches_on_exception_with_class_code_and_message() {
                    DISPLAY \"CLASS=[\" CLASS-NAME \"]\"
                    DISPLAY \"CODE=[\" ERR-CODE \"]\"
                    DISPLAY \"TEXT=[\" ERR-TEXT \"]\"
+                   MOVE RETURN-CODE TO ERR-CODE
+                   DISPLAY \"RCODE=[\" ERR-CODE \"]\"
                NOT ON EXCEPTION
                    DISPLAY \"OK\"
            END-CALL",
@@ -289,6 +291,7 @@ fn every_failure_class_reaches_on_exception_with_class_code_and_message() {
         run.result.expect("run");
         assert_eq!(field(&run.shown, "CLASS"), class);
         assert_eq!(field(&run.shown, "CODE"), code);
+        assert_eq!(field(&run.shown, "RCODE"), code, "RETURN-CODE carries the built-in's code");
         assert_eq!(field(&run.shown, "TEXT"), message);
         assert!(!run.shown.iter().any(|l| l == "OK"), "NOT ON EXCEPTION must not run after a failure");
     }
@@ -299,17 +302,39 @@ fn success_runs_not_on_exception_and_clears_the_last_error() {
     let src = caller(
         "
            CALL \"ANY\" WITH WEBSOCKET LINKAGE USING BY VALUE CUSTOMER
+               ON EXCEPTION DISPLAY \"FIRST-FAILED\"
+           END-CALL
+           CALL \"ANY\" WITH WEBSOCKET LINKAGE USING BY VALUE CUSTOMER
                ON EXCEPTION DISPLAY \"FAILED\"
                NOT ON EXCEPTION DISPLAY \"OK\"
            END-CALL
            COBOL::\"WS-LAST-ERROR\" ( CLASS-NAME ERR-CODE ERR-TEXT )
-           DISPLAY \"CLASS=[\" CLASS-NAME \"]\"",
+           DISPLAY \"CLASS=[\" CLASS-NAME \"]\"
+           DISPLAY \"CODE=[\" ERR-CODE \"]\"
+           MOVE RETURN-CODE TO ERR-CODE
+           DISPLAY \"RCODE=[\" ERR-CODE \"]\"",
     );
-    let run = run_with(&src, Some(Box::new(|_| ok_reply(vec![None], None))));
+    // The first call fails, so both mechanisms hold a code; the second
+    // succeeds and must clear both.
+    let mut calls = 0;
+    let run = run_with(
+        &src,
+        Some(Box::new(move |_| {
+            calls += 1;
+            if calls == 1 {
+                Err(CallError::new(ErrorClass::Limit, codes::RATE_LIMITED, "slow down"))
+            } else {
+                ok_reply(vec![None], None)
+            }
+        })),
+    );
     run.result.expect("run");
+    assert!(run.shown.iter().any(|l| l == "FIRST-FAILED"), "the first call must fail: {:?}", run.shown);
     assert!(run.shown.iter().any(|l| l == "OK"));
     assert!(!run.shown.iter().any(|l| l == "FAILED"));
     assert_eq!(field(&run.shown, "CLASS"), "");
+    assert_eq!(field(&run.shown, "CODE"), "00000");
+    assert_eq!(field(&run.shown, "RCODE"), "00000", "a success sets RETURN-CODE to 0");
 }
 
 #[test]
