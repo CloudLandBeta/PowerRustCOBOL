@@ -6,8 +6,13 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 # Spec — PartiQL for indexed files
 
 - **Status:** draft, written 2026-10-24 from the operator's two requests of that
-  day; awaiting the operator's review. §9 lists the decisions to settle before
-  `/plan`; each carries a recommendation so a "yes" is enough.
+  day; `/clarify` run the same day. Eight decisions are settled (§9: list
+  indexes count from 1, a type mismatch is an error, transactions may mix reads
+  and writes, the fixed-layout rules stand, `AutoCommit` is on unless the form
+  declares the FD, no hand-declared FD is required, the fetched item's fields
+  are read through `Get` and as properties, no result-set cap); four await the
+  operator's answer (Q6, Q8, Q12, Q13), each with a recommendation; the
+  assumptions `/clarify` recorded are listed at the end of §9.
 - **Folder:** specs/108-partiql-indexed-files/
 - **Author:** Anthropic Claude Codex Agent (for Emerson Lopes)   **Date:** 2026-10-24
 - **Classification:** feature — a query language on indexed files and the first
@@ -107,6 +112,19 @@ category, width and sign but **not the scale** (`pic.rs:27-31`, `:107-110`), so
 `format_field_display` shows `PIC 9(6)V99` as digits without a decimal point.
 The run-time record layout built from an FD does know the scale
 (`crates/cobolt-runtime/src/files.rs:27-58`).
+
+**The data file carries its own record layout.** A `PRCIDXD1` container
+written at version 4 stores the FD text that describes its records — every
+field's name, PICTURE and USAGE, REDEFINES, OCCURS and condition names — in a
+metadata page (`crates/cobolt-runtime/src/indexed_disk.rs:50-72`,
+`META_KIND_FD_TEXT`); `inspect_path` reads it back as
+`IndexedFileInfo.definition` (`indexed.rs:335-347`, `:1455`), the IDE's
+Finalize and Grid Browser write it from the `.cidx`
+(`indexed_ide.rs:245-292`, `set_definition`), and the Guide documents it under
+*The file carries its own record layout* (`docs/developers-guide-en.md:12779`).
+A file written by an older container carries none. The operator's ruling of
+2026-10-24 rests on this: a program needs no source of its own to understand
+the file, so neither does the control (R10).
 
 **The engines** (`crates/cobolt-runtime/src/indexed.rs`, `indexed_disk.rs`,
 `indexed_redb.rs`) implement one trait, `IndexedStore`: `open`, `close`,
@@ -283,7 +301,7 @@ emitted.
 ## 5. The language: DynamoDB PartiQL on an indexed file
 
 This section defines what the executor accepts. §6 states the requirements
-that refer to it; the Developer's Guide chapter (R56) is written from it.
+that refer to it; the Developer's Guide section (R47) is written from it.
 
 ### 5.1 Statements
 
@@ -333,9 +351,9 @@ no index name: `FROM "TABLE"` reads through it.
 |---|---|
 | table | the file the `IndexedFile` control holds (one file per control) |
 | item | a record |
-| attribute | a field of the record: an elementary item of the `.cidx` record, by its name, case-insensitive; a name that is not unique in the record is qualified with its group as a path (`BILLING.CITY`) |
+| attribute | a field of the record: an elementary item of the record layout (the FD the data file carries, or the `.cidx` — R10), by its name, case-insensitive; a name that is not unique in the record is qualified with its group as a path (`BILLING.CITY`) |
 | nested map | a group item: `GROUP.FIELD` |
-| list element | an occurrence of an `OCCURS` field: `ITEM-QTY[0]` is the first (0-based, as PartiQL counts — §9 Q1) |
+| list element | an occurrence of an `OCCURS` field: `ITEM-QTY[1]` is the first, as COBOL counts (operator, 2026-10-24 — §5.4 item 10); `[0]`, and an index past the last occurrence, are a `ValidationException` |
 | primary key (partition key, or partition + sort key) | the RECORD KEY, all its parts, in order |
 | secondary index | an ALTERNATE RECORD KEY (`"ORDERS"."BY-DATE"`) |
 | String | a field whose PICTURE is `X`, `A`, `N` or `U`: its content **without trailing spaces** (`'Ana   '` is `'Ana'`; a field of spaces is `''`) |
@@ -346,7 +364,8 @@ no index name: `FROM "TABLE"` reads through it.
 | `size(f)` | a String: its length without trailing spaces; an `OCCURS` field: its number of occurrences; a group: its number of subordinate fields |
 | `contains(f, v)` | a String: substring; an `OCCURS` field: an occurrence equal to `v` |
 | `begins_with(f, 'p')` | a String whose value starts with `p` |
-| comparison between a Number field and a String literal or parameter, or the reverse | a `ValidationException` (DynamoDB answers *false*; here the mistake is reported — §9 Q10) |
+| comparison between a Number field and a String literal or parameter, or the reverse | a `ValidationException` (DynamoDB answers *false*; here the mistake is reported — operator, 2026-10-24) |
+| `begins_with`, `contains` or `size` applied to a Number field | a `ValidationException`: they are String and collection functions |
 | `INSERT` without every field | the fields not named take their initial value: spaces for a String, zero for a Number (a fixed layout has no absent field) |
 | `REMOVE path` | the field takes its initial value |
 | `REMOVE ITEM-QTY[2]` | that occurrence takes its initial value; nothing shifts |
@@ -402,8 +421,10 @@ statement both accept.
    are reads-or-writes, 100 statements, and durable when they return.
 8. **`IN` accepts `(…)` as well as `[…]`.**
 9. **No pagination.** The result set is whole and local.
-10. **List indexes count from 0**, as PartiQL does (§9 Q1 asks whether COBOL's
-    1 should win).
+10. **List indexes count from 1**, as COBOL subscripts do (operator,
+    2026-10-24). DynamoDB's PartiQL counts from 0, so a list index copied from
+    a DynamoDB statement is off by one; the Guide carries the caveat, and
+    `[0]` is refused rather than silently read as the first occurrence.
 
 ## 6. Requirements (EARS)
 
@@ -420,8 +441,10 @@ statement both accept.
 - **R3 (ubiquitous):** The system shall bind each `?` to the argument in the
   same position after the statement — a data item, a control property or a
   literal — typed by the data item's PICTURE (a Number for a numeric item, a
-  String without trailing spaces otherwise) or by the literal's form; a
-  parameter shall never be spliced into the statement text.
+  String without trailing spaces otherwise; a group item is a String of its
+  bytes) or by the literal's form; a parameter shall never be spliced into the
+  statement text. Statement text taken from a data item shall have its
+  trailing spaces removed first.
 - **R4 (event):** When a String value is stored into a field shorter than it,
   the system shall truncate it on the right and set `StatusCode` to `00`, as
   `MOVE` does; when a Number does not fit a field's integer digits, the
@@ -432,13 +455,15 @@ statement both accept.
   left to their initial values when the key allows duplicates.
 - **R6 (constraint):** The system shall reject, with `ValidationException` and
   a message naming the construct and its position, any statement outside §5.1:
-  the statements and clauses listed under Non-goals, a literal of a kind §5.2
-  cannot hold, `list_append` / `set_add` / `set_delete`, `EXISTS` outside a
-  transaction, a `?` where a name is expected, a parameter count that differs
-  from the `?` count, a comparison between a Number and a String, `ORDER BY` a
-  field that is not part of the key of reference, an `UPDATE` or `DELETE`
-  whose WHERE does not pin the whole RECORD KEY with `=`, `SET` on a field of
-  the RECORD KEY, and a name that is not a field, a key or the control's file.
+  an empty statement, the statements and clauses listed under Non-goals, a
+  literal of a kind §5.2 cannot hold, `list_append` / `set_add` / `set_delete`,
+  `EXISTS` outside a transaction, a `?` where a name is expected, a parameter
+  count that differs from the `?` count, a comparison between a Number and a
+  String, a String or collection function applied to a Number, a list index of
+  0 or past the last occurrence, `ORDER BY` a field that is not part of the
+  key of reference, an `UPDATE` or `DELETE` whose WHERE does not pin the whole
+  RECORD KEY with `=`, `SET` on a field of the RECORD KEY, and a name that is
+  not a field, a key or the control's file.
 
 ### 6.2 Execution
 
@@ -449,16 +474,27 @@ statement both accept.
   shall open it as `AutoOpen` would (in `OpenMode`, with `OperatorName` as the
   registered user) and leave it open; a file opened this way shall be closed
   when the form closes, as an `AutoOpen` file is.
-- **R9 (state):** While the form's program has the same file open through its
-  own `FD` (the hand-declared `SELECT` / `FD … IS GLOBAL` of today), statements
-  and COBOL verbs shall share **one** open file — one position, one set of
-  record locks, one undo journal — so that a `COMMIT` verb commits a PartiQL
-  write and a `ROLLBACK` verb undoes one (with `AutoCommit` off, R24).
-- **R10 (ubiquitous):** A form may use an `IndexedFile` control through
+- **R9 (state):** While the form's program has the same file open through an
+  `FD` of its own (a `SELECT` / `FD … IS GLOBAL` the developer chose to
+  declare), statements and COBOL verbs shall share **one** open file — one
+  position, one set of record locks, one undo journal — so that a `COMMIT`
+  verb commits a PartiQL write and a `ROLLBACK` verb undoes one (with
+  `AutoCommit` off, which is then the default, R24). Two `IndexedFile`
+  controls of one run unit that name the same definition shall share one open
+  file as well.
+- **R10 (ubiquitous):** A form shall use an `IndexedFile` control through
   PartiQL and bindings **without** declaring the file in its COBOL structure:
-  such a form shall check, run and build, and the control shall hold the open
-  file itself. (Today the facade's `OPEN <file>` makes the hand-written
-  `SELECT` / `FD` mandatory; §9 Q4.)
+  no `SELECT` and no `FD` are required for the control, such a form shall
+  check, run and build, and the control shall hold the open file itself. The
+  control shall take the record layout — field names, PICTUREs, usages,
+  OCCURS, REDEFINES — from the **FD the data file carries** (a container of
+  version 4 or later, §2), and from the `.cidx` it names when the data file
+  does not exist yet (it is then created from the definition, as Finalize
+  creates it) or carries no layout. A data file whose layout does not match the
+  `.cidx` shall be refused with `39`, as `OPEN` refuses it today. (Operator,
+  2026-10-24: "drop the requirement to declare SELECT/FD when using the
+  IndexedFile control and use what the file already has". Today the facade's
+  `OPEN <file>` makes the hand-written `SELECT` / `FD` mandatory.)
 - **R11 (ubiquitous):** The system shall read the file as §5.3 classifies the
   statement — keyed, range or scan — and shall return a `SELECT`'s records in
   the order of the key of reference, reversed for `ORDER BY … DESC`.
@@ -494,8 +530,11 @@ statement both accept.
 - **R19 (ubiquitous):** A `SELECT`, and an `UPDATE` or `DELETE` with
   `RETURNING`, shall produce the control's **result set**: an ordered list of
   items, each a list of named values in projection order (`*` = every field of
-  the record, leaves in record order). A new statement shall replace it. The
-  result set shall be the same object the bound controls of §6.6 read.
+  the record, leaves in record order). A new statement shall replace it, and a
+  failed statement shall leave it empty. A binding that follows the control
+  (R34) reads this result set; a binding that runs a query of its own (R32)
+  runs it in a result set of the binding's own and does not touch the
+  control's.
 - **R20 (ubiquitous):** The control shall offer, as `::` methods usable inside
   expressions (`SET`, `IF`, `MOVE`, as every RustCOBOL method is):
   - `Execute(statement [, param …])` — runs one statement; answers the number
@@ -504,21 +543,28 @@ statement both accept.
     and 0 when the statement failed (then `StatusCode` and `LastError` say
     why).
   - `Fetch()` — answers the next item of the result set as its values
-    TAB-separated in projection order, and advances; past the last item it
-    answers an empty value and sets `StatusCode` to `10`.
-  - `GetField(name-or-position)` — answers one value of the item `Fetch()`
-    last delivered, by field name (case-insensitive; a path for a group member
-    or an occurrence) or by its position in the projection, counted from 1;
-    an unknown name or position answers an empty value.
+    TAB-separated in projection order (a TAB inside a value is shown as a
+    space there; `Get` keeps it), and advances; past the last item it answers
+    an empty value and sets `StatusCode` to `10`.
+  - `Get(name-or-position)` — answers one value of the item `Fetch()` last
+    delivered, by field name (case-insensitive; a path for a group member or
+    an occurrence, `BILLING.CITY`, `ITEM-QTY[2]`) or by its position in the
+    projection, counted from 1; a name that is not in the projection, or a
+    position past it, answers an empty value.
   - `ColumnNames()` and `ColumnCount()` — the projection's names TAB-separated
     (a computed expression is named by its text), and their count.
   - `ExecuteTransaction(statements [, param …])` — §6.4.
-- **R21 (event):** When `Fetch()` delivers an item that was taken from a
-  record (a `SELECT` of fields, or a `RETURNING`), and the form's program has
-  the file's record area (R9) or the control's `CurrentRecordDataItem` is set,
-  the system shall also place **that record** there, as a `READ` would, so the
-  handler reads the fields by their COBOL names; a projection of computed
-  expressions only shall leave them unchanged.
+- **R21 (ubiquitous):** The fields of the item `Fetch()` last delivered shall
+  also be readable as **properties of the control**, by their COBOL names —
+  `IXF-1::CUST-NAME`, `IXF-1::CUST-BALANCE` (a Number, usable in arithmetic) —
+  for every leaf named in the projection (a path with a dot is read through
+  `Get`); a field the projection does not name answers an empty value. When
+  the control's `CurrentRecordDataItem` is set, `Fetch()` shall also place the
+  item's record there, as the facade's `READ … INTO` does. `Fetch()` reads
+  from the result set only: it needs no FD of the form's program and leaves
+  the file's current record and record locks unchanged (operator, 2026-10-24:
+  "no need to declare the FD; the control must allow access to the fields as
+  properties via a Get method").
 - **R22 (ubiquitous):** The control shall publish the run-time properties
   `ResultCount` (items in the result set), `StatusCode` (R27) and `LastError`
   (R27), readable as `IXF-1::ResultCount` and the like, as the `SqlDatabase`
@@ -537,11 +583,17 @@ statement both accept.
   `SELECT` and `RETURNING` in the unit form the result set, in order. It shall
   answer the number of statements that ran, and 0 when the unit was cancelled.
 - **R24 (ubiquitous):** The control shall gain the design-time property
-  **`AutoCommit`** (default `true`, as the DataGrid's). While it is on, every
-  write statement and every completed unit shall be committed to the file as
-  it completes (durable, as DynamoDB's are). While it is off, writes shall
-  join the file's open transaction and become durable at the program's
-  `COMMIT` verb or the file's close, and the `ROLLBACK` verb shall undo them.
+  **`AutoCommit`**. Its default shall be **on** for a form that does not
+  declare the control's file in its COBOL structure, and **off** for a form
+  that declares a `SELECT` / `FD` for it — a program that drives the file with
+  the verbs keeps its transaction (operator, 2026-10-24); the developer may set
+  either. While it is on, every write statement and every completed unit shall
+  be committed to the file as it completes (durable, as DynamoDB's are); a
+  commit is per file, so it also makes durable any verb write pending on the
+  same file since the last `COMMIT`, which the Guide shall state. While it is
+  off, writes shall join the file's open transaction and become durable at the
+  program's `COMMIT` verb or the file's close, and the `ROLLBACK` verb shall
+  undo them.
 - **R25 (event):** When a statement of a unit fails, the system shall undo
   **exactly the unit's own changes** — work done before the unit and not yet
   committed stays as it was — set `StatusCode` and `LastError` as R27's last
@@ -602,8 +654,10 @@ statement both accept.
 - **R32 (event):** When the form populates its bindings (after `onLoad`, where
   the generated `COBOL-DATA-BINDINGS-POPULATE` runs today), and whenever the
   program calls the target's `RefreshBinding()`, the system shall evaluate the
-  parameters, have the source control execute the query, and fill the target
-  from the result set; `RefreshBinding()` shall answer the number of items.
+  parameters, have the source control execute the query in a result set of the
+  binding's own (the control's result set and `Fetch()` cursor unchanged,
+  R19), and fill the target from it; `RefreshBinding()` shall answer the
+  number of items.
 - **R33 (event):** When the query fails (R6, R17) or a parameter is missing,
   the target shall keep what it shows, and the failure shall be reported in
   the source control's `StatusCode` / `LastError` and on the debug channel;
@@ -650,10 +704,10 @@ statement both accept.
   reorder; each a picker of the form's data items and control properties),
   the **Fields** grid seeded **from the projection against the `.cidx`** (real
   names and PICTUREs), the **Writable** switch with its "what the target still
-  needs" list, and a **Test query** button that runs the `SELECT` read-only
-  against the data file with the parameters' current design-time values left
-  as `?` prompts, and shows up to 50 items, the item count, the read class
-  (keyed / range / scan) and any error.
+  needs" list, and a **Test query** button that asks for a value per `?`
+  parameter, runs the `SELECT` read-only against the data file, and shows up
+  to 50 items, the item count, the read class (keyed / range / scan) and any
+  error.
 - **R40 (ubiquitous):** The generated form program shall seed a PartiQL
   binding as the existing kinds are seeded — the hidden `_Binding*` properties
   followed by `RefreshBinding` in `COBOL-DATA-BINDINGS-POPULATE` — with no
@@ -756,11 +810,15 @@ GOLDEN RULE #7 result block.
 - [ ] **AC2 (R2, R4, R19–R22):** `Fetch()` on `SELECT CUST-ID, CUST-BALANCE,
   BILLING.CITY FROM CUSTOMERS WHERE CUST-ID = 42` answers
   `00000042<TAB>-123.45<TAB>Recife` for a record holding `0012345}` in
-  `CUST-BALANCE` and `Recife` padded to 20 in `CITY`; `GetField("CUST-BALANCE")`
-  and `GetField(2)` answer `-123.45`; `ColumnNames()` answers the three names;
-  the record area's `CUST-NAME` holds the record's name after the `Fetch()`
-  although it was not projected; a second `Fetch()` answers empty with
-  `StatusCode` `10`; `ResultCount` is 1; a second `Execute` of a three-record `SELECT` replaces the result set and `ResultCount` is 3.
+  `CUST-BALANCE` and `Recife` padded to 20 in `CITY`; `Get("CUST-BALANCE")`
+  and `Get(2)` answer `-123.45`, and `IXF-CUST::CUST-BALANCE` reads it as a
+  number (`IF IXF-CUST::CUST-BALANCE < 0` is true); `Get("CUST-NAME")` and
+  `IXF-CUST::CUST-NAME` answer empty, since `CUST-NAME` was not projected;
+  with `CurrentRecordDataItem` set, the item's whole record lands there;
+  `ColumnNames()` answers the three names; a second `Fetch()` answers empty
+  with `StatusCode` `10`; `ResultCount` is 1; a second `Execute` of a
+  three-record `SELECT` replaces the result set and `ResultCount` is 3, and a
+  failed `Execute` leaves it empty. The form declares no `FD`.
 - [ ] **AC3 (R5, R14–R17, R27):** `INSERT INTO CUSTOMERS VALUE {'CUST-ID': ?,
   'CUST-NAME': 'Ana'}` writes a record whose `CUST-BALANCE` is zero and `CITY`
   spaces; the same statement again answers 0 with `22` /
@@ -780,16 +838,17 @@ GOLDEN RULE #7 result block.
   list_append(ITEM-QTY, [1])`; `EXISTS(…)` in `Execute`; a statement with two
   `?` and one argument; and `SELECT * FROM CUSTOMERS WHERE CUST-ID IS MISSING`
   answers 0 items with `00` (never missing). The program runs on after every failure and no `onError` handler is called; a type-mismatch failure whose `?` was bound to the value `SECRET-42` leaves no `SECRET-42` in `LastError`.
-- [ ] **AC5 (R2, §5.2, §5.4):** On `ORDERS`, `SELECT ITEM-QTY[0], size(ITEM-QTY)
+- [ ] **AC5 (R2, §5.2, §5.4):** On `ORDERS`, `SELECT ITEM-QTY[1], size(ITEM-QTY)
   FROM ORDERS WHERE CUST-ID = ? AND ORDER-NO = ?` answers the first
-  occurrence and `5`; `… WHERE begins_with(ORDER-DATE, '2026-10')` through
+  occurrence and `5`, while `ITEM-QTY[0]` and `ITEM-QTY[6]` are refused with
+  `94`; `… WHERE begins_with(ORDER-DATE, '2026-10')` through
   `"ORDERS"."BY-DATE"` is a range read; `WHERE CUST-ID = ? AND ORDER-NO
   BETWEEN ? AND ?` is a range read on the split key; `WHERE CUST-ID = ?
   ORDER BY ORDER-NO DESC` returns that customer's orders descending; `WHERE
   contains(CUST-NAME, 'na')` and `attribute_type(CUST-BALANCE, 'N')` filter as
   §5.2 says; `SET ORDER-TOTAL = ORDER-TOTAL - 10` and `QTY-1`-style names
   parse as a field and a subtraction respectively; `REMOVE ITEM-QTY[2]` zeroes
-  the third occurrence and leaves the others.
+  the second occurrence and leaves the others.
 - [ ] **AC6 (R23–R26):** `ExecuteTransaction("EXISTS(SELECT * FROM CUSTOMERS
   WHERE CUST-ID = ? AND CUST-BALANCE >= ?); UPDATE CUSTOMERS SET CUST-BALANCE =
   CUST-BALANCE - ? WHERE CUST-ID = ?; UPDATE CUSTOMERS SET CUST-BALANCE =
@@ -797,19 +856,25 @@ GOLDEN RULE #7 result block.
   holds and answers 3; with an insufficient balance it answers 0 with `23` and
   `TransactionCanceledException: statement 1: …` and neither record changes;
   a unit whose third statement names an absent key leaves the first two undone
-  while a `WRITE` done before the unit (uncommitted, `AutoCommit` off) is still
-  there and is undone by the program's `ROLLBACK` verb; with `AutoCommit` on,
-  a successful unit survives a `ROLLBACK` verb that follows it; a unit that
-  updates the same record twice is refused with `94` before anything runs.
+  while a `WRITE` done before the unit (uncommitted; `AutoCommit` is off by
+  default here, since this form declares the FD for its `WRITE`) is still
+  there and is undone by the program's `ROLLBACK` verb; with `AutoCommit` set
+  on, a successful unit survives a `ROLLBACK` verb that follows it, and a
+  `WRITE` pending before the unit is committed with it; a unit that updates
+  the same record twice is refused with `94` before anything runs.
 - [ ] **AC7 (R7–R10):** A form whose `IndexedFile` control names
   `indexed/customers.cidx` and declares no `SELECT` / `FD` checks, runs and
-  builds; its handler's `Execute` opens the file in `OpenMode` and the file is
-  closed when the form closes (the data file's lock sidecar is released). A
-  second form that declares `FD CUSTOMERS IS GLOBAL` and `OPEN I-O` in
+  builds; its handler's `Execute` opens the file in `OpenMode`, reading the
+  record layout from the FD the data file carries, and the file is closed when
+  the form closes (the data file's lock sidecar is released). The same form
+  with no data file on disk creates it from the `.cidx` and runs; with a data
+  file whose layout disagrees with the `.cidx`, `Execute` answers 0 with `39`.
+  A second form that declares `FD CUSTOMERS IS GLOBAL` and `OPEN I-O` in
   `onLoad` runs `WRITE` with the verb and `SELECT` with the control and sees
-  the written record; with `AutoCommit` off, the `ROLLBACK` verb undoes an
-  `INSERT` the control ran. `Execute("SELECT * FROM ORDERS")` on the
-  `CUSTOMERS` control answers 0 with `94` / `ResourceNotFoundException`.
+  the written record; with `AutoCommit` at its default there (off, since the
+  form declares the FD), the `ROLLBACK` verb undoes an `INSERT` the control
+  ran. `Execute("SELECT * FROM ORDERS")` on the `CUSTOMERS` control answers 0
+  with `94` / `ResourceNotFoundException`.
 - [ ] **AC8 (R18, R49):** The AC1, AC3 and AC6 programs give identical results
   under `rcrun run-form`, as an embedded child form and in a built binary, on
   the `PRCIDXD1` and redb engines and on a `STORAGE IS MEMORY` file.
@@ -866,10 +931,11 @@ GOLDEN RULE #7 result block.
   in a handler, at its line, with no data file present. Every new string
   passes the six-language test.
 - [ ] **AC16 (R43, R44):** Autocomplete after `IXF-CUST::` offers `Execute`,
-  `ExecuteTransaction`, `Fetch`, `GetField`, `ColumnNames`, `ColumnCount`,
+  `ExecuteTransaction`, `Fetch`, `Get`, `ColumnNames`, `ColumnCount`,
   `ResultCount`, `StatusCode`, `LastError`, `AutoCommit` with descriptions in
   the selected language and offers no `Click` or `Show`; `IXF-CUST::Execute(
-  WS-STMT )` parses as a method call. Stepping over an `Execute` in the
+  WS-STMT )` parses as a method call and `IXF-CUST::CUST-NAME` as a property
+  read. Stepping over an `Execute` in the
   debugger shows the statement, its parameter values, the read class, the
   status, the error text and the count.
 - [ ] **AC17 (R46, R47):** `cargo run -p cobolt-ide --example build_chunked_kb`
@@ -893,9 +959,11 @@ GOLDEN RULE #7 result block.
 - **Generated-code / regenerate contract:** codegen seeds the binding and
   invokes `RefreshBinding` as for the existing kinds (R40); it generates no
   PartiQL and no read loop; the banner and regenerate-on-action contract are
-  untouched. The facade paragraphs stay as they are; R10 asks only that a
-  form without a hand-declared `FD` still check and build, which touches how
-  the facade's verbs are emitted for such a form — the plan decides how.
+  untouched. The facade paragraphs stay as they are for a form that declares
+  the FD; R10 requires a form without one to check, run and build, which
+  touches how the facade's verbs are emitted for such a form — the plan
+  decides how (the control owning the open file, or the paragraphs guarded
+  behind the declaration).
 - **Form file:** one new binding source inside `<DataBindings>` (JSON, serde
   default) and two new properties: `AutoCommit` on `IndexedFile`, `BindingQuery`
   on bound targets (run-time). Old `.cfrm` files load unchanged (R40).
@@ -927,7 +995,10 @@ GOLDEN RULE #7 result block.
   through the source control's open file instead (R9, R36), so two opens of
   one file in one process are avoided — the redb engine takes one exclusive
   writer per container. The `.cidx` parsed PICTURE lacks the scale (§2); R2
-  needs it, so the executor takes the scale from the PICTURE string.
+  needs it, so the executor takes the scale from the PICTURE string — or from
+  the FD the data file carries, which the run-time layout already reads with
+  its scale (`files.rs`). A version-4 container carries that FD; an older file
+  carries none and the `.cidx` stands in (R10).
 - **Numbers shown with their decimal point** (R31) differ from today's
   indexed quick-bind display, which shows `PIC 9(6)V99` as digits only; this
   spec does not change the old path (R41) — §9 Q13 asks whether a separate fix
@@ -947,52 +1018,83 @@ GOLDEN RULE #7 result block.
 
 ## 9. Open questions
 
-Each carries a recommendation; a "yes" to the recommendation settles it.
+`/clarify`, 2026-10-24: the operator settled eight of these; four still carry
+a recommendation and await an answer; two were not asked, and their
+recommendation stands unless the operator says otherwise.
 
-- **Q1 — List indexes: PartiQL's 0 or COBOL's 1?** `ITEM-QTY[0]` is the first
-  occurrence as DynamoDB counts; a COBOL developer writes `ITEM-QTY(1)`.
-  *Recommendation:* keep 0, so a statement written for DynamoDB means the same
-  here (the stated base); the Guide warns in a caveat. The alternative is
-  accepting `ITEM-QTY(1)` with parentheses as the 1-based spelling beside
-  `[0]` — two spellings for one thing.
-- **Q2 — Fixed layout semantics** (§5.4 items 3–4): `INSERT` fills unnamed
-  fields with initial values, `REMOVE` resets, declared fields are never
-  `MISSING`, unknown names are errors. *Recommendation:* as written.
-- **Q3 — `AutoCommit` default `true`** (R24): each statement durable as it
-  completes, like DynamoDB and like a grid's `AutoCommit`; off, the COBOL
-  verbs govern. *Recommendation:* `true`.
-- **Q4 — A form without a hand-declared `SELECT` / `FD`** (R10) may use the
-  control through PartiQL and bindings alone. *Recommendation:* yes — the
-  binding story is otherwise not no-code, which today's quick-bind is.
-- **Q5 — A batch** (`BatchExecuteStatement`): independent statements, each
-  with its own status. *Recommendation:* no (a `PERFORM` loop); revisit if the
-  operator wants it for fidelity.
-- **Q6 — A built-in for programs without forms:** `COBOL::"PARTIQL" (
-  FILE-NAME STATEMENT RESULT-COUNT STATUS [param …] )` with `COBOL::"PARTIQL-FETCH"`,
-  so a plain `.cbl` under `tests/cobol/**` can exercise the executor with
-  `rcrun run` and report per GOLDEN RULE #7. *Recommendation:* yes, in this
-  spec — it is a thin wrapper over the executor R48 needs anyway; otherwise
-  the executor's tests are Rust and form-driven only.
-- **Q7 — The IDE's Grid Browser and the agents' search tool:** a PartiQL
-  `WHERE` box in the Grid Browser; `kb_search`-style PartiQL for the AI search
-  tool. *Recommendation:* separate specs after this one ships.
-- **Q8 — `SelectedValue` on lists** (R35): the value field of the selected
-  item. *Recommendation:* yes; it is what makes a PartiQL-bound ComboBox
-  useful, and it gives the dormant `ListValue` mapping its meaning.
-- **Q9 — Transactions may mix reads and writes** (§5.4 item 7).
-  *Recommendation:* yes; the DynamoDB rule is an implementation limit, and the
-  superset principle allows it.
-- **Q10 — A Number compared with a String is an error, not *false*.**
-  *Recommendation:* error — Check reports it before the program runs.
-- **Q11 — The hyphen rule** (§5.4 item 1). *Recommendation:* as written;
-  double quotes remain available for any name.
-- **Q12 — The method and property names** — `Execute`, `ExecuteTransaction`,
-  `Fetch`, `GetField`, `ColumnNames`, `ColumnCount`, `ResultCount`,
-  `StatusCode`, `LastError`, `AutoCommit`, `BindingQuery`, `SelectedValue`,
-  and `94` as the statement-invalid status. The first six follow the
-  `SqlDatabase` and `AwsDynamoDB` controls; `onError` stays unraised (R28).
-  *Recommendation:* as written; renaming is cheap now and expensive after the
-  Guide, the KB and the agents learn them.
-- **Q13 — Numbers with their decimal point in bound controls** (R31) while the
-  existing indexed quick-bind shows digits only. *Recommendation:* ship R31 as
-  written and open a fix on `fixes` for the old path, so the two agree.
+- **Q1 — List indexes (settled, operator 2026-10-24): COBOL's 1.**
+  `ITEM-QTY[1]` is the first occurrence; `[0]` is refused (§5.2, §5.4 item 10,
+  R6, AC5). The recommendation had been PartiQL's 0; the operator chose the
+  COBOL base.
+- **Q2 — Fixed layout semantics (settled, operator 2026-10-24): as written**
+  (§5.4 items 3–4).
+- **Q3 — `AutoCommit` default (settled, operator 2026-10-24): on unless the
+  form declares the FD.** On for a control used alone; off when the form's
+  COBOL structure declares a `SELECT` / `FD` for the file, so a program that
+  drives the file with the verbs keeps control of its transaction (R24).
+- **Q4 — No hand-declared `SELECT` / `FD` (settled, operator 2026-10-24):
+  yes, and the file is the schema.** The requirement is dropped for the
+  control; the record layout comes from the FD a version-4 container carries,
+  the `.cidx` standing in for a file not yet created or written by an older
+  container (R10, §2).
+- **Q5 — A batch** (`BatchExecuteStatement`). Not asked. *Recommendation:* no
+  — a `PERFORM` loop of `Execute` is the same thing with a status per
+  statement; revisit if the operator wants it for fidelity.
+- **Q6 — A built-in for programs without forms** (open; asked 2026-10-24,
+  awaiting the operator's answer): `COBOL::"PARTIQL" ( FILE-NAME STATEMENT
+  RESULT-COUNT STATUS [param …] )` with `COBOL::"PARTIQL-FETCH"`, so a plain
+  `.cbl` under `tests/cobol/**` can exercise the executor with `rcrun run` and
+  report per GOLDEN RULE #7. *Recommendation:* yes, in this spec — a thin
+  wrapper over the executor R48 needs anyway; otherwise the executor's tests
+  are Rust and form-driven only.
+- **Q7 — The IDE's Grid Browser and the agents' search tool.** Not asked.
+  *Recommendation:* separate specs after this one ships.
+- **Q8 — `SelectedValue` on lists** (open; asked 2026-10-24, awaiting the
+  operator's answer; R35). *Recommendation:* yes — it is what makes a
+  PartiQL-bound ComboBox useful, and it gives the dormant `ListValue` mapping
+  its meaning.
+- **Q9 — Transactions (settled, operator 2026-10-24): reads and writes may
+  mix, no statement limit** (§5.4 item 7, R23).
+- **Q10 — A Number compared with a String (settled, operator 2026-10-24): an
+  error, `94`**, reported by Check before the program runs (§5.2, R6).
+- **Q11 — The hyphen rule (settled, operator 2026-10-24): as written** (§5.4
+  item 1).
+- **Q12 — The method and property names** (open; asked 2026-10-24, awaiting
+  the operator's answer) — `Execute`, `ExecuteTransaction`, `Fetch`, `Get`
+  (the fetched item's field by name or position; the fields are also readable
+  as properties, `IXF-1::CUST-NAME` — the operator's words), `ColumnNames`,
+  `ColumnCount`, `ResultCount`, `StatusCode`, `LastError`, `AutoCommit`,
+  `BindingQuery`, `SelectedValue`, and `94` as the statement-invalid status;
+  `onError` stays unraised (R28). *Recommendation:* as written; renaming is
+  cheap now and expensive after the Guide, the KB and the agents learn them.
+- **Q13 — Numbers with their decimal point in bound controls** (open; asked
+  2026-10-24, awaiting the operator's answer; R31) while the existing indexed
+  quick-bind shows digits only. *Recommendation:* ship R31 as written and open
+  a fix on `fixes` for the old path, so the two agree.
+- **Q14 — `Fetch()` and the verbs (settled, operator 2026-10-24): no record
+  area, no current record.** The fetched item's fields are reached through
+  `Get` and as properties of the control; `Fetch()` leaves the file's current
+  record and locks alone, and `CurrentRecordDataItem` keeps its existing role
+  (R21).
+- **Q15 — A cap on the result set (settled, operator 2026-10-24): none.** A
+  scan loads the whole result set, as the quick-bind grid does today; the
+  Guide names the key condition as the remedy.
+
+**Assumptions recorded by `/clarify`** (not asked; each has one reasonable
+answer, written into the requirement named, and visible here so the operator
+can overturn it):
+
+- A binding's own query runs in a result set of the binding's own; only a
+  binding with no query reads the control's result set, so a refresh never
+  disturbs a handler's `Fetch()` loop (R19, R32).
+- A failed statement leaves the result set empty (R19).
+- An empty statement, a String or collection function applied to a Number,
+  and a list index of 0 or past the last occurrence are `ValidationException`
+  (R6).
+- Statement text taken from a data item is trimmed of trailing spaces; a
+  group item bound to a `?` is a String of its bytes (R3).
+- A TAB inside a value is shown as a space in `Fetch()`'s TAB-joined text;
+  `Get` keeps it (R20).
+- Two `IndexedFile` controls of one run unit that name the same definition
+  share one open file (R9).
+- Test query asks for a value per `?` parameter before it runs (R39).
