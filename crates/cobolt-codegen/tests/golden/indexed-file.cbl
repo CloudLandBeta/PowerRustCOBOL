@@ -240,15 +240,13 @@
            END-DELETE.
 
        CustomerFile-COMMIT.
-      *>  Flushes pending indexed-file changes for CUSTOMERS.
-           CLOSE CUSTOMERS
-           OPEN I-O CUSTOMERS
+      *>  Makes the changes to CUSTOMERS since the last COMMIT durable (the COMMIT verb acts on every open indexed file); the file stays open.
+           COMMIT
            COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS ).
 
        CustomerFile-ROLLBACK.
-      *>  Transaction rollback is storage-engine dependent; reopen to discard pending cursor state.
-           CLOSE CUSTOMERS
-           OPEN I-O CUSTOMERS
+      *>  Undoes the changes to CUSTOMERS since the last COMMIT (the ROLLBACK verb acts on every open indexed file); the file stays open.
+           ROLLBACK
            COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS ).
 
        CustomerFile-CLOSE.

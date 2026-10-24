@@ -22,6 +22,21 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.66] — 2026-10-24
+
+*(Forward-port of 1.91.224, `67920b6f` on `fixes-facade-rollback`. 2.0.65 is the last number in use on `2.x.x`, so this port takes 2.0.66.)*
+
+### Fixed: the IndexedFile facade's ROLLBACK paragraph committed
+
+The paragraphs the IDE generates for an `IndexedFile` control ended a transaction by closing and reopening the file: `<id>-COMMIT`
+was `CLOSE` then `OPEN I-O`, and `<id>-ROLLBACK` was `CLOSE` then `OPEN` in the control's mode. Every indexed engine commits on
+`CLOSE`, so `<id>-ROLLBACK` made durable exactly the changes it was meant to discard, and `<id>-COMMIT` reopened as `I-O` a file
+the control had opened `INPUT`, lost the record position and dropped every record lock. Both paragraphs now use the verbs the
+runtime has had since the undo journal landed, `COMMIT` and `ROLLBACK`, which act on every open indexed file and leave the file
+open where it is; the status item still receives the engine's status afterwards. The golden `indexed-file.cbl` and the PowerDemo3
+corpus snapshot change accordingly, a codegen test pins the two paragraphs, and the System KB's IndexedFile page lists
+`<id>-ROLLBACK` beside `<id>-COMMIT`. The Developer's Guide does not describe these paragraphs, so it is unchanged.
+
 ## [PowerRustCOBOL 2.0.65] — 2026-10-24
 
 *(Written on `features-2x`, on top of 2.0.64: the web page against the desktop, PowerAnalyticsWeb beside PowerAnalytics, measured.)*
