@@ -42,6 +42,9 @@ fn category(path: &str) -> &'static str {
         "form description"
     } else if path.starts_with("assets/") || path.starts_with("Assets/") {
         "asset"
+    } else if path.starts_with("fonts/") {
+        // The face the desktop's painter letters "Arial" in, and the licence that travels with it.
+        "stand-in font"
     } else if path.ends_with(".css") && name.starts_with("stylesheet.") {
         "stylesheet"
     } else if name.starts_with("manifest.") && name.ends_with(".json") {
@@ -134,9 +137,11 @@ fn a_bundle_is_made_from_the_shipped_player_with_no_rust_toolchain_and_runs_unde
         println!("  {c}: {}", fs.join(", "));
     }
     assert!(!by.contains_key("other"), "files the bundle should not hold: {:?}", by.get("other"));
-    for must in ["player (plain)", "player (threaded)", "program (multi-memory)", "program (single-memory)", "host page", "form description", "stylesheet", "asset"] {
+    for must in ["player (plain)", "player (threaded)", "program (multi-memory)", "program (single-memory)", "host page", "form description", "stylesheet", "asset", "stand-in font"] {
         assert!(by.contains_key(must), "the bundle has no {must}: {files:?}");
     }
+    // The Ubuntu Font Licence asks for its text to travel with the face.
+    assert!(files.iter().any(|f| f == "fonts/UFL.txt"), "the stand-in face's licence is not beside it: {files:?}");
     let wasm: Vec<&String> = files.iter().filter(|f| f.ends_with(".wasm")).collect();
     let programs = wasm.iter().filter(|f| f.contains("program")).count();
     assert_eq!(programs, 2, "two program modules: {wasm:?}");

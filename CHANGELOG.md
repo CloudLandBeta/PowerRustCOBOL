@@ -22,6 +22,87 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.65] — 2026-10-24
+
+*(Written on `features-2x`, on top of 2.0.64: the web page against the desktop, PowerAnalyticsWeb beside PowerAnalytics, measured.)*
+
+### Added: the web page draws a form the way the desktop does
+
+The Web player is held to the desktop's own picture of the same form and brought to it control by control. The yardstick is the new example
+`examples/PowerAnalyticsWeb`, a Web project made from PowerAnalytics. It is a **look** clone, not a functional port: only the Dashboard/Dados
+switch has handlers.
+
+- **Text is the desktop's arithmetic**, not the browser's. `cobolt_forms::textmetrics` (advances, kerning, row, baseline, a caption shrunk to
+  fit) is held to egui itself by `tests/text_metrics_follow_egui.rs` — 117 half-point sizes from 6 to 64 and the 70 sizes a font factor makes,
+  rows and baselines equal, widths within 0.016 px. The stand-in face the painter letters "Arial" in (Ubuntu Light) ships in every bundle with
+  its licence and an SBOM entry, and a browser's lighter glyphs get the outline that gives them the desktop's ink (`metrics::stroke`).
+- **Faces:** the drop shadows (`shadow.rs`), Spatial's measured rules (`theme_css.rs`), text centred on the half pixel the way the painter rounds
+  it, the form's theme travelling with the form, a rim under a control's own border drawn once, and the expand icon left off a control of a layer.
+- **Charts** painted as the desktop paints them (`view/chart_paint.rs`); **DataGrid** drawn the way the painter draws it — a native scroller under
+  a sticky caption and header, frozen columns, the CSV badge, the pill-shaped bars, row heights and sort, with the column filters applied (`view/datagrid.rs`;
+  `onScroll`, `ClickedColumn` and the move buttons arrive as on the desktop); **ComboBox** (list style) and **ListBox** with the painter's rows,
+  tick boxes and handle.
+- **`FontScaling`** (`Fluid` and `Stepped`), `MinFontScale`/`MaxFontScale`, `ScaleFont` and `MinFontSize`/`MaxFontSize` are honoured. The page
+  takes the form's width, asks the desktop's own function for the factor, and letters every control that states a `FontSize` at the size the
+  desktop's layout gives the painters (a fraction stays a fraction: 28 at 0.85 is 23.8); a control in a layer keeps its designed size, as there.
+  Until now the browser's own text size applied: text was 14 % smaller than the desktop's at 1000 px and 30 % smaller at 1920 px.
+- **Shared with the desktop, so the two cannot drift:** `fieldtext.rs` (`format_cell`, `format_cell_with_cobol_mask`, `MONTH_ABBR`, moved out of
+  `paint.rs`), `datagrid::sort_datagrid_rows` (moved out of `render.rs`) and `fonts::scaled_size` (the arithmetic of `effective_size` on plain
+  values). Moves, not changes: the painter reads them from there, and the `cobolt-forms` render suite — 1,718 tests, the static-against-faces
+  parity guard among them — passes.
+- `examples/parity_page` builds a form as a static page (state, a size, a theme and a stylesheet can be given) and compares its boxes with the
+  solver's — the harness the figures below come from.
+
+### Fixed: two defects of the page at the narrower layouts, found by measuring them
+
+Both are in player code that exists only on `2.x.x`.
+
+- **A breakpoint's `Visible` override did not hide the control.** The view builds `hidden` from the design, and a breakpoint reached the page only
+  through the stylesheet, which never said `display: none`. `LBL-STATUS` at Medium stayed on screen and took room from `LBL-TITLE` (234 px against
+  the solver's 502); `IMG-LOGO` at Compact pushed `BTN-DASH` and `BTN-DATA` 54 px to the right. The stylesheet now hides a control the effective
+  design hides, and a breakpoint switch regenerates it.
+- **A card whose height was only a floor lost its children's room.** In a wrapping, stretched Flex or Flow line the designed height is the floor
+  (`min-height`), and Chrome measured a child anchored to the card's bottom, or between its top and bottom, against the card's content height — 0.
+  The five charts of the dashboard were 0 px high and `LBL-KPI-F` sat at the card's top. The floor is now also carried as content, by an empty
+  in-flow first child (`layout_css::floor_spacer`, a `::before` rule). It reproduced only inside the real page, not in a minimal one.
+
+### Measured
+
+The page's mean absolute error per pixel (0–255) against the desktop's picture of the same form; in brackets, the share of pixels differing by
+more than 24.
+
+| Picture | Error |
+|---|---|
+| Dashboard 1440 × 900, desktop run state | 2.31 (2.02 %) — 161 of 161 boxes within 0.5 px; unchanged by this change |
+| Dados page / Levels popup open | 4.18 (3.76 %) / 2.16 (1.99 %); unchanged |
+| `render_form` of the same form, 1920 × 1080 / 1280 × 720 / 1100 × 800 | 2.40 / 2.51 / 2.70 (was 5.13 and 5.14 at the first two) |
+| Medium 1000 × 700 / 800 × 900 / 700 × 700 | 4.31 / 3.77 / 4.55 (was 6.08 at 1000 × 700); 1.53 / 1.68 / 1.87 above the container's clip line |
+| Compact 420 × 800 / 360 × 800 | 3.95 / 4.05 |
+| The real bundle against the static page | 0.02 on a fresh load at 1920 × 1080; 0.00 after resizing the live page 1440 → 1000 × 700, 1000 → 1920 × 1080 and 1440 → 420 × 800 |
+
+Geometry against the desktop solver: every control within half a pixel at 1080 to 2560 px wide (Expanded), 648 to 1023 (Medium) and 360 × 800 to
+599 (Compact). Before: Medium 153 of 160, 600 × 900 45 of 160, Compact 117 of 124.
+
+Tests, swept with `--no-fail-fast` and every `test result:` line read: `cobolt-forms --features render` 1,718 passed in 92 binaries (2 ignored,
+both old); `cobolt-web-player` 295 in 8 (the shipped player, rebuilt, passes `freshness`); `cobolt-web-bundle` 38 in 11; `cobolt-project-tools`
+169 in 13; `cobolt-form-host` 204 in 5; `cobolt-wasm` 80 in 21; `cobolt-ide --bin cobolt-ide` 1,881 passed and **5 failed — none of them this
+change's**: `docs_embed::every_document_ships_in_every_language` (eleven documents have no Portuguese translation),
+`every_completion_description_exists_in_six_languages` (12 descriptions of the WebSocket built-ins are English only),
+`claude_validates_the_written_bundle` (the installed `claude` asks the plugin for a `README.md`) and two `external_crates_service` flow tests
+(crates.io now serves `egui` 0.37 against the 0.36 the IDE links). `cobolt-ide` changed by one line, this version number, and `docs/` not at all.
+Found and fixed on the way: `cobolt-web-bundle`'s `no_toolchain` listed what a bundle may hold and did not know the stand-in face the bundle
+has carried since the first of this work's commits; it now names it and checks its licence is beside it.
+
+### Not done — recorded in `specs/WASM-PARITY.md` #24–#32, with who is right
+
+A surface below the form's minimum size (the desktop scrolls a surface at its minimum, the page wraps), boxes the desktop squeezes to nothing, a
+card cut at a container that does not scroll (the desktop cuts its face, the page shows it), glyph hinting, themes other than Spatial (only
+Spatial is measured), the DataGrid's other cell kinds, editing, resizing and CSV download, and the ListBox's last details. A legacy
+`ObsoleteScalingStyle` and an `AutoSize` label are not scaled.
+
+*(This entry carries the new look and the fixes of the defects found while measuring it, all in code that exists only on `2.x.x`; the
+operator asked for the job as one change on `features-2x`. `README.md` and `docs/` are not touched.)*
+
 ## [PowerRustCOBOL 2.0.64] — 2026-10-24
 
 *(Written on `features-2x`, after the merge of 2.0.63.)*

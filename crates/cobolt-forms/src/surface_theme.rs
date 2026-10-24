@@ -534,8 +534,8 @@ mod spat {
     /// Labels' secondary text, hints.
     pub const DIM: Color32 = Color32::from_rgb(226, 224, 218);
     /// Control corner radius, and card (panel, group box) radius.
-    pub const CONTROL_RADIUS: f32 = 14.0;
-    pub const CARD_RADIUS: f32 = 24.0;
+    pub const CONTROL_RADIUS: f32 = crate::theme::spatial::CONTROL_RADIUS;
+    pub const CARD_RADIUS: f32 = crate::theme::spatial::CARD_RADIUS;
 }
 
 impl SurfaceTheme for SpatialTheme {
@@ -552,7 +552,8 @@ impl SurfaceTheme for SpatialTheme {
     }
 
     fn surface(&self, role: SurfaceRole, state: SurfaceState) -> Option<SurfaceSpec> {
-        let rim = if state.selected { glass(255, 255, 255, 200) } else { glass(255, 255, 255, 46) };
+        let [rr, rg, rb, ra] = crate::theme::spatial::RIM;
+        let rim = if state.selected { glass(255, 255, 255, 200) } else { glass(rr, rg, rb, ra) };
         let width = if state.selected { 1.5 } else { 1.0 };
         if role == SurfaceRole::Toggle {
             return Some(SurfaceSpec {
@@ -561,10 +562,13 @@ impl SurfaceTheme for SpatialTheme {
                 border_width: 1.0,
             });
         }
+        let [cr, cg, cb, ca] = crate::theme::spatial::CARD;
+        let [ir, ig, ib, ia] = crate::theme::spatial::INPUT;
+        let [br, bg, bb, ba] = crate::theme::spatial::BUTTON;
         let fill = match role {
-            SurfaceRole::Card => Some(glass(255, 255, 255, 26)),
-            SurfaceRole::Input => Some(glass(0, 0, 0, 46)),
-            SurfaceRole::Button => Some(glass(255, 255, 255, 40)),
+            SurfaceRole::Card => Some(glass(cr, cg, cb, ca)),
+            SurfaceRole::Input => Some(glass(ir, ig, ib, ia)),
+            SurfaceRole::Button => Some(glass(br, bg, bb, ba)),
             SurfaceRole::Shape | SurfaceRole::Accent | SurfaceRole::Toggle => None,
         };
         Some(SurfaceSpec { fill, border: rim, border_width: width })
@@ -576,7 +580,10 @@ impl SurfaceTheme for SpatialTheme {
             ColorToken::DimText => spat::DIM,
             ColorToken::SliderFill | ColorToken::SliderKnob => spat::INK,
             // The form's own glass: translucent, so the blurred desktop shows.
-            ColorToken::FormBackground => glass(66, 65, 62, 150),
+            ColorToken::FormBackground => {
+                let [r, g, b, a] = crate::theme::SPATIAL_FORM_GLASS;
+                glass(r, g, b, a)
+            }
             ColorToken::InputBg => glass(0, 0, 0, 46),
             ColorToken::Card => glass(255, 255, 255, 26),
             ColorToken::CardRaised => glass(255, 255, 255, 40),

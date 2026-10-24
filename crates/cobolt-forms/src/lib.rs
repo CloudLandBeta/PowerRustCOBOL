@@ -50,6 +50,9 @@ pub mod numedit;
 /// lays the cards out from it, and a test reads it without a painter.
 pub mod nv_grid;
 pub mod picture;
+pub mod fieldtext;
+pub mod shadow;
+pub mod textmetrics;
 // Spec 106 — DATAGRID-ROW-CONTENT: a row of a DataGrid as onRowButtonClick receives it.
 pub mod row_content;
 /// The Snackbar's pure parts (spec 055) — size classes, category defaults,

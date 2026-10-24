@@ -1,0 +1,11 @@
+# PowerAnalyticsWeb.project — the programs of the Backend a remote caller can reach.
+# A program that is not listed here cannot be called, whatever its name.
+# Each [[export]] may also say: roles = ["admin"], idempotent, independent,
+# long_running, stream, directions = ["in", "out"].
+
+[contract]
+version = "1.0.0"
+
+[[export]]
+program = "HEALTH"
+public = true

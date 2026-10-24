@@ -116,6 +116,19 @@ fn faded(c: [u8; 4], transparency: i64) -> [u8; 4] {
     [c[0], c[1], c[2], (c[3] as f64 * keep).round() as u8]
 }
 
+/// A gradient stop as the desktop paints it under a control's `Transparency`. The painter fades a gradient's vertex colour by
+/// keeping its colour channels and scaling only its alpha (`face_color`), and the channels are premultiplied: the stop is
+/// therefore `c / (1 - t)` at alpha `a * (1 - t)`, brighter than the colour named — a fade that shows `t` of what is
+/// behind the card on top of the whole colour, not on top of `1 - t` of it. A solid face is faded the ordinary way.
+fn gradient_stop(c: [u8; 4], transparency: i64) -> [u8; 4] {
+    let keep = (100 - transparency.clamp(0, 100)) as f64 / 100.0;
+    if keep <= 0.0 {
+        return [c[0], c[1], c[2], 0];
+    }
+    let up = |v: u8| ((v as f64 / keep).round()).min(255.0) as u8;
+    [up(c[0]), up(c[1]), up(c[2]), (c[3] as f64 * keep).round() as u8]
+}
+
 /// `(dx, dy)` unit vector of a direction name.
 pub fn direction_vector(name: &str) -> (f64, f64) {
     match name.trim() {
@@ -146,14 +159,24 @@ pub fn gradient_angle(name: &str) -> &'static str {
     }
 }
 
-/// The font stack for a font name: the name first, then the system font (the page never shows a missing face).
+/// The family the desktop draws text in when a form names none of its own, or names Arial, Helvetica
+/// or `sans-serif`: egui's built-in proportional face (`fonts::is_builtin`), Ubuntu Light. The player
+/// ships it (`assets/web-fonts`) so the two surfaces letter the same text the same way; the
+/// host page declares it as `@font-face` under this name.
+pub const STAND_IN_FONT: &str = "PR Ubuntu Light";
+
+/// The font stack for a font name, as the desktop resolves it (`fonts::font_id`): Arial, Helvetica,
+/// `sans-serif` and an empty name are the stand-in face; any other name is that family if the machine
+/// has it and the stand-in face if it has not — which is what the desktop does when a system font cannot
+/// be loaded. The system font comes last, for the glyphs the stand-in lacks.
 pub fn font_family(name: &str) -> String {
     let n = name.trim();
-    if n.is_empty() {
-        return "system-ui, sans-serif".into();
+    let builtin = n.is_empty() || n.eq_ignore_ascii_case("Arial") || n.eq_ignore_ascii_case("Helvetica") || n.eq_ignore_ascii_case("sans-serif");
+    if builtin {
+        return format!("\"{STAND_IN_FONT}\", system-ui, sans-serif");
     }
     let quoted = n.replace('"', "");
-    format!("\"{quoted}\", system-ui, sans-serif")
+    format!("\"{quoted}\", \"{STAND_IN_FONT}\", system-ui, sans-serif")
 }
 
 pub fn cursor(name: &str) -> &'static str {
@@ -170,34 +193,60 @@ pub fn cursor(name: &str) -> &'static str {
     }
 }
 
+/// Does the desktop painter cast a drop shadow for this control at all, whatever its properties say?
+/// (`paint::drop_shadow_spec`: a line, a non-visual service and a round or triangular shape draw
+/// their own silhouette or none.)
+fn can_cast_a_shadow(ctl: &Ctl) -> bool {
+    match ctl.control_type() {
+        Some(ControlType::Line | ControlType::Timer | ControlType::AgentObject | ControlType::KnowledgeBase | ControlType::RestClient | ControlType::SqlDatabase | ControlType::IndexedFile) => false,
+        Some(ControlType::Shape) => !matches!(ctl.raw("shapetype").map(str::trim), Some("Circle" | "Ellipse" | "Triangle")),
+        _ => true,
+    }
+}
+
 /// The `box-shadow` of a control's Shadow* properties, or `None` when it has none.
 ///
-/// A positive blur strength is a raised shadow (and, with a light colour, the neumorphic pair: a
-/// dark shadow toward the direction and a light one away from it); a negative one is sunken (inset).
+/// **The desktop's own recipe** (`paint::regular_shadow_stack`, shared as `cobolt_forms::shadow`): the
+/// shadow is a STACK of rounded rectangles, each the control's rectangle moved by `ShadowDistance` in
+/// `ShadowDirection` and grown by a little less than the one before, filled with `ShadowColor` at a
+/// faint alpha — so the core is the sum of them all, which a single blurred shadow of the same alpha
+/// is not. A browser lays the same stack down with one `box-shadow` per ring and no blur. The face's
+/// own `Transparency` fades the shadow with it, and a shadow is never drawn under the face itself
+/// (CSS clips an outer shadow to outside the border box, as the painter cuts a hole in it).
+///
+/// A negative `ShadowBlurStrength` is the sunken variant (the shadow over the face): an inset shadow.
 pub fn box_shadow(ctl: &Ctl) -> Option<String> {
-    if !ctl.raw("shadowenabled").map(truthy).unwrap_or(false) {
+    if !ctl.raw("shadowenabled").map(truthy).unwrap_or(false) || !can_cast_a_shadow(ctl) {
         return None;
     }
-    let transparency = int(ctl, "transparency").unwrap_or(0);
-    let color = parse_color(ctl.text_or("shadowcolor", "#000000FF")).unwrap_or([0, 0, 0, 255]);
-    let light = parse_color(ctl.text_or("shadowlightcolor", "#FFFFFFFF")).unwrap_or([255, 255, 255, 255]);
-    let opacity = int(ctl, "shadowopacity").unwrap_or(6).clamp(0, 100);
+    let transparency = int(ctl, "transparency").unwrap_or(0).clamp(0, 100);
+    let color = parse_color(ctl.text_or("shadowcolor", "#000000")).unwrap_or([0, 0, 0, 255]);
+    let opacity = int(ctl, "shadowopacity").unwrap_or(20).clamp(0, 100) as f32 / 100.0;
     let dist = int(ctl, "shadowdistance").unwrap_or(7).clamp(0, 60) as f64;
     let blur_on = ctl.raw("shadowblur").map(truthy).unwrap_or(true);
     let strength = if blur_on { int(ctl, "shadowblurstrength").unwrap_or(8).clamp(-20, 20) } else { 0 };
-    let (ux, uy) = direction_vector(ctl.text_or("shadowdirection", "SouthEast"));
-    let with_opacity = |c: [u8; 4]| faded([c[0], c[1], c[2], ((c[3] as i64) * opacity / 100) as u8], transparency);
-    let inset = if strength < 0 { "inset " } else { "" };
-    let blur = (strength.abs() as f64) * 2.0;
+    let (ux, uy) = direction_vector(ctl.text_or("shadowdirection", "South"));
     let (dx, dy) = (ux * dist, uy * dist);
-    let dark = format!("{inset}{}px {}px {}px {}", fmt_number(dx), fmt_number(dy), fmt_number(blur), css_color(with_opacity(color)));
-    // The pair (neumorphic): a light shadow on the opposite side, when the control names a light colour.
-    let has_light = ctl.raw("shadowlightcolor").and_then(parse_color).is_some_and(|c| c[3] > 0);
-    if has_light && opacity > 0 && strength != 0 {
-        let lit = format!("{inset}{}px {}px {}px {}", fmt_number(-dx), fmt_number(-dy), fmt_number(blur), css_color(with_opacity(light)));
-        return Some(format!("{dark}, {lit}"));
+    let face = 1.0 - transparency as f32 / 100.0;
+    if strength < 0 {
+        let (r, g, b) = (color[0], color[1], color[2]);
+        // Sunken: the same colour at the opacity the face leaves, as one inset blur.
+        let a = ((opacity * face * 255.0).round() / 255.0) as f64;
+        return Some(format!("inset {}px {}px {}px rgb({r} {g} {b} / {})", fmt_number(dx), fmt_number(dy), fmt_number(strength.unsigned_abs() as f64 * 2.0), fmt_number((a * 1000.0).round() / 1000.0)));
     }
-    Some(dark)
+    // Innermost first: a CSS list paints its first shadow on top, the painter its last.
+    let rings: Vec<String> = cobolt_forms::shadow::rings(strength as usize, opacity, face)
+        .iter()
+        .rev()
+        .filter(|ring| ring.alpha > 0)
+        .map(|ring| {
+            let alpha = (ring.alpha as f64 / 255.0 * 10000.0).round() / 10000.0;
+            // The colour the painter ends up with after premultiplying by truncation, not the one named.
+            let [r, g, b] = ring.straight([color[0], color[1], color[2]]);
+            format!("{}px {}px 0 {}px rgb({r} {g} {b} / {})", fmt_number(dx), fmt_number(dy), fmt_number((ring.expand as f64 * 100.0).round() / 100.0), fmt_number(alpha))
+        })
+        .collect();
+    (!rings.is_empty()).then(|| rings.join(", "))
 }
 
 /// The background: a gradient when enabled, else the colour; with the control's transparency
@@ -209,7 +258,7 @@ pub fn background(ctl: &Ctl) -> Option<(&'static str, String)> {
         let b = parse_color(ctl.text_or("backgroundgradientendcolor", "#000000FF"))?;
         return Some((
             "background-image",
-            format!("linear-gradient({}, {}, {})", gradient_angle(ctl.text_or("backgroundgradientdirection", "South")), css_color(faded(a, transparency)), css_color(faded(b, transparency))),
+            format!("linear-gradient({}, {}, {})", gradient_angle(ctl.text_or("backgroundgradientdirection", "South")), css_color(gradient_stop(a, transparency)), css_color(gradient_stop(b, transparency))),
         ));
     }
     let c = parse_color(ctl.raw("backgroundcolor")?)?;
@@ -226,12 +275,39 @@ fn is_default(c: [u8; 4], default_hex: &str) -> bool {
     parse_color(default_hex).is_some_and(|d| d[..3] == c[..3]) && c[3] == 255
 }
 
+/// The width of the border the element ends up with, in pixels: what `border` writes (a double
+/// border is at least 3), what the base sheet gives a GroupBox that names no border style, and
+/// nothing for a Panel or GroupBox whose background is hidden (`kind_decls` takes its border off).
+/// The one answer for the padding that gives a border back and for the origin of absolutely
+/// positioned children, which count from inside it.
+pub fn border_width(ctl: &Ctl) -> f64 {
+    if matches!(ctl.control_type(), Some(ControlType::Panel | ControlType::GroupBox)) && ctl.flag("hidebackground") {
+        return 0.0;
+    }
+    let width = int(ctl, "borderwidth").unwrap_or(1).clamp(0, 32) as f64;
+    match ctl.raw("borderstyle").map(|s| s.trim().to_ascii_lowercase()) {
+        None => {
+            if matches!(ctl.control_type(), Some(ControlType::GroupBox)) {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        Some(s) => match s.as_str() {
+            "" | "none" => 0.0,
+            "double" => width.max(3.0),
+            _ => width,
+        },
+    }
+}
+
 /// The border declarations.
 pub fn border(ctl: &Ctl, d: &mut Decls) {
     let style = ctl.raw("borderstyle").map(str::trim).unwrap_or("");
     let width = int(ctl, "borderwidth").unwrap_or(1).clamp(0, 32);
     let transparency = int(ctl, "transparency").unwrap_or(0);
-    let color = parse_color(ctl.text_or("bordercolor", "#808080FF")).unwrap_or([128, 128, 128, 255]);
+    // The painter's border when none is chosen (`control_colors`): a light slate, not mid grey.
+    let color = parse_color(ctl.text_or("bordercolor", "#8C8CA0FF")).unwrap_or([140, 140, 160, 255]);
     let c = css_color(faded(color, transparency));
     match style.to_ascii_lowercase().as_str() {
         "" | "none" => push(d, "border", "none"),
@@ -254,33 +330,89 @@ pub fn border(ctl: &Ctl, d: &mut Decls) {
     }
 }
 
+/// How far to the right the desktop's second stamp of a bold caption lands: 1 px or none.
+///
+/// The caption is laid out once and put down twice, the second time half a pixel to the right, and each time its
+/// position is rounded to a whole pixel (half away from zero). So the stamps coincide when the caption's own
+/// position rounds the same both ways (its fraction is half or more) and are a pixel apart otherwise. The position is
+/// where the control puts the caption (`paint`): the anchor its alignment names — the frame's inset edge, or its middle
+/// less half the caption — from the control's designed rectangle.
+fn bold_offset(ctl: &Ctl, size: f64) -> f64 {
+    let (x, w) = (ctl.num("x").unwrap_or(0.0), ctl.num("width").unwrap_or(0.0));
+    let own = ctl.num("padding").unwrap_or(0.0).clamp(0.0, 128.0);
+    let text_w = |fit: f64| crate::metrics::text_width(ctl.raw("caption").unwrap_or(""), fit);
+    let anchor = match ctl.control_type() {
+        Some(ControlType::Label) => {
+            let pad = (3.0_f64.min(w * 0.25) + own).min(w * 0.45);
+            let a = ctl.text_or("textalignment", "Left").to_ascii_lowercase();
+            if a.ends_with("center") || a == "centre" || a == "middle" {
+                // The row is put at the whole pixel of the middle, less the whole pixel of half its width.
+                return if (x + w / 2.0).fract() < 0.5 { 1.0 } else { 0.0 };
+            } else if a.ends_with("right") {
+                x + w - pad
+            } else {
+                x + pad
+            }
+        }
+        Some(ControlType::Button) => {
+            let a = ctl.text_or("textalignment", "MiddleCenter").to_ascii_lowercase();
+            let inset = 6.0_f64.min(w * 0.25);
+            let fit = crate::metrics::fitted_size(ctl.raw("caption").unwrap_or(""), size, (w - 2.0 * (3.0_f64.min(w * 0.2) + own)).max(1.0), 1.0e6, true);
+            let tw = text_w(fit);
+            if a.ends_with("left") {
+                x + inset
+            } else if a.ends_with("right") {
+                x + w - inset - tw
+            } else {
+                x + w / 2.0 - tw / 2.0
+            }
+        }
+        _ => return 1.0,
+    };
+    ((anchor + 0.5).round() - anchor.round()).max(0.0)
+}
+
 /// The text declarations (font, colour, alignment).
 pub fn text(ctl: &Ctl, d: &mut Decls) {
-    if let Some(c) = ctl.raw("foregroundcolor").and_then(parse_color) {
-        // The seeded white means "not chosen"; so does the black a faceless data-input control is
-        // seeded with (a check box has no face of its own for black text to read on).
-        let faceless = matches!(
-            ctl.control_type(),
-            Some(ControlType::CheckBox | ControlType::RadioButton | ControlType::Switch | ControlType::Slider | ControlType::Knob)
-        );
-        let unset = matches!(ctl.kind, Kind::Control(_))
-            && (is_default(c, cobolt_forms::model::DEFAULT_FOREGROUND_COLOR) || (faceless && is_default(c, "#000000")));
-        if !unset {
-            push(d, "color", css_color(c));
-        }
+    // The ink is the control's own `ForegroundColor` — always, and never inherited from the container it
+    // sits in. The desktop paints each control's text in the colour that control names (the seeded white
+    // included: a form theme that publishes a text colour answers it with white, and one that publishes none
+    // keeps the white), so a label on a dark card is white whatever ink the card itself carries.
+    let ink = ctl.raw("foregroundcolor").and_then(parse_color);
+    if let Some(c) = ink {
+        push(d, "color", css_color(c));
     }
     if let Some(n) = ctl.raw("fontname") {
         if !n.trim().is_empty() {
             push(d, "font-family", font_family(n));
         }
     }
-    if let Some(s) = int(ctl, "fontsize") {
-        if s > 0 {
-            push(d, "font-size", format!("{s}px"));
-        }
+    // A size is a number of pixels with a fraction when there is one: the desktop letters 18.5 at 18.5, and the form's font
+    // factor makes 23.8 of a 28 (`tree::scaled_font`).
+    let stated = ctl.raw("fontsize").and_then(parse_f64).filter(|s| *s > 0.0);
+    if let Some(s) = stated {
+        push(d, "font-size", format!("{}px", fmt_number(s)));
+        // The row the desktop's text layout makes of this size (`metrics::row_height`), so that a line
+        // sits where the desktop's sits and a block is as tall as the desktop's.
+        push(d, "line-height", format!("{}px", crate::value::fmt_number(crate::metrics::row_height(s))));
     }
-    if ctl.raw("bold").map(truthy).unwrap_or(false) {
-        push(d, "font-weight", "700");
+    // A browser's glyphs carry less ink than the desktop's at small sizes and more at large ones; an outline
+    // of the measured width (`metrics::stroke`) brings the two to the same weight.
+    let size = stated.unwrap_or(11.0);
+    let bold = ctl.raw("bold").map(truthy).unwrap_or(false);
+    push(d, "-webkit-text-stroke", format!("{}px", fmt_number(crate::metrics::stroke(size, ink.unwrap_or([255, 255, 255, 255])))));
+    if bold {
+        // The desktop has no bold face for a font it did not load as one: it stamps the caption a
+        // second time half a point to the right (`paint::paint_styled_galley`) — and a galley is put on a whole
+        // pixel, so the second stamp lands a whole pixel to the right or, when the caption's position
+        // rounds the same way, exactly on the first. Which of the two it is is arithmetic on the caption's
+        // place (`bold_offset`). The browser's own bold would be another weight of another shape, so the same
+        // second stamp is a shadow of the text itself, and the weight stays regular.
+        push(d, "font-weight", "400");
+        let k = bold_offset(ctl, size);
+        if k > 0.0 {
+            push(d, "text-shadow", format!("{}px 0 0 currentColor", fmt_number(k)));
+        }
     }
     if ctl.raw("italic").map(truthy).unwrap_or(false) {
         push(d, "font-style", "italic");
@@ -336,16 +468,20 @@ pub fn appearance(ctl: &Ctl) -> Decls {
     if let Some(s) = box_shadow(ctl) {
         push(&mut d, "box-shadow", s);
     }
-    // Padding: the all-sides value, then any side that is set.
-    if let Some(p) = int(ctl, "padding") {
-        if p > 0 {
-            push(&mut d, "padding", format!("{p}px"));
+    // Padding: the all-sides value, then any side that is set. A Panel's and a GroupBox's padding is
+    // the layout padding of their client area, which `layout_css::container` writes (it also gives
+    // back what the border and the desktop's content inset take).
+    if !matches!(ctl.control_type(), Some(ControlType::Panel | ControlType::GroupBox)) {
+        if let Some(p) = int(ctl, "padding") {
+            if p > 0 {
+                push(&mut d, "padding", format!("{p}px"));
+            }
         }
-    }
-    for (k, side) in [("paddingleft", "left"), ("paddingtop", "top"), ("paddingright", "right"), ("paddingbottom", "bottom")] {
-        if let Some(raw) = ctl.raw(k) {
-            if let Some(v) = parse_f64(raw) {
-                push(&mut d, &format!("padding-{side}"), format!("{}px", fmt_number(v)));
+        for (k, side) in [("paddingleft", "left"), ("paddingtop", "top"), ("paddingright", "right"), ("paddingbottom", "bottom")] {
+            if let Some(raw) = ctl.raw(k) {
+                if let Some(v) = parse_f64(raw) {
+                    push(&mut d, &format!("padding-{side}"), format!("{}px", fmt_number(v)));
+                }
             }
         }
     }
@@ -481,22 +617,31 @@ mod tests {
         let d = appearance(t.ctl(i));
         let g = d.iter().find(|(k, _)| k == "background-image").unwrap();
         assert!(g.1.starts_with("linear-gradient(180deg, rgb(78 78 78 / 0.702), rgb(0 0 0 / 0.702))"), "{}", g.1);
+        // A gradient is faded the way the painter fades it: the channels are kept (they are premultiplied) and only the
+        // alpha is scaled, so each stop is its colour over `1 - t`, at `1 - t` of its alpha — brighter than the colour named.
+        set(&mut t, "BTN-GO", &[("BackgroundGradientStartColor", "#0A1B45"), ("BackgroundGradientEndColor", "#1F4A94"), ("Transparency", "12")]);
+        let d = appearance(t.ctl(i));
+        let g = d.iter().find(|(k, _)| k == "background-image").unwrap();
+        assert_eq!(g.1, "linear-gradient(180deg, rgb(11 31 78 / 0.878), rgb(35 84 168 / 0.878))", "{}", g.1);
     }
 
     #[test]
-    fn a_colour_still_on_its_seeded_default_is_not_a_choice_and_leaves_the_theme_alone() {
+    fn a_background_still_on_its_seeded_default_is_not_a_choice_but_the_ink_is_always_the_controls_own() {
         let t = tree();
         let i = t.by_name("BTN-GO").unwrap();
-        // Seeded by the model: #F0F0F0 and white are "not chosen".
+        // The seeded background (#F0F0F0) is "not chosen": the theme's face stays.
         let d = appearance(t.ctl(i));
-        assert!(!d.iter().any(|(k, _)| k == "background-color" || k == "color"), "{d:?}");
+        assert!(!d.iter().any(|(k, _)| k == "background-color"), "{d:?}");
+        // The ink is never inherited from the container: the control's own colour, the seeded white included
+        // (the desktop paints a label on a dark card in white whatever ink the card itself carries).
+        assert!(d.iter().any(|(k, v)| k == "color" && v == "rgb(255 255 255)"), "{d:?}");
         // The form's own colour is always a choice.
         let f = appearance(t.ctl(0));
         assert!(f.iter().any(|(k, _)| k == "background-color"), "{f:?}");
     }
 
     #[test]
-    fn the_spatial_shadow_becomes_a_box_shadow_and_a_negative_strength_is_inset() {
+    fn a_shadow_is_the_painters_stack_of_rings_and_a_negative_strength_is_inset() {
         let mut t = tree();
         let i = set(
             &mut t,
@@ -504,8 +649,13 @@ mod tests {
             &[("ShadowEnabled", "1"), ("ShadowOpacity", "6"), ("ShadowColor", "#000000FF"), ("ShadowLightColor", "#4E4E4EFF"), ("ShadowDirection", "SouthEast"), ("ShadowDistance", "7"), ("ShadowBlur", "1"), ("ShadowBlurStrength", "8")],
         );
         let s = box_shadow(t.ctl(i)).unwrap();
-        assert!(s.starts_with("4.949px 4.949px 16px rgb(0 0 0 / 0.059)"), "6 % of an opaque shadow is 15/255: {s}");
-        assert!(s.contains(", -4.949px -4.949px 16px rgb(78 78 78 / 0.059)"), "the light shadow is on the opposite side: {s}");
+        let layers: Vec<&str> = s.split(", ").collect();
+        let rings: Vec<_> = cobolt_forms::shadow::rings(8, 0.06, 1.0).into_iter().filter(|r| r.alpha > 0).collect();
+        assert_eq!(layers.len(), rings.len(), "one box-shadow per visible ring: {s}");
+        assert!(layers.iter().all(|l| l.starts_with("4.949px 4.949px 0 ")), "each ring is the control's box moved 7 px south-east with no blur: {s}");
+        assert!(layers.first().unwrap().starts_with("4.949px 4.949px 0 0px "), "innermost first: the CSS list paints its first shadow on top");
+        assert!(layers.last().unwrap().contains(" 8px "), "the widest ring reaches the strength");
+        assert!(!s.contains("78 78 78"), "the light colour is the Neumorphic pair's, which a regular shadow never draws");
         set(&mut t, "BTN-GO", &[("ShadowBlurStrength", "-12")]);
         assert!(box_shadow(t.ctl(i)).unwrap().starts_with("inset "), "sunken");
         set(&mut t, "BTN-GO", &[("ShadowEnabled", "0")]);
@@ -523,14 +673,37 @@ mod tests {
         let d = appearance(t.ctl(i));
         let get = |k: &str| d.iter().find(|(x, _)| x == k).map(|(_, v)| v.as_str());
         assert_eq!(get("border"), Some("2px dashed rgb(255 0 0)"));
-        assert_eq!(get("font-family"), Some("\"Segoe UI\", system-ui, sans-serif"));
+        assert_eq!(get("font-family"), Some("\"Segoe UI\", \"PR Ubuntu Light\", system-ui, sans-serif"), "the named font, else the desktop's stand-in face");
         assert_eq!(get("font-size"), Some("14px"));
-        assert_eq!(get("font-weight"), Some("700"));
+        assert_eq!(get("line-height"), Some("16px"), "the row the desktop's text layout makes of 14 px (its font height rounded)");
+        assert_eq!(get("font-weight"), Some("400"), "bold is the desktop's second stamp, not another weight");
+        assert_eq!(get("text-shadow"), Some("1px 0 0 currentColor"), "a control the player does not place a caption for puts the second stamp a whole pixel over");
         assert_eq!(get("text-decoration"), Some("underline line-through"));
         assert_eq!(get("padding"), Some("6px"));
         assert_eq!(get("padding-left"), Some("10px"));
         assert_eq!(get("cursor"), Some("pointer"));
         assert_eq!(get("border-radius"), Some("8px"));
+    }
+
+    #[test]
+    fn a_bold_caption_is_stamped_a_whole_pixel_over_or_on_itself_by_where_it_is_put() {
+        let mut t = tree();
+        let tw = crate::metrics::text_width("Dados", 13.0);
+        let mut seen = [false, false];
+        // A button whose caption is centred: the stamps are a pixel apart when the caption's position (a float, the middle less
+        // half its width) has a fraction under a half, and coincide otherwise. Widths 120 to 160 give both.
+        for w in 120..160 {
+            let i = set(&mut t, "BTN-GO", &[("Caption", "Dados"), ("Bold", "1"), ("FontSize", "13"), ("X", "100"), ("Width", &w.to_string()), ("TextAlignment", "MiddleCenter")]);
+            let at = 100.0 + w as f64 / 2.0 - tw / 2.0;
+            let apart = (at + 0.5).round() - at.round() > 0.0;
+            let got = appearance(t.ctl(i)).iter().find(|(k, _)| k == "text-shadow").map(|(_, v)| v.clone());
+            assert_eq!(got.as_deref(), apart.then_some("1px 0 0 currentColor"), "width {w}: the caption starts at {at}");
+            seen[apart as usize] = true;
+        }
+        assert_eq!(seen, [true, true], "both outcomes were exercised");
+        // A label held to its left edge starts on a whole pixel: always a pixel apart.
+        let (lt, l) = crate::tree::testing::tree_with("Label", "LBL-A", &[("Caption", "Total"), ("Bold", "1"), ("X", "50"), ("Width", "193"), ("TextAlignment", "Left")]);
+        assert!(appearance(lt.ctl(l)).iter().any(|(k, v)| k == "text-shadow" && v == "1px 0 0 currentColor"));
     }
 
     #[test]

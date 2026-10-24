@@ -20,6 +20,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use cobolt_forms::layout::breakpoints::Breakpoint;
+use cobolt_forms::layout::fonts;
+use cobolt_forms::layout::props::FormBag;
 use cobolt_forms::model::{
     is_toggle_state_property, property_runtime_text, radio_group_key, Control, ControlType, Form, PropValue, CHECKED_PROP,
     SELECTED_PROP,
@@ -27,7 +29,7 @@ use cobolt_forms::model::{
 use cobolt_wasm_abi::manifest::{FormEntry, Manifest};
 use indexmap::IndexMap;
 
-use crate::value::turned_on;
+use crate::value::{fmt_number, parse_f64, turned_on};
 
 /// What a [`Ctl`] is: the form itself (ABI control id 0) or one of its controls.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -215,6 +217,10 @@ pub struct FormTree {
     name_index: HashMap<String, usize>,
     pub layout_bag: BTreeMap<String, PropValue>,
     pub breakpoints: Vec<Breakpoint>,
+    /// What the form's `FontScaling` makes of the surface this instance is shown on (spec 056 R66–R67): every lettered control's
+    /// `FontSize` is taken through it ([`FormTree::font_size_of`]). The page sets it from the form's own width, as it selects the
+    /// breakpoint; `1` is the designed size.
+    pub font_factor: f32,
     changes: Vec<Change>,
     /// Properties a running program has written, by control: a breakpoint never overrides one (spec 056 R64).
     written: std::collections::HashSet<(usize, String)>,
@@ -231,6 +237,26 @@ pub struct FormTree {
     /// roles of `.` and `,`, and `CURRENCY SIGN` names the character a currency position prints.
     pub decimal_comma: bool,
     pub currency: char,
+    /// The form theme this form is drawn in (`liquid-glass`, `spatial`, …): the form's own, or the project's default
+    /// baked in by the build; empty when neither named one (Liquid Glass).
+    pub theme: String,
+}
+
+/// The size a control is lettered at, given the form's font factor (`fonts::effective_size`, spec 056 R69–R70): the `FontSize` it
+/// states times the factor, held to its own `MinFontSize`/`MaxFontSize` and to the engine's bounds, and its own size when it sets
+/// `ScaleFont` off. `None` for a control that states no size — each painter keeps its own default for it, unscaled — and for one in a
+/// layer, which is laid out nowhere and so keeps its designed size (R21). `c` is the control as it stands, so a size a breakpoint
+/// overrode or a program wrote is the one scaled.
+pub fn scaled_font(c: &Ctl, layered: bool, factor: f32) -> Option<f64> {
+    let stated = c.raw("fontsize").and_then(parse_f64).filter(|s| *s > 0.0)?;
+    if layered {
+        return Some(stated);
+    }
+    let scales = c.raw("scalefont").map(|v| turned_on(v) && v.trim() != "0").unwrap_or(true);
+    let limit = |k: &str| c.raw(k).and_then(parse_f64).unwrap_or(0.0) as f32;
+    let size = fonts::scaled_size(stated as f32, scales, limit("minfontsize"), limit("maxfontsize"), factor);
+    // The painters read the designed size where the layout wrote none, and the layout writes none where the size did not change.
+    Some(if (size - stated as f32).abs() > f32::EPSILON { size as f64 } else { stated })
 }
 
 /// Why a form description cannot be paired with its manifest entry.
@@ -297,6 +323,10 @@ fn form_props(f: &Form) -> IndexMap<String, String> {
     put("Resizable", if f.resizable { "1" } else { "0" }.into());
     put("CornerRadius", f.corner_radius.to_string());
     put("ControlStyle", f.control_style.clone());
+    // The form's theme, as the build resolved it (the form's own, else the project's default).
+    if let Some(t) = f.theme.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        put("Theme", t.to_owned());
+    }
     put("Visible", "1".into());
     put("Enabled", "1".into());
     for (k, v) in &f.layout {
@@ -436,12 +466,14 @@ impl FormTree {
             name_index,
             layout_bag: form.layout.clone(),
             breakpoints: form.breakpoints.clone(),
+            font_factor: 1.0,
             changes: Vec::new(),
             written: std::collections::HashSet::new(),
             conversations: BTreeMap::new(),
             auths: BTreeMap::new(),
             policy: crate::weblink::Policy::default(),
             params: Vec::new(),
+            theme: form.theme.clone().unwrap_or_default().trim().to_owned(),
             decimal_comma: cobolt_forms::picture::decimal_comma_from_special_names(&form.cobol_structure.special_names),
             currency: cobolt_forms::picture::currency_from_special_names(&form.cobol_structure.special_names),
         })
@@ -742,16 +774,48 @@ impl FormTree {
     /// property a program has written, which the program keeps. `bp = None` is the design itself.
     pub fn effective_ctls(&self, bp: Option<&Breakpoint>) -> Vec<Ctl> {
         let mut out = self.ctls.clone();
-        let Some(bp) = bp else { return out };
-        for o in &bp.overrides {
-            let Some(i) = self.name_index.get(&o.control.trim().to_ascii_uppercase()).copied() else { continue };
-            let key = o.property.trim().to_ascii_lowercase();
-            if self.written.contains(&(i, key.clone())) {
-                continue;
+        if let Some(bp) = bp {
+            for o in &bp.overrides {
+                let Some(i) = self.name_index.get(&o.control.trim().to_ascii_uppercase()).copied() else { continue };
+                let key = o.property.trim().to_ascii_lowercase();
+                if self.written.contains(&(i, key.clone())) {
+                    continue;
+                }
+                out[i].props.insert(key, o.value.to_xml_string());
             }
-            out[i].props.insert(key, o.value.to_xml_string());
+        }
+        // Then the form's font factor, over what the breakpoint left: the size a control is lettered at is the size it states
+        // (the breakpoint's, if it overrode it) taken through the factor, as the desktop's layout writes it for the painters.
+        for i in 1..out.len() {
+            if let Some(size) = scaled_font(&out[i], self.layer_of(i).is_some(), self.font_factor) {
+                if out[i].raw("fontsize").and_then(parse_f64) != Some(size) {
+                    out[i].props.insert("fontsize".into(), fmt_number((size * 1000.0).round() / 1000.0));
+                }
+            }
         }
         out
+    }
+
+    /// The font factor the desktop's solver gives this form on a surface `width` wide (spec 056 R66–R67, `layout::lay_out`): what
+    /// `FontScaling` makes of the width (`Fluid`, held between `MinFontScale` and `MaxFontScale`) or of the active breakpoint
+    /// (`Stepped`), and 1 for a form that does not scale. A legacy `ObsoleteScalingStyle` is not read: it also resizes and moves
+    /// controls, which the page does not do.
+    pub fn font_factor_at(&self, width: f64, bp: Option<&Breakpoint>) -> f32 {
+        fonts::form_factor(&FormBag(&self.layout_bag), self.design_size.0 as f32, width as f32, bp, 1.0, None)
+    }
+
+    /// Set the font factor; did it change?
+    pub fn set_font_factor(&mut self, factor: f32) -> bool {
+        if (self.font_factor - factor).abs() < 1e-6 {
+            return false;
+        }
+        self.font_factor = factor;
+        true
+    }
+
+    /// The size control `i` is lettered at: what it states, taken through the form's font factor ([`scaled_font`]).
+    pub fn font_size_of(&self, i: usize) -> Option<f64> {
+        scaled_font(&self.ctls[i], self.layer_of(i).is_some(), self.font_factor)
     }
 
     /// Has a program written this property of this control?
@@ -961,5 +1025,77 @@ mod tests {
         assert_eq!(ch.len(), 1, "1000 writes of one property are one change");
         assert_eq!(t.get(lbl, "Caption"), "v999");
         assert!(t.take_changes().is_empty());
+    }
+
+    /// A form of `Fluid` text, designed 640 wide: three labels (one scales, one does not, one states no size) and a fourth in a layer.
+    fn fluid() -> FormTree {
+        tree_of(
+            r##"<Layer name="POP" color="#00000000" />
+               <FormLayout FontScaling="Fluid" MaxFontScale="1.3" />
+               <Control id="LBL-A" type="Label" x="0" y="0" w="50" h="20"><Property name="FontSize">28</Property></Control>
+               <Control id="LBL-B" type="Label" x="0" y="30" w="50" h="20"><Property name="FontSize">28</Property><Property name="ScaleFont">false</Property></Control>
+               <Control id="LBL-C" type="Label" x="0" y="60" w="50" h="20"></Control>
+               <Control id="LBL-D" type="Label" x="0" y="90" w="50" h="20" layer="POP"><Property name="FontSize">28</Property></Control>
+               <Control id="LBL-E" type="Label" x="0" y="120" w="50" h="20"><Property name="FontSize">28</Property><Property name="MaxFontSize">30</Property></Control>"##,
+        )
+    }
+
+    #[test]
+    fn a_fluid_form_follows_its_width_between_its_limits() {
+        let t = fluid();
+        assert_eq!(t.design_size.0, 640);
+        // The desktop's default floor is 0.85 and this form raised the ceiling from 1.5 to 1.3.
+        assert_eq!(t.font_factor_at(320.0, None), 0.85);
+        assert_eq!(t.font_factor_at(640.0, None), 1.0);
+        assert_eq!(t.font_factor_at(704.0, None), 1.1);
+        assert_eq!(t.font_factor_at(1024.0, None), 1.3);
+    }
+
+    #[test]
+    fn a_stepped_form_follows_the_active_breakpoint_and_a_form_that_does_not_scale_is_one() {
+        let mut t = tree_of(
+            r#"<FormLayout FontScaling="Stepped" />
+               <Breakpoints><Breakpoint name="Narrow" min-width="0" font-factor="0.9" /><Breakpoint name="Wide" min-width="800" font-factor="1.2" /></Breakpoints>"#,
+        );
+        let (narrow, wide) = (t.breakpoints[0].clone(), t.breakpoints[1].clone());
+        assert_eq!(t.font_factor_at(500.0, Some(&narrow)), 0.9);
+        assert_eq!(t.font_factor_at(900.0, Some(&wide)), 1.2);
+        t.layout_bag.insert("FontScaling".into(), PropValue::String("None".into()));
+        assert_eq!(t.font_factor_at(500.0, Some(&narrow)), 1.0);
+    }
+
+    #[test]
+    fn a_control_is_lettered_at_the_size_it_states_taken_through_the_factor() {
+        let mut t = fluid();
+        let (a, b, c, d, e) = ["LBL-A", "LBL-B", "LBL-C", "LBL-D", "LBL-E"].map(|n| t.by_name(n).unwrap()).into();
+        assert_eq!(t.font_size_of(a), Some(28.0), "at the designed size nothing changes");
+        assert!(t.set_font_factor(0.85));
+        assert!(!t.set_font_factor(0.85), "the same factor is no change");
+        assert!((t.font_size_of(a).unwrap() - 23.8).abs() < 1e-4, "28 at 0.85, a fraction: {:?}", t.font_size_of(a));
+        assert_eq!(t.font_size_of(b), Some(28.0), "ScaleFont off keeps the designed size");
+        assert_eq!(t.font_size_of(c), None, "a control that states no size is not scaled: each painter keeps its own default");
+        assert_eq!(t.font_size_of(d), Some(28.0), "a control in a layer is laid out nowhere, so its text is not scaled either (R21)");
+        t.set_font_factor(1.3);
+        assert_eq!(t.font_size_of(e), Some(30.0), "held to the control's own MaxFontSize");
+        assert!((t.font_size_of(a).unwrap() - 36.4).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_effective_controls_carry_the_scaled_size_over_a_breakpoints_override_and_never_over_the_design() {
+        use cobolt_forms::layout::breakpoints::{Breakpoint, Override};
+        let mut t = fluid();
+        let a = t.by_name("LBL-A").unwrap();
+        t.set_font_factor(0.85);
+        assert_eq!(t.effective_ctls(None)[a].raw("fontsize"), Some("23.8"), "scaled, with no breakpoint at all");
+        assert_eq!(t.ctls[a].raw("fontsize"), Some("28"), "what a program reads back is the designed size");
+        let narrow = Breakpoint {
+            name: "narrow".into(),
+            min_width: 0,
+            font_factor: 1.0,
+            overrides: vec![Override { control: "LBL-A".into(), property: "FontSize".into(), value: PropValue::Int(20) }],
+        };
+        assert_eq!(t.effective_ctls(Some(&narrow))[a].raw("fontsize"), Some("17"), "the breakpoint's 20, scaled: 20 x 0.85");
+        t.set_font_factor(1.0);
+        assert_eq!(t.effective_ctls(None)[a].raw("fontsize"), Some("28"));
     }
 }

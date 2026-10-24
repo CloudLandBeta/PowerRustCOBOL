@@ -204,6 +204,10 @@ fn gridlines(root: &mut VNode, plot: (f64, f64, f64, f64), vals: &[f32], map: &d
 // ── The charts ──────────────────────────────────────────────────────────────
 
 pub fn chart(cx: &ViewCtx, i: usize) -> VNode {
+    // The bar, line, pie, donut and radar charts are drawn as the desktop painter draws them.
+    if let Some(n) = super::chart_paint::chart(cx, i) {
+        return n;
+    }
     let c = cx.tree.ctl(i);
     let Some(t) = c.control_type() else { return super::controls::hidden_object(cx, i) };
     let rows = parse_chart_rows(&cx.tree.get(i, "__ChartData"));
@@ -640,6 +644,9 @@ pub fn zone_color(cx: &ViewCtx, i: usize, v: f64, base: &str) -> String {
 }
 
 pub fn gauge(cx: &ViewCtx, i: usize) -> VNode {
+    if let Some(n) = super::chart_paint::gauge(cx, i) {
+        return n;
+    }
     let (mut root, w, h) = svg_root(cx, i, "pr-gauge");
     let (min, max) = (parse_f64(&cx.tree.get(i, "Minimum")).unwrap_or(0.0), parse_f64(&cx.tree.get(i, "Maximum")).unwrap_or(100.0));
     let v = parse_f64(&cx.tree.get(i, "Value")).unwrap_or(0.0).clamp(min.min(max), max.max(min));

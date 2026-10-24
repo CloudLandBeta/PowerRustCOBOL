@@ -186,7 +186,7 @@ fn element_of(cx: &ViewCtx, i: usize) -> VNode {
         ControlType::MenuBar => super::shell::menu_bar(cx, i),
         ControlType::SideMenu => super::shell::side_menu(cx, i),
         ControlType::TreeView => super::data::tree_view(cx, i),
-        ControlType::DataGrid => super::data::data_grid(cx, i),
+        ControlType::DataGrid => super::datagrid::data_grid(cx, i),
         ControlType::Shape => super::charts::shape(cx, i),
         ControlType::Knob => super::charts::knob(cx, i),
         ControlType::Gauge => super::charts::gauge(cx, i),
@@ -268,6 +268,11 @@ pub fn text_box(cx: &ViewCtx, i: usize) -> VNode {
         .on("keydown")
         .on("focusin")
         .on("focusout");
+    // The hint an empty box shows (the painter draws it in the text's own colour at 55 %).
+    let hint = cx.tree.get(i, "HintText");
+    if !hint.trim().is_empty() {
+        input = input.attr("placeholder", hint);
+    }
     if !multiline {
         input = input.attr("type", if password { "password" } else { "text" });
     } else if !flag(cx, i, "WordWrap") {
@@ -316,7 +321,11 @@ pub fn check_or_radio(cx: &ViewCtx, i: usize) -> VNode {
 
 // ── ListBox, ComboBox ───────────────────────────────────────────────────────
 
+/// What a ListBox draws, from the painter's own arithmetic (`render.rs`, the ListBox arm): rows `FontSize x 1.35 + 4` tall in a scroll area
+/// 3 px inside the frame, the text 5 px in from the highlight (and a tick box before it, when the list has them), a pill-shaped handle
+/// on the right while the rows do not fit.
 pub fn list_box(cx: &ViewCtx, i: usize) -> VNode {
+    use crate::value::parse_color;
     let c = cx.tree.ctl(i);
     let mut items = lines(&cx.tree.get(i, "Items"));
     display_items(cx, i, &mut items);
@@ -325,36 +334,112 @@ pub fn list_box(cx: &ViewCtx, i: usize) -> VNode {
     let selected_index = num(cx, i, "SelectedIndex", 0.0) as i64;
     let selected = lines_nonempty(&cx.tree.get(i, "SelectedItems"));
     let checked = lines_nonempty(&cx.tree.get(i, "CheckedItems"));
-    let active_value = cx.tree.get(i, "Value");
-    let mut ul = root(cx, i, "ul")
+    let (w, h) = cx.box_size(i);
+    let font = cx.tree.font_size_of(i);
+    // The row is laid out from the size the layout asks for (14 when none is named), the text is drawn at the size the painter's item font takes (11).
+    let row_h = font.unwrap_or(14.0).clamp(4.0, 200.0) * 1.35 + 4.0;
+    let size = font.unwrap_or(11.0).clamp(4.0, 200.0);
+    let bw = c.raw("borderwidth").and_then(crate::value::parse_f64).unwrap_or(1.0).max(0.0);
+    let ink = c.raw("foregroundcolor").and_then(parse_color).filter(|_| true).unwrap_or([255, 255, 255, 255]);
+    // The highlights: the developer's, else the form host's selection colour and that colour a little under half lit.
+    let active_fill = c.raw("activeitemcolor").and_then(parse_color).unwrap_or([144, 209, 255, 255]);
+    let selected_fill = c.raw("selecteditemscolor").and_then(parse_color).unwrap_or([active_fill[0], active_fill[1], active_fill[2], (active_fill[3] as f64 * 0.45).round() as u8]);
+    let active_ink = c.raw("activeitemtextcolor").and_then(parse_color).unwrap_or(ink);
+    let content_w = (w - 6.0).max(0.0);
+    let content_h = (h - 6.0).max(0.0);
+    let text_x = bw + 4.0;
+    let nudge = crate::metrics::baseline_nudge(size);
+    let mut ul = VNode::new("ul")
+        .key("scroller")
+        .class("pr-lb-scroll")
         .attr("role", "listbox")
         .attr("tabindex", if c.enabled() { "0" } else { "-1" })
         .attr("aria-multiselectable", if multi { "true" } else { "false" })
+        .style("left", format!("{}px", fmt_number(3.0 - bw)))
+        .style("top", format!("{}px", fmt_number(3.0 - bw)))
+        .style("width", format!("{}px", fmt_number(content_w)))
+        .style("height", format!("{}px", fmt_number(content_h)))
         .on("click")
         .on("dblclick")
         .on("keydown")
         .on("scroll");
-    let _ = &active_value;
     for (k, item) in items.iter().enumerate() {
         let idx = k as i64 + 1;
         let is_active = idx == selected_index;
-        let is_selected = is_active || selected.iter().any(|s| s == item);
+        let is_selected = !is_active && selected.iter().any(|s| s == item);
         let mut li = VNode::new("li")
             .key(format!("item:{k}"))
             .attr("role", "option")
             .attr("data-i", k.to_string())
-            .attr("aria-selected", if is_selected { "true" } else { "false" });
+            .attr("aria-selected", if is_active || is_selected { "true" } else { "false" })
+            .style("height", format!("{}px", fmt_number(row_h)))
+            .style("padding-left", format!("{}px", fmt_number(text_x)));
         if is_active {
-            li = li.class("pr-active");
+            li = li.class("pr-active").style("background-color", crate::value::css_color(active_fill));
+        } else if is_selected {
+            li = li.style("background-color", crate::value::css_color(selected_fill));
         }
         if show_checks {
+            let d = (row_h - 4.0).clamp(9.0, 18.0);
             let on = checked.iter().any(|s| s == item);
-            li = li.child(VNode::new("input").key(format!("chk:{k}")).attr("type", "checkbox").attr("tabindex", "-1").attr("data-i", k.to_string()).prop_bool("checked", on));
+            let mut b = VNode::new("span")
+                .key(format!("chk:{k}"))
+                .class("pr-lb-box")
+                .attr("data-part", "check")
+                .attr("data-i", k.to_string())
+                .attr("role", "checkbox")
+                .attr("aria-checked", if on { "true" } else { "false" })
+                .style("width", format!("{}px", fmt_number(d)))
+                .style("height", format!("{}px", fmt_number(d)))
+                .style("border-color", crate::value::css_color(ink))
+                .style("border-radius", format!("{}px", (d * 0.22).floor()))
+                .style("margin-right", "6px");
+            if on {
+                b = b.style("background-color", crate::value::css_color(active_fill)).child(
+                    VNode::svg("svg")
+                        .key("tick")
+                        .attr("viewBox", "0 0 1 1")
+                        .attr("width", format!("{}", fmt_number(d)))
+                        .attr("height", format!("{}", fmt_number(d)))
+                        .child(VNode::svg("path").attr("d", "M0.22 0.52L0.42 0.74L0.80 0.26").attr("fill", "none").attr("stroke", crate::value::css_color(ink)).attr("stroke-width", fmt_number((d * 0.14).max(1.2) / d)).attr("stroke-linecap", "round")),
+                );
+            }
+            li = li.child(b);
         }
-        li = li.child(VNode::new("span").key(format!("txt:{k}")).text(item.clone()));
+        let text_ink = if is_active { active_ink } else { ink };
+        li = li.child(
+            VNode::new("span")
+                .key(format!("txt:{k}"))
+                .class("pr-lb-text")
+                .text(item.clone())
+                .attr("data-i", k.to_string())
+                .style("color", crate::value::css_color(text_ink))
+                .style("font-size", format!("{}px", fmt_number(size)))
+                .style("line-height", format!("{}px", fmt_number(crate::metrics::row_height(size))))
+                .style("top", format!("{}px", fmt_number(nudge)))
+                .style("-webkit-text-stroke", format!("{}px", fmt_number(crate::metrics::stroke(size, text_ink)))),
+        );
         ul = ul.child(li);
     }
-    ul
+    let mut n = root(cx, i, "div").class("pr-lb").child(ul);
+    // The handle: as long as the part of the rows in view, put where the scroll offset puts it.
+    let total = items.len() as f64 * row_h;
+    if total > content_h + 0.5 && content_h > 0.0 {
+        let max_offset = total - content_h;
+        let offset = cx.ui.grid_scroll.get(&i).map(|s| s.1).unwrap_or(0.0).clamp(0.0, max_offset);
+        let size_h = (content_h / total * content_h).max(12.0);
+        let top = 3.0 + offset / max_offset * (content_h - size_h);
+        n = n.child(
+            VNode::new("div")
+                .key("handle")
+                .class("pr-lb-handle")
+                .style("left", format!("{}px", fmt_number(w - 3.0 - 5.0 - bw)))
+                .style("top", format!("{}px", fmt_number(top - bw)))
+                .style("width", "5px")
+                .style("height", format!("{}px", fmt_number(size_h))),
+        );
+    }
+    n
 }
 
 pub fn combo_box(cx: &ViewCtx, i: usize) -> VNode {
@@ -392,15 +477,55 @@ pub fn combo_box(cx: &ViewCtx, i: usize) -> VNode {
             .on("keydown");
         return root(cx, i, "div").child(input).child(dl);
     }
-    let mut sel = root(cx, i, "select").prop_bool("disabled", !c.enabled()).on("change");
+    // The list-only style: the desktop's closed header (`glass_combo_header`) — the value at the left and a small triangle at
+    // the right — is drawn, and the native <select> stays over it, clear, to take the click that opens its list.
+    let size = cx.tree.font_size_of(i).unwrap_or_else(|| num(cx, i, "FontSize", 11.0)).max(1.0);
+    let (w, h) = cx.box_size(i);
+    // What the header shows: the value, else the item at `SelectedIndex`, else (a combo nothing was chosen in) the first item.
+    let value = cx.tree.get(i, "Value");
+    let current = if !value.is_empty() {
+        value
+    } else if selected_index >= 1 {
+        items.get(selected_index as usize - 1).cloned().unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let shown = if current.is_empty() { items.first().cloned().unwrap_or_default() } else { current };
+    let at = items.iter().position(|it| *it == shown);
+    let ink = c.raw("foregroundcolor").and_then(crate::value::parse_color).unwrap_or([220, 228, 255, 255]);
+    let mut sel = VNode::new("select").key("select").class("pr-combo-select").prop_bool("disabled", !c.enabled()).on("change");
     // An empty first option stands for "nothing selected" (SelectedIndex 0).
-    sel = sel.child(VNode::new("option").key("opt:none").prop_str("value", "").text("").attr("hidden", "").prop_bool("selected", selected_index <= 0));
+    sel = sel.child(VNode::new("option").key("opt:none").prop_str("value", "").text("").attr("hidden", "").prop_bool("selected", at.is_none()));
     for (k, it) in items.iter().enumerate() {
-        sel = sel.child(
-            VNode::new("option").key(format!("opt:{k}")).prop_str("value", k.to_string()).text(it.clone()).prop_bool("selected", selected_index == k as i64 + 1),
-        );
+        sel = sel.child(VNode::new("option").key(format!("opt:{k}")).prop_str("value", k.to_string()).text(it.clone()).prop_bool("selected", at == Some(k)));
     }
-    sel
+    // Places are the painter's, measured from the frame's outer edge; an element is placed from inside the border.
+    let bw = crate::css::border_width(c);
+    let top = crate::metrics::text_top(h, size) - bw;
+    let text = VNode::new("span")
+        .key("t")
+        .class("pr-combo-text")
+        .text(shown)
+        .style("left", format!("{}px", fmt_number(8.0 - bw)))
+        .style("top", format!("{}px", fmt_number(top)))
+        .style("font-size", format!("{}px", fmt_number(size)))
+        .style("line-height", format!("{}px", fmt_number(crate::metrics::row_height(size))))
+        .style("-webkit-text-stroke", format!("{}px", fmt_number(crate::metrics::stroke(size, ink))));
+    // The triangle the painter sets at 13 px in from the right edge, centred on the middle of the frame (a 9-pixel glyph of the
+    // fallback face, measured: 5.6 wide at the top, 5.7 high), at three quarters of the value's ink.
+    let (cx0, cy0) = (w - 13.0, h / 2.0);
+    let ax = |dx: f64, dy: f64| format!("{},{}", fmt_number(cx0 + dx - (w - 16.0)), fmt_number(cy0 + dy - (h / 2.0 - 4.0)));
+    let arrow = VNode::svg("svg")
+        .key("arrow")
+        .class("pr-combo-arrow")
+        .attr("width", "16")
+        .attr("height", "9")
+        .attr("viewBox", "0 0 16 9")
+        .attr("aria-hidden", "true")
+        .style("left", format!("{}px", fmt_number(w - 16.0 - bw)))
+        .style("top", format!("{}px", fmt_number(h / 2.0 - 4.0 - bw)))
+        .child(VNode::svg("polygon").attr("points", format!("{} {} {}", ax(-2.36, -3.07), ax(3.28, -3.07), ax(0.46, 2.7))).attr("fill", crate::value::css_color([ink[0], ink[1], ink[2], (ink[3] as f64 * 0.75).round() as u8])));
+    root(cx, i, "div").class("pr-combobox").child(sel).child(text).child(arrow)
 }
 
 // ── Containers ──────────────────────────────────────────────────────────────
@@ -410,7 +535,7 @@ pub fn group_box(cx: &ViewCtx, i: usize) -> VNode {
     if !flag(cx, i, "HideCaption") && !caption(cx, i).is_empty() {
         n = n.child(VNode::new("legend").key("legend").text(caption(cx, i)));
     }
-    n
+    with_expander(cx, i, n)
 }
 
 pub fn panel(cx: &ViewCtx, i: usize) -> VNode {
@@ -421,7 +546,63 @@ pub fn panel(cx: &ViewCtx, i: usize) -> VNode {
     if flag(cx, i, "VScroll") {
         n = n.class("pr-vscroll");
     }
-    n.on("click")
+    with_expander(cx, i, n).on("click")
+}
+
+/// The painter strokes the icon 1.6 points wide and its anti-aliasing feathers that out; the page's 1.9 carries the same ink.
+/// The side of the expand/collapse icon's square, and how far the card's corner pushes it in (`paint::EXPAND_ICON_SIZE`, `expand_icon_rect`).
+const EXPAND_ICON: f64 = 24.0;
+
+/// Spec 090: a card that is `Expandable` carries the standard expand icon in its top-right corner — two arrows pointing apart, or together while
+/// the card is expanded — which a click turns into the card's `Expanded`. Drawn only while the form is laid out, as the painter draws it
+/// (a form that is not laid out would answer the click with nothing).
+fn with_expander(cx: &ViewCtx, i: usize, n: VNode) -> VNode {
+    let c = cx.tree.ctl(i);
+    // The icon is there when the form is laid out; a control of a layer (spec 091 R21), and so everything inside it, is not.
+    if !c.flag("expandable") || !cx.tree.ctl(0).flag("responsive") || cx.tree.layer_of(i).is_some() {
+        return n;
+    }
+    let (w, h) = (num(cx, i, "Width", 0.0), num(cx, i, "Height", 0.0));
+    if w < EXPAND_ICON * 2.0 || h < EXPAND_ICON * 2.0 {
+        return n;
+    }
+    let expanded = flag(cx, i, "Expanded");
+    let (cx_, cy_) = (EXPAND_ICON / 2.0, EXPAND_ICON / 2.0);
+    // The diagonal runs from the bottom-left to the top-right of the icon; each arrow has two legs along the axes.
+    let (reach, arm) = (7.0, 5.5);
+    let mut d = String::new();
+    let mut seg = |x1: f64, y1: f64, x2: f64, y2: f64| d.push_str(&format!("M{} {}L{} {}", fmt_number(x1), fmt_number(y1), fmt_number(x2), fmt_number(y2)));
+    let head = |seg: &mut dyn FnMut(f64, f64, f64, f64), tx: f64, ty: f64, toward: f64| {
+        let back = -toward;
+        seg(tx, ty, tx + back * arm, ty);
+        seg(tx, ty, tx, ty - back * arm);
+    };
+    if expanded {
+        let (ax, ay, bx, by) = (cx_ + 1.5, cy_ - 1.5, cx_ - 1.5, cy_ + 1.5);
+        head(&mut seg, ax, ay, -1.0);
+        head(&mut seg, bx, by, 1.0);
+        seg(cx_ + reach, cy_ - reach, ax, ay);
+        seg(cx_ - reach, cy_ + reach, bx, by);
+    } else {
+        let (ax, ay, bx, by) = (cx_ + reach, cy_ - reach, cx_ - reach, cy_ + reach);
+        head(&mut seg, ax, ay, 1.0);
+        head(&mut seg, bx, by, -1.0);
+        seg(ax, ay, bx, by);
+    }
+    let icon = VNode::svg("svg")
+        .key("glyph")
+        .attr("viewBox", format!("0 0 {0} {0}", fmt_number(EXPAND_ICON)))
+        .attr("aria-hidden", "true")
+        .child(VNode::svg("path").attr("d", d).attr("fill", "none").attr("stroke", "currentColor").attr("stroke-width", "1.9"));
+    let button = VNode::new("button")
+        .key("expander")
+        .class("pr-expander")
+        .attr("type", "button")
+        .attr("data-part", "expander")
+        .attr("aria-label", if expanded { "Collapse" } else { "Expand" })
+        .attr("aria-expanded", if expanded { "true" } else { "false" })
+        .child(icon);
+    n.child(button).on("click")
 }
 
 /// The tab titles, from `Tabs` (one per line).
@@ -534,6 +715,29 @@ pub fn slider(cx: &ViewCtx, i: usize) -> VNode {
     n
 }
 
+/// A model control carrying the properties of tree control `i` that a shared formatter reads (`cobolt_forms::fieldtext`).
+fn model_for(cx: &ViewCtx, i: usize, keys: &[&str]) -> cobolt_forms::model::Control {
+    let c = cx.tree.ctl(i);
+    let t = c.control_type().cloned().unwrap_or(ControlType::TextBox);
+    let mut m = cobolt_forms::model::Control::new(c.name.clone(), t, 0, 0);
+    for k in keys {
+        if let Some(v) = c.raw(k) {
+            m.set_prop(*k, v.to_owned());
+        }
+    }
+    m
+}
+
+/// What a field shows when it is not being edited, drawn over the native input that does the editing: the desktop's
+/// text for the value (its formats, not the browser's locale's), centred in the frame, as the painter centres it.
+fn face(text_nodes: Vec<VNode>) -> VNode {
+    VNode::new("span").key("face").class("pr-field-face").attr("aria-hidden", "true").children(text_nodes)
+}
+
+/// The outline of 📅 and of 🕐 in `NotoEmoji-Regular` (the glyphs the painter's caption uses), in 1/1000 of the font's em, y down, on the baseline.
+const CALENDAR_PATH: &str = "M1199.7 -752.4Q1211.9 -752.4 1220.2 -743.9Q1228.5 -735.4 1228.5 -723.6L1228.5 38.6Q1228.5 50.3 1220.2 58.6Q1211.9 66.9 1199.7 66.9L118.7 66.9Q106.9 66.9 98.4 58.6Q89.8 50.3 89.8 38.6L89.8 -723.6Q89.8 -735.4 98.4 -743.9Q106.9 -752.4 118.7 -752.4L412.1 -752.4L642.6 -914.6Q649.4 -919.4 659.2 -919.4Q668.9 -919.4 675.8 -914.6L906.2 -752.4L1199.7 -752.4ZM1170.9 -694.3L147.5 -694.3L147.5 9.3L945.8 9.3L945.8 -111.3Q945.8 -123.0 954.1 -131.3Q962.4 -139.6 974.1 -139.6L987.8 -140.1Q1064.0 -143.1 1099.9 -154.3Q1135.7 -165.5 1170.9 -197.8L1170.9 -694.3ZM512.2 -752.4L806.2 -752.4L659.2 -856.0L512.2 -752.4ZM698.7 -633.3L698.7 -556.2L669.4 -556.2L669.4 -566.4L648.4 -566.4L648.4 -556.2L619.6 -556.2L619.6 -633.3L648.4 -633.3L648.4 -622.1L669.4 -622.1L669.4 -633.3L698.7 -633.3ZM1003.9 -7.3Q1043.9 -30.8 1068.4 -52.2Q1092.8 -73.7 1111.8 -97.7Q1092.8 -92.8 1058.8 -88.6Q1024.9 -84.5 1003.9 -83.5L1003.9 -7.3ZM1170.9 -79.6Q1152.8 -56.2 1132.6 -33.7Q1112.3 -11.2 1083.5 9.3L1170.9 9.3L1170.9 -79.6ZM572.8 -478.5L493.7 -478.5L493.7 -508.3L572.8 -508.3L572.8 -478.5ZM698.7 -478.5L619.6 -478.5L619.6 -508.3L698.7 -508.3L698.7 -478.5ZM824.7 -478.5L745.6 -478.5L745.6 -508.3L824.7 -508.3L824.7 -478.5ZM320.8 -478.5L241.7 -478.5L241.7 -508.3L320.8 -508.3L320.8 -478.5ZM950.7 -478.5L871.6 -478.5L871.6 -508.3L950.7 -508.3L950.7 -478.5ZM1076.7 -478.5L997.6 -478.5L997.6 -508.3L1076.7 -508.3L1076.7 -478.5ZM446.8 -478.5L367.7 -478.5L367.7 -508.3L446.8 -508.3L446.8 -478.5ZM1057.1 -373.0L1017.1 -373.0L1017.1 -412.1L1057.1 -412.1L1057.1 -373.0ZM805.2 -373.0L765.1 -373.0L765.1 -412.1L805.2 -412.1L805.2 -373.0ZM931.2 -373.0L891.1 -373.0L891.1 -412.1L931.2 -412.1L931.2 -373.0ZM553.2 -277.8L513.2 -277.8L513.2 -316.4L553.2 -316.4L553.2 -277.8ZM679.2 -277.8L639.2 -277.8L639.2 -316.4L679.2 -316.4L679.2 -277.8ZM805.2 -277.8L765.1 -277.8L765.1 -316.4L805.2 -316.4L805.2 -277.8ZM931.2 -277.8L891.1 -277.8L891.1 -316.4L931.2 -316.4L931.2 -277.8ZM1057.1 -277.8L1017.1 -277.8L1017.1 -316.4L1057.1 -316.4L1057.1 -277.8ZM300.8 -277.8L261.2 -277.8L261.2 -316.4L300.8 -316.4L300.8 -277.8ZM426.8 -277.8L387.2 -277.8L387.2 -316.4L426.8 -316.4L426.8 -277.8ZM553.2 -87.4L513.2 -87.4L513.2 -125.5L553.2 -125.5L553.2 -87.4ZM679.2 -182.6L639.2 -182.6L639.2 -220.7L679.2 -220.7L679.2 -182.6ZM931.2 -182.6L891.1 -182.6L891.1 -220.7L931.2 -220.7L931.2 -182.6ZM1057.1 -182.6L1017.1 -182.6L1017.1 -220.7L1057.1 -220.7L1057.1 -182.6ZM805.2 -182.6L765.1 -182.6L765.1 -220.7L805.2 -220.7L805.2 -182.6ZM679.2 -87.4L639.2 -87.4L639.2 -125.5L679.2 -125.5L679.2 -87.4ZM553.2 -182.6L513.2 -182.6L513.2 -220.7L553.2 -220.7L553.2 -182.6ZM300.8 -87.4L261.2 -87.4L261.2 -125.5L300.8 -125.5L300.8 -87.4ZM426.8 -182.6L387.2 -182.6L387.2 -220.7L426.8 -220.7L426.8 -182.6ZM300.8 -182.6L261.2 -182.6L261.2 -220.7L300.8 -220.7L300.8 -182.6ZM426.8 -87.4L387.2 -87.4L387.2 -125.5L426.8 -125.5L426.8 -87.4Z";
+const CLOCK_PATH: &str = "M1101.3 -88.4Q1028.8 36.6 903.6 109.1Q778.3 181.6 634.3 181.6Q490.2 181.6 365.2 109.1Q240.2 36.6 167.7 -88.4Q95.2 -213.4 95.2 -357.4Q95.2 -501.5 167.7 -626.7Q240.2 -752.0 365.2 -824.5Q490.2 -897.0 634.3 -897.0Q778.3 -897.0 903.6 -824.5Q1028.8 -752.0 1101.3 -626.7Q1173.8 -501.5 1173.8 -357.4Q1173.8 -213.4 1101.3 -88.4ZM1056.4 -601.3Q990.7 -713.9 878.2 -779.5Q765.6 -845.2 634.3 -845.2Q503.4 -845.2 390.9 -779.8Q278.3 -714.4 212.6 -601.6Q147.0 -488.8 147.0 -357.4Q147.0 -227.1 212.4 -114.5Q277.8 -2.0 390.4 64.0Q502.9 129.9 634.3 129.9Q765.6 129.9 878.2 64.5Q990.7 -1.0 1056.4 -113.5Q1122.1 -226.1 1122.1 -357.4Q1122.1 -488.8 1056.4 -601.3ZM808.6 -581.5L704.6 -400.9Q710.4 -391.1 713.9 -380.4Q717.3 -369.6 717.3 -357.4Q717.3 -323.7 692.6 -299.3Q668.0 -274.9 634.3 -274.9Q600.6 -274.9 576.2 -299.3Q551.8 -323.7 551.8 -357.4Q551.8 -380.9 563.7 -399.9Q575.7 -418.9 595.2 -430.2L595.2 -802.2L672.9 -802.2L672.9 -502.4L741.2 -620.1L808.6 -581.5ZM655.3 -334.2Q665.5 -341.8 665.5 -357.4Q665.5 -370.1 656.2 -379.2Q647.0 -388.2 634.3 -388.2Q621.6 -388.2 612.5 -379.2Q603.5 -370.1 603.5 -357.4Q603.5 -347.2 611.8 -336.9Q620.1 -326.7 634.3 -326.7Q645.0 -326.7 655.3 -334.2ZM1077.9 -335.7Q1068.8 -326.7 1055.7 -326.7Q1043.0 -326.7 1033.9 -335.7Q1024.9 -344.7 1024.9 -357.4Q1024.9 -370.1 1033.9 -379.2Q1043.0 -388.2 1055.7 -388.2Q1068.8 -388.2 1077.9 -379.2Q1086.9 -370.1 1086.9 -357.4Q1086.9 -344.7 1077.9 -335.7ZM978.0 -545.7Q968.8 -554.2 968.8 -567.9Q968.8 -579.6 976.8 -589.6Q984.9 -599.6 998.5 -599.6Q1011.2 -599.6 1020.8 -591.1Q1030.3 -582.5 1030.3 -568.8Q1030.3 -555.7 1021.2 -546.4Q1012.2 -537.1 999.5 -537.1Q987.3 -537.1 978.0 -545.7ZM866.7 -699.7Q856.9 -690.9 845.7 -690.9Q831.5 -690.9 822.8 -700.9Q814.0 -710.9 814.0 -722.7Q814.0 -736.3 823.7 -744.9Q833.5 -753.4 844.7 -753.4Q857.4 -753.4 866.9 -744.9Q876.5 -736.3 876.5 -722.7Q876.5 -708.5 866.7 -699.7ZM445.3 -745.1Q455.1 -736.8 455.1 -722.7Q455.1 -710.4 446.3 -700.7Q437.5 -690.9 423.3 -690.9Q412.1 -690.9 402.3 -699.7Q392.6 -708.5 392.6 -722.7Q392.6 -735.4 401.6 -744.4Q410.6 -753.4 423.3 -753.4Q435.5 -753.4 445.3 -745.1ZM290.3 -545.4Q280.3 -537.1 269.0 -537.1Q255.4 -537.1 246.8 -546.9Q238.3 -556.6 238.3 -567.9Q238.3 -581.1 247.6 -590.3Q256.8 -599.6 269.5 -599.6Q283.2 -599.6 291.7 -590.1Q300.3 -580.6 300.3 -567.9Q300.3 -553.7 290.3 -545.4ZM234.9 -335.7Q225.6 -326.7 212.9 -326.7Q199.7 -326.7 190.9 -335.7Q182.1 -344.7 182.1 -357.4Q182.1 -370.1 190.9 -379.2Q199.7 -388.2 212.9 -388.2Q225.6 -388.2 234.9 -379.2Q244.1 -370.1 244.1 -357.4Q244.1 -344.7 234.9 -335.7ZM290.5 -168.9Q300.3 -160.6 300.3 -146.5Q300.3 -133.8 291.7 -124.8Q283.2 -115.7 269.0 -115.7Q256.8 -115.7 247.6 -124.8Q238.3 -133.8 238.3 -147.5Q238.3 -159.2 246.3 -168.2Q254.4 -177.2 268.1 -177.2Q280.8 -177.2 290.5 -168.9ZM445.3 30.3Q435.5 38.6 423.3 38.6Q409.7 38.6 401.1 29.1Q392.6 19.5 392.6 7.8Q392.6 -6.3 402.3 -14.9Q412.1 -23.4 423.3 -23.4Q437.0 -23.4 446.0 -14.6Q455.1 -5.9 455.1 7.8Q455.1 22.0 445.3 30.3ZM656.2 86.4Q647.0 95.7 634.3 95.7Q621.6 95.7 612.5 86.4Q603.5 77.1 603.5 64.0Q603.5 51.3 612.3 42.2Q621.1 33.2 634.3 33.2Q647.0 33.2 656.2 42.2Q665.5 51.3 665.5 64.0Q665.5 77.1 656.2 86.4ZM866.7 -14.9Q876.5 -6.3 876.5 7.8Q876.5 19.5 867.7 29.1Q858.9 38.6 844.7 38.6Q833.5 38.6 823.7 30.0Q814.0 21.5 814.0 7.8Q814.0 -5.4 822.8 -14.4Q831.5 -23.4 844.7 -23.4Q856.9 -23.4 866.7 -14.9ZM1020.5 -123.8Q1010.7 -115.7 999.5 -115.7Q985.8 -115.7 977.3 -125.5Q968.8 -135.3 968.8 -146.5Q968.8 -160.2 978.0 -168.7Q987.3 -177.2 1000.0 -177.2Q1015.6 -177.2 1022.9 -167.0Q1030.3 -156.7 1030.3 -146.0Q1030.3 -131.8 1020.5 -123.8Z";
+
 pub fn numeric(cx: &ViewCtx, i: usize) -> VNode {
     let c = cx.tree.ctl(i);
     let places = num(cx, i, "DecimalPlaces", 0.0).clamp(0.0, 10.0) as usize;
@@ -553,7 +757,8 @@ pub fn numeric(cx: &ViewCtx, i: usize) -> VNode {
         .on("keydown")
         .on("focusin")
         .on("focusout");
-    root(cx, i, "div").child(input)
+    let text = cobolt_forms::fieldtext::numeric_updown_text(&model_for(cx, i, &["Value", "DecimalPlaces", "Step", "ThousandsSeparator"]));
+    root(cx, i, "div").child(face(vec![VNode::new("span").key("t").text(text)])).child(input)
 }
 
 pub fn date_time(cx: &ViewCtx, i: usize) -> VNode {
@@ -581,8 +786,39 @@ pub fn date_time(cx: &ViewCtx, i: usize) -> VNode {
     if !max.trim().is_empty() {
         input = input.attr("max", max);
     }
-    root(cx, i, "div").child(input)
+    // What the field shows: the value laid out by the field's own format, behind a calendar (or a clock, for a time) — "📅 01/01/1970",
+    // the desktop's caption, with the glyph drawn from the font the painter takes it from. The native input stays over it, clear, to take the click
+    // that opens the picker and what is typed.
+    let m = model_for(cx, i, &["Value", "Format", "CustomFormat", "ShowUpDown"]);
+    let parts = cobolt_forms::fieldtext::dt_parts(&m);
+    let shown = cobolt_forms::fieldtext::display_dt_for(&m, &cx.tree.get(i, "Value"));
+    let custom = format.trim().eq_ignore_ascii_case("custom");
+    let pattern = cx.tree.get(i, "CustomFormat").trim().to_owned();
+    let hint = if custom && !pattern.is_empty() { pattern } else if parts.date && parts.time { "DD/MM/YYYY HH:MM".to_owned() } else if parts.time { "HH:MM".to_owned() } else { "DD/MM/YYYY".to_owned() };
+    let text = if shown.is_empty() { hint } else { shown };
+    let mut nodes = Vec::new();
+    if !flag(cx, i, "ShowUpDown") {
+        nodes.push(field_glyph(parts.date));
+        nodes.push(VNode::new("span").key("t").text(format!(" {text}")));
+    } else {
+        nodes.push(VNode::new("span").key("t").text(text));
+    }
+    root(cx, i, "div").child(face(nodes)).child(input)
 }
+
+/// The calendar (`date`) or the clock the painter's text face puts before a date-time picker's text: the glyph of the font it
+/// falls back to (`NotoEmoji-Regular`, scaled to 0.81 of the text and set 0.24 of that lower), drawn as an outline, so it looks as it does there.
+fn field_glyph(date: bool) -> VNode {
+    // In 1/1000 em of the glyph's own font, y down, origin on the baseline; the viewBox is the glyph's extent after the scale and the drop.
+    let (path, view) = if date { (CALENDAR_PATH, "0 -679 1270 986") } else { (CLOCK_PATH, "0 -657 1270 1079") };
+    VNode::svg("svg")
+        .key("glyph")
+        .class(if date { "pr-glyph pr-glyph-date" } else { "pr-glyph pr-glyph-time" })
+        .attr("viewBox", view)
+        .attr("aria-hidden", "true")
+        .child(VNode::svg("path").attr("d", path).attr("fill", "currentColor"))
+}
+
 
 pub fn switch(cx: &ViewCtx, i: usize) -> VNode {
     let c = cx.tree.ctl(i);
@@ -810,23 +1046,32 @@ mod tests {
     #[test]
     fn a_list_box_is_a_listbox_with_the_active_row_and_the_set_marked() {
         let n = view_of("LST-1", &[("SelectedIndex", "2")]);
-        assert_eq!(n.tag, "ul");
-        assert_eq!(n.attr_of("role"), Some("listbox"));
-        let rows: Vec<&VNode> = n.children.iter().collect();
+        assert_eq!(n.tag, "div");
+        let list = n.find_tag("ul").expect("the scroll area of the rows");
+        assert_eq!(list.attr_of("role"), Some("listbox"));
+        let rows: Vec<&VNode> = list.children.iter().collect();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].attr_of("aria-selected"), Some("false"));
         assert_eq!(rows[1].attr_of("aria-selected"), Some("true"));
         assert!(rows[1].has_class("pr-active"));
         assert_eq!(rows[1].all_text(), "two");
+        // The painter's rows: FontSize (14 when none) x 1.35 + 4 tall.
+        assert_eq!(rows[0].styles.iter().find(|(k, _)| k == "height").map(|(_, v)| v.as_str()), Some("22.9px"));
         let checks = view_of("LST-1", &[("ShowCheckBoxes", "1"), ("CheckedItems", "one")]);
-        assert_eq!(checks.count("input"), 2);
-        assert_eq!(checks.children[0].find_tag("input").unwrap().prop_of("checked"), Some(&Prop::Bool(true)));
+        let boxes: Vec<&VNode> = {
+            let mut v = Vec::new();
+            checks.find_all(&|x| x.attr_of("data-part") == Some("check"), &mut v);
+            v
+        };
+        assert_eq!(boxes.len(), 2);
+        assert_eq!(boxes[0].attr_of("aria-checked"), Some("true"));
+        assert_eq!(boxes[1].attr_of("aria-checked"), Some("false"));
     }
 
     #[test]
     fn sorted_changes_the_display_order_only() {
         let n = view_of("LST-1", &[("Items", "pear\napple\nfig"), ("Sorted", "1")]);
-        let texts: Vec<String> = n.children.iter().map(|c| c.all_text()).collect();
+        let texts: Vec<String> = n.find_tag("ul").unwrap().children.iter().map(|c| c.all_text()).collect();
         assert_eq!(texts, ["apple", "fig", "pear"]);
     }
 
@@ -896,7 +1141,7 @@ mod tests {
         assert!(view(&e.cx(&t), i).attr_of("tabindex").is_none(), "a Label holds a place in the order but never the focus");
         let (t, i) = tree_with("ListBox", "S-1", &[("TabOrder", "5"), ("Enabled", "0")]);
         let n = view(&e.cx(&t), i);
-        assert_eq!(n.attr_of("tabindex"), Some("-1"), "a disabled control stays out of the order: {}", n.describe());
+        assert_eq!(n.find_tag("ul").unwrap().attr_of("tabindex"), Some("-1"), "a disabled control stays out of the order: {}", n.describe());
     }
 
     #[test]

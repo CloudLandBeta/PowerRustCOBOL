@@ -193,6 +193,12 @@ pub struct BundleOptions {
     pub backdrop: Option<String>,
 }
 
+/// The stand-in face the desktop's painter letters "Arial" in (egui's built-in proportional font), shipped with
+/// every Web bundle so that a form reads the same on both surfaces (`assets/web-fonts`).
+const STAND_IN_FONT: &[u8] = include_bytes!("../../../assets/web-fonts/Ubuntu-Light.ttf");
+/// Its licence, which travels with it.
+const STAND_IN_FONT_LICENCE: &[u8] = include_bytes!("../../../assets/web-fonts/UFL.txt");
+
 impl Default for BundleOptions {
     fn default() -> Self {
         BundleOptions {
@@ -694,7 +700,11 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     let loader_path = b.add_hashed("loader.js", hostpage::loader_js().into_bytes());
     let worker_path = b.add_hashed("worker.js", hostpage::worker_js().into_bytes());
     let app_js_path = b.add_hashed("app.js", hostpage::app_js(&loader_path).into_bytes());
-    let app_css_path = b.add_hashed("app.css", hostpage::app_css(o.backdrop.as_deref()).into_bytes());
+    // The face the desktop draws "Arial" in, so the two surfaces letter the same text the same way, and its licence beside it
+    // (the Ubuntu Font Licence asks for that). A shadow root cannot declare a font: the page's own stylesheet does.
+    let font_path = b.add_hashed("fonts/Ubuntu-Light.ttf", STAND_IN_FONT.to_vec());
+    b.add("fonts/UFL.txt".into(), STAND_IN_FONT_LICENCE.to_vec());
+    let app_css_path = b.add_hashed("app.css", hostpage::app_css(o.backdrop.as_deref(), &font_path).into_bytes());
 
     // texts, options and the config the loader reads
     let mut texts = serde_json::Map::new();
@@ -771,6 +781,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
             title,
             app_css: &app_css_path,
             app_css_sri: &app_css_sri,
+            font: &font_path,
             loader: &loader_path,
             loader_sri: &loader_sri,
             shim: &shim_html,
@@ -793,7 +804,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
 
     // headers for the documented hosts
     let headers = csp::security_headers(&policy, o.isolation);
-    let hashed_globs: Vec<&str> = vec!["/*.js", "/*.css", "/forms/*", "/assets/*", "/player/*", "/*.wasm"];
+    let hashed_globs: Vec<&str> = vec!["/*.js", "/*.css", "/forms/*", "/assets/*", "/player/*", "/*.wasm", "/fonts/Ubuntu-Light.*"];
     for (path, content) in csp::host_files(&headers, &hashed_globs) {
         b.add(path, content.into_bytes());
     }
@@ -807,6 +818,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     for c in &input.player.components {
         components.push(json!({"type": "library", "name": c.name, "version": c.version, "licenses": [{"license": {"name": c.license}}]}));
     }
+    components.push(json!({"type": "data", "name": "Ubuntu Light", "licenses": [{"license": {"name": "Ubuntu-font-1.0"}}]}));
     let mut bom = json!({
         "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
         "metadata": {"component": {"type": "application", "name": manifest.project}},

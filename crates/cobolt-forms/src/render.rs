@@ -29,7 +29,7 @@ use egui::{pos2, Color32, Rect, Stroke, Vec2};
 
 use crate::containers::{self, ActiveTabs};
 use crate::datagrid::{
-    datagrid_copy_text, DataGridCellSelection, DataGridColumnMeasure, DataGridLayout,
+    datagrid_copy_text, sort_datagrid_rows, DataGridCellSelection, DataGridColumnMeasure, DataGridLayout,
     DataGridLayoutInput,
 };
 use crate::model::{
@@ -7909,34 +7909,6 @@ fn push_cell_edit(
         &format!("{},{}", edit.row_index, edit.display_col),
     ));
     true
-}
-
-fn sort_datagrid_rows(indices: &mut [usize], rows: &[Vec<String>], source: usize, ty: &str, descending: bool) {
-    let cell = |r: usize| rows.get(r).and_then(|row| row.get(source)).map(String::as_str).unwrap_or("");
-    let number = |v: &str| v.trim().parse::<f64>().ok();
-    let declared = matches!(
-        ty.trim().to_ascii_lowercase().as_str(),
-        "number" | "numeric" | "int" | "integer" | "decimal" | "float" | "double" | "currency" | "money"
-    );
-    let numeric = declared
-        || indices.iter().all(|&r| {
-            let v = cell(r).trim();
-            v.is_empty() || number(v).is_some()
-        });
-    indices.sort_by(|&a, &b| {
-        let (x, y) = (cell(a), cell(b));
-        let order = if numeric {
-            match (number(x), number(y)) {
-                (Some(p), Some(q)) => p.partial_cmp(&q).unwrap_or(std::cmp::Ordering::Equal),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => x.to_lowercase().cmp(&y.to_lowercase()),
-            }
-        } else {
-            x.to_lowercase().cmp(&y.to_lowercase())
-        };
-        if descending { order.reverse() } else { order }
-    });
 }
 
 fn draw_datagrid_line(

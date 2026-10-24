@@ -116,7 +116,9 @@ pub fn from_event(kind: &str, key: &str, ev: &Event, root: &Element) -> Payload 
     if let Some(c) = &current {
         let cj: &JsValue = c.as_ref();
         p.scroll_top = num(cj, "scrollTop");
+        p.scroll_left = num(cj, "scrollLeft");
         p.client_height = num(cj, "clientHeight");
+        p.client_width = num(cj, "clientWidth");
         let files = get(cj, "files");
         if files.is_object() {
             p.files = file_list(&files);

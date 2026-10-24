@@ -1,0 +1,11 @@
+# PowerAnalyticsWeb.project — where and how the Backend runs.
+# Plain ws:// is served on a loopback address only. For a network address,
+# add a [tls] section, or terminate TLS in a reverse proxy in front of it.
+# A secret is never written here by value: use "env:NAME" or "file:PATH".
+
+[server]
+listen = "127.0.0.1:8443"
+
+# Before a release, name the frontend's origins and the identity provider:
+# [server]  allowed_origins = ["https://app.example.com"]
+# [auth]    issuer = ["https://login.example.com"], audiences = ["api"]

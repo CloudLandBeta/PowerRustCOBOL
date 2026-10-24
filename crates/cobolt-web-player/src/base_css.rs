@@ -19,9 +19,13 @@ pub const BASE_CSS: &str = r#"
 :host {
   --pr-accent: #4e8cff; --pr-surface: #2e3138; --pr-surface-2: #3a3e47; --pr-text: #ffffff;
   --pr-text-dim: #b8bcc6; --pr-border: #565b66; --pr-radius: 6px; --pr-danger: #e5484d;
-  --pr-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --pr-focus: #8ab4ff; --pr-field: #f4f5f7; --pr-field-text: #14161a; --pr-field-border: #aab0ba;
+  --pr-font: "PR Ubuntu Light", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --pr-focus: #8ab4ff; --pr-field: #f4f5f7; --pr-field-text: #14161a; --pr-field-border: #aab0ba;
 }
-.pr-root { width: 100%; height: 100%; position: relative; color: var(--pr-text); font: 13px/1.35 var(--pr-font); overflow: hidden; }
+.pr-root { width: 100%; height: 100%; position: relative; color: var(--pr-text); font: 11px var(--pr-font); line-height: 13px; overflow: hidden;
+  /* The desktop's text is the sum of the font's advances and its pair kerning, with no hinting and no synthetic bold (egui). */
+  font-kerning: normal; font-synthesis-weight: none; text-rendering: geometricPrecision;
+  /* The desktop draws a glyph with a coverage boost a browser does not: the same text carries about 20 % less ink here. A quarter of a pixel of outline (measured on 9 to 28 px text) brings the two to within 5 %. */
+  -webkit-text-stroke: 0.25px; }
 [hidden] { display: none !important; }
 .pr-main { position: absolute; inset: 0; }
 .pr-form { position: absolute; inset: 0; overflow: auto; background: var(--pr-surface); color: var(--pr-text); }
@@ -41,8 +45,25 @@ pub const BASE_CSS: &str = r#"
 .pr-textbox input, .pr-textbox textarea, .pr-combobox input, .pr-numericupdown input, .pr-datetimepicker input { flex: 1; min-width: 0; width: 100%; height: 100%;
   font: inherit; color: inherit; background: transparent; border: 0; padding: 0; margin: 0; outline: none; resize: none; text-align: inherit; }
 .pr-textbox textarea { overflow: var(--pr-overflow, hidden); }
+.pr-textbox input::placeholder, .pr-textbox textarea::placeholder { color: inherit; opacity: .55; }
 .pr-combobox select { width: 100%; height: 100%; font: inherit; color: inherit; background: transparent; border: 0; outline: none; }
 .pr-combobox select option { color: #000; }
+/* A list-only ComboBox at rest: the desktop's closed header (the value, a small triangle) over the native <select>, which stays over it, clear. */
+.pr-combobox { position: relative; }
+.pr-combobox > .pr-combo-select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.pr-combo-text { position: absolute; white-space: pre; pointer-events: none; margin: 0; padding: 0; }
+.pr-combo-arrow { position: absolute; pointer-events: none; overflow: visible; }
+/* What a date or number field shows at rest: the desktop's text (its formats, not the browser's locale's) centred in the frame, over the native input that edits it. */
+.pr-numericupdown, .pr-datetimepicker { position: relative; }
+.pr-field-face { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; white-space: pre; pointer-events: none; padding-top: var(--pr-nt, 0px); padding-bottom: var(--pr-nb, 0px); }
+.pr-numericupdown input, .pr-datetimepicker input { opacity: 0; text-align: center; }
+.pr-numericupdown:focus-within input { opacity: 1; }
+.pr-numericupdown:focus-within .pr-field-face { visibility: hidden; }
+.pr-numericupdown input::-webkit-inner-spin-button, .pr-numericupdown input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.pr-datetimepicker input::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.pr-glyph { display: inline-block; width: 1.0287em; overflow: visible; }
+.pr-glyph-date { height: .7987em; vertical-align: -.2487em; }
+.pr-glyph-time { height: .8741em; vertical-align: -.3418em; }
 .pr-checkbox, .pr-radiobutton { display: flex; align-items: center; gap: .5em; cursor: pointer; }
 .pr-checkbox input, .pr-radiobutton input { margin: 0; flex: none; }
 .pr-switch { display: block; cursor: pointer; background: #555a64; border: 0; border-radius: 999px; padding: 0; }
@@ -57,6 +78,10 @@ pub const BASE_CSS: &str = r#"
 .pr-groupbox { border: 1px solid var(--pr-border); border-radius: var(--pr-radius); padding: 0; margin: 0; min-width: 0; }
 .pr-groupbox > legend { padding: 0 .4em; }
 .pr-panel { overflow: hidden; }
+/* The expand / collapse icon of a card that is Expandable (spec 090): a 24 px square in its top-right corner, as the painter lays it. */
+.pr-expander { position: absolute; top: var(--pr-exp-inset, 6px); right: var(--pr-exp-inset, 6px); width: 24px; height: 24px; padding: 0; margin: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; z-index: 5; }
+.pr-expander:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
+.pr-expander svg { display: block; width: 24px; height: 24px; }
 .pr-tabcontrol { overflow: hidden; }
 .pr-tablist { display: flex; gap: 2px; overflow: hidden; }
 .pr-tabs-left > .pr-tablist, .pr-tabs-right > .pr-tablist { flex-direction: column; }
@@ -74,26 +99,57 @@ pub const BASE_CSS: &str = r#"
 .pr-splitter.pr-vertical > .pr-handle { cursor: row-resize; }
 
 /* lists, trees, grids */
-.pr-listbox { list-style: none; margin: 0; padding: 2px; overflow: auto; background: var(--pr-field); color: var(--pr-field-text); border: 1px solid var(--pr-border); border-radius: 4px; }
-.pr-listbox li { display: flex; align-items: center; gap: .4em; padding: 2px 6px; cursor: default; white-space: nowrap; }
-.pr-listbox li[aria-selected="true"] { background: color-mix(in srgb, var(--pr-accent) 55%, transparent); }
-.pr-listbox li.pr-active { background: var(--pr-accent); color: var(--pr-active-fg, #fff); }
+/* A ListBox is drawn the way the desktop draws it (view/controls.rs): a frame, a scroll area 3 px inside it with rows of a size
+   the painter works out, and a pill-shaped handle on the right while the rows do not fit. */
+.pr-listbox { position: relative; overflow: hidden; background: var(--pr-field); color: var(--pr-field-text); border: 1px solid var(--pr-border); border-radius: 4px; }
+.pr-lb-scroll { position: absolute; list-style: none; margin: 0; padding: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; overscroll-behavior: contain; outline: none; }
+.pr-lb-scroll::-webkit-scrollbar { display: none; }
+.pr-lb-scroll li { display: flex; align-items: center; box-sizing: border-box; cursor: default; white-space: nowrap; }
+.pr-lb-text { position: relative; white-space: pre; -webkit-text-stroke: 0; }
+.pr-lb-box { display: inline-flex; flex: none; box-sizing: border-box; border: 1px solid; align-items: center; justify-content: center; }
+.pr-lb-box svg { overflow: visible; display: block; }
+.pr-lb-handle { position: absolute; border-radius: 2px; background: rgb(60 60 60 / .6); pointer-events: none; }
 .pr-treeview { list-style: none; margin: 0; padding: 2px; overflow: auto; background: var(--pr-field); color: var(--pr-field-text); border: 1px solid var(--pr-border); border-radius: 4px; }
 .pr-treeview ul { list-style: none; margin: 0; padding-left: 16px; }
 .pr-node-row { display: flex; align-items: center; gap: 4px; padding: 1px 4px; cursor: default; white-space: nowrap; }
 .pr-node-row .pr-arrow { width: 1.2em; flex: none; background: transparent; border: 0; color: inherit; padding: 0; cursor: pointer; font: inherit; }
 .pr-node-icon { width: 1.1em; height: 1.1em; flex: none; }
 .pr-treeview li.pr-selected > .pr-node-row { background: var(--pr-accent); color: #fff; }
-.pr-datagrid { overflow: auto; background: var(--pr-field); color: var(--pr-field-text); border: 1px solid var(--pr-border); border-radius: 4px; }
-.pr-datagrid table { border-collapse: collapse; width: 100%; table-layout: auto; }
-.pr-datagrid th { position: sticky; top: 0; z-index: 1; background: var(--pr-grid-head-bg, #e3e6eb); color: var(--pr-grid-head-fg, #14161a); text-align: left; padding: 3px 8px;
-  border-bottom: 1px solid var(--pr-grid-line, var(--pr-border)); cursor: pointer; user-select: none; white-space: nowrap; }
-.pr-datagrid th[aria-sort="ascending"]::after { content: " \25B2"; font-size: .8em; } .pr-datagrid th[aria-sort="descending"]::after { content: " \25BC"; font-size: .8em; }
-.pr-datagrid td { padding: 0 8px; border-bottom: 1px solid var(--pr-grid-line, rgba(0,0,0,.1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40em; }
-.pr-datagrid td.pr-num { text-align: right; font-variant-numeric: tabular-nums; }
-.pr-datagrid tr.pr-pad td { padding: 0; border: 0; }
-.pr-datagrid.pr-zebra-rows tbody tr:nth-child(even) td { background: var(--pr-grid-alt, rgba(0,0,0,.045)); }
-.pr-datagrid tr[aria-selected="true"] td { background: var(--pr-accent); color: #fff; }
+/* The DataGrid is drawn the way the desktop draws it (view/datagrid.rs): a clipped frame, a sheet that scrolls natively
+   under sticky bands, and overlays for the lines, the shadows and the bars. Sizes and places are written per element. */
+.pr-datagrid { position: relative; overflow: hidden; background: var(--pr-field); color: var(--pr-field-text); }
+.pr-dg-scroll { position: absolute; inset: 0; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; }
+.pr-dg-scroll::-webkit-scrollbar { display: none; }
+.pr-dg-sheet { position: relative; }
+.pr-dg-caption { position: sticky; top: 0; left: 0; z-index: 5; box-sizing: border-box; overflow: hidden; }
+.pr-dg-head { position: sticky; z-index: 4; display: flex; box-sizing: border-box; }
+.pr-dg-row { position: absolute; left: 0; display: flex; }
+.pr-dg-c, .pr-dg-hc { position: relative; flex: none; box-sizing: border-box; padding: 0 2px; overflow: clip; overflow-clip-margin: content-box; }
+.pr-dg-hc { cursor: pointer; user-select: none; }
+.pr-dg-fz { position: sticky; z-index: 2; }
+.pr-dg-ln { box-shadow: inset 1px 0 0 0 var(--pr-dg-line, rgb(27 42 78)); }
+.pr-dg-lf { box-shadow: 1px 0 0 0 var(--pr-dg-line, rgb(27 42 78)); }
+.pr-dg-ln.pr-dg-lf { box-shadow: inset 1px 0 0 0 var(--pr-dg-line, rgb(27 42 78)), 1px 0 0 0 var(--pr-dg-line, rgb(27 42 78)); }
+/* The desktop's glyphs are hinted to the pixel grid and a browser's are not: at the grid's sizes the two carry the same
+   ink with no outline added (measured on the grid's titles and cells), which the labels' calibrated outline would overshoot. */
+.pr-dg-t { position: absolute; white-space: pre; margin: 0; padding: 0; font-weight: 400; text-shadow: none; -webkit-text-stroke: 0; pointer-events: none; }
+.pr-dg-sel::after { content: ""; position: absolute; inset: 0 2px; background: var(--pr-dg-sel, rgb(80 145 255 / .216)); pointer-events: none; }
+.pr-dg-clip { position: absolute; left: 0; top: 0; overflow: hidden; pointer-events: none; }
+.pr-dg-mv { position: absolute; overflow: hidden; cursor: pointer; }
+.pr-dg-csv { position: absolute; box-sizing: border-box; border: 1px solid; border-radius: 3px; cursor: pointer; }
+.pr-dg-fill { position: absolute; pointer-events: none; }
+.pr-dg-hl { position: absolute; left: 0; right: 0; height: 1px; background: var(--pr-dg-line, rgb(27 42 78)); z-index: 6; pointer-events: none; }
+.pr-dg-vl { position: absolute; width: 1px; background: var(--pr-dg-line, rgb(27 42 78)); z-index: 6; pointer-events: none; }
+.pr-dg-ol { position: absolute; inset: 0; box-sizing: border-box; border: 1px solid var(--pr-dg-line, rgb(27 42 78)); z-index: 7; pointer-events: none; }
+.pr-dg-sh { position: absolute; z-index: 8; pointer-events: none; }
+.pr-dg-sh-l { background: linear-gradient(to right, rgb(0 0 0 / .2157), rgb(0 0 0 / 0)); }
+.pr-dg-sh-t { background: linear-gradient(to bottom, rgb(0 0 0 / .2157), rgb(0 0 0 / 0)); }
+.pr-dg-track { position: absolute; z-index: 9; border-radius: 5px; background: rgb(0 0 0 / .2157); pointer-events: none; }
+.pr-dg-thumb { position: absolute; z-index: 9; border-radius: 5px; background: rgb(0 0 0 / .588); pointer-events: none; }
+.pr-dg-thumb-add { background: rgb(230 235 255); mix-blend-mode: plus-lighter; }
+.pr-dg-asc::after, .pr-dg-desc::after { content: ""; position: absolute; right: 6px; top: 50%; margin-top: -2px; border: 3.5px solid transparent; opacity: .8; }
+.pr-dg-asc::after { border-bottom: 5px solid var(--pr-dg-head-ink, #fff); border-top: 0; }
+.pr-dg-desc::after { border-top: 5px solid var(--pr-dg-head-ink, #fff); border-bottom: 0; }
 .pr-progressbar { display: flex; align-items: center; gap: 6px; }
 .pr-progressbar progress { flex: 1; width: 100%; height: 100%; accent-color: var(--pr-accent); }
 .pr-slider { display: flex; align-items: center; gap: 6px; }
@@ -152,9 +208,9 @@ pub const BASE_CSS: &str = r#"
 
 /* drawn controls */
 .pr-barchart, .pr-linechart, .pr-piechart, .pr-areachart, .pr-scatterchart, .pr-donutchart, .pr-radarchart, .pr-gauge, .pr-knob, .pr-shape { display: block; }
-.pr-chart, .pr-gauge, .pr-knob, .pr-shape-svg, .pr-barchart > svg, .pr-linechart > svg, .pr-piechart > svg, .pr-areachart > svg, .pr-scatterchart > svg, .pr-donutchart > svg, .pr-radarchart > svg,
+.pr-chart, .pr-shape-svg, .pr-barchart > svg, .pr-linechart > svg, .pr-piechart > svg, .pr-areachart > svg, .pr-scatterchart > svg, .pr-donutchart > svg, .pr-radarchart > svg,
 .pr-gauge > svg, .pr-knob > svg, .pr-shape > svg { display: block; width: 100%; height: 100%; }
-.pr-barchart text, .pr-linechart text, .pr-piechart text, .pr-areachart text, .pr-scatterchart text, .pr-donutchart text, .pr-radarchart text, .pr-gauge text, .pr-knob text { font: 11px var(--pr-font); }
+.pr-barchart text, .pr-linechart text, .pr-piechart text, .pr-areachart text, .pr-scatterchart text, .pr-donutchart text, .pr-radarchart text, .pr-gauge text, .pr-knob text { font-family: var(--pr-font); -webkit-text-stroke: 0; }
 .pr-knob { touch-action: none; cursor: pointer; }
 .pr-maps { position: relative; overflow: hidden; background: #1c1f24; touch-action: none; cursor: grab; }
 .pr-tiles { position: absolute; inset: 0; }

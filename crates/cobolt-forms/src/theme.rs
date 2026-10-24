@@ -45,6 +45,40 @@ pub const SPATIAL: &str = "spatial";
 /// no desktop behind it at all.
 pub const SEE_THROUGH_BACKDROP_RGB: (u8, u8, u8) = (0x4A, 0x46, 0x42);
 
+/// The glass a see-through theme paints as its form's own backdrop (Spatial): straight RGBA, translucent so that the
+/// blurred desktop shows. The form's `Transparency` multiplies the alpha; the form's own colour, gradient and picture do
+/// not show (the host replaces them: `cobolt-form-host`'s backdrop, the Web player's form rule).
+pub const SPATIAL_FORM_GLASS: [u8; 4] = [66, 65, 62, 150];
+
+/// Spatial's surfaces, in plain numbers (straight RGBA, `[r, g, b, a]`), so that the Web player draws the same faces the painter does:
+/// `cobolt_forms::surface_theme::SpatialTheme` is made from these.
+pub mod spatial {
+    /// The rim every face carries: one pixel, white and nearly clear.
+    pub const RIM: [u8; 4] = [255, 255, 255, 46];
+    /// A card (Panel, GroupBox, …) that names no colour of its own.
+    pub const CARD: [u8; 4] = [255, 255, 255, 26];
+    /// A well the user types into (TextBox, ComboBox, …) that names no colour.
+    pub const INPUT: [u8; 4] = [0, 0, 0, 46];
+    /// A button that names no colour.
+    pub const BUTTON: [u8; 4] = [255, 255, 255, 40];
+    /// The corner radius of a control and of a card, when the developer set none.
+    pub const CONTROL_RADIUS: f32 = 14.0;
+    pub const CARD_RADIUS: f32 = 24.0;
+
+    /// The straight colour a theme colour reaches the screen as when the painter fades it for a face of `face_alpha` (0 to 1,
+    /// `1 - Transparency`): `(channel, alpha)` for `c`, a straight RGBA colour.
+    ///
+    /// The painter fades a theme colour by reading its channels back out of a colour that is already premultiplied and
+    /// premultiplying them again (`paint::theme_alpha`). A colour with an alpha therefore arrives darker than it was named
+    /// — `channel * alpha / 255` — and at the alpha scaled by the face's: the theme's faint white rim is a faint **dark**
+    /// grey line, `(46, 46, 46)` at 18 %; a card's `(255, 255, 255, 26)` is `(26, 26, 26)` at 10 %.
+    pub fn faded(c: [u8; 4], face_alpha: f64) -> ([u8; 3], u8) {
+        let a = c[3] as u32;
+        let premultiplied = |v: u8| ((v as u32 * a + 127) / 255) as u8;
+        ([premultiplied(c[0]), premultiplied(c[1]), premultiplied(c[2])], (a as f64 * face_alpha.clamp(0.0, 1.0)).round() as u8)
+    }
+}
+
 /// Does the theme `id` show what is behind its window? Only Spatial does; the
 /// render feature's `SurfaceTheme::see_through` says the same, and a test holds
 /// the two together.

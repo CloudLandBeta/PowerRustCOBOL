@@ -43,6 +43,27 @@ use cobolt_web_player::tree::FormTree;
 use cobolt_web_player::value::truthy;
 use cobolt_web_player::view::{controls, style, Empty, Prop, Slot, VNode};
 
+/// The stand-in face the desktop draws "Arial" in, as a `data:` URL for the page's `@font-face` (a
+/// shadow root cannot declare one: the document does, as the host page of a build does).
+fn font_face() -> String {
+    const UBUNTU_LIGHT: &[u8] = include_bytes!("../../../assets/web-fonts/Ubuntu-Light.ttf");
+    let b64 = base64_encode(UBUNTU_LIGHT);
+    format!("@font-face {{ font-family: \"PR Ubuntu Light\"; src: url(\"data:font/ttf;base64,{b64}\") format(\"truetype\"); font-weight: 100 900; font-style: normal; }}")
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len() / 3 * 4 + 4);
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
 /// The colour behind a see-through form theme: `cobolt_forms::theme::SEE_THROUGH_BACKDROP_RGB`.
 const BACKDROP: &str = "#4A4642";
 
@@ -55,11 +76,16 @@ struct Args {
     backdrop: String,
     geometry: bool,
     compare: Option<PathBuf>,
+    /// The boxes a browser measured on a first pass (`--geometry`, dumped with `--dump-dom`): what the page's
+    /// `ResizeObserver` tells the player, so that a control drawn to its own size is drawn for its real one.
+    sizes: Option<PathBuf>,
+    /// The form theme the page is drawn in, when the form names none (the project's `[forms] theme`, which the build bakes in).
+    theme: Option<String>,
 }
 
 fn args() -> Args {
     let mut it = std::env::args().skip(1);
-    let mut a = Args { form: PathBuf::new(), out: PathBuf::from("page.html"), width: None, height: None, state: None, backdrop: BACKDROP.into(), geometry: false, compare: None };
+    let mut a = Args { form: PathBuf::new(), out: PathBuf::from("page.html"), width: None, height: None, state: None, backdrop: BACKDROP.into(), geometry: false, compare: None, sizes: None, theme: std::env::var("PARITY_THEME").ok().filter(|t| !t.is_empty()) };
     while let Some(k) = it.next() {
         match k.as_str() {
             "--out" => a.out = it.next().expect("--out FILE").into(),
@@ -69,6 +95,8 @@ fn args() -> Args {
             "--backdrop" => a.backdrop = it.next().expect("--backdrop COLOUR"),
             "--geometry" => a.geometry = true,
             "--compare" => a.compare = it.next().map(PathBuf::from),
+            "--sizes" => a.sizes = it.next().map(PathBuf::from),
+            "--theme" => a.theme = it.next(),
             _ if a.form.as_os_str().is_empty() => a.form = k.into(),
             other => panic!("unknown argument {other}"),
         }
@@ -185,6 +213,15 @@ fn apply_state(tree: &mut FormTree, state: &serde_json::Value) -> (usize, usize)
     let (mut written, mut skipped) = (0, 0);
     let Some(map) = state.as_object() else { return (0, 0) };
     for (name, s) in map {
+        // A layer is in the dump under its own name; whether it is shown is the one thing the design leaves to the program.
+        if let Some(l) = tree.layer_by_name(name) {
+            let shown = s["visible"].as_bool().unwrap_or(false);
+            if tree.layers[l].visible != shown {
+                let _ = tree.layer_set(l, "Visible", if shown { "1" } else { "0" });
+                written += 1;
+            }
+            continue;
+        }
         let Some(i) = tree.by_name(name) else {
             skipped += 1;
             continue;
@@ -220,6 +257,29 @@ fn apply_state(tree: &mut FormTree, state: &serde_json::Value) -> (usize, usize)
         }
     }
     (written, skipped)
+}
+
+/// The same dump written onto the model form, so that the desktop solver lays out what the program
+/// left on the screen: the visibility and every property the dump holds.
+fn apply_state_to_form(form: &mut cobolt_forms::Form, state: &serde_json::Value) {
+    let Some(map) = state.as_object() else { return };
+    let by_name: BTreeMap<String, &serde_json::Value> = map.iter().map(|(k, v)| (k.to_ascii_uppercase(), v)).collect();
+    for c in &mut form.controls {
+        let Some(s) = by_name.get(&c.id.to_ascii_uppercase()) else { continue };
+        if let Some(v) = s["visible"].as_bool() {
+            c.visible = v;
+        }
+        if let Some(props) = s["props"].as_object() {
+            for (k, v) in props {
+                if k.eq_ignore_ascii_case("visible") || k.eq_ignore_ascii_case("name") {
+                    continue;
+                }
+                if let Some(v) = v.as_str() {
+                    c.set_prop(k.as_str(), v);
+                }
+            }
+        }
+    }
 }
 
 /// The script `--geometry` puts in the page: every control's box, in page pixels, as JSON.
@@ -294,10 +354,12 @@ fn compare_geometry(form: &cobolt_forms::Form, dom: &str, w: u32, h: u32) {
     let missing = rows.iter().filter(|r| r.web.is_none()).count();
     println!("geometry of {total} visible controls at {w}x{h} (breakpoint {:?}): within 0.5 px {exact}, within 2 px {near}, further {far}, no box in the page {missing}", out.breakpoint);
     rows.sort_by(|a, b| b.worst.partial_cmp(&a.worst).unwrap_or(std::cmp::Ordering::Equal));
-    for r in rows.iter().filter(|r| r.worst > 0.51).take(40) {
+    // `PARITY_MIN=0.01` lists every box that is off by more than that, to the hundredth of a pixel (default: half a pixel).
+    let min: f64 = std::env::var("PARITY_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(0.51);
+    for r in rows.iter().filter(|r| r.worst > min).take(if min < 0.51 { 400 } else { 40 }) {
         match r.web {
             Some(b) => println!(
-                "  {:<22} {:<12} desktop {:>7.1} {:>7.1} {:>7.1} {:>7.1}   web {:>7.1} {:>7.1} {:>7.1} {:>7.1}   off by {:>6.1}",
+                "  {:<22} {:<12} desktop {:>8.3} {:>8.3} {:>8.3} {:>8.3}   web {:>8.3} {:>8.3} {:>8.3} {:>8.3}   off by {:>7.3}",
                 r.id, r.kind, r.desk[0], r.desk[1], r.desk[2], r.desk[3], b[0], b[1], b[2], b[3], r.worst
             ),
             None => println!("  {:<22} {:<12} desktop {:>7.1} {:>7.1} {:>7.1} {:>7.1}   web: no box", r.id, r.kind, r.desk[0], r.desk[1], r.desk[2], r.desk[3]),
@@ -307,9 +369,16 @@ fn compare_geometry(form: &cobolt_forms::Form, dom: &str, w: u32, h: u32) {
 
 fn main() {
     let a = args();
-    let form = cobolt_forms::xml::load_form(&a.form).unwrap_or_else(|e| panic!("{}: {e}", a.form.display()));
+    let mut form = cobolt_forms::xml::load_form(&a.form).unwrap_or_else(|e| panic!("{}: {e}", a.form.display()));
+    if form.theme.as_deref().map(str::trim).is_none_or(str::is_empty) {
+        form.theme = a.theme.clone();
+    }
     if let Some(dom) = &a.compare {
         let text = std::fs::read_to_string(dom).unwrap_or_else(|e| panic!("{}: {e}", dom.display()));
+        if let Some(p) = &a.state {
+            let state: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))).expect("the state is JSON");
+            apply_state_to_form(&mut form, &state);
+        }
         compare_geometry(&form, &text, a.width.unwrap_or(form.width), a.height.unwrap_or(form.height));
         return;
     }
@@ -339,10 +408,42 @@ fn main() {
     let bp = (!tree.breakpoints.is_empty())
         .then(|| cobolt_forms::layout::breakpoints::select(&tree.breakpoints, w as f32, None).cloned())
         .flatten();
+    // And the font factor the form's `FontScaling` makes of that width, which every lettered control is drawn through.
+    let factor = tree.font_factor_at(w as f64, bp.as_ref());
+    tree.set_font_factor(factor);
     let ctls = tree.effective_ctls(bp.as_ref());
     let responsive = truthy(&tree.get(0, "Responsive"));
-    let assets = BTreeMap::new();
-    let empty = Empty::default();
+    let mut empty = Empty::default();
+    // The pictures the form names, from the project beside it (`<project>/forms/x.cfrm` → `<project>/Assets/…`), as `data:` URLs
+    // — what the built application's asset table holds, so that the page draws the pictures the desktop draws.
+    if let Some(root) = a.form.parent().and_then(|f| f.parent()) {
+        for c in &form.controls {
+            for key in ["ImagePath", "IconPath", "ImagePath2"] {
+                let Some(rel) = c.get_prop(key).map(|v| v.as_str().trim().to_owned()).filter(|r| !r.is_empty()) else { continue };
+                let Ok(bytes) = std::fs::read(root.join(rel.replace('\\', "/"))) else { continue };
+                let mime = match rel.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
+                    Some("svg") => "image/svg+xml",
+                    Some("png") => "image/png",
+                    Some("jpg") | Some("jpeg") => "image/jpeg",
+                    Some("gif") => "image/gif",
+                    Some("webp") => "image/webp",
+                    _ => continue,
+                };
+                empty.assets.insert(rel.to_ascii_lowercase().replace('\\', "/"), format!("data:{mime};base64,{}", base64_encode(&bytes)));
+            }
+        }
+    }
+    let assets = empty.assets.clone();
+    if let Some(p) = &a.sizes {
+        let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+        for (name, b) in read_geometry(&text) {
+            if b[4] > 0.5 {
+                if let Some(i) = tree.by_name(&name) {
+                    empty.ui.box_sizes.insert(i, (b[2], b[3]));
+                }
+            }
+        }
+    }
     let cx = empty.cx(&tree);
 
     let n = ctls.len();
@@ -372,14 +473,17 @@ fn main() {
     let mut doc = String::new();
     let _ = write!(
         doc,
-        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{t}</title>\n<style>\nhtml, body {{ margin: 0; padding: 0; }}\n#pr-app {{ {frame} overflow: hidden; color: rgb(255, 255, 255); background: {bd}; font: 14px/1.4 system-ui, sans-serif; }}\n</style></head>\n<body class=\"pr-window\"><div id=\"pr-app\" class=\"pr-window\"><template shadowrootmode=\"open\">\n<style>\n:host {{ display: block; }}\n.pr-root {{ width: 100%; height: 100%; }}\n{base}\n{props}\n</style>\n<div class=\"pr-root\"><div class=\"pr-banner-host\"></div><div class=\"pr-main\"><section class=\"pr-form\" data-pr-form=\"{f}\" data-pr-inst=\"0\" aria-label=\"{t}\"{resp}><div class=\"pr-surface\">{surface}</div></section></div></div>\n</template></div>{geom}</body></html>\n",
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{t}</title>\n<style>\n{face}\nhtml, body {{ margin: 0; padding: 0; }}\n#pr-app {{ {frame} overflow: hidden; color: rgb(255, 255, 255); background: {bd}; font: 14px/1.4 system-ui, sans-serif; }}\n</style></head>\n<body class=\"pr-window\"><div id=\"pr-app\" class=\"pr-window\"><template shadowrootmode=\"open\">\n<style>\n:host {{ display: block; }}\n.pr-root {{ width: 100%; height: 100%; }}\n{base}\n{props}\n{extra}\n</style>\n<div class=\"pr-root\"><div class=\"pr-banner-host\"></div><div class=\"pr-main\"><section class=\"pr-form\" data-pr-form=\"{f}\" data-pr-inst=\"0\" aria-label=\"{t}\"{resp}><div class=\"pr-surface\">{surface}</div></section></div></div>\n</template></div>{geom}</body></html>\n",
         t = esc_attr(&title),
+        face = font_face(),
         bd = a.backdrop,
         // The window the host page gives the application, or — to measure — a box of the page's own size
         // whatever the browser's viewport is (a headless browser's DOM dump has a shorter one).
         frame = if a.geometry { format!("position: absolute; left: 0; top: 0; width: {w}px; height: {h}px;") } else { "position: fixed; inset: 0; width: 100vw; height: 100vh;".to_owned() },
         base = base_css::base_layer(),
         props = style::wrap_layer(&css),
+        // Raw rules for a measurement (`PARITY_EXTRA_CSS`), after everything else: how a change would look.
+        extra = std::env::var("PARITY_EXTRA_CSS").unwrap_or_default(),
         f = esc_attr(&tree.form_name),
         resp = if responsive { " data-responsive" } else { "" },
         surface = surface,

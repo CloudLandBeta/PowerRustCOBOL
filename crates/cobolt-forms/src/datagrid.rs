@@ -589,6 +589,38 @@ fn checkbox_pair(raw: &str, checked: &str, unchecked: &str) -> (String, String, 
     (checked, unchecked, explicit)
 }
 
+/// Order the rows a DataGrid shows by one column, stably: numerically when the column is declared numeric
+/// or every value in it reads as a number, otherwise as text, ignoring case. A value that is not a number
+/// sorts after the numbers. Shared by the desktop painter and the web player, so a click on a column title
+/// puts the rows in the same order on both.
+pub fn sort_datagrid_rows(indices: &mut [usize], rows: &[Vec<String>], source: usize, ty: &str, descending: bool) {
+    let cell = |r: usize| rows.get(r).and_then(|row| row.get(source)).map(String::as_str).unwrap_or("");
+    let number = |v: &str| v.trim().parse::<f64>().ok();
+    let declared = matches!(
+        ty.trim().to_ascii_lowercase().as_str(),
+        "number" | "numeric" | "int" | "integer" | "decimal" | "float" | "double" | "currency" | "money"
+    );
+    let numeric = declared
+        || indices.iter().all(|&r| {
+            let v = cell(r).trim();
+            v.is_empty() || number(v).is_some()
+        });
+    indices.sort_by(|&a, &b| {
+        let (x, y) = (cell(a), cell(b));
+        let order = if numeric {
+            match (number(x), number(y)) {
+                (Some(p), Some(q)) => p.partial_cmp(&q).unwrap_or(std::cmp::Ordering::Equal),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => x.to_lowercase().cmp(&y.to_lowercase()),
+            }
+        } else {
+            x.to_lowercase().cmp(&y.to_lowercase())
+        };
+        if descending { order.reverse() } else { order }
+    });
+}
+
 /// Whether a Checkbox cell holding `raw` is checked. With a pair of the column's
 /// own it is checked exactly when the text is the checked value (any case); with
 /// none it is checked when the text is one of the words a cell has always been

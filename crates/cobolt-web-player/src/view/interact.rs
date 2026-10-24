@@ -27,7 +27,7 @@ use cobolt_forms::model::{ControlType, CHECKED_PROP, SELECTED_PROP};
 use cobolt_forms::treenodes::{node_at, nodes};
 
 use super::controls::{display_items, lines, lines_nonempty};
-use super::data::{columns, node_payload, sorted_order, visible_nodes, DEFAULT_WINDOW, OVERSCAN};
+use super::data::{node_payload, visible_nodes};
 use super::shell::{menu_items, toolbar_def};
 use super::ViewCtx;
 use crate::tree::{Ctl, FormTree, Kind};
@@ -70,7 +70,9 @@ pub struct Payload {
     pub h: f64,
     pub delta: f64,
     pub scroll_top: f64,
+    pub scroll_left: f64,
     pub client_height: f64,
+    pub client_width: f64,
     /// Files of a drop or a picker: `(name, bytes)`.
     pub files: Vec<(String, u64)>,
     /// The named fields of a form at the moment of its `submit`: `(name, value)`.
@@ -98,7 +100,8 @@ impl Payload {
 pub enum UiOp {
     /// Open this chain of menu items (a MenuBar dropdown) or set the expanded set (a SideMenu).
     SetOpenMenu(Vec<String>),
-    GridWindow { first: usize, count: usize },
+    /// A DataGrid or a ListBox was scrolled to this offset.
+    GridScroll { left: f64, top: f64 },
     GridSort { col: usize, descending: bool },
     Sidebar(bool),
     DropOver(bool),
@@ -241,7 +244,9 @@ pub fn on_event(cx: &ViewCtx, ctl: usize, p: &Payload) -> Vec<Act> {
             Some(ControlType::MenuBar | ControlType::SideMenu | ControlType::ToolBar) => p.id.is_some(),
             _ => crate::kinds::player_kind(c) == Some(crate::kinds::PlayerKind::WebLink),
         };
-    if p.key == generic_key(c) && !own_click {
+    // The expand icon of a card takes its own click: it is not a click on the card (spec 090 R3).
+    let on_expander = p.part.as_deref() == Some("expander");
+    if p.key == generic_key(c) && !own_click && !on_expander {
         acts.extend(generic(c, p));
     }
     acts
@@ -270,6 +275,7 @@ fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         ControlType::TabControl => tab_control(cx, i, p),
         ControlType::Slider => slider(p),
         ControlType::NumericUpDown => numeric(cx, i, p),
+        ControlType::Panel | ControlType::GroupBox => expander(cx, i, p),
         ControlType::DateTimePicker => {
             if matches!(p.kind.as_str(), "input" | "change") {
                 vec![Act::Change { prop: "Value".into(), value: p.value.clone() }]
@@ -292,6 +298,15 @@ fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
 }
 
 // ── the controls ────────────────────────────────────────────────────────────
+
+/// A click on a card's expand icon turns its `Expanded` over (spec 090 R3).
+fn expander(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
+    if p.kind != "click" || p.part.as_deref() != Some("expander") {
+        return Vec::new();
+    }
+    let expanded = crate::value::truthy(&cx.tree.get(i, "Expanded"));
+    vec![Act::Change { prop: "Expanded".into(), value: if expanded { "0" } else { "1" }.into() }]
+}
 
 fn text_box(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     let Some(pic) = cx.tree.picture_of(i) else {
@@ -402,6 +417,14 @@ fn list_box(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         v
     };
     match p.kind.as_str() {
+        // The handle follows where the rows have been scrolled to.
+        "scroll" => {
+            let (left, top) = (p.scroll_left.max(0.0).round(), p.scroll_top.max(0.0).round());
+            if cx.ui.grid_scroll.get(&i).copied().unwrap_or((0.0, 0.0)) == (left, top) {
+                return Vec::new();
+            }
+            vec![Act::Ui(UiOp::GridScroll { left, top })]
+        }
         "click" => {
             let Some(k) = p.index.filter(|k| *k >= 0 && (*k as usize) < items.len()).map(|k| k as usize) else { return Vec::new() };
             if checks && p.part.as_deref() == Some("check") {
@@ -480,7 +503,7 @@ fn combo_box(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     let current = parse_f64(&cx.tree.get(i, "SelectedIndex")).map(|v| v as i64).unwrap_or(0);
     match (p.kind.as_str(), p.key.as_str()) {
         // A <select> (the list-only style).
-        ("change", "root") => {
+        ("change", "root" | "select") => {
             let k = p.value.trim().parse::<usize>().ok().filter(|k| *k < items.len());
             let (index, text) = match k {
                 Some(k) => ((k + 1) as i64, items[k].clone()),
@@ -628,31 +651,32 @@ fn tree_view(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
 
 // ── DataGrid ────────────────────────────────────────────────────────────────
 
-/// The rows to draw for a scroll position: the first row in view and how many fit.
-pub fn grid_window(scroll_top: f64, client_height: f64, row_h: f64) -> (usize, usize) {
-    let rh = row_h.max(1.0);
-    let first = (scroll_top.max(0.0) / rh).floor() as usize;
-    let count = ((client_height.max(0.0) / rh).ceil() as usize + 1).max(DEFAULT_WINDOW.min(8));
-    (first, count)
-}
-
 fn data_grid(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
-    let rows = cobolt_forms::datagrid::parse_rows(&cx.tree.get(i, "Rows"));
-    let rh = super::data::row_height(cx, i);
+    use super::datagrid;
     let sort = cx.ui.grid_sort.get(&i).copied();
     match p.kind.as_str() {
         "scroll" => {
-            let (first, count) = grid_window(p.scroll_top, p.client_height, rh);
-            let cur = cx.ui.grid_window.get(&i).copied().unwrap_or((0, DEFAULT_WINDOW));
-            // Re-render only when the window has left what is already drawn (with its overscan).
-            let drawn_lo = cur.0.saturating_sub(OVERSCAN);
-            let drawn_hi = cur.0 + cur.1 + OVERSCAN;
-            if first >= drawn_lo + OVERSCAN / 2 && first + count + OVERSCAN / 2 <= drawn_hi {
+            // Where the page is scrolled to is drawn (the bars follow it, the rows in view are chosen by it).
+            let (left, top) = (p.scroll_left.max(0.0).round(), p.scroll_top.max(0.0).round());
+            if cx.ui.grid_scroll.get(&i).copied().unwrap_or((0.0, 0.0)) == (left, top) {
                 return Vec::new();
             }
-            vec![Act::Ui(UiOp::GridWindow { first, count }), ev("onScroll")]
+            vec![Act::Ui(UiOp::GridScroll { left, top }), ev1("onScroll", format!("{top:.0},{left:.0}"))]
         }
         "click" | "dblclick" => {
+            // The CSV button asks for the grid's rows as a file.
+            if p.part.as_deref() == Some("csv") {
+                return if p.kind == "click" { vec![ev("onExportCSV")] } else { Vec::new() };
+            }
+            // A column-move button: the column swaps places with its neighbour, as the desktop's does.
+            if p.part.as_deref() == Some("colmove") {
+                let (Some(col), "click") = (p.col.filter(|c| *c >= 0).map(|c| c as usize), p.kind.as_str()) else { return Vec::new() };
+                let left = p.id.as_deref() == Some("left");
+                return match datagrid::moved_columns(cx, i, col, left) {
+                    Some(json) => vec![quiet("AdvancedGrid", json)],
+                    None => Vec::new(),
+                };
+            }
             // A header click: sort, and report the column.
             if p.part.as_deref() == Some("header") || (p.row.is_none() && p.col.is_some()) {
                 let Some(col) = p.col.filter(|c| *c >= 0).map(|c| c as usize) else { return Vec::new() };
@@ -660,24 +684,25 @@ fn data_grid(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
                     return Vec::new();
                 }
                 let mut v = vec![ev1("onColumnClick", col.to_string())];
-                if truthy(&cx.tree.get(i, "AllowSorting")) {
+                if truthy(&cx.tree.get(i, "AllowSorting")) && datagrid::sortable(cx, i, col) {
                     let descending = matches!(sort, Some((c, false)) if c == col);
                     v.push(Act::Ui(UiOp::GridSort { col, descending }));
                 }
                 return v;
             }
+            let rows = datagrid::row_count(cx, i);
             let (Some(row), col) = (p.row.filter(|r| *r >= 0).map(|r| r as usize), p.col.unwrap_or(0).max(0) as usize) else { return Vec::new() };
-            if row >= rows.len() {
+            if row >= rows {
                 return Vec::new();
             }
             let prev = parse_f64(&cx.tree.get(i, "ClickedRow")).map(|v| v as i64).unwrap_or(0);
-            let ncols = columns(&cx.tree.get(i, "Columns")).len().max(1);
-            let col = col.min(ncols - 1);
+            // The cell as the program counts it: the data row and the data column from 1 (0 for a column with no data behind it).
+            let source = datagrid::source_of(cx, i, col).map(|s| s + 1).unwrap_or(0);
             let value = format!("{row},{col}");
             if p.kind == "dblclick" {
                 return vec![ev1("onCellDoubleClick", value), ev1("onRowDoubleClick", row.to_string())];
             }
-            let mut v = vec![quiet("ClickedRow", (row + 1).to_string()), quiet("ClickedColumn", (col + 1).to_string())];
+            let mut v = vec![quiet("ClickedRow", (row + 1).to_string()), quiet("ClickedColumn", source.to_string())];
             if prev != row as i64 + 1 {
                 v.push(ev("onSelectionChanged"));
                 v.push(ev("onRowSelect"));
@@ -685,11 +710,11 @@ fn data_grid(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
             v.push(ev1("onCellClick", value));
             v
         }
-        "keydown" if !rows.is_empty() => {
-            let order: Vec<usize> = match sort {
-                Some((c, d)) if truthy(&cx.tree.get(i, "AllowSorting")) => sorted_order(&rows, c, d),
-                _ => (0..rows.len()).collect(),
-            };
+        "keydown" => {
+            let order = datagrid::displayed_order(cx, i);
+            if order.is_empty() {
+                return Vec::new();
+            }
             let prev = parse_f64(&cx.tree.get(i, "ClickedRow")).map(|v| v as i64).unwrap_or(0);
             let pos = order.iter().position(|r| *r as i64 + 1 == prev);
             let to = match p.key_name.as_str() {
@@ -1451,19 +1476,48 @@ mod tests {
     }
 
     #[test]
-    fn scrolling_a_grid_moves_the_window_only_when_it_leaves_what_is_drawn() {
+    fn scrolling_a_grid_reports_where_it_stands_and_does_nothing_when_it_has_not_moved() {
         let rows: String = (0..1000).map(|i| format!("r{i}")).collect::<Vec<_>>().join("\n");
         let (t, g) = tree_with("DataGrid", "G", &[("Columns", "A:string"), ("Rows", &rows)]);
         let e = Empty::default();
-        let mut far = Payload::new("scroll", "root");
+        let mut far = Payload::new("scroll", "scroller");
         far.scroll_top = 22.0 * 500.0;
+        far.scroll_left = 40.0;
         far.client_height = 220.0;
-        let acts = run(&t, g, &e, far);
-        assert!(acts.iter().any(|a| matches!(a, Act::Ui(UiOp::GridWindow { first: 500, .. }))), "{acts:?}");
-        let mut near = Payload::new("scroll", "root");
-        near.scroll_top = 22.0 * 8.0;
-        near.client_height = 220.0;
-        assert!(!run(&t, g, &e, near).iter().any(|a| matches!(a, Act::Ui(UiOp::GridWindow { .. }))), "still inside the drawn window");
+        let acts = run(&t, g, &e, far.clone());
+        assert!(acts.contains(&Act::Ui(UiOp::GridScroll { left: 40.0, top: 11000.0 })), "{acts:?}");
+        assert_eq!(names(&acts).last().map(String::as_str), Some("onScroll(11000,40)"), "the desktop's value: the top, then the left");
+        let mut again = Empty::default();
+        again.ui.grid_scroll.insert(g, (40.0, 11000.0));
+        assert!(run(&t, g, &again, far).is_empty(), "the page told us where it already is");
+    }
+
+    #[test]
+    fn the_buttons_of_a_grid_ask_for_what_they_say() {
+        let (t, g) = tree_with("DataGrid", "G", &[("Columns", "A:string\nB:string\nC:string"), ("Rows", "x\ty\tz"), ("ShowCSVExportButton", "1")]);
+        let e = Empty::default();
+        let mut csv = Payload::new("click", "root");
+        csv.part = Some("csv".into());
+        assert_eq!(names(&run(&t, g, &e, csv)), ["onExportCSV", "onClick"]);
+        // The right-hand button of the first column moves it one place right: the advanced settings are written whole.
+        let mut right = Payload::new("click", "root");
+        right.part = Some("colmove".into());
+        right.id = Some("right".into());
+        right.col = Some(0);
+        let acts = run(&t, g, &e, right);
+        let written = acts.iter().find_map(|a| match a {
+            Act::Quiet { prop, value } if prop == "AdvancedGrid" => Some(value.clone()),
+            _ => None,
+        });
+        let json = written.expect("the settings with the columns in their new order");
+        let titles: Vec<String> = serde_json::from_str::<serde_json::Value>(&json).unwrap()["columns"].as_array().unwrap().iter().map(|c| c["title"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(titles, ["B", "A", "C"]);
+        // The left-hand button of the first column has nowhere to go.
+        let mut left = Payload::new("click", "root");
+        left.part = Some("colmove".into());
+        left.id = Some("left".into());
+        left.col = Some(0);
+        assert!(!run(&t, g, &e, left).iter().any(|a| matches!(a, Act::Quiet { prop, .. } if prop == "AdvancedGrid")));
     }
 
     #[test]
@@ -1625,15 +1679,6 @@ mod tests {
     #[test]
     fn a_notification_button_records_which_button_before_it_raises_the_event() {
         assert_eq!(names(&toast_button("undo", 0, true)), ["LastButtonId=undo", "LastButtonIndex=1", "onButtonClick(undo)", "onClosing", "onClosed"]);
-    }
-
-    #[test]
-    fn grid_windows_cover_the_viewport() {
-        assert_eq!(grid_window(0.0, 220.0, 22.0).0, 0);
-        let (first, count) = grid_window(2200.0, 220.0, 22.0);
-        assert_eq!(first, 100);
-        assert!(count >= 10);
-        let _ = (fmt_number(1.0), lines("a"));
     }
 
     fn auth_tree() -> (FormTree, usize) {

@@ -35,6 +35,7 @@ use cobolt_forms::model::{Control, ControlType, Rect};
 use crate::css::{self, Decls};
 use crate::kinds::{player_kind, PlayerKind};
 use crate::layout_css;
+use crate::metrics;
 use crate::tree::{Ctl, Kind};
 use crate::value::{css_color, fmt_number, parse_color, parse_f64};
 
@@ -91,10 +92,7 @@ fn px(v: f64) -> String {
 
 /// The width of the border a control draws (0 when it draws none).
 pub fn border_px(c: &Ctl) -> f64 {
-    match c.raw("borderstyle").map(|s| s.trim().to_ascii_lowercase()).as_deref() {
-        None | Some("") | Some("none") => 0.0,
-        Some(_) => num(c, "borderwidth").unwrap_or(1.0).clamp(0.0, 32.0),
-    }
+    css::border_width(c)
 }
 
 fn model_control(c: &Ctl) -> Control {
@@ -177,6 +175,13 @@ pub fn mount_of(ctls: &[Ctl], i: usize) -> (usize, super::Slot) {
 /// The order to mount controls in: a parent before its children, and siblings by layer, then by
 /// `ZOrder` (the desktop paints them in that order; the DOM paints later siblings on top). A layer
 /// above the base stacks over it and over the layers below it as one group (spec 091 R9, D20).
+///
+/// The children of a container that lays them out (Flex, Flow, Grid) are mounted in the solver's
+/// **reading order** instead — top to bottom by their designed rectangles, then left to right (right
+/// to left in a right-to-left container) — because that is the order the desktop places them in
+/// (`cobolt_forms::layout::reading_order`, spec 056 R54), and the browser's flex and grid layout
+/// places its items in document order. The `Order` property then moves an item by CSS `order`, as
+/// it does for the solver, which sorts by it first and keeps the reading order among equals.
 pub fn mount_order(ctls: &[Ctl]) -> Vec<usize> {
     fn depth(ctls: &[Ctl], mut i: usize) -> usize {
         let mut d = 0;
@@ -189,8 +194,23 @@ pub fn mount_order(ctls: &[Ctl]) -> Vec<usize> {
         }
         d
     }
+    // The two keys that order a control among its siblings: its place in reading order when its
+    // parent lays its children out, else its `ZOrder`.
+    let among_siblings = |i: usize| -> (i64, i64) {
+        let parent = ctls[i].parent.unwrap_or(0);
+        match layout_css::mode_of(&ctls[parent]) {
+            layout_css::Mode::Absolute => (num(&ctls[i], "zorder").unwrap_or(0.0) as i64, 0),
+            _ => {
+                let (x, y) = (num(&ctls[i], "x").unwrap_or(0.0) as i64, num(&ctls[i], "y").unwrap_or(0.0) as i64);
+                (y, if layout_css::reads_right_to_left(&ctls[parent]) { -x } else { x })
+            }
+        }
+    };
     let mut order: Vec<usize> = (1..ctls.len()).collect();
-    order.sort_by_key(|&i| (depth(ctls, i), ctls[i].layer.map_or(0, |l| l + 1), num(&ctls[i], "zorder").unwrap_or(0.0) as i64, i));
+    order.sort_by_key(|&i| {
+        let (a, b) = among_siblings(i);
+        (depth(ctls, i), ctls[i].layer.map_or(0, |l| l + 1), a, b, i)
+    });
     order
 }
 
@@ -200,6 +220,48 @@ fn accent_of(name: &str) -> String {
 
 fn color(c: &Ctl, k: &str) -> Option<String> {
     c.raw(k).and_then(parse_color).map(css_color)
+}
+
+/// The caption shrunk to fit a frame `max_w` by `max_h` (`paint::fitted_caption_galley_wrapping`): when the designed size
+/// does not fit, the size it is shrunk to is written (with the row and the outline that go with it). Answers the size
+/// the caption ends up at and the height of the block of rows it fills.
+fn fit_caption(c: &Ctl, d: &mut Decls, max_w: f64, max_h: f64, wrap: bool) -> (f64, f64) {
+    // Not rounded: the painter fits from the size it is handed, a fraction when the form's font factor made one.
+    let designed = num(c, "fontsize").filter(|s| *s > 0.0).unwrap_or(11.0).max(1.0);
+    let text = c.raw("caption").unwrap_or("");
+    if text.trim().is_empty() {
+        return (designed, metrics::row_height(designed));
+    }
+    let size = metrics::fitted_size(text, designed, max_w.max(1.0), max_h.max(1.0), wrap);
+    if size < designed {
+        let ink = c.raw("foregroundcolor").and_then(parse_color).unwrap_or([255, 255, 255, 255]);
+        push(d, "font-size", px(size));
+        push(d, "line-height", px(metrics::row_height(size)));
+        push(d, "-webkit-text-stroke", px(metrics::stroke(size, ink)));
+    }
+    let (lines, _) = metrics::lay_out(text, size, max_w.max(1.0), wrap);
+    (size, lines.max(1) as f64 * metrics::row_height(size))
+}
+
+/// The padding above and below a line of text that makes a browser put the line's baseline where the
+/// desktop puts it: `nudge` pixels lower (or higher, when negative) than the line box alone would. Centred text
+/// moves by half of what is added to one side; text held to an edge moves by all of it.
+///
+/// Centred text is also kept off the half pixel. When the frame is an odd number of pixels taller than the row,
+/// centring leaves half a pixel above it. The desktop rounds the frame's own top to a whole pixel first and then
+/// rounds that half up, so a frame whose top lies at .8 of a pixel draws its text a pixel lower than the same text
+/// in a browser, which adds the half pixel to the fraction and rounds once. Adding it here, as a whole number of
+/// pixels above the line, makes both round the same way wherever the frame falls.
+fn nudged_padding(align: &str, base: f64, nudge: f64, frame: f64, row: f64) -> (f64, f64) {
+    match align {
+        "flex-start" => ((base + nudge).max(0.0), base),
+        "flex-end" => (base, (base - nudge).max(0.0)),
+        _ => {
+            let (top, bottom) = if nudge >= 0.0 { (base + 2.0 * nudge, base) } else { (base, base + 2.0 * -nudge) };
+            let odd = (frame.round() - row).round().rem_euclid(2.0) == 1.0;
+            (if odd { top + 1.0 } else { top }, bottom)
+        }
+    }
 }
 
 /// What a control type adds to the look beyond the table of `css.rs`: the colours and metrics only
@@ -221,9 +283,20 @@ pub fn kind_decls(ctls: &[Ctl], i: usize) -> Decls {
             push(&mut d, "display", "flex");
             let (_, justify) = css::h_align(c.text_or("textalignment", "Left"));
             push(&mut d, "justify-content", justify);
-            push(&mut d, "align-items", css::v_align(c.text_or("verticalalignment", "Middle")));
+            let v = css::v_align(c.text_or("verticalalignment", "Middle"));
+            push(&mut d, "align-items", v);
             push(&mut d, "text-align", css::h_align(c.text_or("textalignment", "Left")).0);
             push(&mut d, "white-space", if c.flag("wordwrap") { "pre-wrap" } else { "pre" });
+            // The caption's inset from the frame (`paint`, the Label branch): 3 px across and 2 px
+            // down, or a quarter of a side that is smaller, plus the control's own `Padding`, and
+            // never more than 45 % of the side.
+            let (w, h) = (num(c, "width").unwrap_or(0.0), num(c, "height").unwrap_or(0.0));
+            let own = num(c, "padding").unwrap_or(0.0).clamp(0.0, 128.0);
+            let (across, down) = ((3.0_f64.min(w * 0.25) + own).min(w * 0.45), (2.0_f64.min(h * 0.25) + own).min(h * 0.45));
+            // The caption shrinks until it fits the frame — the width inside its inset, the whole height.
+            let (size, block) = fit_caption(c, &mut d, w - 2.0 * across, h, c.flag("wordwrap"));
+            let (top, bottom) = nudged_padding(v, down, metrics::baseline_nudge(size), h, block);
+            push(&mut d, "padding", format!("{} {} {} {}", px(top), px(across), px(bottom), px(across)));
         }
         ControlType::Button => {
             // TextAlignment is `<Vertical><Horizontal>` in one word: MiddleCenter, TopLeft, …
@@ -236,14 +309,37 @@ pub fn kind_decls(ctls: &[Ctl], i: usize) -> Decls {
             if let Some(n) = num(c, "iconpadding") {
                 push(&mut d, "gap", px(n));
             }
+            // The caption shrinks until it fits the frame inside its padding, and sits `inset` from the edge it
+            // is aligned to (`paint`, the Button branch and `button_content_layout`).
+            let (w, hh) = (num(c, "width").unwrap_or(0.0), num(c, "height").unwrap_or(0.0));
+            let own = num(c, "padding").unwrap_or(0.0).clamp(0.0, 128.0);
+            let bpad = (3.0_f64.min(w * 0.2) + own).min(w * 0.45).min(hh * 0.45);
+            let inset = 6.0_f64.min(w * 0.25).min(hh * 0.25);
+            let (size, block) = fit_caption(c, &mut d, w - 2.0 * bpad, hh - 2.0 * bpad, true);
+            let (top, bottom) = nudged_padding(v, inset, metrics::baseline_nudge(size), hh, block);
+            push(&mut d, "padding", format!("{} {} {} {}", px(top), px(inset), px(bottom), px(inset)));
         }
         ControlType::TextBox => {
-            if let Some(n) = num(c, "innerpadding") {
-                push(&mut d, "padding", px(n));
-            }
+            // The text starts `pad` inside the frame — the box's inner padding and its own `Padding`, and never less than the
+            // corner radius, so that it stays inside the arc (`paint`, the TextBox branch) — measured from the frame's
+            // outer edge, so the border counts as part of it.
+            let (w, h) = (num(c, "width").unwrap_or(0.0), num(c, "height").unwrap_or(0.0));
+            let inner = num(c, "innerpadding").unwrap_or(3.0).clamp(0.0, 128.0) + num(c, "padding").unwrap_or(0.0).clamp(0.0, 128.0);
+            let radius = num(c, "cornerradius").unwrap_or(0.0).clamp(0.0, (0.5 * w.min(h)).max(0.0));
+            let pad = inner.min(128.0).max(radius).min(w * 0.45);
+            let across = (pad - border_px(c)).max(0.0);
+            let vertical = if c.flag("multiline") { across } else { 0.0 };
+            push(&mut d, "padding", format!("{} {} {} {}", px(vertical), px(across), px(vertical), px(across)));
             push(&mut d, "text-align", css::h_align(c.text_or("textalignment", "Left")).0);
             let bars = c.text_or("scrollbars", "None").to_ascii_lowercase();
             push(&mut d, "--pr-overflow", if bars == "none" { "hidden" } else { "auto" });
+        }
+        ControlType::NumericUpDown | ControlType::DateTimePicker => {
+            // The text at rest is centred in the frame, its baseline where the desktop puts it (`pr-field-face`).
+            let size = num(c, "fontsize").filter(|s| *s > 0.0).unwrap_or(11.0);
+            let (top, bottom) = nudged_padding("center", 0.0, metrics::baseline_nudge(size), num(c, "height").unwrap_or(0.0), metrics::row_height(size));
+            push(&mut d, "--pr-nt", px(top));
+            push(&mut d, "--pr-nb", px(bottom));
         }
         ControlType::CheckBox | ControlType::RadioButton => {
             if let Some(v) = color(c, "checkcolor") {
@@ -316,13 +412,41 @@ pub fn kind_decls(ctls: &[Ctl], i: usize) -> Decls {
             }
         }
         ControlType::Panel | ControlType::GroupBox => {
+            let scrolls = c.flag("hscroll") || c.flag("vscroll");
+            if c.flag("expandable") {
+                // The expand icon sits inside the card's corner, clear of the arc (`paint::expand_icon_rect`).
+                let radius = num(c, "cornerradius").unwrap_or(0.0).clamp(0.0, 0.5 * num(c, "width").unwrap_or(0.0).min(num(c, "height").unwrap_or(0.0)));
+                push(&mut d, "--pr-exp-inset", px(6.0 + 0.25 * radius));
+            }
             if c.flag("hidebackground") {
                 push(&mut d, "background", "transparent");
                 push(&mut d, "border", "none");
+                // A container with no face has no edge of its own to stop a child's shadow against: the
+                // shadow falls past it, to the nearest container that is a real boundary (a face, or a
+                // scroll viewport) — `render::shadow_room_owner`. Where nothing inside it casts a shadow the
+                // desktop's other rule is all that is left: a child is cut at its container's content rectangle
+                // (the frame less the 2 px every Panel and GroupBox insets), so a button that is a few pixels too
+                // wide for its row loses those pixels, and the page cuts it the same way.
+                if !scrolls {
+                    if casts_a_shadow_inside(ctls, i) {
+                        push(&mut d, "overflow", "visible");
+                    } else {
+                        push(&mut d, "overflow", "clip");
+                        push(&mut d, "overflow-clip-margin", "content-box");
+                    }
+                }
             }
-            if c.flag("hscroll") || c.flag("vscroll") {
+            if scrolls {
                 push(&mut d, "overflow-x", if c.flag("hscroll") { "auto" } else { "hidden" });
                 push(&mut d, "overflow-y", if c.flag("vscroll") { "auto" } else { "hidden" });
+            }
+        }
+        ControlType::BarChart | ControlType::LineChart | ControlType::PieChart | ControlType::AreaChart | ControlType::ScatterChart | ControlType::DonutChart | ControlType::RadarChart => {
+            // `HideBackground` suppresses the painter's face and frame so only the chart's marks, axes and
+            // captions are drawn, over what is behind it.
+            if c.flag("hidebackground") {
+                push(&mut d, "background", "transparent");
+                push(&mut d, "border", "none");
             }
         }
         ControlType::PictureBox | ControlType::Animator => {
@@ -332,20 +456,10 @@ pub fn kind_decls(ctls: &[Ctl], i: usize) -> Decls {
             }
         }
         ControlType::DataGrid => {
-            if let Some(v) = color(c, "headerbackgroundcolor") {
-                push(&mut d, "--pr-grid-head-bg", v);
-            }
+            // The painter draws the grid's outline itself, in its line colour, and no other border.
+            push(&mut d, "border", "none");
             if let Some(v) = color(c, "headerforegroundcolor") {
-                push(&mut d, "--pr-grid-head-fg", v);
-            }
-            if let Some(v) = color(c, "gridlinecolor") {
-                push(&mut d, "--pr-grid-line", v);
-            }
-            if let Some(v) = color(c, "alternatingrowcolor") {
-                push(&mut d, "--pr-grid-alt", v);
-            }
-            if let Some(n) = num(c, "rowheight") {
-                push(&mut d, "--pr-row-h", px(n));
+                push(&mut d, "--pr-dg-head-ink", v);
             }
         }
         ControlType::ListBox | ControlType::ComboBox => {
@@ -378,6 +492,11 @@ pub fn kind_decls(ctls: &[Ctl], i: usize) -> Decls {
         _ => {}
     }
     d
+}
+
+/// Does any control inside container `i`, at any depth, cast a drop shadow?
+fn casts_a_shadow_inside(ctls: &[Ctl], i: usize) -> bool {
+    ctls[i].children.iter().any(|&c| ctls[c].flag("shadowenabled") || casts_a_shadow_inside(ctls, c))
 }
 
 /// Does the control have a place on the page at all (a Timer or a service object has not)?
@@ -413,6 +532,26 @@ pub fn control_decls(ctls: &[Ctl], i: usize, responsive: bool) -> Decls {
     }
     d.extend(css::appearance(c));
     d.extend(kind_decls(ctls, i));
+    // Spec 090: while a card is expanded it takes the whole client area of its container, and its siblings are not drawn.
+    if responsive {
+        if let Some(winner) = layout_css::expanded_sibling(ctls, parent) {
+            if winner == i {
+                d.extend(layout_css::expanded_placement(&ctls[parent]));
+            } else if matches!(&c.kind, Kind::Control(_)) {
+                push(&mut d, "display", "none");
+            }
+        }
+    }
+    // What the form's theme does to the control's face comes last: it fills in what the properties left to the theme.
+    if ctls[0].text_or("theme", "") == cobolt_forms::theme::SPATIAL {
+        crate::theme_css::spatial_decls(ctls, i, &mut d);
+    }
+    // A control that is not shown takes no place on the page, and its siblings close up over it, as the desktop's solver leaves it
+    // out. The view says the same with its `hidden` attribute for what the design hides; what a breakpoint hides (its `Visible`
+    // override) reaches the page only here, because the views are not rebuilt when the breakpoint changes.
+    if !c.visible() {
+        push(&mut d, "display", "none");
+    }
     d
 }
 
@@ -467,10 +606,19 @@ fn tab_rules(inst: u32, ctls: &[Ctl], i: usize) -> String {
 /// What the form's window carries: its background, its translucency, its corners.
 pub fn form_decls(form: &Ctl, assets: &BTreeMap<String, String>) -> Decls {
     let mut d = Decls::new();
-    if let Some((k, v)) = css::background(form) {
+    // Under a see-through theme (Spatial) the backdrop is the theme's translucent glass: a form's own colour, gradient or
+    // picture would hide the blurred desktop the theme exists to show (`cobolt-form-host`, `Backdrop`). The form's
+    // `Transparency` fades the glass, as it fades any other face.
+    let see_through = cobolt_forms::theme::is_see_through(form.text_or("theme", ""));
+    if see_through {
+        let [r, g, b, a] = cobolt_forms::theme::SPATIAL_FORM_GLASS;
+        let faded = (a as f64 * (1.0 - num(form, "transparency").unwrap_or(0.0).clamp(0.0, 100.0) / 100.0)).floor() / 255.0;
+        push(&mut d, "background-color", format!("rgb({r} {g} {b} / {})", fmt_number((faded * 10000.0).round() / 10000.0)));
+        push(&mut d, "background-image", "none");
+    } else if let Some((k, v)) = css::background(form) {
         push(&mut d, k, v);
     }
-    let bg = form.raw("backgroundimage").unwrap_or("").trim().to_ascii_lowercase().replace('\\', "/");
+    let bg = if see_through { String::new() } else { form.raw("backgroundimage").unwrap_or("").trim().to_ascii_lowercase().replace('\\', "/") };
     if !bg.is_empty() {
         if let Some(url) = assets.get(&bg) {
             // The image goes UNDER a gradient, if there is one, and covers the window.
@@ -521,6 +669,17 @@ pub fn control_css(inst: u32, ctls: &[Ctl], i: usize, responsive: bool) -> Strin
     let mut out = rule(&selector(inst, &ctls[i].name), &d);
     if matches!(&ctls[i].kind, Kind::Control(ControlType::TabControl)) {
         out.push_str(&tab_rules(inst, ctls, i));
+    }
+    // A card whose height is only a floor also holds that height as content, or a browser measures its children against nothing.
+    if ctls[i].visible() {
+        if let Some(h) = layout_css::floor_spacer(&ctls[ctls[i].parent.unwrap_or(0)], &ctls[i], &d) {
+            let mut spacer = Decls::new();
+            push(&mut spacer, "content", "\"\"");
+            push(&mut spacer, "display", "block");
+            push(&mut spacer, "width", "0");
+            push(&mut spacer, "height", px(h));
+            out.push_str(&rule(&format!("{}::before", selector(inst, &ctls[i].name)), &spacer));
+        }
     }
     out
 }
@@ -613,6 +772,56 @@ mod tests {
         assert_eq!(ctls[b].raw("height"), Some("50"), "an unwritten property still follows it");
         assert!(t.was_written(b, "WIDTH"));
         assert_eq!(t.effective_ctls(None)[b].raw("height"), Some("30"), "no breakpoint is the design");
+    }
+
+    #[test]
+    fn a_control_a_breakpoint_hides_takes_no_place_on_the_page() {
+        let mut t = tree_of(
+            r#"<Breakpoints><Breakpoint name="Medium" min-width="600" font-factor="1"><Override control="LBL-B" property="Visible">0</Override></Breakpoint></Breakpoints>
+               <Control id="LBL-A" type="Label" x="0" y="0" w="50" h="20"></Control>
+               <Control id="LBL-B" type="Label" x="60" y="0" w="50" h="20"></Control>"#,
+        );
+        let (a, b) = (t.by_name("LBL-A").unwrap(), t.by_name("LBL-B").unwrap());
+        let medium = t.breakpoints[0].clone();
+        let shown = |t: &crate::tree::FormTree, bp: Option<&cobolt_forms::layout::breakpoints::Breakpoint>, i: usize| decl(&control_decls(&t.effective_ctls(bp), i, true), "display") != Some("none");
+        assert!(!shown(&t, Some(&medium), b), "the breakpoint's Visible override hides it, in the stylesheet, since the view is not rebuilt");
+        assert!(shown(&t, None, b), "the design shows it");
+        assert!(shown(&t, Some(&medium), a), "and only it");
+        t.set(b, "Visible", "1");
+        assert!(shown(&t, Some(&medium), b), "a program that showed it keeps it shown, as with any other property");
+    }
+
+    #[test]
+    fn a_fluid_form_letters_a_control_at_the_scaled_size_fraction_and_all() {
+        let mut t = tree_of(
+            r##"<FormLayout FontScaling="Fluid" />
+               <Control id="LBL" type="Label" x="0" y="0" w="200" h="40"><Property name="Caption">Hi</Property><Property name="FontSize">28</Property></Control>"##,
+        );
+        let i = t.by_name("LBL").unwrap();
+        assert!(control_css(0, &t.effective_ctls(None), i, true).contains("font-size: 28px;"), "the designed size at the designed width");
+        t.set_font_factor(0.85);
+        let css = control_css(0, &t.effective_ctls(None), i, true);
+        assert!(css.contains("font-size: 23.8px;"), "28 at 0.85 keeps its fraction: {css}");
+        let row = fmt_number(metrics::row_height(23.8));
+        assert!(css.contains(&format!("line-height: {row}px;")), "the row is the desktop's for that size: {css}");
+    }
+
+    #[test]
+    fn a_card_that_is_only_a_floor_gets_an_empty_first_child_that_carries_it() {
+        let mut t = tree();
+        t.set(0, "LayoutMode", "Flex");
+        t.set(0, "FlexWrap", "Wrap");
+        let p = t.by_name("PNL-1").unwrap();
+        let css = control_css(0, &t.ctls, p, true);
+        assert!(css.contains("min-height: 200px;"), "the designed height is the floor: {css}");
+        assert!(
+            css.contains("[data-pr-inst=\"0\"] [data-name=\"PNL-1\"]::before { content: \"\"; display: block; width: 0; height: 196px; }"),
+            "the same height as content, less the 2 + 2 px the box takes first: {css}"
+        );
+        let label = t.by_name("LBL-IN").unwrap();
+        assert!(!control_css(0, &t.ctls, label, true).contains("::before"), "only a card has children to measure");
+        t.set(0, "LayoutMode", "Absolute");
+        assert!(!control_css(0, &t.ctls, p, true).contains("::before"), "a card with a designed rectangle has no floor");
     }
 
     #[test]

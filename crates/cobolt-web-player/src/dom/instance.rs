@@ -62,6 +62,9 @@ pub(crate) struct InstanceView {
     pub width: f64,
     /// Held for what dropping it does: the size observer stops and the form's key listener is removed with the instance.
     pub _observer: Option<ResizeObs>,
+    /// Watches the boxes of the controls that are drawn to their own size (`size_aware`): a chart, a gauge.
+    /// What it reports goes to `UiState::box_sizes`, and the control is drawn again for it.
+    pub box_obs: Option<ResizeObs>,
     pub _keys: Vec<Listener>,
     pub drag: Option<(Listener, Listener)>,
 }
@@ -74,6 +77,12 @@ impl InstanceView {
         self.root.remove();
         self.sheet.dispose();
     }
+}
+
+/// A control whose picture is made for the size of its box, and so is drawn again when layout changes it.
+fn size_aware(c: &crate::tree::Ctl) -> bool {
+    use cobolt_forms::model::ControlType as T;
+    matches!(c.control_type(), Some(T::BarChart | T::LineChart | T::PieChart | T::AreaChart | T::ScatterChart | T::DonutChart | T::RadarChart | T::Gauge))
 }
 
 fn slot_target(ctls: &[Option<CtlView>], surface: &Element, parent: usize, slot: Slot) -> Element {
@@ -111,6 +120,7 @@ impl Shared {
             side_menu: Option<usize>,
             opener: Option<u32>,
             responsive: bool,
+            size_aware: Vec<usize>,
         }
         let built = {
             let Ok(host) = inner.host.try_borrow() else { return };
@@ -152,6 +162,7 @@ impl Shared {
                 side_menu,
                 opener: tree.opener,
                 responsive,
+                size_aware: (1..n).filter(|&i| style::has_a_box(&ctls[i]) && size_aware(&ctls[i])).collect(),
             }
         };
         let doc = &self.doc;
@@ -206,6 +217,31 @@ impl Shared {
             })
         };
 
+        // The boxes of the controls drawn to their own size, as the browser lays them out (the desktop's
+        // solver has given a chart in a grid its cell before its painter draws it).
+        let box_obs = {
+            let weak = Rc::downgrade(self);
+            let cb = Closure::<dyn FnMut(js_sys::Array)>::new(move |entries: js_sys::Array| {
+                for e in entries.iter() {
+                    let entry: web_sys::ResizeObserverEntry = e.unchecked_into();
+                    let el = entry.target();
+                    let name = el.get_attribute("data-name").unwrap_or_default();
+                    let r = el.get_bounding_client_rect();
+                    if let Some(sh) = weak.upgrade() {
+                        sh.on_box(inst, &name, r.width(), r.height());
+                    }
+                }
+            });
+            web_sys::ResizeObserver::new(cb.as_ref().unchecked_ref()).ok().map(|obs| ResizeObs { obs, _cb: cb })
+        };
+        if let Some(o) = &box_obs {
+            for &i in &built.size_aware {
+                if let Some(cv) = ctls[i].as_ref() {
+                    o.obs.observe(&cv.rec.el);
+                }
+            }
+        }
+
         let mut iv = InstanceView {
             form: built.form.clone(),
             mode,
@@ -220,6 +256,7 @@ impl Shared {
             bp: None,
             width: 0.0,
             _observer: observer,
+            box_obs,
             _keys: keys,
             drag: None,
         };
@@ -381,6 +418,12 @@ impl Shared {
                     continue;
                 }
                 css_dirty.insert(i);
+                // A card that is (or can be) expanded decides how its siblings are drawn: they follow it.
+                if ctls[i].flag("expandable") || ctls[i].flag("expanded") || ctls[i].raw("expanded").is_some() {
+                    if let Some(p) = ctls[i].parent {
+                        css_dirty.extend(ctls[p].children.iter().copied());
+                    }
+                }
                 if ctls[i].is_container() {
                     // A container's layout decides its children's rules.
                     let mut stack = ctls[i].children.clone();
@@ -425,6 +468,12 @@ impl Shared {
                     let Some(cv) = iv.ctls[i].as_mut() else { continue };
                     let r = nodes::patch(&self.doc, &mut cv.rec, v, None, &cv.dispatch);
                     cv.slots = nodes::slots(&cv.rec);
+                    // A root the patch replaced is a new element: the observer must be told of it.
+                    if r {
+                        if let Some(o) = &iv.box_obs {
+                            o.obs.observe(&cv.rec.el);
+                        }
+                    }
                     r
                 };
                 if replaced {
@@ -505,18 +554,48 @@ impl Shared {
         iv.ctls.get(ctl)?.as_ref().map(|c| c.rec.el.clone())
     }
 
+    // ── the boxes of controls drawn to their own size ───────────────────────
+
+    /// The browser gave control `name` of instance `inst` a box of `w` × `h`: when that is not what the
+    /// control was last drawn for, record it and draw the control again.
+    pub(super) fn on_box(self: &Rc<Self>, inst: u32, name: &str, w: f64, h: f64) {
+        if w < 1.0 || h < 1.0 {
+            return;
+        }
+        let Some(inner) = self.inner.upgrade() else { return };
+        let (ctl, designed) = {
+            let Ok(host) = inner.host.try_borrow() else { return };
+            let Some(tree) = host.trees.get(&inst) else { return };
+            let Some(i) = tree.by_name(name) else { return };
+            let dim = |k: &str| crate::value::parse_f64(&tree.get(i, k)).unwrap_or(0.0);
+            (i, (dim("Width"), dim("Height")))
+        };
+        let changed = {
+            let Ok(mut st) = self.state.try_borrow_mut() else { return };
+            let Some(iv) = st.instances.get_mut(&inst) else { return };
+            let last = iv.ui.box_sizes.get(&ctl).copied().unwrap_or(designed);
+            if (last.0 - w).abs() > 0.25 || (last.1 - h).abs() > 0.25 {
+                iv.ui.box_sizes.insert(ctl, (w, h));
+                true
+            } else {
+                false
+            }
+        };
+        if changed {
+            self.mark_dirty(inst, ctl);
+        }
+    }
+
     // ── breakpoints ─────────────────────────────────────────────────────────
 
     pub(super) fn on_resize(self: &Rc<Self>, inst: u32, width: f64) {
         let Some(inner) = self.inner.upgrade() else { return };
-        let name = {
+        // The breakpoint this width selects and the font factor the form's `FontScaling` makes of it: both the desktop's functions.
+        let (name, factor) = {
             let Ok(host) = inner.host.try_borrow() else { return };
             let Some(tree) = host.trees.get(&inst) else { return };
-            if tree.breakpoints.is_empty() {
-                None
-            } else {
-                cobolt_forms::layout::breakpoints::select(&tree.breakpoints, width as f32, None).map(|b| b.name.clone())
-            }
+            let bp = if tree.breakpoints.is_empty() { None } else { cobolt_forms::layout::breakpoints::select(&tree.breakpoints, width as f32, None) };
+            (bp.map(|b| b.name.clone()), tree.font_factor_at(width, bp))
         };
         let changed = {
             let Ok(mut st) = self.state.try_borrow_mut() else { return };
@@ -529,7 +608,20 @@ impl Shared {
                 false
             }
         };
-        if changed {
+        // A new font factor changes what every lettered control is drawn at: the rules, and the views that place text by its size
+        // (a ListBox's rows, a ComboBox's value, a chart's lettering).
+        let mut lettered = 0;
+        if let Ok(mut host) = inner.host.try_borrow_mut() {
+            if let Some(tree) = host.trees.get_mut(&inst) {
+                if tree.set_font_factor(factor) {
+                    lettered = tree.ctls.len();
+                }
+            }
+        }
+        for i in 1..lettered {
+            self.mark_dirty(inst, i);
+        }
+        if changed || lettered > 0 {
             self.mark_dirty(inst, usize::MAX);
         }
     }

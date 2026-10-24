@@ -50,6 +50,26 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 
 - `CALL … RETURNING` (WASM-005 Q2, D6): fix `8a15f00d` (1.91.219) on `main`, forward-port `afe22c51` on 2.x.x — tests 14/14 runtime, NIST baselines held.
 
+## The web page against the desktop — PowerAnalyticsWeb (2026-10-24, version 2.0.65, WASM-016 R14)
+
+`examples/PowerAnalyticsWeb` is a Web project made from the desktop's `PowerAnalytics` (its dumped state, by a throwaway script kept outside the repository). It is a **look** clone, not a functional port: only `BTN-DASH` and `BTN-DATA` have handlers, so the page switch works and the Levels and search popups, the paging and the filters do not run. The popups are therefore checked as static pages with a desktop run's state baked in, and the search popup has no desktop reference at all (`run_form` with `set TXT-CAT.Text` does not open `POPUP-SEARCH`). A working port is a separate, large job.
+
+**Measured** — the page's mean absolute error per pixel (0–255) against the desktop's own picture of the same form, and in brackets the share of pixels that differ by more than 24:
+
+| Picture | Error |
+|---|---|
+| Dashboard at 1440 × 900, desktop run state | **2.31** (2.02 %) — 161 of 161 boxes within 0.5 px |
+| Dados page, desktop run state | **4.18** (3.76 %) — the grid is 70 % of what is left, nearly all of it glyph anti-aliasing (#27) |
+| Levels popup open, desktop run state | **2.16** (1.99 %) |
+| The same form through `render_form`, at 1920 × 1080 / 1280 × 720 / 1100 × 800 | **2.40** (2.50 %) / **2.51** (2.67 %) / **2.70** (3.15 %) |
+| Medium: 1000 × 700 / 800 × 900 / 700 × 700 | **4.31** (5.24 %) / **3.77** (4.66 %) / **4.55** (5.59 %) — 1.53 / 1.68 / 1.87 above the clip line of #26, which is all that separates them |
+| Compact: 420 × 800 / 360 × 800 | **3.95** (4.73 %) / **4.05** (4.87 %) |
+| The real bundle against the static page | **0.02** on a fresh load at 1920 × 1080, **0.00** after the live page is resized 1440 → 1000 × 700, 1000 → 1920 × 1080 and 1440 → 420 × 800 |
+
+Geometry, the page's boxes against the desktop solver's (`examples/parity_page --geometry` and `--compare`): every control within half a pixel at **1080, 1100, 1280 × 720, 1366, 1440, 1600, 1920 and 2560** wide (Expanded), at **648 to 1023** (Medium) and at **360 × 800 to 599** (Compact). The exceptions are the surfaces below the form's minimum (#24) and six boxes the desktop squeezes to nothing at 1024–1079 (#25). Before this work Medium was 153 of 160, 600 × 900 was 45 of 160 and Compact 117 of 124.
+
+What changed in the page: the desktop's text arithmetic (`cobolt_forms::textmetrics`), the stand-in face and its licence in every bundle, the shadows, Spatial's measured rules, the charts painted as the desktop paints them, the DataGrid, ComboBox and ListBox drawn the way the painter draws them, `FontScaling` (#33), a breakpoint's `Visible` (#34) and the floor of a card (#35). Still different, and why: #24–#32 in `WASM-PARITY.md`. Measured with throwaway tools outside the repository; the repository holds `crates/cobolt-web-player/examples/parity_page.rs` (the static page and the geometry comparison) and the tests.
+
 ## WASM-010 part 2 — the rest of the subset, suspension, the Build (2026-10-23, version 2.0.36, T14–T25)
 
 **NIST on the final module** (`RCRUN=…/nist_wasm_run nist_conformance run NC|IF|IC`), against 2.0.35:

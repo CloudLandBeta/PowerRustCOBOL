@@ -205,8 +205,8 @@ impl Shared {
     pub(super) fn ui_op(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, op: UiOp) {
         match op {
             UiOp::SetOpenMenu(v) => self.with_ui(inst, |ui| ui.open_menu = v),
-            UiOp::GridWindow { first, count } => self.with_ui(inst, |ui| {
-                ui.grid_window.insert(ctl, (first, count));
+            UiOp::GridScroll { left, top } => self.with_ui(inst, |ui| {
+                ui.grid_scroll.insert(ctl, (left, top));
             }),
             UiOp::GridSort { col, descending } => self.with_ui(inst, |ui| {
                 ui.grid_sort.insert(ctl, (col, descending));

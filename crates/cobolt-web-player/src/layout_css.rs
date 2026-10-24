@@ -17,6 +17,7 @@
 use crate::css::Decls;
 use crate::tree::Ctl;
 use crate::value::{fmt_number, parse_f64};
+use cobolt_forms::model::ControlType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -31,7 +32,7 @@ pub const APPROXIMATIONS: &[&str] = &[
     "Dock: each docked control sits against its edge of the container; the desktop solver also shrinks the space for the docks that follow, which CSS positioning does not",
     "GridMerges: a merged area is not expressed; its cells lay out as separate cells",
     "FlowBreak: a forced line break in a Flow container is an empty full-width item the renderer inserts",
-    "MinFontSize/MaxFontSize and FontScaling: the browser's own text scaling applies",
+    "ObsoleteScalingStyle: a legacy form's font ratio is not read, as the page does not do the resizing and moving that style also asks for (FontScaling and MinFontSize/MaxFontSize are: `tree::scaled_font`)",
 ];
 
 pub fn mode_of(c: &Ctl) -> Mode {
@@ -156,24 +157,63 @@ pub fn grid_tracks(text: &str) -> Option<String> {
     }
 }
 
+/// `JustifyContent`, in the words the solver reads (`flex::flex_container`): anything else is `Start`.
 fn justify(v: &str) -> &'static str {
     match v.trim().to_ascii_lowercase().as_str() {
-        "end" | "flexend" | "flex-end" => "flex-end",
-        "center" | "centre" => "center",
-        "spacebetween" | "space-between" => "space-between",
-        "spacearound" | "space-around" => "space-around",
-        "spaceevenly" | "space-evenly" => "space-evenly",
+        "center" => "center",
+        "end" => "flex-end",
+        "spacebetween" => "space-between",
+        "spacearound" => "space-around",
+        "spaceevenly" => "space-evenly",
         _ => "flex-start",
     }
 }
 
-fn align(v: &str) -> &'static str {
+/// `AlignItems` / `AlignSelf` in the words the solver reads (`flex::align_of`) as a CSS keyword;
+/// `None` for anything else, which the solver treats as not set.
+fn align_keyword(v: &str) -> Option<&'static str> {
     match v.trim().to_ascii_lowercase().as_str() {
-        "start" | "flexstart" | "flex-start" => "flex-start",
-        "end" | "flexend" | "flex-end" => "flex-end",
-        "center" | "centre" => "center",
-        "baseline" => "baseline",
-        _ => "stretch",
+        "stretch" => Some("stretch"),
+        "start" => Some("flex-start"),
+        "center" => Some("center"),
+        "end" => Some("flex-end"),
+        _ => None,
+    }
+}
+
+/// The container's `AlignItems` as the solver resolves it: a word it does not know is `Stretch`.
+fn align(v: &str) -> &'static str {
+    align_keyword(v).unwrap_or("stretch")
+}
+
+/// What the desktop takes off a container's outer box before its own padding to get the client
+/// area its children are laid out in: `Control::content_rect` insets a Panel and a GroupBox by 2
+/// pixels on every side, whatever border they draw.
+fn chrome_inset(c: &Ctl) -> f64 {
+    match c.control_type() {
+        Some(ControlType::Panel | ControlType::GroupBox) => 2.0,
+        _ => 0.0,
+    }
+}
+
+/// Does this Flex or Flow container read its children right to left? (The solver's reading order
+/// then runs the other way along a row — `layout::reading_order`.)
+pub fn reads_right_to_left(c: &Ctl) -> bool {
+    let word = |k: &str| c.raw(k).map(|s| s.trim().to_ascii_lowercase()).unwrap_or_default();
+    match mode_of(c) {
+        Mode::Flex => word("flexdirection") == "rowreverse",
+        Mode::Flow => word("flowdirection") == "righttoleft",
+        _ => false,
+    }
+}
+
+/// Is the main axis of a Flex or Flow container horizontal?
+fn main_is_horizontal(c: &Ctl) -> bool {
+    let word = |k: &str| c.raw(k).map(|s| s.trim().to_ascii_lowercase()).unwrap_or_default();
+    match mode_of(c) {
+        Mode::Flex => !matches!(word("flexdirection").as_str(), "column" | "columnreverse"),
+        Mode::Flow => !matches!(word("flowdirection").as_str(), "topdown" | "bottomup"),
+        _ => true,
     }
 }
 
@@ -183,25 +223,30 @@ pub fn container(c: &Ctl) -> Decls {
     let gap = num(c, "gap").unwrap_or(0.0);
     let row_gap = num(c, "rowgap").unwrap_or(gap);
     let col_gap = num(c, "columngap").unwrap_or(gap);
+    let word = |k: &str| c.raw(k).map(|s| s.trim().to_ascii_lowercase()).unwrap_or_default();
     match mode_of(c) {
         Mode::Absolute => {
             push(&mut d, "position", "relative");
         }
         Mode::Flex => {
             push(&mut d, "display", "flex");
-            let dir = match c.raw("flexdirection").map(|s| s.trim().to_ascii_lowercase()).as_deref() {
-                Some("column") => "column",
-                Some("rowreverse") | Some("row-reverse") => "row-reverse",
-                Some("columnreverse") | Some("column-reverse") => "column-reverse",
+            let dir = match word("flexdirection").as_str() {
+                "column" => "column",
+                "rowreverse" => "row-reverse",
+                "columnreverse" => "column-reverse",
                 _ => "row",
             };
             push(&mut d, "flex-direction", dir);
-            push(&mut d, "flex-wrap", if c.raw("flexwrap").map(|s| s.trim().eq_ignore_ascii_case("wrap")).unwrap_or(false) { "wrap" } else { "nowrap" });
+            push(&mut d, "flex-wrap", match word("flexwrap").as_str() {
+                "wrap" => "wrap",
+                "wrapreverse" => "wrap-reverse",
+                _ => "nowrap",
+            });
             push(&mut d, "justify-content", justify(c.text_or("justifycontent", "Start")));
             push(&mut d, "align-items", align(c.text_or("alignitems", "Stretch")));
-            push(&mut d, "align-content", match c.text_or("aligncontent", "Stretch").to_ascii_lowercase().as_str() {
-                "spacebetween" | "space-between" => "space-between",
-                "spacearound" | "space-around" => "space-around",
+            push(&mut d, "align-content", match word("aligncontent").as_str() {
+                "spacebetween" => "space-between",
+                "spacearound" => "space-around",
                 "center" => "center",
                 "end" => "flex-end",
                 "start" => "flex-start",
@@ -228,28 +273,97 @@ pub fn container(c: &Ctl) -> Decls {
         }
         Mode::Flow => {
             push(&mut d, "display", "flex");
-            let (dir, wrap) = match c.raw("flowdirection").map(|s| s.trim().to_ascii_lowercase()).as_deref() {
-                Some("righttoleft") | Some("rtl") => ("row-reverse", true),
-                Some("topdown") | Some("top-down") => ("column", true),
-                Some("bottomup") | Some("bottom-up") => ("column-reverse", true),
-                _ => ("row", true),
+            let dir = match word("flowdirection").as_str() {
+                "righttoleft" => "row-reverse",
+                "topdown" => "column",
+                "bottomup" => "column-reverse",
+                _ => "row",
             };
             push(&mut d, "flex-direction", dir);
-            let wrap_contents = c.raw("wrapcontents").map(|v| crate::value::turned_on(v)).unwrap_or(wrap);
+            let wrap_contents = c.raw("wrapcontents").map(|v| crate::value::turned_on(v)).unwrap_or(true);
             push(&mut d, "flex-wrap", if wrap_contents { "wrap" } else { "nowrap" });
+            // The solver's Flow container: items at the start of their line, lines at the start.
+            push(&mut d, "align-items", "flex-start");
             push(&mut d, "align-content", "flex-start");
             push(&mut d, "gap", format!("{} {}", px(row_gap), px(col_gap)));
         }
     }
-    // Container padding (layout padding, in form pixels). The appearance table applies the same
-    // property to controls that paint a face; a container uses it for its content box.
+    // The client area the children are laid out in is the outer box less what the desktop takes off
+    // a Panel or GroupBox (`chrome_inset`) less the layout padding. The element draws its own border
+    // as CSS does, inside the box, so the padding gives back what the border already takes.
     let all = num(c, "padding").unwrap_or(0.0);
     let side = |k: &str| num(c, k).unwrap_or(all);
-    if (side("paddingleft") + side("paddingtop") + side("paddingright") + side("paddingbottom")) > 0.0 {
-        push(&mut d, "padding", format!("{} {} {} {}", px(side("paddingtop")), px(side("paddingright")), px(side("paddingbottom")), px(side("paddingleft"))));
+    let take = |k: &str| (side(k) + chrome_inset(c) - crate::css::border_width(c)).max(0.0);
+    let (top, right, bottom, left) = (take("paddingtop"), take("paddingright"), take("paddingbottom"), take("paddingleft"));
+    if top + right + bottom + left > 0.0 {
+        push(&mut d, "padding", format!("{} {} {} {}", px(top), px(right), px(bottom), px(left)));
         push(&mut d, "box-sizing", "border-box");
     }
     d
+}
+
+/// The control among the children of container `parent` that is expanded (spec 090), if any: a Panel or GroupBox that is shown and has
+/// `Expanded` on; where several are, the one highest in z-order wins (R7).
+pub fn expanded_sibling(ctls: &[Ctl], parent: usize) -> Option<usize> {
+    ctls[parent]
+        .children
+        .iter()
+        .copied()
+        .filter(|&k| {
+            let c = &ctls[k];
+            matches!(c.control_type(), Some(ControlType::Panel | ControlType::GroupBox)) && c.flag("expanded") && c.visible()
+        })
+        .max_by_key(|&k| (num(&ctls[k], "zorder").unwrap_or(0.0) as i64, k))
+}
+
+/// What puts an expanded card over the whole client area of its container: out of the flow, edge to edge of the area the
+/// container's own padding leaves, above everything else in it (R4).
+pub fn expanded_placement(parent: &Ctl) -> Decls {
+    let all = num(parent, "padding").unwrap_or(0.0);
+    let side = |k: &str| num(parent, k).unwrap_or(all);
+    let take = |k: &str| (side(k) + chrome_inset(parent) - crate::css::border_width(parent)).max(0.0);
+    let mut d = Decls::new();
+    push(&mut d, "position", "absolute");
+    push(&mut d, "inset", format!("{} {} {} {}", px(take("paddingtop")), px(take("paddingright")), px(take("paddingbottom")), px(take("paddingleft"))));
+    push(&mut d, "width", "auto");
+    push(&mut d, "height", "auto");
+    push(&mut d, "min-width", "0");
+    push(&mut d, "min-height", "0");
+    push(&mut d, "max-width", "none");
+    push(&mut d, "max-height", "none");
+    push(&mut d, "margin", "0");
+    push(&mut d, "z-index", "900");
+    d
+}
+
+/// What a container's box takes of its height before its content starts, as [`container`] and the border write it: the two
+/// borders and the top and bottom padding. A box that must be `H` tall holds `H` less this of content.
+pub fn vertical_extent(c: &Ctl) -> f64 {
+    let all = num(c, "padding").unwrap_or(0.0);
+    let border = crate::css::border_width(c);
+    let take = |k: &str| (num(c, k).unwrap_or(all) + chrome_inset(c) - border).max(0.0);
+    take("paddingtop") + take("paddingbottom") + 2.0 * border
+}
+
+/// The height of the empty, in-flow first child a card needs to carry its floor, if it needs one.
+///
+/// A Panel or GroupBox in Absolute mode places its children against its own edges. When it is also an item of a Flex or Flow
+/// parent, its height can come from nothing but a `min-height` floor — the desktop's rule for a wrapping, stretched line is that
+/// the designed height is the floor — and Chrome then measures a child anchored to its bottom edge (or to top and bottom) against
+/// the box's *content* height, not the floor: a chart anchored top and bottom came out 0 high inside a card 260 high, and a label
+/// anchored to the bottom edge sat at the top. Carrying the floor as content too — an empty block that high — makes the box that
+/// tall in every pass whatever the parent's stretch does, which is also what the specification says the children are measured
+/// against. `d` is the card's own declarations; `parent` is the container it is an item of.
+pub fn floor_spacer(parent: &Ctl, c: &Ctl, d: &Decls) -> Option<f64> {
+    if !matches!(c.control_type(), Some(ControlType::Panel | ControlType::GroupBox)) || mode_of(c) != Mode::Absolute {
+        return None;
+    }
+    if !matches!(mode_of(parent), Mode::Flex | Mode::Flow) {
+        return None;
+    }
+    let floor = d.iter().rev().find(|(k, _)| k == "min-height").and_then(|(_, v)| v.strip_suffix("px")).and_then(parse_f64)?;
+    let content = floor - vertical_extent(c);
+    (content > 0.0).then_some(content)
 }
 
 /// Does `c` follow the parent's edge on this axis? `Anchor` is `Top,Left` by default.
@@ -361,15 +475,16 @@ pub fn item(parent: &Ctl, child: &Ctl, parent_size: (f64, f64), origin: (f64, f6
         }
         Mode::Flex | Mode::Flow => {
             push(&mut d, "position", "relative");
+            let flex_parent = mode_of(parent) == Mode::Flex;
             let grow = num(child, "flexgrow").unwrap_or(0.0);
             let shrink = num(child, "flexshrink").unwrap_or(1.0);
             let basis_text = child.text_or("flexbasis", "Auto").trim().to_ascii_lowercase();
             let basis = if basis_text == "auto" { "auto".to_owned() } else if let Some(n) = basis_text.strip_suffix('%') { format!("{}%", n.trim()) } else { parse_f64(basis_text.trim_end_matches("px")).map(px).unwrap_or_else(|| "auto".into()) };
-            if mode_of(parent) == Mode::Flex {
+            let self_align = if flex_parent { align_keyword(child.text_or("alignself", "Auto")) } else { None };
+            if flex_parent {
                 push(&mut d, "flex", format!("{} {} {}", fmt_number(grow), fmt_number(shrink), basis));
-                let a = child.text_or("alignself", "Auto");
-                if !a.eq_ignore_ascii_case("auto") {
-                    push(&mut d, "align-self", align(a));
+                if let Some(a) = self_align {
+                    push(&mut d, "align-self", a);
                 }
                 if let Some(o) = num(child, "order") {
                     if o != 0.0 {
@@ -379,13 +494,30 @@ pub fn item(parent: &Ctl, child: &Ctl, parent_size: (f64, f64), origin: (f64, f6
             } else {
                 push(&mut d, "flex", "0 0 auto");
             }
-            // The designed size is the item's preferred size unless the basis names one.
-            if basis == "auto" {
-                push(&mut d, "width", px(w));
-                push(&mut d, "height", px(h));
+            // The solver lets an item shrink to its limits, not to what its content needs.
+            for (k, css) in [("minwidth", "min-width"), ("minheight", "min-height")] {
+                if !num(child, k).is_some_and(|v| v > 0.0) {
+                    push(&mut d, css, "0");
+                }
             }
-            if mode_of(parent) == Mode::Flex && grow > 0.0 {
-                // A growing item takes the free space on the main axis; its cross size stays designed.
+            // The designed size is the item's size on the main axis unless the basis names one, and
+            // on the cross axis unless the item is stretched to its line (a Flow item never is).
+            let horizontal = main_is_horizontal(parent);
+            let ((main_prop, main_size), (cross_prop, cross_size)) = if horizontal { (("width", w), ("height", h)) } else { (("height", h), ("width", w)) };
+            if basis == "auto" {
+                push(&mut d, main_prop, px(main_size));
+            }
+            let stretched = flex_parent && self_align.unwrap_or_else(|| align(parent.text_or("alignitems", "Stretch"))) == "stretch";
+            if !stretched {
+                push(&mut d, cross_prop, px(cross_size));
+            } else if parent.raw("flexwrap").is_some_and(|v| v.trim().to_ascii_lowercase().starts_with("wrap")) {
+                // A line of a wrapping container is as tall as its tallest item's DESIGNED size, and the
+                // stretch then only grows the others to it: the designed size is the floor, not the size.
+                let floor = if horizontal { "min-height" } else { "min-width" };
+                if !num(child, if horizontal { "minheight" } else { "minwidth" }).is_some_and(|v| v > 0.0) {
+                    d.retain(|(k, _)| k != floor);
+                    push(&mut d, floor, px(cross_size));
+                }
             }
         }
         Mode::Grid => {
@@ -406,9 +538,8 @@ pub fn item(parent: &Ctl, child: &Ctl, parent_size: (f64, f64), origin: (f64, f6
                     _ => "stretch",
                 });
             }
-            let a = child.text_or("alignself", "Auto");
-            if !a.eq_ignore_ascii_case("auto") {
-                push(&mut d, "align-self", align(a));
+            if let Some(a) = align_keyword(child.text_or("alignself", "Auto")) {
+                push(&mut d, "align-self", a);
             }
             // A grid cell stretches by default; a control keeps its designed size only when the track is `auto`.
             push(&mut d, "min-width", "0");
@@ -452,7 +583,7 @@ mod tests {
         assert_eq!(get(&c, "justify-content"), Some("space-between"));
         assert_eq!(get(&c, "align-items"), Some("center"));
         assert_eq!(get(&c, "gap"), Some("8px 8px"));
-        assert_eq!(get(&c, "padding"), Some("4px 4px 4px 4px"));
+        assert_eq!(get(&c, "padding"), Some("5px 5px 5px 5px"), "4 of padding, plus the 2 px the desktop takes off a Panel, less the 1 px border the element draws itself");
         let child = t.by_name("LBL-IN").unwrap();
         t.set(child, "FlexGrow", "1");
         t.set(child, "AlignSelf", "End");
@@ -513,5 +644,46 @@ mod tests {
         t.set(b, "MaxHeight", "50");
         let i = item(t.ctl(0), t.ctl(b), (640.0, 480.0), (0.0, 0.0), false);
         assert_eq!((get(&i, "min-width"), get(&i, "max-height")), (Some("60px"), Some("50px")));
+    }
+
+    #[test]
+    fn a_boxes_vertical_extent_is_its_borders_and_the_padding_the_container_rule_writes() {
+        let mut t = tree();
+        let p = t.by_name("PNL-1").unwrap();
+        assert_eq!(vertical_extent(t.ctl(p)), 4.0, "no border, no padding: the 2 px the desktop takes off a Panel on each side");
+        for (k, v) in [("BorderStyle", "Single"), ("BorderWidth", "3"), ("Padding", "5")] {
+            t.set(p, k, v);
+        }
+        // 3 px of border on each side, and 5 + 2 - 3 = 4 px of padding on each side.
+        assert_eq!(vertical_extent(t.ctl(p)), 14.0);
+    }
+
+    #[test]
+    fn a_card_whose_height_is_only_a_floor_carries_it_as_content_too() {
+        let mut t = tree();
+        t.set(0, "LayoutMode", "Flex");
+        t.set(0, "FlexWrap", "Wrap");
+        let p = t.by_name("PNL-1").unwrap();
+        let mut d = Decls::new();
+        push(&mut d, "min-height", "260px");
+        assert_eq!(floor_spacer(t.ctl(0), t.ctl(p), &d), Some(256.0), "260 less the 2 + 2 px the box takes before its content");
+
+        let label = t.by_name("LBL-IN").unwrap();
+        assert_eq!(floor_spacer(t.ctl(0), t.ctl(label), &d), None, "a Label has no children to measure");
+        t.set(0, "LayoutMode", "Absolute");
+        assert_eq!(floor_spacer(t.ctl(0), t.ctl(p), &d), None, "in an Absolute parent the card has a designed rectangle, not a floor");
+        t.set(0, "LayoutMode", "Flow");
+        assert_eq!(floor_spacer(t.ctl(0), t.ctl(p), &d), Some(256.0), "a Flow parent too");
+        t.set(p, "LayoutMode", "Flex");
+        assert_eq!(floor_spacer(t.ctl(0), t.ctl(p), &d), None, "a card that lays its children out in flow has the content to size it");
+
+        t.set(p, "LayoutMode", "Absolute");
+        let mut none = Decls::new();
+        push(&mut none, "min-height", "0");
+        assert_eq!(floor_spacer(t.ctl(0), t.ctl(p), &none), None, "no floor, no spacer");
+        assert_eq!(floor_spacer(t.ctl(0), t.ctl(p), &Decls::new()), None);
+        let mut small = Decls::new();
+        push(&mut small, "min-height", "3px");
+        assert_eq!(floor_spacer(t.ctl(0), t.ctl(p), &small), None, "a floor the box's own padding already covers");
     }
 }

@@ -1319,6 +1319,8 @@ pub struct Page<'a> {
     pub title: &'a str,
     pub app_css: &'a str,
     pub app_css_sri: &'a str,
+    /// The stand-in face's file: asked for at once, so that the first picture is already lettered in it.
+    pub font: &'a str,
     pub loader: &'a str,
     pub loader_sri: &'a str,
     /// The `<script>` element that registers the isolation shim, or empty.
@@ -1349,6 +1351,7 @@ pub fn page_html(p: &Page<'_>) -> String {
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">
 <meta name=\"color-scheme\" content=\"light dark\">
 <title>{title}</title>
+<link rel=\"preload\" href=\"{font}\" as=\"font\" type=\"font/ttf\" crossorigin>
 <link rel=\"stylesheet\" href=\"{app_css}\" integrity=\"{app_css_sri}\">
 <link rel=\"modulepreload\" href=\"{loader}\" integrity=\"{loader_sri}\">
 {shim}<script type=\"module\" src=\"{app_js}\" integrity=\"{app_js_sri}\"></script>
@@ -1364,6 +1367,7 @@ pub fn page_html(p: &Page<'_>) -> String {
         title = esc(p.title),
         app_css = p.app_css,
         app_css_sri = p.app_css_sri,
+        font = p.font,
         loader = p.loader,
         loader_sri = p.loader_sri,
         shim = p.shim,
@@ -1378,14 +1382,18 @@ pub fn page_html(p: &Page<'_>) -> String {
 
 /// `app.css`: the host page's own styling (WASM-002 R10/R11). `backdrop` is the colour
 /// behind a see-through form theme ([`crate::BundleOptions::backdrop`]).
-pub fn app_css(backdrop: Option<&str>) -> String {
+pub fn app_css(backdrop: Option<&str>, font_url: &str) -> String {
     let behind = match backdrop {
         Some(c) => format!(
             "\n/* A see-through form theme shows what is behind the window. A page has no desktop behind it, so\n   the application sits on a stand-in for one, and the text before it is drawn light. */\n#pr-app {{ color: rgb(255, 255, 255); background: {c}; }}\n"
         ),
         None => String::new(),
     };
+    // The desktop's stand-in face, as the page declares it: a font cannot be declared inside a shadow root, and
+    // the player's own sheet names it as `PR Ubuntu Light`.
+    let font = format!("@font-face {{ font-family: \"PR Ubuntu Light\"; src: url(\"{font_url}\") format(\"truetype\"); font-weight: 100 900; font-style: normal; font-display: block; }}\n");
     String::from(BANNER_CSS)
+        + &font
         + r#"/* SPDX-License-Identifier: Apache-2.0 */
 /* Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors */
 

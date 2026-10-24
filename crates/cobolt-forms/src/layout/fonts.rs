@@ -107,15 +107,20 @@ fn resolved(c: &Control) -> Option<f32> {
 /// `MinFontSize`/`MaxFontSize` (0 = none) and to the engine's own bounds. A
 /// control with `ScaleFont = false` keeps its designed size.
 pub fn effective_size(c: &Control, factor: f32) -> f32 {
-    let size = designed_size(c);
-    let mut v = if c.flag("ScaleFont") { size * factor } else { size };
-    if c.flag("ScaleFont") {
-        let (lo, hi) = (c.number("MinFontSize"), c.number("MaxFontSize"));
-        if hi > 0.0 && v > hi {
-            v = hi;
+    scaled_size(designed_size(c), c.flag("ScaleFont"), c.number("MinFontSize"), c.number("MaxFontSize"), factor)
+}
+
+/// The arithmetic of [`effective_size`] on plain values, for a surface that holds a control's properties as text and not as a
+/// [`Control`] (the Web player): `designed` times `factor` when the control scales its font, held between its own `min` and `max`
+/// (0 = none) and between the engine's bounds. A control that does not scale keeps `designed`, which is still held to the bounds.
+pub fn scaled_size(designed: f32, scales: bool, min: f32, max: f32, factor: f32) -> f32 {
+    let mut v = if scales { designed * factor } else { designed };
+    if scales {
+        if max > 0.0 && v > max {
+            v = max;
         }
-        if lo > 0.0 && v < lo {
-            v = lo;
+        if min > 0.0 && v < min {
+            v = min;
         }
     }
     v.clamp(defaults::FONT_SIZE_MIN, defaults::FONT_SIZE_MAX)
@@ -192,5 +197,19 @@ mod tests {
         assert_eq!(effective_size(&c, 2.0), 18.5);
         c.properties.shift_remove("FontSize");
         assert_eq!(effective_size(&c, 1.0), defaults::FONT_SIZE_MISSING);
+    }
+
+    /// The Web player holds properties as text, so it asks the arithmetic itself: [`effective_size`] is exactly that on a control.
+    #[test]
+    fn scaled_size_is_the_arithmetic_of_effective_size_on_plain_values() {
+        assert_eq!(scaled_size(18.5, true, 0.0, 0.0, 1.0), 18.5);
+        assert_eq!(scaled_size(18.5, true, 0.0, 0.0, 2.0), 37.0);
+        assert_eq!(scaled_size(18.5, true, 0.0, 30.0, 2.0), 30.0, "held to the control's own ceiling");
+        assert_eq!(scaled_size(18.5, true, 16.0, 30.0, 0.5), 16.0, "and to its own floor");
+        assert_eq!(scaled_size(18.5, false, 16.0, 30.0, 2.0), 18.5, "a control that does not scale keeps its size and its limits do not apply");
+        assert_eq!(scaled_size(300.0, false, 0.0, 0.0, 1.0), defaults::FONT_SIZE_MAX, "the engine's bounds hold either way");
+        assert_eq!(scaled_size(2.0, true, 0.0, 0.0, 1.0), defaults::FONT_SIZE_MIN);
+        // 28 at the 0.85 floor of a Fluid form: a fraction, which is what the painters are handed.
+        assert!((scaled_size(28.0, true, 0.0, 0.0, 0.85) - 23.8).abs() < 1e-4);
     }
 }

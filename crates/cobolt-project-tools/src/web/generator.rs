@@ -113,6 +113,18 @@ fn location_in(rel: &str, lines: &[SourceLine], gen_line: u32) -> String {
     }
 }
 
+/// `cfrm` with `theme="<id>"` on its `<Form>` element, unless the form names a theme of its own.
+fn with_theme(cfrm: &str, theme: &str) -> String {
+    let Some(at) = cfrm.find("<Form ") else { return cfrm.to_owned() };
+    let end = cfrm[at..].find('>').map(|e| at + e).unwrap_or(cfrm.len());
+    if cfrm[at..end].contains(" theme=") {
+        return cfrm.to_owned();
+    }
+    // A theme id is a catalogue word (`spatial`, `liquid-glass`): nothing else is written into the markup.
+    let id: String = theme.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')).collect();
+    format!("{} theme=\"{id}\"{}", &cfrm[..at + "<Form".len()], &cfrm[at + "<Form".len()..])
+}
+
 impl GeneratorBackend {
     /// Read, regenerate and parse every form of the request.
     fn load_forms(
@@ -128,6 +140,15 @@ impl GeneratorBackend {
                 .map_err(|e| WebBuildError::Failed(format!("cannot read {rel}: {e}")))?;
             let form = cobolt_forms::xml::load_form_from_str(&cfrm)
                 .map_err(|e| WebBuildError::Failed(format!("{rel}: {e}")))?;
+            // The theme the form is drawn in — its own, else the project's default (`[forms] theme`) — travels
+            // with the form, so the page draws what the Form Designer draws (a see-through theme above all).
+            let theme = cobolt_forms::theme::resolve_theme_id(form.theme.as_deref(), req.form_theme.as_deref());
+            let cfrm = if theme != cobolt_forms::theme::LIQUID_GLASS { with_theme(&cfrm, &theme) } else { cfrm };
+            let form = if form.theme.as_deref().map(str::trim).is_none_or(str::is_empty) && theme != cobolt_forms::theme::LIQUID_GLASS {
+                cobolt_forms::xml::load_form_from_str(&cfrm).map_err(|e| WebBuildError::Failed(format!("{rel}: {e}")))?
+            } else {
+                form
+            };
             // WASM-017 R2: a form's instances are fixed memory; out of range
             // refuses Check and Build alike, the form named.
             if let Some(problem) = form.instances_problem() {

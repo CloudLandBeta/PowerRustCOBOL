@@ -26,11 +26,13 @@
 //! | [`shell`] | the application shell: routes, the SideMenu, the breadcrumb |
 
 pub mod auth;
+pub mod chart_paint;
 pub mod charts;
 pub mod controls;
 #[cfg(test)]
 mod contract;
 pub mod data;
+pub mod datagrid;
 pub mod interact;
 pub mod maps;
 pub mod shell;
@@ -292,8 +294,8 @@ impl VNode {
 pub struct UiState {
     /// The menu items open, outermost first (a MenuBar dropdown).
     pub open_menu: Vec<String>,
-    /// The rows of a DataGrid in view, by control: `(first, count)`.
-    pub grid_window: BTreeMap<usize, (usize, usize)>,
+    /// How far a DataGrid has been scrolled, by control: `(left, top)` in pixels, as the page last reported it.
+    pub grid_scroll: BTreeMap<usize, (f64, f64)>,
     /// The DataGrid column sorted by the user and its direction.
     pub grid_sort: BTreeMap<usize, (usize, bool)>,
     /// A ComboBox whose list is open (a custom popup is never used: the native `<select>` opens itself).
@@ -313,6 +315,12 @@ pub struct UiState {
     pub dropzone_over: Option<usize>,
     /// A pointer drag on a Maps control: where it began `(x, y, centre latitude, centre longitude)`.
     pub map_drag: BTreeMap<usize, (f64, f64, f64, f64)>,
+    /// The size the browser gave a control's box, by control, in CSS pixels. A control that is drawn
+    /// to its own size (a chart, a gauge, a caption that shrinks to fit) is drawn for THIS, not for the
+    /// size it was designed at: layout may have grown or shrunk it, as the desktop's solver does before
+    /// its painter draws (`ViewCtx::box_size`). Filled by the page from a `ResizeObserver`; empty until
+    /// the first layout has been measured.
+    pub box_sizes: BTreeMap<usize, (f64, f64)>,
 }
 
 /// Where a Mermaid diagram stands: the Mermaid part is a module of its own, loaded the first time a
@@ -387,6 +395,16 @@ impl Empty {
 }
 
 impl ViewCtx<'_> {
+    /// The size control `i` is drawn for: the box the browser gave it when the page has measured one,
+    /// else the size it was designed at (`Width` × `Height`).
+    pub fn box_size(&self, i: usize) -> (f64, f64) {
+        if let Some(s) = self.ui.box_sizes.get(&i) {
+            return *s;
+        }
+        let dim = |k: &str| crate::value::parse_f64(&self.tree.get(i, k)).unwrap_or(0.0);
+        (dim("Width"), dim("Height"))
+    }
+
     /// Resolve a path a form wrote (`Assets/logo.png`) to a URL the page may load, or `None`.
     /// A `data:` image, a path in the asset table and an absolute URL of an allowed origin are
     /// accepted; nothing else is (WASM-013: the page loads only what the application shipped).
