@@ -1,4 +1,4 @@
-       FD  MENU-FILE.
+       FD  MENU-FILE
            RECORD CONTAINS 424 CHARACTERS.
            01 MENU-RECORD.
                05 NUMERO PIC 99.

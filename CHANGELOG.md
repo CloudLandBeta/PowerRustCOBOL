@@ -17,6 +17,23 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.52] — 2026-10-24
+
+*(Forward-port of 1.91.223, `f91da487` on `fixes-indexed-fd-record`. 2.0.51 is the last number held by `features-2x`, so this port takes 2.0.52.)*
+
+### Fixed: an indexed file's generated FD keeps its record
+
+The Indexed File Editor wrote `FD  NAME.` and then `RECORD CONTAINS n CHARACTERS.` as a sentence of its own. The period after the
+name ended the FD entry, so the parser read the `RECORD CONTAINS` line as a stray sentence and skipped the `01` record under it: a
+program that copied `COPYBOOKS/<stem>.FD` declared the file with **no record**, and every field of it was undeclared. Both writers —
+the `COPYBOOKS/<stem>.FD` copybook and the `generated/<stem>-indexed.cbl` fragment — now write `FD  NAME` with the clause in the same
+entry, as `fd_text` already did. The three copybooks the examples ship (PowerDemo3 `actors.FD` and `menu.FD`, PowerAnalytics
+`customer_file.FD`) are corrected the same way; any other is rewritten the next time its `.cidx` is saved or generated. The
+Developer's Guide's example (*Indexed File Editor & Grid Browser*) shows the corrected FD. Test:
+`cobolt-codegen` `indexed::tests::the_generated_fd_keeps_its_record` (both writers parse cleanly and keep the record and its length).
+
+*This line does not carry the Developer's Guide change: `docs/` describes 1.x.x and reached its readers through `main`.*
+
 ## [PowerRustCOBOL 2.0.50] — 2026-10-23
 
 *(Forward-port of 1.91.222, `f29f58cf` on `fixes-compute-size-error`. 2.0.49 is the last number held by `features-2x`, so this port takes 2.0.50.)*

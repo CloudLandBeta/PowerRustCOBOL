@@ -1,5 +1,5 @@
       *> Actors sample data, loaded by misc/load-actors-idx.cbl. Layout copied from that program's FD so the two cannot disagree: RECORD CONTAINS 111 CHARACTERS.
-       FD  ACTORS-FILE.
+       FD  ACTORS-FILE
            RECORD CONTAINS 111 CHARACTERS.
            01 ACTORS-RECORD.
                05 ACTOR-ID PIC 9(9).
