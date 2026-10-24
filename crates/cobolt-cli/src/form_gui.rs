@@ -230,6 +230,14 @@ pub fn cmd_run_form(args: &[String]) {
         // A loose `.cfrm` outside any project simply has none.
         // The machine's model providers arrive by environment, not manifest.
         cobolt_form_host::seeding::publish_agent_connections_from_env();
+        // WASM-005 R13: a Web or Mobile form's bound grids read and save through
+        // the backend — this form's and the child forms it opens, which are the
+        // same project's. The form file's extension says which kind it is.
+        let kind = cfrm_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(cobolt_compiler::project_kind::ProjectKind::of_form_extension);
+        cobolt_form_host::seeding::publish_remote_bindings(kind.is_some_and(|k| !k.is_desktop()));
         if let Some(m) = manifest.as_deref() {
             let catalogue = cobolt_compiler::project_connections(m);
             cobolt_form_host::seeding::publish_connections(catalogue.rest);

@@ -2512,6 +2512,7 @@ dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
  "cobolt-forms",
+ "cobolt-indexed",
  "cobolt-lexer",
  "cobolt-parser",
  "cobolt-runtime",

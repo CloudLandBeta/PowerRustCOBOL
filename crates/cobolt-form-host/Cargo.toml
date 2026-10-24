@@ -37,6 +37,9 @@ cobolt-forms   = { path = "../cobolt-forms", features = ["render"] }
 cobolt-os-blur = { path = "../cobolt-os-blur" }
 cobolt-runtime = { path = "../cobolt-runtime", default-features = false }
 cobolt-media   = { path = "../cobolt-media" }
+# WASM-005 R13: a web form's bound grid is seeded with the endpoints the Build
+# generated for it, named as `cobolt_wire::controls::endpoint_name` names them.
+cobolt-wire    = { path = "../cobolt-wire" }
 
 # The `@DBG` debug link (debug_link.rs) is a JSON line protocol. Its types
 # are `cobolt_runtime::debugger`'s, so only the codec is needed here.
@@ -59,5 +62,3 @@ pretty_assertions = { workspace = true }
 tempfile = "3"
 cobolt-lexer  = { path = "../cobolt-lexer" }
 cobolt-parser = { path = "../cobolt-parser" }
-# WASM-005 AC6: a scripted backend for a pending `CALL … WITH WEBSOCKET LINKAGE`.
-cobolt-wire   = { path = "../cobolt-wire" }

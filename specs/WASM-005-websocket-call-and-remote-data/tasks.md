@@ -649,7 +649,43 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 ## M10 — bindings driven by the host
 
 - [ ] **T15 — Remote bindings in the interpreter: IndexedFile, Sql, RestApi, AgentAi** (R13, Q8; AC7)
-  - **Run of 2026-10-24 (third) stopped here — operator decision needed; nothing of T15 is written.** Q8 decided that `RestApi`
+  - **Run of 2026-10-24 (fourth): the IndexedFile and Sql half is done and verified (2.0.58); the `RestApi`/`AgentAi` half still
+    waits for the operator's answers below.** What landed: the host seeds a web form's grid as remote (`_BindingRemote`,
+    `_BindingRemoteRead`, `_BindingRemoteSave`, the endpoints named by `cobolt_wire::controls::endpoint_name`;
+    `cobolt-form-host/src/seeding.rs` `publish_remote_bindings` / `remote_grid_seed`, published by `rcrun run-form` from the form
+    file's extension — root form and child forms alike); the interpreter reads the grid window by window through the run's
+    transport (`cobolt-runtime/src/interpreter/remote_binding.rs`, `MAX_WINDOW_ROWS` a call, offset/count only — O3) and saves the
+    unit as one `…-SAVE` call (`grid_unit.rs` `Kind::Remote`, `apply_remote`: deletes, updates, inserts, in that order;
+    `FAILED-CHANGE` maps to the cell the grid marks; a backend not reached is a refusal `90` that leaves the edits waiting);
+    `remote.rs` `send_request` is the one door to the transport for the `CALL` statement and the binding (same idempotency key
+    rule, same `WS-LAST-ERROR`). A COBOL table is never seeded remote (Q8).
+    **Evidence:** `crates/cobolt-server/tests/remote_bindings.rs` — the real interpreter, `rcrun`'s WebSocket client, a TLS
+    loopback server and the generated programs of the fixture form `ORDERS`: 250 customers in 3 windows and 3 items filled; an
+    explicit save, an auto-commit, a refusal `92` marked at (1,3) with the grid restored, a key change `21` without a call, a
+    delete + an insert in one unit (`SavedRows` 2), the COBOL-table grid made no call, 15 remote calls in all; against the
+    desktop path over the same file all 250 rows equal in id and name. Seeding:
+    `a_web_forms_bound_grid_goes_through_the_backend_and_a_cobol_table_does_not`; the keys of a remote indexed grid and the retry
+    rule of a save by two unit tests in `grid_unit.rs`. Regressions, 0 failed: `cobolt-runtime` lib 506, `test_grid_write_back`
+    55 + 1, `test_remote_call` 13, `test_backend_hooks` 11; `cobolt-form-host` lib 181, `remote_call_pending` 1; `cobolt-server`
+    `generated_backend` 5, `loopback` 15.
+    **FINDING (not fixed here, a 1.x.x fix to forward-port):** the runtime lays a `COMP-3` (and a binary `COMP`) field of a file
+    record out as `digits + decimals` DISPLAY bytes (`cobolt-runtime/src/files.rs` `compute_layout`; `environment::decl_class`
+    sizes only national and UTF-8 items), seven for `S9(5)V99`, while the `.cidx` gives it the packed width, four. The desktop grid
+    and the Indexed File Browser read by the `.cidx`, so on a file the runtime wrote they show the hex of the first four digit
+    bytes for the balance and take its fifth digit for the next column: the active flag was wrong on 124 of the 250 rows. The
+    backend reads with the FD the file was written with and is right. AC7's amendment recorded the hex, not the shift; the test
+    pins the misread so the fixer sees it and restores the equality.
+    **DataGrid guardrail review (`.agents/agents/datagrid-quality-compatibility-agent.md`, run on this change):** nine findings;
+    seven fixed in the same change — a remote indexed grid takes its keys from the `.cidx` primary key (every part, as the
+    desktop and the generated SAVE do; the binding records at most one key field, or none), a save not taken is retried only
+    for a transport failure or a busy backend (rate/concurrency limit, call time) and fails the unit otherwise (an unknown
+    program, a refused role, a version), cell lists are padded to the bound fields (an `AddRow()` row has the designed
+    columns), the refused change's cell is the field the backend names, a missing endpoint is a permanent failure that
+    reaches the File I/O channel, cells keep their leading spaces, a doc line. Two **recorded**, not fixed: the lost update
+    and offset paging under concurrent writers (`WASM-PARITY.md` #20, WASM-023); and a `DataSource` **quick-bind** on a web
+    form still reads the local `.cidx` under `rcrun run-form` (no binding to seed remote, no program generated) — the Build
+    and Check should refuse a quick-bind on a web form (T13's home), a follow-up.
+  - **The `RestApi`/`AgentAi` half — operator decision needed (the run of 2026-10-24, third, stopped here for it).** Q8 decided that `RestApi`
     and `AgentAi` bindings run *through the backend*, and this task's Verify asks that both "fill through the backend"; T9 left
     their backend programs to T15. But there is no behaviour to carry there: the desktop has no refresh or save path for either
     (`cobolt-runtime/src/interpreter.rs` `refresh_binding_rows` `:13678` returns 0 for any kind but IndexedFile, Sql and
@@ -669,9 +705,9 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
        rows (*proposal:* the agent is asked for a JSON array of objects with the binding's field names, and an answer that is not
        one is `READ-STATUS 90` with the model's text in `READ-MESSAGE`), and whether an AgentAi binding can be writable at all
        (its `update`).
-    3. *(Not blocking, recorded for the same answer.)* With Q8's two kinds decided, the IndexedFile/Sql half (the interpreter's
-       remote branch, `_BindingRemote` seeding, the loopback test window by window) is independent of them and can be built in
-       the same run; it was not started here so that T15 lands as one verified task.
+    3. *(Done, 2026-10-24, fourth run — see above.)* The IndexedFile/Sql half (the interpreter's remote branch, the
+       `_BindingRemote` seeding, the loopback test window by window) was independent of the two kinds and is built; the remote
+       path is kind-agnostic, so once their programs exist the seeding alone extends it to `RestApi` and `AgentAi`.
   - Files: `crates/cobolt-form-host/src/seeding.rs` (`_BindingRemote` seeded for web forms; never for `CobolTable`),
     `crates/cobolt-runtime/src/interpreter.rs` (`refresh_binding_rows` `:13649`), `src/interpreter/grid_edit.rs` (`save_method` `:378`, the
     auto-commit path), a loopback test in `crates/cobolt-server/tests/`.

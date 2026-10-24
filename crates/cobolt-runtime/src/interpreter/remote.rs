@@ -27,7 +27,7 @@ use cobolt_ast::expr::Expr;
 use cobolt_ast::program::{DataSection, Program};
 use cobolt_ast::stmt::{CallArg, Stmt};
 use cobolt_lexer::Span;
-use cobolt_wire::call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallRequest, DownloadRequest, Transport, UploadRequest};
+use cobolt_wire::call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallReply, CallRequest, DownloadRequest, Transport, UploadRequest};
 use cobolt_wire::error::{codes, CallError, ErrorClass};
 use cobolt_wire::layout::{self, Item, Kind};
 use cobolt_wire::mapping::{self, DEFAULT_MAX_BYTES};
@@ -337,42 +337,8 @@ impl Interpreter {
             None => None,
         };
 
-        // 2. The call. The same call made again right after one the backend may
-        //    have run carries the same key, so the backend answers from its store
-        //    (WASM-014 R10); any other call gets a key of its own.
-        self.ensure_transport();
-        let fp = fingerprint(&request);
-        let key = match self.remote.retry.take() {
-            Some((f, k)) if f == fp => k,
-            _ => fresh_key(),
-        };
-        request.idempotency_key = Some(key.clone());
-        self.remote.cancel.store(false, Ordering::SeqCst);
-        self.remote.warnings.clear();
-        let RemoteState { transport, events, warnings, cancel, .. } = &mut self.remote;
-        let Some(transport) = transport.as_mut() else {
-            return Err(CallError::transport(
-                codes::NOT_CONFIGURED,
-                "no backend is configured for this run (the host installs one when the project names a backend)",
-            )
-            .may_have_run(false));
-        };
-        let mut observer = Observer { events, warnings, cancel };
-        let outcome = transport.call_observed(&request, &mut observer);
-        let reply = match outcome {
-            Ok(r) => r,
-            Err(e) => {
-                if e.class == ErrorClass::Transport && e.may_have_run != Some(false) {
-                    self.remote.retry = Some((fp, key));
-                }
-                return Err(e);
-            }
-        };
-        for w in &reply.warnings {
-            if !self.remote.warnings.contains(w) {
-                self.remote.warnings.push(w.clone());
-            }
-        }
+        // 2. The call.
+        let reply = self.send_request(&mut request)?;
 
         // 3. Decode everything first. Nothing is written until all of it fits.
         let mut staged: Vec<(usize, Node)> = Vec::new();
@@ -402,6 +368,51 @@ impl Interpreter {
             self.write_group(b, &new);
         }
         Ok(())
+    }
+
+    /// Send one request over the run's transport and answer its reply — the one
+    /// door to the transport, which the `CALL` statement and a bound grid's reads
+    /// and saves (WASM-005 R13, `remote_binding`) both go through.
+    ///
+    /// The same call made again right after one the backend may have run carries
+    /// the same idempotency key, so the backend answers from its store (WASM-014
+    /// R10); any other call gets a key of its own. The reply's warnings join the
+    /// run's.
+    pub(super) fn send_request(&mut self, request: &mut CallRequest) -> Result<CallReply, CallError> {
+        self.ensure_transport();
+        let fp = fingerprint(request);
+        let key = match self.remote.retry.take() {
+            Some((f, k)) if f == fp => k,
+            _ => fresh_key(),
+        };
+        request.idempotency_key = Some(key.clone());
+        self.remote.cancel.store(false, Ordering::SeqCst);
+        self.remote.warnings.clear();
+        let RemoteState { transport, events, warnings, cancel, .. } = &mut self.remote;
+        let Some(transport) = transport.as_mut() else {
+            return Err(CallError::transport(
+                codes::NOT_CONFIGURED,
+                "no backend is configured for this run (the host installs one when the project names a backend)",
+            )
+            .may_have_run(false));
+        };
+        let mut observer = Observer { events, warnings, cancel };
+        let outcome = transport.call_observed(request, &mut observer);
+        let reply = match outcome {
+            Ok(r) => r,
+            Err(e) => {
+                if e.class == ErrorClass::Transport && e.may_have_run != Some(false) {
+                    self.remote.retry = Some((fp, key));
+                }
+                return Err(e);
+            }
+        };
+        for w in &reply.warnings {
+            if !self.remote.warnings.contains(w) {
+                self.remote.warnings.push(w.clone());
+            }
+        }
+        Ok(reply)
     }
 
     // ── an argument: declaration, layout, value ──────────────────────────────

@@ -76,7 +76,7 @@ One idea carries all of it: **every class C operation is a remote call to a prog
 | `crates/cobolt-codegen` (new module, e.g. `src/remote_controls.rs`) | backend programs, `backend/generated/exports.toml`, slots; argument groups in the form's generated WORKING-STORAGE; goldens in `crates/cobolt-codegen/tests/golden` | M8 |
 | `crates/cobolt-server/src/backend.rs` | read `backend/generated/exports.toml` beside the developer's; collision is an error | M8 |
 | `crates/cobolt-compiler/src/web_remote.rs` (new), web build path | the remote-lowering pass | M9 |
-| `crates/cobolt-runtime/src/interpreter.rs` `refresh_binding_rows`, `interpreter/grid_edit.rs`; `crates/cobolt-form-host/src/seeding.rs` | remote branch for bindings; `_BindingRemote` seeding | M10 |
+| `crates/cobolt-runtime/src/interpreter.rs` `refresh_binding_rows`, `interpreter/remote_binding.rs` (new), `interpreter/grid_unit.rs` (`Kind::Remote`, `apply_remote`), `interpreter/remote.rs` (`send_request`); `crates/cobolt-form-host/src/seeding.rs` (`publish_remote_bindings`, `remote_grid_seed`); `crates/cobolt-cli/src/form_gui.rs` | remote branch for bindings; `_BindingRemote` seeding, published by `rcrun run-form` from the form file's kind | M10 |
 | `crates/cobolt-web-player` (`net.rs`, the DataGrid view) | the player's grid window/save calls (with WASM-004/016) | M10 |
 | `crates/cobolt-forms/src/model.rs`, the IDE properties panel, `crates/cobolt-ide/src/i18n.rs` | `BackendConfig` (and `BackendRoles`) on class C controls in `.wcfrm`/`.mcfrm`; Tr keys ×6 | M11 |
 | `crates/cobolt-web-bundle` (or the web build check in `cobolt-project-tools/src/web/mod.rs`) | structural secret check per class C control | M11 |
@@ -185,7 +185,7 @@ Manual check (the operator judges the look): the IDE's Build of a web project wi
 | M7 | class C catalogue (`cobolt-wire::controls`) | to do |
 | M8 | backend generation (programs, generated exports, slots) + loader | to do |
 | M9 | remote-lowering pass | to do |
-| M10 | remote bindings (IndexedFile, SQL, RestApi, AgentAi) in interpreter and player | to do; player part with WASM-016 |
+| M10 | remote bindings (IndexedFile, SQL, RestApi, AgentAi) in interpreter and player | interpreter half done for IndexedFile and SQL (2.0.58, T15); `RestApi`/`AgentAi` wait for the operator (T15); player part T16 |
 | M11 | `BackendConfig`/`BackendRoles`, structural secret check, Tr ×6 | to do |
 | M12 | System KB: every class C note; regenerate `chunked.data` | to do |
 

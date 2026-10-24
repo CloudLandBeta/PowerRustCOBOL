@@ -102,6 +102,8 @@ cobolt-wire = { path = "../cobolt-wire" }
 # `dependency_guards` reads normal edges.
 cobolt-codegen = { path = "../cobolt-codegen" }
 cobolt-forms   = { path = "../cobolt-forms" }
+# WASM-005 T15: the remote-binding test writes the `.cidx` the desktop path reads.
+cobolt-indexed = { path = "../cobolt-indexed" }
 cobolt-runtime = { path = "../cobolt-runtime", default-features = false, features = ["sql", "http"] }
 # A self-signed certificate for the loopback tests, signed with RustCrypto
 # through rcgen's remote-key hook: no ring, no aws-lc-rs.

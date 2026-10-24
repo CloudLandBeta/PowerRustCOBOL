@@ -35,6 +35,7 @@ mod grid_dropdown;
 mod grid_edit;
 mod grid_unit;
 mod kb;
+mod remote_binding;
 /// WASM-005 — `CALL … WITH WEBSOCKET LINKAGE`: groups out of the environment,
 /// through the JSON mapping, over the run's transport, and back.
 pub mod remote;
@@ -13677,6 +13678,12 @@ impl Interpreter {
 
     fn refresh_binding_rows(&mut self, control_id: &str) -> usize {
         let binding_kind = self.obj_get(control_id, "_BindingKind");
+        // WASM-005 R13: on a web form the backend holds the source, whatever its
+        // kind — the host seeded the grid as remote. A COBOL table is never
+        // seeded so (Q8): it stays in the form.
+        if self.binding_is_remote(control_id) {
+            return self.refresh_remote_binding(control_id);
+        }
         // An `IndexedFile` source is never a WS table the running program fills
         // itself, so it gets its own read path (`refresh_indexed_file_binding`)
         // rather than joining the CobolTable-only checks below.

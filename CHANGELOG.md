@@ -17,6 +17,59 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.58] — 2026-10-24
+
+*(Written on `features-2x`, after 2.0.57.)*
+
+### Feature: a web form's bound DataGrid reads and saves through the backend (WASM-005, part 7: T15, the IndexedFile and SQL half)
+
+On a Web or Mobile form, a DataGrid bound to an indexed file or to a SQL query no longer reaches the file or the connection itself:
+`RefreshBinding()` fills it from the backend's generated `…-READ` program, window by window (100 rows a call; offset and count only, plan
+O3), and `Save()` and `AutoCommit` send the unit — the deleted rows, the edited rows and the added rows, in that order — as one `…-SAVE`
+call the backend writes in one transaction. The refusals are the backend's (`COMMIT-STATUS`, `COMMIT-MESSAGE`; `FAILED-CHANGE` names the
+change, and the grid marks that change's cell as it marks its own) and the grid's own still come first (a changed key is `21` before any
+call). A backend that cannot be reached leaves the edits waiting (`90`, as a connection in Async mode does); a source that cannot be read is
+an empty grid, reported on the File I/O channel under the endpoint's name and, for a SQL binding, in the source control's `LastError`. A
+COBOL table stays in the form (Q8).
+
+How: the host seeds the grid as remote — `_BindingRemote`, `_BindingRemoteRead`, `_BindingRemoteSave`, the endpoints named as the Build
+names its programs (`cobolt_wire::controls::endpoint_name`) — when the run is a Web or Mobile project's (`cobolt-form-host`'s
+`seeding::publish_remote_bindings`; `rcrun run-form` publishes it from the form file's extension, for the root form and the child forms it
+opens). The interpreter gained `interpreter/remote_binding.rs` (the window loop and `call_generated`), `Kind::Remote` and `apply_remote` in
+`grid_unit.rs`, and `send_request` in `remote.rs`: the one door to the transport, which the `CALL … WITH WEBSOCKET LINKAGE` statement and
+the binding share (the same idempotency-key rule, the same `WS-LAST-ERROR`). The ledger, the plan of a save and the restore after a
+failure are the desktop's own code, unchanged.
+
+Measured — `crates/cobolt-server/tests/remote_bindings.rs`, the real interpreter, `rcrun`'s WebSocket client, a TLS loopback server and
+the generated programs of the fixture form `ORDERS`: 250 customers filled in 3 windows and 3 items; an explicit save, an auto-commit, a
+refusal `92` marked at (1,3) with the grid restored, a key change `21` without a call, a delete plus an insert in one unit (`SavedRows` 2);
+the COBOL-table grid made no call; 15 remote calls in all; against the desktop path over the same file, all 250 rows equal in id and name.
+The seeding is pinned by `a_web_forms_bound_grid_goes_through_the_backend_and_a_cobol_table_does_not`; the keys of a remote indexed grid
+and the retry rule of a save by two unit tests in `grid_unit.rs`. Regressions, all 0 failed: `cobolt-runtime` lib 506, `test_grid_write_back`
+55 + 1, `test_remote_call` 13, `test_backend_hooks` 11; `cobolt-form-host` lib 181, `remote_call_pending` 1; `cobolt-server`
+`generated_backend` 5, `loopback` 15.
+
+**Found on the way (not fixed here):** the runtime lays a `COMP-3` (and a binary `COMP`) field of a file record out as `digits + decimals`
+DISPLAY bytes (`cobolt-runtime/src/files.rs`, `compute_layout`; `decl_class` sizes only national and UTF-8 items) — seven for `S9(5)V99` —
+while a `.cidx` gives it its packed width, four. The desktop grid and the Indexed File Browser read by the `.cidx`, so on a file the
+runtime wrote they show the hex of the first four digit bytes for such a field and take its fifth digit for the next column: the active
+flag was wrong on 124 of the 250 rows. The backend reads with the FD the file was written with and is right. WASM-005 AC7's amendment
+recorded the hex, not the shift. The fix belongs to the 1.x.x line, where the runtime is shared, and is forward-ported as every fix is;
+the test pins the misread so the fixer sees it.
+
+Reviewed by the DataGrid Quality & Compatibility Agent (`.agents/agents/`): of its nine findings, seven are fixed in this change — a
+remote indexed grid takes its keys from the `.cidx` primary key, every part of it, as the desktop and the generated SAVE do (the binding
+records at most one key field, or none); a save the backend did not take is retried only after a transport failure or a busy backend (rate
+or concurrency limit, call time) and otherwise fails the unit once (an unknown program, a refused role, a version), so nothing is re-sent
+at every settle; cell lists are padded to the bound fields (an `AddRow()` row has the designed columns); the refused change's mark goes on
+the field the backend names; a missing endpoint is a permanent failure that reaches the File I/O channel; cells keep their leading spaces.
+Two are recorded, not fixed: the lost update and offset paging under concurrent writers (`WASM-PARITY.md` #20, a WASM-023 matter), and a
+`DataSource` quick-bind on a web form, which still reads the local `.cidx` under `rcrun run-form` and which the Build and Check should
+refuse (a follow-up in T15's note).
+
+Not done: the `RestApi` and `AgentAi` bindings (Q8) wait for the operator's answers recorded in T15; T16–T19 follow. `README.md` and
+`docs/` untouched.
+
 ## [PowerRustCOBOL 2.0.57] — 2026-10-24
 
 *(Written on `features-2x`, after 2.0.56. Specs only; no code.)*
