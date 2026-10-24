@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.222] — 2026-10-23
+
+*(Written on `fixes-compute-size-error`, off `main` at 1.91.221. Found by the WebAssembly generator of the 2.x.x line — `specs/WASM-PARITY.md` #18, `crates/cobolt-wasm/tests/arith_table.rs::compute_division_by_zero_is_a_size_error`.)*
+
+### Fixed: a division by zero in `COMPUTE` runs `ON SIZE ERROR`
+
+`COMPUTE R = A / C ON SIZE ERROR …` with `C` at zero stopped the run with a division-by-zero error at the statement, the
+developer's phrase notwithstanding. A division by zero in an arithmetic expression is the size error condition (COBOL-85), as it
+already was for `DIVIDE`: `ON SIZE ERROR` now runs, `NOT ON SIZE ERROR` does not, and every receiver keeps its value. With no phrase
+the statement behaves as any other unguarded size error — on a form it raises the exception `onUnhandledException` receives, in a
+console program it keeps the standard's silence — which is what the Developer's Guide already said (*An unguarded size error is an
+exception*). Test: `cobolt-runtime/tests/test_interpreter_parity.rs::compute_division_by_zero_runs_on_size_error`.
+
 ## [PowerRustCOBOL 1.91.221] — 2026-10-23
 
 *(Written on `fixes-interp-parity`, off `main` at 1.91.220. Found by the WebAssembly generator of the 2.x.x line, whose differential tests hold it to the interpreter — `specs/WASM-PARITY.md` #7, #11, #12 there.)*
