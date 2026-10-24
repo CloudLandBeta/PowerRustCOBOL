@@ -737,7 +737,18 @@ struct BindingEditorState {
     indexed_files: Vec<String>,
     cobol_tables: Vec<CobolTableBindingMeta>,
     selected_indexed_file: String,
+    /// The record item of the selected `.cidx` — its level-01 field, read from the
+    /// definition; empty when the file could not be read (1.91.225: it used to be
+    /// the constant `CUSTOMER-RECORD`).
+    indexed_record_name: String,
     selected_sql_control: String,
+    /// The `SqlDatabase`, `RestClient` and `AgentObject` controls of the form — the
+    /// only sources a binding can name (1.91.225: the pickers used to offer stand-in
+    /// ids such as `SQL-CUSTOMERS` and `REST-API`).
+    sql_controls: Vec<String>,
+    rest_controls: Vec<String>,
+    agent_controls: Vec<String>,
+    selected_rest_control: String,
     /// Spec 094: the SELECT that fills a SQL-bound grid, and the table an edit updates.
     sql_query: String,
     sql_table: String,
@@ -748,8 +759,6 @@ struct BindingEditorState {
     rest_headers: Vec<HttpHeaderRow>,
     rest_auth: RestAuth,
     show_jsonpath_help: bool,
-    page: i64,
-    page_size: i64,
     rows: Vec<BindingFieldRow>,
     removed_rows: Vec<BindingFieldRow>,
     dropdown_config_row: Option<usize>,
@@ -802,10 +811,21 @@ impl BindingEditorState {
                 Some(source_kind)
             };
         let selected_cobol_table = String::new();
-        let rows = if source_kind == BindingEditorSourceKind::CobolTable {
-            Vec::new()
-        } else {
-            sample_rows_for_source(source_kind)
+        // 1.91.225: the pickers offer the form's own data controls, and an indexed
+        // source starts from its definition's fields — no stand-ins. A SQL source
+        // starts with no rows: its columns are the SELECT's, typed by hand.
+        let sql_controls = control_ids_of_kind(form, cobolt_forms::ControlType::SqlDatabase);
+        let rest_controls = control_ids_of_kind(form, cobolt_forms::ControlType::RestClient);
+        let agent_controls = control_ids_of_kind(form, cobolt_forms::ControlType::AgentObject);
+        let selected_indexed_file = indexed_files.first().cloned().unwrap_or_default();
+        let (indexed_record_name, rows) = match source_kind {
+            BindingEditorSourceKind::IndexedFile => {
+                indexed_definition_rows(&selected_indexed_file).unwrap_or_default()
+            }
+            BindingEditorSourceKind::RestApi => (String::new(), sample_rest_field_rows()),
+            BindingEditorSourceKind::Sql
+            | BindingEditorSourceKind::CobolTable
+            | BindingEditorSourceKind::AgentAi => (String::new(), Vec::new()),
         };
         Some(Self {
             target_control_id: target_id.clone(),
@@ -816,11 +836,13 @@ impl BindingEditorState {
             mode: BindingMode::ReadOnly,
             indexed_files: indexed_files.to_vec(),
             cobol_tables,
-            selected_indexed_file: indexed_files
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "CUSTOMER-DATA (CUSTDAT)".to_owned()),
-            selected_sql_control: "SQL-CUSTOMERS".to_owned(),
+            selected_indexed_file,
+            indexed_record_name,
+            selected_sql_control: sql_controls.first().cloned().unwrap_or_default(),
+            sql_controls,
+            selected_rest_control: rest_controls.first().cloned().unwrap_or_default(),
+            rest_controls,
+            agent_controls,
             sql_query: String::new(),
             sql_table: String::new(),
             selected_cobol_table,
@@ -830,8 +852,6 @@ impl BindingEditorState {
             rest_headers: Vec::new(),
             rest_auth: RestAuth::default(),
             show_jsonpath_help: true,
-            page: 1,
-            page_size: 50,
             rows,
             removed_rows: Vec::new(),
             dropdown_config_row: None,
@@ -867,9 +887,16 @@ impl BindingEditorState {
         }
         match &binding.source {
             Src::IndexedFile {
-                definition_path, ..
+                definition_path,
+                record_name,
+                ..
             } if !definition_path.trim().is_empty() => {
                 s.selected_indexed_file = definition_path.clone();
+                // The record item from the definition — or the saved name when the
+                // file cannot be read now, so the binding stays editable.
+                s.indexed_record_name = indexed_definition_rows(definition_path)
+                    .map(|(record, _)| record)
+                    .unwrap_or_else(|| record_name.clone());
             }
             Src::Sql {
                 source_control_id,
@@ -884,8 +911,17 @@ impl BindingEditorState {
             Src::CobolTable { table_name, .. } => {
                 s.selected_cobol_table = table_name.clone();
             }
-            Src::RestApi { endpoint_name, .. } if !endpoint_name.trim().is_empty() => {
-                s.rest_endpoint = endpoint_name.clone();
+            Src::RestApi {
+                source_control_id,
+                endpoint_name,
+                ..
+            } => {
+                if !source_control_id.trim().is_empty() {
+                    s.selected_rest_control = source_control_id.clone();
+                }
+                if !endpoint_name.trim().is_empty() {
+                    s.rest_endpoint = endpoint_name.clone();
+                }
             }
             _ => {}
         }
@@ -947,31 +983,40 @@ impl BindingEditorState {
             return;
         }
         self.selected_source = Some(source_kind);
-        self.page = 1;
         self.validation_error = None;
-        self.rows = if source_kind == BindingEditorSourceKind::CobolTable {
-            self.rows_for_selected_cobol_table(&[])
-        } else {
-            sample_rows_for_source(source_kind)
+        self.rows = match source_kind {
+            BindingEditorSourceKind::CobolTable => self.rows_for_selected_cobol_table(&[]),
+            BindingEditorSourceKind::IndexedFile => {
+                if self.selected_indexed_file.trim().is_empty() {
+                    self.selected_indexed_file = self.indexed_files.first().cloned().unwrap_or_default();
+                }
+                self.load_indexed_rows()
+            }
+            BindingEditorSourceKind::RestApi => sample_rest_field_rows(),
+            BindingEditorSourceKind::Sql | BindingEditorSourceKind::AgentAi => Vec::new(),
         };
         self.removed_rows.clear();
         self.dropdown_config_row = None;
-        if source_kind == BindingEditorSourceKind::IndexedFile
-            && self.selected_indexed_file.trim().is_empty()
-        {
-            self.selected_indexed_file = self
-                .indexed_files
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "CUSTOMER-DATA (CUSTDAT)".to_owned());
-        }
-        if source_kind == BindingEditorSourceKind::Sql
-            && self.selected_sql_control.trim().is_empty()
-        {
-            self.selected_sql_control = "SQL-CUSTOMERS".to_owned();
+        if source_kind == BindingEditorSourceKind::Sql && self.selected_sql_control.trim().is_empty() {
+            self.selected_sql_control = self.sql_controls.first().cloned().unwrap_or_default();
         }
         if source_kind == BindingEditorSourceKind::RestApi && self.rest_endpoint.trim().is_empty() {
             self.rest_endpoint = "https://api.example.com/v1/products".to_owned();
+        }
+    }
+
+    /// Reads the selected `.cidx`: its record item into `indexed_record_name`, and
+    /// answers one row per leaf field — none when the file cannot be read.
+    fn load_indexed_rows(&mut self) -> Vec<BindingFieldRow> {
+        match indexed_definition_rows(&self.selected_indexed_file) {
+            Some((record, rows)) => {
+                self.indexed_record_name = record;
+                rows
+            }
+            None => {
+                self.indexed_record_name.clear();
+                Vec::new()
+            }
         }
     }
 
@@ -1037,17 +1082,14 @@ impl BindingEditorState {
             .collect();
         match source_kind {
             BindingEditorSourceKind::IndexedFile => BindingSourceDescriptor::IndexedFile {
-                definition_path: clean_or_default(
-                    &self.selected_indexed_file,
-                    "indexed/source.cidx",
-                ),
-                record_name: "CUSTOMER-RECORD".to_owned(),
+                definition_path: self.selected_indexed_file.trim().to_owned(),
+                record_name: self.indexed_record_name.trim().to_owned(),
                 key_field: key_fields.first().cloned(),
                 fields,
                 writable: true,
             },
             BindingEditorSourceKind::Sql => BindingSourceDescriptor::Sql {
-                source_control_id: clean_or_default(&self.selected_sql_control, "SQL-CUSTOMERS"),
+                source_control_id: self.selected_sql_control.trim().to_owned(),
                 query_name: "DEFAULT-QUERY".to_owned(),
                 result_set_name: "RESULT-SET".to_owned(),
                 fields,
@@ -1064,14 +1106,14 @@ impl BindingEditorState {
                 writable: true,
             },
             BindingEditorSourceKind::RestApi => BindingSourceDescriptor::RestApi {
-                source_control_id: "REST-API".to_owned(),
+                source_control_id: self.selected_rest_control.trim().to_owned(),
                 endpoint_name: clean_or_default(&self.rest_endpoint, "PRODUCTS-ENDPOINT"),
                 response_data_item: "REST-RESPONSE".to_owned(),
                 fields,
                 update: None,
             },
             BindingEditorSourceKind::AgentAi => BindingSourceDescriptor::AgentAi {
-                source_control_id: "AGENT-1".to_owned(),
+                source_control_id: self.agent_controls.first().cloned().unwrap_or_default(),
                 output_name: "DEFAULT-OUTPUT".to_owned(),
                 fields,
                 update: None,
@@ -1112,6 +1154,12 @@ impl BindingEditorState {
         {
             return Err(crate::ui_text::tx("Indexed file must be selected.").to_owned());
         }
+        if source == BindingEditorSourceKind::IndexedFile && self.indexed_record_name.trim().is_empty() {
+            return Err(crate::ui_text::txf(
+                "Indexed file {} could not be read.",
+                &[&self.selected_indexed_file],
+            ));
+        }
         if source == BindingEditorSourceKind::Sql && self.selected_sql_control.trim().is_empty() {
             return Err(crate::ui_text::tx("SQL control must be selected.").to_owned());
         }
@@ -1133,6 +1181,9 @@ impl BindingEditorState {
             }
             if source == BindingEditorSourceKind::RestApi && row.source_field.trim().is_empty() {
                 return Err(crate::ui_text::tx("Every REST source field needs a JSONPath expression.").to_owned());
+            }
+            if source == BindingEditorSourceKind::Sql && row.source_field.trim().is_empty() {
+                return Err(crate::ui_text::tx("Every SQL source field needs a column name.").to_owned());
             }
             if source == BindingEditorSourceKind::RestApi && !is_valid_jsonpath(&row.source_field) {
                 return Err(crate::ui_text::txf(
@@ -1718,126 +1769,6 @@ impl BindingFieldRow {
     }
 }
 
-fn sample_indexed_field_rows() -> Vec<BindingFieldRow> {
-    let mut rows = vec![
-        BindingFieldRow::new(
-            "CUSTOMER-ID",
-            "9(06)",
-            BindingDataType::Integer,
-            "Customer ID",
-            BindingEditControl::Textbox,
-            DropdownConfig::empty(),
-        ),
-        BindingFieldRow::new(
-            "CUSTOMER-NAME",
-            "X(40)",
-            BindingDataType::Text,
-            "Customer Name",
-            BindingEditControl::Textbox,
-            DropdownConfig::empty(),
-        ),
-        BindingFieldRow::new(
-            "BALANCE",
-            "S9(9)V99",
-            BindingDataType::Decimal,
-            "Balance",
-            BindingEditControl::Textbox,
-            DropdownConfig::empty(),
-        ),
-        BindingFieldRow::new(
-            "ACTIVE",
-            "X",
-            BindingDataType::Boolean,
-            "Active",
-            BindingEditControl::Checkbox,
-            DropdownConfig::empty(),
-        ),
-        BindingFieldRow::new(
-            "CITY-ID",
-            "9(04)",
-            BindingDataType::Integer,
-            "City",
-            BindingEditControl::Dropdown,
-            DropdownConfig::city(),
-        ),
-        BindingFieldRow::new(
-            "STATUS",
-            "X(10)",
-            BindingDataType::Text,
-            "Status",
-            BindingEditControl::Dropdown,
-            DropdownConfig::status(),
-        ),
-    ];
-    if let Some(id) = rows.get_mut(0) {
-        id.key = true;
-    }
-    rows
-}
-
-fn sample_sql_field_rows() -> Vec<BindingFieldRow> {
-    let mut rows = vec![
-        BindingFieldRow::new(
-            "CUSTOMER_ID",
-            "9(9)",
-            BindingDataType::Integer,
-            "Customer ID",
-            BindingEditControl::Textbox,
-            DropdownConfig::empty(),
-        ),
-        BindingFieldRow::new(
-            "CUSTOMER_NAME",
-            "X(100)",
-            BindingDataType::Text,
-            "Customer Name",
-            BindingEditControl::Textbox,
-            DropdownConfig::empty(),
-        ),
-        BindingFieldRow::new(
-            "CREDIT_LIMIT",
-            "9(15)V99",
-            BindingDataType::Decimal,
-            "Credit Limit",
-            BindingEditControl::Textbox,
-            DropdownConfig::empty(),
-        ),
-        BindingFieldRow::new(
-            "IS_ACTIVE",
-            "-",
-            BindingDataType::Boolean,
-            "Is Active",
-            BindingEditControl::Checkbox,
-            DropdownConfig::empty(),
-        ),
-        BindingFieldRow::new(
-            "COUNTRY_ID",
-            "9(5)",
-            BindingDataType::Integer,
-            "Country",
-            BindingEditControl::Dropdown,
-            DropdownConfig::country_sql(),
-        ),
-        BindingFieldRow::new(
-            "TIER_ID",
-            "9(2)",
-            BindingDataType::Integer,
-            "Customer Tier",
-            BindingEditControl::Dropdown,
-            DropdownConfig::tier_cobol_table(),
-        ),
-    ];
-    if let Some(id) = rows.get_mut(0) {
-        id.key = true;
-    }
-    if let Some(limit) = rows.get_mut(2) {
-        limit.required = false;
-    }
-    if let Some(tier) = rows.get_mut(5) {
-        tier.required = false;
-    }
-    rows
-}
-
 fn sample_rest_field_rows() -> Vec<BindingFieldRow> {
     let mut rows = vec![
         BindingFieldRow::new(
@@ -1882,13 +1813,69 @@ fn sample_rest_field_rows() -> Vec<BindingFieldRow> {
     rows
 }
 
-fn sample_rows_for_source(source_kind: BindingEditorSourceKind) -> Vec<BindingFieldRow> {
-    match source_kind {
-        BindingEditorSourceKind::Sql => sample_sql_field_rows(),
-        BindingEditorSourceKind::CobolTable => Vec::new(),
-        BindingEditorSourceKind::RestApi => sample_rest_field_rows(),
-        _ => sample_indexed_field_rows(),
+/// The ids of the form's controls of one type, in form order — what a SQL, REST
+/// or Agent source can name (1.91.225).
+fn control_ids_of_kind(form: &Form, kind: cobolt_forms::ControlType) -> Vec<String> {
+    form.controls
+        .iter()
+        .filter(|control| control.control_type == kind)
+        .map(|control| control.id.clone())
+        .collect()
+}
+
+/// The binding type a PICTURE implies: a numeric picture with `V` is a Decimal,
+/// any other numeric picture an Integer, everything else Text.
+fn binding_data_type_for_pic(pic: &str) -> BindingDataType {
+    match cobolt_indexed::parse_pic(pic).category {
+        cobolt_indexed::PicCategory::Numeric | cobolt_indexed::PicCategory::Indicator => {
+            if pic.to_ascii_uppercase().contains('V') {
+                BindingDataType::Decimal
+            } else {
+                BindingDataType::Integer
+            }
+        }
+        _ => BindingDataType::Text,
     }
+}
+
+/// What an indexed source offers: the record item's name and one row per leaf
+/// field of the `.cidx` at `definition_path` — the field's PICTURE, the type it
+/// implies, and whether it is part of the primary key. `None` when the
+/// definition cannot be read or has no field (1.91.225: the editor used to seed
+/// six sample fields and the constant record name `CUSTOMER-RECORD`).
+fn indexed_definition_rows(definition_path: &str) -> Option<(String, Vec<BindingFieldRow>)> {
+    let path = definition_path.trim();
+    if path.is_empty() {
+        return None;
+    }
+    let def = cobolt_indexed::load_indexed(cobolt_forms::assets::resolve(path)).ok()?;
+    let root = def.record_root()?;
+    let rows: Vec<BindingFieldRow> = root
+        .all_leaves()
+        .into_iter()
+        .map(|leaf| {
+            let pic = leaf.pic.trim_start_matches('\u{200B}').to_owned();
+            let mut row = BindingFieldRow::new(
+                leaf.name.clone(),
+                pic.clone(),
+                binding_data_type_for_pic(&pic),
+                leaf.name.clone(),
+                BindingEditControl::Textbox,
+                DropdownConfig::empty(),
+            );
+            row.key = def
+                .keys
+                .primary
+                .parts
+                .iter()
+                .any(|part| part.field_name.eq_ignore_ascii_case(&leaf.name));
+            row
+        })
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    Some((root.name.clone(), rows))
 }
 
 fn cobol_table_binding_metadata(form: &Form) -> Vec<CobolTableBindingMeta> {
@@ -2283,62 +2270,73 @@ fn show_clear_selection_banner(ui: &mut Ui, editor: &mut BindingEditorState) {
 fn show_indexed_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
     ui.heading(crate::ui_text::tx("Indexed file source"));
     ui.add_space(8.0);
+    // The project's definitions, and nothing else (1.91.225: the picker used to
+    // offer a stand-in file, and a fake preview followed it).
+    if editor.indexed_files.is_empty() {
+        ui.label(
+            RichText::new(crate::ui_text::tx("No indexed files in project"))
+                .small()
+                .color(Color32::GRAY),
+        );
+        return;
+    }
+    let before = editor.selected_indexed_file.clone();
     ui.horizontal(|ui| {
         ui.label(crate::ui_text::tx("Indexed file:"));
         egui::ComboBox::from_id_salt("data_binding_indexed_file")
-            .selected_text(clean_or_default(
-                &editor.selected_indexed_file,
-                "CUSTOMER-DATA (CUSTDAT)",
-            ))
+            .selected_text(editor.selected_indexed_file.clone())
             .width(330.0)
             .show_ui(ui, |ui| {
-                let files: Vec<String> = if editor.indexed_files.is_empty() {
-                    vec!["CUSTOMER-DATA (CUSTDAT)".to_owned()]
-                } else {
-                    editor.indexed_files.clone()
-                };
-                for file in files {
+                for file in editor.indexed_files.clone() {
                     ui.selectable_value(&mut editor.selected_indexed_file, file.clone(), file);
                 }
             });
     });
+    // Another definition: its own fields replace the rows.
+    if editor.selected_indexed_file != before {
+        editor.rows = editor.load_indexed_rows();
+        editor.removed_rows.clear();
+        editor.dropdown_config_row = None;
+    }
     ui.add_space(8.0);
-    ui.label(
-        RichText::new(crate::ui_text::tx("File records are rows. Browse records below to preview data."))
-            .small()
-            .color(Color32::GRAY),
-    );
-    ui.add_space(12.0);
-    show_preview_pagination(ui, editor, "indexed", 42);
-    ui.add_space(10.0);
-    show_preview_grid(ui);
+    ui.horizontal(|ui| {
+        ui.label(crate::ui_text::tx("Record name:"));
+        if editor.indexed_record_name.is_empty() {
+            ui.label(
+                RichText::new(crate::ui_text::txf(
+                    "Indexed file {} could not be read.",
+                    &[&editor.selected_indexed_file],
+                ))
+                .small()
+                .color(Color32::GRAY),
+            );
+        } else {
+            ui.monospace(&editor.indexed_record_name);
+        }
+    });
 }
 
 fn show_sql_source_section(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr) {
     ui.heading(crate::ui_text::tx("SQL control"));
     ui.add_space(8.0);
-    egui::ComboBox::from_id_salt("data_binding_sql_control")
-        .selected_text(clean_or_default(
-            &editor.selected_sql_control,
-            "SQL-CUSTOMERS",
-        ))
-        .width(330.0)
-        .show_ui(ui, |ui| {
-            for &control in MOCK_SQL_CONTROLS {
-                if ui
-                    .selectable_value(
-                        &mut editor.selected_sql_control,
-                        control.to_owned(),
-                        control,
-                    )
-                    .clicked()
-                {
-                    editor.page = 1;
-                    editor.rows = sample_sql_field_rows();
-                    editor.removed_rows.clear();
+    // The form's own SqlDatabase controls (1.91.225): nothing else can run the
+    // query. The columns are the SELECT's, added by hand under the fields grid.
+    if editor.sql_controls.is_empty() {
+        ui.label(
+            RichText::new(crate::ui_text::tx("No SqlDatabase control on this form."))
+                .small()
+                .color(Color32::GRAY),
+        );
+    } else {
+        egui::ComboBox::from_id_salt("data_binding_sql_control")
+            .selected_text(editor.selected_sql_control.clone())
+            .width(330.0)
+            .show_ui(ui, |ui| {
+                for control in editor.sql_controls.clone() {
+                    ui.selectable_value(&mut editor.selected_sql_control, control.clone(), control);
                 }
-            }
-        });
+            });
+    }
     ui.add_space(8.0);
     // Spec 094: what fills the grid, and what an edit updates.
     ui.label(tr.dg_sql_query);
@@ -2354,99 +2352,6 @@ fn show_sql_source_section(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr
     ui.add(egui::TextEdit::singleline(&mut editor.sql_table).id_salt("data_binding_sql_table").desired_width(330.0));
     ui.add_space(4.0);
     ui.label(RichText::new(tr.dg_sql_hint).small().color(Color32::GRAY));
-    ui.add_space(8.0);
-    ui.label(
-        RichText::new(
-            crate::ui_text::tx("Records are fetched from the selected SQL control result set with pagination."),
-        )
-        .small()
-        .color(Color32::GRAY),
-    );
-    ui.add_space(16.0);
-    show_preview_pagination(ui, editor, "sql", 24);
-}
-
-fn show_preview_pagination(
-    ui: &mut Ui,
-    editor: &mut BindingEditorState,
-    id_suffix: &str,
-    total_pages: i64,
-) {
-    editor.page = editor.page.clamp(1, total_pages);
-    ui.horizontal(|ui| {
-        if ui.button("«").clicked() {
-            editor.page = 1;
-        }
-        if ui.button("‹").clicked() {
-            editor.page = (editor.page - 1).max(1);
-        }
-        ui.label(crate::ui_text::tx("Page"));
-        ui.add(
-            DragValue::new(&mut editor.page)
-                .speed(1)
-                .range(1..=total_pages)
-                .fixed_decimals(0),
-        );
-        ui.label(format!("of {total_pages}"));
-        if ui.button("›").clicked() {
-            editor.page = (editor.page + 1).min(total_pages);
-        }
-        if ui.button("»").clicked() {
-            editor.page = total_pages;
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let old_size = editor.page_size;
-            egui::ComboBox::from_id_salt(format!("data_binding_page_size_{id_suffix}"))
-                .selected_text(editor.page_size.to_string())
-                .width(90.0)
-                .show_ui(ui, |ui| {
-                    for size in [25, 50, 100, 250] {
-                        ui.selectable_value(&mut editor.page_size, size, size.to_string());
-                    }
-                });
-            if editor.page_size != old_size {
-                editor.page = 1;
-            }
-            ui.label(crate::ui_text::tx("Page size:"));
-        });
-    });
-}
-
-fn show_preview_grid(ui: &mut Ui) {
-    egui::Frame::NONE
-        .fill(Color32::from_rgba_unmultiplied(15, 18, 22, 210))
-        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(58, 64, 72)))
-        .corner_radius(egui::CornerRadius::same(5))
-        .show(ui, |ui| {
-            egui::Grid::new("data_binding_preview_grid")
-                .num_columns(6)
-                .spacing([34.0, 8.0])
-                .striped(true)
-                .show(ui, |ui| {
-                    for header in [
-                        "CUSTOMER-ID",
-                        "CUSTOMER-NAME",
-                        "BALANCE",
-                        "ACTIVE",
-                        "CITY-ID",
-                        "STATUS",
-                    ] {
-                        ui.label(RichText::new(header).small().color(Color32::from_gray(190)));
-                    }
-                    ui.end_row();
-                    for value in [
-                        "100001",
-                        "Acme Corporation",
-                        "12500.75",
-                        "Y",
-                        "10",
-                        "ACTIVE",
-                    ] {
-                        ui.label(value);
-                    }
-                    ui.end_row();
-                });
-        });
 }
 
 fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
@@ -2456,6 +2361,27 @@ fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
         .num_columns(2)
         .spacing([18.0, 10.0])
         .show(ui, |ui| {
+            // The form's own RestClient controls (1.91.225): the binding used to
+            // name the stand-in `REST-API`, a control no form has.
+            ui.label(crate::ui_text::tx("RestClient control"));
+            if editor.rest_controls.is_empty() {
+                ui.label(
+                    RichText::new(crate::ui_text::tx("No RestClient control on this form."))
+                        .small()
+                        .color(Color32::GRAY),
+                );
+            } else {
+                egui::ComboBox::from_id_salt("rest_api_source_control")
+                    .selected_text(editor.selected_rest_control.clone())
+                    .width(250.0)
+                    .show_ui(ui, |ui| {
+                        for control in editor.rest_controls.clone() {
+                            ui.selectable_value(&mut editor.selected_rest_control, control.clone(), control);
+                        }
+                    });
+            }
+            ui.end_row();
+
             ui.label(crate::ui_text::tx("API endpoint"));
             ui.add(
                 egui::TextEdit::singleline(&mut editor.rest_endpoint)
@@ -2846,6 +2772,29 @@ fn show_rest_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) {
     });
 }
 
+/// A SQL source's columns are the SELECT's, which only the developer knows: a
+/// row is added here and named in the grid (1.91.225; the six stand-in columns
+/// the picker used to seed are gone).
+fn show_sql_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.horizontal(|ui| {
+        if ui.button(crate::ui_text::tx("+ Add field")).clicked() {
+            let mut row = BindingFieldRow::new(
+                "",
+                "X(255)",
+                BindingDataType::Text,
+                "",
+                BindingEditControl::Textbox,
+                DropdownConfig::empty(),
+            );
+            row.required = false;
+            editor.rows.push(row);
+        }
+        if ui.button(crate::ui_text::tx("Restore removed fields")).clicked() {
+            editor.rows.append(&mut editor.removed_rows);
+        }
+    });
+}
+
 fn show_cobol_table_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) {
     ui.horizontal(|ui| {
         let missing_fields = editor.missing_cobol_table_fields();
@@ -3102,7 +3051,10 @@ fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                         if ui.small_button("X").clicked() {
                             remove_at = Some(row_index);
                         }
-                        if ui
+                        if show_sql_type {
+                            // A SQL column is named by hand (1.91.225).
+                            ui.add(egui::TextEdit::singleline(&mut row.source_field).desired_width(120.0));
+                        } else if ui
                             .add(egui::Label::new(&row.source_field).sense(egui::Sense::click()))
                             .clicked()
                         {
@@ -3130,8 +3082,7 @@ fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                         let before_control = row.edit_control.clone();
                         ui.horizontal(|ui| {
                             egui::ComboBox::from_id_salt(format!(
-                                "data_binding_edit_control_{}",
-                                row.source_field
+                                "data_binding_edit_control_{row_index}"
                             ))
                             .selected_text(row.edit_control.label())
                             .width(98.0)
@@ -3204,6 +3155,10 @@ fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                 }
             }
         });
+    if show_sql_type {
+        ui.add_space(6.0);
+        show_sql_field_actions(ui, editor);
+    }
     show_control_array_mapping_section(ui, editor);
 }
 
@@ -16238,7 +16193,38 @@ mod tests {
         editor.rows = editor.rows_for_selected_cobol_table(&[]);
     }
 
-    /// Every refusal of the binding editor — all 24 messages it can answer Apply with — reads in
+    /// A real `.cidx` on disk — the reference sample: `CUSTOMER-RECORD` with `CUST-ID`
+    /// (9(8), the primary key), `CUST-NAME` (X(40)) and `CUST-BALANCE` (9(6)V99) — written
+    /// once per test process. The editor reads it as it reads any definition of a project.
+    fn sample_cidx() -> String {
+        static PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        PATH.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("prc-binding-editor-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).expect("a temp folder for the sample .cidx");
+            let path = dir.join("customers.cidx");
+            std::fs::write(&path, cobolt_project_tools::reference::sample_cidx_xml())
+                .expect("the sample .cidx is written");
+            path.to_string_lossy().into_owned()
+        })
+        .clone()
+    }
+
+    /// One SQL column, typed as a developer types it in the grid (a SQL source starts
+    /// with no rows: its columns are the SELECT's).
+    fn sql_row() -> BindingFieldRow {
+        let mut row = BindingFieldRow::new(
+            "CUSTOMER_ID",
+            "9(9)",
+            BindingDataType::Integer,
+            "Customer ID",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        );
+        row.key = true;
+        row
+    }
+
+    /// Every refusal of the binding editor — all 25 messages it can answer Apply with — reads in
     /// the language of the IDE, with the name of the field it is about filled in; none is the
     /// English one outside English. (The message is made when Apply is pressed, in the language
     /// the pane is drawn in.)
@@ -16246,8 +16232,16 @@ mod tests {
     fn every_refusal_of_the_binding_editor_is_in_the_language_of_the_ide() {
         use BindingEditorSourceKind as K;
         let (form, grid) = form_with_cobol_binding_table();
-        let files = vec!["CUSTOMER-DATA (CUSTDAT)".to_owned()];
-        let make = |kind: K| BindingEditorState::new(&form, &grid, kind, &files).expect("the editor opens");
+        let files = vec![sample_cidx()];
+        let make = |kind: K| {
+            let mut e = BindingEditorState::new(&form, &grid, kind, &files).expect("the editor opens");
+            if kind == K::Sql {
+                // As a developer leaves the SQL section: a control picked, a column typed.
+                e.selected_sql_control = "DB-1".to_owned();
+                e.rows.push(sql_row());
+            }
+            e
+        };
         let cobol = || {
             let mut e = make(K::CobolTable);
             select_customer_cobol_table(&mut e);
@@ -16279,6 +16273,7 @@ mod tests {
             ("Every REST source field needs a JSONPath expression.", false, Box::new(|| { let mut e = make(K::RestApi); e.rows[0].source_field.clear(); e })),
             ("{} is not a valid JSONPath expression.", true, Box::new(|| { let mut e = make(K::RestApi); e.rows[0].source_field = "price".to_owned(); e })),
             ("{} needs a COBOL mask.", true, Box::new(|| { let mut e = make(K::Sql); e.rows[0].data_type = BindingDataType::Text; e.rows[0].cobol_mask.clear(); e })),
+            ("Every SQL source field needs a column name.", false, Box::new(|| { let mut e = make(K::Sql); e.rows[0].source_field.clear(); e })),
             ("REST API endpoint must be selected.", false, Box::new(|| { let mut e = make(K::RestApi); e.rest_endpoint.clear(); e })),
             ("REST API endpoint must be a valid URL.", false, Box::new(|| { let mut e = make(K::RestApi); e.rest_endpoint = "not a url".to_owned(); e })),
             ("Header names must be filled when a value is provided.", false, Box::new(|| { let mut e = make(K::RestApi); e.rest_headers.push(HttpHeaderRow { name: String::new(), value: "x".to_owned() }); e })),
@@ -16339,7 +16334,7 @@ mod tests {
         use std::collections::BTreeMap;
         type Open = Box<dyn Fn(&mut PropertiesPanel)>;
         let (form, grid) = form_with_cobol_binding_table();
-        let files = vec!["CUSTOMER-DATA (CUSTDAT)".to_owned()];
+        let files = vec![sample_cidx()];
         let editor = {
             let form = form.clone();
             let grid = grid.clone();
@@ -16348,6 +16343,9 @@ mod tests {
                 let mut e = BindingEditorState::new(&form, &grid, kind, &files).expect("editor opens");
                 if kind == BindingEditorSourceKind::CobolTable {
                     select_customer_cobol_table(&mut e);
+                }
+                if kind == BindingEditorSourceKind::Sql {
+                    e.rows.push(sql_row());
                 }
                 e
             }
@@ -16465,7 +16463,17 @@ mod tests {
                 .any(|m| m.id == "PHOTO" && m.property == "ImagePath"),
             "PictureBox member should default to its ImagePath property"
         );
-        assert!(editor.rows.len() >= 2, "sample SQL source should have rows");
+        // The two columns of the SELECT, typed by hand (a SQL source starts empty).
+        editor.rows.push(sql_row());
+        editor.rows.push(BindingFieldRow::new(
+            "PHOTO_URL",
+            "X(200)",
+            BindingDataType::Text,
+            "Photo",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        ));
+        assert_eq!(editor.rows.len(), 2);
         editor.rows[0].target_member = "NAME-LBL".to_owned();
         editor.rows[1].target_member = "PHOTO".to_owned();
 
@@ -16498,6 +16506,7 @@ mod tests {
         editor.display_name = "Customers -> CARD".to_owned();
         editor.binding_id = "BND-CARD".to_owned();
         editor.selected_sql_control = "SQL-CUST".to_owned();
+        editor.rows.push(sql_row());
         let field = editor.rows[0].source_field.clone();
         editor.rows[0].target_member = "NAME-LBL".to_owned();
         let binding = editor.to_binding(&form).expect("binding builds");
@@ -16569,58 +16578,150 @@ mod tests {
             &form,
             &grid,
             BindingEditorSourceKind::IndexedFile,
-            &["CUSTOMER-DATA (CUSTDAT)".to_owned()],
+            &[sample_cidx()],
         )
         .expect("DataGrid should be an approved binding target");
         assert_eq!(
             with_files.selected_source,
             Some(BindingEditorSourceKind::IndexedFile)
         );
-        assert_eq!(with_files.selected_indexed_file, "CUSTOMER-DATA (CUSTDAT)");
+        assert_eq!(with_files.selected_indexed_file, sample_cidx());
+        assert_eq!(
+            with_files.indexed_record_name, "CUSTOMER-RECORD",
+            "the record item is read from the definition"
+        );
     }
 
+    /// 1.91.225: an indexed source's fields are the definition's — one row per leaf
+    /// field with its PICTURE, its type and its key flag — and the record name is the
+    /// definition's level-01 item; the editor used to seed six sample fields and the
+    /// constant `CUSTOMER-RECORD` whatever the file held.
     #[test]
-    fn data_binding_editor_validates_sample_dropdown_configuration() {
-        let rows = sample_indexed_field_rows();
-        assert_eq!(rows.len(), 6);
-        assert_eq!(rows[4].source_field, "CITY-ID");
-        assert_eq!(rows[4].edit_control, BindingEditControl::Dropdown);
-        assert_eq!(rows[4].dropdown.summary(), "Indexed file");
-        assert!(rows[4].dropdown.validate("CITY-ID").is_ok());
-        assert_eq!(rows[5].source_field, "STATUS");
-        assert_eq!(rows[5].dropdown.source_ref, "STATUS-CODES (STATCDS)");
-        assert!(rows[5].dropdown.validate("STATUS").is_ok());
-    }
-
-    #[test]
-    fn data_binding_editor_initializes_sql_source_rows_and_dropdowns() {
+    fn data_binding_editor_reads_the_fields_of_the_indexed_definition() {
         let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
         let grid = Control::new("CustomerGrid", ControlType::DataGrid, 10, 10);
         form.controls.push(grid.clone());
+        let editor =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::IndexedFile, &[sample_cidx()])
+                .expect("DataGrid should be an approved binding target");
 
-        let editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::Sql, &[])
+        let seen: Vec<(&str, &str, BindingDataType, bool)> = editor
+            .rows
+            .iter()
+            .map(|r| (r.source_field.as_str(), r.picture.as_str(), r.data_type.clone(), r.key))
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                ("CUST-ID", "9(8)", BindingDataType::Integer, true),
+                ("CUST-NAME", "X(40)", BindingDataType::Text, false),
+                ("CUST-BALANCE", "9(6)V99", BindingDataType::Decimal, false),
+            ]
+        );
+        assert!(editor.validate().is_ok(), "{:?}", editor.validate());
+
+        let binding = editor.to_binding(&form).expect("binding builds");
+        match binding.source {
+            BindingSourceDescriptor::IndexedFile {
+                definition_path,
+                record_name,
+                key_field,
+                fields,
+                ..
+            } => {
+                assert_eq!(definition_path, sample_cidx());
+                assert_eq!(record_name, "CUSTOMER-RECORD");
+                assert_eq!(key_field.as_deref(), Some("CUST-ID"));
+                assert_eq!(fields.len(), 3);
+                assert_eq!(fields[2].cobol_mask, "9(6)V99");
+            }
+            other => panic!("expected an indexed source, got {other:?}"),
+        }
+
+        // A definition the IDE cannot read seeds nothing and is refused by name.
+        let missing = "nowhere/missing.cidx".to_owned();
+        let unreadable =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::IndexedFile, &[missing.clone()])
+                .expect("the editor opens");
+        assert!(unreadable.rows.is_empty());
+        assert_eq!(unreadable.indexed_record_name, "");
+        assert_eq!(
+            unreadable.validate().unwrap_err(),
+            format!("Indexed file {missing} could not be read.")
+        );
+    }
+
+    /// The refusal for an unreadable definition reads in the language of the IDE and
+    /// names the file.
+    #[test]
+    fn an_unreadable_indexed_file_is_refused_in_the_language_of_the_ide() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        let grid = Control::new("CustomerGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+        let missing = "nowhere/missing.cidx".to_owned();
+        let mut in_english = String::new();
+        for &lang in crate::i18n::Language::ALL.iter() {
+            crate::ui_text::begin(lang);
+            let editor =
+                BindingEditorState::new(&form, &grid, BindingEditorSourceKind::IndexedFile, &[missing.clone()])
+                    .expect("the editor opens");
+            let message = editor.validate().unwrap_err();
+            assert!(message.contains(&missing), "{lang:?}: {message:?} does not name the file");
+            if lang == crate::i18n::Language::English {
+                in_english = message;
+            } else {
+                assert_ne!(message, in_english, "{lang:?}: still English");
+            }
+        }
+        crate::ui_text::begin(crate::i18n::Language::English);
+    }
+
+    /// 1.91.225: the SQL picker lists the form's SqlDatabase controls and nothing else —
+    /// it used to list four stand-in ids — and a SQL source starts with no rows, since
+    /// its columns are the SELECT's: a row is added and named by hand.
+    #[test]
+    fn data_binding_editor_lists_the_forms_sql_controls_and_starts_with_no_columns() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        let grid = Control::new("CustomerGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+        form.controls.push(Control::new("DB-ORDERS", ControlType::SqlDatabase, 0, 0));
+        form.controls.push(Control::new("DB-STOCK", ControlType::SqlDatabase, 0, 0));
+        form.controls.push(Control::new("REST-1", ControlType::RestClient, 0, 0));
+
+        let mut editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::Sql, &[])
             .expect("DataGrid should be an approved binding target");
-
         assert_eq!(editor.selected_source, Some(BindingEditorSourceKind::Sql));
-        assert_eq!(editor.selected_sql_control, "SQL-CUSTOMERS");
-        assert_eq!(editor.rows.len(), 6);
-        assert_eq!(editor.rows[0].source_field, "CUSTOMER_ID");
-        assert_eq!(editor.rows[0].cobol_mask, "9(9)");
-        assert!(editor.rows[0].key);
-        assert_eq!(editor.rows[4].source_field, "COUNTRY_ID");
-        assert_eq!(
-            editor.rows[4].dropdown.origin,
-            Some(DropdownOrigin::SqlControl)
-        );
-        assert_eq!(editor.rows[4].dropdown.source_ref, "SQL-COUNTRIES");
-        assert_eq!(editor.rows[4].dropdown.line_limit, 1000);
-        assert_eq!(editor.rows[5].source_field, "TIER_ID");
-        assert_eq!(
-            editor.rows[5].dropdown.origin,
-            Some(DropdownOrigin::CobolTable)
-        );
-        assert_eq!(editor.rows[5].dropdown.source_ref, "CUSTOMER_TIERS");
-        assert!(editor.validate().is_ok());
+        assert_eq!(editor.sql_controls, vec!["DB-ORDERS".to_owned(), "DB-STOCK".to_owned()]);
+        assert_eq!(editor.selected_sql_control, "DB-ORDERS");
+        assert_eq!(editor.rest_controls, vec!["REST-1".to_owned()]);
+        assert!(editor.rows.is_empty(), "no stand-in columns");
+        assert_eq!(editor.validate().unwrap_err(), "At least one source field must remain visible.");
+
+        let mut row = sql_row();
+        row.source_field.clear();
+        editor.rows.push(row);
+        assert_eq!(editor.validate().unwrap_err(), "Every SQL source field needs a column name.");
+        editor.rows[0].source_field = "ORDER_ID".to_owned();
+        assert!(editor.validate().is_ok(), "{:?}", editor.validate());
+        match editor.to_binding(&form).expect("binding builds").source {
+            BindingSourceDescriptor::Sql {
+                source_control_id,
+                key_fields,
+                ..
+            } => {
+                assert_eq!(source_control_id, "DB-ORDERS");
+                assert_eq!(key_fields, vec!["ORDER_ID".to_owned()]);
+            }
+            other => panic!("expected a SQL source, got {other:?}"),
+        }
+
+        // A form with no SqlDatabase control offers nothing, and says so on Apply.
+        let (bare_form, bare_grid) = form_with_cobol_binding_table();
+        let bare = BindingEditorState::new(&bare_form, &bare_grid, BindingEditorSourceKind::Sql, &[])
+            .expect("the editor opens");
+        assert!(bare.sql_controls.is_empty());
+        assert_eq!(bare.selected_sql_control, "");
+        assert_eq!(bare.validate().unwrap_err(), "SQL control must be selected.");
     }
 
     #[test]
@@ -16775,10 +16876,12 @@ mod tests {
 
     fn editor_for(kind: BindingEditorSourceKind) -> (Form, Control, BindingEditorState) {
         let (form, grid) = form_with_cobol_binding_table();
-        let mut editor = BindingEditorState::new(&form, &grid, kind, &["CUSTOMER-DATA (CUSTDAT)".to_owned()])
+        let mut editor = BindingEditorState::new(&form, &grid, kind, &[sample_cidx()])
             .expect("DataGrid is an approved binding target");
-        if kind == BindingEditorSourceKind::CobolTable {
-            select_customer_cobol_table(&mut editor);
+        match kind {
+            BindingEditorSourceKind::CobolTable => select_customer_cobol_table(&mut editor),
+            BindingEditorSourceKind::Sql => editor.rows.push(sql_row()),
+            _ => {}
         }
         (form, grid, editor)
     }
@@ -17012,7 +17115,7 @@ mod tests {
     fn a_new_binding_is_read_only() {
         let (form, grid) = form_with_cobol_binding_table();
         for kind in [BindingEditorSourceKind::IndexedFile, BindingEditorSourceKind::Sql, BindingEditorSourceKind::CobolTable] {
-            let editor = BindingEditorState::new(&form, &grid, kind, &["CUSTOMER-DATA (CUSTDAT)".to_owned()])
+            let editor = BindingEditorState::new(&form, &grid, kind, &[sample_cidx()])
                 .expect("DataGrid is an approved binding target");
             assert_eq!(editor.mode, BindingMode::ReadOnly, "{kind:?}");
             let binding = editor.to_binding(&form).expect("binding builds");
@@ -17211,8 +17314,12 @@ mod tests {
         let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
         let grid = Control::new("ProductGrid", ControlType::DataGrid, 10, 10);
         form.controls.push(grid.clone());
+        // 1.91.225: the source is the form's RestClient, not the stand-in `REST-API`.
+        form.controls.push(Control::new("REST-PRODUCTS", ControlType::RestClient, 0, 0));
         let editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::RestApi, &[])
             .expect("DataGrid should be an approved binding target");
+        assert_eq!(editor.rest_controls, vec!["REST-PRODUCTS".to_owned()]);
+        assert_eq!(editor.selected_rest_control, "REST-PRODUCTS");
 
         let binding = editor
             .to_binding(&form)
@@ -17226,7 +17333,7 @@ mod tests {
                 fields,
                 update,
             } => {
-                assert_eq!(source_control_id, "REST-API");
+                assert_eq!(source_control_id, "REST-PRODUCTS");
                 assert_eq!(endpoint_name, "https://api.example.com/v1/products");
                 assert_eq!(response_data_item, "REST-RESPONSE");
                 assert_eq!(fields.len(), 4);
@@ -17234,6 +17341,16 @@ mod tests {
                 assert_eq!(fields[2].display_name, "Category");
                 assert!(update.is_none());
             }
+            other => panic!("expected REST API source, got {other:?}"),
+        }
+
+        // No RestClient on the form: the binding names none, and the guardian says so.
+        let (bare_form, bare_grid) = form_with_cobol_binding_table();
+        let bare = BindingEditorState::new(&bare_form, &bare_grid, BindingEditorSourceKind::RestApi, &[])
+            .expect("the editor opens");
+        assert!(bare.rest_controls.is_empty());
+        match bare.to_binding(&bare_form).expect("binding builds").source {
+            BindingSourceDescriptor::RestApi { source_control_id, .. } => assert_eq!(source_control_id, ""),
             other => panic!("expected REST API source, got {other:?}"),
         }
     }
@@ -17261,7 +17378,7 @@ mod tests {
             &form,
             &grid,
             BindingEditorSourceKind::IndexedFile,
-            &["CUSTOMER-DATA (CUSTDAT)".to_owned()],
+            &[sample_cidx()],
         )
         .expect("DataGrid should be an approved binding target");
 
@@ -17269,12 +17386,23 @@ mod tests {
         assert!(editor.validate().is_err());
 
         editor.rows[0].friendly_name = "Customer ID".to_owned();
-        editor.rows[4].dropdown.value_field.clear();
+        editor.rows[1].edit_control = BindingEditControl::Dropdown;
+        editor.rows[1].dropdown = DropdownConfig {
+            origin: Some(DropdownOrigin::IndexedFile),
+            source_ref: sample_cidx(),
+            display_field: "CUST-NAME (X(40))".to_owned(),
+            value_field: String::new(),
+            line_limit: 1000,
+            static_options: String::new(),
+        };
         assert!(editor.validate().is_err());
 
-        editor.rows[4].dropdown.value_field = "CITY-ID (9(04))".to_owned();
-        editor.rows[4].dropdown.line_limit = 0;
+        editor.rows[1].dropdown.value_field = "CUST-ID (9(8))".to_owned();
+        editor.rows[1].dropdown.line_limit = 0;
         assert!(editor.validate().is_err());
+
+        editor.rows[1].dropdown.line_limit = 1000;
+        assert!(editor.validate().is_ok(), "{:?}", editor.validate());
     }
 
     #[test]
