@@ -436,3 +436,59 @@ fn a_new_backend_has_its_exports_and_a_development_deployment() {
     println!("  an existing exports.toml ({} bytes) is left byte for byte", mine.len());
     let _ = std::fs::remove_dir_all(base);
 }
+
+/// A Web project made the way the New Project dialog makes one (no theme picked, not an agent) wears Spatial and
+/// opens as an application shell (the operator, 2026-10-25): the sample sits to the right of a SideMenu rail
+/// with its footer panel and its sealed menu file, and the page it builds gets the stand-in desktop. A theme the
+/// dialog does pick is kept, and a Mobile project is neither Spatial by default nor a shell.
+#[test]
+fn a_new_web_project_wears_spatial_and_opens_as_a_shell_unless_another_theme_is_picked() {
+    use cobolt_project_tools::create;
+    use cobolt_project_tools::templates::CreateRequest;
+    let base = scratch("web-shell");
+    let started = Instant::now();
+    let mut rows = Vec::new();
+    for (tag, template, theme, spatial) in [("web", "web", "", true), ("web-picked", "web", "liquid-glass", false), ("phone", "android-phone", "", false)] {
+        let folder = base.join(tag);
+        let mut request = CreateRequest::new("Shop").template(template);
+        request.theme = theme.to_owned();
+        let plan = create::plan(&request, &cobolt_project_tools::templates::builtin()).unwrap();
+        plan.write_into(&folder, &plan.manifest_name).unwrap();
+
+        let manifest: toml_edit::DocumentMut = std::fs::read_to_string(folder.join(&plan.manifest_name)).unwrap().parse().unwrap();
+        let (ide, forms) = (manifest["ide"]["theme"].as_str().unwrap_or("").to_owned(), manifest["forms"]["theme"].as_str().unwrap_or("").to_owned());
+        assert_eq!(ide == "spatial" && forms == "spatial", spatial, "{tag}: the IDE theme is {ide:?} and the forms' {forms:?}");
+
+        let form = cobolt_forms::load_form(&folder.join(&plan.main)).unwrap();
+        let rail = form.controls.iter().find(|c| c.id == "SideMenu-1");
+        assert_eq!(rail.is_some(), template == "web", "{tag}: a Web project is a shell, a Mobile one is not");
+        let menu_file = folder.join("webforms/SideMenu-1.menu.yaml");
+        if let Some(rail) = rail {
+            let r = rail.rect;
+            assert_eq!((r.x, r.y, r.w, r.h), (-8, 0, 264, form.height as i32), "{tag}: dropped as the designer drops it");
+            let footer = cobolt_forms::model::side_menu_footer_id("SideMenu-1");
+            assert!(form.controls.iter().any(|c| c.id == footer && c.parent.as_deref() == Some("SideMenu-1")), "{tag}: the rail's footer panel");
+            for id in ["LBL-TITLE", "LBL-HINT", "TXT-NAME", "BTN-GREET", "LBL-RESULT"] {
+                let c = form.controls.iter().find(|c| c.id == id).unwrap_or_else(|| panic!("{tag}: {id}"));
+                assert!(c.rect.x >= r.x + r.w, "{tag}: {id} sits to the right of the rail (x = {})", c.rect.x);
+            }
+            let menu = cobolt_forms::menu::load_menu(&menu_file).unwrap_or_else(|e| panic!("{tag}: the sealed menu: {e:?}"));
+            assert_eq!(menu.menu.len(), 1, "{tag}: one row");
+        } else {
+            assert!(!menu_file.exists(), "{tag}: no menu file without a rail");
+        }
+
+        // The Spatial shell builds, and its page gets the stand-in desktop behind it.
+        let mut built = String::new();
+        if spatial {
+            let req = WebBuildRequest::from_manifest(&folder.join(&plan.manifest_name)).unwrap();
+            cobolt_project_tools::web::generator::GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{tag}: {e}"));
+            let css = std::fs::read_dir(folder.join("dist/web")).unwrap().filter_map(|e| e.ok().map(|e| e.path())).find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("app.") && n.to_string_lossy().ends_with(".css"))).expect("app.css");
+            assert!(std::fs::read_to_string(css).unwrap().contains("background: #4A4642;"), "{tag}: the stand-in desktop");
+            built = ", built with the stand-in desktop".to_owned();
+        }
+        rows.push(format!("    {tag:<11} theme {ide:?}/{forms:?}, {}{built}", if rail.is_some() { "a SideMenu shell (rail, footer, sealed menu)" } else { "no shell" }));
+    }
+    println!("\n  new projects as the dialog makes them, {} ms:\n{}", started.elapsed().as_millis(), rows.join("\n"));
+    let _ = std::fs::remove_dir_all(base);
+}

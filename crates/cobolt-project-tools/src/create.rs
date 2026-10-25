@@ -235,9 +235,18 @@ const GREET_HANDLER: &str = "       ENVIRONMENT DIVISION.\n\
                STRING    \"Hello, \" TXT-NAME::Text::Trim() DELIMITED BY SIZE INTO LBL-RESULT::Caption\n\
            END-IF.\n";
 
+/// Where the designer drops a SideMenu (the rail overhangs the window's left edge by 8) and how wide it is: it
+/// ends at 256, and a Web project's sample sits to the right of that.
+const SHELL_RAIL_X: i32 = -8;
+const SHELL_RAIL_W: i32 = 264;
+/// The id the designer gives a form's first SideMenu; its rows live in `<id>.menu.yaml` beside the form.
+const SHELL_RAIL_ID: &str = "SideMenu-1";
+
 /// The sample main form of a Web or Mobile project: a title, a box, a button
 /// whose click handler greets the name typed, and the answer. Responsive, the
-/// main form, wearing Spatial when the project does.
+/// main form, wearing Spatial when the project does. A Web project's is an
+/// application shell: a SideMenu rail (and its footer) on the left, the sample
+/// to the right of it.
 pub fn starter_form(
     project_name: &str,
     kind: ProjectKind,
@@ -255,9 +264,12 @@ pub fn starter_form(
         &form.breakpoints,
     );
 
-    let inner = w as i32 - 48;
+    // A Web project opens as an application shell: a SideMenu rail on the left, the sample to the right of it.
+    let shell = kind == ProjectKind::Web;
+    let left = if shell { SHELL_RAIL_X + SHELL_RAIL_W + 16 } else { 24 };
+    let inner = w as i32 - left - 24;
     let label = |id: &str, caption: String, y: i32, h: i32, size: i32| {
-        let mut c = Control::new(id, ControlType::Label, 24, y);
+        let mut c = Control::new(id, ControlType::Label, left, y);
         c.rect.w = inner;
         c.rect.h = h;
         c.set_prop("Caption", caption);
@@ -269,13 +281,13 @@ pub fn starter_form(
     let hint = label("LBL-HINT", "Type your name and press Greet.".to_owned(), 64, 24, 14);
     let result = label("LBL-RESULT", String::new(), 224, 32, 16);
 
-    let mut name = Control::new("TXT-NAME", ControlType::TextBox, 24, 104);
+    let mut name = Control::new("TXT-NAME", ControlType::TextBox, left, 104);
     name.rect.w = inner;
     name.rect.h = 40;
     name.set_prop("FontSize", "14");
     name.set_prop("Anchor", "Top,Left,Right");
 
-    let mut greet = Control::new("BTN-GREET", ControlType::Button, 24, 160);
+    let mut greet = Control::new("BTN-GREET", ControlType::Button, left, 160);
     greet.rect.w = 112;
     greet.rect.h = 40;
     greet.set_prop("Caption", "Greet");
@@ -285,6 +297,14 @@ pub fn starter_form(
     greet.events.push(on_click);
 
     form.controls = vec![title, hint, name, greet, result];
+    if shell {
+        // Dropped as the designer drops it: at x = -8, 264 wide, the height of the form; its footer panel follows.
+        let mut rail = Control::new(SHELL_RAIL_ID, ControlType::SideMenu, SHELL_RAIL_X, 0);
+        rail.rect.w = SHELL_RAIL_W;
+        rail.rect.h = h as i32;
+        form.controls.push(rail);
+        form.sync_side_menu_footer_panels();
+    }
 
     if spatial {
         form.apply_spatial_defaults();
@@ -304,6 +324,17 @@ pub fn starter_form(
         form.background_color = "00000000".into();
     }
     cobolt_forms::form_to_string(&form).unwrap_or_default()
+}
+
+/// The rail's sidecar: one row, "Home", sealed as the designer seals a menu (`menu::save_menu` writes the
+/// hash, and only writes to a file, so it goes through a temporary one).
+fn starter_menu() -> String {
+    use cobolt_forms::menu::{save_menu, MenuDefinition, MenuItem};
+    let def = MenuDefinition { menu: vec![MenuItem::new_action("home", "Home")], hash: String::new() };
+    let path = std::env::temp_dir().join(format!("prc-starter-menu-{}-{:?}.yaml", std::process::id(), std::thread::current().id()));
+    let sealed = save_menu(&path, &def).ok().and_then(|_| std::fs::read_to_string(&path).ok()).unwrap_or_default();
+    let _ = std::fs::remove_file(&path);
+    sealed
 }
 
 /// [`NEW_PROJECT_TEMPLATE`] with the name and main filled in, TOML-escaped.
@@ -383,8 +414,9 @@ pub fn plan(request: &CreateRequest, catalogue: &[TemplateDescriptor]) -> Result
     let sample = resolved.flag("sample");
     let backend = kind.has_backend() && resolved.flag("backend");
 
-    // The theme: an agent's project wears Spatial; otherwise the dialog's pick.
-    let theme = if request.spatial { SPATIAL.to_owned() } else { request.theme.trim().to_owned() };
+    // The theme: an agent's project wears Spatial, and so does a Web project whose dialog picked none (a page
+    // has no desktop behind it, and Spatial is the look the Web player is built to match); otherwise the pick.
+    let theme = if request.spatial || (kind == ProjectKind::Web && request.theme.trim().is_empty()) { SPATIAL.to_owned() } else { request.theme.trim().to_owned() };
     let forms_theme = cobolt_forms::theme::ThemeCatalog::builtin().get(&theme).is_some();
     let wears_spatial = theme == SPATIAL;
 
@@ -410,6 +442,9 @@ pub fn plan(request: &CreateRequest, catalogue: &[TemplateDescriptor]) -> Result
         if sample {
             let rel = format!("{}/{}.{}", kind.forms_folder(), MAIN_FORM_NAME.to_lowercase(), kind.form_extension());
             files.push(PlannedFile { rel: rel.clone(), contents: starter_form(&stored, kind, t.mobile, wears_spatial) });
+            if kind == ProjectKind::Web {
+                files.push(PlannedFile { rel: format!("{}/{SHELL_RAIL_ID}.menu.yaml", kind.forms_folder()), contents: starter_menu() });
+            }
             forms.push(rel.clone());
             rel
         } else {

@@ -855,7 +855,8 @@ impl NewProjectDialog {
                         .width(field_w)
                         .selected_text(self.theme_text(tr))
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.theme, String::new(), tr.pk_theme_default);
+                            let unpicked = self.unpicked_theme_text(tr);
+                            ui.selectable_value(&mut self.theme, String::new(), unpicked);
                             for th in crate::theme::THEMES {
                                 ui.selectable_value(&mut self.theme, th.id.to_owned(), th.name);
                             }
@@ -888,9 +889,19 @@ impl NewProjectDialog {
         });
     }
 
+    /// What "no theme picked" reads as: the IDE's default, except for a Web project, which the plan makes Spatial.
+    fn unpicked_theme_text(&self, tr: &Tr) -> String {
+        let web = self.template().is_some_and(|t| t.kind == cobolt_compiler::ProjectKind::Web);
+        let spatial = crate::theme::THEMES.iter().find(|t| t.id == create::SPATIAL);
+        match spatial {
+            Some(t) if web => t.name.to_owned(),
+            _ => tr.pk_theme_default.to_owned(),
+        }
+    }
+
     fn theme_text(&self, tr: &Tr) -> String {
         if self.theme.is_empty() {
-            tr.pk_theme_default.to_owned()
+            self.unpicked_theme_text(tr)
         } else {
             crate::theme::THEMES.iter().find(|t| t.id == self.theme).map_or(self.theme.clone(), |t| t.name.to_owned())
         }
@@ -1129,6 +1140,28 @@ mod tests {
         for (v, ok) in [("1.0.0", true), ("10.20.300", true), ("1.0", false), ("1.0.0.0", false), ("a.b.c", false), ("1..0", false), ("", false)] {
             assert_eq!(version_ok(v), ok, "{v:?}");
         }
+    }
+
+    /// A Web project the dialog makes wears Spatial unless another theme is picked (the plan decides), so the
+    /// combo says "Spatial" where it would say "Default"; any other template still says "Default".
+    #[test]
+    fn the_theme_combo_names_spatial_for_a_web_project_that_picked_none() {
+        let mut d = dialog();
+        let tr = Language::English.tr();
+        let spatial = crate::theme::THEMES.iter().find(|t| t.id == create::SPATIAL).expect("Spatial is a theme").name;
+        for (id, shown) in [("web", spatial), ("desktop", tr.pk_theme_default), ("ipad", tr.pk_theme_default)] {
+            let i = index_of(&d, id);
+            d.select(i);
+            assert_eq!(d.theme_text(&tr), shown, "{id}");
+        }
+        // The pick is shown as picked, and the request carries it; none picked carries none.
+        let i = index_of(&d, "web");
+        d.select(i);
+        d.theme = "spatial".into();
+        assert_eq!(d.theme_text(&tr), spatial);
+        d.theme.clear();
+        assert!(d.request().theme.is_empty(), "the plan, not the dialog, makes it Spatial");
+        println!("theme combo: Web names {spatial:?} where it would say {:?}; Desktop and Mobile still say {:?}", tr.pk_theme_default, tr.pk_theme_default);
     }
 
     /// The fields become the request New Project and `create_project` share.

@@ -22,6 +22,24 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.76] — 2026-10-25
+
+*(Written on `fixes-2x`, off `2.x.x` at 1d429224.)*
+
+### Fixed: a new Web project wears Spatial and opens as an application shell
+
+**What the operator saw.** `MyApp`, made by New Project, had the default look: a transparent form on the Liquid Glass theme with flat controls, nothing like the Spatial look the Web player is built to match, and no menu rail; the SideMenu was added by hand and the sample moved to its right. The operator decided on 2026-10-25: Spatial with a SideMenu is the default for new Web projects.
+
+**What changed.**
+- `crates/cobolt-project-tools/src/create.rs`: a Web project whose request names no theme (what New Project sends when the combo says "Default") gets Spatial, in `[ide] theme` and in `[forms] theme`. A theme the dialog picks is kept. An agent's `create_project` was Spatial already. A Mobile project is unchanged.
+- The Web starter form is an application shell. `SideMenu-1` is dropped as the designer drops it (x = -8, 264 wide, as tall as the form) with its footer panel `SideMenu-1-Footer`, made by `Form::sync_side_menu_footer_panels`; the rail's sidecar `webforms/SideMenu-1.menu.yaml` has one row, "Home", sealed with the hash the designer writes (`menu::save_menu`). The sample (title, hint, text box, button, answer) starts at x = 272, to the right of the rail, and takes the width that is left. The Mobile sample is as it was.
+- `crates/cobolt-ide/src/panels/new_project.rs`: for a Web template with no pick, the theme combo reads "Spatial" where it read "Default", so it says what the plan will make.
+- `crates/cobolt-ide/src/project_model.rs`: the legacy-`.cfrm` test lists `webforms/`, which now also holds the sidecar, as a Desktop project's `forms/` holds its own.
+
+**Not done.** Projects that exist are not changed (`MyApp` keeps its Liquid Glass look). The rail's one row does nothing yet: the application's own rows are the developer's to add.
+
+Measured: the new test `a_new_web_project_wears_spatial_and_opens_as_a_shell_unless_another_theme_is_picked` makes three projects the way the dialog does, in 1.5 s. A Web project with no pick: Spatial in both themes, the rail at (-8, 0, 264 x form height) with its footer, all five sample controls right of the rail, one sealed menu row that loads, and a Build that puts the stand-in desktop behind the page. A Web project that picks Liquid Glass keeps it and is still a shell. A phone project is neither Spatial nor a shell. New in the IDE: `the_theme_combo_names_spatial_for_a_web_project_that_picked_none`. `cobolt-project-tools`: 171 passed, 1 ignored. `cobolt-ide --bin cobolt-ide`: 1,889 passed, 6 failed, 4 ignored. Five of the six are the known reds of the 2.x.x line, all unrelated to this change. The sixth is new to the list: `grace_host::tests::a_menu_reorder_request_retrieves_the_sidemenu_structure`, which searches the prebuilt System KB for the SideMenu's menu tree and no longer finds it in the top 8. The KB's `chunked.data` grew by 4,096 bytes after the 2.0.65 sweep (through a forward-port), and nothing this change touches is read by that test; it was not run on the commit before this one.
+
 ## [PowerRustCOBOL 2.0.75] — 2026-10-25
 
 *(Written on `fixes-2x`, off `2.x.x` at 508b1479.)*
