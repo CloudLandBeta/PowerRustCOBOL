@@ -22,6 +22,22 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.71] — 2026-10-25
+
+*(Carried from `main` at the operator's request: `631eae5f`, `4a794991` and `56c43ad3`, cherry-picked in order as `e5cdadf8`, `be2d6e0a` and `ef41f4f0`. 2.0.70 is the last number in use on `2.x.x`, so this takes 2.0.71.)*
+
+### Added to this line: the Spec 108 drafts, PartiQL for indexed files
+
+`specs/108-partiql-indexed-files/spec.md` (1,100 lines, no code) is now on this line as well. `main` took it on 2026-10-24 as three draft changes from `features-108-partiql`: the first draft
+(DynamoDB PartiQL on the IndexedFile control, and a PartiQL binding source for every bound control); section 2 naming the IndexedFile control's thirteen file methods (generated `PERFORM`
+paragraphs; what is missing is only the inline `::` form); and the `/clarify` pass that folds in eight decisions (list indexes from 1, a type mismatch is an error, mixed transactions, AutoCommit on
+unless the form declares the FD, no FD required because the file carries its layout, fields via `Get` and as properties, no result cap).
+
+They were left out of the forward-ports of 1.91.218 to 1.91.227 on purpose: the standing rule takes fixes from 1.x.x and never the line, and the specification of a feature is not a fix. The operator asked
+for them on 2026-10-25, so they are carried. The spec stays a draft, and nothing in it is implemented on either line.
+
+Measured: the spec on this line is the same blob as on `main` (1,100 lines); the three changes apply with no conflict; no test reads the `specs/` folders; nothing was built, because no code changed.
+
 ## [PowerRustCOBOL 2.0.70] — 2026-10-25
 
 *(Forward-port of 1.91.227, `795747a8` on `fixes-example-projects`. 2.0.69 is the last number in use on `2.x.x`, so this port takes 2.0.70.)*
