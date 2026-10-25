@@ -22,6 +22,28 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.69] — 2026-10-24
+
+*(Written on `integrate-2x`, off `2.x.x` at 2.0.68, after the three forward-ports of 2.0.66 to 2.0.68.)*
+
+### Fixed: the knowledge-base store follows the forward-ported fixes
+
+- **`assets/knowledge/chunked.data` regenerated** from the documentation tables as they stand with the 1.91.224 port (2.0.66, which lists
+  `<id>-ROLLBACK` beside `<id>-COMMIT` on the IndexedFile page): 3,597 records from 8 documents, one more than before. The port came across with the
+  store of `2.x.x` untouched, since a binary store of another line cannot be merged; `prebuilt_chunked_kb_matches_the_published_documentation`
+  is the test that holds it.
+
+Measured on the tree with the three ports and the store: `cobolt-codegen` 114 passed (the golden `indexed-file.cbl` and the PowerDemo3 snapshot among them),
+`cobolt-compiler` 226, `cobolt-runtime`'s indexed-example, redb and data-binding tests 27, `cobolt-parser`'s generated-binding test 1, `cobolt-project-tools`
+169, and `cobolt-ide --bin cobolt-ide` 1,889 passed — the six `update_offer` tests and the data-binding editor's among them, and the freshness test green.
+Five `cobolt-ide` tests fail and are the five that failed before this pass, none of them the ports' (eleven documents without a Portuguese translation;
+12 English-only descriptions of the WebSocket built-ins; the installed `claude` asking the plugin for a `README.md`; two live crates.io checks).
+
+Settled in the same pass, with no code in it: **`fixes-2x` and `fixes-2x-template-icons` hold nothing `2.x.x` lacks.** Their commits, `7e6b6a08`
+(2.0.39) and `2e0c57f8` (2.0.47), are the pre-rebase originals of `5b2109a4` and `72e9df55`, which are on this line: the same changed lines in the same
+files (identical `git patch-id` at zero lines of context), differing only in the changelog, the version number and, for the first, the `rt.wasm`
+rebuilt on its own base. Merging either would only have duplicated code that is already here.
+
 ## [PowerRustCOBOL 2.0.68] — 2026-10-24
 
 *(Forward-port of 1.91.218, `94a2570b` on `fixes-update-offer`. 2.0.67 is the last number in use on `2.x.x`, so this port takes 2.0.68.)*
