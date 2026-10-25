@@ -42,6 +42,9 @@ fn newest(dir: &Path) -> SystemTime {
 /// Build the plain player with the product's own build step (unless a build newer than every source is already there)
 /// and return the directory that holds `plain/`.
 pub fn built_player() -> PathBuf {
+    // The tests of one binary run in parallel threads: two of them must not both build into the same folder.
+    static BUILDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one_at_a_time = BUILDING.lock().unwrap_or_else(|e| e.into_inner());
     let crate_dir = repo_root().join("crates/cobolt-web-player");
     let out = crate_dir.join("target-player/out-test");
     let wasm = out.join("plain/player_bg.wasm");

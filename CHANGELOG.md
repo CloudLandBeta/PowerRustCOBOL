@@ -22,6 +22,22 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.75] — 2026-10-25
+
+*(Written on `fixes-2x`, off `2.x.x` at 508b1479.)*
+
+### Fixed: in a Web application with a SideMenu, the ContentPane starts where the rail the designer drew ends
+
+**What the operator saw.** `MyApp` beside its Form Designer: disjointed elements. The designer draws the rail at x = -8, 264 wide, so it ends at 256, and the main form's controls keep their designed x (272). The page drew the same rail but started the ContentPane and its breadcrumb at 220 px, 36 px under the rail's right edge. The operator approved the fix on 2026-10-25 (item 3 of the parity gaps).
+
+**Why.** `update_rail` stored the rail's width in `--pr-rail` on the main surface, which is where the rail itself reads it (264). The pane that holds the breadcrumb and the ContentPane is a sibling of that surface, not inside it, so its `left: var(--pr-rail, 220px)` never saw the variable and always used the 220 px fallback. And the right number is not the width alone: it is the designed x plus the width (-8 + 264 = 256).
+
+**What changed.** `crates/cobolt-web-player/src/dom/ops.rs`: `update_rail` also sets `--pr-rail-end` on the pane: the SideMenu's designed `X` plus the width it has now (`Width` expanded, `CollapsedWidth` collapsed), never under 0. `base_css.rs`: `.pr-shell-pane` reads `--pr-rail-end` (220 px stays the fallback until the rail is known). The rail's own width is unchanged. The shipped player is rebuilt (`plain` +164 bytes, `threaded` +196 bytes, the parts identical), so `tests/freshness.rs` stays green. The test support now builds the test player once per test binary (a mutex in `built_player`): two tests of one binary that both found the player stale built it into the same folder at once, and one failed on a missing file.
+
+**Not done.** The breadcrumb bar (22 px) is still web-only chrome and sits over the top of the pane.
+
+Measured, in Chrome 155 with the Build's own server (`shell_home.rs`, now two tests; the fixture's SideMenu is at x = -8, 264 wide): before the change the pane started at 220 with the rail ending at 256. After it: expanded, rail -8 to 256 and pane at 256; collapsed (the toggle clicked), rail -8 to 40 and pane at 40; expanded again, 256 and 256 as at first. `cobolt-web-player`: 295 passed. `cobolt-web-bundle`: 48 passed in 12 targets. `cobolt-project-tools`: 170 passed, 1 ignored.
+
 ## [PowerRustCOBOL 2.0.74] — 2026-10-25
 
 *(Written on `fixes-2x`, off `2.x.x` at 25aa0d26.)*

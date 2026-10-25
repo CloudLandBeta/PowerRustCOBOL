@@ -191,7 +191,7 @@ pub const BASE_CSS: &str = r#"
 .pr-sidemenu.pr-collapsed .pr-menu-section { display: none; }
 .pr-sm-footer { flex: none; position: relative; }
 .pr-main[data-shell] > .pr-form > .pr-surface > .pr-sidemenu { width: var(--pr-rail, 220px) !important; top: 0 !important; bottom: 0 !important; height: auto !important; }
-.pr-shell-pane { position: absolute; top: 0; right: 0; bottom: 0; left: var(--pr-rail, 220px); display: flex; flex-direction: column; pointer-events: none; }
+.pr-shell-pane { position: absolute; top: 0; right: 0; bottom: 0; left: var(--pr-rail-end, 220px); display: flex; flex-direction: column; pointer-events: none; }
 .pr-shell-pane > * { pointer-events: auto; }
 .pr-crumb-host { flex: none; }
 .pr-breadcrumb { display: flex; align-items: center; justify-content: space-between; padding: 4px 12px; background: var(--pr-surface-2); border-bottom: 1px solid var(--pr-border); color: var(--pr-text-dim); }

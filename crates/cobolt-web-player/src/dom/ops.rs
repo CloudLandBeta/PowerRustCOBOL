@@ -285,20 +285,21 @@ impl Shared {
         }
     }
 
-    /// The ContentPane starts where the rail ends (spec 049 R10): set the rail's width as the pane's origin.
+    /// The ContentPane starts where the rail ends (spec 049 R10), and the rail ends where the designer draws it:
+    /// the control's designed x plus its width (a rail at x = -8, 264 wide, ends at 256). The rail takes its
+    /// width from `--pr-rail`, set on the main surface it sits in; the pane is a sibling of that surface and
+    /// takes its origin from `--pr-rail-end`, set on the pane itself.
     pub(crate) fn update_rail(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, collapsed: bool) {
-        let width = {
+        let (x, width) = {
             let Ok(host) = inner.host.try_borrow() else { return };
             let Some(tree) = host.trees.get(&inst) else { return };
+            let x = crate::value::parse_f64(&tree.get(ctl, "X")).unwrap_or(0.0);
             let w = crate::value::parse_f64(&tree.get(ctl, "Width")).unwrap_or(220.0);
             let cw = crate::value::parse_f64(&tree.get(ctl, "CollapsedWidth")).unwrap_or(48.0);
-            if collapsed {
-                cw
-            } else {
-                w
-            }
+            (x, if collapsed { cw } else { w })
         };
         h::css(&self.chrome.main, "--pr-rail", &format!("{}px", width.round()));
+        h::css(&self.chrome.pane, "--pr-rail-end", &format!("{}px", (x + width).max(0.0).round()));
     }
 
     // ── acts the host cannot perform alone ──────────────────────────────────
