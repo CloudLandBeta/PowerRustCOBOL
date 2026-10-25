@@ -684,6 +684,9 @@ impl Shared {
             st.chain = vec![Crumb { inst, label: title.to_owned() }];
         }
         let _ = self.chrome.pane.remove_attribute("hidden");
+        // The ContentPane is empty until an embedded form is placed in it (`sync_shell` shows it then). Shown
+        // empty it paints its own background over the main form's controls, which are the Home page.
+        h::set_bool_attr(&self.chrome.content, "hidden", true);
         h::attr(&self.chrome.main, "data-shell", "");
         self.render_crumbs();
     }

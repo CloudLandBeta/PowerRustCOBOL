@@ -22,6 +22,25 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.73] — 2026-10-25
+
+*(Written on `fixes-2x`, off `2.x.x` at 02ae953f.)*
+
+### Fixed: in a Web application with a SideMenu, the main form's own controls are no longer hidden behind the empty ContentPane
+
+**What the operator saw.** `MyApp`, a new Web project (960 x 640, a SideMenu on the main form), opened in Chrome: of the eight controls of the main form only the SideMenu and the Gauge showed. The title label ("Welcome to MyApp"), the hint label, the text box and the button were all in the page, laid out where the designer put them, and invisible.
+
+**Why.** A main form with a SideMenu turns the application shell on: the player adds, to the right of the menu rail, a pane with a breadcrumb and a ContentPane where other forms load. `enter_shell` showed that pane but never hid the ContentPane, which is empty until an embedded form is placed in it. `sync_shell` is what shows and hides it, and it runs only when an embedded form is placed or closed. Empty, the ContentPane still had its own opaque background and comes after the main form in the page, so it was painted over every control of the form that sits to the right of the rail. Those controls are the application's Home page.
+
+**What changed.** `crates/cobolt-web-player/src/dom/instance.rs`: `enter_shell` hides the ContentPane. `sync_shell` is unchanged: it shows the ContentPane when an embedded form is placed, and hides it again when the chain is back at the main form (Home). The shipped player under `assets/web-player/` is rebuilt (`plain` and `threaded` change by 10 bytes each; the three parts are byte-identical) and `player-build.json` records the new source hash, so `tests/freshness.rs` stays green.
+
+**Not done.** The other differences the operator reported between the designer and the page (the form's transparency, the theme's look, the rail's width and the controls' positions) are separate and wait for decisions: they are not part of this change.
+
+Measured, with a headless Chrome 155 and the Build's own server:
+- New `crates/cobolt-web-bundle/tests/shell_home.rs`: the fixture's main form is given a SideMenu and its 16 controls are moved to the right of the 220 px rail. Before the fix 16 of 16 controls were covered (a click on any of them reached `pr-content`, 804 x 746 px, not hidden). After it 0 of 16 are covered, the ContentPane is hidden (0 x 0 px), and the application is up in 73 ms.
+- `cobolt-web-player` (its own workspace): 295 tests pass in 7 targets, `freshness` (5) among them: it compares the shipped player with its source.
+- `cobolt-web-bundle`: 47 tests pass in 12 targets (the 46 of 2.0.72 and `shell_home`). `cobolt-project-tools`: 169 passed, 1 ignored (the existing `build` test).
+
 ## [PowerRustCOBOL 2.0.72] — 2026-10-25
 
 *(Written on `fixes-2x`, off `2.x.x` at 3bc2f3a7.)*
