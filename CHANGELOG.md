@@ -17,6 +17,30 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.226] — 2026-10-24
+
+*(Written on `integrate-main`, off `main` at 56c43ad3: the merge of `fixes-update-offer`, the one 1.x.x fix `main` still lacked.)*
+
+### Merged: the update offer (1.91.218) joins `main`, and the version is carried forward
+
+`fixes-update-offer` was cut from `main` at 1.91.217 on 2026-10-19 and never merged. While it waited, `main` went on to 1.91.225, so its entry sits in
+the number the line had left free (1.91.218, between 1.91.219 and 1.91.217) and the version carries forward to 1.91.226, so that the number in the
+window title says the merged code is the code that runs. Nothing in the fix changed: `update_offer.rs`, the two lines of `main.rs` and the
+`app.rs` change are the branch's own. Both records are kept and nothing has been renumbered, as before.
+
+Also settled in this merge, with no code in it:
+
+- **`origin/fixes` carries nothing `main` lacks.** Its one commit, `735aaec5` (1.91.210), is the original of the DataGrid fix that `main` has as
+  `b825c6fc` (1.91.216): the same code (identical `git patch-id` over every file but the changelog, the version, the Developer's Guide and the
+  knowledge-base store, and the Developer's Guide hunk is identical too). The fix was renumbered when it was rebased.
+- **Spec 108 (PartiQL for indexed files)**, three draft commits on `features-108-partiql`, went into `main` ahead of this merge as a fast-forward
+  (`56c43ad3`); it is a specification and no code.
+
+Measured on the merged tree: `cobolt-ide` builds, and `cargo test -p cobolt-ide --bin cobolt-ide` passes 1,828 tests, the six `update_offer` tests among
+them. Four tests fail and none is this merge's: `docs_embed::every_document_ships_in_every_language` (eleven documents have no Portuguese
+translation), `claude_validates_the_written_bundle` (the installed `claude` asks the plugin for a `README.md`) and two `external_crates_service` flow
+tests (crates.io now serves `egui` 0.37 against the 0.36 the IDE links).
+
 ## [PowerRustCOBOL 1.91.225] — 2026-10-24
 
 *(Written on `fixes-binding-editor-data`, off `fixes-facade-rollback` at 1.91.224. Found while mapping data binding for spec 108.)*
@@ -140,6 +164,22 @@ NIST, release build, both axes, every finished module, all equal to the protecte
 Documentation: the Developer's Guide has a new section, *Getting one value back with `RETURNING`*, under *Calling Common Code from a form*; `docs/cobol85-supported-syntax-en.md` gains the `RETURNING r` bullet under CALL. No translation of either exists on disk, so none was deleted. System KB: the *Nested programs* section of the architecture constants gains the RETURNING rule and `assets/knowledge/chunked.data` is regenerated.
 
 Seen on the way, not changed: `MOVE <numeric> TO <alphanumeric> (4:3)` gives the reference-modified receiver the trimmed value left-justified (`8  `) where a plain `PIC X(3)` receiver gets the COBOL-85 digits (`000`). `RETURNING` follows whichever `MOVE` does.
+
+## [PowerRustCOBOL 1.91.218] — 2026-10-19
+
+*(Written on `fixes-update-offer`, off `main` at 1.91.217.)*
+
+### Fixed: a newer release is offered whatever the Main Pane shows
+
+A developer who never opened Project Settings was never told that a newer release existed. The start-up check (`update_check`) asks GitHub once and sends its answer back on a channel; the code that collected the answer and drew the "A new version is available" window was called from exactly one place, `show_settings_pane`, which runs only while Project Settings is the Main Pane. With the editor, the Inspector, the Welcome screen or the Grace chat in that place, the reply sat in the channel and no window was drawn.
+
+The reply and the window now belong to a type of their own, `UpdateOffer` (`crates/cobolt-ide/src/update_offer.rs`), and the frame calls it every frame next to the announcement (`CoboltApp::show_update_offer`, called from `ui`). It is kept out of the way of the dialogs that already own the screen at start-up, with the announcement's own gate: the toolchain prompt, the Ollama prompt, the AI-setup invitation, the Agent wizard, the Building dialog and the Walkthrough. A blocked offer waits and is shown on the first free frame; it is not lost. While the reply is still on its way the frame asks to be redrawn twice a second, so an idle IDE shows the offer when it arrives and not at the next mouse move; the wait ends with the check's own 10-second time-out.
+
+Unchanged: the window (its text, its fixed 430 px width, its place at the bottom right), the two buttons, and the rule that declining is not remembered, so the next start-up asks again.
+
+Tests. `update_offer::tests` draws frames that contain the offer and no pane at all: the release is painted; it is collected from the channel by the frame and then offered; a check that found nothing, or died, draws nothing; a blocked offer waits and appears when the screen is free; *Later* forgets it; and in all six languages the window keeps one rectangle over 120 frames. `app::update_offer_wiring_tests` pins the call site: `CoboltApp` cannot be built without an eframe window, so it reads `app.rs` and requires that `show_settings_pane` does not mention the offer and that `ui` calls it. Putting the call back into `show_settings_pane` turns that test red.
+
+*Still open, and not changed here.* The same audit found two more windows that are drawn only inside `show_settings_pane` but can be raised from elsewhere: the **Guardian block** window (a refused Run, Debug, Check, Package, Build or Save, from the toolbar or a Designer) and the **Models Manager / Agents Manager** windows opened from the AI-setup invitation. The other windows drawn there — Default Theme Settings, the Indexed Engine, the Model Leaderboard and the two managers when opened from the pane — are opened only by that pane's own buttons, or by an action of a window opened from it, so they are drawn wherever they can be raised. The import-keys window is raised when a file dialog that the pane started returns, so it is lost only if the developer changes pane while that dialog is open.
 
 ## [PowerRustCOBOL 1.91.217] — 2026-10-19
 
