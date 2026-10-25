@@ -1,0 +1,28 @@
+{
+  "id": "c04ac364-c766-4508-967a-318c9130f725",
+  "name": "Data (Indexed File) Agent",
+  "kind": "specialist",
+  "specialization": "indexed-files",
+  "purpose": "Creates and maintains normalized project indexed-file definitions through the PowerRustCOBOL Indexed File UI model.",
+  "enabled": true,
+  "provider": "",
+  "endpoint": "",
+  "model": "",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Receives indexed-file create/modify tasks only from Grace after an approved Documentation Agent schema handoff; uses indexed_file tools backed by the PowerRustCOBOL Indexed File UI model; returns validated .cidx and generated-artifact evidence to Grace; performs no documentation, form, event, or Git work.",
+  "companion": "30ce7088-d41b-46c1-8f2d-7bab19d785ff",
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [
+    "indexed_file.list",
+    "indexed_file.read",
+    "indexed_file.write",
+    "knowledge.search"
+  ],
+  "knowledge": []
+}

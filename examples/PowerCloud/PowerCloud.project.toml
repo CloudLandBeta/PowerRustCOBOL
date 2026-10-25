@@ -10,14 +10,35 @@ copyright = ""
 license_model = ""
 license_text = ""
 destination_folder = "dist"
-built_with_version = "1.91.171"
+built_with_version = "1.91.207"
 
 [files]
 sources = ["src/main.cbl"]
-forms = ["forms/main-form.cfrm", "forms/pet-form.cfrm", "forms/view-form.cfrm", "forms/confirm-form.cfrm", "forms/working-form.cfrm"]
-assets = ["Assets/images/aws-services-wheel.webp", "Assets/icons/close.svg", "Assets/icons/play.svg", "Assets/icons/pause.svg", "Assets/icons/stop.svg", "Assets/icons/plus.svg", "Assets/icons/refresh.svg", "cloudformation/powercloud.yaml"]
+forms = [
+    "forms/main-form.cfrm",
+    "forms/pet-form.cfrm",
+    "forms/view-form.cfrm",
+    "forms/confirm-form.cfrm",
+    "forms/working-form.cfrm",
+]
+assets = [
+    "Assets/images/aws-services-wheel.webp",
+    "Assets/icons/close.svg",
+    "Assets/icons/play.svg",
+    "Assets/icons/pause.svg",
+    "Assets/icons/stop.svg",
+    "Assets/icons/plus.svg",
+    "Assets/icons/refresh.svg",
+    "cloudformation/powercloud.yaml",
+]
 documentation = []
-generated = ["generated/main-form.cbl", "generated/pet-form.cbl", "generated/view-form.cbl", "generated/confirm-form.cbl", "generated/working-form.cbl"]
+generated = [
+    "generated/main-form.cbl",
+    "generated/pet-form.cbl",
+    "generated/view-form.cbl",
+    "generated/confirm-form.cbl",
+    "generated/working-form.cbl",
+]
 indexed = []
 
 [runtime]

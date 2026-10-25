@@ -1,0 +1,25 @@
+{
+  "id": "b7ae3565-016d-48df-b168-9b1443b03d01",
+  "name": "COBOL Event Handler Script Agent",
+  "kind": "specialist",
+  "specialization": "cobol-events",
+  "purpose": "Implements delegated COBOL-85 / RustCOBOL event handlers.",
+  "enabled": true,
+  "provider": "",
+  "endpoint": "",
+  "model": "",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Receives event implementation tasks from Grace or Form Designer Agent; returns complete COBOL-85/RustCOBOL handlers and validation evidence to Grace; performs no form design or documentation writes.",
+  "companion": "ad86e321-62a1-4785-9aef-49a6f764dcf6",
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [
+    "knowledge.search"
+  ],
+  "knowledge": []
+}

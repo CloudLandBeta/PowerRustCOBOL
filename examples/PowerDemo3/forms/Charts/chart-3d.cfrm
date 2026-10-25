@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CHART-3D" title="3D Charts" width="1216" height="672" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="spatial" background-image="assets/Empty glass desk at sunset-2.png" bg-image-mode="Stretch" title-visible="false" corner-radius="20" index-base="1" form-format="Both" control-style="modern">
+<Form name="CHART-3D" title="3D Charts" width="2300" height="672" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="spatial" background-image="assets/Empty glass desk at sunset-2.png" bg-image-mode="Stretch" title-visible="false" corner-radius="20" index-base="1" form-format="Both" control-style="modern">
   <Layer name="charts" color="#00000000"/>
   <Layer name="Woman" color="#00000000"/>
   <working-storage><![CDATA[       01 WS-CYCLE                               GLOBAL    PIC 9(9)    VALUE 0.
@@ -519,7 +519,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Interval">2100</Property>
+    <Property name="Interval">223</Property>
     <Property name="Enabled">true</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
