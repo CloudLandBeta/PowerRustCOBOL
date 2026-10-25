@@ -1144,8 +1144,7 @@
        01 M-REK-ASKING            PIC 999     GLOBAL VALUE 105.
        01 M-REK-SAID              PIC 999     GLOBAL VALUE 106.
        01 M-REK-NONE              PIC 999     GLOBAL VALUE 107.
-       01 M-REK-PRESS             PIC 999     GLOBAL VALUE 108.
-]]></working-storage>
+       01 M-REK-PRESS             PIC 999     GLOBAL VALUE 108.]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -3359,7 +3358,7 @@ sa-east-1</Property>
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Lbl-Conn" type="Label" x="564" y="358" w="504" h="26" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Main" tab="1">
+  <Control id="Lbl-Conn" type="Label" x="564" y="352" w="504" h="69" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Main" tab="1">
     <Property name="Caption">Not connected</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -3390,7 +3389,7 @@ sa-east-1</Property>
     <Property name="CornerRadius">0</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
+    <Property name="WordWrap">true</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="RotateX">0</Property>
@@ -3982,16 +3981,16 @@ sa-east-1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="Anchor">Top,Left,Right</Property>
   </Control>
-  <Control id="Lbl-StackState" type="Label" x="388" y="600" w="680" h="40" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Main" tab="1">
+  <Control id="Lbl-StackState" type="Label" x="388" y="600" w="680" h="104" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Main" tab="1">
     <Property name="Caption">No stack deployed in this session.</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#F0F0F0AA</Property>
+    <Property name="ForegroundColor">#F0F0F0</Property>
     <Property name="FontName">Arial</Property>
-    <Property name="FontSize">13</Property>
+    <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
@@ -4013,7 +4012,7 @@ sa-east-1</Property>
     <Property name="CornerRadius">0</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
+    <Property name="WordWrap">true</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="RotateX">0</Property>

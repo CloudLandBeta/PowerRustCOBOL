@@ -1,0 +1,31 @@
+{
+  "id": "94af1e91-5ef6-418e-a375-83434eef4a2d",
+  "name": "Form Designer Agent",
+  "kind": "specialist",
+  "specialization": "form-design",
+  "purpose": "Designs and edits project forms and delegates event implementation.",
+  "enabled": true,
+  "provider": "",
+  "endpoint": "",
+  "model": "",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Preferred for RAD Form Designer requests; receives form design and change tasks from Grace; delegates event implementation to COBOL Event Handler Script Agent; supplies form facts to Documentation Agent; returns validated form change sets to Grace.",
+  "companion": "232d545d-8115-4dd9-8cdd-086e549f3f98",
+  "steering": [],
+  "policies": [],
+  "skills": [
+    "container-controls-move-as-a-whole.md",
+    "overlap-free-control-moves.md",
+    "grid-aligned-placement.md"
+  ],
+  "tools": [
+    "egui.tree",
+    "egui.rects",
+    "knowledge.search"
+  ],
+  "knowledge": []
+}

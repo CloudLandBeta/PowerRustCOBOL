@@ -22,6 +22,48 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.70] — 2026-10-25
+
+*(Forward-port of 1.91.227, `795747a8` on `fixes-example-projects`. 2.0.69 is the last number in use on `2.x.x`, so this port takes 2.0.70.)*
+
+### Committed: the example projects and spec 059 as they stand, and the two `chart-3d` snapshots that follow
+
+Ten paths sat in the main checkout, uncommitted, last touched between 2026-10-16 and 2026-10-24: edits made in the IDE and by running the examples, in no
+commit. None was written in this change. They are committed as found, with one exception named below.
+
+- **PowerCloud** — `agentic_ai/`, the project's agent database (51 files for twelve agents, 27 `.md` and 24 `.json`; every `agent.json` has an empty
+  provider, endpoint and model, and every `mcp.json` is `{}`), which PowerAnalytics, PowerChat, PowerDemo3 and PowerSpatial already carry (the orchestrator's
+  own `Grace/` folder stays out, as `.gitignore` leaves it out); `forms/main-form.cfrm`, whose status labels `Lbl-Conn` (now 69 px tall, was 26) and
+  `Lbl-StackState` (now 104 px, was 40, 14 pt, no longer translucent) wrap their text; and `PowerCloud.project.toml` as the IDE writes it now
+  (`built_with_version` 1.91.207, each list one entry to a line). **The exception:** that re-save had dropped the three comment lines above the AWS
+  connections (spec 092 D6). They are back, word for word, so that no text the operator wrote is lost.
+- **PowerDemo3** — `chart-3d.cfrm` is 2300 px wide (it was 1216) and its Timer fires every 223 ms (it was 2100); `layers-form.cfrm` and
+  `PowerDemo3.project.toml` as the IDE writes them now (attributes in a new order, an empty `onClose` binding, a REPOSITORY block of the Rust classes,
+  `built_with_version` 1.91.217); and the indexed data file `actors.idx` (1,593,344 bytes, 4,096 fewer than before; still 1,098 actors).
+- **PowerAnalytics** — `FUNDOS-175-PERIODICOS-PUBLICO.xlsx`, re-saved: 4,259,235 bytes where it was 4,597,269, an intact archive.
+- **PowerSpatial** — its project file no longer carries `debug_compilation = true`, a setting `cobolt-compiler` ignores.
+- **Spec 059** — the status line says *implemented (1.65.122–1.65.123, 2026-09-11)* where it said *ready for `/plan`*.
+
+Two snapshots follow the `chart-3d` edits, as they must, and were regenerated with their diffs read: `cobolt-codegen`'s
+`tests/golden/corpus/PowerDemo3/Charts__chart-3d.cbl` (two lines, the Timer's interval, `2100` to `223`, in its data item and in `SetInterval`) and
+`cobolt-forms`' `tests/goldens/056_corpus/PowerDemo3/Charts__chart-3d.cfrm.txt` (18 lines: the canvas at 0.75×, 1× and 1.5× of the new width, 1725, 2300 and
+3450 px, and the digests and shape counts that follow; not one control rectangle or font size moved). Every other form generates as before, PowerCloud's
+`main-form` among them, and every other PowerDemo3 and PowerChat form renders as before, `layers-form` among them; the render golden does not cover PowerCloud.
+
+Measured on this tree (`main` at 467c47d7 plus these paths). `cobolt-codegen`'s `example_corpus_codegen`: 81 forms, 69,089 lines of generated COBOL; 80 were
+identical before the snapshot was regenerated and all 81 are after. `cobolt-compiler`'s two example checks pass: 5 projects, 88 form programs, 8 sources,
+1,973 literal `CALL` targets resolved, none unresolved. `cobolt-forms --features render`: 1,686 tests passed, 2 ignored and 1 failed — the render golden over the
+76 PowerDemo3 and PowerChat forms (684 renders, 14,958 control rows), which found `chart-3d` and nothing else; with its golden regenerated it passes, 0 forms
+differing. `cobolt-runtime`: `test_grid_write_back_demo` (1,098 actors loaded, one renamed in a copy and read back, `CommitStatus` 00) and
+`datasource_grid_loads_all_records_not_the_sample` pass on the new `actors.idx`. Not run on this line: `cobolt-cli`'s `powercloud_hosts`, the PowerCloud
+example end to end under `rcrun run-form`, which is run on `2.x.x` with the same files, and `cobolt-ide`, whose only change here is the version literal.
+
+Measured on `2.x.x` with the port (2.0.70; `features-2x` at the same commit). `cobolt-codegen`'s `example_corpus_codegen`: 81/81 identical. `cobolt-compiler`'s two
+example checks pass: 6 projects, 88 form programs, 9 sources, 1,973 literal `CALL` targets resolved, none unresolved. `cobolt-runtime`'s `test_grid_write_back_demo`
+and `datasource_grid_loads_all_records_not_the_sample` pass on the new `actors.idx`. `cobolt-cli`'s `powercloud_hosts` passes 11 of 11 (79 s, `every_tab_of_powercloud_runs_against_the_fake_servers`
+and `the_example_holds_no_credential` among them) and `run_form` 6 of 6. `cobolt-forms --features render`: 1,718 passed, 2 ignored, none failed, the render golden among
+them. `cobolt-ide` was not rebuilt.
+
 ## [PowerRustCOBOL 2.0.69] — 2026-10-24
 
 *(Written on `integrate-2x`, off `2.x.x` at 2.0.68, after the three forward-ports of 2.0.66 to 2.0.68.)*

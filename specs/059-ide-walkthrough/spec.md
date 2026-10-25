@@ -1,6 +1,6 @@
 # Spec — IDE Walkthrough
 
-- **Status:** draft → **ready for `/plan`** (every question settled; no implementation yet)
+- **Status:** implemented (1.65.122–1.65.123, 2026-09-11): the tour in `panels/walkthrough.rs`, wired into the IDE, with a Developer's Guide section. The §6 acceptance boxes below were not ticked in a later audit pass.
 - **Folder:** specs/059-ide-walkthrough/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-09
 

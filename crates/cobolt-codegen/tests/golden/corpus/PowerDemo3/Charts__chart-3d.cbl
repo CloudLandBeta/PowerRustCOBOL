@@ -85,7 +85,7 @@
        01 WS-ANIM-ELAPSED-MS    PIC 9(8)    VALUE 0.
 
       *>── Timer: Timer-1 ──────────────────────────────────────────
-       01 WS-Timer-1-INTERVAL   PIC 9(8) VALUE 2100.
+       01 WS-Timer-1-INTERVAL   PIC 9(8) VALUE 223.
        01 WS-Timer-1-ENABLED    PIC 9    VALUE 1.
        01 WS-Timer-1-ELAPSED-MS PIC 9(8) VALUE 0.
 
@@ -226,7 +226,7 @@
       *> <TIMER-STUBS>
        COBOL-START-TIMERS.
       *>    Called once from COBOL-MAIN to register timer intervals.
-           INVOKE Timer-1 'SetInterval' USING BY VALUE 2100
+           INVOKE Timer-1 'SetInterval' USING BY VALUE 223
            CONTINUE.
 
       *> </TIMER-STUBS>

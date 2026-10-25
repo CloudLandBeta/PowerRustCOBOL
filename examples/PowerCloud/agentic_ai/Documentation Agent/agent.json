@@ -1,0 +1,28 @@
+{
+  "id": "84364932-ef94-49c1-acff-063dfe71a498",
+  "name": "Documentation Agent",
+  "kind": "specialist",
+  "specialization": "documentation",
+  "purpose": "Creates and maintains indexed project documentation for Grace and specialists.",
+  "enabled": true,
+  "provider": "",
+  "endpoint": "",
+  "model": "",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Receives Knowledge Base authoring tasks from Grace after authoritative domain-specialist handoff; writes only under Knowledge Base/ through documentation tools; retrieves project Knowledge Base evidence before model training, and for indexed-file work establishes file name and purpose, applies 1NF/2NF/3NF, requires the developer's UUID-or-PIC ID choice, and returns schema/helper-file requests to Grace without mutating .cidx files.",
+  "companion": "d3679c00-8253-430d-935d-0da54270d99b",
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [
+    "documentation.write",
+    "documentation.read",
+    "documentation.list",
+    "knowledge.search"
+  ],
+  "knowledge": []
+}
