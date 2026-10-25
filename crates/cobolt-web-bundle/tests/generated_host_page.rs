@@ -221,3 +221,85 @@ fn no_view_is_kept_and_no_string_is_built_on_the_call_path_017() {
     assert_eq!(encoders, 0, "no encoder, and the worker builds no string");
     println!("views: {found} found, {} stored; text conversions on the call path: 0 (1 TextDecoder, for the manifest at load)", stored.len());
 }
+
+// ── The notice of a page opened from disk (the operator, 2026-10-25: the page stayed blank) ──
+
+/// The text of every `<script>` of `html` that has no `src`: the inline ones.
+fn inline_scripts(html: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = html;
+    while let Some(at) = rest.find("<script") {
+        let after = &rest[at..];
+        let open_end = after.find('>').expect("a script tag ends");
+        let (open, body) = (&after[..open_end], &after[open_end + 1..]);
+        let close = body.find("</script>").expect("a script is closed");
+        if !open.contains(" src=") {
+            found.push(body[..close].to_owned());
+        }
+        rest = &body[close + "</script>".len()..];
+    }
+    found
+}
+
+/// The policy a page carries in its `<meta http-equiv="Content-Security-Policy">`.
+fn meta_policy(html: &str) -> String {
+    let key = "http-equiv=\"Content-Security-Policy\" content=\"";
+    let at = html.find(key).expect("the page carries its policy") + key.len();
+    html[at..].split('"').next().unwrap().to_owned()
+}
+
+/// A page opened as `file://` has an opaque origin and loads nothing, so the page itself must say why:
+/// every page of the Build has the notice hidden, in six languages, and one inline script that shows it;
+/// the policy allows that script by its hash and no other inline script, and the hosting files carry the
+/// same policy.
+#[test]
+fn every_page_carries_the_file_notice_and_the_policy_allows_only_its_one_script() {
+    use cobolt_web_bundle::notice;
+    let started = std::time::Instant::now();
+    let out = build();
+    let built = started.elapsed();
+    let pages: Vec<String> = out
+        .files
+        .iter()
+        .map(|f| f.path.clone())
+        .filter(|p| p.ends_with(".html") && !p.starts_with("player/"))
+        .collect();
+    let forms = out.config()["forms"].as_array().unwrap().len();
+    assert_eq!(pages.len(), 1 + forms, "index.html and one page per form: {pages:?}");
+    let source = notice::script_source();
+    for path in &pages {
+        let html = out.text(path).unwrap();
+        assert_eq!(html.matches(&format!("<div id=\"{}\" hidden>", notice::ID)).count(), 1, "{path}: one hidden notice");
+        assert_eq!(html.matches("<section lang=\"").count(), 6, "{path}: six languages");
+        for t in &notice::TEXTS {
+            assert!(html.contains(&format!("<section lang=\"{}\">", t.lang)) && html.contains(t.title), "{path}: {}", t.lang);
+        }
+        assert_eq!(inline_scripts(&html), [notice::SCRIPT], "{path}: the one inline script is the notice's, character for character");
+        assert!(html.find(notice::ID).unwrap() < html.find(notice::SCRIPT).unwrap(), "{path}: the script runs after the block exists");
+        let policy = meta_policy(&html);
+        let script_src = policy.split("; ").find(|d| d.starts_with("script-src ")).unwrap();
+        assert!(script_src.contains(&source), "{path}: the policy allows the script by its hash: {script_src}");
+        assert!(!script_src.contains("'unsafe-inline'"), "{path}: never by 'unsafe-inline': {script_src}");
+    }
+    let hosts = ["_headers", "hosting/nginx.conf", "hosting/.htaccess"];
+    for host in hosts {
+        let text = out.text(host).unwrap_or_else(|| panic!("{host} is missing"));
+        assert!(text.contains(&source), "{host} carries the same policy: {text}");
+        assert!(!text.contains("'unsafe-inline'"), "{host}");
+    }
+    let css = out.files.iter().find(|f| f.path.starts_with("app.") && f.path.ends_with(".css")).unwrap();
+    let css = String::from_utf8_lossy(&css.bytes);
+    let rules: Vec<&str> = css.lines().filter(|l| l.starts_with("#pr-file-notice")).collect();
+    assert!(!rules.is_empty(), "the stylesheet styles the notice for a browser that does apply it");
+    assert!(rules.iter().all(|r| !r.contains("display")), "`display` is left alone so that `hidden` keeps working: {rules:?}");
+    println!(
+        "file:// notice: {} pages ({}) each with 6 languages and 1 inline script ({} bytes, allowed as {source}); {} hosting files and {} stylesheet rules checked; Build {} ms, checks {} ms",
+        pages.len(),
+        pages.join(", "),
+        notice::SCRIPT.len(),
+        hosts.len(),
+        rules.len(),
+        built.as_millis(),
+        (started.elapsed() - built).as_millis()
+    );
+}

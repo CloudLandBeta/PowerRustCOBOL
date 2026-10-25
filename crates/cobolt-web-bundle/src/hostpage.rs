@@ -1358,6 +1358,7 @@ pub fn page_html(p: &Page<'_>) -> String {
 </head>
 <body class=\"{body_class}\">
 <div id=\"pr-app\" class=\"{app_class}\" data-pr-config=\"{config}\"{start}></div>
+{notice}<script>{notice_js}</script>
 <noscript>{noscript}</noscript>
 </body>
 </html>
@@ -1376,6 +1377,8 @@ pub fn page_html(p: &Page<'_>) -> String {
         body_class = p.body_class,
         app_class = p.app_class,
         config = p.config,
+        notice = crate::notice::html(p.lang),
+        notice_js = crate::notice::SCRIPT,
         noscript = esc(p.noscript),
     )
 }
@@ -1424,5 +1427,14 @@ body.pr-window #pr-app,
 
 /* Before the application: a progress bar and a line of text, in the host's own fonts. */
 #pr-app { color: CanvasText; background: Canvas; font: 14px/1.4 system-ui, sans-serif; }
+
+/* The notice of a page opened from disk (notice.rs): hidden in the markup, shown by one inline script
+   only on file://. On such a page this stylesheet does not load at all (an integrity attribute needs
+   CORS) and the notice is plain HTML; these rules matter only for a browser that does apply them, where
+   the notice must sit above the application's own box. `display` is left alone so that `hidden` works. */
+#pr-file-notice { position: fixed; inset: 0; z-index: 2147483647; box-sizing: border-box; overflow: auto; padding: 1.5rem; color: CanvasText; background: Canvas; font: 15px/1.5 system-ui, sans-serif; }
+#pr-file-notice section { max-width: 46rem; margin: 0 auto 1.5rem; }
+#pr-file-notice h2 { margin: 0 0 .5rem; font-size: 1.15rem; }
+#pr-file-notice pre { overflow: auto; margin: .5rem 0; padding: .5rem .75rem; background: rgba(128, 128, 128, .15); }
 "# + &behind
 }

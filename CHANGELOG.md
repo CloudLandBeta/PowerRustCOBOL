@@ -22,6 +22,30 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.72] — 2026-10-25
+
+*(Written on `fixes-2x`, off `2.x.x` at 3bc2f3a7.)*
+
+### Fixed: a Web build opened from disk shows a notice, in the IDE's six languages, instead of a blank page
+
+**What the operator saw.** `dist/web/index.html` of a Web project, opened by a double click (`file:///.../dist/web/index.html`), was a blank page, and nothing said why.
+
+**Why.** A page opened as `file://` has an opaque origin, and Chrome refuses every request the application makes in CORS mode: the module script and its `modulepreload` ("has been blocked by CORS policy"), the font, `config.json` and the WebAssembly, and every stylesheet or script that carries an `integrity` attribute ("requires the request to be CORS enabled"). Nothing starts. A Web build is meant to be served: Run in the IDE and the designer's Web Preview serve it on a loopback port, and the Build button only writes `dist/web`. That has not changed; the page now says so.
+
+**What it does now.** Every page of a Build (`index.html`, and each form's page of a Standalone build) carries a notice that is hidden in the markup, and one inline classic script that shows it only when `location.protocol` is `file:`. The notice is in the six languages of the IDE (English, Portuguese, Spanish, French, Japanese, Chinese), the project's own language first. It names the IDE's own buttons (Run and Web Preview, in each language's wording), a command that serves the folder (`python3 -m http.server 8080 --bind 127.0.0.1`) and the address to open. It is plain HTML: on `file://` the stylesheet is blocked as well as the application, so it needs neither. On a served page the notice stays hidden and costs nothing.
+
+**The policy.** The Content-Security-Policy allows that one script by its SHA-256 hash (`'sha256-zpZAv0QZ9ECsus2cxqUvSHvtc/ndjKB4Tk3UGmOVNd4='`), never by `'unsafe-inline'`, so it stays default-deny; the same policy feeds the page's `<meta>`, `_headers`, `hosting/nginx.conf` and `hosting/.htaccess`. A notice made of CSS alone was considered and rejected: what it shows would depend on which resource a browser happens to block, so it could not be exact.
+
+**Where.** `crates/cobolt-web-bundle`: `src/notice.rs` (new: the six texts, the script, the command, `html(lang)` and `script_source()`), `src/hash.rs` (`csp_sha256`), `src/lib.rs` (the hash joins the policy's `extra_script`), `src/hostpage.rs` (the block and the script in `page_html`; the `#pr-file-notice` rules in `app_css`, written without `display` so that `hidden` keeps working).
+
+**Not done.** The `<noscript>` text is still English only. Safari and Firefox were not tried on `file://` (Chrome 155 only).
+
+Measured, with the Build's own server and a headless Chrome 155:
+- `cobolt-web-bundle`: 46 tests in 11 targets pass; 8 are new (5 in `notice`, 1 in `hash`, 1 in `generated_host_page`, and `opened_from_disk`).
+- `generated_host_page`: the 3 pages of the fixture Build (`index.html`, `main-form.html`, `child-form.html`) each hold the hidden block, 6 languages and exactly 1 inline script (87 bytes); each page's policy and the 3 hosting files carry its hash and none carries `'unsafe-inline'`; the stylesheet has 4 notice rules and none sets `display`.
+- `opened_from_disk` (new, in Chrome): from disk the notice is on screen 148 ms after the navigation, Portuguese first for a `pt-BR` project and the other five after it, with the command and the address in the rendered text; the application does not start, as expected; 0 policy violations. Served over HTTP the same bundle keeps the notice hidden (0 x 0 px), the application is up in 154 ms, 0 policy violations, 0 uncaught exceptions.
+- `cobolt-project-tools`: 169 passed, 1 ignored (the existing `build` test).
+
 ## [PowerRustCOBOL 2.0.71] — 2026-10-25
 
 *(Carried from `main` at the operator's request: `631eae5f`, `4a794991` and `56c43ad3`, cherry-picked in order as `e5cdadf8`, `be2d6e0a` and `ef41f4f0`. 2.0.70 is the last number in use on `2.x.x`, so this takes 2.0.71.)*

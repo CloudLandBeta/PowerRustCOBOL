@@ -22,6 +22,7 @@ pub mod csp;
 pub mod devserver;
 pub mod hash;
 pub mod hostpage;
+pub mod notice;
 pub mod secrets;
 
 use std::collections::BTreeMap;
@@ -601,6 +602,12 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         has(&f.controls)
     });
     let mut csp_opts = o.csp.clone();
+    // The notice of a page opened from disk (`notice`): one inline script, allowed by its hash and never
+    // by 'unsafe-inline', so that the policy stays default-deny.
+    let notice_source = notice::script_source();
+    if !csp_opts.extra_script.contains(&notice_source) {
+        csp_opts.extra_script.push(notice_source);
+    }
     for origin in &o.image_origins {
         if !csp_opts.extra_img.contains(origin) {
             csp_opts.extra_img.push(origin.clone());

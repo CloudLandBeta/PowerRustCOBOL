@@ -36,6 +36,12 @@ pub fn sri(bytes: &[u8]) -> String {
     format!("sha384-{}", base64(&Sha384::digest(bytes)))
 }
 
+/// `'sha256-<base64>'`: the Content-Security-Policy source that allows exactly one inline script (or
+/// style) whose text is `bytes`, character for character.
+pub fn csp_sha256(bytes: &[u8]) -> String {
+    format!("'sha256-{}'", base64(&Sha256::digest(bytes)))
+}
+
 pub fn sha256_hex(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
@@ -76,6 +82,12 @@ mod tests {
             sri(b"abc"),
             "sha384-ywB1P0WjXou1oD1pmsZQBycsMqsO3tFjGotgWkP/W+2AhgcroefMI1i67KE0yCWn"
         );
+    }
+
+    #[test]
+    fn a_csp_hash_source_is_the_quoted_sha256_of_the_text() {
+        // sha256("abc") is a known vector.
+        assert_eq!(csp_sha256(b"abc"), "'sha256-ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0='");
     }
 
     #[test]
