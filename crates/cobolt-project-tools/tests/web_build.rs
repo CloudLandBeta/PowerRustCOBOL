@@ -860,23 +860,26 @@ process.exit(0);\n"
     }
 }
 
+/// Build the project of `manifest` and read the `app.css` of its bundle.
+fn built_app_css(manifest: &std::path::Path) -> String {
+    let req = WebBuildRequest::from_manifest(manifest).unwrap();
+    GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+    let web = manifest.parent().unwrap().join("dist/web");
+    let css = std::fs::read_dir(&web)
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("app.") && n.to_string_lossy().ends_with(".css")))
+        .expect("app.css in the bundle");
+    std::fs::read_to_string(css).unwrap()
+}
+
 /// A see-through theme (Spatial, the Web template's) has nothing behind it on a
 /// page: the Build paints the stand-in desktop its pictures are drawn over, so
 /// its white text never sits on a light page. Any other theme leaves the page's
 /// own colour.
 #[test]
 fn a_see_through_theme_gets_a_backdrop_and_another_theme_does_not() {
-    let app_css = |manifest: &std::path::Path| -> String {
-        let req = WebBuildRequest::from_manifest(manifest).unwrap();
-        GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
-        let web = manifest.parent().unwrap().join("dist/web");
-        let css = std::fs::read_dir(&web)
-            .unwrap()
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("app.") && n.to_string_lossy().ends_with(".css")))
-            .expect("app.css in the bundle");
-        std::fs::read_to_string(css).unwrap()
-    };
+    let app_css = built_app_css;
     let spatial = project_with("seethrough", "[web]\nmulti_memory = true\n\n[forms]\ntheme = \"spatial\"\n", &["main-form"]);
     let css = app_css(&spatial);
     assert!(css.contains("background: #4A4642;"), "{css}");
@@ -884,6 +887,46 @@ fn a_see_through_theme_gets_a_backdrop_and_another_theme_does_not() {
     let css = app_css(&plain);
     assert!(!css.contains("#4A4642"), "{css}");
     eprintln!("see-through backdrop: Spatial gets #4A4642 behind the app, Liquid Glass keeps the page colour");
+}
+
+/// The Form Designer paints a form whose own face is translucent over its canvas (a new Web project's main
+/// form is `00000000`), and a page has no desktop behind it: such a main form gets the same stand-in as a
+/// see-through theme, whatever its theme. A window `Transparency` or a translucent end of a gradient do the
+/// same; an opaque colour, even one that spells its alpha, keeps the page's own.
+#[test]
+fn a_translucent_main_form_gets_a_backdrop_whatever_its_theme() {
+    type Edit = fn(&mut Form);
+    let cases: [(&str, Edit, bool); 7] = [
+        ("an opaque form (the default)", |_| {}, false),
+        ("colour 00000000", |f| f.background_color = "00000000".into(), true),
+        ("colour #2E313880", |f| f.background_color = "#2E313880".into(), true),
+        ("colour #2E3138FF", |f| f.background_color = "#2E3138FF".into(), false),
+        ("window Transparency 40", |f| f.transparency = 40, true),
+        ("gradient ending in #00000000", |f| {
+            f.background_gradient_enabled = true;
+            f.background_gradient_start_color = "#FFFFFFFF".into();
+            f.background_gradient_end_color = "#00000000".into();
+        }, true),
+        ("a translucent colour under an opaque gradient", |f| {
+            f.background_color = "00000000".into();
+            f.background_gradient_enabled = true;
+            f.background_gradient_start_color = "#FFFFFFFF".into();
+            f.background_gradient_end_color = "#000000FF".into();
+        }, false),
+    ];
+    let started = std::time::Instant::now();
+    let mut lines = Vec::new();
+    for (i, (what, edit, expect)) in cases.iter().enumerate() {
+        let manifest = project_with(&format!("translucent{i}"), "[web]\nmulti_memory = true\n", &["main-form"]);
+        let file = manifest.parent().unwrap().join("webforms/main-form.cfrm");
+        let mut form = cobolt_forms::xml::load_form_from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        edit(&mut form);
+        cobolt_forms::xml::save_form(&form, &file).unwrap();
+        let got = built_app_css(&manifest).contains("background: #4A4642;");
+        assert_eq!(got, *expect, "{what}: the backdrop is {}", if got { "there" } else { "missing" });
+        lines.push(format!("  {what}: {}", if got { "backdrop #4A4642" } else { "the page's own colour" }));
+    }
+    eprintln!("translucent main form, {} cases in {} ms:\n{}", cases.len(), started.elapsed().as_millis(), lines.join("\n"));
 }
 
 /// WASM-016 R11, Q6: `player = "…"` in `[web]` pins an older player. A pin to a player this IDE does not keep

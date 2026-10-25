@@ -22,6 +22,20 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.74] — 2026-10-25
+
+*(Written on `fixes-2x`, off `2.x.x` at 25aa0d26.)*
+
+### Fixed: a Web page puts the stand-in desktop behind a main form whose own face is translucent, as the Form Designer puts its canvas
+
+**What the operator saw.** `MyApp` in Chrome beside its Form Designer: the designer shows the form over its canvas, the page showed the same form over white (black in a dark browser), so the white labels vanished and the pale SideMenu text sat on white. The operator listed it as "no transparency" among the parity gaps and approved the fix on 2026-10-25.
+
+**Why.** The Build gives the page its stand-in desktop (`BundleOptions::backdrop`: `#4A4642` behind the application, with light text) only when the main form's THEME is see-through, which today means Spatial. `MyApp` has no theme and a main form colour of `00000000`: transparent, but not a see-through theme, so the page kept the browser's own `Canvas`.
+
+**What changed.** `crates/cobolt-project-tools/src/web/generator.rs`: the backdrop is also given when the main form's own face lets the desktop show, by the rules the page paints it with. That is a window `Transparency` above 0, or a colour with an alpha under 255 (`#RRGGBBAA`), or, with the gradient on, either end of the gradient with an alpha under 255 (the page paints the gradient and not the colour). An opaque form, even one that spells its alpha `FF`, keeps the page's own colour. Only the main form decides, as its theme always did.
+
+Measured: the new test `a_translucent_main_form_gets_a_backdrop_whatever_its_theme` builds seven forms and reads each bundle's `app.css`: an opaque default form, `00000000`, `#2E313880`, `#2E3138FF`, `Transparency 40`, a gradient ending in `#00000000`, and a translucent colour under an opaque gradient. The backdrop is there for the four that let the desktop show and absent for the three that do not (8.5 s). `cobolt-project-tools`: 170 passed, 1 ignored (the existing `build` test).
+
 ## [PowerRustCOBOL 2.0.73] — 2026-10-25
 
 *(Written on `fixes-2x`, off `2.x.x` at 02ae953f.)*
