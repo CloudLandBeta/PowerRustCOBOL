@@ -20,7 +20,37 @@ assets = ["Assets/images/logo.svg"]
 documentation = []
 generated = ["generated/main-form.cbl"]
 indexed = []
-backend = ["backend/src/health.cbl"]
+backend = [
+    "backend/src/health.cbl",
+    "backend/src/fund-init.cbl",
+    "backend/src/fund-totals.cbl",
+    "backend/src/fund-cats.cbl",
+    "backend/src/fund-n2.cbl",
+    "backend/src/fund-bins.cbl",
+    "backend/src/fund-top.cbl",
+    "backend/src/fund-years.cbl",
+    "backend/src/fund-grid.cbl",
+    "backend/src/fund-names.cbl",
+    "backend/src/fund-radar.cbl",
+    "backend/COPYBOOKS/fc-script.cpy",
+    "backend/COPYBOOKS/fd-script.cpy",
+    "backend/COPYBOOKS/ws-open.cpy",
+    "backend/COPYBOOKS/p-db.cpy",
+    "backend/COPYBOOKS/p-filter.cpy",
+    "backend/COPYBOOKS/req-filter.cpy",
+    "backend/COPYBOOKS/req-grid.cpy",
+    "backend/COPYBOOKS/req-names.cpy",
+    "backend/COPYBOOKS/res-init.cpy",
+    "backend/COPYBOOKS/res-totals.cpy",
+    "backend/COPYBOOKS/res-cats.cpy",
+    "backend/COPYBOOKS/res-n2.cpy",
+    "backend/COPYBOOKS/res-bins.cpy",
+    "backend/COPYBOOKS/res-top.cpy",
+    "backend/COPYBOOKS/res-years.cpy",
+    "backend/COPYBOOKS/res-grid.cpy",
+    "backend/COPYBOOKS/res-names.cpy",
+    "backend/COPYBOOKS/res-radar.cpy",
+]
 
 [runtime]
 fixed_format = false
@@ -657,3 +687,10 @@ firefox = true
 safari = true
 ios_webview = true
 android_webview = true
+
+[[sql-connections]]
+name = "FUNDOS"
+backend = "sqlite"
+path = "data/fundos.db"
+default = true
+create-if-missing = true

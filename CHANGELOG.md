@@ -22,6 +22,18 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.79] — 2026-10-25
+
+*(Written on `features-2x`, off `2.x.x` at d499fa72.)*
+
+### Added: PowerAnalyticsWeb gets a data tier - ten Backend programs that answer the dashboard's questions from the fund database
+
+**What the operator saw.** The Web dashboard's numbers were baked into the form (captions, chart datasets, the first grid page), so filters and paging could not change them: "itaú" + Aplicar gave 43.750 funds on the page and 1.996 on the desktop.
+
+**What changed.** `examples/PowerAnalyticsWeb/backend/src/fund-{init,totals,cats,n2,bins,top,years,grid,names,radar}.cbl` with their copybooks under `backend/COPYBOOKS/`: fixed SQL statements with bound `?` parameters (the desktop's own queries), the picks carried by the caller, the grid served in windows of at most 150 rows (the module takes 64 KiB per call). `backend/exports.toml` exports them `public`; `PowerAnalyticsWeb.project.toml` lists the files and declares the SQL connection `FUNDOS` (SQLite, `data/fundos.db`, created on first use). `data/fundos.sql` (14.4 MB) is a copy of the desktop example's data, the one tracked copy; `.gitignore` keeps the built `fundos.db*` out.
+
+**Not done.** UNJUDGED: the work was committed at the operator's request before any judge reproduced it, and the oracle comparison against the desktop's SQL (40+ filter combinations) may be incomplete. Nothing calls these programs yet: the page still shows the baked state until the player speaks the server's protocol and the web form is regenerated from the desktop design (later waves). The parity ledger stays at zero PASS.
+
 ## [PowerRustCOBOL 2.0.78] — 2026-10-25
 
 *(Written on `fixes-2x`, off `2.x.x` at b44df5c9.)*
