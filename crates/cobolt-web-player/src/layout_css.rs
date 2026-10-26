@@ -189,7 +189,7 @@ fn align(v: &str) -> &'static str {
 /// What the desktop takes off a container's outer box before its own padding to get the client
 /// area its children are laid out in: `Control::content_rect` insets a Panel and a GroupBox by 2
 /// pixels on every side, whatever border they draw.
-fn chrome_inset(c: &Ctl) -> f64 {
+pub(crate) fn chrome_inset(c: &Ctl) -> f64 {
     match c.control_type() {
         Some(ControlType::Panel | ControlType::GroupBox) => 2.0,
         _ => 0.0,
@@ -302,22 +302,55 @@ pub fn container(c: &Ctl) -> Decls {
     d
 }
 
-/// The control among the children of container `parent` that is expanded (spec 090), if any: a Panel or GroupBox that is shown and has
-/// `Expanded` on; where several are, the one highest in z-order wins (R7).
-pub fn expanded_sibling(ctls: &[Ctl], parent: usize) -> Option<usize> {
+/// Is control `i` in a layer (spec 091 R21)? Only a direct child of the form carries the layer; everything inside a container
+/// belongs to its container's. A layer is placed by the program, not laid out, so an expansion changes nothing there: the desktop
+/// never marks such a card as laid out and so never draws its icon nor gives it the room of its siblings.
+pub fn in_layer(ctls: &[Ctl], i: usize) -> bool {
+    let mut at = i;
+    // The chain ends at the form (control 0); the bound only guards a malformed tree.
+    for _ in 0..ctls.len() {
+        match ctls[at].parent {
+            Some(p) if p != 0 => at = p,
+            _ => break,
+        }
+    }
+    ctls[at].layer.is_some()
+}
+
+/// The control of `i`'s layout set that is expanded (spec 090), if any. The set is `i` and its siblings, and under a TabControl only
+/// those on `i`'s page (each page is laid out alone, `layout::page_sets`). A Panel or GroupBox that is shown, not in a layer and has
+/// `Expanded` on is a candidate; where several are, the one highest in z-order wins (R7).
+pub fn expanded_in_set(ctls: &[Ctl], i: usize) -> Option<usize> {
+    let parent = ctls[i].parent?;
+    let paged = matches!(ctls[parent].control_type(), Some(ControlType::TabControl));
+    let page = ctls[i].tab.unwrap_or(1);
     ctls[parent]
         .children
         .iter()
         .copied()
         .filter(|&k| {
             let c = &ctls[k];
-            matches!(c.control_type(), Some(ControlType::Panel | ControlType::GroupBox)) && c.flag("expanded") && c.visible()
+            (!paged || c.tab.unwrap_or(1) == page)
+                && matches!(c.control_type(), Some(ControlType::Panel | ControlType::GroupBox))
+                && c.flag("expanded")
+                && c.visible()
+                && !in_layer(ctls, k)
         })
         .max_by_key(|&k| (num(&ctls[k], "zorder").unwrap_or(0.0) as i64, k))
 }
 
+/// Is `i` the card that takes the whole client area of its container (spec 090)?
+pub fn is_expanded_card(ctls: &[Ctl], i: usize) -> bool {
+    expanded_in_set(ctls, i) == Some(i)
+}
+
 /// What puts an expanded card over the whole client area of its container: out of the flow, edge to edge of the area the
 /// container's own padding leaves, above everything else in it (R4).
+///
+/// The card keeps the other rules it has as an item of its container, and some of them would decide where it goes: in a Grid its
+/// `GridColumn`/`GridRow` are the cell an absolutely positioned item is placed against (the containing block of such an item is its
+/// grid area, not the container), so the cell is given up for the whole padding box; and an `AlignSelf` or `JustifySelf` of the item
+/// would shrink the stretched box to its content. The desktop gives the card the container's whole client rectangle whatever it was.
 pub fn expanded_placement(parent: &Ctl) -> Decls {
     let all = num(parent, "padding").unwrap_or(0.0);
     let side = |k: &str| num(parent, k).unwrap_or(all);
@@ -332,6 +365,12 @@ pub fn expanded_placement(parent: &Ctl) -> Decls {
     push(&mut d, "max-width", "none");
     push(&mut d, "max-height", "none");
     push(&mut d, "margin", "0");
+    if mode_of(parent) == Mode::Grid {
+        push(&mut d, "grid-column", "auto");
+        push(&mut d, "grid-row", "auto");
+    }
+    push(&mut d, "align-self", "stretch");
+    push(&mut d, "justify-self", "stretch");
     push(&mut d, "z-index", "900");
     d
 }
@@ -551,7 +590,7 @@ pub fn item(parent: &Ctl, child: &Ctl, parent_size: (f64, f64), origin: (f64, f6
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tree::testing::tree;
+    use crate::tree::testing::{tree, tree_of};
 
     fn get<'a>(d: &'a Decls, k: &str) -> Option<&'a str> {
         d.iter().find(|(x, _)| x == k).map(|(_, v)| v.as_str())
@@ -656,6 +695,61 @@ mod tests {
         }
         // 3 px of border on each side, and 5 + 2 - 3 = 4 px of padding on each side.
         assert_eq!(vertical_extent(t.ctl(p)), 14.0);
+    }
+
+    /// A grid of three cards on a form, one of them on a TabControl's second page, one in a layer, one hidden.
+    const CARDS: &str = r##"<Layer name="POP" color="#00000000" />
+        <Control id="G" type="Panel" x="0" y="0" w="600" h="400"><Property name="LayoutMode">Grid</Property></Control>
+        <Control id="A" type="GroupBox" parent="G" x="0" y="0" w="200" h="200" z-order="3"><Property name="Expanded">1</Property></Control>
+        <Control id="B" type="GroupBox" parent="G" x="200" y="0" w="200" h="200" z-order="9"><Property name="Expanded">1</Property></Control>
+        <Control id="C" type="Panel" parent="G" x="400" y="0" w="200" h="200" z-order="5"></Control>
+        <Control id="L" type="Label" parent="G" x="0" y="200" w="50" h="20"></Control>
+        <Control id="TC" type="TabControl" x="0" y="400" w="300" h="80"></Control>
+        <Control id="T1" type="Panel" parent="TC" tab="1" x="0" y="0" w="50" h="20"><Property name="Expanded">1</Property></Control>
+        <Control id="T1B" type="Panel" parent="TC" tab="1" x="60" y="0" w="50" h="20"></Control>
+        <Control id="T2" type="Panel" parent="TC" tab="2" x="0" y="0" w="50" h="20"><Property name="Expanded">1</Property></Control>
+        <Control id="T2B" type="Panel" parent="TC" tab="2" x="60" y="0" w="50" h="20"></Control>
+        <Control id="P" type="Panel" x="0" y="500" w="100" h="100" layer="POP"><Property name="Expanded">1</Property></Control>
+        <Control id="P2" type="Panel" x="110" y="500" w="100" h="100" layer="POP"></Control>
+        <Control id="H" type="Panel" parent="G" x="0" y="0" w="10" h="10" z-order="99" visible="false"><Property name="Expanded">1</Property></Control>"##;
+
+    #[test]
+    fn the_expanded_card_of_a_set_is_the_topmost_shown_one_of_its_page_and_never_one_in_a_layer() {
+        let t = tree_of(CARDS);
+        let id = |n: &str| t.by_name(n).unwrap();
+        // Two cards of the grid are expanded; the one highest in z-order wins (R7). A hidden one, higher still, does not count.
+        for sibling in ["A", "B", "C", "L"] {
+            assert_eq!(expanded_in_set(&t.ctls, id(sibling)), Some(id("B")), "{sibling}: the set's winner");
+        }
+        assert!(is_expanded_card(&t.ctls, id("B")) && !is_expanded_card(&t.ctls, id("A")) && !is_expanded_card(&t.ctls, id("H")));
+        // A TabControl lays each page out alone: one winner per page.
+        assert_eq!(expanded_in_set(&t.ctls, id("T1B")), Some(id("T1")));
+        assert_eq!(expanded_in_set(&t.ctls, id("T2B")), Some(id("T2")));
+        // A layer is placed by the program, not laid out: an expansion there changes nothing.
+        assert!(in_layer(&t.ctls, id("P")) && !in_layer(&t.ctls, id("B")));
+        assert_eq!(expanded_in_set(&t.ctls, id("P2")), None);
+        assert!(!is_expanded_card(&t.ctls, id("P")));
+        // The form itself has no set.
+        assert_eq!(expanded_in_set(&t.ctls, 0), None);
+    }
+
+    #[test]
+    fn an_expanded_card_gives_up_its_cell_and_its_alignment_for_the_containers_whole_client_area() {
+        let mut t = tree_of(CARDS);
+        let g = t.by_name("G").unwrap();
+        for (k, v) in [("GridColumns", "1fr 1fr 1fr"), ("Padding", "4")] {
+            t.set(g, k, v);
+        }
+        let d = expanded_placement(t.ctl(g));
+        assert_eq!(get(&d, "position"), Some("absolute"));
+        assert_eq!(get(&d, "inset"), Some("5px 5px 5px 5px"), "4 of padding and the 2 px the desktop takes off a Panel, less the 1 px border the element draws");
+        assert_eq!((get(&d, "width"), get(&d, "height")), (Some("auto"), Some("auto")), "stretched between the four edges");
+        assert_eq!((get(&d, "grid-column"), get(&d, "grid-row")), (Some("auto"), Some("auto")), "a grid item placed in a cell would be placed against that cell");
+        assert_eq!((get(&d, "align-self"), get(&d, "justify-self")), (Some("stretch"), Some("stretch")));
+        t.set(g, "LayoutMode", "Flex");
+        let d = expanded_placement(t.ctl(g));
+        assert_eq!(get(&d, "grid-column"), None, "no grid, no grid placement to give up");
+        assert_eq!(get(&d, "position"), Some("absolute"));
     }
 
     #[test]

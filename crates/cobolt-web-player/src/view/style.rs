@@ -534,7 +534,7 @@ pub fn control_decls(ctls: &[Ctl], i: usize, responsive: bool) -> Decls {
     d.extend(kind_decls(ctls, i));
     // Spec 090: while a card is expanded it takes the whole client area of its container, and its siblings are not drawn.
     if responsive {
-        if let Some(winner) = layout_css::expanded_sibling(ctls, parent) {
+        if let Some(winner) = layout_css::expanded_in_set(ctls, i) {
             if winner == i {
                 d.extend(layout_css::expanded_placement(&ctls[parent]));
             } else if matches!(&c.kind, Kind::Control(_)) {
@@ -747,6 +747,60 @@ mod tests {
         assert_eq!((decl(&fixed, "left"), decl(&fixed, "width")), (Some("10px"), Some("80px")));
         let live = control_decls(&t.ctls, b, true);
         assert_eq!((decl(&live, "left"), decl(&live, "right"), decl(&live, "width")), (Some("10px"), Some("550px"), None));
+    }
+
+    /// A responsive form: a Flex root holding a header and a Grid of two cards, one of them expandable, and a layer's card.
+    fn dashboard() -> crate::tree::FormTree {
+        tree_of(
+            r##"<Layer name="POP" color="#00000000" />
+               <Control id="ROOT" type="Panel" x="0" y="0" w="640" h="480"><Property name="LayoutMode">Flex</Property><Property name="FlexDirection">Column</Property></Control>
+               <Control id="HEAD" type="Panel" parent="ROOT" x="0" y="0" w="640" h="60"></Control>
+               <Control id="GRID" type="Panel" parent="ROOT" x="0" y="60" w="640" h="400"><Property name="LayoutMode">Grid</Property><Property name="GridColumns">1fr 1fr</Property><Property name="GridRows">1fr</Property><Property name="Gap">20</Property></Control>
+               <Control id="C-ONE" type="GroupBox" parent="GRID" x="0" y="60" w="300" h="400"><Property name="GridColumn">1</Property><Property name="GridRow">1</Property><Property name="Expandable">1</Property></Control>
+               <Control id="C-TWO" type="GroupBox" parent="GRID" x="320" y="60" w="300" h="400"><Property name="GridColumn">2</Property><Property name="GridRow">1</Property><Property name="Expandable">1</Property></Control>
+               <Control id="L-ONE" type="Label" parent="C-ONE" x="10" y="70" w="50" h="20"></Control>
+               <Control id="L-TWO" type="Label" parent="C-TWO" x="330" y="70" w="50" h="20"></Control>
+               <Control id="POP-CARD" type="GroupBox" x="0" y="500" w="100" h="100" layer="POP"><Property name="Expandable">1</Property></Control>
+               <Control id="POP-OTHER" type="Panel" x="110" y="500" w="100" h="100" layer="POP"></Control>"##,
+        )
+    }
+
+    #[test]
+    fn an_expanded_card_fills_its_grid_and_hides_its_siblings_and_nothing_above_it_changes() {
+        let mut t = dashboard();
+        t.set(0, "Responsive", "1");
+        let id = |t: &crate::tree::FormTree, n: &str| t.by_name(n).unwrap();
+        let (root, head, grid, one, two) = ["ROOT", "HEAD", "GRID", "C-ONE", "C-TWO"].map(|n| id(&t, n)).into();
+        let before: Vec<Decls> = [root, head, grid, one, two].iter().map(|&i| control_decls(&t.ctls, i, true)).collect();
+        assert_eq!(decl(&before[3], "grid-column"), Some("1 / span 1"), "in its cell");
+        t.set(one, "Expanded", "1");
+        let after: Vec<Decls> = [root, head, grid, one, two].iter().map(|&i| control_decls(&t.ctls, i, true)).collect();
+        // The card takes the grid's whole area: out of the flow, stretched edge to edge, cell given up.
+        assert_eq!(decl(&after[3], "position"), Some("absolute"));
+        assert_eq!(decl(&after[3], "grid-column"), Some("auto"));
+        assert_eq!(decl(&after[3], "grid-row"), Some("auto"));
+        assert_eq!(decl(&after[3], "z-index"), Some("900"));
+        // Its sibling is not drawn; the header, the grid and the root, above it, are exactly as they were.
+        assert_eq!(decl(&after[4], "display"), Some("none"));
+        for (k, name) in [(0, "ROOT"), (1, "HEAD"), (2, "GRID")] {
+            assert_eq!(after[k], before[k], "{name} is not expanded by the card inside it");
+        }
+        assert_eq!(decl(&after[2], "z-index"), decl(&before[2], "z-index"));
+        // Collapsed again: everything is back.
+        t.set(one, "Expanded", "0");
+        let back: Vec<Decls> = [root, head, grid, one, two].iter().map(|&i| control_decls(&t.ctls, i, true)).collect();
+        assert_eq!(back, before);
+    }
+
+    #[test]
+    fn a_form_that_is_not_laid_out_and_a_layer_keep_their_cards_in_place() {
+        let mut t = dashboard();
+        let (one, two, pop, other) = ["C-ONE", "C-TWO", "POP-CARD", "POP-OTHER"].map(|n| t.by_name(n).unwrap()).into();
+        t.set(one, "Expanded", "1");
+        t.set(pop, "Expanded", "1");
+        assert_eq!(decl(&control_decls(&t.ctls, two, false), "display"), None, "a form that is not responsive keeps its designed rectangles");
+        assert_eq!(decl(&control_decls(&t.ctls, pop, true), "z-index"), None, "a card in a layer is placed by the program: Expanded changes nothing");
+        assert_eq!(decl(&control_decls(&t.ctls, other, true), "display"), None, "and takes nothing from its neighbours in the layer");
     }
 
     #[test]

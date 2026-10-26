@@ -31,6 +31,7 @@ pub mod tree;
 pub mod value;
 pub mod view;
 pub mod weblink;
+pub mod zoom;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fingerprint;
 

@@ -221,6 +221,9 @@ pub struct FormTree {
     /// `FontSize` is taken through it ([`FormTree::font_size_of`]). The page sets it from the form's own width, as it selects the
     /// breakpoint; `1` is the designed size.
     pub font_factor: f32,
+    /// The box the browser gave each expanded card, by control (its border box, in CSS pixels): what the one-factor zoom of the
+    /// contents of an expanded card is taken from (spec 090, [`crate::zoom`]). Set by the page; a card that is not expanded has none.
+    pub card_boxes: BTreeMap<usize, (f64, f64)>,
     changes: Vec<Change>,
     /// Properties a running program has written, by control: a breakpoint never overrides one (spec 056 R64).
     written: std::collections::HashSet<(usize, String)>,
@@ -467,6 +470,7 @@ impl FormTree {
             layout_bag: form.layout.clone(),
             breakpoints: form.breakpoints.clone(),
             font_factor: 1.0,
+            card_boxes: BTreeMap::new(),
             changes: Vec::new(),
             written: std::collections::HashSet::new(),
             conversations: BTreeMap::new(),
@@ -793,7 +797,26 @@ impl FormTree {
                 }
             }
         }
+        // And what is inside an expanded card grows with it, by one factor (spec 090): last, so the factor multiplies the size above.
+        crate::zoom::apply(&mut out, &self.card_boxes);
         out
+    }
+
+    /// The page measured expanded card `i` at `size` (its border box), or it is not expanded (`None`). Did that change what the tree
+    /// holds? A change of a quarter of a pixel or less is none: a layout that settles must not set it going again.
+    pub fn set_card_box(&mut self, i: usize, size: Option<(f64, f64)>) -> bool {
+        match size {
+            Some((w, h)) => {
+                if let Some((lw, lh)) = self.card_boxes.get(&i) {
+                    if (lw - w).abs() <= 0.25 && (lh - h).abs() <= 0.25 {
+                        return false;
+                    }
+                }
+                self.card_boxes.insert(i, (w, h));
+                true
+            }
+            None => self.card_boxes.remove(&i).is_some(),
+        }
     }
 
     /// The font factor the desktop's solver gives this form on a surface `width` wide (spec 056 R66–R67, `layout::lay_out`): what
@@ -815,7 +838,12 @@ impl FormTree {
 
     /// The size control `i` is lettered at: what it states, taken through the form's font factor ([`scaled_font`]).
     pub fn font_size_of(&self, i: usize) -> Option<f64> {
-        scaled_font(&self.ctls[i], self.layer_of(i).is_some(), self.font_factor)
+        let size = scaled_font(&self.ctls[i], self.layer_of(i).is_some(), self.font_factor)?;
+        // Inside an expanded card the text grows with the card (spec 090).
+        Some(match crate::zoom::origin_of(&self.ctls, &self.card_boxes, i) {
+            Some((_, z)) => crate::zoom::zoomed_size(&self.ctls[i], size, z),
+            None => size,
+        })
     }
 
     /// Has a program written this property of this control?

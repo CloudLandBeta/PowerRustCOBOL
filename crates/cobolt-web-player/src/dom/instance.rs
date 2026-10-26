@@ -85,6 +85,13 @@ fn size_aware(c: &crate::tree::Ctl) -> bool {
     matches!(c.control_type(), Some(T::BarChart | T::LineChart | T::PieChart | T::AreaChart | T::ScatterChart | T::DonutChart | T::RadarChart | T::Gauge))
 }
 
+/// A card: a Panel or a GroupBox, the controls that can be expanded (spec 090). Its box is measured too, for the card that is
+/// expanded: what is inside it grows by a factor taken from that box (`zoom`).
+fn is_card(c: &crate::tree::Ctl) -> bool {
+    use cobolt_forms::model::ControlType as T;
+    matches!(c.control_type(), Some(T::Panel | T::GroupBox))
+}
+
 fn slot_target(ctls: &[Option<CtlView>], surface: &Element, parent: usize, slot: Slot) -> Element {
     if parent == 0 {
         return surface.clone();
@@ -162,7 +169,7 @@ impl Shared {
                 side_menu,
                 opener: tree.opener,
                 responsive,
-                size_aware: (1..n).filter(|&i| style::has_a_box(&ctls[i]) && size_aware(&ctls[i])).collect(),
+                size_aware: (1..n).filter(|&i| style::has_a_box(&ctls[i]) && (size_aware(&ctls[i]) || is_card(&ctls[i]))).collect(),
             }
         };
         let doc = &self.doc;
@@ -413,13 +420,17 @@ impl Shared {
             if css_all {
                 css_dirty.extend(0..n);
             }
+            // The controls whose elements are drawn again: what changed, and what is inside a card that is (or can be) expanded, whose
+            // lettering (a chart's, a list's rows) grows with the card (spec 090) and goes back when it is collapsed.
+            let mut redraw: BTreeSet<usize> = ch.dirty.iter().copied().collect();
             for &i in &ch.dirty {
                 if i >= n {
                     continue;
                 }
                 css_dirty.insert(i);
                 // A card that is (or can be) expanded decides how its siblings are drawn: they follow it.
-                if ctls[i].flag("expandable") || ctls[i].flag("expanded") || ctls[i].raw("expanded").is_some() {
+                let card = ctls[i].flag("expandable") || ctls[i].flag("expanded") || ctls[i].raw("expanded").is_some();
+                if card {
                     if let Some(p) = ctls[i].parent {
                         css_dirty.extend(ctls[p].children.iter().copied());
                     }
@@ -429,12 +440,15 @@ impl Shared {
                     let mut stack = ctls[i].children.clone();
                     while let Some(c) = stack.pop() {
                         css_dirty.insert(c);
+                        if card {
+                            redraw.insert(c);
+                        }
                         stack.extend(ctls[c].children.iter().copied());
                     }
                 }
             }
             let mut vnodes = Vec::new();
-            for &i in &ch.dirty {
+            for &i in &redraw {
                 if i >= 1 && i < n && iv.ctls.get(i).is_some_and(|c| c.is_some()) {
                     vnodes.push((i, controls::view(&cx, i)));
                 }
@@ -563,13 +577,41 @@ impl Shared {
             return;
         }
         let Some(inner) = self.inner.upgrade() else { return };
-        let (ctl, designed) = {
+        let (ctl, designed, card) = {
             let Ok(host) = inner.host.try_borrow() else { return };
             let Some(tree) = host.trees.get(&inst) else { return };
             let Some(i) = tree.by_name(name) else { return };
             let dim = |k: &str| crate::value::parse_f64(&tree.get(i, k)).unwrap_or(0.0);
-            (i, (dim("Width"), dim("Height")))
+            // For a card: is it the one that is expanded, and does the tree hold a box for it?
+            let card = is_card(&tree.ctls[i]).then(|| (crate::layout_css::is_expanded_card(&tree.ctls, i), tree.card_boxes.contains_key(&i)));
+            (i, (dim("Width"), dim("Height")), card)
         };
+        if let Some((expanded, known)) = card {
+            // A card's box matters only while it is expanded: what is inside it grows by a factor taken from that box (spec 090), and
+            // every control inside is drawn again when the factor changes. The box of a card that has been collapsed is forgotten.
+            if !expanded && !known {
+                return;
+            }
+            let inside = {
+                let Ok(mut host) = inner.host.try_borrow_mut() else { return };
+                let Some(tree) = host.trees.get_mut(&inst) else { return };
+                if !tree.set_card_box(ctl, expanded.then_some((w, h))) {
+                    return;
+                }
+                let mut all = vec![ctl];
+                let mut at = 0;
+                while at < all.len() {
+                    let kids = tree.ctls[all[at]].children.clone();
+                    all.extend(kids);
+                    at += 1;
+                }
+                all
+            };
+            for c in inside {
+                self.mark_dirty(inst, c);
+            }
+            return;
+        }
         let changed = {
             let Ok(mut st) = self.state.try_borrow_mut() else { return };
             let Some(iv) = st.instances.get_mut(&inst) else { return };

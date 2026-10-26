@@ -22,6 +22,22 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.77] — 2026-10-25
+
+*(Written on `fixes-2x`, off `2.x.x` at cb512278.)*
+
+### Fixed: in a Web page the expand icon of a card expands that card only, and the card fills its container with its contents zoomed
+
+**What the operator saw.** Pressing a card's expand icon ("Maximize") on the PowerAnalyticsWeb dashboard hid the header and the filter bar, and the expanded card stayed in its grid cell (box [383, 32, 674, 314]) where the desktop gives it the whole container ([28, 208, 1384, 660] at 1440).
+
+**Why.** The click on the icon bubbled, so every ancestor Panel and GroupBox (ROOT, PG-DASH) expanded as well, and an expanded card kept its CSS-grid cell instead of taking the container's area. Nothing scaled the contents.
+
+**What changed.** `crates/cobolt-web-player`: only the control that owns the icon expands (`view/interact.rs`, `dom/instance.rs`); the expanded card takes its container's whole client area through `grid-area` (`layout_css.rs`, `tree.rs`); the new `zoom.rs` gives the contents the desktop solver's factor (spec 090), so a card expanded inside a card follows the outer factor; collapsing gives back every box. `assets/web-player` rebuilt (plain and threaded; parts identical; the freshness test stays green).
+
+**Not done.** At the Medium and Compact breakpoints some cards below the fold cannot be clicked because PG-DASH does not scroll on the web (older, unchanged). Captions the page shrinks to fit at 1920 keep their own painted size.
+
+Measured by an independent judge in Chrome with real input against the desktop layout solver: one click on a card gives 160 of 160 boxes equal at 1440 (1 of 161 before); the card fills [28, 208, 1384, 660] at 1440, [28, 208, 1864, 660] at 1920, [28, 268, 944, 600] at 1000 and [28, 464, 444, 404] at 500; every rectangle inside matches within 0.5 px at the four widths; collapse restores boxes, fonts, charts and aria with 0 differences, also after a resize while expanded. New tests `card_expand.rs` (3); cobolt-web-player 267 passed.
+
 ## [PowerRustCOBOL 2.0.76] — 2026-10-25
 
 *(Written on `fixes-2x`, off `2.x.x` at 1d429224.)*

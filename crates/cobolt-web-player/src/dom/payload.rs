@@ -33,6 +33,12 @@ fn is_form_field(e: &Element) -> bool {
     matches!(e.tag_name().to_ascii_lowercase().as_str(), "input" | "textarea" | "select")
 }
 
+/// Is `e` an element of control `root` itself, and not of a control nested in it? Every control's root element carries the class
+/// `pr-control`, and the nearest one at or above an element is the control that element belongs to.
+fn belongs_to(e: &Element, root: &Element) -> bool {
+    e.closest(".pr-control").ok().flatten().is_some_and(|owner| owner == *root)
+}
+
 /// The nearest attribute `name` on `from` or an ancestor, up to and including `stop`.
 fn climb(from: &Element, stop: &Element, name: &str) -> Option<String> {
     let mut cur = Some(from.clone());
@@ -76,11 +82,18 @@ pub fn from_event(kind: &str, key: &str, ev: &Event, root: &Element) -> Payload 
     }
     if let Some(t) = &target {
         let stop = current.as_ref().unwrap_or(root);
-        p.index = climb(t, stop, "data-i").and_then(|v| v.parse().ok());
-        p.row = climb(t, stop, "data-r").and_then(|v| v.parse().ok());
-        p.col = climb(t, stop, "data-c").and_then(|v| v.parse().ok());
-        p.id = climb(t, stop, "data-id");
-        p.part = climb(t, stop, "data-part");
+        // A control's parts (`data-i`, `data-part`, …) are its own. An event that began inside a control NESTED in this one (the icon
+        // of a card in a grid, a row of a list in a card) bubbles through every container above it, and each of those hears the
+        // nested control's parts: the card's icon is the card's, not its grid's (spec 090 R3).
+        if belongs_to(t, root) {
+            p.index = climb(t, stop, "data-i").and_then(|v| v.parse().ok());
+            p.row = climb(t, stop, "data-r").and_then(|v| v.parse().ok());
+            p.col = climb(t, stop, "data-c").and_then(|v| v.parse().ok());
+            p.id = climb(t, stop, "data-id");
+            p.part = climb(t, stop, "data-part");
+        }
+        // Whoever it belongs to, a press on a card's expand icon is that icon's and nobody's click.
+        p.expander = t.closest("[data-part=expander]").ok().flatten().is_some();
     }
     if kind == "submit" {
         // The form's named fields, read now and held only for the length of this event.

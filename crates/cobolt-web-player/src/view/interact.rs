@@ -50,8 +50,11 @@ pub struct Payload {
     pub col: Option<i64>,
     /// `data-id` (a menu item, a tool bar button, a marker).
     pub id: Option<String>,
-    /// `data-part` (`arrow`, `check`, `label`, `toggle`, `zoom-in`, …).
+    /// `data-part` (`arrow`, `check`, `label`, `toggle`, `zoom-in`, …): a part of THIS control, never of one nested in it.
     pub part: Option<String>,
+    /// The press began on the expand icon of a card (spec 090), whichever card: the control that owns the icon turns its `Expanded`
+    /// over (`part`), and nothing hears the press as a click on itself.
+    pub expander: bool,
     /// `KeyboardEvent.key`.
     pub key_name: String,
     /// 0 primary, 1 middle, 2 secondary.
@@ -244,9 +247,8 @@ pub fn on_event(cx: &ViewCtx, ctl: usize, p: &Payload) -> Vec<Act> {
             Some(ControlType::MenuBar | ControlType::SideMenu | ControlType::ToolBar) => p.id.is_some(),
             _ => crate::kinds::player_kind(c) == Some(crate::kinds::PlayerKind::WebLink),
         };
-    // The expand icon of a card takes its own click: it is not a click on the card (spec 090 R3).
-    let on_expander = p.part.as_deref() == Some("expander");
-    if p.key == generic_key(c) && !own_click && !on_expander {
+    // The expand icon of a card takes its own click: it is not a click on the card, nor on anything that holds the card (spec 090 R3).
+    if p.key == generic_key(c) && !own_click && !p.expander {
         acts.extend(generic(c, p));
     }
     acts
@@ -1300,6 +1302,50 @@ mod tests {
         let mut enter = Payload::new("keydown", "root");
         enter.key_name = "Enter".into();
         assert_eq!(names(&run(&t, b, &e, enter)), ["onKeyDown(Enter)", "onEnterPressed"]);
+    }
+
+    /// A grid holding two expandable cards, the grid itself bound to `onClick` the way a Panel that wants its clicks is.
+    fn grid_of_cards() -> (FormTree, usize, usize, usize) {
+        let mut t = crate::tree::testing::tree_of(
+            r##"<Control id="GRID" type="Panel" x="0" y="0" w="600" h="400"></Control>
+               <Control id="C-ONE" type="GroupBox" parent="GRID" x="0" y="0" w="300" h="400"><Property name="Expandable">1</Property></Control>
+               <Control id="C-TWO" type="Panel" parent="GRID" x="300" y="0" w="300" h="400"><Property name="Expandable">1</Property></Control>"##,
+        );
+        let (grid, one, two) = ["GRID", "C-ONE", "C-TWO"].map(|n| t.by_name(n).unwrap()).into();
+        t.ctls[grid].bound.push("onclick".into());
+        t.ctls[one].bound.push("onclick".into());
+        (t, grid, one, two)
+    }
+
+    /// What the page reduces a click on the expand icon of card `C-ONE` to, as heard by the card itself (`own`) and by a container
+    /// above it (a nested control's parts are not the container's).
+    fn icon_click(own: bool) -> Payload {
+        let mut p = Payload::new("click", "root");
+        p.expander = true;
+        if own {
+            p.part = Some("expander".into());
+        }
+        p
+    }
+
+    #[test]
+    fn a_click_on_a_cards_icon_turns_that_cards_expanded_over_and_is_nobodys_click() {
+        let (t, grid, one, two) = grid_of_cards();
+        let e = Empty::default();
+        // The card hears its own icon: it flips, and its onClick (which it has bound) stays quiet.
+        assert_eq!(names(&run(&t, one, &e, icon_click(true))), ["~Expanded=1"]);
+        // The grid above it hears the same press as it bubbles, but the icon is not its part: it changes nothing and, though it has an
+        // onClick bound, the press is not a click on it.
+        assert_eq!(names(&run(&t, grid, &e, icon_click(false))), Vec::<String>::new());
+        // Nor is it a click on the card's neighbour, which never hears it.
+        assert!(run(&t, two, &e, icon_click(false)).is_empty());
+        // An expanded card turns back.
+        let mut t = t;
+        t.set(one, "Expanded", "1");
+        assert_eq!(names(&run(&t, one, &e, icon_click(true))), ["~Expanded=0"]);
+        // A click on the card anywhere else is a click on the card, and on the grid that holds it.
+        assert_eq!(names(&run(&t, one, &e, Payload::new("click", "root"))), ["onClick"]);
+        assert_eq!(names(&run(&t, grid, &e, Payload::new("click", "root"))), ["onClick"]);
     }
 
     #[test]
