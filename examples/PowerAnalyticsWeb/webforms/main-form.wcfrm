@@ -4527,7 +4527,7 @@ Cambial	12.49</Property>
     <Property name="WrapContents">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0" />
   </Control>
-  <Control id="PRG-CLS" type="Gauge" x="636" y="498" w="190" h="20" tab-order="80" z-order="79" visible="true" enabled="true" parent="C-DONUT1">
+  <Control id="PRG-CLS" type="Gauge" x="636" y="498" w="194" h="20" tab-order="80" z-order="79" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="GaugeStyle">Linear</Property>
     <Property name="Minimum">0</Property>
     <Property name="Maximum">100</Property>
@@ -4554,7 +4554,7 @@ Cambial	12.49</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
     <Property name="AlignSelf">Auto</Property>
-    <Property name="Anchor">Top,Left</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="Dock">None</Property>
     <Property name="FlexBasis">Auto</Property>
@@ -4580,7 +4580,7 @@ Cambial	12.49</Property>
     <Property name="ScaleFont">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0" />
   </Control>
-  <Control id="LBL-CLS-P" type="Label" x="832" y="500" w="56" h="16" tab-order="81" z-order="80" visible="true" enabled="true" parent="C-DONUT1">
+  <Control id="LBL-CLS-P" type="Label" x="836" y="500" w="56" h="16" tab-order="81" z-order="80" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption">95,5%</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -4604,7 +4604,7 @@ Cambial	12.49</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
     <Property name="AlignSelf">Auto</Property>
-    <Property name="Anchor">Top,Left</Property>
+    <Property name="Anchor">Top,Right</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="Dock">None</Property>
     <Property name="FlexBasis">Auto</Property>
@@ -4742,7 +4742,7 @@ Cambial	12.49</Property>
     <Property name="WrapContents">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0" />
   </Control>
-  <Control id="PRG-SUB" type="Gauge" x="636" y="522" w="190" h="20" tab-order="84" z-order="83" visible="true" enabled="true" parent="C-DONUT1">
+  <Control id="PRG-SUB" type="Gauge" x="636" y="522" w="194" h="20" tab-order="84" z-order="83" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="GaugeStyle">Linear</Property>
     <Property name="Minimum">0</Property>
     <Property name="Maximum">100</Property>
@@ -4769,7 +4769,7 @@ Cambial	12.49</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
     <Property name="AlignSelf">Auto</Property>
-    <Property name="Anchor">Top,Left</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="Dock">None</Property>
     <Property name="FlexBasis">Auto</Property>
@@ -4795,7 +4795,7 @@ Cambial	12.49</Property>
     <Property name="ScaleFont">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0" />
   </Control>
-  <Control id="LBL-SUB-P" type="Label" x="832" y="524" w="56" h="16" tab-order="85" z-order="84" visible="true" enabled="true" parent="C-DONUT1">
+  <Control id="LBL-SUB-P" type="Label" x="836" y="524" w="56" h="16" tab-order="85" z-order="84" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption">4,4%</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -4819,7 +4819,7 @@ Cambial	12.49</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
     <Property name="AlignSelf">Auto</Property>
-    <Property name="Anchor">Top,Left</Property>
+    <Property name="Anchor">Top,Right</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="Dock">None</Property>
     <Property name="FlexBasis">Auto</Property>

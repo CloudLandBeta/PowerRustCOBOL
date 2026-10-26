@@ -22,6 +22,22 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.78] — 2026-10-25
+
+*(Written on `fixes-2x`, off `2.x.x` at b44df5c9.)*
+
+### Fixed: the Web dashboard form can be widened past 1459 px
+
+**What the operator saw.** The Form Designer grip, and the page's window stand-in, stopped at 1459 px: the layout solver's limits for the main form were min [1385, 889], max [1459, unbounded].
+
+**Why.** The percentage labels `LBL-CLS-P` and `LBL-SUB-P` (no anchor) touched the stretching progress tracks `TRK-PRG-CLS` and `TRK-PRG-SUB` at 1460 px, which the solver counts as a collision.
+
+**What changed.** `examples/PowerAnalyticsWeb/webforms/main-form.wcfrm` only (8 lines): `PRG-CLS` and `PRG-SUB` are anchored Top,Left,Right and 4 px wider; `LBL-CLS-P` and `LBL-SUB-P` are anchored Top,Right and 4 px further right. The desktop form is untouched.
+
+**Not done / known difference.** An independent judge marked this FAIL against the parity rule: between 1385 and 1459 px those four controls differ from the desktop form (up to 27.5 px at 1385), because the desktop form still keeps its own 1459 cap. The operator asked for the change to be committed regardless (2026-10-25); applying the same edit to `examples/PowerAnalytics/forms/main-form.cfrm` would remove the difference. A web form regenerated from the desktop design would bring the cap back.
+
+Measured by the judge with the layout solver: limits max [1459, unbounded] to [unbounded, unbounded], min [1385, 889] to [1329, 889]; 0 of 3693 widths from 1329 to 30000 collide (3289 collided before); at 1440 px with the cards collapsed 0 of 161 boxes move.
+
 ## [PowerRustCOBOL 2.0.77] — 2026-10-25
 
 *(Written on `fixes-2x`, off `2.x.x` at cb512278.)*
