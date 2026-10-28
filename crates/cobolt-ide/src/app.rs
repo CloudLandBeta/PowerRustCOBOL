@@ -950,8 +950,11 @@ pub struct CoboltApp {
     /// server, web view and controls window (WASM-008).
     web_preview: WebPreview,
     /// The project's backend started from the Run menu: a child
-    /// `rcrun backend run` (WASM-003 R20); dropping it stops it.
+    /// `rcrun backend run` (WASM-003 R20), or by the web Preview of a
+    /// project with a Backend (WASM-008 R6); dropping it stops it.
     backend_run: Option<crate::backend_run::BackendRun>,
+    /// `backend_run` was started by the web Preview: it stops with the Preview.
+    backend_by_preview: bool,
 
     // Cross-window pending actions
     /// A file path waiting to be opened in the code editor (set by a designer
@@ -2292,6 +2295,7 @@ impl CoboltApp {
             new_project: NewProjectDialog::new(),
             web_preview: WebPreview::default(),
             backend_run: None,
+            backend_by_preview: false,
 
             pending_open_in_editor: None,
             pending_goto_paragraph: None,
@@ -2702,6 +2706,7 @@ impl CoboltApp {
             has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
             backend: cobolt_project_tools::web::backend(),
             helper: cobolt_project_tools::web::preview::helper_path(),
+            backend_url: None,
         })
     }
 
@@ -2722,9 +2727,12 @@ impl CoboltApp {
         }
         // 037 R3 — a project with no main form, or two, is healed before it is built.
         self.apply_main_form_invariant();
-        if !self.web_preview.start(launch, intent) {
-            self.output
-                .push_status(self.lang.tr().status_build_already_running.to_owned());
+        // A project with a Backend: the Preview starts it (or uses the one the
+        // IDE already runs for it) and builds the page for where it listens.
+        match self.web_preview.start_with_backend(launch, intent, &mut self.backend_run, &crate::backend_run::rcrun()) {
+            None => self.output.push_status(self.lang.tr().status_build_already_running.to_owned()),
+            Some(true) => self.backend_by_preview = true,
+            Some(false) => {}
         }
     }
 
@@ -2749,6 +2757,10 @@ impl CoboltApp {
             }
         }
         self.web_preview.show(ctx, &tr);
+        // The Backend the Preview started ends with it (Close, Stop, the web view closed, a failed start).
+        if self.backend_by_preview && !self.web_preview.active() {
+            self.stop_backend();
+        }
         if wants_frame {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
@@ -2780,6 +2792,7 @@ impl CoboltApp {
 
     /// Run menu → Stop Backend, and a project change.
     fn stop_backend(&mut self) {
+        self.backend_by_preview = false;
         if let Some(mut run) = self.backend_run.take() {
             let was_running = run.is_running();
             run.stop();
@@ -2791,11 +2804,12 @@ impl CoboltApp {
 
     /// Once a frame: hand the backend's lines to the Output panel.
     fn poll_backend(&mut self, ctx: &Context) {
-        let Some(run) = self.backend_run.as_mut() else {
+        if self.backend_run.is_none() {
             return;
-        };
-        let events = run.poll();
-        let running = run.is_running();
+        }
+        // The Preview waiting for this Backend reads its events first (its address, or why it ended).
+        let events = self.web_preview.pump_backend(&mut self.backend_run);
+        let running = self.backend_run.as_ref().is_some_and(|r| r.is_running());
         let tr = self.lang.tr();
         for event in events {
             match event {
@@ -2814,6 +2828,7 @@ impl CoboltApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         } else {
             self.backend_run = None;
+            self.backend_by_preview = false;
         }
     }
 
@@ -3275,6 +3290,9 @@ impl CoboltApp {
 
     fn do_stop(&mut self) {
         self.web_preview.close();
+        if self.backend_by_preview {
+            self.stop_backend();
+        }
         self.runner.stop();
         self.output.push_status(crate::ui_text::ide("── Stop requested ──"));
     }

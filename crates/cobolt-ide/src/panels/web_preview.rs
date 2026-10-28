@@ -38,11 +38,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cobolt_compiler::project_kind::{DeviceClass, Isolation, Orientation, ProjectKind};
+use cobolt_project_tools::web::devbackend::{self, DevBackendPlan};
 use cobolt_project_tools::web::devserver::{self, ServeOptions, ServerHandle};
 use cobolt_project_tools::web::presets::{self, PresetClass, Viewport, PIXEL_RATIOS, PRESETS};
 use cobolt_project_tools::web::preview::{self, Command, Emulation, Event, Mode, PreviewSession};
 use cobolt_project_tools::web::{BuildReport, PartSize, PlayerPinError, WebBuildBackend, WebBuildError, WebBuildRequest, WebDiagnostic, WebDiagnosticKind};
 
+use crate::backend_run::{BackendEvent, BackendRun};
 use crate::i18n::Tr;
 
 /// How often the watcher looks at the project's folders.
@@ -57,6 +59,11 @@ const MAX_NOTES: usize = 300;
 /// console and error lines are taken from the helper at a time, the rest of
 /// that burst is dropped.
 const CHATTER_PER_POLL: usize = 40;
+/// How long a Preview waits for the Backend it started to say where it
+/// listens (the first start of a Backend reads its programs; a few seconds).
+pub const BACKEND_WAIT: Duration = Duration::from_secs(60);
+/// The Backend's last lines kept while it starts, to say why when it fails.
+const BACKEND_TAIL: usize = 8;
 
 // ── What the Preview says ───────────────────────────────────────────────────
 
@@ -88,6 +95,22 @@ pub enum Note {
     Updated { ms: u64 },
     Closed,
     BackendOff,
+    /// The Preview starts the project's Backend on `listen` and waits up to `secs` for it.
+    BackendStarting { listen: String, secs: u64 },
+    /// The Backend listens on `url`; the page is built for it.
+    BackendReady { url: String },
+    /// The port of `backend/backend.toml` is taken: the Backend starts on a free one.
+    BackendPortBusy { port: u16 },
+    /// The manifest's loopback address is taken: no Backend is started.
+    BackendTaken { url: String },
+    /// The manifest names another machine: no local Backend is started.
+    BackendRemote { url: String },
+    /// The IDE's Backend listens on `running`, the page is built for `page`.
+    BackendMismatch { running: String, page: String },
+    /// The Backend ended (exit `code`) before it listened, with its own last lines.
+    BackendFailed { code: Option<i32>, why: Vec<String> },
+    /// The Backend did not say where it listens within `secs`.
+    BackendTimeout { secs: u64 },
     Console { level: String, text: String },
     PageError { message: String, source: String, line: u32 },
 }
@@ -159,7 +182,9 @@ impl Note {
             | Note::PlayerPin(_)
             | Note::ServerFailed(_)
             | Note::HelperFailed(_)
-            | Note::PageError { .. } => {
+            | Note::PageError { .. }
+            | Note::BackendFailed { .. }
+            | Note::BackendTimeout { .. } => {
                 Severity::Error
             }
             Note::Console { level, .. } if level == "error" => Severity::Error,
@@ -168,7 +193,10 @@ impl Note {
             | Note::BuildWarning(_)
             | Note::ModeBrowser
             | Note::Blocked(_)
-            | Note::BackendOff => Severity::Warn,
+            | Note::BackendOff
+            | Note::BackendPortBusy { .. }
+            | Note::BackendTaken { .. }
+            | Note::BackendMismatch { .. } => Severity::Warn,
             Note::Console { level, .. } if level == "warn" => Severity::Warn,
             _ => Severity::Info,
         }
@@ -226,6 +254,19 @@ impl Note {
             Note::Updated { ms } => vec![fill(tr.pk_prev_updated, &[&ms.to_string()])],
             Note::Closed => vec![tr.pk_prev_closed.to_owned()],
             Note::BackendOff => vec![tr.pk_prev_backend_off.to_owned()],
+            Note::BackendStarting { listen, secs } => vec![fill(tr.pk_prev_backend_starting, &[listen, &secs.to_string()])],
+            Note::BackendReady { url } => vec![fill(tr.pk_prev_backend_ready, &[url])],
+            Note::BackendPortBusy { port } => vec![fill(tr.pk_prev_backend_port_busy, &[&port.to_string()])],
+            Note::BackendTaken { url } => vec![fill(tr.pk_prev_backend_taken, &[url])],
+            Note::BackendRemote { url } => vec![fill(tr.pk_prev_backend_remote, &[url])],
+            Note::BackendMismatch { running, page } => vec![fill(tr.pk_prev_backend_mismatch, &[running, page])],
+            Note::BackendFailed { code, why } => {
+                let code = code.map_or_else(|| "-".to_owned(), |c| c.to_string());
+                let mut out = vec![fill(tr.pk_prev_backend_failed, &[&code])];
+                out.extend(why.iter().map(|l| format!("  {l}")));
+                out
+            }
+            Note::BackendTimeout { secs } => vec![fill(tr.pk_prev_backend_timeout, &[&secs.to_string()])],
             Note::Console { level, text } => vec![fill(tr.pk_prev_console, &[level, text])],
             Note::PageError { message, source, line } => {
                 vec![fill(tr.pk_prev_error, &[message, source, &line.to_string()])]
@@ -237,6 +278,13 @@ impl Note {
     pub fn text(&self, tr: &Tr) -> String {
         self.lines(tr).join("\n")
     }
+}
+
+/// Is `line` a token (a JWT: `eyJ…`, three dotted parts, no space)? The
+/// development token `rcrun backend run` prints is never kept or repeated.
+pub fn looks_like_a_token(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with("eyJ") && t.split('.').count() == 3 && !t.contains(' ')
 }
 
 // ── The controls ────────────────────────────────────────────────────────────
@@ -509,6 +557,9 @@ pub struct Launch {
     pub backend: Arc<dyn WebBuildBackend>,
     /// The helper process, if it is installed.
     pub helper: Option<PathBuf>,
+    /// The Backend address the page is built for instead of `[web] backend_url`:
+    /// the one the Backend the Preview started reports (the manifest names none).
+    pub backend_url: Option<String>,
 }
 
 enum JobKind {
@@ -528,6 +579,18 @@ struct Job {
     kind: JobKind,
 }
 
+/// A start waiting for the project's Backend to say where it listens.
+struct AwaitBackend {
+    intent: Intent,
+    deadline: Instant,
+    /// Build the page for the address the Backend reports.
+    bake: bool,
+    /// `[web] backend_url`, to compare with where the Backend listens.
+    manifest_url: String,
+    /// Its last lines, said when it fails.
+    tail: Vec<String>,
+}
+
 struct Live {
     server: ServerHandle,
     session: PreviewSession,
@@ -542,6 +605,7 @@ pub struct WebPreview {
     launch: Option<Launch>,
     job: Option<Job>,
     live: Option<Live>,
+    backend_wait: Option<AwaitBackend>,
     /// A change seen while a build was running: build again when it ends.
     rebuild_after: Option<Instant>,
     pub controls: Controls,
@@ -566,9 +630,19 @@ impl WebPreview {
         self.live.is_some()
     }
 
-    /// Is there anything running, building or serving?
+    /// Is there anything running, building, serving or waiting for the Backend?
     pub fn active(&self) -> bool {
-        self.job.is_some() || self.live.is_some()
+        self.job.is_some() || self.live.is_some() || self.backend_wait.is_some()
+    }
+
+    /// Is a start waiting for the Backend to listen?
+    pub fn awaiting_backend(&self) -> bool {
+        self.backend_wait.is_some()
+    }
+
+    /// The Backend address the page is built for, when it is not the manifest's.
+    pub fn baked_backend_url(&self) -> Option<&str> {
+        self.launch.as_ref().and_then(|l| l.backend_url.as_deref())
     }
 
     /// The address being served.
@@ -606,9 +680,16 @@ impl WebPreview {
     /// Start: build, then (for [`Intent::Show`]) serve and show. `false` when a
     /// build is already running.
     pub fn start(&mut self, launch: Launch, intent: Intent) -> bool {
-        if self.job.is_some() {
+        if self.job.is_some() || self.backend_wait.is_some() {
             return false;
         }
+        self.begin(&launch, intent);
+        self.build(launch, intent);
+        true
+    }
+
+    /// A start that shows the page is a new Preview: the old one goes, the window opens.
+    fn begin(&mut self, launch: &Launch, intent: Intent) {
         if intent != Intent::Build {
             // A Preview already showing is replaced, not stacked.
             self.live = None;
@@ -618,16 +699,150 @@ impl WebPreview {
             self.locale_edit = self.controls.locale.clone();
             self.open = true;
         }
+    }
+
+    fn build(&mut self, launch: Launch, intent: Intent) {
         self.say(Note::Building);
         self.spawn_build(&launch, JobKind::Initial(intent));
         self.launch = Some(launch);
-        true
+    }
+
+    /// Start a Preview of a project with a Backend (WASM-008 R6): the Backend
+    /// first, then the build, so that the page is built for the address the
+    /// Backend really listens on ([`devbackend::plan`] decides it). The IDE's
+    /// one Backend is `ide_backend`: when it is already running for this
+    /// project it is used as it is; otherwise the Preview starts it there and
+    /// waits — for at most [`BACKEND_WAIT`] — for its address, which
+    /// [`WebPreview::pump_backend`] hands over. A start that only builds, or a
+    /// project without a Backend, is [`WebPreview::start`].
+    ///
+    /// `None` when a start is already under way; else whether a Backend was
+    /// started now (the caller stops it with the Preview).
+    pub fn start_with_backend(
+        &mut self,
+        mut launch: Launch,
+        intent: Intent,
+        ide_backend: &mut Option<BackendRun>,
+        rcrun: &Path,
+    ) -> Option<bool> {
+        if self.job.is_some() || self.backend_wait.is_some() {
+            return None;
+        }
+        let project_dir = launch.manifest.parent().map(Path::to_path_buf).unwrap_or_default();
+        let exports = project_dir.join(cobolt_compiler::project_kind::BACKEND_FOLDER).join("exports.toml");
+        if intent == Intent::Build || !exports.is_file() {
+            return self.start(launch, intent).then_some(false);
+        }
+        let manifest_url = WebBuildRequest::from_manifest(&launch.manifest).map(|r| r.web.backend_url).unwrap_or_default();
+        let plan = devbackend::plan(&manifest_url, devbackend::configured_listen(&project_dir).as_deref(), devbackend::loopback_port_is_free);
+        launch.backend_url = None;
+        self.begin(&launch, intent);
+        let (listen, bake, busy_port) = match plan {
+            DevBackendPlan::Remote { url } => {
+                self.say(Note::BackendRemote { url });
+                self.build(launch, intent);
+                return Some(false);
+            }
+            DevBackendPlan::Taken { url } => {
+                self.say(Note::BackendTaken { url });
+                self.build(launch, intent);
+                return Some(false);
+            }
+            DevBackendPlan::Start { listen, bake_reported, busy_port } => (listen, bake_reported, busy_port),
+        };
+        let wait = |intent| AwaitBackend { intent, deadline: Instant::now() + BACKEND_WAIT, bake, manifest_url: manifest_url.clone(), tail: Vec::new() };
+        // The Backend the IDE already runs for this project is used as it is.
+        let same = |run: &BackendRun| {
+            run.is_running() && std::fs::canonicalize(&run.project_dir).ok() == std::fs::canonicalize(&project_dir).ok()
+        };
+        if let Some(run) = ide_backend.as_ref().filter(|r| same(r)) {
+            match run.url().map(str::to_owned) {
+                Some(url) => self.listening(launch, wait(intent), &url),
+                None => {
+                    self.say(Note::BackendStarting { listen, secs: BACKEND_WAIT.as_secs() });
+                    self.backend_wait = Some(wait(intent));
+                    self.launch = Some(launch);
+                }
+            }
+            return Some(false);
+        }
+        if let Some(port) = busy_port {
+            self.say(Note::BackendPortBusy { port });
+        }
+        match BackendRun::spawn_with(rcrun, &project_dir, Some(&listen)) {
+            Ok(run) => {
+                if let Some(mut other) = ide_backend.replace(run) {
+                    other.stop();
+                }
+                self.say(Note::BackendStarting { listen, secs: BACKEND_WAIT.as_secs() });
+                self.backend_wait = Some(wait(intent));
+                self.launch = Some(launch);
+                Some(true)
+            }
+            Err(e) => {
+                self.say(Note::BackendFailed { code: None, why: vec![format!("{}: {e}", rcrun.display())] });
+                Some(false)
+            }
+        }
+    }
+
+    /// The Backend listens on `url`: build the page for it (or for the
+    /// manifest's address, which is then compared with it).
+    fn listening(&mut self, mut launch: Launch, wait: AwaitBackend, url: &str) {
+        if wait.bake {
+            launch.backend_url = Some(url.to_owned());
+        }
+        self.say(Note::BackendReady { url: url.to_owned() });
+        if !wait.bake && devbackend::origin(&wait.manifest_url) != devbackend::origin(url) {
+            self.say(Note::BackendMismatch { running: url.to_owned(), page: wait.manifest_url.clone() });
+        }
+        self.build(launch, wait.intent);
+    }
+
+    /// Once a frame: read what the IDE's Backend printed, hand the Preview
+    /// what it waits for (the address, or the end and its last lines), and
+    /// give the events back for the Output panel.
+    pub fn pump_backend(&mut self, ide_backend: &mut Option<BackendRun>) -> Vec<BackendEvent> {
+        let Some(run) = ide_backend.as_mut() else { return Vec::new() };
+        let events = run.poll();
+        for event in &events {
+            self.on_backend_event(event);
+        }
+        events
+    }
+
+    /// One thing the IDE's Backend did.
+    pub fn on_backend_event(&mut self, event: &BackendEvent) {
+        let Some(wait) = self.backend_wait.as_mut() else { return };
+        match event {
+            BackendEvent::Line(line) => {
+                // Never a token, even in a failure's text: a JWT, `eyJ…` in three dotted parts and no space.
+                let token = looks_like_a_token(line);
+                if !line.trim().is_empty() && !token {
+                    wait.tail.push(line.clone());
+                    if wait.tail.len() > BACKEND_TAIL {
+                        wait.tail.remove(0);
+                    }
+                }
+            }
+            BackendEvent::Listening(url) => {
+                let wait = self.backend_wait.take().expect("checked above");
+                if let Some(launch) = self.launch.clone() {
+                    self.listening(launch, wait, url);
+                }
+            }
+            BackendEvent::Exited(code) => {
+                let wait = self.backend_wait.take().expect("checked above");
+                self.say(Note::BackendFailed { code: *code, why: wait.tail });
+            }
+        }
     }
 
     fn spawn_build(&mut self, launch: &Launch, kind: JobKind) {
         let (tx, rx) = mpsc::channel();
         let backend = launch.backend.clone();
         let manifest = launch.manifest.clone();
+        let backend_url = launch.backend_url.clone();
         let spawned = std::thread::Builder::new().name("web-build".into()).spawn(move || {
             let done = match WebBuildRequest::from_manifest(&manifest) {
                 Err(e) => Done { outcome: Err(WebBuildError::Failed(e)), bundle: None, isolation: Isolation::Off },
@@ -637,6 +852,10 @@ impl WebPreview {
                     outcome: {
                         // The player shipped beside this IDE (WASM-016 T14), not a path of the machine that built it.
                         request.player_dir = Some(crate::app::web_player_dir());
+                        // The address of the Backend this Preview started (the manifest names none).
+                        if let Some(url) = backend_url {
+                            request.web.backend_url = url;
+                        }
                         backend.build(&request)
                     },
                 },
@@ -654,6 +873,7 @@ impl WebPreview {
     pub fn stop(&mut self) {
         self.live = None;
         self.job = None;
+        self.backend_wait = None;
         self.rebuild_after = None;
     }
 
@@ -666,6 +886,10 @@ impl WebPreview {
     /// Look at everything that moves: the build, the web view's events, the
     /// sources. `true` while the Preview wants another frame soon.
     pub fn poll(&mut self, now: Instant) -> bool {
+        if self.backend_wait.as_ref().is_some_and(|w| now >= w.deadline) {
+            self.backend_wait = None;
+            self.say(Note::BackendTimeout { secs: BACKEND_WAIT.as_secs() });
+        }
         self.poll_job();
         self.poll_events();
         let changed = self.live.as_mut().and_then(|l| l.watcher.poll(now));
@@ -780,7 +1004,8 @@ impl WebPreview {
             }
         };
         self.say(if session.mode() == Mode::WebView { Note::ModeWebView } else { Note::ModeBrowser });
-        if launch.has_backend {
+        // A Backend this Preview did not arrange (a start without one) is said to be off.
+        if launch.has_backend && !self.notes.iter().any(|n| matches!(n, Note::BackendReady { .. } | Note::BackendTaken { .. } | Note::BackendRemote { .. })) {
             self.say(Note::BackendOff);
         }
         let watcher = SourceWatcher::new(&launch.manifest, launch.kind, launch.has_backend);
@@ -1061,11 +1286,13 @@ mod tests {
         builds: AtomicUsize,
         fail: Mutex<Option<WebBuildError>>,
         write_bundle: bool,
+        /// The Backend address of every build, as the generator was asked for it.
+        urls: Mutex<Vec<String>>,
     }
 
     impl Fake {
         fn new() -> Arc<Self> {
-            Arc::new(Self { builds: AtomicUsize::new(0), fail: Mutex::new(None), write_bundle: true })
+            Arc::new(Self { builds: AtomicUsize::new(0), fail: Mutex::new(None), write_bundle: true, urls: Mutex::new(Vec::new()) })
         }
     }
 
@@ -1076,6 +1303,7 @@ mod tests {
 
         fn build(&self, request: &WebBuildRequest) -> Result<BuildReport, WebBuildError> {
             let n = self.builds.fetch_add(1, Ordering::SeqCst) + 1;
+            self.urls.lock().unwrap().push(request.web.backend_url.clone());
             if let Some(e) = self.fail.lock().unwrap().clone() {
                 return Err(e);
             }
@@ -1107,6 +1335,7 @@ mod tests {
             has_backend: true,
             backend,
             helper,
+            backend_url: None,
         }
     }
 
@@ -1315,6 +1544,15 @@ mod tests {
             Note::PlayerPin(PlayerPinError::NotKept { pinned: "1.0.0".into(), kept: vec!["2.0.0".into(), "2.1.0".into()] }),
             Note::PlayerPin(PlayerPinError::CannotEmit { pinned: "1.9.9".into(), abi: 2, description: 1, oldest: Some("2.0.0".into()) }),
             Note::PlayerPin(PlayerPinError::CannotEmit { pinned: "1.9.9".into(), abi: 2, description: 1, oldest: None }),
+            Note::BackendStarting { listen: "127.0.0.1:8443".into(), secs: 60 },
+            Note::BackendReady { url: "ws://127.0.0.1:8443/ws".into() },
+            Note::BackendPortBusy { port: 8443 },
+            Note::BackendTaken { url: "ws://127.0.0.1:8750/ws".into() },
+            Note::BackendRemote { url: "wss://api.example.com/ws".into() },
+            Note::BackendMismatch { running: "ws://127.0.0.1:8443/ws".into(), page: "ws://127.0.0.1:8750/ws".into() },
+            Note::BackendFailed { code: Some(1), why: vec!["rcrun backend: no exports.toml".into()] },
+            Note::BackendFailed { code: None, why: vec![] },
+            Note::BackendTimeout { secs: 60 },
         ];
         let mut shown = 0;
         for &lang in Language::ALL {
@@ -1341,6 +1579,14 @@ mod tests {
         assert!(notes[23].text(&en).contains("1.0.0") && notes[23].text(&en).contains("2.0.0, 2.1.0"));
         assert!(notes[24].text(&en).contains("1.9.9") && notes[24].text(&en).contains("2.0.0"));
         assert_eq!(notes[25].severity(), Severity::Error);
+        // The Backend's start: its facts in the sentence, its own words under it.
+        assert!(notes[26].text(&en).contains("127.0.0.1:8443") && notes[26].text(&en).contains("60 s"));
+        assert!(notes[27].text(&en).contains("ws://127.0.0.1:8443/ws"));
+        assert!(notes[28].text(&en).contains("8443") && notes[28].severity() == Severity::Warn);
+        let failed = notes[32].lines(&en);
+        assert!(failed[0].contains("exit 1") && failed[1] == "  rcrun backend: no exports.toml", "{failed:?}");
+        assert_eq!(notes[32].severity(), Severity::Error);
+        assert_eq!(notes[34].severity(), Severity::Error);
         println!("web preview: {shown} note renderings ({} notes x 6 languages), none empty, none with a gap", notes.len());
     }
 
@@ -1500,6 +1746,297 @@ mod tests {
             lines.len(),
             lines.iter().filter(|l| l.contains("emulate")).count()
         );
+    }
+
+    // ── the Backend during a Preview (WASM-008 R6) ──
+
+    /// A Web project with a Backend, made by the IDE's own scaffold; its
+    /// `backend.toml` listens on `listen`, its manifest names `backend_url`.
+    fn backend_project(tag: &str, listen: &str, backend_url: &str) -> PathBuf {
+        let dir = scratch(tag).join("Shop");
+        use cobolt_project_tools::create::{create_project_with, CreateRequest, BACKEND_CONFIG};
+        create_project_with(&dir, &CreateRequest::new("Shop").template("web")).expect("a Web project");
+        std::fs::write(dir.join(BACKEND_CONFIG), format!("[server]\nlisten = \"{listen}\"\n")).unwrap();
+        let manifest = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.to_string_lossy().ends_with(".project.toml"))
+            .expect("a manifest");
+        if !backend_url.is_empty() {
+            let text = std::fs::read_to_string(&manifest).unwrap();
+            let mut doc: toml_edit::DocumentMut = text.parse().unwrap();
+            doc["web"]["backend_url"] = toml_edit::value(backend_url);
+            std::fs::write(&manifest, doc.to_string()).unwrap();
+        }
+        manifest
+    }
+
+    /// `target/<profile>/rcrun` (built by `cargo build -p cobolt-cli --bin rcrun`).
+    fn built_rcrun() -> PathBuf {
+        let exe = std::env::current_exe().unwrap();
+        let rcrun = exe.parent().and_then(|d| d.parent()).unwrap().join(format!("rcrun{}", std::env::consts::EXE_SUFFIX));
+        assert!(rcrun.exists(), "{} is missing: run `cargo build -p cobolt-cli --bin rcrun` first", rcrun.display());
+        rcrun
+    }
+
+    /// A free port of `range`, a share of the ports these tests may use (8450-8469):
+    /// each test its own share, so tests running together never pick the same one.
+    fn free_test_port(range: std::ops::Range<u16>) -> u16 {
+        range.clone().find(|p| devbackend::loopback_port_is_free(*p)).unwrap_or_else(|| panic!("no free port in {range:?}"))
+    }
+
+    /// What the IDE does every frame, until `done`: the Backend's events to the Preview, then the Preview.
+    fn pump_until(p: &mut WebPreview, ide: &mut Option<BackendRun>, what: &str, secs: u64, mut done: impl FnMut(&WebPreview) -> bool) -> Vec<BackendEvent> {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        let mut events = Vec::new();
+        while !done(p) {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}; notes: {:?}; events: {events:?}", p.notes());
+            events.extend(p.pump_backend(ide));
+            p.poll(Instant::now());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        events
+    }
+
+    fn get_health(url: &str) -> String {
+        use std::io::{Read, Write};
+        let port: u16 = url.trim_start_matches("ws://127.0.0.1:").split('/').next().unwrap().parse().unwrap();
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        write!(s, "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+        let mut raw = String::new();
+        let _ = s.read_to_string(&mut raw);
+        raw
+    }
+
+    /// The manifest names no Backend address: Run starts the Backend on the
+    /// port of `backend.toml`, waits for it, and builds the page for the
+    /// address it reports; nothing is built before it listens.
+    #[test]
+    fn a_preview_starts_the_backend_waits_for_it_and_builds_the_page_for_where_it_listens() {
+        quiet();
+        let rcrun = built_rcrun();
+        let port = free_test_port(8450..8455);
+        let manifest = backend_project("be-start", &format!("127.0.0.1:{port}"), "");
+        let backend = Fake::new();
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        let t = Instant::now();
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(true));
+        assert!(p.awaiting_backend() && p.active() && ide.is_some());
+        assert_eq!(backend.builds.load(Ordering::SeqCst), 0, "nothing is built before the Backend listens");
+        assert!(matches!(&p.notes()[0], Note::BackendStarting { listen, .. } if *listen == format!("127.0.0.1:{port}")), "{:?}", p.notes());
+        let events = pump_until(&mut p, &mut ide, "the page to be served", 90, |p| p.serving());
+        let url = format!("ws://127.0.0.1:{port}/ws");
+        assert!(events.contains(&BackendEvent::Listening(url.clone())), "{events:?}");
+        assert_eq!(*backend.urls.lock().unwrap(), [url.clone()], "the page is built for the address the Backend reports");
+        assert_eq!(p.baked_backend_url(), Some(url.as_str()));
+        assert!(p.notes().contains(&Note::BackendReady { url: url.clone() }));
+        assert!(!p.notes().contains(&Note::BackendOff), "{:?}", p.notes());
+        assert!(get_health(&url).starts_with("HTTP/1.1 200"), "the Backend answers where the page calls");
+        println!("backend listening and the page served {} ms after Run; built for {url}", t.elapsed().as_millis());
+        // A rebuild after a change keeps the address.
+        std::fs::write(manifest.parent().unwrap().join("webforms/extra.css"), "x{}").unwrap();
+        pump_until(&mut p, &mut ide, "a rebuild", 30, |_| backend.builds.load(Ordering::SeqCst) >= 2);
+        assert_eq!(backend.urls.lock().unwrap()[1], url, "a rebuild keeps the Backend's address");
+        // Stopping the Preview stops the Backend it started (the IDE's rule in `show_web_preview`).
+        p.close();
+        assert!(!p.active());
+        ide.take().unwrap().stop();
+        assert!(devbackend::loopback_port_is_free(port), "port {port} is free again");
+    }
+
+    /// The port of `backend.toml` is taken: the Backend starts on a free one
+    /// instead — before the build, so the page still calls where it listens.
+    #[test]
+    fn a_configured_port_in_use_moves_the_backend_and_the_page_with_it() {
+        quiet();
+        let rcrun = built_rcrun();
+        let held = std::net::TcpListener::bind(("127.0.0.1", free_test_port(8455..8460))).unwrap();
+        let busy = held.local_addr().unwrap().port();
+        let manifest = backend_project("be-busy", &format!("127.0.0.1:{busy}"), "");
+        let backend = Fake::new();
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(true));
+        assert!(p.notes().contains(&Note::BackendPortBusy { port: busy }), "{:?}", p.notes());
+        pump_until(&mut p, &mut ide, "the page to be served", 90, |p| p.serving());
+        let url = backend.urls.lock().unwrap()[0].clone();
+        assert!(url.starts_with("ws://127.0.0.1:") && !url.contains(&format!(":{busy}/")), "{url}");
+        assert_eq!(ide.as_ref().and_then(|r| r.url()), Some(url.as_str()));
+        assert!(get_health(&url).starts_with("HTTP/1.1 200"));
+        println!("port {busy} held by another program: the Backend listens on {url} and the page is built for it");
+        ide.take().unwrap().stop();
+        drop(held);
+    }
+
+    /// A Backend the IDE already runs for the project is used as it is: no
+    /// second start, and the Preview does not own it.
+    #[test]
+    fn a_backend_already_running_for_the_project_is_used_not_restarted() {
+        quiet();
+        let rcrun = built_rcrun();
+        let manifest = backend_project("be-reuse", "127.0.0.1:0", "");
+        let mut ide = Some(BackendRun::spawn(&rcrun, manifest.parent().unwrap()).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while ide.as_ref().unwrap().url().is_none() {
+            assert!(Instant::now() < deadline);
+            let _ = ide.as_mut().unwrap().poll();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let url = ide.as_ref().unwrap().url().unwrap().to_owned();
+        let backend = Fake::new();
+        let mut p = WebPreview::default();
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(false));
+        pump_until(&mut p, &mut ide, "the page to be served", 30, |p| p.serving());
+        assert_eq!(*backend.urls.lock().unwrap(), [url.clone()]);
+        assert!(!p.notes().iter().any(|n| matches!(n, Note::BackendStarting { .. })), "{:?}", p.notes());
+        ide.take().unwrap().stop();
+    }
+
+    /// The manifest's address is honoured: elsewhere, nothing is started;
+    /// on this machine but taken, nothing is started and nothing moves.
+    #[test]
+    fn a_manifest_address_is_honoured_as_it_is() {
+        quiet();
+        let rcrun = PathBuf::from("/nonexistent/rcrun");
+        let manifest = backend_project("be-remote", "127.0.0.1:0", "wss://api.example.com/ws");
+        let backend = Fake::new();
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(false));
+        assert!(ide.is_none());
+        wait_until(&mut p, "the page to be served", |p| p.serving());
+        assert_eq!(*backend.urls.lock().unwrap(), ["wss://api.example.com/ws"]);
+        assert!(p.notes().contains(&Note::BackendRemote { url: "wss://api.example.com/ws".into() }));
+        assert_eq!(p.baked_backend_url(), None);
+
+        let held = std::net::TcpListener::bind(("127.0.0.1", free_test_port(8460..8465))).unwrap();
+        let taken = format!("ws://127.0.0.1:{}/ws", held.local_addr().unwrap().port());
+        let manifest = backend_project("be-taken", "127.0.0.1:0", &taken);
+        let backend = Fake::new();
+        let mut p = WebPreview::default();
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(false));
+        assert!(ide.is_none());
+        wait_until(&mut p, "the page to be served", |p| p.serving());
+        assert_eq!(*backend.urls.lock().unwrap(), [taken.clone()]);
+        assert!(p.notes().contains(&Note::BackendTaken { url: taken }));
+        drop(held);
+    }
+
+    /// A Backend that cannot start says why, in its own words, and nothing is
+    /// built; one that never says where it listens is given up on in time.
+    #[cfg(unix)]
+    #[test]
+    fn a_backend_that_fails_or_never_listens_is_said_and_stops_the_preview() {
+        use std::os::unix::fs::PermissionsExt;
+        quiet();
+        let manifest = backend_project("be-fail", "127.0.0.1:0", "");
+        let dir = manifest.parent().unwrap().to_path_buf();
+        let script = |name: &str, body: &str| {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let failing = script("failing-rcrun", "echo 'rcrun backend: backend.toml: server.listen is wrong' >&2\nexit 1");
+        let backend = Fake::new();
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &failing), Some(true));
+        pump_until(&mut p, &mut ide, "the failure", 30, |p| !p.awaiting_backend());
+        let failed = p.notes().iter().find_map(|n| if let Note::BackendFailed { code, why } = n { Some((*code, why.clone())) } else { None });
+        assert_eq!(failed, Some((Some(1), vec!["rcrun backend: backend.toml: server.listen is wrong".to_owned()])), "{:?}", p.notes());
+        assert!(!p.active() && backend.builds.load(Ordering::SeqCst) == 0, "nothing built, nothing left running");
+
+        let silent = script("silent-rcrun", "exec sleep 30");
+        let mut p = WebPreview::default();
+        let mut ide = None;
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &silent), Some(true));
+        p.poll(Instant::now() + BACKEND_WAIT + Duration::from_millis(1));
+        assert!(p.notes().contains(&Note::BackendTimeout { secs: BACKEND_WAIT.as_secs() }), "{:?}", p.notes());
+        assert!(!p.active(), "the Preview stops; the IDE then stops the Backend it started");
+        ide.take().unwrap().stop();
+
+        let missing = PathBuf::from("/nonexistent/rcrun");
+        let mut p = WebPreview::default();
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut None, &missing), Some(false));
+        assert!(p.notes().iter().any(|n| matches!(n, Note::BackendFailed { code: None, why } if why[0].contains("/nonexistent/rcrun"))), "{:?}", p.notes());
+        assert_eq!(backend.builds.load(Ordering::SeqCst), 0);
+    }
+
+    /// The Run of a real project, by hand: what the IDE's Run does for a Web
+    /// project with a Backend — the generator the IDE links, the real
+    /// `rcrun backend run`, the development server — kept up until a stop file
+    /// appears, so that a browser can look at the page.
+    /// `PRC_PROOF_MANIFEST=<manifest> PRC_PROOF_URL_FILE=<file> PRC_PROOF_STOP_FILE=<file>
+    /// cargo test -p cobolt-ide --bin cobolt-ide proof_run_for_web -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn proof_run_for_web_starts_the_backend_and_serves_a_page_built_for_it() {
+        quiet();
+        let manifest = PathBuf::from(std::env::var("PRC_PROOF_MANIFEST").expect("PRC_PROOF_MANIFEST"));
+        let url_file = PathBuf::from(std::env::var("PRC_PROOF_URL_FILE").expect("PRC_PROOF_URL_FILE"));
+        let stop_file = PathBuf::from(std::env::var("PRC_PROOF_STOP_FILE").expect("PRC_PROOF_STOP_FILE"));
+        // `web_player_dir()` answers `assets/web-player` of the working folder outside an install.
+        std::env::set_current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).unwrap();
+        let launch = Launch {
+            manifest: manifest.clone(),
+            name: "proof".into(),
+            title: "Web Preview - proof".into(),
+            kind: ProjectKind::Web,
+            device: None,
+            orientation: None,
+            locale: String::new(),
+            has_backend: true,
+            backend: Arc::new(cobolt_project_tools::web::generator::GeneratorBackend),
+            helper: None,
+            backend_url: None,
+        };
+        let en = Language::English.tr();
+        let (mut p, mut ide) = (WebPreview::default(), None);
+        let t = Instant::now();
+        let started = p.start_with_backend(launch, Intent::Show(Target::Browser), &mut ide, &built_rcrun());
+        println!("start_with_backend -> {started:?}");
+        let say = |p: &mut WebPreview, events: Vec<BackendEvent>| {
+            for n in p.take_outbox() {
+                for l in n.lines(&en) {
+                    println!("[{:>6} ms] note: {l}", t.elapsed().as_millis());
+                }
+            }
+            for e in events {
+                let text = match e {
+                    BackendEvent::Line(l) if looks_like_a_token(&l) => "<development token>".to_owned(),
+                    other => format!("{other:?}"),
+                };
+                println!("[{:>6} ms] backend: {text}", t.elapsed().as_millis());
+            }
+        };
+        let deadline = Instant::now() + Duration::from_secs(300);
+        while !p.serving() {
+            assert!(p.active(), "the Preview ended: {:?}", p.notes());
+            assert!(Instant::now() < deadline, "not served in 300 s: {:?}", p.notes());
+            let events = p.pump_backend(&mut ide);
+            p.poll(Instant::now());
+            say(&mut p, events);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let page = p.url().unwrap();
+        let baked = p.baked_backend_url().unwrap_or("(the manifest's)").to_owned();
+        std::fs::write(&url_file, format!("{page}\n{baked}\n")).unwrap();
+        println!("SERVED {page} in {} ms; page built for {baked}; backend {:?}", t.elapsed().as_millis(), ide.as_ref().and_then(|r| r.url()));
+        let hold = Instant::now() + Duration::from_secs(900);
+        while !stop_file.exists() && Instant::now() < hold {
+            let events = p.pump_backend(&mut ide);
+            p.poll(Instant::now());
+            say(&mut p, events);
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // What the IDE does on Stop: the Preview closes, the Backend it started stops.
+        p.close();
+        if started == Some(true) {
+            if let Some(mut run) = ide.take() {
+                run.stop();
+            }
+        }
+        println!("STOPPED: preview active {}, backend {}", p.active(), if ide.is_some() { "kept (not started by the Preview)" } else { "stopped" });
     }
 
     #[cfg(unix)]

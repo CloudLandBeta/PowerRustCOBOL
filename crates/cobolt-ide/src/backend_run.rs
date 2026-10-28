@@ -58,12 +58,21 @@ fn forward(from: impl Read + Send + 'static, to: Sender<String>) {
 }
 
 impl BackendRun {
-    /// Start `<rcrun> backend run <project_dir>`.
+    /// Start `<rcrun> backend run <project_dir>` (the Run menu's Start Backend:
+    /// where `backend/backend.toml` says).
     pub fn spawn(rcrun: &Path, project_dir: &Path) -> std::io::Result<Self> {
-        let mut child = Command::new(rcrun)
-            .arg("backend")
-            .arg("run")
-            .arg(project_dir)
+        Self::spawn_with(rcrun, project_dir, None)
+    }
+
+    /// The same, with `--listen <listen>` when given (the Preview's start,
+    /// `cobolt_project_tools::web::devbackend::plan`).
+    pub fn spawn_with(rcrun: &Path, project_dir: &Path, listen: Option<&str>) -> std::io::Result<Self> {
+        let mut command = Command::new(rcrun);
+        command.arg("backend").arg("run").arg(project_dir);
+        if let Some(listen) = listen {
+            command.arg("--listen").arg(listen);
+        }
+        let mut child = command
             .current_dir(project_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

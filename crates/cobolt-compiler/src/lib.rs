@@ -6269,6 +6269,24 @@ have no run-time effect yet. A `backend_url` that is not `wss://` is refused
 unless it is plain `ws://` to the same machine, and a refused address is never
 written to the manifest.
 
+**Run and Preview of a project with a Backend.** The page calls the Backend
+address its Build wrote into it, so Run (the browser) and the Preview (the web
+view) start the project's Backend first — `rcrun backend run`, its log in the
+Output panel — wait for it to say where it listens (at most 60 s, said in the
+Output panel and the Preview window), and only then build and serve the page.
+With `backend_url` empty, the Backend listens on this machine at the port of
+`backend/backend.toml` `[server] listen` (or on a free port when that one is in
+use or none is set), and the page is built for the address the Backend reports.
+With `backend_url` set, it is honoured: on this machine the Backend is started at
+that port (when the port is already in use the IDE starts none and the page calls
+whatever listens there); elsewhere no local Backend is started. A Backend the IDE
+already runs for the project (Run → Start Backend) is used as it is. A Backend
+that cannot start ends the Run with its own error text. Stop, closing the
+Preview, closing the project or the IDE stop the Backend the Run started; one
+started from the Run menu stops with Stop Backend. No token is put into the page:
+a page started this way reaches the exports marked `public = true`. A Build
+alone uses `backend_url` as written.
+
 **Which program modules a build carries.** The multi-memory module whenever
 `multi_memory` is on; the single-memory module beside it unless
 `single_memory_fallback = false` ("multi-memory only"), and always when

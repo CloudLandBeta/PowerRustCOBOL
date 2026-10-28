@@ -25,6 +25,7 @@
 //! that owns the system web view, and the launcher that falls back to the
 //! system browser. [`presets`] are the device sizes the Preview offers.
 
+pub mod devbackend;
 pub mod devserver;
 pub mod generator;
 pub mod presets;

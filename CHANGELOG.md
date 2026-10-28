@@ -22,6 +22,20 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.84] — 2026-10-28
+
+*(Written on `fixes-2x`, off `2.x.x` at 0a5c07c7.)*
+
+### Fixed: Run for Web and the Preview start the project's Backend and build the page for the address it really listens on, so a Web project shows its data without starting anything by hand
+
+**What the operator saw.** PowerAnalyticsWeb run for Web showed no data: its manifest had `[web] backend_url = ""`, the Preview started only the static server, and the Backend was a separate Run-menu action whose address the developer had to type into Web Settings.
+
+**What changed.** `crates/cobolt-project-tools/src/web/devbackend.rs` (new, `plan`, a pure function) and `crates/cobolt-ide` (`backend_run.rs`, `panels/web_preview.rs`, `app.rs`, `i18n.rs`): Run for Web and the Preview start the Backend before the build, wait for its `backend listening on ws://...` line (60 s at most) and build the page with the address it reported, because the address is baked at Build (`config.json`, the CSP `connect-src`, `_headers`). With `backend_url` empty the Backend listens on the port of `backend/backend.toml` `[server] listen`, or on a free loopback port (with a warning) when that port is busy or none is set; a set `backend_url` is honoured as written (started on that port on this machine, nothing started when the port is busy or the address is remote); a Backend the IDE already runs for the project is reused. A Backend the Preview started stops when the Preview stops; the manual Start and Stop Backend, project change and IDE exit are unchanged. Eight new messages in the six languages (starting, ready, port busy, port taken, remote, mismatch, failed with the Backend's own error text, timeout). No token is injected into the page and only `public = true` exports are reachable from it. System KB paragraph added and `assets/knowledge/chunked.data` regenerated.
+
+**Not done.** An independent judge passed all seven sub-claims and found three minor defects: `ws://localhost:P` gives a false "its calls will not reach it" warning (`devbackend::origin` compares spellings; the page works); `ws://[::1]:P` starts the Backend on 127.0.0.1 so the page cannot reach it (the warning fires; the bundle's CSP also rejects `[::1]`); on macOS a port held on `0.0.0.0` is judged free. Also open: a silent listener at the baked address leaves the page on "Carregando fundos…" forever; the Output panel still prints the development token in clear (WASM-008 T38 wants it masked); the player connects to `<origin>/` and drops the manifest path; after a Preview `dist/web` keeps the Preview's loopback address until the next plain Build; `[tls]` and the real IDE window were not exercised. The Developer's Guide Web Run/Preview section still says to type the address.
+
+Measured: on a scratch copy of the committed example with an empty `backend_url`, no manual start and no typed address, the Backend listened after 201 ms and the status label read `Base ANBIMA | referência 02/10/2026 | 43.750 fundo(s)`; typing `itau` + Aplicar changed the KPI from `R$ 14,83 tri / 43.750` to `R$ 1,90 tri / 1.996 fundo(s)`; every case ended with its port free and no orphan `rcrun backend run`. cobolt-project-tools 181 passed (9 new), cobolt-compiler 207 passed, cobolt-ide 1,894 passed with the 5 known reds and one flake under load that passes alone.
+
 ## [PowerRustCOBOL 2.0.83] — 2026-10-28
 
 *(Written on `fixes-2x`, off `2.x.x` at 9bca3814.)*
