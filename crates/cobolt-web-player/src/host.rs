@@ -44,7 +44,7 @@ use cobolt_wasm_abi::codes::{ctrl, err, Status};
 use cobolt_wasm_abi::manifest::{ArenaLayout, Manifest};
 
 use crate::methods::{self, MethodError};
-use crate::tree::{Change, EventReq, FormTree};
+use crate::tree::{Change, EventReq, FormTree, LiveSize};
 
 /// The parameters a form was opened with, in order: `(name, value)` (WASM-011 R4). They are the query of
 /// the form's route in a single-page application and of its address in a window of its own.
@@ -415,6 +415,11 @@ pub struct Host {
     reported_in_call: bool,
     /// The form that opened this standalone window, living in another window (WASM-011 R11).
     pub remote_opener: Option<RemoteOpener>,
+    /// The room the page gives a form, measured before it opens: the application's window (the page's main area) and the
+    /// shell's ContentPane, in CSS pixels. What a new instance's `me::Width`, `me::Height` and `me::Breakpoint` start at
+    /// ([`Host::set_viewport`]); `None` until the page has measured it (a headless run never does).
+    viewport: Option<(f64, f64)>,
+    pane: Option<(f64, f64)>,
 }
 
 /// What a standalone window knows of the form that opened it in another window: a **replica** of that
@@ -430,7 +435,7 @@ pub struct RemoteOpener {
 }
 
 /// Events that fire in floods; a newer one replaces a queued one of the same target.
-const COALESCE: &[&str] = &["onmousemove", "onmousewheel", "onresize", "onresized", "onmove", "onmoved", "onscroll"];
+const COALESCE: &[&str] = &["onmousemove", "onmousewheel", "onresize", "onresizing", "onresized", "onmove", "onmoved", "onscroll"];
 
 impl Host {
     pub fn new(manifest: Manifest, opts: HostOptions) -> Host {
@@ -467,6 +472,8 @@ impl Host {
             next_grid_id: crate::grid::ID_BASE,
             close_after: Vec::new(),
             recovering: None,
+            viewport: None,
+            pane: None,
             started: false,
             aborted: false,
             reported_in_call: false,
@@ -887,7 +894,7 @@ impl Host {
                 let id = id as u32;
                 // The start-up handler may already have written to the new instance.
                 if !self.trees.contains_key(&id) {
-                    if let Err(e) = self.create_tree(id, form, opener, params) {
+                    if let Err(e) = self.create_tree_as(id, form, opener, params, mode) {
                         self.fail(e);
                         return;
                     }
@@ -947,7 +954,7 @@ impl Host {
                     if task >= 0 && status >= 0 {
                         let id = task as u32;
                         if !self.trees.contains_key(&id) {
-                            if let Err(e) = self.create_tree(id, form, opener, params) {
+                            if let Err(e) = self.create_tree_as(id, form, opener, params, mode) {
                                 self.fail(e);
                                 return;
                             }
@@ -1079,6 +1086,11 @@ impl Host {
     }
 
     fn create_tree(&mut self, inst: u32, form: usize, opener: Option<u32>, params: Params) -> Result<(), String> {
+        let mode = self.inflight.as_ref().and_then(|f| f.opening.as_ref()).map(|o| o.2).or(self.recovering.as_ref().map(|r| r.2)).unwrap_or(OpenMode::Root);
+        self.create_tree_as(inst, form, opener, params, mode)
+    }
+
+    fn create_tree_as(&mut self, inst: u32, form: usize, opener: Option<u32>, params: Params, mode: OpenMode) -> Result<(), String> {
         let Some(desc) = self.forms.get(form).cloned().flatten() else {
             return Err(format!("form `{}` has no description loaded", self.manifest.forms[form].name));
         };
@@ -1086,6 +1098,7 @@ impl Host {
         tree.init_auth(self.auth_defaults.0, &self.auth_defaults.1, &self.auth);
         tree.policy = self.policy.clone();
         tree.params = params;
+        tree.live = self.live_at_open(&tree, mode);
         self.trees.insert(inst, tree);
         // The grids the backend serves (WASM-005 R13, T16), from the form's own bindings.
         for (id, grid) in crate::grid::remote_grids(&desc) {
@@ -1695,7 +1708,116 @@ impl Host {
         match name.to_ascii_lowercase().as_str() {
             "formstate" => Some("Normal".to_owned()),
             "instance" => Some(inst.to_string()),
+            // The room the form has, as the desktop host mirrors it (`LiveSize`): whole design pixels.
+            "width" | "height" => {
+                let live = &self.trees.get(&inst)?.live;
+                let (w, h) = live.size.filter(|_| live.sized)?;
+                Some(format!("{}", (if name.eq_ignore_ascii_case("width") { w } else { h }).round() as i64))
+            }
+            "breakpoint" => self.trees.get(&inst)?.live.bp.clone(),
+            // `mirror_layout` writes the font factor with two decimals.
+            "fontscale" => {
+                let t = self.trees.get(&inst)?;
+                t.live.bp.as_ref()?;
+                Some(((t.font_factor * 100.0).round() / 100.0).to_string())
+            }
             _ => None,
+        }
+    }
+
+    // ── the room a form has (P4: me::Width, me::Height, me::Breakpoint, onResize, onBreakpointChanged) ──
+
+    /// The page measured the room it gives a form: `main`, the application's window (its main area), and `pane`, the
+    /// shell's ContentPane when it is on the page. A form opened from now on starts with these.
+    pub fn set_viewport(&mut self, main: Option<(f64, f64)>, pane: Option<(f64, f64)>) {
+        let ok = |s: Option<(f64, f64)>| s.filter(|(w, h)| *w >= 1.0 && *h >= 1.0);
+        if let Some(m) = ok(main) {
+            self.viewport = Some(m);
+        }
+        if let Some(p) = ok(pane) {
+            self.pane = Some(p);
+        }
+    }
+
+    /// What a new instance's program reads before anything is measured: the application's window starts at the page's
+    /// main area; a dialog or a panel at its designed size (the page opens it at that size, as the desktop opens a child
+    /// window); a ContentPane form in the pane. Nothing at all before the page has measured (a headless run): the
+    /// program then reads the stored, designed values, as it always did.
+    fn live_at_open(&self, tree: &FormTree, mode: OpenMode) -> LiveSize {
+        let design = (tree.design_size.0 as f64, tree.design_size.1 as f64);
+        let room = match mode {
+            OpenMode::Root | OpenMode::Window => self.viewport,
+            OpenMode::Embedded => self.pane.or(self.viewport),
+            OpenMode::Modal | OpenMode::Panel => self.viewport.map(|_| design),
+        };
+        let sized = matches!(mode, OpenMode::Root | OpenMode::Window);
+        let Some(size) = room else { return LiveSize { sized, ..LiveSize::default() } };
+        LiveSize { sized, size: Some(size), reported: Some(size), pending: false, bp: tree.breakpoint_at(size.0) }
+    }
+
+    /// The page measured instance `inst`'s surface at `w` × `h`. As the desktop host does when a window's size changes
+    /// (form-host `host.rs`, the size pass and `mirror_layout`): the application's window mirrors its new size and raises
+    /// `onResizing`; a responsive form whose breakpoint this changes writes it and raises `onBreakpointChanged`. Answers
+    /// whether an `onResize` is now owed: the page calls [`Host::surface_settled`] once the size has stopped changing.
+    pub fn surface_resized(&mut self, inst: u32, w: f64, h: f64) -> bool {
+        if w < 1.0 || h < 1.0 {
+            return false;
+        }
+        let mut events: Vec<&'static str> = Vec::new();
+        let owed = {
+            let Some(tree) = self.trees.get_mut(&inst) else { return false };
+            let bp = tree.breakpoint_at(w);
+            let live = &mut tree.live;
+            if live.sized {
+                let moved = live.size.is_none_or(|(sw, sh)| (sw - w).hypot(sh - h) > 0.5);
+                if moved {
+                    live.size = Some((w, h));
+                    live.pending = true;
+                    if live.reported.is_some() {
+                        events.push("onResizing");
+                    } else {
+                        // The first size ever seen is where the window opened: no event (`window_size_actual: None`).
+                        live.reported = Some((w, h));
+                        live.pending = false;
+                    }
+                }
+            }
+            if bp.is_some() && bp != live.bp {
+                let first = live.bp.is_none();
+                live.bp = bp;
+                if !first {
+                    events.push("onBreakpointChanged");
+                }
+            }
+            live.pending
+        };
+        for e in events {
+            self.dom_event(inst, 0, e, Vec::new());
+        }
+        owed
+    }
+
+    /// The size of instance `inst` has stopped changing: when it is not the size last reported, `onResize` (the desktop
+    /// raises it once, on the frame after the last change).
+    pub fn surface_settled(&mut self, inst: u32) {
+        let raise = {
+            let Some(tree) = self.trees.get_mut(&inst) else { return };
+            let live = &mut tree.live;
+            if !live.pending {
+                return;
+            }
+            live.pending = false;
+            match (live.size, live.reported) {
+                (Some(now), Some(was)) if (now.0 - was.0).hypot(now.1 - was.1) <= 0.5 => false,
+                (Some(now), _) => {
+                    live.reported = Some(now);
+                    true
+                }
+                _ => false,
+            }
+        };
+        if raise {
+            self.dom_event(inst, 0, "onResize", Vec::new());
         }
     }
 
@@ -2292,6 +2414,8 @@ mod layer_tests;
 mod params_tests;
 #[cfg(test)]
 mod raise_tests;
+#[cfg(test)]
+mod resize_tests;
 #[cfg(test)]
 mod super_tests;
 

@@ -22,6 +22,24 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.87] — 2026-10-28
+
+*(Written on `features-2x`, off `2.x.x` at 081c3665, after 2.0.86.)*
+
+### Added: a Web page knows the room its window has and moves as the desktop does - `me::Width`/`Height`/`Breakpoint`, the resize events, control animations, chart growth and the DataGrid layout verbs
+
+**What changed** (`cobolt-web-player`: new `motion.rs`, `dom/motion.rs`, `host.rs`, `dom/instance.rs`, `tree.rs`, `methods.rs`, `view/charts.rs`, `view/chart_paint.rs`, `base_css.rs`; ABI row A16, `specs/WASM-PARITY.md` rows 36-40; no module or ABI-version change):
+- **Window size and breakpoint.** For the form opened as the application's window, `me::Width`/`me::Height` answer the page's real size (already in `onLoad`), `me::Breakpoint` the breakpoint the desktop's table selects and `me::FontScale` the font factor; a form in the ContentPane, a dialog or a panel keeps its designed size, as on the desktop.
+- **Resize events.** When the page changes size the bound `onResizing`, `onBreakpointChanged` (never for the breakpoint the form opens in) and, once the size has stayed put for 60 ms, `onResize` are raised in the desktop's order.
+- **Animations.** `PlayAnimation`/`Play`, `StopAnimation`, `Pause` and the `OnFormLoad`/`OnShow`/`OnClick`/`OnHover`/`OnFocus` triggers play with the desktop's arithmetic (spec 038: 18 kinds, 8 easings, Loop/PingPong/Count/Delay); a chart's `AnimateOnLoad` growth and `AnimateValues` travel follow the painter's ease-out.
+- **DataGrid verbs** `SetColumnWidth`, `SetColumnTitle`, `SetFilter`, `ClearFilters`, `FreezeColumns`, `FreezeRows`, `SetRowHeight` write the properties the interpreter writes and the grid draws them.
+- The Switch thumb's CSS transition is gone (the desktop paints it at its new place at once).
+`assets/web-player` rebuilt.
+
+**Not done.** An independent judge passed 28 of 37 rows and failed 9 rows (known; to be fixed later) for these reasons, (1) and (2) failing more than one row: (1) the page measures animated controls once and does not re-plan on a layout change, so on a plain load at Medium and Compact (and on a resize during the intro) children of PowerAnalytics' cards are drawn up to 42.9 px off their place; (2) an intermittent 83-350 ms main-thread stall right after C-GRID appears on the Dados page (3 of 8 reveals); (3) AreaChart, ScatterChart and Monochrome charts do not grow on the page; (4) a fading-in child inside a fading-out container stays invisible (the desktop shows it); (5) `OnFocus` animations play without a bound `onGotFocus` handler (the desktop needs one); (6) at 380 px wide the program writes `GRD-FUNDOS` Height -18 and the page draws an 18-px header strip where the desktop draws no grid; (7) the NOT-done list of the claim was incomplete (also egui's own popup fade and animated wheel scrolling on the desktop). Also: a non-integer `AnimationDuration` is not handled as on the desktop; `prefers-reduced-motion` deliberately stops all motion on the page (the desktop has no such setting); the desktop loader's own bugs (an `OnTimer` trigger loads as `OnFormLoad`, `Slide` loads as `None`) are unchanged.
+
+Measured: cobolt-web-player 294 + 25 + 6 + 2 + 5 + 1 + 3 passed (freshness green); cobolt-web-bundle 16 test binaries passed, including the new `page_motion_p4` in Chrome; NIST NC on the web generator 95 of 95 compile, 95 of 95 run with 0 failures, 4612 PASS. Judge (on a copy-set without 2.0.86's `rt.wasm`): g1-dashboard library 17,933 PASS / 25 FAIL, 0 items PASS to FAIL against the installed player; harness selftest 54 of 54.
+
 ## [PowerRustCOBOL 2.0.86] — 2026-10-28
 
 *(Written on `fixes-2x`, off `2.x.x` at 081c3665.)*

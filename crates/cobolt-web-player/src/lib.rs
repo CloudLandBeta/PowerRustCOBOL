@@ -23,6 +23,7 @@ pub mod host;
 pub mod kinds;
 pub mod layout_css;
 pub mod methods;
+pub mod motion;
 pub mod metrics;
 pub mod net;
 pub mod par;

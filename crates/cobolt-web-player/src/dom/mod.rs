@@ -27,6 +27,7 @@ pub(crate) mod captcha;
 mod find;
 mod h;
 mod instance;
+mod motion;
 mod ops;
 mod payload;
 mod reactive;
@@ -125,6 +126,8 @@ pub(crate) struct Shared {
     find: RefCell<find::FindMap>,
     /// The Canvas 2D controls the page has drawn on (WASM-018).
     canvas: RefCell<canvas::CanvasMap>,
+    /// What moves on the page: the controls' animations and the charts' motion (`dom/motion.rs`).
+    pub(crate) motion: RefCell<motion::MotionState>,
 }
 
 pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface>, String> {
@@ -182,11 +185,18 @@ pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface
         nav: RefCell::new(None),
         find: RefCell::new(Default::default()),
         canvas: RefCell::new(Default::default()),
+        motion: RefCell::new(Default::default()),
     });
     *sh.me.borrow_mut() = Rc::downgrade(&sh);
     let nav = sh.watch_address();
     *sh.nav.borrow_mut() = nav;
     sh.adopt();
+    // The room the application's window has, before its first form opens: what that form's `me::Width`, `me::Height` and
+    // `me::Breakpoint` read in its first handler (`Host::set_viewport`).
+    let r = sh.chrome.main.get_bounding_client_rect();
+    if let Ok(mut host) = inner.host.try_borrow_mut() {
+        host.set_viewport(Some((r.width(), r.height())), None);
+    }
     Ok(Box::new(Dom { sh }))
 }
 

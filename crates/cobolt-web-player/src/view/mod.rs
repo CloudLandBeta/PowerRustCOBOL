@@ -321,6 +321,9 @@ pub struct UiState {
     /// its painter draws (`ViewCtx::box_size`). Filled by the page from a `ResizeObserver`; empty until
     /// the first layout has been measured.
     pub box_sizes: BTreeMap<usize, (f64, f64)>,
+    /// A chart's motion at this frame, by control (`AnimateOnLoad`'s growth, `AnimateValues`' travel; `crate::motion`):
+    /// what its painter draws instead of its own `__ChartGrow` and `__ChartData` while it moves. Empty at rest.
+    pub chart_frames: BTreeMap<usize, crate::motion::ChartFrame>,
 }
 
 /// Where a Mermaid diagram stands: the Mermaid part is a module of its own, loaded the first time a

@@ -67,6 +67,8 @@ pub(crate) struct InstanceView {
     pub box_obs: Option<ResizeObs>,
     pub _keys: Vec<Listener>,
     pub drag: Option<(Listener, Listener)>,
+    /// The `onResize` owed once the form's size stops changing (`Host::surface_settled`).
+    pub settle: Option<crate::api::Timeout>,
 }
 
 impl InstanceView {
@@ -212,10 +214,25 @@ impl Shared {
             let weak = Rc::downgrade(self);
             let cb = Closure::<dyn FnMut(js_sys::Array)>::new(move |entries: js_sys::Array| {
                 let first = entries.get(0);
-                let rect = Reflect::get(&first, &"contentRect".into()).unwrap_or(JsValue::UNDEFINED);
-                let w = Reflect::get(&rect, &"width".into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+                // The surface's whole box, scroll bars included: the desktop's window size, which its breakpoint and
+                // `me::Width`/`me::Height` are taken from (a page scroll bar is chrome over the form, as the desktop's
+                // floating ones are). The content box is the fallback where a browser gives no border box.
+                let border = Reflect::get(&first, &"borderBoxSize".into()).ok().map(|a| js_sys::Array::from(&a).get(0)).filter(|b| !b.is_undefined());
+                let (w, h) = match border {
+                    Some(b) => (
+                        Reflect::get(&b, &"inlineSize".into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        Reflect::get(&b, &"blockSize".into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    ),
+                    None => {
+                        let rect = Reflect::get(&first, &"contentRect".into()).unwrap_or(JsValue::UNDEFINED);
+                        (
+                            Reflect::get(&rect, &"width".into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            Reflect::get(&rect, &"height".into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        )
+                    }
+                };
                 if let Some(sh) = weak.upgrade() {
-                    sh.on_resize(inst, w);
+                    sh.on_resize(inst, w, h);
                 }
             });
             web_sys::ResizeObserver::new(cb.as_ref().unchecked_ref()).ok().map(|obs| {
@@ -266,6 +283,7 @@ impl Shared {
             box_obs,
             _keys: keys,
             drag: None,
+            settle: None,
         };
 
         // Place it.
@@ -338,9 +356,12 @@ impl Shared {
         }
         // The start-up handler may already have written to the new instance: draw those writes too.
         self.mark_dirty(inst, 0);
+        // Its animations' triggers, and the ones that start with the form (P4).
+        self.motion_open(inner, inst, &root);
     }
 
     pub(super) fn close_instance(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32) {
+        self.motion_close(inst);
         self.clear_find(inst);
         self.clear_canvas(inst);
         let (iv, shell_changed) = {
@@ -389,8 +410,11 @@ impl Shared {
         let css_all = ch.dirty.remove(&usize::MAX);
         // Phase 0: the commands that change page state the views read.
         let mut deferred: Vec<(usize, String, Vec<String>)> = Vec::new();
+        // The animation verbs act once the pass has put the page right (`motion_after_render`).
+        let mut verbs: Vec<(usize, String, Vec<String>)> = Vec::new();
         for (ctl, name, args) in std::mem::take(&mut ch.commands) {
             match name.as_str() {
+                "playanimation" | "play" | "stopanimation" | "pause" => verbs.push((ctl, name, args)),
                 "find-next" | "find-prev" => self.find_step(inner, inst, ctl, name == "find-next"),
                 "dismiss-all" => {
                     let ids: Vec<u32> = self.state.try_borrow().map(|st| st.toasts.iter().filter(|t| t.inst == inst && t.ctl == ctl).map(|t| t.id).collect()).unwrap_or_default();
@@ -538,6 +562,52 @@ impl Shared {
         self.ensure_viewer_docs(inner, inst);
         self.ensure_mermaid(inner, inst);
         self.sync_find(inner, inst);
+        // Phase D: what moves (P4).
+        self.motion_after_render(inner, inst, verbs);
+    }
+
+    /// Draw these controls of `inst` again, now, from the tree and the page state (a chart's frame of motion).
+    pub(super) fn redraw_views(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, which: &[usize]) {
+        let vnodes: Vec<(usize, VNode)> = {
+            let Ok(host) = inner.host.try_borrow() else { return };
+            let Some(tree) = host.trees.get(&inst) else { return };
+            let Ok(st) = self.state.try_borrow() else { return };
+            let Some(iv) = st.instances.get(&inst) else { return };
+            let Ok(styles) = inner.styles.try_borrow() else { return };
+            let tile = self.tile_url(inner);
+            let cx = ViewCtx {
+                tree,
+                assets: &styles.assets,
+                locale: &styles.locale,
+                ui: &iv.ui,
+                menus: &styles.menus,
+                image_origins: &inner.cfg.image_origins,
+                tile_url: &tile,
+            };
+            which.iter().filter(|&&i| i >= 1 && i < tree.ctls.len() && iv.ctls.get(i).is_some_and(|c| c.is_some())).map(|&i| (i, controls::view(&cx, i))).collect()
+        };
+        let Ok(mut st) = self.state.try_borrow_mut() else { return };
+        let Some(iv) = st.instances.get_mut(&inst) else { return };
+        for (i, v) in &vnodes {
+            let i = *i;
+            let replaced = {
+                let Some(cv) = iv.ctls[i].as_mut() else { continue };
+                let r = nodes::patch(&self.doc, &mut cv.rec, v, None, &cv.dispatch);
+                cv.slots = nodes::slots(&cv.rec);
+                if r {
+                    if let Some(o) = &iv.box_obs {
+                        o.obs.observe(&cv.rec.el);
+                    }
+                }
+                r
+            };
+            if replaced {
+                let children: Vec<usize> = (1..iv.ctls.len()).filter(|&c| iv.mount[c].0 == i).collect();
+                for c in children {
+                    mount_one(&iv.ctls, &iv.mount, &iv.surface_el, c);
+                }
+            }
+        }
     }
 
     fn run_command(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, name: &str, args: &[String]) {
@@ -642,8 +712,41 @@ impl Shared {
 
     // ── breakpoints ─────────────────────────────────────────────────────────
 
-    pub(super) fn on_resize(self: &Rc<Self>, inst: u32, width: f64) {
+    pub(super) fn on_resize(self: &Rc<Self>, inst: u32, width: f64, height: f64) {
         let Some(inner) = self.inner.upgrade() else { return };
+        // What the program is told (P4): the form's size and breakpoint, `onResizing`, `onBreakpointChanged`, and `onResize` once the
+        // size has stopped changing for 60 ms (the desktop raises it on the first frame after the last change; a browser
+        // reports a window drag in steps, so the page waits for a short quiet).
+        let (owed, mode) = {
+            let mode = self.state.try_borrow().ok().and_then(|st| st.instances.get(&inst).map(|iv| iv.mode));
+            let owed = inner.host.try_borrow_mut().map(|mut host| {
+                match mode {
+                    Some(OpenMode::Root) => host.set_viewport(Some((width, height)), None),
+                    Some(OpenMode::Embedded) => host.set_viewport(None, Some((width, height))),
+                    _ => {}
+                }
+                host.surface_resized(inst, width, height)
+            });
+            (owed.unwrap_or(false), mode)
+        };
+        let _ = mode;
+        if owed {
+            let weak = Rc::downgrade(self);
+            let t = crate::api::Timeout::new(60, move || {
+                let Some(sh) = weak.upgrade() else { return };
+                let Some(inner) = sh.inner.upgrade() else { return };
+                if let Ok(mut host) = inner.host.try_borrow_mut() {
+                    host.surface_settled(inst);
+                }
+                sh.kick();
+            });
+            if let Ok(mut st) = self.state.try_borrow_mut() {
+                if let Some(iv) = st.instances.get_mut(&inst) {
+                    iv.settle = Some(t);
+                }
+            }
+        }
+        self.kick();
         // The breakpoint this width selects and the font factor the form's `FontScaling` makes of it: both the desktop's functions.
         let (name, factor) = {
             let Ok(host) = inner.host.try_borrow() else { return };

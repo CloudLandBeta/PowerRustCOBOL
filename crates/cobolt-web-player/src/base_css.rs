@@ -67,7 +67,7 @@ pub const BASE_CSS: &str = r#"
 .pr-checkbox, .pr-radiobutton { display: flex; align-items: center; gap: .5em; cursor: pointer; }
 .pr-checkbox input, .pr-radiobutton input { margin: 0; flex: none; }
 .pr-switch { display: block; cursor: pointer; background: #555a64; border: 0; border-radius: 999px; padding: 0; }
-.pr-switch .pr-thumb { position: absolute; top: 12%; left: 6%; height: 76%; aspect-ratio: 1; border-radius: 50%; background: #fff; transition: left .12s; }
+.pr-switch .pr-thumb { position: absolute; top: 12%; left: 6%; height: 76%; aspect-ratio: 1; border-radius: 50%; background: #fff; }
 .pr-switch[aria-checked="true"] { background: var(--pr-accent); } .pr-switch[aria-checked="true"] .pr-thumb { left: auto; right: 6%; }
 .pr-weblink { cursor: pointer; text-decoration: none; color: var(--pr-link, #6aa6ff); display: inline-flex; align-items: center; }
 .pr-weblink.pr-underline-always { text-decoration: underline; } .pr-weblink.pr-underline-hover:hover { text-decoration: underline; }

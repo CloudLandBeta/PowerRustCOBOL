@@ -29,3 +29,6 @@ wasm-encoder = "0.244"
 # The mock backend of the tests: a WebSocket server in a few lines. Already in the lock file.
 tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["scan", "fixture"] }
+# The desktop's own animation arithmetic (`cobolt_forms::anim`, behind its `render` feature): the oracle a page's
+# motion is measured against (tests/page_motion_p4.rs).
+cobolt-forms = { path = "../cobolt-forms", default-features = false, features = ["render"] }

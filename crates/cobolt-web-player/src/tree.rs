@@ -81,6 +81,9 @@ pub struct Ctl {
     /// the desktop stores those writes as they come (`render.rs` `push_toggle_state`, form-host
     /// `clear_radio_siblings`), where a program's own `SET` is canonicalised (`property_runtime_text`).
     ui_raw: Vec<String>,
+    /// The control's animations as designed (spec 038), in its own order: what `PlayAnimation` and the triggers start
+    /// (`crate::motion`). Empty for the form and for a control with none.
+    pub anims: Vec<cobolt_forms::model::AnimationDef>,
 }
 
 impl Ctl {
@@ -253,6 +256,35 @@ pub struct FormTree {
     /// The form theme this form is drawn in (`liquid-glass`, `spatial`, …): the form's own, or the project's default
     /// baked in by the build; empty when neither named one (Liquid Glass).
     pub theme: String,
+    /// The size and breakpoint the program reads from `me::` (`me::Width`, `me::Height`, `me::Breakpoint`), kept as the
+    /// desktop host keeps them; set by the host from what the page measures ([`LiveSize`]).
+    pub live: LiveSize,
+}
+
+/// What the program of one instance is told about the room its form has (the PowerAnalyticsWeb parity job, P4).
+///
+/// The desktop host mirrors two things onto the form object (form-host `host.rs`):
+/// * **the window's size**, `Width` and `Height` in design pixels, by the host that owns the application's window (a
+///   window, or the shell's main form): `onResizing` while the size changes, `onResize` once when it settles, the size
+///   written just before each (`mirror_size`). A form in the ContentPane, a dialog or a panel is a form *body*, which is
+///   told nothing of the kind: its `me::Width` stays its designed width.
+/// * **the active breakpoint** of a responsive form, by every surface after it lays the form out (`mirror_layout`):
+///   `Breakpoint` written when it changes, then `onBreakpointChanged` — never for the breakpoint the form opens in.
+///
+/// On a page the form's surface is measured by the browser; the host turns those measurements into the same writes
+/// and events (`Host::surface_resized`, `Host::surface_settled`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LiveSize {
+    /// This instance is the application's window: its size is mirrored and `onResize` raised.
+    pub sized: bool,
+    /// The size the program reads (`None`: the designed size, as nothing was measured yet).
+    pub size: Option<(f64, f64)>,
+    /// The size the last `onResize` reported (or the one the form opened at).
+    pub reported: Option<(f64, f64)>,
+    /// A change of size was seen and its `onResize` is still owed.
+    pub pending: bool,
+    /// The breakpoint the program reads (`None`: not responsive, or not measured yet).
+    pub bp: Option<String>,
 }
 
 /// The size a control is lettered at, given the form's font factor (`fonts::effective_size`, spec 056 R69–R70): the `FontSize` it
@@ -398,6 +430,7 @@ impl FormTree {
             layer: None,
             timer_on: true,
             ui_raw: Vec::new(),
+            anims: Vec::new(),
         });
         // The layers: every one starts hidden in a new instance (spec 091 R35, WASM-016 R19).
         let layers: Vec<LayerState> = form
@@ -455,6 +488,7 @@ impl FormTree {
                 layer,
                 timer_on: timer_designed_on(c),
                 ui_raw: Vec::new(),
+                anims: c.animations.clone(),
             });
         }
         // Parent links, from the flat list.
@@ -505,6 +539,7 @@ impl FormTree {
             theme: form.theme.clone().unwrap_or_default().trim().to_owned(),
             decimal_comma: cobolt_forms::picture::decimal_comma_from_special_names(&form.cobol_structure.special_names),
             currency: cobolt_forms::picture::currency_from_special_names(&form.cobol_structure.special_names),
+            live: LiveSize::default(),
         })
     }
 
@@ -871,6 +906,16 @@ impl FormTree {
     /// controls, which the page does not do.
     pub fn font_factor_at(&self, width: f64, bp: Option<&Breakpoint>) -> f32 {
         fonts::form_factor(&FormBag(&self.layout_bag), self.design_size.0 as f32, width as f32, bp, 1.0, None)
+    }
+
+    /// The breakpoint a surface `width` wide selects, as the program reads it: its name, empty when the form has none
+    /// (`layout::Layout::breakpoint`); `None` for a form that is not responsive, which the desktop does not lay out and so
+    /// never tells a breakpoint (`mirror_layout` needs a layout).
+    pub fn breakpoint_at(&self, width: f64) -> Option<String> {
+        if !crate::value::truthy(&self.get(0, "Responsive")) {
+            return None;
+        }
+        Some(cobolt_forms::layout::breakpoints::select(&self.breakpoints, width as f32, None).map(|b| b.name.clone()).unwrap_or_default())
     }
 
     /// Set the font factor; did it change?

@@ -14,7 +14,7 @@
 //! group from the real width of each entry, the axis lines and the grid. Where the painter's numbers live
 //! in `cobolt_forms::chart` (the radar's layout, the rows, the range) they are used from there, not copied.
 //!
-//! What it leaves out, on purpose: the load animation (`__ChartGrow` is 1 at rest), hover tips (the
+//! The load animation and the value tween reach it as a frame of `UiState::chart_frames` (`crate::motion`). What it leaves out, on purpose: hover tips (the
 //! browser's own `<title>`), the border and the gradient ring of a chart that shows its background (the
 //! chart's own box paints them, as CSS) and the Monochrome look (the older renderer keeps it).
 //!
@@ -102,6 +102,19 @@ impl Ctx<'_> {
     /// What the control STATES (or a program wrote): the painter reads a property a loaded control does not carry as absent and
     /// takes its own default, not the seeded one a program reads back (`FormTree::get`).
     fn s(&self, k: &str) -> String {
+        // While the chart moves, the frame of its motion stands in for the two properties the desktop's run-time loop
+        // hands its painter (`render.rs` CT::*Chart: a tweened `__ChartData`, a `__ChartGrow` below 1).
+        if let Some(fr) = self.cx.ui.chart_frames.get(&self.i) {
+            if k.eq_ignore_ascii_case("__ChartGrow") {
+                if let Some(g) = fr.grow {
+                    return format!("{g:.4}");
+                }
+            } else if k.eq_ignore_ascii_case("__ChartData") {
+                if let Some(d) = &fr.data {
+                    return d.clone();
+                }
+            }
+        }
         self.cx.tree.ctl(self.i).raw(k).map(str::to_owned).unwrap_or_default()
     }
     fn trimmed(&self, k: &str) -> String {
@@ -698,7 +711,9 @@ fn radar(c: &Ctx, fr: &Frame, pal: &[Rgba], bg: Rgba, mut data: VNode) -> VNode 
     let fill_a = (c.num("FillOpacity").unwrap_or(chart::RADAR_DEFAULT_FILL_OPACITY as f64).clamp(0.0, 100.0) / 100.0 * 255.0).round().clamp(0.0, 255.0) as u8;
     let marker_r = c.num("PointRadius").unwrap_or(3.0).clamp(0.5, 40.0);
     let line_w = 2.0;
-    let vertices = chart::radar_vertices(&layout, &scale, &rows, 1.0);
+    // `grow` is the load animation (`AnimateOnLoad`): every vertex travels out from the centre, as the painter draws it.
+    let grow = c.s("__ChartGrow").trim().parse::<f32>().unwrap_or(1.0).clamp(0.0, 1.0);
+    let vertices = chart::radar_vertices(&layout, &scale, &rows, grow);
     let fractions = chart::radar_fractions(&rows, &scale);
     let area = |poly: &[(f32, f32)]| -> f32 {
         (0..poly.len()).map(|i| { let (p, q) = (poly[i], poly[(i + 1) % poly.len()]); (p.0 * q.1 - q.0 * p.1) * 0.5 }).sum::<f32>().abs()

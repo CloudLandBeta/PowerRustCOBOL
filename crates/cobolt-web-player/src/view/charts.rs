@@ -12,7 +12,8 @@
 //! control's `color` (so `ForegroundColor` and the developer's CSS reach it).
 //!
 //! **Where the picture differs from the desktop** (listed, per WASM-004 R4): the value animation
-//! (`AnimateOnLoad`, `AnimateValues`) is a CSS transition on the marks, not the painter's tween; the
+//! (`AnimateOnLoad`, `AnimateValues`) is not played by this older renderer (the Monochrome look; the others are
+//! `chart_paint`'s, which plays it, `crate::motion`); the
 //! glass/neumorphic faces of the egui painter are the CSS box of `style.rs`; a chart's hover tooltip is
 //! the browser's own (`<title>` of each mark).
 

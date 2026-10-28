@@ -64,6 +64,28 @@ fn put(tree: &mut FormTree, ctl: usize, name: &str, value: &str, out: &mut Outco
     out.events.extend(tree.set(ctl, name, value));
 }
 
+/// One `key=value` line of a grid's run-time table (`_RuntimeColumnWidths`, …), replaced or added; an empty value
+/// removes it (`Interpreter::set_datagrid_runtime_kv`).
+fn grid_kv(tree: &mut FormTree, ctl: usize, prop: &str, key: &str, value: &str, out: &mut Outcome) {
+    let key = key.trim();
+    if key.is_empty() {
+        return;
+    }
+    let mut entries: Vec<String> = tree
+        .get(ctl, prop)
+        .lines()
+        .filter_map(|line| {
+            let (k, v) = line.split_once('=')?;
+            let k = k.trim();
+            (!k.is_empty() && !k.eq_ignore_ascii_case(key)).then(|| format!("{k}={}", v.trim()))
+        })
+        .collect();
+    if !value.trim().is_empty() {
+        entries.push(format!("{key}={}", value.trim()));
+    }
+    put(tree, ctl, prop, &entries.join("\n"), out);
+}
+
 fn lines(items: &str) -> Vec<String> {
     items.lines().map(str::to_owned).collect()
 }
@@ -405,8 +427,43 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
                 set_rows(tree, ctl, &rows, &mut out);
             }
         }
-        "SETFILTER" | "CLEARFILTERS" | "FREEZECOLUMNS" | "FREEZEROWS" | "SETROWHEIGHT" | "SETCOLUMNWIDTH" | "SETCOLUMNTITLE" => {
-            tree.command(ctl, &m.to_ascii_lowercase(), args.iter().map(|s| (*s).to_owned()).collect());
+        // The grid's run-time layout, written as the interpreter writes it (`exec_method`, the DataGrid arms) into the
+        // properties the grid's view reads (`view/datagrid.rs` ADVANCED_PROPS): they used to be commands the page ignored.
+        "SETCOLUMNWIDTH" => grid_kv(tree, ctl, "_RuntimeColumnWidths", &arg(0), &arg(1), &mut out),
+        "SETCOLUMNTITLE" => grid_kv(tree, ctl, "_RuntimeColumnTitles", &arg(0), &arg(1).replace(['\n', '\r'], " "), &mut out),
+        "SETFILTER" => {
+            grid_kv(tree, ctl, "_RuntimeColumnFilters", &arg(0), &arg(1), &mut out);
+            grid_kv(tree, ctl, "ColumnFilters", &arg(0), &arg(1), &mut out);
+        }
+        "CLEARFILTERS" => {
+            put(tree, ctl, "_RuntimeColumnFilters", "", &mut out);
+            put(tree, ctl, "ColumnFilters", "", &mut out);
+        }
+        "FREEZECOLUMNS" => {
+            put(tree, ctl, "_RuntimeFrozenColumns", &arg(0), &mut out);
+            put(tree, ctl, "FrozenColumns", &arg(0), &mut out);
+        }
+        "FREEZEROWS" => {
+            put(tree, ctl, "_RuntimeFrozenRows", &arg(0), &mut out);
+            put(tree, ctl, "FrozenRows", &arg(0), &mut out);
+        }
+        // `SetRowHeight(row, pixels)`: one row (0 pixels hands it back to the uniform height), held to the painter's range.
+        "SETROWHEIGHT" if !arg(1).trim().is_empty() => {
+            if let Some(row) = index1(&arg(0)) {
+                use cobolt_forms::datagrid::{format_row_height_overrides, parse_row_height_overrides, ROW_HEIGHT_OVERRIDES_PROP, ROW_HEIGHT_OVERRIDE_RANGE};
+                let px = arg(1).trim().parse::<f32>().unwrap_or(0.0);
+                let mut map = parse_row_height_overrides(&tree.get(ctl, ROW_HEIGHT_OVERRIDES_PROP));
+                if px > 0.0 {
+                    map.insert(row, px.clamp(ROW_HEIGHT_OVERRIDE_RANGE.0, ROW_HEIGHT_OVERRIDE_RANGE.1));
+                } else {
+                    map.remove(&row);
+                }
+                put(tree, ctl, ROW_HEIGHT_OVERRIDES_PROP, &format_row_height_overrides(&map), &mut out);
+            }
+        }
+        "SETROWHEIGHT" => {
+            put(tree, ctl, "_RuntimeRowHeight", &arg(0), &mut out);
+            put(tree, ctl, "RowHeight", &arg(0), &mut out);
         }
         // A grid bound to an indexed file or a SQL query is the host's (`Host::grid_method`,
         // WASM-005 T16) and never reaches this arm; any other grid has no source the player can call.
@@ -647,6 +704,33 @@ mod tests {
 
     fn val(o: Result<Outcome, MethodError>) -> String {
         o.unwrap().value.unwrap_or_default()
+    }
+
+    /// The grid's run-time layout verbs write what the interpreter writes (`exec_method`, DataGrid; scout D8): they were
+    /// commands the page ignored, so `SetColumnWidth` changed nothing on a page.
+    #[test]
+    fn the_grid_layout_verbs_write_the_tables_the_grid_is_drawn_from() {
+        let (mut t, g) = crate::tree::testing::tree_with("DataGrid", "GRD-1", &[("Columns", "A,B,C")]);
+        call(&mut t, g, "SetColumnWidth", &["1", "330"]).unwrap();
+        call(&mut t, g, "SetColumnWidth", &["2", "110"]).unwrap();
+        call(&mut t, g, "SetColumnWidth", &["1", "300"]).unwrap();
+        assert_eq!(t.get(g, "_RuntimeColumnWidths"), "2=110\n1=300", "a column set again is replaced, at the end, as the interpreter does");
+        call(&mut t, g, "SetColumnWidth", &["2", ""]).unwrap();
+        assert_eq!(t.get(g, "_RuntimeColumnWidths"), "1=300", "an empty width removes the column's");
+        call(&mut t, g, "SetColumnTitle", &["B", "Bê\nzinho"]).unwrap();
+        assert_eq!(t.get(g, "_RuntimeColumnTitles"), "B=Bê zinho");
+        call(&mut t, g, "SetFilter", &["A", "x"]).unwrap();
+        assert_eq!((t.get(g, "_RuntimeColumnFilters"), t.get(g, "ColumnFilters")), ("A=x".into(), "A=x".into()));
+        call(&mut t, g, "ClearFilters", &[]).unwrap();
+        assert_eq!(t.get(g, "ColumnFilters"), "");
+        call(&mut t, g, "FreezeColumns", &["2"]).unwrap();
+        call(&mut t, g, "FreezeRows", &["1"]).unwrap();
+        assert_eq!((t.get(g, "FrozenColumns"), t.get(g, "_RuntimeFrozenRows")), ("2".into(), "1".into()));
+        call(&mut t, g, "SetRowHeight", &["3", "1000"]).unwrap();
+        assert_eq!(t.get(g, "RowHeightOverrides"), cobolt_forms::datagrid::format_row_height_overrides(&[(2usize, 400.0f32)].into_iter().collect()), "row 3, held to 400");
+        call(&mut t, g, "SetRowHeight", &["28"]).unwrap();
+        assert_eq!((t.get(g, "RowHeight"), t.get(g, "_RuntimeRowHeight")), ("28".into(), "28".into()));
+        assert!(!t.take_changes().iter().any(|c| matches!(c, crate::tree::Change::Command { .. })), "no command left for the page to ignore");
     }
 
     #[test]
