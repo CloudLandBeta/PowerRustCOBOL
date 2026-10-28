@@ -22,6 +22,21 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.85] — 2026-10-28
+
+*(Written on `features-2x`, off `2.x.x` at f86b758a.)*
+
+### Added: PowerAnalyticsWeb loads its data on its own, the typed name and category texts and the status line behave as on the desktop, any number of picks reaches the Backend, and the Dados page (grid, paging, order, side cards) answers like the desktop's
+
+**What changed.** `examples/PowerAnalyticsWeb`:
+- `PowerAnalyticsWeb.project.toml`: `[web] backend_url = "ws://127.0.0.1:8443/ws"`, the port of `backend/backend.toml`, so a build without any override has a Backend address.
+- **Typed texts** (`TERM-CUT`, `req-filter.cpy`, `fund-names.cbl`): the desktop keeps the first 80 bytes of the Nome and Categoria texts and a cut inside a letter keeps the partial byte and finds nothing; the form now sends 80 bytes plus the rest of a cut letter and the Backend cuts to 80 the same way (7 of 7 desktop-vs-web probes pass; a 321-byte text gives 1 fund, R$ 1,58 bi as on the desktop). Only `WS-TOP-NAME` and `WS-RN` still differ in size from the desktop (forced: the module refuses a caption that is not valid UTF-8).
+- **Status line** (`BE-FLOW-BEGIN`/`BE-FLOW-END`): the header returns to "Base ANBIMA ..." once a whole flow of Backend calls succeeds, across a Backend stop and restart and for a page opened while the Backend was down (Aplicar asks `FUND-INIT` again). `LOAD-DIMS` with the data file missing reads "Base ANBIMA | referência | 0 fundo(s)", as measured on the desktop.
+- **Picks over 150:** picks travel as one flag byte per fund id, bound once in a fixed statement; the Backend matches the desktop's own SQL for 1, 10, 110, 150, 151, 500, 1,050, 3,000 and all 39,221 names (largest request 44 KB); on the page 151 and 210 picks match the desktop.
+- **Dados page:** grid, paging, order combo and side cards ported and compared with the desktop after the number formatting both painters use.
+
+**Not done.** Committed before an independent judge finished (running). The page cannot yet tick thousands of names: property reads are cut at 4,096 bytes (`cobolt-wasm-rt/src/cmd.rs`), so `CheckedItems` loses names past about 37 to 55 per list; the filter popups beyond what the dashboard needs (group G3) wait for that fix. `SetColumnWidth` does nothing (every column is 120 px), the CSV badge does nothing on click, the Dados layout is fixed at 1440 at every width (static `me::Width`), and the 160 "intro" animations and 6 `AnimateOnLoad` charts do not play (player stream). Measured by the implementer: the grid library passes 13 of 14 scenarios (the 14th with a wait), `g2-filters` 23 of 27 (3,811 of 3,856 items), fuzz seed 5821 2 of 4 (the other two differ only in the final grid-rows dump); `check` 0 errors, 0 warnings.
+
 ## [PowerRustCOBOL 2.0.84] — 2026-10-28
 
 *(Written on `fixes-2x`, off `2.x.x` at 0a5c07c7.)*

@@ -239,12 +239,17 @@
       *> CALL ... WITH WEBSOCKET LINKAGE. The form sends the filter as VALUES (FLT-REQ) and reads
       *> the answer groups below; the SQL is fixed inside the programs. The layouts are the ones
       *> of backend/COPYBOOKS (req-*.cpy, res-*.cpy): the member names and sizes are the wire.
+      *> FLT-NAME-TERM / FLT-CAT-TERM: the first 80 bytes of the typed text, as the desktop's
+      *> WS-TERM (PIC X(80)) keeps them, plus the rest of a letter the 80th byte falls into (at
+      *> most 3 bytes, TERM-CUT): a request must be UTF-8. The Backend cuts them to 80 bytes.
+      *> FLT-NAME-FLAGS: the ticked company names, byte k = "1" for the name of fund id k
+      *> (NAM-ID); the desktop's table pick has no limit, and one byte per fund lets every
+      *> name be ticked within the 64 KiB of a call.
        01 FLT-REQ                                GLOBAL.
-           05 FLT-NAME-TERM                      PIC    X(320).
-           05 FLT-NAME-N                         PIC    9(3).
-           05 FLT-NAME-PICK                      PIC    X(210)
-                                                 OCCURS 0 TO 150 DEPENDING ON FLT-NAME-N.
-           05 FLT-CAT-TERM                       PIC    X(320).
+           05 FLT-NAME-TERM                      PIC    X(83).
+           05 FLT-NAME-N                         PIC    9(5).
+           05 FLT-NAME-FLAGS                     PIC    X(50000).
+           05 FLT-CAT-TERM                       PIC    X(83).
            05 FLT-CAT-N                          PIC    99.
            05 FLT-CAT-PICK                       PIC    X(60)
                                                  OCCURS 0 TO 10 DEPENDING ON FLT-CAT-N.
@@ -261,10 +266,10 @@
       *> FLS-REQ: the filter of the LAST Apply. The desktop pages and re-sorts the grid with the
       *> WS-WHERE of the last APPLY-FILTERS; FLT-SAVE keeps it here, FLT-RESTORE puts it back.
        01 FLS-REQ                                GLOBAL.
-           05 FLS-NAME-TERM                      PIC    X(320).
-           05 FLS-NAME-N                         PIC    9(3).
-           05 FLS-NAME-PICK                      PIC    X(210)    OCCURS 150.
-           05 FLS-CAT-TERM                       PIC    X(320).
+           05 FLS-NAME-TERM                      PIC    X(83).
+           05 FLS-NAME-N                         PIC    9(5).
+           05 FLS-NAME-FLAGS                     PIC    X(50000).
+           05 FLS-CAT-TERM                       PIC    X(83).
            05 FLS-CAT-N                          PIC    99.
            05 FLS-CAT-PICK                       PIC    X(60)    OCCURS 10.
            05 FLS-DATE-FROM                      PIC    X(10).
@@ -373,6 +378,7 @@
            05 NAM-LISTED                         PIC    9(4).
            05 NAM-ROW                            OCCURS 0 TO 150 DEPENDING ON NAM-LISTED.
                10 NAM-NAME                       PIC    X(210).
+               10 NAM-ID                         PIC    9(9).
                10 NAM-TICK                       PIC    9.
        01 RAD-RES                                GLOBAL.
            05 RAD-STATUS                         PIC    X(8).
@@ -382,18 +388,34 @@
            05 RAD-RV                             OCCURS    3.
                10 RAD-CNT                        PIC    9(9)    OCCURS 10.
       *> The picker state the desktop keeps in its SQL tables pick and vis, kept here per page:
-      *> PK-* the names ticked in each box (pick: 'N' names, 'C' categories; at most 150 names,
-      *> the most one search lists and FLT-REQ carries), VS-* the names the open list shows (vis).
+      *> PK-* the names ticked in each box (pick: 'N' company names as one byte per fund id,
+      *> "1" at the id FUND-NAMES gave the name, as many as the data holds; 'C' categories by
+      *> name), VS-* the names the open list shows (vis) and, for 'N', their ids.
        01 PK-TAB                                 GLOBAL.
-           05 PK-N-N                             PIC    9(3)    VALUE 0.
-           05 PK-N-NAME                          PIC    X(210)    OCCURS 150.
+           05 PK-N-N                             PIC    9(5)    VALUE 0.
+           05 PK-N-FLAGS                         PIC    X(50000)    VALUE SPACES.
            05 PK-C-N                             PIC    99    VALUE 0.
            05 PK-C-NAME                          PIC    X(60)    OCCURS 10.
        01 VS-TAB                                 GLOBAL.
            05 VS-N-N                             PIC    9(3)    VALUE 0.
-           05 VS-N-NAME                          PIC    X(210)    OCCURS 150.
+           05 VS-N-ROW                           OCCURS 150.
+               10 VS-N-NAME                      PIC    X(210).
+               10 VS-N-ID                        PIC    9(9).
            05 VS-C-N                             PIC    99    VALUE 0.
            05 VS-C-NAME                          PIC    X(60)    OCCURS 10.
+      *> TERM-CUT: WS-CUT-IN = a typed text (its first 84 bytes), WS-CUT-OUT = what travels.
+       01 WS-CUT-IN                              GLOBAL    PIC X(84).
+       01 WS-CUT-OUT                             GLOBAL    PIC X(83).
+      *> The header line. WS-STATUS-TXT = what the desktop's own flow wrote there (LOAD-DIMS, or
+      *> INIT-DB without data); a failed Backend call shows its error instead (BACKEND-FAIL,
+      *> WS-BE-SHOWN = 1) until a later flow of calls runs without a failure (BE-FLOW-END).
+      *> WS-BE-FAILS counts failed calls; WS-BE-MARK = the count when the outermost flow began;
+      *> WS-BE-DEPTH = flows running (Apply runs the grid's flow inside its own).
+       01 WS-STATUS-TXT                          GLOBAL    PIC X(120)    VALUE SPACES.
+       01 WS-BE-SHOWN                            GLOBAL    PIC 9    VALUE 0.
+       01 WS-BE-FAILS                            GLOBAL    PIC 9(9)    VALUE 0.
+       01 WS-BE-MARK                             GLOBAL    PIC 9(9)    VALUE 0.
+       01 WS-BE-DEPTH                            GLOBAL    PIC 9(4)    VALUE 0.
       *> How the last Backend call went: BE-PROG the program, BE-STATUS its status word (or the
       *> class of a failed call), BE-CODE / BE-MSG what COBOL::"WS-LAST-ERROR" or the program said.
        01 BE-PROG                                GLOBAL    PIC X(12).
@@ -600,7 +622,8 @@
                WHEN "TRUNC"
                    SET     WS-LOADED             TO    1
                WHEN "NOFILE"
-                   SET     LBL-STATUS::Caption   TO    "Base de dados não encontrada (data/fundos.sql)"
+                   SET     WS-STATUS-TXT         TO    "Base de dados não encontrada (data/fundos.sql)"
+                   SET     LBL-STATUS::Caption   TO    WS-STATUS-TXT
                WHEN "CALL"
 
                    *> BACKEND-FAIL: shows in the header line that a Backend call failed.
@@ -634,10 +657,13 @@
 
        PROCEDURE DIVISION.
            *> The answers come from FUND-INIT (INI-RES, asked by INIT-DB): the same five
-           *> statements the desktop runs here. Without them (no database, Backend down) the
-           *> header keeps the message INIT-DB wrote.
+           *> statements the desktop runs here. Without data/fundos.sql (NOFILE) the desktop
+           *> still runs them on its empty database: 0 funds, no date, no names, and this line
+           *> replaces INIT-DB's message; FUND-INIT answers the same zeros and blanks. Only a
+           *> call that failed (Backend down) has no desktop counterpart: then the header keeps
+           *> the error BACKEND-FAIL wrote, and APPLY-FILTERS asks FUND-INIT again.
 
-           IF    WS-LOADED = 0
+           IF    WS-LOADED = 0 AND INI-STATUS NOT = "NOFILE"
                EXIT PARAGRAPH
            END-IF
            SET     WS-UNIV                       TO    INI-UNIV
@@ -656,6 +682,8 @@
            STRING    "Base ANBIMA  |  referência " WS-ROW::Trim() "  |  " WS-FT::Trim() " fundo(s)"
                INTO WS-TXT
            SET     LBL-STATUS::Caption           TO    WS-TXT
+           SET     WS-STATUS-TXT                 TO    WS-TXT
+           SET     WS-BE-SHOWN                   TO    0
 
            LST-N2::Clear()
            LST-N3::Clear()
@@ -937,6 +965,11 @@
            *> match for the footer, so the total can exceed what is listed. For "C" the ten
            *> categories are folded and tested with instr() by the Backend, as the desktop did.
 
+           *> BE-FLOW-BEGIN: a flow of Backend calls starts (FUND-NAMES).
+           *> Uses:   WS-BE-DEPTH (0: no flow running) and WS-BE-FAILS.
+           *> Result: WS-BE-DEPTH + 1; WS-BE-MARK = WS-BE-FAILS.
+
+           CALL    "BE-FLOW-BEGIN"
            SET     NAM-BOX                       TO    WS-SM
            SET     BE-PROG                       TO    "FUND-NAMES"
            SET     NAM-STATUS                    TO    SPACES
@@ -967,6 +1000,13 @@
                CALL    "BACKEND-FAIL"
            END-IF
 
+           *> BE-FLOW-END: the flow of Backend calls ends.
+           *> Uses:   WS-BE-DEPTH, WS-BE-FAILS against WS-BE-MARK, WS-BE-SHOWN, WS-STATUS-TXT.
+           *> Result: WS-BE-DEPTH - 1; when FUND-NAMES answered and a Backend error was showing,
+           *>         LBL-STATUS::Caption = WS-STATUS-TXT again and WS-BE-SHOWN = 0.
+
+           CALL    "BE-FLOW-END"
+
            SET     WS-SMN                        TO    NAM-MATCHES
            SET     WS-SMK                        TO    0
            IF    WS-SM = "N"
@@ -983,6 +1023,7 @@
                IF    WS-SM = "N"
                    ADD    1 TO VS-N-N
                    SET     VS-N-NAME(VS-N-N)     TO    NAM-NAME(WS-SK2)
+                   SET     VS-N-ID(VS-N-N)       TO    NAM-ID(WS-SK2)
                ELSE
                    IF    VS-C-N < 10
                        ADD    1 TO VS-C-N
@@ -1027,8 +1068,9 @@
            SET     WS-TODOS                      TO    0
 
            *> In Todos mode the list ticks 'Todos' and every name; otherwise only the
-           *> listed names already kept (PK-TAB). Names are joined with LF, the separator
-           *> CheckedItems uses, in the order of the list (VS-TAB).
+           *> listed names already kept (PK-TAB: a company name by the byte of its id). Names
+           *> are joined with LF, the separator CheckedItems uses, in the order of the list
+           *> (VS-TAB).
 
            IF    (WS-SM = "N" AND WS-ALL-N = 1) OR (WS-SM = "C" AND WS-ALL-C = 1)
                SET     WS-TODOS                  TO    1
@@ -1038,11 +1080,11 @@
            IF    WS-SM = "N"
                PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > VS-N-N
                    SET     WS-HIT                TO    WS-TODOS
-                   PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > PK-N-N OR WS-HIT = 1
-                       IF    PK-N-NAME(WS-J) = VS-N-NAME(WS-I)
+                   IF    WS-HIT = 0 AND VS-N-ID(WS-I) > 0 AND VS-N-ID(WS-I) <= 50000
+                       IF    PK-N-FLAGS(VS-N-ID(WS-I):1) = "1"
                            SET     WS-HIT        TO    1
                        END-IF
-                   END-PERFORM
+                   END-IF
                    IF    WS-HIT = 1
                        IF    WS-BPTR > 1
                            STRING    X"0A" INTO WS-BIG WITH POINTER WS-BPTR
@@ -1233,6 +1275,7 @@
                    CALL    "SM-SET-ALL"
                    IF    WS-SM = "N"
                        SET     PK-N-N            TO    0
+                       SET     PK-N-FLAGS        TO    SPACES
                    ELSE
                        SET     PK-C-N            TO    0
                    END-IF
@@ -1247,6 +1290,7 @@
                    CALL    "SM-CLR-ALL"
                    IF    WS-SM = "N"
                        SET     PK-N-N            TO    0
+                       SET     PK-N-FLAGS        TO    SPACES
                    ELSE
                        SET     PK-C-N            TO    0
                    END-IF
@@ -1262,45 +1306,31 @@
 
                    CALL    "SM-CLR-ALL"
                    IF    WS-SM = "N"
-                   *> DELETE FROM pick: a kept name that is listed and no longer ticked goes.
-                   SET     WS-K                          TO    0
-                   PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > PK-N-N
-                       SET     WS-IN-VIS                 TO    0
-                       PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > VS-N-N OR WS-IN-VIS = 1
-                           IF    VS-N-NAME(WS-J) = PK-N-NAME(WS-I)
-                               SET     WS-IN-VIS         TO    1
-                           END-IF
-                       END-PERFORM
+                   *> DELETE FROM pick (a kept name that is listed and no longer ticked goes) and
+                   *> INSERT OR IGNORE INTO pick (a ticked name that is listed comes in), one listed
+                   *> row at a time: the row's id byte follows its tick. A kept name the list does
+                   *> not show is left as it is. A ticked line is read into X(200) (WS-ONE, as on
+                   *> the desktop), so a name longer than 200 bytes never equals its list row and
+                   *> is never kept, exactly as the desktop's chk/vis comparison goes.
+                   PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > VS-N-N
                        SET     WS-IN-CHK                 TO    0
                        PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-CK-N OR WS-IN-CHK = 1
-                           IF    WS-CK-NAME(WS-J) = PK-N-NAME(WS-I)
+                           IF    WS-CK-NAME(WS-J) = VS-N-NAME(WS-I)
                                SET     WS-IN-CHK         TO    1
                            END-IF
                        END-PERFORM
-                       IF    WS-IN-VIS = 0 OR WS-IN-CHK = 1
-                           ADD    1 TO WS-K
-                           SET     PK-N-NAME(WS-K)       TO    PK-N-NAME(WS-I)
-                       END-IF
-                   END-PERFORM
-                   SET     PK-N-N                        TO    WS-K
-                   *> INSERT OR IGNORE INTO pick: a ticked name that is listed and not kept yet comes in
-                   *> (at most 150 names: the most FLT-REQ carries to the Backend).
-                   PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-CK-N
-                       SET     WS-IN-VIS                 TO    0
-                       PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > VS-N-N OR WS-IN-VIS = 1
-                           IF    VS-N-NAME(WS-J) = WS-CK-NAME(WS-I)
-                               SET     WS-IN-VIS         TO    1
+                       IF    VS-N-ID(WS-I) > 0 AND VS-N-ID(WS-I) <= 50000
+                           IF    WS-IN-CHK = 1
+                               IF    PK-N-FLAGS(VS-N-ID(WS-I):1) NOT = "1"
+                                   SET     PK-N-FLAGS(VS-N-ID(WS-I):1) TO "1"
+                                   ADD    1 TO PK-N-N
+                               END-IF
+                           ELSE
+                               IF    PK-N-FLAGS(VS-N-ID(WS-I):1) = "1"
+                                   SET     PK-N-FLAGS(VS-N-ID(WS-I):1) TO SPACE
+                                   SUBTRACT    1 FROM PK-N-N
+                               END-IF
                            END-IF
-                       END-PERFORM
-                       SET     WS-HAVE                   TO    0
-                       PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > PK-N-N OR WS-HAVE = 1
-                           IF    PK-N-NAME(WS-J) = WS-CK-NAME(WS-I)
-                               SET     WS-HAVE           TO    1
-                           END-IF
-                       END-PERFORM
-                       IF    WS-IN-VIS = 1 AND WS-HAVE = 0 AND PK-N-N < 150
-                           ADD    1 TO PK-N-N
-                           SET     PK-N-NAME(PK-N-N)     TO    WS-CK-NAME(WS-I)
                        END-IF
                    END-PERFORM
                    ELSE
@@ -1408,6 +1438,7 @@
            CALL    "SM-CLR-ALL"
            IF    WS-SM = "N"
                SET     PK-N-N                    TO    0
+               SET     PK-N-FLAGS                TO    SPACES
            ELSE
                SET     PK-C-N                    TO    0
            END-IF
@@ -1444,6 +1475,7 @@
 
        PROCEDURE DIVISION.
            SET     PK-N-N                        TO    0
+           SET     PK-N-FLAGS                    TO    SPACES
            SET     PK-C-N                        TO    0
            SET     VS-N-N                        TO    0
            SET     VS-C-N                        TO    0
@@ -1480,15 +1512,22 @@
 
            *> Picked names, if any, replace the typed text as the filter. Todos mode
            *> keeps no picks (FLT-NAME-N stays 0), so it falls back to the text, which
-           *> means every search hit. The rule itself is applied by the Backend (view fv).
+           *> means every search hit. The rule itself is applied by the Backend (OPN-MAKE-WHERE).
 
-           SET     FLT-NAME-TERM                 TO    TXT-NOME::Text
+           SET     WS-CUT-IN                     TO    TXT-NOME::Text
+
+           *> TERM-CUT: the part of a typed text that travels to the Backend.
+           *> Uses:   WS-CUT-IN = TXT-NOME::Text, set just above (its first 84 bytes).
+           *> Result: WS-CUT-OUT = its first 80 bytes (the desktop's WS-TERM) and, when the 80th
+           *>         byte falls inside a letter, the rest of that letter; the Backend cuts it to 80.
+
+           CALL    "TERM-CUT"
+           SET     FLT-NAME-TERM                 TO    WS-CUT-OUT
            SET     FLT-NAME-N                    TO    0
+           SET     FLT-NAME-FLAGS                TO    SPACES
            IF    WS-ALL-N = 0
                SET     FLT-NAME-N                TO    PK-N-N
-               PERFORM    VARYING WS-K1 FROM 1 BY 1 UNTIL WS-K1 > PK-N-N
-                   SET     FLT-NAME-PICK(WS-K1)  TO    PK-N-NAME(WS-K1)
-               END-PERFORM
+               SET     FLT-NAME-FLAGS            TO    PK-N-FLAGS
            END-IF
 ]]></Event>
     <Event name="CAT-CLAUSE" paragraph="CAT-CLAUSE"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1514,7 +1553,15 @@
            *> categories whose folded name contains it (the desktop's table vis, which the
            *> Backend computes from FLT-CAT-TERM: nivel1 has no folded key column).
 
-           SET     FLT-CAT-TERM                  TO    TXT-CAT::Text
+           SET     WS-CUT-IN                     TO    TXT-CAT::Text
+
+           *> TERM-CUT: the part of a typed text that travels to the Backend.
+           *> Uses:   WS-CUT-IN = TXT-CAT::Text, set just above (its first 84 bytes).
+           *> Result: WS-CUT-OUT = its first 80 bytes (the desktop's WS-TERM) and, when the 80th
+           *>         byte falls inside a letter, the rest of that letter; the Backend cuts it to 80.
+
+           CALL    "TERM-CUT"
+           SET     FLT-CAT-TERM                  TO    WS-CUT-OUT
            SET     FLT-CAT-N                     TO    0
            IF    WS-ALL-C = 0
                SET     FLT-CAT-N                 TO    PK-C-N
@@ -3504,6 +3551,20 @@
            *>         1..WS-PAGES; GRD-FUNDOS cleared and given the rows of that page (16 columns
            *>         each).
 
+           *> BE-FLOW-BEGIN: a flow of Backend calls starts (the FUND-GRID calls of Q-GRID).
+           *> Uses:   WS-BE-DEPTH (0 when this is not inside APPLY-FILTERS) and WS-BE-FAILS.
+           *> Result: WS-BE-DEPTH + 1; WS-BE-MARK = WS-BE-FAILS when no flow was running.
+
+           CALL    "BE-FLOW-BEGIN"
+
+           *> Q-GRID: loads one page of the filtered funds into the grid GRD-FUNDOS, in the order
+           *> chosen in CMB-ORDER.
+           *> Uses:   FLT-REQ (from BUILD-WHERE), CMB-ORDER::Value, WS-T-CNT, WS-PSIZE (300 rows
+           *>         per page) and WS-PAGE.
+           *> Result: WS-PAGES = WS-T-CNT / WS-PSIZE rounded up (1 when empty); WS-PAGE clamped to
+           *>         1..WS-PAGES; GRD-FUNDOS cleared and given the rows of that page (16 columns
+           *>         each).
+
            CALL    "Q-GRID"
 
            *> PAINT-GRID-INFO: updates the grid captions and the paging buttons.
@@ -3514,13 +3575,54 @@
            *>         WS-PAGE < WS-PAGES.
 
            CALL    "PAINT-GRID-INFO"
+
+           *> BE-FLOW-END: the flow of Backend calls ends.
+           *> Uses:   WS-BE-DEPTH, WS-BE-FAILS against WS-BE-MARK, WS-BE-SHOWN, WS-STATUS-TXT.
+           *> Result: WS-BE-DEPTH - 1; when it reaches 0 with no call failed since BE-FLOW-BEGIN and
+           *>         a Backend error showing, LBL-STATUS::Caption = WS-STATUS-TXT, WS-BE-SHOWN = 0.
+
+           CALL    "BE-FLOW-END"
 ]]></Event>
     <Event name="APPLY-FILTERS" paragraph="APPLY-FILTERS"><![CDATA[       ENVIRONMENT DIVISION.
 
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+           *> BE-FLOW-BEGIN: a flow of Backend calls starts (FUND-INIT again, or the queries).
+           *> Uses:   WS-BE-DEPTH (0: no flow running) and WS-BE-FAILS.
+           *> Result: WS-BE-DEPTH + 1; WS-BE-MARK = WS-BE-FAILS.
+
+           CALL    "BE-FLOW-BEGIN"
+
+           *> A FUND-INIT that FAILED (the Backend was not reachable at start-up) is asked again:
+           *> the desktop always has its database, so its Apply never meets this. Without data
+           *> (NOFILE) nothing is asked again, as on the desktop (WS-LOADED stays 0).
+
+           IF    WS-LOADED = 0 AND INI-STATUS NOT = "NOFILE"
+
+               *> INIT-DB: asks the Backend for the database (FUND-INIT).
+               *> Uses:   nothing of the form; FUND-INIT builds data/fundos.db on first use.
+               *> Result: INI-RES = the universe, reference date, category slots and level
+               *>         names; WS-LOADED = 1 when the answer is OK or TRUNC; a failure goes to
+               *>         BACKEND-FAIL (header error, WS-BE-FAILS + 1).
+
+               CALL    "INIT-DB"
+
+               *> LOAD-DIMS: paints what FUND-INIT answered.
+               *> Uses:   INI-RES and WS-LOADED from INIT-DB just above.
+               *> Result: LBL-STATUS::Caption and WS-STATUS-TXT = the desktop's status line;
+               *>         WS-UNIV, WS-CAT-NAME(1..10), WS-CATCNT; LST-N2 / LST-N3 items. Nothing
+               *>         when the call failed again.
+
+               CALL    "LOAD-DIMS"
+           END-IF
            IF    WS-LOADED = 0
+
+               *> BE-FLOW-END: the flow of Backend calls ends.
+               *> Uses:   WS-BE-DEPTH, WS-BE-FAILS against WS-BE-MARK, WS-BE-SHOWN.
+               *> Result: WS-BE-DEPTH - 1 (a failed FUND-INIT keeps its error in the header).
+
+               CALL    "BE-FLOW-END"
                EXIT PARAGRAPH
            END-IF
            SET     WS-PAGE                       TO    1
@@ -3664,6 +3766,14 @@
            *>         and BTN-NEXT match that page.
 
            CALL    "REFRESH-GRID"
+
+           *> BE-FLOW-END: the flow of Backend calls of this Apply ends.
+           *> Uses:   WS-BE-DEPTH, WS-BE-FAILS against WS-BE-MARK (set by BE-FLOW-BEGIN above),
+           *>         WS-BE-SHOWN and WS-STATUS-TXT.
+           *> Result: WS-BE-DEPTH - 1; when every call of this Apply answered and a Backend error
+           *>         was showing, LBL-STATUS::Caption = WS-STATUS-TXT again and WS-BE-SHOWN = 0.
+
+           CALL    "BE-FLOW-END"
 ]]></Event>
     <Event name="PAINT-BINS" paragraph="PAINT-BINS"><![CDATA[       ENVIRONMENT DIVISION.
 
@@ -4964,9 +5074,7 @@
 
            SET     FLS-NAME-TERM                 TO    FLT-NAME-TERM
            SET     FLS-NAME-N                    TO    FLT-NAME-N
-           PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > FLT-NAME-N
-               SET     FLS-NAME-PICK(WS-I)       TO    FLT-NAME-PICK(WS-I)
-           END-PERFORM
+           SET     FLS-NAME-FLAGS                TO    FLT-NAME-FLAGS
            SET     FLS-CAT-TERM                  TO    FLT-CAT-TERM
            SET     FLS-CAT-N                     TO    FLT-CAT-N
            PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > FLT-CAT-N
@@ -4997,9 +5105,7 @@
 
            SET     FLT-NAME-TERM                 TO    FLS-NAME-TERM
            SET     FLT-NAME-N                    TO    FLS-NAME-N
-           PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > FLS-NAME-N
-               SET     FLT-NAME-PICK(WS-I)       TO    FLS-NAME-PICK(WS-I)
-           END-PERFORM
+           SET     FLT-NAME-FLAGS                TO    FLS-NAME-FLAGS
            SET     FLT-CAT-TERM                  TO    FLS-CAT-TERM
            SET     FLT-CAT-N                     TO    FLS-CAT-N
            PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > FLS-CAT-N
@@ -5030,10 +5136,77 @@
            *> such case (its database is in the program), so the web form says it in the
            *> header line instead of painting zeros silently.
 
+           *> The message stays while calls fail; BE-FLOW-END puts the desktop's line back once
+           *> a flow of calls (Apply, a page of the grid, a search list) runs without a failure.
+
+           ADD    1 TO WS-BE-FAILS
+           SET     WS-BE-SHOWN                   TO    1
            SET     WS-TXT                        TO    SPACES
            STRING    "Backend " BE-PROG::Trim() ": " BE-STATUS::Trim() " " BE-MSG::Trim()
                INTO WS-TXT
            SET     LBL-STATUS::Caption           TO    WS-TXT
+]]></Event>
+    <Event name="BE-FLOW-BEGIN" paragraph="BE-FLOW-BEGIN"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> A flow of Backend calls starts (APPLY-FILTERS, REFRESH-GRID, SM-REFRESH). The
+           *> outermost one notes how many calls had failed so far.
+
+           IF    WS-BE-DEPTH = 0
+               SET     WS-BE-MARK                TO    WS-BE-FAILS
+           END-IF
+           ADD    1 TO WS-BE-DEPTH
+]]></Event>
+    <Event name="BE-FLOW-END" paragraph="BE-FLOW-END"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> A flow of Backend calls ends. When the outermost one ran without a failed call and
+           *> the header shows a Backend error, the header gets back the line the desktop's flow
+           *> wrote (WS-STATUS-TXT): on the desktop that line never changes after start-up.
+
+           IF    WS-BE-DEPTH > 0
+               SUBTRACT    1 FROM WS-BE-DEPTH
+           END-IF
+           IF    WS-BE-DEPTH = 0 AND WS-BE-FAILS = WS-BE-MARK AND WS-BE-SHOWN = 1
+               SET     WS-BE-SHOWN               TO    0
+               SET     LBL-STATUS::Caption       TO    WS-STATUS-TXT
+           END-IF
+]]></Event>
+    <Event name="TERM-CUT" paragraph="TERM-CUT"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       WORKING-STORAGE SECTION.
+       01 WS-CUT-K                               PIC    99.
+      *> One byte of the text read as a number (0 to 255): WS-CUT-LO under a zero high byte.
+      *> A literal cannot spell the byte: X"80" is the CHARACTER U+0080, two bytes in UTF-8.
+       01 WS-CUT-BYTE.
+           05 WS-CUT-HI                          PIC    X    VALUE LOW-VALUE.
+           05 WS-CUT-LO                          PIC    X.
+       01 WS-CUT-CODE                            REDEFINES    WS-CUT-BYTE    PIC 9(4)    BINARY.
+
+       PROCEDURE DIVISION.
+           *> The desktop keeps the first 80 BYTES of a typed text (WS-TERM, PIC X(80)), also when
+           *> the 80th byte falls inside a letter: then its search finds nothing. A request must be
+           *> UTF-8, so the form sends the 80 bytes plus the bytes 81 to 83 that continue that
+           *> letter (UTF-8 continuation bytes, 128 to 191); the Backend cuts the text to 80
+           *> bytes again, the desktop's cut, in the same runtime.
+
+           SET     WS-CUT-OUT                    TO    SPACES
+           SET     WS-CUT-K                      TO    80
+           PERFORM    UNTIL WS-CUT-K >= 83
+               SET     WS-CUT-HI                 TO    LOW-VALUE
+               SET     WS-CUT-LO                 TO    WS-CUT-IN(WS-CUT-K + 1:1)
+               IF    WS-CUT-CODE < 128 OR WS-CUT-CODE > 191
+                   EXIT PERFORM
+               END-IF
+               ADD    1 TO WS-CUT-K
+           END-PERFORM
+           SET     WS-CUT-OUT                    TO    WS-CUT-IN(1:WS-CUT-K)
 ]]></Event>
   </user-procedures>
   <form-events>

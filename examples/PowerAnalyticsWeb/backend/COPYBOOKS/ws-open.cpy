@@ -21,6 +21,7 @@
        01 SH-WHY                                 PIC    X(160).
        01 SH-I                                   PIC    9(4).
        01 SH-ONE                                 PIC    X(210).
+       01 SH-PICK-N                              PIC    9(9).
        01 SH-TERM-N                              PIC    X(80).
        01 SH-TERM-C                              PIC    X(80).
        01 SH-N2-ON                               PIC    9.

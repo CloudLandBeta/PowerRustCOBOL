@@ -3,6 +3,8 @@
       *> NAM-MATCHES  WS-SMN: for N the DISTINCT names that match (the whole count, listed or not); for C the categories kept
       *> NAM-LISTED   WS-SMK: the names listed (N: the first 150 by name; C: every category kept, in popularity order)
       *> NAM-NAME(k)  the k-th item of the list after "Todos" (the original name, not the folded key)
+      *> NAM-ID(k)    N: the id of the first fund (lowest id) carrying that name, the byte of FLT-NAME-FLAGS that
+      *>              ticks it; C: 0 (the ten categories travel by name)
       *> NAM-TICK(k)  1 when that name is among the ticked ones of the request (the rows SM-TICKS ticks outside "Todos" mode)
        01 NAM-RES.
           05 NAM-STATUS                          PIC    X(8).
@@ -12,4 +14,5 @@
           05 NAM-LISTED                          PIC    9(4).
           05 NAM-ROW                             OCCURS 0 TO 150 DEPENDING ON NAM-LISTED.
              10 NAM-NAME                         PIC    X(210).
+             10 NAM-ID                           PIC    9(9).
              10 NAM-TICK                         PIC    9.

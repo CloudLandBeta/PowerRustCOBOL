@@ -661,7 +661,7 @@ aws_connections = []
 style = "spa"
 multi_memory = true
 isolation = "require-corp"
-backend_url = ""
+backend_url = "ws://127.0.0.1:8443/ws"
 
 [web.browsers]
 chromium = true

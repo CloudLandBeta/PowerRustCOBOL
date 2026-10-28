@@ -21,6 +21,7 @@
        WORKING-STORAGE SECTION.
            COPY "backend/COPYBOOKS/ws-open".
        01 WS-NAME                                PIC    X(210).
+       01 WS-ID                                  PIC    9(9).
        01 WS-TICK                                PIC    9.
        01 WS-BYTES                               PIC    9(9).
        01 WS-STOP                                PIC    9.
@@ -74,7 +75,7 @@
            END-EXEC
            EXEC SQL
                DECLARE C-NAMES CURSOR FOR
-                   SELECT nome, EXISTS (SELECT 1 FROM pick WHERE fld = 'N' AND name = fundos.nome)
+                   SELECT nome, MIN(id), EXISTS (SELECT 1 FROM pick WHERE fld = 'N' AND name = fundos.nome)
                      FROM fundos
                     WHERE nome IS NOT NULL AND nome <> '' AND nome_key LIKE :WS-PAT
                     GROUP BY nome ORDER BY nome LIMIT 150
@@ -83,7 +84,7 @@
            MOVE    0                             TO    WS-STOP
            MOVE    0                             TO    WS-BYTES
            PERFORM UNTIL SQLSTATE(1:2) > "01" OR WS-STOP = 1
-               EXEC SQL FETCH C-NAMES INTO :WS-NAME, :WS-TICK END-EXEC
+               EXEC SQL FETCH C-NAMES INTO :WS-NAME, :WS-ID, :WS-TICK END-EXEC
                PERFORM NAM-TAKE
            END-PERFORM
            EXEC SQL CLOSE C-NAMES END-EXEC
@@ -94,14 +95,14 @@
        NAM-READ-CATS.
            EXEC SQL
                DECLARE C-CATS CURSOR FOR
-                   SELECT v.name, EXISTS (SELECT 1 FROM pick x WHERE x.fld = 'C' AND x.name = v.name)
+                   SELECT v.name, 0, EXISTS (SELECT 1 FROM pick x WHERE x.fld = 'C' AND x.name = v.name)
                      FROM vis v WHERE v.fld = 'C' ORDER BY v.rowid
            END-EXEC
            EXEC SQL OPEN C-CATS END-EXEC
            MOVE    0                             TO    WS-STOP
            MOVE    0                             TO    WS-BYTES
            PERFORM UNTIL SQLSTATE(1:2) > "01" OR WS-STOP = 1
-               EXEC SQL FETCH C-CATS INTO :WS-NAME, :WS-TICK END-EXEC
+               EXEC SQL FETCH C-CATS INTO :WS-NAME, :WS-ID, :WS-TICK END-EXEC
                PERFORM NAM-TAKE
            END-PERFORM
            EXEC SQL CLOSE C-CATS END-EXEC
@@ -127,6 +128,7 @@
                ELSE
                    ADD     1                     TO    NAM-LISTED
                    MOVE    WS-NAME               TO    NAM-NAME (NAM-LISTED)
+                   MOVE    WS-ID                 TO    NAM-ID (NAM-LISTED)
                    MOVE    WS-TICK               TO    NAM-TICK (NAM-LISTED)
                END-IF
            END-IF.

@@ -34,6 +34,10 @@
            END-IF.
 
       *> The ticked names, one row each, in the desktop's own tables (INIT-DB: pick and vis, same columns, same key).
+      *> A ticked company name arrives as the byte of its fund id in FLT-NAME-FLAGS ("1"); the row of pick is that
+      *> fund's name, the text the desktop stores for the ticked list row. One statement with the flags bound once:
+      *> substr() of a BLOB reads byte k directly (on a TEXT it would walk the characters: 0.8 s instead of 3 ms).
+      *> SH-PICK-N = the names in pick afterwards: NAME-CLAUSE of the desktop counts them the same way.
        OPN-MAKE-PICKS.
            EXEC SQL CREATE TEMP TABLE pick (fld TEXT, name TEXT, PRIMARY KEY (fld, name)) END-EXEC
            EXEC SQL CREATE TEMP TABLE vis (fld TEXT, name TEXT) END-EXEC
@@ -41,10 +45,20 @@
                PERFORM OPN-SQL-FAILED
                EXIT PARAGRAPH
            END-IF
-           PERFORM VARYING SH-I FROM 1 BY 1 UNTIL SH-I > FLT-NAME-N
-               MOVE    FLT-NAME-PICK (SH-I)      TO    SH-ONE
-               EXEC SQL INSERT OR IGNORE INTO pick VALUES ('N', :SH-ONE) END-EXEC
-           END-PERFORM
+           MOVE    0                             TO    SH-PICK-N
+           IF FLT-NAME-N > 0
+               EXEC SQL
+                   INSERT OR IGNORE INTO pick
+                       SELECT 'N', nome FROM fundos
+                        WHERE substr(CAST(:FLT-NAME-FLAGS AS BLOB), id, 1) = x'31'
+                          AND nome IS NOT NULL AND nome <> ''
+               END-EXEC
+               IF SQLSTATE(1:2) > "02"
+                   PERFORM OPN-SQL-FAILED
+                   EXIT PARAGRAPH
+               END-IF
+               EXEC SQL SELECT COUNT(*) INTO :SH-PICK-N FROM pick WHERE fld = 'N' END-EXEC
+           END-IF
            PERFORM VARYING SH-I FROM 1 BY 1 UNTIL SH-I > FLT-CAT-N
                MOVE    FLT-CAT-PICK (SH-I)       TO    SH-ONE
                EXEC SQL INSERT OR IGNORE INTO pick VALUES ('C', :SH-ONE) END-EXEC
@@ -166,7 +180,7 @@
            MOVE    0                             TO    SQLDA-COUNT
            STRING  "WHERE 1=1" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
       *>   NAME-CLAUSE: picked names win (in Todos mode the form sends none); else the folded text, when not blank.
-           IF FLT-NAME-N > 0
+           IF SH-PICK-N > 0
                STRING  " AND nome IN (SELECT name FROM pick WHERE fld = 'N')"
                    DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
            ELSE
