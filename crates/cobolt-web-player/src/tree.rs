@@ -71,6 +71,16 @@ pub struct Ctl {
     /// `None` is the base. Only a direct child of the form carries one: a control inside a container
     /// belongs to its container's layer (spec 091 R8), and a name the form does not define is the base (R40).
     pub layer: Option<usize>,
+    /// A Timer ticks while this is on (the desktop renderer, `render.rs` CT::Timer): its own `Enabled`
+    /// *property*, on when the design has none, and whatever the program last wrote to `Enabled` since.
+    /// The element's `enabled` flag never starts or stops it, though it is what `TMR::Enabled` reads at
+    /// load (the desktop seeds the flag over the property). Always on for every other control.
+    pub timer_on: bool,
+    /// Toggle properties (`Checked`/`Selected`/`Value`) whose last write was a click's — or the `0` a radio
+    /// gets when another of its group turns on: the program reads them as written, not canonicalised, because
+    /// the desktop stores those writes as they come (`render.rs` `push_toggle_state`, form-host
+    /// `clear_radio_siblings`), where a program's own `SET` is canonicalised (`property_runtime_text`).
+    ui_raw: Vec<String>,
 }
 
 impl Ctl {
@@ -292,19 +302,24 @@ fn control_props(c: &Control) -> IndexMap<String, String> {
     props.insert("width".into(), c.rect.w.to_string());
     props.insert("height".into(), c.rect.h.to_string());
     props.insert("visible".into(), if c.visible { "1" } else { "0" }.into());
-    // A Timer runs while its own `Enabled` *property* says so, not the control flag of the element (the
-    // desktop's renderer, `render.rs` CT::Timer, and codegen's WS-<timer>-ENABLED): a Timer designed with
-    // `enabled="true"` and `Enabled` false waits for the program to start it.
-    let timer_property = c.control_type == ControlType::Timer && c.properties.keys().any(|k| k.eq_ignore_ascii_case("Enabled"));
-    if !timer_property {
-        props.insert("enabled".into(), if c.enabled { "1" } else { "0" }.into());
-    }
+    // What `Enabled` reads at load is the element's flag, for a Timer too: the desktop seeds the flag after the
+    // designed properties (form-host `seeding.rs`). Whether a Timer RUNS is `Ctl::timer_on`.
+    props.insert("enabled".into(), if c.enabled { "1" } else { "0" }.into());
     props.insert("taborder".into(), c.tab_order.to_string());
     props.insert("zorder".into(), c.z_order.to_string());
     if let Some(t) = c.tab {
         props.insert("tab".into(), t.to_string());
     }
     props
+}
+
+/// Whether a Timer is running when its form opens: its own `Enabled` property, on when the design has none;
+/// the element's `enabled` flag plays no part (`render.rs` CT::Timer, `prop_bool(ctrl, "Enabled", true)`).
+fn timer_designed_on(c: &Control) -> bool {
+    if c.control_type != ControlType::Timer {
+        return true;
+    }
+    c.properties.iter().find(|(k, _)| k.eq_ignore_ascii_case("Enabled")).map(|(_, v)| v.as_bool()).unwrap_or(true)
 }
 
 fn form_props(f: &Form) -> IndexMap<String, String> {
@@ -381,6 +396,8 @@ impl FormTree {
             bound: bound_for(cobolt_wasm_abi::codes::ctrl::FORM),
             rev: 0,
             layer: None,
+            timer_on: true,
+            ui_raw: Vec::new(),
         });
         // The layers: every one starts hidden in a new instance (spec 091 R35, WASM-016 R19).
         let layers: Vec<LayerState> = form
@@ -436,6 +453,8 @@ impl FormTree {
                 bound: abi.map(|a| bound_for(a.id)).unwrap_or_default(),
                 rev: 0,
                 layer,
+                timer_on: timer_designed_on(c),
+                ui_raw: Vec::new(),
             });
         }
         // Parent links, from the flat list.
@@ -657,6 +676,9 @@ impl FormTree {
         let key = name.trim().to_ascii_lowercase();
         let tn = c.kind.type_name();
         if let Some(stored) = c.props.get(&key) {
+            if c.ui_raw.contains(&key) {
+                return stored.clone();
+            }
             return property_runtime_text(&tn, name.trim(), stored);
         }
         if let Kind::Control(t) = &c.kind {
@@ -694,12 +716,19 @@ impl FormTree {
                 self.ctls[ctl].props.insert(k.to_ascii_lowercase(), value.clone());
                 self.touch(ctl, &k.to_ascii_lowercase());
             }
+            // The program's own write reads canonically; a `Value` a click left stays as the click wrote it.
+            self.ctls[ctl].ui_raw.retain(|k| k == "value");
         } else {
             self.ctls[ctl].props.insert(key.clone(), value.clone());
             self.touch(ctl, &key);
+            self.ctls[ctl].ui_raw.retain(|k| *k != key);
         }
         if is_radio && toggle && turned_on(&value) {
-            self.clear_radio_siblings(ctl);
+            self.clear_radio_group(ctl);
+        }
+        // A program's `SET TMR::Enabled` starts and stops a Timer, whatever its design.
+        if key == "enabled" && matches!(&self.ctls[ctl].kind, Kind::Control(ControlType::Timer)) {
+            self.ctls[ctl].timer_on = turned_on(&value);
         }
         // Observer events: only when the value actually changed.
         let changed = before.as_deref() != Some(value.as_str());
@@ -727,8 +756,17 @@ impl FormTree {
                 self.ctls[ctl].props.insert(k.to_ascii_lowercase(), value.to_owned());
                 self.touch(ctl, &k.to_ascii_lowercase());
             }
+            // The program reads a click as the click spelled it (`1`/`0` for a CheckBox or a RadioButton,
+            // `true`/`false` for a Switch), as the desktop's render engine writes it into the live state; a
+            // CheckBox or a RadioButton click writes its `Value` too (`render.rs` `push_toggle_state`).
+            self.ctls[ctl].ui_raw = vec![SELECTED_PROP.to_ascii_lowercase(), CHECKED_PROP.to_ascii_lowercase()];
+            if matches!(&self.ctls[ctl].kind, Kind::Control(ControlType::CheckBox | ControlType::RadioButton)) {
+                self.ctls[ctl].props.insert("value".into(), value.to_owned());
+                self.touch(ctl, "value");
+                self.ctls[ctl].ui_raw.push("value".into());
+            }
             if matches!(&self.ctls[ctl].kind, Kind::Control(ControlType::RadioButton)) && turned_on(value) {
-                self.clear_radio_siblings(ctl);
+                self.clear_radio_group(ctl);
             }
         } else {
             self.ctls[ctl].props.insert(key.clone(), value.to_owned());
@@ -750,21 +788,23 @@ impl FormTree {
     }
 
     /// One radio at a time within its group, whoever turned it on.
-    fn clear_radio_siblings(&mut self, ctl: usize) {
+    /// A radio turned on turns every other radio of its group off, and the desktop writes `0` to each of them,
+    /// lit or not, under `Selected`, `Checked` and `Value` — after a click (`render.rs`
+    /// `clear_radio_group_siblings`) and after a program's write (form-host `clear_radio_siblings`): that `0` is
+    /// what the program reads back.
+    fn clear_radio_group(&mut self, ctl: usize) {
         let group = self.radio_group(ctl);
         let siblings: Vec<usize> = (0..self.ctls.len())
             .filter(|&i| i != ctl && matches!(self.ctls[i].kind, Kind::Control(ControlType::RadioButton)))
             .filter(|&i| self.radio_group(i) == group)
             .collect();
         for i in siblings {
-            let on = self.ctls[i].raw(SELECTED_PROP).map(turned_on).unwrap_or(false)
-                || self.ctls[i].raw(CHECKED_PROP).map(turned_on).unwrap_or(false);
-            if on {
-                for k in [SELECTED_PROP, CHECKED_PROP] {
-                    self.ctls[i].props.insert(k.to_ascii_lowercase(), "0".into());
-                    self.touch(i, &k.to_ascii_lowercase());
-                }
+            let keys = [SELECTED_PROP.to_ascii_lowercase(), CHECKED_PROP.to_ascii_lowercase(), "value".to_owned()];
+            for k in &keys {
+                self.ctls[i].props.insert(k.clone(), "0".into());
+                self.touch(i, k);
             }
+            self.ctls[i].ui_raw = keys.to_vec();
         }
     }
 
@@ -978,12 +1018,102 @@ mod tests {
                <Control id="BTN-1" type="Button" x="0" y="0" w="24" h="24" enabled="true"><Property name="Enabled">false</Property></Control>"#,
         );
         let (t1, t2, b) = (t.by_name("TMR-1").unwrap(), t.by_name("TMR-2").unwrap(), t.by_name("BTN-1").unwrap());
-        assert!(!t.ctls[t1].enabled(), "the property says off");
-        assert!(t.ctls[t2].enabled(), "no property: the element's flag");
+        // Whether a Timer runs is `timer_on` (the element flag stays what `Enabled` reads at load, as on the
+        // desktop: see `a_timer_runs_by_its_own_property_whatever_the_element_flag_says`).
+        assert!(!t.ctls[t1].timer_on, "the property says off");
+        assert!(t.ctls[t2].timer_on, "no property: on (the desktop's default; this element's flag is on too)");
         assert!(t.ctls[b].enabled(), "a Button keeps the element's flag");
         let mut t = t;
         t.set(t1, "Enabled", "TRUE");
-        assert!(t.ctls[t1].enabled(), "the program starts it");
+        assert!(t.ctls[t1].timer_on, "the program starts it");
+    }
+
+    /// P-8b. Every combination of the element's flag and the `Enabled` property, measured on the desktop
+    /// (`rcrun run-form --headless`, 1.5 s, Interval 100): it ticks by the property, on when there is none, and
+    /// the flag never matters (enabled="false" with no property: 18 ticks; the page had 0). What `Enabled`
+    /// reads at load is the flag (desktop `LOAD TA=false` while TA ticks, `TD=true` while TD does not).
+    #[test]
+    fn a_timer_runs_by_its_own_property_whatever_the_element_flag_says() {
+        let t = tree_of(
+            r#"<Control id="TA" type="Timer" x="0" y="0" w="24" h="24" enabled="false"><Property name="Interval">100</Property></Control>
+               <Control id="TB" type="Timer" x="0" y="0" w="24" h="24" enabled="true"><Property name="Interval">100</Property></Control>
+               <Control id="TC" type="Timer" x="0" y="0" w="24" h="24" enabled="false"><Property name="Interval">100</Property><Property name="Enabled">true</Property></Control>
+               <Control id="TD" type="Timer" x="0" y="0" w="24" h="24" enabled="true"><Property name="Interval">100</Property><Property name="Enabled">false</Property></Control>
+               <Control id="TE" type="Timer" x="0" y="0" w="24" h="24" enabled="false"><Property name="Interval">100</Property><Property name="Enabled">false</Property></Control>
+               <Control id="TF" type="Timer" x="0" y="0" w="24" h="24" enabled="true"><Property name="Interval">100</Property><Property name="Enabled">true</Property></Control>
+               <Control id="TG" type="Timer" x="0" y="0" w="24" h="24"><Property name="Interval">100</Property></Control>"#,
+        );
+        // (timer, runs at load, what `Enabled` reads at load) — the desktop's values.
+        for (name, runs, reads) in [
+            ("TA", true, "false"),
+            ("TB", true, "true"),
+            ("TC", true, "false"),
+            ("TD", false, "true"),
+            ("TE", false, "false"),
+            ("TF", true, "true"),
+            ("TG", true, "true"),
+        ] {
+            let i = t.by_name(name).unwrap();
+            assert_eq!(t.ctls[i].timer_on, runs, "{name} runs at load");
+            assert_eq!(t.get(i, "Enabled"), reads, "{name}::Enabled at load");
+        }
+        // The program's SET starts and stops every one of them, and reads back what it wrote.
+        let mut t = t;
+        for name in ["TA", "TB", "TC", "TD", "TE", "TF", "TG"] {
+            let i = t.by_name(name).unwrap();
+            t.set(i, "Enabled", "FALSE");
+            assert!(!t.ctls[i].timer_on, "{name} stops");
+            assert_eq!(t.get(i, "Enabled"), "false");
+            t.set(i, "Enabled", "TRUE");
+            assert!(t.ctls[i].timer_on, "{name} starts");
+            assert_eq!(t.get(i, "Enabled"), "true");
+        }
+    }
+
+    /// R-1. What the program reads from a toggle after the USER clicked it is what the desktop's render engine
+    /// wrote into the live state: `1`/`0` for a CheckBox and a RadioButton (`push_toggle_state`, and `0` for
+    /// every other radio of the group), the word for a Switch; a program's own write reads canonically.
+    #[test]
+    fn a_toggle_reads_back_as_the_users_click_wrote_it() {
+        let mut t = tree_of(
+            r#"<Control id="CHK" type="CheckBox" x="0" y="0" w="24" h="24"><Property name="Caption">c</Property></Control>
+               <Control id="RB-1" type="RadioButton" x="0" y="0" w="24" h="24"><Property name="Selected">true</Property></Control>
+               <Control id="RB-2" type="RadioButton" x="0" y="0" w="24" h="24"></Control>
+               <Control id="RB-3" type="RadioButton" x="0" y="0" w="24" h="24"><Property name="Selected">false</Property></Control>
+               <Control id="SW" type="Switch" x="0" y="0" w="24" h="24"><Property name="Checked">true</Property></Control>"#,
+        );
+        let (chk, rb1, rb2, rb3, sw) =
+            (t.by_name("CHK").unwrap(), t.by_name("RB-1").unwrap(), t.by_name("RB-2").unwrap(), t.by_name("RB-3").unwrap(), t.by_name("SW").unwrap());
+        // At load: canonical (the desktop seeds the designed property through `property_runtime_text`).
+        assert_eq!(t.get(rb1, "Selected"), "true");
+        assert_eq!(t.get(sw, "Checked"), "true");
+        // The clicks, as the page's views write them.
+        t.set_from_ui(chk, "Checked", "1");
+        t.set_from_ui(rb2, "Selected", "1");
+        t.set_from_ui(sw, "Checked", "false");
+        assert_eq!(t.get(chk, "Checked"), "1");
+        assert_eq!(t.get(chk, "Value"), "1");
+        assert_eq!(t.get(rb2, "Selected"), "1");
+        assert_eq!(t.get(rb2, "Checked"), "1");
+        assert_eq!(t.get(rb2, "Value"), "1");
+        for rb in [rb1, rb3] {
+            assert_eq!(t.get(rb, "Selected"), "0", "the click wrote 0 to every other radio of the group");
+            assert_eq!(t.get(rb, "Checked"), "0");
+            assert_eq!(t.get(rb, "Value"), "0");
+        }
+        assert_eq!(t.get(sw, "Checked"), "false");
+        t.set_from_ui(chk, "Checked", "0");
+        assert_eq!(t.get(chk, "Checked"), "0");
+        // A program's write reads canonically again (desktop: `SET CHK-1::Checked TO TRUE` reads `true`).
+        t.set(chk, "Checked", "TRUE");
+        assert_eq!(t.get(chk, "Checked"), "true");
+        assert_eq!(t.get(chk, "Value"), "0", "the program wrote Checked, not the Value the click left");
+        // A program turning a radio on writes 0 to the others, as the desktop's host does.
+        t.set(rb1, "Selected", "TRUE");
+        assert_eq!(t.get(rb1, "Selected"), "true");
+        assert_eq!(t.get(rb2, "Selected"), "0");
+        t.set(sw, "Checked", "1");
+        assert_eq!(t.get(sw, "Checked"), "true");
     }
 
     #[test]
@@ -1049,7 +1179,9 @@ mod tests {
         assert_eq!(t.get(a, "Selected"), "true");
         assert_eq!(t.get(a, "Checked"), "true");
         t.set(b, "Selected", "1");
-        assert_eq!(t.get(a, "Selected"), "false", "a write from code clears the group's other radio");
+        // Read as the desktop writes it (form-host `clear_radio_siblings` sends `0`; measured with
+        // `SET RB-1::Selected TO TRUE`: the other radio then reads `0`).
+        assert_eq!(t.get(a, "Selected"), "0", "a write from code clears the group's other radio");
         assert_eq!(t.get(b, "Checked"), "true");
         let chk = t.by_name("CHK-1").unwrap();
         t.set(chk, "Checked", "1");

@@ -282,7 +282,10 @@ impl Shared {
                 self.place_embedded(inner, inst, built.opener, &built.title, &root);
             }
             OpenMode::Modal => {
-                let frame = shell::modal_frame(&built.title, true, if built.responsive { None } else { Some(built.size) });
+                // A form window opens at its designed size, responsive or not, as the desktop's child window
+                // does (form-host `with_inner_size(child.size)`): a responsive form fills its frame, so a frame
+                // left to its contents had a body of no height — a title chip whose controls could not be reached.
+                let frame = shell::modal_frame(&built.title, true, Some(built.size));
                 let d = self.dispatch(Route::Frame(inst));
                 let rec = nodes::create(doc, &frame, None, &d);
                 if let Some(body) = nodes::find_key(&rec, "body") {
@@ -295,7 +298,8 @@ impl Shared {
             OpenMode::Panel | OpenMode::Window => {
                 let n = self.state.try_borrow().map(|s| s.panels).unwrap_or(0);
                 let offset = (24.0 + (n % 8) as f64 * 28.0, 24.0 + (n % 8) as f64 * 28.0);
-                let frame = shell::panel_frame(&built.title, if built.responsive { None } else { Some(built.size) }, offset);
+                // At its designed size, as a modal window is (above).
+                let frame = shell::panel_frame(&built.title, Some(built.size), offset);
                 let d = self.dispatch(Route::Frame(inst));
                 let rec = nodes::create(doc, &frame, None, &d);
                 if let Some(body) = nodes::find_key(&rec, "body") {
@@ -687,9 +691,11 @@ impl Shared {
                 .iter()
                 .enumerate()
                 .filter(|(_, c)| matches!(c.control_type(), Some(cobolt_forms::model::ControlType::Timer)))
-                .filter(|(_, c)| c.enabled() && c.has_handler("onTick"))
+                // A Timer runs by its own `Enabled` property (`Ctl::timer_on`), not the element's flag.
+                .filter(|(_, c)| c.timer_on && c.has_handler("onTick"))
                 .map(|(i, _)| {
-                    let ms = crate::value::parse_f64(&tree.get(i, "Interval")).unwrap_or(1000.0).max(1.0) as u64;
+                    // The desktop's floor: an Interval under 10 ms ticks every 10 ms (`render.rs` CT::Timer).
+                    let ms = crate::value::parse_f64(&tree.get(i, "Interval")).unwrap_or(1000.0).max(10.0) as u64;
                     (i, ms)
                 })
                 .collect()

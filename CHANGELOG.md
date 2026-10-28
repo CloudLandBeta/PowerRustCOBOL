@@ -22,6 +22,23 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.83] — 2026-10-28
+
+*(Written on `fixes-2x`, off `2.x.x` at 9bca3814.)*
+
+### Fixed: more places where a Web page ran a form's COBOL differently from the desktop - toggle comparisons, what a click makes a CheckBox read, a Timer that starts disabled, closing the main window with children open, and a child window that opened as a 64 x 30 chip
+
+**What changed** (each measured on the desktop first; each has a Rust test that fails on the old code):
+- **`IF SW-1::Checked = ZERO`** (`cobolt-wasm-rt` `cmp.rs` `boolean_of`): ZERO, ZEROS, ZEROES and NULL count as 0, as the desktop's `compare_values` does.
+- **What a click makes a toggle read** (`view/interact.rs`): after a click a CheckBox or RadioButton reads `1` or `0` (also `Value`), a Switch `true` or `false`, and every other radio of the group reads `0`; after a SET from COBOL they read `true` and `false`, as on the desktop.
+- **Timers** (`tree.rs`): a Timer runs by its own `Enabled` property (on when it is absent), never by the designed element flag; `TMR::Enabled` at load reads the flag, as on the desktop; the interval floor is 10 ms. The example's TMR-STAGE (flag on, property false) waits for its SET on both.
+- **Closing the main window with child windows open** (`host.rs`, `dom/instance.rs`) ends the application with the notice and Reload; the children close without their `onClose`, as measured on the desktop. A responsive child window had a frame with no body size and opened 0 px high; it now opens at its designed size.
+`assets/web-player`, `rt.wasm` and the player fixtures rebuilt.
+
+**Not done.** An independent judge passed the Timer, closing and child-window items, the three assertions changed to measured desktop values, the regression sweeps and NIST NC (95 of 95 compile, 95 of 95 run, 0 failures, 4612 PASS), and failed two items in part: (1) after a click, `= NULL` and `= ALL "TRUE"` read differently (the new `ALL` code shortens the literal to the other operand's length; the desktop does not) and, in the plain comparison path, an empty property compared with ZERO, HIGH-VALUE, LOW-VALUE, QUOTE or an `ALL` literal answers equal where the desktop answers not equal (126 comparisons); (2) clicking an already selected RadioButton makes the desktop write `1` and raise its toggle events again, the page keeps `true` and raises nothing (`interact.rs`). `STOP RUN` in a child window needs an ABI signal (the page keeps the child and logs one `-4` on its next event). Desktop-side defects confirmed and left alone: `ORD(HIGH-VALUE)` is 240, `STRING ... INTO` blanks its target, an untouched toggle reads `""`, a Timer with no `Enabled` cannot be stopped by SET. `OpenFormAsync` runs the child's `onLoad` after the opener's next statement on the page and before it on the desktop.
+
+Measured: cobolt-web-player 279 + 25 + 6 + 2 + 5 + 1 + 3 passed, cobolt-web-bundle 16 binaries passed (new `page_parity_p3` in Chrome), cobolt-wasm-rt and cobolt-wasm 114 passed, 0 failed; freshness green.
+
 ## [PowerRustCOBOL 2.0.82] — 2026-10-28
 
 *(Written on `features-2x`, off `2.x.x` at 19e44edb.)*

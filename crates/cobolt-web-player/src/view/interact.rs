@@ -376,7 +376,9 @@ fn switch(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         return Vec::new(); // a <button> already turns Space into a click
     }
     let on = !(truthy(&cx.tree.get(i, "Checked")) || truthy(&cx.tree.get(i, "Selected")));
-    let mut v = vec![quiet("Checked", b01(on))];
+    // The desktop's Switch arm writes the word (`render.rs`, `now.to_string()`), where a CheckBox or a
+    // RadioButton writes `1`/`0`: the program reads back what the click wrote.
+    let mut v = vec![quiet("Checked", cobolt_forms::model::bool_text(on))];
     v.extend(toggle_events(on, false));
     v
 }
@@ -1395,10 +1397,11 @@ mod tests {
         assert!(names(&run(&t, a, &e, p)).contains(&"Selected=1".to_owned()));
         let (mut st, s) = tree_with("Switch", "SW", &[]);
         let acts = names(&run(&st, s, &e, Payload::new("click", "root")));
-        assert_eq!(&acts[..2], ["Checked=1", "onChange"], "{acts:?}");
+        // The desktop's Switch writes the word (its own test `engine_switch_click_toggles_checked`: `true`).
+        assert_eq!(&acts[..2], ["Checked=true", "onChange"], "{acts:?}");
         st.set(s, "Checked", "1");
         let acts = names(&run(&st, s, &e, Payload::new("click", "root")));
-        assert_eq!(acts[0], "Checked=0");
+        assert_eq!(acts[0], "Checked=false");
         assert!(acts.contains(&"onUncheck".to_owned()));
         let _ = &mut t;
     }

@@ -1096,8 +1096,10 @@ impl Host {
         Ok(())
     }
 
-    /// Drop an instance: its tree, its queued events, its tasks and their pending requests.
+    /// Drop an instance: its tree, its queued events, its tasks and their pending requests. When it is the
+    /// application's main window, the application ends with it ([`Host::end_application`]).
     fn destroy(&mut self, inst: u32) {
+        let main_window = self.trees.get(&inst).is_some_and(|t| t.main && t.opener.is_none());
         if self.trees.remove(&inst).is_some() {
             self.effects.push(Effect::Closed { inst });
         }
@@ -1121,6 +1123,22 @@ impl Host {
         for h in closed {
             self.child_closed(&h);
         }
+        if main_window && !self.stopped {
+            self.end_application();
+        }
+    }
+
+    /// The main window closed, and the program ends with it as the desktop's does (`program_ended`): the windows
+    /// still open close without running their `onClose` (the desktop runs none), nothing queued runs, and the page
+    /// says that the application has ended, as after `STOP RUN`.
+    fn end_application(&mut self) {
+        self.stopped = true;
+        self.work.clear();
+        let open: Vec<u32> = self.trees.keys().copied().collect();
+        for inst in open {
+            self.destroy(inst);
+        }
+        self.effects.push(Effect::Stopped);
     }
 
     /// The whole application is being unmounted: drop everything and say what the module must be

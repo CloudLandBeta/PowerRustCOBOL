@@ -299,6 +299,45 @@ fn opening_more_instances_than_the_form_allows_names_the_form() {
     });
 }
 
+/// FX-4a. On the desktop, closing the main window while a child window opened with `OpenFormAsync` is still
+/// up ends the program (`rcrun run-form --headless`: `program_ended: true`, the child's `onClose` does not run,
+/// every later step "the program has ended"). The page left the child alone on a blank page: the main form's
+/// tree went and the application went on.
+#[test]
+fn closing_the_main_window_while_a_child_window_is_open_ends_the_application() {
+    both(|rig| {
+        rig.start();
+        assert!(rig.click(0, "BTN-OPEN"));
+        assert_eq!(rig.host.borrow().trees.len(), 2, "the child window is open");
+        rig.host.borrow_mut().effects.clear();
+        // The main window's own close (its red x, or `me::Close()` after its handler).
+        rig.host.borrow_mut().close_instance(0);
+        rig.drive();
+        let h = rig.host.borrow();
+        assert!(h.is_stopped(), "the application ended with its main window");
+        assert!(h.trees.is_empty(), "no form is left open: {:?}", h.trees.keys().collect::<Vec<_>>());
+        assert!(h.effects.iter().any(|e| matches!(e, Effect::Closed { inst: 1 })), "the child window closed too");
+        assert!(h.effects.iter().any(|e| matches!(e, Effect::Stopped)), "the page says the application has ended");
+        assert_eq!(h.pending_work(), 0, "nothing queued runs");
+    });
+}
+
+/// The other side of FX-4a: a child window that closes leaves the application running (desktop: the main
+/// window answers, `program_ended: false`).
+#[test]
+fn closing_a_child_window_leaves_the_application_running() {
+    both(|rig| {
+        rig.start();
+        assert!(rig.click(0, "BTN-OPEN"));
+        assert!(rig.click(1, "BTN-CLOSE"));
+        assert_eq!(rig.host.borrow().trees.len(), 1);
+        assert!(!rig.host.borrow().is_stopped());
+        assert!(!rig.host.borrow().effects.iter().any(|e| matches!(e, Effect::Stopped)));
+        assert!(rig.click(0, "BTN-GO"));
+        assert_eq!(rig.get(0, LBL_OUT, "Caption"), GREETING);
+    });
+}
+
 #[test]
 fn a_modal_child_runs_while_the_callers_handler_waits_and_the_caller_resumes_when_it_closes() {
     both(|rig| {

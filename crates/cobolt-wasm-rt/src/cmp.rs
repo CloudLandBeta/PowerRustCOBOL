@@ -200,43 +200,80 @@ fn chars_relation(a: &View, b: &View, op: u32) -> bool {
 /// whether it is spelled as a boolean WORD (`TRUE`/`FALSE`, any case) — the
 /// interpreter's `compare_values` rule: a number is a boolean only as 0 or 1,
 /// characters only as `TRUE`/`FALSE`/`1`/`0` around spaces.
-fn boolean_of(base: u32, o: &Opd) -> (Option<bool>, bool) {
-    let chars = |addr: u32, len: u32| -> (Option<bool>, bool) {
-        let b = mem::bytes(addr, len);
-        let s = b.iter().position(|&x| x != b' ').unwrap_or(b.len());
-        let e = b.iter().rposition(|&x| x != b' ').map_or(s, |i| i + 1).max(s);
-        let t = &b[s..e];
-        if t.eq_ignore_ascii_case(b"true") {
-            (Some(true), true)
-        } else if t.eq_ignore_ascii_case(b"false") {
-            (Some(false), true)
-        } else if t == b"1" {
-            (Some(true), false)
-        } else if t == b"0" {
-            (Some(false), false)
-        } else {
-            (None, false)
-        }
-    };
+///
+/// A figurative constant is the value the interpreter's `literal_to_value`
+/// gives it: `ZERO` and `NULL` are the number 0 (so `IF SW::Checked = ZERO`
+/// holds for a switch that is off), `SPACE`, `QUOTE`, `HIGH-VALUE` and
+/// `LOW-VALUE` are characters no boolean is spelled with. `ALL literal` is its
+/// literal repeated to the other operand's length (`other_len`), as
+/// `size_figuratives` sizes it against a nonnumeric operand.
+fn boolean_of(base: u32, o: &Opd, other_len: Option<u32>) -> (Option<bool>, bool) {
     let number = |v: Val| -> (Option<bool>, bool) {
         let f = v.as_f64();
         (if f == 0.0 { Some(false) } else if f == 1.0 { Some(true) } else { None }, false)
     };
     match o.tag {
         T_LIT_NUM | T_TEMP => number(value(base, o)),
+        T_FIG if o.fig == FIG_ZERO || o.fig == FIG_NULL => (Some(false), false),
+        T_ALL => {
+            let l = locate(base, o);
+            let n = other_len.unwrap_or(l.len) as usize;
+            let mut buf = [b' '; 8];
+            if l.len == 0 || n == 0 || n > buf.len() {
+                // Longer than any boolean spelling: it cannot be one.
+                return (None, false);
+            }
+            let unit = mem::bytes(l.addr, l.len);
+            for (i, b) in buf[..n].iter_mut().enumerate() {
+                *b = unit[i % unit.len()];
+            }
+            boolean_text(&buf[..n])
+        }
         T_LIT_ALNUM | T_CTEMP => {
             let l = locate(base, o);
-            chars(l.addr, l.len)
+            boolean_text(mem::bytes(l.addr, l.len))
         }
         T_ITEM => {
             let l = locate(base, o);
             if l.fd.is_numeric() {
                 number(codec::load_value(&l))
             } else {
-                chars(l.addr, l.len)
+                boolean_text(mem::bytes(l.addr, l.len))
             }
         }
         _ => (None, false),
+    }
+}
+
+/// Characters as a boolean: `TRUE`/`FALSE` (any case, a word) or `1`/`0`,
+/// around spaces (`cobolt_forms::model::parse_bool_text`).
+fn boolean_text(b: &[u8]) -> (Option<bool>, bool) {
+    let s = b.iter().position(|&x| x != b' ').unwrap_or(b.len());
+    let e = b.iter().rposition(|&x| x != b' ').map_or(s, |i| i + 1).max(s);
+    let t = &b[s..e];
+    if t.eq_ignore_ascii_case(b"true") {
+        (Some(true), true)
+    } else if t.eq_ignore_ascii_case(b"false") {
+        (Some(false), true)
+    } else if t == b"1" {
+        (Some(true), false)
+    } else if t == b"0" {
+        (Some(false), false)
+    } else {
+        (None, false)
+    }
+}
+
+/// The length a figurative `ALL literal` is sized to against `o`: the length of
+/// a nonnumeric operand, none against a number or another figurative.
+fn char_len(base: u32, o: &Opd) -> Option<u32> {
+    match o.tag {
+        T_LIT_ALNUM | T_CTEMP => Some(locate(base, o).len),
+        T_ITEM => {
+            let l = locate(base, o);
+            (!l.fd.is_numeric()).then_some(l.len)
+        }
+        _ => None,
     }
 }
 
@@ -247,8 +284,8 @@ fn boolean_relation(base: u32, oa: &Opd, ob: &Opd, op: u32) -> Option<bool> {
     if op != OP_EQ && op != OP_NE {
         return None;
     }
-    let (a, wa) = boolean_of(base, oa);
-    let (b, wb) = boolean_of(base, ob);
+    let (a, wa) = boolean_of(base, oa, char_len(base, ob));
+    let (b, wb) = boolean_of(base, ob, char_len(base, oa));
     if !(wa || wb) {
         return None;
     }
