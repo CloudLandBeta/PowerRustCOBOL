@@ -647,19 +647,26 @@ pub const VM_REPLACE: u32 = 4;
 pub const VM_LEN: u32 = 5;
 pub const VM_SPLIT: u32 = 6;
 
-/// Room in the scratch area: the receiver, the two arguments, the result.
+/// Room in the scratch area for the text of an operand that is a number or a
+/// figurative constant (the receiver and the two arguments); an operand that
+/// is characters is read where it is.
 const VM_RECV: u32 = 0;
-const VM_RECV_CAP: u32 = 12 * 1024;
-const VM_A: u32 = VM_RECV + VM_RECV_CAP;
-const VM_ARG_CAP: u32 = 2 * 1024;
-const VM_B: u32 = VM_A + VM_ARG_CAP;
-const VM_OUT: u32 = VM_B + VM_ARG_CAP;
+const VM_NUM_CAP: u32 = 64;
+const VM_A: u32 = VM_RECV + VM_NUM_CAP;
+const VM_B: u32 = VM_A + VM_NUM_CAP;
+const VM_ALIAS: u32 = VM_B + VM_NUM_CAP;
 
-/// Copy the display text of operand `o` (0: none) to `dst`, at most `cap`
-/// bytes; its length.
-fn vm_text(base: u32, o: u32, dst: u32, cap: u32) -> u32 {
+/// Where the display text of operand `o` (0: none) is: the characters of an
+/// item, a literal or a character temporary where they are — whole, however
+/// long (the desktop applies the method to every byte) — and a number or a
+/// figurative constant as its text at `dst`. The result is written into
+/// character temporary `k`, so an operand that is that temporary (a chain
+/// `X::Trim()::Upper()`) is read from a copy: the answer region for the
+/// receiver (`alias_at`; no query runs inside a value method), the scratch
+/// area for an argument.
+fn vm_text(base: u32, o: u32, dst: u32, k: u32, alias_at: u32, alias_cap: u32) -> (u32, u32) {
     if o == 0 {
-        return 0;
+        return (dst, 0);
     }
     let op = parse(o);
     let mut num = [0u8; 64];
@@ -669,37 +676,43 @@ fn vm_text(base: u32, o: u32, dst: u32, cap: u32) -> u32 {
             Val::F(f) => crate::float::format_f64(f, num),
         }
     };
-    let (src, n): (Option<(u32, u32)>, usize) = match op.tag {
-        T_LIT_NUM | T_TEMP => (None, number(value(base, &op), &mut num)),
+    let n = match op.tag {
+        T_LIT_NUM | T_TEMP => number(value(base, &op), &mut num),
         T_FIG => {
             num[0] = fig_byte(op.fig);
-            (None, 1)
+            1
         }
         T_CTEMP | T_LIT_ALNUM | T_ALL => {
             let l = locate(base, &op);
-            (Some((l.addr, l.len)), 0)
+            if op.tag == T_CTEMP && (op.off as usize) % crate::state::NCTEMP == k as usize {
+                if l.len > alias_cap {
+                    too_long(l.len, alias_cap);
+                }
+                mem::copy(l.addr, alias_at, l.len);
+                return (alias_at, l.len);
+            }
+            return (l.addr, l.len);
         }
         _ => {
             let l = locate(base, &op);
             if l.fd.is_numeric() {
-                (None, number(codec::load_value(&l), &mut num))
+                number(codec::load_value(&l), &mut num)
             } else {
-                (Some((l.addr, l.len)), 0)
+                return (l.addr, l.len);
             }
         }
     };
-    match src {
-        Some((a, l)) => {
-            let l = l.min(cap);
-            mem::copy(a, dst, l);
-            l
-        }
-        None => {
-            let l = (n as u32).min(cap);
-            mem::bytes_mut(dst, l).copy_from_slice(&num[..l as usize]);
-            l
-        }
-    }
+    let n = (n as u32).min(VM_NUM_CAP);
+    mem::bytes_mut(dst, n).copy_from_slice(&num[..n as usize]);
+    (dst, n)
+}
+
+/// Run-time error [`err::TEXT_TOO_LARGE`]: a value method's text of `n` bytes
+/// where `cap` fit.
+#[cold]
+fn too_long(n: u32, cap: u32) -> ! {
+    use crate::Part::{N, T};
+    crate::fail_text(err::TEXT_TOO_LARGE, &[T(b"a value method's text is "), N(n), T(b" bytes or more; it can hold at most "), N(cap), T(b" bytes")])
 }
 
 /// Rust's `char::is_whitespace` for the ASCII range (what `str::trim` drops).
@@ -716,8 +729,11 @@ struct Out {
 
 impl Out {
     fn push(&mut self, bytes: &[u8]) {
-        let n = (bytes.len() as u32).min(self.cap - self.len);
-        mem::bytes_mut(self.at + self.len, n).copy_from_slice(&bytes[..n as usize]);
+        let n = bytes.len() as u32;
+        if n > self.cap - self.len {
+            too_long(self.len + n, self.cap);
+        }
+        mem::bytes_mut(self.at + self.len, n).copy_from_slice(bytes);
         self.len += n;
     }
 }
@@ -758,13 +774,16 @@ fn char_starts(t: &[u8]) -> impl Iterator<Item = usize> + '_ {
 /// leaves its count as decimal text marked as a number.
 pub fn value_method(base: u32, method: u32, recv: u32, a: u32, b: u32, k: u32) {
     let (sc, _) = mv::scratch();
-    let rn = vm_text(base, recv, sc + VM_RECV, VM_RECV_CAP);
-    let an = vm_text(base, a, sc + VM_A, VM_ARG_CAP);
-    let bn = vm_text(base, b, sc + VM_B, VM_ARG_CAP);
-    let t = mem::bytes(sc + VM_RECV, rn);
-    let ta = mem::bytes(sc + VM_A, an);
-    let tb = mem::bytes(sc + VM_B, bn);
-    let mut out = Out { at: sc + VM_OUT, len: 0, cap: SCRATCH_SIZE - VM_OUT };
+    let k = (k as usize % crate::state::NCTEMP) as u32;
+    let (ws, cap) = (st().ws, crate::state::CTEMP_SIZE);
+    let (ra, rn) = vm_text(base, recv, sc + VM_RECV, k, ws + crate::state::WS_ANSWER, crate::state::ANSWER_SIZE);
+    let (aa, an) = vm_text(base, a, sc + VM_A, k, sc + VM_ALIAS, (SCRATCH_SIZE - VM_ALIAS) / 2);
+    let (ba, bn) = vm_text(base, b, sc + VM_B, k, sc + VM_ALIAS + (SCRATCH_SIZE - VM_ALIAS) / 2, (SCRATCH_SIZE - VM_ALIAS) / 2);
+    let t = mem::bytes(ra, rn);
+    let ta = mem::bytes(aa, an);
+    let tb = mem::bytes(ba, bn);
+    // The result goes straight into its temporary; no operand is read from it.
+    let mut out = Out { at: ws + crate::state::WS_CTEMP + k * cap, len: 0, cap };
     match method {
         VM_TRIM => {
             let s = t.iter().position(|&c| !is_space(c)).unwrap_or(t.len());
@@ -794,8 +813,11 @@ pub fn value_method(base: u32, method: u32, recv: u32, a: u32, b: u32, k: u32) {
             }
         }
         VM_LEN => {
+            // `chars().count()`, counted here: core's word-at-a-time count
+            // reaches a panic path the module's linker stubs, so a text of a
+            // few words trapped (`WS-X::Len` on a `PIC X(100)`).
             let n = match core::str::from_utf8(t) {
-                Ok(s) => s.chars().count(),
+                Ok(_) => t.iter().filter(|&&c| (c & 0xC0) != 0x80).count(),
                 Err(_) => t.len(),
             };
             let mut num = [0u8; 64];
@@ -813,11 +835,8 @@ pub fn value_method(base: u32, method: u32, recv: u32, a: u32, b: u32, k: u32) {
         _ => crate::fail(err::BAD_OPERAND),
     }
     let s = st();
-    let n = out.len.min(crate::state::CTEMP_SIZE);
-    let k = (k as usize) % crate::state::NCTEMP;
-    let dst = s.ws + crate::state::WS_CTEMP + k as u32 * crate::state::CTEMP_SIZE;
-    mem::copy(out.at, dst, n);
-    s.ctemp_len[k] = n;
+    let k = k as usize;
+    s.ctemp_len[k] = out.len;
     if method == VM_LEN {
         s.ctemp_dynamic |= 1 << k;
     } else {

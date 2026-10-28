@@ -70,6 +70,67 @@ use state::st;
 /// traps; if a host ever returned, we trap here.
 #[cold]
 pub fn fail(code: u32) -> ! {
+    set_err_text(&[]);
+    abort_now(code)
+}
+
+/// A piece of a run-time error's text: bytes, or a number written in decimal.
+pub enum Part<'a> {
+    T(&'a [u8]),
+    N(u32),
+}
+
+/// [`fail`] with the error's own text (ASCII, at most `ERR_TEXT_MAX` bytes),
+/// which the `ERROR` command carries to the page and the IDE.
+#[cold]
+pub fn fail_text(code: u32, parts: &[Part<'_>]) -> ! {
+    set_err_text(parts);
+    abort_now(code)
+}
+
+fn set_err_text(parts: &[Part<'_>]) {
+    let s = st();
+    if s.ws == 0 {
+        return;
+    }
+    let at = s.ws + state::WS_ERR_TEXT;
+    let mut n = 0u32;
+    let put = |b: &[u8], n: &mut u32| {
+        let k = (b.len() as u32).min(state::ERR_TEXT_MAX - *n);
+        mem::bytes_mut(at + 4 + *n, k).copy_from_slice(&b[..k as usize]);
+        *n += k;
+    };
+    for p in parts {
+        match p {
+            Part::T(b) => put(b, &mut n),
+            Part::N(v) => {
+                let mut d = [0u8; 10];
+                let mut i = d.len();
+                let mut v = *v;
+                loop {
+                    i -= 1;
+                    d[i] = b'0' + (v % 10) as u8;
+                    v /= 10;
+                    if v == 0 {
+                        break;
+                    }
+                }
+                put(&d[i..], &mut n);
+            }
+        }
+    }
+    mem::wr_u32(at, n);
+}
+
+/// The text the last [`fail_text`] left (native tests).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn last_err_text() -> std::vec::Vec<u8> {
+    let at = st().ws + state::WS_ERR_TEXT;
+    mem::bytes(at + 4, mem::rd_u32(at)).to_vec()
+}
+
+#[cold]
+fn abort_now(code: u32) -> ! {
     // What the handler did before the error reaches the page first, as it does
     // on the desktop (a DISPLAY, a property written): the ERROR command is
     // written over the start of the batch, so a staged command would be lost.

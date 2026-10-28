@@ -178,6 +178,16 @@ fn weight(b: u8) -> u16 {
     }
 }
 
+/// The length a figurative constant or `ALL literal` keeps when the other
+/// operand has none to give it: one character, or the literal once.
+fn natural_len(v: &View) -> u32 {
+    match v {
+        View::Mem(l) | View::Pattern(l) => l.len,
+        View::Fill(_) => 1,
+        View::Num(..) => 0,
+    }
+}
+
 fn chars_relation(a: &View, b: &View, op: u32) -> bool {
     let n = match (len_of(a), len_of(b)) {
         (Some(x), Some(y)) => x.max(y),
@@ -185,6 +195,12 @@ fn chars_relation(a: &View, b: &View, op: u32) -> bool {
         (None, Some(y)) => y,
         (None, None) => 1,
     };
+    // An EMPTY operand (a property that reads "") gives a figurative constant
+    // no size: the interpreter's `size_figurative` leaves it at its own one
+    // character, or `ALL literal` at the literal, and pads the empty side
+    // with spaces — so `= ZERO`, `= QUOTE`, `= ALL "x"` do not hold. Sized to
+    // nothing, no byte was compared and everything was equal.
+    let n = if n == 0 { natural_len(a).max(natural_len(b)) } else { n };
     let mut ord = Ordering::Equal;
     for i in 0..n {
         let (x, y) = (weight(byte_at(a, i)), weight(byte_at(b, i)));
@@ -293,9 +309,192 @@ fn boolean_relation(base: u32, oa: &Opd, ob: &Opd, op: u32) -> Option<bool> {
     Some(if op == OP_EQ { a == b } else { a != b })
 }
 
+// ── a property against a figurative constant ──────────────────────────────
+
+/// A character temporary the host filled with a property's (or a method's)
+/// text.
+fn is_property(o: &Opd) -> bool {
+    o.tag == T_CTEMP && crate::func::ctemp_is_property(o.off)
+}
+
+/// The figurative side, as the interpreter's `literal_to_value` gives it and
+/// `size_figurative` sizes it: `ZERO`/`NULL` the number 0; any other constant
+/// its one byte repeated; `ALL literal` the literal repeated; `len` bytes.
+enum Fig {
+    Zero,
+    Byte(u8, u32),
+    Pat(Loc, u32),
+}
+
+impl Fig {
+    fn len(&self) -> u32 {
+        match self {
+            Fig::Zero => 1,
+            Fig::Byte(_, n) | Fig::Pat(_, n) => *n,
+        }
+    }
+    /// Byte `i` of its display text (`"0"` for the number 0).
+    fn at(&self, i: u32) -> u8 {
+        match self {
+            Fig::Zero => b'0',
+            Fig::Byte(b, _) => *b,
+            Fig::Pat(l, _) => mem::rd_u8(l.addr + i % l.len),
+        }
+    }
+}
+
+/// Rust's `char::is_whitespace` for ASCII: what `str::trim` drops.
+fn is_ws(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r')
+}
+
+/// A text as a boolean (`cobolt_forms::model::parse_bool_text`: `true`/`false`
+/// in any case, `1`, `0`, around white space), and whether it is a WORD
+/// (`is_bool_word`), read through `at` over `len` bytes.
+fn bool_of_text(len: u32, at: impl Fn(u32) -> u8) -> (Option<bool>, bool) {
+    let mut s = 0;
+    while s < len && is_ws(at(s)) {
+        s += 1;
+    }
+    let mut e = len;
+    while e > s && is_ws(at(e - 1)) {
+        e -= 1;
+    }
+    if e - s > 5 {
+        return (None, false);
+    }
+    let mut w = [0u8; 5];
+    for i in s..e {
+        w[(i - s) as usize] = at(i);
+    }
+    boolean_text(&w[..(e - s) as usize])
+}
+
+/// The text read through `at` as Rust's `str::trim().parse::<f64>()` reads it.
+fn f64_of_text(len: u32, at: impl Fn(u32) -> u8) -> Option<f64> {
+    let mut buf = [0u8; 64];
+    let mut s = 0;
+    while s < len && is_ws(at(s)) {
+        s += 1;
+    }
+    let mut e = len;
+    while e > s && is_ws(at(e - 1)) {
+        e -= 1;
+    }
+    if e - s > buf.len() as u32 {
+        return None;
+    }
+    for i in s..e {
+        buf[(i - s) as usize] = at(i);
+    }
+    core::str::from_utf8(&buf[..(e - s) as usize]).ok()?.parse::<f64>().ok()
+}
+
+/// A property read against a figurative constant or `ALL literal`, as the
+/// desktop compares them (`eval_condition`: `prop_to_value`, then
+/// `size_figuratives`, then `compare_values`). The property is a number when
+/// its text spells one, else its characters; `ZERO` and `NULL` are the number
+/// 0; another constant or `ALL literal` is sized to a property that is
+/// characters — but never against a number, so `ALL "TRUE"` stays `TRUE`
+/// against a toggle that reads `1` and is equal to it.
+fn property_vs_figurative(base: u32, oa: &Opd, ob: &Opd, op: u32) -> Option<bool> {
+    let fig_like = |o: &Opd| o.tag == T_FIG || o.tag == T_ALL;
+    let (p, f, swapped) = if is_property(oa) && fig_like(ob) {
+        (oa, ob, false)
+    } else if is_property(ob) && fig_like(oa) {
+        (ob, oa, true)
+    } else {
+        return None;
+    };
+    let (pa, pl) = crate::func::ctemp_loc(p.off);
+    let ptext = mem::bytes(pa, pl);
+    let pnum = codec::parse_text(ptext).map(Val::Dec);
+    let width = if pnum.is_some() { 0 } else { pl };
+    let fig = if f.tag == T_FIG && (f.fig == FIG_ZERO || f.fig == FIG_NULL) {
+        Fig::Zero
+    } else if f.tag == T_FIG {
+        Fig::Byte(fig_byte(f.fig), width.max(1))
+    } else {
+        let l = locate(base, f);
+        if l.len == 0 {
+            Fig::Byte(b' ', 1)
+        } else {
+            let n = if width == 0 { l.len } else { width };
+            Fig::Pat(l, n)
+        }
+    };
+    let p_at = |i: u32| ptext[i as usize];
+    let f_at = |i: u32| fig.at(i);
+    let flen = fig.len();
+    // Booleans first, for = and NOT = with a WORD on one side.
+    if op == OP_EQ || op == OP_NE {
+        let (pb, pw) = match &pnum {
+            Some(v) => {
+                let x = v.as_f64();
+                (if x == 0.0 { Some(false) } else if x == 1.0 { Some(true) } else { None }, false)
+            }
+            None => bool_of_text(pl, p_at),
+        };
+        let (fb, fw) = match fig {
+            Fig::Zero => (Some(false), false),
+            _ => bool_of_text(flen, f_at),
+        };
+        if pw || fw {
+            if let (Some(a), Some(b)) = (pb, fb) {
+                return Some(if op == OP_EQ { a == b } else { a != b });
+            }
+        }
+    }
+    let order = |pv: Val, fv: Val| -> bool {
+        if swapped {
+            numeric_relation(&fv, &pv, op)
+        } else {
+            numeric_relation(&pv, &fv, op)
+        }
+    };
+    match (&pnum, &fig) {
+        (Some(v), Fig::Zero) => return Some(order(*v, Val::ZERO)),
+        (Some(v), _) => {
+            if let Some(x) = f64_of_text(flen, f_at) {
+                return Some(order(Val::F(v.as_f64()), Val::F(x)));
+            }
+        }
+        (None, Fig::Zero) => {
+            if let Some(x) = f64_of_text(pl, p_at) {
+                return Some(order(Val::F(x), Val::F(0.0)));
+            }
+        }
+        (None, _) => {}
+    }
+    // Characters: the property's text (a number as the interpreter writes
+    // it) against the constant's, the shorter padded with spaces.
+    let mut num = [0u8; 64];
+    let (pt, pn): (&[u8], u32) = match &pnum {
+        Some(Val::Dec(d)) => {
+            let n = crate::disp::format_dec(d, &mut num);
+            (&num[..n], n as u32)
+        }
+        _ => (ptext, pl),
+    };
+    let n = pn.max(flen);
+    let mut ord = Ordering::Equal;
+    for i in 0..n {
+        let x = weight(if i < pn { pt[i as usize] } else { b' ' });
+        let y = weight(if i < flen { fig.at(i) } else { b' ' });
+        if x != y {
+            ord = x.cmp(&y);
+            break;
+        }
+    }
+    Some(holds(op, if swapped { ord.reverse() } else { ord }))
+}
+
 /// `a op b`.
 pub fn relation(base: u32, a: u32, b: u32, op: u32) -> bool {
     let (oa, ob) = (parse(a), parse(b));
+    if let Some(r) = property_vs_figurative(base, &oa, &ob, op) {
+        return r;
+    }
     if let Some(r) = boolean_relation(base, &oa, &ob, op) {
         return r;
     }

@@ -22,6 +22,23 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.86] — 2026-10-28
+
+*(Written on `fixes-2x`, off `2.x.x` at 081c3665.)*
+
+### Fixed: a Web page reads a long property answer whole (or stops with error 1111 that says why), `X::Len` no longer traps, a property compares with figurative constants as on the desktop, and a click on a selected RadioButton raises its events again
+
+**What changed** (each measured on the desktop first; each has a Rust test that fails on the old code):
+- **Long answers** (`cobolt-wasm-rt` `cmd.rs`, `state.rs`, `strings.rs`, `lib.rs`; generator `cobolt-wasm` `module.rs`): a property or method answer kept its first 4,096 bytes without a word, so `ListBox::CheckedItems` with more than about 37 names ticked lost the rest; a `SET` over 16 KiB stopped with error 1105 and no text; value methods (`Trim`, `Upper`, ...) read at most 12 KiB of their receiver. A generated module now has a 64 KiB answer region and a 68 KiB batch region (four 64 KiB character temporaries), so an answer of up to 65,536 bytes reaches the statement whole (the desktop's largest item is 65,535) and one `SET` carries a full item. Anything longer stops the statement with run-time error **1111** whose `ERROR.message` says why (`a property is set to 69999 bytes; one SET carries at most 69623 bytes`). 500 and 2,000 ticked names now read back as on the desktop. ABI row A17 (`specs/WASM-ABI-v1.md`); the wasmtime test host reads both regions from the manifest.
+- **`X::Len` trap** (`strings.rs`): `WS-X::Len` on any item of a few words trapped the module with no run-time error; it now counts characters without the trapping path.
+- **A property against a figurative constant** (`cmp.rs` `property_vs_figurative`): an empty property, `ALL` literals sized against a property that spells a number, and `NULL` read as byte 0 gave answers the desktop does not. A sweep of 12 property texts x 21 constants x 8 relation forms plus 12 EVALUATEs (2,028 conditions) went from 195 differences from the desktop to 0; the desktop's 2,028 answers are embedded in a permanent test.
+- **RadioButton re-click and toggle event order** (`cobolt-web-player` `view/interact.rs`): a click on a RadioButton that is already selected writes `1` again and raises `onChange(1) onCheck onCheckedChanged(true) onValueChanged`, as the desktop does; a CheckBox raises the same four in that order with `onChange` carrying `1`/`0`, a Switch only `onCheck`/`onUncheck` and `onCheckedChanged`.
+`assets/web-player`, `rt.wasm` (204,235 bytes) and the player fixtures rebuilt.
+
+**Not done.** Judged by tests only: a fresh judge has not yet reproduced these on a page in a browser. The radio that a click switches OFF raises no events on the page yet (the desktop raises `onChange(0) onUncheck onCheckedChanged(false) onValueChanged` for it). An answer over 64 KiB is an error on the page where the desktop keeps 65,535 bytes. Desktop defect found and left alone: the parser caps every PICTURE at 65,535 bytes silently (`PIC X(90000)` reads `Len` 65535).
+
+Measured: cobolt-web-player 280 + 25 + 6 + 2 + 5 + 1 + 3 passed (freshness green); cobolt-wasm, cobolt-wasm-rt and cobolt-wasm-abi 28 test binaries, 0 failed (new `web_parity_p5a` 4, `long_answer` 1); `rt.wasm` rebuilds byte-identical; NIST NC on the web generator 95 of 95 compile, 95 of 95 run with 0 failures, 4612 PASS, 5 DELETED.
+
 ## [PowerRustCOBOL 2.0.85] — 2026-10-28
 
 *(Written on `features-2x`, off `2.x.x` at f86b758a.)*

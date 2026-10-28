@@ -79,9 +79,11 @@ mod imp {
         let b = crate::mem::bytes(addr, len).to_vec();
         LOG.with(|l| l.borrow_mut().push(Event::Query(b)));
         let ans = ANSWER.with(|a| a.borrow().clone());
+        // As the generator's glue does: at most `ans_cap` bytes copied, the
+        // answer's whole length returned.
         let n = ans.len().min(ans_cap as usize);
         crate::mem::bytes_mut(ans_addr, n as u32).copy_from_slice(&ans[..n]);
-        n as i32
+        ans.len() as i32
     }
     pub unsafe fn remote(addr: u32, len: u32) -> i32 {
         let b = crate::mem::bytes(addr, len).to_vec();

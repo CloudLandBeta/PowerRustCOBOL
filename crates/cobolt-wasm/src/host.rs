@@ -57,6 +57,8 @@ pub struct Outcome {
     pub queries: u32,
     /// The full `ERROR` commands: `(code, unit, line, form, event)`.
     pub error_positions: Vec<(u32, u32, u32, u32, u32)>,
+    /// The text each `ERROR` command carried (empty: the host's own).
+    pub error_texts: Vec<String>,
     /// The `SET_NAMED` commands (A14): `(instance, control, property, value)`.
     pub named_sets: Vec<(u32, u32, String, String)>,
     /// The `RAISE` commands (A14): `(instance, control, event, argument)`.
@@ -66,7 +68,11 @@ pub struct Outcome {
 struct State {
     arena: Option<Memory>,
     arena_base: u32,
+    /// The answer region: its offset (the batch region's size) and size, and
+    /// where frame-out starts (§2; the module's manifest lays them out).
     answer_at: u32,
+    answer_size: u32,
+    frame_out_at: u32,
     out: Rc<RefCell<Outcome>>,
     conformance: Option<Conformance>,
     files: HashMap<u32, OpenFile>,
@@ -99,7 +105,8 @@ fn apply(batch: &[u8], out: &mut Outcome) {
                 out.output.push_str(t);
                 out.output.push('\n');
             }
-            Command::Error { code, line, unit, form, event, .. } => {
+            Command::Error { code, line, unit, form, event, message } => {
+                out.error_texts.push(message.to_string());
                 out.errors.push(RtError { code, line });
                 out.error_positions.push((code, unit, line, form, event));
             }
@@ -166,25 +173,27 @@ pub fn engine() -> Result<Engine, String> {
 
 /// Run a program-mode module (`pr_run`) to its end.
 pub fn run_program(wasm: &[u8]) -> Result<Outcome, String> {
-    run_with(wasm, None, 64 * 1024, false).map(|(o, _)| o)
+    run_with(wasm, None, false).map(|(o, _)| o)
 }
 
 /// [`run_program`], and the module's data memory as the run left it (the
 /// byte-layout tests read their items out of it).
 pub fn run_program_memory(wasm: &[u8]) -> Result<(Outcome, Vec<u8>), String> {
-    run_with(wasm, None, 64 * 1024, true)
+    run_with(wasm, None, true)
 }
 
 /// Run a conformance module: file verbs work against `conf.cwd`.
 pub fn run_conformance(wasm: &[u8], conf: Conformance) -> Result<Outcome, String> {
-    run_with(wasm, Some(conf), 64 * 1024, false).map(|(o, _)| o)
+    run_with(wasm, Some(conf), false).map(|(o, _)| o)
 }
 
-fn new_state(out: Rc<RefCell<Outcome>>, conformance: Option<Conformance>, batch_size: u32) -> State {
+fn new_state(out: Rc<RefCell<Outcome>>, conformance: Option<Conformance>, (batch_size, answer_size): (u32, u32)) -> State {
     State {
         arena: None,
         arena_base: 0,
         answer_at: batch_size,
+        answer_size,
+        frame_out_at: batch_size + answer_size,
         out,
         conformance,
         files: HashMap::new(),
@@ -388,6 +397,11 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
                     _ => String::new(),
                 };
                 let st = caller.data();
+                // A longer answer than the answer region is refused as the
+                // player refuses it (§9 `-5`).
+                if answer.len() > st.answer_size as usize {
+                    return -5;
+                }
                 let mem = st.arena.expect("arena");
                 let at = st.arena_base + st.answer_at;
                 mem.write(&mut caller, at as usize, answer.as_bytes()).expect("write arena");
@@ -404,7 +418,7 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
                 let st = caller.data();
                 let mem = st.arena.expect("arena");
                 // frame-out follows the batch and the answer regions (§2).
-                let at = st.arena_base + 2 * st.answer_at;
+                let at = st.arena_base + st.frame_out_at;
                 let mut buf = vec![0u8; len.max(0) as usize];
                 if mem.read(&caller, at as usize, &mut buf).is_err() {
                     return -5;
@@ -418,11 +432,16 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
     Ok(linker)
 }
 
-fn run_with(wasm: &[u8], conformance: Option<Conformance>, batch_size: u32, keep_memory: bool) -> Result<(Outcome, Vec<u8>), String> {
+fn run_with(wasm: &[u8], conformance: Option<Conformance>, keep_memory: bool) -> Result<(Outcome, Vec<u8>), String> {
     let engine = engine()?;
     let module = Module::new(&engine, wasm).map_err(|e| format!("invalid module: {e}"))?;
     let out = Rc::new(RefCell::new(Outcome::default()));
-    let mut store = Store::new(&engine, new_state(out.clone(), conformance, batch_size));
+    // The regions as the module's manifest lays them out (§10).
+    let limits = cobolt_wasm_abi::scan::scan_module(wasm)
+        .and_then(|s| s.embedded_manifest())
+        .map(|m| (m.limits.batch_size, m.limits.answer_size))
+        .map_err(|e| format!("no manifest: {e}"))?;
+    let mut store = Store::new(&engine, new_state(out.clone(), conformance, limits));
     let linker = linker(&engine, &[])?;
     let instance = linker
         .instantiate(&mut store, &module)
@@ -502,7 +521,7 @@ impl FormHost {
         let engine = engine()?;
         let module = Module::new(&engine, wasm).map_err(|e| format!("invalid module: {e}"))?;
         let out = Rc::new(RefCell::new(Outcome::default()));
-        let mut state = new_state(out.clone(), None, manifest.limits.batch_size);
+        let mut state = new_state(out.clone(), None, (manifest.limits.batch_size, manifest.limits.answer_size));
         state.now_ms = opts.now_ms;
         if opts.record_batches {
             state.batches = Some(Vec::new());
@@ -603,8 +622,8 @@ impl FormHost {
     pub fn resume(&mut self, task: i32, frame: &[u8]) -> i32 {
         let st = self.store.data();
         // frame-in follows batch, answer and frame-out (§2).
-        let (mem, base, answer) = (st.arena.expect("arena"), st.arena_base, st.answer_at);
-        let at = base + 2 * answer + self.frame_size;
+        let (mem, base, frame_out) = (st.arena.expect("arena"), st.arena_base, st.frame_out_at);
+        let at = base + frame_out + self.frame_size;
         if !frame.is_empty() && mem.write(&mut self.store, at as usize, frame).is_err() {
             return -5;
         }

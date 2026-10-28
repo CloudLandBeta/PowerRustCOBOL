@@ -27,18 +27,29 @@ pub const NTEMP: usize = 8;
 
 /// Workspace layout, relative to the address given to [`rt_init`](crate::rt_init).
 pub const WS_BATCH: u32 = 0;
-/// Bytes of command batch staged before a flush is forced.
-pub const BATCH_SIZE: u32 = 16 * 1024;
+/// Bytes of command batch staged before a flush is forced, and the arena batch
+/// region the generator gives a module (`cobolt_wasm::module::Arena`): one
+/// `SET` must carry the longest text an item can hold — 65,535 bytes, the
+/// largest PICTURE the parser keeps, as on the desktop — with its path (at
+/// most `PATH_SIZE`) and header, so 64 KiB + 4 KiB.
+pub const BATCH_SIZE: u32 = 64 * 1024 + 4 * 1024;
 pub const WS_ANSWER: u32 = WS_BATCH + BATCH_SIZE;
-/// Bytes of query answer.
-pub const ANSWER_SIZE: u32 = 16 * 1024;
+/// Bytes of query answer, and the arena answer region the generator gives a
+/// module: 64 KiB, one more than the 65,535 bytes the largest item holds, so
+/// every answer a statement can keep arrives whole. A longer answer is
+/// run-time error [`err::TEXT_TOO_LARGE`], never a shortened one.
+pub const ANSWER_SIZE: u32 = 64 * 1024;
 /// Scratch for sender snapshots, string building and number formatting.
 pub const WS_SCRATCH: u32 = WS_ANSWER + ANSWER_SIZE;
 pub const SCRATCH_SIZE: u32 = 32 * 1024;
 /// Character temporaries: where a character-valued intrinsic function leaves
-/// its result for the operand (`T_CTEMP`) that names the slot.
+/// its result for the operand (`T_CTEMP`) that names the slot. A property read
+/// lands here whole, so a slot holds a full answer ([`ANSWER_SIZE`]): the
+/// desktop hands a statement every byte of a property, and the receiving item
+/// decides what a `MOVE` keeps (PowerAnalytics reads `CheckedItems` into a
+/// `PIC X(24000)`; no item is longer than 65,535 bytes). What does not fit is [`err::TEXT_TOO_LARGE`].
 pub const NCTEMP: usize = 4;
-pub const CTEMP_SIZE: u32 = 4096;
+pub const CTEMP_SIZE: u32 = ANSWER_SIZE;
 pub const WS_CTEMP: u32 = WS_SCRATCH + SCRATCH_SIZE;
 /// The path of the host command being built (ABI v1 §5).
 pub const WS_PATH: u32 = WS_CTEMP + NCTEMP as u32 * CTEMP_SIZE;
@@ -73,8 +84,13 @@ pub const WS_LAST_ERR: u32 = WS_DISP + DISP_SIZE;
 pub const LAST_ERR_CLASS: u32 = 16;
 pub const LAST_ERR_MESSAGE: u32 = 512;
 pub const LAST_ERR_SIZE: u32 = 4 + LAST_ERR_CLASS + 4 + 4 + LAST_ERR_MESSAGE;
+/// The text of the run-time error being reported (`u32` length, then UTF-8),
+/// which the generator's `abort` glue copies into the `ERROR` command; length
+/// 0 leaves the text to the host.
+pub const WS_ERR_TEXT: u32 = WS_LAST_ERR + LAST_ERR_SIZE;
+pub const ERR_TEXT_MAX: u32 = 252;
 /// Total workspace size the generator must reserve.
-pub const WS_SIZE: u32 = WS_LAST_ERR + LAST_ERR_SIZE;
+pub const WS_SIZE: u32 = WS_ERR_TEXT + 4 + ERR_TEXT_MAX;
 
 /// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
 /// owns the message text, so the IDE and the page can translate it.
@@ -97,6 +113,10 @@ pub mod err {
     /// `CALL … WITH WEBSOCKET LINKAGE` failed and the statement has no
     /// `ON EXCEPTION` (WASM-005 R9: a failed call is a run-time error).
     pub const REMOTE_FAILED: u32 = 110;
+    /// A text is longer than the routines can hold whole: a property or method
+    /// answer over the 64 KiB answer region, or a value method's result over a
+    /// character temporary. The error carries its own text (the byte counts).
+    pub const TEXT_TOO_LARGE: u32 = 111;
 }
 
 pub struct State {

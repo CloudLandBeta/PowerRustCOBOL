@@ -864,8 +864,13 @@ pub fn current_date_text(ms: f64) -> [u8; 21] {
     out
 }
 
-/// The number a property read spells, when character temporary `k` holds one
-/// (a property of a control is text that is a number when it looks like one).
+/// Whether character temporary `k` holds a property read (a property of a
+/// control is text that is a number when it looks like one).
+pub fn ctemp_is_property(k: u32) -> bool {
+    st().ctemp_dynamic & (1 << ((k as usize) % NCTEMP)) != 0
+}
+
+/// The number a property read spells (see [`ctemp_is_property`]).
 pub fn ctemp_number(k: u32) -> Option<Val> {
     let k = (k as usize) % NCTEMP;
     if st().ctemp_dynamic & (1 << k) == 0 {

@@ -164,7 +164,8 @@ pub fn set(base: u32, value_opd: u32) {
     let n = disp::put_varint_pub(&mut tl, l);
     let total = 1 + st().path_len as usize + n + l as usize;
     if total > crate::state::BATCH_SIZE as usize {
-        crate::fail(err::SCRATCH_OVERFLOW);
+        use crate::Part::{N, T};
+        crate::fail_text(err::TEXT_TOO_LARGE, &[T(b"a property is set to "), N(l), T(b" bytes; one SET carries at most "), N(crate::state::BATCH_SIZE - total as u32 + l), T(b" bytes")]);
     }
     // One command must not be split by a flush.
     if (st().batch_len as usize) + total > crate::state::BATCH_SIZE as usize {
@@ -250,12 +251,20 @@ pub fn query(op: u32, k: u32, dynamic: u32) {
     s.batch_len = 0;
     let ans = s.ws + WS_ANSWER;
     // SAFETY: the glue stages the batch, calls the host and writes the answer
-    // text at `ans` (at most `ANSWER_SIZE` bytes).
+    // text at `ans` (at most `ANSWER_SIZE` bytes); it returns the answer's
+    // whole length, which may be more than it copied.
     let n = unsafe { host::query(s.ws + crate::state::WS_BATCH, len, ans, ANSWER_SIZE) };
+    // The host refuses an answer longer than the arena's answer region (ABI
+    // v1 §9 `-5`); one longer than this module's room would be copied short.
+    // Either is an error the page shows: a statement never reads part of a
+    // property as if it were all of it (the desktop hands it every byte).
+    if n == -5 || (n > 0 && n as u32 > ANSWER_SIZE.min(CTEMP_SIZE)) {
+        too_large_answer(if n > 0 { n as u32 } else { 0 });
+    }
     if n < 0 {
         crate::fail(err::BAD_OPERAND);
     }
-    let n = (n as u32).min(CTEMP_SIZE);
+    let n = n as u32;
     let dst = s.ws + WS_CTEMP + k * CTEMP_SIZE;
     mem::copy(ans, dst, n);
     s.ctemp_len[k as usize] = n;
@@ -264,6 +273,18 @@ pub fn query(op: u32, k: u32, dynamic: u32) {
     } else {
         s.ctemp_dynamic &= !(1 << k);
     }
+}
+
+/// Run-time error [`err::TEXT_TOO_LARGE`] for a query answer of `n` bytes (0:
+/// the host only said it was over its limit).
+#[cold]
+fn too_large_answer(n: u32) -> ! {
+    use crate::Part::{N, T};
+    let max = ANSWER_SIZE.min(CTEMP_SIZE);
+    if n > 0 {
+        crate::fail_text(err::TEXT_TOO_LARGE, &[T(b"a property or method answered "), N(n), T(b" bytes; a statement can read at most "), N(max), T(b" bytes of one answer")])
+    }
+    crate::fail_text(err::TEXT_TOO_LARGE, &[T(b"a property or method answered more than the "), N(max), T(b" bytes a statement can read of one answer")])
 }
 
 // ── parking: WAIT-EVENT ─────────────────────────────────────────────────────

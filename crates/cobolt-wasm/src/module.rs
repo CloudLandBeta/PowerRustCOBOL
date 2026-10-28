@@ -44,7 +44,9 @@ impl Arena {
 
 impl Default for Arena {
     fn default() -> Self {
-        Arena { batch: 64 * 1024, answer: 64 * 1024, frame: 64 * 1024 }
+        // The batch and answer regions are the routines' own staging sizes,
+        // so a module carries every SET and reads every answer they can hold.
+        Arena { batch: cobolt_wasm_rt::state::BATCH_SIZE, answer: cobolt_wasm_rt::state::ANSWER_SIZE, frame: 64 * 1024 }
     }
 }
 
@@ -898,44 +900,93 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         // glue.abort(code): ERROR command with the line, then pr.abort, then trap.
         // A run-time error of the routines is a COBOL run-time error: its code
         // goes out as 1000 + the routine's number (ABI A4). Every varint is
-        // written at a fixed width (a padded LEB128 still decodes): code, unit,
-        // form and event in two bytes, the line in five.
-        let mut f = Function::new([]);
-        let st = |f: &mut Function, off: u32, v: i32| {
-            f.instruction(&I::I32Const((arena_at + off) as i32));
-            f.instruction(&I::I32Const(v));
-            f.instruction(&I::I32Store8(MemArg { offset: 0, align: 0, memory_index: arena_mem }));
+        // written at a fixed width (a padded LEB128 still decodes): code, the
+        // text's length, unit, form and event in two bytes, the line in five.
+        // The text is the one the routines left at `WS_ERR_TEXT` (`fail_text`;
+        // empty after a plain `fail`, which leaves the text to the host), so
+        // the fields after it start at `5 + L`: local 1 holds L, local 2 that
+        // address.
+        let mut f = Function::new([(2, ValType::I32)]);
+        let mem0 = MemArg { offset: 0, align: 0, memory_index: arena_mem };
+        let ws_text = rt_ws + cobolt_wasm_rt::state::WS_ERR_TEXT;
+        // The address of byte `off` of the header (`None`) or of the fields
+        // after the text (`Some(())`).
+        let addr = |f: &mut Function, tail: bool, off: u32| {
+            if tail {
+                f.instruction(&I::LocalGet(2));
+                f.instruction(&I::I32Const(off as i32));
+                f.instruction(&I::I32Add);
+            } else {
+                f.instruction(&I::I32Const((arena_at + off) as i32));
+            }
         };
         // A two-byte varint of the value on top of a computation `push`.
-        let var2 = |f: &mut Function, off: u32, push: &dyn Fn(&mut Function)| {
-            f.instruction(&I::I32Const((arena_at + off) as i32));
+        let var2 = |f: &mut Function, tail: bool, off: u32, push: &dyn Fn(&mut Function)| {
+            addr(f, tail, off);
             push(f);
             f.instruction(&I::I32Const(0x7F));
             f.instruction(&I::I32And);
             f.instruction(&I::I32Const(0x80));
             f.instruction(&I::I32Or);
-            f.instruction(&I::I32Store8(MemArg { offset: 0, align: 0, memory_index: arena_mem }));
-            f.instruction(&I::I32Const((arena_at + off + 1) as i32));
+            f.instruction(&I::I32Store8(mem0));
+            addr(f, tail, off + 1);
             push(f);
             f.instruction(&I::I32Const(7));
             f.instruction(&I::I32ShrU);
             f.instruction(&I::I32Const(0x7F));
             f.instruction(&I::I32And);
-            f.instruction(&I::I32Store8(MemArg { offset: 0, align: 0, memory_index: arena_mem }));
+            f.instruction(&I::I32Store8(mem0));
         };
-        st(&mut f, 0, 0x04);
-        var2(&mut f, 1, &|f: &mut Function| {
+        // L = min(the text's length, ERR_TEXT_MAX); t = arena + 5 + L.
+        emit(
+            &mut f,
+            &[
+                I::I32Const(ws_text as i32),
+                I::I32Load(MemArg { offset: 0, align: 2, memory_index: 0 }),
+                I::LocalTee(1),
+                I::I32Const(cobolt_wasm_rt::state::ERR_TEXT_MAX as i32),
+                I::LocalGet(1),
+                I::I32Const(cobolt_wasm_rt::state::ERR_TEXT_MAX as i32),
+                I::I32LtU,
+                I::Select,
+                I::LocalSet(1),
+                I::I32Const((arena_at + 5) as i32),
+                I::LocalGet(1),
+                I::I32Add,
+                I::LocalSet(2),
+                // Read once: a later error the generated code raises itself
+                // (a PERFORM too deep) must not carry this one's text.
+                I::I32Const(ws_text as i32),
+                I::I32Const(0),
+                I::I32Store(MemArg { offset: 0, align: 2, memory_index: 0 }),
+            ],
+        );
+        addr(&mut f, false, 0);
+        f.instruction(&I::I32Const(0x04));
+        f.instruction(&I::I32Store8(mem0));
+        var2(&mut f, false, 1, &|f: &mut Function| {
             f.instruction(&I::LocalGet(0));
             f.instruction(&I::I32Const(1000));
             f.instruction(&I::I32Add);
         });
-        st(&mut f, 3, 0); // message length 0: the host owns the text
-        var2(&mut f, 4, &|f: &mut Function| {
+        var2(&mut f, false, 3, &|f: &mut Function| {
+            f.instruction(&I::LocalGet(1));
+        });
+        emit(
+            &mut f,
+            &[
+                I::I32Const((arena_at + 5) as i32),
+                I::I32Const((ws_text + 4) as i32),
+                I::LocalGet(1),
+                I::MemoryCopy { src_mem: 0, dst_mem: arena_mem },
+            ],
+        );
+        var2(&mut f, true, 0, &|f: &mut Function| {
             f.instruction(&I::GlobalGet(G_FORM));
         }); // unit: the form's program (prlines)
         for k in 0..5u32 {
             // line as a 5-byte padded varint
-            f.instruction(&I::I32Const((arena_at + 6 + k) as i32));
+            addr(&mut f, true, 2 + k);
             f.instruction(&I::GlobalGet(4));
             f.instruction(&I::I32Const((7 * k) as i32));
             f.instruction(&I::I32ShrU);
@@ -945,15 +996,18 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                 f.instruction(&I::I32Const(0x80));
                 f.instruction(&I::I32Or);
             }
-            f.instruction(&I::I32Store8(MemArg { offset: 0, align: 0, memory_index: arena_mem }));
+            f.instruction(&I::I32Store8(mem0));
         }
-        var2(&mut f, 11, &|f: &mut Function| {
+        var2(&mut f, true, 7, &|f: &mut Function| {
             f.instruction(&I::GlobalGet(G_FORM));
         });
-        var2(&mut f, 13, &|f: &mut Function| {
+        var2(&mut f, true, 9, &|f: &mut Function| {
             f.instruction(&I::GlobalGet(G_EVENT));
         });
-        f.instruction(&I::I32Const(15));
+        // The command's length: 5 + L + 11.
+        f.instruction(&I::LocalGet(1));
+        f.instruction(&I::I32Const(16));
+        f.instruction(&I::I32Add);
         f.instruction(&I::Call(imp_abort));
         f.instruction(&I::Unreachable);
         f.instruction(&I::End);

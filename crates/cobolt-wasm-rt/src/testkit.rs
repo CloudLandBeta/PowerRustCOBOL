@@ -21,9 +21,9 @@ pub struct Kit {
 }
 
 impl Kit {
-    /// A 1 MiB memory with the rt workspace and a 16 KiB instance region.
+    /// A 4 MiB memory with the rt workspace and a 16 KiB instance region.
     pub fn new() -> Kit {
-        let mem = TestMem::new(1 << 20);
+        let mem = TestMem::new(4 << 20);
         let mut k = Kit { mem, next: 64, base: 0, ws: 0 };
         k.ws = k.alloc(state::WS_SIZE);
         k.base = k.alloc(16 * 1024);

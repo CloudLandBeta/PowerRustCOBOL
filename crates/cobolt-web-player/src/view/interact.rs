@@ -345,23 +345,41 @@ fn text_box(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     }
 }
 
-fn toggle_events(on: bool, radio: bool) -> Vec<Act> {
-    let mut v = vec![ev("onChange"), ev1("onCheckedChanged", if on { "true" } else { "false" }), ev("onValueChanged")];
+/// The events a click on a toggle raises, in the desktop's order (`render.rs`: the CheckBox and RadioButton arms push
+/// `onChange` with `1`/`0`, then `push_toggle_events` — `onCheck`/`onUncheck`, `onCheckedChanged` with the word — then
+/// `onValueChanged`; the Switch arm pushes `push_toggle_events` alone).
+fn toggle_events(on: bool, switch: bool) -> Vec<Act> {
+    let mut v = Vec::new();
+    if !switch {
+        v.push(ev1("onChange", b01(on)));
+    }
     v.push(ev(if on { "onCheck" } else { "onUncheck" }));
-    let _ = radio;
+    v.push(ev1("onCheckedChanged", if on { "true" } else { "false" }));
+    if !switch {
+        v.push(ev("onValueChanged"));
+    }
     v
 }
 
 fn check_or_radio(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     let radio = matches!(cx.tree.ctl(i).control_type(), Some(ControlType::RadioButton));
+    let before = truthy(&cx.tree.get(i, SELECTED_PROP)) || truthy(&cx.tree.get(i, CHECKED_PROP));
     match (p.kind.as_str(), p.key.as_str()) {
         ("change", "input") => {
-            let before = truthy(&cx.tree.get(i, SELECTED_PROP)) || truthy(&cx.tree.get(i, CHECKED_PROP));
             if before == p.checked {
                 return Vec::new();
             }
             let mut v = vec![quiet(if radio { SELECTED_PROP } else { CHECKED_PROP }, b01(p.checked))];
-            v.extend(toggle_events(p.checked, radio));
+            v.extend(toggle_events(p.checked, false));
+            v
+        }
+        // A click on a radio that is already selected changes nothing the browser reports (no `change`), but the
+        // desktop takes every click on a radio as selecting it: it writes `1` again (its siblings `0`) and raises the
+        // selection's events again (`render.rs` RadioButton arm: `push_toggle_state(.., true)` on every click and
+        // space bar). A radio not yet selected is the `change` above, which follows this click.
+        ("click", "input") if radio && before => {
+            let mut v = vec![quiet(SELECTED_PROP, b01(true))];
+            v.extend(toggle_events(true, false));
             v
         }
         _ => Vec::new(),
@@ -379,7 +397,7 @@ fn switch(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     // The desktop's Switch arm writes the word (`render.rs`, `now.to_string()`), where a CheckBox or a
     // RadioButton writes `1`/`0`: the program reads back what the click wrote.
     let mut v = vec![quiet("Checked", cobolt_forms::model::bool_text(on))];
-    v.extend(toggle_events(on, false));
+    v.extend(toggle_events(on, true));
     v
 }
 
@@ -1378,7 +1396,9 @@ mod tests {
         let i = t.by_name("CHK-1").unwrap();
         let mut p = Payload::new("change", "input");
         p.checked = true;
-        assert_eq!(names(&run(&t, i, &e, p.clone())), ["Checked=1", "onChange", "onCheckedChanged(true)", "onValueChanged", "onCheck"]);
+        // Measured on the desktop's render engine (a click on `CHK-1` through `render_form`, P5a, 2026-10-28):
+        // `onChange(1) onCheck onCheckedChanged(true) onValueChanged`, dispatched in that order by the form host.
+        assert_eq!(names(&run(&t, i, &e, p.clone())), ["Checked=1", "onChange(1)", "onCheck", "onCheckedChanged(true)", "onValueChanged"]);
         let mut off = Payload::new("change", "input");
         off.checked = false;
         assert!(run(&t, i, &e, off).is_empty(), "no change, no events");
@@ -1397,13 +1417,35 @@ mod tests {
         assert!(names(&run(&t, a, &e, p)).contains(&"Selected=1".to_owned()));
         let (mut st, s) = tree_with("Switch", "SW", &[]);
         let acts = names(&run(&st, s, &e, Payload::new("click", "root")));
-        // The desktop's Switch writes the word (its own test `engine_switch_click_toggles_checked`: `true`).
-        assert_eq!(&acts[..2], ["Checked=true", "onChange"], "{acts:?}");
+        // The desktop's Switch writes the word (its own test `engine_switch_click_toggles_checked`: `true`) and raises
+        // `onCheck`/`onUncheck` and `onCheckedChanged` only (measured on its render engine, P5a).
+        assert_eq!(&acts[..3], ["Checked=true", "onCheck", "onCheckedChanged(true)"], "{acts:?}");
         st.set(s, "Checked", "1");
         let acts = names(&run(&st, s, &e, Payload::new("click", "root")));
-        assert_eq!(acts[0], "Checked=false");
-        assert!(acts.contains(&"onUncheck".to_owned()));
+        assert_eq!(&acts[..3], ["Checked=false", "onUncheck", "onCheckedChanged(false)"], "{acts:?}");
         let _ = &mut t;
+    }
+
+    /// R-1 (P5a): a click on a radio that is already selected. The browser reports no `change`; the desktop's render
+    /// engine (measured through `render_form`, 2026-10-28) writes `Value`, `Selected` and `Checked` = `1` again, its
+    /// siblings `0`, and raises `onChange(1) onCheck onCheckedChanged(true) onValueChanged`.
+    #[test]
+    fn a_click_on_a_selected_radio_selects_it_again_as_on_the_desktop() {
+        let mut t = tree();
+        let a = t.by_name("RAD-A").unwrap();
+        let e = Empty::default();
+        // Not selected yet: the click is followed by the browser's `change`, which does the work once.
+        assert!(!names(&run(&t, a, &e, Payload::new("click", "input"))).iter().any(|n| n.starts_with("Selected=")));
+        // Selected by the design's word, or by an earlier click: every click selects it again.
+        for state in ["true", "1"] {
+            t.set(a, "Selected", state);
+            let acts = names(&run(&t, a, &e, Payload::new("click", "input")));
+            assert_eq!(&acts[..5], ["Selected=1", "onChange(1)", "onCheck", "onCheckedChanged(true)", "onValueChanged"], "{acts:?}");
+        }
+        // A CheckBox click is its `change` (the browser always reports one): the click adds nothing of its own.
+        let c = t.by_name("CHK-1").unwrap();
+        t.set(c, "Checked", "1");
+        assert!(!names(&run(&t, c, &e, Payload::new("click", "input"))).iter().any(|n| n.starts_with("Checked=")));
     }
 
     #[test]
