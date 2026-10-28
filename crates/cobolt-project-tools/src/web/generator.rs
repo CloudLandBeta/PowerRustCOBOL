@@ -720,6 +720,30 @@ fn backend_origin(url: &str) -> Option<String> {
     Some(format!("{}://{host}", scheme.to_ascii_lowercase()))
 }
 
+/// The project Backend's contract version and the programs it declares `idempotent` (WASM-014 R2,
+/// R9), from `backend/exports.toml` and the Build's `backend/generated/exports.toml`: the player names
+/// the contract in its `hello` and repeats only those programs after a lost connection. Nothing when
+/// the project has no Backend.
+fn backend_contract(project_dir: &Path) -> (Option<String>, Vec<String>) {
+    use cobolt_codegen::remote_controls::{EXPORTS_FILE, GENERATED_DIR};
+    let (mut contract, mut idempotent) = (None, Vec::new());
+    let backend = project_dir.join("backend");
+    for path in [backend.join(EXPORTS_FILE), backend.join(GENERATED_DIR).join(EXPORTS_FILE)] {
+        let Some(v) = std::fs::read_to_string(&path).ok().and_then(|t| t.parse::<toml::Value>().ok()) else { continue };
+        if contract.is_none() {
+            contract = v.get("contract").and_then(|c| c.get("version")).and_then(|x| x.as_str()).map(|s| s.trim().to_owned());
+        }
+        for e in v.get("export").and_then(|e| e.as_array()).into_iter().flatten() {
+            if e.get("idempotent").and_then(|b| b.as_bool()) == Some(true) {
+                if let Some(p) = e.get("program").and_then(|p| p.as_str()) {
+                    idempotent.push(p.trim().to_ascii_uppercase());
+                }
+            }
+        }
+    }
+    (contract, idempotent)
+}
+
 /// The `connect-src` directive of a policy, as written (`connect-src 'self' wss://…`).
 fn connect_src(policy: &str) -> String {
     policy.split(';').map(str::trim).find(|d| d.starts_with("connect-src")).unwrap_or_default().to_owned()
@@ -790,6 +814,7 @@ impl WebBuildBackend for GeneratorBackend {
             })
             .collect();
         use cobolt_compiler::project_kind::{ApplicationStyle, Isolation};
+        let (backend_contract, backend_idempotent) = backend_contract(&req.project_dir);
         let options = BundleOptions {
             style: match req.web.style {
                 ApplicationStyle::Spa => AppStyle::Spa,
@@ -803,6 +828,8 @@ impl WebBuildBackend for GeneratorBackend {
             },
             backend_origins: backend_origin(&req.web.backend_url).into_iter().collect(),
             max_frame: Some(req.web.max_payload_bytes),
+            backend_contract,
+            backend_idempotent,
             // A see-through theme (Spatial), or a main form whose own face is translucent, needs
             // something behind it: the same stand-in for a desktop its pictures are drawn over.
             backdrop: {
@@ -903,6 +930,26 @@ mod tests {
         assert!(text.contains("pins player 1.9.9") && text.contains("oldest player it can build for is 2.0.0"), "{text}");
         println!("{absent}\n{text}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// WASM-014 T6: the page learns the Backend's contract version and its
+    /// idempotent programs from `backend/exports.toml` (and the Build's
+    /// generated one); a project with no Backend gives neither.
+    #[test]
+    fn the_page_learns_the_backends_contract_and_its_idempotent_programs() {
+        let root = std::env::temp_dir().join(format!("pr-backend-contract-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(backend_contract(&root), (None, Vec::<String>::new()));
+        std::fs::create_dir_all(root.join("backend/generated")).unwrap();
+        std::fs::write(
+            root.join("backend/exports.toml"),
+            "[contract]\nversion = \"1.4.0\"\n\n[[export]]\nprogram = \"fund-totals\"\npublic = true\nidempotent = true\n\n[[export]]\nprogram = \"SAVE-ORDER\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("backend/generated/exports.toml"), "[contract]\nversion = \"1.0.0\"\n\n[[export]]\nprogram = \"GRID-READ\"\nidempotent = true\n").unwrap();
+        let got = backend_contract(&root);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(got, (Some("1.4.0".to_owned()), vec!["FUND-TOTALS".to_owned(), "GRID-READ".to_owned()]));
     }
 
     /// WASM-005 T9: Build owns `backend/generated/` — it writes the programs

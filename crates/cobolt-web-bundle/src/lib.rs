@@ -180,6 +180,11 @@ pub struct BundleOptions {
     /// The largest frame the player sends or accepts, in bytes (WASM-017 R8:
     /// the project's payload limit); `None` keeps the player's own default.
     pub max_frame: Option<u32>,
+    /// The backend contract version the application is built against (`backend/exports.toml`
+    /// `contract.version`), which the player names in `hello` (WASM-014 R2); `None` = the player's default.
+    pub backend_contract: Option<String>,
+    /// The exported programs declared `idempotent`, which the player may repeat after a lost connection (R9).
+    pub backend_idempotent: Vec<String>,
     /// The longest run flagged as high-entropy by the secret scan; 0 turns that off.
     pub entropy_len: usize,
     /// The Maps tile address template (`{z}`, `{x}`, `{y}`); `None` = the OpenStreetMap server, whose
@@ -223,6 +228,8 @@ impl Default for BundleOptions {
             skip_secret_scan: false,
             call_timeout_ms: None,
             max_frame: None,
+            backend_contract: None,
+            backend_idempotent: Vec::new(),
             entropy_len: secrets::DEFAULT_ENTROPY_LEN,
             tile_url: None,
             image_origins: Vec::new(),
@@ -733,7 +740,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         "forms": forms_cfg,
         "menus": menus_cfg,
         "assets": Value::Object(assets_cfg),
-        "backend": {"origins": backend_origins, "unsafe_plain_ws": o.unsafe_plain_ws, "call_timeout_ms": o.call_timeout_ms, "max_frame": o.max_frame},
+        "backend": {"origins": backend_origins, "unsafe_plain_ws": o.unsafe_plain_ws, "call_timeout_ms": o.call_timeout_ms, "max_frame": o.max_frame, "contract": o.backend_contract, "idempotent": o.backend_idempotent},
         "options": {
             "threads": if o.threads == Threads::Off { "off" } else { "auto" },
             "workers": o.workers,

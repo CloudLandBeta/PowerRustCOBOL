@@ -9,35 +9,72 @@
 //! The player owns the connection so that the program module has no network at all: it hands
 //! over a request frame (`remote`) and later receives an answer frame. This module is the
 //! connection as a *sans-IO* state machine, generic over a [`Socket`]: the browser gives it a
-//! `WebSocket`, the tests give it a mock and a fake clock. It does, each with a test:
+//! `WebSocket`, the tests give it a mock and a fake clock.
 //!
-//! * connect **only** to the configured backend addresses (`Config::origins`);
-//! * correlate a request to its answer by an id the player assigns (answers may come in any order);
-//! * send the bearer token **as the first message** of a connection, never in the address or a
-//!   header the page could not set (WASM-003 R11), and hold calls until the connection is ready;
-//! * enforce a timeout per call and a limit on the frame size;
-//! * reconnect with exponential back-off and jitter; a call in flight when the connection drops
-//!   is **failed** (the program reads it as `ON EXCEPTION`), a call made after the reconnection
-//!   is not;
-//! * turn every failure into an *error frame* of the same shape as the server's, so the module's
-//!   run time decodes one format (ABI amendment A6).
+//! It speaks the backend's own protocol, `cobolt_wire::proto` (WASM-014 T6, ABI amendment A15):
 //!
-//! The envelope (ABI amendment A8; `{"type":"call","id":N,"frame":{…}}` out, `{"id":N,"result":…}` /
-//! `{"id":N,"error":{"class","code","message"}}` in) is the player's proposal pending the
-//! backend's wire specification (WASM-014); it lives in this one file so that aligning it is a
-//! one-file change.
+//! * on open it sends `{"t":"hello","protocol","contract","client","session"}` and waits for the
+//!   server's `hello`; a refusal fails every waiting call with the class `version`;
+//! * with a session token it then sends `{"t":"auth","token"}` and waits for `auth-ok`; with none
+//!   (public programs) it is ready at once — there is no development token of its own;
+//! * a call is `{"t":"call","id","key",…}` with the module's frame (`{"program","args",
+//!   "returning"}`, A12) spliced in **as text**, so no number loses a digit; `key` is fresh per call
+//!   and kept for its repeat (R10);
+//! * an answer `{"t":"reply","id",…}` reaches the module as `{"id":N,"result":<the reply>}`
+//!   (A12 reads `result.args` and `result.returning`); `{"t":"error","id",…}` as
+//!   `{"id":N,"error":{"class","code","message",…}}`;
+//! * the player's own failures use the closed list of WASM-014 R7 (`transport` 1000/1001/1002/1003,
+//!   `validation` 4001, `version` 6000/6001, `limit` 7000), with `may_have_run` where it applies;
+//! * `authentication` 2002 (token expired) refreshes the token and repeats the call once;
+//! * a call in flight when the connection drops is repeated once, under the same key, only when
+//!   the backend's interface declares the program `idempotent` (R9); otherwise it fails with
+//!   `may_have_run: true`;
+//! * every call ends: an answer, a failure, or `transport` 1002 at its timeout (then `cancel`).
+//!
+//! The session id lives in [`Client`] only — never in browser storage (WASM-014 Q5).
 
 use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 
-/// The error classes of WASM-014 R7, as they appear in an error frame.
+/// The error classes of WASM-014 R7 the player itself produces, as they appear in an error frame.
 pub mod class {
     pub const TRANSPORT: &str = "transport";
     pub const AUTHENTICATION: &str = "authentication";
+    pub const VALIDATION: &str = "validation";
+    pub const VERSION: &str = "version";
     pub const LIMIT: &str = "limit";
-    pub const CLIENT: &str = "client";
 }
+
+/// The platform codes the player emits, mirrored from `cobolt_wire::error::codes` (the player cannot
+/// link `cobolt-wire`; a test holds the two equal).
+pub mod code {
+    pub const NO_CONNECTION: u32 = 1000;
+    pub const CLOSED: u32 = 1001;
+    pub const TIMEOUT: u32 = 1002;
+    pub const NOT_CONFIGURED: u32 = 1003;
+    pub const TOKEN_EXPIRED: u32 = 2002;
+    pub const BAD_MESSAGE: u32 = 4001;
+    pub const CLIENT_TOO_OLD: u32 = 6000;
+    pub const CLIENT_TOO_NEW: u32 = 6001;
+    pub const FRAME_TOO_LARGE: u32 = 7000;
+}
+
+/// The wire protocol this player speaks (`cobolt_wire::contract::PROTOCOL`).
+pub const PROTOCOL: u32 = 1;
+
+/// The contract a page that names none is taken to be built against (a new project's
+/// `backend/exports.toml` says `1.0.0`).
+pub const DEFAULT_CONTRACT: &str = "1.0.0";
+
+/// The largest answer frame the program module can read: its staging area in memory 0
+/// (`cobolt-wasm-rt` `state.rs` `FRAME_SIZE`; a test holds the two equal). A larger answer would
+/// reach the module as "not a frame of the ABI"; the player fails it with a clear `limit` error.
+pub const MODULE_ANSWER_LIMIT: usize = 64 * 1024;
+
+/// Request ids from this one up are the player's own (the Authentication control's and the remote
+/// grids'); below it the module's (ABI A8).
+pub const PLAYER_ID_BASE: u32 = 0x8000_0000;
 
 /// A message transport. The browser implements it over a `WebSocket`.
 pub trait Socket {
@@ -53,13 +90,17 @@ pub enum Out {
     Answer { id: u32, frame: Vec<u8> },
     /// The state of the link, for a status indicator.
     State(LinkState),
+    /// Something the developer should see in the console (a version warning, an unreadable frame).
+    Warning(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkState {
     Closed,
     Connecting,
-    /// Open; waiting for the server to accept the token.
+    /// Open; `hello` sent, waiting for the server's.
+    Greeting,
+    /// Waiting for the server to accept the token.
     Authenticating,
     Ready,
     /// Waiting to try again.
@@ -76,11 +117,28 @@ pub struct Config {
     pub backoff_max_ms: u64,
     /// Allow `ws://` to a non-loopback host (an explicit *unsafe* setting, WASM-013 R11).
     pub unsafe_plain_ws: bool,
+    /// The contract version the application was built against (`hello.contract`).
+    pub contract: String,
+    /// Who this client is, for the backend's logs (`hello.client`).
+    pub client: String,
+    /// The programs the backend's interface declares `idempotent`: only these are repeated after a
+    /// lost connection (WASM-014 R9).
+    pub idempotent: Vec<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { origins: Vec::new(), call_timeout_ms: 30_000, max_frame: 384 * 1024, backoff_start_ms: 250, backoff_max_ms: 10_000, unsafe_plain_ws: false }
+        Config {
+            origins: Vec::new(),
+            call_timeout_ms: 30_000,
+            max_frame: 384 * 1024,
+            backoff_start_ms: 250,
+            backoff_max_ms: 10_000,
+            unsafe_plain_ws: false,
+            contract: DEFAULT_CONTRACT.into(),
+            client: format!("prc-wasm/{}", env!("CARGO_PKG_VERSION")),
+            idempotent: Vec::new(),
+        }
     }
 }
 
@@ -99,15 +157,36 @@ impl Config {
             ..d
         }
     }
+
+    /// The backend's contract version and its idempotent programs, as the Build wrote them into the
+    /// page's configuration (an empty contract keeps [`DEFAULT_CONTRACT`]).
+    pub fn with_backend(mut self, contract: &str, idempotent: Vec<String>) -> Config {
+        if !contract.trim().is_empty() {
+            self.contract = contract.trim().to_owned();
+        }
+        self.idempotent = idempotent.into_iter().map(|p| p.trim().to_ascii_uppercase()).collect();
+        self
+    }
 }
 
 #[derive(Debug)]
 struct InFlight {
+    /// When the module made the call: its timeout runs from here, whatever the repeats.
     sent_at: u64,
-    /// The frame as the module produced it, kept to repeat after a refresh.
+    /// The frame as the module produced it (text, so its numbers keep every digit).
     frame: String,
+    /// The program it calls, upper case (for the idempotency rule).
+    program: String,
+    /// The idempotency key: the same on every repeat of this call.
+    key: String,
+    /// On the current connection.
     sent: bool,
-    repeated: bool,
+    /// On any connection, ever.
+    ever_sent: bool,
+    /// Repeated once after `authentication` 2002.
+    auth_repeated: bool,
+    /// Repeated once after a lost connection.
+    drop_repeated: bool,
 }
 
 /// The connection state machine.
@@ -118,10 +197,11 @@ pub struct Client<S: Socket> {
     /// The address in use (one of `cfg.origins`).
     url: Option<String>,
     token: Option<String>,
+    /// The session this page's connections share (`hello.session`); kept here and nowhere else.
+    session: String,
+    seed: u64,
     next_id: u32,
     inflight: BTreeMap<u32, InFlight>,
-    /// Requests the module made (ids it knows) mapped to our wire ids.
-    wire_to_req: BTreeMap<u32, u32>,
     attempt: u32,
     retry_at: Option<u64>,
     /// A deterministic jitter source, 0..=1000, replaced in tests.
@@ -150,37 +230,65 @@ pub fn origin_allowed(cfg: &Config, url: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// An error frame, the same shape the server sends (ABI amendment A6).
-pub fn error_frame(id: u32, class: &str, code: i32, message: &str, may_have_been_received: bool) -> Vec<u8> {
-    json!({"id": id, "error": {"class": class, "code": code, "message": message, "may_have_been_received": may_have_been_received}})
-        .to_string()
-        .into_bytes()
+/// An error frame for the module (ABI A6 as amended by A15): `{"id":N,"error":{"class","code",
+/// "message"[,"may_have_run"]}}`.
+pub fn error_frame(id: u32, class: &str, code: u32, message: &str, may_have_run: Option<bool>) -> Vec<u8> {
+    let mut e = json!({"class": class, "code": code, "message": message});
+    if let Some(m) = may_have_run {
+        e["may_have_run"] = Value::Bool(m);
+    }
+    json!({"id": id, "error": e}).to_string().into_bytes()
+}
+
+/// A 64-bit session id as 16 hex digits, from a seed (xorshift; the browser seeds it from
+/// `Math.random` and the clock).
+fn session_from(seed: &mut u64) -> String {
+    let mut x = *seed | 1;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *seed = x;
+    format!("{x:016x}")
 }
 
 impl<S: Socket> Client<S> {
     pub fn new(cfg: Config, sock: S) -> Self {
-        let mut seed = 0x2545_f491u32;
+        let mut jseed = 0x2545_f491u32;
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let session = session_from(&mut seed);
         Client {
             cfg,
             sock,
             state: LinkState::Closed,
             url: None,
             token: None,
+            session,
+            seed,
             next_id: 1,
             inflight: BTreeMap::new(),
-            wire_to_req: BTreeMap::new(),
             attempt: 0,
             retry_at: None,
             jitter: Box::new(move || {
-                seed ^= seed << 13;
-                seed ^= seed >> 17;
-                seed ^= seed << 5;
-                seed % 1001
+                jseed ^= jseed << 13;
+                jseed ^= jseed >> 17;
+                jseed ^= jseed << 5;
+                jseed % 1001
             }),
             wanted: false,
             out: Vec::new(),
             refresh_requested: false,
         }
+    }
+
+    /// Seed the session id (the browser passes something unpredictable); a fresh id follows.
+    pub fn seed_session(&mut self, seed: u64) {
+        self.seed = seed;
+        self.session = session_from(&mut self.seed);
+    }
+
+    /// The session id this client names in `hello`.
+    pub fn session(&self) -> &str {
+        &self.session
     }
 
     pub fn state(&self) -> LinkState {
@@ -206,20 +314,29 @@ impl<S: Socket> Client<S> {
         }
     }
 
-    /// Give the connection the bearer token (or none after a sign-out).
+    fn is_idempotent(&self, program: &str) -> bool {
+        !program.is_empty() && self.cfg.idempotent.iter().any(|p| p.eq_ignore_ascii_case(program))
+    }
+
+    /// Give the connection the bearer token (or none after a sign-out or a failed refresh).
     pub fn set_token(&mut self, token: Option<String>) {
         self.token = token;
         self.refresh_requested = false;
-        if self.state == LinkState::Ready {
-            if let Some(t) = &self.token {
-                let msg = json!({"type": "auth", "token": t}).to_string();
-                self.sock.send(&msg);
+        let waiting: Vec<u32> = self.inflight.iter().filter(|(_, f)| !f.sent && f.auth_repeated).map(|(id, _)| *id).collect();
+        match self.token.clone() {
+            Some(t) if self.state == LinkState::Ready => {
+                self.sock.send(&json!({"t": "auth", "token": t}).to_string());
+                // Repeat what the server refused for an expired token, once, under the same key.
+                for id in waiting {
+                    self.transmit(id);
+                }
             }
-        }
-        // Repeat what the server refused for an expired token, once.
-        let to_repeat: Vec<u32> = self.inflight.iter().filter(|(_, f)| !f.sent && f.repeated).map(|(id, _)| *id).collect();
-        for id in to_repeat {
-            self.transmit(id);
+            Some(_) => {} // the waiting calls go out when the connection is ready
+            None => {
+                for id in waiting {
+                    self.fail(id, class::AUTHENTICATION, code::TOKEN_EXPIRED, "the session expired and could not be refreshed", Some(false));
+                }
+            }
         }
     }
 
@@ -248,60 +365,75 @@ impl<S: Socket> Client<S> {
     /// A call from the module under the id the host already gave it (`remote` returned that id to
     /// the module, so the answer must come back under it).
     pub fn request_as(&mut self, id: u32, frame: &[u8], now: u64) -> u32 {
+        let refuse = |s: &mut Self, class_: &str, code_: u32, m: String| {
+            s.out.push(Out::Answer { id, frame: error_frame(id, class_, code_, &m, Some(false)) });
+            id
+        };
         if frame.len() > self.cfg.max_frame {
-            self.out.push(Out::Answer { id, frame: error_frame(id, class::LIMIT, 5, "the request is larger than the connection allows", false) });
-            return id;
+            let m = format!("the request is larger than the connection allows ({} bytes, limit {})", frame.len(), self.cfg.max_frame);
+            return refuse(self, class::LIMIT, code::FRAME_TOO_LARGE, m);
         }
         let Ok(text) = std::str::from_utf8(frame) else {
-            self.out.push(Out::Answer { id, frame: error_frame(id, class::CLIENT, 2, "the request frame is not UTF-8 text", false) });
-            return id;
+            return refuse(self, class::VALIDATION, code::BAD_MESSAGE, "the request frame is not UTF-8 text".into());
         };
-        if serde_json::from_str::<Value>(text).map(|v| !v.is_object()).unwrap_or(true) {
-            self.out.push(Out::Answer { id, frame: error_frame(id, class::CLIENT, 2, "the request frame is not a JSON object", false) });
-            return id;
+        let v = match serde_json::from_str::<Value>(text) {
+            Ok(Value::Object(m)) => m,
+            _ => return refuse(self, class::VALIDATION, code::BAD_MESSAGE, "the request frame is not a JSON object".into()),
+        };
+        if ["t", "id", "key"].iter().any(|k| v.contains_key(*k)) {
+            return refuse(self, class::VALIDATION, code::BAD_MESSAGE, "the request frame carries a member the player adds (t, id or key)".into());
         }
-        self.inflight.insert(id, InFlight { sent_at: now, frame: text.to_owned(), sent: false, repeated: false });
+        let program = v.get("program").and_then(Value::as_str).unwrap_or("").trim().to_ascii_uppercase();
+        let key = format!("{}-{id:08x}", self.session);
+        self.inflight.insert(
+            id,
+            InFlight { sent_at: now, frame: text.trim().to_owned(), program, key, sent: false, ever_sent: false, auth_repeated: false, drop_repeated: false },
+        );
         match self.state {
             LinkState::Ready => self.transmit(id),
             LinkState::Closed if self.wanted => {
                 // The link went away and nothing is retrying: try now.
                 self.start_connecting(now);
             }
-            LinkState::Backoff | LinkState::Connecting | LinkState::Authenticating => {} // held until Ready
+            LinkState::Backoff => {
+                // The user asked for something: try now rather than at the end of the back-off.
+                self.retry_at = None;
+                self.start_connecting(now);
+            }
+            LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating => {} // held until Ready
             LinkState::Closed => {
-                self.fail(id, class::TRANSPORT, 7, "the application is not connected to its backend", false);
+                self.fail(id, class::TRANSPORT, code::NO_CONNECTION, "the application is not connected to its backend", Some(false));
             }
         }
         id
     }
 
+    /// Send call `id` as `{"t":"call","id","key",…the module's frame…}`. The frame is spliced in as
+    /// text: a payload never passes through a JSON value, so its numbers keep every digit.
     fn transmit(&mut self, id: u32) {
         let Some(f) = self.inflight.get_mut(&id) else { return };
-        let frame: Value = serde_json::from_str(&f.frame).unwrap_or(Value::Null);
-        let msg = json!({"type": "call", "id": id, "frame": frame}).to_string();
+        let body = f.frame.trim();
+        let inner = body.strip_prefix('{').and_then(|b| b.strip_suffix('}')).unwrap_or("").trim();
+        let key = Value::String(f.key.clone()).to_string();
+        let msg = format!("{{\"t\":\"call\",\"id\":{id},\"key\":{key}{}{inner}}}", if inner.is_empty() { "" } else { "," });
         f.sent = true;
+        f.ever_sent = true;
         self.sock.send(&msg);
     }
 
-    fn fail(&mut self, id: u32, class_: &str, code: i32, message: &str, may_have_been_received: bool) {
+    fn fail(&mut self, id: u32, class_: &str, code_: u32, message: &str, may_have_run: Option<bool>) {
         if self.inflight.remove(&id).is_some() {
-            self.out.push(Out::Answer { id, frame: error_frame(id, class_, code, message, may_have_been_received) });
+            self.out.push(Out::Answer { id, frame: error_frame(id, class_, code_, message, may_have_run) });
         }
     }
 
     // ── events from the socket ──────────────────────────────────────────────
 
     pub fn on_open(&mut self, _now: u64) {
-        self.attempt = 0;
         self.retry_at = None;
-        if let Some(t) = self.token.clone() {
-            self.set_state(LinkState::Authenticating);
-            let msg = json!({"type": "auth", "token": t}).to_string();
-            self.sock.send(&msg);
-        } else {
-            self.set_state(LinkState::Ready);
-            self.flush_held();
-        }
+        let hello = json!({"t": "hello", "protocol": PROTOCOL, "contract": self.cfg.contract, "client": self.cfg.client, "session": self.session});
+        self.set_state(LinkState::Greeting);
+        self.sock.send(&hello.to_string());
     }
 
     fn flush_held(&mut self) {
@@ -311,46 +443,157 @@ impl<S: Socket> Client<S> {
         }
     }
 
+    /// Fail every call that is waiting (none was sent on this connection: it never got that far).
+    fn fail_all(&mut self, class_: &str, code_: u32, message: &str) {
+        let ids: Vec<u32> = self.inflight.keys().copied().collect();
+        for id in ids {
+            let ever = self.inflight.get(&id).map(|f| f.ever_sent).unwrap_or(false);
+            self.fail(id, class_, code_, message, Some(ever));
+        }
+    }
+
+    /// The connection is past `hello` (and `auth`, when there is a token): send what waits.
+    fn ready(&mut self) {
+        self.attempt = 0;
+        self.set_state(LinkState::Ready);
+        self.flush_held();
+    }
+
     pub fn on_message(&mut self, text: &str) {
-        let Ok(v) = serde_json::from_str::<Value>(text) else { return };
-        match v.get("type").and_then(Value::as_str) {
-            Some("auth") => {
-                if v.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-                    self.set_state(LinkState::Ready);
-                    self.flush_held();
-                } else {
-                    // The server refused the token: the calls that wait are failed, authentication class.
-                    self.set_state(LinkState::Ready);
-                    self.refresh_requested = true;
-                    self.flush_held();
+        let Ok(v) = serde_json::from_str::<Value>(text) else {
+            self.out.push(Out::Warning(format!("the backend sent a frame that is not JSON ({} bytes)", text.len())));
+            return;
+        };
+        let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let id = v.get("id").and_then(Value::as_u64).filter(|n| *n <= u32::MAX as u64).map(|n| n as u32);
+        match v.get("t").and_then(Value::as_str).unwrap_or("") {
+            "hello" => match s("accepted").as_str() {
+                "ok" | "warn" => {
+                    if s("accepted") == "warn" {
+                        self.out.push(Out::Warning(format!("backend: {}", s("message"))));
+                    }
+                    match self.token.clone() {
+                        Some(t) => {
+                            self.set_state(LinkState::Authenticating);
+                            self.sock.send(&json!({"t": "auth", "token": t}).to_string());
+                        }
+                        None => self.ready(),
+                    }
+                }
+                _ => {
+                    // Refused: the application and the backend cannot talk. Every waiting call fails
+                    // with the class `version`; the server closes the connection, and no retry follows.
+                    let too_old = v.get("update_to").is_some_and(|u| !u.is_null());
+                    let c = if too_old { code::CLIENT_TOO_OLD } else { code::CLIENT_TOO_NEW };
+                    let m = s("message");
+                    self.out.push(Out::Warning(format!("backend refused the connection: {m}")));
+                    self.fail_all(class::VERSION, c, &m);
+                    self.wanted = false;
+                    self.retry_at = None;
+                    self.sock.close();
+                    self.set_state(LinkState::Closed);
+                }
+            },
+            "auth-ok" => {
+                if self.state != LinkState::Ready {
+                    self.ready();
                 }
             }
-            Some("ping") => self.sock.send(&json!({"type": "pong"}).to_string()),
-            _ => {
-                let Some(id) = v.get("id").and_then(Value::as_u64).map(|n| n as u32) else { return };
+            "reply" => {
+                let Some(id) = id else { return };
+                let Some(f) = self.inflight.remove(&id) else { return };
+                // ABI A12: `result` is the body of `proto::Reply`; the module reads its `args` and `returning`.
+                let frame = format!("{{\"id\":{id},\"result\":{}}}", text.trim());
+                if id < PLAYER_ID_BASE && frame.len() > MODULE_ANSWER_LIMIT {
+                    let m = format!("answer too large (limit 64 KiB): the answer of {} is {} bytes", if f.program.is_empty() { "the call" } else { &f.program }, frame.len());
+                    self.out.push(Out::Answer { id, frame: error_frame(id, class::LIMIT, code::FRAME_TOO_LARGE, &m, None) });
+                } else {
+                    self.out.push(Out::Answer { id, frame: frame.into_bytes() });
+                }
+            }
+            "error" => {
+                let class_ = s("class");
+                let code_ = v.get("code").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let Some(id) = id else {
+                    // A failure of the connection, not of a call.
+                    if self.state == LinkState::Authenticating && class_ == class::AUTHENTICATION {
+                        // The token was refused: go on without it (public programs still answer);
+                        // the owner may refresh it.
+                        self.refresh_requested = true;
+                        self.ready();
+                    } else if matches!(self.state, LinkState::Greeting | LinkState::Authenticating) {
+                        let m = s("message");
+                        self.out.push(Out::Warning(format!("backend: {class_} {code_}: {m}")));
+                        self.fail_all(if class_.is_empty() { class::TRANSPORT } else { &class_ }, code_, &m);
+                    } else {
+                        self.out.push(Out::Warning(format!("backend: {class_} {code_}: {}", s("message"))));
+                    }
+                    return;
+                };
                 let Some(f) = self.inflight.get_mut(&id) else { return };
                 // The token expired: refresh and repeat once; the server refused before running anything.
-                let expired = v.pointer("/error/class").and_then(Value::as_str) == Some(class::AUTHENTICATION)
-                    && v.pointer("/error/expired").and_then(Value::as_bool).unwrap_or(false);
-                if expired && !f.repeated {
-                    f.repeated = true;
+                if class_ == class::AUTHENTICATION && code_ == code::TOKEN_EXPIRED && !f.auth_repeated && self.token.is_some() {
+                    f.auth_repeated = true;
                     f.sent = false;
                     self.refresh_requested = true;
                     return;
                 }
                 self.inflight.remove(&id);
-                self.out.push(Out::Answer { id, frame: text.as_bytes().to_vec() });
+                let mut e = json!({"class": class_, "code": code_, "message": s("message")});
+                if let Some(d) = v.get("detail").filter(|d| !d.is_null()) {
+                    e["detail"] = d.clone();
+                }
+                if let Some(m) = v.get("may_have_run").and_then(Value::as_bool) {
+                    e["may_have_run"] = Value::Bool(m);
+                }
+                self.out.push(Out::Answer { id, frame: json!({"id": id, "error": e}).to_string().into_bytes() });
             }
+            // Progress, streams and files are not this player's yet; a kind a newer backend invented
+            // is not an error either (`proto::parse_server`).
+            _ => {}
         }
     }
 
     pub fn on_close(&mut self, now: u64) {
-        // Everything in flight was possibly received: fail it, never repeat it silently (WASM-014 R9).
-        let ids: Vec<u32> = self.inflight.iter().filter(|(_, f)| f.sent).map(|(id, _)| *id).collect();
-        for id in ids {
-            self.fail(id, class::TRANSPORT, 7, "the connection to the backend was lost", true);
+        // The browser reports a failed attempt as `error` and then `close`: the second is a repeat.
+        if matches!(self.state, LinkState::Closed | LinkState::Backoff) {
+            return;
         }
-        if self.wanted {
+        let established = self.state == LinkState::Ready;
+        let ids: Vec<u32> = self.inflight.keys().copied().collect();
+        for id in ids {
+            let Some(f) = self.inflight.get(&id) else { continue };
+            let (sent, ever, again) = (f.sent, f.ever_sent, self.is_idempotent(&f.program) && !f.drop_repeated);
+            if sent {
+                if again {
+                    // Declared idempotent: repeated once on the next connection, under the same key,
+                    // so a backend that ran it answers from its store (R9, R10).
+                    if let Some(f) = self.inflight.get_mut(&id) {
+                        f.drop_repeated = true;
+                        f.sent = false;
+                    }
+                } else {
+                    self.fail(id, class::TRANSPORT, code::CLOSED, "the connection to the backend was lost", Some(true));
+                }
+            } else if !established {
+                let waiting_to_repeat = self.inflight.get(&id).is_some_and(|f| f.drop_repeated);
+                if waiting_to_repeat {
+                    // A safe call waiting for its repeat goes on waiting through failed attempts, until
+                    // its own timeout (a backend restart takes a moment).
+                    continue;
+                }
+                // This attempt never got as far as sending: the call is told now, not at its timeout.
+                if ever {
+                    self.fail(id, class::TRANSPORT, code::CLOSED, "the connection to the backend was lost and could not be restored", Some(true));
+                } else {
+                    self.fail(id, class::TRANSPORT, code::NO_CONNECTION, "the backend cannot be reached", Some(false));
+                }
+            }
+        }
+        // Reconnect with back-off after a lost connection, and while calls wait to be repeated; a failed
+        // attempt that leaves nothing waiting stops there, and the next call tries at once — so a page whose
+        // backend is down does not knock on its door forever (each knock is a console error in a browser).
+        if self.wanted && (established || !self.inflight.is_empty()) {
             let base = self.cfg.backoff_start_ms.saturating_mul(1u64 << self.attempt.min(16)).min(self.cfg.backoff_max_ms);
             // Jitter of up to a quarter either way, so many clients do not return together.
             let j = (self.jitter)() as u64; // 0..=1000
@@ -366,7 +609,7 @@ impl<S: Socket> Client<S> {
 
     pub fn on_error(&mut self, now: u64) {
         // A failed attempt arrives as a close.
-        if matches!(self.state, LinkState::Connecting | LinkState::Authenticating) {
+        if matches!(self.state, LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating) {
             self.on_close(now);
         }
     }
@@ -376,8 +619,13 @@ impl<S: Socket> Client<S> {
         let timeout = self.cfg.call_timeout_ms;
         let late: Vec<u32> = self.inflight.iter().filter(|(_, f)| now.saturating_sub(f.sent_at) >= timeout).map(|(id, _)| *id).collect();
         for id in late {
-            let sent = self.inflight.get(&id).map(|f| f.sent).unwrap_or(false);
-            self.fail(id, class::TRANSPORT, 9, "the backend did not answer in time", sent);
+            let (sent, ever) = self.inflight.get(&id).map(|f| (f.sent, f.ever_sent)).unwrap_or((false, false));
+            if sent && self.state == LinkState::Ready {
+                // Nobody awaits it any more: the backend may stop the work (R13).
+                self.sock.send(&json!({"t": "cancel", "id": id}).to_string());
+            }
+            let m = format!("the backend did not answer in time ({timeout} ms)");
+            self.fail(id, class::TRANSPORT, code::TIMEOUT, &m, Some(ever));
         }
         if let Some(at) = self.retry_at {
             if now >= at && self.state == LinkState::Backoff {
@@ -398,21 +646,25 @@ impl<S: Socket> Client<S> {
 
     /// Cancel a request the module abandoned (its task was cancelled).
     pub fn cancel(&mut self, id: u32) {
-        self.inflight.remove(&id);
-        self.wire_to_req.remove(&id);
+        if let Some(f) = self.inflight.remove(&id) {
+            if f.sent && self.state == LinkState::Ready {
+                self.sock.send(&json!({"t": "cancel", "id": id}).to_string());
+            }
+        }
     }
 
     /// The user signed out: close the connection so that the server forgets who it was, and let the next
-    /// call open a new one (anonymously, or with another session's token). What was sent and not yet
-    /// answered is failed — it may have been received — and what was only waiting goes out on the new one.
+    /// call open a new one (anonymously, or with another session's token) under a new session id. What was
+    /// sent and not yet answered is failed — it may have run — and what was only waiting goes out on the new one.
     pub fn reset_session(&mut self) {
         let sent: Vec<u32> = self.inflight.iter().filter(|(_, f)| f.sent).map(|(id, _)| *id).collect();
         for id in sent {
-            self.fail(id, class::TRANSPORT, 7, "the connection was closed by the sign-out", true);
+            self.fail(id, class::TRANSPORT, code::CLOSED, "the connection was closed by the sign-out", Some(true));
         }
         self.token = None;
         self.wanted = false;
         self.retry_at = None;
+        self.session = session_from(&mut self.seed);
         self.sock.close();
         self.set_state(LinkState::Closed);
     }
@@ -449,8 +701,11 @@ mod tests {
         }
     }
 
+    const URL: &str = "wss://api.example.com/ws";
+    const HELLO_OK: &str = r#"{"t":"hello","protocol":1,"protocol_min":1,"contract":"1.0.0","accepted":"ok","message":"","server":"test","max_frame_bytes":1048576}"#;
+
     fn cfg() -> Config {
-        Config { origins: vec!["wss://api.example.com/ws".into(), "ws://localhost:8443/ws".into()], ..Config::default() }
+        Config { origins: vec![URL.into(), "ws://localhost:8443/ws".into()], ..Config::default() }.with_backend("1.0.0", vec!["fund-totals".into()])
     }
 
     fn client() -> Client<Mock> {
@@ -459,8 +714,27 @@ mod tests {
         c
     }
 
+    /// A client past `hello` with no token: ready.
+    fn ready_client() -> Client<Mock> {
+        let mut c = client();
+        c.connect(URL, 0).unwrap();
+        c.on_open(1);
+        c.on_message(HELLO_OK);
+        assert_eq!(c.state(), LinkState::Ready);
+        c.socket().sent.clear();
+        c
+    }
+
     fn sent_json(c: &Client<Mock>) -> Vec<Value> {
         c.sock.sent.iter().map(|s| serde_json::from_str(s).unwrap()).collect()
+    }
+
+    fn answers(c: &mut Client<Mock>) -> Vec<(u32, Value)> {
+        c.take_out().into_iter().filter_map(|o| if let Out::Answer { id, frame } = o { Some((id, serde_json::from_slice(&frame).unwrap())) } else { None }).collect()
+    }
+
+    fn reply(id: u32, returning: &str) -> String {
+        format!(r#"{{"t":"reply","id":{id},"args":[null],"returning":{returning}}}"#)
     }
 
     /// WASM-017 T6: the page's `max_frame` (the project's payload limit) is
@@ -473,11 +747,11 @@ mod tests {
         let mut c = Client::new(Config::from_page(cfg().origins, false, Some(5_000), Some(limit)), Mock::default());
         assert_eq!(c.cfg.call_timeout_ms, 5_000);
         c.set_token(None);
-        c.connect("wss://api.example.com/ws", 0).unwrap();
+        c.connect(URL, 0).unwrap();
         let frame = |n: usize| {
-            let mut f = br#"{"program":"P","payload":""#.to_vec();
-            f.resize(n - 2, b'x');
-            f.extend_from_slice(br#""}"#);
+            let mut f = br#"{"program":"P","args":[{"mode":"value","json":""#.to_vec();
+            f.resize(n - 4, b'x');
+            f.extend_from_slice(br#""}]}"#);
             assert_eq!(f.len(), n);
             f
         };
@@ -496,7 +770,7 @@ mod tests {
         let mut c = client();
         assert!(c.connect("wss://evil.example.org/ws", 0).is_err(), "an address the build did not name");
         assert!(c.sock.opened.is_empty(), "no connection was attempted");
-        assert!(c.connect("wss://api.example.com/ws", 0).is_ok());
+        assert!(c.connect(URL, 0).is_ok());
         let mut plain = Client::new(Config { origins: vec!["ws://203.0.113.9/ws".into()], ..Config::default() }, Mock::default());
         let e = plain.connect("ws://203.0.113.9/ws", 0).unwrap_err();
         assert!(e.contains("unencrypted"), "{e}");
@@ -505,106 +779,313 @@ mod tests {
         assert!(origin_allowed(&cfg(), "ws://localhost:8443/ws").is_ok(), "loopback needs no setting");
     }
 
+    /// WASM-014 T6: hello, then the server's hello, then auth (with a token), then auth-ok, then the call.
     #[test]
-    fn calls_wait_for_the_connection_and_carry_the_id_the_player_assigned() {
+    fn hello_then_auth_then_call_in_that_order() {
         let mut c = client();
-        c.set_token(None);
-        c.connect("wss://api.example.com/ws", 0).unwrap();
-        let id = c.request(br#"{"program":"PING","payload":{"a":1}}"#, 10);
-        assert!(c.sock.sent.is_empty(), "held until the link is ready");
-        c.on_open(20);
+        c.set_token(Some("tok-123".into()));
+        c.connect(URL, 0).unwrap();
+        assert!(!c.sock.opened[0].contains("tok-123"), "WASM-003 R11: never in a URL");
+        let id = c.request(br#"{"program":"FUND-TOTALS","args":[{"mode":"value","json":{"F-NAME":"itau"}}],"returning":true}"#, 1);
+        assert!(c.sock.sent.is_empty(), "nothing before the socket opens");
+        c.on_open(2);
+        assert_eq!(c.state(), LinkState::Greeting);
+        let s = sent_json(&c);
+        assert_eq!(s.len(), 1, "only hello until the server answers it: {s:?}");
+        assert_eq!((s[0]["t"].as_str(), s[0]["protocol"].as_u64(), s[0]["contract"].as_str()), (Some("hello"), Some(1), Some("1.0.0")));
+        assert!(s[0]["client"].as_str().unwrap().starts_with("prc-wasm/"));
+        assert_eq!(s[0]["session"].as_str(), Some(c.session()));
+        c.on_message(HELLO_OK);
+        assert_eq!(c.state(), LinkState::Authenticating);
+        let s = sent_json(&c);
+        assert_eq!((s.len(), s[1]["t"].as_str(), s[1]["token"].as_str()), (2, Some("auth"), Some("tok-123")), "auth after hello: {s:?}");
+        c.on_message(r#"{"t":"auth-ok","sub":"u-1","expires_in":300}"#);
         assert_eq!(c.state(), LinkState::Ready);
-        let sent = sent_json(&c);
-        assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0]["type"], "call");
-        assert_eq!(sent[0]["id"], id);
-        assert_eq!(sent[0]["frame"]["program"], "PING");
-        // The answer is handed over verbatim, correlated by id, whatever the order.
-        let id2 = c.request(br#"{"program":"B"}"#, 30);
-        c.on_message(&format!(r#"{{"id":{id2},"result":"second"}}"#));
-        c.on_message(&format!(r#"{{"id":{id},"result":"first"}}"#));
-        let out = c.take_out();
-        let answers: Vec<(u32, String)> = out
-            .iter()
-            .filter_map(|o| if let Out::Answer { id, frame } = o { Some((*id, String::from_utf8(frame.clone()).unwrap())) } else { None })
-            .collect();
-        assert_eq!(answers.len(), 2);
-        assert_eq!(answers[0].0, id2, "answers may arrive in any order");
-        assert!(answers[0].1.contains("second") && answers[1].1.contains("first"));
-        assert_eq!(c.in_flight(), 0);
+        let s = sent_json(&c);
+        assert_eq!(s.len(), 3);
+        let call = &s[2];
+        assert_eq!((call["t"].as_str(), call["id"].as_u64(), call["program"].as_str()), (Some("call"), Some(id as u64), Some("FUND-TOTALS")));
+        assert_eq!(call["args"][0]["json"]["F-NAME"], "itau");
+        assert!(call["key"].as_str().unwrap().len() >= 8);
+        assert!(call.get("type").is_none() && call.get("frame").is_none(), "the A8 envelope is gone");
+        let order: Vec<&str> = s.iter().map(|m| m["t"].as_str().unwrap()).collect();
+        println!("order on the wire: {order:?}");
+        assert_eq!(order, ["hello", "auth", "call"]);
+    }
+
+    /// Public exports need no token, and the player has none of its own: no `auth` is sent.
+    #[test]
+    fn with_no_token_the_call_follows_hello_and_no_auth_is_sent() {
+        let mut c = client();
+        c.connect(URL, 0).unwrap();
+        c.request(br#"{"program":"HEALTH","args":[],"returning":false}"#, 1);
+        c.on_open(2);
+        c.on_message(HELLO_OK);
+        let order: Vec<String> = sent_json(&c).iter().map(|m| m["t"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(order, ["hello", "call"]);
+        assert!(c.sock.sent.iter().all(|m| !m.contains("token")), "no development token is injected");
+        // `{}` and `{"args":[]}` frames splice into a well-formed call.
+        let id = c.request(b"{}", 3);
+        let last: Value = serde_json::from_str(c.sock.sent.last().unwrap()).unwrap();
+        assert_eq!((last["t"].as_str(), last["id"].as_u64()), (Some("call"), Some(id as u64)));
     }
 
     #[test]
-    fn the_token_is_the_first_message_never_part_of_the_address() {
+    fn calls_carry_their_id_a_fresh_key_and_the_answer_keeps_every_digit() {
+        let mut c = ready_client();
+        let a = c.request(br#"{"program":"A","args":[{"mode":"value","json":{"N":12345678901234567890.123456789}}],"returning":true}"#, 10);
+        let b = c.request(br#"{"program":"B","args":[],"returning":true}"#, 11);
+        let s = sent_json(&c);
+        assert_ne!(s[0]["key"], s[1]["key"], "a fresh key per call");
+        assert!(c.sock.sent[0].contains("12345678901234567890.123456789"), "the request is spliced as text: {}", c.sock.sent[0]);
+        // Answers may come in any order; each is handed over as `{"id","result":<the reply>}`.
+        c.on_message(&reply(b, r#"{"V":"second"}"#));
+        c.on_message(&reply(a, r#"{"V":1.50,"BIG":98765432109876543210.0001}"#));
+        let out = c.take_out();
+        let texts: Vec<(u32, String)> = out.iter().filter_map(|o| if let Out::Answer { id, frame } = o { Some((*id, String::from_utf8(frame.clone()).unwrap())) } else { None }).collect();
+        assert_eq!(texts.len(), 2);
+        assert_eq!(texts[0].0, b, "answers may arrive in any order");
+        assert!(texts[1].1.contains("\"V\":1.50") && texts[1].1.contains("98765432109876543210.0001"), "digits kept: {}", texts[1].1);
+        let v: Value = serde_json::from_str(&texts[1].1).unwrap();
+        assert_eq!(v["id"].as_u64(), Some(a as u64));
+        assert!(v["result"]["args"].is_array() && v["result"]["returning"].is_object(), "A12: result.args and result.returning");
+        assert_eq!(c.in_flight(), 0);
+    }
+
+    /// Every failure the player produces, mapped onto the closed list (WASM-014 R7).
+    #[test]
+    fn each_failure_is_mapped_onto_the_closed_list() {
+        let mut rows: Vec<(String, String, u64, Option<bool>)> = Vec::new();
+        let mut row = |case: &str, v: &Value| {
+            let e = &v["error"];
+            rows.push((case.to_owned(), e["class"].as_str().unwrap_or("?").to_owned(), e["code"].as_u64().unwrap_or(0), e["may_have_run"].as_bool()));
+        };
+        // not connected (never asked to connect)
         let mut c = client();
-        c.set_token(Some("tok-123".into()));
-        c.connect("wss://api.example.com/ws", 0).unwrap();
-        assert!(!c.sock.opened[0].contains("tok-123"), "WASM-003 R11: never in a URL");
-        c.request(br#"{"program":"X"}"#, 1);
-        c.on_open(2);
+        c.request(br#"{"program":"X"}"#, 0);
+        row("not connected", &answers(&mut c)[0].1);
+        // the backend cannot be reached (the attempt fails)
+        let mut c = client();
+        c.connect(URL, 0).unwrap();
+        c.request(br#"{"program":"X"}"#, 0);
+        c.on_error(5);
+        c.on_close(6); // the browser's second event is ignored
+        row("backend unreachable", &answers(&mut c)[0].1);
+        assert_eq!((c.state(), c.retry_at), (LinkState::Closed, None), "nothing waits: no retry loop, the next call tries at once");
+        c.request(br#"{"program":"X"}"#, 7);
+        assert_eq!((c.state(), c.sock.opened.len()), (LinkState::Connecting, 2));
+        // the connection drops with a call in flight
+        let mut c = ready_client();
+        c.request(br#"{"program":"X"}"#, 0);
+        c.on_close(5);
+        row("connection lost in flight", &answers(&mut c)[0].1);
+        // no answer in time
+        let mut c = ready_client();
+        let id = c.request(br#"{"program":"SLOW"}"#, 0);
+        c.tick(30_000);
+        row("timeout", &answers(&mut c)[0].1);
+        assert_eq!(sent_json(&c).last().unwrap(), &json!({"t": "cancel", "id": id}), "the backend is told to stop");
+        // request frames the player refuses before the wire
+        let mut c = ready_client();
+        c.request(&vec![b'x'; 400 * 1024], 0);
+        c.request(b"not json", 0);
+        c.request(b"[1,2]", 0);
+        c.request(&[0xff, 0xfe], 0);
+        c.request(br#"{"t":"call","program":"X"}"#, 0);
+        assert!(c.sock.sent.is_empty(), "nothing reached the socket");
+        for (case, (_, v)) in ["request too large", "not JSON", "not an object", "not UTF-8", "carries t/id/key"].iter().zip(answers(&mut c)) {
+            row(case, &v);
+        }
+        // the answer does not fit the module's 64 KiB staging area
+        let mut c = ready_client();
+        let id = c.request(br#"{"program":"FUND-GRID"}"#, 0);
+        c.on_message(&reply(id, &format!(r#"{{"ROWS":"{}"}}"#, "y".repeat(70_000))));
+        let (_, v) = answers(&mut c).remove(0);
+        assert!(v["error"]["message"].as_str().unwrap().starts_with("answer too large (limit 64 KiB)"), "{v}");
+        row("answer over 64 KiB", &v);
+        // the backend refuses this application's version
+        for (case, upd) in [("hello refused: update the app", r#""update_to":"2.0.0","#), ("hello refused: update the backend", "")] {
+            let mut c = client();
+            c.connect(URL, 0).unwrap();
+            c.request(br#"{"program":"X"}"#, 0);
+            c.on_open(1);
+            c.on_message(&format!(r#"{{"t":"hello","protocol":1,"protocol_min":1,"contract":"2.0.0","accepted":"refused","message":"m",{upd}"server":"s","max_frame_bytes":1}}"#));
+            row(case, &answers(&mut c)[0].1);
+            assert_eq!((c.state(), c.sock.closed), (LinkState::Closed, 1), "no retry after a refusal");
+            c.on_close(2);
+            assert_eq!(c.retry_at, None);
+        }
+        // a server error frame is handed through, class and code intact
+        let mut c = ready_client();
+        let id = c.request(br#"{"program":"NOSUCH"}"#, 0);
+        c.on_message(&format!(r#"{{"t":"error","id":{id},"class":"authentication","code":2000,"message":"no token: authenticate before calling"}}"#));
+        row("server: unknown or private program", &answers(&mut c)[0].1);
+        for (case, class_, code_, may) in &rows {
+            println!("{case:<38} {class_:<15} {code_:<5} may_have_run={may:?}");
+        }
+        let got: Vec<(&str, u64)> = rows.iter().map(|(_, c, n, _)| (c.as_str(), *n)).collect();
+        assert_eq!(
+            got,
+            [
+                ("transport", 1000),
+                ("transport", 1000),
+                ("transport", 1001),
+                ("transport", 1002),
+                ("limit", 7000),
+                ("validation", 4001),
+                ("validation", 4001),
+                ("validation", 4001),
+                ("validation", 4001),
+                ("limit", 7000),
+                ("version", 6000),
+                ("version", 6001),
+                ("authentication", 2000),
+            ]
+        );
+        assert_eq!(rows[2].3, Some(true), "a lost call may have run");
+        assert_eq!(rows[1].3, Some(false), "an unreachable backend never saw it");
+    }
+
+    #[test]
+    fn an_expired_token_is_refreshed_and_the_call_repeated_once_with_its_key() {
+        let mut c = client();
+        c.set_token(Some("old".into()));
+        c.connect(URL, 0).unwrap();
+        c.on_open(1);
+        c.on_message(HELLO_OK);
+        c.on_message(r#"{"t":"auth-ok","sub":"u","expires_in":1}"#);
+        let id = c.request(br#"{"program":"X"}"#, 2);
+        let expired = format!(r#"{{"t":"error","id":{id},"class":"authentication","code":2002,"message":"token expired"}}"#);
+        c.on_message(&expired);
+        assert!(c.refresh_requested, "the owner is asked to refresh");
+        assert!(answers(&mut c).is_empty(), "the program is not told yet");
+        c.set_token(Some("new".into()));
         let sent = sent_json(&c);
-        assert_eq!(sent[0]["type"], "auth", "the token goes first");
-        assert_eq!(sent[0]["token"], "tok-123");
-        assert_eq!(sent.len(), 1, "no call before the server accepts the token");
-        assert_eq!(c.state(), LinkState::Authenticating);
-        c.on_message(r#"{"type":"auth","ok":true}"#);
+        assert!(sent.iter().any(|m| m["t"] == "auth" && m["token"] == "new"));
+        let calls: Vec<&Value> = sent.iter().filter(|m| m["t"] == "call" && m["id"] == id).collect();
+        assert_eq!(calls.len(), 2, "the call was repeated");
+        assert_eq!(calls[0]["key"], calls[1]["key"], "under the same key");
+        // A second expiry is final: no loop.
+        c.on_message(&expired);
+        let a = answers(&mut c);
+        assert_eq!((a.len(), a[0].1["error"]["code"].as_u64()), (1, Some(2002)));
+        println!("2002: refreshed, repeated once under key {}, a second 2002 reaches the program", calls[0]["key"]);
+    }
+
+    #[test]
+    fn a_safe_program_is_repeated_once_after_a_drop_and_an_unsafe_one_fails_with_may_have_run() {
+        let mut c = ready_client();
+        let safe = c.request(br#"{"program":"FUND-TOTALS","args":[],"returning":true}"#, 1);
+        let unsafe_ = c.request(br#"{"program":"FUND-SAVE","args":[],"returning":true}"#, 1);
+        let first_key = sent_json(&c)[0]["key"].clone();
+        c.on_close(5);
+        let a = answers(&mut c);
+        assert_eq!(a.len(), 1, "only the unsafe call is failed: {a:?}");
+        assert_eq!((a[0].0, a[0].1["error"]["code"].as_u64(), a[0].1["error"]["may_have_run"].as_bool()), (unsafe_, Some(1001), Some(true)));
+        assert_eq!(c.in_flight(), 1, "the safe one waits for the next connection");
+        c.tick(1_000);
+        c.on_open(1_001);
+        c.on_message(HELLO_OK);
+        let again: Vec<Value> = sent_json(&c).into_iter().filter(|m| m["t"] == "call" && m["id"] == safe).collect();
+        assert_eq!(again.len(), 2, "sent, then repeated once");
+        assert_eq!(again[1]["key"], first_key, "the repeat carries the same key, so the backend answers from its store");
+        // A second drop is final.
+        c.on_close(1_100);
+        let a = answers(&mut c);
+        assert_eq!((a[0].0, a[0].1["error"]["code"].as_u64(), a[0].1["error"]["may_have_run"].as_bool()), (safe, Some(1001), Some(true)));
+        println!("safe FUND-TOTALS: repeated once under key {first_key}, a second drop fails it; unsafe FUND-SAVE: failed 1001 may_have_run=true");
+    }
+
+    #[test]
+    fn the_players_own_ids_start_at_0x80000000_and_only_module_answers_are_size_limited() {
+        assert_eq!(PLAYER_ID_BASE, crate::auth::wire::ID_BASE);
+        assert!(crate::grid::ID_BASE > PLAYER_ID_BASE);
+        let mut c = ready_client();
+        let big = format!(r#"{{"ROWS":"{}"}}"#, "z".repeat(70_000));
+        c.request_as(PLAYER_ID_BASE + 7, br#"{"identity":"refresh"}"#, 0);
+        c.on_message(&reply(PLAYER_ID_BASE + 7, &big));
+        let (id, v) = answers(&mut c).remove(0);
+        assert_eq!(id, PLAYER_ID_BASE + 7);
+        assert!(v.get("result").is_some(), "the player's own answer is not cut at 64 KiB");
+    }
+
+    #[test]
+    fn a_warning_hello_connects_and_json_pings_are_not_part_of_the_protocol() {
+        let mut c = client();
+        c.connect(URL, 0).unwrap();
+        c.on_open(1);
+        c.on_message(r#"{"t":"hello","protocol":1,"protocol_min":1,"contract":"1.2.0","accepted":"warn","message":"update when convenient","update_to":"1.2.0","server":"s","max_frame_bytes":1}"#);
         assert_eq!(c.state(), LinkState::Ready);
-        assert_eq!(sent_json(&c)[1]["type"], "call");
+        assert!(c.take_out().iter().any(|o| matches!(o, Out::Warning(w) if w.contains("update when convenient"))));
+        let before = c.sock.sent.len();
+        c.on_message(r#"{"type":"ping"}"#);
+        c.on_message(r#"{"t":"progress","id":1,"percent":5,"message":""}"#);
+        assert_eq!(c.sock.sent.len(), before, "no pong, nothing sent");
     }
 
     #[test]
     fn a_call_in_flight_when_the_connection_drops_fails_and_a_later_one_does_not() {
-        let mut c = client();
-        c.connect("wss://api.example.com/ws", 0).unwrap();
-        c.on_open(1);
+        let mut c = ready_client();
         let in_flight = c.request(br#"{"program":"X"}"#, 2);
         c.on_close(3);
         assert_eq!(c.state(), LinkState::Backoff);
-        let out = c.take_out();
-        let failed = out.iter().find_map(|o| if let Out::Answer { id, frame } = o { Some((*id, frame.clone())) } else { None }).expect("the call failed");
-        assert_eq!(failed.0, in_flight);
-        let v: Value = serde_json::from_slice(&failed.1).unwrap();
-        assert_eq!(v["error"]["class"], "transport");
-        assert_eq!(v["error"]["may_have_been_received"], true, "WASM-014 R9: the program is told it may have been received");
+        let a = answers(&mut c);
+        assert_eq!(a[0].0, in_flight);
+        assert_eq!(a[0].1["error"]["class"], "transport");
+        assert_eq!(a[0].1["error"]["may_have_run"], true, "WASM-014 R9: the program is told it may have run");
         // While backing off, a new call waits; after the reconnection it is sent and answered normally.
         let later = c.request(br#"{"program":"Y"}"#, 100);
         assert!(c.sock.sent.iter().all(|s| !s.contains("\"Y\"")));
         c.tick(10_000);
         assert_eq!(c.state(), LinkState::Connecting);
         c.on_open(10_001);
+        c.on_message(HELLO_OK);
         assert!(c.sock.sent.iter().any(|s| s.contains("\"Y\"")));
-        c.on_message(&format!(r#"{{"id":{later},"result":"ok"}}"#));
-        let out = c.take_out();
-        assert!(out.iter().any(|o| matches!(o, Out::Answer { id, frame } if *id == later && !String::from_utf8_lossy(frame).contains("error"))));
+        c.on_message(&reply(later, "\"ok\""));
+        let a = answers(&mut c);
+        assert!(a.iter().any(|(id, v)| *id == later && v.get("error").is_none()));
     }
 
+    /// After a lost connection the page reconnects with back-off while a safe call waits for its repeat;
+    /// the repeat goes out when it works, and a later loss starts the series again.
     #[test]
     fn reconnection_backs_off_exponentially_and_resets_when_it_works() {
-        let mut c = client();
-        c.connect("wss://api.example.com/ws", 0).unwrap();
+        let mut c = ready_client();
+        c.cfg.call_timeout_ms = 1_000_000;
+        let safe = c.request(br#"{"program":"FUND-TOTALS"}"#, 0);
         let mut now = 0u64;
+        c.on_close(now);
         let mut waits = Vec::new();
         for _ in 0..8 {
-            c.on_error(now);
             let at = c.retry_at.unwrap();
             waits.push(at - now);
             now = at;
             c.tick(now);
+            assert_eq!(c.state(), LinkState::Connecting);
+            c.on_error(now);
+            assert_eq!(c.in_flight(), 1, "the safe call goes on waiting through failed attempts");
         }
         assert_eq!(waits, [250, 500, 1000, 2000, 4000, 8000, 10_000, 10_000], "doubling, capped at backoff_max");
+        c.tick(c.retry_at.unwrap());
         c.on_open(now);
+        c.on_message(HELLO_OK);
+        assert_eq!(sent_json(&c).iter().filter(|m| m["t"] == "call" && m["id"] == safe).count(), 2, "repeated once it worked");
+        c.on_message(&reply(safe, "{}"));
         c.on_close(now + 1);
         assert_eq!(c.retry_at.unwrap() - (now + 1), 250, "a working connection starts the series again");
+        // With nothing waiting, a failed attempt ends the loop.
+        c.tick(now + 251);
+        c.on_error(now + 252);
+        assert_eq!((c.state(), c.retry_at), (LinkState::Closed, None));
         println!("back-off waits (ms): {waits:?}");
     }
 
     #[test]
     fn jitter_stays_within_a_quarter_of_the_base() {
         for j in [0u32, 250, 500, 750, 1000] {
-            let mut c = client();
+            let mut c = ready_client();
             c.jitter = Box::new(move || j);
-            c.connect("wss://api.example.com/ws", 0).unwrap();
-            c.on_error(0);
+            c.on_close(0);
             let w = c.retry_at.unwrap();
             assert!((187..=313).contains(&w), "jitter {j}: waited {w}");
         }
@@ -612,65 +1093,27 @@ mod tests {
 
     #[test]
     fn a_call_that_is_never_answered_times_out_with_its_own_error() {
-        let mut c = client();
-        c.connect("wss://api.example.com/ws", 0).unwrap();
-        c.on_open(1);
+        let mut c = ready_client();
         let id = c.request(br#"{"program":"SLOW"}"#, 1_000);
         c.tick(1_000 + 29_999);
-        assert!(c.take_out().iter().all(|o| !matches!(o, Out::Answer { .. })));
+        assert!(answers(&mut c).is_empty());
         c.tick(1_000 + 30_000);
-        let out = c.take_out();
-        let v: Value = out
-            .iter()
-            .find_map(|o| if let Out::Answer { id: i, frame } = o { (*i == id).then(|| serde_json::from_slice(frame).unwrap()) } else { None })
-            .expect("timed out");
-        assert_eq!((v["error"]["class"].as_str(), v["error"]["code"].as_i64()), (Some("transport"), Some(9)));
+        let (i, v) = answers(&mut c).remove(0);
+        assert_eq!(i, id);
+        assert_eq!((v["error"]["class"].as_str(), v["error"]["code"].as_u64()), (Some("transport"), Some(1002)));
         assert_eq!(c.next_deadline(), None);
-    }
-
-    #[test]
-    fn oversized_and_malformed_frames_are_refused_without_touching_the_wire() {
+        // A call held behind a handshake that never completes ends at its timeout too.
         let mut c = client();
-        c.connect("wss://api.example.com/ws", 0).unwrap();
+        c.connect(URL, 0).unwrap();
         c.on_open(1);
-        c.request(&vec![b'x'; 400 * 1024], 2);
-        c.request(b"not json", 2);
-        c.request(b"[1,2]", 2);
-        c.request(&[0xff, 0xfe], 2);
-        assert!(c.sock.sent.is_empty(), "nothing reached the socket");
-        let out = c.take_out();
-        let classes: Vec<String> = out
-            .iter()
-            .filter_map(|o| if let Out::Answer { frame, .. } = o { Some(serde_json::from_slice::<Value>(frame).unwrap()["error"]["class"].as_str().unwrap().to_owned()) } else { None })
-            .collect();
-        assert_eq!(classes, ["limit", "client", "client", "client"]);
-    }
-
-    #[test]
-    fn an_expired_token_is_refreshed_and_the_call_repeated_once() {
-        let mut c = client();
-        c.set_token(Some("old".into()));
-        c.connect("wss://api.example.com/ws", 0).unwrap();
-        c.on_open(1);
-        c.on_message(r#"{"type":"auth","ok":true}"#);
-        let id = c.request(br#"{"program":"X"}"#, 2);
-        c.on_message(&format!(r#"{{"id":{id},"error":{{"class":"authentication","code":401,"expired":true}}}}"#));
-        assert!(c.refresh_requested, "the owner is asked to refresh");
-        assert!(c.take_out().iter().all(|o| !matches!(o, Out::Answer { .. })), "the program is not told yet");
-        c.set_token(Some("new".into()));
-        let sent = sent_json(&c);
-        assert!(sent.iter().any(|m| m["type"] == "auth" && m["token"] == "new"));
-        assert_eq!(sent.iter().filter(|m| m["type"] == "call" && m["id"] == id).count(), 2, "the call was repeated");
-        // A second expiry is final: no loop.
-        c.on_message(&format!(r#"{{"id":{id},"error":{{"class":"authentication","code":401,"expired":true}}}}"#));
-        assert!(c.take_out().iter().any(|o| matches!(o, Out::Answer { id: i, .. } if *i == id)));
+        c.request(br#"{"program":"X"}"#, 2);
+        c.tick(30_002);
+        assert_eq!(answers(&mut c)[0].1["error"]["code"].as_u64(), Some(1002));
     }
 
     #[test]
     fn shutdown_closes_the_socket_and_forgets_the_calls() {
-        let mut c = client();
-        c.connect("wss://api.example.com/ws", 0).unwrap();
-        c.on_open(1);
+        let mut c = ready_client();
         c.request(br#"{"program":"X"}"#, 2);
         c.shutdown();
         assert_eq!((c.state(), c.in_flight(), c.sock.closed), (LinkState::Closed, 0, 1));
@@ -682,25 +1125,121 @@ mod tests {
     fn a_sign_out_closes_the_connection_and_the_next_call_opens_an_anonymous_one() {
         let mut c = client();
         c.set_token(Some("tok".into()));
-        c.connect("wss://api.example.com/ws", 0).unwrap();
+        c.connect(URL, 0).unwrap();
         c.on_open(1);
-        c.on_message(r#"{"type":"auth","ok":true}"#);
+        c.on_message(HELLO_OK);
+        c.on_message(r#"{"t":"auth-ok","sub":"u","expires_in":300}"#);
+        let first_session = c.session().to_owned();
         let sent_call = c.request(br#"{"program":"X"}"#, 2);
         c.reset_session();
         assert_eq!((c.state(), c.sock.closed), (LinkState::Closed, 1));
-        let out = c.take_out();
-        assert!(
-            out.iter().any(|o| matches!(o, Out::Answer { id, frame } if *id == sent_call && String::from_utf8_lossy(frame).contains("may_have_been_received\":true"))),
-            "a call that was sent is failed as possibly received: {out:?}"
-        );
+        let a = answers(&mut c);
+        assert!(a.iter().any(|(id, v)| *id == sent_call && v["error"]["may_have_run"] == true), "a call that was sent is failed as possibly run: {a:?}");
         c.on_close(5);
         assert_eq!(c.state(), LinkState::Closed, "no reconnection of the old session");
-        // The next call opens a new connection with no token: it is Ready at once and sends no `auth` message.
-        c.connect("wss://api.example.com/ws", 10).unwrap();
-        c.request(br#"{"identity":"sign-in"}"#, 11);
+        assert_ne!(c.session(), first_session, "a sign-out starts a new session");
+        // The next call opens a new connection with no token: no `auth` message.
+        c.connect(URL, 10).unwrap();
+        c.request(br#"{"program":"Y"}"#, 11);
         c.on_open(12);
+        c.on_message(HELLO_OK);
         let sent = sent_json(&c);
-        assert_eq!(sent.iter().filter(|m| m["type"] == "auth").count(), 1, "only the first session's token was ever sent: {sent:?}");
-        assert!(sent.iter().any(|m| m["type"] == "call" && m["frame"]["identity"] == "sign-in"));
+        assert_eq!(sent.iter().filter(|m| m["t"] == "auth").count(), 1, "only the first session's token was ever sent: {sent:?}");
+        assert!(sent.iter().any(|m| m["t"] == "call" && m["program"] == "Y"));
+    }
+
+    #[test]
+    fn the_session_id_is_never_written_to_storage() {
+        // The mock socket sees the same session on a reconnect.
+        let mut c = client();
+        c.seed_session(0x1234_5678_9abc_def0);
+        c.connect(URL, 0).unwrap();
+        c.on_open(1);
+        c.on_message(HELLO_OK);
+        c.on_close(2);
+        c.tick(10_000);
+        c.on_open(10_001);
+        let hellos: Vec<String> = sent_json(&c).iter().filter(|m| m["t"] == "hello").map(|m| m["session"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(hellos.len(), 2);
+        assert_eq!(hellos[0], hellos[1], "the same session on a reconnect");
+        assert_eq!(hellos[0].len(), 16);
+        // And the connection's code never touches browser storage.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut hits = Vec::new();
+        for f in ["net.rs", "api.rs"] {
+            let text = std::fs::read_to_string(root.join(f)).unwrap();
+            let code = text.split("#[cfg(test)]").next().unwrap();
+            for (n, line) in code.lines().enumerate() {
+                if ["local_storage", "session_storage", "indexed_db"].iter().any(|w| line.contains(w)) {
+                    hits.push(format!("{f}:{}", n + 1));
+                }
+            }
+        }
+        println!("storage hits in net.rs/api.rs: {} {hits:?}", hits.len());
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn grep_has_no_client_class_or_may_have_been_received() {
+        let mut hits = Vec::new();
+        let mut walk = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
+        while let Some(d) = walk.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk.push(p);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    let text = std::fs::read_to_string(&p).unwrap();
+                    for (n, line) in text.lines().enumerate() {
+                        let needles = [concat!("may_have_been", "_received"), concat!("class::", "CLIENT"), concat!("class: \"", "client\"")];
+                        if needles.iter().any(|w| line.contains(w)) && !line.contains("fn grep_has_no_client_class") {
+                            hits.push(format!("{}:{}", p.display(), n + 1));
+                        }
+                    }
+                }
+            }
+        }
+        println!("hits: {} {hits:?}", hits.len());
+        assert!(hits.is_empty());
+    }
+
+    /// T7's codes-equality check, the cheap half: every code the player emits equals
+    /// `cobolt_wire::error::codes` (read from its source; the player cannot link the crate).
+    #[test]
+    fn the_players_codes_equal_cobolt_wire_error_codes() {
+        let wire = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cobolt-wire/src/error.rs")).unwrap();
+        let of = |name: &str| -> u32 {
+            let at = wire.find(&format!("pub const {name}: u32 = ")).unwrap_or_else(|| panic!("{name} is not in cobolt-wire"));
+            let rest = &wire[at..];
+            rest[rest.find('=').unwrap() + 1..rest.find(';').unwrap()].trim().parse().unwrap()
+        };
+        let mine = [
+            ("NO_CONNECTION", code::NO_CONNECTION),
+            ("CLOSED", code::CLOSED),
+            ("TIMEOUT", code::TIMEOUT),
+            ("NOT_CONFIGURED", code::NOT_CONFIGURED),
+            ("TOKEN_EXPIRED", code::TOKEN_EXPIRED),
+            ("BAD_MESSAGE", code::BAD_MESSAGE),
+            ("CLIENT_TOO_OLD", code::CLIENT_TOO_OLD),
+            ("CLIENT_TOO_NEW", code::CLIENT_TOO_NEW),
+            ("FRAME_TOO_LARGE", code::FRAME_TOO_LARGE),
+        ];
+        for (name, v) in mine {
+            println!("{name:<16} player {v:<5} cobolt_wire {}", of(name));
+            assert_eq!(v, of(name), "{name}");
+        }
+        for c in [class::TRANSPORT, class::AUTHENTICATION, class::VALIDATION, class::VERSION, class::LIMIT] {
+            assert!(wire.contains(&format!("=> \"{c}\"")), "{c} is a class of cobolt-wire");
+        }
+        let contract = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cobolt-wire/src/contract.rs")).unwrap();
+        assert!(contract.contains(&format!("pub const PROTOCOL: u32 = {PROTOCOL};")));
+    }
+
+    /// The module's answer staging area is what [`MODULE_ANSWER_LIMIT`] says.
+    #[test]
+    fn the_module_answer_limit_is_the_runtimes_staging_area() {
+        let st = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cobolt-wasm-rt/src/state.rs")).unwrap();
+        assert!(st.contains("pub const FRAME_SIZE: u32 = 64 * 1024;"), "cobolt-wasm-rt changed its FRAME_SIZE: update MODULE_ANSWER_LIMIT");
+        assert_eq!(MODULE_ANSWER_LIMIT, 65_536);
     }
 }

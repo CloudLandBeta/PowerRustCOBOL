@@ -1615,7 +1615,9 @@ pub fn standard_spec(multi_memory: bool) -> FixtureSpec {
                         "onClick",
                         vec![
                             Step::Set { target: out(), name: "Caption".into(), value: "calling".into() },
-                            Step::Remote(br#"{"program":"PING","payload":{}}"#.to_vec()),
+                            // The module's request frame: the body of `proto::Call` without `t`, `id` and `key`
+                            // (WASM-014 Δ5, ABI A12); the player adds those.
+                            Step::Remote(br#"{"program":"PING","args":[],"returning":false}"#.to_vec()),
                             Step::EchoFrame { target: out(), name: "Caption".into() },
                         ],
                     ),

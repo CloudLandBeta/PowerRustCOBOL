@@ -70,8 +70,9 @@ fn embedding_page(index: &str) -> String {
     format!("{}<p id=\"before\">The host page's own text.</p>\n<div id=\"host-box\">{}</div>\n<p id=\"after\">More of the host page.</p>{}", &head[..at + shift], &head[at + shift..end + shift], &head[end + shift..])
 }
 
-/// A backend on the loopback that speaks the player's connection (`{"type":"call","id","frame"}` in,
-/// `{"id","result"}` out, as `examples/mock_backend.rs`): it answers every call `pong` after `delay_ms`,
+/// A backend on the loopback that speaks the backend's protocol as far as the player uses it
+/// (`cobolt_wire::proto`, WASM-014 T6: `hello` answered `hello`, `{"t":"call","id","key",…}` answered
+/// `{"t":"reply","id","args","returning"}`, as `examples/mock_backend.rs`): it answers every call `pong` after `delay_ms`,
 /// or holds it forever (`delay_ms` = `u64::MAX`). [`Backend::kill`] drops it with its connections, as a
 /// server that goes down; [`Backend::start`] on the same port brings it back.
 struct Backend {
@@ -104,17 +105,24 @@ impl Backend {
                     while let Ok(msg) = ws.read() {
                         let tungstenite::Message::Text(text) = msg else { continue };
                         let Ok(v) = serde_json::from_str::<serde_json::Value>(text.as_str()) else { continue };
-                        if v["type"] != "call" {
+                        if v["t"] == "hello" {
+                            let hello = serde_json::json!({"t": "hello", "protocol": 1, "protocol_min": 1, "contract": v["contract"], "accepted": "ok", "message": "", "server": "e2e", "max_frame_bytes": 1 << 20});
+                            if ws.send(tungstenite::Message::text(hello.to_string())).is_err() {
+                                break;
+                            }
                             continue;
                         }
-                        log.lock().unwrap().push(v["frame"].to_string());
+                        if v["t"] != "call" {
+                            continue;
+                        }
+                        log.lock().unwrap().push(text.to_string());
                         let wait = d.load(Ordering::SeqCst);
                         if wait == u64::MAX {
                             continue;
                         }
                         std::thread::sleep(Duration::from_millis(wait));
                         let id = v["id"].as_u64().unwrap_or(0);
-                        if ws.send(tungstenite::Message::text(serde_json::json!({"id": id, "result": "pong"}).to_string())).is_err() {
+                        if ws.send(tungstenite::Message::text(serde_json::json!({"t": "reply", "id": id, "args": [], "returning": "pong"}).to_string())).is_err() {
                             break;
                         }
                     }

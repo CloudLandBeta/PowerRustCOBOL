@@ -695,7 +695,7 @@ impl Surface for Dom {
     fn net_state(&self, _inner: &Rc<Inner>, s: LinkState) {
         let text = match s {
             LinkState::Ready | LinkState::Closed => None,
-            LinkState::Connecting | LinkState::Authenticating => Some("Connecting\u{2026}"),
+            LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating => Some("Connecting\u{2026}"),
             LinkState::Backoff => Some("Reconnecting\u{2026}"),
         };
         let sh = &self.sh;

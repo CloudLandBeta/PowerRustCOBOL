@@ -165,7 +165,7 @@ pub enum Answer {
 pub fn parse_answer(frame: &[u8]) -> Answer {
     let v: Value = match serde_json::from_slice(frame) {
         Ok(v) => v,
-        Err(e) => return Answer::Error { class: "client".into(), code: 2, message: format!("the answer is not a JSON frame: {e}") },
+        Err(e) => return Answer::Error { class: crate::net::class::VALIDATION.into(), code: crate::net::code::BAD_MESSAGE, message: format!("the answer is not a JSON frame: {e}") },
     };
     if let Some(e) = v.get("error") {
         return Answer::Error {
@@ -176,7 +176,7 @@ pub fn parse_answer(frame: &[u8]) -> Answer {
     }
     match v.get("result") {
         Some(r) => Answer::Result(r.clone()),
-        None => Answer::Error { class: "client".into(), code: 2, message: "the answer carries neither a result nor an error".into() },
+        None => Answer::Error { class: crate::net::class::VALIDATION.into(), code: crate::net::code::BAD_MESSAGE, message: "the answer carries neither a result nor an error".into() },
     }
 }
 
@@ -423,10 +423,10 @@ mod tests {
         let Answer::Result(r) = parse_answer(frame) else { panic!("a result") };
         assert_eq!(parse_save(&r), SaveOutcome { status: "92".into(), message: "CUST-NAME: value length exceeds PIC".into(), failed_change: 2 });
 
-        let frame = crate::net::error_frame(ID_BASE, crate::net::class::TRANSPORT, 7, "the application is not connected to its backend", false);
-        assert_eq!(parse_answer(&frame), Answer::Error { class: "transport".into(), code: 7, message: "the application is not connected to its backend".into() });
-        assert!(matches!(parse_answer(b"not json"), Answer::Error { class, .. } if class == "client"));
-        assert!(may_retry("transport", 7) && may_retry("limit", codes::RATE_LIMITED) && may_retry("limit", codes::CALL_TIMEOUT));
+        let frame = crate::net::error_frame(ID_BASE, crate::net::class::TRANSPORT, 1000, "the application is not connected to its backend", Some(false));
+        assert_eq!(parse_answer(&frame), Answer::Error { class: "transport".into(), code: 1000, message: "the application is not connected to its backend".into() });
+        assert!(matches!(parse_answer(b"not json"), Answer::Error { class, code: 4001, .. } if class == "validation"));
+        assert!(may_retry("transport", 1000) && may_retry("limit", codes::RATE_LIMITED) && may_retry("limit", codes::CALL_TIMEOUT));
         assert!(!may_retry("limit", codes::FRAME_TOO_LARGE) && !may_retry("validation", 4000) && !may_retry("notfound", 5000));
     }
 

@@ -61,6 +61,11 @@ pub struct PlayerConfig {
     /// The project's payload limit (WASM-017 R8); `None` keeps the default.
     pub max_frame: Option<usize>,
     pub unsafe_plain_ws: bool,
+    /// The backend contract the application was built against (`backend/exports.toml`
+    /// `contract.version`; WASM-014 R2); empty = `net::DEFAULT_CONTRACT`.
+    pub backend_contract: String,
+    /// The exported programs declared `idempotent`: the only ones repeated after a lost connection (R9).
+    pub backend_idempotent: Vec<String>,
     pub weblink_schemes: Vec<String>,
     pub recaptcha_site_key: String,
     /// `"in-app"` or `"hosted"` (WASM-009 R8b).
@@ -446,6 +451,7 @@ impl Inner {
                         sf.net_state(self, s);
                     }
                 }
+                Out::Warning(w) => web_sys::console::warn_1(&w.into()),
             }
         }
         if refresh {
@@ -592,7 +598,7 @@ impl Inner {
                     // No backend configured, or an address the page may not connect to: the program is
                     // told, as for any lost connection.
                     if let Err(e) = self.net_submit(id, &frame) {
-                        let f = net::error_frame(id, net::class::TRANSPORT, 7, &e, false);
+                        let f = net::error_frame(id, net::class::TRANSPORT, net::code::NOT_CONFIGURED, &e, Some(false));
                         if crate::grid::is_grid_id(id) {
                             self.host.borrow_mut().grid_answer(id, f);
                         } else {
@@ -824,9 +830,13 @@ impl Player {
                 inner.cfg.unsafe_plain_ws,
                 inner.cfg.call_timeout_ms,
                 inner.cfg.max_frame,
-            );
+            )
+            .with_backend(&inner.cfg.backend_contract, inner.cfg.backend_idempotent.clone());
             let sock = WsSocket { inner: Rc::downgrade(&inner), ws: None, handlers: Vec::new() };
-            *inner.net.borrow_mut() = Some(Client::new(ncfg, sock));
+            let mut client = Client::new(ncfg, sock);
+            // The session id is held in memory only (WASM-014 Q5): unpredictable, never stored.
+            client.seed_session(((js_sys::Math::random() * 9_007_199_254_740_992.0) as u64) ^ (js_sys::Date::now() as u64).rotate_left(29));
+            *inner.net.borrow_mut() = Some(client);
         }
         Ok(Player { inner })
     }

@@ -131,7 +131,7 @@ fn a_remote_request_suspends_the_task_and_events_raised_meanwhile_run_in_order_a
         // Suspended: the request is in the outbox, the caption says "calling".
         let reqs = rig.take_requests();
         assert_eq!(reqs.len(), 1);
-        assert_eq!(std::str::from_utf8(&reqs[0].1).unwrap(), r#"{"program":"PING","payload":{}}"#);
+        assert_eq!(std::str::from_utf8(&reqs[0].1).unwrap(), r#"{"program":"PING","args":[],"returning":false}"#);
         assert_eq!(rig.get(0, LBL_OUT, "Caption"), "calling");
         assert_eq!(rig.host.borrow().live_tasks(), 1);
         // Two more events while it waits: queued, not run (WASM-005 R9).

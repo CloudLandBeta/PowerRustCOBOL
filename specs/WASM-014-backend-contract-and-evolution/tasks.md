@@ -228,7 +228,24 @@ as completed.
     - `ac6_server_store_survives_a_backend_restart_and_memory_store_answers_new`, which prints `ServerHello.session` in each mode;
     - `bye_frees_the_sessions_entries`.
 
-- [ ] **T6 — The player speaks `proto.rs`; ABI amendment A10** (R2, R3, R7, R9, R10, R16; AC1, AC4 player half; Δ5)
+- [x] **T6 — The player speaks `proto.rs`; ABI amendment A10** (R2, R3, R7, R9, R10, R16; AC1, AC4 player half; Δ5)
+  - **Status (2026-10-26, work package FT-1, uncommitted, awaiting an independent judge):** built as below, with these deviations:
+    - the ABI row is **A15** (A10 was taken by WASM-010 meanwhile); it supersedes A8 and A6's error object;
+    - "the interface says idempotent" is read from the page's `config.json` `backend.idempotent` (and `backend.contract` for
+      `hello`), which the Build fills from `backend/exports.toml` and `backend/generated/exports.toml`
+      (`cobolt-project-tools` `web/generator.rs` `backend_contract`) — T8's manifest route is not built; an older page names
+      contract `1.0.0` and repeats nothing;
+    - `hello.session` is sent, but the server has no session yet (T2/Δ1): it ignores the member;
+    - with no token the player sends no `auth` at all (`proto::Auth` requires a token);
+    - the codes-equality check of T7 is a source read of `cobolt-wire/src/error.rs` (`net.rs`
+      `the_players_codes_equal_cobolt_wire_error_codes`), not the transcript replay; T7 itself is still open;
+    - an answer over the module's 64 KiB staging area fails `limit` 7000 "answer too large (limit 64 KiB)" in the player
+      (`MODULE_ANSWER_LIMIT`, held equal to `cobolt-wasm-rt` `FRAME_SIZE` by a test); the limit is unchanged;
+    - reconnection: back-off only while something waits (a dropped connection, a safe call waiting for its repeat); a failed
+      attempt with nothing waiting stops, and the next call tries at once.
+  - Run: `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --no-fail-fast` — lib 275 passed, abi_host 22,
+    dependency_guard 6, exposed 2, freshness 5, grid_calls 1, sinks 3; 0 failed. A real-browser run against `rcrun backend run`
+    (no shim) is in the FT-1 snapshot of the PowerAnalyticsWeb parity job.
   - Files:
     - `crates/cobolt-web-player/src/net.rs`. On open it sends `{"t":"hello","protocol":1,"contract","client":"prc-wasm/<ver>","session"}`.
       It waits for `hello`, then sends `{"t":"auth"}`, then calls: `{"t":"call","id","key",…module frame}`, with a fresh `key` per call

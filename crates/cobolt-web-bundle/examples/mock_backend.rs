@@ -7,8 +7,11 @@
 //! `cargo run -p cobolt-web-bundle --example mock_backend -- [--port 8096] [--ttl 3600]`
 //!
 //! A mock of the project's Backend for trying the player in a real browser (WASM-009, WASM-015): a
-//! WebSocket server on the loopback that speaks the connection the player proposes
-//! (`{"type":"auth","token"}`, `{"type":"call","id","frame"}`) and plays an identity provider:
+//! WebSocket server on the loopback that speaks the backend's protocol as far as the player uses it
+//! (`cobolt_wire::proto`, WASM-014 T6: `hello`, `{"t":"auth","token"}`, `{"t":"call","id","key",…}`) and
+//! plays an identity provider. The identity requests (`{"identity":…}`) are the Authentication control's
+//! own (WASM-009) and have no message in the real backend's protocol yet; this mock answers them inside a
+//! `call`:
 //!
 //! | user | password | what it does |
 //! |---|---|---|
@@ -71,12 +74,19 @@ fn token_for(st: &mut State, user: &str, email: &str) -> String {
     t
 }
 
+/// A reply: the player hands the module `{"id","result":<this reply>}`, so the result's members sit
+/// beside `t` and `id`.
 fn ok(id: u64, result: Value) -> String {
-    json!({"id": id, "result": result}).to_string()
+    let mut r = json!({"t": "reply", "id": id, "args": []});
+    match result {
+        Value::Object(m) => r.as_object_mut().unwrap().extend(m),
+        other => r["returning"] = other,
+    }
+    r.to_string()
 }
 
 fn err(id: u64, class: &str, code: i64) -> String {
-    json!({"id": id, "error": {"class": class, "code": code, "message": "refused"}}).to_string()
+    json!({"t": "error", "id": id, "class": class, "code": code, "message": "refused"}).to_string()
 }
 
 /// Handle one identity frame. `signed_in_user` is who this connection authenticated as, if anyone.
@@ -119,7 +129,7 @@ fn identity(st: &mut State, id: u64, f: &Value, signed_in_user: &Option<String>)
                 u.confirmed = true;
                 ok(id, json!({"status": "done"}))
             }
-            _ => err(id, "client", 4),
+            _ => err(id, "application", 4),
         },
         // The same answer whether or not the user exists (R10).
         "forgot" => ok(id, json!({"status": "reset-requested"})),
@@ -128,7 +138,7 @@ fn identity(st: &mut State, id: u64, f: &Value, signed_in_user: &Option<String>)
                 u.password = s("new_password");
                 ok(id, json!({"status": "done"}))
             }
-            _ => err(id, "client", 4),
+            _ => err(id, "application", 4),
         },
         "mfa" => {
             if s("session") == "mfa-session" && s("code") == "000000" {
@@ -164,7 +174,7 @@ fn identity(st: &mut State, id: u64, f: &Value, signed_in_user: &Option<String>)
                 err(id, "authentication", 3)
             }
         }
-        _ => err(id, "client", 2),
+        _ => err(id, "validation", 4001),
     }
 }
 
@@ -200,7 +210,12 @@ fn main() {
                     continue;
                 };
                 let Ok(v) = serde_json::from_str::<Value>(text.as_str()) else { continue };
-                match v.get("type").and_then(Value::as_str) {
+                match v.get("t").and_then(Value::as_str) {
+                    Some("hello") => {
+                        let contract = v.get("contract").cloned().unwrap_or(Value::Null);
+                        let hello = json!({"t": "hello", "protocol": 1, "protocol_min": 1, "contract": contract, "accepted": "ok", "message": "", "server": "mock", "max_frame_bytes": 1 << 20});
+                        let _ = ws.send(Message::text(hello.to_string()));
+                    }
                     Some("auth") => {
                         let t = v.get("token").and_then(Value::as_str).unwrap_or("");
                         let owner = state.lock().unwrap().live_tokens.get(t).cloned();
@@ -209,11 +224,16 @@ fn main() {
                             who = owner;
                         }
                         println!("auth message: token {}", if good { "accepted" } else { "refused" });
-                        let _ = ws.send(Message::text(json!({"type": "auth", "ok": good}).to_string()));
+                        let answer = if good {
+                            json!({"t": "auth-ok", "sub": who.clone().unwrap_or_default(), "expires_in": state.lock().unwrap().ttl})
+                        } else {
+                            json!({"t": "error", "class": "authentication", "code": 2001, "message": "token refused"})
+                        };
+                        let _ = ws.send(Message::text(answer.to_string()));
                     }
                     Some("call") => {
                         let id = v.get("id").and_then(Value::as_u64).unwrap_or(0);
-                        let frame = v.get("frame").cloned().unwrap_or(Value::Null);
+                        let frame = v.clone();
                         let reply = if frame.get("identity").is_some() {
                             let mut st = state.lock().unwrap();
                             identity(&mut st, id, &frame, &who)
@@ -223,7 +243,6 @@ fn main() {
                         };
                         let _ = ws.send(Message::text(reply));
                     }
-                    Some("pong") => {}
                     _ => {}
                 }
             }

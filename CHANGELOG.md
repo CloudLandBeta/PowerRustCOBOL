@@ -22,6 +22,20 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.80] — 2026-10-28
+
+*(Written on `features-2x`, off `2.x.x` at 09e0e729.)*
+
+### Added: the Web player speaks the Backend's real protocol, so a form's `CALL ... WITH WEBSOCKET LINKAGE` reaches `rcrun backend run` without a shim (WASM-014 T6)
+
+**What the operator saw.** A Web form that called a Backend program waited for its timeout: the player sent `{"type":"call",...}` with no `hello`, and the server answered `4001 not a message` with no id.
+
+**What changed.** `crates/cobolt-web-player/src/net.rs` (with `api.rs`, `grid.rs`, `dom/mod.rs`): the player sends `hello`, waits for the server's `hello`, then calls with a fresh `key` per call (the module's frame is spliced in as text, so no number loses a digit); `auth` is sent only when the page has a session token and no development token is ever injected. Failures map onto the closed class and code list (transport 1000/1001/1002, limit 7000, validation 4001, `may_have_run`); the old `client` class, JSON ping/pong and the `type` envelope are gone. After a lost connection a call is repeated once only when the program is declared `idempotent`. The player's own ids start at 0x80000000 and the session id lives in memory only. Every call ends with an answer, an error, or transport 1002 at 30 s. An answer over 64 KiB says "answer too large (limit 64 KiB)" (the limit is not raised). The Build (`cobolt-project-tools` `web/generator.rs`) writes the contract version and the idempotent programs from `backend/exports.toml` into `config.json`. `specs/WASM-ABI-v1.md` row A15 (A10 was taken), the fixture's request frame, T6 ticked with its deviations, both mock backends. `assets/web-player` rebuilt.
+
+**Not done.** The 2002 (token expired) refresh-and-repeat works against the mock only: the real server does not serve identity requests, so the refresh is rejected with 4001 and the waiting call ends at the 30 s timeout (finding F-1: any error frame without an id leaves its call waiting; Authentication sign-in frames included). With a 300 ms Timer polling a backend that is down, a click can wait tens of seconds (F-2, Chrome throttling the refused connections). A malformed contract string is reported as 6001, never 6002. T7's shared transcript and T8's manifest route are not built; the server ignores `hello.session` (T2).
+
+Measured by an independent judge against the real `rcrun backend run`, headless Chrome, no shim: `itau` + Aplicar answers 1996 funds as sqlite3 does (also `itaú`, `bradesco` 1137, `ção` 840, empty 43750, two SQL-injection strings 0 with the table intact); 3,558 calls on one connection beside a 300 ms Timer with no errors; 0 key collisions in 1,655 calls; the dev token is in none of 3,500+ frames; a non-idempotent program is never repeated. cobolt-web-player 275 + 22 + 6 + 2 + 5 + 1 + 3 passed; cobolt-web-bundle green (`shell_home` passes single-threaded, Chrome EAGAIN when its two tests run together); cobolt-project-tools web 34 passed.
+
 ## [PowerRustCOBOL 2.0.79] — 2026-10-25
 
 *(Written on `features-2x`, off `2.x.x` at d499fa72.)*

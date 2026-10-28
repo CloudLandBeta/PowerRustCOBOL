@@ -166,7 +166,7 @@ fn a_remote_grid_fills_window_by_window_and_saves_its_unit_through_the_players_o
     invoke(&rig, inst, "SetCellValue", &["1", "2", "Ana"]);
     assert_eq!(invoke(&rig, inst, "Save", &[]).as_deref(), Some("98"));
     let (id7, _) = one_request(&mut rig);
-    let gone = net::error_frame(id7, net::class::TRANSPORT, 7, "the application is not connected to its backend", false);
+    let gone = net::error_frame(id7, net::class::TRANSPORT, net::code::NO_CONNECTION, "the application is not connected to its backend", Some(false));
     rig.host.borrow_mut().grid_answer(id7, gone);
     assert_eq!(rig.get(inst, GRID, "CommitStatus"), "90");
     let rows = cobolt_forms::datagrid::parse_rows(&rig.get(inst, GRID, "Rows"));
