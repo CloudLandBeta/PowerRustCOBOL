@@ -483,6 +483,34 @@ impl Shared {
         }
     }
 
+    /// The application has ended (its last form closed, or `STOP RUN`): the page tries to close its own tab — a
+    /// browser allows it only for a window a script opened — and otherwise shows that it has ended, in the browser's
+    /// language, with a way to start again ([`shell::ended_view`]).
+    pub(crate) fn show_ended(self: &Rc<Self>) {
+        let language = web_sys::window().and_then(|w| w.navigator().language()).unwrap_or_default();
+        if let Some(w) = web_sys::window() {
+            let _ = w.close();
+        }
+        let v = shell::ended_view(&language);
+        let Ok(mut st) = self.state.try_borrow_mut() else { return };
+        if let Some(rec) = st.banner_rec.take() {
+            rec.el.remove();
+        }
+        let rec = nodes::create(&self.doc, &v, None, &self.dispatch(Route::Banner));
+        h::append(&self.chrome.banner, &rec.el);
+        st.banner_rec = Some(rec);
+    }
+
+    /// Take the ended notice away, if it is shown.
+    pub(crate) fn clear_ended(&self) {
+        let Ok(mut st) = self.state.try_borrow_mut() else { return };
+        if st.banner_rec.as_ref().map(|r| r.el.class_list().contains("pr-ended")).unwrap_or(false) {
+            if let Some(rec) = st.banner_rec.take() {
+                rec.el.remove();
+            }
+        }
+    }
+
     pub(crate) fn render_toasts(self: &Rc<Self>) {
         let Ok(mut st) = self.state.try_borrow_mut() else { return };
         let v = shell::toast_stack(&st.toasts);
@@ -675,6 +703,8 @@ fn js_value(el: &Element) -> String {
 
 impl Surface for Dom {
     fn opened(&self, inner: &Rc<Inner>, inst: u32, mode: OpenMode) {
+        // A form opens again (the IDE's preview takes a new module in place): the application runs again.
+        self.sh.clear_ended();
         self.sh.open_instance(inner, inst, mode);
     }
 

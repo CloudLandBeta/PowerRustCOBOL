@@ -440,3 +440,44 @@ fn a_module_the_generator_built_runs_in_the_player() {
         println!("generated module (multi={multi}): opened, 2 clicks, caption written, {} displays, {} module calls", displays.len(), rig.calls.len());
     }
 }
+
+/// FX-4b (D9). A run-time error in `onLoad` — here after the handler wrote a caption and started a Timer —
+/// abandons the handler, not the form, as on the desktop (`rcrun run-form --headless`: the form stays up,
+/// its Timer ticks and its buttons answer). The error is reported once, under `onLoad`; the form opens; the
+/// Timer's ticks and a click run their handlers; no event is answered "unknown form, control or event".
+/// Before: the module freed the instance, the form never opened (or, after a remote call in `onLoad`, stayed
+/// on the page and every tick of its Timer reported -4).
+#[test]
+fn a_run_time_error_in_onload_abandons_the_handler_and_the_form_keeps_working() {
+    use cobolt_wasm_abi::fixture::Fixture;
+    use cobolt_web_player::host::HostOptions;
+    let cfrm = include_str!("fixtures/generated/startup-form.cfrm").to_owned();
+    for (multi, wasm) in [(true, &include_bytes!("fixtures/generated/startup.wasm")[..]), (false, &include_bytes!("fixtures/generated/startup.single.wasm")[..])] {
+        let manifest = cobolt_wasm_abi::scan::scan_module(wasm).unwrap().embedded_manifest().unwrap();
+        let mut rig = Rig::with_forms(Fixture { wasm: wasm.to_vec(), manifest }, std::slice::from_ref(&cfrm), multi, HostOptions::default());
+        rig.start();
+        let e: Vec<(i32, String, Option<String>)> = rig
+            .host
+            .borrow()
+            .effects
+            .iter()
+            .filter_map(|e| if let Effect::RuntimeError(r) = e { Some((r.code, r.message.clone(), r.event.clone())) } else { None })
+            .collect();
+        assert_eq!(e.len(), 1, "one report (multi={multi}): {e:?}");
+        assert!(e[0].0 >= 1000, "a COBOL run-time error: {e:?}");
+        assert_eq!(e[0].2.as_deref(), Some("onLoad"), "named after the handler that stopped: {e:?}");
+        assert_eq!(rig.host.borrow().trees.len(), 1, "the form opened (multi={multi})");
+        assert_eq!(rig.module_live(), 1);
+        assert_eq!(rig.get(0, "LBL-OUT", "Caption"), "started", "what onLoad did before the error stays (multi={multi})");
+        let tmr = rig.control(0, "TMR-1");
+        assert!(rig.host.borrow().trees[&0].ctls[tmr].enabled(), "the Timer onLoad started before the error runs");
+        // A tick, as the page's clock delivers it, and a click.
+        rig.host.borrow_mut().dom_event(0, tmr, "onTick", Vec::new());
+        rig.drive();
+        assert_eq!(rig.get(0, "LBL-OUT", "Caption"), "ticked", "multi={multi}");
+        assert!(rig.click(0, "BTN-GO"));
+        assert_eq!(rig.get(0, "LBL-OUT", "Caption"), "clicked", "multi={multi}");
+        assert_eq!(errors(&rig).len(), 1, "no error after the first: {:?}", errors(&rig));
+        println!("start-up error (multi={multi}): reported once under onLoad, the form opened, a tick and a click ran");
+    }
+}

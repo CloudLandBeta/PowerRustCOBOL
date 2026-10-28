@@ -136,7 +136,9 @@ const G_EVENT: u32 = 10;
 /// controls), `+8` first region, `+12` region size, `+16` first instance, `+20`
 /// instances, `+24` entry block, `+28` park slot, `+32` PERFORM-stack offset,
 /// `+36` `COBOL-QUIT` operand (0: none), `+40` the literal 1, `+44`/`+48` the
-/// `ERROR` command a full form answers with, `+52` 1 for the main form.
+/// `ERROR` command a full form answers with, `+52` 1 for the main form, `+56`
+/// where a start-up stopped by a run-time error goes on and `+60` 1 when the
+/// form has that point (`Lowered::startup_resume`).
 ///
 /// Instance (task) row (ABI A5: one task per instance): `+0` state (0 free, 1
 /// idle at `WAIT-EVENT`, 2 running or paused), `+4` form, `+8`/`+12` where the
@@ -393,6 +395,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         }
     }
     let entry_pcs: Vec<u32> = lowered_forms.iter().map(|(l, _)| seen[&l.entry]).collect();
+    let startup_pcs: Vec<Option<u32>> = lowered_forms.iter().map(|(l, _)| l.startup_resume.and_then(|b| seen.get(&b).copied())).collect();
 
     // ── what the form exports need to find at run time ───────────────────
     // The names of the controls and events, as the form's event loop compares
@@ -1059,6 +1062,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
                 first_inst: b.first_inst,
                 instances: forms[fi].instances.max(1),
                 entry_pc: entry_pcs[fi],
+                startup_pc: startup_pcs[fi],
                 park_slot: b.lowered.park_slot,
                 stack_off: b.lowered.stack_off,
                 quit: b.lowered.quit.unwrap_or((0, 0)),
@@ -1232,6 +1236,10 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             row[11] = r.full_cmd.0;
             row[12] = r.full_cmd.1;
             row[13] = r.main as u32;
+            if let Some(pc) = r.startup_pc {
+                row[14] = pc;
+                row[15] = 1;
+            }
             for w in row {
                 bytes.extend_from_slice(&w.to_le_bytes());
             }
@@ -1297,6 +1305,7 @@ struct FormRow {
     first_inst: u32,
     instances: u32,
     entry_pc: u32,
+    startup_pc: Option<u32>,
     park_slot: u32,
     stack_off: u32,
     quit: (u32, u32),
@@ -1795,8 +1804,13 @@ fn emit_project_fns(c: &ProjectFns<'_>, n_imports: u32, defs: &mut Vec<Def>, typ
     );
     let resume = next(defs, "pr_resume", ty_ii_r, f);
 
-    // pr_cancel(task): -1 is the run that trapped (A5).
-    let mut f = Function::new([(1, i32_)]); // row 1
+    // pr_cancel(task): -1 is the run that trapped (A5). An instance that had
+    // reached its event loop goes back to it (idle); one whose start-up
+    // stopped — a run-time error in `onLoad`, perhaps after a remote call —
+    // goes on from its form's start-up point to the event loop, as the
+    // desktop abandons the handler and keeps the form; `pr_tick()` then names
+    // it and `pr_status()` says how that run ended. Otherwise it is freed.
+    let mut f = Function::new([(3, i32_)]); // row 1, ft 2, base 3
     emit(
         &mut f,
         &[
@@ -1833,10 +1847,51 @@ fn emit_project_fns(c: &ProjectFns<'_>, n_imports: u32, defs: &mut Vec<Def>, typ
             I::LocalGet(1),
             I::I32Const(1),
             stw(28),
-            I::Else,
+            I::I32Const(0),
+            I::GlobalSet(7),
+            I::Return,
+            I::End,
+        ],
+    );
+    emit(&mut f, &[I::LocalGet(1), ld(4), I::LocalSet(3)]);
+    row_addr(&mut f, 3, ft_base, FT_ROW, 2);
+    emit(
+        &mut f,
+        &[
+            // A start-up point, and the instance is not being closed.
+            I::LocalGet(2),
+            ld(60),
+            I::LocalGet(1),
+            ld(28),
+            I::I32Const(2),
+            I::I32And,
+            I::I32Eqz,
+            I::I32And,
+            I::If(BlockType::Empty),
+        ],
+    );
+    region_of(&mut f, 0, 2, 3);
+    emit(
+        &mut f,
+        &[
+            I::LocalGet(0),
+            I::LocalGet(2),
+            ld(56),
+            I::LocalGet(3),
+            I::LocalGet(2),
+            ld(32),
+            I::I32Add,
+            I::Call(run_task),
+            I::Drop,
+            // pr_tick() names the instance (a park clears the running task).
+            I::LocalGet(0),
+            I::I32Const(1),
+            I::I32Add,
+            I::GlobalSet(7),
+            I::Return,
+            I::End,
             I::LocalGet(0),
             I::Call(release),
-            I::End,
             I::I32Const(0),
             I::GlobalSet(7),
             I::End,

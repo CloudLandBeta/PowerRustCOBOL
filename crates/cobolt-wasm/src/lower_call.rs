@@ -83,6 +83,17 @@ impl Lower<'_, '_> {
     /// A `CALL` of unit `c`, then `NOT ON EXCEPTION`.
     fn call_unit(&mut self, c: usize, using: &[CallArg], returning: Option<&Expr>, not_exc: &[Stmt], line: u32) -> GenResult<()> {
         let after = self.new_block("after-call");
+        // A form's start-up calls its `onLoad` handler from the first paragraph
+        // of the main program, with nothing performed: where it goes on is the
+        // point a start-up stopped by a run-time error continues from.
+        if self.form.is_some()
+            && self.cur_unit == 0
+            && self.cur_para == 0
+            && self.startup_resume.is_none()
+            && self.units[c].name.eq_ignore_ascii_case(&format!("{}--ONLOAD", self.units[0].name))
+        {
+            self.startup_resume = Some(after);
+        }
         self.enter_callee(c, using, after, line)?;
         self.begin(after);
         if let Some(r) = returning {

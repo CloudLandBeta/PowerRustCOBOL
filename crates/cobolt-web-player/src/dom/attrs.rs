@@ -96,6 +96,16 @@ pub fn apply_prop(el: &Element, name: &str, new: &Prop, old: Option<&Prop>) {
     }
 }
 
+/// An IDL property the previous view set and the new one leaves out goes back to its default: a
+/// boolean (`disabled`, `readOnly`, `hidden`…) to `false`. A view writes most such flags only when they
+/// are on (`button` writes `disabled` only for a disabled button), so without this a control enabled
+/// again after `Disable()` kept the `disabled` its element was given (P-8).
+pub fn reset_prop(el: &Element, name: &str, old: &Prop) {
+    if let Prop::Bool(true) = old {
+        set_prop(el, name, &Prop::Bool(false));
+    }
+}
+
 pub fn apply_class(el: &Element, classes: &[String]) {
     let want = classes.join(" ");
     if want.is_empty() {

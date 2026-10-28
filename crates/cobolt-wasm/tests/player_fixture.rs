@@ -34,8 +34,35 @@ fn form() -> Form {
     form
 }
 
+/// `startup-form`: an `onLoad` that writes LBL-OUT, starts TMR-1 and then stops on a run-time error
+/// (a subscript past the table); BTN-GO and TMR-1 write LBL-OUT. The desktop abandons the handler and
+/// keeps the form; the player's test checks the page does the same.
+fn startup_form() -> Form {
+    let mut form = Form::new("main-form", "Start-up error", 400, 300);
+    let mut load = EventBinding::new("onLoad", "MAIN-FORM--ONLOAD");
+    load.code = "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01 WS-T PIC X OCCURS 3.\n       01 WS-I PIC 9 VALUE 9.\n       PROCEDURE DIVISION.\n           MOVE \"started\" TO LBL-OUT::Caption\n           SET TMR-1::Enabled TO TRUE\n           MOVE \"x\" TO WS-T(WS-I)\n           MOVE \"not reached\" TO LBL-OUT::Caption.".to_string();
+    form.form_events.push(load);
+    let mut btn = Control::new("BTN-GO", ControlType::Button, 10, 10);
+    let mut ev = EventBinding::for_control("BTN-GO", "onClick");
+    ev.code = "       PROCEDURE DIVISION.\n           MOVE \"clicked\" TO LBL-OUT::Caption.".to_string();
+    btn.events.push(ev);
+    form.controls.push(btn);
+    form.controls.push(Control::new("LBL-OUT", ControlType::Label, 10, 60));
+    let mut tmr = Control::new("TMR-1", ControlType::Timer, 10, 100);
+    tmr.set_prop("Interval", cobolt_forms::model::PropValue::Int(50));
+    tmr.set_prop("Enabled", cobolt_forms::model::PropValue::Bool(false));
+    let mut tick = EventBinding::for_control("TMR-1", "onTick");
+    tick.code = "       PROCEDURE DIVISION.\n           MOVE \"ticked\" TO LBL-OUT::Caption.".to_string();
+    tmr.events.push(tick);
+    form.controls.push(tmr);
+    form
+}
+
 fn build(multi: bool) -> Vec<u8> {
-    let form = form();
+    build_form(&form(), &[("BTN-GO", "onClick")], multi)
+}
+
+fn build_form(form: &Form, bindings: &[(&str, &str)], multi: bool) -> Vec<u8> {
     let (src, _) = cobolt_codegen::generate_with_map(&form);
     let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(
         &src,
@@ -52,7 +79,7 @@ fn build(multi: bool) -> Vec<u8> {
             .iter()
             .map(|c| (c.id.clone(), format!("{:?}", c.control_type)))
             .collect(),
-        bindings: vec![("BTN-GO".into(), "onClick".into())],
+        bindings: bindings.iter().map(|(c, e)| (c.to_string(), e.to_string())).collect(),
         layers: vec![],
         lines: vec![],
     };
@@ -70,10 +97,15 @@ fn build(multi: bool) -> Vec<u8> {
 #[test]
 fn the_players_generated_fixture_is_what_the_generator_writes() {
     let cfrm = cobolt_forms::xml::form_to_string(&form()).unwrap();
+    let startup = startup_form();
+    let startup_bindings = [("BTN-GO", "onClick"), ("TMR-1", "onTick")];
     let files = [
         ("program.wasm", build(true)),
         ("program.single.wasm", build(false)),
         ("main-form.cfrm", cfrm.into_bytes()),
+        ("startup.wasm", build_form(&startup, &startup_bindings, true)),
+        ("startup.single.wasm", build_form(&startup, &startup_bindings, false)),
+        ("startup-form.cfrm", cobolt_forms::xml::form_to_string(&startup).unwrap().into_bytes()),
     ];
     assert_eq!(
         build(true),

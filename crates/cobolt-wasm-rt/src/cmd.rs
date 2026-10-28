@@ -85,10 +85,27 @@ fn put_text(text: &[u8]) {
     put(text);
 }
 
-/// The text a value crosses the boundary as.
+/// The text a value crosses the boundary as (UTF-8, as the ABI requires:
+/// invalid bytes become U+FFFD, the interpreter's lossy text of them).
 fn text_of(base: u32, o: &Opd, num: &mut [u8; 64]) -> (u32, u32) {
+    let (a, l) = raw_text_of(base, o, num);
+    disp::lossy(a, l)
+}
+
+fn raw_text_of(base: u32, o: &Opd, num: &mut [u8; 64]) -> (u32, u32) {
     match o.tag {
-        T_LIT_ALNUM | T_ALL | T_CTEMP | T_FIG => {
+        // A figurative constant is the one character it names, as the
+        // interpreter's value of it: `SPACES` is a blank (so the text is empty
+        // once trimmed), `ZEROS` and `NULL` the digit 0, `QUOTES` a quote,
+        // `LOW-VALUES`/`HIGH-VALUES` their byte. `locate` points at the
+        // operand's FIG code (SPACE = 1), which is not that character.
+        T_FIG => {
+            let ch = if o.fig == FIG_NULL { b'0' } else { fig_byte(o.fig) };
+            let (at, _) = crate::mv::scratch();
+            mem::wr_u8(at, ch);
+            trimmed(at, 1)
+        }
+        T_LIT_ALNUM | T_ALL | T_CTEMP => {
             let l = locate(base, o);
             trimmed(l.addr, l.len)
         }

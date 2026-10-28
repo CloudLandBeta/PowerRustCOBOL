@@ -490,6 +490,48 @@ pub fn banner_view(message: &str, can_reload: bool) -> VNode {
     n
 }
 
+/// What the page says when the application has ended, in one language.
+pub struct EndedText {
+    /// A BCP 47 tag; its first subtag is the language.
+    pub lang: &'static str,
+    pub title: &'static str,
+    pub hint: &'static str,
+    pub reload: &'static str,
+}
+
+/// The six languages of the IDE (the order of its language menu), as the page that opens from disk
+/// speaks them (`cobolt-web-bundle`'s `notice`).
+pub const ENDED_TEXTS: [EndedText; 6] = [
+    EndedText { lang: "en", title: "The application has ended.", hint: "Reload the page to start it again.", reload: "Reload" },
+    EndedText { lang: "pt-BR", title: "O aplicativo foi encerrado.", hint: "Recarregue a página para iniciá-lo de novo.", reload: "Recarregar" },
+    EndedText { lang: "es", title: "La aplicación ha terminado.", hint: "Recarga la página para iniciarla de nuevo.", reload: "Recargar" },
+    EndedText { lang: "fr", title: "L'application est terminée.", hint: "Rechargez la page pour la relancer.", reload: "Recharger" },
+    EndedText { lang: "ja", title: "アプリケーションは終了しました。", hint: "もう一度開始するには、ページを再読み込みしてください。", reload: "再読み込み" },
+    EndedText { lang: "zh", title: "应用程序已结束。", hint: "重新加载页面即可再次启动。", reload: "重新加载" },
+];
+
+/// The text for the browser's language (`navigator.language`): its first subtag, English otherwise.
+pub fn ended_text(language: &str) -> &'static EndedText {
+    let first = language.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
+    ENDED_TEXTS.iter().find(|t| t.lang.split('-').next() == Some(first.as_str())).unwrap_or(&ENDED_TEXTS[0])
+}
+
+/// What stands in the page's place once the application has ended — its main form closed (`me::Close()`, the
+/// window's red x) or `STOP RUN`. The desktop closes the window and the program ends; a page can close its tab only
+/// when a script opened it, so it says so, in the browser's language, and offers to start again.
+pub fn ended_view(language: &str) -> VNode {
+    let t = ended_text(language);
+    VNode::new("div")
+        .key("ended")
+        .class("pr-ended")
+        .attr("role", "status")
+        .attr("lang", t.lang)
+        .on("click")
+        .child(VNode::new("p").key("title").class("pr-ended-title").text(t.title.to_owned()))
+        .child(VNode::new("p").key("hint").class("pr-ended-hint").text(t.hint.to_owned()))
+        .child(VNode::new("button").key("reload").attr("type", "button").attr("data-part", "reload").text(t.reload.to_owned()))
+}
+
 /// The badge that shows the backend connection is not up.
 pub fn net_badge(text: &str) -> VNode {
     VNode::new("div").key("net").class("pr-net").attr("role", "status").text(text.to_owned())
@@ -508,6 +550,21 @@ pub fn count_text(n: usize) -> String {
 mod tests {
     use super::super::{Empty, MenuStore};
     use super::*;
+
+    /// FX-4a: the page that stands in for a closed application speaks the browser's language — the six of the
+    /// IDE, by the first subtag — and English otherwise, and always offers to start again.
+    #[test]
+    fn the_ended_page_speaks_the_browsers_language() {
+        let cases = [("en-US", "en"), ("pt-BR", "pt-BR"), ("pt-PT", "pt-BR"), ("es-419", "es"), ("fr-CA", "fr"), ("ja", "ja"), ("zh-CN", "zh"), ("zh_TW", "zh"), ("de-DE", "en"), ("", "en")];
+        for (browser, lang) in cases {
+            assert_eq!(ended_text(browser).lang, lang, "{browser}");
+            let v = ended_view(browser);
+            assert_eq!(v.attr_of("lang"), Some(lang));
+            assert!(v.find(&|n| n.attr_of("data-part") == Some("reload")).is_some(), "{browser}: a Reload button");
+        }
+        let titles: std::collections::BTreeSet<&str> = ENDED_TEXTS.iter().map(|t| t.title).collect();
+        assert_eq!(titles.len(), 6, "six different texts");
+    }
     use crate::tree::testing::tree_with;
     use cobolt_forms::menu::{MenuDefinition, MenuItem};
 

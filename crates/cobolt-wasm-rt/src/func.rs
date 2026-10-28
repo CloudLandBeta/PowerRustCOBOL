@@ -202,7 +202,14 @@ impl Call {
     fn bytes(&self, i: usize, buf: &mut [u8; 40]) -> (u32, u32) {
         let o = self.opd(i);
         match o.tag {
-            T_LIT_ALNUM | T_ALL | T_CTEMP | T_FIG => {
+            // The character a figurative constant names, not its FIG code
+            // (which is where `locate` points).
+            T_FIG => {
+                let (at, _) = crate::mv::scratch();
+                mem::wr_u8(at, fig_byte(o.fig));
+                (at, 1)
+            }
+            T_LIT_ALNUM | T_ALL | T_CTEMP => {
                 let l = locate(self.base, &o);
                 (l.addr, l.len)
             }

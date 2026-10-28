@@ -33,7 +33,7 @@ impl Shared {
                 self.show_dialog(DialogSpec { id: *id, kind: *kind, title: title.clone(), text: text.clone(), buttons: buttons.clone(), default: default.clone() });
             }
             Effect::OpenWindow { handle, form, sync, params, opener } => self.open_window(inner, handle, *form, *sync, params, *opener),
-            Effect::Stopped => self.set_banner(Some(("The application has ended.".to_owned(), false))),
+            Effect::Stopped => self.show_ended(),
             Effect::Title(t) => {
                 if inner.cfg.standalone || self.state.try_borrow().map(|s| s.chain.len() <= 1).unwrap_or(true) {
                     self.doc.set_title(t);

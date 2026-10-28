@@ -866,7 +866,7 @@ impl Lower<'_, '_> {
                 while sub_exprs.len() < chain.len() {
                     sub_exprs.push(one.clone());
                 }
-                let first = self.item_operand(leaf, &sub_exprs, None, line)?;
+                let first = self.item_operand_bounded(leaf, &sub_exprs, None, line, fixed)?;
                 // Replacement value by category.
                 let repl = if replacing.is_empty() {
                     0

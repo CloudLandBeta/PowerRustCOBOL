@@ -338,6 +338,9 @@ struct Task {
     state: TaskState,
     /// A `pr_close_form` task: the instance is destroyed when it finishes.
     closing: bool,
+    /// The form and event the task runs (`onLoad`, `BTN-GO onClick`): a run-time error after a
+    /// resume is reported under them.
+    desc: Option<(String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -402,6 +405,9 @@ pub struct Host {
     next_grid_id: u32,
     /// Instances whose close was requested while their own task was running.
     close_after: Vec<u32>,
+    /// A form whose start-up trapped (a run-time error in `onLoad`): the `pr_cancel(-1)` that
+    /// follows lets the module continue it to its event loop, and the instance it names is opened.
+    recovering: Option<(usize, Option<u32>, OpenMode, Option<String>, Params)>,
     started: bool,
     /// `abort` was called during the call in flight: the trap that follows is already reported.
     aborted: bool,
@@ -460,6 +466,7 @@ impl Host {
             grid_calls: BTreeMap::new(),
             next_grid_id: crate::grid::ID_BASE,
             close_after: Vec::new(),
+            recovering: None,
             started: false,
             aborted: false,
             reported_in_call: false,
@@ -757,6 +764,13 @@ impl Host {
         })
     }
 
+    /// A form is waiting to be opened, or is being opened.
+    pub fn is_opening(&self) -> bool {
+        self.recovering.is_some()
+            || self.work.iter().any(|w| matches!(w, Work::Open { .. }))
+            || self.inflight.as_ref().map(|f| f.opening.is_some()).unwrap_or(false)
+    }
+
     pub fn live_tasks(&self) -> usize {
         self.tasks.len()
     }
@@ -778,9 +792,10 @@ impl Host {
                 _ => None,
             };
             let inst = t.inst;
+            let event_desc = t.desc.clone();
             // The task stays in the table until the module says it is done; its state is "running".
             t.state = TaskState::Yielded { resume: false };
-            self.inflight = Some(InFlight { inst: Some(inst), opening: None, wait: None, task: Some(id), event_desc: None });
+            self.inflight = Some(InFlight { inst: Some(inst), opening: None, wait: None, task: Some(id), event_desc });
             self.stats.module_calls += 1;
             return Some(ModuleCall::Resume { task: id, frame });
         }
@@ -885,17 +900,28 @@ impl Host {
                 self.effects.push(Effect::Opened { inst: id, form, mode, handle });
                 self.after_status(Status::from_code(status), task, id, false, wait, desc, None);
             }
-            (ModuleCall::OpenForm { .. }, CallResult::Trapped(msg)) | (ModuleCall::CloseForm { .. }, CallResult::Trapped(msg)) => {
+            (ModuleCall::OpenForm { .. }, CallResult::Trapped(msg)) => {
                 self.trapped(msg, desc);
-                if let ModuleCall::CloseForm { inst } = call {
-                    self.destroy(*inst);
-                }
+                // As on the desktop, a run-time error in `onLoad` abandons the handler, not the form: the
+                // module goes on to the form's event loop when the run that trapped is cancelled.
+                self.recovering = flight.as_ref().and_then(|f| f.opening.clone());
+                self.work.push_front(Work::Cancel);
+            }
+            (ModuleCall::CloseForm { inst }, CallResult::Trapped(msg)) => {
+                self.trapped(msg, desc);
+                self.destroy(*inst);
             }
             (ModuleCall::CloseForm { inst: i }, CallResult::Status { status, task }) => {
                 self.after_status(Status::from_code(status), task, *i, true, wait, desc, None);
             }
             (ModuleCall::Event { inst: i, .. }, CallResult::Status { status, task }) => {
                 self.after_status(Status::from_code(status), task, *i, false, wait, desc, None);
+                // The module has no such instance (its start-up stopped and could not be taken on to its
+                // event loop): every later event of it, a Timer's every tick, would fail the same way. It is
+                // reported once, and the form is closed.
+                if status == err::UNKNOWN_TARGET && self.trees.contains_key(i) {
+                    self.destroy(*i);
+                }
             }
             (ModuleCall::Resume { task: t, .. }, CallResult::Status { status, task }) => {
                 let i = inst.unwrap_or(0);
@@ -915,7 +941,34 @@ impl Host {
                 // one starts from a clean batch cursor.
                 self.work.push_front(Work::Cancel);
             }
-            (ModuleCall::Cancel { .. }, _) => {}
+            (ModuleCall::Cancel { task: -1 }, CallResult::Status { status, task }) => {
+                // `pr_tick()` names the instance whose stopped start-up the module took on to its event loop.
+                if let Some((form, opener, mode, handle, params)) = self.recovering.take() {
+                    if task >= 0 && status >= 0 {
+                        let id = task as u32;
+                        if !self.trees.contains_key(&id) {
+                            if let Err(e) = self.create_tree(id, form, opener, params) {
+                                self.fail(e);
+                                return;
+                            }
+                        }
+                        if let Some(h) = &handle {
+                            if let Some(hd) = self.handles.get_mut(h) {
+                                hd.inst = Some(id);
+                            }
+                        }
+                        self.effects.push(Effect::Opened { inst: id, form, mode, handle });
+                        self.after_status(Status::from_code(status), task, id, false, None, None, None);
+                    } else {
+                        self.finish_failed_open(handle.as_deref());
+                    }
+                }
+            }
+            (ModuleCall::Cancel { .. }, _) => {
+                if let Some((_, _, _, handle, _)) = self.recovering.take() {
+                    self.finish_failed_open(handle.as_deref());
+                }
+            }
             (call, result) => {
                 self.report(RunError {
                     code: err::GENERIC,
@@ -960,11 +1013,11 @@ impl Host {
             }
             Status::Suspended => {
                 let w = wait.unwrap_or(Wait::Turn);
-                self.tasks.insert(task, Task { inst, state: TaskState::Suspended(w), closing });
+                self.tasks.insert(task, Task { inst, state: TaskState::Suspended(w), closing, desc: desc.clone() });
             }
             Status::Yielded => {
                 self.stats.yields += 1;
-                self.tasks.insert(task, Task { inst, state: TaskState::Yielded { resume: false }, closing });
+                self.tasks.insert(task, Task { inst, state: TaskState::Yielded { resume: false }, closing, desc: desc.clone() });
             }
             Status::Stopped => {
                 self.stopped = true;
@@ -1196,8 +1249,13 @@ impl Host {
                     }
                 }
                 Command::Error { code, message, unit, line, form, event } => {
-                    let form_name = self.manifest.forms.get(form as usize).map(|f| f.name.clone());
-                    let ev = self.manifest.events.get(event as usize).cloned();
+                    // The handler the player started or resumed is the one that stopped: the module's event
+                    // number is the last event it was given, which is not `onLoad` during a start-up nor the
+                    // event of a task resumed after another one ran.
+                    let (form_name, ev) = match self.inflight.as_ref().and_then(|f| f.event_desc.clone()) {
+                        Some((f, e)) => (Some(f), Some(e)),
+                        None => (self.manifest.forms.get(form as usize).map(|f| f.name.clone()), self.manifest.events.get(event as usize).cloned()),
+                    };
                     // ABI amendment A4: below 1000 the code is the magnitude of a §9 code.
                     let (c, m) = if code < 1000 {
                         (-(code as i32), if message.is_empty() { err::name(-(code as i32)).to_owned() } else { message.to_owned() })

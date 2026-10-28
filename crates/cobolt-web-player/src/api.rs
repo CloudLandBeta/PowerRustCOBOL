@@ -154,6 +154,9 @@ impl JsLink {
         let g = |i: usize| v.get(i).copied().unwrap_or(0);
         match call {
             ModuleCall::OpenForm { .. } => CallResult::Opened { inst: g(0), status: g(1), task: g(2) },
+            // The loader marks its answer to a cancel (`[pr_status, pr_tick, 1]`); a loader that does not is
+            // answered as before.
+            ModuleCall::Cancel { .. } if g(2) == 1 => CallResult::Status { status: g(0), task: g(1) },
             ModuleCall::Cancel { .. } => CallResult::Unit,
             _ => CallResult::Status { status: g(0), task: g(1) },
         }

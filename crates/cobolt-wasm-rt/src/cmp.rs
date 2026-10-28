@@ -196,9 +196,72 @@ fn chars_relation(a: &View, b: &View, op: u32) -> bool {
     holds(op, ord)
 }
 
+/// The truth an operand stands for in an equality between booleans, and
+/// whether it is spelled as a boolean WORD (`TRUE`/`FALSE`, any case) — the
+/// interpreter's `compare_values` rule: a number is a boolean only as 0 or 1,
+/// characters only as `TRUE`/`FALSE`/`1`/`0` around spaces.
+fn boolean_of(base: u32, o: &Opd) -> (Option<bool>, bool) {
+    let chars = |addr: u32, len: u32| -> (Option<bool>, bool) {
+        let b = mem::bytes(addr, len);
+        let s = b.iter().position(|&x| x != b' ').unwrap_or(b.len());
+        let e = b.iter().rposition(|&x| x != b' ').map_or(s, |i| i + 1).max(s);
+        let t = &b[s..e];
+        if t.eq_ignore_ascii_case(b"true") {
+            (Some(true), true)
+        } else if t.eq_ignore_ascii_case(b"false") {
+            (Some(false), true)
+        } else if t == b"1" {
+            (Some(true), false)
+        } else if t == b"0" {
+            (Some(false), false)
+        } else {
+            (None, false)
+        }
+    };
+    let number = |v: Val| -> (Option<bool>, bool) {
+        let f = v.as_f64();
+        (if f == 0.0 { Some(false) } else if f == 1.0 { Some(true) } else { None }, false)
+    };
+    match o.tag {
+        T_LIT_NUM | T_TEMP => number(value(base, o)),
+        T_LIT_ALNUM | T_CTEMP => {
+            let l = locate(base, o);
+            chars(l.addr, l.len)
+        }
+        T_ITEM => {
+            let l = locate(base, o);
+            if l.fd.is_numeric() {
+                number(codec::load_value(&l))
+            } else {
+                chars(l.addr, l.len)
+            }
+        }
+        _ => (None, false),
+    }
+}
+
+/// `TRUE`/`FALSE` spelled out on one side of `=` or `NOT =` make it a
+/// comparison of booleans, as on the desktop: a Switch's `Checked` reads
+/// `true` and `IF SW::Checked = 1` holds. `None` when the rule does not apply.
+fn boolean_relation(base: u32, oa: &Opd, ob: &Opd, op: u32) -> Option<bool> {
+    if op != OP_EQ && op != OP_NE {
+        return None;
+    }
+    let (a, wa) = boolean_of(base, oa);
+    let (b, wb) = boolean_of(base, ob);
+    if !(wa || wb) {
+        return None;
+    }
+    let (a, b) = (a?, b?);
+    Some(if op == OP_EQ { a == b } else { a != b })
+}
+
 /// `a op b`.
 pub fn relation(base: u32, a: u32, b: u32, op: u32) -> bool {
     let (oa, ob) = (parse(a), parse(b));
+    if let Some(r) = boolean_relation(base, &oa, &ob, op) {
+        return r;
+    }
     let na = is_numeric_operand(base, &oa);
     let nb = is_numeric_operand(base, &ob);
     let (sa, sb) = (is_strict_numeric(base, &oa), is_strict_numeric(base, &ob));

@@ -145,6 +145,11 @@ pub struct Lowered {
     pub lines: std::collections::BTreeSet<u32>,
     /// The program keeps records in the file heap (in-memory files, `SORT`).
     pub uses_heap: bool,
+    /// Where a form's start-up run goes on when its `onLoad` handler stopped on
+    /// a run-time error: the block after the main program's `CALL
+    /// "<FORM>--ONLOAD"`. The desktop abandons the handler and the form opens
+    /// and serves its events; `pr_cancel(-1)` continues the start-up here.
+    pub startup_resume: Option<BlockId>,
 }
 
 /// A parameter of a called program: the LINKAGE record it names.
@@ -274,6 +279,9 @@ pub struct Lower<'a, 'b> {
     pub(crate) form: Option<FormCtx>,
     /// Region slot where `WAIT-EVENT` leaves the operands the event is delivered to.
     pub(crate) park_slot: Option<u32>,
+    /// The block after the form's start-up `CALL "<FORM>--ONLOAD"` (see
+    /// [`Lowered::startup_resume`]).
+    pub(crate) startup_resume: Option<BlockId>,
     /// Units in the forms lowered before this one: `Ins::InitUnit` counts
     /// units across the whole module.
     pub(crate) unit_base: usize,
@@ -436,6 +444,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             names,
             form,
             park_slot: None,
+            startup_resume: None,
             unit_base,
             external_handles: HashMap::new(),
             file_meta: Vec::new(),
@@ -516,7 +525,19 @@ impl<'a, 'b> Lower<'a, 'b> {
         } else {
             None
         };
-        Ok(Lowered { entry: main_entry, layout: l.layout, units: count, stack_off, park_slot, event_items: (0, 0), quit, warnings: l.warnings, lines: l.lines_used, uses_heap: l.uses_heap })
+        Ok(Lowered {
+            entry: main_entry,
+            layout: l.layout,
+            units: count,
+            stack_off,
+            park_slot,
+            event_items: (0, 0),
+            quit,
+            warnings: l.warnings,
+            lines: l.lines_used,
+            uses_heap: l.uses_heap,
+            startup_resume: l.startup_resume,
+        })
     }
 
     /// Make unit `u` (program `p`) the one being lowered.
@@ -1461,6 +1482,22 @@ impl<'a, 'b> Lower<'a, 'b> {
         refmod: Option<(u32, u32)>,
         line: u32,
     ) -> GenResult<u32> {
+        self.item_operand_bounded(idx, indices, refmod, line, usize::MAX)
+    }
+
+    /// As [`Self::item_operand`], but the subscripts from position `odo_from`
+    /// on are checked against the table's maximum only, not against its
+    /// `DEPENDING ON` count: INITIALIZE addresses the first of every
+    /// occurrence up to the maximum, as the interpreter does, whatever the
+    /// count holds (0 included).
+    pub(crate) fn item_operand_bounded(
+        &mut self,
+        idx: usize,
+        indices: &[Expr],
+        refmod: Option<(u32, u32)>,
+        line: u32,
+        odo_from: usize,
+    ) -> GenResult<u32> {
         let item = self.layout.items[idx].clone();
         if item.level == 88 {
             return self.err(line, format!("{} is a condition-name, not a data item", item.name.clone().unwrap_or_default()));
@@ -1478,15 +1515,15 @@ impl<'a, 'b> Lower<'a, 'b> {
             );
         }
         let mut subs = Vec::new();
-        for (e, (stride, max, odo)) in indices.iter().zip(chain.into_iter()) {
+        for (k, (e, (stride, max, odo))) in indices.iter().zip(chain.into_iter()).enumerate() {
             let (sub_expr, add) = split_relative(e);
             let opd = self.operand_or_temp(sub_expr)?;
             let odo_opd = match odo {
-                Some(name) => {
+                Some(name) if k < odo_from => {
                     let di = self.layout.lookup(&name, &[]).map_err(|m| GenError::new(line, m))?;
                     self.item_operand(di, &[], None, line)?
                 }
-                None => 0,
+                _ => 0,
             };
             subs.push(Sub { opd, stride, max, odo: odo_opd, add });
         }

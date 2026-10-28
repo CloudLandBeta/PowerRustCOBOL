@@ -369,6 +369,14 @@ impl Shared {
         if shell_changed {
             self.sync_shell(inner);
         }
+        // The last form of the page closed and none is being opened: the application has ended, as the desktop's does
+        // when its main window closes. (The IDE's preview closes every form to take a new module in place: it opens
+        // them again at once, and an open takes the notice away.)
+        let none_left = self.state.try_borrow().map(|st| st.instances.is_empty()).unwrap_or(false)
+            && inner.host.try_borrow().map(|h| h.trees.is_empty() && !h.is_opening()).unwrap_or(false);
+        if none_left {
+            self.show_ended();
+        }
     }
 
     // ── rendering ───────────────────────────────────────────────────────────

@@ -189,7 +189,9 @@ impl Rig {
             }
             ModuleCall::Cancel { task } => {
                 self.func::<i32, ()>("pr_cancel").call(&mut self.store, *task)?;
-                CallResult::Unit
+                // As the loader answers: what the module says after the cancel (a stopped start-up it took on).
+                let status = self.func::<(), i32>("pr_status").call(&mut self.store, ())?;
+                CallResult::Status { status, task: self.tick() }
             }
         })
     }

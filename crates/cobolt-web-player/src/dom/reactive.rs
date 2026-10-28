@@ -37,7 +37,7 @@ use leptos::tachys::view::any_view::AnyViewState;
 use leptos::tachys::view::Render;
 use web_sys::{Document, Element, Event};
 
-use super::attrs::{apply_attrs, apply_class, apply_prop, apply_styles, follows_children, needs_active_listener};
+use super::attrs::{apply_attrs, apply_class, apply_prop, apply_styles, follows_children, needs_active_listener, reset_prop};
 use super::h::Listener;
 use crate::view::{Prop, Slot, VNode};
 
@@ -269,6 +269,11 @@ impl RNode {
             }
             if old.is_none() || was.attrs != new.attrs {
                 apply_attrs(&el, &was.attrs, &new.attrs);
+            }
+            for (k, p) in &was.props {
+                if !new.props.iter().any(|(n, _)| n == k) {
+                    reset_prop(&el, k, p);
+                }
             }
             for (k, p) in &new.props {
                 let before = old.as_ref().and_then(|o| o.props.iter().find(|(n, _)| n == k)).map(|(_, v)| v);

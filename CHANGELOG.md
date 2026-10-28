@@ -22,6 +22,26 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.81] — 2026-10-28
+
+*(Written on `fixes-2x`, off `2.x.x` at 0b3d28a4.)*
+
+### Fixed: six places where a Web page ran a form's COBOL differently from the desktop
+
+**What the operator saw.** The Web dashboard misbehaved where the desktop did not: Limpar filtered to 0 funds, the Acumulado switch could not be turned back on, a re-enabled button stayed disabled, closing the window left a blank page, and one error in `onLoad` produced an error on every Timer tick.
+
+**What changed** (each measured on the desktop first; each has a Rust test that fails on the old code):
+- **Figurative constants.** `SET ctl::Prop TO SPACES` (and ZEROS, QUOTES) sent the constant's code byte instead of the character (`cobolt-wasm-rt` `cmd.rs` `text_of`, `func.rs` `Call::bytes`). Text that is not valid UTF-8 (HIGH-VALUES, a name cut inside "ç") made the page drop the whole command batch; it now sends `�`, as the desktop does (`disp::lossy`).
+- **`Checked = 1`.** `cmp.rs` `relation` lacked the desktop's TRUE/FALSE comparison rule; the 11 conditions measured on the desktop now agree.
+- **`INITIALIZE` of a group with `OCCURS DEPENDING ON`** checked the first occurrence against the count and stopped with run-time error 1100; it now checks against the maximum (`lower_more.rs`).
+- **`Enable()` after `Disable()`** in another handler: the page's patcher never reset a `disabled` property the new view stopped writing (`dom/reactive.rs`). A Timer designed `Enabled = false` no longer runs from page load (`tree.rs`).
+- **Closing the last form or `STOP RUN`** tries `window.close()` and then shows a full-page "application has ended" notice with a Reload button, in the browser's language (en, pt-BR, es, fr, ja, zh).
+- **The error storm.** `pr_cancel(-1)` freed an instance whose `onLoad` had stopped on an error; after a backend call in `onLoad` the form was already open, so every Timer tick got -4. The generator now records where start-up continues after the `onLoad` call and the player opens the form as the desktop does; the error names the right event (it said `onClick` during `onLoad`) and output produced before the error is kept. `assets/web-player` and `rt.wasm` rebuilt.
+
+**Not done.** After a user changes a toggle the desktop reads `0`/`1` and the page `false`/`true`; a Timer's `Enabled` read at load differs (desktop `true`, page `false`); a subscript beyond the DEPENDING ON count but within the maximum is read on the desktop and stops with 1100 on the page; division by zero without `ON SIZE ERROR` and `MOD(n,0)` differ. `specs/WASM-ABI-v1.md` A5 does not yet describe the start-up continuation. The one-slice donut, cleared-chart and grey-series differences the dashboard scenarios showed are, per the implementer, how the harness reads the charts, not page defects: not changed here. **Committed at the operator's request before an independent judge finished**; the judgement is still running.
+
+Measured: cobolt-web-player 277 + 23 + 6 + 2 + 5 + 1 + 3 passed; cobolt-web-bundle 15 targets passed single-threaded (`e2e_chrome` 28 of 28 scenarios, new `page_parity_p2`); `cobolt-wasm-rt`/`cobolt-wasm` passed with new `web_parity_p2` (7); NIST NC on generated modules 95 of 95 compile, 95 of 95 run, 4612 PASS, 0 failures, as before; freshness green.
+
 ## [PowerRustCOBOL 2.0.80] — 2026-10-28
 
 *(Written on `features-2x`, off `2.x.x` at 09e0e729.)*

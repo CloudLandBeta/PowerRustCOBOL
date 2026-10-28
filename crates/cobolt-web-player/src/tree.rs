@@ -292,7 +292,13 @@ fn control_props(c: &Control) -> IndexMap<String, String> {
     props.insert("width".into(), c.rect.w.to_string());
     props.insert("height".into(), c.rect.h.to_string());
     props.insert("visible".into(), if c.visible { "1" } else { "0" }.into());
-    props.insert("enabled".into(), if c.enabled { "1" } else { "0" }.into());
+    // A Timer runs while its own `Enabled` *property* says so, not the control flag of the element (the
+    // desktop's renderer, `render.rs` CT::Timer, and codegen's WS-<timer>-ENABLED): a Timer designed with
+    // `enabled="true"` and `Enabled` false waits for the program to start it.
+    let timer_property = c.control_type == ControlType::Timer && c.properties.keys().any(|k| k.eq_ignore_ascii_case("Enabled"));
+    if !timer_property {
+        props.insert("enabled".into(), if c.enabled { "1" } else { "0" }.into());
+    }
     props.insert("taborder".into(), c.tab_order.to_string());
     props.insert("zorder".into(), c.z_order.to_string());
     if let Some(t) = c.tab {
@@ -960,6 +966,25 @@ two</Property></Control>
 mod tests {
     use super::testing::*;
     use super::*;
+
+    /// A Timer designed `enabled="true"` with its `Enabled` property false does not run until the program
+    /// starts it (the desktop: render.rs CT::Timer reads the property); the element flag still governs every
+    /// other control.
+    #[test]
+    fn a_timer_is_on_or_off_by_its_enabled_property() {
+        let t = tree_of(
+            r#"<Control id="TMR-1" type="Timer" x="0" y="0" w="24" h="24" enabled="true"><Property name="Interval">50</Property><Property name="Enabled">false</Property></Control>
+               <Control id="TMR-2" type="Timer" x="0" y="0" w="24" h="24" enabled="true"><Property name="Interval">50</Property></Control>
+               <Control id="BTN-1" type="Button" x="0" y="0" w="24" h="24" enabled="true"><Property name="Enabled">false</Property></Control>"#,
+        );
+        let (t1, t2, b) = (t.by_name("TMR-1").unwrap(), t.by_name("TMR-2").unwrap(), t.by_name("BTN-1").unwrap());
+        assert!(!t.ctls[t1].enabled(), "the property says off");
+        assert!(t.ctls[t2].enabled(), "no property: the element's flag");
+        assert!(t.ctls[b].enabled(), "a Button keeps the element's flag");
+        let mut t = t;
+        t.set(t1, "Enabled", "TRUE");
+        assert!(t.ctls[t1].enabled(), "the program starts it");
+    }
 
     #[test]
     fn a_form_description_pairs_with_its_manifest_entry_and_nests_by_parent() {

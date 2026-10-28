@@ -15,7 +15,7 @@ use crate::codec;
 use crate::host;
 use crate::mem;
 use crate::opd::*;
-use crate::state::{st, BATCH_SIZE, DISP_SIZE, WS_BATCH, WS_DISP};
+use crate::state::{st, BATCH_SIZE, DISP_SIZE, SCRATCH_SIZE, WS_BATCH, WS_DISP, WS_SCRATCH};
 use crate::val::Val;
 
 /// ABI v1 §5 opcodes.
@@ -247,7 +247,50 @@ fn end_line() {
     let s = st();
     let (at, n) = (s.ws + WS_DISP, s.disp_len);
     s.disp_len = 0;
+    let (at, n) = lossy(at, n);
     emit_text(mem::bytes(at, n));
+}
+
+/// The text the page receives for `len` bytes at `addr`: the bytes
+/// themselves when they are UTF-8, otherwise a copy (in the upper half of the
+/// scratch area) with every invalid sequence replaced by U+FFFD — the
+/// interpreter's `String::from_utf8_lossy` of a value it displays or writes to
+/// a property. A batch is UTF-8 by the ABI (§5): one stray byte (a
+/// HIGH-VALUE, a name cut in the middle of a character) would make the host
+/// refuse the whole batch.
+pub fn lossy(addr: u32, len: u32) -> (u32, u32) {
+    let src = mem::bytes(addr, len);
+    if core::str::from_utf8(src).is_ok() {
+        return (addr, len);
+    }
+    let half = SCRATCH_SIZE / 2;
+    let out_at = st().ws + WS_SCRATCH + half;
+    let mut n: u32 = 0;
+    let mut put = |b: &[u8]| {
+        let room = (half - n) as usize;
+        let k = b.len().min(room);
+        mem::bytes_mut(out_at + n, k as u32).copy_from_slice(&b[..k]);
+        n += k as u32;
+    };
+    let mut rest = src;
+    loop {
+        match core::str::from_utf8(rest) {
+            Ok(_) => {
+                put(rest);
+                break;
+            }
+            Err(e) => {
+                let good = e.valid_up_to();
+                put(&rest[..good]);
+                put("\u{FFFD}".as_bytes());
+                match e.error_len() {
+                    Some(bad) => rest = &rest[good + bad..],
+                    None => break,
+                }
+            }
+        }
+    }
+    (out_at, n)
 }
 
 /// [`flush`], after a line a `NO ADVANCING` left open: the task is giving the

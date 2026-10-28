@@ -373,6 +373,11 @@ function createMainLink(env, module, manifest, bridge) {
           }
           case 4:
             ex.pr_cancel(a);
+            // What the module says after it: a start-up stopped by a run-time error goes on to the form's
+            // event loop, and pr_tick() names that instance (the third word marks the answer).
+            out[0] = ex.pr_status();
+            out[1] = ex.pr_tick();
+            out[2] = 1;
             break;
           default:
             throw new Error(`unknown call kind ${kind}`);
@@ -1104,6 +1109,9 @@ async function perform(m) {
     }
     case 4:
       ex.pr_cancel(m.a);
+      out[0] = ex.pr_status();
+      out[1] = ex.pr_tick();
+      out[2] = 1;
       break;
     default:
       throw new Error(`unknown call kind ${m.kind}`);

@@ -282,6 +282,9 @@ pub const BASE_CSS: &str = r#"
 .pr-error-banner { background: var(--pr-danger); color: #fff; padding: 6px 12px; display: flex; justify-content: space-between; gap: 12px; }
 .pr-error-banner button { background: transparent; color: inherit; border: 1px solid currentColor; border-radius: 4px; cursor: pointer; font: inherit; margin-left: 6px; }
 .pr-net-host { position: absolute; right: 8px; top: 4px; z-index: 55; }
+.pr-ended { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; text-align: center; background: var(--pr-surface); color: var(--pr-text); font-family: var(--pr-font); }
+.pr-ended .pr-ended-title { margin: 0; font-size: 20px; font-weight: 600; } .pr-ended .pr-ended-hint { margin: 0; color: var(--pr-text-dim); }
+.pr-ended button { margin-top: 6px; padding: 6px 18px; background: var(--pr-accent); border: 1px solid var(--pr-accent); color: #fff; border-radius: 4px; cursor: pointer; font: inherit; }
 .pr-net { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: #f5a623; color: #000; }
 "#;
 

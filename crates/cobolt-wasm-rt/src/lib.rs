@@ -70,6 +70,10 @@ use state::st;
 /// traps; if a host ever returned, we trap here.
 #[cold]
 pub fn fail(code: u32) -> ! {
+    // What the handler did before the error reaches the page first, as it does
+    // on the desktop (a DISPLAY, a property written): the ERROR command is
+    // written over the start of the batch, so a staged command would be lost.
+    disp::flush();
     // SAFETY: the glue function only reads the code.
     unsafe { host::abort(code) };
     #[cfg(target_arch = "wasm32")]
