@@ -24,6 +24,8 @@
        01 WS-TICK                                PIC    9.
        01 WS-BYTES                               PIC    9(9).
        01 WS-STOP                                PIC    9.
+      *> WS-PAT of SM-REFRESH: "%" + the folded text + "%" (just "%%" for a blank text, which matches as "%" does).
+       01 WS-PAT                                 PIC    X(250).
            EXEC SQL INCLUDE SQLCA END-EXEC.
 
        LINKAGE SECTION.
@@ -64,15 +66,17 @@
       *> so the total can exceed what is listed. A fund with no name is never listed. LIKE has no ESCAPE: a
       *> typed % or _ is a wildcard, as on the desktop.
        NAM-READ-NAMES.
+           MOVE    SPACES                        TO    WS-PAT
+           STRING  "%" OPN-NAME-KEY::Trim() "%" DELIMITED BY SIZE INTO WS-PAT
            EXEC SQL
                SELECT COUNT(DISTINCT nome) INTO :NAM-MATCHES FROM fundos
-                WHERE nome IS NOT NULL AND nome <> '' AND nome_key LIKE (SELECT name_pat FROM flt)
+                WHERE nome IS NOT NULL AND nome <> '' AND nome_key LIKE :WS-PAT
            END-EXEC
            EXEC SQL
                DECLARE C-NAMES CURSOR FOR
                    SELECT nome, EXISTS (SELECT 1 FROM pick WHERE fld = 'N' AND name = fundos.nome)
                      FROM fundos
-                    WHERE nome IS NOT NULL AND nome <> '' AND nome_key LIKE (SELECT name_pat FROM flt)
+                    WHERE nome IS NOT NULL AND nome <> '' AND nome_key LIKE :WS-PAT
                     GROUP BY nome ORDER BY nome LIMIT 150
            END-EXEC
            EXEC SQL OPEN C-NAMES END-EXEC
@@ -85,13 +89,13 @@
            EXEC SQL CLOSE C-NAMES END-EXEC
            PERFORM NAM-DONE.
 
-      *> Only 10 categories, so the slots decide: OPN-FILTER kept in pick 'T' the ones whose folded name contains
-      *> the folded text (instr), each with its slot number n; the list keeps the popularity order.
+      *> Only 10 categories, so the slots decide: OPN-FILTER kept in vis 'C' the ones whose folded name contains
+      *> the folded text (instr), in slot order; the list keeps that popularity order.
        NAM-READ-CATS.
            EXEC SQL
                DECLARE C-CATS CURSOR FOR
-                   SELECT p.name, EXISTS (SELECT 1 FROM pick x WHERE x.fld = 'C' AND x.name = p.name)
-                     FROM pick p WHERE p.fld = 'T' ORDER BY p.n
+                   SELECT v.name, EXISTS (SELECT 1 FROM pick x WHERE x.fld = 'C' AND x.name = v.name)
+                     FROM vis v WHERE v.fld = 'C' ORDER BY v.rowid
            END-EXEC
            EXEC SQL OPEN C-CATS END-EXEC
            MOVE    0                             TO    WS-STOP

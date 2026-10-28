@@ -4,6 +4,10 @@
       *> CMB-ORDER, from GRD-OFFSET on. The 16 columns are the desktop's, one TAB-joined text per fund. The module
       *> takes 64 KiB per call, so a page of 300 rows is read as two windows of 150: the page, its count and
       *> the clamping of the page number stay in the form (Q-GRID and PAINT-GRID-INFO), with WS-T-CNT of FUND-TOTALS.
+      *> The statement is the desktop's text: "FROM fundos " + OPN-WHERE (values bound), " ORDER BY " + the order of
+      *> Q-GRID and nothing more, LIMIT and OFFSET bound; so funds that tie on the order come back in the order the
+      *> desktop's SQLite gives them for the same filter. (The 16 columns are joined in the statement; what a column
+      *> computes does not change the plan.)
       *> Exported, idempotent: it only reads.
 
        ENVIRONMENT DIVISION.
@@ -18,7 +22,8 @@
        WORKING-STORAGE SECTION.
            COPY "backend/COPYBOOKS/ws-open".
        01 WS-SEL                                 PIC    X(40).
-       01 WS-KEY                                 PIC    9.
+       01 WS-ORD                                 PIC    X(60).
+       01 WS-QUOTES                              PIC    9(4).
        01 WS-ROW                                 PIC    X(400).
        01 WS-RLEN                                PIC    9(9).
        01 WS-BYTES                               PIC    9(9).
@@ -55,19 +60,22 @@
            MOVE    GRD-ORDER                     TO    WS-SEL
            EVALUATE TRUE
                WHEN WS-SEL(1:6) = "Maior "
-                   MOVE    1                     TO    WS-KEY
+                   MOVE    "pl IS NULL, pl DESC" TO    WS-ORD
                WHEN WS-SEL(1:5) = "Mais "
                    IF WS-SEL(1:9) = "Mais coti"
-                       MOVE    2                 TO    WS-KEY
+                       MOVE    "cotistas IS NULL, cotistas DESC"
+                                                 TO    WS-ORD
                    ELSE
                        IF WS-SEL(1:9) = "Mais rece"
-                           MOVE    3             TO    WS-KEY
+                           MOVE    "inicio IS NULL, inicio DESC"
+                                                 TO    WS-ORD
                        ELSE
-                           MOVE    4             TO    WS-KEY
+                           MOVE    "inicio IS NULL, inicio ASC"
+                                                 TO    WS-ORD
                        END-IF
                    END-IF
                WHEN OTHER
-                   MOVE    5                     TO    WS-KEY
+                   MOVE    "nome_key ASC"        TO    WS-ORD
            END-EVALUATE
            MOVE    GRD-LIMIT                     TO    WS-LIM
            MOVE    0                             TO    WS-STOP
@@ -75,121 +83,42 @@
            MOVE    GRD-OFFSET                    TO    WS-OFFS
 
       *> The 16 columns follow the column order of GRD-FUNDOS, PL scaled to R$ million as its header says. Each
-      *> fund is one text, cells joined by TAB, as the desktop's Fetch() joins them; NULL is empty. rowlen is
-      *> what the row costs in the JSON answer (its bytes, quotes, one byte more for each TAB, quote and backslash).
-           EXEC SQL
-               CREATE TEMP VIEW fg AS
-                   SELECT id, pl, cotistas, inicio, nome_key,
-                          COALESCE(nome,'') || char(9) || codigo || char(9) || COALESCE(estrutura,'') || char(9)
-                          || COALESCE(nivel1,'') || char(9) || COALESCE(nivel2,'') || char(9)
-                          || COALESCE(nivel3,'') || char(9) || COALESCE(strftime('%d/%m/%Y', inicio),'') || char(9)
-                          || COALESCE(printf('%.2f', pl/1000000.0),'') || char(9) || COALESCE(cotistas,'') || char(9)
-                          || COALESCE(printf('%.4f', cota),'') || char(9) || COALESCE(foco,'') || char(9)
-                          || COALESCE(cnpj_classe,'') || char(9) || COALESCE(cnpj_fundo,'') || char(9)
-                          || COALESCE(status,'') || char(9) || COALESCE(subclasses,'') || char(9)
-                          || COALESCE(strftime('%d/%m/%Y', data_ref),'') AS rowtext
-                     FROM fv
-           END-EXEC
-           EXEC SQL
-               CREATE TEMP VIEW fr AS
-                   SELECT id, pl, cotistas, inicio, nome_key, rowtext,
-                          length(CAST(rowtext AS BLOB)) + 18
-                          + length(rowtext) - length(replace(rowtext, '"', ''))
-                          + length(rowtext) - length(replace(rowtext, char(92), '')) AS rowlen
-                     FROM fg
-           END-EXEC
+      *> fund is one text, cells joined by TAB, as the desktop's Fetch() joins them; NULL is empty.
+           MOVE    SPACES                        TO    OPN-SQL
+           STRING  "SELECT COALESCE(nome,'') || char(9) || codigo || char(9) || COALESCE(estrutura,'') || char(9) || "
+                   "COALESCE(nivel1,'') || char(9) || COALESCE(nivel2,'') || char(9) || "
+                   "COALESCE(nivel3,'') || char(9) || COALESCE(strftime('%d/%m/%Y', inicio),'') || char(9) || "
+                   "COALESCE(printf('%.2f', pl/1000000.0),'') || char(9) || COALESCE(cotistas,'') || char(9) || "
+                   "COALESCE(printf('%.4f', cota),'') || char(9) || COALESCE(foco,'') || char(9) || "
+                   "COALESCE(cnpj_classe,'') || char(9) || COALESCE(cnpj_fundo,'') || char(9) || "
+                   "COALESCE(status,'') || char(9) || COALESCE(subclasses,'') || char(9) || "
+                   "COALESCE(strftime('%d/%m/%Y', data_ref),'') FROM fundos "
+                   OPN-WHERE::Trim() " ORDER BY " WS-ORD::Trim() " LIMIT ? OFFSET ?"
+                   DELIMITED BY SIZE INTO OPN-SQL
+           PERFORM OPN-WHERE-PARAMS
+           MOVE    WS-LIM                        TO    OPN-PV
+           PERFORM OPN-ADD-PARAM
+           MOVE    WS-OFFS                       TO    OPN-PV
+           PERFORM OPN-ADD-PARAM
+           EXEC SQL PREPARE S-GRID FROM :OPN-SQL END-EXEC
+           EXEC SQL DECLARE C-GRID CURSOR FOR S-GRID END-EXEC
+           EXEC SQL OPEN C-GRID USING DESCRIPTOR SQLDA END-EXEC
            IF SQLSTATE(1:2) > "02"
                PERFORM GRD-FAIL
                GOBACK
            END-IF
-
-           EVALUATE WS-KEY
-               WHEN 1
-                   PERFORM GRD-READ-1
-               WHEN 2
-                   PERFORM GRD-READ-2
-               WHEN 3
-                   PERFORM GRD-READ-3
-               WHEN 4
-                   PERFORM GRD-READ-4
-               WHEN OTHER
-                   PERFORM GRD-READ-5
-           END-EVALUATE
-           IF GRD-STATUS NOT = "OK"
+           PERFORM UNTIL SQLSTATE(1:2) > "01" OR WS-STOP = 1
+               MOVE    SPACES                    TO    WS-ROW
+               EXEC SQL FETCH C-GRID INTO :WS-ROW END-EXEC
+               PERFORM GRD-TAKE
+           END-PERFORM
+           EXEC SQL CLOSE C-GRID END-EXEC
+           PERFORM GRD-DONE
+           IF GRD-STATUS NOT = "OK" AND GRD-STATUS NOT = "TRUNC"
                GOBACK
            END-IF
            PERFORM OPN-CLOSE
            GOBACK.
-
-      *> "Maior PL": pl IS NULL, pl DESC.
-       GRD-READ-1.
-           EXEC SQL
-               DECLARE C-G1 CURSOR FOR
-                   SELECT rowtext, rowlen FROM fr ORDER BY pl IS NULL, pl DESC, id LIMIT :WS-LIM OFFSET :WS-OFFS
-           END-EXEC
-           EXEC SQL OPEN C-G1 END-EXEC
-           PERFORM UNTIL SQLSTATE(1:2) > "01" OR WS-STOP = 1
-               EXEC SQL FETCH C-G1 INTO :WS-ROW, :WS-RLEN END-EXEC
-               PERFORM GRD-TAKE
-           END-PERFORM
-           EXEC SQL CLOSE C-G1 END-EXEC
-           PERFORM GRD-DONE.
-
-      *> "Mais cotistas": cotistas IS NULL, cotistas DESC.
-       GRD-READ-2.
-           EXEC SQL
-               DECLARE C-G2 CURSOR FOR
-                   SELECT rowtext, rowlen FROM fr ORDER BY cotistas IS NULL, cotistas DESC, id LIMIT :WS-LIM OFFSET :WS-OFFS
-           END-EXEC
-           EXEC SQL OPEN C-G2 END-EXEC
-           PERFORM UNTIL SQLSTATE(1:2) > "01" OR WS-STOP = 1
-               EXEC SQL FETCH C-G2 INTO :WS-ROW, :WS-RLEN END-EXEC
-               PERFORM GRD-TAKE
-           END-PERFORM
-           EXEC SQL CLOSE C-G2 END-EXEC
-           PERFORM GRD-DONE.
-
-      *> "Mais recentes": inicio IS NULL, inicio DESC.
-       GRD-READ-3.
-           EXEC SQL
-               DECLARE C-G3 CURSOR FOR
-                   SELECT rowtext, rowlen FROM fr ORDER BY inicio IS NULL, inicio DESC, id LIMIT :WS-LIM OFFSET :WS-OFFS
-           END-EXEC
-           EXEC SQL OPEN C-G3 END-EXEC
-           PERFORM UNTIL SQLSTATE(1:2) > "01" OR WS-STOP = 1
-               EXEC SQL FETCH C-G3 INTO :WS-ROW, :WS-RLEN END-EXEC
-               PERFORM GRD-TAKE
-           END-PERFORM
-           EXEC SQL CLOSE C-G3 END-EXEC
-           PERFORM GRD-DONE.
-
-      *> "Mais antigos": inicio IS NULL, inicio ASC.
-       GRD-READ-4.
-           EXEC SQL
-               DECLARE C-G4 CURSOR FOR
-                   SELECT rowtext, rowlen FROM fr ORDER BY inicio IS NULL, inicio ASC, id LIMIT :WS-LIM OFFSET :WS-OFFS
-           END-EXEC
-           EXEC SQL OPEN C-G4 END-EXEC
-           PERFORM UNTIL SQLSTATE(1:2) > "01" OR WS-STOP = 1
-               EXEC SQL FETCH C-G4 INTO :WS-ROW, :WS-RLEN END-EXEC
-               PERFORM GRD-TAKE
-           END-PERFORM
-           EXEC SQL CLOSE C-G4 END-EXEC
-           PERFORM GRD-DONE.
-
-      *> "Nome (A-Z)" and anything else: nome_key ASC (funds with no name come first).
-       GRD-READ-5.
-           EXEC SQL
-               DECLARE C-G5 CURSOR FOR
-                   SELECT rowtext, rowlen FROM fr ORDER BY nome_key ASC, id LIMIT :WS-LIM OFFSET :WS-OFFS
-           END-EXEC
-           EXEC SQL OPEN C-G5 END-EXEC
-           PERFORM UNTIL SQLSTATE(1:2) > "01" OR WS-STOP = 1
-               EXEC SQL FETCH C-G5 INTO :WS-ROW, :WS-RLEN END-EXEC
-               PERFORM GRD-TAKE
-           END-PERFORM
-           EXEC SQL CLOSE C-G5 END-EXEC
-           PERFORM GRD-DONE.
 
       *> A fetched row joins the answer unless the answer would pass its byte budget (60,000 of the 64 KiB), in
       *> which case GRD-MORE = Y and the reading stops. SQLSTATE 01004 is a row cut to the 400 bytes of GRD-ROW.
@@ -200,6 +129,14 @@
                    MOVE    "a row is longer than the 400 bytes GRD-ROW holds"
                                                  TO    GRD-MESSAGE
                END-IF
+      *>       What the row costs in the JSON answer: its bytes, 18 for the quotes, the separator and the escapes of
+      *>       its 15 TABs, and one more for each quote and backslash.
+               MOVE    0                         TO    WS-QUOTES
+               INSPECT WS-ROW TALLYING WS-QUOTES FOR ALL '"' WS-QUOTES FOR ALL "\"
+               PERFORM VARYING WS-RLEN FROM 400 BY -1
+                       UNTIL WS-RLEN = 0 OR WS-ROW (WS-RLEN:1) NOT = SPACE
+               END-PERFORM
+               ADD     18 WS-QUOTES              TO    WS-RLEN
                ADD     WS-RLEN                   TO    WS-BYTES
                IF WS-BYTES > 60000
                    MOVE    "Y"                   TO    GRD-MORE

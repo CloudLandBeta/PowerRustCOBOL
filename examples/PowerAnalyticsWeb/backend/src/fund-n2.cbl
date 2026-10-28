@@ -1,7 +1,9 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. FUND-N2.
       *> Q-N2 of the desktop: the funds per level-2 category under the filter, the nine largest in their own slot
-      *> and the rest summed into slot 10, "Outros". The statement is the desktop's, with "FROM fv".
+      *> and the rest summed into slot 10, "Outros". The statement is the desktop's text ("FROM fundos " + OPN-WHERE,
+      *> values bound, ORDER BY 2 DESC and nothing more), so the categories that tie on their count come back in
+      *> the order the desktop's SQLite gives them for the same filter, not in an order of this program's choosing.
       *> Exported, idempotent: it only reads.
 
        ENVIRONMENT DIVISION.
@@ -16,6 +18,7 @@
        WORKING-STORAGE SECTION.
            COPY "backend/COPYBOOKS/ws-open".
        01 WS-C1                                  PIC    X(40).
+       01 WS-C2                                  PIC    X(40).
        01 WS-V                                   PIC    9(9).
        01 WS-I                                   PIC    99.
            EXEC SQL INCLUDE SQLCA END-EXEC.
@@ -36,14 +39,22 @@
            END-IF
            MOVE    0                             TO    WS-I
 
-           EXEC SQL
-               DECLARE C-N2 CURSOR FOR
-                   SELECT nivel2, COUNT(*) FROM fv WHERE nivel2 IS NOT NULL GROUP BY nivel2 ORDER BY 2 DESC, 1
-           END-EXEC
-           EXEC SQL OPEN C-N2 END-EXEC
+           MOVE    SPACES                        TO    OPN-SQL
+           STRING  "SELECT nivel2, COUNT(*) FROM fundos " OPN-WHERE::Trim()
+                   " AND nivel2 IS NOT NULL GROUP BY nivel2 ORDER BY 2 DESC"
+                   DELIMITED BY SIZE INTO OPN-SQL
+           PERFORM OPN-WHERE-PARAMS
+           EXEC SQL PREPARE S-N2 FROM :OPN-SQL END-EXEC
+           EXEC SQL DECLARE C-N2 CURSOR FOR S-N2 END-EXEC
+           EXEC SQL OPEN C-N2 USING DESCRIPTOR SQLDA END-EXEC
+           IF SQLSTATE(1:2) > "02"
+               PERFORM N2R-FAIL
+               GOBACK
+           END-IF
            PERFORM UNTIL SQLSTATE NOT = "00000"
-               EXEC SQL FETCH C-N2 INTO :WS-C1, :WS-V END-EXEC
+               EXEC SQL FETCH C-N2 INTO :WS-C1, :WS-C2 END-EXEC
                IF SQLSTATE = "00000"
+                   COMPUTE WS-V = FUNCTION NUMVAL(WS-C2)
                    ADD     WS-V                  TO    N2R-TOTAL
 
       *> Largest first: the 9 biggest keep their own slot, the rest are summed into slot 10, "Outros".

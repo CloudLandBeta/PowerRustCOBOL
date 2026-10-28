@@ -1,7 +1,9 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. FUND-TOP.
       *> Q-TOP of the desktop: the four funds with the largest PL under the filter. The statement is the
-      *> desktop's, with "FROM fv". Exported, idempotent: it only reads.
+      *> desktop's text ("FROM fundos " + OPN-WHERE, values bound, ORDER BY pl DESC LIMIT 4 and nothing more), so
+      *> funds that tie on their PL come back in the order the desktop's SQLite gives them for the same filter.
+      *> The PL is read as text and stored with NUMVAL, as Q-TOP does. Exported, idempotent: it only reads.
 
        ENVIRONMENT DIVISION.
        INPUT-OUTPUT SECTION.
@@ -19,7 +21,7 @@
       *> it as the replacement character U+FFFD (3 bytes), which is what the desktop's label shows. So the text is at
       *> most 42 bytes: 39 whole bytes and the replacement character.
        01 WS-C1                                  PIC    X(42).
-       01 WS-C2                                  PIC    9(15)V99.
+       01 WS-C2                                  PIC    X(40).
            EXEC SQL INCLUDE SQLCA END-EXEC.
 
        LINKAGE SECTION.
@@ -38,18 +40,26 @@
            END-IF
 
       *> A fund with no name falls back to its code.
-           EXEC SQL
-               DECLARE C-TOP CURSOR FOR
-                   SELECT CAST(SUBSTR(CAST(COALESCE(nome,codigo) AS BLOB), 1, 40) AS TEXT), pl
-                     FROM fv WHERE pl IS NOT NULL ORDER BY pl DESC, id DESC LIMIT 4
-           END-EXEC
-           EXEC SQL OPEN C-TOP END-EXEC
+      *> (The first column cuts the name in the statement, see WS-C1; what a column computes does not change the
+      *> plan, the WHERE and the ORDER BY do.)
+           MOVE    SPACES                        TO    OPN-SQL
+           STRING  "SELECT CAST(SUBSTR(CAST(COALESCE(nome,codigo) AS BLOB), 1, 40) AS TEXT), pl FROM fundos "
+                   OPN-WHERE::Trim() " AND pl IS NOT NULL ORDER BY pl DESC LIMIT 4"
+                   DELIMITED BY SIZE INTO OPN-SQL
+           PERFORM OPN-WHERE-PARAMS
+           EXEC SQL PREPARE S-TOP FROM :OPN-SQL END-EXEC
+           EXEC SQL DECLARE C-TOP CURSOR FOR S-TOP END-EXEC
+           EXEC SQL OPEN C-TOP USING DESCRIPTOR SQLDA END-EXEC
+           IF SQLSTATE(1:2) > "02"
+               PERFORM TOP-FAIL
+               GOBACK
+           END-IF
            PERFORM UNTIL SQLSTATE NOT = "00000"
                EXEC SQL FETCH C-TOP INTO :WS-C1, :WS-C2 END-EXEC
                IF SQLSTATE = "00000" AND TOP-N < 4
                    ADD     1                     TO    TOP-N
                    MOVE    WS-C1                 TO    TOP-NAME (TOP-N)
-                   MOVE    WS-C2                 TO    TOP-PL (TOP-N)
+                   COMPUTE TOP-PL (TOP-N) = FUNCTION NUMVAL(WS-C2)
                END-IF
            END-PERFORM
            EXEC SQL CLOSE C-TOP END-EXEC

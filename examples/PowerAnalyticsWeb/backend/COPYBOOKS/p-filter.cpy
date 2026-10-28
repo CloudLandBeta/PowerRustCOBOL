@@ -1,17 +1,17 @@
-      *> The filter of the dashboard, as TEMPORARY objects of the connection (they vanish with it at the end of the
-      *> call; nothing is written to fundos.db):
-      *>   pick (fld, name, n)   (a primary key, as the desktop's table) the ticked names: 'N' company names, 'C' categories, '2' level 2, '3' level 3,
-      *>                         and 'T' the categories that the typed category text matches (BUILD-WHERE /
-      *>                         CAT-CLAUSE read the table vis for that; here it is computed from the text)
+      *> The filter of the dashboard. The desktop keeps its pickers in tables of its database and pastes the rest of the
+      *> filter into the text of its statements (BUILD-WHERE). Here the same tables are TEMPORARY tables of the call's
+      *> connection (they vanish with it; nothing is written to fundos.db), declared exactly as INIT-DB declares them:
+      *>   pick (fld, name)      the ticked names: 'N' company names, 'C' categories (PRIMARY KEY (fld, name))
+      *>   vis  (fld, name)      'C': the categories the typed category text matches, in slot order (SM-REFRESH
+      *>                         leaves them there on the desktop; here they are computed from the text)
+      *> and the text of the filter is the desktop's text, with a ? where the desktop pastes a value (OPN-WHERE, values
+      *> in SQLDA). Statements made from the same text over the same tables get the same plan from SQLite, and the
+      *> plan decides what no SQL text says: the order of rows that tie on the ORDER BY, and the order in which
+      *> SUM adds the floating-point PL values. Helper tables of the Backend alone:
       *>   slot (n, name)        the 10 most populated level-1 categories, most funds first (LOAD-DIMS)
       *>   fin  (k, txt, fx)     texts to fold: 'N' name text, 'C' category text, 'S1'..'S10' the slot names;
       *>                         fx = the text folded like NORM-TERM does (accents off, apostrophe -> _, upper case)
-      *>   flt  (...)            one row: which conditions are on and their values (NAME-CLAUSE, CAT-CLAUSE and
-      *>                         BUILD-WHERE decide the same things)
-      *>   fv                    the view "fundos that pass the filter". It plays the part of
-      *>                         "FROM fundos WHERE 1=1 <WS-WHERE>" of the desktop: the query programs read
-      *>                         "FROM fv" and add their own conditions. Its text is FIXED; the values are
-      *>                         bound (host variables) into pick and flt, never written into SQL.
+      *> No text of the request ever becomes SQL text: OPN-WHERE is made of fixed pieces, and every value is bound.
       *> Needs FLT-REQ (req-filter) in the LINKAGE SECTION, and ws-open, p-db and SQLCA like p-db does.
 
       *> What every query program does first: the database (OPN-DB), then the filter (OPN-FILTER).
@@ -30,42 +30,24 @@
                PERFORM OPN-MAKE-FOLDS
            END-IF
            IF OPN-STATUS = "OK"
-               PERFORM OPN-MAKE-CONDITIONS
-           END-IF
-           IF OPN-STATUS = "OK"
-               PERFORM OPN-MAKE-VIEW
+               PERFORM OPN-MAKE-WHERE
            END-IF.
 
-      *> The ticked names, one row each (MAKE-IN-LIST skips blank ones; so does this for the levels).
+      *> The ticked names, one row each, in the desktop's own tables (INIT-DB: pick and vis, same columns, same key).
        OPN-MAKE-PICKS.
-           EXEC SQL CREATE TEMP TABLE pick (fld TEXT, name TEXT, n INTEGER, PRIMARY KEY (fld, name)) END-EXEC
+           EXEC SQL CREATE TEMP TABLE pick (fld TEXT, name TEXT, PRIMARY KEY (fld, name)) END-EXEC
+           EXEC SQL CREATE TEMP TABLE vis (fld TEXT, name TEXT) END-EXEC
            IF SQLSTATE(1:2) > "02"
                PERFORM OPN-SQL-FAILED
                EXIT PARAGRAPH
            END-IF
-           MOVE    0                             TO    SH-N2-ON
-           MOVE    0                             TO    SH-N3-ON
            PERFORM VARYING SH-I FROM 1 BY 1 UNTIL SH-I > FLT-NAME-N
                MOVE    FLT-NAME-PICK (SH-I)      TO    SH-ONE
-               EXEC SQL INSERT OR IGNORE INTO pick VALUES ('N', :SH-ONE, :SH-I) END-EXEC
+               EXEC SQL INSERT OR IGNORE INTO pick VALUES ('N', :SH-ONE) END-EXEC
            END-PERFORM
            PERFORM VARYING SH-I FROM 1 BY 1 UNTIL SH-I > FLT-CAT-N
                MOVE    FLT-CAT-PICK (SH-I)       TO    SH-ONE
-               EXEC SQL INSERT OR IGNORE INTO pick VALUES ('C', :SH-ONE, :SH-I) END-EXEC
-           END-PERFORM
-           PERFORM VARYING SH-I FROM 1 BY 1 UNTIL SH-I > FLT-N2-N
-               MOVE    FLT-N2-PICK (SH-I)        TO    SH-ONE
-               IF SH-ONE NOT = SPACES
-                   MOVE    1                     TO    SH-N2-ON
-                   EXEC SQL INSERT OR IGNORE INTO pick VALUES ('2', :SH-ONE, :SH-I) END-EXEC
-               END-IF
-           END-PERFORM
-           PERFORM VARYING SH-I FROM 1 BY 1 UNTIL SH-I > FLT-N3-N
-               MOVE    FLT-N3-PICK (SH-I)        TO    SH-ONE
-               IF SH-ONE NOT = SPACES
-                   MOVE    1                     TO    SH-N3-ON
-                   EXEC SQL INSERT OR IGNORE INTO pick VALUES ('3', :SH-ONE, :SH-I) END-EXEC
-               END-IF
+               EXEC SQL INSERT OR IGNORE INTO pick VALUES ('C', :SH-ONE) END-EXEC
            END-PERFORM
            IF SQLSTATE(1:2) > "02"
                PERFORM OPN-SQL-FAILED
@@ -160,93 +142,118 @@
            END-IF
 
       *> SM-REFRESH for the categories: a slot is kept when the folded term is blank or the folded slot name
-      *> contains it (instr > 0). The kept names stay in slot (popularity) order through the column n.
+      *> contains it (instr > 0). The kept names go into vis in slot (popularity) order, as SM-REFRESH puts them.
            EXEC SQL
-               INSERT INTO pick
-                   SELECT 'T', s.txt, CAST(SUBSTR(s.k, 2) AS INTEGER)
+               INSERT INTO vis
+                   SELECT 'C', s.txt
                      FROM fin s, fin c
                     WHERE c.k = 'C' AND s.k LIKE 'S%'
                       AND (c.fx = '' OR instr(s.fx, c.fx) > 0)
+                    ORDER BY CAST(SUBSTR(s.k, 2) AS INTEGER)
            END-EXEC
            IF SQLSTATE(1:2) > "02"
                PERFORM OPN-SQL-FAILED
            END-IF.
 
-      *> BUILD-WHERE: which conditions are on, and their values. One row, bound from the request.
-       OPN-MAKE-CONDITIONS.
-      *>   NAME-CLAUSE: picked names win; else the typed text (when it is not blank once folded); else none.
+
+      *> BUILD-WHERE of the desktop, piece for piece and in its order (NAME-CLAUSE, CAT-CLAUSE, the dates, the PL range,
+      *> MAKE-IN-LIST for level 2 and level 3), into OPN-WHERE. Where the desktop pastes a value this writes ? and
+      *> binds the value (OPN-ADD-PARAM); OPN-WN = how many. The desktop's list "IN ('a','b')" becomes "IN (?,?)":
+      *> one ? per name, as many as the desktop's list has, so SQLite estimates both the same way.
+       OPN-MAKE-WHERE.
+           MOVE    SPACES                        TO    OPN-WHERE
+           MOVE    1                             TO    OPN-WP
+           MOVE    0                             TO    SQLDA-COUNT
+           STRING  "WHERE 1=1" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+      *>   NAME-CLAUSE: picked names win (in Todos mode the form sends none); else the folded text, when not blank.
            IF FLT-NAME-N > 0
-               MOVE    1                         TO    SH-NAME-MODE
+               STRING  " AND nome IN (SELECT name FROM pick WHERE fld = 'N')"
+                   DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
            ELSE
                IF OPN-NAME-KEY NOT = SPACES
-                   MOVE    2                     TO    SH-NAME-MODE
-               ELSE
-                   MOVE    0                     TO    SH-NAME-MODE
+                   STRING  " AND nome_key LIKE ?" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+                   MOVE    SPACES                TO    OPN-PV
+                   STRING  "%" OPN-NAME-KEY::Trim() "%" DELIMITED BY SIZE INTO OPN-PV
+                   PERFORM OPN-ADD-PARAM
                END-IF
            END-IF
-      *>   CAT-CLAUSE: the same for the categories; the text path uses the slots 'T' it matches.
+      *>   CAT-CLAUSE: picked categories win; else the categories the text matched (vis), when the text is not blank.
            IF FLT-CAT-N > 0
-               MOVE    1                         TO    SH-CAT-MODE
+               STRING  " AND nivel1 IN (SELECT name FROM pick WHERE fld = 'C')"
+                   DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
            ELSE
                IF OPN-CAT-KEY NOT = SPACES
-                   MOVE    2                     TO    SH-CAT-MODE
-               ELSE
-                   MOVE    0                     TO    SH-CAT-MODE
+                   STRING  " AND nivel1 IN (SELECT name FROM vis WHERE fld = 'C')"
+                       DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
                END-IF
            END-IF
-      *>   A date range left at its default (1970-01-01 to 2027-12-31) adds no test: a date test would drop
-      *>   the funds that have no start date.
-           MOVE    0                             TO    SH-DATE-ON
-           MOVE    FLT-DATE-FROM                 TO    SH-DATE-LO
-           MOVE    FLT-DATE-TO                   TO    SH-DATE-HI
-           IF SH-DATE-LO NOT = SPACES AND SH-DATE-HI NOT = SPACES
-               IF SH-DATE-LO NOT = "1970-01-01" OR SH-DATE-HI NOT = "2027-12-31"
-                   MOVE    1                     TO    SH-DATE-ON
+      *>   A date range left at its default (1970-01-01 to 2027-12-31) adds no test: a date test would drop the
+      *>   funds that have no start date.
+           IF FLT-DATE-FROM NOT = SPACES AND FLT-DATE-TO NOT = SPACES
+               IF FLT-DATE-FROM NOT = "1970-01-01" OR FLT-DATE-TO NOT = "2027-12-31"
+                   STRING  " AND inicio >= ? AND inicio <= ?" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+                   MOVE    FLT-DATE-FROM         TO    OPN-PV
+                   PERFORM OPN-ADD-PARAM
+                   MOVE    FLT-DATE-TO           TO    OPN-PV
+                   PERFORM OPN-ADD-PARAM
                END-IF
            END-IF
-      *>   The PL range is in R$ million (hence * 1000000) and applies once it moved from 0 to 300000, so
-      *>   the funds with no PL stay in until then.
-           MOVE    0                             TO    SH-PL-ON
-           COMPUTE SH-PL-LO = FLT-PL-FROM * 1000000
-           COMPUTE SH-PL-HI = FLT-PL-TO * 1000000
+      *>   The PL range is in R$ million (hence * 1000000) and applies once it moved from 0 to 300000, so the
+      *>   funds with no PL stay in until then. The bounds are the digits the desktop writes (Z(14)9, trimmed).
            IF FLT-PL-FROM > 0 OR FLT-PL-TO < 300000
-               MOVE    1                         TO    SH-PL-ON
+               STRING  " AND pl >= ? AND pl <= ?" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+               COMPUTE OPN-PLX = FLT-PL-FROM * 1000000
+               MOVE    OPN-PLX::Trim()           TO    OPN-PV
+               PERFORM OPN-ADD-PARAM
+               COMPUTE OPN-PLX = FLT-PL-TO * 1000000
+               MOVE    OPN-PLX::Trim()           TO    OPN-PV
+               PERFORM OPN-ADD-PARAM
            END-IF
-           EXEC SQL
-               CREATE TEMP TABLE flt (name_mode INTEGER, name_pat TEXT, cat_mode INTEGER,
-                                      date_on INTEGER, date_lo TEXT, date_hi TEXT,
-                                      pl_on INTEGER, pl_lo INTEGER, pl_hi INTEGER,
-                                      n2_on INTEGER, n3_on INTEGER)
-           END-EXEC
-           EXEC SQL
-               INSERT INTO flt
-                   SELECT :SH-NAME-MODE, '%' || fx || '%', :SH-CAT-MODE,
-                          :SH-DATE-ON, :SH-DATE-LO, :SH-DATE-HI,
-                          :SH-PL-ON, :SH-PL-LO, :SH-PL-HI,
-                          :SH-N2-ON, :SH-N3-ON
-                     FROM fin WHERE k = 'N'
-           END-EXEC
-           IF SQLSTATE(1:2) > "02"
-               PERFORM OPN-SQL-FAILED
-           END-IF.
+      *>   MAKE-IN-LIST: the non-blank ticked names, trimmed, in the order they came; no list when none.
+           MOVE    0                             TO    SH-N2-ON
+           PERFORM VARYING SH-I FROM 1 BY 1 UNTIL SH-I > FLT-N2-N
+               IF FLT-N2-PICK (SH-I) NOT = SPACES
+                   IF SH-N2-ON = 0
+                       STRING  " AND nivel2 IN (?" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+                       MOVE    1                 TO    SH-N2-ON
+                   ELSE
+                       STRING  ",?" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+                   END-IF
+                   MOVE    FLT-N2-PICK (SH-I)::Trim() TO OPN-PV
+                   PERFORM OPN-ADD-PARAM
+               END-IF
+           END-PERFORM
+           IF SH-N2-ON = 1
+               STRING  ")" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+           END-IF
+           MOVE    0                             TO    SH-N3-ON
+           PERFORM VARYING SH-I FROM 1 BY 1 UNTIL SH-I > FLT-N3-N
+               IF FLT-N3-PICK (SH-I) NOT = SPACES
+                   IF SH-N3-ON = 0
+                       STRING  " AND nivel3 IN (?" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+                       MOVE    1                 TO    SH-N3-ON
+                   ELSE
+                       STRING  ",?" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+                   END-IF
+                   MOVE    FLT-N3-PICK (SH-I)::Trim() TO OPN-PV
+                   PERFORM OPN-ADD-PARAM
+               END-IF
+           END-PERFORM
+           IF SH-N3-ON = 1
+               STRING  ")" DELIMITED BY SIZE INTO OPN-WHERE WITH POINTER OPN-WP
+           END-IF
+           MOVE    SQLDA-COUNT                   TO    OPN-WN.
 
-      *> "FROM fundos WHERE 1=1 ..." of every desktop query. A NULL never passes a test, as in the desktop
-      *> (a fund with no start date is dropped by a date range, one with no PL by a PL range).
-       OPN-MAKE-VIEW.
-           EXEC SQL
-               CREATE TEMP VIEW fv AS
-                   SELECT f.* FROM flt CROSS JOIN fundos f
-                    WHERE (flt.name_mode = 0
-                           OR (flt.name_mode = 1 AND f.nome IN (SELECT name FROM pick WHERE fld = 'N'))
-                           OR (flt.name_mode = 2 AND f.nome_key LIKE flt.name_pat))
-                      AND (flt.cat_mode = 0
-                           OR (flt.cat_mode = 1 AND f.nivel1 IN (SELECT name FROM pick WHERE fld = 'C'))
-                           OR (flt.cat_mode = 2 AND f.nivel1 IN (SELECT name FROM pick WHERE fld = 'T')))
-                      AND (flt.date_on = 0 OR (f.inicio >= flt.date_lo AND f.inicio <= flt.date_hi))
-                      AND (flt.pl_on = 0 OR (f.pl >= flt.pl_lo AND f.pl <= flt.pl_hi))
-                      AND (flt.n2_on = 0 OR f.nivel2 IN (SELECT name FROM pick WHERE fld = '2'))
-                      AND (flt.n3_on = 0 OR f.nivel3 IN (SELECT name FROM pick WHERE fld = '3'))
-           END-EXEC
-           IF SQLSTATE(1:2) > "02"
-               PERFORM OPN-SQL-FAILED
-           END-IF.
+      *> One more value for the next ?: OPN-PV becomes entry SQLDA-COUNT + 1, bound as text (the entry holds it, no
+      *> pointer). SQLite gives a bound text the column's numeric affinity in pl >= ? and ano >= ?, as it does the
+      *> desktop's pasted number.
+       OPN-ADD-PARAM.
+           ADD     1                             TO    SQLDA-COUNT
+           MOVE    OPN-PV                        TO    SQLDA-VALUE (SQLDA-COUNT)
+           MOVE    0                             TO    SQLDA-IND (SQLDA-COUNT)
+           SET     SQLDA-DATA (SQLDA-COUNT)      TO    NULL
+           SET     SQLDA-IND-PTR (SQLDA-COUNT)   TO    NULL.
+
+      *> Before a statement: only the values of OPN-WHERE are bound; the statement's own come after (OPN-ADD-PARAM).
+       OPN-WHERE-PARAMS.
+           MOVE    OPN-WN                        TO    SQLDA-COUNT.

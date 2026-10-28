@@ -1,7 +1,7 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. FUND-BINS.
       *> Q-BINS of the desktop: the funds that report a PL, in five bands each ten times the last. The
-      *> statement is the desktop's, with "FROM fv". Exported, idempotent: it only reads.
+      *> statement is the desktop's text ("FROM fundos " + OPN-WHERE, values bound). Exported, idempotent: it only reads.
 
        ENVIRONMENT DIVISION.
        INPUT-OUTPUT SECTION.
@@ -35,14 +35,19 @@
 
       *> Five PL bands, each ten times the last, as the captions of LBL-BIN1-N to LBL-BIN5-N say (up to R$ 1 mi
       *> ... above R$ 1 bi). The CASE number indexes BIN-CNT.
-           EXEC SQL
-               DECLARE C-BINS CURSOR FOR
-                   SELECT CASE WHEN pl < 1000000 THEN 1 WHEN pl < 10000000 THEN 2
-                               WHEN pl < 100000000 THEN 3 WHEN pl < 1000000000 THEN 4 ELSE 5 END,
-                          COUNT(*)
-                     FROM fv WHERE pl IS NOT NULL GROUP BY 1
-           END-EXEC
-           EXEC SQL OPEN C-BINS END-EXEC
+           MOVE    SPACES                        TO    OPN-SQL
+           STRING  "SELECT CASE WHEN pl < 1000000 THEN 1 WHEN pl < 10000000 THEN 2 "
+                   "WHEN pl < 100000000 THEN 3 WHEN pl < 1000000000 THEN 4 ELSE 5 END, COUNT(*) FROM fundos "
+                   OPN-WHERE::Trim() " AND pl IS NOT NULL GROUP BY 1"
+                   DELIMITED BY SIZE INTO OPN-SQL
+           PERFORM OPN-WHERE-PARAMS
+           EXEC SQL PREPARE S-BINS FROM :OPN-SQL END-EXEC
+           EXEC SQL DECLARE C-BINS CURSOR FOR S-BINS END-EXEC
+           EXEC SQL OPEN C-BINS USING DESCRIPTOR SQLDA END-EXEC
+           IF SQLSTATE(1:2) > "02"
+               PERFORM BIN-FAIL
+               GOBACK
+           END-IF
            PERFORM UNTIL SQLSTATE NOT = "00000"
                EXEC SQL FETCH C-BINS INTO :WS-BAND, :WS-V END-EXEC
                IF SQLSTATE = "00000"

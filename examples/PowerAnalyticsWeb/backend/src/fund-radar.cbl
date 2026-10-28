@@ -3,7 +3,7 @@
       *> The two queries of PAINT-RADAR: when two or three company names are ticked, the radar draws one polygon per
       *> company, from the funds each has in each category slot under the filter. Everything else PAINT-RADAR needs is
       *> already in the form (the slots and their counts: FUND-INIT, FUND-CATS). The statements are the desktop's, with
-      *> "FROM fv" and "FROM pick" (the ticked names of the request).
+      *> "FROM fundos " + OPN-WHERE (values bound) and "FROM pick" (the ticked names of the request).
       *> Exported, idempotent: it only reads.
 
        ENVIRONMENT DIVISION.
@@ -85,12 +85,19 @@
            EXEC SQL CLOSE C-RN END-EXEC
 
       *> The funds of each company in each category; slots are matched by name.
-           EXEC SQL
-               DECLARE C-RV CURSOR FOR
-                   SELECT CAST(SUBSTR(CAST(nome AS BLOB), 1, 160) AS TEXT), nivel1, COUNT(*)
-                     FROM fv WHERE nivel1 IS NOT NULL GROUP BY nome, nivel1
-           END-EXEC
-           EXEC SQL OPEN C-RV END-EXEC
+      *> The desktop's statement ("FROM fundos " + OPN-WHERE, values bound; the name cut as above).
+           MOVE    SPACES                        TO    OPN-SQL
+           STRING  "SELECT CAST(SUBSTR(CAST(nome AS BLOB), 1, 160) AS TEXT), nivel1, COUNT(*) FROM fundos "
+                   OPN-WHERE::Trim() " AND nivel1 IS NOT NULL GROUP BY nome, nivel1"
+                   DELIMITED BY SIZE INTO OPN-SQL
+           PERFORM OPN-WHERE-PARAMS
+           EXEC SQL PREPARE S-RV FROM :OPN-SQL END-EXEC
+           EXEC SQL DECLARE C-RV CURSOR FOR S-RV END-EXEC
+           EXEC SQL OPEN C-RV USING DESCRIPTOR SQLDA END-EXEC
+           IF SQLSTATE(1:2) > "02"
+               PERFORM RAD-FAIL
+               EXIT PARAGRAPH
+           END-IF
            PERFORM UNTIL SQLSTATE NOT = "00000"
                EXEC SQL FETCH C-RV INTO :WS-C1, :WS-C2, :WS-C3 END-EXEC
                IF SQLSTATE = "00000"

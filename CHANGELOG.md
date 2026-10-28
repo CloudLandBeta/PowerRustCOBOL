@@ -22,6 +22,20 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.82] — 2026-10-28
+
+*(Written on `features-2x`, off `2.x.x` at 19e44edb.)*
+
+### Added: PowerAnalyticsWeb's start-up and dashboard run the desktop's own COBOL against the Backend
+
+**What the operator saw.** "Almost a mockup": the Web form carried the desktop's computed numbers baked in, had 2 of the desktop's 98 events, and filters and buttons did nothing.
+
+**What changed.** `examples/PowerAnalyticsWeb/webforms/main-form.wcfrm` is regenerated from the desktop design (`examples/PowerAnalytics/forms/main-form.cfrm`, untouched): 212 controls (DB-1, RestClient-1 and SQL-FILE dropped, the Timer kept), all 98 events and the desktop's procedures, and none of the 192 baked runtime properties, so the 20 staged cards start hidden as on the desktop. The 75 `DB-1::` sites are replaced by `CALL "FUND-xxx" WITH WEBSOCKET LINKAGE USING BY VALUE FLT-REQ ... RETURNING ...` into the Backend, filling the desktop's own WORKING-STORAGE items; the pick, vis and chk tables are form tables; the grid page arrives in calls of up to 150 rows; three procedures are new (FLT-SAVE, FLT-RESTORE, BACKEND-FAIL); the width-cap anchors of 2.0.78 are kept. Two items are wider than the desktop's (`WS-TOP-NAME` X(44), `WS-RN` X(164)) because the module refuses a caption that is not valid UTF-8. The Backend (`backend/`) now builds each statement the way the desktop does: `p-filter.cpy` writes the desktop's WHERE text from literal pieces with a bound `?` per value (110 bind slots), each program runs the desktop's statement word for word, and every numeric cell is fetched as text and stored with `NUMVAL` as the desktop does. That closes two differences: ties in equal-keyed rows (the desktop's ORDER BYs have no tie-break, so the order is SQLite's plan for that WHERE text) and a one-cent gap (the desktop's `NUMVAL` rounds 441.78999999999996 to 441.79; the Backend truncated). The manifest no longer lists the copybooks as programs (the Build failed with 54 errors).
+
+**Not done.** Committed at the operator's request BEFORE the independent judgement finished (running). Not claimed: `SetColumnWidth` and every `PlayAnimation` (staged entrance, chart growth) are no-ops on the page; the Dados grid, paging and the filter popups are ported only so that they compile and run (the next groups); `onResize` and `onBreakpointChanged` never fire on the page. The Backend builds its statements from literal pieces chosen by the request and binds every caller value; no caller text reaches SQL text. `API-BE-1.md` (outside the repository) still describes the previous views.
+
+Measured by the implementers: Backend against the desktop's own SQL with exact comparison, 110 filters + start-up, 127,365 items, 0 differences (the previous Backend: 3,656); a second random set of 40, 28,474 items, 0 differences; a desktop headless sample of 16 filters, 160 legend and top-4 items, 0 differences; `check` 0 errors, 0 warnings; the web build succeeds. Before the player fixes of 2.0.81, 1 of the 19 dashboard scenarios passed on the page.
+
 ## [PowerRustCOBOL 2.0.81] — 2026-10-28
 
 *(Written on `fixes-2x`, off `2.x.x` at 0b3d28a4.)*
