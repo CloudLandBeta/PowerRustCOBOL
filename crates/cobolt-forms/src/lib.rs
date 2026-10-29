@@ -106,6 +106,11 @@ pub mod anim;
 #[cfg(feature = "render")]
 pub mod paint;
 
+// A TabControl's tab strip: where each tab sits, and how a strip with more tabs than room scrolls. Laid out ONCE, here,
+// for the painter, the engine, the focus ring and the designer.
+#[cfg(feature = "render")]
+pub mod tabstrip;
+
 /// Spec 096 — `RotateX` / `RotateY` / `PerspectiveDistance`: the projection of a
 /// display control, applied to what it has just painted.
 #[cfg(feature = "render")]

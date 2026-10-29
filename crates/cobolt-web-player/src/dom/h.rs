@@ -104,3 +104,31 @@ pub fn focus(e: &Element) {
         let _ = h.focus();
     }
 }
+
+/// Scroll the strip a tab sits in just far enough for the tab to be on show: the strip and nothing above it, so the page
+/// does not move (`scrollIntoView` would scroll every ancestor). The strip runs across (a top or bottom strip) or down
+/// (a side strip), as its `aria-orientation` says, and is positioned, so it is the tab's offset parent and the tab's
+/// offsets are measured from the strip's own edge.
+pub fn reveal_in_strip(tab: &Element) {
+    let (Some(t), Some(strip)) = (tab.dyn_ref::<HtmlElement>(), tab.parent_element()) else {
+        return;
+    };
+    if t.offset_parent().as_ref() != Some(&strip) {
+        return;
+    }
+    if strip.get_attribute("aria-orientation").as_deref() == Some("vertical") {
+        let (from, len, view, at) = (t.offset_top(), t.offset_height(), strip.client_height(), strip.scroll_top());
+        if from < at {
+            strip.set_scroll_top(from);
+        } else if from + len > at + view {
+            strip.set_scroll_top(from + len - view);
+        }
+    } else {
+        let (from, len, view, at) = (t.offset_left(), t.offset_width(), strip.client_width(), strip.scroll_left());
+        if from < at {
+            strip.set_scroll_left(from);
+        } else if from + len > at + view {
+            strip.set_scroll_left(from + len - view);
+        }
+    }
+}

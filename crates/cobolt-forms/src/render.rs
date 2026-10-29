@@ -1771,7 +1771,51 @@ fn select_tab(out: &mut RenderOutput, id: &str, to: usize, from: usize) {
 /// The strip position (from 0) of the page a TabControl's `SelectedTab` names
 /// (from 1); 0 or less reads as the first page.
 fn selected_tab_position(ctrl: &Control) -> usize {
-    ctrl.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(1).max(1) as usize - 1
+    crate::tabstrip::selected_position(ctrl)
+}
+
+/// A TabControl's scroll, kept in egui's memory: view state, like a Panel's
+/// scroll offset, so it is not part of the form and never saved with it.
+#[derive(Clone, Copy, Default)]
+struct TabScroll {
+    /// The first tab the strip shows.
+    first: usize,
+    /// The `SelectedTab` position the scroll last made room for. A selection
+    /// that differs from it — a click, a key, Ctrl+Tab or a COBOL write — is
+    /// brought into view; one the operator has scrolled away from stays where it
+    /// is.
+    seen: Option<usize>,
+    /// Wheel travel that has not yet added up to a tab, in points.
+    wheel: f32,
+}
+
+/// Travel of the wheel, or of a trackpad swipe, that scrolls a strip by one tab.
+const TAB_WHEEL_STEP: f32 = 40.0;
+
+/// Where a TabControl keeps its scroll: in the id space of the surface it
+/// renders in, like the rest of its interaction state (`rt_id_in`).
+fn tab_scroll_key(scope: Option<egui::Id>, id: &str) -> egui::Id {
+    rt_id_in(scope, id).with("tab-scroll")
+}
+
+/// The scroll of TabControl `ctrl` for this frame. A selection the scroll has
+/// not yet made room for is brought into view first, and the position is held
+/// inside the range the strip's size allows. Whoever asks first in a frame does
+/// that work; everyone after gets the same answer, so the painter, the hit test
+/// and the focus ring can never disagree about where a tab is.
+fn tab_scroll(ctx: &egui::Context, key: egui::Id, ctrl: &Control) -> TabScroll {
+    let mut st = ctx.data(|d| d.get_temp::<TabScroll>(key)).unwrap_or_default();
+    let before = (st.first, st.seen);
+    let sel = crate::tabstrip::selected_position(ctrl);
+    if st.seen != Some(sel) {
+        st.first = crate::tabstrip::scroll_to(ctrl, st.first, sel);
+        st.seen = Some(sel);
+    }
+    st.first = st.first.min(crate::tabstrip::scroll_range(ctrl));
+    if (st.first, st.seen) != before {
+        ctx.data_mut(|d| d.insert_temp(key, st));
+    }
+    st
 }
 
 fn draw_deferred_tabcontrol_tabs(
@@ -1780,6 +1824,11 @@ fn draw_deferred_tabcontrol_tabs(
     out: &RenderOutput,
     // The container (an index into `input.controls`).
     idx: usize,
+    // A running form draws the strip it has scrolled, kept in egui's memory
+    // under the id space `scope`. A still picture (the faces pass) keeps no
+    // scroll and shows the selected tab on show.
+    interactive: bool,
+    scope: Option<egui::Id>,
 ) {
     let base = &input.controls[idx];
     if !matches!(base.control_type, ControlType::TabControl) {
@@ -1807,7 +1856,13 @@ fn draw_deferred_tabcontrol_tabs(
         screen.width().round() as i32,
         screen.height().round() as i32,
     );
-    crate::paint::draw_tabcontrol_tabs(painter, screen.min, &face, alpha);
+    let first = if interactive {
+        tab_scroll(painter.ctx(), tab_scroll_key(scope, &live.id), &face).first
+    } else {
+        crate::tabstrip::auto_first(&face)
+    };
+    let strip = crate::tabstrip::tab_strip(screen.min, &face, first);
+    crate::paint::draw_tabcontrol_strip(painter, &strip, &face, alpha);
 }
 
 /// A GroupBox marked as a repeating group (spec 015 control array).
@@ -2976,7 +3031,7 @@ fn render_form_inner(
             };
             if let Some(at) = at {
                 draw_deferred_groupbox_caption(&clipped, input, &out, at);
-                draw_deferred_tabcontrol_tabs(&clipped, input, &out, at);
+                draw_deferred_tabcontrol_tabs(&clipped, input, &out, at, interactive, scope);
                 draw_expand_icon(interactive.then_some(&*ui), &clipped, input, &out, at);
             }
         }};
@@ -4065,8 +4120,12 @@ struct TabTarget {
     /// Enter in this control moves on, as Tab does (`Control::enter_as_tab`).
     enter_as_tab: bool,
     /// A TabControl's `(selected tab, tab count)`: Ctrl+Tab and Ctrl+Shift+Tab
-    /// select the next and previous one.
+    /// select the next and previous one. The count is every tab, the ones
+    /// scrolled out of sight included.
     tabs: Option<(usize, usize)>,
+    /// Where that TabControl keeps its scroll (`tab_scroll_key`): the focus ring
+    /// is drawn on the selected tab where the strip has put it.
+    tab_scroll: Option<egui::Id>,
     /// The TabControl whose page holds this control, the nearest one: Tab from
     /// that TabControl's strip enters the page, Shift+Tab from the page's first
     /// control returns to the strip.
@@ -4131,8 +4190,9 @@ fn collect_tab_targets(
                 enter_as_tab: live.enter_as_tab(),
                 tabs: (live.control_type == ControlType::TabControl).then(|| {
                     let sel = selected_tab_position(&live);
-                    (sel, crate::paint::tabcontrol_tab_rects(egui::Pos2::ZERO, &live).len())
+                    (sel, crate::tabstrip::tab_count(&live))
                 }),
+                tab_scroll: (live.control_type == ControlType::TabControl).then(|| tab_scroll_key(scope, &live.id)),
                 tab_host: tab_host_of(controls, idx),
             });
         }
@@ -4371,7 +4431,12 @@ fn paint_focus_ring(
         let sel = selected_tab_position(c);
         let mut sized = c.clone();
         sized.rect = crate::model::Rect::new(0, 0, rect.width().round() as i32, rect.height().round() as i32);
-        if let Some(tab) = crate::paint::tabcontrol_tab_rects(rect.min, &sized).get(sel) {
+        // The tab the strip has put the selection on, where the strip is scrolled to.
+        let first = match target.tab_scroll {
+            Some(key) => tab_scroll(ui.ctx(), key, &sized).first,
+            None => crate::tabstrip::auto_first(&sized),
+        };
+        if let Some(tab) = crate::tabstrip::tab_strip(rect.min, &sized, first).rect_of(sel).as_ref() {
             let ink = crate::paint::tabcontrol_tab_colors(ui.ctx(), c).active_ink;
             let r = tab.shrink(3.0);
             let stroke = egui::Stroke::new(1.0, ink);
@@ -4753,7 +4818,7 @@ pub fn render_faces_with(
             };
             after_container(c, &out.control_rects);
             draw_deferred_groupbox_caption(&clipped, input, &out, c);
-            draw_deferred_tabcontrol_tabs(&clipped, input, &out, c);
+            draw_deferred_tabcontrol_tabs(&clipped, input, &out, c, false, None);
             draw_expand_icon(None, &clipped, input, &out, c);
         }};
     }
@@ -13545,21 +13610,65 @@ fn render_interactive(
         CT::TabControl => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             let selected = selected_tab_position(ctrl);
-            let tabs = paint::tabcontrol_tab_rects(screen.min, ctrl);
+            // The strip may be scrolled: the tabs on show are the ones from
+            // `scroll.first` on, and two chevrons take its ends when they do not
+            // all fit (`tabstrip`). The scroll is kept in egui's memory, and
+            // `tab_scroll` has already brought a new selection into view.
+            let scroll_key = tab_scroll_key(scope, id);
+            let mut scroll = tab_scroll(ui.ctx(), scroll_key, ctrl);
+            let mut strip = crate::tabstrip::tab_strip(screen.min, ctrl, scroll.first);
+            // The chevrons and the wheel scroll the strip; they never select a tab.
+            if enabled {
+                if let (Some(prev), Some(next)) = (strip.prev, strip.next) {
+                    let back = ui.interact(prev, scroll_key.with("prev"), Sense::click()).clicked();
+                    let on = ui.interact(next, scroll_key.with("next"), Sense::click()).clicked();
+                    let before = (scroll.first, scroll.wheel);
+                    if back && strip.can_scroll_back() {
+                        scroll.first -= 1;
+                    }
+                    if on && strip.can_scroll_forward() {
+                        scroll.first += 1;
+                    }
+                    // The wheel, or a swipe on a trackpad, over the strip: one
+                    // tab for each step of travel. A vertical wheel moves a top
+                    // or bottom strip sideways, as a browser does. The events
+                    // are spent, so a Panel the control sits in does not scroll
+                    // as well.
+                    if ui.rect_contains_pointer(strip.band) {
+                        let delta = ui.input(|i| i.smooth_scroll_delta);
+                        let travel = if strip.vertical || delta.y.abs() >= delta.x.abs() { delta.y } else { delta.x };
+                        if travel != 0.0 {
+                            scroll.wheel += travel;
+                            let steps = (scroll.wheel / TAB_WHEEL_STEP).trunc();
+                            scroll.wheel -= steps * TAB_WHEEL_STEP;
+                            // Travel toward the start of the content is
+                            // positive, and the position falls with it.
+                            scroll.first = (scroll.first as i64 - steps as i64).clamp(0, strip.last_first as i64) as usize;
+                            ui.input_mut(|i| {
+                                i.events.retain(|e| !matches!(e, egui::Event::MouseWheel { .. }));
+                                i.smooth_scroll_delta = egui::Vec2::ZERO;
+                            });
+                        }
+                    }
+                    if (scroll.first, scroll.wheel) != before {
+                        ui.ctx().data_mut(|d| d.insert_temp(scroll_key, scroll));
+                        strip = crate::tabstrip::tab_strip(screen.min, ctrl, scroll.first);
+                    }
+                }
+            }
             // The control's keyboard stop: what the form's tab order focuses
             // (`tab_focus_id`). Registered over the strip BEFORE the tabs, so
             // a click still lands on the tab itself (egui keeps the widget
             // interacted last), and the tab then hands this the focus.
-            let strip = tabs.iter().copied().reduce(|a, b| a.union(b));
-            let focus = strip.map(|r| ui.interact(r, ctrl_id, Sense::focusable_noninteractive()));
+            let focus = strip.tabs_rect().map(|r| ui.interact(r, ctrl_id, Sense::focusable_noninteractive()));
             let mut pick: Option<usize> = None;
-            for (i, tr) in tabs.iter().enumerate() {
-                if ui.interact(*tr, ctrl_id.with(("tab", i)), Sense::click()).clicked() && enabled {
-                    pick = Some(i);
+            for slot in &strip.slots {
+                if ui.interact(slot.rect, ctrl_id.with(("tab", slot.index)), Sense::click()).clicked() && enabled {
+                    pick = Some(slot.index);
                     ui.memory_mut(|m| m.request_focus(ctrl_id));
                 }
             }
-            if enabled && !tabs.is_empty() && focus.as_ref().is_some_and(|f| f.has_focus()) {
+            if enabled && strip.count > 0 && focus.as_ref().is_some_and(|f| f.has_focus()) {
                 // Claim the arrows, Home and End, as the radio group does —
                 // otherwise egui spends the arrows on its own focus walk.
                 ui.memory_mut(|m| {
@@ -13577,7 +13686,9 @@ fn render_interactive(
                     "left" | "right" => (egui::Key::ArrowUp, egui::Key::ArrowDown),
                     _ => (egui::Key::ArrowLeft, egui::Key::ArrowRight),
                 };
-                let last = tabs.len() - 1;
+                // Every tab, the ones scrolled out of sight included: the strip
+                // brings the one chosen into view.
+                let last = strip.count - 1;
                 let cur = selected.min(last);
                 ui.input_mut(|i| {
                     if i.consume_key(egui::Modifiers::NONE, back_key) {
@@ -23534,7 +23645,18 @@ mod tests {
         timed: bool,
         disabled: &[&str],
     ) -> (Vec<UiEvent>, Map<String, Map<String, String>>, Vec<String>) {
-        let ctx = egui::Context::default();
+        drive_core_in(&egui::Context::default(), controls, frames, timed, disabled)
+    }
+
+    /// [`drive_core`] in a context the test owns, so it can read what the engine kept in egui's memory afterwards (a
+    /// TabControl's scroll, for one).
+    fn drive_core_in(
+        ctx: &egui::Context,
+        controls: &[Control],
+        frames: Vec<(f64, Vec<Event>)>,
+        timed: bool,
+        disabled: &[&str],
+    ) -> (Vec<UiEvent>, Map<String, Map<String, String>>, Vec<String>) {
         ctx.set_fonts(egui::FontDefinitions::default());
         let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
         let mut all: Vec<UiEvent> = Vec::new();
@@ -25046,6 +25168,220 @@ mod tests {
                 ..Modifiers::default()
             },
         }
+    }
+
+    // ── TabControl: a strip with more tabs than it has room for scrolls ─────────────────────────────────────────
+
+    /// A TabControl 400 x 240 with `n` tabs named "Sheet 01"…, on `position`, tab 1 selected.
+    fn overflowing_tabs(n: usize, position: &str) -> Control {
+        let names: Vec<String> = (1..=n).map(|k| format!("Sheet {k:02}")).collect();
+        ctrlp(
+            "TAB-1",
+            ControlType::TabControl,
+            0,
+            0,
+            400,
+            240,
+            &[("Tabs", &names.join("\n")), ("TabPosition", position), ("SelectedTab", "1")],
+        )
+    }
+
+    /// One click at `at`: the pointer arrives, presses, releases, and a quiet frame follows.
+    fn click_frames(frames: &mut Vec<(f64, Vec<Event>)>, at: Pos2) {
+        let t = frames.last().map_or(0.0, |f| f.0) + 1.0;
+        frames.push((t, vec![Event::PointerMoved(at)]));
+        frames.push((t + 0.1, vec![press(at)]));
+        frames.push((t + 0.2, vec![release(at)]));
+        frames.push((t + 0.3, vec![]));
+    }
+
+    /// What the engine has kept of TabControl `id`'s scroll in egui's memory (a read: nothing is brought into view).
+    fn kept_scroll(ctx: &egui::Context, id: &str) -> TabScroll {
+        ctx.data(|d| d.get_temp::<TabScroll>(tab_scroll_key(None, id))).unwrap_or_default()
+    }
+
+    fn selected_page(props: &Map<String, Map<String, String>>) -> Option<&str> {
+        props.get("TAB-1").and_then(|m| m.get("SelectedTab")).map(String::as_str)
+    }
+
+    fn ctrl_tab_key(pressed: bool) -> Event {
+        Event::Key {
+            key: Key::Tab,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Modifiers { ctrl: true, ..Modifiers::default() },
+        }
+    }
+
+    /// A strip with 32 tabs in a control that has room for a few: its chevrons scroll it one tab at a time, and by
+    /// scrolling to each tab and clicking it, EVERY one of the 32 can be selected, on all four edges. (Before, the tabs
+    /// past the first nine could not be reached at all.) The clicks land where `tabstrip` says the tabs and chevrons are,
+    /// so the painter, the hit test and the geometry the test reads are one and the same.
+    #[test]
+    fn an_overflowing_tabcontrol_scrolls_by_its_chevrons_and_every_tab_can_be_clicked() {
+        let mut report = Vec::new();
+        for position in ["Top", "Bottom", "Left", "Right"] {
+            let ctrl = overflowing_tabs(32, position);
+            let range = crate::tabstrip::scroll_range(&ctrl);
+            let at_first = crate::tabstrip::tab_strip(Pos2::ZERO, &ctrl, 0);
+            assert!(range > 0 && at_first.slots.len() < 32, "{position}: 32 tabs must overflow a 400 x 240 control");
+            let mut frames: Vec<(f64, Vec<Event>)> = vec![(0.0, vec![])];
+            let (mut first, mut chevron_clicks) = (0usize, 0usize);
+            for tab in 0..32 {
+                // Scroll with the far chevron until the tab is drawn, then click the tab where it is.
+                loop {
+                    let strip = crate::tabstrip::tab_strip(Pos2::ZERO, &ctrl, first);
+                    if let Some(r) = strip.rect_of(tab) {
+                        click_frames(&mut frames, r.center());
+                        break;
+                    }
+                    click_frames(&mut frames, strip.next.expect("a strip that overflows has a far chevron").center());
+                    first += 1;
+                    chevron_clicks += 1;
+                }
+            }
+            let ctx = egui::Context::default();
+            let (evs, props, _) = drive_core_in(&ctx, std::slice::from_ref(&ctrl), frames, false, &[]);
+            let changed: Vec<String> =
+                evs.iter().filter(|e| e.event == "onTabChanged").filter_map(|e| e.value.clone()).collect();
+            let want: Vec<String> = (2..=32).map(|p| p.to_string()).collect();
+            assert_eq!(changed, want, "{position}: each tab, clicked in turn, becomes the selected one");
+            assert_eq!(selected_page(&props), Some("32"), "{position}");
+            assert_eq!(chevron_clicks, range, "{position}: one click of the far chevron per tab of travel");
+            assert_eq!(kept_scroll(&ctx, "TAB-1").first, range, "{position}: the chevrons took the strip to its end");
+            report.push(format!(
+                "{position} {} of 32 drawn at first, {chevron_clicks} chevron clicks, {} tabs clicked",
+                at_first.slots.len(),
+                changed.len() + 1
+            ));
+        }
+        eprintln!("TabControl scroll (chevrons) — {}", report.join("; "));
+    }
+
+    /// The wheel over an overflowing strip scrolls it, one tab per 40 points of travel, in both directions; over a strip
+    /// whose tabs all fit it does nothing.
+    #[test]
+    fn the_wheel_scrolls_an_overflowing_strip_and_leaves_one_that_fits_alone() {
+        let wheel = |dy: f32| Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, dy),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::default(),
+        };
+        let run = |ctrl: &Control, travel: &[f32]| {
+            let over = crate::tabstrip::tab_strip(Pos2::ZERO, ctrl, 0).band.center();
+            let mut frames: Vec<(f64, Vec<Event>)> = vec![(0.0, vec![]), (1.0, vec![Event::PointerMoved(over)])];
+            for (i, dy) in travel.iter().enumerate() {
+                frames.push((2.0 + i as f64, vec![wheel(*dy)]));
+                // Egui releases a scroll over several frames: let it finish.
+                for k in 0..8 {
+                    frames.push((2.5 + i as f64 + k as f64 * 0.01, vec![]));
+                }
+            }
+            let ctx = egui::Context::default();
+            let _ = drive_core_in(&ctx, std::slice::from_ref(ctrl), frames, false, &[]);
+            kept_scroll(&ctx, &ctrl.id)
+        };
+        let strip = overflowing_tabs(32, "Top");
+        let range = crate::tabstrip::scroll_range(&strip);
+        // Wheel down (negative travel) goes to the later tabs. Egui releases a scroll over several frames, so a total that
+        // lands exactly on a step arrives a hair short of it; the totals here sit in the middle of a step instead.
+        let down = run(&strip, &[-100.0, -110.0]);
+        assert_eq!(down.first, 5, "210 points of travel are five tabs (and a half in hand)");
+        // And back up.
+        let and_back = run(&strip, &[-210.0, 150.0]);
+        assert_eq!(and_back.first, 2, "210 down, 150 up (10 of the first swipe still in hand): 5 - 3 tabs");
+        // Past the end is held at the end, and a swipe back from there is not charged for what was not travelled.
+        assert_eq!(run(&strip, &[-100_000.0]).first, range, "the end is the end");
+        assert_eq!(run(&strip, &[400.0]).first, 0, "the start is the start");
+        // Everything fits: the wheel has nothing to scroll.
+        let few = overflowing_tabs(3, "Top");
+        assert_eq!(run(&few, &[-300.0]).first, 0);
+        eprintln!(
+            "TabControl scroll (wheel) — 32 tabs, range 0..={range}: 210 points down = {} tabs, then 150 up = {}; the ends hold; a 3-tab strip ignores it",
+            down.first, and_back.first
+        );
+    }
+
+    /// A selection is brought into view when it CHANGES (End here), and only then: scrolling away from it with the
+    /// chevrons is not undone, and choosing it again from elsewhere brings it back.
+    #[test]
+    fn a_selection_scrolls_into_view_when_it_changes_and_not_otherwise() {
+        let ctrl = overflowing_tabs(32, "Top");
+        let range = crate::tabstrip::scroll_range(&ctrl);
+        let strip0 = crate::tabstrip::tab_strip(Pos2::ZERO, &ctrl, 0);
+        let end_key = |pressed: bool| Event::Key {
+            key: Key::End,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        // Focus the strip with Tab, then End: the last tab is selected.
+        let mut frames: Vec<(f64, Vec<Event>)> = vec![
+            (0.0, vec![]),
+            (1.0, vec![tab_key(false, true)]),
+            (2.0, vec![tab_key(false, false)]),
+            (3.0, vec![end_key(true)]),
+            (3.1, vec![end_key(false)]),
+            (3.2, vec![]),
+            (3.3, vec![]),
+        ];
+        let snapshot = |frames: &[(f64, Vec<Event>)]| {
+            let ctx = egui::Context::default();
+            let (_, props, _) = drive_core_in(&ctx, std::slice::from_ref(&ctrl), frames.to_vec(), false, &[]);
+            (kept_scroll(&ctx, "TAB-1").first, selected_page(&props).map(str::to_owned))
+        };
+        let (first, page) = snapshot(&frames);
+        assert_eq!(page.as_deref(), Some("32"), "End selects the last tab");
+        assert_eq!(first, range, "…and the strip scrolled to show it (it was not on show at 0)");
+        assert!(strip0.rect_of(31).is_none());
+        // Scroll back to the start with the near chevron: the selection stays where it is, and the strip is NOT pulled back.
+        for k in 0..range {
+            let near = crate::tabstrip::tab_strip(Pos2::ZERO, &ctrl, range - k).prev.expect("a near chevron").center();
+            click_frames(&mut frames, near);
+        }
+        frames.push((900.0, vec![]));
+        frames.push((901.0, vec![]));
+        let (first, page) = snapshot(&frames);
+        assert_eq!((first, page.as_deref()), (0, Some("32")), "scrolled away from the selection, and left there");
+        // Choose the last tab again from elsewhere: first the first tab (on show), then End.
+        click_frames(&mut frames, strip0.rect_of(0).unwrap().center());
+        let (first, page) = snapshot(&frames);
+        assert_eq!((first, page.as_deref()), (0, Some("1")), "tab 1 was on show: nothing moved");
+        frames.extend([(950.0, vec![end_key(true)]), (950.1, vec![end_key(false)]), (950.2, vec![]), (950.3, vec![])]);
+        let (first, page) = snapshot(&frames);
+        assert_eq!((first, page.as_deref()), (range, Some("32")), "End again: back in view");
+        eprintln!("TabControl scroll (into view) — 32 tabs, range {range}: End scrolled to {range}; {range} near-chevron clicks left it at 0 with tab 32 still selected; End again returned to {range}");
+    }
+
+    /// Ctrl+Tab walks EVERY tab, the ones scrolled out of sight included, and wraps: 31 presses from tab 1 reach tab 32, the
+    /// 32nd comes round to tab 1, and the strip follows the selection each way.
+    #[test]
+    fn ctrl_tab_walks_all_the_tabs_of_a_strip_that_scrolls() {
+        let ctrl = overflowing_tabs(32, "Top");
+        let range = crate::tabstrip::scroll_range(&ctrl);
+        let run = |presses: usize| {
+            let mut frames: Vec<(f64, Vec<Event>)> =
+                vec![(0.0, vec![]), (1.0, vec![tab_key(false, true)]), (2.0, vec![tab_key(false, false)])];
+            for i in 0..presses {
+                frames.push((3.0 + i as f64, vec![ctrl_tab_key(true)]));
+                frames.push((3.5 + i as f64, vec![ctrl_tab_key(false)]));
+            }
+            frames.push((900.0, vec![]));
+            frames.push((901.0, vec![]));
+            let ctx = egui::Context::default();
+            let (evs, props, _) = drive_core_in(&ctx, std::slice::from_ref(&ctrl), frames, false, &[]);
+            let changed = evs.iter().filter(|e| e.event == "onTabChanged").count();
+            (selected_page(&props).map(str::to_owned), kept_scroll(&ctx, "TAB-1").first, changed)
+        };
+        let (page, first, changed) = run(31);
+        assert_eq!((page.as_deref(), changed), (Some("32"), 31), "31 presses reach the last tab, one change each");
+        assert_eq!(first, range, "and the strip is scrolled to it");
+        let (page, first, changed) = run(32);
+        assert_eq!((page.as_deref(), first, changed), (Some("1"), 0, 32), "the 32nd press wraps to the first tab");
+        eprintln!("TabControl scroll (Ctrl+Tab) — 31 presses reach tab 32 (strip at {range}); the 32nd wraps to tab 1 (strip at 0)");
     }
 
     fn enter_key(pressed: bool) -> Event {

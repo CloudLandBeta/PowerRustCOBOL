@@ -83,11 +83,12 @@ pub const BASE_CSS: &str = r#"
 .pr-expander:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
 .pr-expander svg { display: block; width: 24px; height: 24px; }
 .pr-tabcontrol { overflow: hidden; }
-.pr-tablist { display: flex; gap: 2px; overflow: hidden; }
-.pr-tabs-left > .pr-tablist, .pr-tabs-right > .pr-tablist { flex-direction: column; }
+/* A strip with more tabs than room scrolls, so that every tab can be reached (the desktop draws chevrons; the browser has scrolling): sideways on a top or bottom strip, down the control on a side one. A thin bar, touch, a trackpad swipe or Shift+wheel move it. */
+.pr-tablist { display: flex; gap: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.pr-tabs-left > .pr-tablist, .pr-tabs-right > .pr-tablist { flex-direction: column; overflow-x: hidden; overflow-y: auto; }
 .pr-tabs-bottom > .pr-tablist { align-items: flex-start; }
 .pr-tab { padding: 4px var(--pr-tab-pad, 12px); cursor: pointer; background: var(--pr-tab-bg, transparent); color: var(--pr-tab-fg, inherit); border: 1px solid var(--pr-border);
-  border-radius: 4px 4px 0 0; font: inherit; white-space: nowrap; }
+  border-radius: 4px 4px 0 0; font: inherit; white-space: nowrap; flex: 0 0 auto; }
 .pr-tabs-left > .pr-tablist > .pr-tab, .pr-tabs-right > .pr-tablist > .pr-tab { border-radius: 4px 0 0 4px; text-align: left; }
 .pr-tabs-bottom > .pr-tablist > .pr-tab { border-radius: 0 0 4px 4px; }
 .pr-tab[aria-selected="true"] { background: var(--pr-accent); color: var(--pr-tab-active-fg, #fff); border-color: var(--pr-accent); }
@@ -342,6 +343,25 @@ mod tests {
         for var in ["--pr-accent", "--pr-surface", "--pr-text", "--pr-border", "--pr-radius", "--pr-font"] {
             assert!(BASE_CSS.contains(var), "{var}");
         }
+    }
+
+    /// A tab strip with more tabs than room scrolls (it used to clip them, and the clipped tabs could not be reached), and
+    /// its tabs keep their size instead of shrinking to fit.
+    #[test]
+    fn a_tab_strip_scrolls_instead_of_clipping_its_tabs() {
+        let rule = |selector: &str| {
+            let start = BASE_CSS.find(selector).unwrap_or_else(|| panic!("{selector}"));
+            let end = BASE_CSS[start..].find('}').expect("a closed rule") + start;
+            BASE_CSS[start..end].to_owned()
+        };
+        let list = rule(".pr-tablist {");
+        assert!(list.contains("overflow-x: auto") && list.contains("overflow-y: hidden"), "a top or bottom strip scrolls sideways: {list}");
+        let side = rule(".pr-tabs-left > .pr-tablist, .pr-tabs-right > .pr-tablist {");
+        assert!(side.contains("overflow-y: auto") && side.contains("overflow-x: hidden"), "a side strip scrolls down: {side}");
+        assert!(!list.contains("overflow: hidden"), "the clipping rule is gone: {list}");
+        let tab = rule(".pr-tab {");
+        assert!(tab.contains("flex: 0 0 auto"), "a tab keeps its size: {tab}");
+        eprintln!("web TabControl strip — scrolls sideways (top, bottom) and down (left, right); a tab no longer shrinks or clips");
     }
 
     #[test]

@@ -45,7 +45,7 @@ use crate::view::{Prop, Slot, VNode};
 /// the control's root element.
 pub type Dispatch = Rc<dyn Fn(&str, &str, &Event, &Element)>;
 
-pub use super::attrs::focus_requested;
+pub use super::attrs::{focus_requested, reveal_requested};
 
 // ── the executor ────────────────────────────────────────────────────────────
 

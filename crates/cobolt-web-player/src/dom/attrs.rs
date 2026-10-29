@@ -26,6 +26,11 @@ thread_local! {
     /// autofocuses only at page load, so an element a redraw brings in (the next screen of a sign-in
     /// form) is focused by [`focus_requested`] when the pass is done.
     static FOCUS: std::cell::RefCell<Vec<Element>> = const { std::cell::RefCell::new(Vec::new()) };
+
+    /// Elements a render pass gave a `data-pr-reveal` attribute it did not have: the selected tab of a TabControl,
+    /// at the moment it becomes the selected one. [`reveal_requested`] scrolls each into view in its own strip when
+    /// the pass is done.
+    static REVEAL: std::cell::RefCell<Vec<Element>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Give the keyboard focus to the last element a render pass made with `autofocus` (if it is still on
@@ -39,6 +44,20 @@ pub fn focus_requested() {
 
 fn request_focus(el: &Element) {
     FOCUS.with(|f| f.borrow_mut().push(el.clone()));
+}
+
+/// Scroll each element the render pass marked with `data-pr-reveal` just far enough to be on show in the strip it sits
+/// in (the strip, never the page), and forget them. A strip that has more tabs than room scrolls, and a tab that has
+/// just become the selected one has to be on show: a click, an arrow key or a program's write of `SelectedTab`.
+pub fn reveal_requested() {
+    let wanted = REVEAL.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    for el in wanted.into_iter().filter(|e| e.is_connected()) {
+        h::reveal_in_strip(&el);
+    }
+}
+
+fn request_reveal(el: &Element) {
+    REVEAL.with(|r| r.borrow_mut().push(el.clone()));
 }
 
 fn is_input_of(el: &Element, kinds: &[&str]) -> bool {
@@ -125,6 +144,9 @@ pub fn apply_attrs(el: &Element, old: &[(String, String)], new: &[(String, Strin
         if el.get_attribute(k).as_deref() != Some(v.as_str()) {
             if k == "autofocus" {
                 request_focus(el);
+            }
+            if k == "data-pr-reveal" {
+                request_reveal(el);
             }
             if k == "src" && needs_cors_mode(el, v) {
                 // Set before `src`: the request mode is decided when the load starts.

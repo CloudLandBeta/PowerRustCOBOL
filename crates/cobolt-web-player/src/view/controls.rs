@@ -623,17 +623,22 @@ pub fn tab_control(cx: &ViewCtx, i: usize) -> VNode {
     let mut list = VNode::new("div").key("tablist").class("pr-tablist").attr("role", "tablist").attr("aria-orientation", if vertical { "vertical" } else { "horizontal" }).on("click").on("keydown");
     for (k, title) in titles.iter().enumerate() {
         let n = k as u32 + 1;
-        list = list.child(
-            VNode::new("button")
-                .key(format!("tab:{n}"))
-                .class("pr-tab")
-                .attr("type", "button")
-                .attr("role", "tab")
-                .attr("data-i", n.to_string())
-                .attr("aria-selected", if n == selected { "true" } else { "false" })
-                .attr("tabindex", if n == selected { "0" } else { "-1" })
-                .text(title.clone()),
-        );
+        let mut tab = VNode::new("button")
+            .key(format!("tab:{n}"))
+            .class("pr-tab")
+            .attr("type", "button")
+            .attr("role", "tab")
+            .attr("data-i", n.to_string())
+            .attr("aria-selected", if n == selected { "true" } else { "false" })
+            .attr("tabindex", if n == selected { "0" } else { "-1" })
+            .text(title.clone());
+        // The strip scrolls when the tabs do not all fit. The selected tab says so, and the DOM layer scrolls the
+        // strip (never the page) to it when that attribute LANDS on a tab: the moment a tab becomes the selected one,
+        // and not on a redraw that leaves it selected, so a strip the operator has scrolled stays where it was left.
+        if n == selected {
+            tab = tab.attr("data-pr-reveal", "1");
+        }
+        list = list.child(tab);
     }
     let mut root_n = root(cx, i, "div").class(format!("pr-tabs-{}", if pos.is_empty() { "top".to_owned() } else { pos.clone() }));
     root_n = root_n.child(list);
@@ -1083,6 +1088,32 @@ mod tests {
         let i = t.by_name("PNL-1").unwrap();
         let _ = i;
         let _ = &mut t;
+    }
+
+    /// The selected tab, and only it, asks the DOM layer to bring it into view; it moves when the selection does.
+    #[test]
+    fn only_the_selected_tab_asks_to_be_brought_into_view() {
+        let names: Vec<String> = (1..=40).map(|k| format!("Sheet {k:02}")).collect();
+        let tabs = names.join("\n");
+        let mut moved = 0;
+        for selected in [1, 2, 17, 40] {
+            let (t, c) = tree_with("TabControl", "TC", &[("Tabs", &tabs), ("SelectedTab", &selected.to_string())]);
+            let e = Empty::default();
+            let cx = e.cx(&t);
+            let strip = tab_control(&cx, c);
+            let mut buttons: Vec<&VNode> = Vec::new();
+            strip.find_all(&|n| n.has_class("pr-tab"), &mut buttons);
+            assert_eq!(buttons.len(), 40, "one button per tab, drawn or not: the browser scrolls the strip");
+            let revealing: Vec<usize> = buttons
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| b.attr_of("data-pr-reveal").is_some())
+                .map(|(i, _)| i + 1)
+                .collect();
+            assert_eq!(revealing, [selected], "exactly the selected tab asks");
+            moved += 1;
+        }
+        eprintln!("web TabControl reveal — 40 tabs, the selection moved {moved} times: each time exactly one tab, the selected one, carried data-pr-reveal");
     }
 
     #[test]

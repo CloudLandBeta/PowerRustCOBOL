@@ -726,6 +726,8 @@ impl Surface for Dom {
         self.sh.render_all(inner);
         // An element the pass made with `autofocus` (the next screen of a sign-in form) takes the focus now.
         nodes::focus_requested();
+        // A tab that has just become the selected one is on show in its strip (a TabControl with more tabs than room).
+        nodes::reveal_requested();
     }
 
     fn effect(&self, inner: &Rc<Inner>, e: &Effect) {

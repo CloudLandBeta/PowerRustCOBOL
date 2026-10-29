@@ -5702,14 +5702,13 @@ impl DesignerPanel {
             }
             let origin = egui::pos2(c.rect.x as f32, c.rect.y as f32);
             let p = egui::pos2(cx as f32, cy as f32);
-            for (i, tr) in cobolt_forms::paint::tabcontrol_tab_rects(origin, c)
-                .iter()
-                .enumerate()
-            {
-                if tr.contains(p) {
-                    // The PAGE, counting from 1 like `SelectedTab`.
-                    return Some((c.id.clone(), i as u32 + 1));
-                }
+            // The strip the canvas drew: with more tabs than room it is scrolled to keep the
+            // selected tab on show, so a tab's place among the drawn ones is NOT its page. A
+            // chevron steps the selection to the neighbouring tab, and the strip follows.
+            let strip = cobolt_forms::tabstrip::tab_strip(origin, c, cobolt_forms::tabstrip::auto_first(c));
+            if let Some(i) = cobolt_forms::tabstrip::click_target(c, &strip, p) {
+                // The PAGE, counting from 1 like `SelectedTab`.
+                return Some((c.id.clone(), i as u32 + 1));
             }
         }
         None

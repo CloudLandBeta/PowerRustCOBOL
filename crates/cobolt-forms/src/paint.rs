@@ -7676,46 +7676,69 @@ pub fn tabcontrol_tab_colors(ctx: &egui::Context, ctrl: &Control) -> TabColors {
 /// under the pointer takes a faint tint of the active colour; it does not
 /// change which tab is selected.
 ///
+/// When the tabs do not all fit the control, two chevron buttons take the ends
+/// of the strip and the tabs between them scroll (see [`crate::tabstrip`]).
+/// This draws the strip with no scroll state of its own — scrolled just far
+/// enough for the selected tab to be on show — which is what the designer
+/// canvas and a still picture show. A running form draws the strip it has
+/// scrolled, through [`draw_tabcontrol_strip`].
+///
 /// Renderers may defer this until after children are drawn, so the tabs stay
 /// chrome above clipped page content.
 pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Control, alpha_mul: f32) {
     if !matches!(ctrl.control_type, ControlType::TabControl) {
         return;
     }
-    let tab_rects = tabcontrol_tab_rects(origin, ctrl);
-    if tab_rects.is_empty() {
+    let strip = crate::tabstrip::tab_strip(origin, ctrl, crate::tabstrip::auto_first(ctrl));
+    draw_tabcontrol_strip(painter, &strip, ctrl, alpha_mul);
+}
+
+/// The corners a tab of this strip rounds: its outer ones. The tab ends exactly
+/// at the page's edge; it used to run 2 px over it to hide the page's rim, which
+/// showed as the tab spilling into the frame (operator, 2026-09-27).
+fn tab_rounding(position: &str, rad: u8) -> egui::CornerRadius {
+    match position {
+        "bottom" => egui::CornerRadius { nw: 0, ne: 0, sw: rad, se: rad },
+        "left" => egui::CornerRadius { nw: rad, ne: 0, sw: rad, se: 0 },
+        "right" => egui::CornerRadius { nw: 0, ne: rad, sw: 0, se: rad },
+        _ => egui::CornerRadius { nw: rad, ne: rad, sw: 0, se: 0 },
+    }
+}
+
+/// Draw a strip already laid out (see [`crate::tabstrip::tab_strip`]): the tabs
+/// it holds, each in the colours of its state, and — when the tabs do not all
+/// fit — the two chevron buttons at its ends. A chevron that cannot scroll any
+/// further (the strip is at that end) is drawn faded and takes no hover tint.
+pub fn draw_tabcontrol_strip(painter: &egui::Painter, strip: &crate::tabstrip::TabStrip, ctrl: &Control, alpha_mul: f32) {
+    if !matches!(ctrl.control_type, ControlType::TabControl) {
+        return;
+    }
+    if strip.slots.is_empty() && !strip.overflows() {
         return;
     }
     let ctx = painter.ctx();
-    let tabs: Vec<String> = ctrl
-        .get_prop("Tabs")
-        .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
-        .unwrap_or_default();
+    let tabs = crate::tabstrip::tab_titles(ctrl);
     // `SelectedTab` names a page from 1; `sel` is its position in the strip.
-    let sel = ctrl.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(1).max(1) as usize - 1;
-    let TabColors { active_fill, active_ink, inactive_fill, inactive_ink } = tabcontrol_tab_colors(ctx, ctrl);
+    let sel = crate::tabstrip::selected_position(ctrl);
+    let colors = tabcontrol_tab_colors(ctx, ctrl);
+    let TabColors { active_fill, active_ink, inactive_fill, inactive_ink } = colors;
     let font_name = ctrl.get_prop("FontName").map(|v| v.as_str().to_owned()).unwrap_or_default();
     let font_id = crate::fonts::font_id(ctx, &font_name, ctrl_font_size(ctrl));
     let hover = ctx.pointer_hover_pos();
     let position = ctrl.tab_position();
-    for (i, (label, tr)) in tabs.iter().zip(tab_rects.iter()).enumerate() {
-        let active = i == sel;
+    for slot in &strip.slots {
+        let tr = &slot.rect;
+        let Some(label) = tabs.get(slot.index) else {
+            continue;
+        };
+        let active = slot.index == sel;
         let mut fill = if active { active_fill } else { inactive_fill };
         if !active && hover.is_some_and(|p| tr.contains(p)) {
             fill = fill.lerp_to_gamma(active_fill, 0.12);
         }
         let ink = if active { active_ink } else { inactive_ink };
         let rad = cr8(8.0_f32.min(tr.height() * 0.5).min(tr.width() * 0.5));
-        // The tab ends exactly at the page's edge. It used to run 2 px over
-        // it to hide the page's rim, which showed as the tab spilling into the
-        // frame (operator, 2026-09-27).
-        let round = match position.as_str() {
-            "bottom" => egui::CornerRadius { nw: 0, ne: 0, sw: rad, se: rad },
-            "left" => egui::CornerRadius { nw: rad, ne: 0, sw: rad, se: 0 },
-            "right" => egui::CornerRadius { nw: 0, ne: rad, sw: 0, se: rad },
-            _ => egui::CornerRadius { nw: rad, ne: rad, sw: 0, se: 0 },
-        };
-        painter.rect_filled(*tr, round, fill.gamma_multiply(alpha_mul));
+        painter.rect_filled(*tr, tab_rounding(position.as_str(), rad), fill.gamma_multiply(alpha_mul));
         styled_text(
             painter,
             ctrl,
@@ -7726,55 +7749,85 @@ pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Contro
             ink.gamma_multiply(alpha_mul),
         );
     }
+    for (rect, forward) in [(strip.prev, false), (strip.next, true)] {
+        let Some(rect) = rect else {
+            continue;
+        };
+        let enabled = if forward { strip.can_scroll_forward() } else { strip.can_scroll_back() };
+        let rad = cr8(8.0_f32.min(rect.height() * 0.5).min(rect.width() * 0.5));
+        draw_tab_chevron(
+            painter,
+            rect,
+            ChevronLook { forward, vertical: strip.vertical, enabled, hovered: hover.is_some_and(|p| rect.contains(p)) },
+            &colors,
+            tab_rounding(position.as_str(), rad),
+            alpha_mul,
+        );
+    }
 }
 
-/// Where each tab of a TabControl sits, in the order of `Tabs`: edge to edge
-/// along the strip, the strip flush against the page (`tabcontrol_page_rect`).
-/// Top/bottom tabs are as wide as their labels (`Control::tab_width`); a side
-/// strip's tabs are stacked and all as wide as the widest, so each one's
-/// joined edge meets the page. A tab that would overrun the control is left
-/// out. The same rects serve painting and clicking, on every surface.
+/// How one chevron of a tab strip is drawn.
+#[derive(Clone, Copy)]
+struct ChevronLook {
+    /// Toward the last tab (right, or down on a side strip) rather than the first.
+    forward: bool,
+    /// On a side strip: the chevron points up or down.
+    vertical: bool,
+    /// The strip can scroll that way; a chevron that cannot is faded.
+    enabled: bool,
+    hovered: bool,
+}
+
+/// One chevron button of a tab strip: a face in the inactive tab's colours, with a solid triangle in the inactive tab's
+/// ink. Integer corner radius on the rect and a convex polygon for the triangle: no fractional radius, no stroke.
+fn draw_tab_chevron(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    look: ChevronLook,
+    colors: &TabColors,
+    round: egui::CornerRadius,
+    alpha_mul: f32,
+) {
+    let mut fill = colors.inactive_fill;
+    if look.enabled && look.hovered {
+        fill = fill.lerp_to_gamma(colors.active_fill, 0.12);
+    }
+    let alpha = alpha_mul * if look.enabled { 1.0 } else { 0.4 };
+    painter.rect_filled(rect, round, fill.gamma_multiply(alpha));
+    // The triangle: `half` across its base, `depth` from the base to the tip, centred in the button.
+    let c = rect.center();
+    let half = (rect.width().min(rect.height()) * 0.2).max(3.0);
+    let depth = half * 0.8;
+    let p = egui::pos2;
+    let points = match (look.vertical, look.forward) {
+        (false, false) => [p(c.x - depth, c.y), p(c.x + depth, c.y - half), p(c.x + depth, c.y + half)],
+        (false, true) => [p(c.x + depth, c.y), p(c.x - depth, c.y - half), p(c.x - depth, c.y + half)],
+        (true, false) => [p(c.x, c.y - depth), p(c.x - half, c.y + depth), p(c.x + half, c.y + depth)],
+        (true, true) => [p(c.x, c.y + depth), p(c.x - half, c.y - depth), p(c.x + half, c.y - depth)],
+    };
+    painter.add(egui::Shape::convex_polygon(points.to_vec(), colors.inactive_ink.gamma_multiply(alpha), egui::Stroke::NONE));
+}
+
+/// Where each tab of a TabControl that is DRAWN sits: edge to edge along the
+/// strip, the strip flush against the page (`tabcontrol_page_rect`). Top/bottom
+/// tabs are as wide as their labels (`Control::tab_width`); a side strip's tabs
+/// are stacked and all as wide as the widest, so each one's joined edge meets
+/// the page. When the tabs do not all fit, the strip scrolls and these are the
+/// ones on show, scrolled just far enough for the selected tab to be among them
+/// (`tabstrip::auto_first`); a strip that fits has every tab, exactly as it
+/// always did. The painter and the hit test of a running form take a strip with
+/// the scroll it has kept instead (`tabstrip::tab_strip`); this is the strip a
+/// surface with no scroll state shows. The same rects serve painting and
+/// clicking, on every surface.
 pub fn tabcontrol_tab_rects(origin: Pos2, ctrl: &Control) -> Vec<egui::Rect> {
     if !matches!(ctrl.control_type, ControlType::TabControl) {
         return Vec::new();
     }
-    let tabs: Vec<String> = ctrl
-        .get_prop("Tabs")
-        .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
-        .unwrap_or_default();
-    let rect = egui::Rect::from_min_size(
-        origin,
-        Vec2::new(ctrl.rect.w.max(0) as f32, ctrl.rect.h.max(0) as f32),
-    );
-    let tab_h = ctrl.tab_strip_height().max(0) as f32;
-    let strip = ctrl.tab_strip_extent().max(0) as f32;
-    let mut out = Vec::new();
-    match ctrl.tab_position().as_str() {
-        pos @ ("left" | "right") => {
-            let x = if pos == "left" { rect.min.x } else { rect.max.x - strip };
-            let mut y = rect.min.y;
-            for _ in tabs {
-                if y + tab_h > rect.max.y {
-                    break;
-                }
-                out.push(egui::Rect::from_min_size(Pos2::new(x, y), Vec2::new(strip, tab_h)));
-                y += tab_h;
-            }
-        }
-        pos => {
-            let y = if pos == "bottom" { rect.max.y - tab_h } else { rect.min.y };
-            let mut x = rect.min.x;
-            for tab in tabs {
-                let w = ctrl.tab_width(&tab) as f32;
-                if x + w > rect.max.x {
-                    break;
-                }
-                out.push(egui::Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, tab_h)));
-                x += w;
-            }
-        }
-    }
-    out
+    crate::tabstrip::tab_strip(origin, ctrl, crate::tabstrip::auto_first(ctrl))
+        .slots
+        .into_iter()
+        .map(|s| s.rect)
+        .collect()
 }
 
 pub fn tabcontrol_page_rect(rect: egui::Rect, ctrl: &Control) -> egui::Rect {
@@ -27459,15 +27512,23 @@ mod elegance_baseline_tests {
         // — and are now one fill and one label each (the tab-strip redesign).
         // Nothing else in that change paints; the fixture's TabControl is the
         // whole move.
+        //
+        // **+4 on every row, 2.0.89.** A TabControl whose tabs do not all fit
+        // now has a chevron at each end of its strip (a face and a triangle
+        // each) and scrolls, where it used to leave out the tabs that overran
+        // and they could not be reached. The fixture's TabControl holds two
+        // tabs 66 px wide in a 130 px box, two pixels short, so it is the one
+        // control that gains them: four leaves, the same four under both themes
+        // and all four styles. One control, not the seam.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 634),
-            ("asset-pack", GS::Classic, 640),
-            ("liquid-glass", GS::Enhanced, 725),
-            ("asset-pack", GS::Enhanced, 715),
-            ("liquid-glass", GS::Neumorphic, 598),
-            ("asset-pack", GS::Neumorphic, 612),
-            ("liquid-glass", GS::NeumorphicDark, 598),
-            ("asset-pack", GS::NeumorphicDark, 612),
+            ("liquid-glass", GS::Classic, 638),
+            ("asset-pack", GS::Classic, 644),
+            ("liquid-glass", GS::Enhanced, 729),
+            ("asset-pack", GS::Enhanced, 719),
+            ("liquid-glass", GS::Neumorphic, 602),
+            ("asset-pack", GS::Neumorphic, 616),
+            ("liquid-glass", GS::NeumorphicDark, 602),
+            ("asset-pack", GS::NeumorphicDark, 616),
         ];
         // (Every row fell by 6 at 1.80.184: the fixture's six charts no longer
         // letter their type — "BAR", "PIE", … — in a corner.)
