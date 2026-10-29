@@ -702,6 +702,165 @@ pub fn dropdown_text<'a>(items: &'a [(String, String)], value: &'a str) -> &'a s
     dropdown_position(items, value).map_or(value, |at| items[at].1.as_str())
 }
 
+// ── CSV export (the grid's CSV button and its `ExportCSV` method) ──────────────
+//
+// One rule for every host: the desktop interpreter writes this text to a file, the
+// browser player offers it as a download. `get` answers a property of the grid as the
+// program reads it (`Columns`, `Rows`, `AdvancedGrid`, `CSVDelimiter`, `CSVExportMode`,
+// `_RuntimeColumnFilters`).
+
+/// `Columns` as (name, type) pairs; a line without a type is a string column.
+fn csv_column_specs(get: &dyn Fn(&str) -> String) -> Vec<(String, String)> {
+    get("Columns")
+        .lines()
+        .filter_map(|line| {
+            let spec = line.trim();
+            if spec.is_empty() {
+                return None;
+            }
+            let (name, ty) = spec.split_once(':').map(|(name, ty)| (name.trim(), ty.trim())).unwrap_or((spec, "string"));
+            Some((name.to_owned(), ty.to_owned()))
+        })
+        .collect()
+}
+
+fn csv_advanced(get: &dyn Fn(&str) -> String) -> Option<serde_json::Value> {
+    serde_json::from_str(get("AdvancedGrid").trim()).ok()
+}
+
+/// The columns as the grid shows them: (source index, title, type). The `AdvancedGrid`
+/// order and titles when it lists columns (hidden ones left out), `Columns` otherwise.
+pub fn csv_display_columns(get: &dyn Fn(&str) -> String) -> Vec<(usize, String, String)> {
+    let specs = csv_column_specs(get);
+    let mut columns = Vec::new();
+    if let Some(advanced) = csv_advanced(get) {
+        if let Some(advanced_columns) = advanced.get("columns").and_then(|v| v.as_array()) {
+            for column in advanced_columns {
+                if column.get("visible").and_then(|v| v.as_bool()).map(|visible| !visible).unwrap_or(false) {
+                    continue;
+                }
+                let source = column.get("source_name").and_then(|v| v.as_str()).unwrap_or_default();
+                let title = column.get("title").and_then(|v| v.as_str()).unwrap_or(source);
+                let id = column.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+                if let Some(index) = specs.iter().position(|(name, _)| {
+                    name.eq_ignore_ascii_case(source) || name.eq_ignore_ascii_case(title) || name.eq_ignore_ascii_case(id)
+                }) {
+                    columns.push((index, title.to_owned(), specs[index].1.clone()));
+                }
+            }
+        }
+    }
+    if columns.is_empty() {
+        specs.into_iter().enumerate().map(|(index, (name, ty))| (index, name, ty)).collect()
+    } else {
+        columns
+    }
+}
+
+/// The active column filters: the `AdvancedGrid` ones, then `_RuntimeColumnFilters`
+/// (a runtime filter replaces a designed one on the same column).
+fn csv_filter_pairs(get: &dyn Fn(&str) -> String) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
+    if let Some(advanced) = csv_advanced(get) {
+        if let Some(filters) = advanced.get("filters").and_then(|v| v.as_array()) {
+            for filter in filters {
+                let active = filter.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+                let column = filter.get("column_id").and_then(|v| v.as_str()).unwrap_or_default().trim();
+                let value = filter.get("value").and_then(|v| v.as_str()).unwrap_or_default().trim();
+                if active && !column.is_empty() && !value.is_empty() {
+                    pairs.push((column.to_owned(), value.to_owned()));
+                }
+            }
+        }
+    }
+    for line in get("_RuntimeColumnFilters").lines() {
+        let Some((column, value)) = line.split_once('=') else {
+            continue;
+        };
+        let column = column.trim();
+        let value = value.trim();
+        if !column.is_empty() && !value.is_empty() {
+            pairs.retain(|(existing, _)| !existing.eq_ignore_ascii_case(column));
+            pairs.push((column.to_owned(), value.to_owned()));
+        }
+    }
+    pairs
+}
+
+/// The rows the export writes: every loaded row in `Rows` order when `CSVExportMode` is
+/// All/AllRows, otherwise the rows the active column filters keep (case-insensitive
+/// substring). A view sort is never applied.
+fn csv_rows(get: &dyn Fn(&str) -> String) -> Vec<Vec<String>> {
+    let rows = parse_rows(&get("Rows"));
+    if matches!(get("CSVExportMode").trim().to_ascii_lowercase().as_str(), "all" | "allrows" | "all_rows") {
+        return rows;
+    }
+    let filters = csv_filter_pairs(get);
+    if filters.is_empty() {
+        return rows;
+    }
+    let columns = csv_display_columns(get);
+    let specs = csv_column_specs(get);
+    rows.into_iter()
+        .filter(|row| {
+            filters.iter().all(|(column, needle)| {
+                let source_index = columns
+                    .iter()
+                    .find_map(|(source_index, title, _)| {
+                        let matches = title.eq_ignore_ascii_case(column)
+                            || specs.get(*source_index).map(|(name, _)| name.eq_ignore_ascii_case(column)).unwrap_or(false);
+                        matches.then_some(*source_index)
+                    })
+                    .or_else(|| specs.iter().position(|(name, _)| name.eq_ignore_ascii_case(column)));
+                let Some(source_index) = source_index else {
+                    return false;
+                };
+                row.get(source_index)
+                    .map(|value| value.to_ascii_lowercase().contains(&needle.to_ascii_lowercase()))
+                    .unwrap_or(false)
+            })
+        })
+        .collect()
+}
+
+/// A CSV field (RFC 4180): every value in double quotes, a double quote inside doubled.
+pub fn csv_escape(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+/// The grid as CSV: a line of the shown column titles, then one line per exported row,
+/// fields joined by the first character of `CSVDelimiter` (`,` when empty), lines by
+/// LF, no final line break.
+pub fn export_csv(get: &dyn Fn(&str) -> String) -> String {
+    let delimiter = get("CSVDelimiter").chars().next().unwrap_or(',').to_string();
+    let mut lines = Vec::new();
+    let columns = csv_display_columns(get);
+    if !columns.is_empty() {
+        lines.push(columns.iter().map(|(_, title, _)| csv_escape(title)).collect::<Vec<_>>().join(&delimiter));
+    }
+    for row in csv_rows(get) {
+        lines.push(
+            columns
+                .iter()
+                .map(|(source_index, _, _)| row.get(*source_index).map(String::as_str).unwrap_or(""))
+                .map(csv_escape)
+                .collect::<Vec<_>>()
+                .join(&delimiter),
+        );
+    }
+    lines.join("\n")
+}
+
+/// The file name the export is saved as: the last part of `CSVExportPath` when the
+/// developer set one, `<control-id>.csv` otherwise (the desktop's default path).
+pub fn export_csv_file_name(control_id: &str, configured_path: &str) -> String {
+    let configured = configured_path.trim();
+    if configured.is_empty() {
+        return format!("{control_id}.csv");
+    }
+    configured.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(configured).to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1191,5 +1350,39 @@ mod tests {
         assert_eq!(dropdown_text(&items, ""), "");
         assert_eq!(dropdown_position(&items, "D"), Some(0));
         assert_eq!(dropdown_position(&items, "nope"), None);
+    }
+
+    /// The CSV text: titles first, every field quoted with quotes doubled, the
+    /// delimiter's first character, LF between lines and none at the end; AllRows
+    /// keeps every loaded row, otherwise a runtime column filter keeps the matches;
+    /// `AdvancedGrid` decides order, titles and hidden columns.
+    #[test]
+    fn export_csv_follows_the_grid_properties() {
+        let props = |extra: &'static [(&'static str, &'static str)]| {
+            move |p: &str| -> String {
+                let base: &[(&str, &str)] = &[
+                    ("Columns", "Nome:string\nPL:number\nCNPJ:string"),
+                    ("Rows", "Alfa \"A\"\t10.5\t1\nBeta\t0\t2\nalfabeto\t3\t3"),
+                    ("CSVDelimiter", ";x"),
+                ];
+                extra.iter().chain(base.iter()).find(|(k, _)| k.eq_ignore_ascii_case(p)).map(|(_, v)| v.to_string()).unwrap_or_default()
+            }
+        };
+        let all = props(&[("CSVExportMode", "AllRows"), ("_RuntimeColumnFilters", "Nome=alfa")]);
+        assert_eq!(
+            export_csv(&all),
+            "\"Nome\";\"PL\";\"CNPJ\"\n\"Alfa \"\"A\"\"\";\"10.5\";\"1\"\n\"Beta\";\"0\";\"2\"\n\"alfabeto\";\"3\";\"3\""
+        );
+        let filtered = props(&[("_RuntimeColumnFilters", "Nome=ALFA")]);
+        assert_eq!(export_csv(&filtered), "\"Nome\";\"PL\";\"CNPJ\"\n\"Alfa \"\"A\"\"\";\"10.5\";\"1\"\n\"alfabeto\";\"3\";\"3\"");
+        let advanced = props(&[(
+            "AdvancedGrid",
+            r#"{"columns":[{"source_name":"PL","title":"Patrimônio"},{"source_name":"CNPJ","visible":false},{"source_name":"Nome"}]}"#,
+        )]);
+        assert_eq!(export_csv(&advanced).lines().next(), Some("\"Patrimônio\";\"Nome\""));
+        assert_eq!(export_csv(&advanced).lines().nth(2), Some("\"0\";\"Beta\""));
+        assert_eq!(export_csv(&|p: &str| if p == "Columns" { "A".into() } else { String::new() }), "\"A\"");
+        assert_eq!(export_csv_file_name("GRD-FUNDOS", ""), "GRD-FUNDOS.csv");
+        assert_eq!(export_csv_file_name("G", " out/dir\\fundos.csv "), "fundos.csv");
     }
 }

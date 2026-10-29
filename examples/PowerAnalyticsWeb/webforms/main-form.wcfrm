@@ -970,6 +970,29 @@
            *> Result: WS-BE-DEPTH + 1; WS-BE-MARK = WS-BE-FAILS.
 
            CALL    "BE-FLOW-BEGIN"
+
+           *> A FUND-INIT that FAILED (the page opened while the Backend was not reachable) is
+           *> asked again before the list, as APPLY-FILTERS does: the desktop always has its
+           *> database, so its header line and level lists are there before any search.
+
+           IF    WS-LOADED = 0 AND INI-STATUS NOT = "NOFILE"
+
+               *> INIT-DB: asks the Backend for the database (FUND-INIT).
+               *> Uses:   nothing of the form; FUND-INIT builds data/fundos.db on first use.
+               *> Result: INI-RES = the universe, reference date, category slots and level
+               *>         names; WS-LOADED = 1 when the answer is OK or TRUNC; a failure goes to
+               *>         BACKEND-FAIL (header error, WS-BE-FAILS + 1).
+
+               CALL    "INIT-DB"
+
+               *> LOAD-DIMS: paints what FUND-INIT answered.
+               *> Uses:   INI-RES and WS-LOADED from INIT-DB just above.
+               *> Result: LBL-STATUS::Caption and WS-STATUS-TXT = the desktop's status line;
+               *>         WS-UNIV, WS-CAT-NAME(1..10), WS-CATCNT; LST-N2 / LST-N3 items. Nothing
+               *>         when the call failed again.
+
+               CALL    "LOAD-DIMS"
+           END-IF
            SET     NAM-BOX                       TO    WS-SM
            SET     BE-PROG                       TO    "FUND-NAMES"
            SET     NAM-STATUS                    TO    SPACES
@@ -5167,11 +5190,14 @@
            *> A flow of Backend calls ends. When the outermost one ran without a failed call and
            *> the header shows a Backend error, the header gets back the line the desktop's flow
            *> wrote (WS-STATUS-TXT): on the desktop that line never changes after start-up.
+           *> No line was ever written (start-up's FUND-INIT failed): the error stays, never a
+           *> blank header.
 
            IF    WS-BE-DEPTH > 0
                SUBTRACT    1 FROM WS-BE-DEPTH
            END-IF
            IF    WS-BE-DEPTH = 0 AND WS-BE-FAILS = WS-BE-MARK AND WS-BE-SHOWN = 1
+                 AND WS-STATUS-TXT NOT = SPACES
                SET     WS-BE-SHOWN               TO    0
                SET     LBL-STATUS::Caption       TO    WS-STATUS-TXT
            END-IF

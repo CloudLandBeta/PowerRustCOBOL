@@ -140,6 +140,8 @@ pub enum Act {
     OpenModal { form: String },
     /// Show the user this text (a refused address, a button the browser cannot honour).
     Notice(String),
+    /// Offer this text to the user as a file download (a DataGrid's CSV button).
+    Download { name: String, text: String },
     /// Open a window with features (`window.open`).
     OpenWindow { url: String, target: String, features: String, rel: String },
     /// The files a drop accepted, for the player to hold.
@@ -686,9 +688,24 @@ fn data_grid(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
             vec![Act::Ui(UiOp::GridScroll { left, top }), ev1("onScroll", format!("{top:.0},{left:.0}"))]
         }
         "click" | "dblclick" => {
-            // The CSV button asks for the grid's rows as a file.
+            // The CSV button exports the grid as the desktop's does (`cobolt_forms::datagrid::export_csv`,
+            // the desktop's own rule): the desktop writes `<id>.csv` (or `CSVExportPath`) into its working
+            // directory with no dialog; a browser has no file system, so the same text is offered as a
+            // download of that file name. The outcome is left on the control as on the desktop
+            // (`_ExportCSVPath`, `_ExportCSVStatus`), then `onExportCSV` is raised.
             if p.part.as_deref() == Some("csv") {
-                return if p.kind == "click" { vec![ev("onExportCSV")] } else { Vec::new() };
+                if p.kind != "click" {
+                    return Vec::new();
+                }
+                let get = |prop: &str| cx.tree.get(i, prop);
+                let name = cobolt_forms::datagrid::export_csv_file_name(&cx.tree.ctl(i).name, &get("CSVExportPath"));
+                let text = cobolt_forms::datagrid::export_csv(&get);
+                return vec![
+                    Act::Download { name: name.clone(), text },
+                    quiet("_ExportCSVPath", name),
+                    quiet("_ExportCSVStatus", "0"),
+                    ev("onExportCSV"),
+                ];
             }
             // A column-move button: the column swaps places with its neighbour, as the desktop's does.
             if p.part.as_deref() == Some("colmove") {
@@ -1589,7 +1606,17 @@ mod tests {
         let e = Empty::default();
         let mut csv = Payload::new("click", "root");
         csv.part = Some("csv".into());
-        assert_eq!(names(&run(&t, g, &e, csv)), ["onExportCSV", "onClick"]);
+        // The CSV button: the desktop's text offered as `<id>.csv`, the outcome left on the control, then the event.
+        assert_eq!(
+            names(&run(&t, g, &e, csv)),
+            [
+                format!("{:?}", Act::Download { name: "G.csv".into(), text: "\"A\",\"B\",\"C\"\n\"x\",\"y\",\"z\"".into() }),
+                "_ExportCSVPath=G.csv".into(),
+                "_ExportCSVStatus=0".into(),
+                "onExportCSV".into(),
+                "onClick".into(),
+            ]
+        );
         // The right-hand button of the first column moves it one place right: the advanced settings are written whole.
         let mut right = Payload::new("click", "root");
         right.part = Some("colmove".into());

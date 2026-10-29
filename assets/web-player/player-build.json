@@ -17,9 +17,9 @@
       "sha256": "2585e75ede88c4a08edb85882d76f07972c94362415cad19fb64745caca9f26d"
     },
     {
-      "bytes": 2218954,
+      "bytes": 2218911,
       "path": "parts/mermaid/mermaid_bg.wasm",
-      "sha256": "49e41e4baeb8beee47366375fc84e83caf4fed15b20d7c7694cbc3ff0cc9ae1b"
+      "sha256": "72949cbcae9d952ecce96628a5dc676f6976790eb2e5e5137304e78148570e2e"
     },
     {
       "bytes": 6785,
@@ -34,12 +34,12 @@
     {
       "bytes": 82614,
       "path": "plain/player.js",
-      "sha256": "60f397dcc0e63d7ee0c26b8fdc514f3bb494413c277fcb4906b0391c1eed46b3"
+      "sha256": "643fad3b7d4d98cbe92289c15c19c897ea3f41a30b2efaa9e1c0beebe11d118e"
     },
     {
-      "bytes": 3338048,
+      "bytes": 3348246,
       "path": "plain/player_bg.wasm",
-      "sha256": "575ea900990fed0036e47a2828d2073031fcdeec9ffc71e33f3736cabf74c310"
+      "sha256": "e2395231ccf06339fa22e0bc667f8a833457b0b0a77084b9f32ec5228ba4d516"
     },
     {
       "bytes": 89223,
@@ -47,9 +47,9 @@
       "sha256": "931c13f843cb625ce5177c5ec477eeb8b0a7a74441ed715d151f9ca783d2ac4c"
     },
     {
-      "bytes": 3154505,
+      "bytes": 3164522,
       "path": "threaded/player_bg.wasm",
-      "sha256": "e4f42f14d8a89b00ba667355773ed9be302a413f568fa36b2788c7ec49a870f2"
+      "sha256": "ee741cdeb658f2f9dc41a8638c89af1c0712ee3f6c3521cd013e0e229419feb1"
     },
     {
       "bytes": 4556,
@@ -67,31 +67,31 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 3618355,
-      "after_wasm_opt_bytes": 3338048,
-      "cargo_output_bytes": 5055017,
+      "after_bindgen_bytes": 3629424,
+      "after_wasm_opt_bytes": 3348246,
+      "cargo_output_bytes": 5067092,
       "glue_js_bytes": 82614,
-      "gzip_bytes": 1119300,
+      "gzip_bytes": 1123471,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 3400380,
-      "after_wasm_opt_bytes": 3154505,
-      "cargo_output_bytes": 4845302,
+      "after_bindgen_bytes": 3410717,
+      "after_wasm_opt_bytes": 3164522,
+      "cargo_output_bytes": 4856639,
       "glue_js_bytes": 89223,
-      "gzip_bytes": 1101688,
+      "gzip_bytes": 1105652,
       "opt_level": "s",
       "variant": "threaded"
     }
   ],
   "parts": [
     {
-      "after_bindgen_bytes": 2392313,
-      "after_wasm_opt_bytes": 2218954,
-      "cargo_output_bytes": 2540422,
+      "after_bindgen_bytes": 2392332,
+      "after_wasm_opt_bytes": 2218911,
+      "cargo_output_bytes": 2540444,
       "glue_js_bytes": 7985,
-      "gzip_bytes": 798551,
+      "gzip_bytes": 798520,
       "name": "mermaid",
       "opt_level": "s"
     },
@@ -122,7 +122,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "b0db5775f26972240fe6ff8b1a2da85423527fd4a7e5a85e4da6af53b5d12020",
+  "source_hash": "1d41f1da064add09cf472e35b986c2a0ec35175dbfa75a5ade041e1010eebc57",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

@@ -312,6 +312,7 @@ impl Shared {
                 self.open_named(inner, &form, Some(inst), mode, Vec::new());
             }
             Act::Notice(t) => self.notice(&t),
+            Act::Download { name, text } => self.download(&name, &text),
             Act::OpenWindow { url, target, features, rel } => {
                 let feat = if rel.contains("noopener") || features.is_empty() { format!("{features},noopener") } else { features };
                 if let Some(w) = web_sys::window() {

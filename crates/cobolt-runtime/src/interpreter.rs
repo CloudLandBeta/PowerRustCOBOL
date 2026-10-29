@@ -14376,53 +14376,6 @@ impl Interpreter {
         serde_json::from_str(raw.trim()).ok()
     }
 
-    fn datagrid_display_columns(&self, control_id: &str) -> Vec<(usize, String, String)> {
-        let specs = self.datagrid_column_specs(control_id);
-        let mut columns = Vec::new();
-        if let Some(advanced) = self.datagrid_advanced_json(control_id) {
-            if let Some(advanced_columns) = advanced.get("columns").and_then(|v| v.as_array()) {
-                for column in advanced_columns {
-                    if column
-                        .get("visible")
-                        .and_then(|v| v.as_bool())
-                        .map(|visible| !visible)
-                        .unwrap_or(false)
-                    {
-                        continue;
-                    }
-                    let source = column
-                        .get("source_name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default();
-                    let title = column
-                        .get("title")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(source);
-                    let id = column
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default();
-                    if let Some(index) = specs.iter().position(|(name, _)| {
-                        name.eq_ignore_ascii_case(source)
-                            || name.eq_ignore_ascii_case(title)
-                            || name.eq_ignore_ascii_case(id)
-                    }) {
-                        columns.push((index, title.to_owned(), specs[index].1.clone()));
-                    }
-                }
-            }
-        }
-        if columns.is_empty() {
-            specs
-                .into_iter()
-                .enumerate()
-                .map(|(index, (name, ty))| (index, name, ty))
-                .collect()
-        } else {
-            columns
-        }
-    }
-
     fn datagrid_rows(&self, control_id: &str) -> Vec<Vec<String>> {
         cobolt_forms::datagrid::parse_rows(&self.obj_get(control_id, "Rows"))
     }
@@ -14523,125 +14476,14 @@ impl Interpreter {
     /// therefore no longer consulted, but stays in the signature for the two
     /// call sites that thread it through.
     fn datagrid_csv_escape(value: &str, _delimiter: char) -> String {
-        format!("\"{}\"", value.replace('"', "\"\""))
+        cobolt_forms::datagrid::csv_escape(value)
     }
 
-    fn datagrid_filter_pairs(&self, control_id: &str) -> Vec<(String, String)> {
-        let mut pairs = Vec::new();
-        if let Some(advanced) = self.datagrid_advanced_json(control_id) {
-            if let Some(filters) = advanced.get("filters").and_then(|v| v.as_array()) {
-                for filter in filters {
-                    let active = filter
-                        .get("active")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let column = filter
-                        .get("column_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .trim();
-                    let value = filter
-                        .get("value")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .trim();
-                    if active && !column.is_empty() && !value.is_empty() {
-                        pairs.push((column.to_owned(), value.to_owned()));
-                    }
-                }
-            }
-        }
-        for line in self.obj_get(control_id, "_RuntimeColumnFilters").lines() {
-            let Some((column, value)) = line.split_once('=') else {
-                continue;
-            };
-            let column = column.trim();
-            let value = value.trim();
-            if !column.is_empty() && !value.is_empty() {
-                pairs.retain(|(existing, _)| !existing.eq_ignore_ascii_case(column));
-                pairs.push((column.to_owned(), value.to_owned()));
-            }
-        }
-        pairs
-    }
-
-    fn datagrid_filtered_rows(&self, control_id: &str) -> Vec<Vec<String>> {
-        let rows = self.datagrid_rows(control_id);
-        let export_mode = self.obj_get(control_id, "CSVExportMode");
-        if matches!(
-            export_mode.trim().to_ascii_lowercase().as_str(),
-            "all" | "allrows" | "all_rows"
-        ) {
-            return rows;
-        }
-        let filters = self.datagrid_filter_pairs(control_id);
-        if filters.is_empty() {
-            return rows;
-        }
-        let columns = self.datagrid_display_columns(control_id);
-        let specs = self.datagrid_column_specs(control_id);
-        rows.into_iter()
-            .filter(|row| {
-                filters.iter().all(|(column, needle)| {
-                    let source_index = columns
-                        .iter()
-                        .find_map(|(source_index, title, _)| {
-                            let matches = title.eq_ignore_ascii_case(column)
-                                || specs
-                                    .get(*source_index)
-                                    .map(|(name, _)| name.eq_ignore_ascii_case(column))
-                                    .unwrap_or(false);
-                            matches.then_some(*source_index)
-                        })
-                        .or_else(|| {
-                            specs
-                                .iter()
-                                .position(|(name, _)| name.eq_ignore_ascii_case(column))
-                        });
-                    let Some(source_index) = source_index else {
-                        return false;
-                    };
-                    row.get(source_index)
-                        .map(|value| {
-                            value
-                                .to_ascii_lowercase()
-                                .contains(&needle.to_ascii_lowercase())
-                        })
-                        .unwrap_or(false)
-                })
-            })
-            .collect()
-    }
-
+    /// The grid as CSV text. The rule lives in `cobolt_forms::datagrid::export_csv`,
+    /// shared with the browser player (whose CSV button offers the same text as a
+    /// download), so the two hosts cannot drift apart.
     fn datagrid_export_csv(&self, control_id: &str) -> String {
-        let delimiter = self
-            .obj_get(control_id, "CSVDelimiter")
-            .chars()
-            .next()
-            .unwrap_or(',');
-        let mut lines = Vec::new();
-        let columns = self.datagrid_display_columns(control_id);
-        if !columns.is_empty() {
-            let header = columns
-                .iter()
-                .map(|(_, title, _)| Self::datagrid_csv_escape(title, delimiter))
-                .collect::<Vec<_>>()
-                .join(&delimiter.to_string());
-            lines.push(header);
-        }
-        for row in self.datagrid_filtered_rows(control_id) {
-            lines.push(
-                columns
-                    .iter()
-                    .map(|(source_index, _, _)| {
-                        row.get(*source_index).map(String::as_str).unwrap_or("")
-                    })
-                    .map(|cell| Self::datagrid_csv_escape(cell, delimiter))
-                    .collect::<Vec<_>>()
-                    .join(&delimiter.to_string()),
-            );
-        }
-        lines.join("\n")
+        cobolt_forms::datagrid::export_csv(&|prop: &str| self.obj_get(control_id, prop))
     }
 
     fn eval_call_arg(&mut self, arg: &CallArg, span: Span) -> Result<CobolValue, RuntimeError> {
