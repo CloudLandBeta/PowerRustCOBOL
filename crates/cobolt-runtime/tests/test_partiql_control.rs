@@ -199,6 +199,33 @@ fn partiql_control() {
     let out = run_cobol(&format!("{}           DISPLAY IXF-CUST::StatusCode.\n           DISPLAY IXF-CUST::LastError.\n", ex("SELECT * FROM CUSTOMERS")), &r, "INPUT");
     check(out.iter().any(|l| l.trim() == "35") && !std::path::Path::new(&r.data).exists(), format!("INPUT with no file is 35 and creates nothing: {out:?}"));
 
+    // R8 — AutoOpen on a form with no FD opens the file when the form starts (creating it from the .cidx).
+    let au = project("ctl-auto", false, 0);
+    let out = run_cobol_with(
+        "           CALL \"COBOL-INIT-FORM\" USING \"F\".\n           DISPLAY \"STARTED\".\n",
+        &au,
+        "I-O",
+        Vec::new(),
+    );
+    let _ = out;
+    check(!std::path::Path::new(&au.data).exists(), "without AutoOpen nothing is created at form start".into());
+    let au2 = project("ctl-auto2", false, 0);
+    {
+        let src = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. T.\n       PROCEDURE DIVISION.\n           CALL \"COBOL-INIT-FORM\" USING \"F\".\n           STOP RUN.\n";
+        let parsed = parse(tokenize(src, SourceFormat::Free));
+        let (_etx, erx) = mpsc::channel();
+        let (stx, _srx) = mpsc::channel();
+        let (dtx, _drx) = mpsc::channel();
+        let mut interp = Interpreter::new_with_channels(parsed.program.unwrap(), erx, stx, dtx);
+        interp.seed_objects(vec![(
+            "IXF-CUST".to_owned(),
+            "IndexedFile".to_owned(),
+            vec![("IndexedFile".to_owned(), au2.cidx.clone()), ("OpenMode".to_owned(), "I-O".to_owned()), ("AutoOpen".to_owned(), "true".to_owned())],
+        )]);
+        interp.run().expect("run");
+    }
+    check(std::path::Path::new(&au2.data).exists(), "AutoOpen opens (and creates) the file at form start".into());
+
     // R7 — a table that is not the control's file.
     let out = run_cobol(&format!("{}           DISPLAY IXF-CUST::StatusCode.\n           DISPLAY IXF-CUST::LastError.\n", ex("SELECT * FROM ORDERS")), &p, "I-O");
     check(out.iter().any(|l| l.trim() == "94") && out.iter().any(|l| l.starts_with("ResourceNotFoundException")), format!("another table: {out:?}"));

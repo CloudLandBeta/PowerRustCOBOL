@@ -4772,6 +4772,43 @@ mod tests {
         assert!(ext.contains("never the `CALL`"), "the KB says which form to write");
     }
 
+    /// Spec 108 (R46, AC17): no text a model reads says the `IndexedFile` control has no `::`
+    /// methods or teaches the facade verbs as methods. The control's members are the PartiQL ones.
+    #[test]
+    fn no_text_a_model_reads_denies_the_indexed_file_members() {
+        let root = std::env::temp_dir().join(format!("prc-partiql-kb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("scratch root");
+        cobolt_compiler::publish_system_documentation(&root).expect("publish");
+        let mut texts: Vec<(String, String)> = Vec::new();
+        for entry in std::fs::read_dir(root.join("Knowledge Base")).expect("kb dir").flatten() {
+            if let Ok(t) = std::fs::read_to_string(entry.path()) {
+                texts.push((entry.file_name().to_string_lossy().into_owned(), t));
+            }
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        for (name, text) in [
+            ("system-prompt.md", include_str!("assets/agentic_ai/system-prompt.md")),
+            ("rustcobol-extensions.md", include_str!("assets/agentic_ai/skills/rustcobol-extensions.md")),
+            ("rustcobol-control-properties.md", include_str!("assets/agentic_ai/skills/rustcobol-control-properties.md")),
+            ("llm.rs", include_str!("llm.rs")),
+        ] {
+            texts.push((name.to_string(), text.to_string()));
+        }
+        for (name, text) in &texts {
+            // llm.rs holds this test's own needles; every other text must be free of them.
+            if name == "llm.rs" || name == "grace_host.rs" {
+                continue;
+            }
+            for needle in ["have no `::` methods", "no `::` methods at all", "::ReadNext"] {
+                assert!(!text.contains(needle), "{name} still says {needle:?}");
+            }
+        }
+        let llm = include_str!("llm.rs");
+        assert!(!llm.contains("`::Open`, `::Start`, `::ReadNext`"), "llm.rs still teaches the facade verbs as methods");
+        assert!(texts.iter().any(|(_, t)| t.contains("`Execute`") || t.contains("::Execute")), "the PartiQL members are taught");
+    }
+
     /// The PREBUILT chunked store shipped in the binary must stay current
     /// with the documentation this build publishes — a cloned IDE must not
     /// re-embed anything. Regenerate with

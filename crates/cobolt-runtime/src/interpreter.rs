@@ -11433,6 +11433,8 @@ impl Interpreter {
                 // record, exactly the path a proper binding takes — instead of
                 // leaving the grid on the designer's sample preview.
                 self.populate_datasource_grids();
+                // Spec 108 R8/R10: `AutoOpen` for a control whose file the program does not declare.
+                self.partiql_auto_open();
             }
 
             // ── Generated data-binding helper calls ─────────────────────────

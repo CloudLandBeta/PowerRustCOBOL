@@ -4823,7 +4823,7 @@ Local scratch goes in the handler's own `WORKING-STORAGE SECTION`. State shared 
 
 9. Files — control methods first
 
-For indexed-file work, prefer the IndexedFile control methods (`::Open`, `::Start`, `::ReadNext`, `::Write`, `::Rewrite`, `::Delete`, `::Commit`, `::Rollback`, `::Close`, …) over hand-rolled low-level boilerplate, unless raw COBOL is explicitly requested.
+For indexed-file work, prefer the IndexedFile control's PartiQL members (`::Execute`, `::ExecuteTransaction`, `::Fetch`, `::Get`, `::ColumnNames`) over hand-rolled low-level boilerplate, unless raw COBOL is explicitly requested.
 
 When raw file handling IS requested, `SELECT` supports `ORGANIZATION IS` `SEQUENTIAL` | `LINE SEQUENTIAL` | `RELATIVE` | `INDEXED`; `ACCESS MODE IS` `SEQUENTIAL` | `RANDOM` | `DYNAMIC`; `RECORD KEY IS`; and `FILE STATUS IS` (the `FILE` keyword may be omitted). Declare a `FILE STATUS` item and check it after every I/O statement — `"00"` is success, `"23"` is record-not-found. `RANDOM` and `DYNAMIC` access require a `RECORD KEY`. Use `START` before a sequential `READ NEXT` when positioning by key. Handle `AT END` and `INVALID KEY`. `COMMIT`/`ROLLBACK` bound indexed changes; `UNLOCK` releases locks.
 
@@ -4916,7 +4916,7 @@ Implementation rules
 
 - Emit COBOL-85 conformant code, extended only with the documented RustCOBOL features. Do not use undeclared language features or invent syntax, verbs, or runtime helpers.
 - Interact with controls using the COBOL-2002-style inline syntax, NEVER `CALL` or legacy `INVOKE "Method"` forms: read/write properties as `<control>::<property>` and invoke methods as `<control>::<method>(<parameters>)`. Examples: `MOVE Customer-Name::Text TO CUSTOMER-NAME.`, `SET Save-Button::Enabled TO 0.`, `TextBox-1::SetFocus().`
-- For indexed-file work, prefer the IndexedFile control methods (`::Open`, `::Start`, `::ReadNext`, `::Write`, `::Rewrite`, `::Delete`, `::Commit`, `::Rollback`, `::Close`, …) rather than hand-rolled low-level boilerplate, unless raw COBOL is explicitly requested.
+- For indexed-file work, prefer the IndexedFile control's PartiQL members (`::Execute`, `::ExecuteTransaction`, `::Fetch`, `::Get`, `::ColumnNames`) rather than hand-rolled low-level boilerplate, unless raw COBOL is explicitly requested.
 - Bind the handler to the EXACT control identifier and event name from the delegation context — names must match the final form structure exactly. Reference only controls, properties, methods, and events that exist in the delegated context.
 - Implement the delegated validation, state changes, and error handling as behavior — never fake them with visual properties alone. Consume the delegated inputs and affect exactly the delegated output controls; do not touch unrelated controls or global state beyond the delegated scope.
 - Use meaningful COBOL data names; respect the project's DATA DIVISION and LINKAGE definitions; add scope terminators (END-IF, END-PERFORM, …) and correct paragraph structure.
@@ -5044,7 +5044,7 @@ Local scratch goes in the handler's own `WORKING-STORAGE SECTION`. State shared 
 
 9. Files — control methods first
 
-For indexed-file work, prefer the IndexedFile control methods (`::Open`, `::Start`, `::ReadNext`, `::Write`, `::Rewrite`, `::Delete`, `::Commit`, `::Rollback`, `::Close`, …) over hand-rolled low-level boilerplate, unless raw COBOL is explicitly requested.
+For indexed-file work, prefer the IndexedFile control's PartiQL members (`::Execute`, `::ExecuteTransaction`, `::Fetch`, `::Get`, `::ColumnNames`) over hand-rolled low-level boilerplate, unless raw COBOL is explicitly requested.
 
 When raw file handling IS requested, `SELECT` supports `ORGANIZATION IS` `SEQUENTIAL` | `LINE SEQUENTIAL` | `RELATIVE` | `INDEXED`; `ACCESS MODE IS` `SEQUENTIAL` | `RANDOM` | `DYNAMIC`; `RECORD KEY IS`; and `FILE STATUS IS` (the `FILE` keyword may be omitted). Declare a `FILE STATUS` item and check it after every I/O statement — `"00"` is success, `"23"` is record-not-found. `RANDOM` and `DYNAMIC` access require a `RECORD KEY`. Use `START` before a sequential `READ NEXT` when positioning by key. Handle `AT END` and `INVALID KEY`. `COMMIT`/`ROLLBACK` bound indexed changes; `UNLOCK` releases locks.
 
@@ -5292,7 +5292,7 @@ When a method call has ended up as a `MOVE`/`SET` target, fix it by making it a 
 
 9. Files — control methods first
 
-For indexed-file work, prefer the IndexedFile control methods (`::Open`, `::Start`, `::ReadNext`, `::Write`, `::Rewrite`, `::Delete`, `::Commit`, `::Rollback`, `::Close`, …) over hand-rolled low-level boilerplate, unless raw COBOL is explicitly requested.
+For indexed-file work, prefer the IndexedFile control's PartiQL members (`::Execute`, `::ExecuteTransaction`, `::Fetch`, `::Get`, `::ColumnNames`) over hand-rolled low-level boilerplate, unless raw COBOL is explicitly requested.
 
 When raw file handling IS requested, `SELECT` supports `ORGANIZATION IS` `SEQUENTIAL` | `LINE SEQUENTIAL` | `RELATIVE` | `INDEXED`; `ACCESS MODE IS` `SEQUENTIAL` | `RANDOM` | `DYNAMIC`; `RECORD KEY IS`; and `FILE STATUS IS` (the `FILE` keyword may be omitted). Declare a `FILE STATUS` item and check it after every I/O statement — `"00"` is success, `"23"` is record-not-found. `RANDOM` and `DYNAMIC` access require a `RECORD KEY`. Use `START` before a sequential `READ NEXT` when positioning by key. Handle `AT END` and `INVALID KEY`. `COMMIT`/`ROLLBACK` bound indexed changes; `UNLOCK` releases locks.
 

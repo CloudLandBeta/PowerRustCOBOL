@@ -89,11 +89,7 @@ Generated code exposes helper paragraphs named with the control id:
 **These paragraphs belong to the OUTER form program, and an event handler is a
 nested program — so a handler cannot reach them.** `PERFORM <id>-OPEN` inside a
 handler fails to compile ("'<id>-OPEN' is not a paragraph or section of this
-program"). There is also **no `<id>::Open()` method**: IndexedFile controls have
-no `::` methods at all, and an invented one is silently treated as a property
-write, so it does nothing. **Driving an IndexedFile from an event handler is not
-currently supported.** Do not emit either form, and say so plainly rather than
-generating code that cannot run.
+program"). There is also **no `<id>::Open()` or `<id>::Write()` method**: an invented one is silently treated as a property write, so it does nothing. **A handler drives the control with its PartiQL members** — `<id>::Execute( statement args… )` (a `SELECT`, `INSERT`, `UPDATE` or `DELETE`), `Fetch()`, `Get( name )`, `ExecuteTransaction( … )` and the properties `ResultCount`, `StatusCode`, `LastError` — which need no `SELECT` / `FD` in the form.
 
 CRUD/grid recipe:
 1. Inspect `PROJECT TREE INVENTORY` and choose a registered `.cidx`; ask if more

@@ -3561,6 +3561,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "由生成的 OPEN ... REGISTERED USER 记录的操作员，显示在索引文件日志中。普通名称作为字面量传递；已声明数据项的名称则作为该数据项传递。",
         "Opérateur enregistré par l'OPEN ... REGISTERED USER généré, affiché dans le journal du fichier indexé. Un nom simple est envoyé comme littéral ; celui d'un élément déclaré, comme cet élément.",
     ] },
+    PropHelp { ty: "IndexedFile", prop: "AutoCommit", text: [
+        "Whether each PartiQL write statement, and each completed ExecuteTransaction, is committed as it finishes. Default = on for a form that declares no SELECT for the file, off for one that does (its COMMIT and ROLLBACK verbs decide). A commit is per file.",
+        "Si cada sentencia PartiQL de escritura, y cada ExecuteTransaction completada, se confirma al terminar. Predeterminado = activado en un formulario que no declara un SELECT para el archivo, desactivado en uno que sí (deciden sus verbos COMMIT y ROLLBACK). La confirmación es por archivo.",
+        "Se cada instrução PartiQL de gravação, e cada ExecuteTransaction concluída, é confirmada ao terminar. Padrão = ligado num formulário que não declara um SELECT para o arquivo, desligado num que declara (seus verbos COMMIT e ROLLBACK decidem). A confirmação é por arquivo.",
+        "PartiQL の書き込み文と完了した ExecuteTransaction を、終了時にコミットするかどうか。既定は、ファイルの SELECT を宣言しないフォームではオン、宣言するフォームではオフ（COMMIT と ROLLBACK 動詞が決めます）。コミットはファイル単位です。",
+        "每条 PartiQL 写入语句以及每个完成的 ExecuteTransaction 是否在结束时提交。默认：未声明该文件 SELECT 的窗体为开，已声明的为关（由其 COMMIT 和 ROLLBACK 动词决定）。提交以文件为单位。",
+        "Indique si chaque instruction PartiQL d'écriture, et chaque ExecuteTransaction terminée, est validée à sa fin. Par défaut : activé dans un formulaire qui ne déclare aucun SELECT pour le fichier, désactivé dans celui qui en déclare un (ses verbes COMMIT et ROLLBACK décident). La validation est par fichier.",
+    ] },
     PropHelp { ty: "IndexedFile", prop: "RecordName", text: [
         "Record item written by the generated WRITE and REWRITE paragraphs. Empty = <file>-RECORD.",
         "Elemento de registro que escriben los párrafos generados WRITE y REWRITE. Vacío = <file>-RECORD.",

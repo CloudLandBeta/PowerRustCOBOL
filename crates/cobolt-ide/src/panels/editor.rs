@@ -644,6 +644,18 @@ fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
                 ("fetchAll", "Fetch all rows"),
             ],
         ),
+        // Spec 108: the control's PartiQL members. It is non-visual: no `Click`, no `Show`.
+        "IndexedFile" => (
+            UNIVERSAL_NONVISUAL,
+            &[
+                ("Execute", "Run one PartiQL statement on the file; answers the number of items or records"),
+                ("ExecuteTransaction", "Run PartiQL statements separated by ; as one all-or-nothing unit"),
+                ("Fetch", "Return the next result item, its values separated by tabs"),
+                ("Get", "Return one value of the fetched item, by name or position"),
+                ("ColumnNames", "Return the result's column names separated by tabs"),
+                ("ColumnCount", "Return how many columns the result has"),
+            ],
+        ),
         // Containers / decorative widgets: universal-visual only.
         "GroupBox" => (UNIVERSAL_VISUAL, &[("SetCaption", "Change the title")]),
         _ => (UNIVERSAL_VISUAL, &[]),
@@ -7802,5 +7814,23 @@ mod completion_text_tests {
         // The items themselves are never changed: tests and the insertion read English.
         assert_eq!(item.detail, "keyword");
         println!("a popup row follows the language in 3 of 6 languages; the item keeps its English");
+    }
+}
+
+#[cfg(test)]
+mod indexed_file_completion_tests {
+    use super::*;
+
+    /// Spec 108 (R43, AC16): after `IXF-CUST::` the control's own members are offered,
+    /// and none of the visual methods of a control that has a face.
+    #[test]
+    fn an_indexed_file_offers_its_partiql_members_and_no_visual_method() {
+        let names: Vec<&str> = methods_for_type("IndexedFile").iter().map(|(n, _)| *n).collect();
+        for want in ["Execute", "ExecuteTransaction", "Fetch", "Get", "ColumnNames", "ColumnCount"] {
+            assert!(names.contains(&want), "{want} missing from {names:?}");
+        }
+        for not in ["Click", "Show"] {
+            assert!(!names.contains(&not), "{not} must not be offered on a non-visual control: {names:?}");
+        }
     }
 }

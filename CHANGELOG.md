@@ -22,6 +22,24 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.97] — 2026-10-30
+
+*(Forward-port of 1.91.230, `24d78dfa` on `features-108-partiql`. Written on `features-108-partiql`, after 1.91.229: spec 108, the tooling half.)*
+
+### Added: Check reads PartiQL statements, autocomplete offers the control's members, and the texts a model reads stop denying them (spec 108)
+
+- **Check** validates a PartiQL statement written as a literal in a handler — `IXF-CUST::Execute( "…" )` and `ExecuteTransaction( "…" )` — against the `.cidx` of the control, with no data file and nothing opened:
+  an unknown field, a Number compared with a String, `ORDER BY` outside the key, a write that does not pin the whole RECORD KEY, a table that is not the control's, a construct outside the subset. A scan is an
+  informational note. A statement held in a data item is not checked, and a literal split across lines is left to run time.
+- **Autocomplete** after `IXF-CUST::` offers `Execute`, `ExecuteTransaction`, `Fetch`, `Get`, `ColumnNames` and `ColumnCount` (descriptions in six languages) and no longer offers `Click` or `Show`, which a
+  non-visual control does not have.
+- **`AutoCommit`** is now a property of the `IndexedFile` control (`Default`, `True`, `False`); `AutoOpen` opens the file of a control whose form declares no `FD` when the form starts.
+- **The System KB, the agent system prompt, two skills and the four prompt sites in `llm.rs`** no longer say the control has no `::` methods or teach `::Open` / `::ReadNext` / `::Write`; they teach the PartiQL
+  members. `chunked.data` is rebuilt. (The agent folders under `agentic_ai/` and `examples/*/agentic_ai/` are data the IDE seeds from these defaults and were not edited.)
+- **Tests (new):** `partiql_literals_are_checked_against_the_cidx`, `an_indexed_file_offers_its_partiql_members_and_no_visual_method`, `no_text_a_model_reads_denies_the_indexed_file_members`, and the `AutoOpen`
+  case in `test_partiql_control`.
+
+
 ## [PowerRustCOBOL 2.0.96] — 2026-10-30
 
 *(Forward-port of 1.91.229, `b5df9f05` on `features-108-partiql`. Written on `features-108-partiql`, after 1.91.228: spec 108, the data-binding half and the knowledge it needs.)*

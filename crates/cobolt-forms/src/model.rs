@@ -6478,6 +6478,9 @@ impl Control {
                 props.insert("StatusDataItem".into(), PropValue::String("".into()));
                 props.insert("CurrentRecordDataItem".into(), PropValue::String("".into()));
                 props.insert("OperatorName".into(), PropValue::String("".into()));
+                // Spec 108 (R24): `Default` | `True` | `False`. Default is on for a form that
+                // declares no `SELECT` for the file, off for one that does.
+                props.insert("AutoCommit".into(), PropValue::String("Default".into()));
                 // `Mode` / `Busy` / `TimeoutMs` are retired here: the facade is
                 // plain synchronous COBOL (property audit, 2026-09-26).
             }

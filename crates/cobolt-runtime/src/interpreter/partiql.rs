@@ -658,10 +658,39 @@ impl Interpreter {
         match self.obj_get(obj, "AutoCommit").trim().to_ascii_lowercase().as_str() {
             "1" | "true" | "yes" | "on" => true,
             "0" | "false" | "no" | "off" => false,
-            _ => !self.file_specs.iter().any(|(name, spec)| {
-                name.eq_ignore_ascii_case(table)
-                    || std::path::Path::new(&spec.assign).file_name().is_some_and(|f| Some(f) == data_path.file_name())
-            }),
+            _ => !self.partiql_declares_file(table, data_path),
+        }
+    }
+
+    /// Whether the program declares a `SELECT` for this file (by name, or by the file it assigns).
+    fn partiql_declares_file(&self, table: &str, data_path: &std::path::Path) -> bool {
+        self.file_specs.iter().any(|(name, spec)| {
+            name.eq_ignore_ascii_case(table)
+                || std::path::Path::new(&spec.assign).file_name().is_some_and(|f| Some(f) == data_path.file_name())
+        })
+    }
+
+    /// `AutoOpen` on a control whose file the program does not declare: the form's
+    /// facade is not generated for it (R10), so the file is opened here, at form start.
+    pub(crate) fn partiql_auto_open(&mut self) {
+        let ids: Vec<String> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.class == "IndexedFile")
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            let on = matches!(self.obj_get(&id, "AutoOpen").trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on");
+            if !on {
+                continue;
+            }
+            if let Ok(schema) = self.partiql_resolve(&id) {
+                let dp = self.partiql.get(&Self::partiql_key(&id)).and_then(|c| c.target.as_ref()).map(|t| t.data_path.clone());
+                if dp.is_some_and(|dp| self.partiql_declares_file(&schema.table, &dp)) {
+                    continue;
+                }
+                let _ = self.partiql_open_file(&id);
+            }
         }
     }
 

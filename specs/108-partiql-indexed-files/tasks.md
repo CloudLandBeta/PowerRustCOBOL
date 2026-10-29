@@ -102,10 +102,11 @@ commit, never into this feature. Tests run per crate: `cargo test -p <crate> --n
   - Verify: `cargo test -p cobolt-runtime --test test_partiql_control` — AC7: a form with no `SELECT`/`FD` runs; the file is closed at the end (the `.lck` sidecar released); no data file → created from the `.cidx`; disagreeing layout → `39`; a form declaring `FD CUSTOMERS IS GLOBAL` and `OPEN I-O` in `onLoad` sees the verb's `WRITE` through the control and its `ROLLBACK` verb undoes the control's `INSERT`; two controls on one definition share one engine; `Execute("SELECT * FROM ORDERS")` on the `CUSTOMERS` control → `94`. **Then the full NIST census and the NC (95/95) and SQ (85/85) execution passes** (rule #9) and `cargo test -p cobolt-runtime --no-fail-fast`.
   - Done: `test_partiql_control`: no FD, created from the `.cidx`, INPUT on a missing file is 35, another table is 94, FD form shares one engine, `ROLLBACK` undoes the control's INSERT, lock released at the end. NOT done: the `39` check for a borrowed engine's layout; the NIST census/NC/SQ passes (the NIST program sources are not on this machine - only `newcob.val`); `AutoOpen` for a form with no FD at populate time.
 
-- [~] **T13 — `AutoCommit`, and the facade skipped for a form with no FD** (R10, R24; AC6, AC7)
+- [x] **T13 — `AutoCommit`, and the facade skipped for a form with no FD** (R10, R24; AC6, AC7)
   - Files: `crates/cobolt-forms/src/model.rs` (`AutoCommit` on `IndexedFile`, three-state), `crates/cobolt-codegen/src/lib.rs` (`write_indexed_file_stubs`, the two `AutoOpen` loops, the `onDeactivate` close; a `declares_file` predicate over `cobol_structure.file_control`), `crates/cobolt-runtime/src/interpreter/partiql.rs`.
   - Do: D4 and D8. Default decided at run time by the predicate (on without a declared FD, off with one); a statement or unit commits per file when on; with it off, writes join the file's open transaction and the `COMMIT` / `ROLLBACK` verbs act. A form that declares the FD generates byte-identical facade COBOL.
   - Verify: `cargo test -p cobolt-codegen` (a golden: a declared-FD form's output unchanged; a no-FD form has no facade paragraphs and no `PERFORM <id>-OPEN`; that form passes Check), `cargo test -p cobolt-runtime --test test_partiql_control` — AC6's `AutoCommit` cases: off by default with the FD (a `WRITE` before the unit is undone by `ROLLBACK`), on: a successful unit survives a `ROLLBACK` that follows and commits a pending `WRITE`.
+  - Done: `AutoCommit` property on `IndexedFile` (`Default` | `True` | `False`, default Default); `AutoOpen` opens at form start for an FD-less form (`test_partiql_control`, 30 checks); codegen golden `indexed-file-declared` pins the declared-FD output.
 
 - [x] **T14 — Replace the "not reachable" claim** (R43; spec §8)
   - Files: `crates/cobolt-ide/src/form_runtime.rs`.
@@ -183,15 +184,17 @@ commit, never into this feature. Tests run per crate: `cargo test -p <crate> --n
 
 ## Phase 4 — Tools
 
-- [ ] **T27 — Check validates literal statements** (R42; AC4, AC15)
+- [x] **T27 — Check validates literal statements** (R42; AC4, AC15)
   - Files: `crates/cobolt-project-tools/src/validate_source.rs` (`partiql_literal_problems`), `crates/cobolt-project-tools/src/tools/check.rs`, `crates/cobolt-project-tools/src/validate_source.rs` tests.
   - Do: tokenize the generated handler text with `cobolt_lexer`; for each `<ID>::Execute(` / `ExecuteTransaction(` whose first argument is a string literal and whose `<ID>` is an `IndexedFile` control, run `analyze` against the control's `.cidx` **without opening the data file**; every R6 error is a Diag with handler, line and position (resolved through the `SourceMap` to the developer's site); each scan is an informational note. A statement held in a data item is not checked.
   - Verify: `cargo test -p cobolt-project-tools` — AC4's statements written as literals in a handler are each reported at their line with no data file present; the AC1 `WHERE CUST-BALANCE > 1000.50` statement carries the scan note; `rcrun check` on the fixture project agrees (`cargo build -p cobolt-cli` first).
+  - Done: `partiql_literal_problems` in `validate_source.rs`; one-line literals only; test `partiql_literals_are_checked_against_the_cidx`. `rcrun check` agreement on a fixture project was not run.
 
-- [ ] **T28 — Autocomplete and descriptions** (R43, R45; AC16)
+- [~] **T28 — Autocomplete and descriptions** (R43, R45; AC16)
   - Files: `crates/cobolt-ide/src/panels/editor.rs` (`methods_for_type` arm for `IndexedFile`, the properties), `crates/cobolt-ide/src/ide_text_data.rs`, `crates/cobolt-ide/src/ide_language_tests.rs`.
   - Do: after `IXF-CUST::` offer `Execute`, `ExecuteTransaction`, `Fetch`, `Get`, `ColumnNames`, `ColumnCount`, `ResultCount`, `StatusCode`, `LastError`, `AutoCommit` (and `BindingQuery` / `SelectedValue` on their targets) with descriptions in the six languages, and none of the visual methods (`Click`, `Show`).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide` — the offered names and no `Click` or `Show`; every description has six non-empty translations.
+  - Done: methods and six-language descriptions; the run-time properties (`ResultCount`, `StatusCode`, `LastError`) are not offered as property completions (they are not in the control model).
 
 - [ ] **T29 — The debugger shows the statement** (R44; AC16)
   - Files: `crates/cobolt-runtime/src/interpreter/partiql.rs`, `crates/cobolt-runtime/src/interpreter.rs` (`debug_out` on `OutputChannel::FileIo`, as `debug_binding_io` does).
@@ -210,11 +213,13 @@ commit, never into this feature. Tests run per crate: `cargo test -p <crate> --n
   - Do: rewrite the text to the truth, then `cargo run -p cobolt-ide --example build_chunked_kb`.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation` green; a text test that no table says "no `::` methods" or "`::ReadNext`".
   - Done so far: the three built-ins are in the KB table and `chunked.data` is rebuilt (`prebuilt_chunked_kb_matches_the_published_documentation` green). NOT done: the IndexedFile property/method tables, `AutoCommit`, `BindingQuery`, `SelectedValue`, the PartiQL binding text, and removing the 'no `::` methods' wording.
+  - Done: the 'no `::` methods' wording is gone from the KB table and `chunked.data` is rebuilt; the property/method tables for `AutoCommit`, `BindingQuery`, `SelectedValue` are still to write.
 
-- [ ] **T32 — Agent prompts, skills, patterns** (R46; AC17)
+- [~] **T32 — Agent prompts, skills, patterns** (R46; AC17)
   - Files: `crates/cobolt-ide/src/assets/agentic_ai/system-prompt.md`, `crates/cobolt-ide/src/assets/agentic_ai/skills/rustcobol-control-properties.md`, `…/skills/rustcobol-extensions.md`, `crates/cobolt-ide/src/llm.rs` (the four prompt sites), `crates/cobolt-project-tools/src/{reference,patterns}.rs`, the plugin skill `powerrustcobol-define-indexed-file`, the `grid-bound-to-indexed-file` pattern.
   - Do: say what this spec ships and nothing else: the members of the control, no facade `::Open` / `::ReadNext` / `::Write`, the PartiQL binding.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide` and `cargo test -p cobolt-project-tools` — a grep test finds neither "no `::` methods" nor `::ReadNext` in any of those texts.
+  - Done: system prompt, two skills and four `llm.rs` sites rewritten; `no_text_a_model_reads_denies_the_indexed_file_members`. NOT done: `reference.rs`, `patterns.rs`, the plugin skill `powerrustcobol-define-indexed-file`, the `grid-bound-to-indexed-file` pattern, and the seeded `agentic_ai/` folders.
 
 - [~] **T33 — The Developer's Guide, the matrix, the translations** (R47; rules #3, #8; AC17)
   - Files: `docs/developers-guide-en.md` (§14 "PartiQL — querying an indexed file"; §8 `IndexedFile` paragraph; *Data binding and the Guardian*), `docs/cobol-support-matrix-en.md`; delete `docs/developers-guide-{es,pt,fr,jp,cn}.md` and `docs/cobol-support-matrix-{es,pt,fr,jp,cn}.md`.

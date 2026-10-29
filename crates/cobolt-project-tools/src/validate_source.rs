@@ -167,6 +167,7 @@ pub fn validate_form_source(
     let mut diags = validate_text_for(&src, program, SourceFormat::Free, external_crates, Some(form));
     diags.extend(unknown_sql_connections(form, program));
     diags.extend(row_content_problems(form, &src));
+    diags.extend(partiql_literal_problems(form, &src, program));
     (diags, src, map)
 }
 
@@ -320,6 +321,106 @@ fn unknown_sql_connections(form: &cobolt_forms::Form, program: &Path) -> Vec<Dia
         .collect()
 }
 
+/// Spec 108 R42 — every PartiQL statement written as a literal in a handler, checked
+/// against the `.cidx` of the `IndexedFile` control it is sent to, with no data file
+/// and nothing opened: an unknown field, a type mismatch, an `ORDER BY` outside the key,
+/// a write that does not pin the whole RECORD KEY, a table that is not the control's.
+/// A statement held in a data item is not checked. A scan is reported as a note.
+///
+/// A literal is read on one line of the generated program; a statement split across
+/// lines with a continuation is left to run time.
+pub fn partiql_literal_problems(form: &cobolt_forms::Form, generated: &str, program: &Path) -> Vec<Diag> {
+    use cobolt_runtime::partiql::analyze::{analyze, RStmt};
+    use cobolt_runtime::partiql::parser::{parse_script, parse_statement};
+    use cobolt_runtime::partiql::plan::{classify, ReadClass};
+    use cobolt_runtime::partiql::schema::Schema;
+    fn walk<'a>(list: &'a [cobolt_forms::Control], out: &mut Vec<&'a cobolt_forms::Control>) {
+        for c in list {
+            out.push(c);
+            walk(&c.children, out);
+        }
+    }
+    let mut controls = Vec::new();
+    walk(&form.controls, &mut controls);
+    let project_dir = cobolt_compiler::find_project_manifest(program).and_then(|m| m.parent().map(Path::to_path_buf));
+    let mut out = Vec::new();
+    for c in controls.iter().filter(|c| c.control_type == cobolt_forms::ControlType::IndexedFile) {
+        let cidx = c.get_prop("IndexedFile").map(|p| p.as_str().trim().to_string()).unwrap_or_default();
+        if cidx.is_empty() {
+            continue;
+        }
+        let raw = Path::new(&cidx);
+        let path = if raw.is_absolute() {
+            raw.to_path_buf()
+        } else {
+            match &project_dir {
+                Some(d) if d.join(raw).exists() => d.join(raw),
+                _ => cobolt_forms::assets::resolve(&cidx),
+            }
+        };
+        let Ok(def) = cobolt_indexed::load_indexed(&path) else { continue };
+        let table = Path::new(&cidx).file_stem().and_then(|s| s.to_str()).unwrap_or("").to_ascii_uppercase();
+        let Ok(schema) = Schema::from_definition(&table, &def) else { continue };
+        for (n, line) in generated.lines().enumerate() {
+            let upper = line.to_ascii_uppercase();
+            for (method, unit) in [("EXECUTETRANSACTION(", true), ("EXECUTE(", false)] {
+                let needle = format!("{}::{}", c.id.to_ascii_uppercase(), method);
+                let Some(at) = upper.find(&needle) else { continue };
+                // Not the longer name's tail.
+                if !unit && upper[..at + needle.len()].ends_with("TRANSACTION(") {
+                    continue;
+                }
+                let rest = line[at + needle.len()..].trim_start();
+                let Some(quote) = rest.chars().next().filter(|q| *q == '"' || *q == '\'') else { continue };
+                let body = &rest[1..];
+                let mut text = String::new();
+                let mut chars = body.chars().peekable();
+                let mut closed = false;
+                while let Some(ch) = chars.next() {
+                    if ch == quote {
+                        if chars.peek() == Some(&quote) {
+                            text.push(quote);
+                            chars.next();
+                            continue;
+                        }
+                        closed = true;
+                        break;
+                    }
+                    text.push(ch);
+                }
+                if !closed {
+                    continue;
+                }
+                let line_no = n as u32 + 1;
+                let col = (at + 1) as u32;
+                let mk = |message: String, severity: Severity| Diag { line: line_no, col, message: format!("{}: {message}", c.id), severity };
+                let parsed = if unit { parse_script(&text) } else { parse_statement(&text).map(|p| vec![p]) };
+                match parsed {
+                    Err(e) => out.push(mk(e.text(), Severity::Error)),
+                    Ok(list) => {
+                        for p in &list {
+                            match analyze(p, &schema, unit) {
+                                Err(e) => out.push(mk(e.text(), Severity::Error)),
+                                Ok(a) => {
+                                    if let RStmt::Select(sel) = &a.stmt {
+                                        if classify(sel, &schema) == ReadClass::Scan {
+                                            out.push(mk(
+                                                "this SELECT reads the whole file (a scan); name the key in the WHERE to read by it".to_string(),
+                                                Severity::Info,
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,5 +546,46 @@ mod tests {
             errors.len(),
             errors[0].line
         );
+    }
+
+    /// Spec 108 R42 (AC15): PartiQL statements written as literals in a handler are checked
+    /// against the control's `.cidx` with no data file; a statement in a data item is not.
+    #[test]
+    fn partiql_literals_are_checked_against_the_cidx() {
+        let dir = std::env::temp_dir().join(format!("prc108-check-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("generated")).unwrap();
+        let cidx = dir.join("customers.cidx");
+        std::fs::write(
+            &cidx,
+            r#"<?xml version="1.0" encoding="UTF-8"?><IndexedFile name="CUSTOMERS" finalized="true" version="1.0"><assign-path>data/customers.idx</assign-path><access-mode>dynamic</access-mode><record-format fixed-length="56"/><storage mode="disk" compression="false" persistence="false"/><keys><primary duplicates="false" ordering="ascending"><part field="CUST-ID" offset="0" length="8" encoding="bytes"/></primary></keys><fields><Field level="1" name="CUST-REC" usage="display"><Field level="5" name="CUST-ID" pic="9(8)" usage="display" offset="0" length="8"></Field><Field level="5" name="CUST-NAME" pic="X(40)" usage="display" offset="8" length="40"></Field><Field level="5" name="CUST-BALANCE" pic="S9(6)V99" usage="display" offset="48" length="8"></Field></Field></fields></IndexedFile>"#,
+        )
+        .unwrap();
+        let mut form = cobolt_forms::Form::new("MAIN-FORM", "Main", 400, 300);
+        let mut ixf = cobolt_forms::Control::new("IXF-CUST", cobolt_forms::ControlType::IndexedFile, 0, 0);
+        ixf.set_prop("IndexedFile", cobolt_forms::PropValue::String(cidx.to_string_lossy().into()));
+        form.controls.push(ixf);
+        let program = dir.join("generated").join("main-form.cbl");
+        let generated = "\
+           SET WS-N TO IXF-CUST::Execute(\"SELECT COUNT(*) FROM CUSTOMERS\")\n\
+           SET WS-N TO IXF-CUST::Execute(\"SELECT * FROM CUSTOMERS WHERE CUST-BALANCE = 'ten'\")\n\
+           SET WS-N TO IXF-CUST::Execute(\"UPDATE CUSTOMERS SET CUST-NAME = 'x' WHERE CUST-NAME = 'Ana'\")\n\
+           SET WS-N TO IXF-CUST::Execute(\"SELECT * FROM INVOICES\")\n\
+           SET WS-N TO IXF-CUST::Execute(\"SELECT * FROM CUSTOMERS WHERE NO-SUCH-FIELD = 1\")\n\
+           SET WS-N TO IXF-CUST::Execute(\"SELECT CUST-NAME FROM CUSTOMERS WHERE CUST-ID = 1\")\n\
+           SET WS-N TO IXF-CUST::Execute(\"SELECT * FROM CUSTOMERS WHERE CUST-BALANCE > 1000.50\")\n\
+           SET WS-N TO IXF-CUST::Execute( WS-STMT )\n";
+        let d = partiql_literal_problems(&form, generated, &program);
+        let at = |line: u32| d.iter().filter(|x| x.line == line).collect::<Vec<_>>();
+        assert!(at(1)[0].message.contains("COUNT") && at(1)[0].severity == Severity::Error, "{d:?}");
+        assert!(at(2)[0].message.contains("Number"), "{d:?}");
+        assert!(at(3)[0].message.contains("RECORD KEY"), "{d:?}");
+        assert!(at(4)[0].message.contains("ResourceNotFoundException"), "{d:?}");
+        assert!(at(5)[0].message.contains("NO-SUCH-FIELD"), "{d:?}");
+        assert!(at(6).is_empty(), "a keyed read is clean: {d:?}");
+        assert!(at(7)[0].severity == Severity::Info && at(7)[0].message.contains("scan"), "{d:?}");
+        assert!(at(8).is_empty(), "a statement in a data item is not checked: {d:?}");
+        assert!(!dir.join("data").exists(), "no data file was touched");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -173,8 +173,8 @@ Do not write low-level runtime `CALL`s for these services.
 - **HTTP** (RestClient): use methods on the RestClient control.
 - **Charts:** use methods such as `Chart-1::Clear()`, `Chart-1::AddPoint(...)`,
   `Chart-1::Refresh()`, or properties such as `Chart-1::DataSource`.
-- **IndexedFile:** use methods such as `File-1::Open("I-O")`,
-  `File-1::ReadNext()`, `File-1::Write()`, and `File-1::Close()`.
+- **IndexedFile:** use the PartiQL members: `File-1::Execute( "SELECT … WHERE KEY = ?" WS-KEY )`,
+  `File-1::Fetch()`, `File-1::Get( "FIELD" )` and `File-1::ExecuteTransaction( … )`.
 
 Do not invent method names. If unsure of the exact method/property, keep the
 handler simple and ask for directions.

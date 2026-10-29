@@ -40,6 +40,8 @@ const RUNTIME_SOURCES: &[&str] = &[
     include_str!("../src/interpreter/agent_loop.rs"),
     include_str!("../src/http_runtime.rs"),
     include_str!("../src/interpreter/aws.rs"),
+    // Spec 108: the IndexedFile control's PartiQL members read `AutoCommit`, `OpenMode`, `AutoOpen`.
+    include_str!("../src/interpreter/partiql.rs"),
     // The AWS route table reads a control's properties as `{prop:Name}`
     // placeholders — data, not code (spec 078 R15).
     include_str!("../src/aws/routes.toml"),
@@ -188,6 +190,8 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                 ("StatusDataItem", Generated),
                 ("CurrentRecordDataItem", Generated),
                 ("OperatorName", Generated),
+                // Spec 108: read by the interpreter when a PartiQL write completes.
+                ("AutoCommit", Runtime),
             ],
         ),
         (ControlType::AwsLambda, aws_readers(&[("FunctionName", Runtime)])),
