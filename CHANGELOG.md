@@ -22,6 +22,39 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.92] — 2026-10-29
+
+*(Written on `features-2x` off 2.0.91 (809eca9f), committed on `fixes-2x-p4c`. **Judged (P4C-1): 26 PASS / 2 FAIL.** The three P4B-1 FAILs
+now pass: the late Backend (D-P4B-1), the edge of a filter edited while the Backend is down (D-G3-1), and the animation curve frame by frame
+on loads, resizes, the Dados reveal and drags. The two FAILs are both P4 re-plan cases, listed below.)*
+
+### Fixed: the three FAILs of the P4B-1 judgement — a Web page re-initialises on any handler after a late Backend, a filter edited while the Backend is down is not applied without Aplicar, and an animation re-plan starts at the frame's own time
+
+- **A late Backend, whatever the first act.** In PowerAnalyticsWeb (`webforms/main-form.wcfrm`) every handler that reads data, 23 of them,
+  now begins with `CALL "ENSURE-INIT"`. That procedure opens the database, loads the dimensions, restores the filters and runs the queries
+  if the start-up did not complete. Before this, only some acts recovered the page. The body of APPLY-FILTERS is moved, unchanged, into
+  RUN-QUERIES so that both paths share it.
+- **A filter edited while the Backend is down is not applied by itself.** When the Backend comes back, the page shows the last *applied*
+  filter, as the desktop does. A value typed but not applied with Aplicar waits for Aplicar. Paging follows the last Apply.
+- **Animation re-plans start at the frame's own time** (`cobolt-web-player/src/dom/motion.rs`): a re-plan on re-flow takes the clock of
+  the frame that triggers it, not a later reading. The implementer measured a 900×700 load going from a worst scale error of 0.0643 to 0.0050,
+  and a 1440→700 drag going from 33 dropped frames to 7. The judge measured a worst error of 0.0054 and 9–13 dropped frames per 1.5 s
+  drag over four runs (HEAD: 33–50). `crates/cobolt-web-bundle/tests/page_motion_p4b.rs` gains a phase for this.
+- `assets/web-player` (plain and threaded) rebuilt from these sources.
+
+**Not done / honest status**
+- **FAIL, a new regression caused by the 250 ms horizon:** a resize mid-intro followed by a main-thread block of 400–800 ms leaves one
+  stale frame. C-GOALS and its 12 children draw at scale 1.379 where the curve is at 1.067. The next frame is right. The HEAD player's
+  worst error in the same case was ≤ 0.032.
+- **FAIL, pre-existing and disclosed:** PRG-CLS / PRG-SUB draw one frame at scale 1.000 on the 600×800 breakpoint resize, where the
+  curve is at 0.963. The pre-P4 player had this too.
+- A drag still drops 9–13 frames per 1.5 s (claimed 7; HEAD 33–50). The desktop drops none.
+- Charts first painted while the Dados page is showing stop at about 81 % of their entrance growth until the Dashboard is shown (A1).
+- After a late Backend, an act with no bound handler (NumericUpDown, DateTimePicker, a Níveis tick, a card expander) keeps the error
+  header until any handler runs (A2, by design).
+- With no data file, the Web page's message differs from the desktop's "Base de dados não encontrada" (A3, pre-existing).
+- The desktop side was not re-run.
+
 ## [PowerRustCOBOL 2.0.91] — 2026-10-29
 
 *(Written on `features-2x` off 2.0.88 (74fee740), rebased onto 2.0.90 (662e1b65) on `fixes-2x-p4b`; `assets/web-player` rebuilt after the rebase.)*

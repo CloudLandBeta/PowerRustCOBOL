@@ -971,28 +971,9 @@
 
            CALL    "BE-FLOW-BEGIN"
 
-           *> A FUND-INIT that FAILED (the page opened while the Backend was not reachable) is
-           *> asked again before the list, as APPLY-FILTERS does: the desktop always has its
-           *> database, so its header line and level lists are there before any search.
+           *> A FUND-INIT that FAILED (the page opened while the Backend was not reachable) was
+           *> asked again by ENSURE-INIT, which every user act runs before it gets here.
 
-           IF    WS-LOADED = 0 AND INI-STATUS NOT = "NOFILE"
-
-               *> INIT-DB: asks the Backend for the database (FUND-INIT).
-               *> Uses:   nothing of the form; FUND-INIT builds data/fundos.db on first use.
-               *> Result: INI-RES = the universe, reference date, category slots and level
-               *>         names; WS-LOADED = 1 when the answer is OK or TRUNC; a failure goes to
-               *>         BACKEND-FAIL (header error, WS-BE-FAILS + 1).
-
-               CALL    "INIT-DB"
-
-               *> LOAD-DIMS: paints what FUND-INIT answered.
-               *> Uses:   INI-RES and WS-LOADED from INIT-DB just above.
-               *> Result: LBL-STATUS::Caption and WS-STATUS-TXT = the desktop's status line;
-               *>         WS-UNIV, WS-CAT-NAME(1..10), WS-CATCNT; LST-N2 / LST-N3 items. Nothing
-               *>         when the call failed again.
-
-               CALL    "LOAD-DIMS"
-           END-IF
            SET     NAM-BOX                       TO    WS-SM
            SET     BE-PROG                       TO    "FUND-NAMES"
            SET     NAM-STATUS                    TO    SPACES
@@ -3641,6 +3622,19 @@
            END-IF
            IF    WS-LOADED = 0
 
+               *> The desktop applied this filter (its start-up, or this Apply); the page could
+               *> not ask the Backend, so it keeps the filter as the one of the last Apply:
+               *> ENSURE-INIT shows its results once FUND-INIT answers.
+
+               *> BUILD-WHERE: fills the filter from the filter controls and keeps it.
+               *> Uses:   TXT-NOME::Text, TXT-CAT::Text, the picks (PK-TAB), DTP-INI::Value,
+               *>         DTP-FIM::Value, NUD-PL1::Value, NUD-PL2::Value and the ticks of LST-N2
+               *>         and LST-N3, as they stand at this Apply (the designed values at start-up).
+               *> Result: FLT-REQ = that filter; FLS-REQ = a copy (FLT-SAVE), which ENSURE-INIT
+               *>         applies later. Work items overwritten: WS-TERM, WS-PAT, WS-CHK.
+
+               CALL    "BUILD-WHERE"
+
                *> BE-FLOW-END: the flow of Backend calls ends.
                *> Uses:   WS-BE-DEPTH, WS-BE-FAILS against WS-BE-MARK, WS-BE-SHOWN.
                *> Result: WS-BE-DEPTH - 1 (a failed FUND-INIT keeps its error in the header).
@@ -3649,10 +3643,6 @@
                EXIT PARAGRAPH
            END-IF
            SET     WS-PAGE                       TO    1
-
-           *> Run in dependency order: BUILD-WHERE feeds every query, Q-YEARS needs
-           *> Q-TOTALS (newest year) and Q-CATS (counts), and the painters only read
-           *> what the queries stored.
 
            *> BUILD-WHERE: fills the filter that every Backend call below sends, from the filter
            *> controls.
@@ -3665,8 +3655,36 @@
 
            CALL    "BUILD-WHERE"
 
+           *> RUN-QUERIES: runs every query of the filter and repaints what they feed.
+           *> Uses:   FLT-REQ and FLS-REQ, just filled by BUILD-WHERE; WS-PAGE = 1, set above;
+           *>         WS-CATCNT / WS-CAT-NAME (LOAD-DIMS), WS-METRIC, WS-ACUM, CMB-ORDER::Value.
+           *> Result: the totals (WS-T-*), WS-CAT-*, WS-RANK, WS-N2-*, WS-BIN-CNT, WS-TOP-* and the
+           *>         year tables; the KPI card, the charts, the top-4 list, the Classe / Subclasse
+           *>         bars, the metric buttons, the Dados cards, and GRD-FUNDOS page 1 with
+           *>         LBL-GRID-S, LBL-PAGE, BTN-PREV and BTN-NEXT.
+
+           CALL    "RUN-QUERIES"
+
+           *> BE-FLOW-END: the flow of Backend calls of this Apply ends.
+           *> Uses:   WS-BE-DEPTH, WS-BE-FAILS against WS-BE-MARK (set by BE-FLOW-BEGIN above),
+           *>         WS-BE-SHOWN and WS-STATUS-TXT.
+           *> Result: WS-BE-DEPTH - 1; when every call of this Apply answered and a Backend error
+           *>         was showing, LBL-STATUS::Caption = WS-STATUS-TXT again and WS-BE-SHOWN = 0.
+
+           CALL    "BE-FLOW-END"
+]]></Event>
+    <Event name="RUN-QUERIES" paragraph="RUN-QUERIES"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> What the desktop's APPLY-FILTERS does after building WS-WHERE, for the filter in
+           *> FLT-REQ (BUILD-WHERE for an Apply, FLT-RESTORE for ENSURE-INIT). Run in dependency
+           *> order: Q-YEARS needs Q-TOTALS (newest year) and Q-CATS (counts), and the painters
+           *> only read what the queries stored.
+
            *> Q-TOTALS: reads the totals of the funds that pass the filters.
-           *> Uses:   FLT-REQ, filled by BUILD-WHERE just before.
+           *> Uses:   FLT-REQ, filled by the caller.
            *> Result: WS-T-CNT = funds; WS-T-PL = sum of PL; WS-T-COT = sum of cotistas; WS-T-PLN =
            *>         funds that report a PL; WS-T-MAX = largest PL; WS-T-YMAX = newest start year;
            *>         WS-T-CLS / WS-T-SUB = PL of the "Classe" funds / of the others.
@@ -3690,7 +3708,7 @@
 
            *> Q-N2: counts the filtered funds per level-2 category, keeping the nine largest and a
            *> rest.
-           *> Uses:   FLT-REQ, filled by BUILD-WHERE just before.
+           *> Uses:   FLT-REQ, filled by the caller.
            *> Result: WS-N2-NAME and WS-N2-CNT(1..9) = the nine level-2 categories with most funds,
            *>         largest first; slot 10 = "Outros" with the funds of all the rest (only when
            *>         there are more than nine); WS-N2-TOTAL = funds in all of them. Names are held
@@ -3699,14 +3717,14 @@
            CALL    "Q-N2"
 
            *> Q-BINS: counts the filtered funds that report a PL in five PL bands.
-           *> Uses:   FLT-REQ, filled by BUILD-WHERE just before.
+           *> Uses:   FLT-REQ, filled by the caller.
            *> Result: WS-BIN-CNT(1..5) = funds with PL under R$ 1 mi, under 10 mi, under 100 mi,
            *>         under 1 bi, and 1 bi or more.
 
            CALL    "Q-BINS"
 
            *> Q-TOP: finds the four filtered funds with the largest PL.
-           *> Uses:   FLT-REQ, filled by BUILD-WHERE just before.
+           *> Uses:   FLT-REQ, filled by the caller.
            *> Result: WS-TOP-NAME(1..4) and WS-TOP-PL(1..4) = name (or code, for a fund without a
            *>         name; the first 40 characters) and PL, largest first; WS-TOP-N = how many were
            *>         found (0 to 4).
@@ -3783,18 +3801,77 @@
            CALL    "PAINT-DATA"
 
            *> REFRESH-GRID: reloads the grid page and its captions.
-           *> Uses:   FLS-REQ and WS-T-CNT, just produced by BUILD-WHERE and Q-TOTALS above;
-           *>         WS-PAGE (set to 1 at the top of APPLY-FILTERS), WS-PSIZE and CMB-ORDER::Value.
+           *> Uses:   FLS-REQ (the filter of the last Apply, kept by FLT-SAVE) and WS-T-CNT, just
+           *>         produced by Q-TOTALS above; WS-PAGE (set to 1 by the caller), WS-PSIZE and
+           *>         CMB-ORDER::Value.
            *> Result: GRD-FUNDOS holds page 1 of the filtered funds; LBL-GRID-S, LBL-PAGE, BTN-PREV
            *>         and BTN-NEXT match that page.
 
            CALL    "REFRESH-GRID"
+]]></Event>
+    <Event name="ENSURE-INIT" paragraph="ENSURE-INIT"><![CDATA[       ENVIRONMENT DIVISION.
 
-           *> BE-FLOW-END: the flow of Backend calls of this Apply ends.
-           *> Uses:   WS-BE-DEPTH, WS-BE-FAILS against WS-BE-MARK (set by BE-FLOW-BEGIN above),
-           *>         WS-BE-SHOWN and WS-STATUS-TXT.
-           *> Result: WS-BE-DEPTH - 1; when every call of this Apply answered and a Backend error
-           *>         was showing, LBL-STATUS::Caption = WS-STATUS-TXT again and WS-BE-SHOWN = 0.
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+           *> The one guard every user act runs first. The desktop has its database before any
+           *> act: onLoad ran INIT-DB, LOAD-DIMS and its first Apply. A FUND-INIT that FAILED (the
+           *> page opened while the Backend was not reachable) left the page without them; the
+           *> first act after the Backend starts gives them back, whatever that act is. The
+           *> start-up's Apply is the filter of the LAST Apply (FLS-REQ, kept by BUILD-WHERE also
+           *> while the Backend was down), never the controls as they stand: a filter the user
+           *> edited since then is applied only by Aplicar, Enter, OK or Limpar, as on the
+           *> desktop. Without data (NOFILE) nothing is asked again, as on the desktop.
+
+           IF    WS-LOADED = 1 OR INI-STATUS = "NOFILE"
+               EXIT PARAGRAPH
+           END-IF
+
+           *> BE-FLOW-BEGIN: a flow of Backend calls starts (FUND-INIT again, then the queries).
+           *> Uses:   WS-BE-DEPTH (0: no flow running) and WS-BE-FAILS.
+           *> Result: WS-BE-DEPTH + 1; WS-BE-MARK = WS-BE-FAILS.
+
+           CALL    "BE-FLOW-BEGIN"
+
+           *> INIT-DB: asks the Backend for the database (FUND-INIT).
+           *> Uses:   nothing of the form; FUND-INIT builds data/fundos.db on first use.
+           *> Result: INI-RES = the universe, reference date, category slots and level names;
+           *>         WS-LOADED = 1 when the answer is OK or TRUNC; a failure goes to BACKEND-FAIL
+           *>         (header error, WS-BE-FAILS + 1).
+
+           CALL    "INIT-DB"
+
+           *> LOAD-DIMS: paints what FUND-INIT answered.
+           *> Uses:   INI-RES and WS-LOADED from INIT-DB just above.
+           *> Result: LBL-STATUS::Caption and WS-STATUS-TXT = the desktop's status line; WS-UNIV,
+           *>         WS-CAT-NAME(1..10), WS-CATCNT; LST-N2 / LST-N3 items. Nothing when the call
+           *>         failed again.
+
+           CALL    "LOAD-DIMS"
+
+           IF    WS-LOADED = 1
+               SET     WS-PAGE                   TO    1
+
+               *> FLT-RESTORE: puts back the filter of the last Apply.
+               *> Uses:   FLS-REQ, kept by FLT-SAVE when onLoad's APPLY-FILTERS (or a later Apply)
+               *>         met the Backend down: the designed values unless the user applied others.
+               *> Result: FLT-REQ = FLS-REQ, member by member.
+
+               CALL    "FLT-RESTORE"
+
+               *> RUN-QUERIES: runs every query of that filter and repaints what they feed.
+               *> Uses:   FLT-REQ and FLS-REQ (the last Apply), WS-PAGE = 1, the dimensions LOAD-DIMS
+               *>         just stored, WS-METRIC, WS-ACUM and CMB-ORDER::Value.
+               *> Result: the KPI card, the charts, the top-4 list, the Classe / Subclasse bars, the
+               *>         metric buttons, the Dados cards and GRD-FUNDOS page 1 with its captions:
+               *>         the desktop's state after start-up. FLT-REQ holds the last Apply's filter.
+
+               CALL    "RUN-QUERIES"
+           END-IF
+
+           *> BE-FLOW-END: the flow of Backend calls ends.
+           *> Uses:   WS-BE-DEPTH, WS-BE-FAILS against WS-BE-MARK, WS-BE-SHOWN, WS-STATUS-TXT.
+           *> Result: WS-BE-DEPTH - 1; a FUND-INIT that failed again keeps its error in the header.
 
            CALL    "BE-FLOW-END"
 ]]></Event>
@@ -4282,27 +4359,6 @@
                SET     BTN-DATA::ForegroundColor TO    "#FFFFFF"
                SET     BTN-DASH::BackgroundColor TO    "#FFFFFF"
                SET     BTN-DASH::ForegroundColor TO    "#1B2A4E"
-
-               *> A FUND-INIT that FAILED (the page opened while the Backend was not reachable)
-               *> left the grid, its captions and the Dados cards empty; the desktop filled them
-               *> at start-up with its first Apply. That Apply runs now, before the grid's first
-               *> Q-GRID: it asks FUND-INIT again and, when it answers, loads page 1.
-
-               IF    WS-LOADED = 0 AND INI-STATUS NOT = "NOFILE"
-
-                   *> APPLY-FILTERS: asks FUND-INIT again, then re-runs every query and repaints
-                   *> the dashboard, the Dados cards and the grid.
-                   *> Uses:   WS-LOADED = 0 and INI-STATUS (the failed start-up call); the filter
-                   *>         controls as they stand (the designed values unless the user changed
-                   *>         one while the Backend was down).
-                   *> Result: INIT-DB and LOAD-DIMS (header line, LST-N2 / LST-N3, category
-                   *>         slots); when FUND-INIT answers, WS-PAGE = 1, the totals, charts, Dados
-                   *>         cards and GRD-FUNDOS page 1 with LBL-GRID-S, LBL-PAGE, BTN-PREV and
-                   *>         BTN-NEXT; when it fails again, the header keeps the error and nothing
-                   *>         else changes.
-
-                   CALL    "APPLY-FILTERS"
-               END-IF
 
                IF    WS-GSTAGE = 0
 
@@ -5733,6 +5789,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     WS-VIEW                       TO    "D"
 
            *> SHOW-VIEW: switches the page shown under the header: the dashboard (PG-DASH) or the
@@ -5796,6 +5862,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     WS-VIEW                       TO    "G"
 
            *> SHOW-VIEW: switches the page shown under the header: the dashboard (PG-DASH) or the
@@ -6150,6 +6226,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     WS-SMX                        TO    "N"
 
            *> SM-TYPED: reacts to typing in a filter box: opens or refreshes its search dropdown.
@@ -6199,6 +6285,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
 
            *> SM-CLOSE: closes the search dropdown when one is open.
            *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
@@ -6261,6 +6357,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     TXT-NOME::Text                TO    SPACES
            SET     WS-LAST-N                     TO    SPACES
            SET     WS-SMX                        TO    "N"
@@ -6333,6 +6439,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            IF    WS-SM = "N"
 
                *> SM-CLOSE: closes the search dropdown when one is open.
@@ -6523,6 +6639,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     WS-SMX                        TO    "C"
 
            *> SM-TYPED: reacts to typing in a filter box: opens or refreshes its search dropdown.
@@ -6572,6 +6698,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
 
            *> SM-CLOSE: closes the search dropdown when one is open.
            *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
@@ -6634,6 +6770,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     TXT-CAT::Text                 TO    SPACES
            SET     WS-LAST-C                     TO    SPACES
            SET     WS-SMX                        TO    "C"
@@ -6706,6 +6852,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            IF    WS-SM = "C"
 
                *> SM-CLOSE: closes the search dropdown when one is open.
@@ -7272,6 +7428,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            IF    WS-LEVELS-OPEN = 0
                *> Only one dropdown at a time: close the search list first. Popup layers
                *> are not laid out by the form, so SET-FILT-HEIGHT places the card
@@ -7286,26 +7452,6 @@
 
                CALL    "SM-CLOSE"
                SET     WS-LEVELS-OPEN            TO    1
-
-               *> A FUND-INIT that FAILED (the page opened while the Backend was not reachable)
-               *> left LST-N2 and LST-N3 empty and the dashboard blank; the desktop filled them at
-               *> start-up (LOAD-DIMS, then its first Apply). That start-up runs now, before the
-               *> card shows its two lists.
-
-               IF    WS-LOADED = 0 AND INI-STATUS NOT = "NOFILE"
-
-                   *> APPLY-FILTERS: asks FUND-INIT again, then re-runs every query and repaints
-                   *> the dashboard, the Dados cards and the grid.
-                   *> Uses:   WS-LOADED = 0 and INI-STATUS (the failed start-up call); the filter
-                   *>         controls as they stand (the designed values unless the user changed
-                   *>         one while the Backend was down; LST-N2 / LST-N3 have no ticks yet).
-                   *> Result: INIT-DB and LOAD-DIMS (header line, LST-N2 / LST-N3 items, category
-                   *>         slots); when FUND-INIT answers, WS-PAGE = 1 and the totals, charts,
-                   *>         Dados cards and GRD-FUNDOS page 1; when it fails again, the header
-                   *>         keeps the error and nothing else changes.
-
-                   CALL    "APPLY-FILTERS"
-               END-IF
 
                *> SET-FILT-HEIGHT: lays the window out for its current size: filter bar height,
                *> popup cards, KPI strip, Dados page and grid.
@@ -8330,6 +8476,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     WS-METRIC                     TO    1
 
            *> PAINT-YEARS: repaints the yearly bar and line charts for the metric in WS-METRIC, and
@@ -8408,6 +8564,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     WS-METRIC                     TO    2
 
            *> PAINT-YEARS: repaints the yearly bar and line charts for the metric in WS-METRIC, and
@@ -8486,6 +8652,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     WS-METRIC                     TO    3
 
            *> PAINT-YEARS: repaints the yearly bar and line charts for the metric in WS-METRIC, and
@@ -13234,6 +13410,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            IF    SW-ACUM::Checked = 1
                SET     WS-ACUM                   TO    1
            ELSE
@@ -16236,6 +16422,16 @@ Nome (A-Z)</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            SET     WS-PAGE                       TO    1
 
            *> REFRESH-GRID: reloads the grid page and its captions.
@@ -16385,6 +16581,16 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            IF    WS-PAGE > 1
                SUBTRACT    1 FROM WS-PAGE
 
@@ -16502,6 +16708,16 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
            IF    WS-PAGE < WS-PAGES
                ADD    1 TO WS-PAGE
 
@@ -17087,6 +17303,16 @@ Data de referência:string</Property>
 
        PROCEDURE DIVISION.
 
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
+
            *> SM-CHECKED: applies a tick change of LST-SM: stores the ticked names, updates Todos
            *> mode and the kept picks.
            *> Uses:   LST-SM::CheckedItems (the ticked rows, LF-separated), WS-SM ("N" or "C"), the
@@ -17105,6 +17331,16 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
 
            *> SM-CLOSE: closes the search dropdown when one is open.
            *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
@@ -17215,6 +17451,16 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
 
            *> SM-CLEAR-PICKS: forgets the picks kept for the open dropdown.
            *> Uses:   WS-SM ("N" or "C"): the dropdown that is open.
@@ -17367,6 +17613,16 @@ Data de referência:string</Property>
 
        PROCEDURE DIVISION.
 
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
+
            *> SM-CLOSE: closes the search dropdown when one is open.
            *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise); the click landed
            *>         outside the dropdown.
@@ -17440,6 +17696,16 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ENSURE-INIT: gives the page the desktop's start-up state when FUND-INIT failed.
+           *> Uses:   WS-LOADED and INI-STATUS (nothing is done once the database answered, nor
+           *>         without data); FLS-REQ, the filter of the last Apply (never the controls'
+           *>         unapplied edits).
+           *> Result: after a late Backend start: the header line, LST-N2 / LST-N3, the
+           *>         dashboard, the Dados cards and the grid as the desktop shows them after
+           *>         start-up; while the Backend is still down, its error in the header.
+
+           CALL    "ENSURE-INIT"
 
            *> CLOSE-LEVELS: closes the Levels 2 and 3 popup when it is open.
            *> Uses:   WS-LEVELS-OPEN (1 = the Levels card is open); the click landed outside the

@@ -9,6 +9,9 @@
 //! * **Re-flow during an animation.** The desktop draws every control at its CURRENT laid-out rectangle on every frame
 //!   (`render.rs`). A card playing the intro with a label inside it, in a flex row; a second card shown mid-intro takes
 //!   half the row, so the first shrinks: in every frame after that the label is drawn about its own laid-out centre.
+//! * **A plan made again is on the desktop's curve in the frame that makes it** (judgement P4B-1): the re-flow's frame and
+//!   a window resized mid-intro (made in that frame's resize step, after 12 ms of the frame's script) are within 0.003 of
+//!   ZoomOut on Elastic; a plan started at `performance.now()` there was held 0.066 ahead.
 //! * **Area, Scatter and Monochrome charts grow** on `AnimateOnLoad` (`render.rs` moves every chart kind; the page moved
 //!   five, and none in their Monochrome look).
 //! * **A fading container does not fade what is inside it** (`render.rs`: a control's alpha is its ancestors' static
@@ -94,7 +97,7 @@ fn cfrm() -> String {
   <Control id="BTN-FADE" type="Button" x="310" y="44" w="90" h="28"><Property name="Caption">Fade</Property></Control>
   <Control id="TXT-A" type="TextBox" x="420" y="44" w="120" h="28">{focus}</Control>
   <Control id="TXT-B" type="TextBox" x="560" y="44" w="120" h="28">{focus}</Control>
-  <Control id="ROW" type="Panel" x="10" y="90" w="960" h="220"><Property name="LayoutMode">Flex</Property><Property name="FlexDirection">Row</Property><Property name="FlexWrap">NoWrap</Property><Property name="BackgroundColor">#EEEEEE</Property></Control>
+  <Control id="ROW" type="Panel" x="10" y="90" w="960" h="220"><Property name="LayoutMode">Flex</Property><Property name="FlexDirection">Row</Property><Property name="FlexWrap">NoWrap</Property><Property name="BackgroundColor">#EEEEEE</Property><Property name="Anchor">Top,Left,Right</Property></Control>
   <Control id="C1" type="Panel" x="0" y="0" w="300" h="200" parent="ROW"><Property name="FlexGrow">1</Property><Property name="FlexBasis">100</Property><Property name="BackgroundColor">#3E7BE8</Property>{INTRO}</Control>
   <Control id="LBL-C1" type="Label" x="20" y="30" w="100" h="40" parent="C1"><Property name="Caption">in</Property><Property name="BackgroundColor">#F5A524</Property>{INTRO}</Control>
   <Control id="C2" type="Panel" x="0" y="0" w="300" h="200" parent="ROW" visible="false"><Property name="FlexGrow">1</Property><Property name="FlexBasis">100</Property><Property name="BackgroundColor">#30A46C</Property></Control>
@@ -181,12 +184,19 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
     // What a frame PAINTS is measured after the page's own size watch has run (a ResizeObserver made later is called later in the
     // same rendering step, after layout and before paint); a requestAnimationFrame callback runs BEFORE that frame's layout, so the
     // first one after the re-flow still sees the plan made for the old layout.
-    page.eval(&js("window.__ro = []; new ResizeObserver(() => window.__ro.push(Math.max(drift('LBL-C1'), drift('C1')))).observe(el('C1')); return true;")).unwrap();
+    // Each sample also notes the frame's time and the drawn scale of the card and its label (drawn width / laid-out width), to put
+    // the frame of the re-flow on the desktop's curve: ZoomOut on Elastic over 1800 ms, the same for both.
+    page.eval(&js("window.__ro = []; window.__rok = []; new ResizeObserver(() => { window.__ro.push(Math.max(drift('LBL-C1'), drift('C1'))); window.__rok.push([document.timeline.currentTime, el('C1').getBoundingClientRect().width / el('C1').offsetWidth, el('LBL-C1').getBoundingClientRect().width / el('LBL-C1').offsetWidth]); }).observe(el('C1')); return true;")).unwrap();
     click(&mut page, "BTN-SHOW2");
     wait_text(&mut page, "LBL-OUT", "shown2");
     let worst = page
         .eval(&js(
-            "const t0 = performance.now(); let worst = 0, first = null, frames = 0, moving = 0; while (performance.now() - t0 < 1400) { await new Promise(r => requestAnimationFrame(r)); frames++; if (el('LBL-C1').getAnimations().length) moving++; const d = Math.max(drift('LBL-C1'), drift('C1')); if (first === null) first = d; else worst = Math.max(worst, d); } return { worst, first, frames, moving, w: el('C1').offsetWidth, painted: window.__ro };",
+            "const t0 = performance.now(); let worst = 0, first = null, frames = 0, moving = 0; const ks = []; while (performance.now() - t0 < 1400) { const ts = await new Promise(r => requestAnimationFrame(r)); frames++; if (el('LBL-C1').getAnimations().length) moving++; const d = Math.max(drift('LBL-C1'), drift('C1')); if (first === null) first = d; else worst = Math.max(worst, d); ks.push([ts, el('C1').getBoundingClientRect().width / el('C1').offsetWidth]); }
+             const Z = t => (t <= 0 || t >= 1) ? 1 : Math.max(1 - 1.06 * Math.exp(-3.5 * t) * Math.sin(5 * Math.PI * t), 0.02);
+             const moved = ks.filter(([, k]) => Math.abs(k - 1) > 0.0005);
+             let best = 1e9, start = 0; for (let s = moved[0][0] - 1800; s <= moved[0][0]; s += 0.25) { const e = Math.max(...moved.map(([t, k]) => Math.abs(k - Z((t - s) / 1800)))); if (e < best) { best = e; start = s; } }
+             const off = window.__rok.map(([t, k, kl]) => Math.max(Math.abs(k - Z((t - start) / 1800)), Math.abs(kl - Z((t - start) / 1800))));
+             return { worst, first, frames, moving, w: el('C1').offsetWidth, painted: window.__ro, fit: best, n_fit: moved.length, curve_off: off, painted_k: window.__rok };",
         ))
         .unwrap();
     let w_after = worst["w"].as_f64().unwrap();
@@ -196,6 +206,16 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
     assert!(painted.len() >= 2, "the size watch saw the re-flow: {worst}");
     assert!(painted.iter().all(|d| *d < 1.0), "the frame of the re-flow is painted with the card and its label about their laid-out centres: {worst}");
     assert!(worst["worst"].as_f64().unwrap() < 1.0, "and so is every frame after it: {worst}");
+    // P4C: the frame of the re-flow is on the desktop's curve too (a plan made again starts at the frame's own time, not at the
+    // later instant its script runs: before, that one frame was held ahead on the curve, by up to 0.064 on a heavy page).
+    let fit = worst["fit"].as_f64().unwrap();
+    let curve_off: Vec<f64> = worst["curve_off"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
+    assert!(worst["n_fit"].as_u64().unwrap() > 20 && fit < 0.003, "the frames after the re-flow follow ZoomOut on Elastic: {worst}");
+    assert!(!curve_off.is_empty() && curve_off.iter().all(|e| *e < 0.003), "the frame of the re-flow is on that curve: {worst}");
+    println!(
+        "re-flow mid-intro, scale: the requestAnimationFrame samples within {fit:.4} of ZoomOut on Elastic; the painted frame(s) of the re-flow within {:.4}",
+        curve_off.iter().cloned().fold(0.0, f64::max)
+    );
     println!(
         "re-flow mid-intro: card {w_before} -> {w_after} px wide; in the frame of the re-flow (after the page's size watch, before paint) {:.2} px from the laid-out centres; the {} frames after it, worst {:.2} px (the first requestAnimationFrame sample, taken before that frame's layout, read {:.1} px)",
         painted.iter().cloned().fold(0.0, f64::max),
@@ -204,6 +224,38 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
         worst["first"].as_f64().unwrap()
     );
     page.wait_for(&js("return anims().length === 0;"), 5).unwrap_or_else(|e| panic!("the intro did not end: {e}"));
+
+    // ── the window is resized mid-intro: the plan is made again inside that frame's resize step ──────────────────
+    // A heavy page's frame runs script before its resize observers (12 ms in every requestAnimationFrame step stands for it),
+    // so the re-plan runs later than the frame's own time; the frame it paints must still be on the desktop's curve.
+    click(&mut page, "BTN-PLAY");
+    page.wait_for(&js("return el('LBL-C1').getAnimations().length > 0;"), 5).unwrap_or_else(|e| panic!("no intro: {e}"));
+    page.eval(&js("window.__busy = true; const spin = () => { if (!window.__busy) return; const e = performance.now() + 12; while (performance.now() < e); requestAnimationFrame(spin); }; requestAnimationFrame(spin); window.__rk = []; window.__w0 = el('C1').offsetWidth; new ResizeObserver(() => window.__rk.push([document.timeline.currentTime, el('C1').getBoundingClientRect().width / el('C1').offsetWidth, el('LBL-C1').getBoundingClientRect().width / el('LBL-C1').offsetWidth, Math.max(drift('LBL-C1'), drift('C1'))])).observe(form()); return true;")).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    page.resize(700, 700).unwrap();
+    let rs = page
+        .eval(&js(
+            "const t0 = performance.now(); const ks = []; while (performance.now() - t0 < 1200) { const ts = await new Promise(r => requestAnimationFrame(r)); ks.push([ts, el('C1').getBoundingClientRect().width / el('C1').offsetWidth]); }
+             window.__busy = false;
+             const Z = t => (t <= 0 || t >= 1) ? 1 : Math.max(1 - 1.06 * Math.exp(-3.5 * t) * Math.sin(5 * Math.PI * t), 0.02);
+             const moved = ks.filter(([, k]) => Math.abs(k - 1) > 0.0005);
+             let best = 1e9, start = 0; for (let s = moved[0][0] - 1800; s <= moved[0][0]; s += 0.25) { const e = Math.max(...moved.map(([t, k]) => Math.abs(k - Z((t - s) / 1800)))); if (e < best) { best = e; start = s; } }
+             const off = window.__rk.map(([t, k, kl]) => Math.max(Math.abs(k - Z((t - start) / 1800)), Math.abs(kl - Z((t - start) / 1800))));
+             return { fit: best, n_fit: moved.length, curve_off: off, drift: window.__rk.map(r => r[3]), w0: window.__w0, w1: el('C1').offsetWidth };",
+        ))
+        .unwrap();
+    let r_off: Vec<f64> = rs["curve_off"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
+    let r_drift: Vec<f64> = rs["drift"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
+    assert!(rs["w1"].as_f64().unwrap() < rs["w0"].as_f64().unwrap() - 20.0, "the resize re-flowed the card: {rs}");
+    assert!(rs["n_fit"].as_u64().unwrap() > 20 && rs["fit"].as_f64().unwrap() < 0.003, "the frames around the resize follow ZoomOut on Elastic: {rs}");
+    assert!(r_off.len() >= 2 && r_off.iter().all(|e| *e < 0.003), "the frame painted at the resize is on that curve: {rs}");
+    assert!(r_drift.iter().all(|d| *d < 1.0), "and about the laid-out centres: {rs}");
+    println!(
+        "resize mid-intro with 12 ms of script per frame: card {} -> {} px; requestAnimationFrame samples within {:.4} of the curve; the painted frame(s) at the resize within {:.4} of it and {:.2} px of the laid-out centres",
+        rs["w0"], rs["w1"], rs["fit"].as_f64().unwrap(), r_off.iter().cloned().fold(0.0, f64::max), r_drift.iter().cloned().fold(0.0, f64::max)
+    );
+    page.resize(1100, 700).unwrap();
+    page.wait_for(&js("return anims().length === 0;"), 5).unwrap_or_else(|e| panic!("the second intro did not end: {e}"));
 
     // ── Area, Scatter and a Monochrome bar chart grow when they are shown ───────────────────────────────────────
     click(&mut page, "BTN-CH");

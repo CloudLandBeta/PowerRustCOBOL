@@ -43,6 +43,23 @@ pub(crate) fn now() -> f64 {
     web_sys::window().and_then(|w| w.performance()).map(|p| p.now()).unwrap_or_else(js_sys::Date::now)
 }
 
+/// How far ahead a plan made again for a moved layout draws its frames (`motion_replan`).
+const REPLAN_HORIZON_MS: f64 = 250.0;
+
+/// The time of the frame being made, in page time: `document.timeline.currentTime`, the instant every Web Animation is
+/// sampled at in this frame (the `requestAnimationFrame` timestamp; between frames, the last frame's). Work done inside a
+/// frame (a resize observer, the render pass it runs) happens LATER on `now()`'s clock, by as long as that frame's script,
+/// style and layout took. `now()` when the page has no timeline.
+pub(crate) fn frame_time() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| Reflect::get(&d, &"timeline".into()).ok())
+        .and_then(|t| Reflect::get(&t, &"currentTime".into()).ok())
+        .and_then(|v| v.as_f64())
+        .filter(|t| t.is_finite())
+        .unwrap_or_else(now)
+}
+
 /// The operating system asks for less motion.
 fn reduced() -> bool {
     web_sys::window()
@@ -493,6 +510,18 @@ impl Shared {
     /// laid out, and start, on each control that moves (or whose container moves), the animation that draws it where the
     /// desktop draws it from now until every animation of the plan has come to rest.
     pub(super) fn motion_plan(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, root: usize) {
+        self.motion_plan_within(inner, inst, root, None);
+    }
+
+    /// A running plan made again because the layout moved its controls (a re-flow, a resize: `motion_relaid`). During a window
+    /// drag that is every frame, so its frames go only `REPLAN_HORIZON_MS` ahead (a plan over the whole remaining intro costs a
+    /// key frame per 1/60 s per control, which dropped frames: P4-1 (a), 30 in 1.5 s against 6); a full plan follows when the
+    /// layout has held still for half that time.
+    fn motion_replan(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, root: usize) {
+        self.motion_plan_within(inner, inst, root, Some(REPLAN_HORIZON_MS));
+    }
+
+    fn motion_plan_within(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, root: usize, horizon: Option<f64>) {
         let snap = {
             let Ok(host) = inner.host.try_borrow() else { return };
             let Some(tree) = host.trees.get(&inst) else { return };
@@ -532,15 +561,22 @@ impl Shared {
         }
         let reduce = reduced();
         // The frames start at the instant the newest animation of the plan started, when that was in this same pass (the
-        // usual case: the program's `PlayAnimation` a moment ago), so the first frame is its first; else now.
+        // usual case: the program's `PlayAnimation` a moment ago), so the first frame is its first. A plan made again for
+        // motion already under way (a re-flow, a resize: P4-1 (a)) starts at the time of the frame being made, the instant
+        // the browser samples the new frames at: started at `now()`, which runs ahead of it by that frame's work, the frame
+        // that shows the new plan would be held at a later point of the curve than the desktop draws for that instant (one
+        // frame off the curve per re-plan, by up to 0.064 of scale on the intro's Elastic).
         let t_now = now();
         let newest = plays.values().flatten().map(|p| p.started_ms).fold(f64::NEG_INFINITY, f64::max);
-        let t0 = if t_now - newest < 100.0 { newest.min(t_now) } else { t_now };
+        let t0 = if t_now - newest < 100.0 { newest.min(t_now) } else { frame_time().min(t_now) };
         // How far the frames go: until every animation of the plan rests (reduced motion: nothing moves at all).
         let ends: Vec<Option<f64>> = plays.values().flatten().map(|p| p.end()).collect();
         let finite_end = ends.iter().flatten().fold(t0, |a, b| a.max(*b));
         let endless = !reduce && ends.iter().any(Option::is_none);
-        let t1 = if reduce { t0 } else if endless { finite_end.max(t0 + 10_000.0) } else { finite_end };
+        let t_end = if reduce { t0 } else if endless { finite_end.max(t0 + 10_000.0) } else { finite_end };
+        // A re-plan's frames stop at its horizon; the full plan that follows takes over (`renew` below).
+        let short = horizon.filter(|h| t_end > t0 + h + m::STEP_MS);
+        let t1 = short.map_or(t_end, |h| t0 + h);
         let at = |i: usize, t: f64| -> Tf {
             match plays.get(&i) {
                 Some(p) if reduce => {
@@ -707,10 +743,11 @@ impl Shared {
             }
         }
         // An animation that never ends is planned again before its frames run out.
-        let renew = endless.then(|| {
+        let renew = (endless || short.is_some()).then(|| {
             let weak = Rc::downgrade(self);
             let wi = Rc::downgrade(inner);
-            crate::api::Timeout::new(((t1 - t0) - 500.0).max(100.0) as u32, move || {
+            let wait = if let Some(h) = short { h / 2.0 } else { ((t1 - t0) - 500.0).max(100.0) };
+            crate::api::Timeout::new(wait as u32, move || {
                 if let (Some(sh), Some(inner)) = (weak.upgrade(), wi.upgrade()) {
                     sh.motion_plan(&inner, inst, root);
                 }
@@ -719,17 +756,17 @@ impl Shared {
         // The layout this plan was measured on, while it runs: only a plan that places a control inside a moving container
         // depends on it (a control that moves alone is drawn about its own centre wherever the layout puts it).
         let compensated = started.keys().any(|&i| snap.parent[i].is_some_and(|p| i != root && nodes.contains(&p) && plays.contains_key(&p)));
-        let layout = (compensated && t1 > t_now && !reduce).then(|| {
+        let layout = (compensated && t_end > t_now && !reduce).then(|| {
             let list: Vec<Element> = els.values().cloned().collect();
             let (weak, wi) = (Rc::downgrade(self), Rc::downgrade(inner));
             let watch = SizeWatch::new(&list, move || {
                 if let (Some(sh), Some(inner)) = (weak.upgrade(), wi.upgrade()) {
                     if sh.motion_relaid(inst, Some(root)).contains(&root) {
-                        sh.motion_plan(&inner, inst, root);
+                        sh.motion_replan(&inner, inst, root);
                     }
                 }
             });
-            PlanLayout { els: list.iter().map(|el| (el.clone(), layout_box(el))).collect(), until: t1, watch }
+            PlanLayout { els: list.iter().map(|el| (el.clone(), layout_box(el))).collect(), until: t_end, watch }
         });
         if let Ok(mut st) = self.motion.try_borrow_mut() {
             let mi = st.insts.entry(inst).or_default();
@@ -819,7 +856,7 @@ impl Shared {
     /// The form's surface changed size (the window, or the pane it is in): the running plans the new layout moved are made again.
     pub(super) fn motion_resized(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32) {
         for r in self.motion_relaid(inst, None) {
-            self.motion_plan(inner, inst, r);
+            self.motion_replan(inner, inst, r);
         }
     }
 

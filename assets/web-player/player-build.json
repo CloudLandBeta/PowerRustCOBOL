@@ -37,9 +37,9 @@
       "sha256": "397d5fdabb33a681bf0e541ef6d503229472fa46e7bde5da78b3159c86ae4a27"
     },
     {
-      "bytes": 3377035,
+      "bytes": 3377542,
       "path": "plain/player_bg.wasm",
-      "sha256": "08a84d5c617a6ef245ce12db7952ff79413ab055db357ba904f355062f5e4d4f"
+      "sha256": "12a98c6f3fb20a96bc9fbeeb35f67d0874605f9ed03d6f92ba0b82f6f90b9e6a"
     },
     {
       "bytes": 96744,
@@ -47,9 +47,9 @@
       "sha256": "e0e7f32ea2695a5f28c2dcbd3f5c35f1288b73042db9b882c5cf675f31437a3a"
     },
     {
-      "bytes": 3193126,
+      "bytes": 3193637,
       "path": "threaded/player_bg.wasm",
-      "sha256": "0b43974cea5bbfdc59f31f262ed95bbc8a4716eeab3dad4d7f15d948f0bd7ad4"
+      "sha256": "1062c9c5fd4957263e14173c5c7bde8dd60bf44336a3a77f85e2c2c4696fe049"
     },
     {
       "bytes": 4556,
@@ -67,20 +67,20 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 3660671,
-      "after_wasm_opt_bytes": 3377035,
-      "cargo_output_bytes": 5102095,
+      "after_bindgen_bytes": 3661213,
+      "after_wasm_opt_bytes": 3377542,
+      "cargo_output_bytes": 5102695,
       "glue_js_bytes": 90135,
-      "gzip_bytes": 1136447,
+      "gzip_bytes": 1136568,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 3441718,
-      "after_wasm_opt_bytes": 3193126,
-      "cargo_output_bytes": 4891497,
+      "after_bindgen_bytes": 3442254,
+      "after_wasm_opt_bytes": 3193637,
+      "cargo_output_bytes": 4892087,
       "glue_js_bytes": 96744,
-      "gzip_bytes": 1116648,
+      "gzip_bytes": 1116944,
       "opt_level": "s",
       "variant": "threaded"
     }
@@ -122,7 +122,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "e77f9bc31c356985194563d135247f49e31ba0d93d69deda22a07112a12fdee5",
+  "source_hash": "051ccd308079eb9153877bc816493935e1f6cbe777b2422dacbfa1e883cb124c",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",
