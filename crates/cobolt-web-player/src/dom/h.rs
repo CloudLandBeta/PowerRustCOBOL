@@ -74,13 +74,15 @@ pub struct Listener {
     target: EventTarget,
     kind: String,
     cb: Closure<dyn FnMut(Event)>,
+    /// Registered for the capture phase: the target hears the event before what is under it does.
+    capture: bool,
 }
 
 impl Listener {
     pub fn new(target: &EventTarget, kind: &str, f: impl FnMut(Event) + 'static) -> Listener {
         let cb = Closure::<dyn FnMut(Event)>::new(f);
         let _ = target.add_event_listener_with_callback(kind, cb.as_ref().unchecked_ref());
-        Listener { target: target.clone(), kind: kind.to_owned(), cb }
+        Listener { target: target.clone(), kind: kind.to_owned(), cb, capture: false }
     }
 
     /// A non-passive listener (the handler may `preventDefault`) for events like `wheel` and `touchmove`.
@@ -89,13 +91,25 @@ impl Listener {
         let opts = web_sys::AddEventListenerOptions::new();
         opts.set_passive(false);
         let _ = target.add_event_listener_with_callback_and_add_event_listener_options(kind, cb.as_ref().unchecked_ref(), &opts);
-        Listener { target: target.clone(), kind: kind.to_owned(), cb }
+        Listener { target: target.clone(), kind: kind.to_owned(), cb, capture: false }
+    }
+
+    /// A capture-phase listener: it hears the event on its way DOWN to what is under it, so it can stop it from arriving
+    /// (the click that ends a drag, which must not press the tab the drag started on).
+    pub fn new_capture(target: &EventTarget, kind: &str, f: impl FnMut(Event) + 'static) -> Listener {
+        let cb = Closure::<dyn FnMut(Event)>::new(f);
+        let _ = target.add_event_listener_with_callback_and_bool(kind, cb.as_ref().unchecked_ref(), true);
+        Listener { target: target.clone(), kind: kind.to_owned(), cb, capture: true }
     }
 }
 
 impl Drop for Listener {
     fn drop(&mut self) {
-        let _ = self.target.remove_event_listener_with_callback(&self.kind, self.cb.as_ref().unchecked_ref());
+        if self.capture {
+            let _ = self.target.remove_event_listener_with_callback_and_bool(&self.kind, self.cb.as_ref().unchecked_ref(), true);
+        } else {
+            let _ = self.target.remove_event_listener_with_callback(&self.kind, self.cb.as_ref().unchecked_ref());
+        }
     }
 }
 
@@ -105,10 +119,42 @@ pub fn focus(e: &Element) {
     }
 }
 
-/// Scroll the strip a tab sits in just far enough for the tab to be on show: the strip and nothing above it, so the page
-/// does not move (`scrollIntoView` would scroll every ancestor). The strip runs across (a top or bottom strip) or down
-/// (a side strip), as its `aria-orientation` says, and is positioned, so it is the tab's offset parent and the tab's
-/// offsets are measured from the strip's own edge.
+/// Is `strip` (a TabControl's strip) one that runs down the control (a Left or Right strip)?
+pub fn strip_is_vertical(strip: &Element) -> bool {
+    strip.get_attribute("aria-orientation").as_deref() == Some("vertical")
+}
+
+/// How far a strip scrolls along itself, in pixels: 0 when its tabs all fit.
+pub fn strip_range(strip: &Element) -> i32 {
+    let range = if strip_is_vertical(strip) { strip.scroll_height() - strip.client_height() } else { strip.scroll_width() - strip.client_width() };
+    range.max(0)
+}
+
+/// Slide a strip to `to` pixels along itself, gliding there (`smooth`) or at once.
+pub fn slide_strip_to(strip: &Element, to: f64, smooth: bool) {
+    if smooth {
+        let options = web_sys::ScrollToOptions::new();
+        if strip_is_vertical(strip) {
+            options.set_top(to);
+        } else {
+            options.set_left(to);
+        }
+        options.set_behavior(web_sys::ScrollBehavior::Smooth);
+        strip.scroll_to_with_scroll_to_options(&options);
+    } else if strip_is_vertical(strip) {
+        strip.set_scroll_top(to.round() as i32);
+    } else {
+        strip.set_scroll_left(to.round() as i32);
+    }
+}
+
+/// Slide the strip a tab sits in just far enough for the tab to be wholly on show, as the desktop's strip does
+/// (`cobolt-forms` `tabstrip::reveal`, the same arithmetic): not at all when it already is; otherwise the tab whole and
+/// a little more, so a sliver of the next tab shows beside it on the side it came from and says there are more (three
+/// quarters of a tab's height). It glides there. The strip and nothing above it moves, so the page does not
+/// (`scrollIntoView` would scroll every ancestor). The strip runs across (a top or bottom strip) or down (a side strip),
+/// as its `aria-orientation` says, and is positioned, so it is the tab's offset parent and the tab's offsets are measured
+/// from the strip's own edge.
 pub fn reveal_in_strip(tab: &Element) {
     let (Some(t), Some(strip)) = (tab.dyn_ref::<HtmlElement>(), tab.parent_element()) else {
         return;
@@ -116,19 +162,21 @@ pub fn reveal_in_strip(tab: &Element) {
     if t.offset_parent().as_ref() != Some(&strip) {
         return;
     }
-    if strip.get_attribute("aria-orientation").as_deref() == Some("vertical") {
-        let (from, len, view, at) = (t.offset_top(), t.offset_height(), strip.client_height(), strip.scroll_top());
-        if from < at {
-            strip.set_scroll_top(from);
-        } else if from + len > at + view {
-            strip.set_scroll_top(from + len - view);
-        }
+    let (from, len, view, at) = if strip_is_vertical(&strip) {
+        (t.offset_top(), t.offset_height(), strip.client_height(), strip.scroll_top())
     } else {
-        let (from, len, view, at) = (t.offset_left(), t.offset_width(), strip.client_width(), strip.scroll_left());
-        if from < at {
-            strip.set_scroll_left(from);
-        } else if from + len > at + view {
-            strip.set_scroll_left(from + len - view);
-        }
+        (t.offset_left(), t.offset_width(), strip.client_width(), strip.scroll_left())
+    };
+    if from >= at && from + len <= at + view {
+        return;
     }
+    let peek = (t.offset_height() as f64 * 0.75) as i32;
+    let to = if len >= view {
+        from
+    } else if from < at {
+        (from - peek).max(from + len - view)
+    } else {
+        (from + len - view + peek).min(from)
+    };
+    slide_strip_to(&strip, to.clamp(0, strip_range(&strip)) as f64, true);
 }

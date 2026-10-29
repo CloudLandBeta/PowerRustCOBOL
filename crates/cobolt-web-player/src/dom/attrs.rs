@@ -148,6 +148,9 @@ pub fn apply_attrs(el: &Element, old: &[(String, String)], new: &[(String, Strin
             if k == "data-pr-reveal" {
                 request_reveal(el);
             }
+            if k == "data-pr-slide" {
+                super::tabslide::request(el);
+            }
             if k == "src" && needs_cors_mode(el, v) {
                 // Set before `src`: the request mode is decided when the load starts.
                 let _ = el.set_attribute("crossorigin", "anonymous");

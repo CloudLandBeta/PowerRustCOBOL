@@ -5674,12 +5674,13 @@ impl DesignerPanel {
             .map(|l| l.name.clone())
     }
 
-    /// If `(cx, cy)` lands on a `TabControl`'s tab strip, return that control's id
-    /// and the clicked tab index (spec 012). The geometry mirrors the strip drawn
-    /// in `cobolt_forms::paint::draw_control`.
-    fn tab_strip_hit(&self, cx: i32, cy: i32) -> Option<(String, u32)> {
+    /// The tab strips of the canvas's visible TabControls, topmost first, each as the engine drew it this frame: a strip
+    /// with more tabs than room is slid so that the selected tab is wholly on show (or as the wheel slid it) and a tab at
+    /// its edge is cut, so a tab's place among the drawn ones is NOT its page.
+    fn tab_strips(&self, ctx: &egui::Context) -> Vec<(&Control, cobolt_forms::tabstrip::TabStrip)> {
         // Spec 091 R44 — a TabControl of another tab is inactive.
         let members = self.active_tab_ids();
+        let mut strips = Vec::new();
         for &idx in super::containers::render_order(&self.form.controls)
             .iter()
             .rev()
@@ -5701,17 +5702,44 @@ impl DesignerPanel {
                 continue;
             }
             let origin = egui::pos2(c.rect.x as f32, c.rect.y as f32);
-            let p = egui::pos2(cx as f32, cy as f32);
-            // The strip the canvas drew: with more tabs than room it is scrolled to keep the
-            // selected tab on show, so a tab's place among the drawn ones is NOT its page. A
-            // chevron steps the selection to the neighbouring tab, and the strip follows.
-            let strip = cobolt_forms::tabstrip::tab_strip(origin, c, cobolt_forms::tabstrip::auto_first(c));
-            if let Some(i) = cobolt_forms::tabstrip::click_target(c, &strip, p) {
-                // The PAGE, counting from 1 like `SelectedTab`.
-                return Some((c.id.clone(), i as u32 + 1));
-            }
+            strips.push((c, cobolt_forms::render::tab_strip_of(ctx, None, origin, c)));
         }
-        None
+        strips
+    }
+
+    /// If `(cx, cy)` lands on a `TabControl`'s tab strip, return that control's id
+    /// and the clicked tab index (spec 012). The geometry is the strip the engine
+    /// drew (`tab_strips`): a press on the part of a tab that shows selects it by
+    /// its own number, and the strip slides to bring it wholly into view.
+    fn tab_strip_hit(&self, ctx: &egui::Context, cx: i32, cy: i32) -> Option<(String, u32)> {
+        let p = egui::pos2(cx as f32, cy as f32);
+        self.tab_strips(ctx).into_iter().find_map(|(c, strip)| {
+            // The PAGE, counting from 1 like `SelectedTab`.
+            cobolt_forms::tabstrip::hit(&strip, p).map(|i| (c.id.clone(), i as u32 + 1))
+        })
+    }
+
+    /// A swipe or the wheel over the strip of a TabControl that has more tabs than room slides the strip, as it does in
+    /// Run Form (the engine keeps the slide: view state, never saved), and is spent, so the canvas under it does not
+    /// scroll as well.
+    fn slide_tab_strip_under(&self, ui: &egui::Ui, cx: i32, cy: i32) {
+        let p = egui::pos2(cx as f32, cy as f32);
+        let Some((c, strip)) = self
+            .tab_strips(ui.ctx())
+            .into_iter()
+            .find(|(_, s)| s.overflows() && s.band.contains(p))
+        else {
+            return;
+        };
+        let travel = strip.travel(ui.input(|i| i.smooth_scroll_delta));
+        if travel != 0.0 {
+            cobolt_forms::render::slide_tab_strip(ui.ctx(), None, c, travel);
+            ui.input_mut(|i| {
+                i.events
+                    .retain(|e| !matches!(e, egui::Event::MouseWheel { .. }));
+                i.smooth_scroll_delta = egui::Vec2::ZERO;
+            });
+        }
     }
 
     /// Topmost **visible** control under a form-space point, respecting container
@@ -10483,6 +10511,12 @@ impl DesignerPanel {
                     (rel.x as i32, rel.y as i32)
                 });
 
+                // A swipe or the wheel over a TabControl strip that has more tabs
+                // than room slides it, as it does in Run Form.
+                if let Some((cx, cy)) = ptr_canvas {
+                    self.slide_tab_strip_under(ui, cx, cy);
+                }
+
                 if let Some((cx, cy)) = ptr_canvas {
                     if self.sidebar_seam_at(cx, cy).is_some()
                         || matches!(self.drag, DragState::ResizingSidebarPane { .. })
@@ -11540,7 +11574,7 @@ impl DesignerPanel {
                     if let Some((cx, cy)) = ptr_canvas {
                         // A click on a TabControl's tab strip switches its active
                         // page (spec 012) instead of selecting a child.
-                        if let Some((tab_id, ti)) = self.tab_strip_hit(cx, cy) {
+                        if let Some((tab_id, ti)) = self.tab_strip_hit(ui.ctx(), cx, cy) {
                             let old = self
                                 .form
                                 .find_control(&tab_id)

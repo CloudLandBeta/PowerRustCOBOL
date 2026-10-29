@@ -620,7 +620,15 @@ pub fn tab_control(cx: &ViewCtx, i: usize) -> VNode {
     let selected = (num(cx, i, "SelectedTab", 1.0) as i64).clamp(1, titles.len() as i64) as u32;
     let pos = cx.tree.get(i, "TabPosition").to_ascii_lowercase();
     let vertical = matches!(pos.as_str(), "left" | "right");
-    let mut list = VNode::new("div").key("tablist").class("pr-tablist").attr("role", "tablist").attr("aria-orientation", if vertical { "vertical" } else { "horizontal" }).on("click").on("keydown");
+    // `data-pr-slide`: the DOM layer wires the strip's drag and wheel once, when the element is made (`dom/tabslide.rs`).
+    let mut list = VNode::new("div")
+        .key("tablist")
+        .class("pr-tablist")
+        .attr("role", "tablist")
+        .attr("aria-orientation", if vertical { "vertical" } else { "horizontal" })
+        .attr("data-pr-slide", "1")
+        .on("click")
+        .on("keydown");
     for (k, title) in titles.iter().enumerate() {
         let n = k as u32 + 1;
         let mut tab = VNode::new("button")
@@ -1111,9 +1119,14 @@ mod tests {
                 .map(|(i, _)| i + 1)
                 .collect();
             assert_eq!(revealing, [selected], "exactly the selected tab asks");
+            // The strip itself asks, once, to have its drag and wheel wired.
+            let mut strips: Vec<&VNode> = Vec::new();
+            strip.find_all(&|n| n.has_class("pr-tablist"), &mut strips);
+            assert_eq!(strips.len(), 1);
+            assert_eq!(strips[0].attr_of("data-pr-slide"), Some("1"), "the strip asks for its slide gestures");
             moved += 1;
         }
-        eprintln!("web TabControl reveal — 40 tabs, the selection moved {moved} times: each time exactly one tab, the selected one, carried data-pr-reveal");
+        eprintln!("web TabControl reveal — 40 tabs, the selection moved {moved} times: each time exactly one tab, the selected one, carried data-pr-reveal; the strip carried data-pr-slide");
     }
 
     #[test]

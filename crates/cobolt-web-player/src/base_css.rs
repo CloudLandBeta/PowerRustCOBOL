@@ -83,8 +83,9 @@ pub const BASE_CSS: &str = r#"
 .pr-expander:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
 .pr-expander svg { display: block; width: 24px; height: 24px; }
 .pr-tabcontrol { overflow: hidden; }
-/* A strip with more tabs than room scrolls, so that every tab can be reached (the desktop draws chevrons; the browser has scrolling): sideways on a top or bottom strip, down the control on a side one. A thin bar, touch, a trackpad swipe or Shift+wheel move it. */
-.pr-tablist { display: flex; gap: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+/* A strip with more tabs than room slides, so that every tab can be reached, with no scroll bar and no buttons (the desktop's layers-tab bar has none either): sideways on a top or bottom strip, down the control on a side one, a tab at the edge cut by the strip. A touch screen and a trackpad slide it themselves; the mouse's drag and wheel are `dom/tabslide.rs`. */
+.pr-tablist { display: flex; gap: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior: contain; }
+.pr-tablist::-webkit-scrollbar { display: none; }
 .pr-tabs-left > .pr-tablist, .pr-tabs-right > .pr-tablist { flex-direction: column; overflow-x: hidden; overflow-y: auto; }
 .pr-tabs-bottom > .pr-tablist { align-items: flex-start; }
 .pr-tab { padding: 4px var(--pr-tab-pad, 12px); cursor: pointer; background: var(--pr-tab-bg, transparent); color: var(--pr-tab-fg, inherit); border: 1px solid var(--pr-border);
@@ -345,23 +346,26 @@ mod tests {
         }
     }
 
-    /// A tab strip with more tabs than room scrolls (it used to clip them, and the clipped tabs could not be reached), and
-    /// its tabs keep their size instead of shrinking to fit.
+    /// A tab strip with more tabs than room slides (it used to clip them, and the clipped tabs could not be reached), with
+    /// no scroll bar to take room from the strip or to look like the slider that was asked not to be there, and its tabs
+    /// keep their size instead of shrinking to fit.
     #[test]
-    fn a_tab_strip_scrolls_instead_of_clipping_its_tabs() {
+    fn a_tab_strip_slides_instead_of_clipping_its_tabs_and_shows_no_scroll_bar() {
         let rule = |selector: &str| {
             let start = BASE_CSS.find(selector).unwrap_or_else(|| panic!("{selector}"));
             let end = BASE_CSS[start..].find('}').expect("a closed rule") + start;
             BASE_CSS[start..end].to_owned()
         };
         let list = rule(".pr-tablist {");
-        assert!(list.contains("overflow-x: auto") && list.contains("overflow-y: hidden"), "a top or bottom strip scrolls sideways: {list}");
+        assert!(list.contains("overflow-x: auto") && list.contains("overflow-y: hidden"), "a top or bottom strip slides sideways: {list}");
+        assert!(list.contains("scrollbar-width: none"), "and shows no scroll bar: {list}");
+        assert!(BASE_CSS.contains(".pr-tablist::-webkit-scrollbar { display: none; }"), "not even in WebKit's own spelling");
         let side = rule(".pr-tabs-left > .pr-tablist, .pr-tabs-right > .pr-tablist {");
-        assert!(side.contains("overflow-y: auto") && side.contains("overflow-x: hidden"), "a side strip scrolls down: {side}");
+        assert!(side.contains("overflow-y: auto") && side.contains("overflow-x: hidden"), "a side strip slides down: {side}");
         assert!(!list.contains("overflow: hidden"), "the clipping rule is gone: {list}");
         let tab = rule(".pr-tab {");
         assert!(tab.contains("flex: 0 0 auto"), "a tab keeps its size: {tab}");
-        eprintln!("web TabControl strip — scrolls sideways (top, bottom) and down (left, right); a tab no longer shrinks or clips");
+        eprintln!("web TabControl strip — slides sideways (top, bottom) and down (left, right) with no scroll bar; a tab no longer shrinks or clips");
     }
 
     #[test]

@@ -4,101 +4,107 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! A TabControl's tab strip: where each tab sits, and how a strip with more tabs than it has room for scrolls.
+//! A TabControl's tab strip: where each tab sits, and how a strip with more tabs than it has room for slides.
 //!
-//! # The rule that was here before
+//! # The rule that was here before 2.0.89
 //!
 //! Tabs sit edge to edge along their edge of the control, each as wide as its label (on a side strip: as tall as one
 //! tab, all as wide as the widest). The first tab that would overrun the control was left out, and every tab after it:
-//! neither painted nor clickable. With 32 sheet names in a 1152 px strip, 9 were there and 23 could not be reached.
+//! neither painted nor clickable. With PowerExcel's 32 sheet names (FontSize 15) in a 1152 px strip, 9 were there and 23
+//! could not be reached.
 //!
 //! # The rule now
 //!
-//! * **Everything fits:** nothing changes. The same rectangles, and no chevrons.
-//! * **It does not fit:** a chevron button takes each end of the strip, and the tabs between them are drawn from
-//!   `first` on, whole, until the next one would overrun. `first` is how far the strip is scrolled, counted in tabs. It
-//!   runs from 0 to `last_first`, the first tab of the last run of tabs that all fit, so the last tab can always be
-//!   brought into view. A tab is never drawn in part: the viewport holds whole tabs, as the strip always did.
+//! * **Everything fits:** nothing changes. The same rectangles, and nothing to scroll.
+//! * **It does not fit:** the tabs are one long row that slides under the strip's box. `offset` is how far it has slid,
+//!   in points: 0 puts the first tab at the start of the strip, `max_offset` puts the end of the last tab at the far end
+//!   of it. A tab at either edge is cut by the box, as the tabs of the designer's layer bar are, and there are no buttons:
+//!   a swipe, the wheel or a drag slides the row (`render` reads them), and pressing a tab that is cut selects it and
+//!   brings it wholly into view.
 //! * **A selection is brought into view, but only WHEN IT CHANGES** (a click, an arrow key, Home, End, Ctrl+Tab or a
-//!   COBOL write of `SelectedTab`). Whoever scrolls away from the selected tab is not pulled back to it.
+//!   COBOL write of `SelectedTab`), with a sliver of the next tab showing beside it, so a tab brought in at an edge does
+//!   not look like the last one. Whoever slides the strip away from the selected tab is not pulled back to it.
 //!
 //! # Why this is its own module
 //!
 //! The strip is laid out for five readers that must agree to the pixel: the painter that draws the tabs, the engine that
 //! hit-tests them, the focus ring around the selected one, the designer canvas that selects a page by clicking a tab, and
 //! the tests. A strip laid out five times is a strip that eventually draws in one place and answers clicks in another
-//! (the same reason `splitter::geometry` exists), so it is laid out ONCE, here, from the control and a scroll position.
+//! (the same reason `splitter::geometry` exists), so it is laid out ONCE, here, from the control and an offset.
 //!
-//! This module is geometry and arithmetic. It reads no input and keeps no state: `render` owns `first` (view state, kept
+//! This module is geometry and arithmetic. It reads no input and keeps no state: `render` owns the offset (view state, kept
 //! in egui's memory like a Panel's scroll offset: it is not part of the form and is never saved) and calls in here.
 
-use egui::{pos2, vec2, Pos2, Rect};
+use egui::{pos2, vec2, Pos2, Rect, Vec2};
 
 use crate::model::Control;
 
-/// One tab as drawn: which tab it is (from 0, in `Tabs` order) and where it sits.
+/// One tab as placed: which tab it is (from 0, in `Tabs` order) and where it sits.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TabSlot {
     pub index: usize,
+    /// The whole tab, where the strip's offset puts it: it can reach past the band at either end.
     pub rect: Rect,
+    /// The part of the tab inside the band. This is what is painted (the painter clips to the band) and what a press can hit.
+    pub shown: Rect,
 }
 
-/// What a point on the strip is over.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TabHit {
-    /// Tab `index` (from 0).
-    Tab(usize),
-    /// The chevron toward the first tab.
-    Prev,
-    /// The chevron toward the last tab.
-    Next,
-}
-
-/// A TabControl's strip, laid out for one scroll position.
+/// A TabControl's strip, laid out for one offset.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TabStrip {
-    /// Every tab drawn, in order. Whole tabs only.
+    /// Every tab that has a part inside the band, in order. The first and the last can be cut by its edges.
     pub slots: Vec<TabSlot>,
-    /// The chevron toward the first tab, and the one toward the last: present together, and only when the tabs do not
-    /// all fit.
-    pub prev: Option<Rect>,
-    pub next: Option<Rect>,
-    /// The band the strip occupies along its edge of the control, chevrons included: where the wheel scrolls it.
+    /// The band the strip occupies along its edge of the control: where tabs show and where a gesture slides them.
     pub band: Rect,
-    /// The first tab drawn, once held between 0 and `last_first`.
-    pub first: usize,
-    /// How far the strip scrolls: 0 when everything fits.
-    pub last_first: usize,
-    /// How many tabs there are, drawn or not.
+    /// How far the tabs have slid, held between 0 and `max_offset`.
+    pub offset: f32,
+    /// How far they can slide: 0 when everything fits.
+    pub max_offset: f32,
+    /// How many tabs there are, shown or not.
     pub count: usize,
     /// A side strip (Left / Right) runs down the control rather than across it.
     pub vertical: bool,
 }
 
 impl TabStrip {
-    /// The tabs do not all fit, so the strip has chevrons and scrolls.
+    /// The tabs do not all fit, so the strip slides.
     pub fn overflows(&self) -> bool {
-        self.prev.is_some()
+        self.max_offset > 0.0
     }
 
-    /// The chevron toward the first tab does something.
-    pub fn can_scroll_back(&self) -> bool {
-        self.overflows() && self.first > 0
-    }
-
-    /// The chevron toward the last tab does something.
-    pub fn can_scroll_forward(&self) -> bool {
-        self.overflows() && self.first < self.last_first
-    }
-
-    /// Where tab `index` sits, when it is drawn.
+    /// Where tab `index` sits, when any of it is inside the band.
     pub fn rect_of(&self, index: usize) -> Option<Rect> {
         self.slots.iter().find(|s| s.index == index).map(|s| s.rect)
     }
 
-    /// The tab strip's tabs, joined: the keyboard stop of the control. `None` when no tab is drawn.
+    /// The part of tab `index` inside the band.
+    pub fn shown_of(&self, index: usize) -> Option<Rect> {
+        self.slots.iter().find(|s| s.index == index).map(|s| s.shown)
+    }
+
+    /// The tabs' shown parts, joined: the keyboard stop of the control. `None` when no tab is shown.
     pub fn tabs_rect(&self) -> Option<Rect> {
-        self.slots.iter().map(|s| s.rect).reduce(|a, b| a.union(b))
+        self.slots.iter().map(|s| s.shown).reduce(|a, b| a.union(b))
+    }
+
+    /// How far a gesture of `v` (a drag, a swipe) goes along the strip: sideways on a top or bottom strip, down on a side one.
+    pub fn along(&self, v: Vec2) -> f32 {
+        if self.vertical {
+            v.y
+        } else {
+            v.x
+        }
+    }
+
+    /// The travel of a wheel or swipe delta that slides this strip. A side strip slides with the vertical wheel. On a top or
+    /// bottom strip the vertical wheel slides it sideways too (a wheel only turns up and down), unless the gesture is
+    /// plainly sideways.
+    pub fn travel(&self, delta: Vec2) -> f32 {
+        if self.vertical || delta.y.abs() >= delta.x.abs() {
+            delta.y
+        } else {
+            delta.x
+        }
     }
 }
 
@@ -109,7 +115,7 @@ pub fn tab_titles(ctrl: &Control) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// How many tabs the control has, drawn or not.
+/// How many tabs the control has, shown or not.
 pub fn tab_count(ctrl: &Control) -> usize {
     ctrl.get_prop("Tabs").map_or(0, |v| v.as_str().lines().count())
 }
@@ -120,7 +126,7 @@ pub fn selected_position(ctrl: &Control) -> usize {
     ctrl.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(1).max(1) as usize - 1
 }
 
-/// The strip's measurements along its own axis, from the control alone (no scroll position, no origin).
+/// The strip's measurements along its own axis, from the control alone (no offset, no origin).
 struct Layout {
     /// Each tab's extent along the strip.
     lens: Vec<f32>,
@@ -130,12 +136,11 @@ struct Layout {
     vertical: bool,
     /// The strip's length: the control's width, or its height for a side strip.
     avail: f32,
-    /// A chevron's extent along the strip: 0 when the tabs fit and there are none.
-    chevron: f32,
-    /// The room for tabs: everything between the chevrons, or all of `avail` when there are none.
-    view: f32,
-    /// The furthest `first` goes: 0 without chevrons.
-    last_first: usize,
+    /// How far the tabs can slide: 0 when they fit.
+    max_offset: f32,
+    /// How much of the neighbouring tab `reveal` leaves showing beside the tab it brings into view: enough of it to say
+    /// that there are more tabs that way, and to press.
+    peek: f32,
     /// The band the strip occupies, for `origin`.
     band: Rect,
 }
@@ -153,35 +158,11 @@ impl Layout {
             "right" => Rect::from_min_size(pos2(origin.x + size.x - strip, origin.y), vec2(strip, size.y)),
             _ => Rect::from_min_size(origin, vec2(size.x, tab_h)),
         };
-        let lens: Vec<f32> = tab_titles(ctrl)
-            .iter()
-            .map(|t| if vertical { tab_h } else { ctrl.tab_width(t) as f32 })
-            .collect();
+        let lens: Vec<f32> = tab_titles(ctrl).iter().map(|t| if vertical { tab_h } else { ctrl.tab_width(t) as f32 }).collect();
         let cross = if vertical { strip } else { tab_h };
         let avail = if vertical { size.y } else { size.x };
         let total: f32 = lens.iter().sum();
-        let smallest = lens.iter().copied().fold(f32::INFINITY, f32::min);
-        // A square button at each end, as large as a tab is tall. A control too short to hold the two and one tab keeps the
-        // old rule (whole tabs from the start, the rest left out): there is no room to scroll in.
-        let scrolls = !lens.is_empty() && total > avail && avail >= 2.0 * tab_h + smallest;
-        let chevron = if scrolls { tab_h } else { 0.0 };
-        let view = avail - 2.0 * chevron;
-        let last_first = if scrolls {
-            // The first tab of the last run that all fits: walk back from the end until the next one would overrun.
-            let mut used = 0.0;
-            let mut first = lens.len();
-            for (i, len) in lens.iter().enumerate().rev() {
-                if used + len > view {
-                    break;
-                }
-                used += len;
-                first = i;
-            }
-            first.min(lens.len() - 1)
-        } else {
-            0
-        };
-        Layout { lens, cross, vertical, avail, chevron, view, last_first, band }
+        Layout { lens, cross, vertical, avail, max_offset: (total - avail).max(0.0), peek: tab_h * 0.75, band }
     }
 
     /// A rectangle `len` long starting at `cursor` (an absolute coordinate along the strip).
@@ -203,93 +184,71 @@ impl Layout {
     }
 }
 
-/// The strip of `ctrl` at `origin` (the control's top-left corner, in whatever space the caller paints in), scrolled to
-/// `first`. `first` is held between 0 and the furthest the strip scrolls, so any value is safe.
-pub fn tab_strip(origin: Pos2, ctrl: &Control, first: usize) -> TabStrip {
+/// The strip of `ctrl` at `origin` (the control's top-left corner, in whatever space the caller paints in), with its tabs
+/// slid by `offset`. `offset` is held between 0 and the furthest the strip slides, so any value is safe.
+pub fn tab_strip(origin: Pos2, ctrl: &Control, offset: f32) -> TabStrip {
     let l = Layout::of(origin, ctrl);
-    let scrolls = l.chevron > 0.0;
-    let first = if scrolls { first.min(l.last_first) } else { 0 };
-    // Edge to edge, accumulated in absolute coordinates so that one tab's far edge IS the next one's near edge, to the bit.
-    let mut cursor = l.axis_min() + l.chevron;
-    let end = cursor + l.view;
+    let offset = if offset.is_nan() { 0.0 } else { offset.clamp(0.0, l.max_offset) };
+    // Edge to edge, accumulated in absolute coordinates so that one tab's far edge IS the next one's near edge, to the bit
+    // (and, at offset 0, to the bit of the rule that was here before).
+    let mut cursor = l.axis_min() - offset;
     let mut slots = Vec::new();
-    for (index, &len) in l.lens.iter().enumerate().skip(first) {
-        if cursor + len > end {
-            break;
+    for (index, &len) in l.lens.iter().enumerate() {
+        let rect = l.at(cursor, len);
+        let shown = rect.intersect(l.band);
+        if shown.width() > 0.0 && shown.height() > 0.0 {
+            slots.push(TabSlot { index, rect, shown });
         }
-        slots.push(TabSlot { index, rect: l.at(cursor, len) });
         cursor += len;
     }
-    let (prev, next) = if scrolls {
-        (Some(l.at(l.axis_min(), l.chevron)), Some(l.at(l.axis_min() + l.avail - l.chevron, l.chevron)))
-    } else {
-        (None, None)
-    };
-    TabStrip { slots, prev, next, band: l.band, first, last_first: l.last_first, count: l.lens.len(), vertical: l.vertical }
+    TabStrip { slots, band: l.band, offset, max_offset: l.max_offset, count: l.lens.len(), vertical: l.vertical }
 }
 
-/// How far the strip of `ctrl` scrolls: 0 when every tab fits.
-pub fn scroll_range(ctrl: &Control) -> usize {
-    Layout::of(Pos2::ZERO, ctrl).last_first
+/// How far the strip of `ctrl` slides: 0 when every tab fits.
+pub fn max_offset(ctrl: &Control) -> f32 {
+    Layout::of(Pos2::ZERO, ctrl).max_offset
 }
 
-/// Where the strip should start so that tab `selected` is among the ones drawn, moving it as little as possible from
-/// `first`: not at all when the tab is already on show, back to it when it is to the left, and just far enough for it to be
-/// the last one drawn when it is to the right. A `selected` past the last tab (nothing is selected) moves nothing.
-pub fn scroll_to(ctrl: &Control, first: usize, selected: usize) -> usize {
+/// Where the strip should be slid so that tab `selected` is wholly on show, moving it as little as possible from `offset`:
+/// not at all when the tab is already wholly on show; otherwise just far enough that the tab is whole, and a little more,
+/// so that a sliver of the neighbouring tab shows beside it on the side it came from (the sliver says there are more tabs
+/// that way, and can be pressed to walk on). The strip stops at its ends, where there is no neighbour. A tab longer than
+/// the strip starts at the strip's start. A `selected` past the last tab (nothing is selected) moves nothing.
+pub fn reveal(ctrl: &Control, offset: f32, selected: usize) -> f32 {
     let l = Layout::of(Pos2::ZERO, ctrl);
-    if l.chevron == 0.0 {
-        return 0;
+    if l.max_offset <= 0.0 {
+        return 0.0;
     }
-    let first = first.min(l.last_first);
-    if selected >= l.lens.len() {
-        return first;
+    let offset = if offset.is_nan() { 0.0 } else { offset.clamp(0.0, l.max_offset) };
+    let Some(&len) = l.lens.get(selected) else {
+        return offset;
+    };
+    let start: f32 = l.lens[..selected].iter().sum();
+    let end = start + len;
+    if start >= offset && end <= offset + l.avail {
+        return offset;
     }
-    if selected < first {
-        return selected.min(l.last_first);
-    }
-    // Is it on show? Tabs `first..=selected` all have to fit.
-    let span: f32 = l.lens[first..=selected].iter().sum();
-    if span <= l.view {
-        return first;
-    }
-    // To the right: start as far back as keeps `selected` the last tab drawn.
-    let mut start = selected;
-    let mut used = l.lens[selected];
-    while start > first + 1 && used + l.lens[start - 1] <= l.view {
-        start -= 1;
-        used += l.lens[start];
-    }
-    start.min(l.last_first)
+    let to = if len >= l.avail {
+        start
+    } else if start < offset {
+        // Cut or hidden at the start: the tab, and the end of the tab before it.
+        (start - l.peek).max(end - l.avail)
+    } else {
+        // Cut or hidden at the end: the tab, and the start of the tab after it.
+        (end - l.avail + l.peek).min(start)
+    };
+    to.clamp(0.0, l.max_offset)
 }
 
-/// Where the strip starts when nothing has ever scrolled it: just far enough for the selected tab to be on show. This is
-/// what a surface with no scroll state (the designer canvas, a still picture) draws.
-pub fn auto_first(ctrl: &Control) -> usize {
-    scroll_to(ctrl, 0, selected_position(ctrl))
+/// Where the strip is when nothing has ever slid it: just far enough for the selected tab to be wholly on show. This is what
+/// a surface with no scroll state (a still picture) draws, and what a running strip starts at.
+pub fn auto_offset(ctrl: &Control) -> f32 {
+    reveal(ctrl, 0.0, selected_position(ctrl))
 }
 
-/// What a point on `strip` is over, if anything.
-pub fn hit(strip: &TabStrip, p: Pos2) -> Option<TabHit> {
-    if strip.prev.is_some_and(|r| r.contains(p)) {
-        return Some(TabHit::Prev);
-    }
-    if strip.next.is_some_and(|r| r.contains(p)) {
-        return Some(TabHit::Next);
-    }
-    strip.slots.iter().find(|s| s.rect.contains(p)).map(|s| TabHit::Tab(s.index))
-}
-
-/// The tab a click at `p` selects on a surface with no scroll of its own (the designer canvas): the tab under the pointer,
-/// by its own index whatever its place in the strip; for a chevron, the neighbour of the selected tab on that side (the
-/// strip is laid out to keep the selection on show, `auto_first`, so it follows). `None` off the strip. `strip` is the strip
-/// of `ctrl` that was drawn.
-pub fn click_target(ctrl: &Control, strip: &TabStrip, p: Pos2) -> Option<usize> {
-    match hit(strip, p)? {
-        TabHit::Tab(i) => Some(i),
-        TabHit::Prev => Some(selected_position(ctrl).min(strip.count.saturating_sub(1)).saturating_sub(1)),
-        TabHit::Next => Some((selected_position(ctrl) + 1).min(strip.count.saturating_sub(1))),
-    }
+/// The tab under `p` on `strip`: only the part of a tab that shows can be pressed. `None` off the strip.
+pub fn hit(strip: &TabStrip, p: Pos2) -> Option<usize> {
+    strip.slots.iter().find(|s| s.shown.contains(p)).map(|s| s.index)
 }
 
 #[cfg(test)]
@@ -348,8 +307,8 @@ mod tests {
         out
     }
 
-    /// Strips that fit are laid out as they always were: the same rectangles to the bit, no chevrons, at any origin
-    /// (a fractional one included: the far edge of a tab must still be the near edge of the next).
+    /// Strips that fit are laid out as they always were: the same rectangles to the bit, whole, nothing to slide, at any
+    /// origin (a fractional one included: the far edge of a tab must still be the near edge of the next).
     #[test]
     fn a_strip_that_fits_is_laid_out_as_before() {
         let mut cases = 0;
@@ -364,12 +323,15 @@ mod tests {
                         continue;
                     }
                     for origin in [Pos2::ZERO, pos2(13.0, 7.0), pos2(0.37, 91.61)] {
-                        let strip = tab_strip(origin, &c, 0);
+                        let strip = tab_strip(origin, &c, 0.0);
                         let got: Vec<Rect> = strip.slots.iter().map(|s| s.rect).collect();
                         assert_eq!(got, the_old_rule(origin, &c), "{position} {count} tabs {w}x{h} at {origin:?}");
-                        assert!(!strip.overflows(), "{position} {count} tabs {w}x{h}: nothing to scroll");
-                        assert_eq!((strip.first, strip.last_first), (0, 0));
+                        assert!(strip.slots.iter().all(|s| s.shown == s.rect), "{position}: every tab whole");
+                        assert!(!strip.overflows(), "{position} {count} tabs {w}x{h}: nothing to slide");
+                        assert_eq!(strip.max_offset, 0.0);
                         assert_eq!(strip.slots.iter().map(|s| s.index).collect::<Vec<_>>(), (0..count).collect::<Vec<_>>());
+                        // A fitting strip cannot be slid, whatever it is asked.
+                        assert_eq!(tab_strip(origin, &c, 90.0).slots, strip.slots, "{position}: offset held at 0");
                         cases += 1;
                         tab_total += count;
                     }
@@ -377,199 +339,212 @@ mod tests {
             }
         }
         assert!(cases > 100, "the sweep must cover many strips: {cases}");
-        eprintln!("TabStrip fits — {cases} strips ({tab_total} tabs) laid out exactly as the old rule laid them, none with chevrons");
+        eprintln!("TabStrip fits — {cases} strips ({tab_total} tabs) laid out exactly as the old rule laid them, whole, with nothing to slide");
     }
 
-    /// 32 sheet names in a 1152 px strip, the real case this feature exists for: the tabs that fit are whole, edge to
-    /// edge, between two chevrons; the last tab can be reached; nothing is drawn under a chevron.
+    /// 32 sheet names in a 1152 px strip, the real case this feature exists for: from the start the tabs the old rule drew
+    /// are there, whole, edge to edge, and one more is cut by the strip's far edge; at the far end the last tab ends at the
+    /// strip's end and the first one showing is cut at its start.
     #[test]
-    fn a_strip_that_overflows_has_two_chevrons_and_whole_tabs_between_them() {
+    fn a_strip_that_overflows_slides_under_its_band_and_cuts_the_tab_at_the_edge() {
         let c = tabs(&sheets(32), "top", 1152, 560);
-        let strip = tab_strip(Pos2::ZERO, &c, 0);
-        let (prev, next) = (strip.prev.expect("a chevron toward the first tab"), strip.next.expect("one toward the last"));
-        let tab_h = c.tab_strip_height() as f32;
-        assert_eq!((prev.width(), prev.height()), (tab_h, tab_h), "a square, as large as a tab is tall");
-        assert_eq!(prev.min.x, 0.0);
-        assert_eq!(next.max.x, 1152.0, "the far chevron ends at the control's edge");
-        assert_eq!((prev.min.y, next.min.y), (0.0, 0.0), "both sit on the strip");
-        assert!(strip.slots.len() > 5 && strip.slots.len() < 32, "some tabs drawn, not all: {}", strip.slots.len());
-        assert_eq!(strip.slots[0].index, 0);
-        assert_eq!(strip.slots[0].rect.min.x, prev.max.x, "the first tab starts where the chevron ends");
+        let old = the_old_rule(Pos2::ZERO, &c);
+        let strip = tab_strip(Pos2::ZERO, &c, 0.0);
+        assert!(strip.overflows());
+        let whole: Vec<Rect> = strip.slots.iter().filter(|s| s.shown == s.rect).map(|s| s.rect).collect();
+        assert_eq!(whole, old, "the tabs that fit are the ones the old rule drew, to the bit");
+        let cut = strip.slots.last().unwrap();
+        assert_eq!(strip.slots.len(), old.len() + 1, "and one more, cut by the far edge");
+        assert!(cut.shown.width() > 0.0 && cut.shown.width() < cut.rect.width());
+        assert_eq!(cut.shown.max.x, 1152.0, "the cut tab runs to the strip's end");
+        assert_eq!(cut.index, old.len());
         for w in strip.slots.windows(2) {
             assert_eq!(w[0].rect.max.x, w[1].rect.min.x, "edge to edge");
-            assert_eq!(w[1].index, w[0].index + 1);
         }
-        let last = strip.slots.last().unwrap().rect;
-        assert!(last.max.x <= next.min.x, "no tab under the far chevron");
-        assert!(strip.can_scroll_forward() && !strip.can_scroll_back(), "at the start: only forward");
-        assert!(strip.last_first > 0 && strip.last_first < 32);
+        // At the far end.
+        let end = tab_strip(Pos2::ZERO, &c, strip.max_offset);
+        let last = end.slots.last().unwrap();
+        assert_eq!(last.index, 31);
+        assert!((last.rect.max.x - 1152.0).abs() < 0.01, "the last tab ends where the strip ends: {}", last.rect.max.x);
+        assert_eq!(last.shown, last.rect, "whole");
+        let first = end.slots.first().unwrap();
+        assert!(first.shown.width() <= first.rect.width() && first.shown.min.x == 0.0, "the first one showing starts at the strip's start");
+        assert_eq!(end.offset, strip.max_offset);
+        // Past the range is held at the range, before 0 at 0.
+        assert_eq!(tab_strip(Pos2::ZERO, &c, strip.max_offset + 500.0).offset, strip.max_offset);
+        assert_eq!(tab_strip(Pos2::ZERO, &c, -40.0).offset, 0.0);
+        assert_eq!(tab_strip(Pos2::ZERO, &c, f32::NAN).offset, 0.0);
+        eprintln!(
+            "TabStrip overflow — 32 tabs in 1152 px: {} whole at the start (as the old rule) + 1 cut at {:.0} of {:.0} px; slides {:.0} px; at the far end tab 32 ends at {:.2}",
+            old.len(),
+            cut.shown.width(),
+            cut.rect.width(),
+            strip.max_offset,
+            last.rect.max.x
+        );
     }
 
-    /// Every position from the start to `last_first` draws whole contiguous tabs, between the chevrons; together they
-    /// reach every tab; at `last_first` the LAST tab is drawn and one step earlier it is not (that is what makes it the
-    /// furthest the strip needs to go).
+    /// Sliding one point at a time from the start to the end shows every tab wholly at some offset, on every edge and for
+    /// strips of 9 to 120 tabs; no tab is ever placed outside its band's cross axis; the shown part never leaves the band.
     #[test]
-    fn scrolling_one_tab_at_a_time_reaches_every_tab() {
-        let mut worst = 0;
+    fn sliding_the_strip_shows_every_tab_whole_at_some_offset() {
         let mut checked = 0;
+        let mut worst_cut = 0.0_f32;
         for position in ["top", "bottom", "left", "right"] {
             for (count, w, h) in [(32, 1152, 560), (120, 1152, 560), (40, 640, 300), (9, 330, 200)] {
                 let c = tabs(&sheets(count), position, w, h);
-                let range = scroll_range(&c);
-                assert!(range > 0, "{position} {count} tabs in {w}x{h}: must overflow");
-                let mut reached = vec![false; count];
-                for first in 0..=range {
-                    let s = tab_strip(Pos2::ZERO, &c, first);
-                    assert_eq!(s.first, first);
-                    assert_eq!(s.slots[0].index, first, "{position}: the strip starts at the tab it was told to");
+                let max = max_offset(&c);
+                assert!(max > 0.0, "{position} {count} tabs in {w}x{h}: must overflow");
+                let mut whole = vec![false; count];
+                let mut offset = 0.0;
+                while offset <= max {
+                    let s = tab_strip(pos2(3.0, 5.0), &c, offset);
+                    assert_eq!(s.offset, offset);
                     for pair in s.slots.windows(2) {
-                        assert_eq!(pair[1].index, pair[0].index + 1);
+                        assert_eq!(pair[1].index, pair[0].index + 1, "{position}: the tabs shown are in a run");
                     }
-                    let (p, n) = (s.prev.unwrap(), s.next.unwrap());
-                    // Overlap, not touching: tabs and chevrons meet edge to edge, which egui's `intersects` counts.
-                    let overlaps = |a: Rect, b: Rect| a.min.x < b.max.x && b.min.x < a.max.x && a.min.y < b.max.y && b.min.y < a.max.y;
                     for slot in &s.slots {
-                        reached[slot.index] = true;
-                        assert!(!overlaps(slot.rect, p) && !overlaps(slot.rect, n), "{position}: a tab under a chevron");
-                        assert!(s.band.contains_rect(slot.rect), "{position}: a tab outside its band");
+                        assert!(s.band.contains_rect(slot.shown), "{position}: shown outside its band");
+                        if slot.shown == slot.rect {
+                            whole[slot.index] = true;
+                        } else {
+                            worst_cut = worst_cut.max(1.0 - slot.shown.area() / slot.rect.area());
+                        }
                     }
-                    worst = worst.max(s.slots.len());
                     checked += 1;
+                    offset += 1.0;
                 }
-                assert!(reached.iter().all(|r| *r), "{position} {count} tabs: all of them reached by scrolling");
-                assert!(tab_strip(Pos2::ZERO, &c, range).rect_of(count - 1).is_some(), "{position}: the last tab at the furthest");
-                assert!(tab_strip(Pos2::ZERO, &c, range - 1).rect_of(count - 1).is_none(), "{position}: and not one step earlier");
-                // Past the range is held at the range.
-                assert_eq!(tab_strip(Pos2::ZERO, &c, range + 50).first, range);
+                assert!(whole.iter().all(|w| *w), "{position} {count} tabs: all of them shown whole by sliding");
+                let end = tab_strip(Pos2::ZERO, &c, max);
+                assert_eq!(end.slots.last().unwrap().index, count - 1, "{position}: the last tab at the furthest");
             }
         }
-        eprintln!("TabStrip scroll — {checked} scroll positions on 16 strips (4 edges x 4 sizes, up to 120 tabs): every tab reached, the last one at the furthest, widest viewport {worst} tabs");
+        eprintln!("TabStrip slide — {checked} offsets (1 pt apart) on 16 strips (4 edges x 4 sizes, up to 120 tabs): every tab shown whole at some offset, the last one at the furthest, never outside its band");
     }
 
-    /// A side strip scrolls down the control: tabs stacked as tall as one tab, chevrons above and below.
+    /// A side strip slides down the control: tabs stacked as tall as one tab, all as wide as the strip.
     #[test]
-    fn a_side_strip_scrolls_vertically() {
+    fn a_side_strip_slides_vertically() {
         for position in ["left", "right"] {
             let c = tabs(&sheets(30), position, 400, 300);
-            let s = tab_strip(pos2(10.0, 20.0), &c, 3);
-            assert!(s.vertical);
-            let (p, n) = (s.prev.unwrap(), s.next.unwrap());
+            let s = tab_strip(pos2(10.0, 20.0), &c, 55.0);
+            assert!(s.vertical && s.overflows());
             let tab_h = c.tab_strip_height() as f32;
-            assert_eq!(p.min.y, 20.0, "the near chevron is at the top");
-            assert_eq!(n.max.y, 320.0, "the far one at the bottom");
-            assert_eq!(p.height(), tab_h);
-            assert_eq!(p.width(), c.tab_strip_extent() as f32, "as wide as the strip");
-            assert_eq!(s.slots[0].index, 3);
-            assert_eq!(s.slots[0].rect.min.y, p.max.y);
+            assert_eq!(s.slots[0].rect.min.y, 20.0 - 55.0 + tab_h * s.slots[0].index as f32, "the offset moves tabs up");
             for w in s.slots.windows(2) {
                 assert_eq!(w[0].rect.max.y, w[1].rect.min.y);
                 assert_eq!(w[0].rect.width(), w[1].rect.width());
+                assert_eq!(w[0].rect.width(), c.tab_strip_extent() as f32, "as wide as the strip");
             }
+            assert_eq!(s.slots[0].shown.min.y, 20.0, "cut at the top of the band");
+            assert_eq!(s.slots.last().unwrap().shown.max.y, 320.0, "and at the bottom");
+            // The gesture axes: down the strip.
+            assert_eq!(s.along(vec2(7.0, 3.0)), 3.0);
+            assert_eq!(s.travel(vec2(7.0, 3.0)), 3.0, "a side strip slides with the vertical wheel");
         }
+        let top = tab_strip(Pos2::ZERO, &tabs(&sheets(30), "top", 400, 300), 0.0);
+        assert_eq!(top.along(vec2(7.0, 3.0)), 7.0, "a top strip: sideways");
+        assert_eq!(top.travel(vec2(0.0, 9.0)), 9.0, "the vertical wheel slides a top strip sideways");
+        assert_eq!(top.travel(vec2(9.0, 2.0)), 9.0, "a plainly sideways swipe is itself");
     }
 
-    /// A control too short to hold two chevrons and a tab has no room to scroll in: it keeps the old rule.
-    #[test]
-    fn a_strip_too_small_for_chevrons_keeps_the_old_rule() {
-        let c = tabs(&sheets(10), "top", 90, 100);
-        let s = tab_strip(Pos2::ZERO, &c, 0);
-        assert!(!s.overflows());
-        let got: Vec<Rect> = s.slots.iter().map(|s| s.rect).collect();
-        assert_eq!(got, the_old_rule(Pos2::ZERO, &c));
-        assert_eq!(s.last_first, 0);
-        assert_eq!(scroll_to(&c, 0, 9), 0, "nothing to scroll to");
-    }
-
-    /// `scroll_to`: not at all when the tab is on show; back to it when it is to the left; just far enough for it to be the
-    /// last tab drawn when it is to the right; and a selection past the last tab (none) moves nothing.
+    /// `reveal`: not at all when the tab is wholly on show; to the start of the strip when it is cut or hidden at the start;
+    /// to the end of the strip when it is cut or hidden at the end; and a selection past the last tab (none) moves nothing.
     #[test]
     fn a_selection_is_brought_into_view_with_the_least_movement() {
         let c = tabs(&sheets(32), "top", 1152, 560);
-        let range = scroll_range(&c);
-        let drawn = tab_strip(Pos2::ZERO, &c, 0).slots.len();
+        let max = max_offset(&c);
+        // Where each tab starts along the row of tabs, before any sliding.
+        let widths: Vec<f32> = tab_titles(&c).iter().map(|t| c.tab_width(t) as f32).collect();
+        let start = |k: usize| widths[..k].iter().sum::<f32>();
         // On show: nothing moves, wherever the strip is.
-        assert_eq!(scroll_to(&c, 0, 0), 0);
-        assert_eq!(scroll_to(&c, 0, drawn - 1), 0);
-        assert_eq!(scroll_to(&c, 5, 5), 5);
-        // To the left: the tab becomes the first one drawn.
-        assert_eq!(scroll_to(&c, 12, 3), 3);
-        // To the right: it becomes the LAST one drawn.
-        let first = scroll_to(&c, 0, 20);
-        let s = tab_strip(Pos2::ZERO, &c, first);
-        assert_eq!(s.slots.last().unwrap().index, 20, "the selected tab is the last drawn");
-        assert!(first > 0 && first <= range);
-        // ...and one tab less would not have shown it, so the move is the least there is.
-        assert!(tab_strip(Pos2::ZERO, &c, first - 1).rect_of(20).is_none() || first == 0);
+        assert_eq!(reveal(&c, 0.0, 0), 0.0);
+        assert_eq!(reveal(&c, 0.0, 3), 0.0);
+        assert_eq!(reveal(&c, 120.0, 4), 120.0);
+        // Hidden or cut at the start: the tab comes to the strip's start, less a sliver of the tab before it.
+        let peek = Layout::of(Pos2::ZERO, &c).peek;
+        assert!(peek > 0.0 && peek < widths[0]);
+        assert_eq!(reveal(&c, 900.0, 3), start(3) - peek);
+        assert_eq!(reveal(&c, start(2) + 10.0, 2), start(2) - peek, "a tab cut at the start");
+        assert_eq!(reveal(&c, 100.0, 0), 0.0, "the strip stops at its start: there is no tab before the first");
+        // Hidden or cut at the end: the tab comes to the strip's end, less a sliver of the tab after it.
+        let moved = reveal(&c, 0.0, 20);
+        let s = tab_strip(Pos2::ZERO, &c, moved);
+        let shown = s.rect_of(20).unwrap();
+        assert!((shown.max.x - (1152.0 - peek)).abs() < 0.01, "the selected tab ends a sliver before the strip's end: {}", shown.max.x);
+        assert_eq!(s.shown_of(20), Some(shown), "and is whole");
+        let sliver = s.shown_of(21).expect("the next tab peeks out beside it");
+        assert!((sliver.width() - peek).abs() < 0.01 && s.rect_of(21).unwrap().width() > peek, "a sliver of it, not all");
+        assert!(moved > 0.0 && moved <= max);
         // The very last tab.
-        assert_eq!(scroll_to(&c, 0, 31), range);
+        assert!((reveal(&c, 0.0, 31) - max).abs() < 0.01);
         // Nothing is selected (one past the last name, or any larger number): nothing moves.
-        assert_eq!(scroll_to(&c, 9, 32), 9);
-        assert_eq!(scroll_to(&c, 9, 4000), 9);
-        // A strip nobody has scrolled starts where the selection is on show.
+        assert_eq!(reveal(&c, 90.0, 32), 90.0);
+        assert_eq!(reveal(&c, 90.0, 4000), 90.0);
+        // A strip nobody has slid starts where the selection is wholly on show.
         let mut sel = c.clone();
-        sel.set_prop("SelectedTab", PropValue::Int(28));
-        let auto = auto_first(&sel);
-        assert!(tab_strip(Pos2::ZERO, &sel, auto).rect_of(27).is_some());
         let mut every = 0;
         for k in 1..=32 {
             sel.set_prop("SelectedTab", PropValue::Int(k));
-            let f = auto_first(&sel);
-            assert!(tab_strip(Pos2::ZERO, &sel, f).rect_of(k as usize - 1).is_some(), "tab {k} on show");
+            let at = auto_offset(&sel);
+            let s = tab_strip(Pos2::ZERO, &sel, at);
+            assert_eq!(s.shown_of(k as usize - 1), s.rect_of(k as usize - 1), "tab {k} wholly on show at the auto offset");
             every += 1;
         }
-        eprintln!("TabStrip into view — least-movement rule holds on 32 tabs; the auto start shows the selection for all {every} of them");
+        // A tab longer than the strip starts at its start.
+        let tiny = tabs(&sheets(6), "top", 30, 100);
+        let tiny_widths: Vec<f32> = tab_titles(&tiny).iter().map(|t| tiny.tab_width(t) as f32).collect();
+        assert!(tiny_widths.iter().all(|w| *w > 30.0), "every tab is longer than the strip");
+        assert_eq!(reveal(&tiny, 0.0, 3), tiny_widths[..3].iter().sum::<f32>());
+        eprintln!("TabStrip into view — least-movement rule holds on 32 tabs in 1152 px; the auto offset shows the selection whole for all {every} of them");
     }
 
-    /// What a point on the strip is over.
+    /// What a point on the strip is over: the tab under it, by its own index, and only the part of a tab that shows.
     #[test]
-    fn hit_finds_a_tab_or_a_chevron() {
+    fn hit_finds_the_tab_under_a_point_and_only_its_shown_part() {
         let c = tabs(&sheets(32), "top", 1152, 560);
-        let s = tab_strip(pos2(5.0, 9.0), &c, 4);
-        let p = s.prev.unwrap();
-        let n = s.next.unwrap();
-        assert_eq!(hit(&s, p.center()), Some(TabHit::Prev));
-        assert_eq!(hit(&s, n.center()), Some(TabHit::Next));
+        let s = tab_strip(pos2(5.0, 9.0), &c, 130.0);
         for slot in &s.slots {
-            assert_eq!(hit(&s, slot.rect.center()), Some(TabHit::Tab(slot.index)));
+            assert_eq!(hit(&s, slot.shown.center()), Some(slot.index), "a tab is itself, wherever it sits");
         }
-        assert_eq!(hit(&s, pos2(5.0, 200.0)), None, "the page below the strip is not the strip");
-        // The page a click selects is the tab's own index, not its position among the ones drawn.
-        assert_eq!(hit(&s, s.slots[0].rect.center()), Some(TabHit::Tab(4)));
+        assert_eq!(hit(&s, pos2(5.0 + 600.0, 200.0)), None, "the page below the strip is not the strip");
+        let first = s.slots[0];
+        assert!(first.rect.min.x < s.band.min.x, "the first tab is cut at the start");
+        assert_eq!(hit(&s, pos2(first.rect.min.x + 1.0, 12.0)), None, "the part of a tab that is not shown cannot be pressed");
+        assert_eq!(hit(&s, first.shown.center()), Some(first.index));
+        assert!(first.index > 0, "the strip has slid, so the first tab shown is not tab 1");
     }
 
-    /// The designer canvas keeps no scroll: a click selects the tab it lands on by its own index, and a chevron steps the
-    /// selection one tab, the strip following it. Clicking one tab after another with the far chevron walks the whole
-    /// strip, which is how a designer reaches tab 32 of 32.
+    /// The designer canvas keeps no scroll: it draws the strip slid just far enough for the selected tab to be on show,
+    /// and a press selects the tab it lands on by its own index, cut or whole. Pressing the tab cut at the far edge, again
+    /// and again, walks the whole strip, which is how a designer reaches tab 32 of 32 with nothing to scroll by.
     #[test]
-    fn the_designer_selects_by_index_and_its_chevrons_step_the_selection() {
+    fn the_designer_walks_the_strip_by_pressing_the_tab_cut_at_its_edge() {
         let mut c = tabs(&sheets(32), "top", 400, 240);
         c.set_prop("SelectedTab", PropValue::Int(20));
-        let strip = tab_strip(pos2(30.0, 40.0), &c, auto_first(&c));
-        assert!(strip.slots[0].index > 0, "tab 20 was not on show at the start: the strip is scrolled");
+        let strip = tab_strip(pos2(30.0, 40.0), &c, auto_offset(&c));
+        assert!(strip.offset > 0.0, "tab 20 was not on show at the start: the strip is slid");
         for slot in &strip.slots {
-            assert_eq!(click_target(&c, &strip, slot.rect.center()), Some(slot.index), "a tab is itself, wherever it sits");
+            assert_eq!(hit(&strip, slot.shown.center()), Some(slot.index));
         }
-        assert_eq!(click_target(&c, &strip, strip.prev.unwrap().center()), Some(18), "the near chevron: tab 19 (index 18)");
-        assert_eq!(click_target(&c, &strip, strip.next.unwrap().center()), Some(20), "the far chevron: tab 21 (index 20)");
-        assert_eq!(click_target(&c, &strip, pos2(30.0, 400.0)), None, "off the strip");
-        // Walk from tab 1 to tab 32 by the far chevron alone: 31 clicks, each one tab on, every tab drawn at its turn.
-        let mut reached = 0;
+        assert_eq!(strip.shown_of(19), strip.rect_of(19), "the selected tab is whole");
+        // Walk from tab 1 to tab 32 by pressing the part of the tab that is cut at the far edge.
         let mut sel = 0usize;
+        let mut presses = 0;
         while sel < 31 {
             c.set_prop("SelectedTab", PropValue::Int(sel as i64 + 1));
-            let s = tab_strip(Pos2::ZERO, &c, auto_first(&c));
-            assert!(s.rect_of(sel).is_some(), "the selected tab {} is on show", sel + 1);
-            sel = click_target(&c, &s, s.next.unwrap().center()).unwrap();
-            reached += 1;
+            let s = tab_strip(Pos2::ZERO, &c, auto_offset(&c));
+            assert_eq!(s.shown_of(sel), s.rect_of(sel), "the selected tab {} is whole", sel + 1);
+            // The last tab showing beyond the selected one: cut by the strip's far edge, until the strip's end is reached.
+            let next = s.slots.iter().rev().find(|t| t.index > sel).expect("a tab after the selected one shows");
+            if sel < 28 {
+                assert!(next.shown != next.rect, "the last tab that shows is cut by the far edge");
+            }
+            sel = hit(&s, next.shown.center()).unwrap();
+            presses += 1;
+            assert!(presses <= 31);
         }
-        assert_eq!((sel, reached), (31, 31));
-        // The ends hold: before the first and past the last stay put.
-        c.set_prop("SelectedTab", PropValue::Int(1));
-        let s = tab_strip(Pos2::ZERO, &c, auto_first(&c));
-        assert_eq!(click_target(&c, &s, s.prev.unwrap().center()), Some(0));
-        c.set_prop("SelectedTab", PropValue::Int(32));
-        let s = tab_strip(Pos2::ZERO, &c, auto_first(&c));
-        assert_eq!(click_target(&c, &s, s.next.unwrap().center()), Some(31));
-        eprintln!("TabStrip designer clicks — tab 20 of 32 selected: {} tabs drawn from tab {}; 31 far-chevron clicks walk tab 1 to tab 32; the ends hold", strip.slots.len(), strip.slots[0].index + 1);
+        assert_eq!(sel, 31);
+        eprintln!("TabStrip designer — tab 20 of 32 selected: strip slid {:.0} px; {presses} presses on the tab cut at the far edge walk tab 1 to tab 32", strip.offset);
     }
 }

@@ -32,6 +32,7 @@ mod ops;
 mod payload;
 mod reactive;
 mod sheets;
+mod tabslide;
 
 // The node layer: every element of the page is drawn by Leptos (WASM-016 R1, T24).
 use reactive as nodes;
@@ -728,6 +729,8 @@ impl Surface for Dom {
         nodes::focus_requested();
         // A tab that has just become the selected one is on show in its strip (a TabControl with more tabs than room).
         nodes::reveal_requested();
+        // A tab strip the pass brought in slides under the mouse's drag and the wheel.
+        tabslide::wire_requested();
     }
 
     fn effect(&self, inner: &Rc<Inner>, e: &Effect) {
