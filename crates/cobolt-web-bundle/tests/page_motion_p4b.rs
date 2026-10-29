@@ -49,6 +49,9 @@ fn spec(multi: bool) -> FixtureSpec {
         ("CH-AREA", "AreaChart"),
         ("CH-SC", "ScatterChart"),
         ("CH-MONO", "BarChart"),
+        ("CH-HID", "ScatterChart"),
+        ("BTN-CH2", "Button"),
+        ("BTN-HID2", "Button"),
         ("PNL-F", "Panel"),
         ("LBL-FI", "Label"),
         ("LBL-STILL", "Label"),
@@ -69,6 +72,8 @@ fn spec(multi: bool) -> FixtureSpec {
                 FixtureHandler::on("BTN-PLAY", "onClick", vec![call("C1", "PlayAnimation", &["intro"]), call("LBL-C1", "PlayAnimation", &["intro"]), set("LBL-OUT", "played")]),
                 FixtureHandler::on("BTN-SHOW2", "onClick", vec![call("C2", "Show", &[]), set("LBL-OUT", "shown2")]),
                 FixtureHandler::on("BTN-CH", "onClick", vec![call("CH-AREA", "Show", &[]), call("CH-SC", "Show", &[]), call("CH-MONO", "Show", &[]), set("LBL-OUT", "charts")]),
+                FixtureHandler::on("BTN-CH2", "onClick", vec![call("CH-HID", "Show", &[]), set("LBL-OUT", "chart2")]),
+                FixtureHandler::on("BTN-HID2", "onClick", vec![call("CH-HID", "Hide", &[]), set("LBL-OUT", "hid2")]),
                 FixtureHandler::on("BTN-FADE", "onClick", vec![call("PNL-F", "PlayAnimation", &["out"]), call("LBL-FI", "PlayAnimation", &["in"]), set("LBL-OUT", "faded")]),
                 FixtureHandler::on("TXT-B", "onGotFocus", vec![set("LBL-OUT", "focus-b")]),
             ],
@@ -95,6 +100,8 @@ fn cfrm() -> String {
   <Control id="BTN-SHOW2" type="Button" x="110" y="44" w="90" h="28"><Property name="Caption">Show 2</Property></Control>
   <Control id="BTN-CH" type="Button" x="210" y="44" w="90" h="28"><Property name="Caption">Charts</Property></Control>
   <Control id="BTN-FADE" type="Button" x="310" y="44" w="90" h="28"><Property name="Caption">Fade</Property></Control>
+  <Control id="BTN-CH2" type="Button" x="700" y="44" w="90" h="28"><Property name="Caption">Chart 2</Property></Control>
+  <Control id="BTN-HID2" type="Button" x="800" y="44" w="90" h="28"><Property name="Caption">Hide 2</Property></Control>
   <Control id="TXT-A" type="TextBox" x="420" y="44" w="120" h="28">{focus}</Control>
   <Control id="TXT-B" type="TextBox" x="560" y="44" w="120" h="28">{focus}</Control>
   <Control id="ROW" type="Panel" x="10" y="90" w="960" h="220"><Property name="LayoutMode">Flex</Property><Property name="FlexDirection">Row</Property><Property name="FlexWrap">NoWrap</Property><Property name="BackgroundColor">#EEEEEE</Property><Property name="Anchor">Top,Left,Right</Property></Control>
@@ -104,6 +111,7 @@ fn cfrm() -> String {
   {area}
   {scatter}
   {mono}
+  {hid}
   <Control id="PNL-F" type="Panel" x="720" y="330" w="240" h="160"><Property name="BackgroundColor">#3E7BE8</Property>{fade_out}</Control>
   <Control id="LBL-FI" type="Label" x="20" y="20" w="100" h="40" parent="PNL-F"><Property name="Caption">fades in</Property><Property name="BackgroundColor">#F5A524</Property>{fade_in}</Control>
   <Control id="LBL-STILL" type="Label" x="20" y="90" w="100" h="40" parent="PNL-F"><Property name="Caption">still</Property><Property name="BackgroundColor">#E5484D</Property></Control>
@@ -113,6 +121,7 @@ fn cfrm() -> String {
         area = chart("CH-AREA", "AreaChart", 10, ""),
         scatter = chart("CH-SC", "ScatterChart", 240, ""),
         mono = chart("CH-MONO", "BarChart", 470, r#"<Property name="Monochrome">true</Property>"#),
+        hid = chart("CH-HID", "ScatterChart", 240, ""),
         fade_out = anim("out", "Programmatic", "FadeOut", 600),
         fade_in = anim("in", "Programmatic", "FadeIn", 600),
     )
@@ -257,6 +266,32 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
     page.resize(1100, 700).unwrap();
     page.wait_for(&js("return anims().length === 0;"), 5).unwrap_or_else(|e| panic!("the second intro did not end: {e}"));
 
+    // ── the main thread stalls after a resize, for longer than a re-plan's horizon (judgement P4C-1) ──────────────
+    // A plan made again for a moved layout draws its frames only a quarter second ahead; when the page cannot run for longer
+    // than that (a heavy handler, a busy tab) the browser's first frame after the stall must still be on the curve, not the
+    // last frame of the short plan held until a timer gets to run.
+    click(&mut page, "BTN-PLAY");
+    page.wait_for(&js("return el('LBL-C1').getAnimations().length > 0;"), 5).unwrap_or_else(|e| panic!("no intro: {e}"));
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    page.resize(700, 700).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    let stall = page
+        .eval(&js(
+            "const e = performance.now() + 450; while (performance.now() < e); const t0 = performance.now(); const ks = []; while (performance.now() - t0 < 1000) { const ts = await new Promise(r => requestAnimationFrame(r)); ks.push([ts, el('C1').getBoundingClientRect().width / el('C1').offsetWidth, el('LBL-C1').getBoundingClientRect().width / el('LBL-C1').offsetWidth]); }
+             const Z = t => (t <= 0 || t >= 1) ? 1 : Math.max(1 - 1.06 * Math.exp(-3.5 * t) * Math.sin(5 * Math.PI * t), 0.02);
+             const later = ks.slice(4).filter(([, k]) => Math.abs(k - 1) > 0.0005);
+             let best = 1e9, start = 0; for (let s = later[0][0] - 1800; s <= later[0][0]; s += 0.25) { const e = Math.max(...later.map(([t, k]) => Math.abs(k - Z((t - s) / 1800)))); if (e < best) { best = e; start = s; } }
+             const off = ks.slice(0, 4).map(([t, k, kl]) => Math.max(Math.abs(k - Z((t - start) / 1800)), Math.abs(kl - Z((t - start) / 1800))));
+             return { fit: best, n_fit: later.length, first: off, ks: ks.slice(0, 5), start, zs: ks.slice(0, 5).map(([t]) => Z((t - start) / 1800)), drift: Math.max(drift('LBL-C1'), drift('C1')) };",
+        ))
+        .unwrap();
+    let s_off: Vec<f64> = stall["first"].as_array().unwrap().iter().filter_map(|v| v.as_f64()).collect();
+    assert!(stall["n_fit"].as_u64().unwrap() > 20 && stall["fit"].as_f64().unwrap() < 0.003, "the frames after the stall follow ZoomOut on Elastic: {stall}");
+    assert!(s_off.len() == 4 && s_off.iter().all(|e| *e < 0.01), "the first frames after a 450 ms stall are on that curve (not held at the end of the short plan): {stall}");
+    println!("resize mid-intro, then a 450 ms stall: the first four frames after it within {:.4} of the curve (the later ones within {:.4})", s_off.iter().cloned().fold(0.0, f64::max), stall["fit"].as_f64().unwrap());
+    page.resize(1100, 700).unwrap();
+    page.wait_for(&js("return anims().length === 0;"), 5).unwrap_or_else(|e| panic!("the third intro did not end: {e}"));
+
     // ── Area, Scatter and a Monochrome bar chart grow when they are shown ───────────────────────────────────────
     click(&mut page, "BTN-CH");
     let grown = page
@@ -275,6 +310,24 @@ fn the_page_moves_as_the_desktop_moves_where_judgement_p4_1_found_it_did_not() {
         assert!(distinct >= 15, "{k}: grows over many frames ({distinct} changes): {v:?}");
         println!("AnimateOnLoad {k}: {} frames, {distinct} of them a new picture, from {:.1} to {last:.1}", v.len(), v.iter().cloned().fold(f64::INFINITY, f64::min));
     }
+
+    // ── a chart switched away from while it grows goes on growing (judgement P4C-1, A1) ───────────────────────────
+    // CH-HID sits where CH-SC does, with the same data: shown, then hidden 400 ms into its 1500 ms growth. Read while hidden, its
+    // marks (the attributes are there with no layout) must be the grown chart's, as the desktop's growth runs on the clock.
+    let rest_sc = page.eval(&js("const ys = [...el('CH-SC').querySelectorAll('circle')].map(c => Number(c.getAttribute('cy'))); return Math.max(...ys) - Math.min(...ys);")).unwrap().as_f64().unwrap();
+    click(&mut page, "BTN-CH2");
+    wait_text(&mut page, "LBL-OUT", "chart2");
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    click(&mut page, "BTN-HID2");
+    wait_text(&mut page, "LBL-OUT", "hid2");
+    let hid = page
+        .eval(&js("const ext = () => { const e = el('CH-HID'); const ys = [...e.querySelectorAll('circle')].map(c => Number(c.getAttribute('cy'))); return { shown: e.checkVisibility(), n: ys.length, ext: ys.length ? Math.max(...ys) - Math.min(...ys) : 0 }; }; const first = ext(); await new Promise(r => setTimeout(r, 2000)); return { first, last: ext() };"))
+        .unwrap();
+    let (h0, h1) = (hid["first"]["ext"].as_f64().unwrap(), hid["last"]["ext"].as_f64().unwrap());
+    assert!(hid["last"]["shown"] == false && hid["last"]["n"].as_u64().unwrap() > 0, "the chart is hidden and drawn: {hid}");
+    assert!(h0 < 0.9 * rest_sc, "it was hidden part-way through its growth ({h0} of {rest_sc}): {hid}");
+    assert!((h1 - rest_sc).abs() < 0.5, "hidden, it went on growing to its size at rest ({h1} against {rest_sc}): {hid}");
+    println!("AnimateOnLoad, hidden at 400 ms: extent {h0:.1} when hidden, {h1:.1} two seconds later (at rest {rest_sc:.1})");
 
     // ── a FadeOut panel with a FadeIn label and a still label inside ────────────────────────────────────────────
     let bg0 = page.eval(&js("return bgAlpha('PNL-F');")).unwrap().as_f64().unwrap();

@@ -118,6 +118,12 @@ pub(crate) struct InstMotion {
     pending: BTreeMap<usize, BTreeSet<usize>>,
     /// Plans of an animation that never ends, made again before their frames run out.
     renew: BTreeMap<usize, crate::api::Timeout>,
+    /// A short plan's `finish` listener, by the plan's root: if the page could not run for longer than the plan's frames
+    /// (a stalled main thread), the full plan is made in the frame that ends it, before it is painted, not when a timer gets
+    /// to run (`renew` is the same hand-over, one timer's delay later).
+    stall: BTreeMap<usize, Listener>,
+    /// Listeners of plans made again, kept alive a little longer: the one that made a plan again may be running.
+    spent: Vec<Listener>,
     /// The controls the pointer is over (`OnHover` fires on entering one).
     hovered: BTreeSet<usize>,
     /// The layout each running plan was measured on, by the plan's root: a plan whose controls the layout moved or
@@ -549,6 +555,11 @@ impl Shared {
                 }
             }
             mi.renew.remove(&root);
+            if let Some(l) = mi.stall.remove(&root) {
+                mi.spent.push(l);
+                let extra = mi.spent.len().saturating_sub(16);
+                mi.spent.drain(..extra);
+            }
             mi.pending.remove(&root);
             let plays: BTreeMap<usize, Vec<Playback>> = nodes.iter().filter_map(|i| mi.plays.get(i).map(|p| (*i, p.clone()))).filter(|(_, p)| !p.is_empty()).collect();
             (plays, mi.lifted.remove(&root))
@@ -753,6 +764,17 @@ impl Shared {
                 }
             })
         });
+        // A short plan hands over to the full one the moment its frames run out, even if no timer has run (a stalled page).
+        let stall = short.and_then(|_| {
+            let a = started.values().flatten().next()?;
+            let target = a.dyn_ref::<web_sys::EventTarget>()?;
+            let (weak, wi) = (Rc::downgrade(self), Rc::downgrade(inner));
+            Some(Listener::new(target, "finish", move |_| {
+                if let (Some(sh), Some(inner)) = (weak.upgrade(), wi.upgrade()) {
+                    sh.motion_plan(&inner, inst, root);
+                }
+            }))
+        });
         // The layout this plan was measured on, while it runs: only a plan that places a control inside a moving container
         // depends on it (a control that moves alone is drawn about its own centre wherever the layout puts it).
         let compensated = started.keys().any(|&i| snap.parent[i].is_some_and(|p| i != root && nodes.contains(&p) && plays.contains_key(&p)));
@@ -786,6 +808,9 @@ impl Shared {
             if let Some(r) = renew {
                 mi.renew.insert(root, r);
             }
+            if let Some(l) = stall {
+                mi.stall.insert(root, l);
+            }
             // What has come to rest as designed needs no state: its playbacks are forgotten once their plan is over.
         }
     }
@@ -811,6 +836,7 @@ impl Shared {
                     mi.drop_layout(r);
                 }
                 mi.retired.clear();
+                mi.spent.clear();
             }
         }
         // A plan with a control that was hidden when it was made, and is shown now.
@@ -910,7 +936,10 @@ impl Shared {
         {
             let Ok(mut st) = self.motion.try_borrow_mut() else { return };
             let mi = st.insts.entry(inst).or_default();
-            for c in charts.iter().filter(|c| shown.contains(&c.i)) {
+            // A chart that is not on screen still keeps its time once it has started (a page switched away from it): the desktop's
+            // growth runs on the clock, so it is complete when the chart is shown again, or read while hidden.
+            let begun: BTreeSet<usize> = charts.iter().filter(|c| mi.charts.get(&c.i).is_some_and(|cm| cm.grow_started.is_some() || cm.tween.is_some())).map(|c| c.i).collect();
+            for c in charts.iter().filter(|c| shown.contains(&c.i) || begun.contains(&c.i)) {
                 let cm = mi.charts.entry(c.i).or_default();
                 let f = cm.frame(t, &c.raw, c.grows && !reduce, c.values && !reduce, c.ms);
                 moving |= cm.moving(t, c.ms) && (f.grow.is_some() || f.data.is_some());

@@ -22,6 +22,23 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.93] — 2026-10-29
+
+*(Written on `features-2x` off 2.0.92 (599ad147). **Judged (P4D-1): 19 PASS / 1 FAIL.** The FAIL is a test phase that does not discriminate, not the product; see below. Committed at the operator's request before the test was reworked.)*
+
+### Fixed: a short animation re-plan no longer leaves a stale frame after a long main-thread stall, and a chart hidden while it grows keeps growing on the clock
+
+- **Stall after a re-plan** (`cobolt-web-player/src/dom/motion.rs`): a short re-plan draws frames 250 ms ahead. If the page could not run for longer than that, the animations held their last frame until the renew timer ran. A short plan now also listens for `finish` on one of its animations and makes the full plan in that same frame. The judge measured a first-frame-after-block error of at most 0.0045 in every case (resize at 1800 and 2500 ms, blocks of 300-1500 ms, a live drag then a block); HEAD showed 0.206-0.469.
+- **Charts first painted or started while hidden (A1):** a chart whose growth or value tween had begun was skipped while hidden and stopped at about 81 %. It now keeps its clock, so it is complete when read hidden or shown again. The late-start Dados scenario (jp4c-07) now equals the desktop (HEAD: radar 0.367 off). Charts that never started do not animate while hidden.
+- Gains kept: loads, resizes, the Dados reveal and the intro curve within 0.0055 of the desktop curve; Backend-up call counts unchanged; console clean.
+- `assets/web-player` (plain and threaded) rebuilt from these sources.
+
+**Not done / honest status**
+- **FAIL (test):** the new "stall after a resize" phase in `crates/cobolt-web-bundle/tests/page_motion_p4b.rs` passes with the old code too, so it does not guard the stall regression (the fixture's renew timer runs before the first frame). The A1 phase does fail on the old code. The stall phase needs a stall shaped like the judge's `jblock` or must be dropped.
+- PRG-CLS / PRG-SUB's one frame at scale 1.000 on the 600x800 breakpoint is a one-frame layout transient (0 px wide for one frame), not motion; present on HEAD and with no animation running. Needs a layout row of its own.
+- A drag still drops 8-13 frames per 1.5 s (desktop 0), with or without an animation: per-step render and layout, not the re-plan.
+- A chart hidden mid-growth is redrawn every frame while hidden until its growth ends (about 20 frames per chart), then never again.
+
 ## [PowerRustCOBOL 2.0.92] — 2026-10-29
 
 *(Written on `features-2x` off 2.0.91 (809eca9f), committed on `fixes-2x-p4c`. **Judged (P4C-1): 26 PASS / 2 FAIL.** The three P4B-1 FAILs
