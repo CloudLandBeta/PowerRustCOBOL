@@ -22,6 +22,20 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.94] — 2026-10-29
+
+*(Written on `features-2x` off 2.0.93 (df7dfd4a). **Not judged by a separate agent**; committed without that step. Measured by the implementer on the real PowerAnalyticsWeb page and by a Chrome test that fails on the old code.)*
+
+### Fixed: a Web DataGrid opened for the first time while its entrance animation runs is laid out for the animation's scaled size
+
+- **The bug.** In PowerAnalyticsWeb, the first time the Dados page opened, the grid's header band did not fill the top-right corner, its scrollbars sat inside the cells and the horizontal bar overlaid the last row. Going back to Dashboard and returning fixed it.
+- **Cause** (`cobolt-web-player/src/dom/instance.rs`): the box observer read `getBoundingClientRect()`, which includes CSS transforms. A grid observed while its ZoomOut entrance ran stored a scaled size (for example 1012.7 x 501.7 for a 1086 x 538 grid) and painted its caption, header and scrollbar tracks for it. Nothing fires when a transform ends, so it was never corrected. The second show has no entrance, so it was right.
+- **Fix:** the observer reads the entry's `borderBoxSize` (the layout box, free of transforms), falling back to `offsetWidth`/`offsetHeight`, then the bounding rect.
+- **Measured.** Real page, 1440x900, first visit to Dados: caption width 1027, 1011, 1016 before; 1086 (the grid's width) on all 3 runs after. New test `crates/cobolt-web-bundle/tests/page_grid_first_show.rs`: fails on the old code (caption 295 and 343 px against a 876 px grid), passes with the fix. Every control's box on Dashboard, Dados and Dashboard again is identical old against new (161, 68 and 161 controls).
+- `assets/web-player` (plain and threaded) rebuilt from these sources.
+
+**Not verified:** motion curves were not re-measured with the judge's tools; 380x600 and breakpoint sizes were not measured; no separate judge.
+
 ## [PowerRustCOBOL 2.0.93] — 2026-10-29
 
 *(Written on `features-2x` off 2.0.92 (599ad147). **Judged (P4D-1): 19 PASS / 1 FAIL.** The FAIL is a test phase that does not discriminate, not the product; see below. Committed at the operator's request before the test was reworked.)*

@@ -250,9 +250,26 @@ impl Shared {
                     let entry: web_sys::ResizeObserverEntry = e.unchecked_into();
                     let el = entry.target();
                     let name = el.get_attribute("data-name").unwrap_or_default();
-                    let r = el.get_bounding_client_rect();
+                    // The LAYOUT box (the entry's border box), never `getBoundingClientRect`: that one includes the transforms of the
+                    // element and of every ancestor, so a card caught in the middle of its ZoomOut entrance (scale 0.93) would hand its
+                    // controls a box 7 % too small, and nothing corrects it afterwards (an observer does not fire when only a
+                    // transform ends).
+                    let border = Reflect::get(&entry, &"borderBoxSize".into()).ok().map(|a| js_sys::Array::from(&a).get(0)).filter(|b| !b.is_undefined());
+                    let (w, h) = match border {
+                        Some(b) => (
+                            Reflect::get(&b, &"inlineSize".into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            Reflect::get(&b, &"blockSize".into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        ),
+                        None => match el.dyn_ref::<web_sys::HtmlElement>() {
+                            Some(he) => (he.offset_width() as f64, he.offset_height() as f64),
+                            None => {
+                                let r = el.get_bounding_client_rect();
+                                (r.width(), r.height())
+                            }
+                        },
+                    };
                     if let Some(sh) = weak.upgrade() {
-                        sh.on_box(inst, &name, r.width(), r.height());
+                        sh.on_box(inst, &name, w, h);
                     }
                 }
             });
