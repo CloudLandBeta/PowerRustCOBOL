@@ -61,7 +61,12 @@ fn corpus() -> Vec<(&'static str, Form)> {
         idx.set_prop("RecordName", PropValue::String("CUSTOMER-REC".into()));
         idx.set_prop("KeyName", PropValue::String("CUSTOMER-ID".into()));
         form.controls.push(idx);
-        forms.push(("indexed-file", form));
+        // Spec 108 R10: this form declares no `SELECT` / `FD`, so it gets no facade.
+        forms.push(("indexed-file", form.clone()));
+        // The same control on a form that declares its file: the facade as it always was.
+        form.cobol_structure.file_control = "           SELECT CUSTOMERS ASSIGN TO \"c.dat\"\n               ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC\n               RECORD KEY IS CUSTOMER-ID.".into();
+        form.cobol_structure.file_section = "       FD  CUSTOMERS.\n       01  CUSTOMER-REC.\n           05 CUSTOMER-ID   PIC 9(5).\n           05 CUSTOMER-NAME PIC X(20).".into();
+        forms.push(("indexed-file-declared", form));
     }
 
     // 5. Structure blocks + a user procedure (spec 005 weave).
@@ -158,7 +163,7 @@ fn generated_bytes_do_not_move() {
     }
     if !update {
         println!("  {files} files compared, {bytes} bytes total — all identical");
-        assert_eq!(files, 6, "the whole corpus must be compared");
+        assert_eq!(files, 7, "the whole corpus must be compared");
     }
 }
 
@@ -198,6 +203,6 @@ fn user_line_ranges_do_not_move() {
         println!("  {name:<24} {:>2} ranges identical", ranges.len());
     }
     if !update {
-        assert_eq!(files, 6, "the whole corpus must be compared");
+        assert_eq!(files, 7, "the whole corpus must be compared");
     }
 }

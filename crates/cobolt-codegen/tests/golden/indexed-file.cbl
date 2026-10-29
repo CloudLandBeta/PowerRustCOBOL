@@ -98,11 +98,9 @@
        PROCEDURE DIVISION.
        COBOL-MAIN.
            COBOL::"INIT-FORM" ( FORM-NAME )
-           PERFORM CustomerFile-OPEN
            CALL "CUSTOMER-FORM--ONLOAD"
            PERFORM COBOL-EVENT-LOOP
            CALL "CUSTOMER-FORM--ONCLOSE"
-           PERFORM CustomerFile-CLOSE
            STOP RUN.
 
       *> <EVENT-LOOP>
@@ -122,142 +120,6 @@
       *> </REST-CLIENT>
       *> <WEB-SEARCH>
       *> </WEB-SEARCH>
-       CustomerFile-OPEN.
-      *>  Opens indexed file CUSTOMERS for I-O.
-           IF WS-CustomerFile-IS-OPEN = 0
-               OPEN I-O CUSTOMERS
-               COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-               IF WS-CustomerFile-STATUS(1:1) = '0'
-                   MOVE 1 TO WS-CustomerFile-IS-OPEN
-               END-IF
-               MOVE 0 TO WS-CustomerFile-AT-END
-               MOVE 0 TO WS-CustomerFile-HAS-RECORD
-           END-IF.
-
-       CustomerFile-START.
-      *>  Set CUSTOMER-ID, then PERFORM CustomerFile-START to position the current pointer.
-           START CUSTOMERS KEY IS GREATER THAN OR EQUAL TO CUSTOMER-ID
-               INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 0 TO WS-CustomerFile-HAS-RECORD
-               NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 0 TO WS-CustomerFile-AT-END
-           END-START.
-
-       CustomerFile-READ-NEXT.
-           READ CUSTOMERS NEXT
-               AT END
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 1 TO WS-CustomerFile-AT-END
-                   MOVE 0 TO WS-CustomerFile-HAS-RECORD
-               NOT AT END
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 0 TO WS-CustomerFile-AT-END
-                   MOVE 1 TO WS-CustomerFile-HAS-RECORD
-           END-READ.
-
-       CustomerFile-READ-PREVIOUS.
-           READ CUSTOMERS PREVIOUS
-               AT END
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 1 TO WS-CustomerFile-AT-END
-                   MOVE 0 TO WS-CustomerFile-HAS-RECORD
-               NOT AT END
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 0 TO WS-CustomerFile-AT-END
-                   MOVE 1 TO WS-CustomerFile-HAS-RECORD
-           END-READ.
-
-       CustomerFile-READ-FIRST.
-      *>  Set CUSTOMER-ID to the lowest desired value, position, then read NEXT.
-           START CUSTOMERS KEY IS GREATER THAN OR EQUAL TO CUSTOMER-ID
-               INVALID KEY CONTINUE
-           END-START
-           READ CUSTOMERS NEXT
-               AT END
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 1 TO WS-CustomerFile-AT-END
-                   MOVE 0 TO WS-CustomerFile-HAS-RECORD
-               NOT AT END
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 0 TO WS-CustomerFile-AT-END
-                   MOVE 1 TO WS-CustomerFile-HAS-RECORD
-           END-READ.
-
-       CustomerFile-READ-LAST.
-      *>  Set CUSTOMER-ID to the highest desired value, position, then read PREVIOUS.
-           START CUSTOMERS KEY IS LESS THAN OR EQUAL TO CUSTOMER-ID
-               INVALID KEY CONTINUE
-           END-START
-           READ CUSTOMERS PREVIOUS
-               AT END
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 1 TO WS-CustomerFile-AT-END
-                   MOVE 0 TO WS-CustomerFile-HAS-RECORD
-               NOT AT END
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 0 TO WS-CustomerFile-AT-END
-                   MOVE 1 TO WS-CustomerFile-HAS-RECORD
-           END-READ.
-
-       CustomerFile-READ-INVALID.
-      *>  Direct keyed read. Set CUSTOMER-ID before calling this paragraph.
-           READ CUSTOMERS
-               INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 0 TO WS-CustomerFile-HAS-RECORD
-               NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-                   MOVE 1 TO WS-CustomerFile-HAS-RECORD
-           END-READ.
-
-       CustomerFile-WRITE.
-      *>  Requires CUSTOMERS opened I-O. Data comes from bound/set record fields.
-           WRITE CUSTOMER-REC
-               INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-               NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-           END-WRITE.
-
-       CustomerFile-REWRITE.
-      *>  Requires CUSTOMERS opened I-O. Data comes from bound/set record fields.
-           REWRITE CUSTOMER-REC
-               INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-               NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-           END-REWRITE.
-
-       CustomerFile-DELETE.
-      *>  Requires CUSTOMERS opened I-O. Data comes from bound/set record fields.
-           DELETE CUSTOMERS
-               INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-               NOT INVALID KEY
-                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-           END-DELETE.
-
-       CustomerFile-COMMIT.
-      *>  Makes the changes to CUSTOMERS since the last COMMIT durable (the COMMIT verb acts on every open indexed file); the file stays open.
-           COMMIT
-           COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS ).
-
-       CustomerFile-ROLLBACK.
-      *>  Undoes the changes to CUSTOMERS since the last COMMIT (the ROLLBACK verb acts on every open indexed file); the file stays open.
-           ROLLBACK
-           COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS ).
-
-       CustomerFile-CLOSE.
-      *>  No-op when already closed. I-O close commits automatically.
-           IF WS-CustomerFile-IS-OPEN = 1
-               PERFORM CustomerFile-COMMIT
-               CLOSE CUSTOMERS
-               MOVE 0 TO WS-CustomerFile-IS-OPEN
-               COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
-           END-IF.
-
 
       *> ── Nested event-handler programs (COBOL-85) ─────────────────────
 

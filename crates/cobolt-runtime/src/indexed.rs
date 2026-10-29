@@ -85,6 +85,10 @@ pub mod status {
     pub const IO_ERROR: &str = "90";
     pub const LOGIC_ERROR: &str = "92";
     pub const UNAVAILABLE: &str = "93";
+    /// A PartiQL statement that is not valid (spec 108, R27): implementor-defined
+    /// class 9, beside the runtime's `90`, `92`, `93`, `99` and the grid's
+    /// `95`, `96`, `98`.
+    pub const VALIDATION: &str = "94";
     pub const RECORD_LOCKED: &str = "99";
 }
 

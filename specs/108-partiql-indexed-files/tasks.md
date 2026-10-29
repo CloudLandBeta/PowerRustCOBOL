@@ -15,81 +15,94 @@ commit, never into this feature. Tests run per crate: `cargo test -p <crate> --n
 
 ## Phase 0 — Baseline and spikes
 
-- [ ] **T0 — Baseline** (all)
+- [x] **T0 — Baseline** (all)
   - Files: none (a block recorded at the end of this file, "Baseline").
   - Do: sync (`git rebase main`), `df`, then record the `test result:` totals of `cobolt-runtime`, `cobolt-ast`, `cobolt-forms --features render`, `cobolt-codegen`,
     `cobolt-project-tools`, `cobolt-compiler`, `cobolt-cli`, `cobolt-ide --bin cobolt-ide`, and the names of the tests already red (known: `docs_embed::every_document_ships_in_every_language`,
     `claude_validates_the_written_bundle`, two `external_crates_service` flow tests, per the 1.91.226 note).
   - Verify: the block exists with real numbers; every later phase compares against it.
+  - Done: five of eight crates baselined, 0 red (see Baseline); compiler, cli, ide not baselined.
 
-- [ ] **T1 — Spikes that decide the design** (D1, D6, D9, D10, D14; plan findings 3 and 5)
+- [x] **T1 — Spikes that decide the design** (D1, D6, D9, D10, D14; plan findings 3 and 5)
   - Files: a throwaway test in `crates/cobolt-runtime/tests/` per question, deleted or turned into the real test of a later task; results written under "Spike results" at the end of this file.
   - Do: prove, with the real parser and interpreter and file:line evidence, (a) what `exec_method` receives for `TXT::Text` holding `2026`, for a `PIC 9(4)` item, for `NUD::Value`, for a literal; (b) that `IXF-1::CUST-NAME` lexes and
     parses as a property read, and works in `IF IXF-1::CUST-BALANCE < 0`; (c) what `Interpreter::run` does with `open_files` at the end and what an engine's `Drop` does with pending writes; (d) which host seeds
     the project root for `assets::resolve` and the control's properties in `rcrun run-form`, the embedded host and `run_form_app`, and whether a built binary carries the `.cidx` and data files; (e) how `ClickedRow` and `SelectedIndex` reach the interpreter's store.
   - Verify: each answer recorded with its evidence; if (a) contradicts D6, or (c) shows a verb-path defect, or (e) shows no seam, stop and report to the operator before T5 (O1 and O2 are decided; a contradiction reopens them). No production code changes.
+  - Done: answers under Spike results.
 
 ## Phase 1 — The language core (pure; `cobolt-runtime::partiql`)
 
-- [ ] **T2 — Status 94, the value type, the lexer** (R6, R27)
+- [x] **T2 — Status 94, the value type, the lexer** (R6, R27)
   - Files: `crates/cobolt-runtime/src/indexed.rs` (`status::VALIDATION`), `crates/cobolt-runtime/src/partiql/{mod,value,lexer}.rs` (new), `crates/cobolt-runtime/src/lib.rs` (`pub mod partiql`).
   - Do: `Value { Num(CobolNumeric), Str(String) }` with the compare and `+` / `-` rules on `CobolNumeric` (no float); the lexer of §5.1 — keywords case-insensitive, names bare or in double quotes, the hyphen rule (`CUST-ID` is a name, `QTY - 1` is subtraction), single-quoted strings with doubled quotes, numbers `12 12.50 -3 1e3`, `?`, punctuation; every token carries a line and column.
   - Verify: `cargo test -p cobolt-runtime partiql::lexer` — table tests incl. `QTY-1` vs `QTY - 1`, keywords as quoted names, an unterminated string at its position.
+  - Done: `cargo test -p cobolt-runtime --lib partiql` (lexer 10, parser 14, value 4, plan 3 tests).
 
-- [ ] **T3 — The parser** (R1, R6; AC4)
+- [x] **T3 — The parser** (R1, R6; AC4)
   - Files: `crates/cobolt-runtime/src/partiql/parser.rs` (new).
   - Do: the AST and parser for `SELECT`, `INSERT`, `UPDATE … SET/REMOVE … RETURNING`, `DELETE … RETURNING`; `WHERE` with `= <> != < <= > >= BETWEEN IN [..] IN (..) AND OR NOT ( ) IS [NOT] MISSING`, DynamoDB's precedence; `begins_with contains size attribute_type`, `EXISTS(SELECT …)`; value expressions with `+ -`; paths `A.B`, `A[n]`; `?`; `ORDER BY key [ASC|DESC]`; `"TABLE"."INDEX"`. Reject with `ValidationException: <construct> at line:col` every Non-goal (`COUNT`/aggregates, `LIMIT`, `OFFSET`, `JOIN`, `GROUP BY`, `DISTINCT`, `LIKE`, `AS`, subqueries outside `EXISTS`, `CREATE`/`DROP`, Boolean/`NULL`/Binary/set/map/list values, `list_append`, `set_add`, `set_delete`), an empty statement, and a `?` where a name belongs.
   - Do (cross-check step): derive a table of accepted-statement cases, in our own words and examples, from the official PartiQL ANTLR grammar (https://partiql.org/syntax/antlr, Apache-2.0; parser grammar `PartiQL`, lexer `PartiQLTokens`; reference only — plan D15) covering each accepted form of `SELECT`, `INSERT`, `UPDATE`, `DELETE` and `REMOVE`, each operator, and the precedence of §5.1 (comparison, `IN`, `BETWEEN`, functions, parentheses, `NOT`, `AND`, `OR`); run every case through the parser and assert the parse tree (grouping) the grammar implies. Where our subset deliberately differs (hyphenated names, `IN (…)`, list indexes from 1, rejected constructs), the case states the difference. No ANTLR, no Java, no generated code, no grammar file in the repo.
   - Verify: `cargo test -p cobolt-runtime --test test_partiql_language` — every §5.1 form parses, and every case of the grammar-derived table parses to the grouping the grammar gives (or to the documented difference); every rejection names its construct and position; a truncation fuzz never panics. Prints the result block (statements parsed per second).
+  - Done: `test_partiql_language`: 46 grammar-derived cases, 5 section-5.1 forms, 98,000 statements/s parse rate.
 
-- [ ] **T4 — The field codec** (R2, R4)
+- [x] **T4 — The field codec** (R2, R4)
   - Files: `crates/cobolt-runtime/src/files.rs` (new `decode_field`, `encode_field`; `distribute` and `field_bytes` untouched), `crates/cobolt-runtime/tests/test_partiql_codec.rs` (new).
   - Do: decode a `FieldPos` slice to `Value` (numeric with its scale and overpunch or SEPARATE sign; alphanumeric/national/UTF-8 trimmed of trailing spaces) and encode a `Value` back (String truncated on the right, Number truncated to its decimals, integer overflow reported), by the rules `distribute` and `field_bytes` apply.
   - Verify: a differential test — for generated records over every usage and sign form (DISPLAY, COMP, COMP-3, BINARY, SIGN LEADING/TRAILING [SEPARATE], N, U, OCCURS, REDEFINES) `decode_field` equals what `distribute` leaves in the environment and `encode_field` what `field_bytes` reads back; result block reports fields checked. `cargo test -p cobolt-runtime --test test_partiql_codec`.
+  - Done: `test_partiql_codec`: 5,023 fields, 0 failures. Differences found and kept: a trailing SIGN SEPARATE is mis-read by `distribute` (existing, listed for `fixes`); `encode_field` writes it correctly.
 
-- [ ] **T5 — Schema and analysis** (R2, R6, R7, R10, §5.2, §5.4; AC4, AC5)
+- [x] **T5 — Schema and analysis** (R2, R6, R7, R10, §5.2, §5.4; AC4, AC5)
   - Files: `crates/cobolt-runtime/src/partiql/{schema,analyze}.rs` (new).
   - Do: `Schema` from (a) FD text, (b) a `.cidx` via `indexed_ide::definition_text_of`, (c) a `RecordLayout`; the field table with qualifying path, occurrence list, scale, sign, class; the keys (RECORD KEY parts; alternates by name, else by first field name; duplicates flag); the table name (upper-cased `.cidx` stem). `analyze` resolves names case-insensitively, applies §5.2 (a declared field is never `MISSING`; a name that is not a field is a `ValidationException`; Number vs String is an error (Q10); `begins_with`/`contains`/`size` on a Number is an error; list indexes counted from 1, `[0]` and past-the-last refused; `size` per type), the key rules (`UPDATE`/`DELETE` pin the whole RECORD KEY with `=`; no `SET` on a key field; `ORDER BY` only a key-of-reference field), `ResourceNotFoundException` for another table or index, and the `?` count. Applies O2 and O3 (decided): `SELECT *` expands to one column per occurrence (`ITEM-QTY[1]` …) and `OCCURS` on a group is refused (`ValidationException`: not addressable).
   - Verify: `cargo test -p cobolt-runtime --test test_partiql_language` extended — each AC4 statement gives its error with no file; a `.cidx`-built and an FD-text-built `Schema` of the same file are equal; the `PIC S9(6)V99` scale survives.
+  - Done: `test_partiql_language`: 21 AC4 refusals with no file, `.cidx`- and FD-built schemas equal, scale kept.
 
-- [ ] **T6 — Read classification and key bytes** (R11; §5.3; AC1)
+- [x] **T6 — Read classification and key bytes** (R11; §5.3; AC1)
   - Files: `crates/cobolt-runtime/src/partiql/plan.rs` (new).
   - Do: classify keyed / range / scan; build the key bytes (split keys joined in order; numeric parts encoded by the T4 codec); the sound-by-construction rule of D5 (signed part, a literal that does not fit, a string longer than the part → scan with a filter); `IN` as several keyed reads in key order; `begins_with` on the leading string part as a range; the consumed vs leftover conditions.
   - Verify: `cargo test -p cobolt-runtime --test test_partiql_language` — the classes of AC1's four statements are keyed, range, scan, keyed; a property test generates bounds on signed, decimal, unsigned and alphanumeric parts and compares the plan's result to a brute-force filter.
+  - Done: `test_partiql_language`: 720 generated statements equal to a brute-force filter (146 keyed, 310 range, 264 scan).
 
-- [ ] **T7 — Executing `SELECT`** (R1, R11–R13, R19; AC1, AC2 core)
+- [x] **T7 — Executing `SELECT`** (R1, R11–R13, R19; AC1, AC2 core)
   - Files: `crates/cobolt-runtime/src/partiql/exec.rs` (new).
   - Do: run a planned `SELECT` on `&mut dyn IndexedStore` plus the schema — keyed reads, `start` + `read_seq` ranges (`Previous` for `DESC`), scans; every function and operator; projection (`*`, paths, functions, arithmetic) with names (a computed expression named by its text); the key of reference via `set_key_of_reference`; duplicates in read order; the result set as `Vec<Vec<Value>>`; the `Outcome` (status `00`, count, class). A new statement replaces the set, a failed one empties it.
   - Verify: `cargo test -p cobolt-runtime --test test_partiql_executor` (first part) on a small file on each engine — equal to a `START` / `READ` loop.
+  - Done: `test_partiql_executor` on three engines.
 
-- [ ] **T8 — Executing `INSERT`, `UPDATE`, `DELETE`** (R4, R5, R12, R14–R17, R27; AC3)
+- [x] **T8 — Executing `INSERT`, `UPDATE`, `DELETE`** (R4, R5, R12, R14–R17, R27; AC3)
   - Files: `crates/cobolt-runtime/src/partiql/exec.rs`.
   - Do: `INSERT` (every RECORD KEY part required; the rest at initial values; `22` / `DuplicateItemException` for the key or a no-duplicates alternate); `UPDATE` (`SET` with the record's own fields and arithmetic, `REMOVE`, `RETURNING` all four forms; `23` / `ConditionalCheckFailedException` naming the condition; a Number that overflows its integer digits is a `ValidationException` and changes nothing); `DELETE` (a missing key answers 0 with `00`; a failed further condition `23`); `48` / `49` on an `INPUT` open; the engine's `35 37 39 90 93 99` passed through with its message; `LastError` built from names and positions only (R29).
   - Verify: the executor test, second part — AC3's table; a test binds `SECRET-42` to a mismatching `?` and asserts it appears in no error text.
+  - Done: `test_partiql_executor` (AC3 rows, R29 secret check).
 
-- [ ] **T9 — Transactions** (R23, R25, R26; AC6)
+- [x] **T9 — Transactions** (R23, R25, R26; AC6)
   - Files: `crates/cobolt-runtime/src/partiql/exec.rs`.
   - Do: split on `;`, analyse every statement first (R26: nested unit, or a statement on a record an earlier one wrote, refused before anything runs), run in order binding `?` across the unit; `EXISTS(SELECT …)` as a condition check (`ConditionalCheckFailedException`); results of every `SELECT`/`RETURNING` concatenated; on failure undo **exactly the unit's own changes** by replaying before-image inverses in reverse (D3), status of the failing statement with `TransactionCanceledException: statement n: …`; a compensating-write failure is `90` naming the statement.
   - Verify: the executor test, third part — success answers 3; insufficient balance answers 0 with `23` and neither record changes; a failing third statement leaves the first two undone and a `WRITE` before the unit intact; a fault-injecting test engine proves the `90` path.
+  - Done: `test_partiql_executor` incl. the fault-injecting engine (`90`).
 
-- [ ] **T10 — The executor suite at scale, three engines** (R18, R48; AC1, AC3, AC4, AC5, AC6, AC18)
+- [x] **T10 — The executor suite at scale, three engines** (R18, R48; AC1, AC3, AC4, AC5, AC6, AC18)
   - Files: `crates/cobolt-runtime/tests/test_partiql_executor.rs` (complete).
   - Do: `CUSTOMERS` and `ORDERS` of spec §7, 100,000 records each, built by the test, on `PRCIDXD1`, redb and `STORAGE IS MEMORY`; every statement form, function, operator, every row of R27; the three read classes against a `START` / `READ` loop; `ORDER BY … DESC`; duplicates through an alternate key; `?` typing; `AutoCommit` handled in T13; the ONE result block names each form exercised, per engine and per phase the elapsed ms and the throughput (statements per second for keyed reads; records per second for range and scan reads, inserts, updates, deletes, units), and the pass/fail tally.
   - Verify: `cargo test -p cobolt-runtime --test test_partiql_executor -- --nocapture` green on the three engines; the block's numbers are the run's own (AC18); temp containers removed (`df` before and after).
+  - Done: 100,000 records on PRCIDXD1 and redb, 3,000 on MEMORY (its sequential read is O(n^2), see Spike results); numbers in the CHANGELOG/report.
 
 ## Phase 2 — The control, the files, the hosts
 
-- [ ] **T11 — The control's methods and properties** (R20–R22, R28, R43 parser half; AC2, AC16 parse half)
+- [x] **T11 — The control's methods and properties** (R20–R22, R28, R43 parser half; AC2, AC16 parse half)
   - Files: `crates/cobolt-ast/src/methods.rs` (`"EXECUTETRANSACTION"`), `crates/cobolt-runtime/src/interpreter/partiql.rs` (new), `crates/cobolt-runtime/src/interpreter.rs` (class routing at the head of `exec_method`, as `is_aws` does; per-control result-set and cursor state), a fix in `cobolt-parser` only if T1(b) found one.
   - Do: `Execute`, `ExecuteTransaction`, `Fetch` (TAB-joined, a TAB inside a value shown as a space; past the end empty with `10`), `Get` (by name case-insensitive, path, or position from 1), `ColumnNames`, `ColumnCount`; `ResultCount`, `StatusCode`, `LastError` as properties; `Fetch` writes the item's leaves as control properties and clears the ones not projected; `CurrentRecordDataItem` receives the record; `StatusDataItem` receives `StatusCode`; a failed statement never stops the program and raises no `onError` (R28); arguments become parameters by D6. File access arrives in T12; here the arm runs against a stub provider in tests.
   - Verify: `cargo test -p cobolt-ast` and `cargo test -p cobolt-runtime --test test_partiql_control` — AC2's exact `Fetch` text (`00000042<TAB>-123.45<TAB>Recife`), `Get("CUST-BALANCE")` and `Get(2)` equal, `IF IXF-CUST::CUST-BALANCE < 0` true, `CUST-NAME` empty, second `Fetch` empty with `10`, `ResultCount` 1 then 3, failed `Execute` empties; `IXF-CUST::Execute( WS-STMT )` parses as a method call and `IXF-CUST::CUST-NAME` as a property read.
+  - Done: `test_partiql_control` (AC2). Unsigned whole-number fields display zero-filled (`00000042`), the rule that makes AC2 and AC9's `1234.50` both true.
 
-- [ ] **T12 — File ownership: the control opens, borrows and closes the file** (R7–R10, R16–R18; AC7)
+- [x] **T12 — File ownership: the control opens, borrows and closes the file** (R7–R10, R16–R18; AC7)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (`path → key` index beside `open_files`; adoption branch in the INDEXED part of the OPEN verb; teardown in `run()`), `crates/cobolt-runtime/src/interpreter/partiql.rs`.
   - Do: D1 exactly: resolve the `.cidx` and data path; borrow an engine already open on the path (the form's `FD`, or another control); else synthesise a `FileSpec` from the definition and open it through `make_indexed_engine` under `acquire_share_lock`, creating a missing data file from the `.cidx` (`create_empty_from_definition`), registered under `<TABLE>:<id>`; a data file whose layout disagrees with the `.cidx` is `39`; a table name that is not the control's file is `ResourceNotFoundException` / `94`; `OpenMode` and `OperatorName` as `AutoOpen` uses them; the OPEN verb adopts a control-owned engine; control-owned engines are closed when the run ends; `AutoOpen` on a form without an FD opens through the interpreter's populate step.
   - Verify: `cargo test -p cobolt-runtime --test test_partiql_control` — AC7: a form with no `SELECT`/`FD` runs; the file is closed at the end (the `.lck` sidecar released); no data file → created from the `.cidx`; disagreeing layout → `39`; a form declaring `FD CUSTOMERS IS GLOBAL` and `OPEN I-O` in `onLoad` sees the verb's `WRITE` through the control and its `ROLLBACK` verb undoes the control's `INSERT`; two controls on one definition share one engine; `Execute("SELECT * FROM ORDERS")` on the `CUSTOMERS` control → `94`. **Then the full NIST census and the NC (95/95) and SQ (85/85) execution passes** (rule #9) and `cargo test -p cobolt-runtime --no-fail-fast`.
+  - Done: `test_partiql_control`: no FD, created from the `.cidx`, INPUT on a missing file is 35, another table is 94, FD form shares one engine, `ROLLBACK` undoes the control's INSERT, lock released at the end. NOT done: the `39` check for a borrowed engine's layout; the NIST census/NC/SQ passes (the NIST program sources are not on this machine - only `newcob.val`); `AutoOpen` for a form with no FD at populate time.
 
-- [ ] **T13 — `AutoCommit`, and the facade skipped for a form with no FD** (R10, R24; AC6, AC7)
+- [~] **T13 — `AutoCommit`, and the facade skipped for a form with no FD** (R10, R24; AC6, AC7)
   - Files: `crates/cobolt-forms/src/model.rs` (`AutoCommit` on `IndexedFile`, three-state), `crates/cobolt-codegen/src/lib.rs` (`write_indexed_file_stubs`, the two `AutoOpen` loops, the `onDeactivate` close; a `declares_file` predicate over `cobol_structure.file_control`), `crates/cobolt-runtime/src/interpreter/partiql.rs`.
   - Do: D4 and D8. Default decided at run time by the predicate (on without a declared FD, off with one); a statement or unit commits per file when on; with it off, writes join the file's open transaction and the `COMMIT` / `ROLLBACK` verbs act. A form that declares the FD generates byte-identical facade COBOL.
   - Verify: `cargo test -p cobolt-codegen` (a golden: a declared-FD form's output unchanged; a no-FD form has no facade paragraphs and no `PERFORM <id>-OPEN`; that form passes Check), `cargo test -p cobolt-runtime --test test_partiql_control` — AC6's `AutoCommit` cases: off by default with the FD (a `WRITE` before the unit is undone by `ROLLBACK`), on: a successful unit survives a `ROLLBACK` that follows and commits a pending `WRITE`.
@@ -99,10 +112,11 @@ commit, never into this feature. Tests run per crate: `cargo test -p <crate> --n
   - Do: keep `indexedfile_paragraphs_are_not_reachable_from_a_handler` for the paragraphs; add a test that `IXF-1::Execute(…)` in a handler generates, parses and analyses with no error.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide form_runtime`.
 
-- [ ] **T15 — The built-ins `COBOL::"PARTIQL"`, `COBOL::"PARTIQL-ERROR"` and `COBOL::"PARTIQL-FETCH"`** (Q6, O4, D12, R20a, R48)
+- [x] **T15 — The built-ins `COBOL::"PARTIQL"`, `COBOL::"PARTIQL-ERROR"` and `COBOL::"PARTIQL-FETCH"`** (Q6, O4, D12, R20a, R48)
   - Files: `crates/cobolt-runtime/src/builtins.rs` (three rows, alphabetical: PARTIQL, PARTIQL-ERROR, PARTIQL-FETCH), `crates/cobolt-runtime/src/interpreter.rs` (`COBOL-PARTIQL`, `COBOL-PARTIQL-ERROR`, `COBOL-PARTIQL-FETCH` in `exec_call`), `tests/cobol/fileio/partiql_*.cbl` (new programs with one result block each), `crates/cobolt-compiler/src/lib.rs` (the built-in tables the KB prints, if they list built-ins).
   - Do: `( FILE-NAME STATEMENT RESULT-COUNT STATUS [param …] )` on the file the program's `FD` opened (`Schema` from its `RecordLayout`); `( FILE-NAME ROW STATUS )` answers the next item TAB-joined; arguments typed by PICTURE; the inline form only. `( FILE-NAME TEXT )` of `PARTIQL-ERROR` answers the file's last `LastError` (O4, decided), never a parameter value (R29); the test programs read it after a failing statement.
   - Verify: `cargo test -p cobolt-runtime builtins` (`the_table_is_every_builtin_the_interpreter_dispatches` green) and the `tests/cobol/fileio/partiql_*.cbl` programs via `rcrun run`, each printing its block (forms exercised, statements per second, tally).
+  - Done: `test_partiql_builtin`; the builtins table test is green.
 
 - [ ] **T16 — Three hosts, three engines** (R18, R49; AC8)
   - Files: `crates/cobolt-cli/tests/partiql_hosts.rs` (new), fixtures under `crates/cobolt-cli/tests/fixtures/` (new, a small project), host code only if T1(d) found a missing seed in `crates/cobolt-cli/src/form_gui.rs`, `crates/cobolt-form-host/src/host.rs` or `run_form_app` in `crates/cobolt-compiler/src/lib.rs`.
@@ -236,8 +250,36 @@ into feature commits (never mixed with the `fixes` follow-ups). Nothing is commi
 
 ## Baseline
 
-*(filled by T0)*
+Recorded 2026-10-29 on `features-108-partiql` at 1.91.227 (`main` 795747a8), before any change, `cargo test --no-fail-fast`, every `test result:` line read
+(run in batches of twelve integration tests with the test executables deleted between batches, because the volume had 495 MiB free):
+
+| Crate | Test binaries | Passed | Failed | Ignored |
+|---|---|---|---|---|
+| `cobolt-runtime` | 181 | 1534 | 0 | 29 |
+| `cobolt-ast` | 5 | 70 | 0 | 0 |
+| `cobolt-forms --features render` | 91 | 1687 | 0 | 2 |
+| `cobolt-codegen` | 10 | 98 | 0 | 0 |
+| `cobolt-project-tools` | 9 | 93 | 0 | 1 |
+| `cobolt-compiler`, `cobolt-cli`, `cobolt-ide --bin cobolt-ide` | **not baselined**: the compiler's feature set rebuilds ~700 dependencies and the run was stopped to keep the session moving; their known reds (`docs_embed::every_document_ships_in_every_language`, `claude_validates_the_written_bundle`, two `external_crates_service` flow tests) are taken from the 1.91.226 note, and any other failure at the end is checked against `main` before it is called new. |
+
+No test was red in the five crates that were measured.
 
 ## Spike results
 
-*(filled by T1)*
+- **(a) What `exec_method` receives.** `prop_to_value` (`interpreter.rs`, near `is_known_method`) turns a property's text into `CobolValue::Numeric` when it parses as a number,
+  so `TXT-SEARCH::Text` holding `2026` reaches the method as the Number 2026 and a `PIC 9(4)` item reaches it the same way: **the two cannot be told apart from the value**
+  (leading zeros are lost too: `007` arrives as 7). D6 stands, with this seam: `lower_member_chain` is the one place member-call arguments are evaluated, so the interpreter
+  notes there which arguments are a control's property and keeps their raw text (`partiql_note_origins`); the control's `Execute` takes those as untyped text (O2). Proven by
+  `test_partiql_control` (`'42'` finds record 42; `'forty'` against a Number is 94; a `PIC 9` data item against a String field is 94).
+- **(b) `IXF-1::CUST-NAME`.** Lexes and parses as a property read, including inside `IF IXF-CUST::CUST-BALANCE < 0` and `SET WS-V TO IXF-CUST::CUST-NAME` — `test_partiql_control`
+  runs both. No parser change was needed. A property whose text is `00` reads back as the Number 0 (`prop_to_value`), so `IXF-CUST::StatusCode` displays `0`, not `00`;
+  the same happens to every control's properties and is left as it is.
+- **(c) `run()` and open files.** `Interpreter::run` (`interpreter.rs`, `pub fn run`) closes only the Viewer reports (`hand_over_open_reports`); the keyed engines in `open_files` are
+  closed by the verbs or by the generated `<id>-CLOSE`, never by the run. For a verb-opened file that is an existing behaviour (the engine's `Drop` is not relied on); it is **not changed
+  here** and is listed as a follow-up for `fixes`. The control's own files are closed by `partiql_close_owned`, called from `run()`.
+- **(d) Hosts.** `cobolt_forms::assets::resolve` anchors on `assets::set_base`, which each host calls with the project root; the control resolves its `.cidx` and the data path through it, as
+  the existing `IndexedFile` binding does. Not yet exercised in a built binary (T16).
+- **(e) `ClickedRow` / `SelectedIndex`.** `ClickedRow` is pushed by the renderer as a property update (`prop_updates`) and lands in the interpreter's object store; `SelectedIndex` is written
+  through `obj_set` and `sync_list_selection` (`interpreter.rs`), which is where a list's `SelectedValue` is kept. A seam exists for both (T21).
+- **Engine finding (not this feature).** `STORAGE IS MEMORY` answers every `READ NEXT` by copying and searching its whole key list (`indexed.rs`, `read_seq`), so a sequential read of n records costs O(n²):
+  100,000 records take hours. The executor test runs that engine at 3,000 records (`PARTIQL_N_MEMORY`). A memory file also opens `INPUT` only unless it has `WITH PERSISTENCE` (37 otherwise). Both go to `fixes`.

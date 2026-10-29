@@ -1194,10 +1194,11 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
         out.push_str("           PERFORM COBOL-START-TIMERS\n");
     }
 
-    for ctrl in all_controls
-        .iter()
-        .filter(|c| c.control_type == ControlType::IndexedFile && prop_bool(c, "AutoOpen", false))
-    {
+    for ctrl in all_controls.iter().filter(|c| {
+        c.control_type == ControlType::IndexedFile
+            && prop_bool(c, "AutoOpen", false)
+            && declares_file(&form.cobol_structure.file_control, c)
+    }) {
         out.push_str(&format!("           PERFORM {}-OPEN\n", cobol_word(&ctrl.id)));
     }
     // `AutoConnect`: a SqlDatabase connects as the form starts, before any
@@ -1244,10 +1245,11 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
         out.push_str(&format!("           CALL \"{}\"\n", ev.paragraph));
     }
 
-    for ctrl in all_controls
-        .iter()
-        .filter(|c| c.control_type == ControlType::IndexedFile && prop_bool(c, "AutoOpen", false))
-    {
+    for ctrl in all_controls.iter().filter(|c| {
+        c.control_type == ControlType::IndexedFile
+            && prop_bool(c, "AutoOpen", false)
+            && declares_file(&form.cobol_structure.file_control, c)
+    }) {
         out.push_str(&format!("           PERFORM {}-CLOSE\n", cobol_word(&ctrl.id)));
     }
     for ctrl in all_controls
@@ -1277,7 +1279,7 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
     write_web_search_stubs(out, &all_controls, map);
     close_region(out, "WEB-SEARCH");
     write_sql_stubs(out, &all_controls, map);
-    write_indexed_file_stubs(out, &all_controls, &form.user_ws_source, map);
+    write_indexed_file_stubs(out, &all_controls, &form.user_ws_source, &form.cobol_structure.file_control, map);
     write_agent_stubs(out, &all_controls, map);
     write_animation_stubs(out, form, &all_controls);
     write_chart_stubs(out, &all_controls, map);
@@ -1954,11 +1956,17 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control], map: &mut Source
 
 // ── IndexedFile control stub generator ───────────────────────────────────────
 
-fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control], user_ws: &str, map: &mut SourceMap) {
+fn write_indexed_file_stubs(
+    out: &mut String,
+    all_controls: &[&Control],
+    user_ws: &str,
+    file_control: &str,
+    map: &mut SourceMap,
+) {
     let mut per = PerControl::default();
     for ctrl in all_controls
         .iter()
-        .filter(|c| c.control_type == ControlType::IndexedFile)
+        .filter(|c| c.control_type == ControlType::IndexedFile && declares_file(file_control, c))
     {
         per.begin(map, out, ctrl);
         // Paragraph and data names are COBOL words: an id like `sql_db` must
@@ -2830,6 +2838,7 @@ fn write_event_loop(out: &mut String, form: &Form) {
                     for ctrl in all_controls.iter().filter(|c| {
                         c.control_type == ControlType::IndexedFile
                             && prop_bool(c, "AutoOpen", false)
+                            && declares_file(&form.cobol_structure.file_control, c)
                     }) {
                         out.push_str(&format!(
                             "                               PERFORM {}-CLOSE\n",
@@ -3023,6 +3032,52 @@ fn operator_operand(op: &str, user_ws: &str) -> String {
     } else {
         format!("'{}'", cobol_lit(t))
     }
+}
+
+/// Whether the form's own `FILE-CONTROL` declares a `SELECT` for the file an
+/// `IndexedFile` control names (spec 108, R10).
+///
+/// The facade paragraphs (`<id>-OPEN`, `-READ-NEXT`, …) are COBOL verbs on that
+/// file, so they need its `SELECT` / `FD`. A form that declares none uses the
+/// control through its PartiQL members and bindings, which hold the file
+/// themselves: nothing is generated for it, and such a form checks and runs.
+/// A form that declares the file generates exactly what it always did.
+fn declares_file(file_control: &str, ctrl: &Control) -> bool {
+    let file = indexed_control_file_name(ctrl);
+    // The data file's stem as the control's definition would name it: a form may
+    // call its `SELECT` anything (`MENU-FILE`) and say which file it is in `ASSIGN TO`.
+    let stem = file.to_ascii_lowercase();
+    let upper = file_control.to_ascii_uppercase();
+    let mut at = 0usize;
+    while let Some(i) = upper[at..].find("SELECT") {
+        let start = at + i + "SELECT".len();
+        let end = upper[start..].find("SELECT").map_or(upper.len(), |j| start + j);
+        let clause = &file_control[start..end];
+        let mut words = clause.split_whitespace();
+        let mut name = words.next().unwrap_or("");
+        if name.eq_ignore_ascii_case("OPTIONAL") {
+            name = words.next().unwrap_or("");
+        }
+        if name.trim_end_matches('.').eq_ignore_ascii_case(&file) {
+            return true;
+        }
+        if let Some(q) = clause.find('"').or_else(|| clause.find('\'')) {
+            let quote = clause.as_bytes()[q] as char;
+            if let Some(len) = clause[q + 1..].find(quote) {
+                let path = &clause[q + 1..q + 1 + len];
+                let base = path.rsplit(['/', '\\']).next().unwrap_or(path);
+                let base_stem = base.rsplit_once('.').map_or(base, |(l, _)| l);
+                if base_stem.to_ascii_lowercase().replace('_', "-") == stem {
+                    return true;
+                }
+            }
+        }
+        at = end;
+        if at >= upper.len() {
+            break;
+        }
+    }
+    false
 }
 
 fn indexed_control_file_name(ctrl: &Control) -> String {
@@ -3463,6 +3518,48 @@ mod tests {
         assert!(!in_range(pid), "generated PROGRAM-ID must not be user code");
     }
 
+    /// A form that declares the file the control names, as a developer who drives it with
+    /// the verbs does (spec 108, R10: only such a form gets the facade).
+    fn declare_customers(form: &mut Form) {
+        form.cobol_structure.file_control = "           SELECT CUSTOMERS ASSIGN TO \"c.dat\"\n               ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC\n               RECORD KEY IS CUSTOMER-ID.".into();
+        form.cobol_structure.file_section = "       FD  CUSTOMERS.\n       01  CUSTOMER-REC.\n           05 CUSTOMER-ID   PIC 9(5).\n           05 CUSTOMER-NAME PIC X(20).".into();
+    }
+
+    /// Spec 108 R10: a form that declares no `SELECT` / `FD` for its `IndexedFile` control
+    /// uses it through PartiQL and bindings, so the facade — COBOL verbs on a file the form
+    /// never declares — is not generated, and the program parses and passes semantic analysis.
+    #[test]
+    fn a_form_without_the_fd_gets_no_indexed_facade() {
+        let mut form = Form::new("CUSTOMER-FORM", "Customers", 800, 600);
+        let mut idx = Control::new("CustomerFile", ControlType::IndexedFile, 0, 0);
+        idx.set_prop("IndexedFile", PropValue::String("indexed/customers.cidx".into()));
+        idx.set_prop("OpenMode", PropValue::String("I-O".into()));
+        idx.set_prop("AutoOpen", PropValue::Bool(true));
+        form.controls.push(idx);
+        let src = generate(&form);
+        assert!(!src.contains("PERFORM CustomerFile-OPEN"), "no facade call without the FD");
+        assert!(!src.contains("PERFORM CustomerFile-CLOSE"));
+        assert!(!src.contains("CustomerFile-READ-NEXT."), "no facade paragraphs without the FD");
+        assert!(!src.contains("OPEN I-O CUSTOMERS"));
+        use cobolt_lexer::{tokenize, SourceFormat};
+        let parsed = cobolt_parser::parse(tokenize(&src, SourceFormat::Free));
+        assert!(parsed.diagnostics.iter().all(|d| !d.is_error()), "{:?}", parsed.diagnostics);
+        let semantic = cobolt_semantic::analyze(&parsed.program.expect("a program"));
+        let errors: Vec<_> = semantic
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, cobolt_semantic::Severity::Error))
+            .collect();
+        assert!(errors.is_empty(), "{errors:?}");
+
+        // The same control on a form that declares the file: the facade as it always was.
+        declare_customers(&mut form);
+        let with_fd = generate(&form);
+        assert!(with_fd.contains("PERFORM CustomerFile-OPEN"));
+        assert!(with_fd.contains("CustomerFile-READ-NEXT."));
+        assert!(with_fd.contains("OPEN I-O CUSTOMERS"));
+    }
+
     #[test]
     fn generate_indexed_file_control_facade() {
         let mut form = Form::new("CUSTOMER-FORM", "Customers", 800, 600);
@@ -3476,6 +3573,7 @@ mod tests {
         idx.set_prop("RecordName", PropValue::String("CUSTOMER-REC".into()));
         idx.set_prop("KeyName", PropValue::String("CUSTOMER-ID".into()));
         form.controls.push(idx);
+        declare_customers(&mut form);
 
         let src = generate(&form);
 
@@ -3510,6 +3608,7 @@ mod tests {
         idx.set_prop("IndexedFile", PropValue::String("indexed/customers.cidx".into()));
         idx.set_prop("OpenMode", PropValue::String("INPUT".into()));
         form.controls.push(idx);
+        declare_customers(&mut form);
 
         let src = generate(&form);
         let status = "COBOL::\"FILE-STATUS\" ( \"CUSTOMERS\" WS-CustomerFile-STATUS )";
@@ -3544,6 +3643,7 @@ mod tests {
         idx.set_prop("OperatorName", PropValue::String("alice".into()));
         idx.set_prop("LoadStrategy", PropValue::String("Memory".into()));
         form.controls.push(idx);
+        declare_customers(&mut form);
         let src = generate(&form);
         assert!(src.contains("COBOL::\"FILE-STATUS\" ( \"CUSTOMERS\" WS-FS )"), "{src}");
         assert!(!src.contains("MOVE '23' TO WS-FS") && !src.contains("MOVE '00' TO WS-FS"));

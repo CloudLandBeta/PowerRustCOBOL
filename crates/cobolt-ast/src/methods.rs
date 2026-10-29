@@ -192,6 +192,9 @@ pub fn is_known_method(name: &str) -> bool {
             | "ASK" | "GET" | "POST" | "PUT" | "DELETE" | "CALL" | "SETHEADER"
             | "CLEARHEADERS" | "SETTIMEOUT" | "OPEN" | "EXECUTE" | "EXEC"
             | "QUERY" | "FETCH" | "FETCHALL"
+        // IndexedFile PartiQL (spec 108): `Execute`, `Fetch`, `Get`, `ColumnNames` and
+        // `ColumnCount` are listed above for other controls; this one is new.
+            | "EXECUTETRANSACTION"
         // SqlDatabase transactions (spec 095): the control's own verbs, so a program need
         // not send `BEGIN` as text. Listed for the usual reason — an unlisted name parses
         // its parens as a collection subscript.
@@ -221,6 +224,13 @@ pub fn is_known_method(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_indexed_file_partiql_methods_are_known() {
+        for m in ["Execute", "ExecuteTransaction", "Fetch", "Get", "ColumnNames", "ColumnCount"] {
+            assert!(is_known_method(m), "{m} must parse as a method call");
+        }
+    }
 
     #[test]
     fn the_canonical_list_is_a_subset_of_what_runs_and_the_aliases_are_the_rest() {

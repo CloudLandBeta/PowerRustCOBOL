@@ -22,6 +22,39 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.95] — 2026-10-30
+
+*(Forward-port of 1.91.228, `1369635f` on `features-108-partiql`. Written on `features-108-partiql`, off `main` at 795747a8: spec 108, the language, the control and the file — phases 1 and 2 of `tasks.md`. The data-binding, tooling, string, knowledge-base and agent tasks follow in later versions.)*
+
+### Added: PartiQL on an indexed file — an `IndexedFile` control answers `SELECT`, `INSERT`, `UPDATE` and `DELETE`, with no `SELECT` / `FD` in the form (spec 108)
+
+A form can now ask its `IndexedFile` control for records instead of walking the file with `START` / `READ NEXT`:
+
+```cobol
+           SET     WS-N                          TO    IXF-CUST::Execute( "SELECT CUST-ID, CUST-BALANCE FROM CUSTOMERS WHERE CUST-ID = ?" WS-ID )
+           SET     WS-ROW                        TO    IXF-CUST::Fetch()
+```
+
+- **The language** (`cobolt-runtime::partiql`, hand-written; the official PartiQL grammar is only a cross-check reference): `SELECT`, `INSERT … VALUE {…}`, `UPDATE … SET / REMOVE … RETURNING`,
+  `DELETE … RETURNING`, DynamoDB's conditions and precedence (`= <> != < <= > >= BETWEEN IN [..] IN (..) AND OR NOT IS [NOT] MISSING`), `begins_with`, `contains`, `size`, `attribute_type`,
+  `?` parameters (never spliced into the text), arithmetic, paths (`BILLING.CITY`, `ITEM-QTY[1]`), `ORDER BY key [DESC]`, `"TABLE"."INDEX"` for an alternate key. Hyphens belong to names (`CUST-ID`;
+  subtraction is `QTY - 1`), list indexes count from 1, and every construct outside the subset is `94` with its name and position.
+- **How the file is read:** keyed, range or scan, chosen from the `WHERE` on the key of reference and always sound — a literal that does not fit a key part exactly, or a signed part, falls back to a scan with a
+  filter. Records come back in key order; `DESC` reverses.
+- **The control:** `Execute`, `ExecuteTransaction`, `Fetch`, `Get`, `ColumnNames`, `ColumnCount`, the properties `ResultCount`, `StatusCode` and `LastError`, and the fields of the fetched item as properties
+  (`IF IXF-CUST::CUST-BALANCE < 0`). Statuses `00 10 22 23 48 49 94` plus the engine's own; a new FILE STATUS `94`. `LastError` never holds a value you passed.
+- **The file:** the control opens the file itself — from the `.cidx` and the layout the data file carries, creating a missing file from the definition — and closes it when the run ends. A form that declares the
+  file shares **one** engine with its verbs, so `COMMIT` / `ROLLBACK` reach the control's writes. `AutoCommit` (on unless the form declares the file) commits each statement or unit. A form that declares no
+  `SELECT` / `FD` no longer gets the `<id>-OPEN`, `-READ-NEXT`, … facade paragraphs, which were COBOL verbs on a file it never declared.
+- **Transactions:** `ExecuteTransaction` with `;`-separated statements and `EXISTS(SELECT …)` checks runs all-or-nothing; a failure takes back exactly the unit's own changes (before-image compensation), and a
+  unit that touches one record twice is refused before anything runs.
+- **Without a control:** `COBOL::"PARTIQL"`, `COBOL::"PARTIQL-FETCH"` and `COBOL::"PARTIQL-ERROR"` run the same statements on a file the program's own `FD` opened.
+- **Tests (new):** `test_partiql_language` (46 grammar-derived cases, 21 AC4 refusals, 720 plan statements each equal to a brute-force filter), `test_partiql_codec` (5,023 fields against `distribute` and
+  `field_bytes`), `test_partiql_executor` (every statement form on PRCIDXD1, redb and a MEMORY file), `test_partiql_control` and `test_partiql_builtin`, each printing its result block.
+- **Documents:** the Developer's Guide, §14, "PartiQL — querying an indexed file".
+
+Known, and not part of this change: `STORAGE IS MEMORY` reads sequentially in O(n²) (`READ NEXT` copies its whole key list), so its test runs on 3,000 records; both findings are listed for `fixes`.
+
 ## [PowerRustCOBOL 2.0.94] — 2026-10-29
 
 *(Written on `features-2x` off 2.0.93 (df7dfd4a). **Not judged by a separate agent**; committed without that step. Measured by the implementer on the real PowerAnalyticsWeb page and by a Chrome test that fails on the old code.)*

@@ -24,7 +24,7 @@ use crate::indexed::KeySpec;
 use crate::value::{CobolNumeric, CobolValue};
 
 /// One elementary field's position inside a record buffer.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FieldPos {
     pub name: String,
     /// The names of this field's enclosing groups, **innermost first**, up to
@@ -56,6 +56,11 @@ pub struct FieldPos {
     /// A national (`PIC N`) or UTF-8 (`PIC U`) field's class (spec 077): the
     /// record holds its image — UTF-16 big-endian, or padded UTF-8.
     pub class: Option<crate::national::CharClass>,
+    /// `SIGN IS … SEPARATE CHARACTER`: the sign has a position of its own,
+    /// which [`Self::len`] already counts.
+    pub sign_separate: bool,
+    /// With a separate sign, whether it comes first (`LEADING`) or last.
+    pub sign_leading: bool,
 }
 
 /// Byte layout of an FD record: total length plus every elementary field.
@@ -134,6 +139,8 @@ fn walk(
                         signed: false,
                         is_group: true,
                         class: None,
+                        sign_separate: false,
+                        sign_leading: false,
                     });
                 }
             }
@@ -175,6 +182,8 @@ fn walk(
                         && !sign.is_some_and(|s| s.separate),
                     is_group: false,
                     class,
+                    sign_separate: sep == 1,
+                    sign_leading: sep == 1 && sign.is_some_and(|s| s.leading),
                 });
             }
             *offset += len;
@@ -664,6 +673,131 @@ fn field_bytes(env: &CobolEnvironment, f: &FieldPos) -> Vec<u8> {
             b
         }
         None => vec![b' '; f.len],
+    }
+}
+
+/// Why a value could not be written into a field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncodeError {
+    /// A Number whose integer digits do not fit the field.
+    Overflow,
+    /// A Number for an alphanumeric field, or a String for a numeric one.
+    TypeMismatch,
+}
+
+/// The value one field of a record image holds (spec 108, §5.2): a Number with
+/// its scale for a numeric item, a String without trailing spaces otherwise.
+///
+/// The same reading `distribute` applies when a record is read into the
+/// environment — display digits with the trailing overpunch of a signed item,
+/// a leading `-`, national and UTF-8 images — but straight from the bytes, for
+/// the PartiQL executor, which never goes through the environment.
+pub fn decode_field(f: &FieldPos, rec: &[u8]) -> crate::partiql::value::Value {
+    use crate::partiql::value::Value;
+    let end = (f.offset + f.len).min(rec.len());
+    let slice: &[u8] = if f.offset >= end { &[] } else { &rec[f.offset..end] };
+    if let Some(c) = f.class {
+        return Value::Str(crate::national::class_text(c, slice).trim_end_matches(' ').to_string());
+    }
+    if !f.numeric {
+        return Value::Str(String::from_utf8_lossy(slice).trim_end_matches(' ').to_string());
+    }
+    let mut neg = slice.first() == Some(&b'-');
+    let mut work: Vec<u8> = slice.to_vec();
+    if f.sign_separate && !f.sign_leading {
+        // A trailing separate sign: the last byte is `+` or `-`, not a digit.
+        if let Some(last) = work.pop() {
+            neg = last == b'-';
+        }
+    } else if f.signed {
+        if let Some(last) = work.last_mut() {
+            if let Some((d, n)) = de_overpunch(*last) {
+                *last = b'0' + d;
+                neg = n;
+            }
+        }
+    }
+    let digits: String = work
+        .iter()
+        .map(|&b| if b.is_ascii_digit() { b as char } else { '0' })
+        .collect();
+    let mut mantissa: i128 = digits.parse().unwrap_or(0);
+    if neg {
+        mantissa = -mantissa;
+    }
+    Value::Num(CobolNumeric::new(mantissa, f.decimals))
+}
+
+/// Write a value into one field of a record image, as `MOVE` would (spec 108,
+/// R4): a String is truncated on the right and padded with spaces; a Number is
+/// truncated to the field's decimals and refused when its integer digits do not
+/// fit. A negative Number in an unsigned field keeps its magnitude.
+pub fn encode_field(
+    f: &FieldPos,
+    v: &crate::partiql::value::Value,
+    rec: &mut [u8],
+) -> Result<(), EncodeError> {
+    use crate::partiql::value::Value;
+    let end = (f.offset + f.len).min(rec.len());
+    if f.offset >= end {
+        return Ok(());
+    }
+    let dst = &mut rec[f.offset..end];
+    match (v, f.numeric) {
+        (Value::Str(s), false) => {
+            if let Some(c) = f.class {
+                let img = crate::national::class_image(c, s);
+                let n = img.len().min(dst.len());
+                dst[..n].copy_from_slice(&img[..n]);
+                for b in &mut dst[n..] {
+                    *b = b' ';
+                }
+                return Ok(());
+            }
+            let mut cut = s.len().min(dst.len());
+            while !s.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            dst[..cut].copy_from_slice(&s.as_bytes()[..cut]);
+            for b in &mut dst[cut..] {
+                *b = b' ';
+            }
+            Ok(())
+        }
+        (Value::Num(n), true) => {
+            let sep = usize::from(f.sign_separate);
+            let cap = f.len.saturating_sub(sep);
+            let t = n.truncate_to(f.decimals);
+            let digits = t.mantissa.unsigned_abs().to_string();
+            if digits.len() > cap {
+                return Err(EncodeError::Overflow);
+            }
+            let mut body = vec![b'0'; cap - digits.len()];
+            body.extend(digits.bytes());
+            let neg = t.mantissa < 0;
+            let mut out: Vec<u8> = Vec::with_capacity(f.len);
+            if f.sign_separate {
+                let sign = if neg { b'-' } else { b'+' };
+                if f.sign_leading {
+                    out.push(sign);
+                    out.extend(body);
+                } else {
+                    out.extend(body);
+                    out.push(sign);
+                }
+            } else {
+                out = body;
+                if f.signed {
+                    if let Some(last) = out.last_mut() {
+                        *last = overpunch(last.wrapping_sub(b'0'), neg);
+                    }
+                }
+            }
+            let n = out.len().min(dst.len());
+            dst[..n].copy_from_slice(&out[..n]);
+            Ok(())
+        }
+        _ => Err(EncodeError::TypeMismatch),
     }
 }
 

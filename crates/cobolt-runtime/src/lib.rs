@@ -71,6 +71,7 @@ pub mod indexed_log;
 pub mod indexed_redb;
 pub mod interpreter;
 pub mod national;
+pub mod partiql;
 #[cfg(feature = "kb")]
 pub mod kb_transport;
 #[cfg(feature = "kb")]

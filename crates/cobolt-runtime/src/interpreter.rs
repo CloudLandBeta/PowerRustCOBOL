@@ -39,6 +39,7 @@ mod remote_binding;
 /// WASM-005 — `CALL … WITH WEBSOCKET LINKAGE`: groups out of the environment,
 /// through the JSON mapping, over the run's transport, and back.
 pub mod remote;
+mod partiql;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::mpsc;
@@ -1154,6 +1155,11 @@ fn map_open_mode(m: OpenMode) -> crate::indexed::OpenMode {
 /// it as `ALL OTHER` is the honest half: it is no weaker than the behaviour
 /// before this existed, and it never refuses an open the standard permits.
 /// Expressing it properly needs a second lock for the writer set.
+/// The text of an engine's FILE STATUS, for a PartiQL statement's `LastError`.
+fn partiql_status_text(code: &str) -> &'static str {
+    crate::partiql::exec::status_text(code)
+}
+
 fn share_lock_is_exclusive(sharing: Option<cobolt_ast::stmt::ShareMode>, lock: bool) -> bool {
     use cobolt_ast::stmt::ShareMode;
     lock || matches!(sharing, Some(ShareMode::NoOther))
@@ -1765,6 +1771,17 @@ pub struct Interpreter {
     /// Spec 078 — the values each queued AWS event carries, applied when that
     /// event is dispatched. Keyed by the form's spelling, upper-cased.
     aws_payloads: HashMap<String, std::collections::VecDeque<aws::AwsPayload>>,
+    /// Spec 108 — the PartiQL state of each `IndexedFile` control.
+    partiql: HashMap<String, partiql::PartiqlControl>,
+    /// Spec 108 (O2) — for the call being made, the raw text of each argument that
+    /// is a control's property, which reaches the method as a number when it looks like one.
+    partiql_arg_origin: Vec<Option<String>>,
+    /// Spec 108 — the last `COBOL::"PARTIQL"` result of each file the program opened.
+    partiql_files: HashMap<String, partiql::FileResults>,
+    /// Spec 108 — data path of every file a control holds → its `open_files` key.
+    partiql_open: HashMap<std::path::PathBuf, String>,
+    /// Spec 108 — the `open_files` keys of the files controls opened (closed when the run ends).
+    partiql_owned: Vec<partiql::OwnedFile>,
     /// Spec 078 — each AWS control's last row set, which `GetRow` and
     /// `GetField` read. Keyed by the control id, upper-cased.
     aws_rows: HashMap<String, Vec<serde_json::Value>>,
@@ -2233,6 +2250,11 @@ impl Interpreter {
             kb_states: HashMap::new(),
             kb_payloads: HashMap::new(),
             aws_payloads: HashMap::new(),
+            partiql: HashMap::new(),
+            partiql_arg_origin: Vec::new(),
+            partiql_files: HashMap::new(),
+            partiql_open: HashMap::new(),
+            partiql_owned: Vec::new(),
             aws_rows: HashMap::new(),
             kb_tools: Vec::new(),
             control_ids: std::collections::HashMap::new(),
@@ -4613,6 +4635,8 @@ impl Interpreter {
         // without CLOSE leaves the document written and never displayed: the
         // sink flushes when it is dropped, and nobody is told where it went.
         self.hand_over_open_reports();
+        // Spec 108 R8 — a file an `IndexedFile` control opened is closed with the run.
+        self.partiql_close_owned();
         self.flush_external();
         result
     }
@@ -6094,6 +6118,7 @@ impl Interpreter {
                 for a in args {
                     vals.push(self.eval_expr(a, *span)?);
                 }
+                self.partiql_note_origins(args);
                 // 037 — window-supervisor calls (OpenForm*, handle methods,
                 // me:: window methods) dispatch first: they can raise runtime
                 // errors and OpenForm* must BIND the returning data-item as a
@@ -9546,6 +9571,16 @@ impl Interpreter {
 
             // ── INDEXED: dispatch to the keyed engine ──────────────────────
             if org == FileOrganization::Indexed {
+                // Spec 108 R9 — an `IndexedFile` control already holds this file:
+                // the program's `OPEN` takes over that engine, so the verbs and
+                // the control's statements share one position, one set of record
+                // locks and one undo journal. Taken only when a control owns the
+                // file, which no program of the suites has.
+                if self.partiql_adopt(&file, &path, mode) {
+                    self.set_file_status(&file, "00");
+                    self.fire_declarative(&file, "00", false)?;
+                    continue;
+                }
                 // Cross-run-unit sharing is decided BEFORE the engine is built:
                 // a refused open must not create or touch the container.
                 let policy_exclusive = self.file_lock_wait.is_some() && !matches!(mode, OpenMode::Input);
@@ -9600,6 +9635,8 @@ impl Interpreter {
                 if code.starts_with('0') {
                     self.open_files
                         .insert(file.clone(), OpenFile::Indexed(engine));
+                    // Spec 108 R9 — where this file is, so a control borrows it.
+                    self.partiql_note_open(&file, &path);
                 } else {
                     self.forget_failed_open(&file);
                 }
@@ -11771,6 +11808,10 @@ impl Interpreter {
                     self.env.set_str(&n, &code);
                 }
             }
+            // Spec 108 — PartiQL on a file the program opened with the verbs.
+            "COBOL-PARTIQL" if using.len() >= 4 => self.partiql_builtin_run(using, span)?,
+            "COBOL-PARTIQL-ERROR" if using.len() >= 2 => self.partiql_builtin_error(using, span)?,
+            "COBOL-PARTIQL-FETCH" if using.len() >= 3 => self.partiql_builtin_fetch(using, span)?,
             // COBOL-CHART-CLEAR chart-id
             "COBOL-CHART-CLEAR" if !using.is_empty() => {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
@@ -15662,6 +15703,7 @@ impl Interpreter {
                 for a in args {
                     vals.push(self.eval_expr(a, *span)?);
                 }
+                self.partiql_note_origins(args);
                 segs.push(MemberSeg {
                     member: member.clone(),
                     parens: *parens,
@@ -16232,6 +16274,13 @@ impl Interpreter {
         // something else on other controls.
         if self.is_aws(obj) {
             if let Some(answer) = self.aws_method(obj, &m, args) {
+                return val(answer);
+            }
+        }
+        // Spec 108 — routed by class: `Get`, `Execute` and `Fetch` mean something
+        // else on other controls.
+        if self.is_partiql(obj) {
+            if let Some(answer) = self.partiql_method(obj, &m, args) {
                 return val(answer);
             }
         }
