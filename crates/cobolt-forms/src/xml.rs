@@ -1693,7 +1693,10 @@ fn parse_breakpoints<R: std::io::BufRead>(
     Ok(out)
 }
 
-fn parse_prop_value(s: &str) -> PropValue {
+/// A `<Property>`'s text as the loader types it: `true`/`false` a Bool, a whole number an Int, anything else
+/// (trimmed) a String. What `PropValue::as_i64` / `as_bool` then answer for it is what the desktop's runtime reads;
+/// the Web player reads a stored property text through this too, so both agree on `"1500.5"` (0) or `"False"` (on).
+pub fn parse_prop_value(s: &str) -> PropValue {
     let trimmed = s.trim();
     if trimmed == "true" {
         return PropValue::Bool(true);

@@ -4283,6 +4283,27 @@
                SET     BTN-DASH::BackgroundColor TO    "#FFFFFF"
                SET     BTN-DASH::ForegroundColor TO    "#1B2A4E"
 
+               *> A FUND-INIT that FAILED (the page opened while the Backend was not reachable)
+               *> left the grid, its captions and the Dados cards empty; the desktop filled them
+               *> at start-up with its first Apply. That Apply runs now, before the grid's first
+               *> Q-GRID: it asks FUND-INIT again and, when it answers, loads page 1.
+
+               IF    WS-LOADED = 0 AND INI-STATUS NOT = "NOFILE"
+
+                   *> APPLY-FILTERS: asks FUND-INIT again, then re-runs every query and repaints
+                   *> the dashboard, the Dados cards and the grid.
+                   *> Uses:   WS-LOADED = 0 and INI-STATUS (the failed start-up call); the filter
+                   *>         controls as they stand (the designed values unless the user changed
+                   *>         one while the Backend was down).
+                   *> Result: INIT-DB and LOAD-DIMS (header line, LST-N2 / LST-N3, category
+                   *>         slots); when FUND-INIT answers, WS-PAGE = 1, the totals, charts, Dados
+                   *>         cards and GRD-FUNDOS page 1 with LBL-GRID-S, LBL-PAGE, BTN-PREV and
+                   *>         BTN-NEXT; when it fails again, the header keeps the error and nothing
+                   *>         else changes.
+
+                   CALL    "APPLY-FILTERS"
+               END-IF
+
                IF    WS-GSTAGE = 0
 
                    *> STAGE-START-G: starts the staged entrance of the Dados page.
@@ -7265,6 +7286,26 @@
 
                CALL    "SM-CLOSE"
                SET     WS-LEVELS-OPEN            TO    1
+
+               *> A FUND-INIT that FAILED (the page opened while the Backend was not reachable)
+               *> left LST-N2 and LST-N3 empty and the dashboard blank; the desktop filled them at
+               *> start-up (LOAD-DIMS, then its first Apply). That start-up runs now, before the
+               *> card shows its two lists.
+
+               IF    WS-LOADED = 0 AND INI-STATUS NOT = "NOFILE"
+
+                   *> APPLY-FILTERS: asks FUND-INIT again, then re-runs every query and repaints
+                   *> the dashboard, the Dados cards and the grid.
+                   *> Uses:   WS-LOADED = 0 and INI-STATUS (the failed start-up call); the filter
+                   *>         controls as they stand (the designed values unless the user changed
+                   *>         one while the Backend was down; LST-N2 / LST-N3 have no ticks yet).
+                   *> Result: INIT-DB and LOAD-DIMS (header line, LST-N2 / LST-N3 items, category
+                   *>         slots); when FUND-INIT answers, WS-PAGE = 1 and the totals, charts,
+                   *>         Dados cards and GRD-FUNDOS page 1; when it fails again, the header
+                   *>         keeps the error and nothing else changes.
+
+                   CALL    "APPLY-FILTERS"
+               END-IF
 
                *> SET-FILT-HEIGHT: lays the window out for its current size: filter bar height,
                *> popup cards, KPI strip, Dados page and grid.

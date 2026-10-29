@@ -781,6 +781,8 @@ impl Shared {
         if changed || lettered > 0 {
             self.mark_dirty(inst, usize::MAX);
         }
+        // What is moving is drawn at its new place (P4-1: a resize during the intro left children off their place).
+        self.motion_resized(&inner, inst);
     }
 
     // ── timers ──────────────────────────────────────────────────────────────

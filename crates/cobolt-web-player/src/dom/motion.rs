@@ -103,6 +103,12 @@ pub(crate) struct InstMotion {
     renew: BTreeMap<usize, crate::api::Timeout>,
     /// The controls the pointer is over (`OnHover` fires on entering one).
     hovered: BTreeSet<usize>,
+    /// The layout each running plan was measured on, by the plan's root: a plan whose controls the layout moved or
+    /// resized since (a later card shown into the same flex row, a window resize) is made again.
+    layout: BTreeMap<usize, PlanLayout>,
+    /// Size watches of plans made again or ended, disconnected, kept until the next render pass: a watch's callback may be
+    /// what made its plan again, and a callback is not dropped while it runs.
+    retired: Vec<SizeWatch>,
     /// The charts' motion state.
     pub charts: BTreeMap<usize, ChartMotion>,
     _listeners: Vec<Listener>,
@@ -133,6 +139,84 @@ fn snapshot(tree: &FormTree) -> Snapshot {
         container: (0..n).map(|i| tree.ctls[i].is_container() && i != 0).collect(),
         scroller: (0..n).map(|i| ["HScroll", "VScroll", "AutoScroll"].iter().any(|p| tree.ctls[i].flag(p))).collect(),
     }
+}
+
+/// The layout a plan was measured on: each element of the plan with its place in its offset parent and its size, as the
+/// layout put them (an element's offsets do not follow a transform, so a frame of a running animation never reads as a
+/// layout change), until the plan's last frame.
+struct PlanLayout {
+    els: Vec<(Element, [f64; 4])>,
+    until: f64,
+    watch: Option<SizeWatch>,
+}
+
+/// A `ResizeObserver` on the elements of a plan: the browser calls it after a layout that changed one of their sizes and
+/// before that frame is painted, so a plan made again there is what the frame shows (polling the layout after every render
+/// pass would force a layout per pass).
+struct SizeWatch {
+    ro: JsValue,
+    _cb: Closure<dyn FnMut(JsValue)>,
+}
+
+impl SizeWatch {
+    fn new(els: &[Element], f: impl FnMut() + 'static) -> Option<SizeWatch> {
+        let mut f = f;
+        let cb = Closure::<dyn FnMut(JsValue)>::new(move |_entries: JsValue| f());
+        let w = web_sys::window()?;
+        let ctor = Reflect::get(&w, &"ResizeObserver".into()).ok()?.dyn_into::<js_sys::Function>().ok()?;
+        let ro = Reflect::construct(&ctor, &Array::of1(cb.as_ref())).ok()?;
+        let observe = Reflect::get(&ro, &"observe".into()).ok()?.dyn_into::<js_sys::Function>().ok()?;
+        for el in els {
+            let _ = observe.call1(&ro, el);
+        }
+        Some(SizeWatch { ro: ro.into(), _cb: cb })
+    }
+
+    fn disconnect(&self) {
+        if let Some(f) = Reflect::get(&self.ro, &"disconnect".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) {
+            let _ = f.call0(&self.ro);
+        }
+    }
+}
+
+impl Drop for SizeWatch {
+    fn drop(&mut self) {
+        self.disconnect();
+    }
+}
+
+impl InstMotion {
+    /// Forget the layout of plan `root` (made again, or over): its watch is disconnected and retired.
+    fn drop_layout(&mut self, root: usize) {
+        if let Some(l) = self.layout.remove(&root) {
+            if let Some(w) = l.watch {
+                w.disconnect();
+                self.retired.push(w);
+            }
+        }
+    }
+}
+
+/// `offsetLeft`, `offsetTop`, `offsetWidth`, `offsetHeight`: the layout box, transforms ignored.
+fn layout_box(el: &Element) -> [f64; 4] {
+    let n = |k: &str| Reflect::get(el, &k.into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+    [n("offsetLeft"), n("offsetTop"), n("offsetWidth"), n("offsetHeight")]
+}
+
+/// The properties that paint a container's own face, as styled now (no animation running on it), for its fade: the key-frame
+/// name (Web Animations spell properties in camel case) and the computed value.
+fn face_colors(el: &Element) -> Vec<(&'static str, String)> {
+    const FACE: [(&str, &str); 7] = [
+        ("backgroundColor", "background-color"),
+        ("backgroundImage", "background-image"),
+        ("borderTopColor", "border-top-color"),
+        ("borderRightColor", "border-right-color"),
+        ("borderBottomColor", "border-bottom-color"),
+        ("borderLeftColor", "border-left-color"),
+        ("boxShadow", "box-shadow"),
+    ];
+    let Some(cs) = web_sys::window().and_then(|w| w.get_computed_style(el).ok().flatten()) else { return Vec::new() };
+    FACE.iter().filter_map(|(k, p)| cs.get_property_value(p).ok().map(|v| (*k, v))).collect()
 }
 
 fn displayed(el: &Element) -> bool {
@@ -295,7 +379,16 @@ impl Shared {
             })
             .unwrap_or_default()
         } else if matches!(trig, cobolt_forms::model::AnimTrigger::OnFocus) {
-            under.first().copied().into_iter().collect()
+            // The desktop takes `OnFocus` from the event stream (form-host `host.rs`, "Focus and timer triggers do come from
+            // the event stream"), and its renderer puts `onGotFocus` there only for a control with that handler bound
+            // (`render.rs` `focus_keyboard_events`, `want("onGotFocus")`): a field without one does not play it.
+            let bound = inner
+                .host
+                .try_borrow()
+                .ok()
+                .and_then(|h| h.trees.get(&inst).map(|t| under.first().is_some_and(|&i| i < t.ctls.len() && t.ctls[i].has_handler("onGotFocus"))))
+                .unwrap_or(false);
+            under.first().copied().filter(|_| bound).into_iter().collect()
         } else {
             under
         };
@@ -540,16 +633,43 @@ impl Shared {
                 anims.push(a);
             }
             if locals.iter().any(|l| (l.opacity - 1.0).abs() > 1e-4) {
-                let of = Array::new();
-                for (k, l) in locals.iter().enumerate() {
-                    of.push(&frame(offset(k), &[("opacity", ((l.opacity * 1e4).round() / 1e4).into())]));
-                }
-                if n == 1 {
-                    of.push(&frame(0.0, &[("opacity", last.opacity.into())]));
-                    of.reverse();
-                }
-                if let Some(a) = animate(el, &of, span, fill, "replace", t0) {
-                    anims.push(a);
+                let opacity_frames = |el: &Element| -> Option<JsValue> {
+                    let of = Array::new();
+                    for (k, l) in locals.iter().enumerate() {
+                        of.push(&frame(offset(k), &[("opacity", ((l.opacity * 1e4).round() / 1e4).into())]));
+                    }
+                    if n == 1 {
+                        of.push(&frame(0.0, &[("opacity", last.opacity.into())]));
+                        of.reverse();
+                    }
+                    animate(el, &of, span, fill, "replace", t0)
+                };
+                if snap.children[i].is_empty() {
+                    anims.extend(opacity_frames(el));
+                } else {
+                    // A container's fade is its OWN paint's (`render.rs`: a control's alpha is its ancestors' static Opacity
+                    // times its own animation's, never its container's animation): an element's `opacity` would fade every
+                    // control inside it too. So the face fades (its colours, with their alpha scaled), and so do the parts of
+                    // it that are elements of their own (a GroupBox's legend, the expand icon); the controls inside keep theirs.
+                    let face = face_colors(el);
+                    let ff = Array::new();
+                    for (k, l) in locals.iter().enumerate() {
+                        let props: Vec<(&str, JsValue)> = face.iter().map(|(p, v)| (*p, m::scale_css_alpha(v, l.opacity).into())).collect();
+                        ff.push(&frame(offset(k), &props));
+                    }
+                    if n == 1 {
+                        let props: Vec<(&str, JsValue)> = face.iter().map(|(p, v)| (*p, m::scale_css_alpha(v, last.opacity).into())).collect();
+                        ff.push(&frame(0.0, &props));
+                        ff.reverse();
+                    }
+                    anims.extend(animate(el, &ff, span, fill, "replace", t0));
+                    let parts = el.children();
+                    for k in 0..parts.length() {
+                        // A part of the face holds no control (a TabControl's page wrapper does: it is left alone).
+                        if let Some(part) = parts.item(k).filter(|p| !p.has_attribute("data-name") && p.query_selector("[data-name]").ok().flatten().is_none()) {
+                            anims.extend(opacity_frames(&part));
+                        }
+                    }
                 }
             }
             started.insert(i, anims);
@@ -596,8 +716,27 @@ impl Shared {
                 }
             })
         });
+        // The layout this plan was measured on, while it runs: only a plan that places a control inside a moving container
+        // depends on it (a control that moves alone is drawn about its own centre wherever the layout puts it).
+        let compensated = started.keys().any(|&i| snap.parent[i].is_some_and(|p| i != root && nodes.contains(&p) && plays.contains_key(&p)));
+        let layout = (compensated && t1 > t_now && !reduce).then(|| {
+            let list: Vec<Element> = els.values().cloned().collect();
+            let (weak, wi) = (Rc::downgrade(self), Rc::downgrade(inner));
+            let watch = SizeWatch::new(&list, move || {
+                if let (Some(sh), Some(inner)) = (weak.upgrade(), wi.upgrade()) {
+                    if sh.motion_relaid(inst, Some(root)).contains(&root) {
+                        sh.motion_plan(&inner, inst, root);
+                    }
+                }
+            });
+            PlanLayout { els: list.iter().map(|el| (el.clone(), layout_box(el))).collect(), until: t1, watch }
+        });
         if let Ok(mut st) = self.motion.try_borrow_mut() {
             let mi = st.insts.entry(inst).or_default();
+            mi.drop_layout(root);
+            if let Some(l) = layout {
+                mi.layout.insert(root, l);
+            }
             for (i, a) in started {
                 mi.running.insert(i, a);
             }
@@ -626,6 +765,17 @@ impl Shared {
             }
         }
         let mut roots = if changed.is_empty() { BTreeSet::new() } else { self.motion_roots(inner, inst, &changed).unwrap_or_default() };
+        // Plans whose motion is over forget their layout; retired watches go (no watch callback is running now).
+        if let Ok(mut st) = self.motion.try_borrow_mut() {
+            if let Some(mi) = st.insts.get_mut(&inst) {
+                let t = now();
+                let over: Vec<usize> = mi.layout.iter().filter(|(_, l)| l.until <= t).map(|(r, _)| *r).collect();
+                for r in over {
+                    mi.drop_layout(r);
+                }
+                mi.retired.clear();
+            }
+        }
         // A plan with a control that was hidden when it was made, and is shown now.
         let waiting: Vec<(usize, Vec<usize>)> = self
             .motion
@@ -650,6 +800,29 @@ impl Shared {
         self.chart_pass(inner, inst);
     }
 
+    /// The roots of the running plans whose controls the layout has moved or resized since they were measured: the desktop
+    /// draws every control at its CURRENT laid-out rectangle on every frame, so such a plan is made again (its playbacks keep
+    /// their clocks: the motion goes on from where it is). `only`: that plan alone. Called by a plan's size watch, and when the
+    /// form's surface is resized.
+    fn motion_relaid(&self, inst: u32, only: Option<usize>) -> Vec<usize> {
+        let t = now();
+        let Ok(st) = self.motion.try_borrow() else { return Vec::new() };
+        let Some(mi) = st.insts.get(&inst) else { return Vec::new() };
+        mi.layout
+            .iter()
+            .filter(|(r, l)| only.is_none_or(|o| o == **r) && l.until > t)
+            .filter(|(_, l)| l.els.iter().any(|(el, b)| { let now_b = layout_box(el); now_b.iter().zip(b).any(|(a, b)| (a - b).abs() > 0.5) }))
+            .map(|(r, _)| *r)
+            .collect()
+    }
+
+    /// The form's surface changed size (the window, or the pane it is in): the running plans the new layout moved are made again.
+    pub(super) fn motion_resized(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32) {
+        for r in self.motion_relaid(inst, None) {
+            self.motion_plan(inner, inst, r);
+        }
+    }
+
     // ── charts ───────────────────────────────────────────────────────────────
 
     /// Move every chart of `inst` that is on screen to this moment of its motion, and draw again the ones whose frame
@@ -670,14 +843,17 @@ impl Shared {
             tree.ctls
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| matches!(c.control_type(), Some(CT::BarChart | CT::LineChart | CT::PieChart | CT::DonutChart | CT::RadarChart)))
-                .filter(|(_, c)| !c.flag("Monochrome"))
+                // Every chart the desktop's run-time arm moves (`render.rs` CT::BarChart | LineChart | PieChart | AreaChart |
+                // ScatterChart | DonutChart | RadarChart), Monochrome or not: the look is the painter's, the motion the arm's.
+                .filter(|(_, c)| {
+                    matches!(c.control_type(), Some(CT::BarChart | CT::LineChart | CT::PieChart | CT::AreaChart | CT::ScatterChart | CT::DonutChart | CT::RadarChart))
+                })
                 .map(|(i, c)| Ch {
                     i,
                     raw: c.raw("__ChartData").unwrap_or("").to_owned(),
-                    // The painter's `prop_bool(ctrl, name, default)`.
-                    grows: c.raw("AnimateOnLoad").map(crate::value::truthy).unwrap_or(true),
-                    values: c.raw("AnimateValues").map(crate::value::truthy).unwrap_or(false),
+                    // The arm's `prop_bool(ctrl, name, default)` and `value_anim_ms`, on the loader's typed value.
+                    grows: m::chart_flag(c.raw("AnimateOnLoad"), true),
+                    values: m::chart_flag(c.raw("AnimateValues"), false),
                     ms: m::chart_ms(c.raw("AnimationDuration")),
                 })
                 .collect()

@@ -240,6 +240,14 @@ impl Shared {
                 self.dismiss_toast(id);
                 return;
             }
+            UiOp::ShowValue(text) => {
+                if let Some(el) = self.control_element(inst, ctl) {
+                    if let Ok(Some(input)) = el.query_selector("input") {
+                        let _ = js_sys::Reflect::set(&input, &"value".into(), &text.as_str().into());
+                    }
+                }
+                return;
+            }
             UiOp::PickFiles => {
                 if let Some(el) = self.control_element(inst, ctl) {
                     if let Ok(Some(input)) = el.query_selector("input[type=file]") {

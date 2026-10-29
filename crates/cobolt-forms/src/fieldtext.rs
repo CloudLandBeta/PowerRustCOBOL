@@ -118,6 +118,30 @@ pub fn numeric_updown_places(ctrl: &Control) -> usize {
     declared.max(step_places.min(6))
 }
 
+/// The value a NumericUpDown holds once it is on its ladder: `Minimum + k·Step`, the nearest rung
+/// (a half rounds away from the minimum), never outside `Minimum..=Maximum`. The desktop's field
+/// applies it every frame it is drawn (`render.rs` CT::NumericUpDown), so a value off the ladder —
+/// written by the program, or typed into the Web player's field — never stays.
+pub fn numeric_updown_snap(min: f64, max: f64, step: f64, value: f64) -> f64 {
+    (min + ((value - min) / step).round() * step).clamp(min, max)
+}
+
+/// What the desktop's field writes back into `Value` when the stored value is off its ladder, as
+/// it writes it (`DecimalPlaces` digits); `None` when it is on a rung already. The stored texts are
+/// read as the painter reads them: a `Minimum` that is not a number is 0, a `Maximum` 100 (never
+/// below the minimum), a `Step` 1 (at least 0.0001), a `Value` the minimum, then clamped. A value
+/// above the maximum is clamped for the comparison but not written (the painter compares with the
+/// clamped value).
+pub fn numeric_updown_snap_write(ctrl: &Control) -> Option<String> {
+    let text = |k: &str| ctrl.get_prop(k).map(|p| p.to_xml_string()).unwrap_or_default();
+    let min = text("Minimum").parse::<f64>().unwrap_or(0.0);
+    let max = text("Maximum").parse::<f64>().unwrap_or(100.0).max(min);
+    let step = text("Step").parse::<f64>().unwrap_or(1.0).max(0.0001);
+    let value = text("Value").parse::<f64>().unwrap_or(min).clamp(min, max);
+    let snapped = numeric_updown_snap(min, max, step, value);
+    ((snapped - value).abs() > f64::EPSILON).then(|| format!("{snapped:.*}", numeric_updown_places(ctrl)))
+}
+
 /// What a NumericUpDown's field shows: `Value` with `DecimalPlaces` digits,
 /// and grouped in thousands when `ThousandsSeparator` is on. The value was
 /// read as a whole number — so 2.5 showed as 0 — and neither property was
@@ -616,4 +640,40 @@ fn count_cobol_digit_positions(mask: &str) -> Option<usize> {
         }
     }
     Some(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::ControlType;
+
+    fn nud(props: &[(&str, &str)]) -> Control {
+        let mut c = Control::new("NUD", ControlType::NumericUpDown, 0, 0);
+        for (k, v) in props {
+            c.set_prop(*k, v.to_string());
+        }
+        c
+    }
+
+    #[test]
+    fn a_numeric_updown_value_off_its_ladder_goes_to_the_nearest_rung() {
+        let ladder = [("Minimum", "0"), ("Maximum", "300000"), ("Step", "100")];
+        let with = |v: &str| {
+            let mut p = ladder.to_vec();
+            p.push(("Value", v));
+            numeric_updown_snap_write(&nud(&p))
+        };
+        assert_eq!(with("1"), Some("0".to_owned()));
+        assert_eq!(with("49"), Some("0".to_owned()));
+        assert_eq!(with("50"), Some("100".to_owned()), "a half rounds away from the minimum");
+        assert_eq!(with("151"), Some("200".to_owned()));
+        assert_eq!(with("300"), None, "on a rung: nothing is written");
+        assert_eq!(with("0"), None);
+        assert_eq!(with("300000"), None);
+        assert_eq!(with("999999"), None, "above the maximum: clamped for the comparison, not written");
+        // The ladder starts at the minimum, and the places follow the Step.
+        assert_eq!(numeric_updown_snap_write(&nud(&[("Minimum", "5"), ("Maximum", "50"), ("Step", "10"), ("Value", "12")])), Some("15".to_owned()));
+        assert_eq!(numeric_updown_snap_write(&nud(&[("Minimum", "0"), ("Maximum", "1"), ("Step", "0.25"), ("Value", "0.3")])), Some("0.25".to_owned()));
+        assert_eq!(numeric_updown_snap(0.0, 10.0, 3.0, 10.0), 9.0);
+    }
 }

@@ -9508,7 +9508,8 @@ fn render_interactive(
                 });
                 moved = (moved + (f64::from(u8::from(up)) - f64::from(u8::from(down))) * step).clamp(min, max);
             }
-            let snapped = (min + ((moved - min) / step).round() * step).clamp(min, max);
+            // The ladder rule is shared with the Web player (`fieldtext::numeric_updown_snap`).
+            let snapped = crate::fieldtext::numeric_updown_snap(min, max, step, moved);
             if editable && (snapped - val).abs() > f64::EPSILON {
                 let s = format!("{snapped:.*}", paint::numeric_updown_places(ctrl));
                 out.prop_updates

@@ -269,15 +269,37 @@ fn round6(v: f64) -> f64 {
 /// `own` and `cc` the control's, all in one frame of reference and as laid out (no transform). The answer undoes the
 /// container's move and applies the control's: `D_parent⁻¹ ∘ D_control`, where `D(x) = s (x − c) + c + d`.
 ///
-/// Opacity: the desktop multiplies a control's alpha by its OWN animation's only; a page multiplies a child's by its
-/// container's. The child's is divided by the container's to undo that, and a page cannot make an element more opaque
-/// than its container: where the desktop would show a child brighter than its fading container it is held at 1.
+/// Opacity: the desktop multiplies a control's alpha by its OWN animation's only (its container's fade is the container's
+/// own paint). A page fades a container's face, not its element (`dom::motion`), so nothing is inherited and the child's
+/// opacity is its own alpha.
 pub fn local_transform(parent: Tf, pc: (f64, f64), own: Tf, cc: (f64, f64)) -> Local {
     let sp = parent.scale.max(1e-6);
     let tx = (cc.0 + own.dx - pc.0 - parent.dx) / sp + pc.0 - cc.0;
     let ty = (cc.1 + own.dy - pc.1 - parent.dy) / sp + pc.1 - cc.1;
-    let opacity = if parent.alpha <= 1e-6 { own.alpha } else { (own.alpha / parent.alpha).min(1.0) };
-    Local { tx, ty, k: own.scale / sp, opacity }
+    Local { tx, ty, k: own.scale / sp, opacity: own.alpha }
+}
+
+/// A computed CSS value (`background-color`, a gradient's `background-image`, `box-shadow`) with the alpha of every
+/// `rgb()` / `rgba()` colour in it multiplied by `alpha`: a container's face at that fraction of its opacity.
+pub fn scale_css_alpha(value: &str, alpha: f64) -> String {
+    let alpha = alpha.clamp(0.0, 1.0);
+    let mut out = String::with_capacity(value.len() + 16);
+    let mut rest = value;
+    while let Some(at) = rest.find("rgb") {
+        let Some(open) = rest[at..].find('(').map(|o| at + o) else { break };
+        let Some(close) = rest[open..].find(')').map(|c| open + c) else { break };
+        let parts: Vec<f64> = rest[open + 1..close].split([',', ' ', '/']).filter(|p| !p.is_empty()).filter_map(|p| p.trim().parse::<f64>().ok()).collect();
+        out.push_str(&rest[..at]);
+        if parts.len() >= 3 {
+            let a = parts.get(3).copied().unwrap_or(1.0);
+            out.push_str(&format!("rgba({}, {}, {}, {})", parts[0], parts[1], parts[2], (a * alpha * 1e4).round() / 1e4));
+        } else {
+            out.push_str(&rest[at..=close]);
+        }
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The frames of a playback, from page time `from_ms` to `to_ms`, one every `step_ms` and one at the end: the offset
@@ -364,14 +386,21 @@ pub fn chart_ease(t: f64) -> f64 {
     1.0 - (1.0 - t).powi(3)
 }
 
-/// How long a chart's motion takes: `AnimationDuration` (2000 when it says nothing), never under 250 ms
-/// (`chart::value_anim_ms`, and the grow in `render.rs`).
+/// How long a chart's motion takes: `AnimationDuration` (2000 when the chart has none), never under 250 ms
+/// (`chart::value_anim_ms`, and the grow in `render.rs`). The text is read as the desktop reads it: typed by the
+/// loader (`xml::parse_prop_value`), then `as_i64`, so a duration that is not a whole number (`""`, `"fast"`,
+/// `"1500.5"`) is 0 there, and 250 ms on both.
 pub fn chart_ms(duration: Option<&str>) -> f64 {
     duration
-        .and_then(|d| d.trim().parse::<f64>().ok())
-        .map(|d| d as i64)
+        .map(|d| cobolt_forms::xml::parse_prop_value(d).as_i64())
         .unwrap_or(chart::DEFAULT_ANIM_MS)
         .max(chart::MIN_ANIM_MS) as f64
+}
+
+/// A chart's `AnimateOnLoad` / `AnimateValues` as the desktop reads it (`prop_bool`, `PropValue::as_bool` of the
+/// loader's typed value): `default` when the chart has none; `"False"` is on, as there.
+pub fn chart_flag(raw: Option<&str>, default: bool) -> bool {
+    raw.map(|v| cobolt_forms::xml::parse_prop_value(v).as_bool()).unwrap_or(default)
 }
 
 /// One chart's motion state on a page: what the desktop keeps in its frame memory for it (`render.rs`:
@@ -553,10 +582,20 @@ mod tests {
         let fly = Tf { dx: -300.0, dy: 0.0, scale: 1.0, alpha: 1.0 };
         let still = local_transform(fly, pc, Tf::IDENTITY, cc);
         assert!((still.tx - 300.0).abs() < 1e-9 && still.ty.abs() < 1e-9);
-        // Opacity: a child held at full alpha inside a half-faded container cannot be brighter than it.
+        // Opacity: the child's own alpha, whatever its container's fade (judgement P4-1: a FadeIn child inside a FadeOut
+        // container ends fully visible on the desktop).
         let fade = Tf { alpha: 0.5, ..Tf::IDENTITY };
-        assert_eq!(local_transform(fade, pc, Tf { alpha: 0.25, ..Tf::IDENTITY }, cc).opacity, 0.5);
+        assert_eq!(local_transform(fade, pc, Tf { alpha: 0.25, ..Tf::IDENTITY }, cc).opacity, 0.25);
         assert_eq!(local_transform(fade, pc, Tf::IDENTITY, cc).opacity, 1.0);
+        assert_eq!(local_transform(Tf { alpha: 0.0, ..Tf::IDENTITY }, pc, Tf::IDENTITY, cc).opacity, 1.0);
+        // The container's face at a fraction of its alpha.
+        assert_eq!(scale_css_alpha("rgb(10, 20, 30)", 0.5), "rgba(10, 20, 30, 0.5)");
+        assert_eq!(scale_css_alpha("rgba(0, 0, 0, 0.4) 0px 2px 6px 0px", 0.5), "rgba(0, 0, 0, 0.2) 0px 2px 6px 0px");
+        assert_eq!(
+            scale_css_alpha("linear-gradient(rgba(78, 78, 78, 0.7), rgb(0, 0, 0))", 0.0),
+            "linear-gradient(rgba(78, 78, 78, 0), rgba(0, 0, 0, 0))"
+        );
+        assert_eq!(scale_css_alpha("none", 0.3), "none");
     }
 
     /// A label inside a card, both playing the intro: the frames refined where the motion is fast keep every corner of
@@ -665,5 +704,13 @@ mod tests {
         assert_eq!(off.frame(20.0, "A\t9", false, true, 1500.0).data.as_deref(), Some("A\t5"));
         assert_eq!(chart_ms(Some("10")), 250.0);
         assert_eq!(chart_ms(None), 2000.0);
+        // Judgement P4-1 (static finding): what is not a whole number is 0 on the desktop (`as_i64`), so 250 ms.
+        for odd in ["", "fast", "1500.5", "true"] {
+            assert_eq!(chart_ms(Some(odd)), 250.0, "{odd:?}");
+        }
+        assert_eq!(chart_ms(Some(" 1500")), 1500.0, "the loader trims");
+        assert!(chart_flag(Some("False"), false), "\"False\" is a String, which `as_bool` reads as on");
+        assert!(!chart_flag(Some("0"), true) && !chart_flag(Some("false"), true) && !chart_flag(Some(""), true));
+        assert!(chart_flag(None, true) && !chart_flag(None, false));
     }
 }

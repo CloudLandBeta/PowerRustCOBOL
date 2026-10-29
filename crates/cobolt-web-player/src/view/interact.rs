@@ -120,6 +120,9 @@ pub enum UiOp {
     /// The user is in (`true`) or has left (`false`) a TextBox that has a numeric-edited PICTURE: it shows
     /// the plain value to edit while focused and the edited form at rest.
     Editing(bool),
+    /// Put this text in the control's field: what was typed was committed as another value (a NumericUpDown's rung)
+    /// that the property may already hold, so no redraw would bring it back.
+    ShowValue(String),
 }
 
 /// One thing to do.
@@ -411,15 +414,27 @@ fn slider(p: &Payload) -> Vec<Act> {
     }
 }
 
+/// The desktop's NumericUpDown takes no typing (drag, wheel, ↑/↓) and puts its value on the `Step` ladder every frame it
+/// is drawn (`render.rs` CT::NumericUpDown, `fieldtext::numeric_updown_snap`). The page's field takes typing, so what is
+/// typed is held by the field while it is being typed (`input`) and reaches `Value` when it is committed (`change`: Enter,
+/// Tab, a click elsewhere, a spin), on its rung: a `1` typed into a field of Step 100 is `0`, as the desktop holds it.
 fn numeric(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
-    if !matches!(p.kind.as_str(), "input" | "change") {
+    if p.kind != "change" {
         return Vec::new();
     }
     let Some(v) = parse_f64(&p.value) else { return Vec::new() };
-    let min = parse_f64(&cx.tree.get(i, "Minimum")).unwrap_or(0.0);
-    let max = parse_f64(&cx.tree.get(i, "Maximum")).unwrap_or(100.0);
-    let v = v.clamp(min.min(max), max.max(min));
-    vec![Act::Change { prop: "Value".into(), value: fmt_number(v) }]
+    let mut m = cobolt_forms::model::Control::new(cx.tree.ctl(i).name.clone(), ControlType::NumericUpDown, 0, 0);
+    for k in ["Minimum", "Maximum", "Step", "DecimalPlaces"] {
+        m.set_prop(k, cx.tree.get(i, k));
+    }
+    m.set_prop("Value", v.to_string());
+    let value = cobolt_forms::fieldtext::numeric_updown_snap_write(&m).unwrap_or_else(|| {
+        // On a rung already (or above the maximum, which the desktop never reaches: clamped as before).
+        let min = parse_f64(&cx.tree.get(i, "Minimum")).unwrap_or(0.0);
+        let max = parse_f64(&cx.tree.get(i, "Maximum")).unwrap_or(100.0);
+        fmt_number(v.clamp(min.min(max), max.max(min)))
+    });
+    vec![Act::Change { prop: "Value".into(), value: value.clone() }, Act::Ui(UiOp::ShowValue(value))]
 }
 
 fn list_items(cx: &ViewCtx, i: usize) -> Vec<String> {
@@ -1499,6 +1514,26 @@ mod tests {
         assert_eq!(names(&run(&t, l, &e, tick))[..2], ["CheckedItems=b", "onItemChecked(b)"]);
     }
 
+    /// The desktop's test `render.rs` "a plain click on Delta then Beta" → CheckedItems "Delta\nBeta": the checked set
+    /// keeps the order the user built it in, not the list's order (judgement G3-1, O-G3-1).
+    #[test]
+    fn ticks_keep_the_order_the_user_made_them_in() {
+        let (mut t, l) = tree_with("ListBox", "L", &[("Items", "Alpha\nBeta\nGamma\nDelta"), ("ShowCheckBoxes", "1")]);
+        let e = Empty::default();
+        for k in [3, 1] {
+            let mut tick = Payload::new("click", "root");
+            tick.index = Some(k);
+            tick.part = Some("check".into());
+            let acts = run(&t, l, &e, tick);
+            for a in acts {
+                if let Act::Quiet { prop, value } = a {
+                    t.set_from_ui(l, &prop, &value);
+                }
+            }
+        }
+        assert_eq!(t.get(l, "CheckedItems"), "Delta\nBeta");
+    }
+
     #[test]
     fn the_arrow_keys_move_the_active_row_and_never_scroll_the_page() {
         let t = tree();
@@ -1526,6 +1561,23 @@ mod tests {
         let mut free = Payload::new("input", "input");
         free.value = "mauve".into();
         assert!(names(&run(&t, c, &e, free)).contains(&"~Text=mauve".to_owned()));
+    }
+
+    #[test]
+    fn a_number_typed_into_a_numeric_updown_reaches_value_on_its_rung_when_committed() {
+        let (t, c) = tree_with("NumericUpDown", "N", &[("Minimum", "0"), ("Maximum", "300000"), ("Step", "100"), ("Value", "0")]);
+        let e = Empty::default();
+        let typed = |kind: &str, v: &str| {
+            let mut p = Payload::new(kind, "input");
+            p.value = v.into();
+            names(&run(&t, c, &e, p))
+        };
+        assert!(typed("input", "1").is_empty(), "held by the field while it is typed");
+        assert_eq!(typed("change", "1")[0], "~Value=0", "the desktop's field holds 0, never 1");
+        assert_eq!(typed("change", "151")[0], "~Value=200");
+        assert_eq!(typed("change", "1500")[0], "~Value=1500");
+        assert_eq!(typed("change", "999999")[0], "~Value=300000");
+        assert!(typed("change", "abc").is_empty());
     }
 
     #[test]

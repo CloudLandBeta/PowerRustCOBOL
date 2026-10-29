@@ -22,6 +22,24 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.91] — 2026-10-29
+
+*(Written on `features-2x` off 2.0.88 (74fee740), rebased onto 2.0.90 (662e1b65) on `fixes-2x-p4b`; `assets/web-player` rebuilt after the rebase.)*
+
+### Fixed: a Web page recovers from a late Backend on its first act, a NumericUpDown holds its Step ladder as on the desktop, and the page's control animations follow the desktop's more closely
+
+**What changed** (`cobolt-forms` `fieldtext.rs`, one line of `render.rs`, `xml.rs`; `cobolt-web-player` `host.rs`, new `host/numeric_tests.rs`, `view/interact.rs`, `view/charts.rs`, `dom/ops.rs`, `dom/motion.rs`, `dom/instance.rs`, `motion.rs`; `examples/PowerAnalyticsWeb/webforms/main-form.wcfrm`; new `cobolt-web-bundle/tests/page_motion_p4b.rs`; `assets/web-player` rebuilt; no interpreter, ABI or KB change):
+- **Late Backend (PowerAnalyticsWeb).** A page opened while its Backend was down now asks FUND-INIT again when the user first opens Níveis 2 e 3 or the Dados page (`APPLY-FILTERS`), so the lists (19 / 34 items), the header (43.750 fundo(s)), the KPI card and the grid's first page match the desktop's start-up.
+- **NumericUpDown `Step`.** The ladder rule is one function shared by both hosts (`fieldtext::numeric_updown_snap`): the desktop painter calls it, and the page puts a typed value on its rung when it is committed and snaps a program's off-ladder write when the handler ends, raising the bound change events (22/22 scenario reads equal to the desktop).
+- **Animations.** A plan inside a container that re-flows (a card shown into the same row, a window resize) is made again about the new centres; Area, Scatter and Monochrome charts grow as the desktop's do; a fading container fades its face, not its children; OnFocus plays only with a bound `onGotFocus`; a non-integer `AnimationDuration` reads as the desktop's loader reads it (250 ms).
+
+**Independent judgement (P4B-1): 17 PASS, 3 FAIL, 1 IMPOSSIBLE, 1 not reproduced.** Open:
+- FAIL D-P4B-1: with the Backend late, a first act of typing in Nome or Categoria leaves the dashboard blank until Aplicar (KPI R$ 0, 94 items).
+- FAIL D-G3-1 edge: a PL minimum changed while the Backend was down is applied by the late re-ask (2.026 fundo(s) against the desktop's 43.750).
+- FAIL: a re-plan frame is off the desktop's curve by up to 0.064 for one frame, seen as a wobble during a live drag-resize.
+- IMPOSSIBLE: the popup fade-in - the page's ComboBox list, date picker and chart tips are browser-native popups a page cannot animate.
+- Not reproduced: the 83-350 ms stall after the Dados grid appears (0 of 8 fresh loads); nothing was changed for it.
+
 ## [PowerRustCOBOL 2.0.90] — 2026-10-29
 
 *(Written on `features-2x-tabscroll`, on top of 2.0.89 (36eded41), which was off `2.x.x` at 74fee740.)*

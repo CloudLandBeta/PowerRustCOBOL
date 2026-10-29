@@ -11,9 +11,9 @@
 //! picture. Colour comes from the properties through presentation attributes; text takes the
 //! control's `color` (so `ForegroundColor` and the developer's CSS reach it).
 //!
-//! **Where the picture differs from the desktop** (listed, per WASM-004 R4): the value animation
-//! (`AnimateOnLoad`, `AnimateValues`) is not played by this older renderer (the Monochrome look; the others are
-//! `chart_paint`'s, which plays it, `crate::motion`); the
+//! **Where the picture differs from the desktop** (listed, per WASM-004 R4): this older renderer (the area and
+//! scatter charts, and the Monochrome look of every chart) plays the value tween and the load growth from the same
+//! frames as `chart_paint` (`crate::motion`), on its own scales and ticks; the
 //! glass/neumorphic faces of the egui painter are the CSS box of `style.rs`; a chart's hover tooltip is
 //! the browser's own (`<title>` of each mark).
 
@@ -211,7 +211,13 @@ pub fn chart(cx: &ViewCtx, i: usize) -> VNode {
     }
     let c = cx.tree.ctl(i);
     let Some(t) = c.control_type() else { return super::controls::hidden_object(cx, i) };
-    let rows = parse_chart_rows(&cx.tree.get(i, "__ChartData"));
+    // While the chart moves (`crate::motion`), its frame stands in for what the desktop's run-time arm hands the painter: the
+    // tweened `__ChartData`, and `__ChartGrow`, the fraction of the load growth (`render.rs` CT::*Chart). The scales and the
+    // ticks are the data's own; only the marks are drawn at that fraction of their distance from zero (a slice at that
+    // fraction of its sweep, a radar vertex at that fraction of its reach), as `paint::chart_geometry` draws them.
+    let frame = cx.ui.chart_frames.get(&i);
+    let rows = parse_chart_rows(&frame.and_then(|f| f.data.clone()).unwrap_or_else(|| cx.tree.get(i, "__ChartData")));
+    let g = frame.and_then(|f| f.grow).unwrap_or(1.0).clamp(0.0, 1.0);
     let series = rows.iter().map(|(_, v)| v.len()).max().unwrap_or(1).max(1);
     let labels = series_labels(cx, i, series);
     let colors: Vec<String> = (0..series).map(|k| series_color(cx, i, k, series)).collect();
@@ -221,11 +227,11 @@ pub fn chart(cx: &ViewCtx, i: usize) -> VNode {
     let legend = truthy(&cx.tree.get(i, "ShowLegend"));
     let legend_rows = usize::from(legend);
     match t {
-        ControlType::BarChart => bars(cx, i, &mut root, &rows, w, h, legend_rows, &colors),
-        ControlType::LineChart | ControlType::AreaChart => lines(cx, i, &mut root, &rows, w, h, legend_rows, &colors, matches!(t, ControlType::AreaChart)),
-        ControlType::ScatterChart => scatter(cx, i, &mut root, &rows, w, h, legend_rows, &colors),
-        ControlType::PieChart | ControlType::DonutChart => pie(cx, i, &mut root, &rows, w, h, matches!(t, ControlType::DonutChart), &colors),
-        ControlType::RadarChart => radar(cx, i, &mut root, &rows, w, h, &colors),
+        ControlType::BarChart => bars(cx, i, &mut root, &rows, w, h, legend_rows, &colors, g),
+        ControlType::LineChart | ControlType::AreaChart => lines(cx, i, &mut root, &rows, w, h, legend_rows, &colors, matches!(t, ControlType::AreaChart), g),
+        ControlType::ScatterChart => scatter(cx, i, &mut root, &rows, w, h, legend_rows, &colors, g),
+        ControlType::PieChart | ControlType::DonutChart => pie(cx, i, &mut root, &rows, w, h, matches!(t, ControlType::DonutChart), &colors, g),
+        ControlType::RadarChart => radar(cx, i, &mut root, &rows, w, h, &colors, g),
         _ => {}
     }
     let pie_like = matches!(t, ControlType::PieChart | ControlType::DonutChart);
@@ -247,7 +253,7 @@ pub fn bar_rect(x: f64, bar_w: f64, value: f32, scale: &dyn Fn(f32) -> f64, zero
 }
 
 #[allow(clippy::too_many_arguments)]
-fn bars(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, legend_rows: usize, colors: &[String]) {
+fn bars(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, legend_rows: usize, colors: &[String], g: f32) {
     let horizontal = truthy(&cx.tree.get(i, "Horizontal"));
     let stacked = truthy(&cx.tree.get(i, "Stacked"));
     let radius = parse_f64(&cx.tree.get(i, "BarCornerRadius")).unwrap_or(3.0).max(0.0);
@@ -270,9 +276,10 @@ fn bars(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, 
             let bh = if stacked { band * 0.7 } else { band * 0.7 / series as f64 };
             let mut acc = 0.0f32;
             for (s, v) in vals.iter().enumerate() {
-                let (x1, x2) = if stacked { (map(acc), map(acc + v.max(0.0))) } else { (zero_x.min(map(*v)), zero_x.max(map(*v))) };
+                let gv = v * g;
+                let (x1, x2) = if stacked { (map(acc), map(acc + gv.max(0.0))) } else { (zero_x.min(map(gv)), zero_x.max(map(gv))) };
                 if stacked {
-                    acc += v.max(0.0);
+                    acc += gv.max(0.0);
                 }
                 let y = if stacked { y0 + band * 0.15 } else { y0 + band * 0.15 + bh * s as f64 };
                 let mut rect = sv("rect").attr("x", f(x1)).attr("y", f(y)).attr("width", f((x2 - x1).max(0.0))).attr("height", f(bh)).attr("rx", f(radius)).attr("fill", colors[s % colors.len()].clone()).class("pr-bar");
@@ -294,13 +301,14 @@ fn bars(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, 
             let mut acc = 0.0f32;
             for (s, v) in vals.iter().enumerate() {
                 let x = if stacked { x0 + band * 0.15 } else { x0 + band * 0.15 + bw * s as f64 };
+                let gv = v * g;
                 let (rx, ry, rw, rh) = if stacked {
-                    let y_top = map(acc + v.max(0.0));
+                    let y_top = map(acc + gv.max(0.0));
                     let y_bot = map(acc);
-                    acc += v.max(0.0);
+                    acc += gv.max(0.0);
                     (x, y_top, bw, (y_bot - y_top).max(0.0))
                 } else {
-                    bar_rect(x, bw, *v, &map, zero_y)
+                    bar_rect(x, bw, gv, &map, zero_y)
                 };
                 let mut rect = sv("rect").attr("x", f(rx)).attr("y", f(ry)).attr("width", f(rw)).attr("height", f(rh)).attr("rx", f(radius)).attr("fill", colors[s % colors.len()].clone()).class("pr-bar");
                 if tooltips {
@@ -334,7 +342,7 @@ pub fn smooth_path(pts: &[(f64, f64)]) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn lines(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, legend_rows: usize, colors: &[String], area: bool) {
+fn lines(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, legend_rows: usize, colors: &[String], area: bool, g: f32) {
     let plot = plot_rect(cx, i, w, h, legend_rows, true);
     let (l, t, r, b) = plot;
     let stacked = area && truthy(&cx.tree.get(i, "Stacked"));
@@ -359,7 +367,8 @@ fn lines(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64,
     let mut base: Vec<f32> = vec![0.0; n];
     for s in 0..series {
         let vals: Vec<f32> = rows.iter().map(|(_, v)| v.get(s).copied().unwrap_or(0.0)).collect();
-        let tops: Vec<f32> = if stacked { vals.iter().zip(&base).map(|(v, b)| v + b).collect() } else { vals.clone() };
+        let grown: Vec<f32> = vals.iter().map(|v| v * g).collect();
+        let tops: Vec<f32> = if stacked { grown.iter().zip(&base).map(|(v, b)| v + b).collect() } else { grown.clone() };
         let pts: Vec<(f64, f64)> = xs.iter().zip(&tops).map(|(x, v)| (*x, map(*v))).collect();
         let d = if smooth && pts.len() > 2 { smooth_path(&pts) } else { pts.iter().enumerate().map(|(k, p)| format!("{}{} {}", if k == 0 { "M" } else { "L" }, f(p.0), f(p.1))).collect::<Vec<_>>().join(" ") };
         let color = colors[s % colors.len()].clone();
@@ -392,7 +401,7 @@ fn lines(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64,
 }
 
 #[allow(clippy::too_many_arguments)]
-fn scatter(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, legend_rows: usize, colors: &[String]) {
+fn scatter(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, legend_rows: usize, colors: &[String], g: f32) {
     let plot = plot_rect(cx, i, w, h, legend_rows, true);
     let (l, t, r, b) = plot;
     // A scatter row is `x<TAB>y[<TAB>size]`: the label is the x value when it is a number, else the row number.
@@ -414,7 +423,7 @@ fn scatter(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f6
     let max_size = pts.iter().map(|p| p.2).fold(0.0f32, f32::max).max(f32::EPSILON);
     for (k, p) in pts.iter().enumerate() {
         let radius = if bubble { (p.2 / max_size).sqrt() as f64 * max_r } else { 4.0 };
-        let c = sv("circle").attr("cx", f(mx(p.0))).attr("cy", f(my(p.1))).attr("r", f(radius.max(2.0))).attr("fill", colors[0].clone()).attr("fill-opacity", if bubble { "0.6" } else { "1" }).class("pr-point");
+        let c = sv("circle").attr("cx", f(mx(p.0))).attr("cy", f(my(p.1 * g))).attr("r", f(radius.max(2.0))).attr("fill", colors[0].clone()).attr("fill-opacity", if bubble { "0.6" } else { "1" }).class("pr-point");
         push_svg(root, with_title(c, format!("{}: ({}, {})", rows[k].0, fmt_tick(p.0), fmt_tick(p.1))));
     }
     axis_captions(cx, i, root, plot, h, legend_rows);
@@ -434,7 +443,8 @@ pub fn arc_path(cx_: f64, cy: f64, r: f64, inner: f64, a0: f64, a1: f64) -> Stri
     format!("M{} {} A{} {} 0 {} 1 {} {} L{} {} A{} {} 0 {} 0 {} {} Z", f(x0), f(y0), f(r), f(r), large, f(x1), f(y1), f(ix1), f(iy1), f(inner), f(inner), large, f(ix0), f(iy0))
 }
 
-fn pie(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, donut: bool, _colors: &[String]) {
+#[allow(clippy::too_many_arguments)]
+fn pie(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, donut: bool, _colors: &[String], g: f32) {
     let legend = truthy(&cx.tree.get(i, "ShowLegend"));
     let (_, top, _, bottom) = plot_rect(cx, i, w, h, usize::from(legend), false);
     let r = ((bottom - top).min(w - 20.0) / 2.0).max(8.0);
@@ -452,7 +462,7 @@ fn pie(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, d
         if v <= 0.0 {
             continue;
         }
-        let sweep = v / total * std::f64::consts::TAU;
+        let sweep = v / total * std::f64::consts::TAU * g as f64;
         let end = a + sweep.min(std::f64::consts::TAU - 1e-6);
         let color = series_color(cx, i, k, rows.len());
         let share = (v / total * 100.0).round();
@@ -472,7 +482,8 @@ fn pie(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, d
     }
 }
 
-fn radar(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, colors: &[String]) {
+#[allow(clippy::too_many_arguments)]
+fn radar(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64, colors: &[String], g: f32) {
     let n = rows.len();
     if n < 3 {
         return;
@@ -513,7 +524,7 @@ fn radar(cx: &ViewCtx, i: usize, root: &mut VNode, rows: &[Row], w: f64, h: f64,
             .iter()
             .enumerate()
             .map(|(k, (_, v))| {
-                let frac = ((v.get(s).copied().unwrap_or(0.0) - min) / (max - min).max(f32::EPSILON)).clamp(0.0, 1.0) as f64;
+                let frac = ((v.get(s).copied().unwrap_or(0.0) - min) / (max - min).max(f32::EPSILON)).clamp(0.0, 1.0) as f64 * g as f64;
                 (cx_ + r * frac * dir(k).0, cy + r * frac * dir(k).1)
             })
             .collect();

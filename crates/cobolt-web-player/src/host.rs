@@ -38,7 +38,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::rc::Rc;
 
-use cobolt_forms::model::Form;
+use cobolt_forms::model::{ControlType, Form};
 use cobolt_wasm_abi::batch::{encode_event_args, BatchReader, Command, DecodeError, Path};
 use cobolt_wasm_abi::codes::{ctrl, err, Status};
 use cobolt_wasm_abi::manifest::{ArenaLayout, Manifest};
@@ -603,6 +603,43 @@ impl Host {
         }
     }
 
+    /// The desktop's NumericUpDown puts its `Value` on the `Step` ladder every frame it is drawn, enabled and not
+    /// `ReadOnly` (`render.rs` CT::NumericUpDown): a program's write off the ladder becomes the nearest rung on the next
+    /// frame, raising the field's change events. The page does it when a handler of the instance has finished (no frame
+    /// falls inside a handler on the desktop either), for every such field that is shown.
+    pub fn snap_numerics(&mut self, inst: u32) {
+        let writes: Vec<(usize, String)> = {
+            let Some(tree) = self.trees.get(&inst) else { return };
+            (0..tree.ctls.len())
+                .filter(|&i| matches!(tree.ctls[i].control_type(), Some(ControlType::NumericUpDown)))
+                .filter(|&i| tree.ctls[i].enabled() && !tree.ctls[i].flag("ReadOnly") && Self::drawn(tree, i))
+                .filter_map(|i| {
+                    let c = &tree.ctls[i];
+                    let mut m = cobolt_forms::model::Control::new(c.name.clone(), ControlType::NumericUpDown, 0, 0);
+                    for k in ["Minimum", "Maximum", "Step", "DecimalPlaces", "Value"] {
+                        m.set_prop(k, tree.get(i, k));
+                    }
+                    cobolt_forms::fieldtext::numeric_updown_snap_write(&m).map(|s| (i, s))
+                })
+                .collect()
+        };
+        for (i, s) in writes {
+            self.user_change(inst, i, "Value", &s);
+        }
+    }
+
+    /// Control `i` and every container above it are visible, and its layer is shown: the desktop paints it.
+    fn drawn(tree: &FormTree, i: usize) -> bool {
+        let mut at = Some(i);
+        while let Some(k) = at.filter(|&k| k != 0) {
+            if !tree.ctls[k].visible() {
+                return false;
+            }
+            at = tree.ctls[k].parent;
+        }
+        !tree.in_hidden_layer(i)
+    }
+
     /// The user's act changed a property whose observer events the act raises itself (a click on a
     /// list row sets `SelectedIndex` and then raises `onChange` and `onSelectedIndexChanged` in the
     /// order the desktop raises them): store it, raise nothing, and let the page redraw the control.
@@ -1016,6 +1053,8 @@ impl Host {
             Status::Done => {
                 if closing {
                     self.destroy(inst);
+                } else if !self.tasks.values().any(|t| t.inst == inst) {
+                    self.snap_numerics(inst);
                 }
             }
             Status::Suspended => {
@@ -2416,6 +2455,8 @@ mod params_tests;
 mod raise_tests;
 #[cfg(test)]
 mod resize_tests;
+#[cfg(test)]
+mod numeric_tests;
 #[cfg(test)]
 mod super_tests;
 
