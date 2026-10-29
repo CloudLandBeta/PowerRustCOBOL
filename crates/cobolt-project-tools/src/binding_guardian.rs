@@ -173,6 +173,7 @@ pub fn apply_repair(
 
 fn validate_binding(form: &Form, binding: &DataBindingDef, findings: &mut Vec<GuardianFinding>) {
     validate_source(binding, findings);
+    validate_partiql(form, binding, findings);
     validate_target(form, binding, findings);
     validate_source_field_collisions(binding, findings);
     validate_mappings(form, binding, findings);
@@ -294,6 +295,10 @@ fn replace_source_fields(binding: &mut DataBindingDef, fields: Vec<BindingField>
         | BindingSourceDescriptor::AgentAi {
             fields: source_fields,
             ..
+        }
+        | BindingSourceDescriptor::PartiQl {
+            fields: source_fields,
+            ..
         } => {
             *source_fields = fields;
         }
@@ -378,6 +383,56 @@ fn validate_source(binding: &DataBindingDef, findings: &mut Vec<GuardianFinding>
                     binding,
                     "missing-source",
                     "Agent source is incomplete",
+                );
+            }
+            validate_non_empty_fields(binding, fields, findings);
+        }
+        // Spec 108: the control and the query are judged in `validate_partiql`,
+        // which has the form to look the control up in.
+        BindingSourceDescriptor::PartiQl { .. } => {}
+    }
+}
+
+/// Spec 108 (R38): a PartiQL source names an `IndexedFile` control of the form,
+/// its query is one valid `SELECT` (or empty: the binding follows the control),
+/// and every `?` has a parameter. The query is judged against the grammar here; its
+/// names are judged against the `.cidx` by Check, which has the project.
+fn validate_partiql(form: &Form, binding: &DataBindingDef, findings: &mut Vec<GuardianFinding>) {
+    use cobolt_runtime::partiql::parser::{parse_statement, Statement};
+    let BindingSourceDescriptor::PartiQl { source_control_id, query, parameters, fields, .. } = &binding.source else {
+        return;
+    };
+    match form.find_control(source_control_id) {
+        Some(c) if c.control_type == cobolt_forms::ControlType::IndexedFile => {}
+        _ => blocker(
+            findings,
+            binding,
+            "missing-source",
+            format!("PartiQL source '{source_control_id}' is not an IndexedFile control of this form"),
+        ),
+    }
+    if query.trim().is_empty() {
+        // Follows the control's own result set: the fields name its columns.
+        if fields.is_empty() {
+            blocker(findings, binding, "missing-fields", "Binding source has no fields");
+        }
+        return;
+    }
+    match parse_statement(query) {
+        Err(e) => blocker(findings, binding, "invalid-partiql", e.text()),
+        Ok(p) if !matches!(p.statement, Statement::Select(_)) => blocker(
+            findings,
+            binding,
+            "invalid-partiql",
+            "a binding query must be a SELECT: the other statements write",
+        ),
+        Ok(p) => {
+            if p.param_count != parameters.len() {
+                blocker(
+                    findings,
+                    binding,
+                    "missing-parameter",
+                    format!("the query has {} ? parameter(s) but the binding lists {}", p.param_count, parameters.len()),
                 );
             }
             validate_non_empty_fields(binding, fields, findings);
@@ -840,6 +895,9 @@ fn source_identity_fields(source: &BindingSourceDescriptor) -> Vec<String> {
             key_fields, fields, ..
         }
         | BindingSourceDescriptor::CobolTable {
+            key_fields, fields, ..
+        }
+        | BindingSourceDescriptor::PartiQl {
             key_fields, fields, ..
         } => key_fields
             .iter()

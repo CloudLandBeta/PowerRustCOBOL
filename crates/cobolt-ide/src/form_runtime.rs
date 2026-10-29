@@ -1323,6 +1323,42 @@ mod form_codegen_roundtrip_tests {
         );
     }
 
+    /// Spec 108 (T14, R43): what the test above says about the facade *paragraphs* is
+    /// still true; the control's *members* are reachable. A handler that calls
+    /// `IXF-1::Execute( … )` and `Fetch()` generates, parses and passes semantic analysis,
+    /// on a form that declares no `SELECT` / `FD`.
+    #[test]
+    fn indexedfile_members_are_reachable_from_a_handler() {
+        let mut form = Form::new("MAIN-FORM", "Demo", 640, 480);
+        let mut ixf = Control::new("IXF-1", ControlType::IndexedFile, 0, 0);
+        ixf.set_prop("IndexedFile", PropValue::String("indexed/customers.cidx".into()));
+        form.controls.push(ixf);
+
+        let mut btn = Control::new("Button-1", ControlType::Button, 10, 10);
+        let mut ev = EventBinding::for_control("Button-1", "onClick");
+        ev.code = "\
+       ENVIRONMENT DIVISION.\n\
+       DATA DIVISION.\n\
+       WORKING-STORAGE SECTION.\n\
+       01 WS-N   PIC 9(4).\n\
+       01 WS-ROW PIC X(80).\n\n\
+       PROCEDURE DIVISION.\n\
+           SET     WS-N                          TO    IXF-1::Execute( \"SELECT CUST-ID FROM CUSTOMERS WHERE CUST-ID = ?\" WS-N )\n\
+           SET     WS-ROW                        TO    IXF-1::Fetch()\n\
+           IF IXF-1::CUST-ID > 0 CONTINUE END-IF."
+            .into();
+        btn.events.push(ev);
+        form.controls.push(btn);
+
+        let src = cobolt_codegen::generate(&form);
+        let pr = parse(tokenize(&src, SourceFormat::Free));
+        assert!(pr.diagnostics.iter().all(|d| !d.is_error()), "{:?}", pr.diagnostics);
+        let program = pr.program.expect("no program");
+        let sem = analyze(&program);
+        let serrs: Vec<String> = sem.errors().map(|d| d.message.clone()).collect();
+        assert!(serrs.is_empty(), "the members of the control must check clean: {serrs:#?}");
+    }
+
     #[test]
     fn runtime_uppercase_property_update_overwrites_designed_caption() {
         let mut label = Control::new("label-5", ControlType::Label, 10, 10);

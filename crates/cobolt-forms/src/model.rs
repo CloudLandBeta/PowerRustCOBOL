@@ -2003,6 +2003,9 @@ fn rename_binding_control_refs(binding: &mut DataBindingDef, old: &str, new: &st
         }
         | BindingSourceDescriptor::AgentAi {
             source_control_id, ..
+        }
+        | BindingSourceDescriptor::PartiQl {
+            source_control_id, ..
         } => ren(source_control_id),
         _ => {}
     }
@@ -2095,6 +2098,8 @@ pub enum BindingSourceKind {
     CobolTable,
     RestApi,
     AgentAi,
+    /// Spec 108: a PartiQL query on an `IndexedFile` control of the same form.
+    PartiQl,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2228,6 +2233,25 @@ pub enum BindingSourceDescriptor {
         fields: Vec<BindingField>,
         update: Option<BindingUpdateMetadata>,
     },
+    /// Spec 108: a PartiQL `SELECT` run on the `IndexedFile` control
+    /// `source_control_id`. An empty `query` follows the control's own result
+    /// set (R34). `parameters` fill the `?` in order: a data item name, or
+    /// `CONTROL::Property`. Variants are appended: the descriptor is stored
+    /// externally tagged, so earlier forms read as they always did.
+    PartiQl {
+        #[serde(default)]
+        source_control_id: String,
+        #[serde(default)]
+        query: String,
+        #[serde(default)]
+        parameters: Vec<String>,
+        #[serde(default)]
+        fields: Vec<BindingField>,
+        #[serde(default)]
+        key_fields: Vec<String>,
+        #[serde(default)]
+        writable: bool,
+    },
 }
 
 impl BindingSourceDescriptor {
@@ -2238,6 +2262,7 @@ impl BindingSourceDescriptor {
             BindingSourceDescriptor::CobolTable { .. } => BindingSourceKind::CobolTable,
             BindingSourceDescriptor::RestApi { .. } => BindingSourceKind::RestApi,
             BindingSourceDescriptor::AgentAi { .. } => BindingSourceKind::AgentAi,
+            BindingSourceDescriptor::PartiQl { .. } => BindingSourceKind::PartiQl,
         }
     }
 
@@ -2247,7 +2272,8 @@ impl BindingSourceDescriptor {
             | BindingSourceDescriptor::Sql { fields, .. }
             | BindingSourceDescriptor::CobolTable { fields, .. }
             | BindingSourceDescriptor::RestApi { fields, .. }
-            | BindingSourceDescriptor::AgentAi { fields, .. } => fields,
+            | BindingSourceDescriptor::AgentAi { fields, .. }
+            | BindingSourceDescriptor::PartiQl { fields, .. } => fields,
         }
     }
 
@@ -2255,7 +2281,8 @@ impl BindingSourceDescriptor {
         match self {
             BindingSourceDescriptor::IndexedFile { writable, .. }
             | BindingSourceDescriptor::Sql { writable, .. }
-            | BindingSourceDescriptor::CobolTable { writable, .. } => *writable,
+            | BindingSourceDescriptor::CobolTable { writable, .. }
+            | BindingSourceDescriptor::PartiQl { writable, .. } => *writable,
             BindingSourceDescriptor::RestApi { update, .. }
             | BindingSourceDescriptor::AgentAi { update, .. } => update.is_some(),
         }
@@ -9875,6 +9902,9 @@ impl Form {
                     source_control_id, ..
                 }
                 | BindingSourceDescriptor::AgentAi {
+                    source_control_id, ..
+                }
+                | BindingSourceDescriptor::PartiQl {
                     source_control_id, ..
                 } => source_control_id.trim().is_empty() || has_ctrl(source_control_id),
                 _ => true,

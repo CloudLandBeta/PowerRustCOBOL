@@ -13794,6 +13794,10 @@ impl Interpreter {
         if binding_kind.eq_ignore_ascii_case("Sql") {
             return self.refresh_sql_binding(control_id);
         }
+        // Spec 108: a PartiQL source runs its query on an IndexedFile control.
+        if binding_kind.eq_ignore_ascii_case("PartiQl") {
+            return self.refresh_partiql_binding(control_id);
+        }
         if !binding_kind.eq_ignore_ascii_case("CobolTable") {
             return 0;
         }
@@ -14925,6 +14929,11 @@ impl Interpreter {
         if !self.objects.contains(obj) {
             self.objects.register(obj, "Control");
         }
+        // Spec 108 R37: a binding's query is a SELECT; anything else is refused with 94
+        // and the previous query stays.
+        if prop.eq_ignore_ascii_case("BindingQuery") && !self.partiql_accept_query(obj, &val) {
+            return;
+        }
         let prop = &self.canonical_prop_name(obj, prop);
         let val = self.canonical_prop_value(obj, prop, val);
         self.objects.set_property(obj, prop, val.clone());
@@ -15486,6 +15495,12 @@ impl Interpreter {
     /// Read a control property as a string (`""` when unset).
     fn obj_get(&self, obj: &str, prop: &str) -> String {
         let prop = self.canonical_prop_name(obj, prop);
+        // Spec 108 R35: the value of what a PartiQL-bound list or grid has selected.
+        if prop.eq_ignore_ascii_case("SelectedValue") {
+            if let Some(v) = self.partiql_selected_value(obj) {
+                return v;
+            }
+        }
         self.objects
             .get_property(obj, &prop)
             .map(|v| v.to_string())
@@ -15862,6 +15877,15 @@ impl Interpreter {
                 // 037 — `H::FormState` reads through a windowHandler (R23).
                 if let Some(v) = self.try_window_handle_prop(&root, &path)? {
                     return Ok(v);
+                }
+                // Spec 108 R35: what a PartiQL-bound list or grid has selected.
+                if let [PathSeg::Prop(p)] = path.as_slice() {
+                    if p.eq_ignore_ascii_case("SelectedValue") {
+                        if let Some(v) = self.partiql_selected_value(&root) {
+                            let n = v.len();
+                            return Ok(CobolValue::from_str(&v, n));
+                        }
+                    }
                 }
                 Ok(prop_to_value(self.objects.get_path(&root, &path)))
             }

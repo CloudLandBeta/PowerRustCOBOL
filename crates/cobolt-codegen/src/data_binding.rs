@@ -183,6 +183,16 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
             write_sql_binding_seed(out, control_id, binding);
             return;
         }
+        // Spec 108: a PartiQL source seeds hidden properties and one `RefreshBinding`;
+        // no `READ`, no COBOL loop — the interpreter runs the query on the control.
+        BindingTargetDescriptor::DataGrid { control_id }
+        | BindingTargetDescriptor::ComboBox { control_id }
+        | BindingTargetDescriptor::ListBox { control_id }
+            if matches!(&binding.source, BindingSourceDescriptor::PartiQl { .. }) =>
+        {
+            write_partiql_binding_seed(out, control_id, binding);
+            return;
+        }
         BindingTargetDescriptor::ComboBox { control_id } | BindingTargetDescriptor::ListBox { control_id }
             if matches!(&binding.source, BindingSourceDescriptor::CobolTable { .. }) =>
         {
@@ -353,9 +363,9 @@ fn write_grid_write_seed(out: &mut String, control_id: &str, binding: &DataBindi
     let writable = binding.mode == BindingMode::Writable && binding.source.is_writable();
     let keys: Vec<String> = match &binding.source {
         BindingSourceDescriptor::IndexedFile { key_field, .. } => key_field.iter().cloned().collect(),
-        BindingSourceDescriptor::Sql { key_fields, .. } | BindingSourceDescriptor::CobolTable { key_fields, .. } => {
-            key_fields.clone()
-        }
+        BindingSourceDescriptor::Sql { key_fields, .. }
+        | BindingSourceDescriptor::CobolTable { key_fields, .. }
+        | BindingSourceDescriptor::PartiQl { key_fields, .. } => key_fields.clone(),
         _ => Vec::new(),
     };
     for (name, value) in [
@@ -402,6 +412,55 @@ fn write_sql_binding_seed(out: &mut String, control_id: &str, binding: &DataBind
         ("_BindingFields", names),
         ("_BindingFieldTypes", types),
     ] {
+        out.push_str(&format!(
+            "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"{name}\" BY CONTENT \"{}\"\n",
+            literal(&value)
+        ));
+    }
+    out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
+}
+
+/// Spec 108: a `PartiQl` source -> `DataGrid` / `ComboBox` / `ListBox` target.
+/// The source control is the `IndexedFile` control `source_control_id`; its
+/// `query` (empty: follow the control's own result set) runs there with the
+/// `parameters` filling the `?` in order — data item names, or `CONTROL::Property`.
+/// Seeded as hidden properties and one `RefreshBinding`, as the other kinds are.
+fn write_partiql_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
+    use cobolt_forms::BindingDataType as T;
+    let BindingSourceDescriptor::PartiQl { source_control_id, query, parameters, fields, .. } = &binding.source else {
+        return;
+    };
+    if source_control_id.trim().is_empty() {
+        return;
+    }
+    // A COBOL literal holds no line break, and a quote inside one is doubled.
+    let literal = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ").replace('"', "\"\"");
+    let names = fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join(",");
+    let types = fields
+        .iter()
+        .map(|f| match f.data_type {
+            T::Integer | T::Decimal => "number",
+            T::Boolean => "boolean",
+            _ => "text",
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let is_list = matches!(
+        &binding.target,
+        BindingTargetDescriptor::ComboBox { .. } | BindingTargetDescriptor::ListBox { .. }
+    );
+    let mut props: Vec<(&str, String)> = vec![
+        ("_BindingKind", "PartiQl".to_owned()),
+        ("_BindingPartiqlControl", source_control_id.clone()),
+        ("_BindingPartiqlQuery", query.clone()),
+        ("_BindingPartiqlParams", parameters.join(",")),
+        ("_BindingFields", names),
+        ("_BindingFieldTypes", types),
+    ];
+    if is_list {
+        props.push(("_BindingList", "1".to_owned()));
+    }
+    for (name, value) in props {
         out.push_str(&format!(
             "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"{name}\" BY CONTENT \"{}\"\n",
             literal(&value)
@@ -552,6 +611,9 @@ fn source_label(source: &BindingSourceDescriptor) -> String {
         }
         BindingSourceDescriptor::AgentAi { output_name, .. } => {
             format!("AgentAI:{output_name}")
+        }
+        BindingSourceDescriptor::PartiQl { source_control_id, .. } => {
+            format!("PartiQL:{source_control_id}")
         }
     }
 }

@@ -107,10 +107,11 @@ commit, never into this feature. Tests run per crate: `cargo test -p <crate> --n
   - Do: D4 and D8. Default decided at run time by the predicate (on without a declared FD, off with one); a statement or unit commits per file when on; with it off, writes join the file's open transaction and the `COMMIT` / `ROLLBACK` verbs act. A form that declares the FD generates byte-identical facade COBOL.
   - Verify: `cargo test -p cobolt-codegen` (a golden: a declared-FD form's output unchanged; a no-FD form has no facade paragraphs and no `PERFORM <id>-OPEN`; that form passes Check), `cargo test -p cobolt-runtime --test test_partiql_control` — AC6's `AutoCommit` cases: off by default with the FD (a `WRITE` before the unit is undone by `ROLLBACK`), on: a successful unit survives a `ROLLBACK` that follows and commits a pending `WRITE`.
 
-- [ ] **T14 — Replace the "not reachable" claim** (R43; spec §8)
+- [x] **T14 — Replace the "not reachable" claim** (R43; spec §8)
   - Files: `crates/cobolt-ide/src/form_runtime.rs`.
   - Do: keep `indexedfile_paragraphs_are_not_reachable_from_a_handler` for the paragraphs; add a test that `IXF-1::Execute(…)` in a handler generates, parses and analyses with no error.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide form_runtime`.
+  - Done: `indexedfile_members_are_reachable_from_a_handler` in `form_runtime.rs`; the paragraphs test is unchanged.
 
 - [x] **T15 — The built-ins `COBOL::"PARTIQL"`, `COBOL::"PARTIQL-ERROR"` and `COBOL::"PARTIQL-FETCH"`** (Q6, O4, D12, R20a, R48)
   - Files: `crates/cobolt-runtime/src/builtins.rs` (three rows, alphabetical: PARTIQL, PARTIQL-ERROR, PARTIQL-FETCH), `crates/cobolt-runtime/src/interpreter.rs` (`COBOL-PARTIQL`, `COBOL-PARTIQL-ERROR`, `COBOL-PARTIQL-FETCH` in `exec_call`), `tests/cobol/fileio/partiql_*.cbl` (new programs with one result block each), `crates/cobolt-compiler/src/lib.rs` (the built-in tables the KB prints, if they list built-ins).
@@ -125,30 +126,34 @@ commit, never into this feature. Tests run per crate: `cargo test -p <crate> --n
 
 ## Phase 3 — The binding
 
-- [ ] **T17 — The PartiQL source in the model** (R30, R40, R41; AC9 load)
+- [~] **T17 — The PartiQL source in the model** (R30, R40, R41; AC9 load)
   - Files: `crates/cobolt-forms/src/model.rs` (`BindingSourceDescriptor::PartiQl`, `BindingSourceKind::PartiQl`, the `kind` / `fields` / `is_writable` arms), every exhaustive match over the descriptor (`crates/cobolt-codegen/src/data_binding.rs`, `src/lib.rs`, `crates/cobolt-project-tools/src/binding_guardian.rs`, `crates/cobolt-ide/src/panels/{data_binding,properties}.rs`).
   - Do: the variant with `source_control_id`, `query`, `parameters`, `fields`, `key_fields`, `writable` (all `#[serde(default)]`); round-trip; the loader's behaviour for an unknown variant is pinned (it reports the binding and keeps the form).
   - Verify: `cargo test -p cobolt-forms --features render` — a `.cfrm` saved by 1.91.223 (`examples/PowerDemo3/forms/Data/datagrid-form.cfrm` and a binding fixture) loads unchanged; the PartiQL source round-trips.
+  - Done: `BindingSourceDescriptor::PartiQl` / `BindingSourceKind::PartiQl`, every field `#[serde(default)]`, appended last; `cobolt-forms/tests/partiql_binding_source.rs` (round trip, a short descriptor reads). The `PowerDemo3` datagrid form was not opened (credential rule); the existing source variants are untouched, and the codegen corpus goldens pass.
 
 - [ ] **T18 — `RowSet`: one reader per source, one applier per target** (R31; D7)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (`refresh_list_binding`, `refresh_chart_binding`, `refresh_marker_binding`, `refresh_scalar_binding`, `refresh_control_array_binding`, `refresh_datagrid_binding`).
   - Do: split each filler into "read a `RowSet` from the COBOL environment" and "apply a `RowSet` to the control"; **no behaviour change**.
   - Verify: run `cargo test -p cobolt-runtime --no-fail-fast`, `cargo test -p cobolt-forms --features render`, `cargo test -p cobolt-ide --bin cobolt-ide` before and after; every golden and binding test identical to T0. If any changes, revert this task alone and report.
 
-- [ ] **T19 — Codegen seeds the PartiQL binding** (R40, R41; AC9)
+- [~] **T19 — Codegen seeds the PartiQL binding** (R40, R41; AC9)
   - Files: `crates/cobolt-codegen/src/data_binding.rs` (`write_partiql_binding_seed`, the `BindingSourceDescriptor` matches near `:541`), `crates/cobolt-codegen/src/lib.rs` tests.
   - Do: for every approved target (DataGrid, ListBox / ComboBox, the seven charts, Knob / Gauge / Switch, Maps, repeating GroupBox) seed `_BindingKind=PartiQl`, the source control, the query, the parameter list, the fields and types, the target's own `_Binding*` mappings, then `RefreshBinding` in `COBOL-DATA-BINDINGS-POPULATE`. No `READ`, no COBOL loop.
   - Verify: `cargo test -p cobolt-codegen` — seed tests per target (the pattern of `grid_write_back_seed.rs`); the generated program has no `READ`; the existing `IndexedFile`, `Sql`, `CobolTable` seeds and the quick-bind corpus golden of `datagrid-form.cfrm` are byte-identical.
+  - Done: `write_partiql_binding_seed` for DataGrid, ComboBox and ListBox: `cobolt-codegen/tests/partiql_binding_seed.rs` (seeds, one `RefreshBinding`, no `READ`). NOT done: charts, Knob/Gauge/Switch, Maps, repeating GroupBox.
 
-- [ ] **T20 — Refresh: parameters, the binding's own result set, following the control** (R32–R34, R37; AC9, AC11, AC14)
+- [x] **T20 — Refresh: parameters, the binding's own result set, following the control** (R32–R34, R37; AC9, AC11, AC14)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (`refresh_binding_rows` arm for `"PartiQl"`), `crates/cobolt-runtime/src/interpreter/partiql.rs`.
   - Do: evaluate each parameter (a data item by its PICTURE; `CTRL::Property` as untyped text coerced to the compared field's type, a failed coercion being `94` — O2, R3a); run the query on the source control in a result set of the binding's own (the control's result set and `Fetch` cursor untouched); fill through T18's appliers; `RefreshBinding()` answers the item count; on failure keep what the target shows, set the control's `StatusCode` / `LastError`, write the debug channel, stop nothing. With an empty query, follow the control's result set after every `Execute` / `ExecuteTransaction` that produces one, and show it at populate. `BindingQuery` readable and writable (a non-`SELECT` refused with `94`, previous query kept).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide form_runtime` — AC9 (the master-detail grid; count answered), AC11 (empty at open, filled by a button's `Execute`, handler's own `Fetch` loop still reads from the first), AC14 (`BindingQuery`, the refused `DELETE`, the non-numeric parameter leaves the rows and sets `94`).
+  - Done: runtime arm `refresh_partiql_binding` (own result set, follow-the-control, parameters from data items and `CTRL::Property` as untyped text, failure keeps the rows and sets `StatusCode`/`LastError`), `BindingQuery` refused with 94; `test_partiql_binding` (in `cobolt-runtime`, not `cobolt-ide`).
 
-- [ ] **T21 — `SelectedValue` on lists and on bound grids** (R35, R35a, Q8, O1, D9; AC9, AC12)
+- [x] **T21 — `SelectedValue` on lists and on bound grids** (R35, R35a, Q8, O1, D9; AC9, AC12)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (where `SelectedIndex` and `ClickedRow` are written), `crates/cobolt-runtime/src/interpreter/partiql.rs`, `crates/cobolt-forms/src/model.rs` (the lists' value-field mapping; the dormant `ListValue` gains its meaning), `crates/cobolt-codegen/src/data_binding.rs`.
   - Do: a list publishes `SelectedValue` (the value field of the selected item; empty when none or unmapped); a DataGrid bound to a PartiQL source publishes it too (O1, decided; R35a): the text of the value column's cell (first column flagged `key`, else the first) in the row `ClickedRow` names, empty before any click, refreshed where `ClickedRow` is written and at each refresh.
   - Verify: AC12 — a ComboBox bound to `SELECT CUST-ID, CUST-NAME FROM CUSTOMERS` with value `CUST-ID`: empty before any pick, the third record's `CUST-ID` after picking the third; AC9's grid parameter `DG-CUSTOMERS::SelectedValue` is empty before a click and the clicked row's value-column cell after it, and a refresh with that parameter shows that customer's orders.
+  - Done: `SelectedValue` on a PartiQL-bound ComboBox/ListBox (value field) and DataGrid (value column of `ClickedRow`), read on demand; `test_partiql_binding`.
 
 - [ ] **T22 — Write-back of a writable DataGrid through the control** (R36; AC13)
   - Files: `crates/cobolt-runtime/src/interpreter/grid_unit.rs` (`Kind::PartiQl`, `grid_source` arm, `apply_partiql`), `crates/cobolt-runtime/src/interpreter/grid_edit.rs` if the ledger needs the key list.
@@ -160,10 +165,11 @@ commit, never into this feature. Tests run per crate: `cargo test -p <crate> --n
   - Do: card edits, added and removed cards saved through the executor as one unit with the same statuses as T22. Kept (O5, decided); it stays last in the binding phase and nothing else depends on it.
   - Verify: a test form of cards over `CUSTOMERS`: an edited `TextBox` writes the record; a card with a changed key is refused `21`.
 
-- [ ] **T24 — The guardian** (R38; AC15)
+- [~] **T24 — The guardian** (R38; AC15)
   - Files: `crates/cobolt-project-tools/src/binding_guardian.rs` (`validate_source` arm; `validate_form_bindings_in(form, root)`), `crates/cobolt-ide/src/data_binding_guardian.rs`, `crates/cobolt-ide/src/panels/data_binding.rs` (repair labels), `crates/cobolt-project-tools/src/tools/check.rs` (pass the project root).
   - Do: blockers `missing-source`, `invalid-partiql`, `missing-row-identity`, `missing-parameter`; warning `full-scan`; loads the `.cidx` the source control names; `validate_form_bindings(form)` keeps its signature and behaviour.
   - Verify: `cargo test -p cobolt-project-tools --no-fail-fast` — one test per finding on one form: a Label as source; an `UPDATE` query; `NO-SUCH-FIELD`; a writable binding projecting `CUST-NAME` only; two `?` and one parameter; a `WHERE` on `CUST-BALANCE` (warning).
+  - Done: three findings that need only the form - `missing-source`, `invalid-partiql`, `missing-parameter` (`cobolt-project-tools/tests/partiql_guardian.rs`). NOT done: `missing-row-identity`, `full-scan`, checking names against the `.cidx`.
 
 - [ ] **T25 — The binding editor: source, parameters, fields, Test query** (R39, R45; AC15)
   - Files: `crates/cobolt-ide/src/panels/properties.rs` (PartiQL section beside `show_sql_source_section`; the real `IndexedFile` control list for this source), `crates/cobolt-ide/src/i18n.rs`, `crates/cobolt-ide/src/ide_text_data.rs`.
@@ -199,20 +205,22 @@ commit, never into this feature. Tests run per crate: `cargo test -p <crate> --n
   - Do: every string T24, T25, T28 added is a `Tr` field with EN ES PT JA ZH FR (Portuguese is pt-BR); Check diagnostics, `LastError` texts, exception names and statement text stay English.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide i18n` and `ide_language` — no empty or untranslated entry.
 
-- [ ] **T31 — The System KB** (R46; AC17)
+- [~] **T31 — The System KB** (R46; AC17)
   - Files: `crates/cobolt-compiler/src/lib.rs` (the IndexedFile doc tables: the "no `::` methods" text, the property and method entries, the status table, `AutoCommit`, `BindingQuery`, `SelectedValue`, the PartiQL binding), `assets/knowledge/chunked.data` (regenerated).
   - Do: rewrite the text to the truth, then `cargo run -p cobolt-ide --example build_chunked_kb`.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation` green; a text test that no table says "no `::` methods" or "`::ReadNext`".
+  - Done so far: the three built-ins are in the KB table and `chunked.data` is rebuilt (`prebuilt_chunked_kb_matches_the_published_documentation` green). NOT done: the IndexedFile property/method tables, `AutoCommit`, `BindingQuery`, `SelectedValue`, the PartiQL binding text, and removing the 'no `::` methods' wording.
 
 - [ ] **T32 — Agent prompts, skills, patterns** (R46; AC17)
   - Files: `crates/cobolt-ide/src/assets/agentic_ai/system-prompt.md`, `crates/cobolt-ide/src/assets/agentic_ai/skills/rustcobol-control-properties.md`, `…/skills/rustcobol-extensions.md`, `crates/cobolt-ide/src/llm.rs` (the four prompt sites), `crates/cobolt-project-tools/src/{reference,patterns}.rs`, the plugin skill `powerrustcobol-define-indexed-file`, the `grid-bound-to-indexed-file` pattern.
   - Do: say what this spec ships and nothing else: the members of the control, no facade `::Open` / `::ReadNext` / `::Write`, the PartiQL binding.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide` and `cargo test -p cobolt-project-tools` — a grep test finds neither "no `::` methods" nor `::ReadNext` in any of those texts.
 
-- [ ] **T33 — The Developer's Guide, the matrix, the translations** (R47; rules #3, #8; AC17)
+- [~] **T33 — The Developer's Guide, the matrix, the translations** (R47; rules #3, #8; AC17)
   - Files: `docs/developers-guide-en.md` (§14 "PartiQL — querying an indexed file"; §8 `IndexedFile` paragraph; *Data binding and the Guardian*), `docs/cobol-support-matrix-en.md`; delete `docs/developers-guide-{es,pt,fr,jp,cn}.md` and `docs/cobol-support-matrix-{es,pt,fr,jp,cn}.md`.
   - Do: for the PowerCOBOL / isCOBOL developer, COBOL and prose only: the mapping of §5.2, the statements and functions with original examples, the read classes with a mermaid diagram of how a statement becomes `START` / `READ`, the departures of §5.4 (list indexes from 1, hyphens, no `LIMIT`/aggregates), the control's members and the status table, `AutoCommit` and transactions, the master-detail and `SelectedValue` examples, Notes, Caveats (a parameter value shows on the debug channel; a scan of a large file; `OpenMode` must be `I-O` to write), screenshot placeholders; rows for PartiQL statements, transactions and the binding (PowerRustCOBOL extension). English only; rule #8's cycle, never a translation edited.
   - Verify: the section exists with its diagram; `ls docs/ | grep -E '(developers-guide|cobol-support-matrix)-(es|pt|fr|jp|cn)'` prints nothing; `cargo test -p cobolt-ide --bin cobolt-ide docs_embed` compared with T0 (the pre-existing red stays the same red).
+  - Done so far: Guide §14 subsection (statements, mapping, read classes with a mermaid diagram, departures, members, statuses, transactions, `AutoCommit`, built-ins, binding) and three matrix rows. The five translations of both documents are already absent in this tree, so none was deleted. NOT done: the §8 `IndexedFile` paragraph and the *Data binding and the Guardian* section.
 
 - [ ] **T34 — Finalize** (all; AC1–AC18 as listed below)
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md` (first 60 lines only when reading), this file's checkboxes and status.

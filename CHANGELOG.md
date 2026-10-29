@@ -22,6 +22,26 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+## [PowerRustCOBOL 2.0.96] — 2026-10-30
+
+*(Forward-port of 1.91.229, `b5df9f05` on `features-108-partiql`. Written on `features-108-partiql`, after 1.91.228: spec 108, the data-binding half and the knowledge it needs.)*
+
+### Added: a DataGrid, ComboBox or ListBox can be bound to a PartiQL query (spec 108)
+
+- **The source:** `BindingSourceDescriptor::PartiQl` (source control, query, parameters, fields, key fields, writable), stored in the `.cfrm` beside the other sources; every field optional, appended last, so earlier forms
+  read as they always did. The Guardian reports `missing-source`, `invalid-partiql` and `missing-parameter`.
+- **The generated program** seeds the binding as hidden `_Binding*` properties and calls `RefreshBinding` once — no `READ`, no loop of COBOL.
+- **At run time** the query runs on the `IndexedFile` control in a result set of the binding's own, with its parameters (a data item by its PICTURE, `CONTROL::Property` as untyped text); a failure leaves the rows
+  as they were and sets the control's `StatusCode` (`94`) and `LastError`; a binding with no query follows the control's result; `BindingQuery` takes a `SELECT` and refuses anything else with `94`.
+- **`SelectedValue`** on a PartiQL-bound ComboBox/ListBox (the value field of the selected item) and DataGrid (the value column of the clicked row); empty before a pick.
+- **Knowledge:** the three built-ins `COBOL::"PARTIQL"`, `PARTIQL-FETCH` and `PARTIQL-ERROR` are in the System KB (and `chunked.data` is rebuilt) and their descriptions are in all six languages; the Developer's Guide has
+  the binding subsection and the support matrix three rows.
+- **Not part of this version** (spec 108, still open in `tasks.md`): the binding editor panel, write-back of a PartiQL grid, charts/gauges/maps/repeating groups as targets, Check on literal statements, autocomplete
+  after `IXF-CUST::`, the debugger line, the agent prompts and skills, the six-language strings for the editor, and the three-host parity test.
+- **Tests (new):** `test_partiql_binding` (grid, combo, follow, `BindingQuery`, `SelectedValue`), `partiql_binding_seed` and `partiql_binding_source` (seed and round trip), `partiql_guardian`, and
+  `indexedfile_members_are_reachable_from_a_handler` (a handler that calls `Execute` and `Fetch` generates, parses and checks clean on a form with no `FD`).
+
+
 ## [PowerRustCOBOL 2.0.95] — 2026-10-30
 
 *(Forward-port of 1.91.228, `1369635f` on `features-108-partiql`. Written on `features-108-partiql`, off `main` at 795747a8: spec 108, the language, the control and the file — phases 1 and 2 of `tasks.md`. The data-binding, tooling, string, knowledge-base and agent tasks follow in later versions.)*

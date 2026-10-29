@@ -269,6 +269,9 @@ Everything in this section is a platform extension around the standard
 | `redb` crash-safe ACID engine | — | — | ● | ✅ | O(1) OPEN (~5 ms at 200 k records), working-set RAM (≥250 M records), survives power loss with no index corruption |
 | Self-describing `PRCIDX1` container | — | — | ● | ✅ | Embeds record format + key descriptors; strict open-time validation maps schema mismatch → `39`, missing file → `35`. Not byte-compatible with Fujitsu |
 | Per-file transaction log (`--indexed-log basic\|full`) | — | — | ● | ✅ | logfmt or Grafana/Loki-ready NDJSON — see [`observability-en.md`](observability-en.md) |
+| PartiQL statements on an INDEXED file (`SELECT`, `INSERT`, `UPDATE`, `DELETE` through an `IndexedFile` control's `Execute` / `Fetch` / `Get`, or `COBOL::"PARTIQL"`) | — | — | ● | ✅ | DynamoDB-flavoured subset; keyed, range or scan reads chosen from the `WHERE`; no `FD` needed in the form; `?` parameters; statuses `00 10 22 23 48 49 94`. See the Developer's Guide, §14 |
+| PartiQL transactions (`ExecuteTransaction`, `EXISTS(SELECT …)`) and `AutoCommit` | — | — | ● | ✅ | All-or-nothing unit undone by before-image compensation; shares the program's one open file and its `COMMIT` / `ROLLBACK` |
+| Data binding of a DataGrid, ComboBox or ListBox to a PartiQL query | — | — | ● | 🚧 | Parameters from data items and control properties, `SelectedValue`, `BindingQuery`; read-only; no designer panel yet; charts, gauges, maps and repeating groups not yet |
 
 ## 8. Runtime integrations
 

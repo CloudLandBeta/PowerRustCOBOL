@@ -878,6 +878,9 @@ impl BindingEditorState {
             Src::CobolTable { .. } => BindingEditorSourceKind::CobolTable,
             Src::RestApi { .. } => BindingEditorSourceKind::RestApi,
             Src::AgentAi { .. } => BindingEditorSourceKind::AgentAi,
+            // Spec 108: the binding editor does not edit a PartiQL source yet (T25);
+            // the binding itself loads, runs and saves as it is.
+            Src::PartiQl { .. } => return None,
         };
         let mut s = Self::new(form, control, source_kind, indexed_files)?;
         s.binding_id = binding.id.clone();

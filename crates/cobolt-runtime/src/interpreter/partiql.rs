@@ -241,6 +241,7 @@ impl Interpreter {
         let stale = std::mem::take(&mut ctl.published);
         let n = o.items.len();
         let last_error = o.last_error();
+        let has_columns = !o.columns.is_empty();
         ctl.items = o.items;
         ctl.cursor = 0;
         ctl.fetched = None;
@@ -252,6 +253,10 @@ impl Interpreter {
         self.obj_set(obj, "StatusCode", o.status.to_string());
         self.obj_set(obj, "LastError", last_error);
         self.partiql_status_item(obj, o.status);
+        // Bindings with no query of their own show the new result (R34).
+        if o.error.is_none() && has_columns {
+            self.partiql_follow(obj);
+        }
         o.count
     }
 
@@ -451,6 +456,165 @@ impl Interpreter {
                 Box::new(e)
             }
         }
+    }
+
+    // ── Data binding (spec 108, R30–R37) ──
+
+    /// The arguments a binding's parameter list names: a data item by its
+    /// PICTURE, `CONTROL::Property` as untyped text (O2).
+    fn partiql_binding_args(&self, list: &str) -> Vec<Arg> {
+        list.split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(|p| match p.split_once("::") {
+                Some((ctl, prop)) => Arg::Text(self.obj_get(ctl.trim(), prop.trim())),
+                None => {
+                    let name = self.env.resolve_name(p, &[]);
+                    match self.env.get(&name) {
+                        Some(CobolValue::Numeric(n)) => Arg::Value(Value::Num(n.clone())),
+                        Some(other) => Arg::Value(Value::text(&other.as_display_string())),
+                        None => Arg::Value(Value::Str(String::new())),
+                    }
+                }
+            })
+            .collect()
+    }
+
+    fn partiql_publish_failure(&mut self, ctl: &str, o: &Outcome) {
+        self.obj_set(ctl, "StatusCode", o.status.to_string());
+        self.obj_set(ctl, "LastError", o.last_error());
+    }
+
+    /// Fill a bound target from a PartiQL result set: run the binding's query on
+    /// its control in a result set of its own (the control's is untouched), or —
+    /// with no query — follow the control's. A failure keeps what the target
+    /// shows and sets the control's `StatusCode` / `LastError` (R33).
+    pub(crate) fn refresh_partiql_binding(&mut self, id: &str) -> usize {
+        let ctl = self.obj_get(id, "_BindingPartiqlControl").trim().to_string();
+        if ctl.is_empty() {
+            return 0;
+        }
+        let own = self.obj_get(id, "BindingQuery");
+        let query = if own.trim().is_empty() { self.obj_get(id, "_BindingPartiqlQuery") } else { own };
+        let (items, columns): (Vec<Item>, Arc<Vec<ColInfo>>) = if query.trim().is_empty() {
+            match self.partiql.get(&Self::partiql_key(&ctl)) {
+                Some(c) => (c.items.clone(), c.columns.clone()),
+                None => return 0,
+            }
+        } else {
+            let args = self.partiql_binding_args(&self.obj_get(id, "_BindingPartiqlParams"));
+            match parse_statement(query.trim()) {
+                Ok(p) if matches!(p.statement, crate::partiql::parser::Statement::Select(_)) => {}
+                Ok(_) => {
+                    let o = Outcome::failed(PartiqlError::validation("a binding query must be a SELECT", None));
+                    self.partiql_publish_failure(&ctl, &o);
+                    return 0;
+                }
+                Err(e) => {
+                    self.partiql_publish_failure(&ctl, &Outcome::failed(e));
+                    return 0;
+                }
+            }
+            let o = self.partiql_outcome(&ctl, query.trim(), &args, false);
+            if o.error.is_some() {
+                self.partiql_publish_failure(&ctl, &o);
+                return 0;
+            }
+            (o.items, o.columns)
+        };
+        let wanted: Vec<String> = self
+            .obj_get(id, "_BindingFields")
+            .split(',')
+            .map(|f| f.trim().to_string())
+            .filter(|f| !f.is_empty())
+            .collect();
+        let at: Vec<Option<usize>> = if wanted.is_empty() {
+            (0..columns.len()).map(Some).collect()
+        } else {
+            wanted.iter().map(|w| columns.iter().position(|c| c.name.eq_ignore_ascii_case(w))).collect()
+        };
+        let cell = |item: &Item, i: &Option<usize>| i.map(|i| item.text(i).replace(['\t', '\n'], " ")).unwrap_or_default();
+        let n = items.len();
+        if self.obj_get(id, "_BindingList") == "1" {
+            // Display column first, then — for `SelectedValue` — the value column.
+            let shown: Vec<String> = items.iter().map(|it| at.first().map(|i| cell(it, i)).unwrap_or_default()).collect();
+            let values: Vec<String> = items.iter().map(|it| at.get(1).map(|i| cell(it, i)).unwrap_or_default()).collect();
+            self.obj_set(id, "Items", shown.join("\n"));
+            self.obj_set(id, "_BindingValues", values.join("\n"));
+        } else {
+            let rows: Vec<String> =
+                items.iter().map(|it| at.iter().map(|i| cell(it, i)).collect::<Vec<_>>().join("\t")).collect();
+            self.obj_set(id, "Rows", rows.join("\n"));
+        }
+        n
+    }
+
+    /// Every PartiQL binding that follows `ctl`'s result set shows the new one.
+    pub(crate) fn partiql_follow(&mut self, ctl: &str) {
+        let followers: Vec<String> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.class != "IndexedFile")
+            .map(|(id, _)| id.clone())
+            .filter(|id| {
+                self.obj_get(id, "_BindingKind").eq_ignore_ascii_case("PartiQl")
+                    && self.obj_get(id, "_BindingPartiqlControl").trim().eq_ignore_ascii_case(ctl.trim())
+                    && self.obj_get(id, "BindingQuery").trim().is_empty()
+                    && self.obj_get(id, "_BindingPartiqlQuery").trim().is_empty()
+            })
+            .collect();
+        for id in followers {
+            self.refresh_partiql_binding(&id);
+        }
+    }
+
+    /// R37: `BindingQuery` takes a `SELECT`; another statement is refused with
+    /// `94` on the source control and the previous query stays.
+    pub(crate) fn partiql_accept_query(&mut self, id: &str, text: &str) -> bool {
+        if text.trim().is_empty() {
+            return true;
+        }
+        let ctl = self.obj_get(id, "_BindingPartiqlControl").trim().to_string();
+        let problem = match parse_statement(text.trim()) {
+            Ok(p) if matches!(p.statement, crate::partiql::parser::Statement::Select(_)) => return true,
+            Ok(_) => PartiqlError::validation("a binding query must be a SELECT", None),
+            Err(e) => e,
+        };
+        if !ctl.is_empty() {
+            self.partiql_publish_failure(&ctl, &Outcome::failed(problem));
+        }
+        false
+    }
+
+    /// `SelectedValue` of a PartiQL-bound list (the value field of the selected
+    /// item) or grid (the value column of the clicked row; the value column is
+    /// the first key field, else the first column). Empty before any pick.
+    pub(crate) fn partiql_selected_value(&self, id: &str) -> Option<String> {
+        let get = |p: &str| self.objects.get_property(id, p).map(|v| v.to_string()).unwrap_or_default();
+        if !get("_BindingKind").eq_ignore_ascii_case("PartiQl") {
+            return None;
+        }
+        if get("_BindingList") == "1" {
+            let index: i64 = get("SelectedIndex").trim().parse().unwrap_or(0);
+            let values = get("_BindingValues");
+            let value = if index >= 1 { values.split('\n').nth(index as usize - 1).unwrap_or("").to_string() } else { String::new() };
+            return Some(value);
+        }
+        let row: usize = get("ClickedRow").trim().parse().unwrap_or(0);
+        if row == 0 {
+            return Some(String::new());
+        }
+        let fields: Vec<String> = get("_BindingFields").split(',').map(|f| f.trim().to_string()).collect();
+        let keys = get("_BindingKeyFields");
+        let col = keys
+            .split(',')
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+            .find_map(|k| fields.iter().position(|f| f.eq_ignore_ascii_case(k)))
+            .unwrap_or(0);
+        let rows = get("Rows");
+        let line = rows.split('\n').nth(row - 1).unwrap_or("");
+        Some(line.split('\t').nth(col).unwrap_or("").to_string())
     }
 
     /// A program's `OPEN` of an INDEXED file succeeded: remember where it is,

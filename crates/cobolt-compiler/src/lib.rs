@@ -5113,6 +5113,9 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"NEXT-ROW"` | handle in, more out | Move to the next result row: Y when there is one, N at the end |
 | `COBOL::"OPEN-DB"` | connection-string in, handle out, status out | Open a SQLite, PostgreSQL or MySQL connection |
 | `COBOL::"OPEN-FILE-DIALOG"` | title in, [filter in], [start-folder in], path out | Ask the operator for a file to open; spaces when cancelled |
+| `COBOL::"PARTIQL"` | file-name in, statement in, result-count out, status out, [parameter in ...] | Run one PartiQL statement (SELECT, INSERT, UPDATE, DELETE) on an indexed file the program has open; each parameter fills a ? |
+| `COBOL::"PARTIQL-ERROR"` | file-name in, text out | The text of the last PartiQL statement's error on that file, empty when it ran |
+| `COBOL::"PARTIQL-FETCH"` | file-name in, row out, status out | The next item of the last PartiQL result, its values separated by tabs; status 10 past the last |
 | `COBOL::"PROVIDER-COUNT"` | count out | How many model providers there are |
 | `COBOL::"PROVIDER-GET"` | index in, [id out], [label out], [endpoint out], [needs-key out] | One provider's details (1-based) |
 | `COBOL::"RAISE-EVENT"` | object in, event in, [argument in] | Queue a control's event as the control raises it: its handler runs after the running one |

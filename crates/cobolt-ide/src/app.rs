@@ -21561,6 +21561,7 @@ fn fallback_binding_preview_rows(
         BindingSourceDescriptor::CobolTable { .. } => 3,
         BindingSourceDescriptor::IndexedFile { .. } | BindingSourceDescriptor::Sql { .. } => 2,
         BindingSourceDescriptor::AgentAi { .. } => 1,
+        BindingSourceDescriptor::PartiQl { .. } => 2,
     };
     (0..row_count)
         .map(|row_index| {
@@ -21653,6 +21654,7 @@ fn binding_source_basic_label(source: &BindingSourceDescriptor) -> String {
         }
         BindingSourceDescriptor::RestApi { endpoint_name, .. } => endpoint_name.clone(),
         BindingSourceDescriptor::AgentAi { output_name, .. } => output_name.clone(),
+        BindingSourceDescriptor::PartiQl { source_control_id, .. } => format!("PartiQL / {source_control_id}"),
     }
 }
 
