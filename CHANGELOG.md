@@ -1,5 +1,10 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.101 — 2026-10-30
+
+**Fix: a new project no longer recompiles the platform (`cobolt-forms`, `cobolt-indexed`, `cobolt-runtime`, `cobolt-form-host`, `cobolt-media`).** Cargo makes a separate artifact of those crates for every distinct runtime feature list, and each program asked for the list it reached, so two programs differing in, say, Maps or AWS recompiled all five (38–93 s). A form application now always compiles the platform with the pure-Rust features (REST, Maps, Knowledge Base, SMB, PDF, Office, AWS, pictures — none needs a C toolchain, and `cobolt-forms` already links TLS and the decoders), so only `sql` and `audio` vary; console programs keep the exact trimming, and `POWERRUSTCOBOL_EXACT_FEATURES=1` restores it for forms. Measured: a fresh clone of PowerDemo3 under a new name builds in 4 s with 0 platform crates compiled.
+The platform is also prepared **once per version**: the IDE's first start of a version compiles it in the background (`warmup::warm_platform_cache`, with and without SQL) and records `shared-target/warm/<version>`. A release can ship the third-party libraries precompiled in `sdk/libs/<os>/<arch>/target` (new example `prebuild_libs`, run by the release workflow after `stage_sdk`); the first start copies them into the shared cache when `rustc -vV` matches. *(The workflow step is not exercised by a local run.)*
+
 > **Note — the fix number ran twice.** The Viewer (spec 058, on `features`)
 > and the debugger and macOS build work (spec 061, on `main`) each advanced
 > the fix number independently between 1.70.85 and 1.70.100, so sixteen of
@@ -36072,7 +36077,7 @@ the same keys and drawing the same tick mark: `CheckBoxColor`,
   box, 0-100** — the same split the CheckBox makes.
 
 Tests: `treenodes` (7), `treeview` tick-box paint (3), `test_treeview_nodes` (6,
-end-to-end from COBOL). System KB + Developer's Guide updated.
+end-to-end from COBOL). System KB +
 
 ## [PowerRustCOBOL 1.61.158] — 2026-08-22
 

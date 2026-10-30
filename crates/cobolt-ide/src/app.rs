@@ -2131,6 +2131,23 @@ impl CoboltApp {
         // The machine's build folder (spec 100), handed to the compiler for the whole process so the
         // build the IDE starts and the project tools it hosts agree on where builds are kept.
         cobolt_compiler::set_build_root_override(crate::ui_prefs::load_build_dir());
+        // The first start of a new version compiles the platform libraries once, in the
+        // background, so no program's build has to (a start of the same version does nothing).
+        // Skipped when no SDK is installed: there is nothing to compile then.
+        if !cobolt_compiler::warmup::is_warm(crate::version::VERSION) {
+            if let Some(sdk) = cobolt_compiler::resolve_workspace_root(None) {
+                std::thread::spawn(move || {
+                    let mut log = |line: &str| tracing::info!("platform libraries: {line}");
+                    if let Err(why) = cobolt_compiler::warmup::warm_platform_cache(
+                        &sdk,
+                        crate::version::VERSION,
+                        &mut log,
+                    ) {
+                        tracing::warn!("platform libraries not prepared (a build will compile them): {why}");
+                    }
+                });
+            }
+        }
         let mut style = (*cc.egui_ctx.global_style()).clone();
         style.visuals = egui::Visuals::dark();
         cc.egui_ctx.set_global_style(style);

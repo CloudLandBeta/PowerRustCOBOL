@@ -91,6 +91,11 @@ const AUDIO_CALLS: &[&str] = &[
 /// WEBSOCKET LINKAGE`. A program naming either needs the client.
 const REMOTE_CALLS: &[&str] = &["COBOL-WS-UPLOAD", "COBOL-WS-DOWNLOAD"];
 
+/// Set to `1` to link exactly what each program reaches, at the price of
+/// recompiling the platform crates whenever that differs (see
+/// [`RuntimeFeatures::shared_platform`]).
+pub const EXACT_FEATURES_ENV: &str = "POWERRUSTCOBOL_EXACT_FEATURES";
+
 /// What a program needs linked, unioned across every program in the build.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RuntimeFeatures {
@@ -176,6 +181,36 @@ impl RuntimeFeatures {
             images: self.images || other.images,
             audio: self.audio || other.audio,
             remote: self.remote || other.remote,
+        }
+    }
+
+    /// The feature set the platform crates are COMPILED with, so one compiled
+    /// copy serves every program.
+    ///
+    /// Cargo makes a separate artifact of `cobolt-runtime`, `cobolt-indexed`,
+    /// `cobolt-forms`, `cobolt-media` and `cobolt-form-host` for every distinct
+    /// feature list, so a program whose list differed from the last one's
+    /// recompiled all five. A form application therefore always takes the
+    /// pure-Rust features (they need no C toolchain and no system library, and
+    /// `cobolt-forms` already links the TLS stack and the image decoders for
+    /// it), leaving only the three that cost something to build — `sql` (the
+    /// SQLite C amalgamation), `audio` (ALSA on Linux) and the semantic model —
+    /// to vary. Console programs keep the exact trimming, and
+    /// `POWERRUSTCOBOL_EXACT_FEATURES=1` restores it for forms too.
+    pub fn shared_platform(self, has_forms: bool) -> Self {
+        if !has_forms || std::env::var_os(EXACT_FEATURES_ENV).is_some_and(|v| v != "0" && !v.is_empty()) {
+            return self;
+        }
+        Self {
+            http: true,
+            maps: true,
+            kb: true,
+            smb: true,
+            pdf: true,
+            office: true,
+            aws: true,
+            images: true,
+            ..self
         }
     }
 

@@ -55,6 +55,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 mod build_cache;
+pub mod warmup;
 pub mod backend_build;
 pub mod exec_rust;
 pub mod runtime_features;
@@ -2753,6 +2754,9 @@ fn build_core(
                 .unwrap_or_default()
                 .into_iter(),
         ));
+    // One compiled copy of the platform serves every form application (see
+    // `shared_platform`); the log below then says only what is really left out.
+    let features = features.shared_platform(has_forms);
     if !features.sql {
         log("   no SQL verb reached — building without the SQLite/PostgreSQL/MySQL drivers (no C toolchain needed)");
     }

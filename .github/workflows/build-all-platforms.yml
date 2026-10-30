@@ -231,6 +231,19 @@ jobs:
           test -f "dist/$PKG/sdk/Cargo.toml"
           test -d "dist/$PKG/sdk/crates/cobolt-ast"
 
+      # The platform's third-party libraries, compiled once here and shipped in
+      # <sdk>/libs/<os>/<arch>/target, so a developer's first build never
+      # compiles them. The IDE copies them into its shared cache on first start
+      # (`warmup::warm_platform_cache`); the platform crates themselves are
+      # compiled there, because cargo ties them to the folder they sit in.
+      - name: Compile the platform libraries
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --release --locked --target ${{ matrix.target }} \
+            -p cobolt-compiler --example prebuild_libs -- "dist/$PKG/sdk"
+
       # The Visual C++ runtime, deployed app-local (the form Microsoft supports
       # for applications that ship their own copy). Without these a clean
       # Windows 10 refuses to start the executables.
@@ -299,6 +312,10 @@ jobs:
             -p cobolt-compiler --example stage_sdk -- "$app/Contents/Resources/sdk"
           test -f "$app/Contents/Resources/sdk/Cargo.toml"
           test -d "$app/Contents/Resources/sdk/crates/cobolt-ast"
+          # Third-party libraries compiled once, shipped in sdk/libs/macos/<arch>
+          # (see "Compile the platform libraries" above). Before the signature.
+          cargo run --release --locked --target ${{ matrix.target }} \
+            -p cobolt-compiler --example prebuild_libs -- "$app/Contents/Resources/sdk"
 
           # Ad-hoc signature. Apple Silicon refuses to run an unsigned binary,
           # and assembling the bundle invalidates the one the linker applied.

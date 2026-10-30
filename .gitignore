@@ -100,3 +100,4 @@ SESSION-HANDOFF*
 examples/*/.claude/
 examples/*/.mcp.json
 examples/*/data/*.v2-obsolete
+/libs/
