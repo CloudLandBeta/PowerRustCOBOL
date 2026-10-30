@@ -49,6 +49,14 @@ pub const CANONICAL_DATA_ITEM_METHODS: &[&str] = &["Trim", "Upper", "Lower", "Re
 /// accept them as the links of a chain that starts with a collection.
 pub const COLLECTION_METHODS: &[&str] = &["Join", "Map", "Filter", "Sum", "Max", "SortByDescending", "Take"];
 
+/// `X::Format(…)` (spec 109 §5.2): a data item shows itself in a format. It is a
+/// method of a data item, but not one of [`DATA_ITEM_METHODS`] — a plain item with
+/// no `FORMAT` clause has nothing to show without a name — and a control's own
+/// `Format` property (DateTimePicker, Viewer) keeps its meaning.
+pub fn is_format_method(name: &str) -> bool {
+    name.trim().eq_ignore_ascii_case("Format")
+}
+
 /// `true` if `name` is a collection method (see [`COLLECTION_METHODS`]); case does
 /// not matter.
 pub fn is_collection_method(name: &str) -> bool {
@@ -233,7 +241,7 @@ pub fn is_known_method(name: &str) -> bool {
             | "TOUPPERCASE" | "UPPERCASE" | "UPPER"
             | "TOLOWERCASE" | "LOWERCASE" | "LOWER" | "TRIM" | "LEN" | "LENGTH"
         // Spec 109 §5.3 — collections: without these `X::Join(",")` is a subscript.
-            | "SPLIT" | "JOIN" | "MAP" | "FILTER" | "SUM" | "MAX" | "SORTBYDESCENDING" | "TAKE"
+            | "SPLIT" | "FORMAT" | "JOIN" | "MAP" | "FILTER" | "SUM" | "MAX" | "SORTBYDESCENDING" | "TAKE"
     )
 }
 

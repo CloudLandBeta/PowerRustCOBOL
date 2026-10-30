@@ -298,6 +298,12 @@ impl Parser {
     }
 
     /// Consume the current token if it is a `StringLiteral`; return value + span.
+    /// The text of a string literal at the cursor, consumed; `None` (nothing
+    /// consumed) for any other token.
+    pub(crate) fn take_string_literal_here(&mut self) -> Option<String> {
+        self.eat_string().map(|(s, _)| s)
+    }
+
     pub(crate) fn eat_string(&mut self) -> Option<(String, Span)> {
         if let Token::StringLiteral(_) = self.peek() {
             let st = self.advance();
@@ -616,6 +622,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
                     justified: false,
                     sign: None,
                     byte_length: None,
+                    format: None,
                 }
             })
             .collect();
@@ -737,6 +744,7 @@ fn switch_status_decl(name: String, digit: &str) -> DataDecl {
         justified: false,
         sign: None,
         byte_length: None,
+        format: None,
     }
 }
 

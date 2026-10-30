@@ -16,6 +16,7 @@ repository.workspace   = true
 [dependencies]
 cobolt-lexer = { path = "../cobolt-lexer" }
 cobolt-ast   = { path = "../cobolt-ast" }
+cobolt-format = { path = "../cobolt-format" }
 
 [dev-dependencies]
 cobolt-semantic = { path = "../cobolt-semantic" }

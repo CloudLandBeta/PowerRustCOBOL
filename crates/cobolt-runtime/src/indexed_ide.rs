@@ -151,6 +151,7 @@ pub fn definition_text_of(def: &IndexedDefinition) -> String {
             justified: false,
             sign: None,
             byte_length: None,
+            format: None,
         }
     }
 

@@ -372,6 +372,7 @@ impl<'src> Lexer<'src> {
             // the parser reports it on the literal's line.
             RawToken::NationalString(s) | RawToken::NationalHex(Ok(s)) => Token::NationalLiteral(s),
             RawToken::Utf8String(Ok(s)) | RawToken::Utf8Hex(Ok(s)) => Token::Utf8Literal(s),
+            RawToken::InterpString(s) => Token::InterpolatedString(s),
             RawToken::NationalHex(Err(e)) | RawToken::Utf8String(Err(e)) | RawToken::Utf8Hex(Err(e)) => {
                 Token::Error(e)
             }

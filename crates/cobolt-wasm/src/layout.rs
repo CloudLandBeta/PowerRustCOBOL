@@ -399,6 +399,14 @@ impl Layout {
         // A USAGE written on a group applies to every elementary item below it.
         let usage = if d.usage != Usage::Display { d.usage } else { inherited_usage };
         let line = d.span.line;
+        // Spec 109 §5.2: the formatter is not in the module's routines yet, so a
+        // FORMAT clause would silently show the item unformatted (R23).
+        if d.format.is_some() {
+            return Err(GenError::new(
+                line,
+                format!("{}: FORMAT IS … is not supported in a WebAssembly module yet (specs/WASM-PARITY.md)", decl_name(d)),
+            ));
+        }
         let sign = d.sign.or(inherited_sign);
         let idx = self.items.len();
         let name = d.name.as_ref().map(|n| n.to_ascii_uppercase());

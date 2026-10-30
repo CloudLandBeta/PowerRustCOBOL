@@ -3878,6 +3878,7 @@ fn can_start_expr(p: &Parser) -> bool {
             | Token::StringLiteral(_)
             | Token::NationalLiteral(_)
             | Token::Utf8Literal(_)
+            | Token::InterpolatedString(_)
             | Token::Spaces
             | Token::Zeros
             | Token::HighValues

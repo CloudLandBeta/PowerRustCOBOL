@@ -183,6 +183,14 @@ pub enum RawToken {
     #[regex(r"[Uu][Xx]'[^'\n]*'", |lex| utf8_hex(lex.slice()))]
     Utf8Hex(Result<String, String>),
 
+    // ── Interpolated string (spec 109 §5.2) ─────────────────────────────────
+    // `F"Page {WS-PAGE:number} of {WS-PAGES}"`: a prefix glued to its quote,
+    // like `N"…"`. The body is kept raw (doubled quotes undoubled, braces
+    // untouched); the parser splits it into text and expressions.
+    #[regex(r#"[Ff]"([^"\n]|"")*""#, |lex| prefixed_body(lex.slice(), 1))]
+    #[regex(r"[Ff]'([^'\n]|'')*'", |lex| prefixed_body(lex.slice(), 1))]
+    InterpString(String),
+
     // ── Free-format block-literal fence (PowerRustCOBOL extension) ─────────
     //
     // ```` ``` ```` opens and closes a **block literal**: a literal whose text
@@ -741,6 +749,8 @@ pub enum Token {
     NationalLiteral(String),
     /// A UTF-8 literal (spec 077): `U"…"`, `U'…'`, `UX"…"` — its text.
     Utf8Literal(String),
+    /// An interpolated string (spec 109): `F"…{expr:format}…"` — its raw body.
+    InterpolatedString(String),
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Level numbers (01–49, 66, 77, 78, 88)

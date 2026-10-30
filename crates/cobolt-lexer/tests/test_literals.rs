@@ -178,6 +178,15 @@ fn fat_arrow_is_the_lambda_arrow_and_leaves_the_comparisons_alone() {
 }
 
 #[test]
+fn an_interpolated_string_is_one_token_with_its_raw_body() {
+    let t = toks("DISPLAY F\"Page {P:number} de {{N}}\"");
+    assert!(t.contains(&Token::InterpolatedString("Page {P:number} de {{N}}".into())), "{t:?}");
+    // A word F with a space before the string is still a word and a string.
+    let t = toks("DISPLAY WS-F \"x\"");
+    assert!(!t.iter().any(|x| matches!(x, Token::InterpolatedString(_))));
+}
+
+#[test]
 fn period_parens() {
     // The comma in `ADD A, B TO C (1).` is a COBOL-85 *separator* — it is
     // followed by a space, so it means what a space means and produces no

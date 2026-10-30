@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-format"
+description = "Cobolt COBOL — locale-aware number formatting (FORMAT / LOCALE, spec 109), shared by the interpreter and the WebAssembly routines"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+# No dependencies on purpose, like `cobolt-decimal`: the formatting rules are
+# ONE source compiled into every host (spec 109 R9, R23).
+[dependencies]
+
+[dev-dependencies]

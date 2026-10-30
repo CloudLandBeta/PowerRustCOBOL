@@ -328,6 +328,12 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
         return Some(Expr::Literal(Literal::Integer(0), span));
     }
 
+    // `F"text {expr:format}"` (spec 109 §5.2).
+    if let Token::InterpolatedString(body) = p.peek().clone() {
+        p.advance();
+        return Some(crate::interp::parse_interpolated(p, &body, span));
+    }
+
     // Unary minus
     if p.at(&Token::Minus) {
         p.advance();
@@ -1371,6 +1377,7 @@ fn at_literal_object(p: &Parser) -> bool {
             | Token::StringLiteral(_)
             | Token::NationalLiteral(_)
             | Token::Utf8Literal(_)
+            | Token::InterpolatedString(_)
             | Token::Spaces
             | Token::Zeros
             | Token::HighValues

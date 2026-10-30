@@ -32,6 +32,7 @@ mod array_edit;
 mod aws;
 mod collections;
 mod exec_sql;
+mod format;
 mod grid_dropdown;
 mod grid_edit;
 mod grid_unit;
@@ -8362,6 +8363,9 @@ impl Interpreter {
                     // performs; the env's fixed-width path knows nothing of it.
                     if self.object_refs.contains_key(&key) {
                         self.eval_expr(op, op.span())?.as_display_string()
+                    } else if let Some(formatted) = self.formatted_item(op, op.span())? {
+                        // Spec 109: an item declared with FORMAT IS … is shown formatted.
+                        formatted
                     } else {
                         match self.env.display_string(&key) {
                             Some(s) => s,
@@ -15818,6 +15822,10 @@ impl Interpreter {
                 _ => false,
             };
 
+            // Spec 109 §5.2: `X::Format(…)` — before the arguments are evaluated.
+            if member.eq_ignore_ascii_case("FORMAT") && self.value_item_root(recv).is_some() {
+                return self.eval_format_method(recv, args, *span);
+            }
             // Spec 109: `Join`, `Sum` and `Max` reduce a collection chain. The
             // arguments are not evaluated first — a lambda has no value of its
             // own — so this comes before they are.
@@ -18027,6 +18035,8 @@ impl Interpreter {
             // expansion does not apply (outside an intrinsic-function
             // argument), so it is reported rather than silently given a
             // number.
+            Expr::Interpolated { parts, .. } => self.eval_interpolated(parts, span),
+
             Expr::Lambda { .. } => Err(RuntimeError::General {
                 message: "a lambda (ITEM => …) is only meaningful as the argument of Map, \
                           Filter or SortByDescending"
@@ -19742,6 +19752,13 @@ impl Interpreter {
         e: &Expr,
         span: Span,
     ) -> Result<(Vec<u8>, bool), RuntimeError> {
+        // Spec 109: an item declared with FORMAT IS … is sent formatted — STRING
+        // makes text, one of the four contexts that format (R10).
+        if matches!(e, Expr::Identifier(..) | Expr::Qualified { .. }) {
+            if let Some(text) = self.formatted_item(e, span)? {
+                return Ok((text.into_bytes(), false));
+            }
+        }
         if matches!(
             e,
             Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }

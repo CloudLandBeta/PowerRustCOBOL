@@ -836,6 +836,7 @@ mod tests {
             justified: false,
             sign: None,
             byte_length: None,
+            format: None,
         }
     }
     fn group(name: &str, children: Vec<DataDecl>) -> DataDecl {
@@ -858,6 +859,7 @@ mod tests {
             justified: false,
             sign: None,
             byte_length: None,
+            format: None,
         }
     }
 

@@ -174,6 +174,23 @@ pub struct DataDecl {
     ///
     /// 🔴 New fields belong at the END of this struct.
     pub byte_length: Option<u32>,
+    /// `FORMAT IS "currency-short" LOCALE IS WS-LOCALE` (spec 109 §5.2): how the
+    /// item is shown where text is made of it (DISPLAY, STRING, interpolation,
+    /// `Format()`); never how it is stored or compared. `None` for every other item.
+    ///
+    /// 🔴 New fields belong at the END of this struct.
+    pub format: Option<FormatClause>,
+}
+
+/// The `FORMAT IS … LOCALE IS …` clauses of a data description.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FormatClause {
+    /// The format name as written, optionally followed by a currency code:
+    /// `"currency BRL"`. Validated when the program is analysed.
+    pub name: String,
+    /// A string literal, or a reference to an alphanumeric item read on every
+    /// formatting operation; `None` takes the application's default locale.
+    pub locale: Option<crate::expr::Expr>,
 }
 
 /// A `SIGN IS LEADING | TRAILING [SEPARATE CHARACTER]` clause.

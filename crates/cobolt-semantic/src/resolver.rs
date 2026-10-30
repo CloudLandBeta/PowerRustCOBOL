@@ -178,6 +178,21 @@ pub fn resolve(
             }
         }
     }
+    // `FORMAT IS … LOCALE IS …` (spec 109 R8): the item is numeric, and a locale
+    // operand names a declared alphanumeric item. An invalid format name or a
+    // malformed locale literal was refused by the parser already.
+    if let Some(data) = program.data.as_ref() {
+        for section in &data.sections {
+            if let cobolt_ast::program::DataSection::WorkingStorage(decls)
+            | cobolt_ast::program::DataSection::LocalStorage(decls)
+            | cobolt_ast::program::DataSection::Linkage(decls) = section
+            {
+                for decl in decls {
+                    ctx.check_format_clause(decl);
+                }
+            }
+        }
+    }
     match &program.procedure.body {
         ProcedureBody::Paragraphs(paras) => {
             for para in paras {
@@ -810,7 +825,10 @@ impl<'a> ResolveCtx<'a> {
     /// empty string and let the program carry on with it; it is an error, naming
     /// the item and what it does answer (operator, 2026-10-09).
     fn check_data_item_method(&mut self, root: &str, method: &str, span: cobolt_lexer::Span) {
-        if !self.is_value_item(root) || cobolt_ast::methods::is_data_item_method(method) {
+        if !self.is_value_item(root)
+            || cobolt_ast::methods::is_data_item_method(method)
+            || cobolt_ast::methods::is_format_method(method)
+        {
             return;
         }
         self.error(
@@ -852,7 +870,10 @@ impl<'a> ResolveCtx<'a> {
         let mut in_collection = false;
         for (method, span) in links.into_iter().rev() {
             let collection_link = in_collection && cobolt_ast::methods::is_collection_method(method);
-            if !cobolt_ast::methods::is_data_item_method(method) && !collection_link {
+            if !cobolt_ast::methods::is_data_item_method(method)
+                && !cobolt_ast::methods::is_format_method(method)
+                && !collection_link
+            {
                 self.check_data_item_method(root, method, span);
                 return;
             }
@@ -956,6 +977,52 @@ impl<'a> ResolveCtx<'a> {
                  not a literal or an expression",
                 other.span(),
             ),
+        }
+    }
+
+    /// Spec 109 R8 for one declaration and everything under it.
+    fn check_format_clause(&mut self, decl: &cobolt_ast::data::DataDecl) {
+        use cobolt_ast::data::PicKind;
+        if let Some(clause) = &decl.format {
+            let name = decl.name.as_deref().unwrap_or("FILLER");
+            let numeric = matches!(
+                decl.picture.as_ref().map(|p| p.kind),
+                Some(PicKind::Numeric | PicKind::NumericEdited)
+            ) || matches!(
+                decl.usage,
+                cobolt_ast::data::Usage::Comp
+                    | cobolt_ast::data::Usage::Comp3
+                    | cobolt_ast::data::Usage::Comp5
+                    | cobolt_ast::data::Usage::Binary
+                    | cobolt_ast::data::Usage::PackedDecimal
+            );
+            if !numeric {
+                self.error(
+                    format!("FORMAT IS on '{name}': only a numeric item can be formatted (its PICTURE is not numeric)"),
+                    decl.span,
+                );
+            }
+            match &clause.locale {
+                Some(Expr::Identifier(n, _)) | Some(Expr::Qualified { name: n, .. }) => {
+                    match self.symbols.data_item(n) {
+                        None => self.error(
+                            format!("LOCALE IS {n} on '{name}': '{n}' is not declared in DATA DIVISION"),
+                            decl.span,
+                        ),
+                        Some(info) if !matches!(info.pic_kind, Some(PicKind::Alphanumeric | PicKind::AlphanumericEdited)) => {
+                            self.error(
+                                format!("LOCALE IS {n} on '{name}': '{n}' must be an alphanumeric item (PIC X)"),
+                                decl.span,
+                            )
+                        }
+                        Some(_) => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        for child in &decl.children {
+            self.check_format_clause(child);
         }
     }
 
@@ -1089,6 +1156,21 @@ impl<'a> ResolveCtx<'a> {
             // The table itself is resolved through the enclosing `Subscript`'s
             // base, so there is nothing to look up here.
             Expr::AllSubscript(..) => {}
+            // `F"text {expr:format}"` (spec 109 §5.2): every expression resolves like
+            // any operand, and a format name that is not one is refused here, at
+            // build time, not when the line runs (R8).
+            Expr::Interpolated { parts, span } => {
+                for part in parts {
+                    if let cobolt_ast::expr::InterpPart::Value { expr, format } = part {
+                        self.resolve_expr(expr);
+                        if let Some(f) = format {
+                            if let Err(e) = cobolt_format::canonical_format(f) {
+                                self.error(e.to_string(), *span);
+                            }
+                        }
+                    }
+                }
+            }
             // `ITEM => body` (spec 109 §5.3): the element name is in scope for
             // the body only. A lambda may not assign, do I/O or mutate a control
             // (R-lambda purity): its body is an expression or a test, which the

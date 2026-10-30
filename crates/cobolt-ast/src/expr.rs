@@ -228,6 +228,20 @@ pub enum Expr {
         body: Box<LambdaBody>,
         span: Span,
     },
+
+    /// An interpolated string (spec 109 §5.2): `F"Page {WS-PAGE:number} of {WS-PAGES}"`.
+    /// Text and expressions in source order; each expression is evaluated once,
+    /// left to right, and never run as source text.
+    Interpolated { parts: Vec<InterpPart>, span: Span },
+}
+
+/// One piece of an [`Expr::Interpolated`] string.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum InterpPart {
+    /// Literal text (with `{{` and `}}` already reduced to `{` and `}`).
+    Text(String),
+    /// `{expr}` or `{expr:format}`; the format is the name after a single `:`.
+    Value { expr: Expr, format: Option<String> },
 }
 
 /// What a lambda computes: a value (`Map`, `SortByDescending`) or a truth value
@@ -254,6 +268,7 @@ impl Expr {
             Expr::Unary { span, .. } => *span,
             Expr::Member { span, .. } => *span,
             Expr::Lambda { span, .. } => *span,
+            Expr::Interpolated { span, .. } => *span,
         }
     }
 }

@@ -468,6 +468,9 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
     let mut justified = false;
     let mut sign: Option<cobolt_ast::data::SignClause> = None;
     let mut byte_length: Option<u32> = None;
+    let mut format_name: Option<String> = None;
+    let mut format_locale: Option<cobolt_ast::expr::Expr> = None;
+    let mut format_span = Span::dummy();
 
     // Parse clauses until the period that terminates this item.
     loop {
@@ -651,6 +654,43 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
             | Token::Identification
             | Token::End => break,
 
+            // `FORMAT [IS] "name" [currency]` and `LOCALE [IS] "tag" | item` (spec 109
+            // §5.2). Recognised only here, where a clause is expected, so a data
+            // item NAMED Format or Locale is untouched (R28). A clause never falls
+            // to the skip-with-a-warning arm: a valid one is kept, an invalid one
+            // is an error (R8).
+            Token::Identifier(ref w) if w.eq_ignore_ascii_case("FORMAT") => {
+                format_span = p.peek_span();
+                p.advance();
+                p.eat(&Token::Is);
+                match p.take_string_literal_here() {
+                    Some(n) => {
+                        let first = n.split_whitespace().next().unwrap_or("");
+                        if let Err(e) = cobolt_format::canonical_format(first) {
+                            p.emit_error(e.to_string());
+                        }
+                        format_name = Some(n);
+                    }
+                    None => p.emit_error("FORMAT needs a format name in quotes, such as FORMAT IS \"number\""),
+                }
+            }
+            Token::Identifier(ref w) if w.eq_ignore_ascii_case("LOCALE") => {
+                p.advance();
+                p.eat(&Token::Is);
+                if matches!(p.peek(), Token::StringLiteral(_)) {
+                    let sp = p.peek_span();
+                    let tag = p.take_string_literal_here().unwrap_or_default();
+                    if let Err(e) = cobolt_format::locale(&tag) {
+                        p.emit_error(e.to_string());
+                    }
+                    format_locale = Some(cobolt_ast::expr::Expr::Literal(Literal::String(tag), sp));
+                } else if p.at_identifier() {
+                    format_locale = Some(crate::expr::parse_expr(p));
+                } else {
+                    p.emit_error("LOCALE needs a locale tag in quotes or the name of an alphanumeric item");
+                }
+            }
+
             // Unknown clause token — skip
             _ => {
                 p.emit_warning(format!("skipping unknown data clause: {:?}", p.peek()));
@@ -668,6 +708,12 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
             _ => {}
         }
     }
+
+    if format_locale.is_some() && format_name.is_none() {
+        p.emit_error("LOCALE needs a FORMAT clause on the same item");
+    }
+    let format = format_name.map(|name| cobolt_ast::data::FormatClause { name, locale: format_locale });
+    let _ = format_span;
 
     DataDecl {
         level,
@@ -688,6 +734,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
         justified,
         sign,
         byte_length,
+        format,
     }
 }
 
@@ -757,7 +804,11 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
             | Token::NationalUsage => break,
             // `UTF-8` and `BYTE-LENGTH` follow a picture (spec 077).
             Token::Identifier(ref w)
-                if w.eq_ignore_ascii_case("UTF-8") || w.eq_ignore_ascii_case("BYTE-LENGTH") =>
+                if w.eq_ignore_ascii_case("UTF-8")
+                    || w.eq_ignore_ascii_case("BYTE-LENGTH")
+                    // `FORMAT` and `LOCALE` follow a picture (spec 109 §5.2).
+                    || w.eq_ignore_ascii_case("FORMAT")
+                    || w.eq_ignore_ascii_case("LOCALE") =>
             {
                 break
             }

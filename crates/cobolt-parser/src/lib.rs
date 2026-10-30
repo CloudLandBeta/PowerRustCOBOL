@@ -23,6 +23,7 @@ mod data;
 mod error;
 mod expr;
 mod identification;
+mod interp;
 mod parser;
 mod procedure;
 mod sql;

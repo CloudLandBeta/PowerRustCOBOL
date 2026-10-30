@@ -2199,6 +2199,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-format"
+version = "0.2.0"
+
+[[package]]
 name = "cobolt-forms"
 version = "0.2.0"
 dependencies = [
@@ -2399,6 +2403,7 @@ version = "0.2.0"
 dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
+ "cobolt-format",
  "cobolt-forms",
  "cobolt-lexer",
  "cobolt-semantic",
@@ -2450,6 +2455,7 @@ dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
  "cobolt-decimal",
+ "cobolt-format",
  "cobolt-forms",
  "cobolt-indexed",
  "cobolt-kb",
@@ -2494,6 +2500,7 @@ version = "0.2.0"
 dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
+ "cobolt-format",
  "cobolt-forms",
  "cobolt-lexer",
  "cobolt-parser",

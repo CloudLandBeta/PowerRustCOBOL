@@ -77,6 +77,9 @@ pub struct ItemSym {
     pub quals: Vec<String>,
     /// True if this item is a group (has children).
     pub is_group: bool,
+    /// `FORMAT IS … LOCALE IS …` (spec 109 §5.2): how the item is shown where
+    /// text is made of it; never how it is stored or compared.
+    pub format: Option<cobolt_ast::data::FormatClause>,
     /// `INDEXED BY` index-item names of this table's OCCURS (uppercased).
     pub index_names: Vec<String>,
     /// This table's own OCCURS count (its last dimension), 0 if not a table.
@@ -148,6 +151,11 @@ pub struct CobolEnvironment {
     currency_symbol: Option<char>,
     /// Hierarchy / OCCURS metadata, keyed by the item's canonical storage key.
     symbols: IndexMap<String, ItemSym>,
+    /// The application's default locale and currency for FORMAT (spec 109): the
+    /// project's `[project] locale` and default currency. Empty means the built-in
+    /// default, `en-US`, and no currency.
+    format_locale: String,
+    format_currency: String,
     /// Leaf names that occur more than once in the program (under different
     /// groups). Only these need qualified (disambiguated) storage keys; every
     /// other name keys directly by itself, preserving the flat-store fast path.
@@ -1168,6 +1176,26 @@ impl CobolEnvironment {
     /// Take a canonical storage key out of the store, answering what it held. The
     /// lambda of a collection method (spec 109) binds its element name this way
     /// and gives it back afterwards.
+    /// Set the application's default locale and currency for FORMAT (spec 109).
+    pub fn set_format_defaults(&mut self, locale: &str, currency: &str) {
+        self.format_locale = locale.trim().to_string();
+        self.format_currency = currency.trim().to_string();
+    }
+
+    /// The default locale tag: the project's, else `en-US`.
+    pub fn format_default_locale(&self) -> &str {
+        if self.format_locale.is_empty() {
+            "en-US"
+        } else {
+            &self.format_locale
+        }
+    }
+
+    /// The default currency code, or `None` when the project names none.
+    pub fn format_default_currency(&self) -> Option<&str> {
+        (!self.format_currency.is_empty()).then_some(self.format_currency.as_str())
+    }
+
     pub fn raw_take(&mut self, key: &str) -> Option<CobolValue> {
         self.store.remove(key)
     }
@@ -1374,6 +1402,7 @@ impl CobolEnvironment {
                             layout_keys: overlay_keys,
                             quals: quals.clone(),
                             is_group: true,
+                            format: None,
                             index_names: Vec::new(),
                             occurs: 0,
                             keys: Vec::new(),
@@ -1508,6 +1537,7 @@ impl CobolEnvironment {
                     layout_keys,
                     quals: quals.clone(),
                     is_group: !decl.children.is_empty(),
+                    format: decl.format.clone(),
                     index_names: index_names.clone(),
                     occurs: occ.unwrap_or(0),
                     keys,
@@ -1600,6 +1630,7 @@ impl CobolEnvironment {
                                 layout_keys: overlay_keys,
                                 quals: quals.clone(),
                                 is_group: true,
+                                format: None,
                                 index_names: Vec::new(),
                                 occurs: 0,
                                 keys: Vec::new(),

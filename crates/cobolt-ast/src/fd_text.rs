@@ -340,6 +340,7 @@ mod tests {
             justified: false,
             sign: None,
             byte_length: None,
+            format: None,
         }
     }
 

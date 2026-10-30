@@ -43,3 +43,39 @@ walks a list or an OCCURS table.
 - Not available in Web or Mobile projects yet: the build refuses `THROUGH` and says so.
 
 📷 Screenshot needed: the editor's completion popup after `::` on a data item.
+
+## S2 — Formatting (2.0.105)
+
+**What it does.** A numeric item declared with `FORMAT IS "name"` is shown formatted
+in `DISPLAY`, `STRING`, an interpolated string and `Format()`; it is stored and compared
+as the number it is.
+
+```cobol
+       01 WS-LOCALE PIC X(16) VALUE "pt-BR".
+       01 WS-ASSETS PIC S9(13)V99 VALUE 1234567.89
+           FORMAT IS "currency BRL" LOCALE IS WS-LOCALE.
+       01 WS-RATIO  PIC 9V999 VALUE 0.425.
+
+           DISPLAY WS-ASSETS                          *> R$ 1.234.567,89
+           MOVE "en-US" TO WS-LOCALE
+           DISPLAY WS-ASSETS                          *> R$1,234,567.89
+           DISPLAY F"Margin: {WS-RATIO:percent}"      *> Margin: 42.5%
+           DISPLAY WS-RATIO::Format("percent", "pt-BR")  *> 42,5%
+```
+
+**Formats:** `number` (the item's own decimals), `currency` (the currency's decimals),
+`compact` (`1,2 mi`), `currency-short` (`R$ 1,2 mi`), `percent` (the value is a ratio).
+**Locales:** `pt-BR`, `en-US`, `fr-FR`. Names and tags ignore case.
+
+**Notes**
+- `{expr:format}`: the format follows a single `:`; `::` is the member operator.
+  `{{` and `}}` print a brace.
+- The currency is part of the format text: `"currency BRL"`. A project may name a default.
+- Rounding is half away from zero; a negative value shows a leading minus.
+
+**Caveats**
+- Only a numeric item can be formatted; `MOVE` copies the stored digits, not the text.
+- Not available in Web or Mobile projects yet: the build refuses a `FORMAT` clause.
+- Until the project's default locale is wired in, an item with no `LOCALE` uses `en-US`.
+
+📷 Screenshot needed: a form label showing a formatted currency in two locales.
