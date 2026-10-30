@@ -685,6 +685,10 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     and offset paging under concurrent writers (`WASM-PARITY.md` #20, WASM-023); and a `DataSource` **quick-bind** on a web
     form still reads the local `.cidx` under `rcrun run-form` (no binding to seed remote, no program generated) — the Build
     and Check should refuse a quick-bind on a web form (T13's home), a follow-up.
+  - **Decided (operator, 2026-10-30): the `RestApi`/`AgentAi` half is deferred to a spec of its own** that defines both kinds on
+    desktop and web together (the desktop runs neither today). T15 closes with the IndexedFile and SQL half; until that spec lands,
+    a web or mobile Check/Build refuses a DataGrid bound to `RestApi` or `AgentAi`, naming the form and the grid (to be added if it
+    is not already refused), and the desktop is unchanged. The question as it was asked follows.
   - **The `RestApi`/`AgentAi` half — operator decision needed (the run of 2026-10-24, third, stopped here for it).** Q8 decided that `RestApi`
     and `AgentAi` bindings run *through the backend*, and this task's Verify asks that both "fill through the backend"; T9 left
     their backend programs to T15. But there is no behaviour to carry there: the desktop has no refresh or save path for either
