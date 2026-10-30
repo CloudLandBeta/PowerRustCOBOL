@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.103 — 2026-10-30
+
+**Fix: a full Build reads a shared library only when its modified date or size moved.** The repair of 2.0.102 hashed every shipped library on every full build. It now remembers, in `shared-target/warm/verified.tsv`, the size and date each file had when it last matched the manifest: a file with the same size and date is trusted unread, and one whose date or size changed is hashed and, if it differs from the manifest, downloaded again. A file rewritten to the same size within the same second is not seen. Measured through the IDE's path (version named, full build): PowerDemo3 6.4 s with 1 crate compiled (53 s and 16 before 2.0.102), PowerChat 5.2 s with 1 on its second build.
+
 ## 2.0.102 — 2026-10-30
 
 **Fix: a full Build repairs the shared libraries instead of recompiling the platform.** The IDE's Build button makes a project's first build under a new version a *full* one, and a full build purged the 16 platform crates from the shared cache, so every project paid for them again (PowerDemo3: 53 s) and 2.0.101's saving never showed. The IDE now names its version to the compiler (`warmup::set_current_version`); a full build then checks every file the release shipped in `sdk/libs/<os>/<arch>/target` against the SHA-256 recorded in the shipped `manifest.txt` and, only for files that are missing or changed, downloads `PowerRustCOBOL-<version>-<os>-<arch>-libs.tar.gz` from this repository's GitHub release (system `curl`, https only, and `tar`), extracts just those files and checks them again. The platform crates are never purged: a changed one is caught by its marker, as before. `rcrun build --full` (no version named) purges as it always did. The release workflow now also attaches the libraries archive. *(The download and the workflow step need a published release to be exercised; the manifest comparison is tested.)*

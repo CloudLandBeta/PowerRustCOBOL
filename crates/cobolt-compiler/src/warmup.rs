@@ -24,6 +24,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::SystemTime;
 
 use crate::runtime_features::RuntimeFeatures;
 use crate::{build_cache, generate_cargo_toml, resolve_build_root};
@@ -35,6 +36,8 @@ const RUSTC_STAMP: &str = "rustc.txt";
 /// One `<sha256>  <path under target/>` line per shipped library file. It travels in
 /// the installer, so it is what a downloaded replacement is checked against.
 const MANIFEST: &str = "manifest.txt";
+/// In the cache: the size and date each shipped file had when it last matched.
+const VERIFIED: &str = "verified.tsv";
 /// Where a release's attachments live.
 const RELEASES_URL: &str = "https://github.com/CloudLandBeta/PowerRustCOBOL/releases/download";
 
@@ -296,13 +299,59 @@ fn parse_manifest(text: &str) -> Vec<(&str, &str)> {
     text.lines().filter_map(|l| l.split_once("  ")).filter(|(h, _)| h.len() == 64).collect()
 }
 
-/// The manifest's files that `cache` lacks or holds changed.
-fn damaged(cache: &Path, entries: &[(&str, &str)]) -> Vec<String> {
-    entries
-        .iter()
-        .filter(|(hash, rel)| sha256_file(&cache.join(rel)).map_or(true, |have| have != *hash))
-        .map(|(_, rel)| (*rel).to_owned())
+/// The size and modification time (whole seconds) a file had when it last matched the manifest.
+type Seen = std::collections::HashMap<String, (u64, u64)>;
+
+fn stamp(path: &Path) -> Option<(u64, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let secs = meta.modified().ok()?.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_secs();
+    Some((meta.len(), secs))
+}
+
+fn read_seen(cache: &Path) -> Seen {
+    std::fs::read_to_string(cache.join(WARM_DIR).join(VERIFIED))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split('\t');
+            Some((f.next()?.to_owned(), (f.next()?.parse().ok()?, f.next()?.parse().ok()?)))
+        })
         .collect()
+}
+
+fn write_seen(cache: &Path, seen: &Seen) {
+    let mut rows: Vec<_> = seen.iter().collect();
+    rows.sort();
+    let text: String = rows.iter().map(|(p, (n, t))| format!("{p}\t{n}\t{t}\n")).collect();
+    let _ = std::fs::create_dir_all(cache.join(WARM_DIR));
+    let _ = std::fs::write(cache.join(WARM_DIR).join(VERIFIED), text);
+}
+
+/// The manifest's files that `cache` lacks or holds changed. The modified date decides
+/// which files are read at all: one whose size and date are those of the last time it
+/// matched is trusted, and only a file whose date or size moved is hashed against the
+/// manifest (a file rewritten with the same size and the same second is not seen — the
+/// price of not reading gigabytes on every full build). Matches are remembered in `seen`.
+fn damaged(cache: &Path, entries: &[(&str, &str)], seen: &mut Seen) -> Vec<String> {
+    let mut bad = Vec::new();
+    for (hash, rel) in entries {
+        let path = cache.join(rel);
+        let Some(now) = stamp(&path) else {
+            seen.remove(*rel);
+            bad.push((*rel).to_owned());
+            continue;
+        };
+        if seen.get(*rel) == Some(&now) {
+            continue;
+        }
+        if sha256_file(&path).is_ok_and(|have| have == *hash) {
+            seen.insert((*rel).to_owned(), now);
+        } else {
+            seen.remove(*rel);
+            bad.push((*rel).to_owned());
+        }
+    }
+    bad
 }
 
 /// What a full build does for the shared libraries: it checks every file the release
@@ -317,7 +366,9 @@ pub fn repair_libs(sdk_root: &Path, version: &str, log: &mut dyn FnMut(&str)) ->
     let entries = parse_manifest(&text);
     let (build_root, _) = resolve_build_root(None);
     let cache = build_cache::open(&build_root)?;
-    let bad = damaged(&cache, &entries);
+    let mut seen = read_seen(&cache);
+    let bad = damaged(&cache, &entries, &mut seen);
+    write_seen(&cache, &seen);
     if bad.is_empty() {
         log(&format!("   all {} shared libraries are intact", entries.len()));
         return Ok(0);
@@ -330,7 +381,8 @@ pub fn repair_libs(sdk_root: &Path, version: &str, log: &mut dyn FnMut(&str)) ->
         run("curl", &["--fail", "--location", "--silent", "--show-error", "--proto", "=https", "--tlsv1.2", "-o", &archive.to_string_lossy(), &url])?;
         std::fs::write(&list, bad.join("\n")).map_err(|e| e.to_string())?;
         run("tar", &["-xzf", &archive.to_string_lossy(), "-C", &cache.to_string_lossy(), "-T", &list.to_string_lossy()])?;
-        let still = damaged(&cache, &entries);
+        let still = damaged(&cache, &entries, &mut seen);
+        write_seen(&cache, &seen);
         if still.is_empty() { Ok(bad.len()) } else { Err(format!("{} files still differ from the release after the download", still.len())) }
     })();
     let _ = std::fs::remove_file(&archive);
@@ -417,10 +469,26 @@ mod tests {
         let text = manifest_text(&base).unwrap();
         let entries = parse_manifest(&text);
         assert_eq!(entries.len(), 3);
-        assert!(damaged(&base, &entries).is_empty());
+        let mut seen = Seen::new();
+        assert!(damaged(&base, &entries, &mut seen).is_empty());
+        assert_eq!(seen.len(), 3, "every match is remembered with its size and date");
+
+        // A file whose date is the remembered one is trusted without being read: its
+        // content is changed here to the same size, then the date put back.
+        let b = base.join("release/deps/b.rlib");
+        let when = std::fs::metadata(&b).unwrap().modified().unwrap();
+        std::fs::write(&b, "TWO").unwrap();
+        std::fs::File::options().write(true).open(&b).unwrap().set_modified(when).unwrap();
+        assert!(damaged(&base, &entries, &mut seen).is_empty(), "same size and date: not read");
+        // The same change with a new date is read, and found.
+        std::fs::File::options().write(true).open(&b).unwrap().set_modified(when + std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(damaged(&base, &entries, &mut seen), ["release/deps/b.rlib"]);
+        std::fs::write(&b, "two").unwrap();
+        assert!(damaged(&base, &entries, &mut seen).is_empty(), "restored content is accepted again");
+
         std::fs::write(base.join("release/deps/a.rlib"), "ONE").unwrap();
         std::fs::remove_file(base.join("c.txt")).unwrap();
-        let mut bad = damaged(&base, &entries);
+        let mut bad = damaged(&base, &entries, &mut Seen::new());
         bad.sort();
         assert_eq!(bad, ["c.txt", "release/deps/a.rlib"]);
         let _ = std::fs::remove_dir_all(&base);
