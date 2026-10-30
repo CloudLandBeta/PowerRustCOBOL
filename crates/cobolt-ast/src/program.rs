@@ -461,6 +461,13 @@ pub struct Program {
     /// may call too (COBOL-85 10.2.6).
     #[serde(default)]
     pub is_common: bool,
+    /// `FUNCTION-ID. name.` (spec 109 §5.1, COBOL-2002): this unit is a user-defined
+    /// function, called in an expression as `FUNCTION name(args)`; its result is
+    /// the RETURNING item. Its name is `identification.program_id`.
+    ///
+    /// 🔴 New fields belong at the END of this struct.
+    #[serde(default)]
+    pub is_function: bool,
 }
 
 /// How an `ALPHABET` clause defines a collating sequence.

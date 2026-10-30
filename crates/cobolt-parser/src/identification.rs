@@ -32,7 +32,8 @@ pub(crate) fn parse_identification_division(p: &mut Parser) -> IdentificationDiv
     }
 
     // PROGRAM-ID. name.
-    let program_id = if p.at(&Token::ProgramId) {
+    let program_id = if p.at(&Token::ProgramId) || p.at(&Token::FunctionId) {
+        p.unit_is_function = p.at(&Token::FunctionId);
         p.advance();
         p.expect_period();
         let name = p.expect_identifier("PROGRAM-ID");

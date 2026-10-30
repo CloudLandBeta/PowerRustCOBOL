@@ -79,3 +79,34 @@ as the number it is.
 - Until the project's default locale is wired in, an item with no `LOCALE` uses `en-US`.
 
 📷 Screenshot needed: a form label showing a formatted currency in two locales.
+
+## S1 — User-defined functions (2.0.107)
+
+**What it does.** A `FUNCTION-ID` unit is a function you call inside an expression.
+
+```cobol
+       IDENTIFICATION DIVISION.
+       FUNCTION-ID. DOUBLE-AMOUNT.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 ARG-AMOUNT PIC S9(5)V99.
+       01 RESULT-AMOUNT PIC S9(5)V99.
+       PROCEDURE DIVISION USING BY VALUE ARG-AMOUNT RETURNING RESULT-AMOUNT.
+           COMPUTE RESULT-AMOUNT = ARG-AMOUNT * 2
+           GOBACK.
+       END FUNCTION DOUBLE-AMOUNT.
+
+           COMPUTE WS-TOTAL = FUNCTION DOUBLE-AMOUNT(WS-PRICE) + FUNCTION DOUBLE-AMOUNT(5)
+```
+
+**Notes**
+- Arguments are copies; the function never changes the caller's items.
+- A function may call other functions and itself. Each call has its own arguments and result.
+- Put functions you share in Common Code (`src/`): every form sees them.
+- A function cannot have an intrinsic function's name (`MAX`, `SUM`, …): the build says so.
+
+**Caveats**
+- The number of arguments is checked when you build.
+- Not available in Web or Mobile projects yet: the build refuses `FUNCTION` calls.
+
+📷 Screenshot needed: the Check panel on a call with the wrong number of arguments.

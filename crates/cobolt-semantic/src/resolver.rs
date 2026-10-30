@@ -120,6 +120,7 @@ pub fn resolve(
     tolerate_undeclared: bool,
     known_objects: Option<&std::collections::HashSet<String>>,
     known_layers: Option<&std::collections::HashSet<String>>,
+    known_functions: Option<&std::collections::HashSet<String>>,
 ) {
     let classes: Vec<String> = program.repository.iter().map(|(c, _)| c.trim().to_ascii_uppercase()).collect();
     let mut ctx = ResolveCtx {
@@ -131,7 +132,39 @@ pub fn resolve(
         known_layers,
         classes,
         lambda_params: Vec::new(),
+        own_functions: Default::default(),
+        known_functions,
     };
+    // Spec 109 §5.1: the FUNCTION-ID units of this source (arity by name), and the
+    // refusal of one that has an intrinsic function's name (Q5) — never shadowed
+    // silently, so every FUNCTION call means one thing.
+    fn collect_functions(
+        p: &Program,
+        out: &mut std::collections::HashMap<String, usize>,
+        diags: &mut Vec<(String, cobolt_lexer::Span)>,
+    ) {
+        if p.is_function {
+            let name = p.identification.program_id.to_ascii_uppercase();
+            if cobolt_ast::intrinsics::is_intrinsic(&name) {
+                diags.push((
+                    format!(
+                        "FUNCTION-ID {name} has the name of the intrinsic function {name}: a user function \
+                         never shadows an intrinsic — choose another name"
+                    ),
+                    p.identification.span,
+                ));
+            }
+            out.insert(name, p.procedure.using.len());
+        }
+        for n in &p.nested_programs {
+            collect_functions(n, out, diags);
+        }
+    }
+    let mut clashes = Vec::new();
+    collect_functions(program, &mut ctx.own_functions, &mut clashes);
+    for (msg, span) in clashes {
+        ctx.error(msg, span);
+    }
     // `FILE STATUS IS data-name` names a data item of the program (COBOL-85,
     // the FILE STATUS clause's syntax rules). Nothing checked it, and the
     // interpreter creates an undeclared item on first use: a program whose
@@ -229,6 +262,11 @@ struct ResolveCtx<'a> {
     /// The element names of the collection-method lambdas being resolved
     /// (`Map(ITEM => …)`): in scope inside the lambda body only, never data items.
     lambda_params: Vec<String>,
+    /// The `FUNCTION-ID` units this source holds, UPPERCASE name → parameter count
+    /// (spec 109 §5.1).
+    own_functions: std::collections::HashMap<String, usize>,
+    /// The project's Common Code functions ([`crate::AnalyzeOptions::known_functions`]).
+    known_functions: Option<&'a std::collections::HashSet<String>>,
     /// 049 R17 — the project's form formats (UPPERCASE id → format), when a
     /// project supplied them. `None` disables the load-path check.
     form_formats: Option<&'a std::collections::HashMap<String, crate::FormLoadFormat>>,
@@ -1098,7 +1136,22 @@ impl<'a> ResolveCtx<'a> {
                 // point — a misspelling is far likelier than a genuinely
                 // unknown function, so the message suggests the nearest real
                 // name when there is one close enough to be worth suggesting.
-                if !cobolt_ast::intrinsics::is_intrinsic(name) {
+                let upper = name.to_ascii_uppercase();
+                if let Some(&params) = self.own_functions.get(&upper) {
+                    // A user function: its arity is checked here, at build time (R2).
+                    if args.len() != params {
+                        self.error(
+                            format!(
+                                "FUNCTION {name} takes {params} argument(s) and is given {}",
+                                args.len()
+                            ),
+                            *span,
+                        );
+                    }
+                } else if self.known_functions.is_some_and(|k| k.contains(&upper)) {
+                    // A Common Code function of the project: its arity is the
+                    // callee's own business at run time.
+                } else if !cobolt_ast::intrinsics::is_intrinsic(name) {
                     let msg = match cobolt_ast::intrinsics::closest_intrinsic(name) {
                         Some(near) => format!(
                             "'{name}' is not an intrinsic function RustCOBOL implements — did you mean FUNCTION {near}?"

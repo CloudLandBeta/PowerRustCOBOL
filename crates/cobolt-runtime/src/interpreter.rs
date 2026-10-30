@@ -33,6 +33,7 @@ mod aws;
 mod collections;
 mod exec_sql;
 mod format;
+mod functions;
 mod grid_dropdown;
 mod grid_edit;
 mod grid_unit;
@@ -471,6 +472,8 @@ struct NestedProgram {
     /// (COBOL-85 6.8), so nothing is kept between calls — as if each CALL were
     /// preceded by a `CANCEL`.
     is_initial: bool,
+    /// `FUNCTION-ID` unit (spec 109): called as `FUNCTION name(args)`, answers its RETURNING item.
+    is_function: bool,
     /// This program's own `FILE STATUS IS` bindings, file name → status item,
     /// both uppercase.
     ///
@@ -740,6 +743,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             using,
             returning,
             is_initial: prog.is_initial,
+            is_function: prog.is_function,
             file_status,
         },
     );
@@ -1617,6 +1621,9 @@ pub struct Interpreter {
     section_names: std::collections::HashSet<String>,
     /// COBOL-85 nested programs: program-id (uppercase) → compiled program.
     nested_registry: HashMap<String, NestedProgram>,
+    /// How deep the user-function calls of this run are (spec 109): names the hidden
+    /// argument and result slots, so a recursive call has its own.
+    function_depth: usize,
     /// Persistent local WORKING-STORAGE per nested program (program-id uppercase →
     /// last-seen local values). Procedures are **static by default** (spec 009
     /// R10): a program's locals are initialised once (from its DATA DIVISION) on
@@ -2205,6 +2212,7 @@ impl Interpreter {
             switch_names,
             section_names,
             nested_registry,
+            function_depth: 0,
             program_locals: HashMap::new(),
             perform_depth: 0,
             db: DbRegistry::new(),
@@ -18283,6 +18291,11 @@ impl Interpreter {
         args: &[Expr],
         span: Span,
     ) -> Result<CobolValue, RuntimeError> {
+        // Spec 109 §5.1: a user-defined function first. A name that is also an
+        // intrinsic's is refused at analysis (Q5), so this never shadows one.
+        if self.nested_registry.get(&name.to_ascii_uppercase()).is_some_and(|p| p.is_function) {
+            return self.call_user_function(name, args, span);
+        }
         match name.to_ascii_uppercase().as_str() {
             "LENGTH" => {
                 // COBOL-85: LENGTH is the number of character positions **in the

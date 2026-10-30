@@ -179,6 +179,11 @@ pub struct AnalyzeOptions {
     /// time, where a misspelt property would otherwise be refused at run time.
     /// `None` (the default) = no layers known; no layer property is checked.
     pub known_layers: Option<std::collections::HashSet<String>>,
+    /// The user-defined functions (`FUNCTION-ID`, spec 109 §5.1) of the project's
+    /// Common Code besides the ones the unit holds, in UPPERCASE: a
+    /// `FUNCTION name(…)` that is neither an intrinsic nor in this set or the
+    /// unit is an error. `None` = no project context: only the unit's own count.
+    pub known_functions: Option<std::collections::HashSet<String>>,
     /// The program-names a literal `CALL "NAME"` may reach besides what the
     /// unit itself holds — its programs, paragraphs and sections: the
     /// project's Common Code, in UPPERCASE. `Some(set)` = a closed world (the
@@ -342,6 +347,7 @@ fn analyze_contained(
         opts.tolerate_undeclared,
         opts.known_objects.as_ref(),
         opts.known_layers.as_ref(),
+        opts.known_functions.as_ref(),
     );
 
     // Pass 3: type checking.

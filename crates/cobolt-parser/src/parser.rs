@@ -96,6 +96,8 @@ pub struct Parser {
     /// `IS INITIAL` / `IS COMMON` of the PROGRAM-ID just parsed.
     pub(crate) program_initial: bool,
     pub(crate) program_common: bool,
+    /// The unit just identified is `FUNCTION-ID` (spec 109); read by `parse_single_program`.
+    pub(crate) unit_is_function: bool,
     /// Spec 087 R21: the `WHENEVER` declarations in force, in source order.
     pub(crate) sql_whenever: cobolt_ast::sql::SqlWhenever,
     /// Spec 087: the PROGRAM-ID of each program being parsed, innermost last.
@@ -139,6 +141,7 @@ impl Parser {
             sql_cursors: Vec::new(),
             program_initial: false,
             program_common: false,
+            unit_is_function: false,
             sql_whenever: Default::default(),
             sql_owner: Vec::new(),
             sql_in_file_section: false,
@@ -556,6 +559,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
     let identification = parse_identification_division(p);
     // Read now: a nested program's PROGRAM-ID overwrites them.
     let (is_initial, is_common) = (p.program_initial, p.program_common);
+    let is_function = std::mem::take(&mut p.unit_is_function);
     // Spec 087: SQL statements and cursors name the program they are written
     // in (R28).
     p.sql_owner.push(identification.program_id.to_ascii_uppercase());
@@ -683,6 +687,15 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
             continue;
         }
 
+        // END FUNCTION name. (spec 109)
+        if p.at(&Token::End) && matches!(p.peek_at(1), Token::Function) {
+            p.advance(); // END
+            p.advance(); // FUNCTION
+            end_program_name = p.eat_identifier().map(|(n, _)| n);
+            p.expect_period();
+            break;
+        }
+
         // END PROGRAM name.
         if p.at(&Token::End) && matches!(p.peek_at(1), Token::Program) {
             p.advance(); // END
@@ -715,6 +728,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         sql_cursors,
         is_initial,
         is_common,
+        is_function,
     };
     p.sql_owner.pop();
     program

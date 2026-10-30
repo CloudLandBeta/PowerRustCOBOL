@@ -33,12 +33,24 @@ pub(crate) fn parse_procedure_division(p: &mut Parser) -> ProcedureDivision {
     // USING data-item …
     let using = if p.eat(&Token::Using) {
         let mut names = Vec::new();
-        // Accept BY REFERENCE / BY VALUE as optional prefixes
-        p.eat(&Token::By);
-        p.eat(&Token::Reference);
-        while p.at_identifier() {
-            let (name, _) = p.eat_identifier().unwrap();
-            names.push(name);
+        // `BY REFERENCE | BY CONTENT | BY VALUE` may head each parameter or a run of
+        // them (COBOL-2002; a function's parameters are `BY VALUE`). The mode is not
+        // kept: a caller's argument decides how it travels.
+        loop {
+            if p.eat(&Token::By) {
+                if !p.eat(&Token::Reference) && !p.eat(&Token::Value) {
+                    if matches!(p.peek(), Token::Content_) {
+                        p.advance();
+                    }
+                }
+                continue;
+            }
+            if p.at_identifier() {
+                let (name, _) = p.eat_identifier().unwrap();
+                names.push(name);
+                continue;
+            }
+            break;
         }
         names
     } else {

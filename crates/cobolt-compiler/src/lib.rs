@@ -1612,6 +1612,35 @@ fn program_names(common: &[cobolt_ast::program::Program]) -> std::collections::H
         .collect()
 }
 
+/// The user-defined functions (`FUNCTION-ID`, spec 109 §5.1) of `common`, in
+/// UPPERCASE: what a `FUNCTION name(…)` may reach besides the unit's own
+/// (`cobolt_semantic::AnalyzeOptions::known_functions`).
+fn function_names(common: &[cobolt_ast::program::Program]) -> std::collections::HashSet<String> {
+    fn walk(p: &cobolt_ast::program::Program, out: &mut std::collections::HashSet<String>) {
+        if p.is_function {
+            out.insert(p.identification.program_id.trim().to_ascii_uppercase());
+        }
+        for n in &p.nested_programs {
+            walk(n, out);
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    for p in common {
+        walk(p, &mut out);
+    }
+    out
+}
+
+/// The user-defined functions of the Common Code of the project holding `path`
+/// (see [`function_names`]); `None` outside a project.
+pub fn common_code_function_names(path: &Path) -> Option<std::collections::HashSet<String>> {
+    let manifest = find_project_manifest(path)?;
+    let text = std::fs::read_to_string(&manifest).ok()?;
+    let proj = toml::from_str::<CoboltProject>(&text).ok()?;
+    let (common, _) = common_code_programs(&proj, manifest.parent()?);
+    Some(function_names(&common))
+}
+
 /// The names of the Common Code programs a run or a build links for the
 /// project holding `path` (any file inside it), for the semantic analyser's
 /// CALL-target check. Only the programs [`link_common_code`] would actually
@@ -2303,6 +2332,8 @@ fn build_core(
             // A literal CALL must name a program, a paragraph or a Common
             // Code procedure of this project (2026-10-08).
             known_programs: has_project.then(|| program_names(&common)),
+            // Spec 109 §5.1: the Common Code functions a FUNCTION call may reach.
+            known_functions: has_project.then(|| function_names(&common)),
             // The backend's exported programs, when the project has one
             // (WASM-005 R4): a WEBSOCKET call is checked against them.
             remote_interface: if has_project {

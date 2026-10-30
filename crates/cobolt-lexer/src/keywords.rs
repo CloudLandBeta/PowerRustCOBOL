@@ -53,6 +53,8 @@ pub fn lookup(word: &str) -> Option<Token> {
 
         // ── Program structure ─────────────────────────────────────────────
         "PROGRAM-ID" => Token::ProgramId,
+        // COBOL-2002 user-defined function (spec 109 §5.1).
+        "FUNCTION-ID" => Token::FunctionId,
         "AUTHOR" => Token::Author,
         "DATE-WRITTEN" => Token::DateWritten,
         "DATE-COMPILED" => Token::DateCompiled,

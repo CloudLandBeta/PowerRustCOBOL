@@ -137,6 +137,8 @@ pub fn analyze_project(
             // No path here either: a literal CALL is checked by the form
             // check, Run Form and Build, which know the project.
             known_programs: None,
+            // …nor a Common Code function (spec 109): no project context here.
+            known_functions: None,
             // …nor the backend's interface description (WASM-005 R4): the
             // arguments of a WEBSOCKET call are still checked, the name and the
             // fit against the contract wait for a path to find the project by.

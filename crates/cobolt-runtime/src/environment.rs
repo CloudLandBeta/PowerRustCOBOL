@@ -1197,7 +1197,7 @@ impl CobolEnvironment {
     }
 
     pub fn raw_take(&mut self, key: &str) -> Option<CobolValue> {
-        self.store.remove(key)
+        self.store.shift_remove(key)
     }
 
     /// Canonical storage key for a leaf with the given ancestor path

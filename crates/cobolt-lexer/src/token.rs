@@ -385,6 +385,7 @@ pub enum Token {
     // Program structure
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     ProgramId, // PROGRAM-ID
+    FunctionId, // FUNCTION-ID (spec 109)
     Author,
     DateWritten,  // DATE-WRITTEN
     DateCompiled, // DATE-COMPILED
