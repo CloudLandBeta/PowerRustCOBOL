@@ -822,6 +822,7 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 ## Finalize
 
 - [ ] **T18b — D21: a call in flight while the frontend retries** (R18; AC11) — added 2026-10-24 by the operator's ruling.
+  - **Now waits for WASM-003 T15a only** (operator, 2026-10-30: WASM-003 T15 split; the retry policy is T15a, the encryption T15b).
   - **Blocked (run of 2026-10-30): waits for WASM-003 T15.** R18 says the call waits *through the retries of WASM-003 R25* (three
     attempts of 10, 20 and 30 s, then give up); AC11 counts "the third attempt". That policy is WASM-003's T15 (unchecked, with
     the asymmetric channel and a Finalize of its own). Today `cobolt-server/src/client.rs` reconnects with back-off inside one

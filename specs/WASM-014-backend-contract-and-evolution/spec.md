@@ -89,6 +89,7 @@ as something with a version, a compatibility check at connection time, a stable 
 **The operator's ruling of 2026-10-24 (WASM-INDEX D21)**
 
 - **R18 (event):** When a connection opens, the handshake of R2 shall also carry the **key exchange** of WASM-003 R24: the public key of the key pair the backend generated when the application started, and what the frontend needs to encrypt to it. The key exchange shall be part of the contract's own version (R16), so that a change to it is a contract change; a connection that cannot complete the exchange shall be refused with the class *transport*.
+  - **Decided (operator, 2026-10-30):** both sides generate their key pair at start, so the handshake carries **two** X25519 public keys — the backend's in its hello, the frontend's in its reply — and both derive the session key (HKDF-SHA256, ChaCha20-Poly1305); see WASM-003 R24 and WASM-013 R17.
 
 ## 5. Acceptance criteria
 

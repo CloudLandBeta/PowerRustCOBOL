@@ -466,7 +466,10 @@ surrounding wide style and nothing was reformatted. Credential scan of the diff 
 planted key is built from fragments). System KB: *Calling the backend* names Run → Start/Stop Backend and the live log;
 `chunked.data` regenerated (3554 records, 12 738 560 → 12 742 656 bytes). `README.md` and `docs/` untouched.
 
-- [ ] **T15 — D21: the asymmetric channel and the retry policy** (R24–R26; AC11–AC12) — the key pair generated at application start and exchanged in the handshake (with WASM-014 T19b), the ciphertext capture of AC11, the three timed attempts and the exception of AC12; a Finalize of its own closes it (version, CHANGELOG, the tests of every touched crate). Added 2026-10-24 by the operator's ruling, after T14 had finalized the spec.
+- **T15 — D21: the asymmetric channel and the retry policy** (R24–R26; AC11–AC12) — the key pair generated at application start and exchanged in the handshake (with WASM-014 T19b), the ciphertext capture of AC11, the three timed attempts and the exception of AC12; a Finalize of its own closes it (version, CHANGELOG, the tests of every touched crate). Added 2026-10-24 by the operator's ruling, after T14 had finalized the spec.
+  - **Split (operator, 2026-10-30)** into T15a and T15b: the retry policy does not depend on the encryption, and WASM-005 T18b waits only for it.
+- [ ] **T15a — D21: the retry policy and the blocked state** (R25–R26; AC12) — the frontend's three attempts of 10, 20 and 30 s replacing today's back-off windows (`cobolt-server/src/client.rs` `reconnect_deadline`, `cobolt-web-player/src/net.rs` `retry_at`), the exception after the third (*transport* on every waiting call, the player's event of WASM-016 R21), the blocked state of R26 raised and cleared for WASM-016 T29b's modal to show; the AC12 timing test. Files, steps and verification are written by the `/tasks` pass that expands it. Unblocks WASM-005 T18b. A Finalize of its own closes it.
+- [ ] **T15b — D21: the asymmetric channel** (R24; AC11) — Decided 2026-10-30: **both sides** generate a fresh key pair at start — the backend when its process starts, each frontend when the application opens — and the handshake agrees a per-connection session key from the two (ephemeral–ephemeral key agreement), so a restart of either side yields new keys and no private key is ever stored. The construction is **X25519 key agreement, HKDF-SHA256 and ChaCha20-Poly1305** (RustCrypto crates `x25519-dalek`, `hkdf`, `sha2`, `chacha20poly1305`: pure Rust, build for WebAssembly). The plan records it in WASM-013 R17. Waits for WASM-013 T24b (R17 in the plan) and WASM-014 T19b (the handshake members); then the AC11 ciphertext capture and the new-keys-per-start test. A Finalize of its own closes it.
 
 ## Coverage (acceptance criteria → tasks)
 
@@ -482,8 +485,8 @@ planted key is built from fragments). System KB: *Calling the backend* names Run
 | AC8 no token/password in the log | D-b, T5 (log gains only the mode), T7 |
 | AC9 IDE start/stop, binary identical | D-e, T10 |
 | AC10 frontend secret stops build, backend's does not | T12 |
-| AC11 ciphertext on the wire, a new key pair per start | T15 |
-| AC12 three timed attempts, then the exception | T15 |
+| AC11 ciphertext on the wire, a new key pair per start | T15b |
+| AC12 three timed attempts, then the exception | T15a |
 
 ## Open items carried (not decided by this list)
 
