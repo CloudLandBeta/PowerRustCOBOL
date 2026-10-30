@@ -1265,6 +1265,19 @@ jobs:
           df -h /
 
       # Artifact zips drop the Unix executable bit and flatten symlinks; a
+      # The same libraries as a release attachment of their own, which is what a
+      # full build in the IDE downloads to repair a library that is missing or
+      # changed (`warmup::repair_libs`). Paths inside are relative to `target/`,
+      # exactly as `libs/<os>/<arch>/manifest.txt` lists them.
+      - name: Archive the platform libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(find "dist/$PKG" -type d -path '*/libs/*/*/target' | head -n 1)
+          test -n "$d" || { echo "::error::no compiled platform libraries in the package"; exit 1; }
+          tar -C "$d" -czf "dist/${PKG}-libs.tar.gz" $(ls "$d")
+          ls -lh "dist/${PKG}-libs.tar.gz"
+
       # tarball keeps both, so the app bundle survives the download intact.
       - name: Archive
         if: runner.os != 'Windows'

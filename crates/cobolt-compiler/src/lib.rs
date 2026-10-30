@@ -2841,7 +2841,21 @@ fn build_core(
     // have changed them.
     let mut forced_full: Vec<String> = Vec::new();
     if let Some(cache) = shared.clone() {
-        if opts.full || !platform_check.stale.is_empty() {
+        // The IDE names its version, and then a full build REPAIRS the shared libraries
+        // the release shipped — what is missing or changed comes back from the release
+        // on GitHub — instead of purging and recompiling the platform for every
+        // project's first build. The platform crates come from the SDK's own sources:
+        // a changed one is caught by its marker (`check_platform`), never by a purge.
+        // Without a named version (`rcrun build --full`) a full build purges as before.
+        let repair_mode = warmup::current_version();
+        if let (true, Some(version)) = (opts.full, repair_mode) {
+            log("🔧 Full build: checking the shared libraries");
+            if let Err(why) = warmup::repair_libs(&workspace_root, version, &mut |l| log(l)) {
+                log(&format!("⚠️  Could not repair the shared libraries from GitHub ({why}) — compiling what is missing here"));
+            }
+        }
+        let full_clean = opts.full && repair_mode.is_none();
+        if full_clean || !platform_check.stale.is_empty() {
             let mut graph = build_cache::sdk_crates_in_graph(&build_dir, &cache);
             if graph.is_err() && seeded {
                 log("🔓 The SDK's Cargo.lock cannot be used on this machine — resolving this program's crate versions as before");
@@ -2856,7 +2870,7 @@ fn build_core(
                     .copied()
                     .filter(|c| graph.contains(c))
                     .collect();
-                if !opts.full && stale_here.is_empty() {
+                if !full_clean && stale_here.is_empty() {
                     // Stale elsewhere (a crate this program does not use): not
                     // this build's business; a program that uses it will find it.
                     return Ok(());
@@ -3096,6 +3110,11 @@ fn build_core(
             code: status.code().unwrap_or(-1),
             stderr,
         });
+    }
+
+    // The platform in the cache is now this version's: later full builds keep it.
+    if let Some(cache) = &shared {
+        warmup::mark_current_warm(cache);
     }
 
     // ── 11. Copy binary to bin/ ───────────────────────────────────────────────

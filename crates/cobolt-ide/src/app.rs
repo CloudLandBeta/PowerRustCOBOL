@@ -2134,6 +2134,7 @@ impl CoboltApp {
         // The first start of a new version compiles the platform libraries once, in the
         // background, so no program's build has to (a start of the same version does nothing).
         // Skipped when no SDK is installed: there is nothing to compile then.
+        cobolt_compiler::warmup::set_current_version(crate::version::VERSION);
         if !cobolt_compiler::warmup::is_warm(crate::version::VERSION) {
             if let Some(sdk) = cobolt_compiler::resolve_workspace_root(None) {
                 std::thread::spawn(move || {

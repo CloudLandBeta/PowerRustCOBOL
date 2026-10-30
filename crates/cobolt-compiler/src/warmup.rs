@@ -32,6 +32,33 @@ use crate::{build_cache, generate_cargo_toml, resolve_build_root};
 const WARM_DIR: &str = "warm";
 /// Names the compiler a shipped `target/` was made by.
 const RUSTC_STAMP: &str = "rustc.txt";
+/// One `<sha256>  <path under target/>` line per shipped library file. It travels in
+/// the installer, so it is what a downloaded replacement is checked against.
+const MANIFEST: &str = "manifest.txt";
+/// Where a release's attachments live.
+const RELEASES_URL: &str = "https://github.com/CloudLandBeta/PowerRustCOBOL/releases/download";
+
+static CURRENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Name the running PowerRustCOBOL version (the IDE does, once, at start). With it
+/// set, a full build REPAIRS the shared libraries ([`repair_libs`]) instead of
+/// purging them; without it (`rcrun build --full`) it purges as it always did.
+pub fn set_current_version(version: &str) {
+    let _ = CURRENT.set(version.to_owned());
+}
+
+/// The version [`set_current_version`] named, if the host (the IDE) did.
+pub(crate) fn current_version() -> Option<&'static str> {
+    CURRENT.get().map(String::as_str)
+}
+
+/// A build that got this far compiled whatever the platform lacked.
+pub(crate) fn mark_current_warm(cache: &Path) {
+    if let Some(v) = CURRENT.get() {
+        let _ = std::fs::create_dir_all(cache.join(WARM_DIR));
+        let _ = std::fs::write(cache.join(WARM_DIR).join(v), v);
+    }
+}
 
 /// The two stand-in programs: what a form application links without a
 /// database, and with one. Every other program differs from these only in
@@ -223,7 +250,101 @@ pub fn produce_libs(sdk_root: &Path, log: &mut dyn FnMut(&str)) -> Result<u64, S
         }
     }
     std::fs::write(out.join(RUSTC_STAMP), format!("{rustc}\n")).map_err(|e| e.to_string())?;
+    let manifest = manifest_text(&target).map_err(|e| e.to_string())?;
+    std::fs::write(out.join(MANIFEST), manifest).map_err(|e| e.to_string())?;
     Ok(dir_bytes(&target))
+}
+
+/// `PowerRustCOBOL-<version>-<os>-<arch>-libs.tar.gz`: the release attachment that holds
+/// this machine's `libs/<os>/<arch>/target`.
+pub fn libs_asset_name(version: &str) -> String {
+    format!("PowerRustCOBOL-{version}-{}-{}-libs.tar.gz", os_name(), std::env::consts::ARCH)
+}
+
+fn sha256_file(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut std::fs::File::open(path)?, &mut hasher)?;
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn files_under(dir: &Path, rel: &str, out: &mut Vec<String>) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let relative = if rel.is_empty() { name } else { format!("{rel}/{name}") };
+        match entry.file_type() {
+            Ok(k) if k.is_dir() => files_under(&entry.path(), &relative, out),
+            Ok(k) if k.is_file() => out.push(relative),
+            _ => {}
+        }
+    }
+}
+
+/// The manifest of a `target/` folder: its files, sorted, each with its SHA-256.
+fn manifest_text(target: &Path) -> std::io::Result<String> {
+    let mut files = Vec::new();
+    files_under(target, "", &mut files);
+    files.sort();
+    let mut text = String::new();
+    for rel in files {
+        text.push_str(&format!("{}  {rel}\n", sha256_file(&target.join(&rel))?));
+    }
+    Ok(text)
+}
+
+fn parse_manifest(text: &str) -> Vec<(&str, &str)> {
+    text.lines().filter_map(|l| l.split_once("  ")).filter(|(h, _)| h.len() == 64).collect()
+}
+
+/// The manifest's files that `cache` lacks or holds changed.
+fn damaged(cache: &Path, entries: &[(&str, &str)]) -> Vec<String> {
+    entries
+        .iter()
+        .filter(|(hash, rel)| sha256_file(&cache.join(rel)).map_or(true, |have| have != *hash))
+        .map(|(_, rel)| (*rel).to_owned())
+        .collect()
+}
+
+/// What a full build does for the shared libraries: it checks every file the release
+/// shipped against its recorded hash and, for those that are missing or changed,
+/// downloads the release's libraries from GitHub and puts back exactly those files,
+/// checking each again. Nothing that is fine is touched or recompiled. Returns how
+/// many files were repaired; a release without shipped libraries has nothing to check.
+pub fn repair_libs(sdk_root: &Path, version: &str, log: &mut dyn FnMut(&str)) -> Result<usize, String> {
+    let Ok(text) = std::fs::read_to_string(libs_dir(sdk_root).join(MANIFEST)) else {
+        return Ok(0);
+    };
+    let entries = parse_manifest(&text);
+    let (build_root, _) = resolve_build_root(None);
+    let cache = build_cache::open(&build_root)?;
+    let bad = damaged(&cache, &entries);
+    if bad.is_empty() {
+        log(&format!("   all {} shared libraries are intact", entries.len()));
+        return Ok(0);
+    }
+    let url = format!("{RELEASES_URL}/v{version}/{}", libs_asset_name(version));
+    log(&format!("   {} of {} shared libraries are missing or changed — downloading them from {url}", bad.len(), entries.len()));
+    let archive = build_root.join(format!("_repair-{}.tar.gz", std::process::id()));
+    let list = build_root.join(format!("_repair-{}.txt", std::process::id()));
+    let result = (|| {
+        run("curl", &["--fail", "--location", "--silent", "--show-error", "--proto", "=https", "--tlsv1.2", "-o", &archive.to_string_lossy(), &url])?;
+        std::fs::write(&list, bad.join("\n")).map_err(|e| e.to_string())?;
+        run("tar", &["-xzf", &archive.to_string_lossy(), "-C", &cache.to_string_lossy(), "-T", &list.to_string_lossy()])?;
+        let still = damaged(&cache, &entries);
+        if still.is_empty() { Ok(bad.len()) } else { Err(format!("{} files still differ from the release after the download", still.len())) }
+    })();
+    let _ = std::fs::remove_file(&archive);
+    let _ = std::fs::remove_file(&list);
+    result
+}
+
+fn run(program: &str, args: &[&str]) -> Result<(), String> {
+    let out = Command::new(program).args(args).output().map_err(|e| format!("cannot run {program}: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!("{program} failed: {}", String::from_utf8_lossy(&out.stderr).trim()))
+    }
 }
 
 fn dir_bytes(dir: &Path) -> u64 {
@@ -283,6 +404,33 @@ mod tests {
         assert!(text.starts_with("/sdk/libs/"), "{text}");
         assert!(text.ends_with(std::env::consts::ARCH), "{text}");
         assert!(["macos", "linux", "windows", "android", "ios"].contains(&dir.parent().unwrap().file_name().unwrap().to_str().unwrap()));
+    }
+
+    #[test]
+    fn a_manifest_finds_the_missing_and_the_changed() {
+        let base = std::env::temp_dir().join(format!("prc-manifest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("release/deps")).unwrap();
+        std::fs::write(base.join("release/deps/a.rlib"), "one").unwrap();
+        std::fs::write(base.join("release/deps/b.rlib"), "two").unwrap();
+        std::fs::write(base.join("c.txt"), "three").unwrap();
+        let text = manifest_text(&base).unwrap();
+        let entries = parse_manifest(&text);
+        assert_eq!(entries.len(), 3);
+        assert!(damaged(&base, &entries).is_empty());
+        std::fs::write(base.join("release/deps/a.rlib"), "ONE").unwrap();
+        std::fs::remove_file(base.join("c.txt")).unwrap();
+        let mut bad = damaged(&base, &entries);
+        bad.sort();
+        assert_eq!(bad, ["c.txt", "release/deps/a.rlib"]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_release_attachment_is_named_for_the_version_system_and_processor() {
+        let name = libs_asset_name("2.0.102");
+        assert!(name.starts_with("PowerRustCOBOL-2.0.102-") && name.ends_with("-libs.tar.gz"), "{name}");
+        assert!(name.contains(std::env::consts::ARCH));
     }
 
     #[test]
