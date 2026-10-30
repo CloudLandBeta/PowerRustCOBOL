@@ -3650,7 +3650,7 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 18] = [
+pub const SDK_CRATES: [&str; 19] = [
     "cobolt-ast",
     "cobolt-codegen",
     // Decimal arithmetic, shared by the interpreter and the WebAssembly
@@ -3659,6 +3659,10 @@ pub const SDK_CRATES: [&str; 18] = [
     // spec 074 — document import. `cobolt-kb` depends on it.
     "cobolt-docs",
     "cobolt-form-host",
+    // spec 109 — locale-aware number formatting (`FORMAT` / `LOCALE`), shared by the
+    // interpreter and the WebAssembly routines. `cobolt-runtime` and
+    // `cobolt-semantic` depend on it, so the closure guard requires it here.
+    "cobolt-format",
     "cobolt-forms",
     "cobolt-indexed",
     // spec 068 — the application Knowledge Base. `cobolt-runtime` depends on
