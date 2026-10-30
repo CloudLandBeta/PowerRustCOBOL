@@ -1929,3 +1929,87 @@ mod tests {
         assert!(report.findings.is_empty());
     }
 }
+
+/// Spec 108 (R38): [`validate_form_bindings`], plus the findings that need the
+/// project - a PartiQL binding's query read against the `.cidx` of its source
+/// control (`invalid-partiql` for a name the file does not have, `full-scan` as a
+/// warning for a `WHERE` the keys cannot serve) and `missing-row-identity` for a
+/// writable binding whose columns do not hold the file's whole RECORD KEY.
+pub fn validate_form_bindings_in(form: &Form, project_dir: &std::path::Path) -> Vec<GuardianFinding> {
+    let mut findings = validate_form_bindings(form);
+    for binding in &form.data_bindings {
+        validate_partiql_against_cidx(form, binding, project_dir, &mut findings);
+    }
+    sort_findings(&mut findings);
+    findings
+}
+
+/// [`validate_binding_action`] for a form of a project whose folder is known.
+pub fn validate_binding_action_in(
+    form: &Form,
+    action: BindingActionGate,
+    project_dir: &std::path::Path,
+) -> BindingActionGateReport {
+    BindingActionGateReport { action, findings: validate_form_bindings_in(form, project_dir) }
+}
+
+fn validate_partiql_against_cidx(
+    form: &Form,
+    binding: &DataBindingDef,
+    project_dir: &std::path::Path,
+    findings: &mut Vec<GuardianFinding>,
+) {
+    use cobolt_runtime::partiql::analyze::{analyze, RStmt};
+    use cobolt_runtime::partiql::parser::parse_statement;
+    use cobolt_runtime::partiql::plan::{classify, ReadClass};
+    use cobolt_runtime::partiql::schema::Schema;
+    let BindingSourceDescriptor::PartiQl { source_control_id, query, fields, writable, .. } = &binding.source else {
+        return;
+    };
+    let Some(control) = form.find_control(source_control_id) else { return };
+    let cidx = control.get_prop("IndexedFile").map(|p| p.as_str().trim().to_owned()).unwrap_or_default();
+    if cidx.is_empty() {
+        return;
+    }
+    let raw = std::path::Path::new(&cidx);
+    let path = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else if project_dir.join(raw).exists() {
+        project_dir.join(raw)
+    } else {
+        cobolt_forms::assets::resolve(&cidx)
+    };
+    let Ok(def) = cobolt_indexed::load_indexed(&path) else { return };
+    let table = raw.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_ascii_uppercase();
+    let Ok(schema) = Schema::from_definition(&table, &def) else { return };
+    if !query.trim().is_empty() {
+        if let Ok(parsed) = parse_statement(query) {
+            match analyze(&parsed, &schema, false) {
+                Err(e) => blocker(findings, binding, "invalid-partiql", e.text()),
+                Ok(a) => {
+                    if let RStmt::Select(sel) = &a.stmt {
+                        if classify(sel, &schema) == ReadClass::Scan {
+                            findings.push(GuardianFinding::new(
+                                GuardianSeverity::Warning,
+                                "full-scan",
+                                "this query reads the whole file; name the key in the WHERE to read by it",
+                                binding.id.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if *writable {
+        let shown = |name: &str| fields.iter().any(|f| f.name.eq_ignore_ascii_case(name));
+        if let Some(missing) = schema.primary.parts.iter().find(|p| !shown(&p.field_name)) {
+            blocker(
+                findings,
+                binding,
+                "missing-row-identity",
+                format!("a writable binding must hold the whole RECORD KEY; '{}' is not among its columns", missing.field_name),
+            );
+        }
+    }
+}

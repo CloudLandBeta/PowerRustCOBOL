@@ -304,6 +304,14 @@ Offsets and lengths must agree with the PICTUREs: a `9(8)` field is 8 bytes, and
 field starts where it ends. Every key `part` must name a field and use that field's offset and
 length.
 
+## Querying the file with PartiQL
+
+A form needs no `SELECT` / `FD` to use the file: an `IndexedFile` control whose `IndexedFile`
+property names this `.cidx` is queried inline - `IXF-1::Execute( "SELECT ... WHERE KEY-FIELD = ?" WS-ITEM )`,
+`IXF-1::Fetch()` - and a grid, list, chart or card list can be bound to such a query. The columns
+are the record's fields by name (hyphens as written, groups as `GROUP.FIELD`); a `WHERE` on the
+primary key reads by it, any other reads the whole file.
+
 ## A live example
 
 Read and re-serialised by the same code the IDE saves definitions with (line breaks added

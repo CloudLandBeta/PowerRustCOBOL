@@ -24,6 +24,21 @@
 
 
 
+## 2.0.100 — 2026-10-30 — Spec 108: a PartiQL binding fills and saves every target, the binding editor edits it, the debugger shows the statement
+
+* **Every target from one query.** A PartiQL source now fills a chart (category plus one series per column), a Knob / Gauge / Switch, a Maps control and a repeating GroupBox, besides the grid and the lists; the generated program seeds each and calls `RefreshBinding` once, with no `READ`.
+* **Saving.** A writable PartiQL grid saves through the `IndexedFile` control as one unit: each record is found by its whole RECORD KEY and compared with what the grid loaded (`23` gone, `96` changed by someone else), key cells are refused (`21`), a projection without the key is read-only (`91`); a member edited on a card writes that record the same way.
+* **Binding editor.** The Data Binding editor has a PartiQL source: the form's real `IndexedFile` controls, the query, the parameters (data items and `CONTROL::Property`), the fields checked against the `.cidx` with their PICTUREs, the Writable switch, and **Test query**, which runs the `SELECT` read-only and shows up to 50 items, the count and the read class. All strings in six languages.
+* **Guardian.** Check and the build also report `invalid-partiql` for a name the `.cidx` lacks, `full-scan` (warning) and `missing-row-identity`.
+* **Debugger.** One `PARTIQL` line on the File I/O channel per statement: text, parameter values, read class, status, count, error.
+* **Texts.** The System KB, the reference, the indexed-file skill, the pattern note, the Developer's Guide and the support matrix describe all of it; `chunked.data` regenerated.
+* **Tests.** `partiql_hosts` (three hosts on three engines, nine cells identical), `test_partiql_targets`, `test_partiql_debug`, the PartiQL cases of `test_grid_write_back`, codegen seed tests per target, guardian tests.
+* **Not done:** the operator cannot add or remove a card, so cards are saved member by member; the existing COBOL-table fillers were not split into reader and applier (only the chart applier is shared).
+
+* **Browser-subset table.** The three PartiQL built-ins are listed as backend-only (files are on the backend), which the System KB section and its test require.
+
+*(Forward-port of 1.91.231, 38bf314a on features-108-partiql.)*
+
 ## 2.0.99 — 2026-10-30 — Fix: the designer's animation preview plays what the form designed
 
 The Web form designer's animation preview did nothing for most forms, for two reasons that live in the designer both kinds of form share:

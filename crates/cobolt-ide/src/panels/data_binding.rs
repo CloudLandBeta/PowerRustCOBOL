@@ -41,15 +41,18 @@ pub enum BindingEditorSourceKind {
     CobolTable,
     RestApi,
     AgentAi,
+    /// Spec 108: a PartiQL query on one of the form's `IndexedFile` controls.
+    PartiQl,
 }
 
 impl BindingEditorSourceKind {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::IndexedFile,
         Self::Sql,
         Self::CobolTable,
         Self::RestApi,
         Self::AgentAi,
+        Self::PartiQl,
     ];
 
     pub fn label(self, tr: &Tr) -> &'static str {
@@ -59,6 +62,7 @@ impl BindingEditorSourceKind {
             Self::CobolTable => tr.data_binding_source_cobol_table,
             Self::RestApi => tr.data_binding_source_rest,
             Self::AgentAi => tr.data_binding_source_agent,
+            Self::PartiQl => tr.data_binding_source_partiql,
         }
     }
 
@@ -66,7 +70,7 @@ impl BindingEditorSourceKind {
     /// three sources the runtime writes back to. A REST or Agent binding needs
     /// update metadata the editor does not offer, so it stays read-only.
     pub(crate) fn can_be_written(self) -> bool {
-        matches!(self, Self::IndexedFile | Self::Sql | Self::CobolTable)
+        matches!(self, Self::IndexedFile | Self::Sql | Self::CobolTable | Self::PartiQl)
     }
 
     pub(crate) fn id_fragment(self) -> &'static str {
@@ -76,6 +80,7 @@ impl BindingEditorSourceKind {
             Self::CobolTable => "TABLE",
             Self::RestApi => "REST",
             Self::AgentAi => "AGENT",
+            Self::PartiQl => "PARTIQL",
         }
     }
 }
@@ -145,6 +150,14 @@ pub fn source_descriptor_for_editor(
             output_name: format!("{}-OUTPUT", normalized_id(control_id)),
             fields,
             update: None,
+        },
+        BindingEditorSourceKind::PartiQl => BindingSourceDescriptor::PartiQl {
+            source_control_id: String::new(),
+            query: String::new(),
+            parameters: Vec::new(),
+            fields,
+            key_fields,
+            writable: false,
         },
     }
 }

@@ -1410,7 +1410,9 @@ pub fn grid_write_seed(binding: &cobolt_forms::DataBindingDef) -> Vec<(&'static 
     let writable = binding.mode == BindingMode::Writable && binding.source.is_writable();
     let keys: Vec<String> = match &binding.source {
         BindingSourceDescriptor::IndexedFile { key_field, .. } => key_field.iter().cloned().collect(),
-        BindingSourceDescriptor::Sql { key_fields, .. } | BindingSourceDescriptor::CobolTable { key_fields, .. } => {
+        BindingSourceDescriptor::Sql { key_fields, .. }
+        | BindingSourceDescriptor::CobolTable { key_fields, .. }
+        | BindingSourceDescriptor::PartiQl { key_fields, .. } => {
             key_fields.clone()
         }
         _ => Vec::new(),

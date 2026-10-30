@@ -178,9 +178,48 @@ impl Interpreter {
         }
     }
 
+    /// The names of the columns the control's last result set has.
+    pub(super) fn partiql_column_names(&self, obj: &str) -> Vec<String> {
+        self.partiql.get(&Self::partiql_key(obj)).map(|c| c.columns.iter().map(|x| x.name.clone()).collect()).unwrap_or_default()
+    }
+
     // ── Running a statement ──
 
-    fn partiql_outcome(&mut self, obj: &str, text: &str, args: &[Arg], unit: bool) -> Outcome {
+    pub(super) fn partiql_outcome(&mut self, obj: &str, text: &str, args: &[Arg], unit: bool) -> Outcome {
+        let outcome = self.partiql_outcome_run(obj, text, args, unit);
+        self.partiql_debug_line(obj, text, args, &outcome);
+        outcome
+    }
+
+    /// One `PARTIQL` line on the File I/O channel (R44): the statement, the
+    /// parameter values, the read class, `StatusCode`, `LastError` and
+    /// `ResultCount`. Nothing is formatted unless a debug session listens.
+    fn partiql_debug_line(&self, who: &str, text: &str, args: &[Arg], o: &Outcome) {
+        if self.debug_event_tx.is_none() {
+            return;
+        }
+        let params: Vec<String> = args
+            .iter()
+            .map(|a| match a {
+                Arg::Text(t) => t.clone(),
+                Arg::Value(Value::Num(n)) => n.to_string(),
+                Arg::Value(Value::Str(s)) => s.clone(),
+            })
+            .collect();
+        let class = o.class.map(|c| c.name()).unwrap_or("-");
+        let line = format!(
+            "{:<8} {who:<24} {}  params [{}]  class {class}  status {}  count {}  error [{}]",
+            "PARTIQL",
+            text.trim().replace('\n', " "),
+            params.join(", "),
+            o.status,
+            o.count,
+            o.last_error()
+        );
+        self.debug_out(crate::debugger::OutputChannel::FileIo, line);
+    }
+
+    fn partiql_outcome_run(&mut self, obj: &str, text: &str, args: &[Arg], unit: bool) -> Outcome {
         let parsed = if unit { parse_script(text) } else { parse_statement(text).map(|p| vec![p]) };
         let parsed = match parsed {
             Ok(p) => p,
@@ -322,7 +361,7 @@ impl Interpreter {
 
     /// The definition, schema and data path the control names. Reads the
     /// `.cidx` and the data file's header only: nothing is opened or created.
-    fn partiql_resolve(&mut self, obj: &str) -> Result<Arc<Schema>, PartiqlError> {
+    pub(super) fn partiql_resolve(&mut self, obj: &str) -> Result<Arc<Schema>, PartiqlError> {
         let cidx = self.obj_get(obj, "IndexedFile").trim().to_string();
         let key = Self::partiql_key(obj);
         if let Some(t) = self.partiql.get(&key).and_then(|c| c.target.as_ref()) {
@@ -535,6 +574,56 @@ impl Interpreter {
         };
         let cell = |item: &Item, i: &Option<usize>| i.map(|i| item.text(i).replace(['\t', '\n'], " ")).unwrap_or_default();
         let n = items.len();
+        // The targets besides a grid and a list (R31): one result set, one applier each.
+        if self.obj_get(id, "_BindingArray") == "1" || self.obj_get(id, "IsRepeatingGroup") == "1" {
+            return self.partiql_apply_cards(id, &ctl, &items, &columns);
+        }
+        if self.obj_get(id, "_BindingChart") == "1" {
+            let number = |it: &Item, i: &Option<usize>| cell(it, i).trim().parse::<f64>().unwrap_or(0.0);
+            let mut points = Vec::new();
+            let mut more = Vec::new();
+            for it in &items {
+                let label = at.first().map(|i| cell(it, i)).unwrap_or_default().trim().to_owned();
+                if label.is_empty() {
+                    continue;
+                }
+                points.push((label, at.get(1).map(|i| number(it, i)).unwrap_or(0.0)));
+                more.push(at.iter().skip(2).map(|i| number(it, i)).collect::<Vec<f64>>());
+            }
+            return self.apply_chart_points(id, points, more, at.len() > 2);
+        }
+        if !self.obj_get(id, "_BindingMarkerFields").trim().is_empty() {
+            // `id \t lat \t lng \t label \t info`: names of result columns, any but lat / lng empty.
+            let spec = self.obj_get(id, "_BindingMarkerFields");
+            let column = |name: &str| columns.iter().position(|c| c.name.eq_ignore_ascii_case(name.trim()));
+            let [id_at, lat_at, lng_at, label_at, info_at] = {
+                let mut p = spec.split('\t').map(column);
+                [p.next().flatten(), p.next().flatten(), p.next().flatten(), p.next().flatten(), p.next().flatten()]
+            };
+            let (Some(lat_at), Some(lng_at)) = (lat_at, lng_at) else { return 0 };
+            let text = |it: &Item, i: Option<usize>| i.map(|i| it.text(i).trim().to_owned()).unwrap_or_default();
+            let mut lines = Vec::new();
+            for (row, it) in items.iter().enumerate() {
+                let (lat, lng) = (text(it, Some(lat_at)), text(it, Some(lng_at)));
+                if lat.parse::<f64>().is_err() || lng.parse::<f64>().is_err() {
+                    continue;
+                }
+                let key = text(it, id_at);
+                let key = if key.is_empty() { (row + 1).to_string() } else { key };
+                lines.push(format!("{key}\t{lat}\t{lng}\t{}\t{}", text(it, label_at), text(it, info_at)));
+            }
+            let count = lines.len();
+            self.obj_set(id, "Markers", lines.join("\n"));
+            return count;
+        }
+        let scalar_property = self.obj_get(id, "_BindingScalarProperty");
+        if !scalar_property.trim().is_empty() {
+            // A Knob / Gauge / Switch takes the first item's first mapped column.
+            let Some(first) = items.first() else { return 0 };
+            let text = at.first().map(|i| cell(first, i)).unwrap_or_default().trim().to_owned();
+            self.obj_set(id, scalar_property.trim(), text);
+            return 1;
+        }
         if self.obj_get(id, "_BindingList") == "1" {
             // Display column first, then — for `SelectedValue` — the value column.
             let shown: Vec<String> = items.iter().map(|it| at.first().map(|i| cell(it, i)).unwrap_or_default()).collect();
@@ -547,6 +636,126 @@ impl Interpreter {
             self.obj_set(id, "Rows", rows.join("\n"));
         }
         n
+    }
+
+    /// A repeating GroupBox from a result set: one card per item, each mapped
+    /// member given the item's column (`_BindingMappings`: column, member,
+    /// property). The items are kept for the card write-back.
+    fn partiql_apply_cards(&mut self, group: &str, ctl: &str, items: &[Item], columns: &Arc<Vec<ColInfo>>) -> usize {
+        let design_id = self.obj_get(group, "_DesignControlId");
+        let group_for_id = if design_id.is_empty() { group.to_owned() } else { design_id.clone() };
+        self.array_edit_discard_all(group);
+        if !design_id.is_empty() {
+            self.array_edit_discard_all(&design_id);
+        }
+        let row_count = items.len();
+        for id in std::iter::once(group.to_owned()).chain((!design_id.is_empty()).then(|| design_id.clone())) {
+            if !self.objects.contains(&id) {
+                self.objects.register(&id, "Control");
+            }
+            self.objects.set_property(&id, "ItemCount", row_count.to_string());
+        }
+        if let Some(tx) = &self.state_tx {
+            let _ = tx.send(crate::channels::StateUpdate::new(group_for_id.clone(), "ItemCount".to_string(), row_count.to_string()));
+        }
+        let placement = self.obj_get(group, "PlacementEffect");
+        if !placement.trim().is_empty() && row_count > 0 {
+            self.obj_set(group, "_CardEffect", placement);
+        }
+        let seq = self.obj_get(group, "_BindSeq").parse::<i64>().unwrap_or(0) + 1;
+        self.obj_set(group, "_BindSeq", seq.to_string());
+        let maps = self.obj_get(group, "_BindingMappings");
+        for line in super::array_edit::binding_mapping_rows(&maps) {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() != 3 || parts.iter().any(|p| p.trim().is_empty()) {
+                continue;
+            }
+            let (src, member, prop) = (parts[0].trim(), parts[1].trim(), parts[2].trim());
+            let Some(col) = columns.iter().position(|c| c.name.eq_ignore_ascii_case(src)) else { continue };
+            for (r, item) in items.iter().enumerate() {
+                let r = r + 1;
+                let val = item.text(col).trim_end().to_owned();
+                self.set_member_indexed(member, &[crate::objects::PathSeg::Prop(prop.to_owned())], val.clone(), r);
+                if let Some(tx) = &self.state_tx {
+                    let _ = tx.send(crate::channels::StateUpdate::new(member.to_string(), prop.to_owned(), val.clone()).with_index(r));
+                    let _ = tx.send(crate::channels::StateUpdate::new(
+                        format!("{group_for_id}.{group_for_id}-{r}.{member}"),
+                        prop.to_owned(),
+                        val,
+                    ));
+                }
+            }
+        }
+        let held = self.partiql.entry(format!("CARDS:{}", group.to_ascii_uppercase())).or_default();
+        held.items = items.to_vec();
+        held.columns = columns.clone();
+        let _ = ctl;
+        row_count
+    }
+
+    /// A member of card `n` edited: write that one column of that record through
+    /// the control — found by its full RECORD KEY, compared with what the card
+    /// was loaded with (`23` gone, `96` changed), a key column refused `21`, a
+    /// projection without the key `91` (R36). `CommitStatus` / `LastError` say how.
+    pub(super) fn partiql_card_edit(&mut self, group: &str, n: usize, field: &str, value: &str) {
+        let say = |this: &mut Self, code: &str, message: String| {
+            this.obj_set(group, "CommitStatus", code.to_owned());
+            this.obj_set(group, "LastError", message);
+        };
+        let ctl = self.obj_get(group, "_BindingPartiqlControl").trim().to_owned();
+        let card_key = format!("CARDS:{}", group.to_ascii_uppercase());
+        let held = self.partiql.get(&card_key).and_then(|c| n.checked_sub(1).and_then(|i| c.items.get(i)).cloned().map(|it| (it, c.columns.clone())));
+        let Some((item, columns)) = held else {
+            return say(self, "23", "the card has no record behind it".to_owned());
+        };
+        let Some(col) = columns.iter().position(|c| c.name.eq_ignore_ascii_case(field)) else {
+            return say(self, "92", format!("{field}: not a column of the binding"));
+        };
+        let schema = match self.partiql_resolve(&ctl) {
+            Ok(s) => s,
+            Err(e) => return say(self, e.status, e.text()),
+        };
+        let keys: Vec<String> = schema.primary.parts.iter().map(|p| p.field_name.clone()).collect();
+        if keys.iter().any(|k| k.eq_ignore_ascii_case(field)) {
+            return say(self, "21", format!("'{field}' is part of the key; it cannot be changed here"));
+        }
+        let mut key_args: Vec<Arg> = Vec::new();
+        for k in &keys {
+            match columns.iter().position(|c| c.name.eq_ignore_ascii_case(k)) {
+                Some(at) => key_args.push(Arg::Text(item.text(at))),
+                None => return say(self, "91", format!("key field '{k}' is not in the binding; a card cannot be told from its neighbours")),
+            }
+        }
+        let where_ = keys.iter().map(|k| format!("{k} = ?")).collect::<Vec<_>>().join(" AND ");
+        let table = schema.table.clone();
+        let all = columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>().join(", ");
+        let now = self.partiql_outcome(&ctl, &format!("SELECT {all} FROM {table} WHERE {where_}"), &key_args, false);
+        if let Some(e) = &now.error {
+            return say(self, now.status, e.text());
+        }
+        let Some(current) = now.items.first() else {
+            return say(self, "23", "the record is no longer in the file".to_owned());
+        };
+        if !super::grid_unit::same_value(&current.text(col), &item.text(col)) {
+            return say(self, "96", format!("'{field}' was changed by someone else since it was loaded"));
+        }
+        let mut args = vec![Arg::Text(value.trim_end().to_owned())];
+        args.extend(key_args.iter().map(|a| match a {
+            Arg::Text(t) => Arg::Text(t.clone()),
+            Arg::Value(v) => Arg::Value(v.clone()),
+        }));
+        let o = self.partiql_outcome(&ctl, &format!("UPDATE {table} SET {field} = ? WHERE {where_}"), &args, false);
+        if let Some(e) = &o.error {
+            return say(self, o.status, e.text());
+        }
+        // The card now holds what the record holds.
+        let fresh = self.partiql_outcome(&ctl, &format!("SELECT {all} FROM {table} WHERE {where_}"), &key_args, false);
+        if let (Some(f), Some(held)) = (fresh.items.first(), self.partiql.get_mut(&card_key)) {
+            if let Some(slot) = held.items.get_mut(n - 1) {
+                *slot = f.clone();
+            }
+        }
+        say(self, "00", String::new());
     }
 
     /// Every PartiQL binding that follows `ctl`'s result set shows the new one.
@@ -762,6 +971,12 @@ impl Interpreter {
     }
 
     fn partiql_file_outcome(&mut self, file: &str, text: &str, args: &[Arg]) -> Outcome {
+        let outcome = self.partiql_file_outcome_run(file, text, args);
+        self.partiql_debug_line(file, text, args, &outcome);
+        outcome
+    }
+
+    fn partiql_file_outcome_run(&mut self, file: &str, text: &str, args: &[Arg]) -> Outcome {
         let parsed = match parse_statement(text) {
             Ok(p) => p,
             Err(e) => return Outcome::failed(e),

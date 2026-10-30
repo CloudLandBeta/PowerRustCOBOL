@@ -13909,12 +13909,19 @@ impl Interpreter {
             points.push((label, value));
             more.push(others.iter().map(|f| self.env.get(&at(f)).map(|v| v.as_f64()).unwrap_or(0.0)).collect::<Vec<f64>>());
         }
+        self.apply_chart_points(control_id, points, more, !others.is_empty())
+    }
+
+    /// Give a chart the points a binding read: one label and value each, and
+    /// the further series' values when there are any. The applier every chart
+    /// source shares (a COBOL table, a PartiQL query). Answers the point count.
+    pub(super) fn apply_chart_points(&mut self, control_id: &str, points: Vec<(String, f64)>, more: Vec<Vec<f64>>, has_more: bool) -> usize {
         let n = points.len();
         // Keyed as COBOL-CHART-* and AddPoint key it.
         let key = control_id.to_ascii_uppercase();
         self.chart_data.insert(key.clone(), points);
         self.chart_sizes.remove(&key);
-        if others.is_empty() {
+        if !has_more {
             self.chart_more.remove(&key);
         } else {
             self.chart_more.insert(key.clone(), more);

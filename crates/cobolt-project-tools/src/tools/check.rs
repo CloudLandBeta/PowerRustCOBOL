@@ -16,7 +16,7 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
-use crate::binding_guardian::{validate_binding_action, BindingActionGate};
+use crate::binding_guardian::{validate_binding_action_in, BindingActionGate};
 use crate::gen_paths;
 use crate::host::ProjectHost;
 use crate::root::ProjectRoot;
@@ -251,7 +251,7 @@ fn check_form(
         });
     }
     // The data-binding gate the IDE's Check/Build applies.
-    let gate = validate_binding_action(&form, BindingActionGate::CheckProject);
+    let gate = validate_binding_action_in(&form, BindingActionGate::CheckProject, root.dir());
     for f in gate.findings {
         let severity = match f.severity {
             cobolt_forms::GuardianSeverity::Blocker => Severity::Error,

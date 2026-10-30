@@ -7042,9 +7042,11 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "RowBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Per-row background pattern."),
         "SelectionMode" => ("one of: `Row` (default) | `Cell` | `Column`", "What a click on a cell highlights: its whole row (`Row`), the cell alone (`Cell`) or its whole column (`Column`). Ctrl+C copies what is highlighted — the cell, the row's cells joined by `CSVDelimiter`, or the column's values in the rows shown, one per line. `onCellClick` reports the cell either way."),
         "AllowCellEditing" => (BOOL_DOMAIN, "DataGrid (default false): the operator may edit a cell in place — a double-click, or F2 on the selected cell, opens it in a text box; Enter or clicking away commits, Escape cancels. A commit that changed the text writes it into `Rows` and fires `onCellEdited` with `EditedRow`, `EditedColumn` (the DATA row and column, numbered from 1 — `GetCellValue`'s), `EditedValue` and `PreviousValue`; the handler validates and stores it, and can put `PreviousValue` back with `SetCellValue` to refuse it. A column with no data behind it, or one showing its value as an image, is not editable; a Checkbox column is changed by a click or Space, and a Dropdown column that has a list by picking from it (a click, F2 or Alt+Down opens it), not typed into (see the DataGrid notes); a typed tab or line break becomes a space. The retired `ReadOnly` does not control this. On a grid bound to a writable source the kept edit is also written back to that source — see `AutoCommit`."),
+        "BindingQuery" => ("a PartiQL SELECT; empty follows the source control", "A control bound to a PartiQL source (grid, list, chart, Knob / Gauge / Switch, Maps, repeating GroupBox): the statement that fills it. Read and write at run time; the next `RefreshBinding()` runs the new one. Anything but a `SELECT` is refused: `StatusCode` 94 on the source control and the previous query is kept. Empty: the control shows the result of the source control's own last `Execute`, updated after each one."),
+        "SelectedValue" => ("text (run-time, read-only)", "ComboBox / ListBox bound to a PartiQL source: the VALUE field (the second mapped column) of the picked item, empty before any pick. DataGrid bound to a PartiQL source: the text of the value column's cell (the first column flagged key, else the first) in the row `ClickedRow` names, empty before any click. Use it as a `?` parameter of another binding for master-detail: `DG-CUSTOMERS::SelectedValue`."),
         "ClickedRow" => ("integer (runtime-only, read-only)", "DataGrid: the data row a click (or double-click) landed on, numbered from 1 as `GetCellValue` counts — written just before `onCellClick` / `onCellDoubleClick`, so the handler knows which row's button was pressed. A click on a column heading does NOT write it (that sorts the grid and fires `onColumnClick`), and with `SelectableText` off the cells ignore the mouse and write nothing."),
         "ClickedColumn" => ("integer (runtime-only, read-only)", "DataGrid: the data column a click landed on, numbered from 1 (its position in `Columns`); 0 for a column with no data behind it. Written just before `onCellClick` / `onCellDoubleClick`; a click on a column heading leaves it as it was."),
-        "AutoCommit" => (BOOL_DOMAIN, "DataGrid (default true): what happens to the cells the operator edited in a grid that is bound to a source that can be written (a writable binding, or a `DataSource` indexed file with a primary key) and has `AllowCellEditing` on. On: after the `onCellEdited` handler returns, the runtime writes what that event kept — the cell's current value — to the source as one unit: an indexed file by REWRITE and COMMIT, a SQL table by `UPDATE … WHERE <key>` between `BEGIN` and `COMMIT`, a COBOL table by regenerating it from the grid — so a handler that puts `PreviousValue` back has refused the edit. Rows added with `AddRow` and rows removed with `DeleteRow` are not written by `AutoCommit`; only `Save()` writes them. Off: the edits stay pending (each cell is marked) and nothing is written until the code calls `Save()` to write the grid in one transaction, or `DiscardEdit()` to put it back as the source has it. A row is found by what it was loaded as — its key cells, never its position — so a `Sort` or `DeleteRow` between the edit and the save cannot send an edit to the wrong row; the key cells of a row that came from the source are read-only, and a row whose key was changed is never written. Before it writes, a save compares what the source holds with what the grid loaded and fails (`96`) if someone else changed the row. A unit that fails writes nothing, sets `CommitStatus` and `LastError`, raises `onCommitError` and puts the old values back (with `AutoCommit` on, the cells just edited; for a `Save()`, the whole grid as it was last loaded or saved); the cell that could not be written is marked red until the next edit."),
+        "AutoCommit" => (BOOL_DOMAIN, "IndexedFile (`True` | `False` | unset): whether each PartiQL statement or unit commits as it finishes - unset it is on for a form that declares no `FD` for the file and off for one that does, so the program's own `COMMIT` / `ROLLBACK` verbs keep acting; off, writes join the file's open transaction. DataGrid (default true): what happens to the cells the operator edited in a grid that is bound to a source that can be written (a writable binding, or a `DataSource` indexed file with a primary key) and has `AllowCellEditing` on. On: after the `onCellEdited` handler returns, the runtime writes what that event kept — the cell's current value — to the source as one unit: an indexed file by REWRITE and COMMIT, a SQL table by `UPDATE … WHERE <key>` between `BEGIN` and `COMMIT`, a COBOL table by regenerating it from the grid — so a handler that puts `PreviousValue` back has refused the edit. Rows added with `AddRow` and rows removed with `DeleteRow` are not written by `AutoCommit`; only `Save()` writes them. Off: the edits stay pending (each cell is marked) and nothing is written until the code calls `Save()` to write the grid in one transaction, or `DiscardEdit()` to put it back as the source has it. A row is found by what it was loaded as — its key cells, never its position — so a `Sort` or `DeleteRow` between the edit and the save cannot send an edit to the wrong row; the key cells of a row that came from the source are read-only, and a row whose key was changed is never written. Before it writes, a save compares what the source holds with what the grid loaded and fails (`96`) if someone else changed the row. A unit that fails writes nothing, sets `CommitStatus` and `LastError`, raises `onCommitError` and puts the old values back (with `AutoCommit` on, the cells just edited; for a `Save()`, the whole grid as it was last loaded or saved); the cell that could not be written is marked red until the next edit."),
         "CommitStatus" => ("text (runtime-only, read-only)", "GroupBox (a repeating group bound to a COBOL table): how the last edit of a card's member ended — `00` written, `91` the binding is read-only (nothing is written), `92` the value does not fit the field (text typed into a numeric item, or a card past the table's last row); `LastError` has the message and `PendingEdits` keeps the edit. DataGrid: how the last write-back ended — `00` written, or nothing was pending; an indexed file's own FILE STATUS (`23` no such record, `22` duplicate key, `35` missing file …); `21` the edit would change a key; `90` the file, driver or connection failed (a SQL connection that is not open is this); `91` the grid is not bound to something writable; `92` the value does not fit the field (its PICTURE, or not a number), a new row has no key, or a COBOL table has too few occurrences for the grid; `95` the SQL connection is in `Async` mode and a save needs it `Sync`; `96` the row was changed by someone else since the grid loaded it; `98` edits are still pending after a refresh. `LastError` has the message."),
         "PendingEdits" => ("text (runtime-only, read-only)", "GroupBox (a repeating group bound to a COBOL table): the edits the table could not take and that wait for repair, one per line as `card TAB member TAB property TAB value`. A member edited to a value the table takes leaves the list; `RefreshBinding()` re-reads the table and empties it."),
         "SavedRows" => ("integer (runtime-only, read-only)", "DataGrid: how many rows the last save wrote — a row updated (with however many cells), a row inserted and a row deleted count once each; for a COBOL table, the rows of the grid written into it; 0 when there was nothing to write or the save failed. Read it in `onSaved`."),
@@ -7149,7 +7151,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ArchiveMaximumMegabytes" => ("integer MB (default 500)", "KnowledgeBase: the most an archive (ZIP/TAR, nested ones included) may unpack to; past it the whole archive is skipped as `too_large`."),
         "ArchiveMaximumFiles" => ("integer (default 10000)", "KnowledgeBase: the most files an archive (nested ones included) may hold; past it the whole archive is skipped as `too_large`."),
         "ArchiveMaximumDepth" => ("integer (default 3)", "KnowledgeBase: how many archives deep documents are read — 1 reads an archive but none inside it; deeper nesting skips the archive as `too_large`."),
-        "ResultCount" => ("integer (run-time)", "KnowledgeBase: in `onSearchComplete`, how many hits the search returned; read each with `GetResult…(n)`."),
+        "ResultCount" => ("integer (run-time)", "KnowledgeBase: in `onSearchComplete`, how many hits the search returned; read each with `GetResult…(n)`. IndexedFile: the number of items the last `Execute` / `ExecuteTransaction` left in the result set (0 for a statement that returns none)."),
         "CollectionCount" => ("integer (run-time)", "KnowledgeBase: collections found by the last `ListCollections`."),
         "DocumentCount" => ("integer (run-time)", "KnowledgeBase: documents found by the last `ListDocuments`."),
         "AgentURL" => ("HTTP(S) URL", "Base URL of the LLM provider."),
@@ -7236,11 +7238,11 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "StatusCode" => (
             "runtime-only, read-only; HTTP status as text",
-            "The HTTP status of the last call. `0` when the request never reached a server.",
+            "RestClient: the HTTP status of the last call. `0` when the request never reached a server. IndexedFile: the FILE STATUS of the last PartiQL statement as two characters - `00` it ran, `10` past the last item, `21` a key out of sequence, `22` a duplicate key, `23` no such record, `35` the file is missing, `37` the open mode is not allowed, `39` the file does not match its definition, `91` not writable, `94` the statement is not valid, `96` the record was changed by someone else, `98` a change is pending. DataGrid: `CommitStatus` is its own.",
         ),
         "LastError" => (
             "runtime-only, read-only",
-            "Why the last async call failed, delivered with `onError`. Empty after a call that succeeded. On a DataGrid: why the last write-back failed, delivered with `onCommitError`.",
+            "Why the last async call failed, delivered with `onError`. Empty after a call that succeeded. On a DataGrid: why the last write-back failed, delivered with `onCommitError`. On an IndexedFile: the exception and the reason the last PartiQL statement failed (for example `ValidationException: ...`, `DuplicateItemException: ...`), empty after one that ran; it never contains a parameter value.",
         ),
 
         // ── SqlDatabase ──
@@ -7256,7 +7258,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "IndexedFile" => ("`.cidx` schema name from the project", "Which indexed-file schema this control operates on."),
         "OpenMode" => ("`INPUT` (read-only) | `I-O` (read-write)", "COBOL open mode used by the generated paragraphs."),
         "LoadStrategy" => ("retired", "**Retired.** The indexed file's definition (.cidx) decides its storage for every program on that file. No longer seeded or shown; a form that has it still gets its `WS-<id>-LOAD-STRATEGY` item, so code reading it compiles."),
-        "AutoOpen" => (BOOL_DOMAIN, "Opens the file automatically when the form loads."),
+        "AutoOpen" => (BOOL_DOMAIN, "Opens the file automatically when the form loads - in `OpenMode` (a missing data file is created from the `.cidx`, so a form with no `SELECT` / `FD` runs at once). Without it the first `Execute` opens the file."),
         "RecordName" => ("COBOL record name or empty", "Overrides the schema's record item."),
         "KeyName" => ("COBOL key item or empty", "Overrides the schema's primary-key item."),
         "CurrentKeyDataItem" => ("COBOL data-item name or empty", "Item holding the key for START/READ positioning."),
@@ -8602,8 +8604,14 @@ Every call that writes or searches answers at once with 1 (started) or 0 (see `L
 ```\n\
 One operation at a time per control: a second call while one runs answers 0. To let a model search a collection: `MOVE AGT-1::AllowKnowledgeBase(\"KB-1\") TO WS-OK`.\n",
         "IndexedFile" => "\
-### Usage (generated paragraphs — NOT `::` methods)\n\
-An IndexedFile control named `IXF-1` is driven with `PERFORM` on the paragraphs the IDE generates:\n\
+### Usage (inline `::` members — PartiQL)\n\
+An IndexedFile control named `IXF-1` is queried with PartiQL, inline, with no `SELECT` / `FD` in the form (a data file missing at open is created from the `.cidx`):\n\
+- `SET WS-N TO IXF-1::Execute( \"SELECT CUST-ID, CUST-NAME FROM CUSTOMERS WHERE CUST-ID = ?\" WS-ID )` — runs ONE statement (`SELECT`, `INSERT`, `UPDATE`, `DELETE`; each `?` takes the next argument, typed by its PICTURE) and answers the item count of a `SELECT` or the records affected. `ExecuteTransaction( \"stmt; stmt\" … )` runs several as one unit, all or none.\n\
+- `MOVE IXF-1::Fetch() TO WS-ROW` — the next item, its values TAB-separated, EMPTY past the last (like `SqlDatabase::Fetch()`); `IXF-1::Get( \"CUST-NAME\" )` or `Get( 2 )` reads one value of the item last fetched; `ColumnNames()` and `ColumnCount()` describe the result.\n\
+- Properties: `ResultCount`, `StatusCode` (the FILE STATUS: `00`, `10`, `21`, `22`, `23`, `35`, `37`, `39`, `91`, `94`, `96`, `98`) and `LastError` (the exception and why, never a parameter value). `OpenMode` must be `I-O` to write. `AutoCommit` (default on without an `FD`, off with one): on, each statement or unit commits; off, writes join the file's open transaction and the `COMMIT` / `ROLLBACK` verbs act.\n\
+- A grid, list, chart, Knob / Gauge / Switch, Maps control or repeating GroupBox can be BOUND to a PartiQL query on the control (Data Binding editor, source PartiQL): `RefreshBinding()` answers the item count, `BindingQuery` reads and writes the statement (a non-`SELECT` is refused `94`), and `SelectedValue` answers the value field of the picked item of a bound list or grid.\n\
+- There is no `::Open()`, `::Write()` or sequential-read method on this control. A form that declares the file with `SELECT` / `FD` also gets the generated paragraphs below, which are paragraphs of the OUTER program and cannot be `PERFORM`ed from a handler:\n\
+- `PERFORM IXF-1-OPEN` — open the file in `OpenMode` (`INPUT` or `I-O`).\n\
 - `PERFORM IXF-1-OPEN` — open the file in `OpenMode` (`INPUT` or `I-O`).\n\
 - `MOVE key TO <key item>` then `PERFORM IXF-1-START` — position the record pointer (KEY >= value).\n\
 - `PERFORM IXF-1-READ-NEXT` / `IXF-1-READ-PREVIOUS` / `IXF-1-READ-FIRST` / `IXF-1-READ-LAST` — sequential reads; `WS-IXF-1-AT-END = 1` after the last record.\n\
@@ -9801,12 +9809,16 @@ fn methods_reference_doc() -> String {
     }
 
     d.push_str(
-        "## IndexedFile — no inline methods\n\n\
-         IndexedFile controls are driven by the GENERATED PARAGRAPHS \
-         (`PERFORM <id>-OPEN`, `<id>-START`, `<id>-READ-NEXT`, `<id>-READ-PREVIOUS`, \
-         `<id>-READ-FIRST`, `<id>-READ-LAST`, `<id>-READ-INVALID`, `<id>-COMMIT`, \
-         `<id>-ROLLBACK`, `<id>-CLOSE`) and the plain COBOL verbs `WRITE` / `REWRITE` / `DELETE`. \
-         Do NOT call `::Open()` on an IndexedFile — that method belongs to SqlDatabase.\n",
+        "## IndexedFile — PartiQL members\n\n\
+         An IndexedFile control is queried from a handler with its PartiQL members: \
+         `Execute(statement, args…)` (SELECT, INSERT, UPDATE, DELETE; answers the item count or the \
+         records affected), `ExecuteTransaction(\"stmt; stmt\", args…)` (one unit, all or none), \
+         `Fetch()` (the next item TAB-separated, empty past the last), `Get(name-or-position)`, \
+         `ColumnNames()`, `ColumnCount()`, and the properties `ResultCount`, `StatusCode`, `LastError` \
+         and `AutoCommit`. A form that declares the file with `SELECT` / `FD` also has the GENERATED \
+         PARAGRAPHS (`<id>-OPEN`, `<id>-START`, `<id>-READ-NEXT`, `<id>-COMMIT`, `<id>-CLOSE`, …), \
+         which belong to the outer program and cannot be `PERFORM`ed from a handler. \
+         There is no `::Open()` (that is SqlDatabase's), and no `::Write()`.\n",
     );
     d
 }
@@ -13277,7 +13289,7 @@ generated = ["generated/inner-form1.cbl"]
         let methods_doc = fs::read_to_string(kb.join("control_methods_reference.md")).unwrap();
         assert!(methods_doc.contains("# PowerRustCOBOL Control Methods Reference"));
         assert!(methods_doc.contains("AddPoint(label: String, value: Number)"));
-        assert!(methods_doc.contains("IndexedFile — no inline methods"));
+        assert!(methods_doc.contains("IndexedFile — PartiQL members"));
         assert!(methods_doc.contains("GET-<Prop>()"));
 
         // Clean up
@@ -14467,5 +14479,34 @@ mod project_kind_build_tests {
         assert!(!err.contains("not a desktop one"), "an old manifest is a desktop project: {err}");
         let _ = std::fs::remove_dir_all(&dir);
         println!("kinds: {refused:?} refused by the native build; a manifest with no kind is still Desktop");
+    }
+}
+
+#[cfg(test)]
+mod indexed_file_documentation_tests {
+    use super::*;
+
+    /// Spec 108 T31: the texts a model reads about an IndexedFile tell what the control
+    /// has (PartiQL members, `AutoCommit`, `BindingQuery`, `SelectedValue`) and never
+    /// again say it has no `::` methods or a `::ReadNext`.
+    #[test]
+    fn the_indexed_file_documentation_names_its_members_and_denies_none() {
+        let usage = control_usage_notes("IndexedFile");
+        let methods = methods_reference_doc();
+        for text in [usage, methods.as_str()] {
+            assert!(text.contains("Execute"), "{text}");
+            assert!(text.contains("Fetch"), "{text}");
+            assert!(!text.contains("NOT `::` methods"), "{text}");
+            assert!(!text.contains("no inline methods"), "{text}");
+        }
+        assert!(usage.contains("StatusCode") && usage.contains("AutoCommit") && usage.contains("BindingQuery"), "{usage}");
+        let (_, status) = property_reference("StatusCode").unwrap();
+        assert!(status.contains("94") && status.contains("96"), "{status}");
+        let (_, binding) = property_reference("BindingQuery").unwrap();
+        assert!(binding.contains("SELECT"), "{binding}");
+        let (_, selected) = property_reference("SelectedValue").unwrap();
+        assert!(selected.contains("ClickedRow"), "{selected}");
+        let (_, auto) = property_reference("AutoCommit").unwrap();
+        assert!(auto.contains("IndexedFile"), "{auto}");
     }
 }

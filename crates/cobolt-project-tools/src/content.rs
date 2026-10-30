@@ -800,6 +800,13 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("In handlers use the standard verbs — `OPEN`, `READ`, `WRITE`, `REWRITE`, \
                    `DELETE`, `START`, `CLOSE` — and test the file status after each. A file on \
                    disk made for another layout answers `OPEN` with status 39."),
+                s("Or skip the `SELECT` / `FD` altogether: drop an `IndexedFile` control on the form, set its \
+                   `IndexedFile` property to the `.cidx` and `OpenMode` to `I-O` to write, and query it \
+                   inline from a handler - `SET WS-N TO IXF-1::Execute( \"SELECT CUST-ID, CUST-NAME FROM \
+                   CUSTOMERS WHERE CUST-ID = ?\" WS-ID )`, then `MOVE IXF-1::Fetch() TO WS-ROW` (empty \
+                   past the last item) and `IXF-1::Execute( \"INSERT INTO CUSTOMERS VALUE {'CUST-ID': ?}\" \
+                   WS-ID )`; `IXF-1::StatusCode` and `IXF-1::LastError` say how it went. There is no \
+                   `IXF-1::Open()`, `::Write()` or sequential-read method."),
                 s("Make sure the data file's folder exists (`OPEN OUTPUT` creates the file, not the \
                    folder), then `regenerate` and `check` the form until it reports no error."),
             ],

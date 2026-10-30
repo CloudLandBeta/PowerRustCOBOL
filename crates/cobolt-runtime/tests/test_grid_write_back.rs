@@ -1782,3 +1782,126 @@ fn save_report() {
     println!("  OVERALL RESULT : {}\n", if failed == 0 { "PASS" } else { "FAIL" });
     assert_eq!(failed, 0);
 }
+
+// ── Spec 108, T22: a grid bound to a PartiQL query writes back through the control ──
+
+/// A grid bound (writable) to a PartiQL query on the `IXF-ACTORS` control, which names the file of `world`.
+fn partiql_setup(world: &World) -> Setup {
+    let mut setup = with_cell_item(Setup::indexed(world));
+    setup.init = "           SET WS-STATUS TO GRID-1::RefreshBinding()\n           DISPLAY \"LOADED\"".into();
+    setup.seed = vec![
+        ("_BindingKind".into(), "PartiQl".into()),
+        ("_BindingPartiqlControl".into(), "IXF-ACTORS".into()),
+        ("_BindingPartiqlQuery".into(), "SELECT ACTOR-ID, ACTOR-NAME, ACTOR-SALARY FROM ACTORS".into()),
+        ("_BindingFields".into(), "ACTOR-ID,ACTOR-NAME,ACTOR-SALARY".into()),
+        ("_BindingKeyFields".into(), "ACTOR-ID".into()),
+        ("_BindingWritable".into(), "1".into()),
+        ("AllowCellEditing".into(), "true".into()),
+    ];
+    setup.objects.push((
+        "IXF-ACTORS".into(),
+        "IndexedFile".into(),
+        vec![("IndexedFile".into(), world.cidx.clone()), ("OpenMode".into(), "I-O".into()), ("AutoCommit".into(), "true".into())],
+    ));
+    setup
+}
+
+/// The grid row a PartiQL SELECT shows for record `n` of [`PEOPLE`]: the key zero-padded, the salary with its point.
+fn partiql_row(n: usize, name: &str, salary: &str) -> Vec<String> {
+    vec![format!("{:0>9}", PEOPLE[n - 1].0), name.to_owned(), salary.to_owned()]
+}
+
+fn partiql_rows() -> Vec<Vec<String>> {
+    vec![
+        partiql_row(1, "Leonardo DiCaprio", "300000.00"),
+        partiql_row(2, "Joe Pesci", "120000.00"),
+        partiql_row(3, "Robert De Niro", "200000.00"),
+    ]
+}
+
+#[test]
+fn a_partiql_grid_saves_edits_adds_and_deletes_as_one_unit() {
+    let t0 = std::time::Instant::now();
+    let mut results: Vec<(&str, bool)> = Vec::new();
+
+    // Two edits in two records.
+    let w = world(3);
+    let mut rows = partiql_rows();
+    let edits = vec![edit_cell(&mut rows, 1, 2, "Leonardo D."), edit_cell(&mut rows, 3, 3, "123.45")];
+    let ran = run_many(partiql_setup(&w), &[("AutoCommit", "false")], &SAVE_AND_READ, &edits, &[("BTN", "onClick")]);
+    let expected = vec![person(&w, 1, "Leonardo D.", "30000000"), person(&w, 2, "Joe Pesci", "12000000"), person(&w, 3, "Robert De Niro", "123.45")];
+    let a = w.rows_in_file() == expected && ran.display.iter().any(|l| l == "SAVE 00") && ran.last("SavedRows") == Some("2");
+    results.push(("two edits in two records are written by one Save (00, SavedRows 2)", a));
+
+    // A key cell is not editable.
+    let w = world(3);
+    let mut rows = partiql_rows();
+    let edits = vec![edit_cell(&mut rows, 1, 2, "Fine Name"), edit_cell(&mut rows, 2, 1, "000000099")];
+    let ran = run_many(partiql_setup(&w), &[("AutoCommit", "false")], &SAVE_AND_READ, &edits, &[("BTN", "onClick")]);
+    results.push((
+        "a changed key cell fails the unit with 21 and writes nothing",
+        ran.last("CommitStatus") == Some("21") && w.rows_in_file() == w.grid_rows(&[1, 2, 3]),
+    ));
+
+    // A record changed by someone else: 96, nothing written.
+    let w = world(3);
+    let mut rows = partiql_rows();
+    let edits = vec![edit_cell(&mut rows, 1, 2, "Mine")];
+    let theirs = Handlers {
+        cell: "CONTINUE",
+        click: "IXF-ACTORS::Execute(\"UPDATE ACTORS SET ACTOR-NAME = 'Theirs' WHERE ACTOR-ID = 1\")\nSET WS-STATUS TO GRID-1::Save()\nDISPLAY \"SAVE \" WS-STATUS",
+    };
+    let ran = run_many(partiql_setup(&w), &[("AutoCommit", "false")], &theirs, &edits, &[("BTN", "onClick")]);
+    let renamed = person(&w, 1, "Theirs", "30000000");
+    results.push((
+        "a record changed by the program since the load is 96 and nothing is written",
+        ran.last("CommitStatus") == Some("96") && w.rows_in_file()[0] == renamed,
+    ));
+
+    // A record gone: 23.
+    let w = world(3);
+    let mut rows = partiql_rows();
+    let edits = vec![edit_cell(&mut rows, 2, 2, "Mine")];
+    let gone = Handlers {
+        cell: "CONTINUE",
+        click: "IXF-ACTORS::Execute(\"DELETE FROM ACTORS WHERE ACTOR-ID = 2\")\nSET WS-STATUS TO GRID-1::Save()\nDISPLAY \"SAVE \" WS-STATUS",
+    };
+    let ran = run_many(partiql_setup(&w), &[("AutoCommit", "false")], &gone, &edits, &[("BTN", "onClick")]);
+    results.push(("a record deleted by the program since the load is 23", ran.last("CommitStatus") == Some("23")));
+
+    // A delete and an add, saved together.
+    let w = world(3);
+    let click = Handlers {
+        cell: "CONTINUE",
+        click: "GRID-1::DeleteRow(2)\nGRID-1::AddRow(\"000000004\tBrad Pitt\t10.50\")\nSET WS-STATUS TO GRID-1::Save()\nDISPLAY \"SAVE \" WS-STATUS",
+    };
+    let ran = run_many(partiql_setup(&w), &[("AutoCommit", "false")], &click, &[], &[("BTN", "onClick")]);
+    let in_file = w.rows_in_file();
+    let ids: Vec<&str> = in_file.iter().map(|r| r[0].as_str()).collect();
+    results.push((
+        "DeleteRow and AddRow are one Save: record 2 gone, record 4 in",
+        ran.display.iter().any(|l| l == "SAVE 00") && ids == ["1", "3", "4"] && in_file[2][1].trim() == "Brad Pitt",
+    ));
+
+    // A projection without the key is read-only (91).
+    let w = world(3);
+    let mut setup = partiql_setup(&w);
+    setup.seed.retain(|(k, _)| k != "_BindingFields" && k != "_BindingPartiqlQuery");
+    setup.seed.push(("_BindingFields".into(), "ACTOR-NAME,ACTOR-SALARY".into()));
+    setup.seed.push(("_BindingPartiqlQuery".into(), "SELECT ACTOR-NAME, ACTOR-SALARY FROM ACTORS".into()));
+    let mut rows = vec![vec!["Leonardo DiCaprio".to_owned(), "300000.00".to_owned()], vec!["Joe Pesci".to_owned(), "120000.00".to_owned()], vec!["Robert De Niro".to_owned(), "200000.00".to_owned()]];
+    let edits = vec![edit_cell(&mut rows, 1, 1, "Nobody")];
+    let ran = run_many(setup, &[("AutoCommit", "false")], &SAVE_AND_READ, &edits, &[("BTN", "onClick")]);
+    results.push(("a projection without the RECORD KEY is read-only (91)", ran.last("CommitStatus") == Some("91") && w.rows_in_file() == w.grid_rows(&[1, 2, 3])));
+
+    let failed = results.iter().filter(|(_, ok)| !ok).count();
+    println!("\n  PARTIQL DATAGRID WRITE-BACK -- a grid bound to a PartiQL query saves through the IndexedFile control (PRCIDXD1, ACTORS: 9(9) key, X(20), 9(7)V99)");
+    for (name, ok) in &results {
+        println!("    {} {name}", if *ok { "PASS" } else { "FAIL" });
+    }
+    println!("  TESTS RUN      : {:04}", results.len());
+    println!("  TESTS FAILED   : {failed:04}");
+    println!("  ELAPSED        : {} ms", t0.elapsed().as_millis());
+    println!("  OVERALL RESULT : {}\n", if failed == 0 { "PASS" } else { "FAIL" });
+    assert_eq!(failed, 0);
+}

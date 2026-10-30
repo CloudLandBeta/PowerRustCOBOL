@@ -73,7 +73,7 @@ use rand::Rng;
 mod task_wizard_glue;
 
 use crate::data_binding_guardian::{
-    validate_binding_action, BindingActionGate, BindingActionGateReport,
+    validate_binding_action, validate_binding_action_in, BindingActionGate, BindingActionGateReport,
 };
 
 /// Whitelist of *design-intent* control properties that an interactive Run-Form
@@ -2552,12 +2552,22 @@ impl CoboltApp {
         form: &Form,
         label: &str,
     ) -> bool {
-        let report = validate_binding_action(form, action);
+        let report = self.binding_gate_report(form, action);
         // No path here: this gate gets a form in hand, not a file. The modal
         // then offers its explanation without a jump, which is still better
         // than a line that scrolls out of the Output pane.
         self.emit_data_binding_gate_report(label, None, &report);
         !report.blocked()
+    }
+
+    /// The Guardian's verdict on a form. With the project's folder known it also
+    /// reads the `.cidx` a PartiQL binding names (spec 108, R38); without one it
+    /// judges the form alone, as before.
+    fn binding_gate_report(&self, form: &Form, action: BindingActionGate) -> BindingActionGateReport {
+        match self.project_path.as_ref().and_then(|path| path.parent()) {
+            Some(dir) => validate_binding_action_in(form, action, dir),
+            None => validate_binding_action(form, action),
+        }
     }
 
     fn allow_data_binding_project_action(&mut self, action: BindingActionGate) -> bool {
@@ -2584,7 +2594,7 @@ impl CoboltApp {
                     .unwrap_or("form")
                     .to_owned(),
                 Some(path.clone()),
-                validate_binding_action(&designer.form, action),
+                self.binding_gate_report(&designer.form, action),
             ));
         }
 
@@ -2598,7 +2608,7 @@ impl CoboltApp {
                         .unwrap_or("form")
                         .to_owned(),
                     Some(inspect.path.clone()),
-                    validate_binding_action(&inspect.designer.form, action),
+                    self.binding_gate_report(&inspect.designer.form, action),
                 ));
             }
         }
@@ -2619,7 +2629,7 @@ impl CoboltApp {
                             .unwrap_or("form")
                             .to_owned(),
                         Some(path.clone()),
-                        validate_binding_action(&form, action),
+                        self.binding_gate_report(&form, action),
                     ));
                 }
             }

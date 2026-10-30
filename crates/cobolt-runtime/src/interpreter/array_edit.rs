@@ -68,6 +68,11 @@ impl Interpreter {
             self.array_edit_outcome(edit.group, "91", format!("{field}: the binding is read-only, nothing was written"));
             return true;
         }
+        // Spec 108: a card of a PartiQL-bound group writes its record through the control.
+        if self.obj_get(edit.group, "_BindingKind").eq_ignore_ascii_case("PartiQl") {
+            self.partiql_card_edit(edit.group, edit.instance, &field, value);
+            return true;
+        }
         let capacity = self.env.symbol(&field).and_then(|s| s.dims.last().copied()).unwrap_or(0);
         if edit.instance > capacity {
             self.array_edit_refused(&edit, &field, prop, value, format!("{field}: the table has room for {capacity} rows, not {}", edit.instance));

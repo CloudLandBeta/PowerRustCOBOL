@@ -162,6 +162,12 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
     if let BindingTargetDescriptor::DataGrid { control_id } = &binding.target {
         write_grid_write_seed(out, control_id, binding);
     }
+    // Spec 108: a PartiQL source seeds every target kind the same way - hidden
+    // properties and one `RefreshBinding`; no `READ`, no COBOL loop.
+    if matches!(&binding.source, BindingSourceDescriptor::PartiQl { .. }) {
+        write_partiql_binding_seed(out, form, binding);
+        return;
+    }
     match &binding.target {
         BindingTargetDescriptor::ScalarControl { control_id } => {
             write_scalar_binding_seed(out, form, control_id, binding);
@@ -181,16 +187,6 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
             if matches!(&binding.source, BindingSourceDescriptor::Sql { .. }) =>
         {
             write_sql_binding_seed(out, control_id, binding);
-            return;
-        }
-        // Spec 108: a PartiQL source seeds hidden properties and one `RefreshBinding`;
-        // no `READ`, no COBOL loop — the interpreter runs the query on the control.
-        BindingTargetDescriptor::DataGrid { control_id }
-        | BindingTargetDescriptor::ComboBox { control_id }
-        | BindingTargetDescriptor::ListBox { control_id }
-            if matches!(&binding.source, BindingSourceDescriptor::PartiQl { .. }) =>
-        {
-            write_partiql_binding_seed(out, control_id, binding);
             return;
         }
         BindingTargetDescriptor::ComboBox { control_id } | BindingTargetDescriptor::ListBox { control_id }
@@ -420,12 +416,14 @@ fn write_sql_binding_seed(out: &mut String, control_id: &str, binding: &DataBind
     out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
 }
 
-/// Spec 108: a `PartiQl` source -> `DataGrid` / `ComboBox` / `ListBox` target.
-/// The source control is the `IndexedFile` control `source_control_id`; its
-/// `query` (empty: follow the control's own result set) runs there with the
-/// `parameters` filling the `?` in order — data item names, or `CONTROL::Property`.
-/// Seeded as hidden properties and one `RefreshBinding`, as the other kinds are.
-fn write_partiql_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
+/// Spec 108: a `PartiQl` source -> any approved target (a `DataGrid`, a
+/// `ComboBox` / `ListBox`, a chart, a Knob / Gauge / Switch, a Maps control, a
+/// repeating GroupBox). The source control is the `IndexedFile` control
+/// `source_control_id`; its `query` (empty: follow the control's own result set)
+/// runs there with the `parameters` filling the `?` in order - data item names,
+/// or `CONTROL::Property`. Seeded as hidden properties and one `RefreshBinding`,
+/// as the other kinds are: no `READ`, no COBOL loop.
+fn write_partiql_binding_seed(out: &mut String, form: &Form, binding: &DataBindingDef) {
     use cobolt_forms::BindingDataType as T;
     let BindingSourceDescriptor::PartiQl { source_control_id, query, parameters, fields, .. } = &binding.source else {
         return;
@@ -433,9 +431,10 @@ fn write_partiql_binding_seed(out: &mut String, control_id: &str, binding: &Data
     if source_control_id.trim().is_empty() {
         return;
     }
+    let control_id = binding.target.primary_control_id();
     // A COBOL literal holds no line break, and a quote inside one is doubled.
     let literal = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ").replace('"', "\"\"");
-    let names = fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join(",");
+    let mut names = fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>().join(",");
     let types = fields
         .iter()
         .map(|f| match f.data_type {
@@ -445,25 +444,106 @@ fn write_partiql_binding_seed(out: &mut String, control_id: &str, binding: &Data
         })
         .collect::<Vec<_>>()
         .join(",");
-    let is_list = matches!(
-        &binding.target,
-        BindingTargetDescriptor::ComboBox { .. } | BindingTargetDescriptor::ListBox { .. }
-    );
     let mut props: Vec<(&str, String)> = vec![
         ("_BindingKind", "PartiQl".to_owned()),
         ("_BindingPartiqlControl", source_control_id.clone()),
         ("_BindingPartiqlQuery", query.clone()),
         ("_BindingPartiqlParams", parameters.join(",")),
-        ("_BindingFields", names),
-        ("_BindingFieldTypes", types),
     ];
-    if is_list {
-        props.push(("_BindingList", "1".to_owned()));
+    match &binding.target {
+        BindingTargetDescriptor::ComboBox { .. } | BindingTargetDescriptor::ListBox { .. } => {
+            props.push(("_BindingList", "1".to_owned()));
+        }
+        BindingTargetDescriptor::Chart { .. } => {
+            // The category column first, then one column per series.
+            let category = binding.mappings.iter().find(|m| matches!(m.target, BindingTargetPath::ChartCategory { .. }));
+            let series: Vec<(&str, &str)> = binding
+                .sorted_mapping_refs()
+                .into_iter()
+                .filter_map(|m| match &m.target {
+                    BindingTargetPath::ChartValueSeries { series_id, .. } => Some((m.source_field.as_str(), series_id.as_str())),
+                    _ => None,
+                })
+                .collect();
+            if let (Some(category), false) = (category, series.is_empty()) {
+                names = std::iter::once(category.source_field.as_str())
+                    .chain(series.iter().map(|(f, _)| *f))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                if series.len() > 1 {
+                    props.push(("_BindingSeriesNames", series.iter().map(|(_, id)| *id).collect::<Vec<_>>().join(",")));
+                }
+            }
+            props.push(("_BindingChart", "1".to_owned()));
+        }
+        BindingTargetDescriptor::ScalarControl { control_id } => {
+            if let Some(field) = binding
+                .mappings
+                .iter()
+                .find_map(|m| matches!(&m.target, BindingTargetPath::ScalarValue { .. }).then(|| m.source_field.clone()))
+            {
+                names = field;
+            }
+            let property = form.find_control(control_id).and_then(|c| c.scalar_binding_property()).unwrap_or("Value");
+            props.push(("_BindingScalarProperty", property.to_owned()));
+        }
+        BindingTargetDescriptor::MarkerCollection { .. } => {
+            let field_for = |field: cobolt_forms::MapMarkerField| -> String {
+                binding
+                    .mappings
+                    .iter()
+                    .find_map(|m| match &m.target {
+                        BindingTargetPath::MarkerField { field: f, .. } if *f == field => Some(m.source_field.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default()
+            };
+            let (lat, lng) = (field_for(cobolt_forms::MapMarkerField::Lat), field_for(cobolt_forms::MapMarkerField::Lng));
+            if lat.is_empty() || lng.is_empty() {
+                return;
+            }
+            props.push((
+                "_BindingMarkerFields",
+                format!(
+                    "{}\t{lat}\t{lng}\t{}\t{}",
+                    field_for(cobolt_forms::MapMarkerField::Id),
+                    field_for(cobolt_forms::MapMarkerField::Label),
+                    field_for(cobolt_forms::MapMarkerField::Info)
+                ),
+            ));
+        }
+        BindingTargetDescriptor::ControlArray { .. } => {
+            props.push(("_BindingArray", "1".to_owned()));
+            let writable = binding.mode == cobolt_forms::BindingMode::Writable && binding.source.is_writable();
+            props.push(("_BindingWritable", if writable { "1" } else { "0" }.to_owned()));
+            // sourceField \t member \t property, the rows separated by `;`.
+            let maps: Vec<String> = binding
+                .mappings
+                .iter()
+                .filter_map(|m| match &m.target {
+                    BindingTargetPath::ControlProperty { control_id: member, property_name: prop, .. } => {
+                        Some(format!("{}\t{}\t{}", m.source_field, member, prop))
+                    }
+                    _ => None,
+                })
+                .collect();
+            if !maps.is_empty() {
+                props.push(("_BindingMappings", maps.join(";")));
+            }
+        }
+        BindingTargetDescriptor::DataGrid { .. } => {}
     }
+    props.push(("_BindingFields", names));
+    props.push(("_BindingFieldTypes", types));
     for (name, value) in props {
-        out.push_str(&format!(
-            "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"{name}\" BY CONTENT \"{}\"\n",
+        // The marker spec keeps its tabs: the runtime splits on them.
+        let shown = if name == "_BindingMarkerFields" || name == "_BindingMappings" {
+            value.replace('"', "\"\"")
+        } else {
             literal(&value)
+        };
+        out.push_str(&format!(
+            "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"{name}\" BY CONTENT \"{shown}\"\n"
         ));
     }
     out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));

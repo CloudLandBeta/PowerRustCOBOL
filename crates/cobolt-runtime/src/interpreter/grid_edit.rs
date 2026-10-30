@@ -310,7 +310,7 @@ impl Interpreter {
         let upper = grid.to_ascii_uppercase();
         let kind = self.obj_get(grid, "_BindingKind").trim().to_ascii_lowercase();
         let tracked = self.obj_get(grid, "_BindingWritable").trim() == "1"
-            && matches!(kind.as_str(), "indexedfile" | "coboltable" | "sql");
+            && matches!(kind.as_str(), "indexedfile" | "coboltable" | "sql" | "partiql");
         if !tracked {
             self.obj_set(grid, "_RowOrigins", String::new());
             self.obj_set(grid, "_KeyColumns", String::new());

@@ -764,6 +764,45 @@ struct BindingEditorState {
     dropdown_config_row: Option<usize>,
     validation_error: Option<String>,
     confirm_clear: bool,
+    /// Spec 108: the PartiQL source (T25).
+    partiql: PartiqlEditor,
+}
+
+/// What the PartiQL section of the binding editor holds (spec 108, R39).
+#[derive(Debug, Clone, Default)]
+struct PartiqlEditor {
+    /// The form's real `IndexedFile` controls, as `(id, .cidx path)`.
+    controls: Vec<(String, String)>,
+    selected: String,
+    query: String,
+    /// One entry per `?`: a data item, or `CONTROL::Property`, or free text.
+    parameters: Vec<String>,
+    /// What a parameter can name: the form's data items and control properties.
+    choices: Vec<String>,
+    /// The RECORD KEY fields of the selected file.
+    key_parts: Vec<String>,
+    /// Why the fields could not be seeded (the query or the definition).
+    note: Option<String>,
+    test: PartiqlTest,
+}
+
+/// The "Test query" area (R39): a value per `?`, then the read-only run.
+#[derive(Debug, Clone, Default)]
+struct PartiqlTest {
+    open: bool,
+    values: Vec<String>,
+    result: Option<PartiqlTestOutcome>,
+}
+
+impl PartiqlEditor {
+    /// The `.cidx` path the selected control names.
+    fn cidx(&self) -> String {
+        self.controls
+            .iter()
+            .find(|(id, _)| *id == self.selected)
+            .map(|(_, cidx)| cidx.clone())
+            .unwrap_or_default()
+    }
 }
 
 impl BindingEditorState {
@@ -825,9 +864,16 @@ impl BindingEditorState {
             BindingEditorSourceKind::RestApi => (String::new(), sample_rest_field_rows()),
             BindingEditorSourceKind::Sql
             | BindingEditorSourceKind::CobolTable
-            | BindingEditorSourceKind::AgentAi => (String::new(), Vec::new()),
+            | BindingEditorSourceKind::AgentAi
+            | BindingEditorSourceKind::PartiQl => (String::new(), Vec::new()),
         };
-        Some(Self {
+        let partiql = PartiqlEditor {
+            controls: partiql_controls_of(form),
+            selected: partiql_controls_of(form).first().map(|(id, _)| id.clone()).unwrap_or_default(),
+            choices: partiql_parameter_choices(form),
+            ..PartiqlEditor::default()
+        };
+        let mut editor = Self {
             target_control_id: target_id.clone(),
             member_controls,
             selected_source,
@@ -857,7 +903,63 @@ impl BindingEditorState {
             dropdown_config_row: None,
             validation_error: None,
             confirm_clear: false,
-        })
+            partiql,
+        };
+        if source_kind == BindingEditorSourceKind::PartiQl {
+            editor.reseed_partiql();
+        }
+        Some(editor)
+    }
+
+    /// Spec 108 (R39): rebuild the field rows from the query's projection against
+    /// the selected control's `.cidx`; a field that already has a row keeps the
+    /// settings the developer gave it. A query or definition that cannot be read
+    /// leaves the rows as they are and says why.
+    fn reseed_partiql(&mut self) {
+        let cidx = self.partiql.cidx();
+        match partiql_seed(&cidx, &self.partiql.query) {
+            Ok(seed) => {
+                let old = std::mem::take(&mut self.rows);
+                self.rows = seed
+                    .rows
+                    .into_iter()
+                    .map(|mut row| {
+                        if let Some(before) =
+                            old.iter().find(|o| o.source_field.eq_ignore_ascii_case(&row.source_field))
+                        {
+                            row.friendly_name = before.friendly_name.clone();
+                            row.edit_control = before.edit_control.clone();
+                            row.dropdown = before.dropdown.clone();
+                            row.required = before.required;
+                            row.visible = before.visible;
+                            row.enabled = before.enabled;
+                        }
+                        row
+                    })
+                    .collect();
+                self.partiql.key_parts = seed.key_parts;
+                self.partiql.note = None;
+            }
+            Err(message) => {
+                self.partiql.note = Some(message);
+                if let Ok(file) = partiql_load_file(&cidx) {
+                    self.partiql.key_parts = file.key_parts();
+                }
+            }
+        }
+        self.removed_rows.clear();
+        self.dropdown_config_row = None;
+        self.partiql.test.result = None;
+    }
+
+    /// The RECORD KEY fields the rows do not hold (R39: what a writable target still needs).
+    fn partiql_missing_key_parts(&self) -> Vec<String> {
+        self.partiql
+            .key_parts
+            .iter()
+            .filter(|part| !self.rows.iter().any(|row| row.source_field.eq_ignore_ascii_case(part)))
+            .cloned()
+            .collect()
     }
 
     /// Open the editor pre-filled from an **existing** binding so a databound
@@ -878,9 +980,7 @@ impl BindingEditorState {
             Src::CobolTable { .. } => BindingEditorSourceKind::CobolTable,
             Src::RestApi { .. } => BindingEditorSourceKind::RestApi,
             Src::AgentAi { .. } => BindingEditorSourceKind::AgentAi,
-            // Spec 108: the binding editor does not edit a PartiQL source yet (T25);
-            // the binding itself loads, runs and saves as it is.
-            Src::PartiQl { .. } => return None,
+            Src::PartiQl { .. } => BindingEditorSourceKind::PartiQl,
         };
         let mut s = Self::new(form, control, source_kind, indexed_files)?;
         s.binding_id = binding.id.clone();
@@ -926,6 +1026,14 @@ impl BindingEditorState {
                     s.rest_endpoint = endpoint_name.clone();
                 }
             }
+            Src::PartiQl { source_control_id, query, parameters, .. } => {
+                if !source_control_id.trim().is_empty() {
+                    s.partiql.selected = source_control_id.clone();
+                }
+                s.partiql.query = query.clone();
+                s.partiql.parameters = parameters.clone();
+                s.partiql.key_parts = partiql_load_file(&s.partiql.cidx()).map(|f| f.key_parts()).unwrap_or_default();
+            }
             _ => {}
         }
         // Rebuild the field rows from the persisted source fields.
@@ -958,7 +1066,9 @@ impl BindingEditorState {
         // binding) is still a key: applying the editor must not drop it.
         let named_keys: Vec<&String> = match &binding.source {
             Src::IndexedFile { key_field, .. } => key_field.iter().collect(),
-            Src::Sql { key_fields, .. } | Src::CobolTable { key_fields, .. } => key_fields.iter().collect(),
+            Src::Sql { key_fields, .. } | Src::CobolTable { key_fields, .. } | Src::PartiQl { key_fields, .. } => {
+                key_fields.iter().collect()
+            }
             _ => Vec::new(),
         };
         for row in &mut s.rows {
@@ -997,6 +1107,7 @@ impl BindingEditorState {
             }
             BindingEditorSourceKind::RestApi => sample_rest_field_rows(),
             BindingEditorSourceKind::Sql | BindingEditorSourceKind::AgentAi => Vec::new(),
+            BindingEditorSourceKind::PartiQl => Vec::new(),
         };
         self.removed_rows.clear();
         self.dropdown_config_row = None;
@@ -1005,6 +1116,9 @@ impl BindingEditorState {
         }
         if source_kind == BindingEditorSourceKind::RestApi && self.rest_endpoint.trim().is_empty() {
             self.rest_endpoint = "https://api.example.com/v1/products".to_owned();
+        }
+        if source_kind == BindingEditorSourceKind::PartiQl {
+            self.reseed_partiql();
         }
     }
 
@@ -1121,6 +1235,14 @@ impl BindingEditorState {
                 fields,
                 update: None,
             },
+            BindingEditorSourceKind::PartiQl => BindingSourceDescriptor::PartiQl {
+                source_control_id: self.partiql.selected.trim().to_owned(),
+                query: self.partiql.query.trim().to_owned(),
+                parameters: self.partiql.parameters.iter().map(|p| p.trim().to_owned()).collect(),
+                fields,
+                key_fields,
+                writable: self.mode == BindingMode::Writable,
+            },
         }
     }
 
@@ -1172,6 +1294,9 @@ impl BindingEditorState {
         if source == BindingEditorSourceKind::RestApi {
             self.validate_rest_source()?;
         }
+        if source == BindingEditorSourceKind::PartiQl {
+            self.validate_partiql_source()?;
+        }
         if self.rows.is_empty() {
             return Err(crate::ui_text::tx("At least one source field must remain visible.").to_owned());
         }
@@ -1201,6 +1326,30 @@ impl BindingEditorState {
                 && row.edit_control == BindingEditControl::Dropdown
             {
                 row.dropdown.validate(&row.source_field)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Spec 108: the source control is one of the form's, the query (when there is
+    /// one) is one `SELECT`, and every `?` has a parameter. The query's names are
+    /// judged against the `.cidx` by the Guardian and Check, not here.
+    fn validate_partiql_source(&self) -> Result<(), String> {
+        if self.partiql.selected.trim().is_empty()
+            || !self.partiql.controls.iter().any(|(id, _)| *id == self.partiql.selected)
+        {
+            return Err(crate::ui_text::tx("An IndexedFile control must be selected.").to_owned());
+        }
+        if self.partiql.parameters.iter().any(|p| p.trim().is_empty()) {
+            return Err(crate::ui_text::tx("Every parameter needs a data item or a CONTROL::Property.").to_owned());
+        }
+        if !self.partiql.query.trim().is_empty() {
+            let count = partiql_param_count(&self.partiql.query)?;
+            if count != self.partiql.parameters.len() {
+                return Err(crate::ui_text::txf(
+                    "The query has {} ? parameter(s) and {} are listed.",
+                    &[&count, &self.partiql.parameters.len()],
+                ));
             }
         }
         Ok(())
@@ -1302,6 +1451,10 @@ impl BindingEditorState {
         self.rest_endpoint.clear();
         self.rest_headers.clear();
         self.selected_cobol_field_to_add.clear();
+        self.partiql.query.clear();
+        self.partiql.parameters.clear();
+        self.partiql.note = None;
+        self.partiql.test = PartiqlTest::default();
         self.rows.clear();
         self.removed_rows.clear();
         self.dropdown_config_row = None;
@@ -1344,11 +1497,12 @@ impl BindingEditControl {
 /// growing tall enough to push the rest of Appearance off-screen.
 pub(crate) const CAPTION_WRAP_ROWS: usize = 3;
 
-const DATA_BINDING_MODAL_SOURCES: [BindingEditorSourceKind; 4] = [
+const DATA_BINDING_MODAL_SOURCES: [BindingEditorSourceKind; 5] = [
     BindingEditorSourceKind::IndexedFile,
     BindingEditorSourceKind::Sql,
     BindingEditorSourceKind::CobolTable,
     BindingEditorSourceKind::RestApi,
+    BindingEditorSourceKind::PartiQl,
 ];
 
 const MOCK_SQL_CONTROLS: &[&str] = &[
@@ -1881,6 +2035,309 @@ fn indexed_definition_rows(definition_path: &str) -> Option<(String, Vec<Binding
     Some((root.name.clone(), rows))
 }
 
+
+// ── Spec 108 (R39): the PartiQL source of the binding editor ────────────────
+
+/// The form's real `IndexedFile` controls, as `(id, .cidx path)` — never a stand-in.
+fn partiql_controls_of(form: &Form) -> Vec<(String, String)> {
+    form.controls
+        .iter()
+        .filter(|control| control.control_type == cobolt_forms::ControlType::IndexedFile)
+        .map(|control| {
+            let cidx = control.get_prop("IndexedFile").map(|p| p.as_str().trim().to_owned()).unwrap_or_default();
+            (control.id.clone(), cidx)
+        })
+        .collect()
+}
+
+/// What a PartiQL parameter can name: the form's WORKING-STORAGE data items, then
+/// `CONTROL::Property` for the properties a control holds a value in.
+fn partiql_parameter_choices(form: &Form) -> Vec<String> {
+    let mut choices: Vec<String> = Vec::new();
+    let ws = form.user_ws_source.trim();
+    if !ws.is_empty() {
+        let source = format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. BINDING-METADATA.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n{ws}\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n"
+        );
+        if let Some(data) = parse(tokenize(&source, SourceFormat::Free)).program.and_then(|p| p.data) {
+            fn walk(item: &DataDecl, out: &mut Vec<String>) {
+                if item.level != 88 && item.level != 66 {
+                    if let Some(name) = &item.name {
+                        out.push(name.clone());
+                    }
+                }
+                for child in &item.children {
+                    walk(child, out);
+                }
+            }
+            for section in &data.sections {
+                if let DataSection::WorkingStorage(items) = section {
+                    for item in items {
+                        walk(item, &mut choices);
+                    }
+                }
+            }
+        }
+    }
+    for control in &form.controls {
+        let id = &control.id;
+        for property in ["Text", "Value", "SelectedValue"] {
+            if control.get_prop(property).is_some() {
+                choices.push(format!("{id}::{property}"));
+            }
+        }
+    }
+    choices
+}
+
+/// A `.cidx` read for the PartiQL section: its definition and the schema the
+/// executor works on (the table is the `.cidx` stem, upper-case).
+struct PartiqlFile {
+    def: cobolt_indexed::IndexedDefinition,
+    schema: cobolt_runtime::partiql::schema::Schema,
+}
+
+impl PartiqlFile {
+    /// The RECORD KEY's fields.
+    fn key_parts(&self) -> Vec<String> {
+        self.schema.primary.parts.iter().map(|p| p.field_name.clone()).collect()
+    }
+}
+
+fn partiql_load_file(cidx: &str) -> Result<PartiqlFile, String> {
+    let cidx = cidx.trim();
+    if cidx.is_empty() {
+        return Err(crate::ui_text::tx("The IndexedFile control names no definition (.cidx).").to_owned());
+    }
+    let def = cobolt_indexed::load_indexed(cobolt_forms::assets::resolve(cidx))
+        .map_err(|_| crate::ui_text::txf("The definition {} could not be read.", &[&cidx]))?;
+    let table = std::path::Path::new(cidx)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    let schema = cobolt_runtime::partiql::schema::Schema::from_definition(&table, &def)
+        .map_err(|_| crate::ui_text::txf("The definition {} could not be read.", &[&cidx]))?;
+    Ok(PartiqlFile { def, schema })
+}
+
+/// How many `?` the query holds, or the parser's own (English) message.
+fn partiql_param_count(query: &str) -> Result<usize, String> {
+    use cobolt_runtime::partiql::parser::{parse_statement, Statement};
+    let parsed = parse_statement(query).map_err(|e| e.text())?;
+    if !matches!(parsed.statement, Statement::Select(_)) {
+        return Err(crate::ui_text::tx("A binding query must be one SELECT: the other statements write.").to_owned());
+    }
+    Ok(parsed.param_count)
+}
+
+/// The seed of the Fields grid.
+struct PartiqlSeed {
+    rows: Vec<BindingFieldRow>,
+    key_parts: Vec<String>,
+}
+
+/// The rows a query's projection gives against the `.cidx`: one per column, with the
+/// real field name and PICTURE (a plain field), the key flag for a RECORD KEY part,
+/// and — for a computed column — the type the executor gives it (`S9(18)` / `X(60)`,
+/// both editable). An empty query seeds every leaf of the record, as the control's
+/// own result set shows them.
+fn partiql_seed(cidx: &str, query: &str) -> Result<PartiqlSeed, String> {
+    use cobolt_runtime::partiql::analyze::{analyze, RExpr, RStmt, Ty};
+    use cobolt_runtime::partiql::parser::parse_statement;
+    let file = partiql_load_file(cidx)?;
+    let key_parts = file.key_parts();
+    let is_key = |name: &str| key_parts.iter().any(|k| k.eq_ignore_ascii_case(name));
+    let leaves = file.def.record_root().map(|root| root.all_leaves()).unwrap_or_default();
+    let pic_of = |name: &str| {
+        leaves
+            .iter()
+            .find(|leaf| leaf.name.eq_ignore_ascii_case(name))
+            .map(|leaf| leaf.pic.trim_start_matches('\u{200B}').to_owned())
+    };
+    let row = |name: &str, pic: &str| {
+        let mut row = BindingFieldRow::new(
+            name.to_owned(),
+            pic.to_owned(),
+            binding_data_type_for_pic(pic),
+            name.to_owned(),
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        );
+        row.key = is_key(name);
+        row
+    };
+    let rows: Vec<BindingFieldRow> = if query.trim().is_empty() {
+        leaves.iter().map(|leaf| row(&leaf.name, leaf.pic.trim_start_matches('\u{200B}'))).collect()
+    } else {
+        let parsed = parse_statement(query).map_err(|e| e.text())?;
+        let analyzed = analyze(&parsed, &file.schema, false).map_err(|e| e.text())?;
+        let RStmt::Select(select) = &analyzed.stmt else {
+            return Err(crate::ui_text::tx("A binding query must be one SELECT: the other statements write.").to_owned());
+        };
+        select
+            .columns
+            .iter()
+            .map(|column| match &column.expr {
+                RExpr::Field(at) => {
+                    let field = &file.schema.fields[at.field];
+                    let pic = pic_of(&field.name).unwrap_or_else(|| "X(30)".to_owned());
+                    row(&column.name, &pic)
+                }
+                _ => match column.ty {
+                    Some(Ty::Num) => {
+                        let mut r = row(&column.name, "S9(18)");
+                        r.key = false;
+                        r
+                    }
+                    _ => {
+                        let mut r = row(&column.name, "X(60)");
+                        r.key = false;
+                        r
+                    }
+                },
+            })
+            .collect()
+    };
+    Ok(PartiqlSeed { rows, key_parts })
+}
+
+/// Most items "Test query" lists.
+const PARTIQL_TEST_SHOWN: usize = 50;
+
+/// What "Test query" found: the read class, every item counted, the first
+/// [`PARTIQL_TEST_SHOWN`] as `NAME = value | …` lines, or the error (the engine's
+/// own text — `LastError` — stays English).
+#[derive(Debug, Clone, Default, PartialEq)]
+struct PartiqlTestOutcome {
+    class: Option<&'static str>,
+    count: usize,
+    lines: Vec<String>,
+    error: Option<String>,
+}
+
+impl PartiqlTestOutcome {
+    fn failed(message: String) -> Self {
+        Self { error: Some(message), ..Self::default() }
+    }
+}
+
+/// The store a read-only test opens, chosen as the runtime chooses it: the data
+/// file's own container first, then the definition's storage class.
+fn partiql_open_input(
+    def: &cobolt_indexed::IndexedDefinition,
+    path: &std::path::Path,
+) -> Result<Box<dyn cobolt_runtime::indexed::IndexedStore>, String> {
+    use cobolt_runtime::indexed::{IndexedFile, IndexedStore, OpenMode};
+    use cobolt_runtime::indexed_disk::DiskIndexedFile;
+    use cobolt_runtime::indexed_redb::RedbIndexedFile;
+    let (primary, alts) = cobolt_runtime::indexed_ide::key_specs_from_def(def);
+    let reclen = (def.record_length() as usize).max(1);
+    let names: Vec<Option<String>> = std::iter::once(def.keys.primary.name.clone())
+        .chain(def.keys.alternates.iter().map(|k| k.name.clone()))
+        .collect();
+    let text = Some(cobolt_runtime::indexed_ide::definition_text_of(def));
+    let mut magic = [0u8; 8];
+    let n = {
+        use std::io::Read as _;
+        std::fs::File::open(path).and_then(|mut f| f.read(&mut magic)).unwrap_or(0)
+    };
+    let is_redb = n >= 4 && &magic[0..4] == b"redb";
+    let p = path.to_string_lossy().to_string();
+    let mut store: Box<dyn IndexedStore> = if is_redb && def.storage == cobolt_indexed::StorageMode::Disk {
+        let mut e = RedbIndexedFile::new(&p, reclen, primary, alts);
+        e.set_key_names(names);
+        e.set_compressing(def.compression);
+        e.set_definition(text);
+        e.set_strict_metadata(false);
+        Box::new(e)
+    } else if def.storage == cobolt_indexed::StorageMode::Memory {
+        let mut e = IndexedFile::new(&p, reclen, primary, alts);
+        e.set_key_names(names);
+        e.set_compressing(def.compression);
+        e.set_persist(def.persistence);
+        e.set_definition(text);
+        Box::new(e)
+    } else {
+        let mut e = DiskIndexedFile::new(&p, reclen, primary, alts);
+        e.set_key_names(names);
+        e.set_compressing(def.compression);
+        e.set_definition(text);
+        Box::new(e)
+    };
+    let code = store.open(OpenMode::Input);
+    if code.starts_with('0') {
+        Ok(store)
+    } else {
+        Err(crate::ui_text::txf("The data file could not be opened for reading (FILE STATUS {}).", &[&code]))
+    }
+}
+
+/// Run a binding query READ-ONLY against the control's data file: the file is opened
+/// `INPUT`, only a `SELECT` runs, and each `?` takes the typed value in order (text
+/// the executor coerces to the type it meets, as for a `CONTROL::Property`).
+fn partiql_test_query(cidx: &str, query: &str, values: &[String]) -> PartiqlTestOutcome {
+    use cobolt_runtime::partiql::analyze::{analyze, RStmt};
+    use cobolt_runtime::partiql::exec::{bind, execute, Arg};
+    use cobolt_runtime::partiql::parser::parse_statement;
+    if query.trim().is_empty() {
+        return PartiqlTestOutcome::failed(crate::ui_text::tx("Write a query to test.").to_owned());
+    }
+    let file = match partiql_load_file(cidx) {
+        Ok(file) => file,
+        Err(message) => return PartiqlTestOutcome::failed(message),
+    };
+    let analyzed = match parse_statement(query).and_then(|p| analyze(&p, &file.schema, false)) {
+        Ok(analyzed) => analyzed,
+        Err(e) => return PartiqlTestOutcome::failed(e.text()),
+    };
+    if !matches!(analyzed.stmt, RStmt::Select(_)) {
+        return PartiqlTestOutcome::failed(
+            crate::ui_text::tx("A binding query must be one SELECT: the other statements write.").to_owned(),
+        );
+    }
+    let args: Vec<Arg> = values.iter().map(|v| Arg::Text(v.clone())).collect();
+    let params = match bind(&[&analyzed], &args) {
+        Ok(params) => params,
+        Err(e) => return PartiqlTestOutcome::failed(e.text()),
+    };
+    let data_path = cobolt_forms::assets::resolve(&file.def.assign_path);
+    if !data_path.exists() {
+        return PartiqlTestOutcome::failed(crate::ui_text::txf(
+            "The data file {} does not exist yet: there is nothing to read.",
+            &[&data_path.display()],
+        ));
+    }
+    let mut store = match partiql_open_input(&file.def, &data_path) {
+        Ok(store) => store,
+        Err(message) => return PartiqlTestOutcome::failed(message),
+    };
+    let outcome = execute(store.as_mut(), &file.schema, &analyzed, &params);
+    store.close();
+    if let Some(error) = &outcome.error {
+        return PartiqlTestOutcome::failed(error.text());
+    }
+    let lines = outcome
+        .items
+        .iter()
+        .take(PARTIQL_TEST_SHOWN)
+        .map(|item| {
+            item.cols
+                .iter()
+                .enumerate()
+                .map(|(i, col)| format!("{} = {}", col.name, item.text(i)))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        })
+        .collect();
+    PartiqlTestOutcome {
+        class: outcome.class.map(|class| class.name()),
+        count: outcome.count,
+        lines,
+        error: None,
+    }
+}
+
 fn cobol_table_binding_metadata(form: &Form) -> Vec<CobolTableBindingMeta> {
     let ws = form.user_ws_source.trim();
     if ws.is_empty() {
@@ -2182,7 +2639,7 @@ fn show_binding_source_selector(ui: &mut Ui, editor: &mut BindingEditorState, tr
     let selected_stroke = egui::Stroke::new(1.5, Color32::from_rgb(70, 145, 255));
     let idle_stroke = egui::Stroke::new(1.0, Color32::from_rgb(75, 80, 88));
 
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         for source_kind in DATA_BINDING_MODAL_SOURCES {
             let enabled = source_kind != BindingEditorSourceKind::IndexedFile
                 || !editor.indexed_files.is_empty();
@@ -2193,6 +2650,7 @@ fn show_binding_source_selector(ui: &mut Ui, editor: &mut BindingEditorState, tr
                 BindingEditorSourceKind::CobolTable => "[grid]",
                 BindingEditorSourceKind::RestApi => "(cloud)",
                 BindingEditorSourceKind::AgentAi => "(ai)",
+                BindingEditorSourceKind::PartiQl => "[?]",
             };
             let text_color = if selected {
                 Color32::from_rgb(210, 230, 255)
@@ -2355,6 +2813,228 @@ fn show_sql_source_section(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr
     ui.add(egui::TextEdit::singleline(&mut editor.sql_table).id_salt("data_binding_sql_table").desired_width(330.0));
     ui.add_space(4.0);
     ui.label(RichText::new(tr.dg_sql_hint).small().color(Color32::GRAY));
+}
+
+/// Spec 108 (R39): the PartiQL source — the form's `IndexedFile` control, the
+/// query, its parameters, and the read-only "Test query".
+fn show_partiql_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.heading(crate::ui_text::tx("PartiQL source"));
+    ui.add_space(8.0);
+    // The form's own IndexedFile controls: nothing else can run the query.
+    if editor.partiql.controls.is_empty() {
+        ui.label(
+            RichText::new(crate::ui_text::tx("No IndexedFile control on this form."))
+                .small()
+                .color(Color32::GRAY),
+        );
+        return;
+    }
+    let before = editor.partiql.selected.clone();
+    ui.horizontal(|ui| {
+        ui.label(crate::ui_text::tx("IndexedFile control"));
+        egui::ComboBox::from_id_salt("data_binding_partiql_control")
+            .selected_text(editor.partiql.selected.clone())
+            .width(330.0)
+            .show_ui(ui, |ui| {
+                for (id, _) in editor.partiql.controls.clone() {
+                    ui.selectable_value(&mut editor.partiql.selected, id.clone(), id);
+                }
+            });
+    });
+    if editor.partiql.selected != before {
+        editor.reseed_partiql();
+    }
+    ui.add_space(8.0);
+    ui.label(crate::ui_text::tx("Query (SELECT that fills the control)"));
+    ui.add(
+        egui::TextEdit::multiline(&mut editor.partiql.query)
+            .id_salt("data_binding_partiql_query")
+            .desired_rows(4)
+            .desired_width(520.0)
+            .font(egui::TextStyle::Monospace),
+    );
+    ui.label(RichText::new(crate::ui_text::tx(
+        "One SELECT on the control's file; each ? takes the next parameter. Leave it empty to follow the control's own result set.",
+    ))
+    .small()
+    .color(Color32::GRAY));
+    ui.add_space(8.0);
+
+    // Parameters: one per `?`, in order; add, remove, reorder.
+    ui.label(crate::ui_text::tx("Parameters (one for each ?, in order)"));
+    let mut remove_at: Option<usize> = None;
+    let mut move_up: Option<usize> = None;
+    let mut move_down: Option<usize> = None;
+    let count = editor.partiql.parameters.len();
+    let choices = editor.partiql.choices.clone();
+    for index in 0..count {
+        ui.horizontal(|ui| {
+            ui.label(format!("{}.", index + 1));
+            ui.add(
+                egui::TextEdit::singleline(&mut editor.partiql.parameters[index])
+                    .id_salt(format!("data_binding_partiql_param_{index}"))
+                    .desired_width(260.0)
+                    .font(egui::TextStyle::Monospace),
+            );
+            egui::ComboBox::from_id_salt(format!("data_binding_partiql_param_pick_{index}"))
+                .selected_text("▾")
+                .width(40.0)
+                .show_ui(ui, |ui| {
+                    if choices.is_empty() {
+                        ui.label(RichText::new(crate::ui_text::tx("(none)")).small().color(Color32::GRAY));
+                    }
+                    for choice in &choices {
+                        if ui.selectable_label(false, choice).clicked() {
+                            editor.partiql.parameters[index] = choice.clone();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(crate::ui_text::tx("Pick a data item or a control property"));
+            if ui.add_enabled(index > 0, egui::Button::new("↑").small()).on_hover_text(crate::ui_text::tx("Move up")).clicked() {
+                move_up = Some(index);
+            }
+            if ui
+                .add_enabled(index + 1 < count, egui::Button::new("↓").small())
+                .on_hover_text(crate::ui_text::tx("Move down"))
+                .clicked()
+            {
+                move_down = Some(index);
+            }
+            if ui.small_button("X").on_hover_text(crate::ui_text::tx("Remove parameter")).clicked() {
+                remove_at = Some(index);
+            }
+        });
+    }
+    if let Some(i) = move_up {
+        editor.partiql.parameters.swap(i, i - 1);
+    }
+    if let Some(i) = move_down {
+        editor.partiql.parameters.swap(i, i + 1);
+    }
+    if let Some(i) = remove_at {
+        editor.partiql.parameters.remove(i);
+    }
+    if ui.button(crate::ui_text::tx("+ Add parameter")).clicked() {
+        editor.partiql.parameters.push(String::new());
+    }
+    // The count the query asks for, against the list.
+    if !editor.partiql.query.trim().is_empty() {
+        match partiql_param_count(&editor.partiql.query) {
+            Ok(wanted) if wanted != editor.partiql.parameters.len() => {
+                ui.colored_label(
+                    Color32::from_rgb(255, 176, 0),
+                    crate::ui_text::txf(
+                        "The query has {} ? parameter(s) and {} are listed.",
+                        &[&wanted, &editor.partiql.parameters.len()],
+                    ),
+                );
+            }
+            _ => {}
+        }
+    }
+    ui.add_space(8.0);
+
+    ui.horizontal(|ui| {
+        if ui
+            .button(crate::ui_text::tx("Fields from the query"))
+            .on_hover_text(crate::ui_text::tx(
+                "Rebuild the fields from the query's columns and the PICTUREs of the .cidx; a field that already has a row keeps its settings.",
+            ))
+            .clicked()
+        {
+            editor.reseed_partiql();
+        }
+        if ui
+            .button(crate::ui_text::tx("Test query"))
+            .on_hover_text(crate::ui_text::tx("Run the query on the data file for reading only; nothing is changed."))
+            .clicked()
+        {
+            editor.partiql.test.open = !editor.partiql.test.open;
+        }
+    });
+    if let Some(note) = &editor.partiql.note {
+        ui.colored_label(Color32::from_rgb(255, 120, 110), note);
+    }
+    if editor.partiql.test.open {
+        show_partiql_test(ui, editor);
+    }
+}
+
+/// The "Test query" area: a value per `?`, then the read-only run and its result.
+/// A fixed-height list, so the window never grows with the result.
+fn show_partiql_test(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.add_space(6.0);
+    egui::Frame::NONE
+        .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.label(RichText::new(crate::ui_text::tx("Test query")).strong());
+            if editor.partiql.query.trim().is_empty() {
+                ui.label(RichText::new(crate::ui_text::tx("Write a query to test.")).small().color(Color32::GRAY));
+                return;
+            }
+            let wanted = match partiql_param_count(&editor.partiql.query) {
+                Ok(n) => n,
+                Err(message) => {
+                    ui.colored_label(Color32::from_rgb(255, 120, 110), message);
+                    return;
+                }
+            };
+            editor.partiql.test.values.resize(wanted, String::new());
+            for index in 0..wanted {
+                ui.horizontal(|ui| {
+                    ui.label(crate::ui_text::txf("Value for parameter {}", &[&(index + 1)]));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut editor.partiql.test.values[index])
+                            .id_salt(format!("data_binding_partiql_test_value_{index}"))
+                            .desired_width(200.0),
+                    );
+                });
+            }
+            if ui.button(crate::ui_text::tx("Run the test")).clicked() {
+                let result = partiql_test_query(
+                    &editor.partiql.cidx(),
+                    &editor.partiql.query,
+                    &editor.partiql.test.values,
+                );
+                editor.partiql.test.result = Some(result);
+            }
+            let Some(result) = &editor.partiql.test.result else { return };
+            if let Some(error) = &result.error {
+                ui.colored_label(Color32::from_rgb(255, 120, 110), error);
+                return;
+            }
+            ui.horizontal(|ui| {
+                ui.label(crate::ui_text::tx("Read class:"));
+                ui.monospace(result.class.unwrap_or(""));
+                ui.label(crate::ui_text::tx("Items:"));
+                ui.monospace(result.count.to_string());
+            });
+            if result.count == 0 {
+                ui.label(RichText::new(crate::ui_text::tx("No item matched.")).small().color(Color32::GRAY));
+            } else if result.count > result.lines.len() {
+                ui.label(
+                    RichText::new(crate::ui_text::txf(
+                        "Showing the first {} of {} items.",
+                        &[&result.lines.len(), &result.count],
+                    ))
+                    .small()
+                    .color(Color32::GRAY),
+                );
+            }
+            egui::ScrollArea::vertical()
+                .id_salt("data_binding_partiql_test_items")
+                .max_height(160.0)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    for line in &result.lines {
+                        ui.add(egui::Label::new(RichText::new(line).monospace().small()).wrap_mode(egui::TextWrapMode::Extend));
+                    }
+                });
+        });
 }
 
 fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
@@ -2924,6 +3604,9 @@ enum WritableNeed {
     KeyField,
     /// The SQL source names no table for an edit to update.
     SqlTable,
+    /// Spec 108: a PartiQL binding does not project the whole RECORD KEY, so the
+    /// row an edit belongs to cannot be found.
+    RecordKey,
     /// The grid does not allow cell editing, so no edit is ever made.
     CellEditing,
 }
@@ -2940,6 +3623,9 @@ fn writable_needs(editor: &BindingEditorState, ctrl: &Control) -> Vec<WritableNe
     );
     if keyed && !editor.rows.iter().any(|row| row.key) {
         needs.push(WritableNeed::KeyField);
+    }
+    if editor.selected_source == Some(BindingEditorSourceKind::PartiQl) && !editor.partiql_missing_key_parts().is_empty() {
+        needs.push(WritableNeed::RecordKey);
     }
     if editor.selected_source == Some(BindingEditorSourceKind::Sql) && editor.sql_table.trim().is_empty() {
         needs.push(WritableNeed::SqlTable);
@@ -2986,9 +3672,13 @@ fn show_writable_section(
             ui.horizontal_wrapped(|ui| {
                 ui.colored_label(Color32::from_rgb(255, 176, 0), "•");
                 ui.label(match need {
-                    WritableNeed::KeyField => tr.dg_writable_need_key,
-                    WritableNeed::SqlTable => tr.dg_writable_need_table,
-                    WritableNeed::CellEditing => tr.dg_writable_need_editing,
+                    WritableNeed::RecordKey => crate::ui_text::txf(
+                        "The whole RECORD KEY must be among the fields; {} is missing.",
+                        &[&editor.partiql_missing_key_parts().join(", ")],
+                    ),
+                    WritableNeed::KeyField => tr.dg_writable_need_key.to_owned(),
+                    WritableNeed::SqlTable => tr.dg_writable_need_table.to_owned(),
+                    WritableNeed::CellEditing => tr.dg_writable_need_editing.to_owned(),
                 });
                 if need == WritableNeed::CellEditing && ui.button(tr.dg_writable_fix_editing).clicked() {
                     action.set_props.push((ctrl.id.clone(), "AllowCellEditing".to_owned(), PropValue::Bool(true)));
@@ -4381,6 +5071,7 @@ impl PropertiesPanel {
                                         | (cobolt_forms::BindingSourceDescriptor::CobolTable { .. }, BindingEditorSourceKind::CobolTable)
                                         | (cobolt_forms::BindingSourceDescriptor::RestApi { .. }, BindingEditorSourceKind::RestApi)
                                         | (cobolt_forms::BindingSourceDescriptor::AgentAi { .. }, BindingEditorSourceKind::AgentAi)
+                                        | (cobolt_forms::BindingSourceDescriptor::PartiQl { .. }, BindingEditorSourceKind::PartiQl)
                                     )
                                 })
                                 .and_then(|b| {
@@ -6479,6 +7170,12 @@ impl PropertiesPanel {
                         Some(BindingEditorSourceKind::RestApi) => {
                             show_rest_source_section(ui, editor);
                         }
+                        Some(BindingEditorSourceKind::PartiQl) => {
+                            show_partiql_source_section(ui, editor);
+                            ui.add_space(16.0);
+                            show_source_fields_section(ui, editor);
+                            show_writable_section(ui, editor, ctrl, action, tr);
+                        }
                         Some(BindingEditorSourceKind::AgentAi) | None => {
                             source_placeholder(
                                 ui,
@@ -6501,7 +7198,9 @@ impl PropertiesPanel {
                     if editor.selected_source != Some(BindingEditorSourceKind::RestApi)
                         && editor.selected_source != Some(BindingEditorSourceKind::CobolTable)
                     {
-                        if ui.button(crate::ui_text::tx("+ Add field")).clicked() {
+                        if editor.selected_source != Some(BindingEditorSourceKind::PartiQl)
+                            && ui.button(crate::ui_text::tx("+ Add field")).clicked()
+                        {
                             let (field_prefix, mask, data_type) =
                                 if editor.selected_source == Some(BindingEditorSourceKind::Sql) {
                                     ("SQL_FIELD", "X(30)", BindingDataType::Text)
@@ -16399,6 +17098,220 @@ mod tests {
         .clone()
     }
 
+    // ── Spec 108 (T25): the PartiQL source of the binding editor ──
+
+    /// A project folder with the reference `.cidx` (as `CUSTOMERS`, its data file
+    /// beside it) holding `n` customers `00000001`.., named `CUSTOMER 1`..
+    fn partiql_project(n: usize) -> (tempfile::TempDir, String) {
+        use cobolt_runtime::indexed::{IndexedStore, OpenMode};
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let data = dir.path().join("customers.idx");
+        let xml = cobolt_project_tools::reference::sample_cidx_xml()
+            .replace("data/customers.idx", &data.to_string_lossy());
+        let cidx = dir.path().join("customers.cidx");
+        std::fs::write(&cidx, xml).expect("the .cidx is written");
+        let def = cobolt_indexed::load_indexed(&cidx).expect("the .cidx loads");
+        cobolt_runtime::indexed_ide::create_empty_from_definition(&def, &data).expect("the data file is made");
+        let (primary, alts) = cobolt_runtime::indexed_ide::key_specs_from_def(&def);
+        let mut file = cobolt_runtime::indexed_disk::DiskIndexedFile::new(&data, 56, primary, alts);
+        assert_eq!(file.open(OpenMode::Io), "00");
+        for id in 1..=n {
+            let rec = format!("{id:08}{:<40}{:08}", format!("CUSTOMER {id}"), id * 100);
+            assert_eq!(rec.len(), 56);
+            assert_eq!(file.write(rec.as_bytes()), "00", "write {id}");
+        }
+        file.close();
+        (dir, cidx.to_string_lossy().into_owned())
+    }
+
+    /// A form with two `IndexedFile` controls over `cidx`, a Label and a DataGrid.
+    fn partiql_form(cidx: &str) -> (Form, Control) {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        for id in ["IXF-CUST", "IXF-ORD"] {
+            let mut control = Control::new(id, ControlType::IndexedFile, 0, 0);
+            control.set_prop("IndexedFile", cidx);
+            form.controls.push(control);
+        }
+        form.controls.push(Control::new("LBL-1", ControlType::Label, 0, 0));
+        form.user_ws_source = "01 WS-FROM GLOBAL PIC 9(8).\n01 WS-TO GLOBAL PIC 9(8).\n".to_owned();
+        let grid = Control::new("CustomerGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+        (form, grid)
+    }
+
+    #[test]
+    fn partiql_editor_lists_the_forms_indexed_file_controls_and_no_stand_in() {
+        let (_dir, cidx) = partiql_project(3);
+        let (form, grid) = partiql_form(&cidx);
+        let editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::PartiQl, &[]).expect("opens");
+        let ids: Vec<&str> = editor.partiql.controls.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["IXF-CUST", "IXF-ORD"], "the form's two IndexedFile controls, in form order");
+        assert_eq!(editor.partiql.selected, "IXF-CUST");
+        assert_eq!(editor.partiql.cidx(), cidx);
+        // The parameters can name the form's data items.
+        assert!(editor.partiql.choices.iter().any(|c| c == "WS-FROM"), "{:?}", editor.partiql.choices);
+        // A form with no such control offers none - not a made-up id.
+        let (bare, bare_grid) = form_with_cobol_binding_table();
+        let bare_editor =
+            BindingEditorState::new(&bare, &bare_grid, BindingEditorSourceKind::PartiQl, &[]).expect("opens");
+        assert!(bare_editor.partiql.controls.is_empty());
+        assert!(bare_editor.partiql.selected.is_empty());
+    }
+
+    #[test]
+    fn partiql_fields_carry_the_pictures_of_the_cidx() {
+        let (_dir, cidx) = partiql_project(3);
+        let (form, grid) = partiql_form(&cidx);
+        let mut editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::PartiQl, &[]).expect("opens");
+        // An empty query follows the control: every leaf of the record.
+        let all: Vec<(&str, &str)> = editor.rows.iter().map(|r| (r.source_field.as_str(), r.picture.as_str())).collect();
+        assert_eq!(all, [("CUST-ID", "9(8)"), ("CUST-NAME", "X(40)"), ("CUST-BALANCE", "9(6)V99")]);
+        // A projection: two columns, the key flagged, the real PICTURE as the mask.
+        editor.partiql.query = "SELECT CUST-NAME, CUST-ID FROM CUSTOMERS".to_owned();
+        editor.reseed_partiql();
+        let rows: Vec<(&str, &str, &str, bool)> =
+            editor.rows.iter().map(|r| (r.source_field.as_str(), r.picture.as_str(), r.cobol_mask.as_str(), r.key)).collect();
+        assert_eq!(rows, [("CUST-NAME", "X(40)", "X(40)", false), ("CUST-ID", "9(8)", "9(8)", true)]);
+        assert!(editor.partiql.note.is_none());
+        // `*` expands to the record's columns.
+        editor.partiql.query = "SELECT * FROM CUSTOMERS".to_owned();
+        editor.reseed_partiql();
+        assert_eq!(editor.rows.len(), 3);
+        // A query the grammar refuses leaves the rows and says why (the engine's own English text).
+        editor.partiql.query = "SELECT NO-SUCH-FIELD FROM CUSTOMERS".to_owned();
+        editor.reseed_partiql();
+        assert_eq!(editor.rows.len(), 3);
+        assert!(editor.partiql.note.as_deref().is_some_and(|n| n.contains("NO-SUCH-FIELD")), "{:?}", editor.partiql.note);
+        // A row the developer had edited keeps its settings across a reseed.
+        editor.partiql.query = "SELECT CUST-ID FROM CUSTOMERS".to_owned();
+        editor.reseed_partiql();
+        editor.rows[0].friendly_name = "Customer number".to_owned();
+        editor.reseed_partiql();
+        assert_eq!(editor.rows[0].friendly_name, "Customer number");
+    }
+
+    #[test]
+    fn a_writable_partiql_binding_names_the_record_key_it_is_missing() {
+        let (_dir, cidx) = partiql_project(3);
+        let (form, grid) = partiql_form(&cidx);
+        let mut editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::PartiQl, &[]).expect("opens");
+        assert!(editor.partiql_missing_key_parts().is_empty(), "the whole record holds the key");
+        editor.partiql.query = "SELECT CUST-NAME FROM CUSTOMERS".to_owned();
+        editor.reseed_partiql();
+        assert_eq!(editor.partiql_missing_key_parts(), ["CUST-ID"]);
+        editor.mode = BindingMode::Writable;
+        assert!(writable_needs(&editor, &grid).contains(&WritableNeed::RecordKey));
+        editor.partiql.query = "SELECT CUST-ID, CUST-NAME FROM CUSTOMERS".to_owned();
+        editor.reseed_partiql();
+        assert!(!writable_needs(&editor, &grid).contains(&WritableNeed::RecordKey));
+    }
+
+    #[test]
+    fn partiql_editor_round_trips_through_the_binding() {
+        let (_dir, cidx) = partiql_project(3);
+        let (mut form, grid) = partiql_form(&cidx);
+        let mut editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::PartiQl, &[]).expect("opens");
+        editor.partiql.selected = "IXF-ORD".to_owned();
+        editor.partiql.query = "SELECT CUST-ID, CUST-NAME FROM CUSTOMERS WHERE CUST-ID BETWEEN ? AND ?".to_owned();
+        editor.partiql.parameters = vec!["WS-FROM".to_owned(), "WS-TO".to_owned()];
+        editor.reseed_partiql();
+        editor.mode = BindingMode::Writable;
+        assert_eq!(editor.validate(), Ok(()));
+        let binding = editor.to_binding(&form).expect("a binding");
+        assert_eq!(binding.mode, BindingMode::Writable);
+        match &binding.source {
+            cobolt_forms::BindingSourceDescriptor::PartiQl { source_control_id, query, parameters, fields, key_fields, writable } => {
+                assert_eq!(source_control_id, "IXF-ORD");
+                assert!(query.ends_with("BETWEEN ? AND ?"));
+                assert_eq!(parameters, &["WS-FROM", "WS-TO"]);
+                assert_eq!(fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["CUST-ID", "CUST-NAME"]);
+                assert_eq!(key_fields, &["CUST-ID"]);
+                assert!(*writable);
+            }
+            other => panic!("not a PartiQL source: {other:?}"),
+        }
+        // Reopened from the saved binding, the editor holds what it was given.
+        form.data_bindings.push(binding.clone());
+        let again = BindingEditorState::from_existing(&form, &grid, &binding, &[]).expect("reopens");
+        assert_eq!(again.selected_source, Some(BindingEditorSourceKind::PartiQl));
+        assert_eq!(again.partiql.selected, "IXF-ORD");
+        assert_eq!(again.partiql.parameters, ["WS-FROM", "WS-TO"]);
+        assert_eq!(again.partiql.key_parts, ["CUST-ID"]);
+        assert_eq!(again.rows.len(), 2);
+        assert_eq!(again.mode, BindingMode::Writable);
+    }
+
+    #[test]
+    fn partiql_editor_refuses_a_query_whose_parameters_do_not_match() {
+        let (_dir, cidx) = partiql_project(3);
+        let (form, grid) = partiql_form(&cidx);
+        let mut editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::PartiQl, &[]).expect("opens");
+        editor.partiql.query = "SELECT * FROM CUSTOMERS WHERE CUST-ID BETWEEN ? AND ?".to_owned();
+        editor.partiql.parameters = vec!["WS-FROM".to_owned()];
+        assert!(editor.validate().is_err_and(|m| m.contains('2') && m.contains('1')));
+        editor.partiql.parameters.push(String::new());
+        assert!(editor.validate().is_err(), "a blank parameter names nothing");
+        editor.partiql.parameters[1] = "WS-TO".to_owned();
+        assert_eq!(editor.validate(), Ok(()));
+        editor.partiql.query = "DELETE FROM CUSTOMERS".to_owned();
+        assert!(editor.validate().is_err(), "only a SELECT binds");
+        editor.partiql.query.clear();
+        editor.partiql.parameters.clear();
+        editor.partiql.selected = "NO-SUCH".to_owned();
+        assert!(editor.validate().is_err(), "the source must be one of the form's controls");
+    }
+
+    #[test]
+    fn test_query_runs_read_only_and_shows_the_read_class_and_at_most_fifty_items() {
+        let (_dir, cidx) = partiql_project(120);
+        let ids = |lo: &str, hi: &str| vec![lo.to_owned(), hi.to_owned()];
+        // A range on the key: the class, every item counted, 50 shown.
+        let range = partiql_test_query(
+            &cidx,
+            "SELECT CUST-ID, CUST-NAME FROM CUSTOMERS WHERE CUST-ID BETWEEN ? AND ?",
+            &ids("1", "120"),
+        );
+        assert_eq!(range.error, None);
+        assert_eq!(range.class, Some("range"));
+        assert_eq!(range.count, 120);
+        assert_eq!(range.lines.len(), PARTIQL_TEST_SHOWN);
+        assert_eq!(range.lines[0], "CUST-ID = 00000001 | CUST-NAME = CUSTOMER 1");
+        // A narrow range lists them all.
+        let few = partiql_test_query(
+            &cidx,
+            "SELECT CUST-ID FROM CUSTOMERS WHERE CUST-ID BETWEEN ? AND ?",
+            &ids("10", "14"),
+        );
+        assert_eq!((few.class, few.count, few.lines.len()), (Some("range"), 5, 5));
+        // One key: keyed. A field that is no key: a scan.
+        let keyed = partiql_test_query(&cidx, "SELECT CUST-NAME FROM CUSTOMERS WHERE CUST-ID = ?", &["7".to_owned()]);
+        assert_eq!((keyed.class, keyed.count), (Some("keyed"), 1));
+        let scan = partiql_test_query(&cidx, "SELECT CUST-ID FROM CUSTOMERS WHERE CUST-BALANCE > ?", &["11900".to_owned()]);
+        assert_eq!(scan.class, Some("scan"));
+        assert_eq!(scan.error, None);
+        // Nothing matched, and the statements that write never run.
+        let none = partiql_test_query(&cidx, "SELECT CUST-ID FROM CUSTOMERS WHERE CUST-ID = ?", &["99999".to_owned()]);
+        assert_eq!((none.count, none.lines.len(), none.error), (0, 0, None));
+        let write = partiql_test_query(&cidx, "DELETE FROM CUSTOMERS WHERE CUST-ID = ?", &["1".to_owned()]);
+        assert!(write.error.is_some());
+        let after = partiql_test_query(&cidx, "SELECT CUST-ID FROM CUSTOMERS WHERE CUST-ID = ?", &["1".to_owned()]);
+        assert_eq!(after.count, 1, "the file is as it was");
+        // Errors: the engine's text, a query that is empty, a wrong value count.
+        let bad = partiql_test_query(&cidx, "SELECT NO-SUCH-FIELD FROM CUSTOMERS", &[]);
+        assert!(bad.error.is_some_and(|e| e.contains("NO-SUCH-FIELD")));
+        assert!(partiql_test_query(&cidx, "", &[]).error.is_some());
+        assert!(partiql_test_query(&cidx, "SELECT CUST-ID FROM CUSTOMERS WHERE CUST-ID = ?", &[]).error.is_some());
+    }
+
+    #[test]
+    fn test_query_says_so_when_the_data_file_is_not_there() {
+        let (dir, cidx) = partiql_project(2);
+        std::fs::remove_file(dir.path().join("customers.idx")).expect("the data file goes");
+        let outcome = partiql_test_query(&cidx, "SELECT CUST-ID FROM CUSTOMERS", &[]);
+        assert!(outcome.error.is_some_and(|e| e.contains("customers.idx")));
+        assert!(partiql_test_query("", "SELECT CUST-ID FROM CUSTOMERS", &[]).error.is_some());
+    }
+
     /// One SQL column, typed as a developer types it in the grid (a SQL source starts
     /// with no rows: its columns are the SELECT's).
     fn sql_row() -> BindingFieldRow {
@@ -16564,6 +17477,66 @@ mod tests {
                 Box::new(move |p| {
                     let mut e = ed(kind);
                     e.rows.clear();
+                    e.validation_error = e.validate().err();
+                    p.binding_editor = Some(e);
+                }),
+            ));
+        }
+        // Spec 108: the PartiQL source over a form that has IndexedFile controls - filled in,
+        // with the Test query area open on a result and on an error, and writable.
+        let (_partiql_dir, partiql_cidx) = partiql_project(60);
+        let partiql_editor = {
+            let (pform, pgrid) = partiql_form(&partiql_cidx);
+            move |query: &str| {
+                let mut e = BindingEditorState::new(&pform, &pgrid, BindingEditorSourceKind::PartiQl, &[])
+                    .expect("editor opens");
+                e.partiql.query = query.to_owned();
+                e.partiql.parameters = vec!["WS-FROM".to_owned(), "WS-TO".to_owned()];
+                e.reseed_partiql();
+                e
+            }
+        };
+        let between = "SELECT CUST-ID, CUST-NAME FROM CUSTOMERS WHERE CUST-ID BETWEEN ? AND ?";
+        {
+            let ed = partiql_editor.clone();
+            cases.push(("binding editor / PartiQL / filled in".into(), Box::new(move |p| p.binding_editor = Some(ed(between)))));
+            let ed = partiql_editor.clone();
+            cases.push((
+                "binding editor / PartiQL / writable without the key".into(),
+                Box::new(move |p| {
+                    let mut e = ed("SELECT CUST-NAME FROM CUSTOMERS WHERE CUST-ID BETWEEN ? AND ?");
+                    e.mode = BindingMode::Writable;
+                    p.binding_editor = Some(e);
+                }),
+            ));
+            let ed = partiql_editor.clone();
+            let cidx = partiql_cidx.clone();
+            cases.push((
+                "binding editor / PartiQL / test result".into(),
+                Box::new(move |p| {
+                    let mut e = ed(between);
+                    e.partiql.test.open = true;
+                    e.partiql.test.values = vec!["1".to_owned(), "60".to_owned()];
+                    e.partiql.test.result = Some(partiql_test_query(&cidx, between, &e.partiql.test.values));
+                    p.binding_editor = Some(e);
+                }),
+            ));
+            let ed = partiql_editor.clone();
+            cases.push((
+                "binding editor / PartiQL / test error".into(),
+                Box::new(move |p| {
+                    let mut e = ed(between);
+                    e.partiql.test.open = true;
+                    e.partiql.test.result = Some(partiql_test_query("", between, &[]));
+                    p.binding_editor = Some(e);
+                }),
+            ));
+            let ed = partiql_editor.clone();
+            cases.push((
+                "binding editor / PartiQL / refusal".into(),
+                Box::new(move |p| {
+                    let mut e = ed(between);
+                    e.partiql.parameters.pop();
                     e.validation_error = e.validate().err();
                     p.binding_editor = Some(e);
                 }),

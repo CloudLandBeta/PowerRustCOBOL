@@ -84,7 +84,9 @@ pub const PATTERNS: &[Pattern] = &[
                its record (`indexed/actors.cidx / CUSTOMER-RECORD`), so the grid shows the file's \
                records with no read loop of your own. The `.cidx` describes the file — its path, keys \
                and fields — and `regenerate` writes its facade and copybooks. The handlers react to \
-               the grid's selection and edits.",
+               the grid's selection and edits. To fill a grid from a query instead, bind it to a PartiQL \
+               source: an `IndexedFile` control runs `SELECT … WHERE CUST-ID = ?` with parameters from \
+               data items or other controls (`DG-CUSTOMERS::SelectedValue` for master-detail).",
         files: &[
             ("forms/datagrid-form.cfrm", example!("PowerDemo3/forms/Data/datagrid-form.cfrm")),
             ("indexed/actors.cidx", example!("PowerDemo3/indexed/actors.cidx")),

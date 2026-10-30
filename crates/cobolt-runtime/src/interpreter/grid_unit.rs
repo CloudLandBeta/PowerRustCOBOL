@@ -46,6 +46,7 @@ use super::grid_edit::{
 };
 use super::Interpreter;
 use crate::indexed_ide::GridSession;
+use crate::partiql::exec::Arg;
 use crate::value::CobolValue;
 
 /// The connection runs in `Async` mode; a save needs the statements in order.
@@ -64,6 +65,7 @@ pub(super) enum Kind {
     /// The backend holds the source (WASM-005 R13): an indexed file or a SQL
     /// table a web form's grid reaches through its generated endpoints.
     Remote,
+    PartiQl,
 }
 
 /// A bound grid's source, read once: the kind, the field behind each column and
@@ -81,6 +83,8 @@ pub(super) struct Source {
     pub missing: Option<String>,
     /// The indexed file's definition (`Kind::Indexed` only).
     pub def: Option<IndexedDefinition>,
+    /// The `IndexedFile` control a PartiQL binding runs on (`Kind::PartiQl` only).
+    pub control: String,
 }
 
 impl Source {
@@ -181,7 +185,7 @@ fn blank(cells: &[String]) -> bool {
 }
 
 /// The same value, however it is spelled: equal text, or equal numbers.
-fn same_value(a: &str, b: &str) -> bool {
+pub(super) fn same_value(a: &str, b: &str) -> bool {
     let (a, b) = (a.trim(), b.trim());
     a == b || matches!((a.parse::<f64>(), b.parse::<f64>()), (Ok(x), Ok(y)) if x == y)
 }
@@ -190,6 +194,7 @@ impl Interpreter {
     /// The source the grid writes to, or why it has none.
     pub(super) fn grid_source(&self, grid: &str) -> Result<Source, CommitError> {
         let kind = self.obj_get(grid, "_BindingKind");
+        let mut control = String::new();
         // WASM-005 R13: the backend holds a remote grid's source. The seeds carry
         // what a save's plan needs — the fields behind the columns and the keys
         // — so neither the `.cidx` nor a connection is read here.
@@ -242,10 +247,25 @@ impl Interpreter {
                 names(&self.obj_get(grid, "_BindingKeyFields")),
                 None,
             ),
+            "partiql" => {
+                control = self.obj_get(grid, "_BindingPartiqlControl").trim().to_owned();
+                let cidx = self.obj_get(&control, "IndexedFile");
+                let def_file = cobolt_forms::assets::resolve(cidx.trim());
+                let def = cobolt_indexed::load_indexed(&def_file)
+                    .map_err(|e| CommitError::new(IO_ERROR, format!("cannot read '{}': {e:?}", def_file.display())))?;
+                let keys: Vec<String> = def.keys.primary.parts.iter().map(|part| part.field_name.clone()).collect();
+                let mut fields = names(&self.obj_get(grid, "_BindingFields"));
+                if fields.is_empty() {
+                    fields = self.partiql_column_names(&control);
+                }
+                (Kind::PartiQl, fields, keys, Some(def))
+            }
             "coboltable" => (Kind::Table, names(&self.obj_get(grid, "_BindingFields")), Vec::new(), None),
             _ => return Err(CommitError::new(NOT_WRITABLE, "the grid is not bound to a source that can be written")),
         };
-        Ok(Self::source_of(kind, fields, keys, def))
+        let mut source = Self::source_of(kind, fields, keys, def);
+        source.control = control;
+        Ok(source)
     }
 
     /// A [`Source`] from its parts: which grid column each key is shown in, and
@@ -261,7 +281,7 @@ impl Interpreter {
                 }
             }
         }
-        Source { kind, fields, keys, key_cols, missing, def }
+        Source { kind, fields, keys, key_cols, missing, def, control: String::new() }
     }
 
     // ── The unit ─────────────────────────────────────────────────────────────
@@ -283,7 +303,7 @@ impl Interpreter {
         };
         match source.kind {
             Kind::Table => self.commit_table(grid, &source, explicit),
-            Kind::Indexed | Kind::Sql | Kind::Remote => self.commit_rows(grid, &source, explicit),
+            Kind::Indexed | Kind::Sql | Kind::Remote | Kind::PartiQl => self.commit_rows(grid, &source, explicit),
         }
     }
 
@@ -333,6 +353,7 @@ impl Interpreter {
         let outcome = match source.kind {
             Kind::Indexed => self.apply_indexed(source, &plan),
             Kind::Remote => self.apply_remote(grid, source, &plan),
+            Kind::PartiQl => self.apply_partiql(source, &plan),
             _ => self.apply_sql(grid, source, &plan),
         };
         match outcome {
@@ -728,6 +749,110 @@ impl Interpreter {
             }
         }
         session.commit();
+        Ok(written)
+    }
+
+    // ── A PartiQL binding ────────────────────────────────────────────────────
+
+    /// Through the `IndexedFile` control the binding runs on: each deleted or
+    /// edited record is found by its full RECORD KEY and compared with what the
+    /// grid loaded (`23` gone, `96` changed by someone else), then the deletes,
+    /// the updates and the inserts run as ONE transaction unit (R36).
+    fn apply_partiql(&mut self, source: &Source, plan: &Plan) -> Result<Written, UnitError> {
+        let first = plan
+            .updates
+            .first()
+            .map(|u| (u.row, u.cells[0].col))
+            .or_else(|| plan.inserts.first().map(|i| (i.row, 0)));
+        let general = move |error: CommitError| match first {
+            Some((row, col)) => UnitError::at(error, row, col),
+            None => UnitError::from(error),
+        };
+        let ctl = source.control.as_str();
+        let schema = self.partiql_resolve(ctl).map_err(|e| general(CommitError::new(e.status, e.text())))?;
+        let table = schema.table.clone();
+        let key_where = source.keys.iter().map(|k| format!("{k} = ?")).collect::<Vec<_>>().join(" AND ");
+        let key_args = |origin: &str| -> Vec<Arg> { source.key_values(origin).into_iter().map(Arg::Text).collect() };
+
+        // ── Check: each record is there and is what the grid loaded ──────────
+        let mut checks: Vec<(String, Vec<(usize, String)>, Option<(usize, usize)>)> = Vec::new();
+        for delete in &plan.deletes {
+            let cols = (0..source.fields.len())
+                .filter(|c| !source.fields[*c].is_empty())
+                .map(|c| (c, delete.cells.get(c).cloned().unwrap_or_default()))
+                .collect();
+            checks.push((delete.origin.clone(), cols, None));
+        }
+        for update in &plan.updates {
+            let cols = update.cells.iter().map(|c| (c.col, c.previous.clone())).collect();
+            checks.push((update.origin.clone(), cols, Some((update.row, update.cells[0].col))));
+        }
+        for (origin, cols, cell) in &checks {
+            let blame = |error: CommitError| match cell {
+                Some((row, col)) => UnitError::at(error, *row, *col),
+                None => UnitError::from(error),
+            };
+            let list = cols.iter().map(|(c, _)| source.fields[*c].as_str()).collect::<Vec<_>>().join(", ");
+            let o = self.partiql_outcome(ctl, &format!("SELECT {list} FROM {table} WHERE {key_where}"), &key_args(origin), false);
+            if o.error.is_some() {
+                return Err(blame(CommitError::new(o.status, o.last_error())));
+            }
+            let Some(item) = o.items.first() else {
+                return Err(blame(CommitError::new(NOT_FOUND, "the record is no longer in the file")));
+            };
+            for (i, (col, was)) in cols.iter().enumerate() {
+                if !same_value(&item.text(i), was) {
+                    let error = CommitError::new(
+                        CONFLICT,
+                        format!("'{}' was changed by someone else since it was loaded", source.fields[*col]),
+                    );
+                    return Err(match cell {
+                        Some((row, _)) => UnitError::at(error, *row, *col),
+                        None => UnitError::from(error),
+                    });
+                }
+            }
+        }
+
+        // ── Apply: deletes, updates, inserts, one unit ───────────────────────
+        let mut statements: Vec<String> = Vec::new();
+        let mut args: Vec<Arg> = Vec::new();
+        let mut written: Written = Vec::new();
+        for delete in &plan.deletes {
+            statements.push(format!("DELETE FROM {table} WHERE {key_where}"));
+            args.extend(key_args(&delete.origin));
+        }
+        for update in &plan.updates {
+            let sets = update.cells.iter().map(|c| format!("{} = ?", c.field)).collect::<Vec<_>>().join(", ");
+            statements.push(format!("UPDATE {table} SET {sets} WHERE {key_where}"));
+            args.extend(update.cells.iter().map(|c| Arg::Text(c.text.clone())));
+            args.extend(key_args(&update.origin));
+            written.extend(update.cells.iter().map(|c| (update.row, c.col, c.text.clone())));
+        }
+        for insert in &plan.inserts {
+            let mut names: Vec<String> = Vec::new();
+            for (col, field) in source.fields.iter().enumerate() {
+                let text = insert.cells.get(col).map_or("", String::as_str);
+                if source.key_cols.contains(&col) && text.trim().is_empty() {
+                    return Err(UnitError::at(
+                        CommitError::new(REJECTED, format!("'{field}' is part of the key; a new row needs it")),
+                        insert.row,
+                        col,
+                    ));
+                }
+                if field.is_empty() || text.is_empty() {
+                    continue;
+                }
+                names.push(format!("'{field}': ?"));
+                args.push(Arg::Text(text.to_owned()));
+                written.push((insert.row, col, text.to_owned()));
+            }
+            statements.push(format!("INSERT INTO {table} VALUE {{{}}}", names.join(", ")));
+        }
+        let o = self.partiql_outcome(ctl, &statements.join("; "), &args, true);
+        if o.error.is_some() {
+            return Err(general(CommitError::new(o.status, o.last_error())));
+        }
         Ok(written)
     }
 
