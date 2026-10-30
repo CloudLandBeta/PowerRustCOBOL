@@ -105,6 +105,8 @@ pub enum UiOp {
     SetOpenMenu(Vec<String>),
     /// A DataGrid or a ListBox was scrolled to this offset.
     GridScroll { left: f64, top: f64 },
+    /// A DataGrid is to scroll down or up to this offset: the keyboard moved its selection to a row out of view.
+    GridScrollTo { top: f64 },
     GridSort { col: usize, descending: bool },
     Sidebar(bool),
     DropOver(bool),
@@ -790,6 +792,10 @@ fn data_grid(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
                         v.push(ev("onSelectionChanged"));
                         v.push(ev("onRowSelect"));
                         v.push(ev1("onCellClick", format!("{row},0")));
+                    }
+                    // A row out of view comes into it, as on the desktop (a row already selected too: it may have been scrolled away).
+                    if let Some(top) = datagrid::reveal_scroll_y(cx, i, k) {
+                        v.push(Act::Ui(UiOp::GridScrollTo { top }));
                     }
                     v
                 }
@@ -1543,6 +1549,26 @@ mod tests {
         down.key_name = "ArrowDown".into();
         let acts = names(&run(&t, l, &e, down));
         assert_eq!(acts[..3], ["prevent", "Value=one", "SelectedIndex=1"], "{acts:?}");
+    }
+
+    #[test]
+    fn a_data_grid_scrolls_to_the_row_the_keys_select_when_it_is_out_of_view() {
+        let rows: Vec<String> = (0..50).map(|r| format!("r{r}\tx")).collect();
+        let rows = rows.join("\n");
+        let (t, g) = tree_with("DataGrid", "G", &[("Columns", "A:string\nB:string"), ("Rows", rows.as_str()), ("RowHeight", "20")]);
+        let mut e = Empty::default();
+        e.ui.box_sizes.insert(g, (300.0, 140.0));
+        let key = |name: &str| {
+            let mut p = Payload::new("keydown", "root");
+            p.key_name = name.into();
+            run(&t, g, &e, p)
+        };
+        let scrolls = |acts: &[Act]| acts.iter().filter_map(|a| if let Act::Ui(UiOp::GridScrollTo { top }) = a { Some(*top) } else { None }).collect::<Vec<_>>();
+        assert!(scrolls(&key("ArrowDown")).is_empty(), "the first row is in view");
+        // The bands take 46 of the 140, so 94 of rows are in view, and the sheet scrolls to 1000 + 46 - 140 at most.
+        assert_eq!(scrolls(&key("End")), [906.0], "the last row comes to the foot of the view");
+        assert!(scrolls(&key("PageDown")).is_empty(), "with nothing selected it goes to the first row");
+        assert_eq!(scrolls(&key("Home")), Vec::<f64>::new(), "the first row is in view at the top");
     }
 
     #[test]

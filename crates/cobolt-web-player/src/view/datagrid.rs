@@ -866,6 +866,33 @@ pub fn displayed_order(cx: &ViewCtx, i: usize) -> Vec<usize> {
     Grid::new(cx, i).displayed
 }
 
+/// The offset that leaves a row `top` .. `top + height` (measured from the first row) wholly in a body `view_h` tall that is
+/// scrolled to `scroll`: the desktop's rule for the keyboard-selected row (`render.rs`), a row above comes to the top and a
+/// row below to the bottom, and a row already in view leaves the offset alone.
+pub fn reveal_offset(top: f64, height: f64, scroll: f64, view_h: f64) -> f64 {
+    if top < scroll {
+        top
+    } else if top + height > scroll + view_h {
+        (top + height - view_h).max(0.0)
+    } else {
+        scroll
+    }
+}
+
+/// Where the grid must scroll to show the row at place `pos` of `displayed_order`, or `None` when it is in view already.
+/// The rows' room is what lies below the bands, less the horizontal bar that lies over its foot.
+pub fn reveal_scroll_y(cx: &ViewCtx, i: usize, pos: usize) -> Option<f64> {
+    let g = Grid::new(cx, i);
+    if pos >= g.layout.rows.len() {
+        return None;
+    }
+    let bar = if g.layout.max_scroll_x > 0.0 { BAR + 2.0 } else { 0.0 };
+    let view_h = (g.h - g.band_h - bar).max(0.0);
+    let scroll = g.layout.scroll_y as f64;
+    let to = reveal_offset(g.layout.rows.top(pos) as f64, g.layout.rows.height(pos) as f64, scroll, view_h).min(g.layout.max_scroll_y as f64).round();
+    (to != scroll.round()).then_some(to)
+}
+
 /// May the grid be sorted by this column? (`sort_enabled`, and not a Button column.)
 pub fn sortable(cx: &ViewCtx, i: usize, display: usize) -> bool {
     let g = Grid::new(cx, i);
@@ -931,6 +958,34 @@ mod tests {
 
     fn px_of(n: &VNode, k: &str) -> f64 {
         style(n, k).unwrap_or_else(|| panic!("{} has no {k}", n.key)).trim_end_matches("px").parse().unwrap()
+    }
+
+    #[test]
+    fn a_row_out_of_view_is_brought_in_the_way_the_desktop_does() {
+        assert_eq!(reveal_offset(100.0, 30.0, 0.0, 200.0), 0.0, "in view: untouched");
+        assert_eq!(reveal_offset(170.0, 30.0, 0.0, 200.0), 0.0, "flush with the foot: untouched");
+        assert_eq!(reveal_offset(180.0, 30.0, 0.0, 200.0), 10.0, "below: its foot meets the foot of the view");
+        assert_eq!(reveal_offset(90.0, 30.0, 150.0, 200.0), 90.0, "above: its top meets the top of the view");
+        assert_eq!(reveal_offset(0.0, 500.0, 40.0, 200.0), 0.0, "a row taller than the view: its top wins");
+    }
+
+    #[test]
+    fn the_keyboard_selection_scrolls_the_dados_grid_to_the_row_and_stops_above_the_bar() {
+        let props = dados_props();
+        let borrowed: Vec<(&str, &str)> = props.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let (t, i) = tree_with("DataGrid", "GRD-FUNDOS", &borrowed);
+        let at = |scroll: f64, pos: usize| {
+            let mut e = Empty::default();
+            e.ui.box_sizes.insert(i, (1086.0, 538.0));
+            e.ui.grid_scroll.insert(i, (0.0, scroll));
+            reveal_scroll_y(&e.cx(&t), i, pos)
+        };
+        // 538 high, a 56 band and the 12 the bar takes: 470 of rows (15 whole rows of 30, plus 20).
+        assert_eq!(at(0.0, 14), None, "the fifteenth row ends at 450");
+        assert_eq!(at(0.0, 15), Some(10.0), "the sixteenth ends at 480, 10 below the 470 in view");
+        assert_eq!(at(300.0, 3), Some(90.0), "above: it comes to the top");
+        assert_eq!(at(0.0, 299), Some(8518.0), "the last row ends at 9000; the sheet scrolls to 8518 at most, so the bar still covers its foot");
+        assert_eq!(at(0.0, 300), None, "no such row");
     }
 
     #[test]

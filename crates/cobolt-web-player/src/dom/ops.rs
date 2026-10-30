@@ -208,6 +208,17 @@ impl Shared {
             UiOp::GridScroll { left, top } => self.with_ui(inst, |ui| {
                 ui.grid_scroll.insert(ctl, (left, top));
             }),
+            UiOp::GridScrollTo { top } => {
+                self.with_ui(inst, |ui| {
+                    let left = ui.grid_scroll.get(&ctl).map(|s| s.0).unwrap_or(0.0);
+                    ui.grid_scroll.insert(ctl, (left, top));
+                });
+                if let Some(el) = self.control_element(inst, ctl) {
+                    if let Ok(Some(scroller)) = el.query_selector(".pr-dg-scroll") {
+                        scroller.set_scroll_top(top.round() as i32);
+                    }
+                }
+            }
             UiOp::GridSort { col, descending } => self.with_ui(inst, |ui| {
                 ui.grid_sort.insert(ctl, (col, descending));
             }),

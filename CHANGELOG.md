@@ -22,6 +22,17 @@
 > and the JSON mapping). Each of those numbers therefore names two entries below, the forward-port's first. Both records are kept and nothing
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
+
+## 2.0.98 — 2026-10-30 — Fix: a Web DataGrid scrolls to the row the keys select
+
+The Web page moved a DataGrid's selection with ArrowDown/ArrowUp, Home, End and PageDown/PageUp but never moved the grid, so the bar went out of view at the top or the foot of the rows and the selected row stayed hidden (or cut by the horizontal bar). The page now does what the desktop does: a row above comes to the top of the rows' room, a row below comes to its foot, a row already in view leaves the offset alone. The room is what lies below the caption and header bands, less the horizontal bar that lies over its foot; the offset never passes the most the sheet scrolls.
+
+* `crates/cobolt-web-player/src/view/datagrid.rs`: `reveal_offset` (the pure rule) and `reveal_scroll_y` (the grid's own geometry, row heights included).
+* `crates/cobolt-web-player/src/view/interact.rs`: the keydown arm adds `UiOp::GridScrollTo`; `dom/ops.rs` stores the offset and sets the scroller's `scrollTop`.
+* Shipped player rebuilt (`assets/web-player/**`).
+* Tests: 3 new (the rule; the Dados grid with its bar, 15 rows in view and the last row; the keys on a small grid), 302 of 302 pass in `cobolt-web-player`; the wasm32 target checks.
+* **Not done:** the ListBox still does not reveal its keyboard-selected row (`specs/WASM-PARITY.md` row 32). The last row of a grid with a horizontal bar stays under the bar at the end of the scroll range, as the sheet has no room below it for the bar. 2.0.95-2.0.97 are the spec 108 forward-port, so this entry takes 2.0.98.
+
 ## [PowerRustCOBOL 2.0.97] — 2026-10-30
 
 *(Forward-port of 1.91.230, `24d78dfa` on `features-108-partiql`. Written on `features-108-partiql`, after 1.91.229: spec 108, the tooling half.)*
