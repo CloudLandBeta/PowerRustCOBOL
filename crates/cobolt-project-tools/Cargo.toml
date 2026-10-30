@@ -21,6 +21,7 @@ cobolt-mcp      = { path = "../cobolt-mcp" }
 cobolt-codegen  = { path = "../cobolt-codegen" }
 cobolt-compiler = { path = "../cobolt-compiler" }
 cobolt-forms    = { path = "../cobolt-forms" }
+cobolt-format   = { path = "../cobolt-format" }
 cobolt-indexed  = { path = "../cobolt-indexed" }
 cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-parser   = { path = "../cobolt-parser" }

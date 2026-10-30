@@ -179,6 +179,7 @@ fn validate_binding(form: &Form, binding: &DataBindingDef, findings: &mut Vec<Gu
     validate_mappings(form, binding, findings);
     validate_control_array_members(form, binding, findings);
     validate_writable_identity(binding, findings);
+    validate_view_options(binding, findings);
     validate_rest_agent_safety(binding, findings);
 }
 
@@ -756,6 +757,63 @@ fn validate_writable_identity(binding: &DataBindingDef, findings: &mut Vec<Guard
         );
     }
     validate_writable_sql(binding, findings);
+}
+
+/// Spec 109 S8: the view options of a binding — an order and display formats.
+///
+/// - a **writable** binding may carry neither (blocker): a grid finds a row by its
+///   line (spec 095), so reordering the lines would send an edit to the wrong
+///   record, and an edit sends the cell as displayed, so a formatted cell would be
+///   written back formatted;
+/// - the order names a field the source has (blocker);
+/// - a format is one `cobolt-format` knows, on a numeric field (blocker).
+fn validate_view_options(binding: &DataBindingDef, findings: &mut Vec<GuardianFinding>) {
+    if !binding.has_view_options() {
+        return;
+    }
+    if binding.mode == BindingMode::Writable {
+        blocker(
+            findings,
+            binding,
+            "view-option-on-writable-binding",
+            "A writable binding cannot have an order or a display format: a row is found by its line, \
+             and an edit is written back as displayed. Make the binding read-only, or remove them",
+        );
+    }
+    let fields = binding.source.fields();
+    if let Some(order) = &binding.order_by {
+        if !fields.iter().any(|f| f.name.eq_ignore_ascii_case(&order.field)) {
+            blocker(
+                findings,
+                binding,
+                "unknown-order-field",
+                format!("The order names '{}', which is not a field of the source", order.field),
+            );
+        }
+    }
+    for mapping in &binding.mappings {
+        let Some(spec) = &mapping.format else { continue };
+        let name = spec.split_whitespace().next().unwrap_or("");
+        let mut finding_msg = None;
+        if let Err(e) = cobolt_format::canonical_format(name) {
+            finding_msg = Some(("invalid-format", e.to_string()));
+        } else if let Some(field) = fields.iter().find(|f| f.name.eq_ignore_ascii_case(&mapping.source_field)) {
+            if !matches!(
+                field.data_type,
+                cobolt_forms::BindingDataType::Integer | cobolt_forms::BindingDataType::Decimal | cobolt_forms::BindingDataType::Unknown
+            ) {
+                finding_msg = Some((
+                    "format-needs-numeric-field",
+                    format!("The format '{spec}' needs a numeric field; '{}' is not one", mapping.source_field),
+                ));
+            }
+        }
+        if let Some((code, message)) = finding_msg {
+            let mut finding = GuardianFinding::new(GuardianSeverity::Blocker, code, message, binding.id.clone());
+            finding.source_field = Some(mapping.source_field.clone());
+            findings.push(finding);
+        }
+    }
 }
 
 /// Spec 094 R25: what a writable SQL binding needs for an edit to be written.
@@ -1927,6 +1985,50 @@ mod tests {
         let report = validate_binding_action(&form, BindingActionGate::SaveForm);
         assert!(!report.blocked());
         assert!(report.findings.is_empty());
+    }
+
+    // ── Spec 109 S8: view options ─────────────────────────────────────────────
+
+    fn read_only_with(order: Option<(&str, bool)>, formats: &[(&str, &str)]) -> Form {
+        let mut binding = valid_grid_binding();
+        binding.mode = BindingMode::ReadOnly;
+        binding.order_by = order.map(|(f, d)| cobolt_forms::BindingOrderBy { field: f.into(), descending: d });
+        for (field, spec) in formats {
+            for m in &mut binding.mappings {
+                if m.source_field == *field {
+                    m.format = Some((*spec).into());
+                }
+            }
+        }
+        form_with_grid(binding)
+    }
+
+    #[test]
+    fn a_read_only_binding_may_have_an_order_and_a_numeric_format() {
+        let form = read_only_with(Some(("CUSTOMER-NAME", false)), &[("CUSTOMER-ID", "number")]);
+        let c = codes(&form);
+        assert!(!c.iter().any(|x| x.contains("order") || x.contains("format") || x.contains("view")), "{c:?}");
+    }
+
+    #[test]
+    fn a_writable_binding_with_view_options_is_blocked() {
+        let mut form = read_only_with(Some(("CUSTOMER-NAME", true)), &[]);
+        form.data_bindings[0].mode = BindingMode::Writable;
+        assert!(codes(&form).contains(&"view-option-on-writable-binding".to_string()));
+        let mut form = read_only_with(None, &[("CUSTOMER-ID", "number")]);
+        form.data_bindings[0].mode = BindingMode::Writable;
+        assert!(codes(&form).contains(&"view-option-on-writable-binding".to_string()));
+        // …and a writable binding with none says nothing of the kind.
+        let mut form = read_only_with(None, &[]);
+        form.data_bindings[0].mode = BindingMode::Writable;
+        assert!(!codes(&form).contains(&"view-option-on-writable-binding".to_string()));
+    }
+
+    #[test]
+    fn an_unknown_order_field_an_invalid_format_and_a_text_field_are_blocked() {
+        assert!(codes(&read_only_with(Some(("NOPE", false)), &[])).contains(&"unknown-order-field".to_string()));
+        assert!(codes(&read_only_with(None, &[("CUSTOMER-ID", "bogus")])).contains(&"invalid-format".to_string()));
+        assert!(codes(&read_only_with(None, &[("CUSTOMER-NAME", "number")])).contains(&"format-needs-numeric-field".to_string()));
     }
 }
 

@@ -2321,6 +2321,28 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// Spec 109 S8: the order and a display format round-trip through the `.cfrm`, and a
+    /// binding saved before they existed loads with neither.
+    #[test]
+    fn a_bindings_view_options_round_trip_and_an_old_binding_has_none() {
+        let mut binding = sample_binding();
+        binding.order_by = Some(crate::BindingOrderBy { field: "CustomerName".into(), descending: true });
+        if let Some(m) = binding.mappings.first_mut() {
+            m.format = Some("currency BRL".into());
+        }
+        let json = serde_json::to_string(&binding).expect("serialises");
+        let back: DataBindingDef = serde_json::from_str(&json).expect("reads back");
+        assert_eq!(back, binding);
+        assert!(back.has_view_options());
+        // An old binding: neither key is written, neither is needed.
+        let old = sample_binding();
+        let old_json = serde_json::to_string(&old).expect("serialises");
+        assert!(!old_json.contains("order_by") && !old_json.contains("format"), "{old_json}");
+        let loaded: DataBindingDef = serde_json::from_str(&old_json).expect("reads");
+        assert!(!loaded.has_view_options());
+        assert_eq!(loaded.order_by, None);
+    }
+
     #[test]
     fn datagrid_advanced_cfrm_legacy_grid_loads_with_seeded_defaults_023() {
         let xml = r##"<?xml version="1.0" encoding="UTF-8"?>

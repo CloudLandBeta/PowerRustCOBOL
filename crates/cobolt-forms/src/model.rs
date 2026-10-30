@@ -2455,6 +2455,12 @@ pub struct FieldMapping {
     pub source_field: String,
     pub target: BindingTargetPath,
     pub compatibility: MappingCompatibility,
+    /// How the value is SHOWN in the target (spec 109 S8): a `cobolt-format` spelling,
+    /// `"number"`, `"currency BRL"`, `"percent"`. Only a read-only binding may carry one:
+    /// a writable grid sends each cell back as displayed, so a formatted cell would be
+    /// written back formatted. `None` shows the value as the source gives it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
 }
 
 impl FieldMapping {
@@ -2463,6 +2469,7 @@ impl FieldMapping {
             source_field: source_field.into(),
             target,
             compatibility: MappingCompatibility::Exact,
+            format: None,
         }
     }
 
@@ -2531,9 +2538,28 @@ pub struct DataBindingDef {
     pub mode: BindingMode,
     pub validation: BindingValidationSnapshot,
     pub saved_source_metadata: BindingSourceMetadata,
+    /// The order the rows are shown in (spec 109 S8); `None` keeps the source's order.
+    /// Only a read-only binding may carry one: a writable grid finds a row by its line
+    /// (spec 095), so reordering the lines would send an edit to the wrong record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order_by: Option<BindingOrderBy>,
+}
+
+/// `order_by` of a binding: a source field and a direction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BindingOrderBy {
+    pub field: String,
+    #[serde(default)]
+    pub descending: bool,
 }
 
 impl DataBindingDef {
+    /// `true` when the binding asks for a view option (an order or a display format)
+    /// that only a read-only binding may have.
+    pub fn has_view_options(&self) -> bool {
+        self.order_by.is_some() || self.mappings.iter().any(|m| m.format.is_some())
+    }
+
     pub fn new(
         id: impl Into<String>,
         display_name: impl Into<String>,
@@ -2557,6 +2583,7 @@ impl DataBindingDef {
                 fields: source_fields,
                 ..BindingSourceMetadata::default()
             },
+            order_by: None,
         }
     }
 

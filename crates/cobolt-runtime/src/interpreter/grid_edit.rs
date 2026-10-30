@@ -466,6 +466,7 @@ impl Interpreter {
                     .join("\t"),
             );
         }
+        let (rows, _) = self.apply_binding_view(grid, &fields, rows, Vec::new());
         let count = rows.len();
         self.obj_set(grid, "Rows", rows.join("\n"));
         count

@@ -413,6 +413,12 @@ fn lambda_arg<'a>(args: &'a [Expr], method: &str) -> Result<(&'a str, &'a Lambda
     }
 }
 
+/// `a > b` for the order of a collection or of a bound grid's rows — numerically when both
+/// sides read as numbers, as text otherwise.
+pub(super) fn value_gt(a: &CobolValue, b: &CobolValue) -> bool {
+    gt(a, b)
+}
+
 /// `a > b`, numerically when both sides read as numbers (the pieces of a
 /// `Split("3,10,7")` are text, and `"7" > "10"` as text), as text otherwise.
 fn gt(a: &CobolValue, b: &CobolValue) -> bool {

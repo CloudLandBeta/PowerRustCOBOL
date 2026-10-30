@@ -30,6 +30,7 @@ use indexmap::IndexMap;
 mod agent_loop;
 mod array_edit;
 mod aws;
+mod binding_view;
 mod collections;
 mod exec_sql;
 mod format;
@@ -13094,6 +13095,8 @@ impl Interpreter {
                 occurrences.push(row_index.to_string());
             }
         }
+        // Spec 109 S8: a read-only binding's order and display format.
+        let (rows, occurrences) = self.apply_binding_view(control_id, &fields, rows, occurrences);
         let row_count = rows.len();
         let rows_joined = rows.join("\n");
         tracing::debug!(target: "databinding", "RUN-FORM DataGrid {} set Rows ({} rows)", control_id, row_count);
@@ -14136,6 +14139,7 @@ impl Interpreter {
                     .join("\t")
             })
             .collect();
+        let (rows, _) = self.apply_binding_view(control_id, &fields, rows, Vec::new());
         let row_count = rows.len();
         self.obj_set(control_id, "Rows", rows.join("\n"));
         self.debug_binding_io(&file_label, "00", &format!("{row_count} records"));

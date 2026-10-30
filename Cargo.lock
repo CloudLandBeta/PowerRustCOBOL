@@ -2417,6 +2417,7 @@ dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
  "cobolt-compiler",
+ "cobolt-format",
  "cobolt-forms",
  "cobolt-indexed",
  "cobolt-kb",

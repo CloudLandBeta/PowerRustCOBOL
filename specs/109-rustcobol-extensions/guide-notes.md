@@ -136,3 +136,26 @@ as the number it is.
 - Not available in Web or Mobile projects yet.
 
 📷 Screenshot needed: a form whose group of buttons was restyled by one `SetProperties`.
+
+## S8 — View options of a read-only binding (2.0.110)
+
+**What it does.** A grid bound to a table, an indexed file, SQL or PartiQL can show its
+rows in an order and its numeric columns formatted, without touching the data.
+
+```text
+DataBindings (in the form): order_by = { field: "AMOUNT", descending: true }
+                            mapping AMOUNT -> format "currency BRL"
+```
+
+**Notes**
+- Numbers sort as numbers, text as text; equal values keep the source's order.
+- A format works on numeric columns only; a blank cell stays blank.
+- The order is applied first, to the real values; the format is applied after.
+
+**Caveats**
+- Only a read-only binding: a writable grid is edited by line and writes cells back as shown,
+  so the Binding Guardian refuses an order or a format there.
+- The locale of a formatted column is the application's default.
+- The Web and Mobile player does not apply them yet.
+
+📷 Screenshot needed: a read-only grid sorted by amount, with a currency column.

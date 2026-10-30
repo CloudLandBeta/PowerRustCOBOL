@@ -432,6 +432,25 @@ pub fn append_data_binding_seed_props(
     append_data_binding_seed_props_for(form, control_id, props, remote_bindings());
 }
 
+/// `_BindingOrderBy` (`FIELD` or `-FIELD`) and `_BindingFormats` (`FIELD=format` lines)
+/// of a binding's view options (spec 109 S8); empty when it has none.
+pub fn binding_view_seed(binding: &cobolt_forms::DataBindingDef) -> Vec<(&'static str, String)> {
+    let mut out = Vec::new();
+    if let Some(order) = &binding.order_by {
+        let sign = if order.descending { "-" } else { "" };
+        out.push(("_BindingOrderBy", format!("{sign}{}", order.field)));
+    }
+    let formats: Vec<String> = binding
+        .mappings
+        .iter()
+        .filter_map(|m| m.format.as_ref().map(|f| format!("{}={}", m.source_field, f)))
+        .collect();
+    if !formats.is_empty() {
+        out.push(("_BindingFormats", formats.join("\n")));
+    }
+    out
+}
+
 /// [`append_data_binding_seed_props`], told whether the run is a Web or Mobile
 /// project's (`remote`, see [`publish_remote_bindings`]) — so a test need not
 /// publish it for its whole process.
@@ -472,6 +491,16 @@ pub fn append_data_binding_seed_props_for(
     // may be written at all, and which fields identify a row.
     if matches!(&binding.target, cobolt_forms::BindingTargetDescriptor::DataGrid { .. }) {
         for (name, value) in grid_write_seed(binding) {
+            props.push((name.to_owned(), value));
+        }
+    }
+    // Spec 109 S8: the order and the display formats of a READ-ONLY binding. A
+    // writable one never publishes them (the Guardian refuses them there): a
+    // writable grid finds a row by its line and writes a cell back as displayed.
+    if binding.mode == cobolt_forms::BindingMode::ReadOnly
+        && matches!(&binding.target, cobolt_forms::BindingTargetDescriptor::DataGrid { .. })
+    {
+        for (name, value) in binding_view_seed(binding) {
             props.push((name.to_owned(), value));
         }
     }
@@ -1351,6 +1380,58 @@ mod tests_091 {
         // The form and the control are seeded as before.
         assert!(seed.iter().any(|(id, class, _)| id == "F" && class == "Form"));
         assert!(seed.iter().any(|(id, class, _)| id == "BTN-1" && class == "Button"));
+    }
+
+    /// Spec 109 S8: the order and the display formats reach the grid of a READ-ONLY
+    /// binding, and never that of a writable one.
+    #[test]
+    fn view_options_are_seeded_for_a_read_only_grid_binding_only() {
+        use cobolt_forms::{
+            BindingDataType, BindingField, BindingMode, BindingOrderBy, BindingSourceDescriptor,
+            BindingTargetDescriptor, BindingTargetPath, DataBindingDef, FieldMapping,
+        };
+        let seeds = |mode: BindingMode, with_options: bool| {
+            let mut form = Form::new("F", "F", 400, 300);
+            form.controls.push(Control::new("GRID-1", ControlType::DataGrid, 0, 0));
+            let mut mapping = FieldMapping::new(
+                "AMOUNT",
+                BindingTargetPath::GridColumn { control_id: "GRID-1".into(), column_id: "AMOUNT".into() },
+            );
+            if with_options {
+                mapping.format = Some("currency BRL".into());
+            }
+            let mut binding = DataBindingDef::new(
+                "BIND-G",
+                "g",
+                BindingSourceDescriptor::CobolTable {
+                    table_name: "T".into(),
+                    occurs_item: "T".into(),
+                    fields: vec![BindingField::new("AMOUNT", BindingDataType::Decimal)],
+                    key_fields: Vec::new(),
+                    writable: false,
+                },
+                BindingTargetDescriptor::DataGrid { control_id: "GRID-1".into() },
+            )
+            .with_mappings(vec![mapping]);
+            binding.mode = mode;
+            if with_options {
+                binding.order_by = Some(BindingOrderBy { field: "AMOUNT".into(), descending: true });
+            }
+            form.data_bindings.push(binding);
+            let mut props = Vec::new();
+            crate::seeding::append_data_binding_seed_props_for(&form, "GRID-1", &mut props, false);
+            props
+        };
+        let get = |p: &[(String, String)], k: &str| p.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let read_only = seeds(BindingMode::ReadOnly, true);
+        assert_eq!(get(&read_only, "_BindingOrderBy").as_deref(), Some("-AMOUNT"));
+        assert_eq!(get(&read_only, "_BindingFormats").as_deref(), Some("AMOUNT=currency BRL"));
+        let writable = seeds(BindingMode::Writable, true);
+        assert_eq!(get(&writable, "_BindingOrderBy"), None, "a writable grid is never reordered");
+        assert_eq!(get(&writable, "_BindingFormats"), None, "a writable grid never shows formatted cells");
+        let plain = seeds(BindingMode::ReadOnly, false);
+        assert_eq!(get(&plain, "_BindingOrderBy"), None);
+        assert_eq!(get(&plain, "_BindingFormats"), None);
     }
 
     /// A form with no layers seeds exactly what it seeded: nothing of class `Layer`.

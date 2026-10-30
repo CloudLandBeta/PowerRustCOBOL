@@ -633,6 +633,9 @@ impl Interpreter {
         } else {
             let rows: Vec<String> =
                 items.iter().map(|it| at.iter().map(|i| cell(it, i)).collect::<Vec<_>>().join("\t")).collect();
+            // Spec 109 S8: a read-only binding's order and display format.
+            let names: Vec<String> = at.iter().map(|i| i.and_then(|i| columns.get(i)).map(|c| c.name.clone()).unwrap_or_default()).collect();
+            let (rows, _) = self.apply_binding_view(id, &names, rows, Vec::new());
             self.obj_set(id, "Rows", rows.join("\n"));
         }
         n

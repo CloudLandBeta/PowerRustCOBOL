@@ -91,7 +91,7 @@ pub use model::{
     parse_map_markers, serialize_map_markers, ApprovedBindingTargetKind, BindingChartKind,
     BindingDataType, BindingField, BindingMode, BindingSourceDescriptor, BindingSourceKind,
     BindingSourceMetadata, BindingTargetDescriptor, BindingTargetPath, BindingUpdateMetadata,
-    BindingValidationSnapshot, Control, ControlType, DataBindingDef, DataGridAdvanced,
+    BindingOrderBy, BindingValidationSnapshot, Control, ControlType, DataBindingDef, DataGridAdvanced,
     DataGridColumn, DataGridFilter, EventBinding, FieldMapping, Form, GlassStyle, GuardianFinding,
     GuardianSeverity, Layer, LayerError, MapMarkerField, MapMarkerRecord, MappingCompatibility,
     PropValue, Rect,
