@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+
+## 1.91.231 — 2026-10-30 — Fix: the designer's animation preview plays what the form designed
+
+The Form Designer's animation preview did nothing for most forms, for two reasons:
+
+* The toolbar's Preview Anims button played only the animations whose trigger is `OnFormLoad`; the animations triggered by `OnShow`, `OnClick`, `OnHover`, `OnFocus` or `Programmatic` showed nothing. It now plays every animation of every control, and its tooltip says so ("Play all animations", in the six languages).
+* The Properties pane's ▶ Preview, with several controls selected, went through the multi-edit fan-out, which keeps only the controls that carry the key as a property; `_PreviewAnim<N>` is none, so no control played. The pane's edits now go through `set_property_from_pane`, which sends a preview to the control the pane reports and leaves every real edit as it was.
+* Tests: 3 new in `panels/designer_anim_preview_tests.rs`.
+* *(Taken from 2.0.99, be6c5d83 on 2.x.x, where it was reported on a Web form; the defects are the designer's, shared by every form kind.)*
+
 ## [PowerRustCOBOL 1.91.227] — 2026-10-25
 
 *(Written on `fixes-example-projects`, off `main` at 467c47d7: ten paths that had waited uncommitted in the main checkout, committed at the operator's request.)*

@@ -19553,7 +19553,7 @@ impl CoboltApp {
                         self.designers[idx].1.open_tab_order_list();
                     }
                     DesignerToolbarAction::ToggleAnimPreview => {
-                        self.designers[idx].1.play_all_form_load_anims();
+                        self.designers[idx].1.play_all_anims();
                     }
                     DesignerToolbarAction::AutoArrange => {
                         self.designers[idx].1.auto_arrange_labels();
@@ -19867,11 +19867,7 @@ impl CoboltApp {
             // reports is the primary's; `set_property_multi` fans the change out
             // to every selected control that carries the property and leaves the
             // rest alone.
-            if d.selected_ids.len() > 1 && d.is_selected(&ctrl_id) {
-                d.set_property_multi(&key, value);
-            } else {
-                d.set_property(&ctrl_id, &key, value);
-            }
+            d.set_property_from_pane(&ctrl_id, &key, value);
         }
         // A DataGrid column added, deleted or moved in its settings window: one control,
         // several properties, one undo step (spec 106 R7).
