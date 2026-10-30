@@ -110,3 +110,29 @@ as the number it is.
 - Not available in Web or Mobile projects yet: the build refuses `FUNCTION` calls.
 
 📷 Screenshot needed: the Check panel on a call with the wrong number of arguments.
+
+## S4 — Control collections (2.0.108)
+
+**What it does.** Work on a group of controls without naming each one.
+
+```cobol
+           PERFORM VARYING CTL THROUGH PNL-KPI::Descendants()
+               CTL::SetProperty("Visible" "1")
+           END-PERFORM
+
+           ME::Controls("BTN-1" "BTN-2" "BTN-3")::SetProperties(
+               "BackgroundColor" "#FFFFFF" "ForegroundColor" "#1B2A4E")
+```
+
+**Notes**
+- `Descendants()` follows who is inside whom, not what overlaps on screen. The container
+  itself is left out; hidden controls are included.
+- In the loop, the element is the control: use it like any control name.
+- `SetProperties` takes pairs, name then value. Either every control is written or none.
+
+**Caveats**
+- `Controls("…")` stops with an error for an id the form does not have, and for a repeat.
+- A value is written as `SET` would write it; it is not checked against the property's type.
+- Not available in Web or Mobile projects yet.
+
+📷 Screenshot needed: a form whose group of buttons was restyled by one `SetProperties`.

@@ -30,7 +30,7 @@ use crate::value::CobolValue;
 pub(super) fn is_collection_producer(name: &str) -> bool {
     matches!(
         name.to_ascii_uppercase().as_str(),
-        "SPLIT" | "MAP" | "FILTER" | "SORTBYDESCENDING" | "TAKE"
+        "SPLIT" | "MAP" | "FILTER" | "SORTBYDESCENDING" | "TAKE" | "DESCENDANTS" | "CONTROLS"
     )
 }
 
@@ -58,6 +58,10 @@ impl Interpreter {
         let method = member.to_ascii_uppercase();
         if !is_collection_producer(&method) {
             return Ok(None);
+        }
+        // Spec 109 §5.4: the controls of the running form.
+        if method == "DESCENDANTS" || method == "CONTROLS" {
+            return self.eval_control_collection(&method, recv, args, span).map(Some);
         }
         if method == "SPLIT" {
             // `Split` is a collection only as the receiver of another
@@ -237,9 +241,18 @@ impl Interpreter {
         let items = self.collection_to_walk(collection, span)?;
         let key = element.to_ascii_uppercase();
         let previous = self.env.raw_take(&key);
+        // Over controls the element IS the control: `EL::Hide()` and `EL::Caption`
+        // reach it, while it also reads as its id.
+        let controls = Self::is_control_collection(collection);
         let mut outcome = Ok(());
         for item in items {
-            self.env.raw_set(&key, item);
+            if controls {
+                // Only the alias: were the id also stored as a data item, `EL::Caption`
+                // would be read as a method of that text. `EL::Name` is the id.
+                self.control_alias.insert(key.clone(), item.as_display_string().trim().to_string());
+            } else {
+                self.env.raw_set(&key, item);
+            }
             match self.exec_loop_body(stmts) {
                 super::LoopStep::Continue => {}
                 super::LoopStep::Break => break,
@@ -249,13 +262,123 @@ impl Interpreter {
                 }
             }
         }
-        match previous {
-            Some(p) => self.env.raw_set(&key, p),
-            None => {
-                self.env.raw_take(&key);
+        self.control_alias.remove(&key);
+        if !controls {
+            match previous {
+                Some(p) => self.env.raw_set(&key, p),
+                None => {
+                    self.env.raw_take(&key);
+                }
             }
+        } else if let Some(p) = previous {
+            self.env.raw_set(&key, p);
         }
         outcome
+    }
+
+    /// `true` when `expr` is a chain that answers controls (`C::Descendants()`,
+    /// `ME::Controls("A" "B")`): the loop element is then the control itself.
+    pub(super) fn is_control_collection(expr: &Expr) -> bool {
+        matches!(expr, Expr::Member { member, parens: true, .. }
+            if member.eq_ignore_ascii_case("DESCENDANTS") || member.eq_ignore_ascii_case("CONTROLS"))
+    }
+
+    /// `C::Descendants()` and `ME::Controls(id …)`: the control ids, as text, in the
+    /// order §5.4 fixes — a stable depth-first preorder by the form's document order
+    /// for `Descendants`, argument order for `Controls`.
+    fn eval_control_collection(
+        &mut self,
+        method: &str,
+        recv: &Expr,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<Vec<CobolValue>, RuntimeError> {
+        let id_text = |id: &str| CobolValue::from_str(id, id.len());
+        if method == "CONTROLS" {
+            let mut seen: Vec<String> = Vec::new();
+            for a in args {
+                let id = self.eval_expr(a, span)?.as_display_string().trim().to_string();
+                if !self.objects.contains(&id) {
+                    return Err(general(format!("Controls: '{id}' is not a control of this form")));
+                }
+                if seen.iter().any(|s| s.eq_ignore_ascii_case(&id)) {
+                    return Err(general(format!("Controls: '{id}' is named twice")));
+                }
+                seen.push(id);
+            }
+            return Ok(seen.iter().map(|id| id_text(id)).collect());
+        }
+        // Descendants: the receiver names one control (an element of a control
+        // loop counts, through its alias).
+        let root = match recv {
+            Expr::Identifier(name, _) => self.member_root_key(name),
+            _ => return Err(general("Descendants() is a method of a control".into())),
+        };
+        if !self.objects.contains(&root) {
+            return Err(general(format!("Descendants: '{root}' is not a control of this form")));
+        }
+        if self.control_tree.is_empty() {
+            return Err(general("Descendants needs a running form: no controls were seeded".into()));
+        }
+        let mut out = Vec::new();
+        self.collect_descendants_of(&root, &mut out, 0);
+        Ok(out.iter().map(|id| id_text(id)).collect())
+    }
+
+    /// The controls under `id` by actual parent membership (never by overlap),
+    /// root excluded, hidden ones included, depth-first in document order.
+    fn collect_descendants_of(&self, id: &str, out: &mut Vec<String>, depth: usize) {
+        if depth > 64 {
+            return; // a cycle in a hand-edited form: stop rather than loop
+        }
+        for (child, parent) in &self.control_tree {
+            if parent.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(id)) {
+                out.push(child.clone());
+                self.collect_descendants_of(child, out, depth + 1);
+            }
+        }
+    }
+
+    /// `<controls>::SetProperties("Name" value …)` (§5.4): the values are evaluated once;
+    /// every target and every pair is checked BEFORE the first write, so an invalid
+    /// one writes nothing; then the writes follow the collection's order through the
+    /// ordinary property path, so the host is told as it is for any `SET`.
+    pub(super) fn eval_set_properties(
+        &mut self,
+        recv: &Expr,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<Option<CobolValue>, RuntimeError> {
+        if !Self::is_control_collection(recv) {
+            return Ok(None);
+        }
+        let targets = self.eval_collection(recv, span)?.unwrap_or_default();
+        if args.is_empty() || args.len() % 2 != 0 {
+            return Err(general(
+                "SetProperties takes name/value pairs: SetProperties(\"Name\" value \"Name\" value …)".into(),
+            ));
+        }
+        let mut pairs: Vec<(String, String)> = Vec::with_capacity(args.len() / 2);
+        for pair in args.chunks(2) {
+            let name = self.eval_expr(&pair[0], span)?.as_display_string().trim().to_string();
+            if name.is_empty() {
+                return Err(general("SetProperties: a property name is empty".into()));
+            }
+            let value = self.eval_expr(&pair[1], span)?.as_display_string().trim_end().to_string();
+            pairs.push((name, value));
+        }
+        let ids: Vec<String> = targets.iter().map(|t| t.as_display_string().trim().to_string()).collect();
+        for id in &ids {
+            if !self.objects.contains(id) {
+                return Err(general(format!("SetProperties: '{id}' is not a control of this form (nothing was written)")));
+            }
+        }
+        for id in &ids {
+            for (name, value) in &pairs {
+                self.set_control_property(id, name, value.clone());
+            }
+        }
+        Ok(Some(CobolValue::from_str("", 1)))
     }
 
     /// Run `f` with the lambda's element name bound to `value`, then take the name

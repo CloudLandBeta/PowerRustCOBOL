@@ -57,6 +57,12 @@ pub fn is_format_method(name: &str) -> bool {
     name.trim().eq_ignore_ascii_case("Format")
 }
 
+/// The methods of a **control collection** (spec 109 §5.4): `Descendants()` and
+/// `Controls(id …)` answer one, `SetProperties("Name" value …)` writes to every control
+/// in it. They are methods of a control (or of `ME`), listed so that none reads as a
+/// subscript.
+pub const CONTROL_COLLECTION_METHODS: &[&str] = &["Descendants", "Controls", "SetProperties"];
+
 /// `true` if `name` is a collection method (see [`COLLECTION_METHODS`]); case does
 /// not matter.
 pub fn is_collection_method(name: &str) -> bool {
@@ -241,6 +247,7 @@ pub fn is_known_method(name: &str) -> bool {
             | "TOUPPERCASE" | "UPPERCASE" | "UPPER"
             | "TOLOWERCASE" | "LOWERCASE" | "LOWER" | "TRIM" | "LEN" | "LENGTH"
         // Spec 109 §5.3 — collections: without these `X::Join(",")` is a subscript.
+            | "DESCENDANTS" | "CONTROLS" | "SETPROPERTIES"
             | "SPLIT" | "FORMAT" | "JOIN" | "MAP" | "FILTER" | "SUM" | "MAX" | "SORTBYDESCENDING" | "TAKE"
     )
 }
@@ -331,5 +338,8 @@ mod collection_vocabulary_tests {
             assert!(canonical_data_item_method(m).is_none(), "{m} must have no older spelling");
         }
         assert!(is_known_method("Split"));
+        for m in CONTROL_COLLECTION_METHODS {
+            assert!(is_known_method(m), "{m} must be in is_known_method");
+        }
     }
 }

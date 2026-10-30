@@ -965,6 +965,8 @@ impl<'a> ResolveCtx<'a> {
             || known.contains(&upper)
             || self.classes.contains(&upper)
             || self.symbols.has_data_item(name)
+            // The element of a `PERFORM VARYING el THROUGH <controls>` loop (spec 109 §5.4).
+            || self.lambda_params.iter().any(|p| p.eq_ignore_ascii_case(name))
         {
             return;
         }

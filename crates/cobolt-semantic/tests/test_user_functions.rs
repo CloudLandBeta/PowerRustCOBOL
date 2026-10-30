@@ -62,3 +62,20 @@ fn a_function_named_like_an_intrinsic_is_refused_naming_it() {
     let e = errors("    DISPLAY W", &unit, None);
     assert!(e.iter().any(|m| m.contains("has the name of the intrinsic function MAX")), "{e:?}");
 }
+
+/// Spec 109 §5.4: the element of a control loop is a receiver the form need not
+/// have a control named after — `CTL::Hide()` passes in a form's analysis.
+#[test]
+fn the_element_of_a_control_loop_is_a_known_receiver() {
+    let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. M.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 W PIC 9.\nPROCEDURE DIVISION.\nMAIN-PARA.\n    PERFORM VARYING CTL THROUGH PNL-A::Descendants()\n        MOVE CTL::Caption TO W\n    END-PERFORM\n    MOVE NOBODY::Caption TO W\n    STOP RUN.\n";
+    let program = parse(tokenize(src, SourceFormat::Free)).program.expect("parses");
+    let known: HashSet<String> = ["PNL-A".to_string()].into();
+    let errs: Vec<String> = analyze_with(&program, &AnalyzeOptions { known_objects: Some(known), ..Default::default() })
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.message.clone())
+        .collect();
+    assert!(!errs.iter().any(|m| m.contains("'CTL'")), "{errs:?}");
+    assert!(errs.iter().any(|m| m.contains("'NOBODY'")), "an unknown receiver is still refused: {errs:?}");
+}

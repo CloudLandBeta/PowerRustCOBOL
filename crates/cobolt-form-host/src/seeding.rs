@@ -342,6 +342,11 @@ pub fn build_object_seed(
             props.push(("Width".into(), c.rect.w.to_string()));
             props.push(("Height".into(), c.rect.h.to_string()));
             props.push(("TabOrder".into(), c.tab_order.to_string()));
+            // The control's parent, for `Descendants()` (spec 109 §5.4): the real
+            // membership, not geometric overlap. Absent for a control on the form.
+            if let Some(parent) = c.parent.as_deref().filter(|p| !p.is_empty()) {
+                props.push(("_Parent".into(), parent.to_owned()));
+            }
             append_data_binding_seed_props(form, &c.id, &mut props);
             if c.control_type == cobolt_forms::ControlType::Maps {
                 if let Some(key) = maps_api_key {

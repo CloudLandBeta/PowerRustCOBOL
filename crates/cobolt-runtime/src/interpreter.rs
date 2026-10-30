@@ -1624,6 +1624,12 @@ pub struct Interpreter {
     /// How deep the user-function calls of this run are (spec 109): names the hidden
     /// argument and result slots, so a recursive call has its own.
     function_depth: usize,
+    /// The form's controls in document order with their parent (spec 109 §5.4):
+    /// what `Descendants()` walks. Filled by `seed_objects` from each control's `_Parent`.
+    control_tree: Vec<(String, Option<String>)>,
+    /// `PERFORM VARYING el THROUGH <controls>`: the element name (UPPERCASE) -> the
+    /// control it stands for while the loop runs, so `EL::Hide()` reaches that control.
+    control_alias: HashMap<String, String>,
     /// Persistent local WORKING-STORAGE per nested program (program-id uppercase →
     /// last-seen local values). Procedures are **static by default** (spec 009
     /// R10): a program's locals are initialised once (from its DATA DIVISION) on
@@ -2213,6 +2219,8 @@ impl Interpreter {
             section_names,
             nested_registry,
             function_depth: 0,
+            control_tree: Vec::new(),
+            control_alias: HashMap::new(),
             program_locals: HashMap::new(),
             perform_depth: 0,
             db: DbRegistry::new(),
@@ -2462,6 +2470,10 @@ impl Interpreter {
     /// Without a form context (`self_form_object` unset) the name passes
     /// through unchanged.
     fn member_root_key(&self, root: &str) -> String {
+        // A `PERFORM VARYING el THROUGH <controls>` element stands for its control.
+        if let Some(id) = self.control_alias.get(&root.trim().to_ascii_uppercase()) {
+            return id.clone();
+        }
         if root.trim().eq_ignore_ascii_case("ME") {
             if let Some(form) = &self.self_form_object {
                 return form.clone();
@@ -4565,6 +4577,14 @@ impl Interpreter {
             }
             // Run-form: seed props for GroupBox (including databound repeating ones)
             let props_vec: Vec<(String, String)> = props.into_iter().collect();
+            // Spec 109 §5.4: the parent, in document order, for `Descendants()`.
+            let parent = props_vec
+                .iter()
+                .find(|(k, _)| k == "_Parent")
+                .map(|(_, v)| v.clone());
+            if !self.control_tree.iter().any(|(i, _)| i.eq_ignore_ascii_case(&id)) {
+                self.control_tree.push((id.clone(), parent));
+            }
             if class.eq_ignore_ascii_case("GroupBox")
                 || id.to_ascii_lowercase().contains("groupbox")
             {
@@ -6124,6 +6144,9 @@ impl Interpreter {
                 comma_form: _,
                 span,
             } => {
+                // A control-loop element (spec 109 §5.4) stands for its control.
+                let aliased = self.control_alias.get(&object.trim().to_ascii_uppercase()).cloned();
+                let object = aliased.as_ref().unwrap_or(object);
                 let mut vals = Vec::with_capacity(args.len());
                 for a in args {
                     vals.push(self.eval_expr(a, *span)?);
@@ -14955,6 +14978,12 @@ impl Interpreter {
             .unwrap_or(false)
     }
 
+    /// One property write by the ordinary path (`SET ctrl::Prop TO …`): the registry,
+    /// the host's update, the side effects. Used by `SetProperties` (spec 109 §5.4).
+    pub(super) fn set_control_property(&mut self, obj: &str, prop: &str, val: String) {
+        self.obj_set(obj, prop, val);
+    }
+
     fn obj_set(&mut self, obj: &str, prop: &str, val: String) {
         if !self.objects.contains(obj) {
             self.objects.register(obj, "Control");
@@ -15833,6 +15862,12 @@ impl Interpreter {
             // Spec 109 §5.2: `X::Format(…)` — before the arguments are evaluated.
             if member.eq_ignore_ascii_case("FORMAT") && self.value_item_root(recv).is_some() {
                 return self.eval_format_method(recv, args, *span);
+            }
+            // Spec 109 §5.4: `<controls>::SetProperties("Name" value …)`.
+            if member.eq_ignore_ascii_case("SETPROPERTIES") {
+                if let Some(v) = self.eval_set_properties(recv, args, *span)? {
+                    return Ok(v);
+                }
             }
             // Spec 109: `Join`, `Sum` and `Max` reduce a collection chain. The
             // arguments are not evaluated first — a lambda has no value of its
