@@ -12,7 +12,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   operator decision, see T12). **2026-10-24 (second run):** T12's Viewer half (operator's decisions) and T13 landed as 2.0.54;
   stopped at T14 (two operator decisions on how the frontend raises the reported events and sets the reported properties,
   see T14). **2026-10-24 (third run):** T14 landed as 2.0.55 (the operator's three decisions); stopped at T15 (what a `RestApi`
-  and an `AgentAi` binding read and save on the backend, see T15).
+  and an `AgentAi` binding read and save on the backend, see T15). **2026-10-30:** T15 closed as 2.0.101 (operator: RestApi/AgentAi
+  deferred to their own spec, refused on the web meanwhile); stopped at T18b (waits for WASM-003 T15, the retry policy).
 - **Plan:** ./plan.md   **Rules:** ./mapping-rules.md   **Date:** 2026-10-22
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it satisfies, and how to verify it. Check off as completed.
@@ -648,7 +649,27 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## M10 — bindings driven by the host
 
-- [ ] **T15 — Remote bindings in the interpreter: IndexedFile, Sql, RestApi, AgentAi** (R13, Q8; AC7)
+- [x] **T15 — Remote bindings in the interpreter: IndexedFile, Sql, RestApi, AgentAi** (R13, Q8; AC7)
+  - **Closed 2026-10-30 (2.0.101), per the operator's decision below.** The refusal was not there: `generate_backend` skipped a
+    `RestApi`/`AgentAi` grid silently (no program, an empty grid in the browser). Now `cobolt-codegen/src/remote_controls.rs`
+    `deferred_grid_binding` / `deferred_grid_bindings` name it — `<FORM>: DataGrid <GRID>: binding <id> (RestApi|AgentAi) cannot
+    run on a web or mobile form yet; …` — `generate_backend` reports it, and `cobolt-project-tools/src/web/generator.rs`
+    `load_forms` runs it beside T13's secret check, **before** the WebAssembly generator, so Check and Build both stop on it
+    (the diagnostic is kind `Other`, English, as the other `generate_backend` refusals are). Only DataGrid targets; the desktop
+    never reaches this path (`WebBuildRequest::from_manifest` refuses a Desktop project). **Evidence:**
+    `cobolt-codegen/tests/remote_controls.rs` `a_rest_or_agent_bound_grid_is_refused_naming_the_form_and_the_grid` (14/0);
+    `cobolt-project-tools/tests/grid_rest_agent_binding_refused.rs` — a real Web project saved as `.wcfrm`, Check and Build each
+    name `main-form`, `GRID-REST` and `GRID-AGENT`, nothing written (1/0). Sweeps with `--no-fail-fast`: see T19's run of
+    2026-10-30. System KB: one sentence in the bound-DataGrid paragraph of *Calling the backend*, `chunked.data` regenerated.
+    DataGrid guardrail (`.agents/agents/datagrid-quality-compatibility-agent.md`) ran on the change: nothing to fix; two stale
+    comments noted — `cobolt-form-host/src/seeding.rs` updated, `cobolt-web-player/src/grid.rs:26` left (the shipped player's
+    freshness fingerprint covers its sources; the comment is still true for `rcrun run-form`).
+    **FINDING (not fixed here):** the WebAssembly generator refuses **every** bound grid on a web form, IndexedFile and SQL
+    included: the form's `COBOL-DATA-BINDINGS-*` paragraphs (`cobolt-codegen/src/data_binding.rs`
+    `write_data_binding_paragraphs`) call `BINDING-SET-READ-ONLY`/`-LOAD`/`-POPULATE`/`-MARK-CLEAN`, which
+    `cobolt-wasm/src/support.rs` classes `BackendOnly(SQL)`; so a real Web project with a bound grid stops at Check before
+    `backend_programs` (T9) runs. Seen on this task's first test run; no existing test builds such a project. A follow-up for
+    the remote-lowering of bindings (the player owns the grid's calls, T16).
   - **Run of 2026-10-24 (fourth): the IndexedFile and Sql half is done and verified (2.0.58); the `RestApi`/`AgentAi` half still
     waits for the operator's answers below.** What landed: the host seeds a web form's grid as remote (`_BindingRemote`,
     `_BindingRemoteRead`, `_BindingRemoteSave`, the endpoints named by `cobolt_wire::controls::endpoint_name`;
@@ -801,6 +822,12 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 ## Finalize
 
 - [ ] **T18b — D21: a call in flight while the frontend retries** (R18; AC11) — added 2026-10-24 by the operator's ruling.
+  - **Blocked (run of 2026-10-30): waits for WASM-003 T15.** R18 says the call waits *through the retries of WASM-003 R25* (three
+    attempts of 10, 20 and 30 s, then give up); AC11 counts "the third attempt". That policy is WASM-003's T15 (unchecked, with
+    the asymmetric channel and a Finalize of its own). Today `cobolt-server/src/client.rs` reconnects with back-off inside one
+    `ClientConfig::reconnect_deadline` (20 s), resends a safe call (`c.safe && c.attempts < 2`) and fails any other call at
+    once with `may_have_run(c.sent)` instead of waiting for the reconnection. Building the three attempts here would be
+    WASM-003 T15's work. This task also has no Files/Do/Verify yet; write them when WASM-003 T15 lands.
 - [ ] **T19 — Finalize: version, CHANGELOG, the tests of every touched crate**
   - **Partial, run of 2026-10-23 (stopped at T11):** `z` bumped once to 2.0.51 (2.0.50 is `2.x.x`'s forward-port `7a8e4c1f`), one
     CHANGELOG entry, plan §3 *Project file* line carries T3's key names, the System KB gained the `backend/generated/` bullet and the
@@ -835,6 +862,17 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
     lines, 1631 passed, 0 failed, 29 ignored. Not re-run here: `cobolt-forms --features render` (not touched) and the full
     `cobolt-ide --bin cobolt-ide` sweep (only `version.rs` and one `ide_text_data.rs` text changed; its KB, i18n and completion
     tests ran) — the disk was down to 12 GiB free after the runtime sweep.
+  - **Partial, run of 2026-10-30 (T15 closed; stopped at T18b):** `z` bumped once, 2.0.100 → **2.0.101**, one CHANGELOG entry;
+    System KB (`cobolt-compiler/src/lib.rs`, the bound-DataGrid paragraph) gained the RestApi/AgentAi refusal, `chunked.data`
+    regenerated (3618 records, 13 078 528 bytes). Sweeps with `--no-fail-fast`: `cobolt-codegen -p cobolt-project-tools` — 27
+    result lines, 303 passed, 0 failed, 1 ignored; `cobolt-runtime -p cobolt-form-host -p cobolt-server` — 210 result lines,
+    1900 passed, **1 failed, not from this run**: `cobolt-form-host` `host::parity::corpus_golden`
+    (`PowerDemo3/Charts/chart-3d.cfrm`, window 912×504 expected, 1725×504 got — the example was re-committed by `4488d800`
+    on 2026-10-25 and the golden was last written 2026-10-14; this run changed one comment in that crate), 29 ignored;
+    `cobolt-ast parser semantic wire wasm compiler web-bundle` — 111 result lines, 866 passed, 0 failed, 5 ignored;
+    `cobolt-ide --bin cobolt-ide` — 1908 passed, **5 failed, the same five as before** (`docs_embed`, `claude_code::bundle`,
+    two `external_crates_service` flow tests, `every_completion_description_exists_in_six_languages`); the KB freshness tests
+    pass. Not run: `cobolt-forms --features render` and `cobolt-web-player` (neither touched; the disk was at 13 GiB free).
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`, this file (check-offs, T1 counts, T3 key names, blocked items), `plan.md` §3
     *Project file* line (the key names of T3).
   - Do: bump `z` **once** in `crates/cobolt-ide/src/version.rs` (the next `z` after whatever it holds then; never the minor); add **one** entry to

@@ -1,5 +1,21 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.126 — 2026-10-30 — WASM-005 T15 closed: a Web or Mobile DataGrid bound to a REST API or an agent is refused at Check and Build
+
+*(Written on `features-2x-wasm`, after 2.0.100.)*
+
+The operator deferred the `RestApi` and `AgentAi` grid bindings to a spec of their own (2026-10-30). The desktop runs neither kind today. T15 therefore closes with its IndexedFile and SQL half, which shipped in 2.0.58.
+
+* **The refusal.** A Web or Mobile form whose DataGrid is bound to a `RestApi` or `AgentAi` source now stops Check and Build, naming the form, the grid and the binding: `main-form: DataGrid GRID-REST: binding rest (RestApi) cannot run on a web or mobile form yet; bind the grid to an indexed file or an SQL query`. Before this change the Build silently generated no backend program, and the browser showed an empty grid.
+  * The check is `cobolt-codegen/src/remote_controls.rs` `deferred_grid_binding` / `deferred_grid_bindings`.
+  * It runs in `cobolt-project-tools/src/web/generator.rs` `load_forms`, beside the secret-on-form check and before the WebAssembly generator. `generate_backend` reports the same error for direct callers.
+  * Other targets (ListBox, ComboBox, Chart) and desktop projects are not affected.
+* **System KB.** The bound-DataGrid paragraph of *Calling the backend* states the refusal; `chunked.data` regenerated.
+* **Tests.** 2 new: `cobolt-codegen/tests/remote_controls.rs` `a_rest_or_agent_bound_grid_is_refused_naming_the_form_and_the_grid`, and `cobolt-project-tools/tests/grid_rest_agent_binding_refused.rs` (a real Web project saved as `.wcfrm`; Check and Build both refuse it and nothing is written).
+* **DataGrid guardrail.** Ran on this change: nothing to fix.
+* **Found, not fixed.** The WebAssembly generator refuses every bound grid on a Web form, IndexedFile and SQL included. The form's generated `COBOL-DATA-BINDINGS-*` paragraphs call `BINDING-SET-READ-ONLY`, `BINDING-LOAD`, `BINDING-POPULATE` and `BINDING-MARK-CLEAN`, which `cobolt-wasm/src/support.rs` classes `BackendOnly`. A real Web project with a bound grid therefore does not get past Check to the generated backend programs (T9). No test builds such a project, and this run did not change it.
+* **Not done.** WASM-005 T18b, a call in flight while the frontend retries (R18, AC11), waits for WASM-003 T15, the retry policy of R25: three attempts of 10, 20 and 30 s, then give up. Today's client (`cobolt-server/src/client.rs`) reconnects within one 20-second `reconnect_deadline`.
+
 ## 2.0.125 — 2026-10-30
 
 **Fix: a PictureBox shows the current content of its `ImagePath` file.** The PictureBox kept the decoded picture in a cache keyed by the PATH alone, for as long as the form ran. A program that wrote a new picture to the same path (a slide viewer re-rendering `slide.png`) and assigned `ImagePath` again kept seeing the first picture, and the only way round it, a new file name per picture, leaked one texture per picture. The cache now remembers which file it decoded (modification time and length), holds one texture per path, and decodes again at the next repaint when the file behind the path has changed, dropping the texture it replaces; a file that cannot be read at that moment leaves the picture already on show. Cost: one `stat` per PictureBox per repaint. Test: `picturebox_shows_the_current_content_of_a_rewritten_file` (unchanged file keeps its texture; two rewrites, one changing the size and one only the pixels, are each decoded; a vanished file keeps the picture). Developer's Guide: `ImagePath` row added to the property table.
