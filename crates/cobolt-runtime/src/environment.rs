@@ -1165,6 +1165,13 @@ impl CobolEnvironment {
         self.store.insert(key.to_string(), value);
     }
 
+    /// Take a canonical storage key out of the store, answering what it held. The
+    /// lambda of a collection method (spec 109) binds its element name this way
+    /// and gives it back afterwards.
+    pub fn raw_take(&mut self, key: &str) -> Option<CobolValue> {
+        self.store.remove(key)
+    }
+
     /// Canonical storage key for a leaf with the given ancestor path
     /// (outermost first). Unique names key by themselves (flat-store fast path);
     /// duplicated names get a path-qualified key that cannot collide.

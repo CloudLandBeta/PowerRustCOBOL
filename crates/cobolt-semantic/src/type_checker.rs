@@ -231,7 +231,8 @@ impl<'a> TypeCtx<'a> {
                 }
                 PerformTarget::Inline { stmts }
                 | PerformTarget::Until { stmts, .. }
-                | PerformTarget::Varying { stmts, .. } => {
+                | PerformTarget::Varying { stmts, .. }
+                | PerformTarget::Through { stmts, .. } => {
                     for s in stmts {
                         self.check_stmt(s);
                     }

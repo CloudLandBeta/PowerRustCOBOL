@@ -130,6 +130,7 @@ pub fn resolve(
         known_objects,
         known_layers,
         classes,
+        lambda_params: Vec::new(),
     };
     // `FILE STATUS IS data-name` names a data item of the program (COBOL-85,
     // the FILE STATUS clause's syntax rules). Nothing checked it, and the
@@ -210,6 +211,9 @@ struct ResolveCtx<'a> {
     known_layers: Option<&'a std::collections::HashSet<String>>,
     /// This program's REPOSITORY class names, UPPERCASE: `Class::new()`.
     classes: Vec<String>,
+    /// The element names of the collection-method lambdas being resolved
+    /// (`Map(ITEM => …)`): in scope inside the lambda body only, never data items.
+    lambda_params: Vec<String>,
     /// 049 R17 — the project's form formats (UPPERCASE id → format), when a
     /// project supplied them. `None` disables the load-path check.
     form_formats: Option<&'a std::collections::HashMap<String, crate::FormLoadFormat>>,
@@ -394,6 +398,20 @@ impl<'a> ResolveCtx<'a> {
                     for s in stmts {
                         self.resolve_stmt(s);
                     }
+                }
+                // `PERFORM VARYING element THROUGH collection` (spec 109): the
+                // element is in scope in the body only, like a lambda's.
+                PerformTarget::Through {
+                    element,
+                    collection,
+                    stmts,
+                } => {
+                    self.resolve_expr(collection);
+                    self.lambda_params.push(element.clone());
+                    for s in stmts {
+                        self.resolve_stmt(s);
+                    }
+                    self.lambda_params.pop();
                 }
             },
             // An empty target is the altered `GO TO.`; the procedure-name comes
@@ -829,10 +847,17 @@ impl<'a> ResolveCtx<'a> {
         let Some(root) = root_name(cur) else {
             return;
         };
+        // Spec 109: once a chain holds a collection — after `Split`, `Map` … — the
+        // collection methods are its links; on a plain item they are not.
+        let mut in_collection = false;
         for (method, span) in links.into_iter().rev() {
-            if !cobolt_ast::methods::is_data_item_method(method) {
+            let collection_link = in_collection && cobolt_ast::methods::is_collection_method(method);
+            if !cobolt_ast::methods::is_data_item_method(method) && !collection_link {
                 self.check_data_item_method(root, method, span);
                 return;
+            }
+            if method.eq_ignore_ascii_case("Split") || cobolt_ast::methods::is_collection_method(method) {
+                in_collection = true;
             }
         }
     }
@@ -959,7 +984,8 @@ impl<'a> ResolveCtx<'a> {
                 // (llm.rs); the gates now agree. Codegen (1.70.74) and the
                 // demos (1.70.75) were made clean first, so this catches
                 // developer mistakes, not the toolchain's own.
-                if !is_runtime && !self.symbols.has_data_item(name) && name.len() > 1 {
+                let is_lambda_param = self.lambda_params.iter().any(|p| p.eq_ignore_ascii_case(name));
+                if !is_runtime && !is_lambda_param && !self.symbols.has_data_item(name) && name.len() > 1 {
                     let msg = format!("identifier '{name}' is not declared in DATA DIVISION");
                     if self.tolerate_undeclared {
                         self.warn(msg, *span);
@@ -1063,6 +1089,18 @@ impl<'a> ResolveCtx<'a> {
             // The table itself is resolved through the enclosing `Subscript`'s
             // base, so there is nothing to look up here.
             Expr::AllSubscript(..) => {}
+            // `ITEM => body` (spec 109 §5.3): the element name is in scope for
+            // the body only. A lambda may not assign, do I/O or mutate a control
+            // (R-lambda purity): its body is an expression or a test, which the
+            // parser guarantees; the calls inside it are checked at run time.
+            Expr::Lambda { param, body, .. } => {
+                self.lambda_params.push(param.clone());
+                match body.as_ref() {
+                    cobolt_ast::expr::LambdaBody::Value(e) => self.resolve_expr(e),
+                    cobolt_ast::expr::LambdaBody::Test(c) => self.resolve_condition(c),
+                }
+                self.lambda_params.pop();
+            }
         }
     }
 

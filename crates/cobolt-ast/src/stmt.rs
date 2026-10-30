@@ -242,6 +242,15 @@ pub enum PerformTarget {
         section: String,
         span: Span,
     },
+    /// `PERFORM VARYING element THROUGH collection … END-PERFORM` (spec 109 §5.3).
+    /// The collection is snapshotted when the loop starts; `element` exists only
+    /// inside the loop (an occurrence of an OCCURS table, the live control of a
+    /// control collection, a copy for a computed collection).
+    Through {
+        element: String,
+        collection: Expr,
+        stmts: Vec<Stmt>,
+    },
 }
 
 /// An AFTER sub-clause for multi-dimensional PERFORM VARYING.
@@ -1047,7 +1056,8 @@ impl Stmt {
                 PerformTarget::Inline { stmts }
                 | PerformTarget::Times { stmts, .. }
                 | PerformTarget::Until { stmts, .. }
-                | PerformTarget::Varying { stmts, .. } => out.extend(stmts.iter()),
+                | PerformTarget::Varying { stmts, .. }
+                | PerformTarget::Through { stmts, .. } => out.extend(stmts.iter()),
                 PerformTarget::Paragraph(..)
                 | PerformTarget::Section(..)
                 | PerformTarget::QualifiedParagraph { .. }
@@ -1212,7 +1222,8 @@ impl Stmt {
                 PerformTarget::Inline { stmts }
                 | PerformTarget::Times { stmts, .. }
                 | PerformTarget::Until { stmts, .. }
-                | PerformTarget::Varying { stmts, .. } => out.push(stmts),
+                | PerformTarget::Varying { stmts, .. }
+                | PerformTarget::Through { stmts, .. } => out.push(stmts),
                 PerformTarget::Paragraph(..)
                 | PerformTarget::Section(..)
                 | PerformTarget::QualifiedParagraph { .. }

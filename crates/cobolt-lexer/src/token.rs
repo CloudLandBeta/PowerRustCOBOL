@@ -304,6 +304,9 @@ pub enum RawToken {
     GtEq,
     #[token("<>")]
     NotEq,
+    /// The lambda arrow of a collection method: `Map(ITEM => ITEM::Trim())`.
+    #[token("=>")]
+    FatArrow,
     #[token("=")]
     Eq,
     #[token("<")]
@@ -767,6 +770,7 @@ pub enum Token {
     LtEq,      // <=
     GtEq,      // >=
     NotEq,     // <>
+    FatArrow,  // =>
 
     // Punctuation
     Period,    // .

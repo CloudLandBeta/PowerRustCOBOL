@@ -1307,6 +1307,17 @@ fn parse_varying_clauses(p: &mut Parser) -> VaryingHeader {
 
 /// Inline `PERFORM VARYING … END-PERFORM` (body parsed up to END-PERFORM).
 fn parse_perform_varying(p: &mut Parser, test_before: bool) -> PerformTarget {
+    // `VARYING element THROUGH collection` (spec 109 §5.3): an identifier and
+    // then THROUGH / THRU, which the standard form never has in that place.
+    if matches!(p.peek_at(1), Token::Identifier(..)) && matches!(p.peek_at(2), Token::Thru | Token::Through) {
+        p.advance(); // VARYING
+        let element = p.eat_identifier().map(|(n, _)| n).unwrap_or_default();
+        p.advance(); // THROUGH
+        let collection = parse_expr(p);
+        let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
+        p.eat(&Token::EndPerform);
+        return PerformTarget::Through { element, collection, stmts };
+    }
     let (var, from, by, until, after) = parse_varying_clauses(p);
     let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
     p.eat(&Token::EndPerform);

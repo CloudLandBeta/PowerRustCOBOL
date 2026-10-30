@@ -30,6 +30,7 @@ use indexmap::IndexMap;
 mod agent_loop;
 mod array_edit;
 mod aws;
+mod collections;
 mod exec_sql;
 mod grid_dropdown;
 mod grid_edit;
@@ -7909,6 +7910,9 @@ impl Interpreter {
             PerformTarget::Varying { .. } => {
                 self.debug_push_frame(FrameKind::InlineLoop, "PERFORM VARYING")
             }
+            PerformTarget::Through { .. } => {
+                self.debug_push_frame(FrameKind::InlineLoop, "PERFORM VARYING THROUGH")
+            }
         };
         let result = self.exec_perform_inner(target, span);
         self.debug_pop_frame(pushed);
@@ -8013,6 +8017,11 @@ impl Interpreter {
                 }
                 Ok(())
             }
+            PerformTarget::Through {
+                element,
+                collection,
+                stmts,
+            } => self.exec_perform_through(element, collection, stmts, span),
             PerformTarget::Varying {
                 var,
                 from,
@@ -15809,6 +15818,29 @@ impl Interpreter {
                 _ => false,
             };
 
+            // Spec 109: `Join`, `Sum` and `Max` reduce a collection chain. The
+            // arguments are not evaluated first — a lambda has no value of its
+            // own — so this comes before they are.
+            if collections::is_collection_reducer(member) {
+                if let Some(v) = self.eval_reduction(recv, member, args, *span)? {
+                    return Ok(v);
+                }
+            }
+            // `Map`, `Filter`, `SortByDescending` and `Take` produce a
+            // collection, which is not a value (R38): say so rather than let
+            // the call read as a subscript or answer nothing.
+            if collections::is_collection_producer(member) && !member.eq_ignore_ascii_case("SPLIT") {
+                if self.eval_collection(expr, *span)?.is_some() {
+                    return Err(RuntimeError::General {
+                        message: format!(
+                            "'{member}' answers a collection, which is not a value: follow it \
+                             with Join, Sum or Max, walk it with PERFORM VARYING … THROUGH, or \
+                             assign it to a table"
+                        ),
+                    });
+                }
+            }
+
             if is_var_or_lit {
                 let recv_val = self.eval_expr(recv, *span)?;
                 let m = member.to_ascii_uppercase();
@@ -17995,6 +18027,12 @@ impl Interpreter {
             // expansion does not apply (outside an intrinsic-function
             // argument), so it is reported rather than silently given a
             // number.
+            Expr::Lambda { .. } => Err(RuntimeError::General {
+                message: "a lambda (ITEM => …) is only meaningful as the argument of Map, \
+                          Filter or SortByDescending"
+                    .into(),
+            }),
+
             Expr::AllSubscript(_) => Err(RuntimeError::General {
                 message: "ALL as a subscript is only meaningful as an intrinsic-function \
                           argument, such as FUNCTION MAX(TABLE (ALL))"

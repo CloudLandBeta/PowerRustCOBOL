@@ -2704,6 +2704,12 @@ impl<'a, 'b> Lower<'a, 'b> {
             PerformTarget::Varying { var, from, by, until, stmts, after, test_before } => {
                 self.perform_varying(var, from, by, until, stmts, after, *test_before, line)
             }
+            // Spec 109 §5.3: a collection is a run-time list the generator does not
+            // model yet (R23: never a silent no-op).
+            PerformTarget::Through { .. } => Err(GenError::new(
+                line,
+                "PERFORM VARYING … THROUGH is not supported in a WebAssembly module yet (specs/WASM-PARITY.md)",
+            )),
         }
     }
 

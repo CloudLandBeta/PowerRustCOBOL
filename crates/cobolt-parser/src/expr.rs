@@ -22,7 +22,8 @@
 //! ```
 
 use cobolt_ast::expr::{
-    ArithOp, CmpOp, Condition, DataClass, Expr, FigurativeConstant, Literal, SignCond, UnaryOp,
+    ArithOp, CmpOp, Condition, DataClass, Expr, FigurativeConstant, LambdaBody, Literal, SignCond,
+    UnaryOp,
 };
 use cobolt_lexer::{Span, Token};
 
@@ -616,6 +617,35 @@ fn parse_subscript_or_refmod(p: &mut Parser, expr: Expr, id_span: Span) -> Expr 
     out
 }
 
+/// `ITEM => body`, the lambda argument of a collection method (spec 109 §5.3).
+/// Recognised only as identifier + `=>`, so no existing argument reads
+/// differently. A bare expression body is a value; a comparison or a logical
+/// combination is a truth test.
+fn parse_lambda(p: &mut Parser) -> Option<Expr> {
+    if *p.peek_at(1) != Token::FatArrow {
+        return None;
+    }
+    let start = p.peek_span();
+    let (param, _) = p.eat_identifier()?;
+    p.advance(); // =>
+    // A value, unless a relational operator follows it: then it is the start of a
+    // truth test, which is parsed again from the same place as a condition.
+    let at = p.pos;
+    let value = parse_expr(p);
+    let body = if at_relop(p) || p.at(&Token::Not) || p.at(&Token::Is) {
+        p.pos = at;
+        LambdaBody::Test(parse_condition(p))
+    } else {
+        LambdaBody::Value(value)
+    };
+    let span = start.merge(p.peek_span());
+    Some(Expr::Lambda {
+        param,
+        body: Box::new(body),
+        span,
+    })
+}
+
 pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
     while *p.peek() == Token::Colon && *p.peek_at(1) == Token::Colon {
         let start = base.span();
@@ -639,7 +669,11 @@ pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
             // stopped being tokens.
             while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
                 let before = p.pos;
-                args.push(parse_expr(p));
+                if let Some(lambda) = parse_lambda(p) {
+                    args.push(lambda);
+                } else {
+                    args.push(parse_expr(p));
+                }
                 p.eat(&Token::Comma);
                 if p.pos == before {
                     break;

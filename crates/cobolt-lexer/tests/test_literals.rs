@@ -169,6 +169,15 @@ fn not_equal_operator() {
 }
 
 #[test]
+fn fat_arrow_is_the_lambda_arrow_and_leaves_the_comparisons_alone() {
+    let t = toks("SET X TO Y::Map(ITEM => ITEM)");
+    assert!(t.contains(&Token::FatArrow));
+    let t = toks("IF A >= B AND C <= D AND E = F AND G <> H");
+    assert!(!t.contains(&Token::FatArrow));
+    assert!(t.contains(&Token::GtEq) && t.contains(&Token::LtEq) && t.contains(&Token::NotEq));
+}
+
+#[test]
 fn period_parens() {
     // The comma in `ADD A, B TO C (1).` is a COBOL-85 *separator* — it is
     // followed by a space, so it means what a space means and produces no

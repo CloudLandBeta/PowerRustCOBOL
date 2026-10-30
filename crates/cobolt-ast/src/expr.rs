@@ -218,6 +218,25 @@ pub enum Expr {
     /// a subscript list `ALL` is always this, because a figurative constant is
     /// never a legal subscript.
     AllSubscript(Span),
+
+    /// The expression-only lambda of a collection method (spec 109 §5.3):
+    /// `Map(ITEM => ITEM::Trim())`, `Filter(ITEM => ITEM <> "")`. `param` is the
+    /// lexical element name; it exists only inside `body` and is never a data
+    /// item. A lambda is only meaningful as an argument of a collection method.
+    Lambda {
+        param: String,
+        body: Box<LambdaBody>,
+        span: Span,
+    },
+}
+
+/// What a lambda computes: a value (`Map`, `SortByDescending`) or a truth value
+/// (`Filter`). A bare expression is a [`LambdaBody::Value`]; a comparison or a
+/// logical combination is a [`LambdaBody::Test`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum LambdaBody {
+    Value(Expr),
+    Test(Condition),
 }
 
 impl Expr {
@@ -234,6 +253,7 @@ impl Expr {
             Expr::Arithmetic { span, .. } => *span,
             Expr::Unary { span, .. } => *span,
             Expr::Member { span, .. } => *span,
+            Expr::Lambda { span, .. } => *span,
         }
     }
 }

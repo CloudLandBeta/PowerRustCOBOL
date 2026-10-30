@@ -41,6 +41,20 @@ pub const DATA_ITEM_METHODS: &[&str] = &[
 /// others to (operator, 2026-10-10: "remove the redundancy of method naming").
 pub const CANONICAL_DATA_ITEM_METHODS: &[&str] = &["Trim", "Upper", "Lower", "Replace", "Len", "Split"];
 
+/// The methods of a **collection** (spec 109 §5.3): what follows a `Split(sep)` in
+/// a chain, one spelling each and no alias. `Map`, `Filter`, `SortByDescending` and
+/// `Take` answer a collection; `Join`, `Sum` and `Max` reduce one to a value. They
+/// are not value methods of a plain data item — `WS-TEXT::Join(",")` is an error
+/// — so they are not on [`DATA_ITEM_METHODS`]; the analyser and the evaluator
+/// accept them as the links of a chain that starts with a collection.
+pub const COLLECTION_METHODS: &[&str] = &["Join", "Map", "Filter", "Sum", "Max", "SortByDescending", "Take"];
+
+/// `true` if `name` is a collection method (see [`COLLECTION_METHODS`]); case does
+/// not matter.
+pub fn is_collection_method(name: &str) -> bool {
+    COLLECTION_METHODS.iter().any(|m| m.eq_ignore_ascii_case(name.trim()))
+}
+
 /// The spellings that still run but are no longer written, each with the
 /// canonical spelling it stands for. Matched without regard to case.
 pub const DATA_ITEM_METHOD_ALIASES: &[(&str, &str)] = &[
@@ -218,6 +232,8 @@ pub fn is_known_method(name: &str) -> bool {
             | "COUNT" | "SIZE" | "REMOVE" | "ADD" | "APPEND"
             | "TOUPPERCASE" | "UPPERCASE" | "UPPER"
             | "TOLOWERCASE" | "LOWERCASE" | "LOWER" | "TRIM" | "LEN" | "LENGTH"
+        // Spec 109 §5.3 — collections: without these `X::Join(",")` is a subscript.
+            | "SPLIT" | "JOIN" | "MAP" | "FILTER" | "SUM" | "MAX" | "SORTBYDESCENDING" | "TAKE"
     )
 }
 
@@ -288,5 +304,24 @@ mod tests {
             assert!(DATA_ITEM_METHODS_TEXT.contains(alias), "{alias}");
         }
         assert!(DATA_ITEM_METHODS_TEXT.contains("still work"));
+    }
+}
+
+#[cfg(test)]
+mod collection_vocabulary_tests {
+    use super::*;
+
+    /// Spec 109 R37 / AC22: every collection method is on the closed vocabulary,
+    /// under ONE spelling and no alias — without it `X::Join(",")` would be read as
+    /// a subscript and do nothing — and is not a value method of a plain item.
+    #[test]
+    fn every_collection_method_is_known_and_has_one_spelling() {
+        for m in COLLECTION_METHODS {
+            assert!(is_known_method(m), "{m} must be in is_known_method");
+            assert!(is_collection_method(m), "{m}");
+            assert!(!is_data_item_method(m), "{m} is not a value method of a plain data item");
+            assert!(canonical_data_item_method(m).is_none(), "{m} must have no older spelling");
+        }
+        assert!(is_known_method("Split"));
     }
 }

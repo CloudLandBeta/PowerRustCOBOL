@@ -446,6 +446,7 @@ impl<'src> Lexer<'src> {
             RawToken::LtEq => Token::LtEq,
             RawToken::GtEq => Token::GtEq,
             RawToken::NotEq => Token::NotEq,
+            RawToken::FatArrow => Token::FatArrow,
             RawToken::Eq => Token::Eq,
             RawToken::Lt => Token::Lt,
             RawToken::Gt => Token::Gt,
