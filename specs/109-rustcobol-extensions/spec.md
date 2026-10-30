@@ -879,8 +879,9 @@ entry, and none weakens a requirement. The order is the plan's.
 
 ## 9. Open questions
 
-Nothing here has been put to the operator yet; each question carries a
-recommendation, and `/clarify` is the next phase.
+All twelve questions were put to the operator and settled in /clarify on
+2026-10-30 (below); `/plan` is the next phase, and implementation still waits for
+spec 108 to be in `main` and ported (operator's ruling of 2026-10-30).
 
 **Settled by the operator** (carried from the draft, 2026-10-28; not reopened):
 
@@ -897,7 +898,44 @@ recommendation, and `/clarify` is the next phase.
 - Iteration is `PERFORM VARYING element THROUGH collection`; no `FOR EACH` (R16).
 - Functions are COBOL-2002 FUNCTION-ID units, not a Python-style declaration (§5.1).
 
-**Open:**
+**Settled by the operator in /clarify, 2026-10-30** (supersedes the recommendations
+below only where it differs; plan.md may not reopen them):
+
+- **Q1 — The line is `features-2x`** (not `features` on 1.x.x): all four hosts in
+  one line; the Guide waits for the 2.x.x release (§8). *Differs from the
+  recommendation.*
+- **Q2 — FORMAT:** percent is a ratio (0.425 shows as 42,5%); a project-level
+  default currency beside `locale` plus a per-format override (spelling fixed in
+  /plan); closed built-in locale set `pt-BR`, `en-US`, `fr-FR` with the data source
+  and version pinned and identical on every host; FORMAT reads neither
+  `DECIMAL-POINT IS COMMA` nor `CURRENCY SIGN`.
+- **Q3 — Lambda:** `ITEM => expression`, new `=>` token; only pure calls (user
+  FUNCTIONs and the value methods); a failing element fails the whole expression and
+  names the element's position.
+- **Q4 — `PERFORM VARYING element THROUGH collection`:** the collection is
+  snapshotted when the loop starts; the element names the occurrence of an OCCURS
+  table, is the live control for a control collection, a copy for a computed
+  collection; it exists only inside the loop.
+- **Q5 — FUNCTION-ID:** Common Code (`src/*.cbl`) sibling units registered through
+  REPOSITORY, visible project-wide; a name that is also an intrinsic function's is
+  refused with a diagnostic naming both.
+- **Q6 — Formatting contexts:** DISPLAY, STRING, interpolation and `Format()` apply
+  FORMAT; MOVE, group items, file and SQL I/O, reference modification, REDEFINES and
+  serialization never do.
+- **Q7 — Declarative layout:** grammar, precedence and Web/Mobile lowering are
+  decided in /plan against spec 056 R9, R10.
+- **Q8 — Sequences and bindings:** syntax decided in /plan; an entry's `delay_ms`
+  adds to its `AFTER`.
+- **Q9 — Inventory:** the plan's first task, over PowerAnalytics and `examples/`;
+  anything not proven unused is kept.
+- **Q10 — Query APIs:** Scalar and multi-field queries amend spec 108; §5.8 begins
+  with the PartiQL result set.
+- **Q11 — `SetProperties`:** name/value pairs,
+  `SetProperties("BackgroundColor" "#FFFFFF" "ForegroundColor" "#1B2A4E")`.
+- **Q12 — `Max` of an empty collection:** a run-time error naming the method (R15's
+  word "recoverable" is relaxed); `Sum` of an empty collection is zero.
+
+**Previously open (answered above; the original text is kept for the record):**
 
 - **Q1 — Which line builds it** (an assumption from precedent). *Recommendation:*
   as spec 108 does — `features` on 1.x.x, with the Guide and the translations by
