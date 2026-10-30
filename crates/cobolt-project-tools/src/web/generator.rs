@@ -176,6 +176,12 @@ impl GeneratorBackend {
                     ),
                 ));
             }
+            // WASM-005 T15 (operator, 2026-10-30): a grid bound to a RestApi or
+            // an AgentAi source waits for a spec of its own; refused here, before
+            // the generator, so the form and the grid are what Check names.
+            for e in cobolt_codegen::remote_controls::deferred_grid_bindings(&form) {
+                refused.push(diag(rel.clone(), WebDiagnosticKind::Other, String::new(), e));
+            }
             let (src, map) = cobolt_codegen::generate_with_map(&form);
             let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(
                 &src,

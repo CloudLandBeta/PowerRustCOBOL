@@ -110,6 +110,43 @@ fn a_grid_the_backend_cannot_serve_is_refused_naming_it() {
     assert!(errs[1].starts_with("REPORT: DataGrid GRID-TOTALS: DB-SALES names no backend connection"), "{}", errs[1]);
 }
 
+/// T15 (operator, 2026-10-30): a REST or agent binding waits for a spec of its
+/// own; a web form's grid bound to one is refused, the form and grid named,
+/// and the grids the backend serves are still generated alongside.
+#[test]
+fn a_rest_or_agent_bound_grid_is_refused_naming_the_form_and_the_grid() {
+    use cobolt_forms::{BindingDataType, BindingField, BindingSourceDescriptor, BindingTargetDescriptor, Control, ControlType, DataBindingDef};
+    let mut forms = fixtures::grid_forms();
+    let fields = vec![BindingField::new("ID", BindingDataType::Integer), BindingField::new("NAME", BindingDataType::Text)];
+    forms[1].controls.push(Control::new("GRID-REST", ControlType::DataGrid, 10, 200));
+    forms[1].controls.push(Control::new("GRID-AGENT", ControlType::DataGrid, 10, 400));
+    forms[1].data_bindings.push(DataBindingDef::new(
+        "rest",
+        "Rest",
+        BindingSourceDescriptor::RestApi {
+            source_control_id: "REST-1".into(),
+            endpoint_name: "GET-CUSTOMERS".into(),
+            response_data_item: "REST-RESPONSE".into(),
+            fields: fields.clone(),
+            update: None,
+        },
+        BindingTargetDescriptor::DataGrid { control_id: "GRID-REST".into() },
+    ));
+    forms[1].data_bindings.push(DataBindingDef::new(
+        "agent",
+        "Agent",
+        BindingSourceDescriptor::AgentAi { source_control_id: "AGENT-1".into(), output_name: "AGENT-1-OUTPUT".into(), fields, update: None },
+        BindingTargetDescriptor::DataGrid { control_id: "GRID-AGENT".into() },
+    ));
+    let load = |_: &str| Ok(fixtures::customers_cidx("data/customers.idx"));
+    let errs = generate_backend(&forms, &load).unwrap_err();
+    assert_eq!(errs.len(), 2, "{errs:#?}");
+    assert!(errs[0].starts_with("REPORT: DataGrid GRID-AGENT: binding agent (AgentAi) cannot run on a web or mobile form yet"), "{}", errs[0]);
+    assert!(errs[1].starts_with("REPORT: DataGrid GRID-REST: binding rest (RestApi) cannot run on a web or mobile form yet"), "{}", errs[1]);
+    // Only the deferred kinds are refused: the fixture's own grids still generate.
+    assert!(generate_backend(&fixtures::grid_forms(), &load).is_ok());
+}
+
 #[test]
 fn generated_backend_programs_match_their_goldens() {
     let update = std::env::var("UPDATE_GOLDEN").is_ok();

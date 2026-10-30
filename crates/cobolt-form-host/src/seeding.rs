@@ -474,7 +474,8 @@ pub fn append_data_binding_seed_props_for(
     // query's rows, and the grid reads and saves through the endpoints the
     // Build generated for it (`cobolt-codegen`'s `remote_controls`), named here
     // as the Build names them. A COBOL table stays in the form (Q8); `RestApi`
-    // and `AgentAi` wait for their programs. The local seeds below stay: the
+    // and `AgentAi` wait for a spec of their own (a web or mobile Check and
+    // Build refuse such a grid, T15). The local seeds below stay: the
     // plan of a save still needs the fields and the keys.
     if remote
         && matches!(&binding.target, cobolt_forms::BindingTargetDescriptor::DataGrid { .. })

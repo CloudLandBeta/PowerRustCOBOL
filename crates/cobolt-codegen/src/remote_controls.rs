@@ -226,8 +226,9 @@ pub fn is_generated(text: &str) -> bool {
 /// The backend programs of `forms` (a web or mobile project's forms): a `READ`
 /// for every DataGrid bound to an indexed file or an SQL query, and a `SAVE`
 /// when the binding is writable. `load_cidx` reads a binding's `.cidx` by the
-/// path the form stores. Every problem of every form is reported together,
-/// each naming its form and grid.
+/// path the form stores. A grid bound to `RestApi` or `AgentAi` is refused
+/// ([`deferred_grid_binding`]). Every problem of every form is reported
+/// together, each naming its form and grid.
 pub fn generate_backend(
     forms: &[Form],
     load_cidx: &dyn Fn(&str) -> Result<IndexedDefinition, String>,
@@ -240,10 +241,14 @@ pub fn generate_backend(
         bindings.sort_by(|a, b| a.id.cmp(&b.id));
         for binding in bindings {
             let BindingTargetDescriptor::DataGrid { control_id } = &binding.target else { continue };
+            let at = format!("{}: DataGrid {control_id}", form.name);
+            if let Some(e) = deferred_grid_binding(form, binding) {
+                errs.push(e);
+                continue;
+            }
             if !matches!(binding.source, BindingSourceDescriptor::IndexedFile { .. } | BindingSourceDescriptor::Sql { .. }) {
                 continue;
             }
-            let at = format!("{}: DataGrid {control_id}", form.name);
             let Some(grid) = all.iter().find(|c| c.id.eq_ignore_ascii_case(control_id)) else {
                 errs.push(format!("{at}: binding {} feeds a grid the form does not have", binding.id));
                 continue;
@@ -265,6 +270,30 @@ pub fn generate_backend(
     } else {
         Err(errs)
     }
+}
+
+/// T15 (operator, 2026-10-30): a grid bound to a `RestApi` or an `AgentAi`
+/// source runs neither on the desktop nor through the backend until a spec of
+/// its own defines both kinds, so a web or mobile form that has one is
+/// refused, the form and the grid named — never built to show an empty grid.
+pub fn deferred_grid_binding(form: &Form, binding: &DataBindingDef) -> Option<String> {
+    let BindingTargetDescriptor::DataGrid { control_id } = &binding.target else { return None };
+    let kind = match binding.source {
+        BindingSourceDescriptor::RestApi { .. } => "RestApi",
+        BindingSourceDescriptor::AgentAi { .. } => "AgentAi",
+        _ => return None,
+    };
+    Some(format!(
+        "{}: DataGrid {control_id}: binding {} ({kind}) cannot run on a web or mobile form yet; bind the grid to an indexed file or an SQL query",
+        form.name, binding.id
+    ))
+}
+
+/// Every [`deferred_grid_binding`] of `form`, in binding-id order.
+pub fn deferred_grid_bindings(form: &Form) -> Vec<String> {
+    let mut bindings: Vec<&DataBindingDef> = form.data_bindings.iter().collect();
+    bindings.sort_by(|a, b| a.id.cmp(&b.id));
+    bindings.into_iter().filter_map(|b| deferred_grid_binding(form, b)).collect()
 }
 
 /// The `READ` (and, when writable, `SAVE`) program of one bound grid.
