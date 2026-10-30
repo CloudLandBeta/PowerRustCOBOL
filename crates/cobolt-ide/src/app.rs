@@ -1729,6 +1729,13 @@ fn same_file_path(a: &Path, b: &Path) -> bool {
 /// matching `create_new_form`'s own convention (`form_name.to_lowercase()`)
 /// so a pasted and a hand-created form are indistinguishable on disk. The
 /// extension is the project kind's (WASM-001 Q2): `.cfrm`, `.wcfrm`, `.mcfrm`.
+/// The IDE's window title: the product, the kind of RAD it is (Desktop, Web or
+/// Mobile — the open project's kind) and the version the operator reads to confirm
+/// they are running fresh code.
+pub(crate) fn ide_window_title(brand: &str, kind_label: &str, version: &str) -> String {
+    format!("{brand} {kind_label} {version}")
+}
+
 fn pasted_form_file_name(form_name: &str, kind: cobolt_compiler::ProjectKind) -> String {
     format!("{}.{}", form_name.to_lowercase(), kind.form_extension())
 }
@@ -15994,7 +16001,15 @@ impl eframe::App for CoboltApp {
         // while a project setting chose the build; the button chooses now, so
         // there is no mode of the project to show.
         {
-            let title = format!("{} {VERSION}", crate::theme::brand_name());
+            // The IDE names the kind of RAD it is working in: Desktop, Web or Mobile,
+            // by the open project (a Desktop RAD with none open).
+            let tr = self.lang.tr();
+            let kind_label = match self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default() {
+                cobolt_compiler::ProjectKind::Desktop => tr.pk_kind_desktop,
+                cobolt_compiler::ProjectKind::Web => tr.pk_kind_web,
+                cobolt_compiler::ProjectKind::Mobile => tr.pk_kind_mobile,
+            };
+            let title = ide_window_title(&crate::theme::brand_name(), kind_label, VERSION);
             // Only touch the OS window when the title actually changes.
             if title != self.last_window_title {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -22413,6 +22428,17 @@ mod form_paste_tests {
     #[test]
     fn pasted_form_file_name_matches_the_create_convention() {
         use cobolt_compiler::ProjectKind;
+        // The window title names the RAD (feature: Desktop, Web, Mobile).
+        for lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            let titles: Vec<String> = [tr.pk_kind_desktop, tr.pk_kind_web, tr.pk_kind_mobile]
+                .iter()
+                .map(|k| ide_window_title("PowerRustCOBOL AI", k, "9.9.9"))
+                .collect();
+            assert!(titles.iter().all(|t| t.starts_with("PowerRustCOBOL AI ") && t.ends_with(" 9.9.9")));
+            assert_eq!(titles.iter().collect::<std::collections::HashSet<_>>().len(), 3, "{lang:?}: three kinds, three titles");
+        }
+        assert_eq!(ide_window_title("PowerRustCOBOL AI", "Web", "2.0.109"), "PowerRustCOBOL AI Web 2.0.109");
         assert_eq!(pasted_form_file_name("MAIN-FORM", ProjectKind::Desktop), "main-form.cfrm");
         assert_eq!(pasted_form_file_name("Login", ProjectKind::Desktop), "login.cfrm");
         // WASM-001 Q2: a Web or Mobile project's pasted form carries its kind's extension.

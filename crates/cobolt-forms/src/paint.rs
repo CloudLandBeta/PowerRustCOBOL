@@ -2340,6 +2340,29 @@ pub fn nv_ink_on(derived: Color32, tone: Color32, a: u8) -> Color32 {
     Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), a)
 }
 
+/// The `Non-Visuals` tab's board is black and its ink is white, whatever the form's
+/// theme: a card is a dark plate with a light rim, and its glyph, caption, name and
+/// type are pure white. One palette for Desktop, Web and Mobile forms.
+pub const NV_TAB_BOARD: Color32 = Color32::BLACK;
+/// The card plate on the black board — a step above it, so the card still reads.
+pub const NV_TAB_CARD: Color32 = Color32::from_rgb(30, 32, 38);
+/// The ink of everything on the `Non-Visuals` tab.
+pub const NV_TAB_INK: Color32 = Color32::WHITE;
+
+/// A card on the `Non-Visuals` tab: [`NV_TAB_CARD`] with a light rim (blue when
+/// selected), never the theme's Card surface.
+pub fn nv_tab_card(painter: &egui::Painter, rect: egui::Rect, selected: bool, a: u8, rounding: egui::CornerRadius) {
+    let fade = |c: Color32| c.gamma_multiply(a as f32 / 255.0);
+    let border = if selected { Color32::from_rgb(90, 160, 255) } else { Color32::from_rgb(150, 160, 185) };
+    painter.rect_filled(rect, rounding, fade(NV_TAB_CARD));
+    painter.rect_stroke(
+        rect,
+        rounding,
+        Stroke::new(if selected { 2.0 } else { 1.0 }, fade(border)),
+        egui::StrokeKind::Middle,
+    );
+}
+
 /// Draw the shared non-visual card background.
 /// The card's own radius, before any container lift.
 pub const NV_CARD_RADIUS: f32 = 12.0;
@@ -2438,7 +2461,7 @@ pub fn nv_name_and_type(painter: &egui::Painter, below: egui::Rect, name: &str, 
         }
     };
     let name_g = lay(name, 13.0, Color32::WHITE);
-    let type_g = lay(type_name, 11.0, Color32::from_rgb(226, 230, 240));
+    let type_g = lay(type_name, 11.0, NV_TAB_INK);
     let w = name_g.size().x.max(type_g.size().x) + 12.0;
     let h = name_g.size().y + type_g.size().y + 6.0;
     let plate = Rect::from_center_size(
@@ -3447,19 +3470,27 @@ fn draw_control_body(
         } else {
             full
         };
-        nv_card(
-            painter,
-            rect,
-            selected,
-            glass,
-            alpha_mul,
-            a,
-            control_border_rounding(ctrl, rect, NV_CARD_RADIUS),
-        );
+        if labelled {
+            // The Non-Visuals tab: black board, dark plate, white ink.
+            nv_tab_card(painter, rect, selected, a, control_border_rounding(ctrl, rect, NV_CARD_RADIUS));
+        } else {
+            nv_card(
+                painter,
+                rect,
+                selected,
+                glass,
+                alpha_mul,
+                a,
+                control_border_rounding(ctrl, rect, NV_CARD_RADIUS),
+            );
+        }
         // Both the glyph and the caption are inked against the tone the card
         // beneath them actually paints, not against the navy it used to be.
-        let tone = nv_card_tone(painter.ctx());
-        let (cen, s, st) = nv_icon_geom(rect, a, tone);
+        let tone = if labelled { NV_TAB_CARD } else { nv_card_tone(painter.ctx()) };
+        let (cen, s, mut st) = nv_icon_geom(rect, a, tone);
+        if labelled {
+            st.color = NV_TAB_INK.gamma_multiply(a as f32 / 255.0);
+        }
         let label: String = match &ctrl.control_type {
             CT::Timer => {
                 nv_icon_clock(painter, cen, s, st);
@@ -3523,7 +3554,20 @@ fn draw_control_body(
             // this branch was just fixed for.
             other => other.as_str().to_owned(),
         };
-        nv_label(painter, rect, &label, a, tone);
+        if labelled {
+            // The caption under the glyph is white too (the quieter grey is for the
+            // cards that sit on a form).
+            let t: String = label.chars().take(14).collect();
+            painter.text(
+                rect.center_bottom() - Vec2::new(0.0, 7.0),
+                egui::Align2::CENTER_BOTTOM,
+                t,
+                egui::FontId::proportional(12.8),
+                NV_TAB_INK.gamma_multiply(a as f32 / 255.0),
+            );
+        } else {
+            nv_label(painter, rect, &label, a, tone);
+        }
         if labelled {
             let below = Rect::from_min_max(egui::pos2(full.min.x, rect.max.y), full.max);
             nv_name_and_type(painter, below, &ctrl.id, ctrl.control_type.as_str(), a);
@@ -19119,7 +19163,7 @@ mod non_visual_badge_tests {
     ///
     /// Circle and line strokes only — a rect stroke is the CARD's border, not
     /// ink, and must not be held to a text contrast ratio.
-    fn painted_badge(
+    pub(super) fn painted_badge(
         ctrl: &Control,
         style: GlassStyle,
     ) -> (Color32, Vec<Color32>, Vec<(String, Color32)>) {
@@ -29327,5 +29371,61 @@ mod radar_outline_and_dropdown_ink_tests {
         assert!(contrast_ratio(on_dark, composite_premultiplied_over(COMBO_SELECTED_FILL, COMBO_PANEL_TINT)) >= 4.5);
         println!("dropdown ink: navy on the pale selection, {:.1}:1 (white was {:.1}:1)",
             contrast_ratio(ink, seen), contrast_ratio(Color32::WHITE, seen));
+    }
+}
+
+/// The `Non-Visuals` tab (a feature, operator 2026-10-30): black board, dark plate,
+/// white ink — whatever the form's theme. The painter knows nothing of the project
+/// kind, so a Desktop, a Web and a Mobile form (`.cfrm`, `.wcfrm`, `.mcfrm` — one
+/// form model) draw the same cards.
+#[cfg(test)]
+mod non_visual_tab_tests {
+    use super::non_visual_badge_tests::painted_badge;
+    use super::*;
+    use crate::model::{Control, ControlType as CT, GlassStyle};
+    use std::time::Instant;
+
+    #[test]
+    fn the_non_visuals_tab_paints_white_ink_on_a_dark_plate_for_every_non_visual_type() {
+        let t0 = Instant::now();
+        let (mut cards, mut inks, mut bad) = (0usize, 0usize, 0usize);
+        for style in [GlassStyle::Neumorphic, GlassStyle::Classic] {
+            for ty in [
+                CT::Timer,
+                CT::AgentObject,
+                CT::KnowledgeBase,
+                CT::RestClient,
+                CT::SqlDatabase,
+                CT::IndexedFile,
+                CT::WebSearch,
+                CT::Snackbar,
+                CT::AwsTextract,
+            ] {
+                assert!(ty.is_non_visual());
+                let name = ty.as_str().to_owned();
+                let mut c = Control::new("NV-1", ty, 0, 0);
+                c.rect = crate::model::Rect::new(0, 0, 120, 96);
+                c.set_prop(NV_LABELS_PROP, true);
+                let (_tone, strokes, texts) = painted_badge(&c, style);
+                cards += 1;
+                for ink in strokes.iter().chain(texts.iter().map(|(_, col)| col)) {
+                    inks += 1;
+                    if *ink != Color32::WHITE {
+                        bad += 1;
+                        eprintln!("{name} ({style:?}): ink {ink:?} is not white");
+                    }
+                }
+                assert!(!texts.is_empty(), "{name}: the card names itself");
+            }
+        }
+        // The plate stands out from the black board, and white reads on it.
+        let plate_vs_board = contrast_ratio(NV_TAB_CARD, NV_TAB_BOARD);
+        let ink_on_plate = contrast_ratio(NV_TAB_INK, NV_TAB_CARD);
+        println!("================ Non-Visuals tab palette ================");
+        println!("cards painted: {cards} (every non-visual type x 2 glass styles); ink shapes checked: {inks}");
+        println!("white ink on the plate {ink_on_plate:.1}:1; plate over the black board {plate_vs_board:.2}:1");
+        println!("run: {} ms; tally: {} white, {bad} not white", t0.elapsed().as_millis(), inks - bad);
+        assert_eq!(bad, 0);
+        assert!(cards > 0 && ink_on_plate >= 7.0, "white must read on the plate (AAA)");
     }
 }

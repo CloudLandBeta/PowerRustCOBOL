@@ -143,7 +143,7 @@ fn main() -> eframe::Result<()> {
         .with_target(false)
         .init();
 
-    let ide_title = format!("{} {VERSION}", theme::brand_name());
+    let ide_title = format!("{} {} {VERSION}", theme::brand_name(), i18n::Language::default().tr().pk_kind_desktop);
     set_os_app_name(&ide_title);
 
     let mut wgpu_options = eframe::egui_wgpu::WgpuConfiguration::default();

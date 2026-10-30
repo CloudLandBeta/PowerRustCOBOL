@@ -10204,7 +10204,18 @@ impl DesignerPanel {
                 // dark base here so light IDE themes don't hide light-coloured
                 // captions that will be perfectly visible at run time.
                 let runtime_glass = Color32::from_rgba_unmultiplied(20, 24, 44, 200);
-                let canvas_bg = if bg.a() > 0 { bg } else { runtime_glass };
+                // The `Non-Visuals` tab is a black board (spec 109 follow-up): its cards
+                // carry white ink, and the form's own colours — which only the visual
+                // tabs show — would take that legibility away. Same for Desktop, Web
+                // and Mobile forms: the one designer paints all three.
+                let non_visuals_tab = self.tabs.is_non_visuals();
+                let canvas_bg = if non_visuals_tab {
+                    Color32::BLACK
+                } else if bg.a() > 0 {
+                    bg
+                } else {
+                    runtime_glass
+                };
                 // Corner-notch masks repaint the visible backdrop after child
                 // controls. Use the composited canvas colour so translucent
                 // forms/glass do not either darken (double alpha) or fail to
@@ -10213,7 +10224,7 @@ impl DesignerPanel {
                     canvas_bg,
                     ui.visuals().panel_fill,
                 );
-                let canvas_gradient = if self.form.background_gradient_enabled {
+                let canvas_gradient = if self.form.background_gradient_enabled && !non_visuals_tab {
                     let gradient_color = |hex: &str| {
                         let color = parse_color(hex);
                         let alpha = color.a() as f32 * form_alpha_mul;
