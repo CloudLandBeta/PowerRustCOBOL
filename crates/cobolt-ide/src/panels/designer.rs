@@ -9020,21 +9020,29 @@ impl DesignerPanel {
         }
     }
 
-    /// Play all OnFormLoad animations (Preview Anims button).
-    pub(crate) fn play_all_form_load_anims(&mut self) {
+    /// Play every animation of every control (the toolbar's Preview Anims button). A form's animations are not
+    /// all `OnFormLoad`: a page's are as often `OnShow`, `OnClick`, `OnHover` or `Programmatic`, and the button
+    /// showed nothing for those.
+    pub(crate) fn play_all_anims(&mut self) {
         let ctrl_anims: Vec<(String, String)> = self
             .form
             .controls
             .iter()
-            .flat_map(|c| {
-                c.animations
-                    .iter()
-                    .filter(|a| a.trigger == AnimTrigger::OnFormLoad)
-                    .map(move |a| (c.id.clone(), a.name.clone()))
-            })
+            .flat_map(|c| c.animations.iter().map(move |a| (c.id.clone(), a.name.clone())))
             .collect();
         for (cid, aname) in ctrl_anims {
             self.play_animation_preview(&cid, &aname);
+        }
+    }
+
+    /// An edit the Properties pane made. With several controls selected the pane shows what they have in common
+    /// and an edit belongs to all of them (one undoable step); a `_PreviewAnim<N>` is not an edit but the pane's
+    /// ▶ Preview under the animation of the control it reports, which no other control need carry.
+    pub(crate) fn set_property_from_pane(&mut self, ctrl_id: &str, key: &str, value: PropValue) {
+        if self.selected_ids.len() > 1 && self.is_selected(ctrl_id) && !key.starts_with("_PreviewAnim") {
+            self.set_property_multi(key, value);
+        } else {
+            self.set_property(ctrl_id, key, value);
         }
     }
 
@@ -18666,7 +18674,7 @@ pub(crate) fn draw_icon_toolbar(
             ui,
             true,
             false,
-            crate::ui_text::ide("Play all OnFormLoad animations"),
+            crate::ui_text::ide("Play all animations"),
             &icon_anim_play,
         ) {
             action = DesignerToolbarAction::ToggleAnimPreview;
@@ -27385,3 +27393,8 @@ mod perspective_096;
 #[cfg(test)]
 #[path = "designer_chart_animation_props_tests.rs"]
 mod chart_animation_props;
+
+// The animation preview: the toolbar's button and the Properties pane's ▶ Preview.
+#[cfg(test)]
+#[path = "designer_anim_preview_tests.rs"]
+mod anim_preview;

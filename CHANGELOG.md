@@ -23,6 +23,16 @@
 > has been renumbered; 2.0.63 carries the version forward past them all.
 
 
+
+## 2.0.99 — 2026-10-30 — Fix: the designer's animation preview plays what the form designed
+
+The Web form designer's animation preview did nothing for most forms, for two reasons that live in the designer both kinds of form share:
+
+* The toolbar's Preview Anims button played only the animations whose trigger is `OnFormLoad`; a page's animations are as often `OnShow`, `OnClick`, `OnHover`, `OnFocus` or `Programmatic`, and those showed nothing. It now plays every animation of every control, and its tooltip says so ("Play all animations", in the six languages).
+* The Properties pane's ▶ Preview, with several controls selected, went through the multi-edit fan-out, which keeps only the controls that carry the key as a property; `_PreviewAnim<N>` is none, so no control played. The pane's edits now go through `set_property_from_pane`, which sends a preview to the control the pane reports and leaves every real edit as it was.
+* Tests: 3 new in `panels/designer_anim_preview_tests.rs` (six triggers started by the button, the pane's preview with one and with several controls selected, no undo step or dirty flag from a preview).
+* **Not done:** the same two defects are on `main` (1.x.x); this fix was made on the 2.x.x line and still has to be taken to `fixes`. Ten `cobolt-ide --bin` tests are red before and after (5 Backend/crates/bundle ones that need `rcrun` or the network, `every_completion_description_exists_in_six_languages` and `every_document_ships_in_every_language`, which are not from this change). Whether the Web-kind canvas draws the animation transform as the desktop canvas does was not checked in a window.
+
 ## 2.0.98 — 2026-10-30 — Fix: a Web DataGrid scrolls to the row the keys select
 
 The Web page moved a DataGrid's selection with ArrowDown/ArrowUp, Home, End and PageDown/PageUp but never moved the grid, so the bar went out of view at the top or the foot of the rows and the selected row stayed hidden (or cut by the horizontal bar). The page now does what the desktop does: a row above comes to the top of the rows' room, a row below comes to its foot, a row already in view leaves the offset alone. The room is what lies below the caption and header bands, less the horizontal bar that lies over its foot; the offset never passes the most the sheet scrolls.
