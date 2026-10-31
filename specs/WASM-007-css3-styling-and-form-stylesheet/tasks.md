@@ -41,7 +41,7 @@ Working assumptions (open questions; the operator may rule otherwise, and each i
   - Verify: in Chrome 152, Safari and Firefox, a rule inside the form sheet's `pr-theme` block loses to a `pr-props` rule and an unlayered rule of the same sheet wins; results per engine written here. If one engine drops the block, T8 lifts the marked `pr-theme` block out of the form text before scoping (plan §5) — the decision is recorded here before T8 starts.
   - **Run 2026-10-30 (partial):** probe page outside the repository, constructed sheets adopted in the order `@layer pr-base, pr-theme, pr-props, pr-app;` → `@layer pr-props { … }` → the form sheet wrapped as `base_css::scoped` and as `base_css::nested` emit it.
     - **Chrome 156** (headless, the installed Chrome; 152 is no longer on this machine), both wrappers identical: the `pr-theme` rule applies where nothing beats it (`color` rgb(9, 9, 9)); `pr-props` beats it (`background-color` rgb(2, 2, 2)); the sheet's unlayered rule beats `pr-props` (`color` rgb(3, 3, 3)). **Pass.**
-    - **Safari:** not run — `safaridriver` exists but remote automation is not enabled (`safaridriver --enable` needs an administrator's authentication).
+    - **Safari 18.5** (run 2026-10-31 through `safaridriver`, after the operator enabled remote automation), both wrappers identical to Chrome: the `pr-theme` rule applies where nothing beats it (`color` rgb(9, 9, 9)); `pr-props` beats it (`background-color` rgb(2, 2, 2)); the sheet's unlayered rule beats `pr-props` (`color` rgb(3, 3, 3)).
     - **Firefox:** not run — not installed on this machine.
     - Box left open: the decision for T8 (keep the block inside the wrapper, or lift it out) waits for the Safari and Firefox results.
 
