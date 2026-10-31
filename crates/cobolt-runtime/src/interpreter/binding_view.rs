@@ -73,7 +73,7 @@ impl Interpreter {
             }
         }
 
-        let locale = self.env.format_default_locale().to_owned();
+        let locale = self.env.format_default_locale();
         let currency = self.env.format_default_currency().map(str::to_owned);
         for line in formats.lines() {
             let Some((field, spec)) = line.split_once('=') else { continue };

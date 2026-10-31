@@ -102,6 +102,7 @@ struct ProjectSql {
 /// project loads, whenever it is saved, and when an SQL connection's
 /// credentials change.
 pub fn set_project_sql(manifest: Option<&std::path::Path>, app: &str, credentials: Vec<(String, String)>) {
+    cobolt_runtime::publish_format_locale(&manifest.map(cobolt_compiler::project_locale).unwrap_or_default());
     if let Ok(mut g) = PROJECT_SQL.lock() {
         *g = manifest.map(|m| ProjectSql { manifest: m.to_path_buf(), app: app.to_string(), credentials });
     }

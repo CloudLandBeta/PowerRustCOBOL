@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.116 — 2026-10-31
+
+**Feature (spec 109): the project's locale reaches FORMAT.** `[project] locale` of the manifest (`pt-BR`, `en-US`, `fr-FR`) is now the default locale of every `FORMAT` clause, `Format()` call, interpolated string and read-only grid binding that names none; before, they always used `en-US`. It works in the IDE's Run, in `rcrun run-form` (child forms included) and in a built application, which carries the locale baked into its `main.rs` because a shipped binary has no manifest to read. A project that names no locale behaves as before. `test_format.rs` pins `42,5%` with `pt-BR` published and `42.5%` with none; `cobolt-compiler` pins reading the key (and a missing manifest) and the baked constant. *Not yet:* a project default currency has no manifest key.
+
 ## 2.0.115 — 2026-10-31
 
 **Feature (spec 110, T9-T11): the TextBox caption, finished.** The Caption group in the Properties pane now says when the caption reaches outside the form, lies over another control, or repeats a mnemonic letter already used on the form (none of them blocks a save). The TextBox's accessible name is its caption text without the `&`. A caption inside a Panel follows its box and is clipped by the container, like any control. The product has no "subform" or "outlet" control; a form embedded in a ContentPane draws its children through the same origin. The shipped web player was rebuilt.

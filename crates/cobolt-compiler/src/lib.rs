@@ -815,6 +815,9 @@ struct ProjectMeta {
     /// this crate's native build produces.
     #[serde(default)]
     kind: ProjectKind,
+    /// `[project] locale` — the default locale of FORMAT (spec 109).
+    #[serde(default)]
+    locale: String,
 }
 
 /// Where a build installs the deliverable when the project does not choose.
@@ -888,6 +891,16 @@ const FOCUS_RING_ENABLED_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_ENABLED:
 /// The indexed-engine constant every generated `main.rs` carries, as
 /// `generate_main_rs` writes it — empty, the runtime's own default.
 /// `build_core` replaces it with the project's `[ide] indexed_engine`.
+const LOCALE_DEFAULT_LINE: &str = "const PROJECT_LOCALE: &str = \"\";";
+
+/// Put the project's default locale into a generated `main.rs`.
+fn bake_locale(main_rs: String, locale: &str) -> String {
+    main_rs.replace(
+        LOCALE_DEFAULT_LINE,
+        &format!("const PROJECT_LOCALE: &str = \"{}\";", locale.trim().escape_default()),
+    )
+}
+
 const INDEXED_ENGINE_DEFAULT_LINE: &str = "const PROJECT_INDEXED_ENGINE: &str = \"\";";
 
 /// Put the project's indexed-file engine into a generated `main.rs`.
@@ -1077,6 +1090,16 @@ pub fn project_file_memory_limit(manifest_path: &Path) -> u64 {
         .map(|p| p.agents.file_memory_limit_mb())
         .unwrap_or(DEFAULT_FILE_MEMORY_LIMIT_MB)
         .saturating_mul(1024 * 1024)
+}
+
+/// `[project] locale` of a manifest — the default locale FORMAT uses (spec
+/// 109) — or empty when it names none or cannot be read.
+pub fn project_locale(manifest_path: &Path) -> String {
+    std::fs::read_to_string(manifest_path)
+        .ok()
+        .and_then(|text| toml::from_str::<CoboltProject>(&text).ok())
+        .map(|p| p.project.locale.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// What a project manifest says, read-only: its name, its structure number,
@@ -1893,6 +1916,7 @@ pub fn build_single_file(
             main,
             destination_folder: String::new(),
             kind: ProjectKind::Desktop,
+            locale: String::new(),
         },
         files: ProjectFiles::default(),
         forms: FormsConfig::default(),
@@ -2992,6 +3016,7 @@ fn build_core(
         proj.forms.focus_ring_pulse,
     );
     let main_rs = bake_indexed_engine(main_rs, &proj.ide.indexed_engine);
+    let main_rs = bake_locale(main_rs, &proj.project.locale);
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
     // ── 10. Run cargo build --release (cargo build, for a debug build) ────────
@@ -4429,6 +4454,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     cobolt_form_host::seeding::publish_search_connections(project_connections.search.clone());
     cobolt_form_host::seeding::publish_aws_connections(project_connections.aws.clone());
     cobolt_runtime::mcp_tool::publish_file_memory_limit(PROJECT_FILE_MEMORY_LIMIT_MB * 1024 * 1024);
+    cobolt_runtime::publish_format_locale(PROJECT_LOCALE);
     let (maps_api_key, search_api_key) = cobolt_form_host::seeding::resolve_api_keys();
     let seed = cobolt_form_host::seeding::build_object_seed(
         &first_form,
@@ -4748,6 +4774,7 @@ static PROGRAM_AST: &[u8] = include_bytes!("../assets/program.bin");
 /// The project's indexed-file engine (`[ide] indexed_engine` in cobolt.toml),
 /// baked in because a shipped binary has no manifest to read it from.
 {indexed_engine_line}
+{locale_line}
 
 /// The engine this application creates NEW indexed files with: the project's
 /// choice, else `COBOL_INDEXED_ENGINE` on the machine that runs it, else the
@@ -4855,6 +4882,7 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         form_runtime_code = form_runtime_code,
         ast_mismatch_help = AST_MISMATCH_HELP,
         indexed_engine_line = INDEXED_ENGINE_DEFAULT_LINE,
+        locale_line = LOCALE_DEFAULT_LINE,
     )
 }
 
@@ -10644,6 +10672,21 @@ function_prefix = "sales-"
         println!("[agents] file_memory_limit_mb: absent/0 → 64 MB, 300 → 300 MB; baked const + publish call present");
     }
 
+    #[test]
+    fn project_locale_is_read_and_baked() {
+        let dir = std::env::temp_dir().join(format!("prc-locale-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let m = dir.join("P.project.toml");
+        std::fs::write(&m, "[project]\nname = \"P\"\nversion = \"1.0.0\"\nmain = \"M\"\nlocale = \"pt-BR\"\n").unwrap();
+        assert_eq!(project_locale(&m), "pt-BR");
+        assert_eq!(project_locale(&dir.join("missing.toml")), "");
+        let _ = std::fs::remove_dir_all(&dir);
+        let src = format!("x\n{LOCALE_DEFAULT_LINE}\n");
+        let baked = bake_locale(src, "pt-BR");
+        assert!(baked.contains("const PROJECT_LOCALE: &str = \"pt-BR\";"));
+        println!("[project] locale: read pt-BR, missing -> empty; baked into main.rs");
+    }
+
     fn proj(main: &str, sources: Vec<&str>, generated: Vec<&str>) -> CoboltProject {
         CoboltProject {
             project: ProjectMeta {
@@ -10652,6 +10695,7 @@ function_prefix = "sales-"
                 main: main.into(),
                 destination_folder: String::new(),
                 kind: ProjectKind::Desktop,
+                locale: String::new(),
             },
             files: ProjectFiles {
                 sources: sources.into_iter().map(String::from).collect(),

@@ -137,3 +137,17 @@ fn format_clauses_interpolation_and_the_format_method() {
     println!("tally: {} passed, {failed} failed", total - failed);
     assert_eq!(failed, 0);
 }
+
+#[test]
+fn the_published_project_locale_is_the_default_of_a_process() {
+    use cobolt_runtime::publish_format_locale;
+    // WS-RATIO names no LOCALE, so it takes the process default; the test
+    // binary shares one process, so publish, observe and clear in one test.
+    publish_format_locale("pt-BR");
+    let published = shown("DISPLAY WS-RATIO::Format(\"percent\")");
+    publish_format_locale("");
+    let unpublished = shown("DISPLAY WS-RATIO::Format(\"percent\")");
+    println!("project locale pt-BR -> {published}; none -> {unpublished}");
+    assert_eq!(published, "42,5%");
+    assert_eq!(unpublished, "42.5%");
+}

@@ -45,7 +45,7 @@ impl Interpreter {
     fn locale_tag(&mut self, locale: Option<&Expr>, span: Span) -> Result<String, RuntimeError> {
         match locale {
             Some(e) => Ok(self.eval_expr(e, span)?.as_display_string().trim().to_string()),
-            None => Ok(self.env.format_default_locale().to_string()),
+            None => Ok(self.env.format_default_locale()),
         }
     }
 

@@ -249,6 +249,7 @@ pub fn cmd_run_form(args: &[String]) {
                 cobolt_compiler::project_file_memory_limit(m),
             );
             crate::install_project_sql_catalog(m);
+            cobolt_runtime::publish_format_locale(&cobolt_compiler::project_locale(m));
         }
         let anchor = manifest
             .and_then(|m| m.parent().map(|p| p.to_path_buf()))

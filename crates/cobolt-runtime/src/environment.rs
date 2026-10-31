@@ -120,6 +120,17 @@ pub struct ItemSym {
     pub char_class: Option<CharClass>,
 }
 
+/// The project's `[project] locale`, published once by the host so every
+/// interpreter of the process (child forms included) formats with it.
+static PROCESS_FORMAT_LOCALE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Publish the application's default locale for FORMAT (spec 109). Empty clears it.
+pub fn publish_format_locale(locale: &str) {
+    if let Ok(mut g) = PROCESS_FORMAT_LOCALE.lock() {
+        *g = locale.trim().to_string();
+    }
+}
+
 /// The data store for a running COBOL program.
 ///
 /// Data items are addressed by their COBOL name (uppercase, hyphens preserved).
@@ -1173,21 +1184,21 @@ impl CobolEnvironment {
         self.store.insert(key.to_string(), value);
     }
 
-    /// Take a canonical storage key out of the store, answering what it held. The
-    /// lambda of a collection method (spec 109) binds its element name this way
-    /// and gives it back afterwards.
     /// Set the application's default locale and currency for FORMAT (spec 109).
     pub fn set_format_defaults(&mut self, locale: &str, currency: &str) {
         self.format_locale = locale.trim().to_string();
         self.format_currency = currency.trim().to_string();
     }
 
-    /// The default locale tag: the project's, else `en-US`.
-    pub fn format_default_locale(&self) -> &str {
-        if self.format_locale.is_empty() {
-            "en-US"
-        } else {
-            &self.format_locale
+    /// The default locale tag: this environment's, else the one the host
+    /// published for the process (the project's `[project] locale`), else `en-US`.
+    pub fn format_default_locale(&self) -> String {
+        if !self.format_locale.is_empty() {
+            return self.format_locale.clone();
+        }
+        match PROCESS_FORMAT_LOCALE.lock() {
+            Ok(g) if !g.is_empty() => g.clone(),
+            _ => "en-US".to_string(),
         }
     }
 
@@ -1196,6 +1207,9 @@ impl CobolEnvironment {
         (!self.format_currency.is_empty()).then_some(self.format_currency.as_str())
     }
 
+    /// Take a canonical storage key out of the store, answering what it held. The
+    /// lambda of a collection method (spec 109) binds its element name this way
+    /// and gives it back afterwards.
     pub fn raw_take(&mut self, key: &str) -> Option<CobolValue> {
         self.store.shift_remove(key)
     }
