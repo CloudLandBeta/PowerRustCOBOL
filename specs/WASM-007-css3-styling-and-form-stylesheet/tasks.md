@@ -171,6 +171,7 @@ Working assumptions (open questions; the operator may rule otherwise, and each i
       - `the_css_rows…`.
 
 - [ ] **T23 — Preview updates a style change in place** (R11, AC8; with WASM-008)
+  - **Decided (operator, 2026-10-31): option (a), the CSS-only fast path.** Apply in the stylesheet window writes the sheet straight into the bundle the open Preview serves (the sheet file and its `config.json` entry) and notifies the page, with no Build and no watcher wait, so AC8's 500 ms is measured from Apply. Any change other than a stylesheet still goes through the normal Build. The Preview protocol change this needs is made here, recorded as an amendment for WASM-008.
   - Files: `crates/cobolt-project-tools/src/web/devserver.rs` (the poll script at `:486` reloads the page today; for a change that touched only `.css` files it calls `player.set_stylesheet` / `set_form_stylesheet` / `set_theme` with the fetched text instead), the change list the watcher exposes (protocol owned by WASM-008).
   - Verify: project tools `devserver` — a `.css`-only change is reported as such and the script takes the in-place branch; a `.wcfrm` change still reloads. Browser (**AC8**): Apply in the modal → the changed computed style in the open Preview, time measured against the **500 ms** budget and written here; `set_form_stylesheet` driven for the first time.
   - **Partly done 2026-10-31. Stopped here: the 500 ms budget needs an operator decision.**
