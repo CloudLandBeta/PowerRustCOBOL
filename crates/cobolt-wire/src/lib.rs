@@ -14,6 +14,7 @@
 //!   runs on the backend on the web, its layouts and its endpoint name.
 //! * [`json`], [`number`] — the strict JSON reader and the exact decimal text
 //!   the mapping is built on.
+//! * [`retry`] — the retry policy of a broken connection both clients follow.
 //!
 //! The crate is the **reference** implementation of the mapping. The browser
 //! module's generator carries its own implementation of the same rules
@@ -32,6 +33,7 @@ pub mod mapping;
 pub mod node;
 pub mod number;
 pub mod proto;
+pub mod retry;
 
 pub use call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallReply, CallRequest, DownloadRequest, DownloadResult, NoObserver, Transport, UploadRequest, UploadResult};
 pub use error::{CallError, ErrorClass};

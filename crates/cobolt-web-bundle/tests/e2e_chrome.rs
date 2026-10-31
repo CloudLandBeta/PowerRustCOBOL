@@ -388,27 +388,32 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
         Ok(format!("label went {}; the backend saw one call", seq.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(" -> ")))
     });
 
-    run.with_backend("backend lost: the call in flight ends in ON EXCEPTION, the page reconnects with back-off, a later call succeeds (AC5)", |p, slot| {
+    run.with_backend("backend lost: the page retries by the policy, the call in flight ends in ON EXCEPTION when it reconnects, a later call succeeds (AC5, WASM-003 R25)", |p, slot| {
         let b = slot.take().ok_or("no backend")?;
         b.delay_ms.store(u64::MAX, Ordering::SeqCst);
         click(p, main, "BTN-REMOTE")?;
         wait_text(p, main, LBL_OUT, "calling")?;
         p.wait_for("__pr.root().querySelector('.pr-net') === null", 10)?;
         let (port, calls) = b.kill();
-        // The handler resumes with the error frame of the lost call (its ON EXCEPTION).
-        p.wait_for(&format!("(__pr.text({}, {}) || '').includes('\"error\"')", q(main), q(LBL_OUT)), 20)?;
-        let failed = text_of(p, main, LBL_OUT)?;
         let badge = p.wait_for("(__pr.root().querySelector('.pr-net') || {}).textContent", 20)?;
+        let blocked = p.eval("__pr.handle().then(a => JSON.parse(a.player.stats()).blocked)")?;
         std::thread::sleep(Duration::from_millis(1200));
         *slot = Some(Backend::start(port, 0, calls));
+        // Attempt 1 was refused at the break; attempt 2 opens 10 s after it and reconnects. The lost call
+        // (not declared idempotent) then reaches its ON EXCEPTION with the error frame (WASM-003 R25).
+        p.wait_for(&format!("(__pr.text({}, {}) || '').includes('\"error\"')", q(main), q(LBL_OUT)), 30)?;
+        let failed = text_of(p, main, LBL_OUT)?;
         p.wait_for("__pr.root().querySelector('.pr-net') === null", 30)?;
+        if blocked != serde_json::json!(true) {
+            return Err(format!("the player did not report blocked while it retried: {blocked}"));
+        }
         click(p, main, "BTN-REMOTE")?;
         p.wait_for(&format!("(__pr.text({}, {}) || '').includes('pong')", q(main), q(LBL_OUT)), 20)?;
         let after = text_of(p, main, LBL_OUT)?;
         if after.contains("error") {
             return Err(format!("the call after reconnection failed too: {after}"));
         }
-        Ok(format!("in flight: {}; badge {badge}; after reconnection: {after:?}", failed.chars().take(90).collect::<String>()))
+        Ok(format!("badge {badge}, blocked {blocked}; in flight, at the reconnection: {}; after it: {after:?}", failed.chars().take(90).collect::<String>()))
     });
 
     {

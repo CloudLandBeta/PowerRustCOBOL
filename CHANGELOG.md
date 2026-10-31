@@ -24,6 +24,31 @@
 
 
 
+## 2.0.112 — 2026-10-31 — WASM-003 T15a: one retry policy for a broken connection — three attempts of 10, 20 and 30 s, the blocked state, then the exception
+
+*(Written on `features-2x-wasm`, after 2.0.102. 2.0.103–2.0.111 are taken on sibling branches, so this run takes the next free number.)*
+
+The frontend–backend connection now follows WASM-003 R25/R26 on every client, instead of two different back-offs (plan D11–D13).
+
+* **One policy** (T15a-1). `cobolt_wire::retry::Policy` — windows of 10, 20 and 30 s, three attempts, no jitter. It is not a project setting; tests pass a shorter one.
+* **The browser player** (T15a-2, `cobolt-web-player/src/net.rs`). `LinkState::Retrying { attempt, window_ends }` replaces `Backoff`; `Config::retry` replaces `backoff_start_ms`/`backoff_max_ms`; the jitter is gone.
+  * A break of an established connection blocks the application and opens attempt 1 at once. An attempt refused early waits out its window; one still unfinished at its window's end is cut.
+  * When an attempt succeeds: a sent call is repeated once only if its program is `idempotent`; any other sent call fails `transport` 1001 with `may_have_run: true`; calls never sent go out.
+  * At the give-up: sent calls fail 1001 and unsent ones 1000, "the backend could not be reached". Nothing more is tried until the next call, which starts a new cycle.
+  * While blocked, no call's timeout runs.
+  * New `Out::Blocked(bool)` and `Out::Unreachable(bool)`. `Player::stats()` reports `blocked` and `unreachable` for WASM-016 T29b's modal, which is not drawn yet.
+* **The Rust client** (T15a-3, `cobolt-server/src/client.rs`) — `rcrun`, embedded forms and the built application.
+  * `ClientConfig::retry` replaces `reconnect_deadline`. The same cycle replaces `ensure`'s four quick attempts and `on_disconnect`'s 100 ms back-off, with the same success and give-up rules.
+  * Commands queued during a cycle fail 1000 at the give-up rather than starting a new cycle.
+  * `WsClient::link_status()` reports `blocked` and `unreachable`. No desktop modal is drawn (O9).
+* **Prebuilt player rebuilt** (T15a-4). `plain/player_bg.wasm` 3 577 964 → 3 580 105 bytes, `threaded` 3 407 343 → 3 409 177 bytes; the parts are unchanged.
+* **System KB** (T15a-6). *Calling the backend* gains *A lost connection*; `chunked.data` regenerated.
+* **Tests.** New: `retry::tests` (2); in `net.rs`, `a_break_is_retried_at_10_20_30_seconds_then_given_up`, `success_in_attempt_2_repeats_the_safe_call_and_fails_the_other` and `a_failed_first_connection_runs_the_cycle_only_when_a_call_waits`; in `loopback`, `a_broken_connection_is_retried_by_the_policy_then_given_up` and `the_retry_windows_are_10_20_30_seconds`.
+  * The spec-values run measured windows of 10.00, 20.00 and 30.00 s and gave up at 60.01 s, with no fourth connection.
+  * Five player tests were updated to the new rule; the two back-off/jitter tests were replaced.
+  * The `e2e_chrome` *backend lost* scenario now restarts the backend first and expects `ON EXCEPTION` at the reconnection; Chrome: 28 passed, 0 failed.
+* **Not done.** T15a-5 (the blocked state seen in Chrome) waits for WASM-016 T29b. T15b (the sealed channel) waits for WASM-013 T24b and WASM-014 T19b. O6–O9 remain working assumptions for the operator to confirm.
+
 ## 2.0.102 — 2026-10-30 — WASM-006: the Hyperlink control — link text that opens an address, on desktop, web and mobile forms
 
 *(Written on `features-2x-wasm`, after 2.0.101.)*

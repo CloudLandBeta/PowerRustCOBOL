@@ -26,9 +26,14 @@
 //! * the player's own failures use the closed list of WASM-014 R7 (`transport` 1000/1001/1002/1003,
 //!   `validation` 4001, `version` 6000/6001, `limit` 7000), with `may_have_run` where it applies;
 //! * `authentication` 2002 (token expired) refreshes the token and repeats the call once;
-//! * a call in flight when the connection drops is repeated once, under the same key, only when
-//!   the backend's interface declares the program `idempotent` (R9); otherwise it fails with
-//!   `may_have_run: true`;
+//! * a broken connection is tried again by the one retry policy (`cobolt_wire::retry`, WASM-003
+//!   R25): attempts with windows of 10, 20 and 30 s, an attempt that fails early waiting its window
+//!   out; meanwhile the application is *blocked* (R26, [`Out::Blocked`]) and a call's timeout does
+//!   not run. When an attempt succeeds, a call in flight at the break is repeated once, under the
+//!   same key, only when the backend's interface declares the program `idempotent` (R9); otherwise
+//!   it fails with `may_have_run: true`. When the last attempt fails every waiting call fails with
+//!   the class `transport`, the backend is *unreachable* ([`Out::Unreachable`]) and nothing more is
+//!   tried until the application calls again;
 //! * every call ends: an answer, a failure, or `transport` 1002 at its timeout (then `cancel`).
 //!
 //! The session id lives in [`Client`] only — never in browser storage (WASM-014 Q5).
@@ -92,6 +97,12 @@ pub enum Out {
     State(LinkState),
     /// Something the developer should see in the console (a version warning, an unreadable frame).
     Warning(String),
+    /// The application is blocked while the connection is tried again (`true`, WASM-003 R26), or no
+    /// longer is — the connection is back or the policy gave up (`false`).
+    Blocked(bool),
+    /// The policy gave up: the backend could not be reached (`true`, WASM-016 R21); `false` once a
+    /// later connection works.
+    Unreachable(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,8 +114,8 @@ pub enum LinkState {
     /// Waiting for the server to accept the token.
     Authenticating,
     Ready,
-    /// Waiting to try again.
-    Backoff,
+    /// Attempt `attempt` of the retry policy failed; the next starts at `window_ends`.
+    Retrying { attempt: u32, window_ends: u64 },
 }
 
 #[derive(Debug, Clone)]
@@ -113,8 +124,9 @@ pub struct Config {
     pub origins: Vec<String>,
     pub call_timeout_ms: u64,
     pub max_frame: usize,
-    pub backoff_start_ms: u64,
-    pub backoff_max_ms: u64,
+    /// How a broken connection is tried again (WASM-003 R25: the defaults are the only values a
+    /// release uses; tests pass a shorter one).
+    pub retry: cobolt_wire::retry::Policy,
     /// Allow `ws://` to a non-loopback host (an explicit *unsafe* setting, WASM-013 R11).
     pub unsafe_plain_ws: bool,
     /// The contract version the application was built against (`hello.contract`).
@@ -132,8 +144,7 @@ impl Default for Config {
             origins: Vec::new(),
             call_timeout_ms: 30_000,
             max_frame: 384 * 1024,
-            backoff_start_ms: 250,
-            backoff_max_ms: 10_000,
+            retry: cobolt_wire::retry::Policy::default(),
             unsafe_plain_ws: false,
             contract: DEFAULT_CONTRACT.into(),
             client: format!("prc-wasm/{}", env!("CARGO_PKG_VERSION")),
@@ -171,7 +182,8 @@ impl Config {
 
 #[derive(Debug)]
 struct InFlight {
-    /// When the module made the call: its timeout runs from here, whatever the repeats.
+    /// When the module made the call: its timeout runs from here, whatever the repeats. Moved on by
+    /// the time the application was blocked, so a retry cycle does not count against it (D12).
     sent_at: u64,
     /// The frame as the module produced it (text, so its numbers keep every digit).
     frame: String,
@@ -183,10 +195,19 @@ struct InFlight {
     sent: bool,
     /// On any connection, ever.
     ever_sent: bool,
+    /// Sent on a connection that broke: decided when the next one works (repeated or failed).
+    lost: bool,
     /// Repeated once after `authentication` 2002.
     auth_repeated: bool,
     /// Repeated once after a lost connection.
     drop_repeated: bool,
+}
+
+/// The attempt of the retry policy in progress: its number (from 1) and when its window ends.
+#[derive(Debug, Clone, Copy)]
+struct Attempt {
+    n: u32,
+    window_ends: u64,
 }
 
 /// The connection state machine.
@@ -202,10 +223,14 @@ pub struct Client<S: Socket> {
     seed: u64,
     next_id: u32,
     inflight: BTreeMap<u32, InFlight>,
-    attempt: u32,
-    retry_at: Option<u64>,
-    /// A deterministic jitter source, 0..=1000, replaced in tests.
-    pub jitter: Box<dyn FnMut() -> u32>,
+    /// The connection attempt in progress or being waited out; `None` while ready or closed.
+    attempt: Option<Attempt>,
+    /// Since when the application is blocked (R26): set at a break, cleared at success or give-up.
+    blocked_since: Option<u64>,
+    /// The last cycle gave up and no connection has worked since.
+    unreachable: bool,
+    /// The latest time an event carried (a message carries none: its time is the open's or later).
+    clock: u64,
     wanted: bool,
     out: Vec<Out>,
     /// Ask the owner to refresh the token (the server said it expired); it then calls [`Client::set_token`].
@@ -253,7 +278,6 @@ fn session_from(seed: &mut u64) -> String {
 
 impl<S: Socket> Client<S> {
     pub fn new(cfg: Config, sock: S) -> Self {
-        let mut jseed = 0x2545_f491u32;
         let mut seed = 0x9e37_79b9_7f4a_7c15u64;
         let session = session_from(&mut seed);
         Client {
@@ -266,14 +290,10 @@ impl<S: Socket> Client<S> {
             seed,
             next_id: 1,
             inflight: BTreeMap::new(),
-            attempt: 0,
-            retry_at: None,
-            jitter: Box::new(move || {
-                jseed ^= jseed << 13;
-                jseed ^= jseed >> 17;
-                jseed ^= jseed << 5;
-                jseed % 1001
-            }),
+            attempt: None,
+            blocked_since: None,
+            unreachable: false,
+            clock: 0,
             wanted: false,
             out: Vec::new(),
             refresh_requested: false,
@@ -301,6 +321,16 @@ impl<S: Socket> Client<S> {
 
     pub fn in_flight(&self) -> usize {
         self.inflight.len()
+    }
+
+    /// The application is blocked while the connection is tried again (R26).
+    pub fn blocked(&self) -> bool {
+        self.blocked_since.is_some()
+    }
+
+    /// The last retry cycle gave up and no connection has worked since.
+    pub fn unreachable(&self) -> bool {
+        self.unreachable
     }
 
     pub fn take_out(&mut self) -> Vec<Out> {
@@ -343,16 +373,90 @@ impl<S: Socket> Client<S> {
     /// Connect to `url` (must be one of the configured addresses).
     pub fn connect(&mut self, url: &str, now: u64) -> Result<(), String> {
         origin_allowed(&self.cfg, url)?;
+        self.clock = self.clock.max(now);
         self.url = Some(url.to_owned());
         self.wanted = true;
-        self.start_connecting(now);
+        self.start_attempt(1, now);
         Ok(())
     }
 
-    fn start_connecting(&mut self, _now: u64) {
+    /// Open attempt `n` of the retry policy, given its window from `now`; past the last attempt,
+    /// give up.
+    fn start_attempt(&mut self, n: u32, now: u64) {
+        let Some(window) = self.cfg.retry.window(n) else {
+            self.give_up(now);
+            return;
+        };
         let Some(url) = self.url.clone() else { return };
+        self.attempt = Some(Attempt { n, window_ends: now.saturating_add(window) });
         self.set_state(LinkState::Connecting);
         self.sock.open(&url);
+    }
+
+    fn block(&mut self, now: u64) {
+        if self.blocked_since.is_none() {
+            self.blocked_since = Some(now);
+            self.out.push(Out::Blocked(true));
+        }
+    }
+
+    /// No longer blocked: the time spent blocked does not count against any call's timeout.
+    fn unblock(&mut self, now: u64) {
+        if let Some(since) = self.blocked_since.take() {
+            for f in self.inflight.values_mut() {
+                f.sent_at = f.sent_at.saturating_add(now.saturating_sub(f.sent_at.max(since)));
+            }
+            self.out.push(Out::Blocked(false));
+        }
+    }
+
+    /// An attempt failed (refused, broken during the handshake, or out of its window). Nothing to
+    /// wait for and nothing broken: stop — a page whose backend is down does not knock on its door
+    /// forever. Otherwise the application is blocked and the attempt's window is waited out.
+    fn attempt_failed(&mut self, now: u64) {
+        let Some(a) = self.attempt else {
+            self.set_state(LinkState::Closed);
+            return;
+        };
+        if self.inflight.is_empty() && !self.blocked() {
+            self.attempt = None;
+            self.set_state(LinkState::Closed);
+            return;
+        }
+        self.block(now);
+        if now >= a.window_ends {
+            self.start_attempt(a.n + 1, now);
+        } else {
+            self.set_state(LinkState::Retrying { attempt: a.n, window_ends: a.window_ends });
+        }
+    }
+
+    /// The last attempt failed: every waiting call fails `transport`, the backend is unreachable,
+    /// and nothing is tried until the application calls again (O8).
+    fn give_up(&mut self, now: u64) {
+        self.attempt = None;
+        let m = "the backend could not be reached";
+        let ids: Vec<u32> = self.inflight.keys().copied().collect();
+        for id in ids {
+            let ever = self.inflight.get(&id).is_some_and(|f| f.ever_sent);
+            if ever {
+                self.fail(id, class::TRANSPORT, code::CLOSED, m, Some(true));
+            } else {
+                self.fail(id, class::TRANSPORT, code::NO_CONNECTION, m, Some(false));
+            }
+        }
+        self.unblock(now);
+        if !self.unreachable {
+            self.unreachable = true;
+            self.out.push(Out::Unreachable(true));
+        }
+        self.set_state(LinkState::Closed);
+    }
+
+    /// Leave a cycle for good (a refusal, a sign-out, an unmount): not blocked any more.
+    fn end_cycle(&mut self, now: u64) {
+        self.attempt = None;
+        self.unblock(now);
     }
 
     /// A call from the module with a fresh id; returns the id.
@@ -365,6 +469,7 @@ impl<S: Socket> Client<S> {
     /// A call from the module under the id the host already gave it (`remote` returned that id to
     /// the module, so the answer must come back under it).
     pub fn request_as(&mut self, id: u32, frame: &[u8], now: u64) -> u32 {
+        self.clock = self.clock.max(now);
         let refuse = |s: &mut Self, class_: &str, code_: u32, m: String| {
             s.out.push(Out::Answer { id, frame: error_frame(id, class_, code_, &m, Some(false)) });
             id
@@ -387,20 +492,26 @@ impl<S: Socket> Client<S> {
         let key = format!("{}-{id:08x}", self.session);
         self.inflight.insert(
             id,
-            InFlight { sent_at: now, frame: text.trim().to_owned(), program, key, sent: false, ever_sent: false, auth_repeated: false, drop_repeated: false },
+            InFlight {
+                sent_at: now,
+                frame: text.trim().to_owned(),
+                program,
+                key,
+                sent: false,
+                ever_sent: false,
+                lost: false,
+                auth_repeated: false,
+                drop_repeated: false,
+            },
         );
         match self.state {
             LinkState::Ready => self.transmit(id),
             LinkState::Closed if self.wanted => {
-                // The link went away and nothing is retrying: try now.
-                self.start_connecting(now);
+                // The link went away, or the last cycle gave up: this call starts a new one (O8).
+                self.start_attempt(1, now);
             }
-            LinkState::Backoff => {
-                // The user asked for something: try now rather than at the end of the back-off.
-                self.retry_at = None;
-                self.start_connecting(now);
-            }
-            LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating => {} // held until Ready
+            // Held until Ready; while the policy retries, its timing is the spec's, not the caller's.
+            LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating | LinkState::Retrying { .. } => {}
             LinkState::Closed => {
                 self.fail(id, class::TRANSPORT, code::NO_CONNECTION, "the application is not connected to its backend", Some(false));
             }
@@ -429,15 +540,15 @@ impl<S: Socket> Client<S> {
 
     // ── events from the socket ──────────────────────────────────────────────
 
-    pub fn on_open(&mut self, _now: u64) {
-        self.retry_at = None;
+    pub fn on_open(&mut self, now: u64) {
+        self.clock = self.clock.max(now);
         let hello = json!({"t": "hello", "protocol": PROTOCOL, "contract": self.cfg.contract, "client": self.cfg.client, "session": self.session});
         self.set_state(LinkState::Greeting);
         self.sock.send(&hello.to_string());
     }
 
     fn flush_held(&mut self) {
-        let held: Vec<u32> = self.inflight.iter().filter(|(_, f)| !f.sent).map(|(id, _)| *id).collect();
+        let held: Vec<u32> = self.inflight.iter().filter(|(_, f)| !f.sent && !f.lost).map(|(id, _)| *id).collect();
         for id in held {
             self.transmit(id);
         }
@@ -452,9 +563,30 @@ impl<S: Socket> Client<S> {
         }
     }
 
-    /// The connection is past `hello` (and `auth`, when there is a token): send what waits.
+    /// The connection is past `hello` (and `auth`, when there is a token): decide what the break
+    /// left behind, then send what waits.
     fn ready(&mut self) {
-        self.attempt = 0;
+        let now = self.clock;
+        self.attempt = None;
+        let lost: Vec<u32> = self.inflight.iter().filter(|(_, f)| f.lost).map(|(id, _)| *id).collect();
+        for id in lost {
+            let Some(f) = self.inflight.get(&id) else { continue };
+            if self.is_idempotent(&f.program) && !f.drop_repeated {
+                // Declared idempotent: repeated once on this connection, under the same key, so a
+                // backend that ran it answers from its store (R9, R10).
+                if let Some(f) = self.inflight.get_mut(&id) {
+                    f.drop_repeated = true;
+                    f.lost = false;
+                }
+            } else {
+                self.fail(id, class::TRANSPORT, code::CLOSED, "the connection to the backend was lost", Some(true));
+            }
+        }
+        self.unblock(now);
+        if self.unreachable {
+            self.unreachable = false;
+            self.out.push(Out::Unreachable(false));
+        }
         self.set_state(LinkState::Ready);
         self.flush_held();
     }
@@ -489,7 +621,8 @@ impl<S: Socket> Client<S> {
                     self.out.push(Out::Warning(format!("backend refused the connection: {m}")));
                     self.fail_all(class::VERSION, c, &m);
                     self.wanted = false;
-                    self.retry_at = None;
+                    let now = self.clock;
+                    self.end_cycle(now);
                     self.sock.close();
                     self.set_state(LinkState::Closed);
                 }
@@ -555,55 +688,23 @@ impl<S: Socket> Client<S> {
     }
 
     pub fn on_close(&mut self, now: u64) {
-        // The browser reports a failed attempt as `error` and then `close`: the second is a repeat.
-        if matches!(self.state, LinkState::Closed | LinkState::Backoff) {
-            return;
-        }
-        let established = self.state == LinkState::Ready;
-        let ids: Vec<u32> = self.inflight.keys().copied().collect();
-        for id in ids {
-            let Some(f) = self.inflight.get(&id) else { continue };
-            let (sent, ever, again) = (f.sent, f.ever_sent, self.is_idempotent(&f.program) && !f.drop_repeated);
-            if sent {
-                if again {
-                    // Declared idempotent: repeated once on the next connection, under the same key,
-                    // so a backend that ran it answers from its store (R9, R10).
-                    if let Some(f) = self.inflight.get_mut(&id) {
-                        f.drop_repeated = true;
+        self.clock = self.clock.max(now);
+        match self.state {
+            // The browser reports a failed attempt as `error` and then `close`: the second is a repeat.
+            LinkState::Closed | LinkState::Retrying { .. } => {}
+            LinkState::Ready => {
+                // An established connection broke (R25 retries any break): what was sent is decided
+                // when an attempt succeeds or the cycle gives up, not now (D12).
+                for f in self.inflight.values_mut() {
+                    if f.sent {
                         f.sent = false;
+                        f.lost = true;
                     }
-                } else {
-                    self.fail(id, class::TRANSPORT, code::CLOSED, "the connection to the backend was lost", Some(true));
                 }
-            } else if !established {
-                let waiting_to_repeat = self.inflight.get(&id).is_some_and(|f| f.drop_repeated);
-                if waiting_to_repeat {
-                    // A safe call waiting for its repeat goes on waiting through failed attempts, until
-                    // its own timeout (a backend restart takes a moment).
-                    continue;
-                }
-                // This attempt never got as far as sending: the call is told now, not at its timeout.
-                if ever {
-                    self.fail(id, class::TRANSPORT, code::CLOSED, "the connection to the backend was lost and could not be restored", Some(true));
-                } else {
-                    self.fail(id, class::TRANSPORT, code::NO_CONNECTION, "the backend cannot be reached", Some(false));
-                }
+                self.block(now);
+                self.start_attempt(1, now);
             }
-        }
-        // Reconnect with back-off after a lost connection, and while calls wait to be repeated; a failed
-        // attempt that leaves nothing waiting stops there, and the next call tries at once — so a page whose
-        // backend is down does not knock on its door forever (each knock is a console error in a browser).
-        if self.wanted && (established || !self.inflight.is_empty()) {
-            let base = self.cfg.backoff_start_ms.saturating_mul(1u64 << self.attempt.min(16)).min(self.cfg.backoff_max_ms);
-            // Jitter of up to a quarter either way, so many clients do not return together.
-            let j = (self.jitter)() as u64; // 0..=1000
-            let delta = base / 4;
-            let wait = base - delta + (2 * delta * j) / 1000;
-            self.attempt += 1;
-            self.retry_at = Some(now + wait);
-            self.set_state(LinkState::Backoff);
-        } else {
-            self.set_state(LinkState::Closed);
+            LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating => self.attempt_failed(now),
         }
     }
 
@@ -614,31 +715,44 @@ impl<S: Socket> Client<S> {
         }
     }
 
-    /// The clock moved: time out calls, and retry a connection that is due.
+    /// The clock moved: time out calls (not while blocked), and move the retry policy on — the next
+    /// attempt at the end of a window waited out, an attempt still unfinished at its window's end cut.
     pub fn tick(&mut self, now: u64) {
+        self.clock = self.clock.max(now);
         let timeout = self.cfg.call_timeout_ms;
-        let late: Vec<u32> = self.inflight.iter().filter(|(_, f)| now.saturating_sub(f.sent_at) >= timeout).map(|(id, _)| *id).collect();
-        for id in late {
-            let (sent, ever) = self.inflight.get(&id).map(|f| (f.sent, f.ever_sent)).unwrap_or((false, false));
-            if sent && self.state == LinkState::Ready {
-                // Nobody awaits it any more: the backend may stop the work (R13).
-                self.sock.send(&json!({"t": "cancel", "id": id}).to_string());
+        if !self.blocked() {
+            let late: Vec<u32> = self.inflight.iter().filter(|(_, f)| now.saturating_sub(f.sent_at) >= timeout).map(|(id, _)| *id).collect();
+            for id in late {
+                let (sent, ever) = self.inflight.get(&id).map(|f| (f.sent, f.ever_sent)).unwrap_or((false, false));
+                if sent && self.state == LinkState::Ready {
+                    // Nobody awaits it any more: the backend may stop the work (R13).
+                    self.sock.send(&json!({"t": "cancel", "id": id}).to_string());
+                }
+                let m = format!("the backend did not answer in time ({timeout} ms)");
+                self.fail(id, class::TRANSPORT, code::TIMEOUT, &m, Some(ever));
             }
-            let m = format!("the backend did not answer in time ({timeout} ms)");
-            self.fail(id, class::TRANSPORT, code::TIMEOUT, &m, Some(ever));
         }
-        if let Some(at) = self.retry_at {
-            if now >= at && self.state == LinkState::Backoff {
-                self.retry_at = None;
-                self.start_connecting(now);
+        let Some(a) = self.attempt else { return };
+        if now < a.window_ends {
+            return;
+        }
+        match self.state {
+            LinkState::Retrying { .. } => self.start_attempt(a.n + 1, now),
+            LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating => {
+                // The attempt did not complete in its window: it failed.
+                self.sock.close();
+                self.attempt_failed(now);
             }
+            LinkState::Ready | LinkState::Closed => self.attempt = None,
         }
     }
 
-    /// The next time `tick` must run, so a timer can be set (None = nothing pending).
+    /// The next time `tick` must run, so a timer can be set (None = nothing pending). While blocked
+    /// no call's timeout runs, so only the policy's window counts.
     pub fn next_deadline(&self) -> Option<u64> {
-        let call = self.inflight.values().map(|f| f.sent_at + self.cfg.call_timeout_ms).min();
-        match (call, self.retry_at) {
+        let call = if self.blocked() { None } else { self.inflight.values().map(|f| f.sent_at + self.cfg.call_timeout_ms).min() };
+        let window = self.attempt.map(|a| a.window_ends);
+        match (call, window) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         }
@@ -657,13 +771,14 @@ impl<S: Socket> Client<S> {
     /// call open a new one (anonymously, or with another session's token) under a new session id. What was
     /// sent and not yet answered is failed — it may have run — and what was only waiting goes out on the new one.
     pub fn reset_session(&mut self) {
-        let sent: Vec<u32> = self.inflight.iter().filter(|(_, f)| f.sent).map(|(id, _)| *id).collect();
+        let sent: Vec<u32> = self.inflight.iter().filter(|(_, f)| f.sent || f.lost).map(|(id, _)| *id).collect();
         for id in sent {
             self.fail(id, class::TRANSPORT, code::CLOSED, "the connection was closed by the sign-out", Some(true));
         }
         self.token = None;
         self.wanted = false;
-        self.retry_at = None;
+        let now = self.clock;
+        self.end_cycle(now);
         self.session = session_from(&mut self.seed);
         self.sock.close();
         self.set_state(LinkState::Closed);
@@ -673,7 +788,8 @@ impl<S: Socket> Client<S> {
     pub fn shutdown(&mut self) {
         self.wanted = false;
         self.inflight.clear();
-        self.retry_at = None;
+        let now = self.clock;
+        self.end_cycle(now);
         self.sock.close();
         self.set_state(LinkState::Closed);
     }
@@ -709,9 +825,34 @@ mod tests {
     }
 
     fn client() -> Client<Mock> {
-        let mut c = Client::new(cfg(), Mock::default());
-        c.jitter = Box::new(|| 500); // no jitter: exactly the base
-        c
+        Client::new(cfg(), Mock::default())
+    }
+
+    /// Drive the simulated clock to the client's deadlines, refusing every attempt at once (a stopped
+    /// backend on loopback), until nothing is pending. Answers the times each attempt was opened.
+    fn refuse_every_attempt(c: &mut Client<Mock>, until: u64) -> Vec<u64> {
+        let mut opened_at = Vec::new();
+        let mut seen = c.sock.opened.len();
+        while let Some(d) = c.next_deadline().filter(|d| *d <= until) {
+            c.tick(d);
+            if c.sock.opened.len() > seen {
+                seen = c.sock.opened.len();
+                opened_at.push(d);
+                c.on_error(d);
+                c.on_close(d);
+            }
+        }
+        opened_at
+    }
+
+    fn flags(out: &[Out]) -> Vec<String> {
+        out.iter()
+            .filter_map(|o| match o {
+                Out::Blocked(b) => Some(format!("blocked={b}")),
+                Out::Unreachable(u) => Some(format!("unreachable={u}")),
+                _ => None,
+            })
+            .collect()
     }
 
     /// A client past `hello` with no token: ready.
@@ -864,20 +1005,25 @@ mod tests {
         let mut c = client();
         c.request(br#"{"program":"X"}"#, 0);
         row("not connected", &answers(&mut c)[0].1);
-        // the backend cannot be reached (the attempt fails)
+        // the backend cannot be reached: the first attempt fails, the policy's other two too (R25)
         let mut c = client();
         c.connect(URL, 0).unwrap();
         c.request(br#"{"program":"X"}"#, 0);
         c.on_error(5);
         c.on_close(6); // the browser's second event is ignored
+        assert!(answers(&mut c).is_empty(), "the call waits for the retry cycle");
+        refuse_every_attempt(&mut c, u64::MAX);
         row("backend unreachable", &answers(&mut c)[0].1);
-        assert_eq!((c.state(), c.retry_at), (LinkState::Closed, None), "nothing waits: no retry loop, the next call tries at once");
-        c.request(br#"{"program":"X"}"#, 7);
-        assert_eq!((c.state(), c.sock.opened.len()), (LinkState::Connecting, 2));
-        // the connection drops with a call in flight
+        assert_eq!((c.state(), c.next_deadline(), c.sock.opened.len()), (LinkState::Closed, None, 3), "given up: nothing waits, no fourth attempt");
+        c.request(br#"{"program":"X"}"#, 70_000);
+        assert_eq!((c.state(), c.sock.opened.len()), (LinkState::Connecting, 4), "the next call starts a new cycle (O8)");
+        // the connection drops with a call in flight; the next connection works
         let mut c = ready_client();
         c.request(br#"{"program":"X"}"#, 0);
         c.on_close(5);
+        assert!(answers(&mut c).is_empty(), "decided when an attempt succeeds, not at the break");
+        c.on_open(6);
+        c.on_message(HELLO_OK);
         row("connection lost in flight", &answers(&mut c)[0].1);
         // no answer in time
         let mut c = ready_client();
@@ -913,7 +1059,7 @@ mod tests {
             row(case, &answers(&mut c)[0].1);
             assert_eq!((c.state(), c.sock.closed), (LinkState::Closed, 1), "no retry after a refusal");
             c.on_close(2);
-            assert_eq!(c.retry_at, None);
+            assert_eq!((c.state(), c.next_deadline(), c.blocked()), (LinkState::Closed, None, false));
         }
         // a server error frame is handed through, class and code intact
         let mut c = ready_client();
@@ -979,18 +1125,21 @@ mod tests {
         let unsafe_ = c.request(br#"{"program":"FUND-SAVE","args":[],"returning":true}"#, 1);
         let first_key = sent_json(&c)[0]["key"].clone();
         c.on_close(5);
-        let a = answers(&mut c);
-        assert_eq!(a.len(), 1, "only the unsafe call is failed: {a:?}");
-        assert_eq!((a[0].0, a[0].1["error"]["code"].as_u64(), a[0].1["error"]["may_have_run"].as_bool()), (unsafe_, Some(1001), Some(true)));
-        assert_eq!(c.in_flight(), 1, "the safe one waits for the next connection");
+        assert!(answers(&mut c).is_empty(), "both wait for the next connection");
         c.tick(1_000);
         c.on_open(1_001);
         c.on_message(HELLO_OK);
+        let a = answers(&mut c);
+        assert_eq!(a.len(), 1, "only the unsafe call is failed: {a:?}");
+        assert_eq!((a[0].0, a[0].1["error"]["code"].as_u64(), a[0].1["error"]["may_have_run"].as_bool()), (unsafe_, Some(1001), Some(true)));
+        assert_eq!(c.in_flight(), 1, "the safe one is repeated");
         let again: Vec<Value> = sent_json(&c).into_iter().filter(|m| m["t"] == "call" && m["id"] == safe).collect();
         assert_eq!(again.len(), 2, "sent, then repeated once");
         assert_eq!(again[1]["key"], first_key, "the repeat carries the same key, so the backend answers from its store");
-        // A second drop is final.
+        // A second drop is final: it fails when the connection after it works.
         c.on_close(1_100);
+        c.on_open(1_101);
+        c.on_message(HELLO_OK);
         let a = answers(&mut c);
         assert_eq!((a[0].0, a[0].1["error"]["code"].as_u64(), a[0].1["error"]["may_have_run"].as_bool()), (safe, Some(1001), Some(true)));
         println!("safe FUND-TOTALS: repeated once under key {first_key}, a second drop fails it; unsafe FUND-SAVE: failed 1001 may_have_run=true");
@@ -1028,67 +1177,126 @@ mod tests {
         let mut c = ready_client();
         let in_flight = c.request(br#"{"program":"X"}"#, 2);
         c.on_close(3);
-        assert_eq!(c.state(), LinkState::Backoff);
+        c.on_error(4); // the first attempt is refused at once
+        assert_eq!(c.state(), LinkState::Retrying { attempt: 1, window_ends: 10_003 });
+        // While retrying, a new call waits; after the reconnection the lost one is failed and the new
+        // one is sent and answered normally.
+        let later = c.request(br#"{"program":"Y"}"#, 100);
+        assert!(c.sock.sent.iter().all(|s| !s.contains("\"Y\"")));
+        c.tick(10_003);
+        assert_eq!(c.state(), LinkState::Connecting);
+        c.on_open(10_004);
+        c.on_message(HELLO_OK);
         let a = answers(&mut c);
         assert_eq!(a[0].0, in_flight);
         assert_eq!(a[0].1["error"]["class"], "transport");
         assert_eq!(a[0].1["error"]["may_have_run"], true, "WASM-014 R9: the program is told it may have run");
-        // While backing off, a new call waits; after the reconnection it is sent and answered normally.
-        let later = c.request(br#"{"program":"Y"}"#, 100);
-        assert!(c.sock.sent.iter().all(|s| !s.contains("\"Y\"")));
-        c.tick(10_000);
-        assert_eq!(c.state(), LinkState::Connecting);
-        c.on_open(10_001);
-        c.on_message(HELLO_OK);
         assert!(c.sock.sent.iter().any(|s| s.contains("\"Y\"")));
         c.on_message(&reply(later, "\"ok\""));
         let a = answers(&mut c);
         assert!(a.iter().any(|(id, v)| *id == later && v.get("error").is_none()));
     }
 
-    /// After a lost connection the page reconnects with back-off while a safe call waits for its repeat;
-    /// the repeat goes out when it works, and a later loss starts the series again.
+    /// WASM-003 R25/R26, AC12 on the simulated clock: a break blocks the application; the attempts
+    /// open at 0, 10 and 30 s after it (windows of 10, 20 and 30 s), each refused at once and waited
+    /// out; the 30 s call timeout does not fire during the 60 s cycle; at the give-up every waiting
+    /// call fails `transport` — 1001 `may_have_run` if it had been sent, 1000 if not — the block lifts
+    /// with *unreachable* on, and no fourth attempt follows until the application calls again.
     #[test]
-    fn reconnection_backs_off_exponentially_and_resets_when_it_works() {
+    fn a_break_is_retried_at_10_20_30_seconds_then_given_up() {
         let mut c = ready_client();
-        c.cfg.call_timeout_ms = 1_000_000;
+        assert_eq!(c.cfg.call_timeout_ms, 30_000);
         let safe = c.request(br#"{"program":"FUND-TOTALS"}"#, 0);
-        let mut now = 0u64;
-        c.on_close(now);
-        let mut waits = Vec::new();
-        for _ in 0..8 {
-            let at = c.retry_at.unwrap();
-            waits.push(at - now);
-            now = at;
-            c.tick(now);
-            assert_eq!(c.state(), LinkState::Connecting);
-            c.on_error(now);
-            assert_eq!(c.in_flight(), 1, "the safe call goes on waiting through failed attempts");
-        }
-        assert_eq!(waits, [250, 500, 1000, 2000, 4000, 8000, 10_000, 10_000], "doubling, capped at backoff_max");
-        c.tick(c.retry_at.unwrap());
-        c.on_open(now);
+        let sent = c.request(br#"{"program":"FUND-SAVE"}"#, 0);
+        let t0 = 1_000;
+        c.on_close(t0);
+        assert!(c.blocked());
+        c.on_error(t0); // attempt 1, opened at the break, refused at once
+        assert_eq!(c.state(), LinkState::Retrying { attempt: 1, window_ends: t0 + 10_000 });
+        let unsent = c.request(br#"{"program":"FUND-LIST"}"#, t0 + 5_000);
+        let mut opened = vec![t0];
+        opened.extend(refuse_every_attempt(&mut c, u64::MAX));
+        let out = c.take_out();
+        let transitions = flags(&out);
+        let mut got: Vec<(u32, u64, Option<bool>, String)> = out
+            .iter()
+            .filter_map(|o| if let Out::Answer { id, frame } = o { Some((*id, serde_json::from_slice::<Value>(frame).unwrap())) } else { None })
+            .map(|(id, v)| (id, v["error"]["code"].as_u64().unwrap(), v["error"]["may_have_run"].as_bool(), v["error"]["message"].as_str().unwrap().to_owned()))
+            .collect();
+        got.sort();
+        let rel: Vec<u64> = opened.iter().map(|t| t - t0).collect();
+        println!("attempts opened at (ms after the break): {rel:?}; transitions {transitions:?}; answers {got:?}");
+        assert_eq!(rel, [0, 10_000, 30_000], "windows of 10, 20, 30 s");
+        assert_eq!(transitions, ["blocked=true", "blocked=false", "unreachable=true"]);
+        let m = "the backend could not be reached".to_owned();
+        assert_eq!(got, [(safe, 1001, Some(true), m.clone()), (sent, 1001, Some(true), m.clone()), (unsent, 1000, Some(false), m)], "no 1002 during the cycle");
+        assert_eq!((c.state(), c.blocked(), c.unreachable(), c.next_deadline()), (LinkState::Closed, false, true, None));
+        c.tick(t0 + 600_000);
+        assert_eq!(c.sock.opened.len(), 1 + 3, "no fourth attempt on its own (1 = the first connection)");
+        // The next call starts a new cycle (O8); its success clears *unreachable*.
+        let next = c.request(br#"{"program":"FUND-LIST"}"#, t0 + 700_000);
+        assert_eq!((c.state(), c.sock.opened.len()), (LinkState::Connecting, 5));
+        c.on_open(t0 + 700_001);
         c.on_message(HELLO_OK);
-        assert_eq!(sent_json(&c).iter().filter(|m| m["t"] == "call" && m["id"] == safe).count(), 2, "repeated once it worked");
-        c.on_message(&reply(safe, "{}"));
-        c.on_close(now + 1);
-        assert_eq!(c.retry_at.unwrap() - (now + 1), 250, "a working connection starts the series again");
-        // With nothing waiting, a failed attempt ends the loop.
-        c.tick(now + 251);
-        c.on_error(now + 252);
-        assert_eq!((c.state(), c.retry_at), (LinkState::Closed, None));
-        println!("back-off waits (ms): {waits:?}");
+        assert_eq!(flags(&c.take_out()), ["unreachable=false"]);
+        assert!(sent_json(&c).iter().any(|m| m["t"] == "call" && m["id"] == next));
     }
 
+    /// The backend comes back in attempt 2: the block lifts, the idempotent call is repeated once under
+    /// its key, the other sent call fails 1001 `may_have_run`, the call made while blocked goes out, and
+    /// the time spent blocked does not count against any call's timeout (D12).
     #[test]
-    fn jitter_stays_within_a_quarter_of_the_base() {
-        for j in [0u32, 250, 500, 750, 1000] {
-            let mut c = ready_client();
-            c.jitter = Box::new(move || j);
-            c.on_close(0);
-            let w = c.retry_at.unwrap();
-            assert!((187..=313).contains(&w), "jitter {j}: waited {w}");
-        }
+    fn success_in_attempt_2_repeats_the_safe_call_and_fails_the_other() {
+        let mut c = ready_client();
+        let safe = c.request(br#"{"program":"FUND-TOTALS"}"#, 0);
+        let unsafe_ = c.request(br#"{"program":"FUND-SAVE"}"#, 0);
+        let first_key = sent_json(&c)[0]["key"].clone();
+        c.on_close(1_000);
+        c.on_error(1_000);
+        let unsent = c.request(br#"{"program":"FUND-LIST"}"#, 5_000);
+        assert_eq!(c.next_deadline(), Some(11_000), "only the window counts while blocked");
+        c.tick(11_000);
+        assert_eq!(c.state(), LinkState::Connecting, "attempt 2");
+        c.on_open(11_500);
+        c.on_message(HELLO_OK);
+        let out = c.take_out();
+        let transitions = flags(&out);
+        let failed: Vec<(u32, Value)> = out.iter().filter_map(|o| if let Out::Answer { id, frame } = o { Some((*id, serde_json::from_slice(frame).unwrap())) } else { None }).collect();
+        let calls: Vec<Value> = sent_json(&c).into_iter().filter(|m| m["t"] == "call").collect();
+        println!("transitions {transitions:?}; failed {failed:?}; on the new connection {:?}", calls.iter().map(|m| (m["id"].as_u64(), m["program"].as_str())).collect::<Vec<_>>());
+        assert_eq!(transitions, ["blocked=true", "blocked=false"], "no unreachable: the cycle did not give up");
+        assert_eq!(failed.len(), 1);
+        assert_eq!((failed[0].0, failed[0].1["error"]["code"].as_u64(), failed[0].1["error"]["may_have_run"].as_bool()), (unsafe_, Some(1001), Some(true)));
+        let repeat: Vec<&Value> = calls.iter().filter(|m| m["id"] == safe).collect();
+        assert_eq!((repeat.len(), &repeat[1]["key"]), (2, &first_key), "sent, then repeated once under the same key");
+        assert!(calls.iter().any(|m| m["id"] == unsent), "the call made while blocked goes out");
+        // 1 s had run for the safe call before the break and none for the call made while blocked.
+        assert_eq!(c.next_deadline(), Some(11_500 - 1_000 + 30_000));
+        c.tick(11_500 + 28_999);
+        assert!(answers(&mut c).is_empty());
+        c.tick(11_500 + 29_000);
+        assert_eq!(answers(&mut c).iter().map(|(id, v)| (*id, v["error"]["code"].as_u64())).collect::<Vec<_>>(), [(safe, Some(1002))]);
+        c.tick(11_500 + 30_000);
+        assert_eq!(answers(&mut c).iter().map(|(id, _)| *id).collect::<Vec<_>>(), [unsent]);
+    }
+
+    /// O7: a first connection that a call needs and that fails runs the cycle; one nobody waits for
+    /// stops at its failure (no retry loop for a page that makes no call).
+    #[test]
+    fn a_failed_first_connection_runs_the_cycle_only_when_a_call_waits() {
+        let mut c = client();
+        c.connect(URL, 0).unwrap();
+        c.on_error(10);
+        assert_eq!((c.state(), c.blocked(), c.next_deadline()), (LinkState::Closed, false, None), "nobody waits: no cycle");
+        let mut c = client();
+        c.connect(URL, 0).unwrap();
+        c.request(br#"{"program":"X"}"#, 1);
+        c.on_error(10);
+        assert_eq!((c.state(), c.blocked()), (LinkState::Retrying { attempt: 1, window_ends: 10_000 }, true));
+        let opened = refuse_every_attempt(&mut c, u64::MAX);
+        println!("first connection at 0, then attempts at {opened:?}");
+        assert_eq!(opened, [10_000, 30_000]);
+        assert_eq!(answers(&mut c)[0].1["error"]["code"].as_u64(), Some(1000));
     }
 
     #[test]
@@ -1102,13 +1310,18 @@ mod tests {
         assert_eq!(i, id);
         assert_eq!((v["error"]["class"].as_str(), v["error"]["code"].as_u64()), (Some("transport"), Some(1002)));
         assert_eq!(c.next_deadline(), None);
-        // A call held behind a handshake that never completes ends at its timeout too.
+        // A call held behind a handshake that never completes: the attempt is cut at the end of its
+        // window and the policy goes on (R25); the call ends with the cycle, never sent: 1000.
         let mut c = client();
         c.connect(URL, 0).unwrap();
         c.on_open(1);
         c.request(br#"{"program":"X"}"#, 2);
-        c.tick(30_002);
-        assert_eq!(answers(&mut c)[0].1["error"]["code"].as_u64(), Some(1002));
+        assert_eq!(c.next_deadline(), Some(10_000), "the attempt's window ends before the call's timeout");
+        c.tick(10_000);
+        assert_eq!((c.sock.closed, c.sock.opened.len(), c.blocked()), (1, 2, true), "cut, blocked, attempt 2 opened");
+        refuse_every_attempt(&mut c, u64::MAX);
+        let a = answers(&mut c);
+        assert_eq!((a[0].1["error"]["code"].as_u64(), a[0].1["error"]["may_have_run"].as_bool()), (Some(1000), Some(false)));
     }
 
     #[test]

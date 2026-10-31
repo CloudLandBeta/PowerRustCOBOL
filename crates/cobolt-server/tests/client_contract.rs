@@ -188,7 +188,8 @@ impl World {
         cfg.origin = Some(ORIGIN.to_string());
         cfg.interface = Some(self.rig.interface());
         cfg.call_timeout = Duration::from_secs(20);
-        cfg.reconnect_deadline = Duration::from_secs(10);
+        // A shorter policy than the spec's 10/20/30 s (WASM-003 R25), the same shape.
+        cfg.retry = cobolt_wire::retry::Policy { first_ms: 2_000, step_ms: 2_000, attempts: 3 };
         if let Some(t) = token {
             cfg.token = Some(Arc::new(StaticToken(t)));
         }

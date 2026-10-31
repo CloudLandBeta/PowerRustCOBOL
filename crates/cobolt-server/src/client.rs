@@ -18,13 +18,16 @@
 //! **What the client does so the developer does not have to:** connect lazily,
 //! say `hello` and check the answer, send the bearer token as the first message
 //! after it (never in the URL), correlate answers by id, refresh an expired token
-//! and repeat the call once, ping-pong with the server, reconnect with back-off,
-//! repeat a call a lost connection interrupted **only** when its program is
-//! declared safe to repeat, re-subscribe streams, and report — for a call it
-//! could not finish — whether the backend *may have run it*.
+//! and repeat the call once, ping-pong with the server, reconnect by the one
+//! retry policy (`cobolt_wire::retry`, WASM-003 R25: windows of 10, 20 and 30 s,
+//! then give up), repeat a call a lost connection interrupted **only** when its
+//! program is declared safe to repeat, re-subscribe streams, and report — for a
+//! call it could not finish — whether the backend *may have run it*. While it
+//! retries the client is *blocked* ([`WsClient::link_status`]); no call's timeout
+//! runs meanwhile and new calls wait.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc as std_mpsc, Arc};
 use std::time::{Duration, Instant};
 
@@ -108,8 +111,9 @@ pub struct ClientConfig {
     /// `limit 7000` before a byte of it is sent; the backend's own announced
     /// limit applies as well. `None`: only the backend's.
     pub max_payload: Option<u64>,
-    /// How long a call interrupted by a lost connection waits for a new one.
-    pub reconnect_deadline: Duration,
+    /// How a broken connection is tried again (WASM-003 R25). The defaults are the
+    /// only values an application uses; tests pass a shorter one.
+    pub retry: cobolt_wire::retry::Policy,
 }
 
 impl ClientConfig {
@@ -125,9 +129,25 @@ impl ClientConfig {
             connect_timeout: Duration::from_secs(10),
             call_timeout: Duration::from_secs(60),
             max_payload: None,
-            reconnect_deadline: Duration::from_secs(20),
+            retry: cobolt_wire::retry::Policy::default(),
         }
     }
+}
+
+/// What the connection tells its host about the retry policy (WASM-003 R26). No
+/// desktop host draws a modal from it yet (O9); it is here to be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LinkStatus {
+    /// The connection broke and is being tried again.
+    pub blocked: bool,
+    /// The last retry cycle gave up and no connection has worked since.
+    pub unreachable: bool,
+}
+
+#[derive(Default)]
+struct Link {
+    blocked: AtomicBool,
+    unreachable: AtomicBool,
 }
 
 // ── what the actor reports ────────────────────────────────────────────────────
@@ -186,6 +206,7 @@ struct Shared {
     tx: mpsc::UnboundedSender<Cmd>,
     cfg: ClientConfig,
     next_id: AtomicU64,
+    link: Arc<Link>,
 }
 
 /// A handle on the connection. Clones share it.
@@ -218,14 +239,21 @@ impl WsClient {
     pub fn new(cfg: ClientConfig) -> WsClient {
         let (tx, rx) = mpsc::unbounded_channel();
         let actor_cfg = cfg.clone();
+        let link = Arc::new(Link::default());
+        let actor_link = link.clone();
         let _ = std::thread::Builder::new().name("prc-ws-client".into()).stack_size(2 * 1024 * 1024).spawn(move || {
             let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
                 Ok(r) => r,
                 Err(_) => return,
             };
-            rt.block_on(Actor::new(actor_cfg, rx).run());
+            rt.block_on(Actor::new(actor_cfg, rx, actor_link).run());
         });
-        WsClient { shared: Arc::new(Shared { tx, cfg, next_id: AtomicU64::new(1) }) }
+        WsClient { shared: Arc::new(Shared { tx, cfg, next_id: AtomicU64::new(1), link }) }
+    }
+
+    /// Whether the connection is being tried again, or the last try gave up (R26).
+    pub fn link_status(&self) -> LinkStatus {
+        LinkStatus { blocked: self.shared.link.blocked.load(Ordering::SeqCst), unreachable: self.shared.link.unreachable.load(Ordering::SeqCst) }
     }
 
     fn id(&self) -> u64 {
@@ -688,6 +716,12 @@ struct Actor {
     /// The last thing the backend said about the connection itself (an oversized frame, a
     /// refused message) and when: if the connection then ends, that is why.
     conn_error: Option<(CallError, Instant)>,
+    link: Arc<Link>,
+}
+
+/// The last attempt of a cycle failed on the transport (R25).
+fn unreachable_error() -> CallError {
+    CallError::transport(codes::NO_CONNECTION, "the backend could not be reached").may_have_run(false)
 }
 
 async fn read(conn: &mut Option<Conn>) -> Option<Result<Message, tokio_tungstenite::tungstenite::Error>> {
@@ -698,8 +732,8 @@ async fn read(conn: &mut Option<Conn>) -> Option<Result<Message, tokio_tungsteni
 }
 
 impl Actor {
-    fn new(cfg: ClientConfig, rx: mpsc::UnboundedReceiver<Cmd>) -> Self {
-        Actor { cfg, rx, conn: None, hello: None, calls: HashMap::new(), rpcs: HashMap::new(), subs: HashMap::new(), notice: None, conn_error: None }
+    fn new(cfg: ClientConfig, rx: mpsc::UnboundedReceiver<Cmd>, link: Arc<Link>) -> Self {
+        Actor { cfg, rx, conn: None, hello: None, calls: HashMap::new(), rpcs: HashMap::new(), subs: HashMap::new(), notice: None, conn_error: None, link }
     }
 
     async fn run(mut self) {
@@ -730,35 +764,90 @@ impl Actor {
         }
     }
 
-    /// Connect if not connected, with a few quick attempts (a backend that is just starting).
-    async fn ensure(&mut self) -> Result<(), CallError> {
+    /// Connect if not connected. A first connection that something waits for runs
+    /// the retry cycle too (O7); answers how long the client was blocked.
+    async fn ensure(&mut self) -> Result<Duration, CallError> {
         if self.conn.is_some() {
-            return Ok(());
+            return Ok(Duration::ZERO);
         }
-        let mut last = None;
-        let started = Instant::now();
-        for attempt in 0..4u64 {
-            match open(&self.cfg).await {
-                Ok((c, h)) => {
+        self.cycle(false).await
+    }
+
+    /// The retry policy (R25): attempt *n* is given its window; one that fails
+    /// early waits the window out, so the attempts take 10, 20 and 30 s whatever
+    /// the failure; one that works ends the cycle at once. The client is blocked
+    /// from the break (`blocked_now`) or from the first failure of a first
+    /// connection, until the cycle ends; no call's timeout runs meanwhile (D12).
+    /// A refusal, a bad token or a bad address will not change by trying again:
+    /// it ends the cycle with its own error. Answers how long it was blocked.
+    async fn cycle(&mut self, blocked_now: bool) -> Result<Duration, CallError> {
+        let mut blocked_at = blocked_now.then(Instant::now);
+        if blocked_now {
+            self.link.blocked.store(true, Ordering::SeqCst);
+        }
+        let policy = self.cfg.retry;
+        let mut outcome = Err(unreachable_error());
+        for n in 1..=policy.attempts {
+            let Some(window) = policy.window(n).map(Duration::from_millis) else { break };
+            let ends = tokio::time::Instant::now() + window;
+            let failed = match tokio::time::timeout(window, open(&self.cfg)).await {
+                Ok(Ok((c, h))) => {
                     if h.accepted == Accepted::Warn {
                         self.notice = Some(h.message.clone());
                     }
                     self.hello = Some(h);
                     self.conn = Some(c);
-                    return Ok(());
+                    outcome = Ok(());
+                    break;
                 }
-                // A refusal, a bad token or a bad address will not change by trying again.
-                Err(e) if e.class != ErrorClass::Transport || e.code == codes::NOT_CONFIGURED => return Err(e),
-                Err(e) => {
-                    last = Some(e);
-                    if started.elapsed() > self.cfg.connect_timeout {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(100 * (attempt + 1))).await;
+                Ok(Err(e)) if e.class != ErrorClass::Transport || e.code == codes::NOT_CONFIGURED => {
+                    outcome = Err(e);
+                    break;
                 }
+                Ok(Err(e)) => e,
+                Err(_) => CallError::transport(codes::TIMEOUT, format!("attempt {n} did not connect within {} ms", window.as_millis())).may_have_run(false),
+            };
+            tracing::debug!(target: "client", "reconnect attempt {n} of {} failed: {failed}", policy.attempts);
+            if blocked_at.is_none() {
+                blocked_at = Some(Instant::now());
+                self.link.blocked.store(true, Ordering::SeqCst);
+            }
+            tokio::time::sleep_until(ends).await;
+        }
+        let blocked = blocked_at.map(|at| at.elapsed()).unwrap_or_default();
+        for c in self.calls.values_mut() {
+            c.deadline += blocked;
+        }
+        self.link.blocked.store(false, Ordering::SeqCst);
+        let gave_up = matches!(&outcome, Err(e) if e.class == ErrorClass::Transport && e.code == codes::NO_CONNECTION);
+        self.link.unreachable.store(gave_up, Ordering::SeqCst);
+        if gave_up {
+            self.refuse_queued();
+        }
+        outcome.map(|()| blocked)
+    }
+
+    /// What the application asked for while the cycle ran waited in the channel, never sent: at
+    /// the give-up it fails `transport 1000` with the rest, instead of starting a cycle of its own
+    /// (no fourth attempt on its own; the next call starts a new cycle, O8).
+    fn refuse_queued(&mut self) {
+        while let Ok(cmd) = self.rx.try_recv() {
+            match cmd {
+                Cmd::Call { notes, .. } => {
+                    let _ = notes.send(Note::Done(Err(unreachable_error())));
+                }
+                Cmd::Rpc { reply, .. } => {
+                    let _ = reply.send(Err(unreachable_error()));
+                }
+                Cmd::Subscribe { items, .. } => {
+                    let _ = items.send(StreamItem::Failed(unreachable_error()));
+                }
+                Cmd::Hello { reply } => {
+                    let _ = reply.send(Err(unreachable_error()));
+                }
+                Cmd::Cancel { .. } | Cmd::Unsubscribe { .. } | Cmd::Disconnect => {}
             }
         }
-        Err(last.unwrap_or_else(|| CallError::transport(codes::NO_CONNECTION, "cannot connect").may_have_run(false)))
     }
 
     async fn on_cmd(&mut self, cmd: Cmd) {
@@ -781,9 +870,12 @@ impl Actor {
                     let _ = pc.notes.send(Note::Done(Err(e)));
                     return;
                 }
-                if let Err(e) = self.ensure().await {
-                    let _ = pc.notes.send(Note::Done(Err(e)));
-                    return;
+                match self.ensure().await {
+                    Ok(blocked) => pc.deadline += blocked,
+                    Err(e) => {
+                        let _ = pc.notes.send(Note::Done(Err(e)));
+                        return;
+                    }
                 }
                 let announced = self.hello.as_ref().map(|h| h.max_frame_bytes).filter(|n| *n > 0);
                 if let Some(e) = self.oversized(&pc, id, announced) {
@@ -819,7 +911,7 @@ impl Actor {
             Cmd::Subscribe { id, program, args, items } => {
                 self.subs.insert(id, Sub { program, args, items });
                 match self.ensure().await {
-                    Ok(()) => {
+                    Ok(_) => {
                         let frame = self.sub_frame(id);
                         if !self.send(frame).await {
                             self.on_disconnect().await;
@@ -891,76 +983,63 @@ impl Actor {
         }
     }
 
-    /// The connection ended. Calls a lost connection interrupted are repeated if
-    /// their program is declared safe, and failed — saying whether the backend
-    /// may have run them — otherwise. Streams subscribe again.
+    /// The connection ended. The retry policy runs (R25); what was in flight is
+    /// decided when it ends: on success a call is repeated once if its program is
+    /// declared safe, failed `transport 1001` (it may have run) otherwise, and one
+    /// never sent goes out; at the give-up a sent call fails 1001 and an unsent one
+    /// 1000. Streams subscribe again.
     async fn on_disconnect(&mut self) {
         self.conn = None;
-        let mut resend: Vec<u64> = Vec::new();
-        let ids: Vec<u64> = self.calls.keys().copied().collect();
-        for id in ids {
-            let c = self.calls.get_mut(&id).expect("listed");
-            if c.safe && c.attempts < 2 {
-                c.attempts += 1;
-                resend.push(id);
-            } else if let Some(c) = self.calls.remove(&id) {
-                // If the backend had just said why it was ending the connection, that is the reason
-                // (and the call, refused whole, did not run); otherwise the line was simply lost.
-                let why = match &self.conn_error {
-                    Some((e, at)) if at.elapsed() < Duration::from_secs(2) && matches!(e.class, ErrorClass::Limit | ErrorClass::Validation | ErrorClass::Authentication | ErrorClass::Version) => Some(e.clone().may_have_run(false)),
-                    _ => None,
-                };
-                let _ = c.notes.send(Note::Done(Err(why.unwrap_or_else(|| closed("the connection was lost during the call").may_have_run(c.sent)))));
+        // If the backend had just said why it was ending the connection, that is the reason
+        // (and a call, refused whole, did not run): it is told now, not after a retry.
+        let why = match &self.conn_error {
+            Some((e, at)) if at.elapsed() < Duration::from_secs(2) && matches!(e.class, ErrorClass::Limit | ErrorClass::Validation | ErrorClass::Authentication | ErrorClass::Version) => Some(e.clone().may_have_run(false)),
+            _ => None,
+        };
+        if let Some(why) = why {
+            let refused: Vec<u64> = self.calls.iter().filter(|(_, c)| c.sent && !(c.safe && c.attempts < 2)).map(|(id, _)| *id).collect();
+            for id in refused {
+                if let Some(c) = self.calls.remove(&id) {
+                    let _ = c.notes.send(Note::Done(Err(why.clone())));
+                }
             }
         }
+        // A request of an upload or a download has its own resume loop, which goes through this
+        // connection and so through the policy.
         for (_, r) in self.rpcs.drain() {
             let _ = r.send(Err(closed("the connection was lost during the request").may_have_run(true)));
         }
-        if resend.is_empty() && self.subs.is_empty() {
+        if let Err(e) = self.cycle(true).await {
+            let gave_up = e.class == ErrorClass::Transport && e.code == codes::NO_CONNECTION;
+            for (_, c) in self.calls.drain() {
+                let err = if gave_up && c.sent { closed("the backend could not be reached").may_have_run(true) } else { e.clone() };
+                let _ = c.notes.send(Note::Done(Err(err)));
+            }
+            for (_, s) in self.subs.drain() {
+                let _ = s.items.send(StreamItem::Failed(e.clone()));
+            }
             return;
         }
-        // Reconnect with back-off while something is waiting for it.
-        let deadline = Instant::now() + self.cfg.reconnect_deadline;
-        let mut delay = Duration::from_millis(100);
-        loop {
-            match open(&self.cfg).await {
-                Ok((c, h)) => {
-                    if h.accepted == Accepted::Warn {
-                        self.notice = Some(h.message.clone());
-                    }
-                    self.hello = Some(h);
-                    self.conn = Some(c);
-                    break;
-                }
-                Err(e) => {
-                    if Instant::now() + delay > deadline || (e.class != ErrorClass::Transport) {
-                        for id in resend.drain(..) {
-                            if let Some(c) = self.calls.remove(&id) {
-                                let _ = c.notes.send(Note::Done(Err(CallError::transport(codes::NO_CONNECTION, "the backend could not be reached again").may_have_run(true))));
-                            }
-                        }
-                        let subs: Vec<u64> = self.subs.keys().copied().collect();
-                        for id in subs {
-                            if let Some(s) = self.subs.remove(&id) {
-                                let _ = s.items.send(StreamItem::Failed(e.clone()));
-                            }
-                        }
-                        return;
-                    }
-                    tokio::time::sleep(delay).await;
-                    delay = (delay * 2).min(Duration::from_secs(5));
-                }
-            }
-        }
-        for id in resend {
-            let frame = match self.calls.get(&id) {
-                Some(c) => c.frame(id),
-                None => continue,
-            };
-            if !self.send(frame).await {
+        let ids: Vec<u64> = self.calls.keys().copied().collect();
+        for id in ids {
+            let Some(c) = self.calls.get_mut(&id) else { continue };
+            if c.sent && !(c.safe && c.attempts < 2) {
                 if let Some(c) = self.calls.remove(&id) {
-                    let _ = c.notes.send(Note::Done(Err(closed("the connection was lost again").may_have_run(true))));
+                    let _ = c.notes.send(Note::Done(Err(closed("the connection was lost during the call").may_have_run(true))));
                 }
+                continue;
+            }
+            if c.sent {
+                c.attempts += 1;
+            }
+            let was_sent = c.sent;
+            let frame = c.frame(id);
+            if self.send(frame).await {
+                if let Some(c) = self.calls.get_mut(&id) {
+                    c.sent = true;
+                }
+            } else if let Some(c) = self.calls.remove(&id) {
+                let _ = c.notes.send(Note::Done(Err(closed("the connection was lost again").may_have_run(was_sent))));
             }
         }
         let subs: Vec<u64> = self.subs.keys().copied().collect();
@@ -1179,6 +1258,7 @@ mod tests {
         let mut cfg = ClientConfig::new(NOBODY, "1.0.0");
         cfg.max_payload = Some(256);
         cfg.connect_timeout = Duration::from_millis(300);
+        cfg.retry = cobolt_wire::retry::Policy { first_ms: 100, step_ms: 100, attempts: 3 };
         let mut client = WsClient::new(cfg);
         let e = client.call(&big_call(1000)).unwrap_err();
         assert_eq!((e.class, e.code), (ErrorClass::Limit, codes::FRAME_TOO_LARGE), "{e}");

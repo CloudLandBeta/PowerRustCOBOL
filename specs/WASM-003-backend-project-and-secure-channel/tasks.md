@@ -5,10 +5,10 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The Backend project and the secure frontend–backend channel (WASM-003)
 
-- **Status:** draft — the 2026-10-20 work (M3) is done and kept below with its evidence; this list covers what the plan revised on
-  2026-10-22 adds (plan §0 C1–C5) and the two acceptance halves that were open (AC9 IDE half, AC10). **All tasks T1–T14 done
-  (2026-10-23, 2.0.39)**; the evidence is under *Evidence (re-run)*; the open items below stay open.
-- **Plan:** ./plan.md   **Date:** 2026-10-22
+- **Status:** revised **2026-10-31** against the plan of 2026-10-31 (plan §0.1 C7–C14). The 2026-10-20 work (M3) and **T1–T14
+  (2026-10-23, 2.0.39)** are done and kept below unchanged, with their evidence. **Open:** T15a (R25, R26; AC12; plan §2.8) and T15b (R24;
+  AC11; plan §2.7), expanded below into steps, each with its own Finalize (plan §8: "T15a and T15b each have one").
+- **Plan:** ./plan.md   **Date:** 2026-10-22; revised 2026-10-31
 
 Ordered so the tree stays green after each task: the runtime prerequisite first (it can stop the `per-connection` work), then the single
 exports list and the property (data before behaviour), then the server work, then the Leptos front (dependency guard before code), then the
@@ -468,8 +468,323 @@ planted key is built from fragments). System KB: *Calling the backend* names Run
 
 - **T15 — D21: the asymmetric channel and the retry policy** (R24–R26; AC11–AC12) — the key pair generated at application start and exchanged in the handshake (with WASM-014 T19b), the ciphertext capture of AC11, the three timed attempts and the exception of AC12; a Finalize of its own closes it (version, CHANGELOG, the tests of every touched crate). Added 2026-10-24 by the operator's ruling, after T14 had finalized the spec.
   - **Split (operator, 2026-10-30)** into T15a and T15b: the retry policy does not depend on the encryption, and WASM-005 T18b waits only for it.
-- [ ] **T15a — D21: the retry policy and the blocked state** (R25–R26; AC12) — the frontend's three attempts of 10, 20 and 30 s replacing today's back-off windows (`cobolt-server/src/client.rs` `reconnect_deadline`, `cobolt-web-player/src/net.rs` `retry_at`), the exception after the third (*transport* on every waiting call, the player's event of WASM-016 R21), the blocked state of R26 raised and cleared for WASM-016 T29b's modal to show; the AC12 timing test. Files, steps and verification are written by the `/tasks` pass that expands it. Unblocks WASM-005 T18b. A Finalize of its own closes it.
-- [ ] **T15b — D21: the asymmetric channel** (R24; AC11) — Decided 2026-10-30: **both sides** generate a fresh key pair at start — the backend when its process starts, each frontend when the application opens — and the handshake agrees a per-connection session key from the two (ephemeral–ephemeral key agreement), so a restart of either side yields new keys and no private key is ever stored. The construction is **X25519 key agreement, HKDF-SHA256 and ChaCha20-Poly1305** (RustCrypto crates `x25519-dalek`, `hkdf`, `sha2`, `chacha20poly1305`: pure Rust, build for WebAssembly). The plan records it in WASM-013 R17. Waits for WASM-013 T24b (R17 in the plan) and WASM-014 T19b (the handshake members); then the AC11 ciphertext capture and the new-keys-per-start test. A Finalize of its own closes it.
+### Grounding read for T15a and T15b (2026-10-31, path and symbol)
+
+`crates/cobolt-wire/Cargo.toml` (no `[features]`; deps `cobolt-ast`, `serde`, `serde_json` only), `src/contract.rs` (`PROTOCOL = 1` `:32`,
+`PROTOCOL_MIN = 1` `:35`), `src/proto.rs` (`Hello` `:30`, `ServerHello` `:168`), `src/error.rs` (`NO_CONNECTION` 1000 `:94`, `CLOSED` 1001
+`:95`, `TIMEOUT` 1002 `:96`, `BAD_MESSAGE` 4001 `:106`, `PROTOCOL_UNSUPPORTED` 6002 `:112`).
+`crates/cobolt-web-player/src/net.rs`: `PROTOCOL = 1` `:64`; `trait Socket` `:80` (`send(&mut self, text: &str)` — text only); `Out` `:88`
+(`Answer`, `State(LinkState)`, `Warning`); `LinkState` `:98` (`Closed`, `Connecting`, `Greeting`, `Authenticating`, `Ready`, `Backoff`);
+`Config` `:111` (`call_timeout_ms` 30 000, `backoff_start_ms` 250, `backoff_max_ms` 10 000); `Client` `:193` (`attempt`, `retry_at`, `pub
+jitter`); `request_as` `:367` (the `Closed if wanted` and `Backoff` arms); `on_message(&mut self, text: &str)` `:462`; `on_close` `:557`
+(sent non-idempotent calls fail 1001 at once; the back-off "a failed attempt that leaves nothing waiting stops there" `:593-607`);
+`tick` `:618` (call timeout from `sent_at`, then `retry_at`); `next_deadline` `:639`; tests `each_failure_is_mapped_onto_the_closed_list`
+(asserts "nothing waits: no retry loop" `:874`), `a_safe_program_is_repeated_once_after_a_drop_and_an_unsafe_one_fails_with_may_have_run`,
+`a_call_in_flight_when_the_connection_drops_fails_and_a_later_one_does_not`, `reconnection_backs_off_exponentially_and_resets_when_it_works`,
+`jitter_stays_within_a_quarter_of_the_base`. `src/api.rs`: `impl Socket for WsSocket` `:251` (`send_with_str`), `set_onmessage` `:274`, the
+`Out` dispatch `:441-461`, `seed_session` from `js_sys::Math::random` `:861`. `Cargo.toml`: `web-sys` features already include `Crypto`;
+its own `Cargo.lock` (`getrandom` 0.4.3, `js-sys`/`web-sys` 0.3.106). `tests/dependency_guard.rs`
+(`the_browser_build_links_no_c_toolchain_no_tls_stack_and_no_second_transport` `:108`, `the_licence_and_msrv_rules_read_spdx_and_versions_as_written`
+`:213`), `tests/freshness.rs` (`REBUILD` = `cargo run --manifest-path crates/cobolt-web-player/Cargo.toml --example build_player -- --out
+assets/web-player` `:25`).
+`crates/cobolt-server/src/client.rs`: `ClientConfig` `:90` (`connect_timeout` 10 s, `call_timeout` 60 s, `reconnect_deadline` 20 s `:112`/`:128`);
+`WsClient` `:193`, `WsClient::new` `:218`; the upload's own resume loop (`attempts < 6`, 200 ms steps, `:296-:373`); `install_default_from_env`
+`:513`; `ensure` `:734` (four quick attempts, `:740`/`:757`); `on_disconnect` `:897` (100 ms doubling to 5 s within `reconnect_deadline`,
+`:922-:953`). `src/serve.rs`: `Shared` `:90`, `session` `:638`, the `Message::Binary` refusal `:714` ("binary frames are not part of the
+protocol"), `on_hello` `:956`. `tests/client_contract.rs` (`cfg.reconnect_deadline = 10 s` `:191`; `ac6_a_call_to_a_program_declared_safe_is_repeated_once_after_a_lost_connection`
+`:431`), `tests/loopback.rs` (`concurrent_callers_…` `:420`, `the_log_has_neither_…` `:462`), `tests/support/mod.rs` (`Raw::hello` sends
+`protocol: 1` `:337`), `tests/dependency_guards.rs` (5 tests, `:51`–`:106`).
+`crates/cobolt-web-bundle/examples/mock_backend.rs` (its `hello` answers `protocol: 1` `:216`), `tests/e2e_chrome.rs`;
+`crates/cobolt-compiler/tests/compiled_app_calls_backend.rs` (`a_built_application_calls_its_backend_as_rcrun_run_does` `:60` — the
+compiled-binary parity path), `tests/backend_build_wasm003.rs` (its minimal client); `crates/cobolt-compiler/src/lib.rs` System KB section
+*Calling the backend* `:5206` ("the reconnection and the token refresh are the runtime's" `:5226`); `specs/WASM-ABI-v1.md` (rows A10–A18;
+A15 = the player speaks `proto.rs`); `crates/cobolt-ide/src/version.rs` (`VERSION = "2.0.102"` `:22` today).
+`Cargo.lock` (main): `curve25519-dalek` 4.1.3, `hkdf` 0.12.4, `sha2` 0.10.9 and 0.11.0, `chacha20` 0.10.0, `aead` 0.6.1, `zeroize` 1.8.2,
+`getrandom` 0.2.17/0.3.4/0.4.2; **no** `x25519-dalek`, **no** `chacha20poly1305`.
+Cross-spec state (each spec's tasks.md, 2026-10-31): WASM-016 **T29b** (the modal, R20–R21) open; WASM-012 **T25b** (device modal) open;
+WASM-014 **T19b** (handshake members, R18) open; WASM-013 **T24b** (R17 threat model) open; WASM-005 **T18b** waits for T15a.
+
+### T15a — the retry policy and the blocked state (R25, R26, R7, R8; AC12; plan §2.8, D11–D13) — *first: depends on nothing in T15b*
+
+Working assumptions the steps follow (plan §7, **to confirm**, not decided here): **O6** an attempt's "timeout" is its window, waited out when
+the attempt fails early; **O7** a first connection that a call needs runs the cycle too; **O8** after the give-up the application's next call
+starts a new cycle; **O9** the Rust client runs the same policy and exposes the state, but no desktop modal is drawn.
+
+- [x] **T15a-1 — One retry policy in `cobolt-wire`** (R25; D11)
+  - *Result (2026-10-31):* `cobolt_wire::retry::Policy { first_ms, step_ms, attempts }` (fields in milliseconds, so the player and the
+    Rust client share one plain value), `Default` = 10 000 / 10 000 / 3, `window(n)` and `cycle_ms()`; no feature, no dependency.
+    `the_windows_are_10_20_30_and_there_is_no_fourth` prints `windows 0..=4: [None, Some(10000), Some(20000), Some(30000), None];
+    cycle 60000 ms`; `a_shorter_policy_keeps_the_same_shape` pass. cobolt-wire 31 + 1 + 1 + 0 pass, 0 fail.
+  - Files: `crates/cobolt-wire/src/retry.rs` (new), `crates/cobolt-wire/src/lib.rs` (`pub mod retry;`).
+  - Do: `pub struct Policy { first: Duration-as-ms, step, attempts }` with `Default` = 10 000 / 10 000 / 3 and `fn window(&self, n) ->
+    Option<u64>` (attempt *n* ≥ 1 → `first + (n-1)·step`; `None` after `attempts`). Plain arithmetic: no feature, no dependency (the crate's
+    "deliberately small" rule holds). Not a project setting (R25 fixes the numbers); tests construct a shorter one.
+  - Verify: `cargo test -p cobolt-wire retry --no-fail-fast` — `retry::tests::the_windows_are_10_20_30_and_there_is_no_fourth` (prints the
+    three windows); `cargo test -p cobolt-wire --no-fail-fast` green.
+
+- [x] **T15a-2 — The player's connection runs the policy and reports *blocked* / *unreachable*** (R25, R26, R7; D12, D13; O6–O8)
+  - *Result (2026-10-31):* `net.rs`: `LinkState::Retrying { attempt, window_ends }` replaces `Backoff`; `Config::retry` (=
+    `cobolt_wire::retry::Policy::default()`) replaces `backoff_start_ms`/`backoff_max_ms`; `Client::jitter` gone. The shape chosen for
+    T29b/T25b: two new `Out` variants, `Out::Blocked(bool)` and `Out::Unreachable(bool)` (`false` again once a later connection works),
+    and `Client::blocked()` / `unreachable()`. Every attempt carries its window (`Attempt`), the first connection included: a break of a
+    `Ready` connection blocks and opens attempt 1 at once; an attempt refused early waits its window out (`Retrying`), one still
+    unfinished at its window's end is closed and counted failed (O6); a failed first connection with a call waiting joins the cycle as
+    attempt 1, one nobody waits for stops there (O7, no knocking); a call while `Closed` after a give-up starts a new cycle (O8). Sent
+    calls are marked `lost` at the break and decided in `ready()`; a call's timeout does not run while blocked and its `sent_at` is
+    moved on by the blocked time at `unblock` (D12). Messages carry no time, so `ready()` uses the latest event time (`Client::clock`,
+    the `on_open`'s). `api.rs`: `Inner::net_blocked`/`net_unreachable` keep the latest values, read by `Player::stats()` (`"blocked"`,
+    `"unreachable"`) — no DOM, no caption. *Outside the task's files, needed to compile:* `dom/mod.rs` `net_state` matches
+    `Retrying { .. }` where it matched `Backoff` (same "Reconnecting…" badge).
+    Tests: `reconnection_backs_off_exponentially_and_resets_when_it_works` and `jitter_stays_within_a_quarter_of_the_base` replaced by
+    `a_break_is_retried_at_10_20_30_seconds_then_given_up` (attempts opened at `[0, 10000, 30000]` ms after the break; transitions
+    `blocked=true, blocked=false, unreachable=true`; two sent calls 1001 `may_have_run: true`, the one made while blocked 1000, no 1002
+    during the 60 s cycle; no fourth `open` by 600 s; the next call opens attempt 1 of a new cycle and `unreachable=false` on success),
+    `success_in_attempt_2_repeats_the_safe_call_and_fails_the_other` (FUND-TOTALS repeated under its key, FUND-SAVE 1001, FUND-LIST
+    sent; the timeouts land at 40 500 / 41 500 ms — 1 s and 0 s counted before the block), `a_failed_first_connection_runs_the_cycle_only_when_a_call_waits`
+    (`[10000, 30000]` after the first at 0). Updated, each to the new rule: `each_failure_is_mapped_onto_the_closed_list` (the `:874`
+    assertion: "unreachable" is now 1000 at the give-up after three attempts, no fourth, and the next call opens a new cycle; "lost in
+    flight" is 1001 when the next connection works), `a_call_in_flight_when_the_connection_drops_fails_and_a_later_one_does_not` (the
+    lost call fails at the reconnection, not at the break), `a_safe_program_is_repeated_once_…` (both decided at the reconnection; the
+    second drop fails at the next success), `a_call_that_is_never_answered_times_out_with_its_own_error` (a hung handshake is cut at
+    10 000 ms, its call ends 1000 with the cycle). `--lib net` 21 pass; the player's suite: lib 305, `abi_host` 25, `dependency_guard`
+    6, `exposed` 2, `grid_calls` 1, `sinks` 3 pass; `freshness` 4 pass / 1 fail (`the_shipped_player_was_built_from_the_source_that_is_here`,
+    expected until T15a-4).
+  - Files: `crates/cobolt-web-player/src/net.rs`; `crates/cobolt-web-player/src/api.rs` (the `Out` dispatch `:441-461` only).
+  - Do: `LinkState::Backoff` → `Retrying { attempt, window_ends }`; `Config` loses `backoff_start_ms`/`backoff_max_ms` and gains `retry:
+    cobolt_wire::retry::Policy` (defaults = R25); `Client::jitter` and `attempt`'s exponential use go (D13). `on_close`: any break of an
+    established connection, or a failed connection a call needs (O7), starts a cycle; a failed attempt waits out its window (O6); sent calls
+    are **not** failed at the break any more — they wait for the cycle's end (D12, plan §2.8). `tick`: a call's timeout is paused while
+    `Retrying` (its elapsed time stops counting); the next attempt starts at `window_ends`. On success (`ready`): idempotent sent calls repeated
+    once under their key; other sent calls fail *transport* `CLOSED` 1001 `may_have_run: true`; unsent calls go out. On the third failure:
+    every waiting call fails 1001 `may_have_run: true` if sent, `NO_CONNECTION` 1000 if never sent, message "the backend could not be reached";
+    no further attempt on its own; the next `request` starts a new cycle (O8). `Out` reports *blocked* on at the break and off at success or
+    give-up, and *unreachable* at give-up (one new `Out` variant each, or `Out::State` carrying them — the shape is this task's; WASM-016 T29b
+    and WASM-012 T25b read it). `api.rs` keeps the latest *blocked*/*unreachable* on its connection object for T29b; no DOM, no caption here.
+  - Tests (replacing `reconnection_backs_off_exponentially_and_resets_when_it_works` and `jitter_stays_within_a_quarter_of_the_base`; the
+    `:874` assertion of `each_failure_is_mapped_onto_the_closed_list` and `a_call_in_flight_when_the_connection_drops_fails_and_a_later_one_does_not`
+    updated to the new rule, each change stated in the result): on the simulated clock — a break → *blocked* on, attempts at 10 000 / 20 000 /
+    30 000 ms, an early refusal waits out its window, no fourth `open`; success in attempt 2 → *blocked* off, the idempotent call repeated once
+    with its key, the other failed 1001 `may_have_run: true`, an unsent one sent; give-up → 1000/1001 on every waiting call, *unreachable* on;
+    a 30 s call timeout does not fire during a 60 s cycle; a call after give-up starts a new cycle. Each test prints its transitions and times.
+  - Verify: `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --lib net --no-fail-fast`, then the player's whole suite
+    (`cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --no-fail-fast`; `freshness` is expected red until T15a-4).
+
+- [x] **T15a-3 — The Rust client runs the same policy** (R25, R7; D11, D13; O9; interpreter/binary parity)
+  - *Result (2026-10-31):* `client.rs`: `ClientConfig::retry` replaces `reconnect_deadline`; `Actor::cycle` is the policy (each `open` given
+    its window by `tokio::time::timeout`, then `sleep_until` the window's end whatever the outcome; a refusal, a bad token or
+    `NOT_CONFIGURED` ends it with its own error, as `ensure` did); `ensure` runs it for a first connection (O7, blocked from its first
+    failure) and `on_disconnect` for a break (blocked at once). `on_disconnect` decides the calls at the end: success → a safe call
+    repeated once, a sent unsafe one 1001 `may_have_run: true`, an unsent one sent; give-up → sent 1001, unsent 1000, "the backend could
+    not be reached"; a call the backend had just refused by name (`conn_error`, kept from before) is still told at once. Deadlines move on
+    by the blocked time (D12). *Found, not named by the plan:* commands that wait in the actor's channel during a cycle are failed 1000
+    at the give-up (`refuse_queued`) — without it each would start its own 60 s cycle; and the upload/download resume loops stay
+    (working assumption of the task): an `rpc` is still failed at the break and its loop's next try goes through the policy.
+    `WsClient::link_status()` → `LinkStatus { blocked, unreachable }` (O9: no desktop modal). The `ensure` four quick attempts and the
+    100 ms back-off are gone. *Test support:* `tests/support/mod.rs` `Proxy` records when each connection reached it (`accepted()`), the
+    "listener on the port"; the backend is "stopped" by the proxy's existing `PROXY_REFUSE` (the TLS handshake fails at once) rather than
+    by stopping and rebinding the server on one port. `client.rs`'s own `an_over_limit_call_fails_before_anything_is_sent` passes a
+    100 ms policy (it reaches a closed port on purpose).
+    Tests: `loopback::a_broken_connection_is_retried_by_the_policy_then_given_up` (policy 1.5/3/4.5 s; back before attempt 2: connections
+    at `[1, 1505]` ms after the break, calls ended after 1544 ms, SAFE-READ repeated, UNSAFE-WRITE 1001 `may_have_run: true`, blocked seen
+    during; stopped for good: connections at `[2, 1504, 4508]` ms, the sent call 1001 after 9417 ms, the call made while blocked 1000,
+    given up at 9010 ms (cycle 9000), `unreachable: true`, no fourth connection 2 s later) and
+    `loopback::the_retry_windows_are_10_20_30_seconds` (spec values: attempts at 0.00 / 10.01 / 30.01 s, windows 10.00 / 20.00 / 30.00 s,
+    given up at 60.01 s, transport 1001 to the waiting call — its 60 s call timeout did not fire — 0 connections after). `client_contract`
+    runs with `retry = 2/4/6 s` in place of `reconnect_deadline = 10 s`, `ac6_…_repeated_once_after_a_lost_connection` unchanged.
+    cobolt-server: lib 14, `client_contract` 13, `config_rules` 11, `dependency_guards` 5, `generated_backend` 5, `generated_controls` 6,
+    `generated_refusals` 1, `loopback` 17, `remote_bindings` 1, `token_rules` 15 — all pass. `compiled_app_calls_backend` (it is
+    `#[ignore]`d, so run with `--ignored`): pass, build 20.0 s, `ping=pong, who=tester`, TRANSPORT 1003 without a backend. `backend_cli` 5 pass.
+  - Files: `crates/cobolt-server/src/client.rs`, `crates/cobolt-server/tests/client_contract.rs` (`:191`), `crates/cobolt-server/tests/loopback.rs`.
+  - Do: `ClientConfig` loses `reconnect_deadline` and gains `retry: Policy`; `on_disconnect`'s 100 ms back-off and `ensure`'s four quick
+    attempts are replaced by the policy's cycle with the same success / give-up rules as T15a-2 (sent non-idempotent calls fail 1001
+    `may_have_run: true`, unsent 1000); a call's `call_timeout` is paused while the client retries (D12); `WsClient` exposes *blocked* /
+    *unreachable* to its host (an accessor or an observer — no desktop modal, O9). *Found, not named by the plan:* the upload's own resume loop
+    (`:296-:373`, six tries of 200 ms steps) — working assumption: it stays, because each try goes through the connection, which now follows
+    the policy; stated in the result.
+  - Tests: `loopback::a_broken_connection_is_retried_by_the_policy_then_given_up` (short policy, real sockets: backend stopped and restarted
+    inside attempt 2 → a safe call completes, another is *transport* 1001; stopped for good → *transport* after the third, a listener on the
+    port sees exactly three connections) and `loopback::the_retry_windows_are_10_20_30_seconds` — **one** run at the spec values (~60 s), the
+    three windows measured and printed, no fourth connection (plan §5 R12). `client_contract` re-run with `retry` in place of
+    `reconnect_deadline`; `ac6_…_repeated_once_after_a_lost_connection` unchanged in what it asserts.
+  - Verify: `cargo test -p cobolt-server --no-fail-fast` (every `test result` line read);
+    `cargo test -p cobolt-compiler --test compiled_app_calls_backend --no-fail-fast` (the compiled binary uses this client: parity);
+    `cargo test -p cobolt-cli --test backend_cli --no-fail-fast`.
+
+- [x] **T15a-4 — The prebuilt player is rebuilt** (plan §3, §5 R14)
+  - *Result (2026-10-31):* this worktree's `target-player` was already warm (2.3 GB), so nothing was cloned; `df` 22 GiB free before.
+    `REBUILD` ran clean. `plain/player_bg.wasm` 3 577 964 → 3 580 105 bytes, `threaded/player_bg.wasm` 3 407 343 → 3 409 177; the parts
+    (pdf 217 081, canvas 654 936, mermaid 2 219 072) unchanged; `player.js` glue renumbered (62 lines each way); `player-build.json`
+    rewritten. `freshness` 5 pass (the file has 5 tests now, not 3). `cobolt-web-bundle`: see the T15a-7 sweep.
+  - Files: `assets/web-player/` (written by the build, never by hand), the fingerprint record the build writes.
+  - Do: `df -h .` first; clone a warm `target-player` (a cold build is ~4 GB); run `REBUILD` (`tests/freshness.rs:25`). Report `player.wasm`
+    size before and after.
+  - Verify: `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test freshness --no-fail-fast` (3 pass);
+    `cargo test -p cobolt-web-bundle --no-fail-fast`.
+
+- [ ] **T15a-5 — The blocked state reaches the page in the browser** (R26; AC12 browser half) — *runs with or after WASM-016 T29b*
+  - *State (2026-10-31):* **open — WASM-016 T29b is not done** (`specs/WASM-016-…/tasks.md:423`, unchecked). What exists is in place
+    for it: `Player::stats()` `blocked`/`unreachable`. The updated `e2e_chrome` *backend lost* scenario already saw `blocked: true` in
+    Chrome. `mock_backend.rs` was not changed: the e2e test's own backend already stops and restarts on one port.
+  - Files: `crates/cobolt-web-bundle/examples/mock_backend.rs` (a way for the test to stop and restart it), `crates/cobolt-web-bundle/tests/e2e_chrome.rs`.
+  - Do: against `mock_backend` stopped and restarted, assert the page sees *blocked* on/off and, when it stays down, the *unreachable* event
+    (WASM-016 R21). The modal's look is WASM-016 AC13–AC14, not this task's. **If T29b is not done when T15a runs**, this task stays open, and
+    T15a-7 records AC12's browser half as waiting on it — the rest of T15a is not held.
+  - Verify: `cargo test -p cobolt-web-bundle --test e2e_chrome --no-fail-fast` (Chrome; prints the transitions it saw).
+
+- [x] **T15a-6 — System KB: the retry behaviour** (System KB rule; plan §8)
+  - *Result (2026-10-31):* a new bullet, *A lost connection*, under *Calling the backend* in `crates/cobolt-compiler/src/lib.rs`. It
+    covers: three attempts of 10/20/30 s, an early failure waiting out its window, the application reported blocked, no call timeout
+    running, new calls waiting, the success rule (idempotent ones repeated, others 1001 `may_have_run`), and the give-up rule (1001 if
+    sent, 1000 if not, "the backend could not be reached", the next call starting again). It also says there is nothing to set.
+    *Stated:* the KB does **not** promise the "connecting" modal, because WASM-016 T29b and WASM-012 T25b have not drawn it yet. Whoever
+    draws it adds it to the KB. `build_chunked_kb`: 3664 records from 8 documents, `chunked.data` 13 357 056 → 13 234 176 bytes (the
+    tool compacts the store). `prebuilt_chunked_kb_matches_the_published_documentation` pass.
+  - Files: `crates/cobolt-compiler/src/lib.rs` (*Calling the backend*, `:5206`; the sentence at `:5226`), `assets/knowledge/chunked.data` (regenerated).
+  - Do: what a developer sees — a broken connection is tried again three times (10, 20, 30 s), the application is blocked meanwhile (the
+    "connecting" modal on the web and the device), then every waiting call reaches `ON EXCEPTION` with class *transport*; only programs declared
+    `idempotent` are repeated. No new `COBOL::"…"` built-in. `cargo run -p cobolt-ide --example build_chunked_kb` in the same change.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation`; record count and byte size printed.
+
+- [x] **T15a-7 — Evidence and Finalize for T15a** (AC12; all of T15a) — see *Evidence (T15a)* below; T15a-5 stays open (WASM-016 T29b)
+  - Files: this file (an *Evidence (T15a)* table: AC12 row, the test, the measured windows), `crates/cobolt-ide/src/version.rs` (bump `z`
+    **once**: `2.0.102` today → the next free `2.0.z` at the time), `CHANGELOG.md` (one entry **above** the previous heading,
+    `## [PowerRustCOBOL 2.0.z] — <date>`, *Written on features-2x*, listing T15a-1…6). **No documentation task:** `README.md` and `docs/`
+    are not touched on 2.x.x. No new `Tr` key is expected (plan §8); if one was added, it is in all six tables.
+  - Verify, `--no-fail-fast`, every `test result` line read and summed: `cargo test -p cobolt-wire`, `cargo test -p cobolt-server`,
+    `cargo test -p cobolt-compiler`, `cargo test -p cobolt-cli --test backend_cli`, `cargo test -p cobolt-web-bundle`,
+    `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml`, `cargo test -p cobolt-ide --bin cobolt-ide` (known reds on 2.x.x
+    reported as pre-existing, by name); `df -h .` before; the credential scan of the diff. Manual (operator, never driven by the agent): a
+    Web project's backend started from the IDE, the page open, the backend stopped and restarted — modal and calls as AC12 says.
+  - Unblocks WASM-005 T18b.
+  - [x] *Done 2026-10-31, `2.0.102` → **`2.0.112`*** (once). 2.0.103–2.0.111 were taken on sibling branches; the main checkout already
+    carries 2.0.111. One CHANGELOG entry sits above 2.0.102. No `Tr` key added. `README.md` and `docs/` untouched.
+
+### Evidence (T15a), 2026-10-31
+
+macOS (Darwin 24.5, aarch64), debug builds, real sockets on loopback; the numbers are what the tests printed. **Windows and Linux were
+not run.**
+
+| AC | Proved by | Result |
+|---|---|---|
+| AC12 — three timed attempts, then the exception (Rust client, spec values) | `loopback::the_retry_windows_are_10_20_30_seconds` | pass; attempts at 0.00 / 10.01 / 30.01 s after the break, windows **10.00 / 20.00 / 30.00 s**, given up at 60.01 s, the waiting call `TRANSPORT` 1001 (its 60 s call timeout did not fire), no fourth connection |
+| AC12 — back before the third: safe call completes, the other `transport` | `loopback::a_broken_connection_is_retried_by_the_policy_then_given_up` (1.5/3/4.5 s policy) | pass; reconnected at 1505 ms, SAFE-READ repeated, UNSAFE-WRITE 1001 `may_have_run: true`; stopped for good: connections at 2 / 1504 / 4508 ms, sent 1001, queued 1000, `unreachable` |
+| AC12 — the player, simulated clock | `net::tests::a_break_is_retried_at_10_20_30_seconds_then_given_up`, `success_in_attempt_2_…`, `a_failed_first_connection_…` | pass; attempts opened at 0 / 10 000 / 30 000 ms, `blocked=true, blocked=false, unreachable=true`, no 1002 during the cycle |
+| AC12 — the browser half | `e2e_chrome` *backend lost* scenario (updated, see below) | **partial, T15a-5 open.** In Chrome the player reported `blocked: true` while it retried, the lost call reached `ON EXCEPTION` with 1001 `may_have_run: true` when attempt 2 reconnected, and a later call answered `pong`. *Not shown:* the modal disappearing and the *unreachable* event (WASM-016 AC13/R21) — they wait for WASM-016 T29b |
+| Parity (compiled binary) | `compiled_app_calls_backend` (`--ignored`) | pass; built in 20.0 s; it links this client |
+
+**`e2e_chrome` changed with the rule.** Its *backend lost (AC5)* scenario waited 20 s for the in-flight call to fail **before**
+restarting the backend. That is the behaviour T15a-2 retires, so the sweep's first run failed it (0/1, 63 s). The scenario now restarts
+the backend after 1.2 s, then expects the `ON EXCEPTION` at the reconnection, plus `stats().blocked`. Result: 28 passed, 0 failed, in
+both placements.
+
+Sweep, `--no-fail-fast`, every `test result` line summed (`df` before: 22 GiB free; after: 12 GiB):
+
+| Crate | Passed | Failed | Ignored |
+|---|---|---|---|
+| cobolt-wire | 33 | 0 | 0 |
+| cobolt-server | 88 | 0 | 0 |
+| cobolt-compiler | 228 (+ `compiled_app_calls_backend` 1 with `--ignored`) | 0 | 5 |
+| cobolt-cli (`--test backend_cli`) | 5 | 0 | 0 |
+| cobolt-web-bundle | 59 (+ `e2e_chrome` 1 on re-run) | 1 (the first run's `e2e_chrome`, above) | 0 |
+| cobolt-web-player (`--manifest-path`) | 342 + `freshness` 5 | 0 | 0 |
+| cobolt-ide (`--bin cobolt-ide`) | 1909 | 6 | 5 |
+
+The six cobolt-ide failures are not this change:
+- Five are the known 2.x.x reds: `claude_validates_the_written_bundle`, `every_document_ships_in_every_language`,
+  `compatible_and_reserved_collisions_still_refuse`, `live_resolver_verdicts` and `every_completion_description_exists_in_six_languages`.
+- The sixth, `panels::web_preview::tests::a_web_view_that_cannot_start_leaves_the_browser_not_nothing`, **passes when re-run alone**
+  (a timing test under load; the file is untouched).
+
+`prebuilt_chunked_kb_matches_the_published_documentation` passes. The credential scan of the diff and of the new `retry.rs` found
+nothing. `cargo fmt --check` was not made clean: the workspace is written in wide lines, and nothing was reformatted.
+**Manual (operator, never driven by the agent):** start a Web project's backend from the IDE, open the page, stop the backend and
+restart it within a minute. The calls should behave as AC12 says. The modal is not there yet (WASM-016 T29b).
+
+### T15b — the sealed channel (R24; AC11; plan §2.7, D7–D10) — *after T15a*
+
+**Gate before T15b-1 starts:** WASM-013 **T24b** (R17's text) and WASM-014 **T19b** (the handshake members) done, and **O10** confirmed there:
+the plan proposes the keys in the client's `hello` and the server's answer (D8), against WASM-014 R18's wording "the frontend's in its reply".
+If WASM-014 decides the other order, T15b-3's handshake follows WASM-014, not D8. **O5** (scope: the WebSocket only; `/health`, `/dl/<token>`
+and the identity routes stay TLS-only) is the working assumption, **to confirm**.
+
+*Gate checked 2026-10-31 — not met; the /implement run of that day stopped here.* WASM-013 T24b (`specs/WASM-013-security-architecture/tasks.md:490`)
+and WASM-014 T19b (`specs/WASM-014-backend-contract-and-evolution/tasks.md:464`) are both unchecked, and O10 is unconfirmed. T15b-1…6 not started.
+
+- [ ] **T15b-1 — The four crypto crates, probed and guarded first** (R24; tech steering; plan §5 R8)
+  - Files: root `Cargo.toml` (`[workspace.dependencies]`: `x25519-dalek` with `static_secrets` + `zeroize`, `hkdf`, `sha2`,
+    `chacha20poly1305`), `crates/cobolt-wire/Cargo.toml` (feature `channel`, off by default, naming them and `zeroize`),
+    `crates/cobolt-server/Cargo.toml` (`server` and `client` turn on `cobolt-wire/channel`; `loader` does not),
+    `crates/cobolt-web-player/Cargo.toml` and its `Cargo.lock` (the **same** versions), `crates/cobolt-server/tests/dependency_guards.rs`,
+    `crates/cobolt-web-player/tests/dependency_guard.rs`.
+  - Do: probe in a throwaway Cargo project **outside** the repository first: one RustCrypto generation for the four (the one fitting `sha2`
+    0.10 / `hkdf` 0.12 / `curve25519-dalek` 4 unless a newer one is required), each `rust-version` ≤ 1.92, no `ring`/`aws-lc*`/`openssl*`, builds
+    for `wasm32-unknown-unknown`. Add the dependencies and nothing that uses them. Guards: the four present in the `server`, `client` and player
+    closures; absent from `loader` and from the compiler's. **If a barred crate or a newer MSRV is unavoidable, stop and report; no guard is
+    weakened.**
+  - Verify: `cargo test -p cobolt-server --test dependency_guards --no-fail-fast` and
+    `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test dependency_guard --no-fail-fast` (closure sizes, the four names,
+    highest MSRV printed); `cargo check -p cobolt-wire` and `cargo check -p cobolt-server --no-default-features --features loader` clean;
+    `Cargo.lock` diff: no existing crate changes version.
+
+- [ ] **T15b-2 — `cobolt_wire::seal`** (R24; D7, D9)
+  - Files: `crates/cobolt-wire/src/seal.rs` (new, `#[cfg(feature = "channel")]`), `crates/cobolt-wire/src/lib.rs`.
+  - Do: a key pair from 32 caller-given bytes (the module takes no randomness itself, so it builds unchanged for `wasm32`); the agreement
+    (an all-zero shared secret refused); the transcript (protocol, both public keys, both nonces, fixed order); HKDF-SHA256 with salt
+    `SHA-256(transcript)` → two 32-byte keys, `info` `"prc-channel/1 c2s"` / `"prc-channel/1 s2c"`; `seal(&mut self, text) -> Vec<u8>` and
+    `open(&mut self, bytes) -> Result<String, CallError>` with the implicit per-direction 64-bit counter nonce (4 zero bytes ‖ counter BE).
+    Secrets zeroised on drop, no `Debug`, no `Serialize`.
+  - Verify: `cargo test -p cobolt-wire --features channel seal --no-fail-fast` — the RFC 7748 X25519 vector and the RFC 8439
+    ChaCha20-Poly1305 vector through the wrappers; both sides derive the same two keys; two connections of the same key pairs derive different
+    keys; tampered, replayed, reordered, truncated frames refused; a low-order peer key refused; a key pair from other bytes differs.
+    `cargo test -p cobolt-wire --no-fail-fast` (without the feature) unchanged.
+
+- [ ] **T15b-3 — Every speaker of the protocol goes to protocol 2, sealed, in one change** (R24, R11, R5; D8, D10; plan §5 R11, R9)
+  - Files: `crates/cobolt-wire/src/proto.rs` (`Hello`, `ServerHello` gain `key`, `nonce`, base64, required from protocol 2 — as WASM-014 T19b
+    defines them), `crates/cobolt-wire/src/contract.rs` (`PROTOCOL`, `PROTOCOL_MIN` → 2); `crates/cobolt-server/src/serve.rs` (`Shared` holds
+    the process's `StaticSecret` from `getrandom`, made at server start; `on_hello` agrees; `session` seals/opens every data message after the
+    `hello`s, the `:714` binary refusal becomes the text-after-handshake refusal; socket caps raised by the 16-byte tag so `max_frame_bytes`
+    stays the plaintext limit); `crates/cobolt-server/src/client.rs` (key pair made in `WsClient::new`, shared by its clones);
+    `crates/cobolt-web-player/src/net.rs` (`PROTOCOL` → 2; `Socket` gains a binary send and `Client` a binary receive; a sealed connection
+    cannot start without key bytes from its owner), `crates/cobolt-web-player/src/api.rs` (`WsSocket` sends bytes, `binaryType = "arraybuffer"`;
+    the 32 key bytes from **`crypto.getRandomValues`**, never `Math.random`, made when the application opens); `crates/cobolt-web-bundle/examples/mock_backend.rs`;
+    `crates/cobolt-server/tests/support/mod.rs` (`Raw::hello` and its frames), the minimal client of
+    `crates/cobolt-compiler/tests/backend_build_wasm003.rs`; `specs/WASM-ABI-v1.md` (one row after A18 amending A15: sealed frames, the two
+    members, the module still sees A12 frames only); `assets/web-player/` rebuilt (as T15a-4) with sizes before/after.
+  - Do: no key in the build, the bundle, `interface.json` or a log (R24, plan §2.1, §2.4). Refusals: protocol 1 → `PROTOCOL_UNSUPPORTED` 6002;
+    protocol 2 without a usable `key`/`nonce`, a failed exchange, a frame that does not open, a text message after the handshake → *transport*
+    and close. No plaintext mode in any start (D9). `proto.rs` inside the frames is unchanged, so call order, tokens, limits and idempotency
+    are untouched.
+  - Verify: `cargo test -p cobolt-server --no-fail-fast` (all earlier suites unchanged in what they assert);
+    `cargo test -p cobolt-compiler --test backend_build_wasm003 --test compiled_app_calls_backend --no-fail-fast` (binary parity; size and cold
+    build time printed against 71 s / 67.2 MB, plan §5 R5); `cargo test -p cobolt-cli --test backend_cli --no-fail-fast`;
+    `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --no-fail-fast` (incl. a test that the key source is
+    `getRandomValues`, and `freshness`); `cargo test -p cobolt-web-bundle --test e2e_chrome --no-fail-fast` against the sealed mock.
+
+- [ ] **T15b-4 — The AC11 capture and the refusals, proven** (R24; AC11, AC6, AC7, AC8)
+  - Files: `crates/cobolt-server/tests/loopback.rs` (tests only; a TLS-terminating recording proxy in the test).
+  - Do / Verify: `cargo test -p cobolt-server --test loopback --no-fail-fast` —
+    `the_channel_is_ciphertext_at_a_terminating_proxy` (only the two `hello`s are text; every later message binary; no recorded bytes contain
+    the program name, a payload value, the token or `"t":`; after a restart of backend and client, different public keys and the first
+    capture's frames refused in a new connection; message counts and the two key fingerprints printed);
+    `a_connection_without_the_exchange_is_refused` (protocol 1 → 6002; no `key` → *transport*; text after the handshake → *transport*, closed);
+    `the_frame_limit_is_the_plaintext_limit` (exactly `max_frame_bytes` passes, one more → 7000); `concurrent_callers_…` (AC7) sealed, its
+    400-call time printed against the unsealed run; `the_log_has_neither_…` (AC8) extended: no key, shared secret or nonce in the log.
+
+- [ ] **T15b-5 — System KB: the encrypted channel** (System KB rule; plan §8)
+  - Files: `crates/cobolt-compiler/src/lib.rs` (*Calling the backend*), `assets/knowledge/chunked.data` (regenerated).
+  - Do: the channel is encrypted on top of TLS with keys made at each start; nothing to set or write; a frontend and a backend built on
+    either side of this change refuse each other with a *version* error. `cargo run -p cobolt-ide --example build_chunked_kb`.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation`.
+
+- [ ] **T15b-6 — Evidence and Finalize for T15b** (AC11; all of T15b)
+  - Files: this file (an *Evidence (T15b)* table: AC11 row and the re-run AC1–AC10 rows on the sealed channel), `crates/cobolt-ide/src/version.rs`
+    (bump `z` **once** → the next free `2.0.z`), `CHANGELOG.md` (one entry above the previous heading, dated, *Written on features-2x*, listing
+    T15b-1…5, stating that a Web bundle and a backend built before and after it do not talk). No `README.md`/`docs/` change; no new `Tr` key
+    expected (if one was added, six tables).
+  - Verify, `--no-fail-fast`, every `test result` line read and summed: `cargo test -p cobolt-wire` and `--features channel`,
+    `cargo test -p cobolt-server`, `cargo test -p cobolt-compiler`, `cargo test -p cobolt-cli --test backend_cli`,
+    `cargo test -p cobolt-web-bundle`, `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml`, `cargo test -p cobolt-ide --bin cobolt-ide`;
+    `df -h .` before; the credential scan of the diff. State that Windows and Linux were not run (plan §5 R7) if they were not.
 
 ## Coverage (acceptance criteria → tasks)
 
@@ -485,8 +800,9 @@ planted key is built from fragments). System KB: *Calling the backend* names Run
 | AC8 no token/password in the log | D-b, T5 (log gains only the mode), T7 |
 | AC9 IDE start/stop, binary identical | D-e, T10 |
 | AC10 frontend secret stops build, backend's does not | T12 |
-| AC11 ciphertext on the wire, a new key pair per start | T15b |
-| AC12 three timed attempts, then the exception | T15a |
+| AC1–AC10 (re-run sealed) | T15b-3, T15b-4, T15b-6 |
+| AC11 ciphertext on the wire, a new key pair per start | T15b-2 (vectors, per-connection keys), T15b-3 (keys at start), T15b-4 (`the_channel_is_ciphertext_at_a_terminating_proxy`) |
+| AC12 three timed attempts, then the exception | T15a-1 (windows), T15a-2 (player, simulated clock), T15a-3 (real sockets, spec values measured), T15a-5 (browser, with WASM-016 T29b) |
 
 ## Open items carried (not decided by this list)
 
@@ -495,12 +811,21 @@ planted key is built from fragments). System KB: *Calling the backend* names Run
 - **T10's hosting model** — decided by the operator 2026-10-23: a child `rcrun backend run` (T10, done).
 - **D4 reading of R5** — loopback `ws` in a release start behind a reverse proxy; for the next `/clarify`.
 - **O3** — WASM-INDEX D4/D5 still say "Open"; another file, left to its owner.
-- **Plan §5 R1** — the player/server envelope mismatch; WASM-014/WASM-016.
+- **Plan §5 R1** — the player/server envelope mismatch: **closed** (plan C13, WASM-014 T6, ABI A15).
+- **O5** — R24's scope: the WebSocket channel only (working assumption, T15b). **To confirm.**
+- **O6** — R25's "timeout" is the attempt's window, waited out on an early failure (working assumption, T15a). **To confirm.**
+- **O7** — a first connection a call needs runs the cycle (working assumption, T15a). **To confirm.**
+- **O8** — after the give-up, the next call starts a new cycle (working assumption, T15a). **To confirm.**
+- **O9** — the Rust client runs the policy and exposes the state; no desktop modal (working assumption, T15a-3). **To confirm.**
+- **O10** — handshake order (plan D8) against WASM-014 R18's wording; WASM-014 T19b decides it before T15b starts. **To confirm.**
+- **Not this spec's code:** the IDE's Output panel does not show the `connect-src` (T12; needs a `Tr` label); the modals (WASM-016 T29b,
+  WASM-012 T25b); R17's threat-model text (WASM-013 T24b); no real identity provider contacted.
 - **T5, the `hello` member** — the plan wants the client told by `hello` that a reconnection starts with fresh state; WASM-014's
   `hello.session` means the opposite direction and purpose (a client id that continues an idempotency session). Which member, if any,
   says "state is new" is WASM-014's to define; nothing was added to `proto.rs`.
 
 ## Done criteria
-All acceptance criteria in spec.md are checked with the evidence of T13, the tests of every touched crate pass, the System KB and
+All acceptance criteria in spec.md are checked with the evidence of T13 (AC1–AC10), *Evidence (T15a)* (AC12) and *Evidence (T15b)*
+(AC11, and AC1–AC10 re-run sealed); the tests of every touched crate pass, the System KB and
 `chunked.data` agree, the six i18n tables have the new keys, and the version and CHANGELOG are updated once. Commits and pushes are the
 pipeline's, not this list's.

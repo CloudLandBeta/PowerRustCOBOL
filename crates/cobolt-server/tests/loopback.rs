@@ -810,3 +810,163 @@ async fn a_large_or_slow_request_head_is_refused() {
     println!("\n  a 20 KiB head → {status}; an unfinished head closed after {:.0} ms (limit 1500)", closed_after.as_secs_f64() * 1000.0);
     rig.server.stop();
 }
+
+// ── WASM-003 R25/R26, AC12: the Rust client's retry policy on real sockets ────
+
+const RETRY_EXPORTS: &str = r#"
+[contract]
+version = "1.0.0"
+
+[[export]]
+program = "SAFE-READ"
+idempotent = true
+
+[[export]]
+program = "UNSAFE-WRITE"
+"#;
+
+const SAFE_READ: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SAFE-READ.
+DATA DIVISION.
+LINKAGE SECTION.
+01 LK-R.
+    05 REPLY PIC X(4).
+PROCEDURE DIVISION RETURNING LK-R.
+MAIN.
+    MOVE "safe" TO REPLY
+    GOBACK.
+"#;
+
+const UNSAFE_WRITE: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. UNSAFE-WRITE.
+DATA DIVISION.
+LINKAGE SECTION.
+01 LK-R.
+    05 REPLY PIC X(4).
+PROCEDURE DIVISION RETURNING LK-R.
+MAIN.
+    MOVE "done" TO REPLY
+    GOBACK.
+"#;
+
+/// A backend reached through a proxy that can refuse every new connection (the backend "stopped":
+/// the TLS handshake fails at once) and a client of it with `policy`.
+fn retry_world(name: &str, policy: cobolt_wire::retry::Policy) -> (Rig, Proxy, cobolt_server::client::WsClient) {
+    use cobolt_server::client::{ClientConfig, StaticToken, WsClient};
+    let rig = rig(backend_dir(name, RETRY_EXPORTS, &[("safe-read.cbl", SAFE_READ), ("unsafe-write.cbl", UNSAFE_WRITE)]), "");
+    let proxy = Proxy::start(rig.server.addr);
+    let mut cfg = ClientConfig::new(format!("wss://localhost:{}/ws", proxy.addr.port()), "1.0.0");
+    cfg.extra_root_pem = Some(rig.cert.cert_pem.clone().into_bytes());
+    cfg.origin = Some(ORIGIN.to_string());
+    cfg.interface = Some(rig.interface());
+    cfg.token = Some(std::sync::Arc::new(StaticToken(good_token(&rig, "user-1", json!({})))));
+    cfg.retry = policy;
+    (rig, proxy, WsClient::new(cfg))
+}
+
+fn retry_call(program: &str) -> cobolt_wire::call::CallRequest {
+    cobolt_wire::call::CallRequest { program: program.into(), args: vec![], wants_returning: true, idempotency_key: None }
+}
+
+/// Run `program` on its own thread; answers its result and how long it took.
+fn call_in_background(client: &cobolt_server::client::WsClient, program: &'static str) -> std::thread::JoinHandle<(Result<cobolt_wire::call::CallReply, cobolt_wire::CallError>, Duration)> {
+    use cobolt_wire::call::Transport;
+    let mut c = client.clone();
+    std::thread::spawn(move || {
+        let t0 = Instant::now();
+        let r = c.call(&retry_call(program));
+        (r, t0.elapsed())
+    })
+}
+
+/// Cut every connection while the answers are being swallowed (so the calls are in flight), with
+/// new connections refused: the backend is "stopped".
+fn break_with_calls_in_flight(proxy: &Proxy) -> Instant {
+    proxy.set(PROXY_SWALLOW_REPLIES);
+    std::thread::sleep(Duration::from_millis(400));
+    proxy.set(PROXY_REFUSE);
+    let at = Instant::now();
+    proxy.kill_all();
+    at
+}
+
+#[test]
+fn a_broken_connection_is_retried_by_the_policy_then_given_up() {
+    use cobolt_wire::call::Transport;
+    use cobolt_wire::error::{codes, ErrorClass};
+    let policy = cobolt_wire::retry::Policy { first_ms: 1_500, step_ms: 1_500, attempts: 3 };
+    let (rig, proxy, client) = retry_world("retry", policy);
+    client.clone().call(&retry_call("SAFE-READ")).expect("warm");
+
+    // 1. The backend comes back before attempt 2: the safe call completes, the other is transport 1001.
+    let before = proxy.accepted().len();
+    let (safe, unsafe_) = (call_in_background(&client, "SAFE-READ"), call_in_background(&client, "UNSAFE-WRITE"));
+    let broke = break_with_calls_in_flight(&proxy);
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(client.link_status().blocked, "blocked while it retries");
+    std::thread::sleep(Duration::from_millis(250));
+    proxy.set(PROXY_FORWARD);
+    let (safe, _) = safe.join().unwrap();
+    let (unsafe_, _) = unsafe_.join().unwrap();
+    let back = broke.elapsed();
+    let reply = safe.expect("the safe call is repeated on the new connection");
+    assert!(reply.returning.as_deref().unwrap_or("").contains("safe"), "{reply:?}");
+    let e = unsafe_.expect_err("the other may have run: not repeated");
+    assert_eq!((e.class, e.code, e.may_have_run), (ErrorClass::Transport, codes::CLOSED, Some(true)), "{e}");
+    let attempts_1: Vec<u128> = proxy.accepted()[before..].iter().map(|t| t.saturating_duration_since(broke).as_millis()).collect();
+    assert_eq!(attempts_1.len(), 2, "attempt 1 refused, attempt 2 connected: {attempts_1:?}");
+    assert_eq!(client.link_status(), cobolt_server::client::LinkStatus { blocked: false, unreachable: false });
+    println!("\n  back before attempt 2: connections at {attempts_1:?} ms after the break, calls ended after {:.0} ms; SAFE-READ repeated, UNSAFE-WRITE transport {} may_have_run=true", back.as_secs_f64() * 1000.0, e.code);
+
+    // 2. Stopped for good: transport after the third attempt, exactly three connections, no fourth.
+    let before = proxy.accepted().len();
+    let sent = call_in_background(&client, "UNSAFE-WRITE");
+    let broke = break_with_calls_in_flight(&proxy);
+    std::thread::sleep(Duration::from_millis(2_000));
+    let queued = call_in_background(&client, "UNSAFE-WRITE"); // made while blocked: never sent
+    let (sent, took) = sent.join().unwrap();
+    let (queued, _) = queued.join().unwrap();
+    let e = sent.expect_err("given up");
+    assert_eq!((e.class, e.code, e.may_have_run), (ErrorClass::Transport, codes::CLOSED, Some(true)), "{e}");
+    assert_eq!(e.message, "the backend could not be reached");
+    let q = queued.expect_err("given up");
+    assert_eq!((q.class, q.code, q.may_have_run), (ErrorClass::Transport, codes::NO_CONNECTION, Some(false)), "{q}");
+    let gave_up = broke.elapsed();
+    assert_eq!(client.link_status(), cobolt_server::client::LinkStatus { blocked: false, unreachable: true });
+    std::thread::sleep(Duration::from_millis(2_000));
+    let attempts_2: Vec<u128> = proxy.accepted()[before..].iter().map(|t| t.saturating_duration_since(broke).as_millis()).collect();
+    println!("  stopped for good: connections at {attempts_2:?} ms after the break; the sent call failed {} after {:.0} ms, the queued one {}; given up at {:.0} ms (cycle {} ms)", e.code, took.as_secs_f64() * 1000.0, q.code, gave_up.as_secs_f64() * 1000.0, policy.cycle_ms());
+    assert_eq!(attempts_2.len(), 3, "exactly three attempts, no fourth: {attempts_2:?}");
+    rig.server.stop();
+}
+
+/// AC12 at the spec's values (one run, about 60 s): the three windows measured at the backend's
+/// address, the waiting call's `ON EXCEPTION` class `transport` after the third, no fourth attempt.
+#[test]
+fn the_retry_windows_are_10_20_30_seconds() {
+    use cobolt_wire::error::{codes, ErrorClass};
+    let policy = cobolt_wire::retry::Policy::default();
+    let (rig, proxy, client) = retry_world("retry-spec", policy);
+    {
+        use cobolt_wire::call::Transport;
+        client.clone().call(&retry_call("SAFE-READ")).expect("warm");
+    }
+    let before = proxy.accepted().len();
+    let call = call_in_background(&client, "UNSAFE-WRITE");
+    let broke = break_with_calls_in_flight(&proxy);
+    let (r, _) = call.join().unwrap();
+    let gave_up = broke.elapsed();
+    let e = r.expect_err("given up");
+    assert_eq!((e.class, e.code), (ErrorClass::Transport, codes::CLOSED), "{e}");
+    std::thread::sleep(Duration::from_secs(3));
+    let at: Vec<f64> = proxy.accepted()[before..].iter().map(|t| t.saturating_duration_since(broke).as_secs_f64()).collect();
+    let windows: Vec<f64> = at.windows(2).map(|w| w[1] - w[0]).chain(at.last().map(|l| gave_up.as_secs_f64() - l)).collect();
+    println!("\n  attempts at {:?} s after the break; windows {:?} s; given up at {:.2} s; connections after it: {}", at.iter().map(|t| format!("{t:.2}")).collect::<Vec<_>>(), windows.iter().map(|w| format!("{w:.2}")).collect::<Vec<_>>(), gave_up.as_secs_f64(), at.len().saturating_sub(3));
+    assert_eq!(at.len(), 3, "three attempts and no fourth: {at:?}");
+    for (w, want) in windows.iter().zip([10.0, 20.0, 30.0]) {
+        assert!((w - want).abs() < 0.75, "window {w:.2} s, want {want} s: {windows:?}");
+    }
+    rig.server.stop();
+}
