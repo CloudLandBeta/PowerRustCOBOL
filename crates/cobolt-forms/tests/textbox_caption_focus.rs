@@ -105,3 +105,34 @@ fn caption_focus_report() {
     println!("  cases: click on caption, Alt+mnemonic, mnemonic key without Alt");
     println!("  passed {passed} / failed 0");
 }
+
+/// A TextBox with a caption inside a container lands where its box does: the caption is
+/// computed from the box, so the container needs no knowledge of it. (The product has no
+/// "subform" or "outlet" control; a Panel and a form embedded in a ContentPane draw their
+/// children the same way, through the container's origin.)
+#[test]
+fn a_caption_inside_a_container_follows_its_box() {
+    let mut panel = Control::new("PNL", ControlType::Panel, 50, 30);
+    panel.rect = MRect::new(50, 30, 320, 180);
+    let mut name = Control::new("EDT-NOME", ControlType::TextBox, 150, 100);
+    name.rect = MRect::new(150, 100, 200, 24);
+    name.parent = Some("PNL".into());
+    name.set_prop("CaptionText", PropValue::String("&Nome:".into()));
+    name.set_prop("CaptionPosition", PropValue::String("Left".into()));
+    let controls = vec![panel, name];
+
+    let cap = controls[1].caption_layout().expect("a caption");
+    assert!(cap.rect.x + cap.rect.w <= 150.0 && cap.rect.x >= 50.0, "Left: the caption ends before the box starts");
+    let centre = pos2(cap.rect.x + cap.rect.w / 2.0, cap.rect.y + cap.rect.h / 2.0);
+
+    let ctx = egui::Context::default();
+    frame(&ctx, &controls, vec![]);
+    ctx.memory_mut(|m| m.surrender_focus(control_widget_id(None, "EDT-NOME")));
+    frame(&ctx, &controls, vec![]);
+    assert!(!focused(&ctx, "EDT-NOME"), "precondition");
+    for events in click(centre) {
+        frame(&ctx, &controls, events);
+    }
+    assert!(focused(&ctx, "EDT-NOME"), "a click on the caption inside the panel must focus the box");
+    println!("TextBox caption inside a container (spec 110): click on the Left caption focused the box; passed 1 / failed 0");
+}

@@ -649,4 +649,7 @@ pub static UI_TEXT: &[UiText] = &[
     UiText { text: ["Restore caption font and colour", "Restaurar fuente y color del rótulo", "Restaurar fonte e cor da legenda", "キャプションのフォントと色を元に戻す", "恢复标题字体和颜色", "Rétablir la police et la couleur de l'intitulé"] },
     UiText { text: ["Restore default", "Restaurar valor predeterminado", "Restaurar padrão", "既定値に戻す", "恢复默认值", "Rétablir la valeur par défaut"] },
     UiText { text: ["(inherited)", "(heredado)", "(herdado)", "（継承）", "（继承）", "(hérité)"] },
+    UiText { text: ["The caption reaches outside the form.", "El rótulo sale del formulario.", "A legenda sai do formulário.", "キャプションがフォームの外にはみ出しています。", "标题超出了窗体范围。", "L'intitulé dépasse du formulaire."] },
+    UiText { text: ["The caption lies over {}.", "El rótulo queda sobre {}.", "A legenda fica sobre {}.", "キャプションが {} に重なっています。", "标题覆盖了 {}。", "L'intitulé recouvre {}."] },
+    UiText { text: ["The mnemonic {} is used twice on this form.", "El mnemónico {} se usa dos veces en este formulario.", "O mnemônico {} é usado duas vezes neste formulário.", "ニーモニック {} がこのフォームで重複しています。", "助记符 {} 在此窗体上使用了两次。", "Le mnémonique {} est utilisé deux fois sur ce formulaire."] },
 ];

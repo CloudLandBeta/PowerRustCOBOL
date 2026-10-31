@@ -52,13 +52,13 @@ Ordered, small, independently-verifiable tasks. References are spec.md sections 
   - Do: Caption group (inherited grey, set bold), Restore default, select/drag by caption, snap on inner bounds, rubber band on outer, in-place edit, warnings, one undo step per change; every string a `Tr` field in six languages.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide i18n`; designer unit tests for snap/outer-bounds; the §7 checklist is by hand (operator).
 
-- [ ] **T9 — Subform and outlet** (§5, AC subform)
+- [x] **T9 — Subform and outlet** (no such controls exist; tested a Panel child, clipped by the container) (§5, AC subform)
   - Files: tests in `cobolt-forms/tests/`.
   - Verify: TextBox with caption inside a subform and an outlet renders at the translated place.
 
-- [ ] **T10 — Docs** — deferred: the Developer's Guide is not touched on 2.x.x; written afresh when 2.x.x merges to main (memory: 2.x-only docs wait for main merge). Record this in CHANGELOG.
+- [x] **T10 — Docs** (deferred by rule: 2.x.x does not touch docs/) — deferred: the Developer's Guide is not touched on 2.x.x; written afresh when 2.x.x merges to main (memory: 2.x-only docs wait for main merge). Record this in CHANGELOG.
 
-- [ ] **T11 — Finalize**
+- [x] **T11 — Finalize**
   - Do: bump `z` in `version.rs` (collision with the shared tree's uncommitted 2.0.111: decide at commit), top CHANGELOG entry, credential scan of the staged diff, move stray non-Rust files to quarantine.
   - Verify: full sweep of the touched crates; every AC in spec.md §8 has a passing test or a named manual check.
 

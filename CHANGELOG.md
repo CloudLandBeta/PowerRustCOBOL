@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.115 — 2026-10-31
+
+**Feature (spec 110, T9-T11): the TextBox caption, finished.** The Caption group in the Properties pane now says when the caption reaches outside the form, lies over another control, or repeats a mnemonic letter already used on the form (none of them blocks a save). The TextBox's accessible name is its caption text without the `&`. A caption inside a Panel follows its box and is clipped by the container, like any control. The product has no "subform" or "outlet" control; a form embedded in a ContentPane draws its children through the same origin. The shipped web player was rebuilt.
+
 ## 2.0.114 — 2026-10-31
 
 **Feature (spec 110, T7-T8): the TextBox caption in the web player and the designer.** The web player draws the caption as a `label` tied to the box's input, laid out by the same routine as the desktop painter (position, alignment, gap, inherited or set font and colour, disabled colour, mnemonic underline and `accesskey`); its text without the `&` is the input's accessible name, and `ResetCaption`, `CaptionIsSet` and inherited reads work there as on the desktop. In the designer the Properties pane has a Caption group (text, position, alignment, gap, font, colour, background) where an inherited attribute reads grey with "(inherited)" and a set one offers "Restore default" (one undo step), plus "Restore caption font and colour"; a press on the caption selects the box, the lasso and Select All reach it through the caption (outer bounds) while snap keeps using the box, and a double click on the caption edits its text where it is drawn. The shipped web player was rebuilt.

@@ -4501,6 +4501,8 @@ pub struct PropertiesPanel {
     /// background properties and nothing else (R15, R16, R24).
     pub layer_view: Option<cobolt_forms::Layer>,
     hints: HintState,
+    /// Spec 110: what is worth saying about the selected TextBox's caption (computed per frame).
+    caption_warn: Vec<(String, cobolt_forms::caption::CaptionWarning)>,
     text_bufs: std::collections::HashMap<String, String>,
     form_bufs: std::collections::HashMap<String, String>,
     /// animation editor state per control: selected animation index
@@ -4631,6 +4633,7 @@ impl PropertiesPanel {
             web_project: false,
             layer_view: None,
             hints: Default::default(),
+            caption_warn: Vec::new(),
             text_bufs: Default::default(),
             form_bufs: Default::default(),
             anim_sel: Default::default(),
@@ -4719,6 +4722,16 @@ impl PropertiesPanel {
         indexed_files: &[String],
         tr: &Tr,
     ) -> InspectorAction {
+        // Spec 110: the warnings for a captioned TextBox, said under its Caption group.
+        self.caption_warn = match ctrl {
+            Some(c) if c.caption_layout().is_some() => {
+                cobolt_forms::caption::caption_warnings(&form.controls, form.width as f32, form.height as f32)
+                    .into_iter()
+                    .filter(|(id, _)| *id == c.id)
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
         self.show_selection(ui, form, ctrl, indexed_files, tr, None)
     }
 
@@ -8048,6 +8061,17 @@ impl PropertiesPanel {
                 }
                 color_prop_row_default(ui, id, "CaptionBackColor", "Caption background", ctrl, action, "#00000000");
                 let any_set = cobolt_forms::caption::INHERITABLE.iter().any(|k| ctrl.get_prop(k).is_some());
+                if !search_active() {
+                    use cobolt_forms::caption::CaptionWarning as W;
+                    for (_, w) in &self.caption_warn {
+                        let text = match w {
+                            W::OutsideForm => crate::ui_text::tx("The caption reaches outside the form.").to_owned(),
+                            W::Overlaps(other) => crate::ui_text::txf("The caption lies over {}.", &[other]),
+                            W::RepeatedMnemonic(c) => crate::ui_text::txf("The mnemonic {} is used twice on this form.", &[c]),
+                        };
+                        ui.label(RichText::new(text).small().color(Color32::from_rgb(230, 160, 40)));
+                    }
+                }
                 ui.add_enabled_ui(any_set && !search_active(), |ui| {
                     if !search_active()
                         && ui.button(crate::ui_text::tx("Restore caption font and colour")).clicked()

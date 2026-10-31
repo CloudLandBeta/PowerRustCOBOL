@@ -440,6 +440,59 @@ impl crate::model::Control {
     }
 }
 
+/// A thing about a caption worth telling the developer; none of them stops a save.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CaptionWarning {
+    /// The caption (or the box with it) reaches outside the form.
+    OutsideForm,
+    /// The caption lies over another control.
+    Overlaps(String),
+    /// Another caption on the form uses the same mnemonic letter.
+    RepeatedMnemonic(char),
+}
+
+/// The warnings for every captioned TextBox of a form of `form_w` x `form_h`, as `(control id, warning)`.
+pub fn caption_warnings(controls: &[crate::model::Control], form_w: Unit, form_h: Unit) -> Vec<(String, CaptionWarning)> {
+    let mut out = Vec::new();
+    let mut letters: Vec<(String, char)> = Vec::new();
+    for c in controls {
+        let Some(l) = c.caption_layout() else { continue };
+        let r = l.rect;
+        if r.x < 0.0 || r.y < 0.0 || r.x + r.w > form_w || r.y + r.h > form_h {
+            out.push((c.id.clone(), CaptionWarning::OutsideForm));
+        }
+        // A container holding the box is the box's ground, not something the caption is over.
+        let mut ancestors = Vec::new();
+        let mut up = c.parent.clone();
+        while let Some(p) = up {
+            up = controls.iter().find(|x| x.id == p).and_then(|x| x.parent.clone());
+            ancestors.push(p);
+            if ancestors.len() > 64 {
+                break;
+            }
+        }
+        for o in controls {
+            if o.id == c.id || ancestors.contains(&o.id) || o.control_type.is_non_visual() || !o.visible {
+                continue;
+            }
+            let b = &o.rect;
+            if r.x < (b.x + b.w) as Unit && r.x + r.w > b.x as Unit && r.y < (b.y + b.h) as Unit && r.y + r.h > b.y as Unit {
+                out.push((c.id.clone(), CaptionWarning::Overlaps(o.id.clone())));
+                break;
+            }
+        }
+        if let Some(ch) = l.mnemonic.and_then(|i| l.text.chars().nth(i)) {
+            letters.push((c.id.clone(), ch.to_ascii_lowercase()));
+        }
+    }
+    for (id, ch) in &letters {
+        if letters.iter().filter(|(_, o)| o == ch).count() > 1 {
+            out.push((id.clone(), CaptionWarning::RepeatedMnemonic(*ch)));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,5 +679,46 @@ mod layout_tests {
         assert_eq!((b.rect.x - a.rect.x, b.rect.y - a.rect.y), (30.0, 10.0));
         let o = c.outer_rect();
         assert!(o.y < c.rect.y as f32 && o.w >= 200.0);
+    }
+}
+
+#[cfg(test)]
+mod warning_tests {
+    use super::*;
+    use crate::model::{Control, ControlType, PropValue};
+
+    fn tb(id: &str, x: i32, y: i32, text: &str) -> Control {
+        let mut c = Control::new(id, ControlType::TextBox, x, y);
+        c.rect.w = 100;
+        c.rect.h = 22;
+        c.set_prop("CaptionText", PropValue::String(text.into()));
+        c
+    }
+
+    #[test]
+    fn the_three_warnings() {
+        let a = tb("A", 10, 10, "&Nome:"); // Top caption at y < 10: outside the form
+        let b = tb("B", 10, 100, "N&ome:"); // same mnemonic letter as A: 'o'? no: 'o' vs 'n'
+        let c = tb("C", 10, 130, "&Outro:");
+        let d = tb("D", 10, 160, "T&odo:"); // mnemonic 'o', as C's
+        let w = caption_warnings(&[a, b, c, d], 640.0, 480.0);
+        assert!(w.contains(&("A".into(), CaptionWarning::OutsideForm)));
+        assert!(w.contains(&("C".into(), CaptionWarning::RepeatedMnemonic('o'))));
+        assert!(w.contains(&("D".into(), CaptionWarning::RepeatedMnemonic('o'))));
+        // B's caption lies over A's box? A is at y 10..32, B's caption at y ~81..96: no.
+        assert!(!w.iter().any(|(id, k)| id == "B" && matches!(k, CaptionWarning::Overlaps(_))));
+        // A caption over a neighbour's box.
+        let n = tb("N", 10, 300, "");
+        let mut m = tb("M", 10, 315, "&Mid:"); // Top caption around y 296..311, over N (300..322)
+        m.rect.y = 315;
+        let w = caption_warnings(&[n, m], 640.0, 480.0);
+        assert!(w.contains(&("M".into(), CaptionWarning::Overlaps("N".into()))), "{w:?}");
+        // The container that holds the box is not "overlapped".
+        let mut p = Control::new("P", ControlType::Panel, 0, 200);
+        p.rect.w = 400;
+        p.rect.h = 200;
+        let mut t = tb("T", 20, 240, "&Cep:");
+        t.parent = Some("P".into());
+        assert!(caption_warnings(&[p, t], 640.0, 480.0).is_empty());
     }
 }

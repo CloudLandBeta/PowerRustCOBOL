@@ -8700,6 +8700,10 @@ fn render_interactive(
                     origin + Vec2::new(cap.rect.x, cap.rect.y),
                     Vec2::new(cap.rect.w, cap.rect.h),
                 );
+                // The caption's text, without the `&`, is the box's accessible name.
+                resp.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, enabled, cap.text.clone())
+                });
                 let hit = ui.interact(
                     cap_rect.intersect(clip),
                     ctrl_id.with("caption"),
