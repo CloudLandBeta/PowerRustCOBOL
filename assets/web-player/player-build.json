@@ -7,9 +7,9 @@
       "sha256": "ee7dfc2810bad1670725dfb8af77646cc0fb84e40b7a8b423f1f7b46553b422e"
     },
     {
-      "bytes": 654968,
+      "bytes": 654960,
       "path": "parts/canvas/canvas_bg.wasm",
-      "sha256": "67ca8312a0d3a1948bfda1228f3b210ef4eb79a88cee717172e0a6677b65b087"
+      "sha256": "6fe7a2a142a85797c04a5e912dc9655f124cd2eb380b172356a7c22786c4b255"
     },
     {
       "bytes": 7985,
@@ -19,7 +19,7 @@
     {
       "bytes": 2218919,
       "path": "parts/mermaid/mermaid_bg.wasm",
-      "sha256": "0aff2817a2ae285508cce5f413f21390606b057c5d3a5be39fe9362da545c13c"
+      "sha256": "64e7587b331e4ff95efbf30677cf18908b44b120a31454b6ba6f8a287549b29a"
     },
     {
       "bytes": 6785,
@@ -29,27 +29,27 @@
     {
       "bytes": 217074,
       "path": "parts/pdf/pdf_bg.wasm",
-      "sha256": "698e6f073000527b4aed1741d9807886bf11104292e80a360aa94480480a7850"
+      "sha256": "6a0389019deb8183e72fae391fa1b58a0d918461f5a1172a11e29ab0b8e9ca44"
     },
     {
       "bytes": 90453,
       "path": "plain/player.js",
-      "sha256": "699e719193a63194a2b7c45b9426624de13e6fbdcb8a5c631a1e6029084f8122"
+      "sha256": "919e0497c2b28e34ea538423c940a45221f847a6f1d7d737c1b2bd06012ddce7"
     },
     {
-      "bytes": 3392726,
+      "bytes": 3411784,
       "path": "plain/player_bg.wasm",
-      "sha256": "acad4be5cf312aee612435909b62ac9024a490a246533b0e969dd8260013d688"
+      "sha256": "d54d2fff598ae8566912ded2ba4a61b952e0bc07dcc28f245eb09e6029f194b8"
     },
     {
       "bytes": 97062,
       "path": "threaded/player.js",
-      "sha256": "c8dd929a0602b8c5e9bdb61cdec2916a0486fca61b5c0f0df83d4b97c97ccdff"
+      "sha256": "0350d14af65ac4d7409aaec0f1ab3ebaa91b542d7c0d38448a4c237fdff38a8d"
     },
     {
-      "bytes": 3209285,
+      "bytes": 3224818,
       "path": "threaded/player_bg.wasm",
-      "sha256": "51015f760a887626b921f9ede706ab83782cf84e184e94c5e1e754f5709c4de5"
+      "sha256": "42805d647483473a01a32f9c1db18e1b3f6c8357007b7fd629acea1f20161176"
     },
     {
       "bytes": 4556,
@@ -67,40 +67,40 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 3673178,
-      "after_wasm_opt_bytes": 3392726,
-      "cargo_output_bytes": 5115568,
+      "after_bindgen_bytes": 3699758,
+      "after_wasm_opt_bytes": 3411784,
+      "cargo_output_bytes": 5144458,
       "glue_js_bytes": 90453,
-      "gzip_bytes": 1142123,
+      "gzip_bytes": 1148405,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 3459762,
-      "after_wasm_opt_bytes": 3209285,
-      "cargo_output_bytes": 4910877,
+      "after_bindgen_bytes": 3476623,
+      "after_wasm_opt_bytes": 3224818,
+      "cargo_output_bytes": 4929383,
       "glue_js_bytes": 97062,
-      "gzip_bytes": 1123616,
+      "gzip_bytes": 1129543,
       "opt_level": "s",
       "variant": "threaded"
     }
   ],
   "parts": [
     {
-      "after_bindgen_bytes": 2392340,
+      "after_bindgen_bytes": 2391283,
       "after_wasm_opt_bytes": 2218919,
-      "cargo_output_bytes": 2540452,
+      "cargo_output_bytes": 2539353,
       "glue_js_bytes": 7985,
-      "gzip_bytes": 798474,
+      "gzip_bytes": 798486,
       "name": "mermaid",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 688461,
-      "after_wasm_opt_bytes": 654968,
-      "cargo_output_bytes": 734797,
+      "after_bindgen_bytes": 688453,
+      "after_wasm_opt_bytes": 654960,
+      "cargo_output_bytes": 734789,
       "glue_js_bytes": 15548,
-      "gzip_bytes": 233651,
+      "gzip_bytes": 233659,
       "name": "canvas",
       "opt_level": "s"
     },
@@ -109,7 +109,7 @@
       "after_wasm_opt_bytes": 217074,
       "cargo_output_bytes": 267223,
       "glue_js_bytes": 6785,
-      "gzip_bytes": 100683,
+      "gzip_bytes": 100675,
       "name": "pdf",
       "opt_level": "s"
     }
@@ -122,7 +122,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "8444d02dab5870729757e02788bb951d1781be2efb89d4d99492b215e1b66915",
+  "source_hash": "51e129f216c4fffeabbe8a41b43926e2cd1be16dbc81a2f6ae32837737ce730a",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

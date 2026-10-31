@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.114 — 2026-10-31
+
+**Feature (spec 110, T7-T8): the TextBox caption in the web player and the designer.** The web player draws the caption as a `label` tied to the box's input, laid out by the same routine as the desktop painter (position, alignment, gap, inherited or set font and colour, disabled colour, mnemonic underline and `accesskey`); its text without the `&` is the input's accessible name, and `ResetCaption`, `CaptionIsSet` and inherited reads work there as on the desktop. In the designer the Properties pane has a Caption group (text, position, alignment, gap, font, colour, background) where an inherited attribute reads grey with "(inherited)" and a set one offers "Restore default" (one undo step), plus "Restore caption font and colour"; a press on the caption selects the box, the lasso and Select All reach it through the caption (outer bounds) while snap keeps using the box, and a double click on the caption edits its text where it is drawn. The shipped web player was rebuilt.
+
 ## 2.0.113 — 2026-10-31
 
 **Feature (spec 110, T5-T6): focus and COBOL access for the TextBox caption.** Clicking a TextBox caption, or pressing Alt plus its `&` mnemonic letter, puts the focus in the box (the caption itself takes none). From COBOL, `TXT::ResetCaption()` puts every caption font and colour attribute back to inherited, `TXT::ResetCaption("CaptionFontSize")` one of them, and `TXT::CaptionIsSet("CaptionFontSize")` answers 1 or 0; reading an attribute that is not set answers the TextBox's own value. The System KB documents the `Caption*` properties and both methods. *(Not yet: accessible name, designer group, other hosts.)*

@@ -716,6 +716,10 @@ impl FormTree {
             }
             return property_runtime_text(&tn, name.trim(), stored);
         }
+        // Spec 110: a caption attribute that is not set reads as the TextBox's own value.
+        if let Some(host) = cobolt_forms::caption::host_property(name) {
+            return self.get(ctl, host);
+        }
         if let Kind::Control(t) = &c.kind {
             // A toggle's other spelling answers too (Selected ⇄ Checked).
             if is_toggle_state_property(t, name) {
@@ -732,6 +736,14 @@ impl FormTree {
     }
 
     // ── writing ─────────────────────────────────────────────────────────────
+
+    /// Spec 110: put a property back to "never written" (a TextBox caption attribute going back to inherited).
+    pub fn unset(&mut self, ctl: usize, name: &str) {
+        let key = name.trim().to_ascii_lowercase();
+        if self.ctls[ctl].props.shift_remove(&key).is_some() {
+            self.touch(ctl, &key);
+        }
+    }
 
     /// A program's write. Returns the observer events it raised.
     pub fn set(&mut self, ctl: usize, name: &str, value: &str) -> Vec<EventReq> {

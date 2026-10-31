@@ -267,36 +267,51 @@ fn parse_position(s: &str) -> CaptionPosition {
     }
 }
 
-impl crate::model::Control {
-    /// The caption as stored: an attribute that is not set stays `None`.
-    pub fn caption(&self) -> Caption {
-        let s = |k: &str| self.get_prop(k).map(|v| v.as_str().to_string());
+impl Caption {
+    /// The caption as a form stores it, read through any property lookup (the
+    /// desktop's `Control`, the web player's tree). A name the lookup does not
+    /// know is an attribute that is not set.
+    pub fn from_props(get: &dyn Fn(&str) -> Option<String>) -> Caption {
+        let flag = |k: &str| get(k).map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
         Caption {
-            text: s("CaptionText").unwrap_or_default(),
-            position: s("CaptionPosition").map_or_else(Default::default, |v| parse_position(&v)),
-            halign: match s("CaptionAlign").unwrap_or_default().to_ascii_lowercase().as_str() {
+            text: get("CaptionText").unwrap_or_default(),
+            position: get("CaptionPosition").map_or_else(Default::default, |v| parse_position(&v)),
+            halign: match get("CaptionAlign").unwrap_or_default().to_ascii_lowercase().as_str() {
                 "center" => HAlign::Center,
                 "right" => HAlign::Right,
                 _ => HAlign::Left,
             },
-            valign: match s("CaptionVAlign").unwrap_or_default().to_ascii_lowercase().as_str() {
+            valign: match get("CaptionVAlign").unwrap_or_default().to_ascii_lowercase().as_str() {
                 "top" => VAlign::Top,
                 "bottom" => VAlign::Bottom,
                 _ => VAlign::Middle,
             },
-            gap: self
-                .get_prop("CaptionGap")
-                .map_or(DEFAULT_GAP, |v| v.as_i64().clamp(0, i64::from(u16::MAX)) as u16),
+            gap: get("CaptionGap")
+                .and_then(|v| v.trim().parse::<i64>().ok())
+                .map_or(DEFAULT_GAP, |n| n.clamp(0, i64::from(u16::MAX)) as u16),
             font: FontOverride {
-                name: s("CaptionFontName"),
-                size: self.get_prop("CaptionFontSize").map(|v| v.as_i64() as f32),
-                bold: self.get_prop("CaptionFontBold").map(|v| v.as_bool()),
-                italic: self.get_prop("CaptionFontItalic").map(|v| v.as_bool()),
-                underline: self.get_prop("CaptionFontUnderline").map(|v| v.as_bool()),
+                name: get("CaptionFontName"),
+                size: get("CaptionFontSize").and_then(|v| v.trim().parse::<f32>().ok()),
+                bold: flag("CaptionFontBold"),
+                italic: flag("CaptionFontItalic"),
+                underline: flag("CaptionFontUnderline"),
             },
-            fore_color: s("CaptionForeColor"),
-            back_color: s("CaptionBackColor").filter(|c| !c.eq_ignore_ascii_case("transparent")),
+            fore_color: get("CaptionForeColor"),
+            back_color: get("CaptionBackColor").filter(|c| !c.eq_ignore_ascii_case("transparent")),
         }
+    }
+}
+
+impl crate::model::Control {
+    /// The caption as stored: an attribute that is not set stays `None`.
+    pub fn caption(&self) -> Caption {
+        Caption::from_props(&|k| {
+            self.get_prop(k).map(|v| match v {
+                crate::model::PropValue::String(s) => s.clone(),
+                crate::model::PropValue::Int(n) => n.to_string(),
+                crate::model::PropValue::Bool(b) => (if *b { "1" } else { "0" }).to_string(),
+            })
+        })
     }
 
     /// The font the caption is drawn with: its own attributes over the box's.
@@ -363,6 +378,32 @@ pub struct CaptionLayout {
     pub back_color: Option<String>,
 }
 
+/// Lay a caption out against its box: the one routine the desktop painter, the
+/// hit test and the web player share. The text is measured with
+/// [`crate::textmetrics`]; `host_font` and `host_fore` are what the TextBox
+/// itself uses, which an inherited attribute resolves to.
+pub fn layout_caption(cap: &Caption, host_font: &CapFont, host_fore: &str, host: CapRect) -> Option<CaptionLayout> {
+    let (text, mnemonic) = parse_mnemonic(&cap.text);
+    if text.is_empty() {
+        return None;
+    }
+    let font = cap.font.resolve(host_font);
+    let size = f64::from(font.size.max(1.0));
+    let measured = CapSize {
+        w: crate::textmetrics::text_width(&text, size) as Unit,
+        h: crate::textmetrics::row_height(size) as Unit,
+    };
+    let rect = caption_rect(cap, host, measured)?;
+    Some(CaptionLayout {
+        text,
+        mnemonic,
+        rect,
+        font,
+        fore_color: cap.fore_color.clone().unwrap_or_else(|| host_fore.to_string()),
+        back_color: cap.back_color.clone(),
+    })
+}
+
 impl crate::model::Control {
     /// The caption of a TextBox laid out, or `None` when there is none. The
     /// text is measured with [`crate::textmetrics`], the one measure the
@@ -371,28 +412,21 @@ impl crate::model::Control {
         if self.control_type != crate::model::ControlType::TextBox {
             return None;
         }
-        let cap = self.caption();
-        let (text, mnemonic) = parse_mnemonic(&cap.text);
-        if text.is_empty() {
-            return None;
-        }
-        let font = self.caption_font();
-        let size = f64::from(font.size.max(1.0));
-        let measured = CapSize {
-            w: crate::textmetrics::text_width(&text, size) as Unit,
-            h: crate::textmetrics::row_height(size) as Unit,
+        let host_font = CapFont {
+            name: self.get_prop("FontName").map_or_else(String::new, |v| v.as_str().to_string()),
+            size: crate::layout::fonts::resolve_font_size(self, 14.0, 4.0, 200.0),
+            bold: self.get_prop("Bold").is_some_and(|v| v.as_bool()),
+            italic: self.get_prop("Italic").is_some_and(|v| v.as_bool()),
+            underline: self.get_prop("Underline").is_some_and(|v| v.as_bool()),
         };
+        let host_fore = self.get_prop("ForegroundColor").map_or_else(String::new, |v| v.as_str().to_string());
         let r = self.rect;
-        let host = CapRect::new(r.x as Unit, r.y as Unit, r.w as Unit, r.h as Unit);
-        let rect = caption_rect(&cap, host, measured)?;
-        Some(CaptionLayout {
-            text,
-            mnemonic,
-            rect,
-            font,
-            fore_color: self.caption_fore_color(),
-            back_color: cap.back_color,
-        })
+        layout_caption(
+            &self.caption(),
+            &host_font,
+            &host_fore,
+            CapRect::new(r.x as Unit, r.y as Unit, r.w as Unit, r.h as Unit),
+        )
     }
 
     /// The box and its caption together (spec 110 outer bounds).

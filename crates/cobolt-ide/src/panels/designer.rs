@@ -1519,7 +1519,23 @@ impl DesignerPanel {
 /// (operator, 2026-09-06). The geometry comes from the same
 /// `cobolt_forms::model` formula the painter uses, so the clickable line and
 /// the drawn line cannot drift apart.
+/// The control's outer bounds (spec 110): the box and its caption together, in whole units. Snap
+/// and the align commands keep using `rect` (the inner bounds); the lasso and overlap use this.
+pub(crate) fn outer_int_rect(c: &Control) -> cobolt_forms::Rect {
+    let o = c.outer_rect();
+    let (x0, y0) = (o.x.floor() as i32, o.y.floor() as i32);
+    let (x1, y1) = ((o.x + o.w).ceil() as i32, (o.y + o.h).ceil() as i32);
+    cobolt_forms::Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
 pub(crate) fn control_contains_point(ctrl: &Control, cx: i32, cy: i32) -> bool {
+    // Spec 110: the caption belongs to its TextBox, so a press on it is a press on the box.
+    if let Some(l) = ctrl.caption_layout() {
+        let (px, py) = (cx as f32, cy as f32);
+        if px >= l.rect.x && px < l.rect.x + l.rect.w && py >= l.rect.y && py < l.rect.y + l.rect.h {
+            return true;
+        }
+    }
     if ctrl.control_type != ControlType::Line {
         return ctrl.rect.contains(cx, cy);
     }
@@ -3011,6 +3027,9 @@ pub struct DesignerPanel {
     /// The last edit made to the base design while a breakpoint was viewed
     /// (a property that cannot be overridden), said on the View at bar.
     view_base_notice: Option<String>,
+    /// Spec 110: a TextBox whose caption text is being edited where it is drawn (double click on
+    /// the caption), with the text typed so far.
+    caption_edit: Option<(String, String)>,
     /// The controls as the canvas last painted them when the view size is not
     /// the designed one — laid out, the rail narrowed — for hit-testing the
     /// geometry the developer sees. `None` whenever the canvas paints the
@@ -3273,6 +3292,7 @@ impl DesignerPanel {
             view_limits: Default::default(),
             view_breakpoint: None,
             view_base_notice: None,
+            caption_edit: None,
             canvas_laid: None,
             canvas_layout: None,
             layout_grid: Default::default(),
@@ -10589,7 +10609,19 @@ impl DesignerPanel {
                         if let Some(id) = self.splitter_division_at(cx, cy) {
                             self.centre_splitter_division(&id);
                         } else if let Some(id) = self.hit_top_id(cx, cy) {
-                            if self.grid_edit.is_none() && self.is_data_grid(&id) && self.controls_movable() {
+                            // Spec 110: a double click on a caption (not on its box) edits the
+                            // caption text where it is drawn, not the box's handler.
+                            let on_caption_only = self.form.find_control(&id).is_some_and(|c| {
+                                !c.rect.contains(cx, cy) && control_contains_point(c, cx, cy)
+                            });
+                            if on_caption_only && self.controls_movable() {
+                                let text = self
+                                    .form
+                                    .find_control(&id)
+                                    .map(|c| c.caption().text)
+                                    .unwrap_or_default();
+                                self.caption_edit = Some((id, text));
+                            } else if self.grid_edit.is_none() && self.is_data_grid(&id) && self.controls_movable() {
                                 // Double-clicking a DataGrid edits it where it is
                                 // drawn (spec 094 R3): the grid's code is one
                                 // click away in the Properties pane.
@@ -10600,6 +10632,36 @@ impl DesignerPanel {
                                 // every RAD this product is aimed at behaves.
                                 self.open_double_click_handler(&id);
                             }
+                        }
+                    }
+                }
+
+                // Spec 110: the caption being edited in place — a one-line editor over the caption;
+                // Enter or a click away keeps the text (one undo step), Esc drops it.
+                if let Some((id, mut buf)) = self.caption_edit.take() {
+                    let at = self.form.find_control(&id).and_then(|c| c.caption_layout()).map(|l| l.rect);
+                    if let Some(r) = at {
+                        let pos = origin + Vec2::new(r.x, r.y);
+                        let width = r.w.max(120.0);
+                        let mut done: Option<bool> = None;
+                        egui::Area::new(egui::Id::new(("caption_edit", &id)))
+                            .order(egui::Order::Foreground)
+                            .fixed_pos(pos)
+                            .show(ui.ctx(), |ui| {
+                                let edit = ui.add(egui::TextEdit::singleline(&mut buf).desired_width(width));
+                                if !edit.has_focus() && !edit.lost_focus() {
+                                    edit.request_focus();
+                                }
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    done = Some(false);
+                                } else if edit.lost_focus() {
+                                    done = Some(true);
+                                }
+                            });
+                        match done {
+                            Some(true) => self.set_property(&id, "CaptionText", PropValue::String(buf)),
+                            Some(false) => {}
+                            None => self.caption_edit = Some((id, buf)),
                         }
                     }
                 }
@@ -15431,7 +15493,7 @@ impl DesignerPanel {
             .controls
             .iter()
             .filter(|c| members.as_ref().is_none_or(|m| m.contains(&c.id)))
-            .map(|c| (c.id.clone(), c.rect))
+            .map(|c| (c.id.clone(), outer_int_rect(c)))
             .collect()
     }
 
@@ -18261,6 +18323,12 @@ fn prompt_ac_row(
 }
 
 fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
+    // Spec 110: "Restore default" on a caption attribute removes the property, which is what
+    // inherited means; Undo puts the old value back through the same function.
+    if matches!(value, PropValue::String(s) if s == cobolt_forms::caption::INHERIT) {
+        ctrl.properties.shift_remove(key);
+        return;
+    }
     let lower_key = key.to_ascii_lowercase();
     match lower_key.as_str() {
         "visible" => ctrl.visible = value.as_bool(),
@@ -27409,3 +27477,7 @@ mod chart_animation_props;
 #[cfg(test)]
 #[path = "designer_anim_preview_tests.rs"]
 mod anim_preview;
+// Spec 110: the TextBox caption in the designer.
+#[cfg(test)]
+#[path = "designer_textbox_caption_tests.rs"]
+mod textbox_caption;

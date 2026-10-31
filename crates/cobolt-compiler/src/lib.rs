@@ -6861,7 +6861,6 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "CaptionVAlign" => ("one of: `Top` | `Middle` (default) | `Bottom`", "TextBox: how a Left or Right caption lines up with the box."),
         "CaptionGap" => ("form units ≥ 0 (default 4)", "TextBox: the distance between the box and its caption."),
         "CaptionFontName" | "CaptionFontSize" | "CaptionFontBold" | "CaptionFontItalic" | "CaptionFontUnderline" | "CaptionForeColor" => ("as the TextBox's FontName, FontSize, Bold, Italic, Underline and ForegroundColor; not set = inherited", "TextBox caption: each attribute follows the TextBox until a value is written, even one equal to the box's. Reading an attribute that is not set answers the TextBox's value at that moment. `ResetCaption()` puts them back to inherited; `CaptionIsSet(name)` tells which they are."),
-        "CaptionBackColor" => ("a colour, or `Transparent` (default)", "TextBox caption: the colour behind the caption text. It is never inherited."),
         "MaximumLength" => ("characters ≥ 0; 0 = unlimited", "Maximum text length accepted."),
         "Picture" => (
             "a COBOL PICTURE template (`X(30)`, `A(20)`, `S9(4)V99`, `ZZZ,ZZ9.99-`); empty = derived from MaximumLength",
@@ -7066,7 +7065,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "HideCaption" => (BOOL_DOMAIN, "Hides the GroupBox caption text."),
         "CaptionEnabled" => (BOOL_DOMAIN, "Whether the legend reads as enabled: off draws it dimmed (about 45% opacity), like a disabled caption. It reserves no space and does not change where children go."),
         "CaptionBackgroundStyle" => ("one of: `None` | `Flat` | `Gradient` (default `None`)", "GroupBox: how the caption is filled. `None` keeps the classic legend on the top border; `Flat` draws it in a box filled with `CaptionBackColor`; `Gradient` fills the box from `CaptionGradientStart` to `CaptionGradientEnd` along `CaptionGradientDirection`. The box is outlined in the GroupBox's `BorderColor` at its `BorderWidth`, and the caption text takes an ink that reads on the fill."),
-        "CaptionBackColor" => (COLOR_DOMAIN, "GroupBox: fill of the caption box when `CaptionBackgroundStyle` is `Flat` (default `#2C6FD2`)."),
+        "CaptionBackColor" => (COLOR_DOMAIN, "GroupBox: fill of the caption box when `CaptionBackgroundStyle` is `Flat` (default `#2C6FD2`). TextBox: the colour behind its caption text, `Transparent` by default and never inherited from the box."),
         "CaptionGradientStart" => (COLOR_DOMAIN, "GroupBox: first colour of the caption box when `CaptionBackgroundStyle` is `Gradient` (default `#4A8FE8`)."),
         "CaptionGradientEnd" => (COLOR_DOMAIN, "GroupBox: last colour of the caption box when `CaptionBackgroundStyle` is `Gradient` (default `#1F4F9A`)."),
         "CaptionGradientDirection" => ("one of: `South` | `North` | `East` | `West` | `SouthEast` | `SouthWest` | `NorthEast` | `NorthWest` | `Radial` (default `South`)", "GroupBox: direction of the caption box's gradient."),

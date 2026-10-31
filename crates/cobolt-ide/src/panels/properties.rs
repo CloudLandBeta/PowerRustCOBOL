@@ -8009,6 +8009,60 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                // Spec 110: the TextBox's caption. Font and colour follow the box
+                // until a value is written; the row says which, and offers the way back.
+                if !search_active() {
+                    draw_section_header(ui, crate::ui_text::tx("Caption"));
+                }
+                text_prop_row(ui, id, "CaptionText", "Caption text", ctrl, action, &mut self.text_bufs);
+                combo_prop_row(
+                    ui, id, "CaptionPosition", "Caption position", ctrl, action,
+                    &["Top", "Bottom", "Left", "Right"], "Top",
+                );
+                let beside = matches!(
+                    ctrl.get_prop("CaptionPosition").map(|v| v.as_str().to_ascii_lowercase()).as_deref(),
+                    Some("left" | "right")
+                );
+                ui.add_enabled_ui(!beside, |ui| {
+                    combo_prop_row(
+                        ui, id, "CaptionAlign", "Caption align", ctrl, action,
+                        &["Left", "Center", "Right"], "Left",
+                    );
+                });
+                ui.add_enabled_ui(beside, |ui| {
+                    combo_prop_row(
+                        ui, id, "CaptionVAlign", "Caption vertical align", ctrl, action,
+                        &["Top", "Middle", "Bottom"], "Middle",
+                    );
+                });
+                int_prop_row(ui, id, "CaptionGap", "Caption gap", ctrl, action, 0..=512, Some("px"), 4);
+                for (key, label, kind) in [
+                    ("CaptionFontName", "Caption font", CaptionAttr::Text),
+                    ("CaptionFontSize", "Caption font size", CaptionAttr::Size),
+                    ("CaptionFontBold", "Caption bold", CaptionAttr::Flag),
+                    ("CaptionFontItalic", "Caption italic", CaptionAttr::Flag),
+                    ("CaptionFontUnderline", "Caption underline", CaptionAttr::Flag),
+                    ("CaptionForeColor", "Caption colour", CaptionAttr::Color),
+                ] {
+                    caption_attr_row(ui, id, key, label, kind, ctrl, action, &mut self.text_bufs);
+                }
+                color_prop_row_default(ui, id, "CaptionBackColor", "Caption background", ctrl, action, "#00000000");
+                let any_set = cobolt_forms::caption::INHERITABLE.iter().any(|k| ctrl.get_prop(k).is_some());
+                ui.add_enabled_ui(any_set && !search_active(), |ui| {
+                    if !search_active()
+                        && ui.button(crate::ui_text::tx("Restore caption font and colour")).clicked()
+                    {
+                        for k in cobolt_forms::caption::INHERITABLE {
+                            if ctrl.get_prop(k).is_some() {
+                                action.set_props.push((
+                                    id.to_owned(),
+                                    (*k).to_owned(),
+                                    PropValue::String(cobolt_forms::caption::INHERIT.to_owned()),
+                                ));
+                            }
+                        }
+                    }
+                });
                 bool_row_inline(ui, id, "Multiline", "Multiline", ctrl, action);
                 bool_row_inline(ui, id, "WordWrap", "WordWrap", ctrl, action);
                 combo_row_inline(
@@ -14147,6 +14201,86 @@ fn bool_prop_row(
             action
                 .set_props
                 .push((ctrl_id.to_owned(), key.to_owned(), PropValue::Bool(value)));
+        }
+    });
+}
+
+/// How a caption attribute that follows the TextBox until set is edited.
+#[derive(Clone, Copy)]
+enum CaptionAttr {
+    Text,
+    Size,
+    Flag,
+    Color,
+}
+
+/// One caption attribute (spec 110): shown with the value in force. Inherited, it reads grey with
+/// "(inherited)" and the value of the TextBox; set, it is the control's own and a button puts it back.
+#[allow(clippy::too_many_arguments)]
+fn caption_attr_row(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    kind: CaptionAttr,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    bufs: &mut std::collections::HashMap<String, String>,
+) {
+    let own = ctrl.get_prop(key);
+    let is_set = own.is_some();
+    let host_key = cobolt_forms::caption::host_property(key).unwrap_or("");
+    let shown = own.or_else(|| ctrl.get_prop(host_key));
+    let text = shown.map(|v| v.as_str().to_owned()).unwrap_or_default();
+    let push = |action: &mut InspectorAction, v: PropValue| {
+        action.set_props.push((ctrl_id.to_owned(), key.to_owned(), v));
+    };
+    property_row_keyed(ui, label, Some(key), |ui| {
+        if !is_set {
+            ui.visuals_mut().override_text_color = Some(Color32::GRAY);
+        }
+        match kind {
+            CaptionAttr::Text => {
+                let buf_key = format!("{ctrl_id}-{key}");
+                let wid = egui::Id::new(&buf_key);
+                let focused = ui.memory(|m| m.has_focus(wid));
+                let buf = bufs.entry(buf_key).or_insert_with(|| text.clone());
+                if *buf != text && !focused {
+                    *buf = text.clone();
+                }
+                let resp = ui.add(egui::TextEdit::singleline(buf).id(wid).desired_width(ui.available_width() - 90.0));
+                if resp.lost_focus() && *buf != text {
+                    push(action, PropValue::String(buf.clone()));
+                }
+            }
+            CaptionAttr::Size => {
+                let mut v = shown.map(|p| p.as_i64()).unwrap_or(14);
+                if ui.add(DragValue::new(&mut v).speed(1).range(1..=200)).changed() {
+                    push(action, PropValue::Int(v));
+                }
+            }
+            CaptionAttr::Flag => {
+                let mut v = shown.map(|p| p.as_bool()).unwrap_or(false);
+                if ui.checkbox(&mut v, "").changed() {
+                    push(action, PropValue::Bool(v));
+                }
+            }
+            CaptionAttr::Color => {
+                let mut c = hex_to_color32(&text);
+                if color_edit_button_closing(ui, &mut c).changed() {
+                    push(action, PropValue::String(color32_to_hex(c)));
+                }
+            }
+        }
+        if is_set {
+            if ui
+                .small_button(RichText::new(crate::ui_text::tx("Restore default")).strong())
+                .clicked()
+            {
+                push(action, PropValue::String(cobolt_forms::caption::INHERIT.to_owned()));
+            }
+        } else {
+            ui.label(RichText::new(crate::ui_text::tx("(inherited)")).small());
         }
     });
 }

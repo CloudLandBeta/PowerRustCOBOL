@@ -158,6 +158,22 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         "ENABLE" => put(tree, ctl, "Enabled", "1", &mut out),
         "DISABLE" => put(tree, ctl, "Enabled", "0", &mut out),
         "SETFOCUS" | "FOCUS" => tree.command(ctl, "focus", Vec::new()),
+        // ── TextBox caption (spec 110) ──────────────────────────────────────
+        "RESETCAPTION" => {
+            let names: Vec<&str> = if args.is_empty() {
+                cobolt_forms::caption::INHERITABLE.to_vec()
+            } else {
+                (0..args.len()).filter_map(|i| cobolt_forms::caption::inheritable(&arg(i))).collect()
+            };
+            for n in names {
+                tree.unset(ctl, n);
+            }
+        }
+        "CAPTIONISSET" => {
+            let set = cobolt_forms::caption::inheritable(&arg(0))
+                .is_some_and(|n| tree.ctl(ctl).props.contains_key(&n.to_ascii_lowercase()));
+            return answer(if set { "1" } else { "0" });
+        }
         "BRINGTOFRONT" => put(tree, ctl, "ZOrder", "10000", &mut out),
         "SENDTOBACK" => put(tree, ctl, "ZOrder", "-10000", &mut out),
         "REFRESH" | "VALIDATE" => tree.command(ctl, "refresh", Vec::new()),

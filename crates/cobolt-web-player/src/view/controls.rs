@@ -244,6 +244,68 @@ pub fn catalogue_icon(name: &str) -> Option<VNode> {
 
 // ── TextBox ─────────────────────────────────────────────────────────────────
 
+/// Spec 110: the caption of a TextBox, laid out by the same routine the desktop
+/// painter uses. `None` when the box has no caption.
+fn caption_layout_of(cx: &ViewCtx, i: usize) -> Option<cobolt_forms::caption::CaptionLayout> {
+    use cobolt_forms::caption as cp;
+    let c = cx.tree.ctl(i);
+    let cap = cp::Caption::from_props(&|k| c.props.get(&k.to_ascii_lowercase()).cloned());
+    let host_font = cp::CapFont {
+        name: cx.tree.get(i, "FontName"),
+        size: num(cx, i, "FontSize", 14.0) as f32,
+        bold: flag(cx, i, "Bold"),
+        italic: flag(cx, i, "Italic"),
+        underline: flag(cx, i, "Underline"),
+    };
+    let host = cp::CapRect::new(
+        num(cx, i, "X", 0.0) as f32,
+        num(cx, i, "Y", 0.0) as f32,
+        num(cx, i, "Width", 0.0) as f32,
+        num(cx, i, "Height", 0.0) as f32,
+    );
+    cp::layout_caption(&cap, &host_font, &cx.tree.get(i, "ForegroundColor"), host)
+}
+
+/// The caption node: a `label` for the box's input, so a click on it (and its
+/// `accesskey`) puts the focus in the box. It sits at the offset the shared layout
+/// gives, relative to the box.
+fn caption_node(cx: &ViewCtx, i: usize, input_id: &str) -> Option<VNode> {
+    let l = caption_layout_of(cx, i)?;
+    let c = cx.tree.ctl(i);
+    let (bx, by) = (num(cx, i, "X", 0.0) as f32, num(cx, i, "Y", 0.0) as f32);
+    let chars: Vec<char> = l.text.chars().collect();
+    let mut n = VNode::new("label")
+        .key("caption")
+        .class("pr-textbox-caption")
+        .attr("for", input_id.to_owned())
+        .style("position", "absolute")
+        .style("white-space", "nowrap")
+        .style("left", format!("{}px", l.rect.x - bx))
+        .style("top", format!("{}px", l.rect.y - by))
+        .style("font-family", l.font.name.clone())
+        .style("font-size", format!("{}px", l.font.size))
+        .style("font-weight", if l.font.bold { "700" } else { "400" })
+        .style("font-style", if l.font.italic { "italic" } else { "normal" })
+        .style("text-decoration", if l.font.underline { "underline" } else { "none" })
+        .style("color", if c.enabled() { l.fore_color.clone() } else { "#8c8c8c".to_owned() });
+    if let Some(bg) = &l.back_color {
+        n = n.style("background-color", bg.clone());
+    }
+    match l.mnemonic.and_then(|m| chars.get(m).map(|ch| (m, *ch))) {
+        Some((m, ch)) => {
+            n = n.attr("accesskey", ch.to_lowercase().to_string());
+            let before: String = chars[..m].iter().collect();
+            let after: String = chars[m + 1..].iter().collect();
+            n = n
+                .child(VNode::new("span").key("a").text(before))
+                .child(VNode::new("u").key("m").text(ch.to_string()))
+                .child(VNode::new("span").key("b").text(after));
+        }
+        None => n = n.text(l.text.clone()),
+    }
+    Some(n)
+}
+
 pub fn text_box(cx: &ViewCtx, i: usize) -> VNode {
     let c = cx.tree.ctl(i);
     let multiline = flag(cx, i, "Multiline");
@@ -290,7 +352,18 @@ pub fn text_box(cx: &ViewCtx, i: usize) -> VNode {
         None if max > 0 => input = input.prop_num("maxLength", max as f64),
         None => {}
     }
-    root(cx, i, "div").child(input)
+    // Spec 110: the caption is the box's label; its text, without the `&`, is the box's accessible name.
+    let input_id = format!("{}:{}-in", cx.tree.inst, c.name);
+    let caption = caption_node(cx, i, &input_id);
+    let mut input = input;
+    if let Some(l) = caption_layout_of(cx, i) {
+        input = input.attr("id", input_id).attr("aria-label", l.text);
+    }
+    let mut n = root(cx, i, "div").child(input);
+    if let Some(cap) = caption {
+        n = n.child(cap);
+    }
+    n
 }
 
 // ── CheckBox, RadioButton ───────────────────────────────────────────────────
@@ -1228,5 +1301,34 @@ mod tests {
         assert!(catalogue_icon("../../etc/passwd").is_none());
         assert!(catalogue_icon("").is_none());
         assert!(catalogue_icon("no-such-icon").is_none());
+    }
+
+    #[test]
+    fn a_textbox_caption_is_the_boxs_label_laid_out_by_the_shared_routine() {
+        let e = Empty::default();
+        let (mut t, i) = tree_with("TextBox", "T-CAP", &[("X", "100"), ("Y", "50"), ("Width", "200"), ("Height", "22")]);
+        assert!(view(&e.cx(&t), i).find_tag("label").is_none(), "no CaptionText: nothing is drawn");
+
+        t.set(i, "CaptionText", "&Nome:");
+        t.set(i, "CaptionFontBold", "1");
+        let n = view(&e.cx(&t), i);
+        let cap = n.find_tag("label").expect("a caption label");
+        let input = n.find(&|x| x.tag == "input").unwrap();
+        assert_eq!(cap.attr_of("for"), input.attr_of("id"), "the label belongs to the box");
+        assert_eq!(input.attr_of("aria-label"), Some("Nome:"), "the accessible name has no &");
+        assert_eq!(cap.attr_of("accesskey"), Some("n"));
+        assert_eq!(cap.all_text(), "Nome:");
+        assert!(cap.styles.iter().any(|(k, v)| k == "font-weight" && v == "700"));
+        // Top: the caption sits above the box (negative offset from the box's top).
+        let top = cap.styles.iter().find(|(k, _)| k == "top").map(|(_, v)| v.trim_end_matches("px").parse::<f32>().unwrap()).unwrap();
+        assert!(top < 0.0, "above the box: {top}");
+
+        // Inherited reads the box's value; ResetCaption brings an attribute back.
+        t.set(i, "FontSize", "11");
+        assert_eq!(t.get(i, "CaptionFontSize"), "11");
+        t.set(i, "CaptionFontSize", "12");
+        assert_eq!(t.get(i, "CaptionFontSize"), "12");
+        t.unset(i, "CaptionFontSize");
+        assert_eq!(t.get(i, "CaptionFontSize"), "11");
     }
 }

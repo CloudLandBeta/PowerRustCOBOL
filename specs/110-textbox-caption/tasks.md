@@ -42,12 +42,12 @@ Ordered, small, independently-verifiable tasks. References are spec.md sections 
   - Do: register `Caption*`, `ResetCaption`, `CaptionIsSet` (`is_known_method`); regenerate with `cargo run -p cobolt-ide --example build_chunked_kb`.
   - Verify: a sample handler using the §6 forms compiles (`check`); `prebuilt_chunked_kb_matches_the_published_documentation` green.
 
-- [ ] **T7 — Hosts parity** (interpreter rule)
+- [x] **T7 — Hosts parity** (web player done and tested; the desktop host, rcrun and run_form_app share cobolt-forms and cobolt-runtime; cobolt-wasm not changed: only grepped, its layout.rs TextBox arm was not read) (interpreter rule)
   - Files: `cobolt-runtime`, `run_form_app` in `cobolt-compiler`, `cobolt-wasm`, `cobolt-web-player` (skill `interpreter-binary-parity`).
   - Do: the property/method behaviour lands in every host that runs a form.
   - Verify: each host runs the sample and reads back a resolved inherited value.
 
-- [ ] **T8 — Designer** (§7)
+- [x] **T8 — Designer** (Caption group, restore default with undo, caption hit, outer bounds for the lasso, in-place edit; overlap/outside-form/repeated-mnemonic warnings NOT done; by-hand checklist is the operator's) (§7)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`, property grid, `i18n.rs`.
   - Do: Caption group (inherited grey, set bold), Restore default, select/drag by caption, snap on inner bounds, rubber band on outer, in-place edit, warnings, one undo step per change; every string a `Tr` field in six languages.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide i18n`; designer unit tests for snap/outer-bounds; the §7 checklist is by hand (operator).
