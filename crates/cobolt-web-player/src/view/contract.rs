@@ -175,3 +175,54 @@ fn the_states_a_stylesheet_may_select_are_the_browsers_own_pseudo_classes() {
     }
     println!("display only ({}): {}", display.len(), display.join(", "));
 }
+
+/// R15, R16: the form's root, its base and each layer keep what makes them stacking contexts over the form's rectangle,
+/// whatever a stylesheet says — every guarded property is declared `!important` in `pr-base`, and the class the guard names
+/// is the one the layer element is created with.
+#[test]
+fn the_layer_guard_is_important_in_the_base_layer_and_names_the_layer_element() {
+    let base = crate::base_css::base_layer();
+    let pr_base = &base[base.find("@layer pr-base {").expect("the base layer")..];
+    let rule = |sel: &str| -> String {
+        let mut found = String::new();
+        let mut from = 0;
+        // Every rule with exactly this selector (the structure rule and the guard): their declarations together.
+        while let Some(i) = pr_base[from..].find(&format!("\n{sel} {{")) {
+            let start = from + i + 1;
+            let end = start + pr_base[start..].find('}').expect("closed");
+            found.push_str(&pr_base[start + sel.len() + 2..end]);
+            found.push(';');
+            from = end;
+        }
+        assert!(!found.is_empty(), "no rule for {sel}");
+        found
+    };
+    let mut printed = Vec::new();
+    for (sel, props) in [
+        (".pr-form-root", &["position", "inset", "overflow", "isolation", "z-index", "pointer-events"][..]),
+        (".pr-form-root:not([hidden])", &["display", "visibility"][..]),
+        (".pr-form-root > .pr-form", &["position", "inset", "z-index"][..]),
+        (".pr-form-layer", &["position", "inset", "isolation", "overflow", "pointer-events"][..]),
+        (".pr-form-layer:not([hidden])", &["display", "visibility"][..]),
+    ] {
+        let r = rule(sel);
+        for p in props {
+            let decl = r.split(';').map(str::trim).find(|d| d.starts_with(&format!("{p}:")) && d.ends_with("!important"));
+            assert!(decl.is_some(), "{sel}: {p} is not guarded: {r}");
+            printed.push(format!("{sel} {}", decl.unwrap()));
+        }
+    }
+    for k in [0usize, 1, cobolt_forms::model::MAX_LAYERS - 1] {
+        let z = format!(".pr-form-layer[data-layer-index=\"{k}\"] {{ z-index: {} !important; }}", k + 1);
+        assert!(pr_base.contains(&z), "{z}");
+    }
+    assert!(!pr_base.contains(&format!("data-layer-index=\"{}\"", cobolt_forms::model::MAX_LAYERS)), "one rule per layer a form may have");
+    // The guard names the element WASM-004 T18 creates for a layer, and not the popups' `.pr-layer`.
+    assert!(include_str!("../dom/instance.rs").contains("h::el(doc, \"div\", &[\"pr-form-layer\"])"));
+    assert!(include_str!("../dom/instance.rs").contains("h::el(doc, \"section\", &[\"pr-form-root\"])"));
+    assert!(!pr_base.contains(".pr-layer {") || !pr_base[pr_base.find(".pr-layer {").unwrap()..].split('}').next().unwrap().contains("!important"));
+    println!("layer guard: {} declarations + {} layer z-indexes", printed.len(), cobolt_forms::model::MAX_LAYERS);
+    for l in &printed {
+        println!("  {l}");
+    }
+}

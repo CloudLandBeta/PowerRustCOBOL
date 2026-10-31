@@ -231,8 +231,102 @@ pub fn move_path(
     if absolute_new.exists() {
         return Err(FolderOpError::Collision(rel_string(&new_relative)));
     }
+    // A form's stylesheet travels with it (WASM-007 Q2); neither moves when either would land on a file.
+    let sheet = form_stylesheet(&absolute_src).map(|s| (s, form_stylesheet_target(&absolute_new)));
+    if let Some((_, to)) = &sheet {
+        if to.exists() {
+            return Err(FolderOpError::Collision(rel_string(&cobolt_forms::web_themes::stylesheet_beside(&new_relative))));
+        }
+    }
     std::fs::rename(&absolute_src, &absolute_new).map_err(|e| FolderOpError::Io(e.to_string()))?;
+    if let Some((from, to)) = sheet {
+        if let Err(e) = std::fs::rename(&from, &to) {
+            // Put the form back, so the two never end up in different folders.
+            let _ = std::fs::rename(&absolute_new, &absolute_src);
+            return Err(FolderOpError::Io(e.to_string()));
+        }
+    }
     Ok(new_relative)
+}
+
+/// Is `path` a form file (`.cfrm`, `.wcfrm`, `.mcfrm`)?
+fn is_form_file(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["cfrm", "wcfrm", "mcfrm"].iter().any(|f| e.eq_ignore_ascii_case(f)))
+}
+
+/// The stylesheet beside a form file, when there is one (WASM-007 Q2: `<forms folder>/<Form>.css`).
+pub fn form_stylesheet(form_file: &Path) -> Option<PathBuf> {
+    let sheet = cobolt_forms::web_themes::stylesheet_beside(form_file);
+    (is_form_file(form_file) && sheet.is_file()).then_some(sheet)
+}
+
+fn form_stylesheet_target(form_file: &Path) -> PathBuf {
+    cobolt_forms::web_themes::stylesheet_beside(form_file)
+}
+
+/// What deleting a form does with its stylesheet (WASM-007 R6, user code is sacred).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SheetOnDelete {
+    /// The form has no stylesheet.
+    None,
+    /// The sheet is exactly as the IDE generated it: it goes with the form.
+    Delete(PathBuf),
+    /// The developer wrote in it (or it cannot be read as text): ask before deleting it.
+    Ask(PathBuf),
+}
+
+/// [`SheetOnDelete`] for a form file, read from disk as bytes.
+pub fn sheet_on_form_delete(form_file: &Path) -> SheetOnDelete {
+    let Some(sheet) = form_stylesheet(form_file) else {
+        return SheetOnDelete::None;
+    };
+    let untouched = std::fs::read(&sheet)
+        .ok()
+        .and_then(|b| String::from_utf8(b).ok())
+        .is_some_and(|t| cobolt_forms::web_themes::stylesheet_untouched(&t));
+    if untouched {
+        SheetOnDelete::Delete(sheet)
+    } else {
+        SheetOnDelete::Ask(sheet)
+    }
+}
+
+/// The first text of a new form's stylesheet (WASM-007 R4), from its theme; none on a Desktop project (R14).
+pub fn new_form_stylesheet(kind: cobolt_compiler::project_kind::ProjectKind, project_theme: Option<&str>, form: &cobolt_forms::Form) -> Option<String> {
+    (!kind.is_desktop()).then(|| cobolt_forms::web_themes::form_stylesheet_for(form, project_theme))
+}
+
+/// What a theme switch does to a form's stylesheet (WASM-007 R4, R6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SheetOnThemeSwitch {
+    /// The generated block is as written: the new text, the block replaced and every other byte kept.
+    Replace(String),
+    /// The developer edited the block (or removed its markers): ask; `can_replace` when the markers are there.
+    Ask { can_replace: bool },
+}
+
+/// [`SheetOnThemeSwitch`] for a sheet's text, switching to `theme` for the control types `used`.
+pub fn sheet_on_theme_switch(text: &str, theme: &str, used: &[cobolt_forms::ControlType]) -> SheetOnThemeSwitch {
+    use cobolt_forms::web_themes::{generated_block_untouched, replace_generated_block};
+    match replace_generated_block(text, theme, used) {
+        Some(new) if generated_block_untouched(text) => SheetOnThemeSwitch::Replace(new),
+        replaced => SheetOnThemeSwitch::Ask { can_replace: replaced.is_some() },
+    }
+}
+
+/// Write a new form's stylesheet beside it (WASM-007 R4) — never over a file that is already there.
+/// Returns the path written, `None` when one existed.
+pub fn create_form_stylesheet(form_file: &Path, text: &str) -> std::io::Result<Option<PathBuf>> {
+    let sheet = cobolt_forms::web_themes::stylesheet_beside(form_file);
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(&sheet) {
+        Ok(mut f) => {
+            use std::io::Write;
+            f.write_all(text.as_bytes())?;
+            Ok(Some(sheet))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// Project-relative path as a forward-slash string (the `cobolt.toml` form).
@@ -377,5 +471,88 @@ mod tests {
             Err(FolderOpError::Collision(_))
         ));
         fs::remove_dir_all(&root).ok();
+    }
+
+    /// WASM-007 T17: a form's stylesheet moves with it, and neither moves when the sheet would collide.
+    #[test]
+    fn move_path_carries_the_forms_stylesheet_and_refuses_a_collision_before_moving_either() {
+        let root = tmp();
+        fs::create_dir_all(root.join("webforms/a")).unwrap();
+        fs::create_dir_all(root.join("webforms/b")).unwrap();
+        fs::write(root.join("webforms/a/order.wcfrm"), b"x").unwrap();
+        let odd = b"/* mine */\r\n#BTN-1   {color:red}\r\n\r\n".to_vec();
+        fs::write(root.join("webforms/a/order.css"), &odd).unwrap();
+        let moved = move_path(&root, Path::new("webforms/a/order.wcfrm"), Path::new("webforms/b")).unwrap();
+        assert_eq!(moved, PathBuf::from("webforms/b/order.wcfrm"));
+        assert_eq!(fs::read(root.join("webforms/b/order.css")).unwrap(), odd, "moved byte for byte");
+        assert!(!root.join("webforms/a/order.css").exists());
+
+        // The sheet's place is taken: nothing moves.
+        fs::write(root.join("webforms/a/order.css"), b"theirs").unwrap();
+        assert!(matches!(
+            move_path(&root, Path::new("webforms/b/order.wcfrm"), Path::new("webforms/a")),
+            Err(FolderOpError::Collision(c)) if c == "webforms/a/order.css"
+        ));
+        assert!(root.join("webforms/b/order.wcfrm").is_file() && root.join("webforms/b/order.css").is_file());
+        assert_eq!(fs::read(root.join("webforms/a/order.css")).unwrap(), b"theirs");
+
+        // A file that is not a form keeps its own name only.
+        fs::write(root.join("webforms/b/notes.txt"), b"n").unwrap();
+        fs::write(root.join("webforms/b/notes.css"), b"n").unwrap();
+        move_path(&root, Path::new("webforms/b/notes.txt"), Path::new("webforms/a")).unwrap();
+        assert!(root.join("webforms/b/notes.css").is_file());
+        println!("move_path: order.wcfrm + order.css moved together, CRLF sheet byte-identical; a taken sheet name refused both");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    /// WASM-007 R6, T17: deleting a form deletes a sheet only as the IDE generated it; any other asks.
+    /// AC4 (round-trip half): a new sheet is never written over an existing file, and the bytes the
+    /// IDE writes are read back identical.
+    #[test]
+    fn a_forms_sheet_is_deleted_with_it_only_when_untouched_and_never_overwritten() {
+        let root = tmp();
+        fs::create_dir_all(&root).unwrap();
+        let form = root.join("order.wcfrm");
+        fs::write(&form, b"x").unwrap();
+        assert_eq!(sheet_on_form_delete(&form), SheetOnDelete::None);
+        // A new web or mobile form gets a sheet from its theme; a desktop one none.
+        use cobolt_compiler::project_kind::ProjectKind;
+        let mut model = cobolt_forms::Form::new("ORDER", "Order", 640, 480);
+        model.controls.push(cobolt_forms::Control::new("BTN-1", cobolt_forms::ControlType::Button, 0, 0));
+        assert_eq!(new_form_stylesheet(ProjectKind::Desktop, Some("spatial"), &model), None);
+        assert!(new_form_stylesheet(ProjectKind::Mobile, None, &model).unwrap().contains("\"liquid-glass\""));
+        let generated = new_form_stylesheet(ProjectKind::Web, Some("spatial"), &model).unwrap();
+        assert!(generated.contains("\"spatial\"") && generated.contains(".pr-button"), "{generated}");
+        assert_eq!(create_form_stylesheet(&form, &generated).unwrap(), Some(root.join("order.css")));
+        assert_eq!(fs::read(root.join("order.css")).unwrap(), generated.as_bytes());
+        assert_eq!(sheet_on_form_delete(&form), SheetOnDelete::Delete(root.join("order.css")));
+        let odd = format!("{generated}/* mine */\r\n.x{{color:red}}  \r\n");
+        fs::write(root.join("order.css"), &odd).unwrap();
+        assert_eq!(sheet_on_form_delete(&form), SheetOnDelete::Ask(root.join("order.css")));
+        assert_eq!(create_form_stylesheet(&form, &generated).unwrap(), None, "an existing sheet is never overwritten");
+        assert_eq!(fs::read(root.join("order.css")).unwrap(), odd.as_bytes(), "byte for byte");
+        let edited_block = generated.replacen(".pr-button {", ".pr-button  {", 1);
+        fs::write(root.join("order.css"), &edited_block).unwrap();
+        assert_eq!(sheet_on_form_delete(&form), SheetOnDelete::Ask(root.join("order.css")));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    /// WASM-007 T18: an untouched sheet follows the theme with the developer's section byte-identical;
+    /// a touched one is a question, and nothing is written until it is answered.
+    #[test]
+    fn a_theme_switch_replaces_only_an_untouched_block_and_asks_otherwise() {
+        use cobolt_forms::ControlType;
+        let used = [ControlType::Button];
+        let mine = "\r\n/* mine */  #BTN-1{color:red}\r\n";
+        let sheet = format!("{}{mine}", cobolt_forms::web_themes::form_stylesheet("liquid-glass", &used));
+        let SheetOnThemeSwitch::Replace(new) = sheet_on_theme_switch(&sheet, "elegance", &used) else {
+            panic!("an untouched block follows the theme");
+        };
+        assert!(new.ends_with(mine), "the developer's section is byte-identical");
+        assert!(new.contains("var(--pr-accent); border-color: var(--pr-accent)"), "Elegance's button: {new}");
+        let touched = sheet.replacen(".pr-button {", ".pr-button { color: hotpink; ", 1);
+        assert_eq!(sheet_on_theme_switch(&touched, "elegance", &used), SheetOnThemeSwitch::Ask { can_replace: true });
+        assert_eq!(sheet_on_theme_switch("a { b: c }", "elegance", &used), SheetOnThemeSwitch::Ask { can_replace: false });
+        println!("theme switch: untouched → replaced ({} → {} bytes, the {}-byte section kept), touched → ask", sheet.len(), new.len(), mine.len());
     }
 }

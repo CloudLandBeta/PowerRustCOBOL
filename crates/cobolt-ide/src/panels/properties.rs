@@ -703,6 +703,8 @@ pub struct InspectorAction {
     /// Spec 091 R31 — the layer the selected controls were sent to from the `Layer`
     /// row: a layer's name, or `Form` (the base).
     pub move_to_layer: Option<String>,
+    /// WASM-007 R5 — the form's **Stylesheet…** button: open its sheet in the stylesheet modal.
+    pub open_stylesheet: bool,
 }
 
 /// Which pass of the type-specific properties is being drawn — see
@@ -4495,6 +4497,13 @@ pub struct PropertiesPanel {
     /// Mobile, so the form's `Instances` row is shown (a Desktop form has no
     /// fixed memory and the property means nothing there).
     pub web_project: bool,
+    /// WASM-007 R12 — the project's and the form's stylesheets, `(label, text)` in cascade order,
+    /// set by the app on a web or mobile project (empty otherwise). The designer's badge reads them too.
+    pub css_sheets: Vec<(String, String)>,
+    /// When the app last looked at the sheets on disk.
+    pub css_sheets_checked: Option<std::time::Instant>,
+    /// The marks of the inspected control, and what they were computed from.
+    css_marks: Option<(u64, std::collections::HashMap<String, String>)>,
     /// Spec 091 — set by the designer each frame: the layer the tab bar has active,
     /// when one is. With no control selected the pane then shows the layer — its
     /// name and its backdrop — instead of the form, since a layer has the form's
@@ -4626,11 +4635,49 @@ impl PropertiesPanel {
         self.binding_editor.is_some()
     }
 
+    /// WASM-007 R12 — the marks of control `c`: each property a stylesheet rule or its `CssStyle`
+    /// overrides, with the text its mark's tooltip says. Computed again only when the control's
+    /// classes, style, place or the sheets change.
+    fn css_marks_for(&mut self, form: &Form, c: &Control, tr: &Tr) -> std::collections::HashMap<String, String> {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (&c.id, &c.parent, &c.layer, &self.css_sheets, tr.css_overridden_by).hash(&mut h);
+        for key in ["CssClass", "CssStyle"] {
+            c.get_prop(key).map(|v| v.as_str().to_owned()).hash(&mut h);
+        }
+        let stamp = h.finish();
+        if let Some((s, marks)) = &self.css_marks {
+            if *s == stamp {
+                return marks.clone();
+            }
+        }
+        let sheets: Vec<(&str, &str)> = self.css_sheets.iter().map(|(l, t)| (l.as_str(), t.as_str())).collect();
+        let found = cobolt_forms::css_overrides::overrides(form, &c.id, &sheets);
+        let marks: std::collections::HashMap<String, String> = found
+            .properties
+            .iter()
+            .map(|o| {
+                let at = o.file.as_deref().map(|f| format!("{f}:{}", o.line));
+                let text = match (at, o.certain) {
+                    (None, _) => tr.css_overridden_by_style.to_owned(),
+                    (Some(at), true) => tr.css_overridden_by.replacen("{}", &at, 1),
+                    (Some(at), false) => tr.css_may_be_overridden.replacen("{}", &at, 1),
+                };
+                (o.property.to_ascii_lowercase(), text)
+            })
+            .collect();
+        self.css_marks = Some((stamp, marks.clone()));
+        marks
+    }
+
     pub fn new() -> Self {
         Self {
             overridden: Default::default(),
             form_size_locked: false,
             web_project: false,
+            css_sheets: Vec::new(),
+            css_sheets_checked: None,
+            css_marks: None,
             layer_view: None,
             hints: Default::default(),
             caption_warn: Vec::new(),
@@ -4816,6 +4863,12 @@ impl PropertiesPanel {
         }
         let no_match = if shown_tab == InspectorTab::Events { tr.event_search_none } else { tr.prop_search_none };
         OVERRIDDEN.with(|o| *o.borrow_mut() = self.overridden.clone());
+        let single = multi.as_ref().is_none_or(|m| m.count <= 1);
+        let marks = match ctrl.filter(|_| self.web_project && single) {
+            Some(c) => self.css_marks_for(form, c, tr),
+            None => Default::default(),
+        };
+        CSS_MARKS.with(|m| *m.borrow_mut() = marks);
         RESET_LABEL.with(|l| *l.borrow_mut() = tr.prop_reset_to_base.to_owned());
         ScrollArea::vertical()
             .id_salt("properties_scroll")
@@ -5025,6 +5078,9 @@ impl PropertiesPanel {
 
                 // ── Appearance ────────────────────────────────────────────────────────
                 self.show_appearance_grid(ui, ctrl, &id, action, tr);
+
+                // ── CSS (WASM-007 R2) — web and mobile forms only ──────────────────────
+                self.show_css_section(ui, ctrl, &id, action, tr);
 
                 // ── Drop Shadow ───────────────────────────────────────────────────────
                 self.show_shadow_grid(ui, ctrl, &id, action, tr);
@@ -12364,6 +12420,46 @@ impl PropertiesPanel {
     /// WASM-005 R14, R16 — on a web or mobile form a control that works through the backend
     /// names its backend configuration and who may call it. A desktop form never shows (or
     /// writes) these rows, so a `.cfrm` is saved exactly as before.
+    /// WASM-007 R2, R14: the control's CSS class names and its inline CSS, on a web or mobile form
+    /// only. The inline CSS is checked as a declaration list as it is typed; its findings show under it.
+    /// An empty value removes the property (`designer::apply_structural_prop`).
+    fn show_css_section(&mut self, ui: &mut Ui, ctrl: &Control, id: &str, action: &mut InspectorAction, tr: &Tr) {
+        if !self.web_project {
+            return;
+        }
+        section_header(ui, tr.sec_css);
+        let class = ctrl.get_prop("CssClass").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        text_row_hint(ui, &mut self.hints, id, "CssClass", &class, tr.lbl_css_class, "", action);
+        let style = ctrl.get_prop("CssStyle").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        let buf_key = format!("{id}-CssStyle");
+        let wid = egui::Id::new(&buf_key);
+        let buf = self.text_bufs.entry(buf_key).or_insert_with(|| style.clone());
+        if *buf != style && !ui.memory(|m| m.has_focus(wid)) {
+            *buf = style.clone();
+        }
+        property_row_keyed(ui, tr.lbl_css_style, Some("CssStyle"), |ui| {
+            let resp = ui.add(
+                egui::TextEdit::multiline(buf)
+                    .id(wid)
+                    .desired_rows(3)
+                    .font(egui::TextStyle::Monospace)
+                    .desired_width(ui.available_width()),
+            );
+            if resp.lost_focus() && *buf != style {
+                action.set_props.push((id.to_owned(), "CssStyle".to_owned(), PropValue::String(buf.clone())));
+            }
+        });
+        let findings = cobolt_forms::stylesheet_lint::lint_declarations(buf, &cobolt_forms::stylesheet_lint::Options::default());
+        for d in &findings {
+            let color = match d.severity() {
+                cobolt_forms::stylesheet_lint::Severity::Error => Color32::from_rgb(0xE5, 0x48, 0x4D),
+                cobolt_forms::stylesheet_lint::Severity::Warning => Color32::from_rgb(0xD9, 0x9A, 0x2B),
+            };
+            ui.label(RichText::new(super::stylesheet_modal::lint_line(tr, d)).small().color(color));
+        }
+        ui.add_space(4.0);
+    }
+
     fn show_backend_section(&mut self, ui: &mut Ui, ctrl: &Control, id: &str, action: &mut InspectorAction, tr: &Tr) {
         use cobolt_forms::web_class::{backend_config, uses_backend, BACKEND_CONFIG, BACKEND_ROLES, DEFAULT_BACKEND_ROLES};
         if !self.web_project || !uses_backend(&ctrl.control_type) {
@@ -12579,6 +12675,16 @@ impl PropertiesPanel {
                 }
                 if !search_hides_extras() {
                     ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
+                }
+
+                // ── CSS (WASM-007 R5): a web or mobile form's own stylesheet ─────────
+                if self.web_project {
+                    section_header(ui, tr.sec_css);
+                    property_row_keyed(ui, tr.sec_css, Some("Stylesheet"), |ui| {
+                        if ui.button(tr.btn_stylesheet).clicked() {
+                            action.open_stylesheet = true;
+                        }
+                    });
                 }
 
                 // ── Target device ─────────────────────────────────────────────────────
@@ -14028,6 +14134,10 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
                         RESET_REQUEST.with(|r| *r.borrow_mut() = Some(key.clone()));
                     }
                 }
+                // WASM-007 R12 — a stylesheet or the control's Style (CSS) wins over this value.
+                if let Some(tip) = CSS_MARKS.with(|m| m.borrow().get(&key.to_ascii_lowercase()).cloned()) {
+                    ui.label(RichText::new("CSS").small().strong().color(crate::theme::active().accent)).on_hover_text(tip);
+                }
                 let r = ui.add(egui::Label::new(shown).wrap());
                 match prop_help_text(ui, &key) {
                     Some(t) => {
@@ -14088,6 +14198,8 @@ thread_local! {
     static OVERRIDDEN: std::cell::RefCell<std::collections::HashSet<String>> = std::cell::RefCell::new(Default::default());
     static RESET_LABEL: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
     static RESET_REQUEST: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    /// WASM-007 R12 — per lower-case property key, the "overridden by CSS" text of its mark.
+    static CSS_MARKS: std::cell::RefCell<std::collections::HashMap<String, String>> = std::cell::RefCell::new(Default::default());
 }
 
 thread_local! {
@@ -16748,6 +16860,129 @@ mod tests {
         assert!(!has(&labels(&form, "VWR-1", false, tr), tr.lbl_viewer_open_extensions), "a desktop Viewer does not");
         assert!(!has(&labels(&form, "DB-1", true, tr), tr.lbl_viewer_open_extensions), "only a Viewer has them");
         println!("WASM-005 T8: Backend rows on a web SqlDatabase, none on a desktop one or on a web Button");
+    }
+
+    /// WASM-007 T20 (R2, R14): `CssClass` and "Style (CSS)" on a web or mobile form only; the inline
+    /// CSS's findings show under it; the rows set the properties, an empty value removes one, and a
+    /// desktop form saved carries neither key.
+    /// WASM-007 R12 / T22: a stylesheet rule that matches the control marks the property its CSS
+    /// overrides, with file and line; a rule under `@media` "may"; the inline style says so.
+    #[test]
+    fn a_property_a_stylesheet_overrides_is_marked_with_its_file_and_line() {
+        let tr = &crate::i18n::Language::English.tr();
+        let mut form = Form::new("F", "F", 800, 600);
+        let mut btn = Control::new("BTN-1", ControlType::Button, 0, 40);
+        btn.set_prop("CssClass", "wide");
+        btn.set_prop("CssStyle", "cursor: wait");
+        form.controls.push(btn);
+        let mut panel = PropertiesPanel::new();
+        panel.web_project = true;
+        panel.css_sheets = vec![
+            ("webforms/application.css".into(), "\n.wide { color: blue }\n".into()),
+            ("webforms/F.css".into(), "#BTN-1 { background-color: red }\n@media (width < 600px) {\n  .wide { padding: 2px }\n}\n".into()),
+        ];
+        let c = form.find_control("BTN-1").unwrap().clone();
+        let marks = panel.css_marks_for(&form, &c, tr);
+        assert_eq!(marks.get("backgroundcolor").map(String::as_str), Some("Overridden by CSS (webforms/F.css:1)"));
+        assert_eq!(marks.get("foregroundcolor").map(String::as_str), Some("Overridden by CSS (webforms/application.css:2)"));
+        assert!(marks.get("paddingleft").is_some_and(|t| t.starts_with("May be overridden by CSS (webforms/F.css:3)")), "{marks:?}");
+        assert_eq!(marks.get("cursor").map(String::as_str), Some(tr.css_overridden_by_style));
+        assert!(!marks.contains_key("bold"));
+
+        // The mark is drawn on the row (the word CSS beside the name) on a web form only.
+        let mut shown = |web: bool| {
+            let ctx = egui::Context::default();
+            panel.web_project = web;
+            panel.css_marks = None;
+            let mut full = ctx.run_ui(
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 9000.0))), ..Default::default() },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, &form, form.find_control("BTN-1"), &[], tr);
+                    });
+                },
+            );
+            full.textures_delta.clear();
+            fn count(shape: &egui::Shape) -> usize {
+                match shape {
+                    egui::Shape::Text(t) => usize::from(t.galley.text() == "CSS"),
+                    egui::Shape::Vec(v) => v.iter().map(count).sum(),
+                    _ => 0,
+                }
+            }
+            full.shapes.iter().map(|c| count(&c.shape)).sum::<usize>()
+        };
+        assert!(shown(true) >= 2, "the marked rows");
+        assert_eq!(shown(false), 0, "a desktop form has no marks");
+    }
+
+    #[test]
+    fn the_css_rows_show_on_a_web_form_only_and_an_empty_value_removes_the_property() {
+        fn labels(form: &Form, id: &str, web: bool, tr: &Tr) -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            panel.web_project = web;
+            let mut out = Vec::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 6000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, form.find_control(id), &[], tr);
+                    });
+                },
+            );
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            full.textures_delta.clear();
+            out
+        }
+        let has = |l: &[String], s: &str| l.iter().any(|t| t == s || t.starts_with(s));
+        let tr = &crate::i18n::Language::English.tr();
+        let mut form = Form::new("F", "F", 800, 600);
+        let mut btn = Control::new("BTN-1", ControlType::Button, 0, 40);
+        btn.set_prop("CssStyle", "colr: red;\nbackground: url(https://evil.example/x.png)");
+        form.controls.push(btn);
+        let web = labels(&form, "BTN-1", true, tr);
+        assert!(has(&web, tr.lbl_css_class) && has(&web, tr.lbl_css_style), "a web form lists both rows");
+        assert!(has(&web, "line 1: `colr` is not a CSS property"), "{web:?}");
+        assert!(web.iter().any(|t| t.starts_with("line 2: the stylesheet loads `https://evil.example/x.png`")), "{web:?}");
+        let desktop = labels(&form, "BTN-1", false, tr);
+        assert!(!has(&desktop, tr.lbl_css_class) && !has(&desktop, tr.lbl_css_style), "a desktop form does not");
+        // The form's own sheet opens from its Stylesheet… button, on a web form only (R5).
+        assert!(has(&labels(&form, "", true, tr), tr.btn_stylesheet), "the web form offers its stylesheet");
+        assert!(!has(&labels(&form, "", false, tr), tr.btn_stylesheet), "a desktop form does not");
+
+        let mut d = crate::panels::designer::DesignerPanel::new(Form::new("F", "F", 400, 300));
+        d.form.controls.push(Control::new("BTN-1", ControlType::Button, 0, 0));
+        d.set_property("BTN-1", "CssClass", PropValue::String("card wide".into()));
+        d.set_property("BTN-1", "CssStyle", PropValue::String("color: red".into()));
+        let c = d.form.find_control("BTN-1").unwrap();
+        assert_eq!(c.get_prop("CssClass").map(|v| v.as_str().to_owned()).as_deref(), Some("card wide"));
+        assert_eq!(c.get_prop("CssStyle").map(|v| v.as_str().to_owned()).as_deref(), Some("color: red"));
+        d.set_property("BTN-1", "CssClass", PropValue::String("  ".into()));
+        assert!(d.form.find_control("BTN-1").unwrap().get_prop("CssClass").is_none(), "empty removes it");
+        d.undo();
+        assert!(d.form.find_control("BTN-1").unwrap().get_prop("CssClass").is_some(), "and the removal undoes");
+
+        let path = std::env::temp_dir().join(format!("prc-css-rows-{}.cfrm", std::process::id()));
+        let mut desktop_form = Form::new("D", "D", 400, 300);
+        desktop_form.controls.push(Control::new("BTN-1", ControlType::Button, 0, 0));
+        cobolt_forms::xml::save_form(&desktop_form, &path).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(!saved.contains("CssClass") && !saved.contains("CssStyle"), "a desktop form carries neither: {saved}");
+        println!("WASM-007 T20: CSS rows on a web Button, none on a desktop one; 2 findings shown; empty removes CssClass (undoable)");
     }
 
     /// **The control's type is readable beside its name.** The Identity header

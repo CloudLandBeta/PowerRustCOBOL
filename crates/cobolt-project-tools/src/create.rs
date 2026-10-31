@@ -253,6 +253,16 @@ pub fn starter_form(
     mobile: Option<(cobolt_compiler::project_kind::MobilePlatform, cobolt_compiler::project_kind::DeviceClass)>,
     spatial: bool,
 ) -> String {
+    cobolt_forms::form_to_string(&starter_form_model(project_name, kind, mobile, spatial)).unwrap_or_default()
+}
+
+/// The starter form [`starter_form`] writes, as a model.
+pub fn starter_form_model(
+    project_name: &str,
+    kind: ProjectKind,
+    mobile: Option<(cobolt_compiler::project_kind::MobilePlatform, cobolt_compiler::project_kind::DeviceClass)>,
+    spatial: bool,
+) -> cobolt_forms::Form {
     use cobolt_forms::{Control, ControlType, EventBinding, Form};
     let (w, h) = form_size(kind, mobile);
     let shown = project_name.strip_suffix(".project").unwrap_or(project_name);
@@ -323,7 +333,7 @@ pub fn starter_form(
         // The IDE's own new form on the default theme: the glass shows through.
         form.background_color = "00000000".into();
     }
-    cobolt_forms::form_to_string(&form).unwrap_or_default()
+    form
 }
 
 /// The rail's sidecar: one row, "Home", sealed as the designer seals a menu (`menu::save_menu` writes the
@@ -439,9 +449,20 @@ pub fn plan(request: &CreateRequest, catalogue: &[TemplateDescriptor]) -> Result
                 kind.form_extension()
             ));
         }
+        // The project stylesheet (WASM-007 Q3) at the path the manifest's default names.
+        files.push(PlannedFile {
+            rel: format!("{}/{}", kind.forms_folder(), cobolt_compiler::project_kind::APPLICATION_STYLESHEET),
+            contents: cobolt_forms::web_themes::project_stylesheet(),
+        });
         if sample {
             let rel = format!("{}/{}.{}", kind.forms_folder(), MAIN_FORM_NAME.to_lowercase(), kind.form_extension());
-            files.push(PlannedFile { rel: rel.clone(), contents: starter_form(&stored, kind, t.mobile, wears_spatial) });
+            let form = starter_form_model(&stored, kind, t.mobile, wears_spatial);
+            files.push(PlannedFile { rel: rel.clone(), contents: cobolt_forms::form_to_string(&form).unwrap_or_default() });
+            // The form's own stylesheet beside it (Q2), generated from the project's theme (R4).
+            files.push(PlannedFile {
+                rel: cobolt_forms::web_themes::stylesheet_beside(Path::new(&rel)).to_string_lossy().replace('\\', "/"),
+                contents: cobolt_forms::web_themes::form_stylesheet_for(&form, Some(&theme)),
+            });
             if kind == ProjectKind::Web {
                 files.push(PlannedFile { rel: format!("{}/{SHELL_RAIL_ID}.menu.yaml", kind.forms_folder()), contents: starter_menu() });
             }
@@ -827,5 +848,28 @@ mod form_extension_tests {
         wrong.main = "src/x.cbl".into();
         let e = plan(&wrong, &catalogue).unwrap_err();
         assert!(e.contains("webforms/main-form.wcfrm"), "{e}");
+    }
+
+    /// WASM-007 R4, Q2, Q3: a Web or Mobile project starts with its project stylesheet and the main
+    /// form's own sheet beside the form; a Desktop project has no `.css`.
+    #[test]
+    fn a_web_or_mobile_project_starts_with_its_stylesheets_and_a_desktop_one_with_none() {
+        let catalogue = templates::builtin();
+        for (template, app, sheet) in [
+            ("web", "webforms/application.css", "webforms/main-form.css"),
+            ("android-phone", "mobileforms/application.css", "mobileforms/main-form.css"),
+        ] {
+            let p = plan(&CreateRequest::new("Shop").template(template), &catalogue).unwrap();
+            let css: Vec<&str> = p.files.iter().map(|f| f.rel.as_str()).filter(|r| r.ends_with(".css")).collect();
+            println!("{template:<14} {css:?}");
+            assert_eq!(css, [app, sheet]);
+            let form_sheet = &p.files.iter().find(|f| f.rel == sheet).unwrap().contents;
+            assert!(cobolt_forms::web_themes::stylesheet_untouched(form_sheet), "{form_sheet}");
+            let theme = cobolt_forms::theme::resolve_theme_id(Some(&p.theme), None);
+            assert!(form_sheet.contains(&format!("\"{theme}\"")), "generated from the project's theme {theme}: {form_sheet}");
+            assert!(form_sheet.contains(".pr-button") && form_sheet.contains(".pr-textbox"), "the starter form's types");
+        }
+        let desktop = plan(&CreateRequest::new("Shop"), &catalogue).unwrap();
+        assert!(desktop.files.iter().all(|f| !f.rel.ends_with(".css")), "a Desktop project has no stylesheet");
     }
 }

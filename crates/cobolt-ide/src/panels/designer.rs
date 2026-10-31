@@ -821,6 +821,8 @@ struct DesignerState<'a> {
 /// The fill of the yellow animation badge the designer lays over a control that
 /// has animations.
 const ANIM_BADGE_FILL: Color32 = Color32::from_rgba_premultiplied(255, 180, 0, 180);
+/// The fill of the CSS badge (WASM-007 R12): a control styled by CSS the designer does not paint.
+const CSS_BADGE_FILL: Color32 = Color32::from_rgba_premultiplied(40, 110, 220, 220);
 
 /// The layer a control is declared in: its outermost container's (spec 091 R8).
 fn root_layer<'a>(by_id: &HashMap<&str, &'a Control>, c: &'a Control, laps: usize) -> Option<&'a str> {
@@ -2877,6 +2879,13 @@ pub struct DesignerPanel {
     /// by `App::drain_main_form_changes`.
     pub main_form_changes: Vec<bool>,
 
+    /// WASM-007 R4, R6 — a theme switch made by the developer (the theme before it), awaiting the
+    /// app's update of the form's stylesheet. Drained every frame by `App::drain_theme_switches`.
+    pub theme_switches: Vec<Option<String>>,
+    /// WASM-007 R12 — the controls a stylesheet rule or their `CssStyle` styles (upper-case ids),
+    /// and what they were found for; the canvas badges them.
+    css_styled: (u64, std::collections::HashSet<String>),
+
     pub dirty: bool,
     pub close_requested: bool,
     /// Set when the user tries to close a dirty designer — shows the Save/Discard/Cancel dialog.
@@ -3255,6 +3264,8 @@ impl DesignerPanel {
             pending_history_confirm: None,
             menu_cache_dirty: Vec::new(),
             main_form_changes: Vec::new(),
+            theme_switches: Vec::new(),
+            css_styled: Default::default(),
             dirty: false,
             close_requested: false,
             close_confirm: false,
@@ -7811,10 +7822,12 @@ impl DesignerPanel {
                 return;
             }
             let before = Box::new(self.style_snapshot());
+            let previous = self.form.theme.clone();
             self.apply(Cmd::SetFormTheme {
                 before,
                 theme: value,
             });
+            self.theme_switches.push(previous);
             return;
         }
         if canonical == "Breakpoints" {
@@ -9068,6 +9081,35 @@ impl DesignerPanel {
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
+
+    /// WASM-007 R12 — the controls the canvas badges: a rule of the developer's stylesheets
+    /// (`properties.css_sheets`) matches them, or they have a `CssStyle`. Found again only when the
+    /// sheets or a control's id, type, place, classes or style change.
+    pub fn css_styled_ids(&mut self) -> std::collections::HashSet<String> {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.properties.css_sheets.hash(&mut h);
+        for c in &self.form.controls {
+            (&c.id, c.control_type.as_str(), &c.parent, &c.layer).hash(&mut h);
+            for key in ["CssClass", "CssStyle"] {
+                c.get_prop(key).map(|v| v.as_str().to_owned()).hash(&mut h);
+            }
+        }
+        let stamp = h.finish();
+        if self.css_styled.0 != stamp {
+            let sheets: Vec<(&str, &str)> = self.properties.css_sheets.iter().map(|(l, t)| (l.as_str(), t.as_str())).collect();
+            let has_style = |c: &Control| c.get_prop("CssStyle").is_some_and(|v| !v.as_str().trim().is_empty());
+            let styled = self
+                .form
+                .controls
+                .iter()
+                .filter(|c| has_style(c) || (!sheets.is_empty() && cobolt_forms::css_overrides::overrides(&self.form, &c.id, &sheets).styled))
+                .map(|c| c.id.to_ascii_uppercase())
+                .collect();
+            self.css_styled = (stamp, styled);
+        }
+        self.css_styled.1.clone()
+    }
 
     pub fn show(
         &mut self,
@@ -10678,6 +10720,7 @@ impl DesignerPanel {
 
                 // Draw controls sorted by z_order
                 let selected_ids = self.selected_ids.clone();
+                let css_styled = self.css_styled_ids();
                 let (form_w, form_h) = self.canvas_size();
 
                 // Build render list in container tree order — parents before
@@ -10988,6 +11031,15 @@ impl DesignerPanel {
                                 Color32::WHITE,
                             );
                         }
+                    }
+                    // WASM-007 R12 — CSS the designer does not paint: a badge at the top-left corner.
+                    let css_centre = egui::pos2(crect.min.x + 2.0, crect.min.y + 2.0);
+                    if css_styled.contains(&ctrl.id.to_ascii_uppercase()) && !covered(css_centre) {
+                        let r = egui::Rect::from_center_size(css_centre, Vec2::splat(12.0));
+                        painter.circle_filled(r.center(), 5.0, CSS_BADGE_FILL);
+                        painter.text(r.center(), egui::Align2::CENTER_CENTER, "#", egui::FontId::proportional(7.0), Color32::WHITE);
+                        ui.interact(r, egui::Id::new(("css_badge", ctrl.id.as_str())), egui::Sense::hover())
+                            .on_hover_text(crate::ui_text::idef("Styled by CSS the designer does not paint", &[]));
                     }
                     // Animation badge tooltip — hover to see the animation list.
                     let badge_centre = egui::pos2(crect.max.x - 2.0, crect.min.y + 2.0);
@@ -18358,6 +18410,16 @@ fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
             }
         }
         "tab" => ctrl.tab = Some(value.as_i64() as u32),
+        // WASM-007 R2, R14: the CSS properties exist only while they say something, so a form never
+        // carries an empty one (and a desktop form, which has no rows for them, never carries one).
+        "cssclass" | "cssstyle" => {
+            let canonical = if lower_key == "cssclass" { "CssClass" } else { "CssStyle" };
+            if value.as_str().trim().is_empty() {
+                ctrl.properties.swap_remove(canonical);
+            } else {
+                ctrl.properties.insert(canonical.to_owned(), value.clone());
+            }
+        }
         _ => {
             let canonical = canonical_prop_key(ctrl, key);
             ctrl.properties.insert(canonical, value.clone());
@@ -22836,6 +22898,38 @@ mod text_align_tests {
         );
         assert!(back.contains_key("ADDED-1"), "a control added on the other theme stays");
         println!("theme {other} and back to {theme:?}: {compared} control properties restored");
+    }
+
+    /// WASM-007 R12 / T22: the canvas badges a control its `CssStyle` or a developer rule styles,
+    /// and not one only the generated theme block (which the properties beat) names.
+    #[test]
+    fn the_css_badge_marks_styled_controls_and_not_the_theme_blocks() {
+        let mut d = DesignerPanel::new(Form::new("F", "F", 400, 300));
+        let mut a = Control::new("BTN-1", ControlType::Button, 0, 0);
+        a.set_prop("CssStyle", "color: red");
+        let mut b = Control::new("BTN-2", ControlType::Button, 0, 40);
+        b.set_prop("CssClass", "card");
+        d.form.controls.extend([a, b, Control::new("BTN-3", ControlType::Button, 0, 80)]);
+        assert_eq!(d.css_styled_ids(), ["BTN-1".to_owned()].into_iter().collect(), "with no sheet, the inline style alone");
+        let generated = cobolt_forms::web_themes::form_stylesheet("elegance", &[ControlType::Button]);
+        d.properties.css_sheets = vec![("webforms/F.css".into(), format!("{generated}.card {{ border-color: red }}\n"))];
+        let styled = d.css_styled_ids();
+        assert!(styled.contains("BTN-1") && styled.contains("BTN-2"), "{styled:?}");
+        assert!(!styled.contains("BTN-3"), "the theme's type rule alone is no badge: {styled:?}");
+    }
+
+    #[test]
+    fn a_theme_switch_is_recorded_for_the_stylesheet_and_its_undo_is_not() {
+        // WASM-007 T18: the app updates (or asks about) the form's stylesheet after each switch the
+        // developer makes; the Cancel of that question undoes the switch and must not ask again.
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.set_form_prop("Theme", "elegance".into());
+        d.set_form_prop("Theme", "elegance".into());
+        assert_eq!(d.theme_switches, vec![None], "one switch, from no theme of its own; a no-op is not one");
+        d.theme_switches.clear();
+        d.undo();
+        assert_eq!(d.form.theme, None);
+        assert!(d.theme_switches.is_empty(), "an undo is not a switch to ask about");
     }
 
     #[test]

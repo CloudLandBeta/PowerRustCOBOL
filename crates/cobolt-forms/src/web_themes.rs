@@ -16,7 +16,7 @@
 //! inputs inside a drawn frame, `[hidden]` — and repeats the theme's resets and its default custom
 //! properties, so a whole-theme file that omits one still leaves a working page.
 
-use crate::model::ControlType;
+use crate::model::{Control, ControlType, Form};
 use crate::theme::{resolve_theme_id, ELEGANCE, LIQUID_GLASS, SPATIAL};
 
 /// The custom properties every web theme defines and a host page may set on the mount element
@@ -249,7 +249,7 @@ fn block_rules(id: &str, used: &[ControlType]) -> String {
     let mut out = String::new();
     for rule in theme_rules(id).lines().filter(|l| !l.trim().is_empty()) {
         let selector = rule.split('{').next().unwrap_or("");
-        if names_class(selector, "pr-form") || classes.iter().any(|c| names_class(selector, c)) {
+        if names_class(selector, "pr-form") || names_class(selector, "pr-form-root") || classes.iter().any(|c| names_class(selector, c)) {
             out.push_str("  ");
             out.push_str(rule.trim());
             out.push('\n');
@@ -265,10 +265,59 @@ fn block_rules(id: &str, used: &[ControlType]) -> String {
 pub fn form_stylesheet(theme: &str, used: &[ControlType]) -> String {
     let id = resolve_theme_id(Some(theme), None);
     let block = format!("@layer pr-theme {{\n{}}}\n", block_rules(&id, used));
+    format!("{}{BEGIN} {} */\n{block}{END}{TAIL}", banner(&id), hash(&block))
+}
+
+/// The banner of a form's generated stylesheet, for theme `id`.
+fn banner(id: &str) -> String {
     format!(
-        "/* The stylesheet of this form, generated from the web theme \"{id}\". It is yours to edit.\n   The block between the two markers is the theme's look for the controls of this form, in the theme's layer:\n   the Properties panel's values win over it. A rule you write after the end marker wins over both. */\n{BEGIN} {} */\n{block}{END}\n\n/* Your rules. */\n",
-        hash(&block)
+        "/* The stylesheet of this form, generated from the web theme \"{id}\". It is yours to edit.\n   The block between the two markers is the theme's look for the controls of this form, in the theme's layer:\n   the Properties panel's values win over it. A rule you write after the end marker wins over both. */\n"
     )
+}
+
+/// What a generated stylesheet holds after the end marker: the developer's empty section.
+const TAIL: &str = "\n\n/* Your rules. */\n";
+
+/// The control types a form uses, nested ones included, each once, in the order they first appear.
+pub fn used_types(form: &Form) -> Vec<ControlType> {
+    fn walk(cs: &[Control], out: &mut Vec<ControlType>) {
+        for c in cs {
+            if !out.contains(&c.control_type) {
+                out.push(c.control_type.clone());
+            }
+            walk(&c.children, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(&form.controls, &mut out);
+    out
+}
+
+/// A new form's stylesheet (R4): [`form_stylesheet`] for the form's theme (the form's, else the
+/// project's, else Liquid Glass) and the types it uses.
+pub fn form_stylesheet_for(form: &Form, project_theme: Option<&str>) -> String {
+    form_stylesheet(&resolve_theme_id(form.theme.as_deref(), project_theme), &used_types(form))
+}
+
+/// Is a form's stylesheet exactly as the IDE generated it — banner, block and the empty section
+/// (WASM-007 R6)? Only such a sheet is deleted with its form without asking; any other text is the
+/// developer's.
+pub fn stylesheet_untouched(text: &str) -> bool {
+    let (Some(b), Some(e)) = (text.find(BEGIN), text.find(END)) else {
+        return false;
+    };
+    generated_block_untouched(text) && THEMES.iter().any(|id| text[..b] == banner(id)) && &text[e + END.len()..] == TAIL
+}
+
+/// The stylesheet beside a form file (Q2): `webforms/order.wcfrm` → `webforms/order.css`.
+pub fn stylesheet_beside(form_file: &std::path::Path) -> std::path::PathBuf {
+    form_file.with_extension("css")
+}
+
+/// The first content of a project stylesheet (Q3): a banner and nothing else; the player puts it in
+/// `@layer pr-app`, under every form's own sheet.
+pub fn project_stylesheet() -> String {
+    "/* The stylesheet of this application. It is yours to edit.\n   Its rules apply to every form, over the theme and the Properties panel's values,\n   and under each form's own stylesheet. */\n".to_owned()
 }
 
 /// The block between the markers and the hash its begin marker carries.
@@ -384,5 +433,26 @@ mod tests {
         assert!(swapped.contains(".pr-button { background: var(--pr-accent); border-color: var(--pr-accent); color: #ffffff; }"), "Elegance's own button rule: {swapped}");
         assert!(generated_block_untouched(&swapped));
         assert!(swapped.starts_with(&mine[..mine.find(BEGIN).unwrap()]), "the banner is the developer's text now");
+    }
+
+    #[test]
+    fn a_sheet_is_untouched_only_as_generated_and_the_form_root_rule_is_in_the_block() {
+        let mut form = Form::new("ORDER", "Order", 640, 480);
+        let mut panel = Control::new("PNL-1", ControlType::Panel, 0, 0);
+        panel.children.push(Control::new("BTN-1", ControlType::Button, 0, 0));
+        form.controls = vec![panel, Control::new("BTN-2", ControlType::Button, 0, 0)];
+        assert_eq!(used_types(&form), vec![ControlType::Panel, ControlType::Button]);
+        form.theme = Some(SPATIAL.into());
+        let s = form_stylesheet_for(&form, Some(ELEGANCE));
+        assert!(s.contains("\"spatial\""), "the form's theme wins over the project's");
+        assert!(s.contains(".pr-form-root"), "the form's own rule (WASM-004 T18 moved it to the root) is in the block: {s}");
+        assert!(stylesheet_untouched(&s));
+        assert!(!stylesheet_untouched(&format!("{s}#BTN-1 {{ color: red }}\n")), "a rule of the developer's");
+        assert!(!stylesheet_untouched(&s.replacen("It is yours", "It is mine", 1)), "an edited banner");
+        assert!(!stylesheet_untouched(&s.replace('\n', "\r\n")), "line endings the developer changed");
+        assert!(!stylesheet_untouched(""));
+        assert_eq!(stylesheet_beside(std::path::Path::new("webforms/order.wcfrm")), std::path::PathBuf::from("webforms/order.css"));
+        let d = lint(&project_stylesheet(), &Options::default());
+        assert!(d.is_empty(), "{d:?}");
     }
 }

@@ -212,7 +212,8 @@ fn list_files_shows_the_backend_and_the_web_assets_of_a_web_project() {
     assert_eq!(listed["files"]["backend"][0], json!({"path": "backend/src/health.cbl", "exists": true}));
     assert_eq!(listed["backend"]["folder"], "backend");
     assert_eq!(listed["backend"]["exports"][0], "HEALTH");
-    assert_eq!(listed["web_assets"]["stylesheets"][0], "webforms/main-form.css");
+    // The project stylesheet and the main form's own one are created with the project (WASM-007 T17).
+    assert_eq!(listed["web_assets"]["stylesheets"], json!(["webforms/application.css", "webforms/main-form.css"]));
     assert_eq!(listed["web_assets"]["bundle"]["exists"], false, "nothing built yet");
 
     // A file under backend/ goes to the Backend's list, not Common Code.

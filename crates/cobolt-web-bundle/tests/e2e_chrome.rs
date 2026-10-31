@@ -183,6 +183,8 @@ fn write_preview_edits(dir: &Path) {
     let out = dir.join("preview");
     std::fs::create_dir_all(&out).unwrap();
     std::fs::write(out.join("stylesheet.v2.css"), "[data-name=\"LBL-OUT\"] { letter-spacing: 3px; }\n").unwrap();
+    // WASM-007 T23: a form's own sheet, taken in place (`set_form_stylesheet`), then taken away.
+    std::fs::write(out.join("main-form.v2.css"), "[data-name=\"LBL-OUT\"] { word-spacing: 7px; }\n").unwrap();
     let fx = build(&standard_spec(true));
     let cfrm = standard_cfrm(&fx, MAIN_FORM).replacen("id=\"BTN-GO\" type=\"Button\" x=\"10\"", "id=\"BTN-GO\" type=\"Button\" x=\"300\"", 1);
     assert!(cfrm.contains("x=\"300\""), "the edit applies: {cfrm}");
@@ -600,6 +602,18 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
             // The stylesheet: a computed style changes.
             let r1 = step(p, "next.stylesheet = { url: 'preview/stylesheet.v2.css', integrity: '' }")?;
             p.wait_for(&format!("getComputedStyle(__pr.ctl({}, {})).letterSpacing === '3px'", q(main), q(LBL_OUT)), 10)?;
+            // A form's sheet: set, timed from update() to the computed style, then removed.
+            let spacing = format!("getComputedStyle(__pr.ctl({}, {})).wordSpacing", q(main), q(LBL_OUT));
+            let timed = p.eval(&format!(
+                "(async () => {{ const a = await __pr.handle(); const next = JSON.parse(JSON.stringify(a.config)); next.forms.find(f => f.name === {m}).css = {{ url: 'preview/main-form.v2.css', integrity: '' }}; const t0 = performance.now(); const r = await a.update(next); while ({spacing} !== '7px' && performance.now() - t0 < 5000) await new Promise(res => requestAnimationFrame(res)); return {{ r, ms: performance.now() - t0, got: {spacing} }}; }})()",
+                m = q(main)
+            ))?;
+            if timed["got"] != "7px" {
+                return Err(format!("the form's sheet was not taken in place: {timed}"));
+            }
+            let removed = step(p, &format!("delete next.forms.find(f => f.name === {}).css", q(main)))?;
+            p.wait_for(&format!("{spacing} !== '7px'"), 10)?;
+            let form_sheet = format!("form sheet in place in {:.0} ms ({}), removed ({removed})", timed["ms"].as_f64().unwrap_or(-1.0), timed["r"]);
             // A description: the control moves; the application starts again in the same player.
             let r2 = step(p, &format!("next.forms.find(f => f.name === {}).url = 'preview/main-form.v2.json'; next.forms.find(f => f.name === {}).integrity = ''", q(main), q(main)))?;
             p.wait_for(&format!("(() => {{ const b = __pr.ctl({m}, 'BTN-GO'); if (!b) return false; const s = b.closest('.pr-surface').getBoundingClientRect(); return Math.round(b.getBoundingClientRect().x - s.x) === 300 && __pr.text({m}, {o}) === 'loaded'; }})()", m = q(main), o = q(LBL_OUT)), 20)?;
@@ -612,7 +626,7 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
             if kept["page"] != true || kept["player"] != true || kept["navigations"] != 1 || kept["forms"] != 1 || kept["instances"] != 1 {
                 return Err(format!("not in place: {kept}"));
             }
-            Ok(format!("update answered {r1}, {r2}, {r3}; letter-spacing 3px, BTN-GO at x 300, \"loaded v2\"; same page and player, one form on the page"))
+            Ok(format!("update answered {r1}, {r2}, {r3}; letter-spacing 3px; {form_sheet}; BTN-GO at x 300, \"loaded v2\"; same page and player, one form on the page"))
         });
     }
 

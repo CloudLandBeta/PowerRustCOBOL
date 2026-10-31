@@ -274,6 +274,25 @@ fn is_true(b: &bool) -> bool {
     *b
 }
 
+/// The project stylesheet's file name in the forms folder (WASM-007 Q3, Q3a).
+pub const APPLICATION_STYLESHEET: &str = "application.css";
+
+fn web_stylesheet() -> String {
+    format!("{}/{APPLICATION_STYLESHEET}", ProjectKind::Web.forms_folder())
+}
+
+fn is_web_stylesheet(s: &String) -> bool {
+    *s == web_stylesheet()
+}
+
+fn mobile_stylesheet() -> String {
+    format!("{}/{APPLICATION_STYLESHEET}", ProjectKind::Mobile.forms_folder())
+}
+
+fn is_mobile_stylesheet(s: &String) -> bool {
+    *s == mobile_stylesheet()
+}
+
 /// The browsers a Web build promises to run in (WASM-002 R18): the loader
 /// probes the browser it finds against this matrix and the WebAssembly feature
 /// baseline. All on by default.
@@ -400,6 +419,16 @@ pub struct WebSettings {
     /// ([`WebSettings::variant_problem`]). Written only when off.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub single_memory_fallback: bool,
+    /// The project stylesheet (WASM-007 Q3), relative to the project folder, in
+    /// `@layer pr-app` under every form's own sheet. Written only when it is not
+    /// the default, `webforms/application.css`.
+    #[serde(default = "web_stylesheet", skip_serializing_if = "is_web_stylesheet")]
+    pub stylesheet: String,
+    /// A whole-theme stylesheet that replaces the built-in web theme (WASM-007
+    /// Q5): the player adopts it as `pr-theme` and loads no built-in one.
+    /// Written only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_file: Option<String>,
 }
 
 impl Default for WebSettings {
@@ -414,6 +443,8 @@ impl Default for WebSettings {
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             call_timeout_ms: DEFAULT_CALL_TIMEOUT_MS,
             single_memory_fallback: true,
+            stylesheet: web_stylesheet(),
+            theme_file: None,
         }
     }
 }
@@ -471,6 +502,13 @@ pub struct MobileSettings {
     /// The remote-call wait, as [`WebSettings::call_timeout_ms`].
     #[serde(default = "default_call_timeout", skip_serializing_if = "is_default_call_timeout")]
     pub call_timeout_ms: u32,
+    /// The project stylesheet, as [`WebSettings::stylesheet`]; the default is
+    /// `mobileforms/application.css`.
+    #[serde(default = "mobile_stylesheet", skip_serializing_if = "is_mobile_stylesheet")]
+    pub stylesheet: String,
+    /// The whole-theme file, as [`WebSettings::theme_file`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_file: Option<String>,
 }
 
 fn auto() -> String {
@@ -495,6 +533,8 @@ impl MobileSettings {
             player: None,
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             call_timeout_ms: DEFAULT_CALL_TIMEOUT_MS,
+            stylesheet: mobile_stylesheet(),
+            theme_file: None,
         }
     }
 
@@ -723,6 +763,35 @@ mod tests {
         let set: MobileSettings = toml::from_str("platform = \"ios\"\ndevice = \"phone\"\ncall_timeout_ms = 5000").unwrap();
         assert_eq!(set.call_timeout_ms, 5_000);
         println!("call timeout: old table 60000, set 15000 round-trips, mobile default 60000, mobile set 5000");
+    }
+
+    /// WASM-007 Q3a: the project stylesheet and the whole-theme file. A manifest
+    /// without them loads with the defaults (in the kind's forms folder) and is
+    /// written back as it was; a set value round-trips.
+    #[test]
+    fn the_stylesheet_keys_default_into_the_forms_folder_and_are_written_only_when_set() {
+        let web_text = "backend_url = \"wss://api.example.com/ws\"\n";
+        let web: WebSettings = toml::from_str(web_text).unwrap();
+        assert_eq!((web.stylesheet.as_str(), web.theme_file.as_deref()), ("webforms/application.css", None));
+        let written = toml::to_string_pretty(&web).unwrap();
+        assert!(!written.contains("stylesheet") && !written.contains("theme_file"), "{written}");
+        let mobile_text = "platform = \"android\"\ndevice = \"phone\"\nmulti_memory = true\n";
+        let mobile: MobileSettings = toml::from_str(mobile_text).unwrap();
+        assert_eq!((mobile.stylesheet.as_str(), mobile.theme_file.as_deref()), ("mobileforms/application.css", None));
+        assert_eq!(MobileSettings::new(MobilePlatform::Ios, DeviceClass::Phone).stylesheet, "mobileforms/application.css");
+        let written = toml::to_string_pretty(&mobile).unwrap();
+        assert!(!written.contains("stylesheet") && !written.contains("theme_file"), "{written}");
+        // Byte for byte: a table as the IDE wrote it before the keys existed is written back as it was.
+        let old = "platform = \"android\"\ndevice = \"phone\"\norientation = \"auto\"\nmin_os = \"auto\"\nstyle = \"spa\"\nmulti_memory = true\nbackend_url = \"\"\n";
+        assert_eq!(toml::to_string(&toml::from_str::<MobileSettings>(old).unwrap()).unwrap(), old);
+        let old_web = toml::to_string(&WebSettings::default()).unwrap();
+        assert_eq!(toml::to_string(&toml::from_str::<WebSettings>(&old_web).unwrap()).unwrap(), old_web);
+
+        let set: WebSettings = toml::from_str("stylesheet = \"webforms/site.css\"\ntheme_file = \"webforms/brand-theme.css\"").unwrap();
+        let text = toml::to_string_pretty(&set).unwrap();
+        assert!(text.contains("stylesheet = \"webforms/site.css\"") && text.contains("theme_file = \"webforms/brand-theme.css\""), "{text}");
+        assert_eq!(toml::from_str::<WebSettings>(&text).unwrap(), set);
+        println!("stylesheet keys: web default {}, mobile default {}, absent keys not written, set values round-trip", web.stylesheet, mobile.stylesheet);
     }
 
     #[test]

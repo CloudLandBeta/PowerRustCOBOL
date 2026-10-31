@@ -1006,3 +1006,54 @@ fn a_web_project_builds_with_no_rust_toolchain_on_the_path() {
     let line = stdout.lines().find(|l| l.starts_with("built with no toolchain")).expect("the child built");
     println!("{line} (PATH = {system})");
 }
+
+/// WASM-007 T19 (R4, R13, R16, Q3, Q5): the Build reads the sheet beside each form and the project
+/// stylesheet byte for byte, writes the theme as `theme.css` (the project's whole-theme file when it
+/// names one), and an error in a sheet stops Check and Build naming the project file and its line.
+#[test]
+fn the_build_carries_the_stylesheets_and_refuses_one_with_an_error_at_its_line() {
+    let manifest = project_with("css", "[web]\nmulti_memory = true\ntheme_file = \"webforms/brand.css\"\n", &["main-form"]);
+    let dir = manifest.parent().unwrap().to_path_buf();
+    let form_css = "/* mine */\r\n#BTN-OK   { color: red }\r\n";
+    let app_css = ".pr-button { font-weight: 600 }\n";
+    let brand = ":host { --pr-accent: #ff0066; }\n";
+    std::fs::write(dir.join("webforms/main-form.css"), form_css).unwrap();
+    std::fs::write(dir.join("webforms/application.css"), app_css).unwrap();
+    std::fs::write(dir.join("webforms/brand.css"), brand).unwrap();
+    let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+    let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+    let files = snapshot(&report.bundle_dir);
+    let config: serde_json::Value = serde_json::from_slice(&files["config.json"]).unwrap();
+    let at = |v: &serde_json::Value| files[v["url"].as_str().unwrap()].clone();
+    assert_eq!(at(&config["forms"][0]["css"]), form_css.as_bytes(), "the form's sheet, byte for byte");
+    assert_eq!(at(&config["stylesheet"]), app_css.as_bytes());
+    assert_eq!(at(&config["theme"]), brand.as_bytes(), "theme_file replaces the built-in theme.css");
+
+    // Without theme_file the bundle carries no theme.css: the player keeps the theme it adopts at mount.
+    let toml = std::fs::read_to_string(&manifest).unwrap().replace("theme_file = \"webforms/brand.css\"\n", "");
+    std::fs::write(&manifest, toml).unwrap();
+    let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+    let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
+    let files = snapshot(&report.bundle_dir);
+    let config: serde_json::Value = serde_json::from_slice(&files["config.json"]).unwrap();
+    assert!(config.get("theme").is_none() && !files.keys().any(|k| k.starts_with("theme.")), "{:?}", files.keys());
+
+    // An error: refused by Check and by Build, the project file and line named.
+    std::fs::write(dir.join("webforms/main-form.css"), ".a { color: red }\n.b { background: url(https://evil.example/x.png) }\n").unwrap();
+    let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+    for e in [GeneratorBackend.check(&req).unwrap_err(), GeneratorBackend.build(&req).unwrap_err()] {
+        let text = e.to_string();
+        assert!(text.contains("webforms/main-form.css:2:") && text.contains("evil.example"), "{text}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// WASM-007 T17/T19: a form named like the project stylesheet would own it as its sheet; refused.
+#[test]
+fn a_form_whose_sheet_is_the_project_stylesheet_is_refused() {
+    let manifest = project_with("css-clash", "[web]\nmulti_memory = true\n", &["application"]);
+    let req = WebBuildRequest::from_manifest(&manifest).unwrap();
+    let text = GeneratorBackend.check(&req).unwrap_err().to_string();
+    assert!(text.contains("webforms/application.cfrm") && text.contains("project stylesheet"), "{text}");
+    let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+}

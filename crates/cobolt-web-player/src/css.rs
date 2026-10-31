@@ -729,6 +729,21 @@ mod tests {
         assert!(crate::base_css::LAYER_ORDER.contains("pr-props") && crate::view::style::wrap_layer(&[]).starts_with("@layer pr-props {"));
     }
 
+    /// WASM-007 R12: the IDE maps a winning declaration back to the property it overrides through
+    /// `cobolt_forms::css_overrides::CSS_TO_PROPERTIES`; each property it names is a row here, and the
+    /// first one of each entry is the row whose CSS that is.
+    #[test]
+    fn the_ides_override_map_names_rows_of_this_table() {
+        for (css, props) in cobolt_forms::css_overrides::CSS_TO_PROPERTIES {
+            for p in *props {
+                assert!(mapping_of(p).is_some(), "{css} → {p}: no row");
+            }
+            let row = mapping_of(props[0]).unwrap();
+            let related = row.css.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')).any(|w| !w.is_empty() && (w == *css || css.starts_with(w) || w.starts_with(css)));
+            assert!(related, "{css} → {}: its row says `{}`", props[0], row.css);
+        }
+    }
+
     #[test]
     fn the_table_covers_every_theme_owned_property_of_the_model() {
         // WASM-007 AC1: an unmapped appearance property fails the test.

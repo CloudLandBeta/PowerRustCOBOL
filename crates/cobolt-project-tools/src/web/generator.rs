@@ -778,6 +778,81 @@ fn measure_startup(wasm: &[u8]) -> Option<f64> {
     (inst >= 0).then(|| t.elapsed().as_secs_f64() * 1000.0)
 }
 
+/// The stylesheets a bundle carries (WASM-007 R4, Q2, Q3, Q5), read as the files hold them.
+struct Sheets {
+    /// Each form's own sheet beside it, by form name.
+    forms: std::collections::BTreeMap<String, String>,
+    /// The project stylesheet (`[web] stylesheet`), when the file exists.
+    app: Option<String>,
+    /// `theme.css`: the project's whole-theme file (`[web] theme_file`). Without one the bundle carries
+    /// none and the player keeps the theme it adopts at mount, as before the file existed: a built-in web
+    /// theme other than Liquid Glass on every page would change the look of pages built today, which no
+    /// browser run has measured yet (WASM-007 T19, T28).
+    theme: Option<String>,
+}
+
+fn browsers_of(b: &cobolt_compiler::project_kind::BrowserMatrix) -> cobolt_forms::stylesheet_lint::Browsers {
+    cobolt_forms::stylesheet_lint::Browsers {
+        chromium: b.chromium,
+        firefox: b.firefox,
+        safari: b.safari,
+        ios_webview: b.ios_webview,
+        android_webview: b.android_webview,
+    }
+}
+
+/// Read and check the stylesheets (WASM-007 R13, R16): an error in one stops Check and Build, named by
+/// its project file and line; a form whose sheet would be the project stylesheet is refused.
+fn stylesheets(req: &WebBuildRequest, forms: &[LoadedForm]) -> Result<Sheets, WebBuildError> {
+    let rel_of = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    let read = |rel: &str| -> Result<Option<String>, WebBuildError> {
+        match std::fs::read(req.project_dir.join(rel)) {
+            Ok(bytes) => String::from_utf8(bytes).map(Some).map_err(|_| WebBuildError::Failed(format!("{rel}: a stylesheet must be UTF-8 text"))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(WebBuildError::Failed(format!("cannot read {rel}: {e}"))),
+        }
+    };
+    let app_rel = req.web.stylesheet.replace('\\', "/");
+    let mut problems = Vec::new();
+    let mut checked: Vec<(String, String, Vec<String>)> = Vec::new();
+    let mut sheets = Sheets { forms: Default::default(), app: None, theme: None };
+    for f in forms {
+        let rel = rel_of(&cobolt_forms::web_themes::stylesheet_beside(Path::new(&f.rel)));
+        if rel.eq_ignore_ascii_case(&app_rel) {
+            problems.push(format!(
+                "{}: the form's stylesheet would be {rel}, which is the project stylesheet; rename the form or set [web] stylesheet to another file",
+                f.rel
+            ));
+            continue;
+        }
+        if let Some(css) = read(&rel)? {
+            checked.push((rel, css.clone(), f.form.layers.iter().map(|l| l.name.clone()).collect()));
+            sheets.forms.insert(f.form.name.clone(), css);
+        }
+    }
+    if let Some(css) = read(&app_rel)? {
+        checked.push((app_rel.clone(), css.clone(), Vec::new()));
+        sheets.app = Some(css);
+    }
+    if let Some(rel) = &req.web.theme_file {
+        let rel = rel.replace('\\', "/");
+        let css = read(&rel)?.ok_or_else(|| WebBuildError::Failed(format!("[web] theme_file names {rel}, which does not exist")))?;
+        checked.push((rel, css.clone(), Vec::new()));
+        sheets.theme = Some(css);
+    }
+    // The origins a sheet may load from are the bundle's own (`BundleOptions::image_origins`, the
+    // policy's extra image and font origins); the Build sets none of them yet.
+    let allowed = cobolt_web_bundle::stylesheet_origins(&BundleOptions::default());
+    for (rel, css, layers) in &checked {
+        problems.extend(cobolt_web_bundle::stylesheet_errors(rel, css, &allowed, browsers_of(&req.web.browsers), layers));
+    }
+    if problems.is_empty() {
+        Ok(sheets)
+    } else {
+        Err(WebBuildError::Failed(format!("the stylesheets have errors:\n  {}", problems.join("\n  "))))
+    }
+}
+
 impl WebBuildBackend for GeneratorBackend {
     fn name(&self) -> &str {
         "cobolt-wasm"
@@ -787,6 +862,7 @@ impl WebBuildBackend for GeneratorBackend {
         // The same steps as the Build up to the generator; the bytes are
         // discarded, nothing is written (WASM-002 R3: Check and Build agree).
         let (forms, _) = self.compile(req, &mut Vec::new())?;
+        stylesheets(req, &forms)?;
         backend_programs(req, &forms).map(|_| ())
     }
 
@@ -794,6 +870,7 @@ impl WebBuildBackend for GeneratorBackend {
         let started = Instant::now();
         let mut warnings: Vec<WebDiagnostic> = Vec::new();
         let (forms, modules) = self.compile(req, &mut warnings)?;
+        let mut sheets = stylesheets(req, &forms)?;
         // WASM-005 T9: the backend end of the forms' data controls, regenerated
         // on every Build like the forms' own programs.
         let backend = backend_programs(req, &forms)?;
@@ -867,6 +944,8 @@ impl WebBuildBackend for GeneratorBackend {
                     format!("#{r:02X}{g:02X}{b:02X}")
                 })
             },
+            theme: sheets.theme.take(),
+            browsers: browsers_of(&req.web.browsers),
             ..BundleOptions::default()
         };
         let program_multi = modules.multi.as_ref().map(|c| c.wasm.clone());
@@ -880,10 +959,10 @@ impl WebBuildBackend for GeneratorBackend {
                 .map(|f| FormInput {
                     name: f.form.name.clone(),
                     cfrm: f.cfrm.clone(),
-                    stylesheet: None,
+                    stylesheet: sheets.forms.remove(&f.form.name),
                 })
                 .collect(),
-            stylesheet: None,
+            stylesheet: sheets.app.take(),
             menus,
             assets,
             player: load_player(&player),

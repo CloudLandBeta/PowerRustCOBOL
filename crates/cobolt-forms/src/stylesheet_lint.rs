@@ -279,6 +279,7 @@ fn guarded_selector(selector: &str, layers: &[String]) -> bool {
         let has_class = |c: &str| subject.split('.').skip(1).any(|p| p.split([':', '[', '#']).next() == Some(c));
         has_class("pr-form-layer")
             || has_class("pr-form")
+            || has_class("pr-form-root")
             || subject.contains("[data-layer")
             || layers.iter().any(|l| subject.split('#').skip(1).any(|p| p.split(['.', ':', '[']).next() == Some(l.to_ascii_lowercase().as_str())))
     })
@@ -621,7 +622,7 @@ mod tests {
     fn a_rule_that_moves_or_hides_a_layer_is_an_error_with_its_line() {
         let layers = vec!["LAYER-1".to_owned()];
         let opts = Options { layers: &layers, ..Options::default() };
-        let css = ".pr-form-layer { z-index: 5 }\n#LAYER-1 { pointer-events: none }\n#LAYER-1 .x { z-index: 9 }\n.pr-form { color: red }\n.pr-form-layerx { z-index: 1 }\n.a, [data-layer=\"L\"]:hover { display: none }";
+        let css = ".pr-form-layer { z-index: 5 }\n#LAYER-1 { pointer-events: none }\n#LAYER-1 .x { z-index: 9 }\n.pr-form { color: red }\n.pr-form-layerx { z-index: 1 }\n.a, [data-layer=\"L\"]:hover { display: none }\n.pr-form-root { position: static }";
         let d = lint(css, &opts);
         let got: Vec<(Code, usize, String)> = d.iter().map(|d| (d.code, d.line, d.args.join(" "))).collect();
         assert_eq!(
@@ -630,6 +631,7 @@ mod tests {
                 (Code::LayerRule, 1, ".pr-form-layer z-index".to_owned()),
                 (Code::LayerRule, 2, "#LAYER-1 pointer-events".to_owned()),
                 (Code::LayerRule, 6, ".a, [data-layer=\"L\"]:hover display".to_owned()),
+                (Code::LayerRule, 7, ".pr-form-root position".to_owned()),
             ]
         );
         println!("AC10 (native): {}", d.iter().map(|d| format!("line {}: {}", d.line, message(d))).collect::<Vec<_>>().join("; "));

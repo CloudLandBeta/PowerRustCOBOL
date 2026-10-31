@@ -832,6 +832,15 @@ pub struct CoboltApp {
     show_external_crates: bool,
     external_crates_panel: crate::panels::external_crates::ExternalCratesPanel,
     pending_form_delete: Option<PathBuf>,
+    /// A deleted form's stylesheet the developer wrote in (WASM-007 R6): asked about, in the same host
+    /// as the form's own confirmation, before it leaves the disk.
+    pending_sheet_delete: Option<PathBuf>,
+    /// WASM-007 R6: a theme switch on a form whose stylesheet's theme block the developer edited —
+    /// (form file, sheet, theme switched to, whether the block can be replaced), asked about before
+    /// anything is written.
+    pending_theme_sheet: Option<(PathBuf, PathBuf, String, bool)>,
+    /// WASM-007 R5: a form's stylesheet open in its modal, with the designer (`.cfrm`) that hosts it.
+    stylesheet_modal: Option<(PathBuf, crate::panels::stylesheet_modal::StylesheetModal)>,
     /// The DESIGNER window that asked to delete a form, when the trash button
     /// was pressed in that designer's Forms list. `None` = the IDE main window
     /// asked (project tree). Exactly one surface shows the confirmation.
@@ -2261,6 +2270,9 @@ impl CoboltApp {
             show_external_crates: false,
             external_crates_panel: crate::panels::external_crates::ExternalCratesPanel::new(),
             pending_form_delete: None,
+            pending_sheet_delete: None,
+            pending_theme_sheet: None,
+            stylesheet_modal: None,
             form_delete_modal_host: None,
             pending_generated_delete: None,
             pending_asset_delete: None,
@@ -14894,6 +14906,13 @@ impl CoboltApp {
                 .push_status(crate::ui_text::idef("Could not save new form: {}", &[&e]));
             return;
         }
+        // WASM-007 R4: a web or mobile form gets its stylesheet, generated from its theme, beside it.
+        if let Some(text) = self.new_form_stylesheet(&form) {
+            if let Err(e) = crate::project_fs::create_form_stylesheet(&path, &text) {
+                self.output
+                    .push_status(crate::ui_text::idef("Could not write the form's stylesheet: {}", &[&e]));
+            }
+        }
         if let Some(parent) = path.parent() {
             self.forms_list.set_root(parent);
             if self.cobolt_project.is_none() {
@@ -14921,6 +14940,12 @@ impl CoboltApp {
         // Spec 037 R3 — the first form created in a project becomes the main
         // form (and any later violation heals to the first in the list).
         self.apply_main_form_invariant();
+    }
+
+    /// The first text of a new form's stylesheet (WASM-007 R4): on a Web or Mobile project only (R14).
+    fn new_form_stylesheet(&self, form: &Form) -> Option<String> {
+        let proj = self.cobolt_project.as_ref()?;
+        crate::project_fs::new_form_stylesheet(proj.kind(), proj.form_theme_default(), form)
     }
 
     /// Spec 037 R3 — run [`crate::main_form::normalize_main_form`] over the
@@ -15002,6 +15027,182 @@ impl CoboltApp {
     /// and `rcrun` read, and a flag left only in memory used to leave two
     /// forms marked main on disk once a designer closed without saving. Both
     /// directions are one user action; the status line names the forms.
+    /// WASM-007 R4, R6 — after a theme switch on a Web or Mobile form, its stylesheet's generated block
+    /// follows the new theme when the developer never touched it; otherwise the IDE asks. The rest of the
+    /// file is never rewritten.
+    fn drain_theme_switches(&mut self) {
+        let mut events: Vec<(PathBuf, Option<String>, Vec<cobolt_forms::ControlType>)> = Vec::new();
+        for (path, d) in &mut self.designers {
+            if !std::mem::take(&mut d.theme_switches).is_empty() {
+                events.push((path.clone(), d.form.theme.clone(), cobolt_forms::web_themes::used_types(&d.form)));
+            }
+        }
+        if let Some(st) = &mut self.inspect {
+            if !std::mem::take(&mut st.designer.theme_switches).is_empty() {
+                events.push((st.path.clone(), st.designer.form.theme.clone(), cobolt_forms::web_themes::used_types(&st.designer.form)));
+            }
+        }
+        let Some(proj) = self.cobolt_project.as_ref().filter(|p| !p.kind().is_desktop()) else {
+            return;
+        };
+        let project_theme = proj.form_theme_default().map(str::to_owned);
+        for (path, theme, used) in events {
+            let Some(sheet) = crate::project_fs::form_stylesheet(&path) else {
+                continue;
+            };
+            let theme = cobolt_forms::theme::resolve_theme_id(theme.as_deref(), project_theme.as_deref());
+            let Some(text) = std::fs::read(&sheet).ok().and_then(|b| String::from_utf8(b).ok()) else {
+                self.pending_theme_sheet = Some((path, sheet, theme, false));
+                continue;
+            };
+            match crate::project_fs::sheet_on_theme_switch(&text, &theme, &used) {
+                crate::project_fs::SheetOnThemeSwitch::Replace(new) => self.write_theme_sheet(&sheet, &new),
+                crate::project_fs::SheetOnThemeSwitch::Ask { can_replace } => {
+                    self.pending_theme_sheet = Some((path, sheet, theme, can_replace));
+                }
+            }
+        }
+    }
+
+    /// WASM-007 R12: the project's and the form's stylesheets of designer `idx`, as the Properties
+    /// panel's marks and the canvas badges read them, labelled with their project-relative path. Read
+    /// again at most once a second, so an Apply or an edit made outside the IDE shows soon.
+    fn refresh_css_sheets(&mut self, idx: usize, web_project: bool) {
+        let project_dir = self.project_dir();
+        let app_rel = self.cobolt_project.as_ref().and_then(|p| match (&p.web, &p.mobile) {
+            (Some(w), _) => Some(w.stylesheet.clone()),
+            (None, Some(m)) => Some(m.stylesheet.clone()),
+            _ => None,
+        });
+        let Some((path, d)) = self.designers.get_mut(idx) else {
+            return;
+        };
+        if !web_project {
+            d.properties.css_sheets.clear();
+            return;
+        }
+        let now = std::time::Instant::now();
+        if d.properties.css_sheets_checked.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_secs(1)) {
+            return;
+        }
+        d.properties.css_sheets_checked = Some(now);
+        let label = |p: &Path| match &project_dir {
+            Some(root) => p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/"),
+            None => p.to_string_lossy().into_owned(),
+        };
+        let mut files: Vec<PathBuf> = Vec::new();
+        if let (Some(root), Some(rel)) = (&project_dir, &app_rel) {
+            files.push(root.join(rel));
+        }
+        files.extend(crate::project_fs::form_stylesheet(path));
+        let sheets: Vec<(String, String)> = files
+            .iter()
+            .filter_map(|f| std::fs::read(f).ok().map(|b| (label(f), String::from_utf8_lossy(&b).into_owned())))
+            .collect();
+        if d.properties.css_sheets != sheets {
+            d.properties.css_sheets = sheets;
+        }
+    }
+
+    /// WASM-007 R5: open the designer's form stylesheet in the modal — the file's text, or the
+    /// stylesheet its theme generates when there is no file yet (written only by Apply).
+    fn open_stylesheet_modal(&mut self, idx: usize) {
+        let Some((path, d)) = self.designers.get(idx) else {
+            return;
+        };
+        let Some(sheet) = crate::project_fs::form_stylesheet(path) else {
+            return;
+        };
+        let project_theme = self.cobolt_project.as_ref().and_then(|p| p.form_theme_default().map(str::to_owned));
+        let generated = cobolt_forms::web_themes::form_stylesheet_for(&d.form, project_theme.as_deref());
+        let saved = std::fs::read(&sheet).ok().map(|b| String::from_utf8_lossy(&b).into_owned());
+        let layers = d.form.layers.iter().map(|l| l.name.clone()).collect();
+        let modal = crate::panels::stylesheet_modal::StylesheetModal::new(sheet, &d.form.name, layers, saved, generated);
+        self.stylesheet_modal = Some((path.clone(), modal));
+    }
+
+    fn show_stylesheet_modal(&mut self, ctx: &Context, tr: &Tr) {
+        let Some((_, modal)) = self.stylesheet_modal.as_mut() else {
+            return;
+        };
+        let action = modal.show(ctx, tr);
+        if let Some((sheet, text)) = action.write {
+            // As bytes: the developer's line endings and spacing are kept (R4).
+            if let Err(e) = std::fs::write(&sheet, text.as_bytes()) {
+                self.output.push_status(crate::ui_text::idef("Could not update stylesheet {}: {}", &[&sheet.display(), &e]));
+            }
+            // The marks and badges read the new text now, not at the next once-a-second look.
+            for (_, d) in &mut self.designers {
+                d.properties.css_sheets_checked = None;
+            }
+        }
+        if action.closed {
+            self.stylesheet_modal = None;
+        }
+    }
+
+    fn write_theme_sheet(&mut self, sheet: &Path, text: &str) {
+        match std::fs::write(sheet, text.as_bytes()) {
+            Ok(()) => self.output.push_status(crate::ui_text::idef("Stylesheet {} follows the theme", &[&sheet.display()])),
+            Err(e) => self
+                .output
+                .push_status(crate::ui_text::idef("Could not update stylesheet {}: {}", &[&sheet.display(), &e])),
+        }
+    }
+
+    /// The question of [`Self::drain_theme_switches`]: keep the sheet, replace its theme block, or
+    /// cancel — which undoes the theme switch in the form's designer. The sheet is untouched unless
+    /// the block is replaced.
+    fn show_theme_sheet_question(&mut self, ctx: &Context, tr: &Tr) {
+        let Some((form, sheet, theme, can_replace)) = self.pending_theme_sheet.clone() else {
+            return;
+        };
+        let (mut keep, mut replace, mut cancel) = (false, false, false);
+        egui::Window::new(tr.theme_sheet_title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(tr.theme_sheet_body);
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(sheet.display().to_string()).small());
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    cancel = ui.button(tr.btn_cancel).clicked();
+                    replace = ui.add_enabled(can_replace, egui::Button::new(tr.theme_sheet_replace)).clicked();
+                    keep = ui.button(tr.theme_sheet_keep).clicked();
+                });
+            });
+        if !(keep || replace || cancel) {
+            return;
+        }
+        self.pending_theme_sheet = None;
+        if replace {
+            let used = self
+                .designers
+                .iter()
+                .find(|(p, _)| *p == form)
+                .map(|(_, d)| cobolt_forms::web_themes::used_types(&d.form))
+                .or_else(|| self.inspect.as_ref().filter(|st| st.path == form).map(|st| cobolt_forms::web_themes::used_types(&st.designer.form)))
+                .unwrap_or_default();
+            let text = std::fs::read(&sheet).ok().and_then(|b| String::from_utf8(b).ok());
+            if let Some(new) = text.and_then(|t| cobolt_forms::web_themes::replace_generated_block(&t, &theme, &used)) {
+                self.write_theme_sheet(&sheet, &new);
+            }
+        }
+        if cancel {
+            if let Some((_, d)) = self.designers.iter_mut().find(|(p, _)| *p == form) {
+                d.undo();
+            } else if let Some(st) = self.inspect.as_mut().filter(|st| st.path == form) {
+                st.designer.undo();
+            }
+            // The undo is not a switch the developer made: nothing to ask again.
+            for (_, d) in &mut self.designers {
+                d.theme_switches.clear();
+            }
+        }
+    }
+
     fn drain_main_form_changes(&mut self) {
         let mut events: Vec<(std::path::PathBuf, bool)> = Vec::new();
         for (path, d) in &mut self.designers {
@@ -16924,7 +17125,14 @@ impl eframe::App for CoboltApp {
         if !self.form_delete_hosted_by_open_designer() {
             self.show_form_delete_confirm(ctx, &tr);
         }
+        if !modal_hosted_by_open_designer(
+            self.stylesheet_modal.as_ref().map(|(p, _)| p.as_path()),
+            self.designers.iter().map(|(p, _)| p.as_path()),
+        ) {
+            self.show_stylesheet_modal(ctx, &tr);
+        }
         self.show_paste_form_conflict(ctx, &tr);
+        self.show_theme_sheet_question(ctx, &tr);
         self.show_generated_delete_confirm(ctx, &tr);
         self.show_asset_delete_confirm(ctx, &tr);
         self.show_knowledge_folder_dialog(ctx, &tr);
@@ -17024,6 +17232,12 @@ impl eframe::App for CoboltApp {
                     {
                         self.show_form_delete_confirm(vp_ctx, &tr);
                     }
+                    // The form's stylesheet is edited where its Stylesheet… button was pressed.
+                    if self.stylesheet_modal.as_ref().map(|(p, _)| p.as_path())
+                        == Some(self.designers[idx].0.as_path())
+                    {
+                        self.show_stylesheet_modal(vp_ctx, &tr);
+                    }
                     if self.build_modal_host.as_deref()
                         == Some(self.designers[idx].0.as_path())
                     {
@@ -17060,6 +17274,7 @@ impl eframe::App for CoboltApp {
         // 037 R2 — settle MainForm claims/un-claims emitted by designer undo
         // stacks this frame (checkbox tick, Cmd+Z, Cmd+Y all end up here).
         self.drain_main_form_changes();
+        self.drain_theme_switches();
 
         // ── Documentation viewer window (Help → Documentation) ───────────────────
         self.doc_viewer.show(ctx, self.lang, &tr);
@@ -19142,6 +19357,10 @@ impl CoboltApp {
     }
 
     fn show_form_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
+        if let Some(sheet) = self.pending_sheet_delete.clone() {
+            self.show_sheet_delete_confirm(ctx, tr, sheet);
+            return;
+        }
         let Some(path) = self.pending_form_delete.clone() else {
             return;
         };
@@ -19173,13 +19392,66 @@ impl CoboltApp {
         }
         if confirm {
             self.pending_form_delete = None;
-            self.form_delete_modal_host = None;
             self.delete_form_path(path);
+            // An edited stylesheet is asked about next, in the same window.
+            if self.pending_sheet_delete.is_none() {
+                self.form_delete_modal_host = None;
+            }
+        }
+    }
+
+    /// WASM-007 R6: the deleted form's stylesheet holds the developer's text; Cancel keeps the file.
+    fn show_sheet_delete_confirm(&mut self, ctx: &Context, tr: &Tr, sheet: PathBuf) {
+        let mut cancel = false;
+        let mut confirm = false;
+        egui::Window::new(tr.dlg_delete_form_sheet_title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(tr.dlg_delete_form_sheet_body);
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(sheet.display().to_string()).small());
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+        if cancel || confirm {
+            self.pending_sheet_delete = None;
+            self.form_delete_modal_host = None;
+        }
+        if confirm {
+            self.delete_form_sheet(&sheet);
+        }
+    }
+
+    fn delete_form_sheet(&mut self, sheet: &Path) {
+        match std::fs::remove_file(sheet) {
+            Ok(()) => {
+                self.forms_list.refresh();
+                self.output.push_status(crate::ui_text::idef("Deleted stylesheet {}", &[&sheet.display()]));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => self
+                .output
+                .push_status(crate::ui_text::idef("Could not delete stylesheet {}: {}", &[&sheet.display(), &e])),
         }
     }
 
     fn delete_form_path(&mut self, path: PathBuf) {
         let rel = self.project_dir().and_then(|dir| relative_to(&path, &dir));
+        // WASM-007 R6: a stylesheet as the IDE generated it goes with its form; one the developer wrote in is asked about.
+        match crate::project_fs::sheet_on_form_delete(&path) {
+            crate::project_fs::SheetOnDelete::None => {}
+            crate::project_fs::SheetOnDelete::Delete(sheet) => self.delete_form_sheet(&sheet),
+            crate::project_fs::SheetOnDelete::Ask(sheet) => self.pending_sheet_delete = Some(sheet),
+        }
         self.designers.retain(|(open_path, _)| open_path != &path);
         self.closed_handler_marks.remove(&path);
         if let Some(rel) = rel {
@@ -20119,6 +20391,7 @@ impl CoboltApp {
         let stored_creds = self.controls_with_stored_credentials(&self.designers[idx].1.form);
         // WASM-017 R2 — `Instances` is offered only where a form is fixed memory.
         let web_project = self.is_web_project();
+        self.refresh_css_sheets(idx, web_project);
         let drawer = crate::panels::designer::show_props_drawer(
             panel_ui,
             idx,
@@ -20382,6 +20655,9 @@ impl CoboltApp {
         }
         for (key, value) in inspector_action.form_props {
             self.designers[idx].1.set_form_prop(&key, value);
+        }
+        if inspector_action.open_stylesheet {
+            self.open_stylesheet_modal(idx);
         }
         // COBOL Structure (spec 005): open a block, add or delete a procedure.
         if let Some(t) = inspector_action.cs_open {

@@ -833,6 +833,10 @@ export async function mount(target, options = {}) {
       const mr = await fetchChecked(env, url(m.url), m.integrity, `The menu ${m.control} of form ${m.form}`);
       player.add_menu(m.form, m.control, await mr.text());
     }
+    if (config.theme && !headless) {
+      const tr = await fetchChecked(env, url(config.theme.url), config.theme.integrity, 'The theme stylesheet');
+      player.set_theme(await tr.text());
+    }
     if (config.stylesheet && !headless) {
       const sr = await fetchChecked(env, url(config.stylesheet.url), config.stylesheet.integrity, 'The application stylesheet');
       player.set_stylesheet(await sr.text());
@@ -884,16 +888,19 @@ export async function mount(target, options = {}) {
         const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
         if (!same(next.player, config.player) || !same(next.worker, config.worker) || next.style !== config.style) return 'reload';
         const changed = [];
-        if (!headless && next.stylesheet && !same(next.stylesheet, config.stylesheet)) {
-          const sr = await fetchChecked(env, url(next.stylesheet.url), next.stylesheet.integrity, 'The application stylesheet');
-          player.set_stylesheet(await sr.text());
+        // A sheet that is gone is emptied, so the look it gave goes with it (WASM-007 R11).
+        if (!headless && !same(next.theme, config.theme)) {
+          player.set_theme(next.theme ? await (await fetchChecked(env, url(next.theme.url), next.theme.integrity, 'The theme stylesheet')).text() : '');
+          changed.push('theme');
+        }
+        if (!headless && !same(next.stylesheet, config.stylesheet)) {
+          player.set_stylesheet(next.stylesheet ? await (await fetchChecked(env, url(next.stylesheet.url), next.stylesheet.integrity, 'The application stylesheet')).text() : '');
           changed.push('stylesheet');
         }
         for (const f of next.forms) {
           const old = config.forms.find((o) => o.name === f.name);
-          if (!headless && f.css && !same(f.css, old && old.css)) {
-            const sr = await fetchChecked(env, url(f.css.url), f.css.integrity, `The stylesheet of form ${f.name}`);
-            player.set_form_stylesheet(f.name, await sr.text());
+          if (!headless && !same(f.css, old && old.css)) {
+            player.set_form_stylesheet(f.name, f.css ? await (await fetchChecked(env, url(f.css.url), f.css.integrity, `The stylesheet of form ${f.name}`)).text() : '');
             changed.push(`stylesheet of ${f.name}`);
           }
         }

@@ -39,6 +39,14 @@ pub const BASE_CSS: &str = r#"
 .pr-form-layer > [data-name]:not(.pr-disabled) { pointer-events: auto; }
 .pr-form-layer .pr-label[data-hit="text"] { pointer-events: none; }
 .pr-form-layer .pr-label[data-hit="text"] > .pr-label-text { pointer-events: auto; }
+/* The layer guard (WASM-007 R15, R16): an important declaration in this, the lowest layer, beats every later layer and every
+   unlayered rule, so no stylesheet can move, unstack, hide or un-shield the form's root, its base or a layer. The values are the
+   ones above; `[hidden]` still hides; each layer's z-index is `layer_guard`'s. `inherit` keeps what the host page sets. */
+.pr-form-root { position: absolute !important; inset: 0 !important; overflow: hidden !important; isolation: isolate !important; z-index: auto !important; pointer-events: inherit !important; }
+.pr-form-root:not([hidden]) { display: block !important; visibility: inherit !important; }
+.pr-form-root > .pr-form { position: absolute !important; inset: 0 !important; z-index: 0 !important; }
+.pr-form-layer { position: absolute !important; inset: 0 !important; isolation: isolate !important; overflow: visible !important; pointer-events: none !important; }
+.pr-form-layer:not([hidden]) { display: block !important; visibility: inherit !important; }
 @media (pointer: coarse) { .pr-touch::after { content: ""; position: absolute; inset: -7.5%; background: transparent; } }
 .pr-surface { position: relative; }
 .pr-form[data-responsive] > .pr-surface { position: absolute; inset: 0; }
@@ -301,7 +309,15 @@ pub const LAYER_ORDER: &str = "@layer pr-base, pr-theme, pr-props, pr-app;";
 
 /// The base stylesheet as the player adopts it: the layer order, then the base in the lowest layer.
 pub fn base_layer() -> String {
-    format!("{LAYER_ORDER}\n@layer pr-base {{\n{BASE_CSS}\n}}")
+    format!("{LAYER_ORDER}\n@layer pr-base {{\n{BASE_CSS}\n{}}}", layer_guard())
+}
+
+/// The stacking order of the layers, guarded as [`BASE_CSS`] guards the rest (WASM-007 R16): layer `k` at `z-index: k + 1`,
+/// as `view/style.rs::layers_css` places it, for every layer a form may have (`MAX_LAYERS`).
+pub fn layer_guard() -> String {
+    (0..cobolt_forms::model::MAX_LAYERS)
+        .map(|k| format!(".pr-form-layer[data-layer-index=\"{k}\"] {{ z-index: {} !important; }}\n", k + 1))
+        .collect()
 }
 
 /// The theme sheet (WASM-007 Q5): a built-in web theme by id, or a whole theme stylesheet the project

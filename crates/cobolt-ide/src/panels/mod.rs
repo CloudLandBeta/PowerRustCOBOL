@@ -53,6 +53,7 @@ pub mod properties;
 pub mod settings_form;
 /// The spotlight shared by the Walkthrough and the Task Wizard (spec 104).
 pub mod spotlight;
+pub mod stylesheet_modal;
 pub mod sql_connections;
 pub mod tab_order;
 pub mod target_picker;

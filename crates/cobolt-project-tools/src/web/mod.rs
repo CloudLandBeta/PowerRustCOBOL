@@ -118,6 +118,8 @@ impl WebBuildRequest {
                     call_timeout_ms: mobile.call_timeout_ms,
                     // A Mobile build's variants are its platform's (below).
                     single_memory_fallback: true,
+                    stylesheet: mobile.stylesheet.clone(),
+                    theme_file: mobile.theme_file.clone(),
                 };
                 (web, mobile.module_variants())
             }

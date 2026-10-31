@@ -200,6 +200,12 @@ pub struct BundleOptions {
     /// behind it, so without this the theme's white text sat on the page's own colour —
     /// white in a light scheme. `None` leaves the page's colour.
     pub backdrop: Option<String>,
+    /// The web theme the player adopts as `pr-theme` (WASM-007 Q5), written as `theme.css`: the rules of a
+    /// built-in theme (`cobolt_forms::web_themes::theme_rules`) or the project's whole-theme file
+    /// (`[web] theme_file`), unlayered — the player puts it in the layer. `None`: the player's own Liquid Glass.
+    pub theme: Option<String>,
+    /// The browsers the stylesheets are checked against (WASM-007 R10).
+    pub browsers: cobolt_forms::stylesheet_lint::Browsers,
 }
 
 /// The stand-in face the desktop's painter letters "Arial" in (egui's built-in proportional font), shipped with
@@ -237,6 +243,8 @@ impl Default for BundleOptions {
             tile_url: None,
             image_origins: Vec::new(),
             backdrop: None,
+            theme: None,
+            browsers: cobolt_forms::stylesheet_lint::Browsers::default(),
         }
     }
 }
@@ -249,7 +257,7 @@ pub struct BundleInput {
     pub program_multi: Option<Vec<u8>>,
     pub program_single: Option<Vec<u8>>,
     pub forms: Vec<FormInput>,
-    /// The application-wide stylesheet (WASM-007 Q3, reserved).
+    /// The application-wide stylesheet (WASM-007 Q3), copied byte for byte; the player puts it in `@layer pr-app`.
     pub stylesheet: Option<String>,
     /// The menus of the forms' MenuBar and SideMenu controls.
     pub menus: Vec<MenuInput>,
@@ -284,6 +292,10 @@ pub struct BuildReport {
     pub isolation_headers: Vec<(String, String)>,
     pub warnings: Vec<String>,
     pub notes: Vec<String>,
+    /// The origins the stylesheets load from (WASM-007 R13, AC7): images (`url()` in a declaration,
+    /// allowed by `img-src`) and fonts (`@font-face`, allowed by `font-src`). Sorted, no repeats.
+    pub stylesheet_img_sources: Vec<String>,
+    pub stylesheet_font_sources: Vec<String>,
 }
 
 impl BuildReport {
@@ -300,6 +312,8 @@ impl BuildReport {
         s.push_str("Content-Security-Policy\n");
         s.push_str(&format!("  in the page (<meta>): {}\n", self.csp_meta));
         s.push_str(&format!("  only as a response header: {}\n", self.header_only.join(", ")));
+        s.push_str(&format!("  the stylesheets load images from (img-src): {}\n", or_none(&self.stylesheet_img_sources)));
+        s.push_str(&format!("  the stylesheets load fonts from (font-src): {}\n", or_none(&self.stylesheet_font_sources)));
         if !self.isolation_headers.is_empty() {
             s.push_str("\nCross-origin isolation (threads) needs these response headers; resources from other origins must then allow it (CORS or Cross-Origin-Resource-Policy):\n");
             for (k, v) in &self.isolation_headers {
@@ -315,6 +329,37 @@ impl BuildReport {
         s.push('\n');
         s
     }
+}
+
+fn or_none(v: &[String]) -> String {
+    if v.is_empty() {
+        "none beyond the bundle".to_owned()
+    } else {
+        v.join(" ")
+    }
+}
+
+/// The errors of one stylesheet as the Build reports them, `file:line: message` (WASM-007 R13, R16):
+/// `label` names the file. Warnings (an unknown property, a value that does not parse) do not stop a
+/// build; the stylesheet editor shows them.
+pub fn stylesheet_errors(label: &str, css: &str, allowed_origins: &[String], browsers: cobolt_forms::stylesheet_lint::Browsers, layers: &[String]) -> Vec<String> {
+    use cobolt_forms::stylesheet_lint::{lint, message, Options, Severity};
+    lint(css, &Options { allowed_origins, browsers, layers })
+        .iter()
+        .filter(|d| d.code.severity() == Severity::Error)
+        .map(|d| format!("{label}:{}: {}", d.line, message(d)))
+        .collect()
+}
+
+/// The origins a stylesheet may load from (WASM-007 R13): what the images and fonts of the page may.
+pub fn stylesheet_origins(o: &BundleOptions) -> Vec<String> {
+    let mut v: Vec<String> = Vec::new();
+    for x in o.image_origins.iter().chain(&o.csp.extra_img).chain(&o.csp.extra_font) {
+        if !v.contains(x) {
+            v.push(x.clone());
+        }
+    }
+    v
 }
 
 #[derive(Debug, Clone)]
@@ -563,6 +608,29 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         problems.extend(sanitised_check(m, &forms_only));
     }
 
+    // ── the stylesheets (WASM-007 R13, R16): checked, then copied byte for byte ──
+    let allowed = stylesheet_origins(o);
+    let (mut sheet_img, mut sheet_font) = (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
+    let mut sheets: Vec<(String, &str, Vec<String>)> = Vec::new();
+    for f in &input.forms {
+        if let Some(css) = &f.stylesheet {
+            let layers = described.get(&f.name.to_ascii_lowercase()).map(|(form, _)| form.layers.iter().map(|l| l.name.clone()).collect()).unwrap_or_default();
+            sheets.push((format!("forms/{}.css", f.name), css, layers));
+        }
+    }
+    if let Some(css) = &input.stylesheet {
+        sheets.push(("stylesheet.css".into(), css, Vec::new()));
+    }
+    if let Some(css) = &o.theme {
+        sheets.push(("theme.css".into(), css, Vec::new()));
+    }
+    for (label, css, layers) in &sheets {
+        problems.extend(stylesheet_errors(label, css, &allowed, o.browsers, layers));
+        let (img, font) = cobolt_forms::stylesheet_lint::sources(css);
+        sheet_img.extend(img);
+        sheet_font.extend(font);
+    }
+
     if !problems.is_empty() {
         return Err(BundleError { problems });
     }
@@ -618,9 +686,15 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     if !csp_opts.extra_script.contains(&notice_source) {
         csp_opts.extra_script.push(notice_source);
     }
-    for origin in &o.image_origins {
+    for origin in o.image_origins.iter().chain(&sheet_img) {
         if !csp_opts.extra_img.contains(origin) {
             csp_opts.extra_img.push(origin.clone());
+        }
+    }
+    // A font a stylesheet loads from an allowed origin needs that origin in `font-src` (R13).
+    for origin in &sheet_font {
+        if !csp_opts.extra_font.contains(origin) {
+            csp_opts.extra_font.push(origin.clone());
         }
     }
     if uses_maps {
@@ -650,6 +724,10 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     }
     let stylesheet_cfg = input.stylesheet.as_ref().map(|css| {
         let p = b.add_hashed("stylesheet.css", css.clone().into_bytes());
+        json!({"url": p, "integrity": b.sri_of(&p)})
+    });
+    let theme_cfg = o.theme.as_ref().map(|css| {
+        let p = b.add_hashed("theme.css", css.clone().into_bytes());
         json!({"url": p, "integrity": b.sri_of(&p)})
     });
     let mut assets_cfg = serde_json::Map::new();
@@ -753,7 +831,9 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
             "recaptcha_site_key": o.recaptcha_site_key,
             "auth_flow": o.auth_flow,
             "tile_url": o.tile_url.clone().unwrap_or_default(),
-            "image_origins": csp_opts.extra_img.clone(),
+            // What the player lets a stylesheet load from at run time (`css_is_safe`): the images' origins and the
+            // fonts', the list the Build checked the sheets against (WASM-007 R13).
+            "image_origins": csp_opts.extra_img.iter().chain(csp_opts.extra_font.iter().filter(|f| !csp_opts.extra_img.contains(f))).cloned().collect::<Vec<_>>(),
             "embed": match &o.embed { Embed::Window => json!({"mode": "window"}), Embed::Element { selector } => json!({"mode": "element", "selector": selector}) },
         },
         "texts": Value::Object(texts),
@@ -761,6 +841,9 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     });
     if let Some(s) = stylesheet_cfg {
         config["stylesheet"] = s;
+    }
+    if let Some(t) = theme_cfg {
+        config["theme"] = t;
     }
     let config_text = serde_json::to_string_pretty(&config).expect("config serialises");
     b.add("config.json".into(), config_text.into_bytes());
@@ -896,6 +979,8 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         isolation_headers,
         warnings,
         notes,
+        stylesheet_img_sources: sheet_img.into_iter().collect(),
+        stylesheet_font_sources: sheet_font.into_iter().collect(),
     };
     Ok(BundleOutput { files: b.files, report })
 }
