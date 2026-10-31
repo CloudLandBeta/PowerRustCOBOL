@@ -172,7 +172,8 @@ pub struct BundleOptions {
     pub link_schemes: Vec<String>,
     pub recaptcha_site_key: String,
     pub auth_flow: String,
-    /// Override the host page's texts (the developer translates them): `loading`, `unsupported`, …
+    /// Override the host page's texts (the developer translates them): `loading`, `unsupported`, …; the player's
+    /// "connecting" modal reads `connecting`, `unreachable` and `reload` (WASM-016 R20–R21).
     pub texts: BTreeMap<String, String>,
     /// A release build refuses every `unsafe` setting (WASM-013 R11).
     pub release: bool,

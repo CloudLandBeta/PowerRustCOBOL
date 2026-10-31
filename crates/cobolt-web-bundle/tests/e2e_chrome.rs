@@ -12,8 +12,9 @@
 //!
 //! The page is drawn by Leptos (WASM-016 T24; until T24 the same scenarios also ran on the hand-written
 //! patch it replaced). A WebSocket backend in the test, speaking the connection of
-//! `examples/mock_backend.rs`, answers the program's remote calls, is held back, and is stopped and
-//! started again (AC4, AC5). One line is printed per scenario and placement.
+//! `examples/mock_backend.rs`, answers the program's remote calls, is held back, is stopped and
+//! started again (AC4, AC5, AC13), and refuses every connection for a whole retry cycle (AC14). One line is
+//! printed per scenario and placement.
 //!
 //! With no Chrome on the machine (`CHROME` names one) the test says it was skipped, and why.
 
@@ -24,11 +25,11 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cobolt_web_bundle::devserver::{serve, ServeOptions};
 use cobolt_web_bundle::{BundleOptions, Embed, Isolation, PlayerInput};
-use cobolt_wasm_abi::fixture::standard::{CHILD_FORM, GREETING, LBL_OUT, LST_1, MAIN_FORM, TXT_IN};
+use cobolt_wasm_abi::fixture::standard::{BACKEND_UNREACHABLE, CHILD_FORM, GREETING, LBL_OUT, LST_1, MAIN_FORM, TXT_IN};
 use support::cdp::{find_chrome, Chrome, Page};
 
 /// Helpers the scenarios evaluate in the page; the application is inside `#pr-app`'s shadow root.
@@ -74,12 +75,16 @@ fn embedding_page(index: &str) -> String {
 /// (`cobolt_wire::proto`, WASM-014 T6: `hello` answered `hello`, `{"t":"call","id","key",…}` answered
 /// `{"t":"reply","id","args","returning"}`, as `examples/mock_backend.rs`): it answers every call `pong` after `delay_ms`,
 /// or holds it forever (`delay_ms` = `u64::MAX`). [`Backend::kill`] drops it with its connections, as a
-/// server that goes down; [`Backend::start`] on the same port brings it back.
+/// server that goes down; [`Backend::start`] on the same port brings it back. [`Backend::refuse`] keeps the port
+/// but closes every connection, the open ones and each new one at once — a backend that is down for good, whose
+/// listener still counts the attempts ([`Backend::attempts`]).
 struct Backend {
     port: u16,
     delay_ms: Arc<AtomicU64>,
     calls: Arc<Mutex<Vec<String>>>,
     stop: Arc<AtomicBool>,
+    refusing: Arc<AtomicBool>,
+    attempts: Arc<Mutex<Vec<Instant>>>,
     conns: Arc<Mutex<Vec<TcpStream>>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -90,13 +95,19 @@ impl Backend {
         listener.set_nonblocking(true).unwrap();
         let port = listener.local_addr().unwrap().port();
         let (delay, stop, conns) = (Arc::new(AtomicU64::new(delay_ms)), Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(Vec::new())));
-        let (d, st, cs, log) = (delay.clone(), stop.clone(), conns.clone(), calls.clone());
+        let (refusing, attempts) = (Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(Vec::new())));
+        let (d, st, cs, log, rf, at) = (delay.clone(), stop.clone(), conns.clone(), calls.clone(), refusing.clone(), attempts.clone());
         let thread = std::thread::spawn(move || {
             while !st.load(Ordering::SeqCst) {
                 let Ok((stream, _)) = listener.accept() else {
                     std::thread::sleep(Duration::from_millis(10));
                     continue;
                 };
+                at.lock().unwrap().push(Instant::now());
+                if rf.load(Ordering::SeqCst) {
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    continue;
+                }
                 stream.set_nonblocking(false).unwrap();
                 cs.lock().unwrap().push(stream.try_clone().unwrap());
                 let (d, log) = (d.clone(), log.clone());
@@ -129,7 +140,24 @@ impl Backend {
                 });
             }
         });
-        Backend { port, delay_ms: delay, calls, stop, conns, thread: Some(thread) }
+        Backend { port, delay_ms: delay, calls, stop, refusing, attempts, conns, thread: Some(thread) }
+    }
+
+    /// Close every connection and refuse the next ones (`true`), or take them again (`false`). Answers when it began.
+    fn refuse(&self, on: bool) -> Instant {
+        self.refusing.store(on, Ordering::SeqCst);
+        if on {
+            self.attempts.lock().unwrap().clear();
+            for c in self.conns.lock().unwrap().drain(..) {
+                let _ = c.shutdown(std::net::Shutdown::Both);
+            }
+        }
+        Instant::now()
+    }
+
+    /// When each connection reached the listener since [`Backend::refuse`], in seconds after `t0`.
+    fn attempts(&self, t0: Instant) -> Vec<f64> {
+        self.attempts.lock().unwrap().iter().map(|t| t.saturating_duration_since(t0).as_secs_f64()).collect()
     }
 
     fn url(&self) -> String {
@@ -220,6 +248,83 @@ fn click(p: &mut Page, form: &str, name: &str) -> Result<(), String> {
         return Err(format!("{name} of {form} cannot be clicked: {}", hit.as_str().unwrap_or("?")));
     }
     p.click_at(&format!("__pr.rect(__pr.ctl({}, {}))", q(form), q(name)))
+}
+
+/// The "connecting" modal while it is up (WASM-016 R20, AC13): `None` when it is not.
+const MODAL: &str = "__pr.root().querySelector('dialog.pr-netmodal[open]')";
+
+/// The captions of the modal in the page's language — the headless browser's, English (WASM-016 R20–R21).
+const CONNECTING: &str = "Connecting to the server\u{2026}";
+const UNREACHABLE: &str = "The server could not be reached.";
+
+/// Within `tolerance` on every channel.
+fn near_colour(c: [u8; 3], want: [u8; 3], tolerance: u8) -> bool {
+    c.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= tolerance)
+}
+
+/// AC13 while the modal is up: it is over the whole application and holds the focus; a click on the text box behind it,
+/// keys and typed text change nothing; it animates; its background samples red, dark red, crimson and black from left to
+/// right; what is drawn on it is white. Answers a line of what was measured.
+fn check_modal_blocks(p: &mut Page, main: &str) -> Result<String, String> {
+    let geometry = p.eval(&format!(
+        "(() => {{ const d = {MODAL}, a = __pr.app().getBoundingClientRect(), r = d.getBoundingClientRect(), i = __pr.input({m}, {t}).getBoundingClientRect(); \
+         const hit = __pr.root().elementFromPoint(i.x + i.width / 2, i.y + i.height / 2); \
+         return {{ app: [a.x, a.y, a.width, a.height].map(Math.round), modal: [r.x, r.y, r.width, r.height].map(Math.round), modal_on_top: !!hit && !!hit.closest('dialog.pr-netmodal'), is_modal: d.matches(':modal') }}; }})()",
+        m = q(main),
+        t = q(TXT_IN)
+    ))?;
+    if geometry["app"] != geometry["modal"] || geometry["modal_on_top"] != true || geometry["is_modal"] != true {
+        return Err(format!("the modal does not cover the application: {geometry}"));
+    }
+    // What a user does to the form behind it.
+    p.click_at(&format!("__pr.rect(__pr.input({}, {}))", q(main), q(TXT_IN)))?;
+    for k in ["x", "Tab", "Escape", "Enter"] {
+        p.press_key(k)?;
+    }
+    p.type_text("zz")?;
+    let after = p.eval(&format!(
+        "(() => {{ const i = __pr.input({m}, {t}), a = __pr.root().activeElement; return {{ value: i.value, open: !!{MODAL}, focus_in_modal: !!a && !!a.closest('dialog.pr-netmodal') }}; }})()",
+        m = q(main),
+        t = q(TXT_IN)
+    ))?;
+    if after["value"] != "written first" || after["open"] != true || after["focus_in_modal"] != true {
+        return Err(format!("the form behind the modal was reached: {after}"));
+    }
+    let look = p.eval(&format!(
+        "(() => {{ const d = {MODAL}; const c = (s) => getComputedStyle(d.querySelector(s)); return {{ caption: d.querySelector('.pr-netmodal-caption').textContent, \
+         running: d.getAnimations({{ subtree: true }}).filter((a) => a.playState === 'running').length, \
+         stroke: c('.pr-netmodal-screen rect').stroke, server: c('.pr-netmodal-server rect').stroke, cloud: c('.pr-netmodal-cloud').stroke, text: c('.pr-netmodal-caption').color }}; }})()"
+    ))?;
+    let white = "rgb(255, 255, 255)";
+    if look["caption"] != CONNECTING || look["running"].as_u64().unwrap_or(0) < 2 || [&look["stroke"], &look["server"], &look["cloud"], &look["text"]].iter().any(|v| **v != white) {
+        return Err(format!("the modal looks wrong: {look}"));
+    }
+    // The background, sampled on a row near the top edge, where nothing is drawn.
+    let r = p.eval(&format!("__pr.rect({MODAL})"))?;
+    let (x, y, w) = (r["x"].as_f64().unwrap_or(0.0), r["y"].as_f64().unwrap_or(0.0), r["width"].as_f64().unwrap_or(0.0));
+    let (cw, _, px) = p.capture(x, y, w, 8.0)?;
+    let at = |f: f64| px[4 * cw as usize + ((cw as f64 - 1.0) * f).round() as usize];
+    let want = [(0.01, [252, 0, 0], "red"), (0.40, [139, 0, 0], "dark red"), (0.70, [220, 20, 60], "crimson"), (0.99, [7, 1, 2], "black")];
+    let mut samples = Vec::new();
+    for (f, colour, name) in want {
+        let c = at(f);
+        if !near_colour(c, colour, 14) {
+            return Err(format!("at {:.0} % of the width the background is {c:?}, not {name} {colour:?}", f * 100.0));
+        }
+        samples.push(format!("{name} {c:?}"));
+    }
+    let d = p.eval(&format!("__pr.rect({MODAL}.querySelector('.pr-netmodal-drawing'))"))?;
+    let (_, _, drawing) = p.capture(d["x"].as_f64().unwrap_or(0.0), d["y"].as_f64().unwrap_or(0.0), d["width"].as_f64().unwrap_or(1.0), d["height"].as_f64().unwrap_or(1.0))?;
+    let whites = drawing.iter().filter(|c| c.iter().all(|v| *v >= 235)).count();
+    if whites < 100 {
+        return Err(format!("only {whites} white pixels in the drawing"));
+    }
+    Ok(format!(
+        "over the application {:?}; click, x, Tab, Escape, Enter and \"zz\" left TXT-IN at \"written first\", the focus in the modal; {} animations running; samples {}; {whites} white pixels drawn",
+        geometry["modal"].to_string(),
+        look["running"],
+        samples.join(", ")
+    ))
 }
 
 fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut Option<Backend>, dir: &Path) -> Vec<(String, Result<String, String>)> {
@@ -388,32 +493,102 @@ fn run_scenarios(page: &mut Page, url: &str, placement: Placement, backend: &mut
         Ok(format!("label went {}; the backend saw one call", seq.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(" -> ")))
     });
 
-    run.with_backend("backend lost: the page retries by the policy, the call in flight ends in ON EXCEPTION when it reconnects, a later call succeeds (AC5, WASM-003 R25)", |p, slot| {
-        let b = slot.take().ok_or("no backend")?;
-        b.delay_ms.store(u64::MAX, Ordering::SeqCst);
-        click(p, main, "BTN-REMOTE")?;
-        wait_text(p, main, LBL_OUT, "calling")?;
-        p.wait_for("__pr.root().querySelector('.pr-net') === null", 10)?;
-        let (port, calls) = b.kill();
-        let badge = p.wait_for("(__pr.root().querySelector('.pr-net') || {}).textContent", 20)?;
-        let blocked = p.eval("__pr.handle().then(a => JSON.parse(a.player.stats()).blocked)")?;
-        std::thread::sleep(Duration::from_millis(1200));
-        *slot = Some(Backend::start(port, 0, calls));
-        // Attempt 1 was refused at the break; attempt 2 opens 10 s after it and reconnects. The lost call
-        // (not declared idempotent) then reaches its ON EXCEPTION with the error frame (WASM-003 R25).
-        p.wait_for(&format!("(__pr.text({}, {}) || '').includes('\"error\"')", q(main), q(LBL_OUT)), 30)?;
-        let failed = text_of(p, main, LBL_OUT)?;
-        p.wait_for("__pr.root().querySelector('.pr-net') === null", 30)?;
-        if blocked != serde_json::json!(true) {
-            return Err(format!("the player did not report blocked while it retried: {blocked}"));
+    run.with_backend(
+        "backend lost: the modal blocks the application while the page retries by the policy, the call in flight ends in ON EXCEPTION when it reconnects, the modal goes and the form is as it was, a later call succeeds (AC5, AC13, WASM-003 R25)",
+        |p, slot| {
+            let b = slot.take().ok_or("no backend")?;
+            b.delay_ms.store(u64::MAX, Ordering::SeqCst);
+            click(p, main, "BTN-REMOTE")?;
+            wait_text(p, main, LBL_OUT, "calling")?;
+            p.wait_for("__pr.root().querySelector('.pr-net') === null", 10)?;
+            // The text box has the focus and a selection; every frame records whether the player is blocked and whether
+            // the modal is up.
+            p.eval(&format!(
+                "(async () => {{ const i = __pr.input({m}, {t}); i.focus(); i.setSelectionRange(2, 5); i.__kept2 = 1; \
+                 const a = await __pr.handle(); window.__frames = []; window.__framesStop = false; \
+                 const tick = () => {{ if (window.__framesStop) return; __frames.push([JSON.parse(a.player.stats()).blocked, !!{MODAL}]); requestAnimationFrame(tick); }}; tick(); return true; }})()",
+                m = q(main),
+                t = q(TXT_IN)
+            ))?;
+            let (port, calls) = b.kill();
+            p.wait_for(&format!("!!{MODAL}"), 10)?;
+            let blocks = check_modal_blocks(p, main);
+            let badge = p.eval("(__pr.root().querySelector('.pr-net') || {}).textContent || ''")?;
+            let blocked = p.eval("__pr.handle().then(a => JSON.parse(a.player.stats()).blocked)")?;
+            *slot = Some(Backend::start(port, 0, calls));
+            let blocks = blocks?;
+            // Attempt 1 was refused at the break; attempt 2 opens 10 s after it and reconnects. The lost call
+            // (not declared idempotent) then reaches its ON EXCEPTION with the error frame (WASM-003 R25).
+            p.wait_for(&format!("(__pr.text({}, {}) || '').includes('\"error\"')", q(main), q(LBL_OUT)), 30)?;
+            let failed = text_of(p, main, LBL_OUT)?;
+            p.wait_for("!__pr.root().querySelector('dialog.pr-netmodal') && __pr.root().querySelector('.pr-net') === null", 30)?;
+            let frames = p.eval("(() => { window.__framesStop = true; const f = window.__frames; return { frames: f.length, blocked: f.filter((x) => x[0]).length, unshown: f.filter((x) => x[0] && !x[1]).length }; })()")?;
+            if frames["blocked"].as_u64().unwrap_or(0) == 0 || frames["unshown"] != 0 {
+                return Err(format!("a frame was drawn blocked without the modal: {frames}"));
+            }
+            let kept = p.eval(&format!(
+                "(() => {{ const i = __pr.input({m}, {t}); return {{ value: i.value, same: i.__kept2 === 1, focused: __pr.root().activeElement === i, selection: [i.selectionStart, i.selectionEnd] }}; }})()",
+                m = q(main),
+                t = q(TXT_IN)
+            ))?;
+            if kept != serde_json::json!({"value": "written first", "same": true, "focused": true, "selection": [2, 5]}) {
+                return Err(format!("the form behind the modal changed: {kept}"));
+            }
+            if blocked != serde_json::json!(true) {
+                return Err(format!("the player did not report blocked while it retried: {blocked}"));
+            }
+            // What was done while the modal was up never reached the form: no click is queued behind the lost call.
+            std::thread::sleep(Duration::from_millis(700));
+            if text_of(p, main, LBL_OUT)? != failed {
+                return Err(format!("the label moved on after the reconnection: {:?}", text_of(p, main, LBL_OUT)?));
+            }
+            click(p, main, "BTN-REMOTE")?;
+            p.wait_for(&format!("(__pr.text({}, {}) || '').includes('pong')", q(main), q(LBL_OUT)), 20)?;
+            let after = text_of(p, main, LBL_OUT)?;
+            if after.contains("error") {
+                return Err(format!("the call after reconnection failed too: {after}"));
+            }
+            Ok(format!(
+                "{blocks}; {} frames blocked, each with the modal up; gone at the reconnection with TXT-IN as it was (focus, selection 2..5); badge {badge}, blocked {blocked}; in flight, at the reconnection: {}; after it: {after:?}",
+                frames["blocked"],
+                failed.chars().take(90).collect::<String>()
+            ))
+        },
+    );
+
+    run.with_backend("backend down for good: three attempts at 10, 20 and 30 s, then the modal says so, the main form's onBackendUnreachable runs, and Reload starts again (AC14, WASM-016 R21)", |p, slot| {
+        let b = slot.as_ref().ok_or("no backend")?;
+        p.wait_for("!__pr.root().querySelector('dialog.pr-netmodal')", 10)?;
+        p.eval("window.__beforeReload = 1")?;
+        let t0 = b.refuse(true);
+        let first = p.wait_for(&format!("(() => {{ const d = {MODAL}; return d && d.querySelector('.pr-netmodal-caption').textContent; }})()"), 10)?;
+        p.wait_for("(__pr.root().querySelector('dialog.pr-netmodal') || { getAttribute: () => '' }).getAttribute('data-state') === 'unreachable'", 90)?;
+        let gave_up = t0.elapsed().as_secs_f64();
+        wait_text(p, main, LBL_OUT, BACKEND_UNREACHABLE)?;
+        let shown = p.eval(&format!(
+            "(() => {{ const d = {MODAL}; return {{ caption: d.querySelector('.pr-netmodal-caption').textContent, buttons: [...d.querySelectorAll('button')].map((b) => b.textContent), running: d.getAnimations({{ subtree: true }}).filter((a) => a.playState === 'running').length }}; }})()"
+        ))?;
+        std::thread::sleep(Duration::from_secs(2));
+        let attempts = b.attempts(t0);
+        if first != CONNECTING || shown["caption"] != UNREACHABLE || shown["buttons"] != serde_json::json!(["Reload"]) || shown["running"] != 0 {
+            return Err(format!("the modal said {first} then {shown}"));
         }
-        click(p, main, "BTN-REMOTE")?;
-        p.wait_for(&format!("(__pr.text({}, {}) || '').includes('pong')", q(main), q(LBL_OUT)), 20)?;
-        let after = text_of(p, main, LBL_OUT)?;
-        if after.contains("error") {
-            return Err(format!("the call after reconnection failed too: {after}"));
+        let windows_ok = attempts.len() == 3 && attempts.iter().zip([0.0, 10.0, 30.0]).all(|(a, w)| (a - w).abs() <= 1.5);
+        if !windows_ok || (gave_up - 60.0).abs() > 2.5 {
+            return Err(format!("attempts at {attempts:.2?} s, given up at {gave_up:.2} s; the policy is 0, 10, 30 and 60"));
         }
-        Ok(format!("badge {badge}, blocked {blocked}; in flight, at the reconnection: {}; after it: {after:?}", failed.chars().take(90).collect::<String>()))
+        // The host page's recovery: Reload, with the backend back.
+        b.refuse(false);
+        p.click_at(&format!("__pr.rect({MODAL}.querySelector('button'))"))?;
+        p.wait_for("window.__beforeReload === undefined && document.readyState === 'complete'", 20)?;
+        p.eval(HELPERS)?;
+        wait_text(p, main, LBL_OUT, "loaded")?;
+        Ok(format!(
+            "captions {:?} then {:?} with [Reload], the drawing still; attempts at {} s, given up at {gave_up:.2} s; LBL-OUT {BACKEND_UNREACHABLE:?} from onBackendUnreachable; Reload started the application again",
+            first.as_str().unwrap_or(""),
+            shown["caption"].as_str().unwrap_or(""),
+            attempts.iter().map(|a| format!("{a:.2}")).collect::<Vec<_>>().join(" / ")
+        ))
     });
 
     {

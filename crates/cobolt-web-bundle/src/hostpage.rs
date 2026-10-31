@@ -786,6 +786,9 @@ export async function mount(target, options = {}) {
       tile_url: (config.options && config.options.tile_url) || '',
       image_origins: (config.options && config.options.image_origins) || [],
       app_url: (config.options && config.options.app_url) || '',
+      // The texts the developer translated: the player's "connecting" modal reads `connecting`, `unreachable` and `reload`
+      // from them (WASM-016 R20-R21) and speaks the page's language without them.
+      texts: config.texts || {},
     };
     if ((pcfg.hosted_code || pcfg.hosted_state) && env.history && typeof env.history.replaceState === 'function' && env.location) {
       try {

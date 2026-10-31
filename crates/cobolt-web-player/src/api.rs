@@ -90,6 +90,9 @@ pub struct PlayerConfig {
     /// The hosted sign-in flow came back to this page with an authorisation code (WASM-009 R8b).
     pub hosted_code: String,
     pub hosted_state: String,
+    /// The host page's texts the developer translated (WASM-002 R15). The player reads the "connecting" modal's from them
+    /// (`connecting`, `unreachable`, `reload`; WASM-016 R20–R21); without them it speaks the page's language.
+    pub texts: std::collections::BTreeMap<String, String>,
 }
 
 /// Something that happened outside the driver; the driver acts on it between calls.
@@ -300,6 +303,9 @@ pub(crate) trait Surface {
     fn render(&self, inner: &Rc<Inner>);
     fn effect(&self, inner: &Rc<Inner>, e: &Effect);
     fn net_state(&self, inner: &Rc<Inner>, s: LinkState);
+    /// The connection is being retried (`blocked`) or gave up (`unreachable`): show, change or take away the "connecting"
+    /// modal that blocks the application (WASM-016 R20–R21).
+    fn net_blocked(&self, inner: &Rc<Inner>, blocked: bool, unreachable: bool);
     /// The stylesheets, the asset table or the locale changed: redo what depends on them.
     fn styles_changed(&self, inner: &Rc<Inner>);
     fn unmount(&self);
@@ -333,7 +339,7 @@ pub(crate) struct Inner {
     net: RefCell<Option<Client<WsSocket>>>,
     net_timer: RefCell<Option<Timeout>>,
     /// The connection's latest *blocked* and *unreachable* (WASM-003 R26, WASM-016 R21): what the
-    /// "connecting" modal (WASM-016 T29b) is drawn from; `stats()` reports them.
+    /// "connecting" modal (WASM-016 R20) is drawn from; `stats()` reports them.
     net_blocked: Cell<bool>,
     net_unreachable: Cell<bool>,
     timers: RefCell<Vec<(u32, Timeout)>>,
@@ -442,6 +448,7 @@ impl Inner {
             let Some(c) = guard.as_mut() else { return };
             (c.take_out(), std::mem::take(&mut c.refresh_requested), c.next_deadline())
         };
+        let mut modal_changed = false;
         for o in outs {
             match o {
                 Out::Answer { id, frame } if crate::grid::is_grid_id(id) => {
@@ -465,8 +472,24 @@ impl Inner {
                     }
                 }
                 Out::Warning(w) => web_sys::console::warn_1(&w.into()),
-                Out::Blocked(b) => self.net_blocked.set(b),
-                Out::Unreachable(u) => self.net_unreachable.set(u),
+                Out::Blocked(b) => {
+                    modal_changed |= self.net_blocked.replace(b) != b;
+                }
+                Out::Unreachable(u) => {
+                    let was = self.net_unreachable.replace(u);
+                    modal_changed |= was != u;
+                    // The exception of WASM-016 R21: the application hears that the backend could not be reached, once
+                    // per give-up (the calls that waited have already failed with the class transport).
+                    if u && !was {
+                        self.host.borrow_mut().backend_unreachable();
+                    }
+                }
+            }
+        }
+        // The modal follows in the same turn as the break, so it is up before the next frame (AC13).
+        if modal_changed {
+            if let Some(sf) = self.surface.borrow().as_ref() {
+                sf.net_blocked(self, self.net_blocked.get(), self.net_unreachable.get());
             }
         }
         if refresh {

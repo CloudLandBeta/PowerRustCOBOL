@@ -56,6 +56,10 @@ pub const MAX_PARAMS: usize = 16;
 pub const MAX_PARAM_NAME: usize = 64;
 pub const MAX_PARAM_VALUE: usize = 512;
 
+/// The form event the player raises when the connection to the backend gave up (WASM-016 R21; the form catalogue's
+/// "Error Handling" group, `cobolt_forms::model::FORM_EVENT_GROUPS`).
+pub const ON_BACKEND_UNREACHABLE: &str = "onBackendUnreachable";
+
 /// Why `name=value` is not an acceptable parameter, if it is not: a name is letters, digits, `-`, `_` and `.`
 /// and at most [`MAX_PARAM_NAME`] long; a value is at most [`MAX_PARAM_VALUE`] characters.
 fn param_problem(k: &str, v: &str) -> Option<String> {
@@ -585,6 +589,14 @@ impl Host {
         let Some(ev) = self.manifest.event_index(event) else { return false };
         self.enqueue(inst, abi, ev, args);
         true
+    }
+
+    /// The connection gave up: three attempts failed (WASM-003 R25, WASM-016 R21). `onBackendUnreachable` is raised on the
+    /// form the page started with — the oldest open instance no other instance opened, the main form of a single-page
+    /// application — when a handler is bound to it. Answers whether it was queued.
+    pub fn backend_unreachable(&mut self) -> bool {
+        let Some(inst) = self.trees.values().filter(|t| t.opener.is_none()).map(|t| t.inst).min() else { return false };
+        self.dom_event(inst, 0, ON_BACKEND_UNREACHABLE, Vec::new())
     }
 
     /// An intercepted click on a Hyperlink (WASM-006 D1): `Cancel` reset, `onClick` raised with the modifier
@@ -2497,6 +2509,8 @@ mod params_tests;
 mod raise_tests;
 #[cfg(test)]
 mod resize_tests;
+#[cfg(test)]
+mod unreachable_tests;
 #[cfg(test)]
 mod numeric_tests;
 #[cfg(test)]

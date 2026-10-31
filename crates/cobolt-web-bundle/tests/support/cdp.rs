@@ -224,6 +224,34 @@ impl Page {
         Ok(())
     }
 
+    /// Press and release one key (`"a"`, `"Enter"`, `"Tab"`), as a keyboard would: it goes to what has the focus.
+    pub fn press_key(&mut self, key: &str) -> Result<(), String> {
+        let text = if key.chars().count() == 1 { key } else { "" };
+        self.call("Input.dispatchKeyEvent", json!({"type": "keyDown", "key": key, "text": text}))?;
+        self.call("Input.dispatchKeyEvent", json!({"type": "keyUp", "key": key}))?;
+        Ok(())
+    }
+
+    /// What the page shows in the rectangle `(x, y, width, height)` of the viewport, in CSS pixels: its width, its height
+    /// and one RGB triple per pixel, row by row.
+    pub fn capture(&mut self, x: f64, y: f64, width: f64, height: f64) -> Result<(u32, u32, Vec<[u8; 3]>), String> {
+        use base64::Engine;
+        let r = self.call("Page.captureScreenshot", json!({"format": "png", "clip": {"x": x, "y": y, "width": width, "height": height, "scale": 1}}))?;
+        let png = base64::engine::general_purpose::STANDARD.decode(r["data"].as_str().unwrap_or("")).map_err(|e| e.to_string())?;
+        let mut decoder = png::Decoder::new(png.as_slice());
+        decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+        let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+        let mut buf = vec![0; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
+        let step = match info.color_type {
+            png::ColorType::Rgba => 4,
+            png::ColorType::Rgb => 3,
+            other => return Err(format!("a screenshot in {other:?}")),
+        };
+        let pixels = buf[..info.buffer_size()].chunks_exact(step).map(|p| [p[0], p[1], p[2]]).collect();
+        Ok((info.width, info.height, pixels))
+    }
+
     /// The viewport's size, as a window resized by the user.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), String> {
         self.call("Emulation.setDeviceMetricsOverride", json!({"width": width, "height": height, "deviceScaleFactor": 1, "mobile": false}))?;
