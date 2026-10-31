@@ -55,6 +55,13 @@ Working assumptions (open questions; the operator may rule otherwise, and each i
   - Do: `kinds.rs::is_non_visual` calls `ControlType::is_non_visual()` (`model.rs:4152`) for model types and keeps `!PlayerKind::visual()` for the by-name kinds.
   - Verify: player — `kinds::` the non-visual set equals the model predicate over `ControlType::ALL` and every E kind is non-visual (R21); `css::` a property in the shared fidelity rows and not in the CSS rows (or the reverse) fails; a guard test that every name the view reads with `cx.tree.get(i, "…")` is a model property or in `model.rs::LAYER_PROPS` (R1, R7: no web-only member by accident). All 220 existing player tests stay green.
 
+- **Decided (operator, 2026-10-31):** (1) the border look is **drawn in CSS** — T13b below adds it, and T14 re-marks the rows from what T13b draws; (2) T14 does **not** gate the tasks after it: T15–T21 do not depend on it and run without it, so WASM-007 T15 (which waits for T18) is no longer held behind T14.
+
+- [ ] **T13b — The border look drawn in CSS** (R4, R6, Q6; operator 2026-10-31)
+  - Files: `crates/cobolt-web-player/src/css.rs` (`TABLE`), `crates/cobolt-web-player/src/view/style.rs`, `crates/cobolt-forms/src/web_class.rs` (`FIDELITY`), the player's tests; the prebuilt player in `assets/web-player/` rebuilt.
+  - Do: the player reads and draws `BorderGradientEnabled` with `BorderGradientStartColor` / end colour / direction (a gradient border: `border-image` or a background-clip layer, rounded corners kept), `BorderBlur` (`backdrop-filter`/`filter` on the border band), `BorderTransparency` (alpha on the border colour), the Snackbar's corner rows, and `PerspectiveStrength` (CSS `perspective` / `transform`), matching the desktop renderer (`cobolt-forms` `paint.rs`) as closely as CSS allows.
+  - Verify: player tests show each property reaching the computed style of a control; a Chrome capture of a form using all four next to the desktop `render_form` picture, numbers written here.
+
 - [ ] **T14 — Fidelity rows re-marked against Q6** (R4, R6; plan C3; depends on WASM-007's CSS)
   - Files: `crates/cobolt-forms/src/web.rs` (rows only).
   - Do: for each row now `NotOnWeb` or `Approximate` (`BorderGradientEnabled`, `BorderBlur`, `BorderTransparency`, the shadow rows, …), set it from what WASM-007's CSS actually draws (Q6 decided: reproduce the look in CSS); `OsBlur` stays `NotOnWeb`. Each changed row cites WASM-007's evidence in its note.
