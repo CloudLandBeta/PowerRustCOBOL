@@ -438,6 +438,7 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
       refused them. The motion stops when the retries are exhausted. When the connection works again the modal is removed
       and the focus, caret and selection go back to the element that had them. The browser keeps none of them across a
       modal dialog: Chrome returned the selection as 0..0 until the player saved and restored it.
+    - **Name confirmed (operator, 2026-10-31):** `onBackendUnreachable`, in the Error Handling group; its desktop wiring is WASM-014 T9.
     - **The exception** (`src/host.rs`): `Host::backend_unreachable()` raises **`onBackendUnreachable`** on the form the page started
       with — the oldest open instance no other one opened — when a handler is bound; `api.rs` calls it once per give-up.
       `src/host/unreachable_tests.rs` 2/2.

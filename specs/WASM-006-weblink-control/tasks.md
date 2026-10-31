@@ -118,6 +118,11 @@ These boxes stay checked with their evidence. T5 and T8 move and rename this cod
 
 - [ ] **T20 — Mobile shell** (R11; AC9) — **blocked on WASM-012.** The player's routing switch (shell detected from the host page's configuration; external origins and `mailto:`/`tel:`/`sms:` to the shell's opener) lands with the shell; AC9 is run on a device or simulator then. Listed as not run until WASM-012 exists.
 
+- [ ] **T19b — `onNavigated` before leaving the application** (R13; OQ1 decided (operator, 2026-10-31))
+  - Files: `crates/cobolt-web-player/src/host/` (the link click sequence), `crates/cobolt-forms/src/hyperlink.rs` if the sequence lives there, the desktop host's sequence (`cobolt-form-host`) for parity, the player's link tests.
+  - Do: for a same-context navigation that leaves the application, after `onBeforeNavigate` returns without `Cancel`, raise `onNavigated` and run its handler to the end, then let the browser navigate; `Cancel` set in `onNavigated` has no effect. Fragment links, in-app routes and new contexts keep raising it after the navigation, as today.
+  - Verify: a player test records `onClick` → `onBeforeNavigate` → `onNavigated` → navigation for an external same-tab link; a Chrome check that the handler's effect (a property written) happens before the page unloads.
+
 - [ ] **T21 — Finalize**
   - Bump `z` once in `crates/cobolt-ide/src/version.rs` (`VERSION`, `2.0.29` when this was written — bump whatever is current); add one `CHANGELOG.md` entry above the previous `## [PowerRustCOBOL …]` heading, dated, with the line `*(Written on `features-2x`, after 2.0.N.)*`. No documentation task: `README.md` and `docs/` are not touched on 2.x.x.
   - Credential scan of the staged diff (no `.cfrm` example with a key).

@@ -110,7 +110,7 @@ Each test prints what it measured.
 
 ## 7. Open questions (none decided here)
 
-- **OQ1 — `onNavigated` when the page unloads.** R13 asks for it "for a same-context navigation"; a same-context navigation to another site unloads the application, so the handler cannot run. Working assumption: raised for fragment links, router navigations and new contexts; not for a navigation that leaves the application. **To confirm.**
+- **OQ1 — `onNavigated` when the page unloads.** R13 asks for it "for a same-context navigation"; a same-context navigation to another site unloads the application, so the handler cannot run. Working assumption: raised for fragment links, router navigations and new contexts; not for a navigation that leaves the application. **Decided (operator, 2026-10-31): raise it before leaving.** For a same-context navigation that leaves the application, `onNavigated` is raised **just before** the browser navigates (after `onBeforeNavigate` and its `Cancel` have been settled), so the handler runs while the application is still loaded; it cannot cancel. D6 is amended accordingly (task T19b).
 - **OQ2 — The Safari table** of D3 — **closed 2026-10-23**: verified against Apple's page; the ⌘⌥-click row was not there and is dropped (see D3).
 - **OQ3 — The project setting's name and carrier** for the extra schemes (§3): proposal `[links] schemes`; the run-form carrier is settled at `/tasks`.
 - **OQ4 — The Windows URL opener** (D7) is confirmed on a Windows machine at `/implement`.
