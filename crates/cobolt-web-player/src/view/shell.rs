@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use cobolt_forms::menu::{MenuItem, MenuItemType};
-use cobolt_forms::snackbar::{parse_buttons, SnackButton, SnackCategory};
+use cobolt_forms::snackbar::{corner_radii, parse_buttons, SnackButton, SnackCategory, CORNER_PROPS};
 use cobolt_forms::toolbar::{ToolbarAction, ToolbarDef};
 
 use super::controls::{catalogue_icon, root};
@@ -208,6 +208,9 @@ pub struct Toast {
     pub timeout_ms: i64,
     pub pause_on_hover: bool,
     pub shown_at_ms: u64,
+    /// The template's corners (top-left, top-right, bottom-right, bottom-left), as the desktop's
+    /// notification draws them (`snackbar::corner_radii`); `None` keeps the theme's radius.
+    pub corner_radius: Option<[f32; 4]>,
 }
 
 pub fn category_name(c: SnackCategory) -> &'static str {
@@ -226,6 +229,7 @@ pub fn mint_toast(tree: &FormTree, inst: u32, ctl: usize, id: u32, text: Option<
     let category = SnackCategory::from_prop(&tree.get(ctl, "Category"));
     let timeout = parse_f64(&tree.get(ctl, "Timeout")).map(|v| v as i64).unwrap_or(-1);
     let (buttons, _diag) = parse_buttons(&tree.get(ctl, "Buttons"));
+    let int_of = |k: &str, default: i64| parse_f64(&tree.get(ctl, k)).map(|v| v.round() as i64).unwrap_or(default);
     Toast {
         id,
         inst,
@@ -236,6 +240,7 @@ pub fn mint_toast(tree: &FormTree, inst: u32, ctl: usize, id: u32, text: Option<
         timeout_ms: if timeout < 0 { category.defaults().timeout_ms } else { timeout },
         pause_on_hover: truthy(&tree.get(ctl, "PauseTimeoutOnHover")),
         shown_at_ms: now_ms,
+        corner_radius: Some(corner_radii(int_of("CornerRadius", 12), CORNER_PROPS.map(|k| int_of(k, -1)))),
     }
 }
 
@@ -246,6 +251,9 @@ pub fn toast_view(t: &Toast) -> VNode {
         .attr("role", if matches!(t.category, SnackCategory::Error | SnackCategory::Critical) { "alert" } else { "status" })
         .attr("data-category", category_name(t.category))
         .attr("data-id", t.id.to_string());
+    if let Some([tl, tr, br, bl]) = t.corner_radius {
+        n = n.style("border-radius", format!("{}px {}px {}px {}px", fmt_number(tl as f64), fmt_number(tr as f64), fmt_number(br as f64), fmt_number(bl as f64)));
+    }
     if let Some(icon) = catalogue_icon(t.category.defaults().icon) {
         n = n.child(icon.key("icon").class("pr-snack-icon"));
     }
@@ -839,6 +847,16 @@ mod tests {
         assert_eq!(mint_toast(&t, 0, i, 2, Some("Disk full"), 0).timeout_ms, 0, "a critical notice stays until dismissed");
         let (t, i) = tree_with("Snackbar", "SNK-1", &[("Timeout", "1500")]);
         assert_eq!(mint_toast(&t, 0, i, 3, None, 0).timeout_ms, 1500);
+    }
+
+    /// WASM-004 T13b: the Snackbar's four corners, each falling back to `CornerRadius` on `-1`.
+    #[test]
+    fn a_notification_takes_the_corners_of_its_template() {
+        let (t, i) = tree_with("Snackbar", "SNK-1", &[("CornerRadius", "12"), ("CornerRadiusTopLeft", "0"), ("CornerRadiusBottomRight", "20")]);
+        let n = toast_view(&mint_toast(&t, 0, i, 1, None, 0));
+        assert_eq!(n.styles.iter().find(|(k, _)| k == "border-radius").map(|(_, v)| v.as_str()), Some("0px 12px 20px 12px"));
+        let (t, i) = tree_with("Snackbar", "SNK-1", &[]);
+        assert_eq!(mint_toast(&t, 0, i, 1, None, 0).corner_radius, Some([12.0; 4]), "the seeded -1 corners take CornerRadius 12");
     }
 
     #[test]

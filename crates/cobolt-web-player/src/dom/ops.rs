@@ -90,6 +90,7 @@ impl Shared {
                 timeout_ms: 6000,
                 pause_on_hover: true,
                 shown_at_ms: crate::api::now_ms(),
+                corner_radius: None,
             }
         };
         let id = toast.id;

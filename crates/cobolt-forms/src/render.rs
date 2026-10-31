@@ -427,22 +427,10 @@ fn layer_ranks(controls: &[Control], layers: &[crate::model::Layer]) -> Vec<usiz
 }
 
 /// Whether a layer's background hides everything beneath it wherever it is
-/// (spec 091 R20, Q8b): fully opaque — `Transparency` 0 and a colour, or the
-/// gradient that replaces it, with full alpha. A background with any
-/// transparency, or an image whose pixels the engine does not inspect, lets
-/// events through and does not shield: a dimming scrim that must also block
-/// needs a control over it, as a `Panel` does.
+/// (spec 091 R20, Q8b). The rule is the model's, [`crate::model::Layer::is_opaque`],
+/// which the web player asks too (WASM-004 Q7): one rule, two hosts.
 fn layer_is_opaque(layer: &crate::model::Layer) -> bool {
-    let b = &layer.backdrop;
-    if b.transparency != 0 {
-        return false;
-    }
-    let alpha = |hex: &str| crate::paint::parse_hex(hex).map_or(0, |c| c.a());
-    if b.gradient_enabled {
-        alpha(&b.gradient_start_color) == 255 && alpha(&b.gradient_end_color) == 255
-    } else {
-        alpha(&b.color) == 255
-    }
+    layer.is_opaque()
 }
 
 /// The rank of the highest SHOWN layer whose background is opaque, or 0: every
@@ -34688,5 +34676,38 @@ mod hyperlink_tests {
         println!("underline segments: away {away}, over {over}");
         assert_eq!(away, 0);
         assert!(over >= 1);
+    }
+}
+
+/// WASM-004 T15: the desktop's opacity rule is the model's, and gives the answers its own
+/// formula gave (`paint::parse_hex` alpha, as it was written here before the move).
+#[cfg(test)]
+mod layer_is_opaque_parity {
+    use super::*;
+
+    fn before_the_move(layer: &crate::model::Layer) -> bool {
+        let b = &layer.backdrop;
+        if b.transparency != 0 {
+            return false;
+        }
+        let alpha = |hex: &str| crate::paint::parse_hex(hex).map_or(0, |c| c.a());
+        if b.gradient_enabled {
+            alpha(&b.gradient_start_color) == 255 && alpha(&b.gradient_end_color) == 255
+        } else {
+            alpha(&b.color) == 255
+        }
+    }
+
+    #[test]
+    fn layer_is_opaque_in_render_gives_the_models_answers() {
+        let cases = crate::model::layer_is_opaque_tests::cases();
+        for (what, layer, expected) in &cases {
+            // `paint::parse_hex` slices bytes and cannot read non-ASCII text; the model's reader can.
+            if !what.starts_with("non-ASCII") {
+                assert_eq!(before_the_move(layer), *expected, "the old formula on {what}");
+            }
+            assert_eq!(layer_is_opaque(layer), *expected, "render.rs on {what}");
+        }
+        println!("{} cases, render.rs and the model agree", cases.len());
     }
 }

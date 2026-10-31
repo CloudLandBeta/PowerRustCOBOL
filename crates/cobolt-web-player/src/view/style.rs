@@ -167,14 +167,101 @@ pub fn mount_of(ctls: &[Ctl], i: usize) -> (usize, super::Slot) {
             Some(n) => Slot::Pane(n),
             None => Slot::Children,
         },
-        _ => Slot::Children,
+        _ => match (p, c.layer) {
+            // A control of a layer is mounted in its layer's element, not on the base's surface.
+            (0, Some(k)) => Slot::Layer(k),
+            _ => Slot::Children,
+        },
     };
     (p, slot)
 }
 
+/// The rules of a form's layers (WASM-004 R14, R18): layer `k` stacks at `z-index: k + 1` over the base, which has none;
+/// each is its own stacking context (`base_css`: `.pr-form-layer`), so every control of a higher layer paints above every
+/// control of a lower one whatever its `ZOrder`. Its backdrop is the first child, `.pr-layer-bg`, painted from the layer as
+/// the program left it (`Layer::with_live`): `Transparency` is the alpha of its colour or gradient stops, never an
+/// `opacity` on the layer (R18), so the controls keep their own. A picture is laid as the form's is (`form_decls`); it is
+/// drawn at full alpha. Empty for a form without layers (R24).
+pub fn layers_css(inst: u32, layers: &[crate::tree::LayerState], assets: &BTreeMap<String, String>) -> String {
+    let mut out = String::new();
+    for (k, l) in layers.iter().enumerate() {
+        let sel = format!("[data-pr-inst=\"{inst}\"] > .pr-form-layer[data-layer-index=\"{k}\"]");
+        let mut z = Decls::new();
+        push(&mut z, "z-index", (k + 1).to_string());
+        out.push_str(&rule(&sel, &z));
+        let live = live_layer(l);
+        let mut bg = layer_backdrop_decls(&live, assets);
+        // An opaque backdrop keeps the pointer from what it covers (R16); its listener discards the event
+        // (`dom::instance`). A see-through one is never a target: the event passes to the layers below.
+        if live.is_opaque() {
+            push(&mut bg, "pointer-events", "auto");
+        }
+        out.push_str(&rule(&format!("{sel} > .pr-layer-bg"), &bg));
+    }
+    out
+}
+
+/// Which parts of a form the user can reach this frame (R15, plan §1.4): `(base inert, [(shown, inert)] per layer)`.
+/// A hidden layer is out of reach; while an opaque layer is shown, the base and every layer under it are `inert` too,
+/// as the desktop shields them from the focus (`cobolt_forms::render::opaque_shield_rank`).
+pub fn layer_reach(layers: &[crate::tree::LayerState]) -> (bool, Vec<(bool, bool)>) {
+    let shield = layers.iter().rposition(|l| l.visible && live_layer(l).is_opaque()).map_or(0, |k| k + 1);
+    (shield > 0, layers.iter().enumerate().map(|(k, l)| (l.visible, !l.visible || k + 1 < shield)).collect())
+}
+
+/// The model's layer, with what the program has written over the design (`Layer::with_live`).
+pub fn live_layer(l: &crate::tree::LayerState) -> cobolt_forms::model::Layer {
+    cobolt_forms::model::Layer::new(l.name.clone()).with_live(l.props.iter())
+}
+
+/// A layer's backdrop as declarations (R18).
+pub fn layer_backdrop_decls(l: &cobolt_forms::model::Layer, assets: &BTreeMap<String, String>) -> Decls {
+    let b = &l.backdrop;
+    let keep = 1.0 - f64::from(b.transparency.min(100)) / 100.0;
+    let fade = |hex: &str| parse_color(hex).map(|c| css_color([c[0], c[1], c[2], (f64::from(c[3]) * keep).round() as u8]));
+    let mut d = Decls::new();
+    let mut images: Vec<String> = Vec::new();
+    let image = b.image.trim().to_ascii_lowercase().replace('\\', "/");
+    if let Some(url) = (!image.is_empty()).then(|| assets.get(&image)).flatten() {
+        images.push(format!("url(\"{}\")", css_string(url)));
+        let (size, repeat, position) = match b.image_mode {
+            cobolt_forms::model::BgImageMode::Stretch => ("100% 100%", "no-repeat", "center"),
+            cobolt_forms::model::BgImageMode::Tile => ("auto", "repeat", "0 0"),
+            cobolt_forms::model::BgImageMode::Center => ("auto", "no-repeat", "center"),
+            cobolt_forms::model::BgImageMode::Fill => ("cover", "no-repeat", "center"),
+            cobolt_forms::model::BgImageMode::Fit => ("contain", "no-repeat", "center"),
+        };
+        push(&mut d, "background-size", size);
+        push(&mut d, "background-repeat", repeat);
+        push(&mut d, "background-position", position);
+    }
+    if b.gradient_enabled {
+        if let (Some(a), Some(z)) = (fade(&b.gradient_start_color), fade(&b.gradient_end_color)) {
+            images.push(format!("linear-gradient({}, {a}, {z})", css::gradient_angle(&b.gradient_direction)));
+        }
+    } else if let Some(c) = fade(&b.color) {
+        push(&mut d, "background-color", c);
+    }
+    if !images.is_empty() {
+        // A picture over the gradient; each layer of the list its own size and repeat.
+        if images.len() == 2 {
+            for k in ["background-size", "background-repeat", "background-position"] {
+                if let Some(slot) = d.iter_mut().find(|(x, _)| x == k) {
+                    slot.1 = format!("{}, {}", slot.1, if k == "background-repeat" { "no-repeat" } else if k == "background-size" { "100% 100%" } else { "0 0" });
+                }
+            }
+        }
+        push(&mut d, "background-image", images.join(", "));
+    }
+    d
+}
+
 /// The order to mount controls in: a parent before its children, and siblings by layer, then by
-/// `ZOrder` (the desktop paints them in that order; the DOM paints later siblings on top). A layer
-/// above the base stacks over it and over the layers below it as one group (spec 091 R9, D20).
+/// `TabOrder` (WASM-004 R20): the document order is the keyboard order — the base's controls, then
+/// each layer upward, each in its own tab order, as the desktop walks them (`render.rs`, sorted by
+/// layer, then tab order) — so no positive `tabindex` is needed. The stacking is not the document's:
+/// `ZOrder` is each control's `z-index` (`css::appearance`), and each layer a stacking context above
+/// the one before (spec 091 R9, D20). Siblings of equal `ZOrder` that overlap stack in tab order.
 ///
 /// The children of a container that lays them out (Flex, Flow, Grid) are mounted in the solver's
 /// **reading order** instead — top to bottom by their designed rectangles, then left to right (right
@@ -195,11 +282,11 @@ pub fn mount_order(ctls: &[Ctl]) -> Vec<usize> {
         d
     }
     // The two keys that order a control among its siblings: its place in reading order when its
-    // parent lays its children out, else its `ZOrder`.
+    // parent lays its children out, else its `TabOrder`.
     let among_siblings = |i: usize| -> (i64, i64) {
         let parent = ctls[i].parent.unwrap_or(0);
         match layout_css::mode_of(&ctls[parent]) {
-            layout_css::Mode::Absolute => (num(&ctls[i], "zorder").unwrap_or(0.0) as i64, 0),
+            layout_css::Mode::Absolute => (num(&ctls[i], "taborder").unwrap_or(0.0) as i64, 0),
             _ => {
                 let (x, y) = (num(&ctls[i], "x").unwrap_or(0.0) as i64, num(&ctls[i], "y").unwrap_or(0.0) as i64);
                 (y, if layout_css::reads_right_to_left(&ctls[parent]) { -x } else { x })
@@ -663,7 +750,7 @@ pub fn form_css(inst: u32, ctls: &[Ctl], responsive: bool, assets: &BTreeMap<Str
         surface.push(("width".into(), px(w)));
         surface.push(("height".into(), px(h)));
     }
-    out.push_str(&rule(&format!("{root_sel} > .pr-surface"), &surface));
+    out.push_str(&rule(&format!("{root_sel} > .pr-form > .pr-surface"), &surface));
     out
 }
 
@@ -673,6 +760,10 @@ pub fn control_css(inst: u32, ctls: &[Ctl], i: usize, responsive: bool) -> Strin
     let mut out = rule(&selector(inst, &ctls[i].name), &d);
     if matches!(&ctls[i].kind, Kind::Control(ControlType::TabControl)) {
         out.push_str(&tab_rules(inst, ctls, i));
+    }
+    // A chart's gradient frame is a ring over its transparent border (WASM-004 T13b).
+    if let Some(ring) = css::border_ring(&ctls[i]) {
+        out.push_str(&rule(&format!("{}::after", selector(inst, &ctls[i].name)), &ring));
     }
     // A card whose height is only a floor also holds that height as content, or a browser measures its children against nothing.
     if ctls[i].visible() {
@@ -1028,7 +1119,7 @@ Two</Property></Control>
         t.set(0, "CornerRadius", "12");
         let css = instance_css(1, &t.ctls, false, &BTreeMap::new());
         assert!(css.contains("[data-pr-inst=\"1\"] { background-color: rgb(32 32 32); border-radius: 12px; overflow: hidden; }"), "{css}");
-        assert!(css.contains("[data-pr-inst=\"1\"] > .pr-surface { width: 640px; height: 480px; }"), "{css}");
+        assert!(css.contains("[data-pr-inst=\"1\"] > .pr-form > .pr-surface { width: 640px; height: 480px; }"), "{css}");
         let live = instance_css(1, &t.ctls, true, &BTreeMap::new());
         assert!(!live.contains("> .pr-surface { width"), "a responsive surface fills the window");
     }
@@ -1049,5 +1140,208 @@ Two</Property></Control>
     fn non_visual_controls_have_no_rule() {
         let t = tree_of(r#"<Control id="TM" type="Timer" x="0" y="0" w="48" h="48"></Control>"#);
         assert!(control_decls(&t.ctls, t.by_name("TM").unwrap(), false).is_empty());
+    }
+
+    /// A form with a base control at `ZOrder` 209 and two layers: a translucent one holding a card (`ZOrder` 0, with a
+    /// label inside it and a DataGrid), and an opaque one.
+    fn layered() -> crate::tree::FormTree {
+        layered_with("")
+    }
+
+    /// The layered fixture with `extra` controls added.
+    fn layered_with(extra: &str) -> crate::tree::FormTree {
+        let xml = format!(
+            r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="main-form" title="Layers" width="640" height="480" index-base="1" corner-radius="16">
+  <Layer name="LYR-POP" color="#10203080" transparency="0"/>
+  <Layer name="LYR-TOP" color="#203040"/>
+  <Control id="BTN-BASE" type="Button" x="10" y="10" w="80" h="30" z-order="209"></Control>
+  <Control id="PNL-POP" type="Panel" x="100" y="100" w="200" h="200" z-order="0" layer="LYR-POP"></Control>
+  <Control id="LBL-IN" type="Label" x="10" y="10" w="80" h="20" parent="PNL-POP"></Control>
+  <Control id="DG-1" type="DataGrid" x="0" y="400" w="200" h="80" layer="LYR-POP"></Control>
+{extra}</Form>"##
+        );
+        let form = cobolt_forms::xml::load_form_from_str(&xml).unwrap();
+        let (_, mut manifest) = crate::tree::testing::demo();
+        manifest.forms[0].controls.clear();
+        manifest.forms[0].handlers.clear();
+        crate::tree::FormTree::build(&form, &manifest.forms[0], &manifest, 0, None).unwrap()
+    }
+
+    /// The rule `layers_css` writes for layer `k`'s backdrop.
+    fn backdrop_rule(css: &str, k: usize) -> &str {
+        let sel = format!("[data-pr-inst=\"0\"] > .pr-form-layer[data-layer-index=\"{k}\"] > .pr-layer-bg {{");
+        let at = css.find(&sel).unwrap_or_else(|| panic!("no backdrop rule for layer {k}: {css}"));
+        let rest = &css[at..];
+        &rest[..=rest.find('}').unwrap()]
+    }
+
+    /// WASM-004 T19, R16 and Q7 natively: only an opaque backdrop takes the pointer, by the model's `Layer::is_opaque`.
+    #[test]
+    fn layer_hit_an_opaque_backdrop_takes_the_pointer_and_a_see_through_one_does_not() {
+        let mut t = layered();
+        let css = layers_css(0, &t.layers, &BTreeMap::new());
+        let (pop, top) = (backdrop_rule(&css, 0), backdrop_rule(&css, 1));
+        println!("{pop}\n{top}");
+        assert!(!pop.contains("pointer-events"), "LYR-POP is #10203080, see-through: the event passes below ({pop})");
+        assert!(top.contains("pointer-events: auto"), "LYR-TOP is #203040, opaque: it keeps the event ({top})");
+        assert!(crate::base_css::BASE_CSS.contains(".pr-layer-bg { position: absolute; inset: 0; pointer-events: none; }"), "a backdrop takes nothing unless it is opaque");
+        // The program fades the opaque layer: it lets the pointer through from the next frame on.
+        t.layer_set(1, "Transparency", "10").unwrap();
+        let css = layers_css(0, &t.layers, &BTreeMap::new());
+        assert!(!backdrop_rule(&css, 1).contains("pointer-events"), "{css}");
+    }
+
+    /// WASM-004 T19, R16 natively: in a layer, a Label that paints no face is hit on its text, its box lets the pointer
+    /// through; a Label with a face, and any Label in the base, keeps its whole box (the desktop's `paints_at`).
+    #[test]
+    fn layer_hit_a_see_through_label_in_a_layer_is_hit_on_its_text_only() {
+        let t = layered_with(
+            r##"  <Control id="LBL-SEE" type="Label" x="400" y="10" w="80" h="20" layer="LYR-TOP"><Property name="BackgroundColor">#00000000</Property><Property name="Caption">see</Property></Control>
+  <Control id="LBL-FACE" type="Label" x="400" y="40" w="80" h="20" layer="LYR-TOP"><Property name="BackgroundColor">#FFFFFF</Property></Control>
+  <Control id="LBL-GONE" type="Label" x="400" y="70" w="80" h="20" layer="LYR-TOP"><Property name="Transparency">100</Property></Control>
+  <Control id="LBL-BASE" type="Label" x="400" y="100" w="80" h="20"><Property name="BackgroundColor">#00000000</Property></Control>
+"##,
+        );
+        let empty = crate::view::Empty::default();
+        let view = |name: &str| crate::view::controls::view(&empty.cx(&t), t.by_name(name).unwrap());
+        let see = view("LBL-SEE");
+        assert_eq!(see.attr_of("data-hit"), Some("text"));
+        let text = see.find(&|n| n.has_class("pr-label-text")).expect("the text is a span of its own");
+        assert_eq!(text.text.as_deref(), Some("see"));
+        assert_eq!(view("LBL-GONE").attr_of("data-hit"), Some("text"), "Transparency 100 paints no face either");
+        for name in ["LBL-FACE", "LBL-BASE"] {
+            let n = view(name);
+            assert_eq!(n.attr_of("data-hit"), None, "{name} is hit on its whole box");
+            assert!(n.find(&|c| c.has_class("pr-label-text")).is_none(), "{name}");
+        }
+        let sheet = crate::base_css::BASE_CSS;
+        assert!(sheet.contains(".pr-form-layer .pr-label[data-hit=\"text\"] { pointer-events: none; }"));
+        assert!(sheet.contains(".pr-form-layer .pr-label[data-hit=\"text\"] > .pr-label-text { pointer-events: auto; }"));
+    }
+
+    /// WASM-004 T19, plan §1.4's working assumption: while an opaque layer is shown, the base and the layers under it are
+    /// `inert` (the desktop's `opaque_shield_rank`); a see-through layer shields nothing.
+    #[test]
+    fn layer_hit_the_shield_toggles_with_the_opaque_layers_visible() {
+        let mut t = layered();
+        assert_eq!(layer_reach(&t.layers), (false, vec![(false, true), (false, true)]), "at open: every layer hidden and out of reach");
+        t.layer_set(0, "Visible", "true").unwrap();
+        assert_eq!(layer_reach(&t.layers), (false, vec![(true, false), (false, true)]), "the see-through LYR-POP shields nothing");
+        t.layer_set(1, "Visible", "true").unwrap();
+        assert_eq!(layer_reach(&t.layers), (true, vec![(true, true), (true, false)]), "the opaque LYR-TOP shields the base and LYR-POP");
+        t.layer_set(1, "Visible", "false").unwrap();
+        assert_eq!(layer_reach(&t.layers), (false, vec![(true, false), (false, true)]), "hidden again, the shield goes with it");
+    }
+
+    /// WASM-004 T21, R24: a form without layers gets nothing of them — no layer rules, no shield, no control mounted in a
+    /// layer, no Label hit on its text only — and its own rules differ from before only by the root wrapper's selector.
+    #[test]
+    fn layers_a_form_without_layers_is_drawn_as_before_but_for_the_root_wrapper() {
+        let t = crate::tree::testing::tree();
+        assert!(t.layers.is_empty());
+        assert_eq!(layers_css(1, &t.layers, &BTreeMap::new()), "");
+        assert_eq!(layer_reach(&t.layers), (false, vec![]));
+        let e = crate::view::Empty::default();
+        for i in 1..t.ctls.len() {
+            assert!(!matches!(mount_of(&t.ctls, i).1, crate::view::Slot::Layer(_)), "{}", t.ctls[i].name);
+            assert_eq!(crate::view::controls::view(&e.cx(&t), i).attr_of("data-hit"), None, "{}", t.ctls[i].name);
+        }
+        let css = form_css(1, &t.ctls, false, &BTreeMap::new());
+        let before = css.replace("[data-pr-inst=\"1\"] > .pr-form > .pr-surface", "[data-pr-inst=\"1\"] > .pr-surface");
+        println!("expectations changed by the wrapper:\n- [data-pr-inst=\"1\"] > .pr-surface\n+ [data-pr-inst=\"1\"] > .pr-form > .pr-surface");
+        assert_ne!(css, before, "the surface is reached through the base");
+        assert_eq!(css.matches(".pr-form").count(), 1, "and nothing else names the base: {css}");
+    }
+
+    /// WASM-004 T20, R20 and AC12 natively: the document order is the keyboard order — the base's controls by
+    /// `TabOrder`, then each layer upward by its own — as the desktop walks them (layer, then tab order); the stacking
+    /// stays `ZOrder`'s, by `z-index`.
+    #[test]
+    fn layers_the_focus_order_is_the_document_order_base_then_each_layer_by_tab_order() {
+        let xml_extra = r##"  <Control id="TXT-B3" type="TextBox" x="10" y="60" w="80" h="24" tab-order="3" z-order="1"></Control>
+  <Control id="TXT-B1" type="TextBox" x="10" y="90" w="80" h="24" tab-order="1" z-order="2"></Control>
+  <Control id="TXT-B2" type="TextBox" x="10" y="120" w="80" h="24" tab-order="2" z-order="3"></Control>
+  <Control id="TXT-T2" type="TextBox" x="400" y="60" w="80" h="24" tab-order="2" layer="LYR-TOP"></Control>
+  <Control id="TXT-T1" type="TextBox" x="400" y="90" w="80" h="24" tab-order="1" layer="LYR-TOP"></Control>
+  <Control id="TXT-P1" type="TextBox" x="10" y="200" w="80" h="24" tab-order="1" layer="LYR-POP"></Control>
+"##;
+        let t = layered_with(xml_extra);
+        let names = |pick: &dyn Fn(&str) -> bool| -> Vec<String> {
+            mount_order(&t.ctls).into_iter().filter(|&i| t.ctls[i].parent.unwrap_or(0) == 0).map(|i| t.ctls[i].name.clone()).filter(|n| pick(n)).collect()
+        };
+        let order = names(&|n| n.starts_with("TXT-"));
+        assert_eq!(order, ["TXT-B1", "TXT-B2", "TXT-B3", "TXT-P1", "TXT-T1", "TXT-T2"], "the base by TabOrder, then LYR-POP, then LYR-TOP");
+        // The same order as the model's: (layer rank, tab order, index), the desktop's sort.
+        let form = cobolt_forms::xml::load_form_from_str(&format!(
+            "<Form name=\"f\"><Layer name=\"LYR-POP\"/><Layer name=\"LYR-TOP\"/>{xml_extra}</Form>"
+        ))
+        .unwrap();
+        let mut model: Vec<(usize, u32, usize, String)> =
+            form.controls.iter().enumerate().map(|(k, c)| (form.layer_rank(form.layer_of(&c.id)), c.tab_order, k, c.id.clone())).collect();
+        model.sort();
+        assert_eq!(order, model.into_iter().map(|m| m.3).collect::<Vec<_>>());
+        // The stacking is ZOrder's: TXT-B3 is first in ZOrder and last in tab order.
+        let z = |n: &str| decl(&control_decls(&t.ctls, t.by_name(n).unwrap(), false), "z-index").map(str::to_owned);
+        assert_eq!((z("TXT-B3"), z("TXT-B1"), z("TXT-B2")), (Some("1".into()), Some("2".into()), Some("3".into())));
+    }
+
+    /// WASM-004 T18, AC9 natively: a layer control with `ZOrder` 0 sits in a stacking context above a base control with
+    /// `ZOrder` 209, whatever their own `z-index`.
+    #[test]
+    fn layers_a_layer_control_with_zorder_0_stacks_above_a_base_control_with_zorder_209() {
+        let t = layered();
+        let (base, pop, inside, grid) = (t.by_name("BTN-BASE").unwrap(), t.by_name("PNL-POP").unwrap(), t.by_name("LBL-IN").unwrap(), t.by_name("DG-1").unwrap());
+        assert_eq!(mount_of(&t.ctls, base), (0, crate::view::Slot::Children), "the base control is on the base's surface");
+        assert_eq!(mount_of(&t.ctls, pop), (0, crate::view::Slot::Layer(0)), "the card is in its layer's element");
+        assert_eq!(mount_of(&t.ctls, grid), (0, crate::view::Slot::Layer(0)), "AC13: the DataGrid is inside the layer, inside the root");
+        assert_eq!(mount_of(&t.ctls, inside).0, pop, "a container's contents stay in the container");
+        assert!(control_css(0, &t.ctls, base, false).contains("z-index: 209"));
+        let layers = layers_css(0, &t.layers, &BTreeMap::new());
+        println!("{layers}");
+        assert!(layers.contains("[data-pr-inst=\"0\"] > .pr-form-layer[data-layer-index=\"0\"] { z-index: 1; }"), "{layers}");
+        assert!(layers.contains("[data-pr-inst=\"0\"] > .pr-form-layer[data-layer-index=\"1\"] { z-index: 2; }"), "{layers}");
+        // The base is a stacking context at 0 and each layer one of its own, so 209 is compared only inside the base.
+        let sheet = crate::base_css::BASE_CSS;
+        assert!(sheet.contains(".pr-form-root > .pr-form { z-index: 0; }"));
+        assert!(sheet.contains(".pr-form-layer { position: absolute; inset: 0; isolation: isolate; pointer-events: none; }"));
+        let context = |i: usize| t.layer_of(i).map_or(0, |l| l + 1);
+        assert!((context(pop), 0) > (context(base), 209), "(layer, ZOrder) of the card is above the base button's");
+    }
+
+    /// WASM-004 T18, AC10 and AC13 natively, R17, R18, Q8: every layer starts hidden and a `Visible` write shows it on the
+    /// next pass; the root clips with the form's radius; the backdrop's alpha is its `Transparency`, never an opacity; the
+    /// toast stack is above every layer.
+    #[test]
+    fn layers_start_hidden_clip_to_the_root_and_take_their_transparency_as_alpha() {
+        let mut t = layered();
+        assert!(t.layers.iter().all(|l| !l.visible), "hidden at the start (R15)");
+        t.take_changes();
+        t.layer_set(0, "Visible", "TRUE").unwrap();
+        assert!(t.layers[0].visible);
+        let changes = t.take_changes();
+        assert!(changes.iter().any(|c| matches!(c, crate::tree::Change::Prop { ctl: 0, .. })), "the form's rules (and the layers' flags) are recomputed on the next pass");
+        // The root: clips always, with the form's own radius (R17).
+        let sheet = crate::base_css::BASE_CSS;
+        assert!(sheet.contains(".pr-form-root { position: absolute; inset: 0; overflow: hidden; isolation: isolate; }"));
+        assert!(sheet.contains("[hidden] { display: none !important; }"));
+        let form = form_css(0, &t.ctls, false, &BTreeMap::new());
+        assert!(form.contains("[data-pr-inst=\"0\"] {") && form.contains("border-radius: 16px"), "{form}");
+        // The backdrop of a layer at 50 %: alpha 0x80 on its colour, and no opacity anywhere (R18).
+        t.layer_set(1, "Transparency", "50").unwrap();
+        let bg = layer_backdrop_decls(&live_layer(&t.layers[1]), &BTreeMap::new());
+        println!("{bg:?}");
+        assert_eq!(bg, vec![("background-color".to_owned(), "rgb(32 48 64 / 0.502)".to_owned())]);
+        assert!(!layers_css(0, &t.layers, &BTreeMap::new()).contains("opacity"));
+        // A gradient backdrop fades its stops the same way.
+        t.layer_set(1, "BackgroundGradientEnabled", "TRUE").unwrap();
+        t.layer_set(1, "BackgroundGradientStartColor", "#FF0000").unwrap();
+        t.layer_set(1, "BackgroundGradientEndColor", "#0000FF").unwrap();
+        let bg = layer_backdrop_decls(&live_layer(&t.layers[1]), &BTreeMap::new());
+        assert_eq!(bg, vec![("background-image".to_owned(), "linear-gradient(180deg, rgb(255 0 0 / 0.502), rgb(0 0 255 / 0.502))".to_owned())]);
+        // Q8: the notifications are above every layer: the root isolates its layers, and the toast host is the application's.
+        assert!(sheet.contains(".pr-toasts-host { position: absolute; left: 12px; bottom: 12px; z-index: 40;"));
+        // R24: a form without layers has no layer rules.
+        assert_eq!(layers_css(0, &[], &BTreeMap::new()), "");
     }
 }

@@ -41,7 +41,7 @@ pub const CUSTOM_PROPERTIES: &[&str] = &[
 /// which differ in their properties and in the rules each adds after it.
 const LOOK: &str = r#"
 .pr-root { color: var(--pr-text); }
-.pr-form { background: var(--pr-surface); color: var(--pr-text); }
+.pr-form-root { background: var(--pr-surface); color: var(--pr-text); }
 :focus-visible { outline: 2px solid var(--pr-focus); outline-offset: 1px; }
 /* buttons, labels, text */ .pr-button { color: inherit; background: var(--pr-surface-2); border: 1px solid var(--pr-border); border-radius: var(--pr-radius); }
 .pr-button:hover { filter: brightness(1.15); }

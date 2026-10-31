@@ -63,6 +63,9 @@ pub enum Slot {
     Page(u32),
     /// The controls in one pane of a Splitter (1 or 2).
     Pane(u8),
+    /// A control of the form's layer `k` (its index in the stack, from 0): mounted in that layer's element, a
+    /// sibling after the base inside the form's root (WASM-004 R14).
+    Layer(usize),
 }
 
 /// An element, described.

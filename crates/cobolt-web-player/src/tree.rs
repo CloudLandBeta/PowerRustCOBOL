@@ -160,19 +160,6 @@ pub struct LayerState {
     pub visible: bool,
 }
 
-/// The backdrop properties of a layer a program may write (A9). `Name` is read-only.
-const LAYER_WRITABLE: &[&str] = &[
-    "visible",
-    "transparency",
-    "backgroundcolor",
-    "backgroundgradientenabled",
-    "backgroundgradientstartcolor",
-    "backgroundgradientendcolor",
-    "backgroundgradientdirection",
-    "backgroundimage",
-    "backgroundimagemode",
-];
-
 /// Why a layer write was not done.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LayerWriteError {
@@ -473,10 +460,10 @@ impl FormTree {
             }
             let idx = ctls.len();
             name_index.insert(c.id.to_ascii_uppercase(), idx);
-            let layer = match (&c.parent, &c.layer) {
-                (None, Some(name)) => layers.iter().position(|l| l.name.eq_ignore_ascii_case(name)),
-                _ => None,
-            };
+            // The model's own rule (`Form::layer_of`, `Form::layer_rank`): a control is in its outermost container's
+            // layer, and a name the form does not define is the base. Only a direct child of the form records it;
+            // `FormTree::layer_of` walks up to it.
+            let layer = if c.parent.is_none() { form.layer_rank(form.layer_of(&c.id)).checked_sub(1) } else { None };
             ctls.push(Ctl {
                 name: c.id.clone(),
                 abi_id: abi.map(|a| a.id),
@@ -580,7 +567,7 @@ impl FormTree {
         if key == "visible" {
             return Ok(property_runtime_text("Layer", "Visible", if layer.visible { "1" } else { "0" }));
         }
-        layer.props.get(&key).cloned().ok_or_else(|| LayerWriteError::Unknown(format!("a layer has no property `{}`", name.trim())))
+        layer.props.get(&key).cloned().ok_or_else(|| LayerWriteError::Unknown(cobolt_forms::model::layer_refusal(&layer.name, name)))
     }
 
     /// A program's write to a layer (A9): `Visible` is this instance's state, shown on the next frame;
@@ -588,11 +575,10 @@ impl FormTree {
     /// redrawing, so the change reaches the page in the next render pass.
     pub fn layer_set(&mut self, l: usize, name: &str, value: &str) -> Result<(), LayerWriteError> {
         let key = name.trim().to_ascii_lowercase();
-        if key == "name" {
-            return Err(LayerWriteError::ReadOnly(format!("the name of layer `{}` cannot be changed", self.layers[l].name)));
-        }
-        if !LAYER_WRITABLE.contains(&key.as_str()) {
-            return Err(LayerWriteError::Unknown(format!("a layer has no property `{}`", name.trim())));
+        // What a program may write, and the text it is refused with, are the model's (spec 091 R37).
+        if !cobolt_forms::model::layer_writable(name) {
+            let why = cobolt_forms::model::layer_refusal(&self.layers[l].name, name);
+            return Err(if key == "name" { LayerWriteError::ReadOnly(why) } else { LayerWriteError::Unknown(why) });
         }
         if key == "visible" {
             self.layers[l].visible = turned_on(value);
@@ -603,6 +589,8 @@ impl FormTree {
         for i in members {
             self.touch(i, &key);
         }
+        // The layer's own element and backdrop are the form's rules (`view::style::layers_css`).
+        self.touch(0, &key);
         Ok(())
     }
 

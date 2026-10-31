@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.131 — 2026-10-31 — WASM-004 T13b–T22: the border look drawn in CSS, form layers on the web, hit testing, keyboard order and touch targets
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.114.)*
+
+WASM-004 (control reuse on the web), from T13b to T22. The details and the evidence are in `specs/WASM-004-control-reuse-on-the-web/tasks.md`. The run stopped at T23, which needs operator decisions (see there).
+
+* **The border look in CSS** (T13b, T14; `cobolt-web-player` `css.rs`, `view/style.rs`).
+  * A chart's gradient frame is a masked ring over a transparent border. `BorderBlur` sums the desktop's ring stack into 1 px box-shadow bands. `BorderTransparency` fades the frame only.
+  * `PerspectiveStrength` scales the tilt's convergence, as the desktop's camera does.
+  * A Snackbar's toast takes its four `CornerRadius*` corners (`cobolt-forms` `snackbar::corner_radii`, shared with the desktop).
+  * The fidelity rows were re-marked from what is drawn: 44 exact, 8 approximate, 1 not on the web.
+  * Measured in Chrome against the desktop's picture: within 1 level at every sampled point, and the tilt's outline within 0.05 px.
+* **Form layers on the web** (T15–T18, T21).
+  * `Layer::is_opaque` now lives in the model, and the desktop's renderer calls it.
+  * The manifest's `layers` is left out when empty, so a form without layers writes the same bytes as before. The layer ids are checked to follow the controls.
+  * The player takes each control's layer rank and the refusal texts from the model.
+  * Every form is now a `section.pr-form-root` that clips to the form's arcs. It holds the base, then one element per layer, each a stacking context above the one before. A layer is hidden and `inert` until the program shows it. Its backdrop is painted with `Transparency` as alpha, never `opacity`.
+  * The web themes' form rule moved to the root.
+* **Hit testing** (T19).
+  * Only an opaque layer backdrop takes the pointer, and its events end there.
+  * A see-through Label in a layer is hit on its text only.
+  * While an opaque layer is shown, the base and the lower layers are `inert`, as on the desktop.
+* **Keyboard order** (T20).
+  * The document order is the tab order: the base by `TabOrder`, then each layer upward.
+  * A tab stop's `tabindex` is `0`, or `-1` when it is disabled or hidden; it is never a positive number. The stacking stays `ZOrder`'s.
+* **Touch** (T22). On a coarse pointer, an interactive control's hit area is 15 % larger. Line, Shape, an unhandled Label and the clipping data controls keep their own box.
+* **Tests.**
+  * Player: `--lib` 332 passed.
+  * Chrome: `page_border_look` and `page_layers` are new; the `cobolt-web-bundle` suite passed 62 of 62.
+  * The prebuilt `assets/web-player/` was rebuilt.
+
 ## 2.0.130 — 2026-10-31 — WASM-016 T29b: the "connecting" modal blocks a web application while the backend is retried, and `onBackendUnreachable` when it gives up
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.113.)*

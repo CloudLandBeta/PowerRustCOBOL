@@ -31,7 +31,15 @@ pub const BASE_CSS: &str = r#"
   -webkit-text-stroke: 0.25px; }
 [hidden] { display: none !important; }
 .pr-main { position: absolute; inset: 0; }
+.pr-form-root { position: absolute; inset: 0; overflow: hidden; isolation: isolate; }
 .pr-form { position: absolute; inset: 0; overflow: auto; }
+.pr-form-root > .pr-form { z-index: 0; }
+.pr-form-layer { position: absolute; inset: 0; isolation: isolate; pointer-events: none; }
+.pr-layer-bg { position: absolute; inset: 0; pointer-events: none; }
+.pr-form-layer > [data-name]:not(.pr-disabled) { pointer-events: auto; }
+.pr-form-layer .pr-label[data-hit="text"] { pointer-events: none; }
+.pr-form-layer .pr-label[data-hit="text"] > .pr-label-text { pointer-events: auto; }
+@media (pointer: coarse) { .pr-touch::after { content: ""; position: absolute; inset: -7.5%; background: transparent; } }
 .pr-surface { position: relative; }
 .pr-form[data-responsive] > .pr-surface { position: absolute; inset: 0; }
 .pr-control { font-family: inherit; }
@@ -177,7 +185,7 @@ pub const BASE_CSS: &str = r#"
 .pr-sidemenu.pr-collapsed .pr-menu-label, .pr-sidemenu.pr-collapsed .pr-menu-accel, .pr-sidemenu.pr-collapsed .pr-badge, .pr-sidemenu.pr-collapsed .pr-chevron,
 .pr-sidemenu.pr-collapsed .pr-menu-section { display: none; }
 .pr-sm-footer { flex: none; position: relative; }
-.pr-main[data-shell] > .pr-form > .pr-surface > .pr-sidemenu { width: var(--pr-rail, 220px) !important; top: 0 !important; bottom: 0 !important; height: auto !important; }
+.pr-main[data-shell] > .pr-form-root > .pr-form > .pr-surface > .pr-sidemenu { width: var(--pr-rail, 220px) !important; top: 0 !important; bottom: 0 !important; height: auto !important; }
 .pr-shell-pane { position: absolute; top: 0; right: 0; bottom: 0; left: var(--pr-rail-end, 220px); display: flex; flex-direction: column; pointer-events: none; }
 .pr-shell-pane > * { pointer-events: auto; }
 .pr-crumb-host { flex: none; }
@@ -186,7 +194,7 @@ pub const BASE_CSS: &str = r#"
 .pr-breadcrumb li + li::before { content: "\203A"; margin-right: .5em; opacity: .6; }
 .pr-breadcrumb button { background: transparent; border: 0; cursor: pointer; font: inherit; padding: 0; }
 .pr-content { position: relative; flex: 1; overflow: auto; }
-.pr-content > .pr-form { position: absolute; inset: 0; }
+.pr-content > .pr-form-root { position: absolute; inset: 0; }
 .pr-tb-group { display: flex; gap: 2px; align-items: center; padding: 2px; }
 .pr-toolbar button { display: inline-flex; align-items: center; gap: .4em; padding: 3px 8px; background: transparent; border: 1px solid transparent; color: inherit; font: inherit; cursor: pointer; }
 .pr-toolbar button:disabled { opacity: .45; cursor: default; }
@@ -240,7 +248,7 @@ pub const BASE_CSS: &str = r#"
 .pr-dialog > .pr-titlebar { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-weight: 600; }
 .pr-titlebar button { background: transparent; border: 0; color: inherit; font-size: 16px; cursor: pointer; }
 .pr-dialog > .pr-body { position: relative; }
-.pr-dialog > .pr-body > .pr-form { position: absolute; inset: 0; }
+.pr-dialog > .pr-body > .pr-form-root { position: absolute; inset: 0; }
 .pr-dialog .pr-dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; }
 .pr-dialog .pr-dialog-buttons button { padding: 4px 16px; color: inherit; cursor: pointer; font: inherit; }
 .pr-dialog .pr-dialog-text { padding: 14px 16px; white-space: pre-wrap; max-width: 36em; }
@@ -248,7 +256,7 @@ pub const BASE_CSS: &str = r#"
 .pr-panelwin { position: absolute; display: flex; flex-direction: column; }
 .pr-panelwin > .pr-titlebar { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; cursor: move; touch-action: none; user-select: none; }
 .pr-panelwin > .pr-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.pr-panelwin > .pr-body > .pr-form { position: absolute; inset: 0; }
+.pr-panelwin > .pr-body > .pr-form-root { position: absolute; inset: 0; }
 .pr-toasts-host { position: absolute; left: 12px; bottom: 12px; z-index: 40; pointer-events: none; }
 .pr-snackbars { display: flex; flex-direction: column; gap: 8px; }
 .pr-snackbar { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 8px 12px; }

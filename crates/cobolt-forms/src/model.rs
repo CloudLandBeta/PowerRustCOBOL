@@ -8552,7 +8552,43 @@ fn text_is_on(text: &str) -> bool {
     !matches!(text.trim().to_ascii_lowercase().as_str(), "" | "0" | "false")
 }
 
+/// The alpha of a `#RRGGBB[AA]` colour: 255 when it carries no alpha pair (or an
+/// unreadable one), `None` when it is not a colour. Reads the text exactly as the
+/// painter's `paint::parse_hex` does, without egui, so the web player and the
+/// desktop answer [`Layer::is_opaque`] alike.
+pub fn hex_alpha(s: &str) -> Option<u8> {
+    let h = s.trim().trim_start_matches('#');
+    let pair = |r: std::ops::Range<usize>| h.get(r).and_then(|p| u8::from_str_radix(p, 16).ok());
+    if h.len() < 6 {
+        return None;
+    }
+    pair(0..2)?;
+    pair(2..4)?;
+    pair(4..6)?;
+    Some(if h.len() >= 8 { pair(6..8).unwrap_or(255) } else { 255 })
+}
+
 impl Layer {
+    /// Whether the layer's background hides everything beneath it wherever it is
+    /// (spec 091 R20, Q8b; WASM-004 Q7): fully opaque — `Transparency` 0 and a
+    /// colour, or the gradient that replaces it, at full alpha at every stop. An
+    /// image never makes a layer opaque: its pixels are not inspected, so a layer
+    /// is opaque only by the colour or gradient under it. A dimming scrim that must
+    /// also block needs a control over it, as a `Panel` does. The desktop
+    /// (`render.rs::layer_is_opaque`) and the web player both ask this.
+    pub fn is_opaque(&self) -> bool {
+        let b = &self.backdrop;
+        if b.transparency != 0 {
+            return false;
+        }
+        let alpha = |hex: &str| hex_alpha(hex).unwrap_or(0);
+        if b.gradient_enabled {
+            alpha(&b.gradient_start_color) == 255 && alpha(&b.gradient_end_color) == 255
+        } else {
+            alpha(&b.color) == 255
+        }
+    }
+
     /// The layer as the interpreter is seeded with it: every property of
     /// [`LAYER_PROPS`] as text, and `Visible` **hidden** — a layer starts hidden
     /// at run time, whatever the designer was left showing (R35).
@@ -13553,5 +13589,45 @@ mod instances_tests_017 {
             }
         }
         println!("instances: defaults 1/4, set 7 wins; 4 values checked, {refused} refused naming the form");
+    }
+}
+
+/// WASM-004 T15: whether a layer is opaque is decided from its description (Q7), in the model.
+#[cfg(test)]
+pub(crate) mod layer_is_opaque_tests {
+    use super::*;
+
+    /// One layer per case: (what it is, the layer, the expected answer).
+    pub(crate) fn cases() -> Vec<(&'static str, Layer, bool)> {
+        let with = |f: &dyn Fn(&mut MenuPaneBackground)| {
+            let mut l = Layer::new("POPUP");
+            f(&mut l.backdrop);
+            l
+        };
+        vec![
+            ("opaque colour", with(&|b| b.color = "#203040".into()), true),
+            ("opaque colour, alpha FF", with(&|b| b.color = "#203040FF".into()), true),
+            ("colour with alpha 80", with(&|b| b.color = "#20304080".into()), false),
+            ("a new layer (transparent)", Layer::new("POPUP"), false),
+            ("Transparency 10 over an opaque colour", with(&|b| { b.color = "#203040".into(); b.transparency = 10; }), false),
+            ("both gradient stops opaque", with(&|b| { b.color = "#00000000".into(); b.gradient_enabled = true; b.gradient_start_color = "#FF0000".into(); b.gradient_end_color = "#0000FFFF".into(); }), true),
+            ("one gradient stop translucent", with(&|b| { b.color = "#203040".into(); b.gradient_enabled = true; b.gradient_start_color = "#FF0000".into(); b.gradient_end_color = "#0000FF7F".into(); }), false),
+            ("an image over a transparent colour", with(&|b| { b.color = "#00000000".into(); b.image = "Assets/photo.png".into(); }), false),
+            ("an image over an opaque colour (the colour decides)", with(&|b| { b.color = "#203040".into(); b.image = "Assets/photo.png".into(); }), true),
+            ("not a colour", with(&|b| b.color = "red".into()), false),
+            ("non-ASCII text", with(&|b| b.color = "#é0é0é0".into()), false),
+        ]
+    }
+
+    #[test]
+    fn layer_is_opaque_from_its_description() {
+        for (what, layer, expected) in cases() {
+            println!("{what:<52} {}", layer.is_opaque());
+            assert_eq!(layer.is_opaque(), expected, "{what}");
+        }
+        assert_eq!(hex_alpha("#11223344"), Some(0x44));
+        assert_eq!(hex_alpha("112233"), Some(255));
+        assert_eq!(hex_alpha("#112233ZZ"), Some(255), "an unreadable alpha pair is full alpha, as the painter reads it");
+        assert_eq!(hex_alpha("#1122"), None);
     }
 }

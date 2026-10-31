@@ -171,7 +171,7 @@ fn layer_ids_follow_the_controls_and_name_is_read_only() {
     assert_eq!(h.trees[&0].layer_by_abi(6), Some(0));
     assert_eq!(h.trees[&0].layer_by_abi(7), Some(1));
     assert!(
-        matches!(h.cmd_set(&on(6, 1), "OTHER"), Err(CmdError::Bad(m)) if m.contains("cannot be changed")),
+        matches!(h.cmd_set(&on(6, 1), "OTHER"), Err(CmdError::Bad(m)) if m == cobolt_forms::model::layer_refusal("LYR-DATA", "Name")),
         "Name is refused with -2"
     );
     h.cmd_set(&on(7, 2), "#FF000080").unwrap();
@@ -238,4 +238,39 @@ fn layer_a_program_built_with_a_layer_the_description_lacks_is_refused() {
         .unwrap();
     let err = h.create_tree(0, 0, None, Vec::new()).unwrap_err();
     assert!(err.contains("layer `LYR-DATA`"), "{err}");
+}
+
+/// WASM-004 T17: each control's place in the stack is the model's (`Form::layer_of` + `Form::layer_rank`): a
+/// container's contents are in its layer, a name the form does not define is the base; every layer starts hidden in
+/// every instance; a write the model refuses is refused with the model's own text.
+#[test]
+fn layer_ranks_are_the_models_and_refusals_carry_its_text() {
+    let xml = LAYERED.replace(
+        "</Form>",
+        r#"  <Control id="LBL-GHOST" type="Label" x="400" y="10" w="80" h="20" layer="NO-SUCH-LAYER"></Control>
+</Form>"#,
+    );
+    let model = load_form_from_str(&xml).unwrap();
+    let mut h = Host::new(manifest(true), HostOptions::default());
+    h.add_description(&to_json(&describe(&model))).unwrap();
+    for inst in [0, 1] {
+        h.create_tree(inst, 0, None, Vec::new()).unwrap();
+        let t = &h.trees[&inst];
+        assert!(t.layers.iter().all(|l| !l.visible), "instance {inst}: every layer starts hidden");
+        for name in ["BTN-BASE", "PNL-POP", "LBL-IN", "TXT-DATA", "LBL-GHOST"] {
+            let rank = t.layer_of(t.by_name(name).unwrap()).map_or(0, |l| l + 1);
+            let expected = model.layer_rank(model.layer_of(name));
+            println!("instance {inst}: {name:<10} rank {rank} (model {expected})");
+            assert_eq!(rank, expected, "{name}");
+        }
+    }
+    let t = &h.trees[&0];
+    assert_eq!(t.layer_of(t.by_name("LBL-IN").unwrap()), Some(1), "inside PNL-POP, in LYR-POPUP");
+    assert_eq!(t.layer_of(t.by_name("LBL-GHOST").unwrap()), None, "an undefined layer name is the base");
+    let tree = h.trees.get_mut(&0).unwrap();
+    assert_eq!(tree.layer_set(1, "Name", "X"), Err(crate::tree::LayerWriteError::ReadOnly(cobolt_forms::model::layer_refusal("LYR-POPUP", "Name"))));
+    assert_eq!(tree.layer_set(1, "Bogus", "1"), Err(crate::tree::LayerWriteError::Unknown(cobolt_forms::model::layer_refusal("LYR-POPUP", "Bogus"))));
+    assert_eq!(tree.layer_get(1, "Bogus"), Err(crate::tree::LayerWriteError::Unknown(cobolt_forms::model::layer_refusal("LYR-POPUP", "Bogus"))));
+    tree.layer_set(1, "visible", "TRUE").unwrap();
+    assert!(tree.layers[1].visible, "every writable name, any letter case, as `layer_writable` answers");
 }

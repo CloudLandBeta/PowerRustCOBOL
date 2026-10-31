@@ -183,20 +183,20 @@ pub const FIDELITY: &[PropertyFidelity] = {
         f("TextAlignment", Exact, ""),
         f("VerticalAlignment", Exact, ""),
         f("WordWrap", Exact, ""),
-        f("RotateX", Approximate, "no per-pixel perspective of the painter's content"),
-        f("RotateY", Approximate, ""),
-        f("PerspectiveDistance", Approximate, ""),
-        f("PerspectiveStrength", Approximate, ""),
-        f("BorderGradientEnabled", NotOnWeb, "charts only; the frame is a plain border"),
-        f("BorderGradientStartColor", NotOnWeb, "charts only; the frame is a plain border"),
-        f("BorderGradientEndColor", NotOnWeb, "charts only; the frame is a plain border"),
-        f("BorderGradientDirection", NotOnWeb, "charts only; the frame is a plain border"),
-        f("CornerRadiusTopLeft", NotOnWeb, "Snackbar only; a notification takes the theme's radius (--pr-radius)"),
-        f("CornerRadiusTopRight", NotOnWeb, "Snackbar only; a notification takes the theme's radius (--pr-radius)"),
-        f("CornerRadiusBottomLeft", NotOnWeb, "Snackbar only; a notification takes the theme's radius (--pr-radius)"),
-        f("CornerRadiusBottomRight", NotOnWeb, "Snackbar only; a notification takes the theme's radius (--pr-radius)"),
-        f("BorderBlur", NotOnWeb, "an operating-system effect"),
-        f("BorderTransparency", NotOnWeb, ""),
+        f("RotateX", Approximate, "the desktop's camera as a CSS 3D transform: the outline lands within 0.05 px, but the browser projects every pixel where the painter projects every vertex; the corner pins are not drawn"),
+        f("RotateY", Approximate, "as RotateX"),
+        f("PerspectiveDistance", Approximate, "as RotateX: the camera's distance, a scale() and a perspective()"),
+        f("PerspectiveStrength", Approximate, "as RotateX: divides the perspective() distance"),
+        f("BorderGradientEnabled", Exact, "charts only, as on the desktop: a gradient ring over a transparent border, rounded corners kept"),
+        f("BorderGradientStartColor", Exact, "charts only"),
+        f("BorderGradientEndColor", Exact, "charts only"),
+        f("BorderGradientDirection", Exact, "charts only; eight directions"),
+        f("CornerRadiusTopLeft", Exact, "Snackbar only; -1 takes CornerRadius"),
+        f("CornerRadiusTopRight", Exact, "Snackbar only; -1 takes CornerRadius"),
+        f("CornerRadiusBottomLeft", Exact, "Snackbar only; -1 takes CornerRadius"),
+        f("CornerRadiusBottomRight", Exact, "Snackbar only; -1 takes CornerRadius"),
+        f("BorderBlur", Approximate, "charts only: the desktop's ring stack summed per whole pixel and laid as box-shadow rings"),
+        f("BorderTransparency", Exact, "charts only: fades the frame, never the face"),
         f("ZOrder", Exact, ""),
         f("Visible", Exact, ""),
         f("Enabled", Exact, ""),
@@ -484,6 +484,24 @@ mod tests {
             count(Fidelity::Approximate),
             count(Fidelity::NotOnWeb)
         );
+    }
+
+    /// WASM-004 T14: the rows that are not exact, re-marked from what the player's CSS draws (T13b). Only the
+    /// operating-system blur has no page equivalent; the rest are approximate, each with its reason.
+    #[test]
+    fn the_rows_not_exact_on_the_web_are_the_reviewed_ones() {
+        let of = |k: Fidelity| FIDELITY.iter().filter(|r| r.fidelity == k).map(|r| r.property).collect::<Vec<_>>();
+        let (approximate, not_on_web) = (of(Fidelity::Approximate), of(Fidelity::NotOnWeb));
+        for r in FIDELITY.iter().filter(|r| r.fidelity != Fidelity::Exact) {
+            println!("{:<12} {:<20} {}", format!("{:?}", r.fidelity), r.property, r.note);
+        }
+        assert_eq!(not_on_web, ["OsBlur"]);
+        assert_eq!(
+            approximate,
+            ["BorderStyle", "ShadowEnabled", "ShadowBlurStrength", "RotateX", "RotateY", "PerspectiveDistance", "PerspectiveStrength", "BorderBlur"]
+        );
+        assert!(FIDELITY.iter().filter(|r| r.fidelity == Fidelity::Approximate).all(|r| !r.note.is_empty()), "an approximate row says why");
+        println!("{} rows: {} exact, {} approximate, {} not on the web", FIDELITY.len(), FIDELITY.len() - approximate.len() - not_on_web.len(), approximate.len(), not_on_web.len());
     }
 
     #[test]

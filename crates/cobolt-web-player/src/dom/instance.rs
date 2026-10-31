@@ -48,8 +48,11 @@ impl Drop for ResizeObs {
 pub(crate) struct InstanceView {
     pub form: String,
     pub mode: OpenMode,
+    /// The form's root (WASM-004 R17): clips the base and every layer to the form's rectangle and arcs.
     pub root: Element,
     pub surface_el: Element,
+    /// One element per layer of the form, in stack order (R14): a sibling after the base inside the root.
+    pub layer_els: Vec<Element>,
     /// The title bar and close button of a modal or panel instance.
     pub frame: Option<NodeRec>,
     pub ctls: Vec<Option<CtlView>>,
@@ -96,8 +99,13 @@ fn is_card(c: &crate::tree::Ctl) -> bool {
     matches!(c.control_type(), Some(T::Panel | T::GroupBox))
 }
 
-fn slot_target(ctls: &[Option<CtlView>], surface: &Element, parent: usize, slot: Slot) -> Element {
+fn slot_target(ctls: &[Option<CtlView>], surface: &Element, layers: &[Element], parent: usize, slot: Slot) -> Element {
     if parent == 0 {
+        if let Slot::Layer(k) = slot {
+            if let Some(l) = layers.get(k) {
+                return l.clone();
+            }
+        }
         return surface.clone();
     }
     match ctls.get(parent).and_then(|c| c.as_ref()) {
@@ -106,11 +114,17 @@ fn slot_target(ctls: &[Option<CtlView>], surface: &Element, parent: usize, slot:
     }
 }
 
+/// A layer element shown, or hidden and out of reach (R15): `hidden` (the base sheet's `display: none`) and `inert`.
+fn set_layer_shown(l: &Element, shown: bool) {
+    h::set_bool_attr(l, "hidden", !shown);
+    h::set_bool_attr(l, "inert", !shown);
+}
+
 /// Make sure control `i`'s element is a child of its slot (without disturbing it when it already is).
-fn mount_one(ctls: &[Option<CtlView>], mount: &[(usize, Slot)], surface: &Element, i: usize) {
+fn mount_one(ctls: &[Option<CtlView>], mount: &[(usize, Slot)], surface: &Element, layers: &[Element], i: usize) {
     let Some(cv) = ctls[i].as_ref() else { return };
     let (p, slot) = mount[i];
-    let target = slot_target(ctls, surface, p, slot);
+    let target = slot_target(ctls, surface, layers, p, slot);
     if cv.rec.el.parent_element().as_ref() != Some(&target) {
         let _ = target.append_child(&cv.rec.el);
     }
@@ -132,6 +146,7 @@ impl Shared {
             opener: Option<u32>,
             responsive: bool,
             size_aware: Vec<usize>,
+            layers: Vec<(String, bool)>,
         }
         let built = {
             let Ok(host) = inner.host.try_borrow() else { return };
@@ -153,7 +168,7 @@ impl Shared {
             let n = ctls.len();
             let mut vnodes: Vec<Option<VNode>> = vec![None; n];
             let mut css = vec![String::new(); n];
-            css[0] = style::form_css(inst, &ctls, responsive, &styles.assets);
+            css[0] = style::form_css(inst, &ctls, responsive, &styles.assets) + &style::layers_css(inst, &tree.layers, &styles.assets);
             for i in 1..n {
                 if style::has_a_box(&ctls[i]) {
                     vnodes[i] = Some(controls::view(&cx, i));
@@ -174,18 +189,37 @@ impl Shared {
                 opener: tree.opener,
                 responsive,
                 size_aware: (1..n).filter(|&i| style::has_a_box(&ctls[i]) && (size_aware(&ctls[i]) || is_card(&ctls[i]))).collect(),
+                layers: tree.layers.iter().map(|l| (l.name.clone(), l.visible)).collect(),
             }
         };
         let doc = &self.doc;
-        let root = h::el(doc, "section", &["pr-form"]);
+        // The form's root clips everything the form shows (R17); inside it the base, which scrolls, then one element per layer
+        // (R14), each a stacking context above the one before, its backdrop first.
+        let root = h::el(doc, "section", &["pr-form-root"]);
         h::attr(&root, "data-pr-form", &built.form);
         h::attr(&root, "data-pr-inst", &inst.to_string());
         h::attr(&root, "aria-label", &built.title);
+        let base = h::el(doc, "div", &["pr-form"]);
         if built.responsive {
-            h::attr(&root, "data-responsive", "");
+            h::attr(&base, "data-responsive", "");
         }
+        h::append(&root, &base);
         let surface_el = h::el(doc, "div", &["pr-surface"]);
-        h::append(&root, &surface_el);
+        h::append(&base, &surface_el);
+        let layer_els: Vec<Element> = built
+            .layers
+            .iter()
+            .enumerate()
+            .map(|(k, (name, visible))| {
+                let l = h::el(doc, "div", &["pr-form-layer"]);
+                h::attr(&l, "data-layer-index", &k.to_string());
+                h::attr(&l, "data-layer", name);
+                set_layer_shown(&l, *visible);
+                h::append(&l, &h::el(doc, "div", &["pr-layer-bg"]));
+                h::append(&root, &l);
+                l
+            })
+            .collect();
 
         let mut ctls: Vec<Option<CtlView>> = (0..built.vnodes.len()).map(|_| None).collect();
         for &i in &built.order {
@@ -197,7 +231,7 @@ impl Shared {
             }
         }
         for &i in &built.order {
-            mount_one(&ctls, &built.mount, &surface_el, i);
+            mount_one(&ctls, &built.mount, &surface_el, &layer_els, i);
         }
 
         let sheet = self.scope.new_sheet();
@@ -209,6 +243,15 @@ impl Shared {
             let d = self.dispatch(Route::Form { inst });
             let root_c = root.clone();
             keys.push(Listener::new_active(&root, "keydown", move |ev| d("keydown", "root", &ev, &root_c)));
+        }
+        // A layer's backdrop is never a target with a handler (R16): where it takes the pointer (opaque, `layers_css`) the
+        // event ends there, reaching neither the controls it covers nor anything that listens above it.
+        for l in &layer_els {
+            if let Some(bg) = l.first_element_child() {
+                for kind in ["pointerdown", "pointerup", "click", "dblclick", "contextmenu", "wheel"] {
+                    keys.push(Listener::new(&bg, kind, |ev| ev.stop_propagation()));
+                }
+            }
         }
 
         // The size of the form's own surface, for the breakpoints (spec 056 R61).
@@ -290,6 +333,7 @@ impl Shared {
             mode,
             root: root.clone(),
             surface_el,
+            layer_els,
             frame: None,
             ctls,
             mount: built.mount,
@@ -456,6 +500,7 @@ impl Shared {
             css: Vec<(usize, String)>,
             inline: style::InlineCss,
             title: String,
+            reach: (bool, Vec<(bool, bool)>),
         }
         let plan = {
             let Ok(host) = inner.host.try_borrow() else { return };
@@ -521,7 +566,7 @@ impl Shared {
                 .into_iter()
                 .map(|i| {
                     let text = if i == 0 {
-                        style::form_css(inst, &ctls, responsive, &styles.assets)
+                        style::form_css(inst, &ctls, responsive, &styles.assets) + &style::layers_css(inst, &tree.layers, &styles.assets)
                     } else if style::has_a_box(&ctls[i]) {
                         style::control_css(inst, &ctls, i, responsive)
                     } else {
@@ -531,7 +576,7 @@ impl Shared {
                 })
                 .collect();
             let inline = style::inline_css(inst, &ctls, &inner.cfg.image_origins);
-            Plan { vnodes, css, inline, title: tree.get(0, "Title") }
+            Plan { vnodes, css, inline, title: tree.get(0, "Title"), reach: style::layer_reach(&tree.layers) }
         };
 
         // Phase B: change the page.
@@ -555,9 +600,18 @@ impl Shared {
                 if replaced {
                     let children: Vec<usize> = (1..iv.ctls.len()).filter(|&c| iv.mount[c].0 == i).collect();
                     for c in children {
-                        mount_one(&iv.ctls, &iv.mount, &iv.surface_el, c);
+                        mount_one(&iv.ctls, &iv.mount, &iv.surface_el, &iv.layer_els, c);
                     }
                 }
+            }
+            // A layer shown or hidden by the program (A9) is shown or hidden as one, backdrop and all, on this frame (R15).
+            // An opaque layer shown shields the base and the layers under it from the focus (plan §1.4).
+            for (l, &(shown, inert)) in iv.layer_els.iter().zip(&plan.reach.1) {
+                set_layer_shown(l, shown);
+                h::set_bool_attr(l, "inert", inert);
+            }
+            if let Some(base) = iv.surface_el.parent_element() {
+                h::set_bool_attr(&base, "inert", plan.reach.0);
             }
             let mut changed = false;
             for (i, text) in plan.css {
@@ -640,7 +694,7 @@ impl Shared {
             if replaced {
                 let children: Vec<usize> = (1..iv.ctls.len()).filter(|&c| iv.mount[c].0 == i).collect();
                 for c in children {
-                    mount_one(&iv.ctls, &iv.mount, &iv.surface_el, c);
+                    mount_one(&iv.ctls, &iv.mount, &iv.surface_el, &iv.layer_els, c);
                 }
             }
         }

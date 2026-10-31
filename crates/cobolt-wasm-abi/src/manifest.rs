@@ -80,13 +80,15 @@ pub struct FormEntry {
     pub controls: Vec<ControlEntry>,
     #[serde(default)]
     pub handlers: Vec<HandlerEntry>,
-    /// The form's layers above the base, in stack order (A9).
-    #[serde(default)]
+    /// The form's layers above the base, in stack order (A9). Absent from a
+    /// form without layers, so its manifest is the bytes it was before A9 (R24).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layers: Vec<LayerEntry>,
 }
 
 /// A layer of a form (A9): addressed by `id`, which follows the form's
-/// controls; `index` is its place in the stack (0 = just above the base).
+/// controls (`FormEntry::first_layer_id` + `index`); `index` is its place in
+/// the stack (0 = just above the base).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayerEntry {
     pub id: u32,
@@ -231,6 +233,18 @@ impl Manifest {
                     return Err(ManifestError::Invalid(format!("form `{}` repeats control id {}", f.name, c.id)));
                 }
             }
+            for (k, l) in f.layers.iter().enumerate() {
+                if l.index as usize != k || l.id != f.first_layer_id() + k as u32 {
+                    return Err(ManifestError::Invalid(format!(
+                        "layer `{}` of form `{}` is at {k} with index {} and id {}, but layers follow the controls: id {}, index {k}",
+                        l.name,
+                        f.name,
+                        l.index,
+                        l.id,
+                        f.first_layer_id() + k as u32
+                    )));
+                }
+            }
             for h in &f.handlers {
                 if h.event as usize >= self.events.len() {
                     return Err(ManifestError::Invalid(format!(
@@ -283,6 +297,11 @@ impl FormEntry {
     /// Is a handler bound to `(ctrl, event)`? Events fire only for bound handlers.
     pub fn has_handler(&self, ctrl: u32, event: u32) -> bool {
         self.handlers.iter().any(|h| h.ctrl == ctrl && h.event == event)
+    }
+    /// The id of the first layer (A9): the layers follow the form's controls, so
+    /// with `n` controls layer `k` is `3 + n + k`.
+    pub fn first_layer_id(&self) -> u32 {
+        ctrl::FIRST_CONTROL + self.controls.len() as u32
     }
 }
 
@@ -342,6 +361,36 @@ mod tests {
         let m = sample();
         let json = serde_json::to_string(&m).unwrap();
         assert_eq!(Manifest::parse(&json).unwrap(), m);
+    }
+
+    /// WASM-004 T16 (R24): a form without layers writes no `layers` key, so its manifest is byte for byte what it was.
+    #[test]
+    fn manifest_without_layers_reads_and_writes_byte_identical() {
+        let m = sample();
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(!json.contains("layers"), "{json}");
+        let again = serde_json::to_string(&Manifest::parse(&json).unwrap()).unwrap();
+        assert_eq!(again, json);
+        println!("{} bytes, written again identical", json.len());
+    }
+
+    /// WASM-004 T16 (A9): with `n` controls the layers are `3 + n`, `4 + n`, in stack order; anything else is refused.
+    #[test]
+    fn manifest_layers_follow_the_controls() {
+        let mut m = sample();
+        let n = m.forms[0].controls.len() as u32;
+        let first = m.forms[0].first_layer_id();
+        m.forms[0].layers = vec![LayerEntry { id: first, name: "LYR-DATA".into(), index: 0 }, LayerEntry { id: first + 1, name: "LYR-POPUP".into(), index: 1 }];
+        assert_eq!((m.forms[0].layers[0].id, m.forms[0].layers[1].id), (3 + n, 4 + n));
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains(r#""layers":[{"id":4,"name":"LYR-DATA","index":0},{"id":5,"name":"LYR-POPUP","index":1}]"#), "{json}");
+        assert_eq!(Manifest::parse(&json).unwrap(), m);
+        let mut bad = m.clone();
+        bad.forms[0].layers[1].id = 9;
+        assert!(bad.validate().unwrap_err().to_string().contains("layers follow the controls"));
+        let mut bad = m;
+        bad.forms[0].layers[0].index = 1;
+        assert!(bad.validate().is_err());
     }
 
     #[test]

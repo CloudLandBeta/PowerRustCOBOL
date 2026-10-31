@@ -17,8 +17,8 @@
 //! writes a `style` attribute: under the page's CSP (no `'unsafe-inline'` for styles) only CSSOM
 //! declarations are allowed.
 //!
-//! What it does *not* reproduce — the egui painter's liquid glass, perspective tilt of a whole
-//! control, the operating-system blur — is marked *approximate* or *not on the web* in the shared
+//! What it does *not* reproduce exactly — the egui painter's liquid glass, the per-vertex projection of
+//! a tilted control, the operating-system blur — is marked *approximate* or *not on the web* in the shared
 //! fidelity rows (`cobolt_forms::web_class::FIDELITY`): the Properties panel of a web form marks an
 //! approximate property in its tooltip and hides one with no effect on the web, whose value stays
 //! in the form file, so a form round-trips between kinds (WASM-004 R6).
@@ -85,17 +85,17 @@ pub const TABLE: &[Mapping] = &[
     m("RotateX", "transform: perspective() rotateX()"),
     m("RotateY", "transform: perspective() rotateY()"),
     m("PerspectiveDistance", "perspective()"),
-    m("PerspectiveStrength", "perspective()"),
-    m("BorderGradientEnabled", "border-image"),
-    m("BorderGradientStartColor", "—"),
-    m("BorderGradientEndColor", "—"),
-    m("BorderGradientDirection", "—"),
-    m("CornerRadiusTopLeft", "—"),
-    m("CornerRadiusTopRight", "—"),
-    m("CornerRadiusBottomLeft", "—"),
-    m("CornerRadiusBottomRight", "—"),
-    m("BorderBlur", "—"),
-    m("BorderTransparency", "—"),
+    m("PerspectiveStrength", "perspective() distance divided by the strength"),
+    m("BorderGradientEnabled", "::after ring: linear-gradient masked to the border band"),
+    m("BorderGradientStartColor", "the ring's start stop"),
+    m("BorderGradientEndColor", "the ring's end stop"),
+    m("BorderGradientDirection", "the ring's gradient angle (eight directions)"),
+    m("CornerRadiusTopLeft", "border-top-left-radius of a notification"),
+    m("CornerRadiusTopRight", "border-top-right-radius of a notification"),
+    m("CornerRadiusBottomLeft", "border-bottom-left-radius of a notification"),
+    m("CornerRadiusBottomRight", "border-bottom-right-radius of a notification"),
+    m("BorderBlur", "box-shadow rings outside the frame"),
+    m("BorderTransparency", "alpha of a chart's border, ring and glow"),
     m("ZOrder", "z-index"),
     m("Visible", "display / hidden"),
     m("Enabled", "disabled / aria-disabled"),
@@ -278,6 +278,13 @@ pub fn background(ctl: &Ctl) -> Option<(&'static str, String)> {
     Some(("background-color", css_color(faded(c, transparency))))
 }
 
+/// A face that paints nothing: `Transparency` 100, or a background colour with zero alpha (a Label's seeded
+/// `#00000000`). The desktop's `cobolt_forms::render::face_see_through`, which decides where a control is hit.
+pub fn face_see_through(ctl: &Ctl) -> bool {
+    let transparency = int(ctl, "transparency").or_else(|| int(ctl, "opacity").map(|o| 100 - o.clamp(0, 100))).unwrap_or(0);
+    transparency >= 100 || ctl.raw("backgroundcolor").map(str::trim).filter(|s| !s.is_empty()).and_then(parse_color).is_some_and(|c| c[3] == 0)
+}
+
 /// Is `c` exactly the colour `default_hex` (`#RRGGBB`)? An alpha of 255 only.
 fn is_default(c: [u8; 4], default_hex: &str) -> bool {
     parse_color(default_hex).is_some_and(|d| d[..3] == c[..3]) && c[3] == 255
@@ -312,10 +319,18 @@ pub fn border_width(ctl: &Ctl) -> f64 {
 /// The border declarations.
 pub fn border(ctl: &Ctl, d: &mut Decls) {
     let style = ctl.raw("borderstyle").map(str::trim).unwrap_or("");
-    let width = int(ctl, "borderwidth").unwrap_or(1).clamp(0, 32);
-    let transparency = int(ctl, "transparency").unwrap_or(0);
+    // A chart's frame is `paint.rs::draw_chart_border`'s: up to 40 px, navy when no colour is chosen.
+    let chart = is_chart(ctl);
+    let width = int(ctl, "borderwidth").unwrap_or(1).clamp(0, if chart { 40 } else { 32 });
+    let transparency = border_fade(ctl);
+    // A chart's gradient frame is drawn by its `::after` (`border_ring`) over a transparent border of the same width.
+    if let Some((w, _, _, Some(_))) = chart_frame(ctl) {
+        push(d, "border", format!("{w}px solid transparent"));
+        return;
+    }
     // The painter's border when none is chosen (`control_colors`): a light slate, not mid grey.
-    let color = parse_color(ctl.text_or("bordercolor", "#8C8CA0FF")).unwrap_or([140, 140, 160, 255]);
+    let fallback = if chart { "#3C50A0" } else { "#8C8CA0FF" };
+    let color = parse_color(ctl.text_or("bordercolor", fallback)).unwrap_or([140, 140, 160, 255]);
     let c = css_color(faded(color, transparency));
     match style.to_ascii_lowercase().as_str() {
         "" | "none" => push(d, "border", "none"),
@@ -473,8 +488,10 @@ pub fn appearance(ctl: &Ctl) -> Decls {
     if ctl.raw("borderstyle").is_some() {
         border(ctl, &mut d);
     }
-    if let Some(s) = box_shadow(ctl) {
-        push(&mut d, "box-shadow", s);
+    // The first shadow paints on top: the desktop draws a chart's glow over its drop shadow.
+    let shadows: Vec<String> = [border_glow(ctl), box_shadow(ctl)].into_iter().flatten().collect();
+    if !shadows.is_empty() {
+        push(&mut d, "box-shadow", shadows.join(", "));
     }
     // Padding: the all-sides value, then any side that is set. A Panel's and a GroupBox's padding is
     // the layout padding of their client area, which `layout_css::container` writes (it also gives
@@ -503,14 +520,156 @@ pub fn appearance(ctl: &Ctl) -> Decls {
             push(&mut d, "z-index", z.to_string());
         }
     }
-    // Perspective (spec 096): an approximation on the element's own box.
-    let rx = int(ctl, "rotatex").unwrap_or(0);
-    let ry = int(ctl, "rotatey").unwrap_or(0);
-    if rx != 0 || ry != 0 {
-        let dist = int(ctl, "perspectivedistance").unwrap_or(50).clamp(1, 100);
-        push(&mut d, "transform", format!("perspective({}px) rotateX({rx}deg) rotateY({ry}deg)", 400 + dist * 12));
+    if let Some(t) = perspective_transform(ctl) {
+        push(&mut d, "transform", t);
     }
     d
+}
+
+/// Is the control one of the seven charts, whose frame has its own gradient, blur and transparency
+/// (`paint::draw_chart_border`)?
+fn is_chart(ctl: &Ctl) -> bool {
+    matches!(
+        ctl.control_type(),
+        Some(ControlType::BarChart | ControlType::LineChart | ControlType::PieChart | ControlType::AreaChart | ControlType::ScatterChart | ControlType::DonutChart | ControlType::RadarChart)
+    )
+}
+
+/// What fades a control's border: its `Transparency`, except on a chart, whose frame is drawn at the
+/// alpha it inherits and fades only by its own `BorderTransparency` (`paint::draw_chart_border`).
+fn border_fade(ctl: &Ctl) -> i64 {
+    if is_chart(ctl) {
+        int(ctl, "bordertransparency").unwrap_or(0)
+    } else {
+        int(ctl, "transparency").unwrap_or(0)
+    }
+}
+
+/// A chart's frame as the desktop draws it, or `None` when it draws none: `HideBackground`, style
+/// `None`, a zero width or a `BorderTransparency` of 100. Returns the frame's width, its start and end
+/// colours (the same colour twice without a gradient) with the border's own fade applied, and the
+/// gradient's direction when one is on.
+fn chart_frame(ctl: &Ctl) -> Option<(i64, [u8; 4], [u8; 4], Option<&str>)> {
+    if !is_chart(ctl) || ctl.flag("hidebackground") {
+        return None;
+    }
+    if ctl.raw("borderstyle").map(str::trim).unwrap_or("Single").eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let width = int(ctl, "borderwidth").unwrap_or(1).clamp(0, 40);
+    let fade = border_fade(ctl).clamp(0, 100);
+    if width == 0 || fade >= 100 {
+        return None;
+    }
+    let color = parse_color(ctl.text_or("bordercolor", "#3C50A0")).unwrap_or([60, 80, 160, 255]);
+    if ctl.raw("bordergradientenabled").map(truthy).unwrap_or(false) {
+        let start = ctl.raw("bordergradientstartcolor").and_then(parse_color).unwrap_or(color);
+        let end = ctl.raw("bordergradientendcolor").and_then(parse_color).unwrap_or(color);
+        Some((width, faded(start, fade), faded(end, fade), Some(ctl.text_or("bordergradientdirection", "South"))))
+    } else {
+        Some((width, faded(color, fade), faded(color, fade), None))
+    }
+}
+
+/// The rule of a chart's gradient frame, for the control's `::after` (WASM-004 T13b): a ring the
+/// size of the border box, `padding` the border's width, filled with the gradient and masked to its
+/// padding (the border band), so the corners keep the control's radius outside and that radius less
+/// the width inside, as the desktop's ring mesh does. The element's own border is transparent and
+/// keeps the width in the layout. `None` without a gradient frame.
+pub fn border_ring(ctl: &Ctl) -> Option<Decls> {
+    let (width, start, end, Some(direction)) = chart_frame(ctl)? else {
+        return None;
+    };
+    let mut d = Decls::new();
+    push(&mut d, "content", "\"\"");
+    push(&mut d, "position", "absolute");
+    push(&mut d, "inset", format!("-{width}px"));
+    push(&mut d, "padding", format!("{width}px"));
+    push(&mut d, "border-radius", "inherit");
+    push(&mut d, "background", format!("linear-gradient({}, {}, {})", gradient_angle(direction), css_color(start), css_color(end)));
+    push(&mut d, "-webkit-mask", "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)");
+    push(&mut d, "-webkit-mask-composite", "xor");
+    push(&mut d, "mask-composite", "exclude");
+    push(&mut d, "pointer-events", "none");
+    Some(d)
+}
+
+/// A chart's `BorderBlur`: the desktop's glow laid down as the page can lay it.
+///
+/// The desktop strokes rings outward from the frame's edge, faintest first (`paint::draw_chart_border`): ring `i` of
+/// `L` (`shadow::ring_count`) sits `t·blur` out, `t = 1 − i/L`, as a stroke the frame's width across centred on that
+/// line, in the frame's middle colour at `0.6 · exp(−3t²)` of the border's alpha. The rings overlap, so near the frame
+/// the glow is close to solid. This sums that stack's transmission at every whole pixel out from the edge and lays it
+/// down as nested `box-shadow` rings with no blur (the way `box_shadow` lays the shadow stack): the shadow `k + 1` px
+/// wide is given the alpha that makes the pixels `k` px out show what the desktop's rings show there.
+fn border_glow(ctl: &Ctl) -> Option<String> {
+    let blur = int(ctl, "borderblur").unwrap_or(0).clamp(0, 40) as f64;
+    if blur < 0.5 {
+        return None;
+    }
+    let (width, start, end, _) = chart_frame(ctl)?;
+    let w = (width as f64).max(1.0);
+    let mid = |k: usize| ((start[k] as f64 + end[k] as f64) / 2.0).round() as u8;
+    let fade = 1.0 - border_fade(ctl).clamp(0, 100) as f64 / 100.0;
+    let peak = 0.6 * mid(3) as f64 / 255.0;
+    let layers = cobolt_forms::shadow::ring_count(blur as f32, (0.6 * fade * 255.0) as f32) as f64;
+    let rings: Vec<(f64, f64)> = (0..=layers as usize)
+        .map(|i| {
+            let t = 1.0 - i as f64 / layers;
+            (t * blur, peak * (-3.0 * t * t).exp())
+        })
+        .collect();
+    let bands = (blur + w / 2.0).ceil() as usize;
+    // The transmission of each 1 px band outside the frame, through every ring that covers its middle.
+    let through: Vec<f64> = (0..bands)
+        .map(|k| {
+            let d = k as f64 + 0.5;
+            rings.iter().filter(|(e, _)| (e - d).abs() <= w / 2.0).map(|(_, a)| 1.0 - a).product()
+        })
+        .collect();
+    // Shadow `k + 1` px wide covers bands 0..=k; the outermost alone covers the last band.
+    let mut out = Vec::new();
+    for k in (0..bands).rev() {
+        let outside = through.get(k + 1).copied().unwrap_or(1.0);
+        let alpha = (1.0 - through[k] / outside.max(1e-6)).clamp(0.0, 1.0);
+        if alpha >= 0.0005 {
+            out.push(format!("0 0 0 {}px rgb({} {} {} / {})", k + 1, mid(0), mid(1), mid(2), fmt_number((alpha * 1000.0).round() / 1000.0)));
+        }
+    }
+    (!out.is_empty()).then(|| out.join(", "))
+}
+
+/// Spec 096/097's tilt as a CSS transform, by the desktop's own camera (`perspective::Camera`): the
+/// camera stands `D = 2·M·2^((50 − d)/50)` from the control (`M` its larger side, `d` its
+/// `PerspectiveDistance`) with focal length `F = 2·M`, and `PerspectiveStrength` `m` divides the depth
+/// by `D + m·z`. A point therefore lands at `(F/D) · (D/m) / (D/m + z)`: `scale(F/D)` of a
+/// `perspective(D/m)` — none at all when `m` is 0 — with `RotateX` turned first, then `RotateY`. Only
+/// the twelve types the desktop tilts (`ControlType::has_perspective`); a control at the neutral values
+/// has none. The corner pins of spec 098 are not drawn.
+pub fn perspective_transform(ctl: &Ctl) -> Option<String> {
+    if !ctl.control_type().is_some_and(|t| t.has_perspective()) {
+        return None;
+    }
+    let rx = int(ctl, "rotatex").unwrap_or(0).clamp(-60, 60);
+    let ry = int(ctl, "rotatey").unwrap_or(0).clamp(-60, 60);
+    let dist = int(ctl, "perspectivedistance").unwrap_or(50).clamp(0, 100);
+    if rx == 0 && ry == 0 && dist == 50 {
+        return None;
+    }
+    let strength = int(ctl, "perspectivestrength").unwrap_or(100).clamp(0, 100) as f64 / 100.0;
+    let m = ctl.num("width").unwrap_or(0.0).max(ctl.num("height").unwrap_or(0.0)).max(1.0);
+    let depth = 2.0 * m * 2f64.powf((50 - dist) as f64 / 50.0);
+    let scale = 2.0 * m / depth;
+    let round = |v: f64| fmt_number((v * 1000.0).round() / 1000.0);
+    let mut t = String::new();
+    if dist != 50 {
+        t.push_str(&format!("scale({}) ", round(scale)));
+    }
+    if strength > 0.0 {
+        t.push_str(&format!("perspective({}px) ", round(depth / strength)));
+    }
+    t.push_str(&format!("rotateY({ry}deg) rotateX({rx}deg)"));
+    Some(t)
 }
 
 /// Does a stylesheet attempt to load something from outside the bundle? (WASM-007 R13.) The one
@@ -704,6 +863,112 @@ mod tests {
         // A label held to its left edge starts on a whole pixel: always a pixel apart.
         let (lt, l) = crate::tree::testing::tree_with("Label", "LBL-A", &[("Caption", "Total"), ("Bold", "1"), ("X", "50"), ("Width", "193"), ("TextAlignment", "Left")]);
         assert!(appearance(lt.ctl(l)).iter().any(|(k, v)| k == "text-shadow" && v == "1px 0 0 currentColor"));
+    }
+
+    /// WASM-004 T13b: a chart's frame gradient is a ring over a transparent border, with the radius kept.
+    #[test]
+    fn a_charts_border_gradient_is_a_masked_ring_over_a_transparent_border() {
+        let (t, i) = crate::tree::testing::tree_with(
+            "BarChart",
+            "CH-1",
+            &[("BorderStyle", "Single"), ("BorderWidth", "3"), ("CornerRadius", "10"), ("BorderGradientEnabled", "1"), ("BorderGradientStartColor", "#FF0000"), ("BorderGradientEndColor", "#0000FF"), ("BorderGradientDirection", "East")],
+        );
+        let d = appearance(t.ctl(i));
+        let get = |k: &str| d.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
+        assert_eq!(get("border").as_deref(), Some("3px solid transparent"), "{d:?}");
+        assert_eq!(get("border-radius").as_deref(), Some("10px"));
+        let ring = border_ring(t.ctl(i)).expect("a gradient frame has a ring");
+        let rget = |k: &str| ring.iter().find(|(x, _)| x == k).map(|(_, v)| v.as_str());
+        println!("ring: {ring:?}");
+        assert_eq!(rget("background"), Some("linear-gradient(90deg, rgb(255 0 0), rgb(0 0 255))"));
+        assert_eq!(rget("inset"), Some("-3px"));
+        assert_eq!(rget("padding"), Some("3px"));
+        assert_eq!(rget("border-radius"), Some("inherit"), "the corners keep the control's radius");
+        assert_eq!(rget("mask-composite"), Some("exclude"));
+        assert_eq!(rget("pointer-events"), Some("none"));
+        // The rule reaches the control's stylesheet as its `::after`.
+        let css = crate::view::style::control_css(0, &t.ctls, i, false);
+        assert!(css.contains("[data-name=\"CH-1\"]::after {"), "{css}");
+        // No gradient, no ring; a Button never has one.
+        let (t, i) = crate::tree::testing::tree_with("BarChart", "CH-1", &[("BorderGradientEnabled", "0")]);
+        assert!(border_ring(t.ctl(i)).is_none());
+        let (t, i) = crate::tree::testing::tree_with("Button", "B-1", &[("BorderStyle", "Single"), ("BorderGradientEnabled", "1")]);
+        assert!(border_ring(t.ctl(i)).is_none());
+        // HideBackground takes the frame off, ring included.
+        let (t, i) = crate::tree::testing::tree_with("PieChart", "CH-2", &[("BorderGradientEnabled", "1"), ("HideBackground", "1")]);
+        assert!(border_ring(t.ctl(i)).is_none());
+    }
+
+    /// WASM-004 T13b: `BorderTransparency` fades a chart's frame; its `Transparency` does not.
+    #[test]
+    fn a_charts_frame_takes_the_painters_default_colour_and_width_and_its_glow_lies_over_its_shadow() {
+        let decls = |ty: &str, props: &[(&str, &str)]| {
+            let (t, i) = crate::tree::testing::tree_with(ty, "C-1", props);
+            appearance(t.ctl(i))
+        };
+        let get = |d: &Decls, k: &str| d.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
+        // No BorderColor: navy on a chart (`draw_chart_border`), the light slate on anything else.
+        let chart = decls("BarChart", &[("BorderStyle", "Single"), ("BorderWidth", "36")]);
+        assert_eq!(get(&chart, "border").as_deref(), Some("36px solid rgb(60 80 160)"), "and up to 40 px, as the painter");
+        let button = decls("Button", &[("BorderStyle", "Single"), ("BorderWidth", "36")]);
+        assert_eq!(get(&button, "border").as_deref(), Some("32px solid rgb(140 140 160)"));
+        // A chart with a drop shadow and a blur: the glow is listed first, so it paints over the shadow.
+        let both = decls("BarChart", &[("BorderStyle", "Single"), ("BorderWidth", "2"), ("BorderBlur", "6"), ("ShadowEnabled", "true")]);
+        let s = get(&both, "box-shadow").unwrap_or_default();
+        assert!(s.starts_with("0 0 0 "), "a glow band first: {s}");
+        assert!(!s.rsplit(", ").next().unwrap_or("").starts_with("0 0 0 "), "the drop shadow last: {s}");
+    }
+
+    #[test]
+    fn a_charts_border_fades_by_its_own_transparency_and_glows_by_its_blur() {
+        let frame = |props: &[(&str, &str)]| {
+            let (t, i) = crate::tree::testing::tree_with("LineChart", "CH-1", props);
+            appearance(t.ctl(i)).into_iter().find(|(k, _)| k == "border").map(|(_, v)| v)
+        };
+        // Half the frame's alpha, by BorderTransparency alone.
+        let half = frame(&[("BorderStyle", "Single"), ("BorderWidth", "2"), ("BorderColor", "#3C50A0"), ("BorderTransparency", "50"), ("Transparency", "0")]);
+        assert_eq!(half.as_deref(), Some("2px solid rgb(60 80 160 / 0.502)"));
+        // The chart's own Transparency fades its face, never its frame.
+        let solid = frame(&[("BorderStyle", "Single"), ("BorderWidth", "2"), ("BorderColor", "#3C50A0"), ("BorderTransparency", "0"), ("Transparency", "80")]);
+        assert_eq!(solid.as_deref(), Some("2px solid rgb(60 80 160)"));
+        // A Button's border still fades with its Transparency.
+        let (t, b) = crate::tree::testing::tree_with("Button", "B-1", &[("BorderStyle", "Single"), ("BorderColor", "#3C50A0"), ("Transparency", "50"), ("BorderTransparency", "100")]);
+        assert!(appearance(t.ctl(b)).iter().any(|(k, v)| k == "border" && v == "1px solid rgb(60 80 160 / 0.502)"));
+        // BorderBlur: a glow in the frame's middle colour at 0.6 of its alpha.
+        let (t, i) = crate::tree::testing::tree_with(
+            "LineChart",
+            "CH-1",
+            &[("BorderStyle", "Single"), ("BorderWidth", "2"), ("BorderBlur", "8"), ("BorderGradientEnabled", "1"), ("BorderGradientStartColor", "#FF0000"), ("BorderGradientEndColor", "#0000FF"), ("ShadowEnabled", "0")],
+        );
+        let s = appearance(t.ctl(i)).into_iter().find(|(k, _)| k == "box-shadow").map(|(_, v)| v);
+        println!("glow: {s:?}");
+        let s = s.unwrap();
+        let rings: Vec<&str> = s.split(", ").collect();
+        assert_eq!(rings.len(), 9, "one ring per pixel out to the blur plus half the frame: {s}");
+        assert!(rings.iter().all(|r| r.contains("rgb(128 0 128 / ")), "the frame's middle colour: {s}");
+        assert!(rings.last().unwrap().starts_with("0 0 0 1px "), "the innermost pixel last: {s}");
+        let (t, i) = crate::tree::testing::tree_with("LineChart", "CH-1", &[("BorderBlur", "0"), ("ShadowEnabled", "0")]);
+        assert!(!appearance(t.ctl(i)).iter().any(|(k, _)| k == "box-shadow"));
+    }
+
+    /// WASM-004 T13b: the tilt is the desktop's camera; `PerspectiveStrength` divides the depth.
+    #[test]
+    fn the_tilt_is_the_desktops_camera_and_the_strength_scales_its_convergence() {
+        let tilt = |props: &[(&str, &str)]| {
+            let (t, i) = crate::tree::testing::tree_with("PictureBox", "P-1", props);
+            perspective_transform(t.ctl(i))
+        };
+        let base = [("Width", "200"), ("Height", "100"), ("RotateX", "20")];
+        // M = 200, D = F = 400 at distance 50.
+        assert_eq!(tilt(&base).as_deref(), Some("perspective(400px) rotateY(0deg) rotateX(20deg)"));
+        assert_eq!(tilt(&[base[0], base[1], base[2], ("PerspectiveStrength", "50")]).as_deref(), Some("perspective(800px) rotateY(0deg) rotateX(20deg)"), "half the strength, twice the camera's reach");
+        assert_eq!(tilt(&[base[0], base[1], base[2], ("PerspectiveStrength", "0")]).as_deref(), Some("rotateY(0deg) rotateX(20deg)"), "no convergence at all");
+        // Distance 100 brings the camera to half the reference: everything twice the size.
+        assert_eq!(tilt(&[base[0], base[1], ("RotateY", "-30"), ("PerspectiveDistance", "100")]).as_deref(), Some("scale(2) perspective(200px) rotateY(-30deg) rotateX(0deg)"));
+        assert_eq!(tilt(&[base[0], base[1]]), None, "neutral");
+        let (t, b) = crate::tree::testing::tree_with("Button", "B-1", &[("RotateX", "20")]);
+        assert_eq!(perspective_transform(t.ctl(b)), None, "a Button is never tilted, as on the desktop");
+        assert!(!appearance(t.ctl(b)).iter().any(|(k, _)| k == "transform"));
     }
 
     #[test]

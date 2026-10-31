@@ -57,6 +57,19 @@ pub fn bound_dom_events(c: &Ctl) -> Vec<&'static str> {
     v
 }
 
+/// Does a finger get a larger target on this control (WASM-004 R9, Q9)? A tab stop, or any control bound to a press
+/// (the desktop's `PRESS_EVENTS`); never a Line or a Shape, and not a Label nobody handles. A chart's gradient frame
+/// already draws on its `::after` (`css::border_ring`), so it keeps its own box; so does a control whose element
+/// clips or scrolls its content (`base_css`), where the area would be cut off and, scrolling, add room to scroll.
+pub fn touch_target(c: &Ctl) -> bool {
+    let Some(t) = c.control_type() else { return false };
+    let clips = matches!(t, ControlType::DataGrid | ControlType::ListBox | ControlType::TreeView | ControlType::Maps);
+    if clips || matches!(t, ControlType::Line | ControlType::Shape) || crate::css::border_ring(c).is_some() {
+        return false;
+    }
+    t.is_tab_stop() || bound_dom_events(c).iter().any(|d| matches!(*d, "click" | "dblclick" | "contextmenu" | "auxclick" | "mousedown" | "mouseup"))
+}
+
 /// The element every control starts from: its classes, its name as `id` and `data-name` (so that a
 /// selector can address it, WASM-007 R2), its tooltip, and its visibility and availability.
 pub fn root(cx: &ViewCtx, i: usize, tag: &'static str) -> VNode {
@@ -82,6 +95,9 @@ pub fn root(cx: &ViewCtx, i: usize, tag: &'static str) -> VNode {
     }
     for d in bound_dom_events(c) {
         n = n.on(d);
+    }
+    if touch_target(c) {
+        n = n.class("pr-touch");
     }
     n
 }
@@ -130,23 +146,21 @@ fn first_focusable_mut(n: &mut VNode) -> Option<&mut VNode> {
     n.children.iter_mut().find_map(first_focusable_mut)
 }
 
-/// The form's **tab order** is the browser's sequential focus order (WASM-004 R10): a control the
-/// desktop numbers `TabOrder = n` gets `tabindex="n"` on the element that takes the focus, so Tab
-/// walks the controls in the order the designer set — which the document order does not say once the
-/// developer has moved a control in the order. A control with no number (0) keeps the document order, a
-/// disabled or hidden one keeps `-1`, and only the types that are tab stops take part.
+/// The form's **tab order** is the browser's sequential focus order (WASM-004 R10, R20), carried by
+/// the document order (`style::mount_order` sorts siblings by `TabOrder`, each layer after the base).
+/// A positive `tabindex` would number across the whole document and break the per-layer order, so the
+/// element of a tab stop that takes the focus has `tabindex="0"`, or `-1` when the control is disabled
+/// or hidden; only the types that are tab stops are touched.
 fn with_tab_order(cx: &ViewCtx, i: usize, mut n: VNode) -> VNode {
     let c = cx.tree.ctl(i);
     let Some(t) = c.control_type() else { return n };
     if !t.is_tab_stop() {
         return n;
     }
-    let order = parse_f64(&cx.tree.get(i, "TabOrder")).map(|v| v as i64).unwrap_or(0);
-    if order > 0 {
-        if let Some(focus) = first_focusable_mut(&mut n) {
-            focus.attrs.retain(|(k, _)| k != "tabindex");
-            focus.attrs.push(("tabindex".into(), order.to_string()));
-        }
+    let reachable = c.enabled() && c.visible();
+    if let Some(focus) = first_focusable_mut(&mut n) {
+        focus.attrs.retain(|(k, _)| k != "tabindex");
+        focus.attrs.push(("tabindex".into(), if reachable { "0" } else { "-1" }.into()));
     }
     n
 }
@@ -214,6 +228,11 @@ pub fn hidden_object(cx: &ViewCtx, i: usize) -> VNode {
 // ── Label, Button ───────────────────────────────────────────────────────────
 
 pub fn label(cx: &ViewCtx, i: usize) -> VNode {
+    // In a layer, a Label that paints no face is hit on its text only (WASM-004 R16): the box lets the pointer through
+    // to the layers below (`base_css`: `[data-hit="text"]`), the text span takes it.
+    if cx.tree.layer_of(i).is_some() && crate::css::face_see_through(cx.tree.ctl(i)) {
+        return root(cx, i, "span").attr("data-hit", "text").child(VNode::new("span").key("text").class("pr-label-text").text(caption(cx, i)));
+    }
     root(cx, i, "span").text(caption(cx, i))
 }
 
@@ -1290,30 +1309,88 @@ mod tests {
 
     #[test]
     fn the_tab_order_is_the_browsers_focus_order_on_the_element_that_takes_the_focus() {
-        // A button, a check box (the focus is on its input), a text box and a label: only tab stops are numbered.
+        // WASM-004 R20: the document order carries the tab order (`style::mount_order`); the element that takes the focus
+        // has `tabindex="0"`, never the number, which would count across the whole document.
         let (t, _) = tree_with("Button", "B-1", &[("TabOrder", "3")]);
         let e = Empty::default();
         let i = t.by_name("B-1").unwrap();
         let n = view(&e.cx(&t), i);
-        assert_eq!(n.attr_of("tabindex"), Some("3"), "{}", n.describe());
+        assert_eq!(n.attr_of("tabindex"), Some("0"), "{}", n.describe());
 
         let (t, i) = tree_with("CheckBox", "C-1", &[("TabOrder", "7")]);
         let n = view(&e.cx(&t), i);
         let input = n.find(&|x| x.tag == "input").unwrap();
-        assert_eq!(input.attr_of("tabindex"), Some("7"), "the check box's own input takes the number: {}", n.describe());
+        assert_eq!(input.attr_of("tabindex"), Some("0"), "the check box's own input takes the focus: {}", n.describe());
         assert!(n.attr_of("tabindex").is_none(), "not its label");
 
         let (t, i) = tree_with("TextBox", "T-1", &[("TabOrder", "2")]);
-        assert_eq!(view(&e.cx(&t), i).find(&|x| x.tag == "input" || x.tag == "textarea").unwrap().attr_of("tabindex"), Some("2"));
+        assert_eq!(view(&e.cx(&t), i).find(&|x| x.tag == "input" || x.tag == "textarea").unwrap().attr_of("tabindex"), Some("0"));
 
-        // No number, a label, a disabled control: nothing is forced.
+        // No number, a label, a disabled control.
         let (t, i) = tree_with("Button", "B-2", &[]);
-        assert!(view(&e.cx(&t), i).attr_of("tabindex").is_none(), "no TabOrder: the document order");
+        assert_eq!(view(&e.cx(&t), i).attr_of("tabindex"), Some("0"), "no TabOrder: the document order still decides");
+        let (t, i) = tree_with("Button", "B-3", &[("Enabled", "0")]);
+        assert_eq!(view(&e.cx(&t), i).attr_of("tabindex"), Some("-1"), "a disabled button is out of the order");
         let (t, i) = tree_with("Label", "L-1", &[("TabOrder", "1")]);
         assert!(view(&e.cx(&t), i).attr_of("tabindex").is_none(), "a Label holds a place in the order but never the focus");
         let (t, i) = tree_with("ListBox", "S-1", &[("TabOrder", "5"), ("Enabled", "0")]);
         let n = view(&e.cx(&t), i);
         assert_eq!(n.find_tag("ul").unwrap().attr_of("tabindex"), Some("-1"), "a disabled control stays out of the order: {}", n.describe());
+    }
+
+    /// WASM-004 T22, R9 and Q9: on a coarse pointer an interactive control's hit area is 15 % larger — a transparent
+    /// `::after` 7.5 % out on each side — and a Label nobody handles, a Line and a Shape are not enlarged.
+    #[test]
+    fn a_finger_gets_a_target_15_percent_larger_on_an_interactive_control_only() {
+        let sheet = crate::base_css::BASE_CSS;
+        let rule = "@media (pointer: coarse) { .pr-touch::after { content: \"\"; position: absolute; inset: -7.5%; background: transparent; } }";
+        assert!(sheet.contains(rule));
+        assert_eq!(sheet.matches(".pr-touch").count(), 1, "the rule exists only inside the coarse-pointer query");
+        let e = Empty::default();
+        let touch = |ty: &str, bind: bool| {
+            let (mut t, i) = tree_with(ty, "C-1", &[]);
+            if bind {
+                t.ctls[i].bound.push("onClick".into());
+            }
+            view(&e.cx(&t), i).has_class("pr-touch")
+        };
+        assert!(touch("Button", false), "a tab stop");
+        assert!(touch("TextBox", false));
+        assert!(!touch("Label", false), "a Label nobody handles");
+        assert!(touch("Label", true), "a Label bound to onClick");
+        assert!(!touch("Line", true) && !touch("Shape", true), "a Line and a Shape never");
+        assert!(!touch("DataGrid", true) && !touch("ListBox", false) && !touch("TreeView", false), "a clipping or scrolling element keeps its box");
+        // `::after` cannot draw on a replaced element: no control's own element is one, so a native input sits
+        // inside the element that carries the larger area.
+        let mut enlarged = 0;
+        for ty in ControlType::ALL {
+            let (t, i) = tree_with(ty.as_str(), "C-1", &[]);
+            let n = view(&e.cx(&t), i);
+            if n.has_class("pr-touch") {
+                enlarged += 1;
+                assert!(!matches!(n.tag, "input" | "img" | "select" | "progress" | "textarea" | "canvas"), "{}: {}", ty.as_str(), n.tag);
+            }
+        }
+        let (t, i) = tree_with("TextBox", "T-1", &[]);
+        let n = view(&e.cx(&t), i);
+        assert!(n.has_class("pr-touch") && n.find(&|x| x.tag == "input").is_some(), "the input is wrapped: {}", n.describe());
+        println!("{enlarged} control types are enlarged under a finger");
+    }
+
+    /// WASM-004 R20: no element of any control type carries a positive `tabindex`, whatever its `TabOrder`.
+    #[test]
+    fn no_control_type_writes_a_tabindex_above_0() {
+        let e = Empty::default();
+        let mut seen = 0;
+        for ty in ControlType::ALL {
+            let (t, i) = tree_with(ty.as_str(), "C-1", &[("TabOrder", "5")]);
+            let n = view(&e.cx(&t), i);
+            let mut positive = Vec::new();
+            n.find_all(&|x| x.attr_of("tabindex").and_then(|v| v.parse::<i64>().ok()).is_some_and(|v| v > 0), &mut positive);
+            assert!(positive.is_empty(), "{}: {}", ty.as_str(), n.describe());
+            seen += 1;
+        }
+        println!("{seen} control types: no tabindex above 0");
     }
 
     #[test]

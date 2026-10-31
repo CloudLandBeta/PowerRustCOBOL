@@ -1065,22 +1065,33 @@ pub struct SnackVisual {
 /// Every read defaults (plan §5): a template carrying a partial property set —
 /// an old form copied from another project — yields a fully-formed notification
 /// rather than a panic or a silently wrong value.
+/// The four per-corner radius properties, in the order of [`SnackVisual::corner_radius`]:
+/// top-left, top-right, bottom-right, bottom-left.
+pub const CORNER_PROPS: [&str; 4] = [
+    "CornerRadiusTopLeft",
+    "CornerRadiusTopRight",
+    "CornerRadiusBottomRight",
+    "CornerRadiusBottomLeft",
+];
+
+/// Per-corner radius, each falling back to `CornerRadius` on the `-1`
+/// sentinel — the same rule `CornerRadiusTopLeft` already documents. `corners`
+/// is in [`CORNER_PROPS`] order. The desktop's notification and the web
+/// player's both read it.
+pub fn corner_radii(corner_radius: i64, corners: [i64; 4]) -> [f32; 4] {
+    let base = corner_radius.max(0) as f32;
+    corners.map(|v| if v < 0 { base } else { v as f32 })
+}
+
 pub fn mint(ctrl: &Control) -> (SnackVisual, Option<ButtonsDiagnostic>) {
     let category = category_of(ctrl);
     let size = size_of(ctrl);
     let (buttons, diag) = parse_buttons(&prop_str(ctrl, "Buttons"));
 
-    // Per-corner radius, each falling back to `CornerRadius` on the `-1`
-    // sentinel — the same rule `CornerRadiusTopLeft` already documents.
-    let base_radius = prop_i64(ctrl, "CornerRadius", 12).max(0) as f32;
-    let corner = |name: &str| {
-        let v = prop_i64(ctrl, name, -1);
-        if v < 0 {
-            base_radius
-        } else {
-            v as f32
-        }
-    };
+    let corners = corner_radii(
+        prop_i64(ctrl, "CornerRadius", 12),
+        CORNER_PROPS.map(|name| prop_i64(ctrl, name, -1)),
+    );
 
     let shadow = if prop_bool(ctrl, "ShadowEnabled", true) {
         Some(SnackShadow {
@@ -1117,12 +1128,7 @@ pub fn mint(ctrl: &Control) -> (SnackVisual, Option<ButtonsDiagnostic>) {
         font_size: crate::layout::fonts::resolve_font_size(ctrl, 14.0, 1.0, f32::MAX),
         bold: prop_bool(ctrl, "Bold", false),
         text_wrap: prop_bool(ctrl, "TextWrap", true),
-        corner_radius: [
-            corner("CornerRadiusTopLeft"),
-            corner("CornerRadiusTopRight"),
-            corner("CornerRadiusBottomRight"),
-            corner("CornerRadiusBottomLeft"),
-        ],
+        corner_radius: corners,
         border_style: {
             let s = prop_str(ctrl, "BorderStyle");
             if s.trim().is_empty() { "None".to_owned() } else { s }
