@@ -1546,6 +1546,8 @@ pub mod standard {
     pub const SPIN_ITERATIONS: u32 = 3_000_000;
     pub const SPIN_SLICE: u32 = 100_000;
     pub const BURST_COUNT: u32 = 1000;
+    /// What the main form's `onBackendUnreachable` writes (WASM-016 R21).
+    pub const BACKEND_UNREACHABLE: &str = "backend unreachable";
 }
 
 /// A two-form fixture that exercises every ABI path.
@@ -1555,7 +1557,7 @@ pub mod standard {
 /// yield (`BTN-YIELD`), trap (`BTN-TRAP`), burst of 1000 writes (`BTN-BURST`),
 /// echo of the first event argument (`BTN-ECHO`), COBOL run-time error (`BTN-ERR`),
 /// `STOP RUN` (`BTN-STOP`), a second event while suspended is queued (`BTN-SUSPEND`),
-/// and an `onLoad` that writes the label. `child-form` (3 instances) has one label
+/// an `onLoad` that writes the label, and an `onBackendUnreachable` that writes [`standard::BACKEND_UNREACHABLE`] to it. `child-form` (3 instances) has one label
 /// and an `onLoad` that writes it, so opening and closing it exercises the
 /// instance lifecycle.
 pub fn standard_spec(multi_memory: bool) -> FixtureSpec {
@@ -1591,6 +1593,8 @@ pub fn standard_spec(multi_memory: bool) -> FixtureSpec {
                 ],
                 handlers: vec![
                     FixtureHandler::form("onLoad", vec![Step::Set { target: out(), name: "Caption".into(), value: "loaded".into() }]),
+                    // The player gave up reaching the backend (WASM-016 R21).
+                    FixtureHandler::form("onBackendUnreachable", vec![Step::Set { target: out(), name: "Caption".into(), value: BACKEND_UNREACHABLE.into() }]),
                     FixtureHandler::on(
                         "BTN-GO",
                         "onClick",

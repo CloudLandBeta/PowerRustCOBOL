@@ -263,6 +263,17 @@ pub const BASE_CSS: &str = r#"
 .pr-ended .pr-ended-title { margin: 0; font-size: 20px; font-weight: 600; } .pr-ended .pr-ended-hint { margin: 0; }
 .pr-ended button { margin-top: 6px; padding: 6px 18px; cursor: pointer; font: inherit; }
 .pr-net { font-size: 11px; padding: 1px 8px; }
+/* The "connecting" modal (WASM-016 R20–R21): placed over the application by the page (left, top, width, height), its
+   colours its own declarations (`view::shell::net_modal_view`), its motion started by the page (`dom::animate_net_modal`)
+   so that this sheet moves nothing by itself. */
+.pr-netmodal { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 16px; border: 0; outline: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; font: 15px var(--pr-font); line-height: 1.3; }
+.pr-netmodal:not([open]) { display: none; }
+.pr-netmodal::backdrop { background: transparent; }
+.pr-netmodal-drawing { width: min(360px, 80%); height: auto; overflow: visible; }
+.pr-netmodal-caption { margin: 0; font-size: 17px; font-weight: 600; }
+.pr-netmodal-failed .pr-netmodal-link { stroke-dasharray: 2 10; }
+.pr-netmodal button { padding: 6px 20px; cursor: pointer; font: inherit; color: #ffffff; background: transparent; border: 2px solid #ffffff; border-radius: 4px; }
 "#;
 
 /// **The cascade of WASM-007 R8, stated once** (plan §1.1), lowest to highest:

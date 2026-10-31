@@ -73,6 +73,19 @@ pub(crate) enum Route {
     Banner,
     Toasts,
     Crumb,
+    /// The "connecting" modal (WASM-016 R20–R21).
+    NetModal,
+}
+
+/// The "connecting" modal while it is up: its dialog, what keeps it over the application, and the element that had the
+/// focus when it opened (the focus goes back there when it closes, so the form is left exactly as it was).
+struct NetModalRec {
+    rec: NodeRec,
+    _placement: Vec<h::Listener>,
+    focus_back: Option<Element>,
+    /// The text box's caret and selection (`selectionStart`, `selectionEnd`, `selectionDirection`): a browser does not
+    /// keep them across a modal dialog's focus.
+    selection: Option<(JsValue, JsValue, JsValue)>,
 }
 
 pub(crate) struct Chrome {
@@ -112,6 +125,7 @@ pub(crate) struct State {
     next_toast: u32,
     banner_rec: Option<NodeRec>,
     net_rec: Option<NodeRec>,
+    net_modal: Option<NetModalRec>,
     pub timers: HashMap<(u32, usize), (u64, Timeout)>,
     pub files: HashMap<(u32, usize), Vec<web_sys::File>>,
     pub dirty: BTreeSet<(u32, usize)>,
@@ -187,6 +201,7 @@ pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface
         next_toast: 1,
         banner_rec: None,
         net_rec: None,
+        net_modal: None,
         timers: HashMap::new(),
         files: HashMap::new(),
         dirty: BTreeSet::new(),
@@ -275,6 +290,7 @@ impl Shared {
             Route::Banner => self.on_banner_event(ev),
             Route::Toasts => self.on_toast_event(ev),
             Route::Crumb => self.on_crumb_event(ev),
+            Route::NetModal => self.on_net_modal_event(kind, ev),
         }
     }
 
@@ -477,6 +493,108 @@ impl Shared {
         if dismiss {
             self.dismiss_toast(toast_id);
         }
+    }
+
+    /// The "connecting" modal takes every key and pointer event that reaches it, so none goes on to the application or to
+    /// the page (WASM-016 R20). Escape does not close it; if the browser closes it all the same (a second Escape with no
+    /// user activation in between), it is shown again. Reload is the host page's own recovery (R21).
+    fn on_net_modal_event(self: &Rc<Self>, kind: &str, ev: &Event) {
+        ev.stop_propagation();
+        match kind {
+            "cancel" => ev.prevent_default(),
+            "close" => {
+                let current = self.state.try_borrow().ok().and_then(|st| st.net_modal.as_ref().map(|m| m.rec.el.clone()));
+                let target = ev.target().and_then(|t| t.dyn_into::<Element>().ok());
+                if let (Some(el), Some(t)) = (current, target) {
+                    if el == t {
+                        call_method(&el, "showModal");
+                    }
+                }
+            }
+            "click" => {
+                let target = ev.target().and_then(|t| t.dyn_into::<Element>().ok());
+                if target.and_then(|t| t.closest("[data-part=reload]").ok().flatten()).is_some() {
+                    if let Some(w) = web_sys::window() {
+                        let _ = w.location().reload();
+                    }
+                }
+            }
+            // The modal holds the focus: Tab does not take it away. Enter and Space still press Reload.
+            "keydown" if js_str(ev.as_ref(), "key") == "Tab" => ev.prevent_default(),
+            _ => {}
+        }
+    }
+
+    /// Show, change or take away the "connecting" modal (WASM-016 R20–R21). It is up while the connection is retried and
+    /// after it gave up, and goes when a connection works again. It is a modal `<dialog>`: in the top layer, over the
+    /// application's own dialogs, with the rest of the page inert and the focus in it. It is placed over the application's
+    /// element (the window, or the `<div>` it is mounted in) and kept there while the window is resized or scrolled.
+    ///
+    /// The focus moves in and back out while the page's state is held, so the application's listeners hear neither the blur
+    /// nor the focus (they `try_borrow`, module rules): the form behind is left exactly as it was, caret and selection included.
+    fn set_net_modal(self: &Rc<Self>, inner: &Rc<Inner>, blocked: bool, unreachable: bool) {
+        let Ok(mut st) = self.state.try_borrow_mut() else { return };
+        if !blocked && !unreachable {
+            if let Some(m) = st.net_modal.take() {
+                call_method(&m.rec.el, "close");
+                m.rec.el.remove();
+                if let Some(e) = m.focus_back.filter(|e| e.is_connected()) {
+                    h::focus(&e);
+                    if let Some((start, end, direction)) = m.selection {
+                        if let Ok(f) = js_sys::Reflect::get(&e, &"setSelectionRange".into()).and_then(|f| f.dyn_into::<js_sys::Function>().map_err(JsValue::from)) {
+                            let _ = f.call3(&e, &start, &end, &direction);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        // Retrying wins: after a give-up, the application's next call starts a new cycle (WASM-003 R25).
+        let failed = unreachable && !blocked;
+        let (caption, reload) = shell::net_modal_texts(&inner.cfg.locale, &inner.cfg.texts, failed);
+        let v = shell::net_modal_view(failed, &caption, &reload);
+        let dispatch = self.dispatch(Route::NetModal);
+        if let Some(m) = st.net_modal.as_mut() {
+            nodes::patch(&self.doc, &mut m.rec, &v, None, &dispatch);
+            if !m.rec.el.has_attribute("open") {
+                call_method(&m.rec.el, "showModal");
+            }
+            animate_net_modal(&m.rec, !failed);
+            focus_net_modal(&m.rec, failed);
+            return;
+        }
+        let focus_back = js_sys::Reflect::get(&self.root.get_root_node(), &"activeElement".into()).ok().and_then(|e| e.dyn_into::<Element>().ok());
+        // Only a text box has a selection to keep: elsewhere `selectionStart` is null (or reading it throws).
+        let selection = focus_back.as_ref().and_then(|e| {
+            let get = |k: &str| js_sys::Reflect::get(e, &k.into()).ok().filter(|v| v.as_f64().is_some() || v.is_string());
+            Some((get("selectionStart").filter(|v| v.as_f64().is_some())?, get("selectionEnd")?, get("selectionDirection").unwrap_or(JsValue::UNDEFINED)))
+        });
+        let rec = nodes::create(&self.doc, &v, None, &dispatch);
+        h::append(&self.root, &rec.el);
+        let placement = self.place_net_modal(&rec.el);
+        call_method(&rec.el, "showModal");
+        animate_net_modal(&rec, !failed);
+        focus_net_modal(&rec, failed);
+        st.net_modal = Some(NetModalRec { rec, _placement: placement, focus_back, selection });
+    }
+
+    /// Put the modal over the application's element, now and whenever the window is resized or scrolled.
+    fn place_net_modal(&self, el: &Element) -> Vec<h::Listener> {
+        let place: Rc<dyn Fn()> = {
+            let (root, el) = (self.root.clone(), el.clone());
+            Rc::new(move || {
+                let r = root.get_bounding_client_rect();
+                for (k, v) in [("left", r.left()), ("top", r.top()), ("width", r.width()), ("height", r.height())] {
+                    h::css(&el, k, &format!("{v}px"));
+                }
+                h::css(&el, "right", "auto");
+                h::css(&el, "bottom", "auto");
+            })
+        };
+        place();
+        let Some(w) = web_sys::window() else { return Vec::new() };
+        let (on_resize, on_scroll) = (place.clone(), place);
+        vec![h::Listener::new(&w, "resize", move |_| on_resize()), h::Listener::new_capture(&w, "scroll", move |_| on_scroll())]
     }
 
     // ── the page's own furniture ────────────────────────────────────────────
@@ -721,6 +839,72 @@ fn js_value(el: &Element) -> String {
     js_str(el.as_ref(), "value")
 }
 
+/// Call a method of an element that takes no argument (`showModal`, `close`), ignoring what it answers.
+fn call_method(el: &Element, name: &str) {
+    call_method_of(el.as_ref(), name);
+}
+
+/// The modal's motion while the player retries (WASM-016 R20): the links flow from the screen to the server and the cloud
+/// pulses, started here through the Web Animations API (the base stylesheet moves nothing by itself); once the retries are
+/// exhausted the drawing stands still.
+fn animate_net_modal(rec: &NodeRec, retrying: bool) {
+    let frames = |prop: &str, values: &[JsValue]| {
+        let list = js_sys::Array::new();
+        for v in values {
+            let f = js_sys::Object::new();
+            let _ = js_sys::Reflect::set(&f, &prop.into(), v);
+            list.push(&f);
+        }
+        list
+    };
+    let timing = |ms: f64, easing: &str| {
+        let t = js_sys::Object::new();
+        let _ = js_sys::Reflect::set(&t, &"duration".into(), &ms.into());
+        let _ = js_sys::Reflect::set(&t, &"iterations".into(), &f64::INFINITY.into());
+        let _ = js_sys::Reflect::set(&t, &"easing".into(), &easing.into());
+        t
+    };
+    for (key, prop, values, ms, easing) in [
+        ("link-left", "strokeDashoffset", [JsValue::from("0px"), JsValue::from("-24px")], 900.0, "linear"),
+        ("link-right", "strokeDashoffset", [JsValue::from("0px"), JsValue::from("-24px")], 900.0, "linear"),
+        ("cloud", "opacity", [JsValue::from(1.0), JsValue::from(0.5)], 900.0, "ease-in-out"),
+    ] {
+        let Some(el) = nodes::find_key(rec, key) else { continue };
+        let running = js_sys::Reflect::get(&el, &"getAnimations".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()).and_then(|f| f.call0(&el).ok()).map(|v| js_sys::Array::from(&v)).unwrap_or_default();
+        match (retrying, running.length()) {
+            (true, 0) => {
+                let options = timing(ms, easing);
+                // The cloud fades and comes back: its iterations alternate.
+                if key == "cloud" {
+                    let _ = js_sys::Reflect::set(&options, &"direction".into(), &"alternate".into());
+                }
+                if let Ok(f) = js_sys::Reflect::get(&el, &"animate".into()).and_then(|f| f.dyn_into::<js_sys::Function>().map_err(JsValue::from)) {
+                    let _ = f.call2(&el, &frames(prop, &values), &options);
+                }
+            }
+            (false, n) if n > 0 => {
+                for a in running.iter() {
+                    call_method_of(&a, "cancel");
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Call a method of any object that takes no argument, ignoring what it answers.
+fn call_method_of(o: &JsValue, name: &str) {
+    let _ = js_sys::Reflect::get(o, &name.into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()).map(|f| f.call0(o));
+}
+
+/// The focus in the modal: on Reload once the retries are exhausted, otherwise on the dialog itself.
+fn focus_net_modal(rec: &NodeRec, failed: bool) {
+    match nodes::find_key(rec, "reload").filter(|_| failed) {
+        Some(button) => h::focus(&button),
+        None => h::focus(&rec.el),
+    }
+}
+
 // ── the Surface the driver talks to ─────────────────────────────────────────
 
 impl Surface for Dom {
@@ -776,6 +960,10 @@ impl Surface for Dom {
                 }
             }
         }
+    }
+
+    fn net_blocked(&self, inner: &Rc<Inner>, blocked: bool, unreachable: bool) {
+        self.sh.set_net_modal(inner, blocked, unreachable);
     }
 
     fn styles_changed(&self, inner: &Rc<Inner>) {
@@ -897,6 +1085,7 @@ impl Shared {
             st.toast_rec = None;
             st.banner_rec = None;
             st.net_rec = None;
+            st.net_modal = None;
             st.crumb_rec = None;
             st.dialogs.clear();
             self.clear_all_canvases();

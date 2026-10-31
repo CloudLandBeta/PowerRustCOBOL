@@ -2607,8 +2607,10 @@ dependencies = [
 name = "cobolt-web-bundle"
 version = "0.2.0"
 dependencies = [
+ "base64 0.22.1",
  "cobolt-forms",
  "cobolt-wasm-abi",
+ "png 0.17.16",
  "serde",
  "serde_json",
  "sha2 0.10.9",

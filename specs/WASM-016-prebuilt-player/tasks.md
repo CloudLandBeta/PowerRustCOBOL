@@ -5,7 +5,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — The prebuilt player (WASM-016)
 
-- **Status:** in progress — T22 (automated part), T23, T24 done in 2.0.42; T22's manual Chrome check is the operator's (see T22). T1–T13 were done against the plan of 2026-10-20 and stay checked with their evidence. T14–T29 are
+- **Status:** in progress — T29b done in 2.0.114 (the "connecting" modal and `onBackendUnreachable`, AC13–AC14 measured in Chrome); T17
+  still waits for WASM-004 T32–T33. T22 (automated part), T23, T24 done in 2.0.42; T22's manual Chrome check is the operator's (see T22). T1–T13 were done against the plan of 2026-10-20 and stay checked with their evidence. T14–T29 are
   this revision's work, against the plan of 2026-10-22 (Leptos adopted, JSON description, pinning, layers, `"s"`, `nightly-2026-10-22`).
 - **Plan:** ./plan.md   **Date:** 2026-10-22
 
@@ -420,7 +421,67 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
     `cargo run -p cobolt-ide --example build_chunked_kb`: 3,559 records from 8 documents, `assets/knowledge/chunked.data`
     12,763,136 bytes; `prebuilt_chunked_kb_matches_the_published_documentation` 1/1.
 
-- [ ] **T29b — D21: the "connecting" modal and the exhausted-retries exception** (R20–R21; AC13–AC14; WASM-003 R25) — the blocking modal with its animation and gradient, the two captions in the host page's texts, the event; added 2026-10-24 by the operator's ruling.
+- [x] **T29b — D21: the "connecting" modal and the exhausted-retries exception** (R20–R21; AC13–AC14; WASM-003 R25) — the blocking modal with its animation and gradient, the two captions in the host page's texts, the event; added 2026-10-24 by the operator's ruling.
+  - **Done (2026-10-31, 2.0.114).** Built on WASM-003 T15a-2's `Out::Blocked` / `Out::Unreachable` (`src/net.rs`), which `api.rs` already kept.
+    - **The view** (`src/view/shell.rs`): `net_modal_view(unreachable, caption, reload)` — a `<dialog>` (`aria-modal`, `tabindex=-1`)
+      whose background (`NET_MODAL_GRADIENT`: `#ff0000 0%`, `#8b0000 40%`, `#dc143c 70%`, `#000000 100%`, left to right) and
+      `color: #ffffff` are its own CSSOM declarations, so no application stylesheet changes them; an allow-listed SVG of a screen, a
+      cloud and a server, every stroke and fill white; the caption; once unreachable, the class `pr-netmodal-failed` and a Reload
+      button. `net_modal_texts(locale, texts, unreachable)`: the host page's `connecting` / `unreachable` / `reload` when the developer
+      gave them, otherwise the page's language among six (`NET_MODAL_TEXTS`, the six of `ENDED_TEXTS`), English otherwise.
+    - **The page** (`src/dom/mod.rs`): `Surface::net_blocked` → `Shared::set_net_modal`, called by `api.rs`'s `drain_net` in the same
+      turn as the break. The modal goes into the top layer with `showModal` (above the application's own modal dialogs, the rest of
+      the page inert, the focus in it), placed over the application's element and kept there on resize and scroll; `Route::NetModal`
+      stops every key and pointer event, refuses Escape (`cancel`) and shows it again if the browser closes it anyway; Tab stays in
+      it; Reload is `location.reload()`. The links flow and the cloud pulses through the Web Animations API
+      (`animate_net_modal`). This is a change from the first build, which used CSS `@keyframes`: `motion::tests::the_base_stylesheet_moves_nothing_by_itself`
+      refused them. The motion stops when the retries are exhausted. When the connection works again the modal is removed
+      and the focus, caret and selection go back to the element that had them. The browser keeps none of them across a
+      modal dialog: Chrome returned the selection as 0..0 until the player saved and restored it.
+    - **The exception** (`src/host.rs`): `Host::backend_unreachable()` raises **`onBackendUnreachable`** on the form the page started
+      with — the oldest open instance no other one opened — when a handler is bound; `api.rs` calls it once per give-up.
+      `src/host/unreachable_tests.rs` 2/2.
+    - **Working assumption (to confirm): the event's name and where it goes.** The spec says only "an event the application can
+      handle". It follows WASM-014 plan §2.7, where the backend's version and warning events are raised on the main form. It is in
+      the form catalogue's *Error Handling* group (`cobolt_forms::model::FORM_EVENT_GROUPS`, 58 → 59 events), so the designer
+      offers it. **The desktop form host does not raise it yet.** The desktop has no modal (WASM-003 O9), and installing backend
+      events in the form host is WASM-014 T9's job. A desktop form can therefore bind an event that does not fire there, and the
+      System KB says so.
+    - **The host page** (`crates/cobolt-web-bundle/src/hostpage.rs`): the loader hands `config.texts` to the player
+      (`PlayerConfig::texts`); `BundleOptions::texts` documents the three keys.
+    - **Fixture** (`crates/cobolt-wasm-abi/src/fixture.rs`): the main form's `onBackendUnreachable` writes `BACKEND_UNREACHABLE` to
+      LBL-OUT.
+    - **System KB** (`crates/cobolt-compiler/src/lib.rs`): `onBackendUnreachable` in the form events list with a paragraph, and the
+      browser half of *A lost connection* (the modal, the captions, the event, the desktop's difference). `build_chunked_kb`: 3,668
+      records from 8 documents, `chunked.data` 13,234,176 → 13,246,464 bytes.
+    - Player rebuilt (`assets/web-player`), after `wasm-opt`: plain 3,594,305 → **3,613,416** (+19,111), threaded 3,423,535 →
+      **3,439,538** (+16,003); parts unchanged.
+    - **Verify:**
+      - `cargo test PLAYER --no-fail-fast`: lib 318 (new: the two view tests and the two host tests), `abi_host` 25,
+        `dependency_guard` 6, `exposed` 2, `freshness` 5, `grid_calls` 1, `sinks` 3 — all pass.
+      - `cargo test -p cobolt-web-bundle --test e2e_chrome`: **30 passed, 0 failed** (15 scenarios × {window, div}).
+      - **AC13**, scenario *backend lost*:
+        - The modal is up in every frame drawn while the player is blocked (601 frames, none without it).
+        - It is `:modal` and covers the application exactly: [0,0,1280,800] in the window, [31,65,700,600] in the `<div>`.
+        - A click on TXT-IN, the keys x, Tab, Escape and Enter, and typed "zz" leave the box at "written first", with the focus in
+          the modal.
+        - 3 animations run.
+        - The background sampled at 1 / 40 / 70 / 99 % of the width reads [252,0,0] red, [140,1,1] dark red, [220,20,60] crimson
+          and [8,1,3] black.
+        - The strokes and the caption compute to `rgb(255, 255, 255)`; 3,258 white pixels in the drawing.
+        - At the reconnection the modal is gone and TXT-IN is unchanged: the same element, focused, selection 2..5.
+      - **AC14**, scenario *backend down for good* (the listener refuses every connection):
+        - Attempts at 0.00 / 10.02 / 30.01 s (window) and 0.01 / 10.02 / 30.02 s (div); no fourth attempt.
+        - The retries give up at 60.01 s.
+        - The captions read "Connecting to the server…", then "The server could not be reached." with [Reload], and the drawing
+          stops.
+        - LBL-OUT reads "backend unreachable" (the main form's handler ran).
+        - Reload starts the application again.
+      - Both captions are checked in English, the headless browser's language. The other five languages are covered by
+        `the_connecting_modal_speaks_the_pages_language_and_the_host_pages_texts_win` (7 locales) and by the override rule.
+    - **Not run here:** Firefox and Safari; Windows and Linux. The device's modal is WASM-012 T25b's.
+    - WASM-003 T15a-5 (the blocked state reaches the page) depended on this task. Its box is in another spec and is left for that
+      spec's run.
 - [ ] **T30 — Finalize** (all)
   - Do: bump `z` **once** in `crates/cobolt-ide/src/version.rs` (`VERSION`, line 22; `2.0.29` at the time of writing — bump whatever it is then);
     add **one** `CHANGELOG.md` entry above the previous `## [PowerRustCOBOL …]` heading, dated, marked *Written on features-2x*. No
@@ -445,6 +506,32 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
       crates.io: `egui` 0.37 is out). The IDE tests of this spec pass (`i18n`, `web_preview`, the bundled directories, the KB).
     - `cargo fmt --check`: not clean, as the tree was not before (the player's and the IDE's sources keep their long lines; the new
       files follow them). No warning from the crates this spec touched; no `allow`.
+  - **Finalize of the T29b run (2.0.114).** The box stays open: T17 waits for WASM-004 T32–T33, and T22's manual check is the
+    operator's.
+    - `VERSION` 2.0.113 → **2.0.114**, once. 2.0.114 was free: the sibling 2.x branches carry 2.0.98 to 2.0.113.
+    - One `CHANGELOG.md` entry above 2.0.113. `README.md` and `docs/` untouched.
+    - Sweep with `--no-fail-fast` (36 GiB free before it, 50 GiB after); every `test result` line read and summed:
+      - **green:**
+        - player: lib 318, `abi_host` 25, `dependency_guard` 6, `exposed` 2, `freshness` 5, `grid_calls` 1, `sinks` 3;
+        - `cobolt-forms --features render`: 1,765 passed in 93 result lines, 0 failed;
+        - `cobolt-wasm-abi --all-features`: 16;
+        - `cobolt-project-tools`: 185;
+        - `cobolt-web-preview`: 5.
+      - **`cobolt-web-bundle`: 59 passed, 1 failed.** The failure is `page_motion_p4b`, a timing test whose paint frames fell
+        off its curve under the sweep's load. Run alone afterwards it passed twice (12.97 s, 12.40 s), and it does not touch
+        the modal. `e2e_chrome` passed in the sweep, and again alone: 30 scenarios.
+      - **`cobolt-compiler`: 226 passed, 2 failed, 5 ignored.** The two failures are `resolve_main_tests::every_shipped_class_binds_inside_a_block`
+        and `the_built_binary_runs_with_no_toolchain_on_the_path`. Both build a scratch crate, and crates.io could not be
+        resolved ("Could not resolve host: index.crates.io"), so they are environmental. The KB documents' test passed.
+      - **`cobolt-ide --bin cobolt-ide`: 1,905 passed, 10 failed, 5 ignored** — the same ten as 2.0.113:
+        - five known 2.x.x reds: `claude_validates_the_written_bundle`, `every_document_ships_in_every_language`,
+          `compatible_and_reserved_collisions_still_refuse`, `live_resolver_verdicts`,
+          `every_completion_description_exists_in_six_languages`;
+        - five that need `rcrun` built in the worktree: `backend_run` ×2 and `web_preview` ×3.
+        - `prebuilt_chunked_kb_matches_the_published_documentation` passed.
+    - The credential scan of the diff found nothing.
+    - `Cargo.lock` gains only `base64 0.22.1` and `png 0.17.16` in `cobolt-web-bundle`'s dependency list. Both were already
+      locked.
 
 ## Coverage of the acceptance criteria
 
@@ -462,6 +549,8 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
 | AC10 | T4, T23, T28 |
 | AC11 | T15 |
 | AC12 | T21 |
+| AC13 | T29b (`e2e_chrome`, *backend lost*) |
+| AC14 | T29b (`e2e_chrome`, *backend down for good*) |
 
 ## Still open (not decided by this list)
 

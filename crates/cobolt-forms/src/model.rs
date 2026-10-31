@@ -4450,7 +4450,16 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
             "onSystemColorChanged",
         ],
     ),
-    ("Error Handling", &["onUnhandledException"]),
+    (
+        "Error Handling",
+        &[
+            "onUnhandledException",
+            // WASM-016 R21 — the connection to the backend gave up after its three
+            // attempts (WASM-003 R25). Raised by the web player on the form the
+            // page started with; the desktop host does not raise it yet.
+            "onBackendUnreachable",
+        ],
+    ),
 ];
 
 /// Flat iterator over every supported form event name (across all groups).
@@ -12757,13 +12766,15 @@ mod tests {
             // Spec 037 lifecycle additions (wired, not just designable).
             "onCloseRejected",
             "onFullScreenChanged",
+            // WASM-016 R21.
+            "onBackendUnreachable",
         ] {
             assert!(all.contains(&ev), "missing form event: {ev}");
         }
         assert_eq!(
             all.len(),
-            58,
-            "expected 58 form events — 68 less the ELEVEN retired on 2026-09-06, plus 056's onBreakpointChanged"
+            59,
+            "expected 59 form events — 68 less the ELEVEN retired on 2026-09-06, plus 056's onBreakpointChanged and WASM-016's onBackendUnreachable"
         );
     }
 

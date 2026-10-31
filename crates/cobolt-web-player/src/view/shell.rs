@@ -11,7 +11,10 @@
 //!   the parameters it was opened with, so Back, Forward, a reload and a pasted address all work on any
 //!   static host without server configuration (WASM-011 R4–R5, Q2);
 //! * the **breadcrumb** of the navigation chain;
-//! * the **snackbar** notifications the Snackbar control mints.
+//! * the **snackbar** notifications the Snackbar control mints;
+//! * the **"connecting" modal** that blocks the application while the connection to the backend is retried (WASM-016 R20–R21).
+
+use std::collections::BTreeMap;
 
 use cobolt_forms::menu::{MenuItem, MenuItemType};
 use cobolt_forms::snackbar::{parse_buttons, SnackButton, SnackCategory};
@@ -537,6 +540,95 @@ pub fn net_badge(text: &str) -> VNode {
     VNode::new("div").key("net").class("pr-net").attr("role", "status").text(text.to_owned())
 }
 
+/// The "connecting" modal's texts in one language (WASM-016 R20–R21).
+pub struct NetModalText {
+    /// A BCP 47 tag; its first subtag is the language.
+    pub lang: &'static str,
+    pub connecting: &'static str,
+    pub unreachable: &'static str,
+    pub reload: &'static str,
+}
+
+/// The six languages of the IDE, as [`ENDED_TEXTS`]. The host page's own texts (`texts.connecting`,
+/// `texts.unreachable`, `texts.reload`; WASM-002 R15) replace them when the developer gives them.
+pub const NET_MODAL_TEXTS: [NetModalText; 6] = [
+    NetModalText { lang: "en", connecting: "Connecting to the server\u{2026}", unreachable: "The server could not be reached.", reload: "Reload" },
+    NetModalText { lang: "pt-BR", connecting: "Conectando ao servidor\u{2026}", unreachable: "Não foi possível alcançar o servidor.", reload: "Recarregar" },
+    NetModalText { lang: "es", connecting: "Conectando con el servidor\u{2026}", unreachable: "No se pudo conectar con el servidor.", reload: "Recargar" },
+    NetModalText { lang: "fr", connecting: "Connexion au serveur\u{2026}", unreachable: "Le serveur est injoignable.", reload: "Recharger" },
+    NetModalText { lang: "ja", connecting: "サーバーに接続しています\u{2026}", unreachable: "サーバーに接続できませんでした。", reload: "再読み込み" },
+    NetModalText { lang: "zh", connecting: "正在连接服务器\u{2026}", unreachable: "无法连接到服务器。", reload: "重新加载" },
+];
+
+/// The modal's caption and its Reload button's label: the host page's text when it has one, otherwise the page's
+/// language (its first subtag) among the six, English otherwise.
+pub fn net_modal_texts(locale: &str, page: &BTreeMap<String, String>, unreachable: bool) -> (String, String) {
+    let first = locale.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
+    let t = NET_MODAL_TEXTS.iter().find(|t| t.lang.split('-').next() == Some(first.as_str())).unwrap_or(&NET_MODAL_TEXTS[0]);
+    let pick = |key: &str, fallback: &str| page.get(key).map(|s| s.trim()).filter(|s| !s.is_empty()).unwrap_or(fallback).to_owned();
+    let caption = if unreachable { pick("unreachable", t.unreachable) } else { pick("connecting", t.connecting) };
+    (caption, pick("reload", t.reload))
+}
+
+/// The modal's background (WASM-016 R20): left to right, red → dark red → crimson → black.
+pub const NET_MODAL_GRADIENT: &str = "linear-gradient(to right, #ff0000 0%, #8b0000 40%, #dc143c 70%, #000000 100%)";
+
+/// The "connecting" modal (WASM-016 R20–R21): a screen on the left trying to reach a server on the right through a cloud,
+/// all white on the gradient, and the caption. While the player retries the attempt is animated (the links flow, the cloud
+/// pulses: `dom::animate_net_modal`); once the retries are exhausted the drawing stands still, the caption says the server could not be
+/// reached, and the host page's own recovery — Reload — is offered. The colours are the element's own declarations, so no
+/// stylesheet of the application can change them.
+pub fn net_modal_view(unreachable: bool, caption: &str, reload: &str) -> VNode {
+    const WHITE: &str = "#ffffff";
+    let stroke = |n: VNode| n.attr("fill", "none").attr("stroke", WHITE).attr("stroke-width", "3").attr("stroke-linecap", "round").attr("stroke-linejoin", "round");
+    let link = |key: &str, x1: &str, x2: &str| {
+        stroke(VNode::svg("line").key(key).class("pr-netmodal-link").attr("x1", x1).attr("y1", "46").attr("x2", x2).attr("y2", "46")).attr("stroke-dasharray", "6 6")
+    };
+    let led = |key: &str, cy: &str| VNode::svg("circle").key(key).attr("cx", "254").attr("cy", cy).attr("r", "3").attr("fill", WHITE);
+    let drawing = VNode::svg("svg")
+        .key("drawing")
+        .class("pr-netmodal-drawing")
+        .attr("viewBox", "0 0 320 110")
+        .attr("aria-hidden", "true")
+        .child(
+            VNode::svg("g")
+                .key("screen")
+                .class("pr-netmodal-screen")
+                .child(stroke(VNode::svg("rect").key("frame").attr("x", "10").attr("y", "18").attr("width", "72").attr("height", "50").attr("rx", "4")))
+                .child(stroke(VNode::svg("path").key("stand").attr("d", "M40 68 v12 M52 68 v12 M30 82 h32"))),
+        )
+        .child(link("link-left", "88", "124"))
+        .child(stroke(VNode::svg("path").key("cloud").class("pr-netmodal-cloud").attr("d", "M138 64 a14 14 0 0 1 2 -28 a20 20 0 0 1 38 -6 a16 16 0 0 1 14 34 z")))
+        .child(link("link-right", "198", "232"))
+        .child(
+            VNode::svg("g")
+                .key("server")
+                .class("pr-netmodal-server")
+                .child(stroke(VNode::svg("rect").key("u1").attr("x", "240").attr("y", "14").attr("width", "70").attr("height", "22").attr("rx", "3")))
+                .child(stroke(VNode::svg("rect").key("u2").attr("x", "240").attr("y", "40").attr("width", "70").attr("height", "22").attr("rx", "3")))
+                .child(stroke(VNode::svg("rect").key("u3").attr("x", "240").attr("y", "66").attr("width", "70").attr("height", "22").attr("rx", "3")))
+                .child(led("l1", "25"))
+                .child(led("l2", "51"))
+                .child(led("l3", "77")),
+        );
+    let mut n = VNode::new("dialog")
+        .key("netmodal")
+        .class("pr-netmodal")
+        .attr("role", "alertdialog")
+        .attr("aria-modal", "true")
+        .attr("tabindex", "-1")
+        .attr("data-state", if unreachable { "unreachable" } else { "connecting" })
+        .style("background", NET_MODAL_GRADIENT)
+        .style("color", WHITE)
+        .on_all(["cancel", "close", "click", "keydown", "keyup", "keypress", "pointerdown", "pointerup"])
+        .child(drawing)
+        .child(VNode::new("p").key("caption").class("pr-netmodal-caption").attr("role", "status").attr("aria-live", "assertive").text(caption.to_owned()));
+    if unreachable {
+        n = n.class("pr-netmodal-failed").child(VNode::new("button").key("reload").attr("type", "button").attr("data-part", "reload").flag("autofocus", true).text(reload.to_owned()));
+    }
+    n
+}
+
 /// Format a number for the shell (used for the badge counters).
 pub fn count_text(n: usize) -> String {
     if n > 99 {
@@ -564,6 +656,75 @@ mod tests {
         }
         let titles: std::collections::BTreeSet<&str> = ENDED_TEXTS.iter().map(|t| t.title).collect();
         assert_eq!(titles.len(), 6, "six different texts");
+    }
+
+    /// WASM-016 R20–R21: the modal's two captions and its Reload are in the page's language — one of the six, English
+    /// otherwise — and the host page's own text wins over them when the developer gave one.
+    #[test]
+    fn the_connecting_modal_speaks_the_pages_language_and_the_host_pages_texts_win() {
+        let none = BTreeMap::new();
+        let mut seen = Vec::new();
+        for (locale, lang) in [("en-US", "en"), ("pt-BR", "pt-BR"), ("es-419", "es"), ("fr-CA", "fr"), ("ja-JP", "ja"), ("zh_CN", "zh"), ("de", "en")] {
+            let t = NET_MODAL_TEXTS.iter().find(|t| t.lang == lang).unwrap();
+            assert_eq!(net_modal_texts(locale, &none, false), (t.connecting.to_owned(), t.reload.to_owned()), "{locale}");
+            assert_eq!(net_modal_texts(locale, &none, true), (t.unreachable.to_owned(), t.reload.to_owned()), "{locale}");
+            seen.push(format!("{locale}: {:?} / {:?}", t.connecting, t.unreachable));
+        }
+        for field in [|t: &NetModalText| t.connecting, |t: &NetModalText| t.unreachable, |t: &NetModalText| t.reload] {
+            let distinct: std::collections::BTreeSet<&str> = NET_MODAL_TEXTS.iter().map(field).collect();
+            assert!(distinct.len() >= 5, "a text is not translated: {distinct:?}");
+            assert!(distinct.iter().all(|s| !s.trim().is_empty()));
+        }
+        let page: BTreeMap<String, String> = [("connecting", "Ligando…"), ("unreachable", "Sem servidor."), ("reload", "  ")].into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
+        assert_eq!(net_modal_texts("en", &page, false), ("Ligando…".to_owned(), "Reload".to_owned()), "a blank text of the page keeps the default");
+        assert_eq!(net_modal_texts("en", &page, true).0, "Sem servidor.");
+        println!("{} languages: {}", NET_MODAL_TEXTS.len(), seen.join("; "));
+    }
+
+    /// WASM-016 R20–R21: the modal is a dialog drawn white on the red → dark red → crimson → black gradient (its own
+    /// declarations): a screen, a cloud and a server, the two links animated while the player retries; once the retries are
+    /// exhausted it says so and offers Reload, and nothing in it is a markup string.
+    #[test]
+    fn the_connecting_modal_draws_the_screen_the_cloud_and_the_server_white_on_the_gradient() {
+        let v = net_modal_view(false, "Connecting to the server\u{2026}", "Reload");
+        assert_eq!(v.tag, "dialog");
+        assert_eq!(v.attr_of("aria-modal"), Some("true"));
+        assert_eq!(v.attr_of("data-state"), Some("connecting"));
+        let style = |k: &str| v.styles.iter().find(|(a, _)| a == k).map(|(_, b)| b.as_str());
+        assert_eq!(style("background"), Some(NET_MODAL_GRADIENT));
+        assert_eq!(style("color"), Some("#ffffff"));
+        let stops: Vec<&str> = ["#ff0000", "#8b0000", "#dc143c", "#000000"].into_iter().filter(|c| NET_MODAL_GRADIENT.contains(c)).collect();
+        assert_eq!(stops.len(), 4, "red, dark red, crimson, black");
+        assert!(NET_MODAL_GRADIENT.find("#ff0000") < NET_MODAL_GRADIENT.find("#8b0000") && NET_MODAL_GRADIENT.find("#dc143c") < NET_MODAL_GRADIENT.find("#000000"));
+        for part in ["pr-netmodal-screen", "pr-netmodal-cloud", "pr-netmodal-server"] {
+            assert!(v.find(&|n| n.svg && n.classes.iter().any(|c| c == part)).is_some(), "{part} is drawn");
+        }
+        fn count(n: &VNode, class: &str) -> usize {
+            usize::from(n.classes.iter().any(|c| c == class)) + n.children.iter().map(|c| count(c, class)).sum::<usize>()
+        }
+        assert_eq!(count(&v, "pr-netmodal-link"), 2, "a link from the screen to the cloud and one from the cloud to the server");
+        // Every stroke and fill of the drawing is white (or none).
+        fn paints(n: &VNode, out: &mut Vec<String>) {
+            for (k, val) in &n.attrs {
+                if k == "fill" || k == "stroke" {
+                    out.push(val.clone());
+                }
+            }
+            n.children.iter().for_each(|c| paints(c, out));
+        }
+        let mut colours = Vec::new();
+        paints(&v, &mut colours);
+        assert!(!colours.is_empty() && colours.iter().all(|c| c == "#ffffff" || c == "none"), "{colours:?}");
+        assert!(v.find(&|n| n.attr_of("data-part") == Some("reload")).is_none(), "no Reload while it retries");
+        assert!(v.on.contains(&"keydown") && v.on.contains(&"pointerdown") && v.on.contains(&"cancel"), "keys, pointers and Escape are taken by the modal");
+
+        let f = net_modal_view(true, "The server could not be reached.", "Reload");
+        assert_eq!(f.attr_of("data-state"), Some("unreachable"));
+        assert!(f.classes.iter().any(|c| c == "pr-netmodal-failed"), "the drawing stands still");
+        let reload = f.find(&|n| n.attr_of("data-part") == Some("reload")).expect("Reload once the retries are exhausted");
+        assert_eq!(reload.text.as_deref(), Some("Reload"));
+        assert_eq!(f.find(&|n| n.key == "caption").and_then(|n| n.text.as_deref()), Some("The server could not be reached."));
+        println!("{} colour attributes, all white; links 2; Reload only when unreachable", colours.len());
     }
     use crate::tree::testing::tree_with;
     use cobolt_forms::menu::{MenuDefinition, MenuItem};

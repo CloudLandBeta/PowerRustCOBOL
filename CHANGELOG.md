@@ -24,6 +24,34 @@
 
 
 
+## 2.0.114 — 2026-10-31 — WASM-016 T29b: the "connecting" modal blocks a web application while the backend is retried, and `onBackendUnreachable` when it gives up
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.113.)*
+
+WASM-016 R20–R21 (the operator's ruling D21 of 2026-10-24), on top of 2.0.112's retry policy. The details are in `specs/WASM-016-prebuilt-player/tasks.md`, T29b.
+
+* **The modal** (`cobolt-web-player`: `view/shell.rs`, `dom/mod.rs`).
+  * When the connection breaks, the player puts up a modal `<dialog>` over the whole application, in the same turn as the break. The rest of the page is inert and the modal holds the focus.
+  * Every key and pointer event is dropped. Escape does not close it.
+  * The drawing is a screen reaching for a server through a cloud, white on a left-to-right gradient: red → dark red → crimson → black. The colours are the dialog's own declarations, so an application stylesheet cannot change them.
+  * The links flow and the cloud pulses while the player retries.
+  * When a connection works, the modal goes. The text box behind it gets back its focus, caret and selection.
+* **The exception.**
+  * When the three attempts fail, the caption becomes "The server could not be reached.", the drawing stops, and a **Reload** button appears.
+  * The form the page started with receives the new form event **`onBackendUnreachable`**, in the *Error Handling* group of the form catalogue (58 → 59 events). The calls that were waiting have already reached `ON EXCEPTION` (2.0.112).
+  * The desktop form host does not raise the event yet. The name and the target form are a working assumption, recorded in T29b.
+* **Captions.** Both captions and the button speak the page's language: English, Portuguese (Brazil), Spanish, French, Japanese or Chinese. The host page's `texts.connecting`, `texts.unreachable` and `texts.reload` replace them; the loader now passes `config.texts` to the player.
+* **System KB.** The form events list and *A lost connection* describe the modal and the event. `chunked.data` was regenerated: 3,668 records.
+* **Prebuilt player rebuilt.** `plain/player_bg.wasm` 3 594 305 → 3 613 416 bytes, `threaded` 3 423 535 → 3 439 538; the parts are unchanged.
+* **Tests.**
+  * New native tests: two view tests (the six languages and the override; the drawing, the colours and the Reload) and `host::unreachable_tests` (2).
+  * The fixture's main form binds `onBackendUnreachable`.
+  * `e2e_chrome` has a new *backend down for good* scenario and an extended *backend lost* scenario. They need two dev-dependencies of the bundle, `png` and `base64`, both already in the lock file. Chrome: **30 passed, 0 failed**.
+  * Measured in Chrome:
+    * AC13: no frame drawn blocked without the modal; the modal covers the application exactly; input left TXT-IN unchanged; the gradient sampled red, dark red, crimson and black.
+    * AC14: attempts at 0.00 / 10.02 / 30.01 s, given up at 60.01 s; the handler ran; Reload restarted the application.
+* **Not done.** T17 waits for WASM-004 T32–T33. T22's manual Chrome check is the operator's. Firefox, Safari, Windows and Linux were not run. The device's modal is WASM-012 T25b's.
+
 ## 2.0.113 — 2026-10-31 — WASM-007 T8–T14: the web cascade stated once, inline CSS, the stylesheet check, and three web themes
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.112.)*
