@@ -6504,6 +6504,58 @@ shows only its own address: a page that tries to open another is stopped and the
 developer is offered to open it in the browser. Run opens the same server in the
 system browser. The IDE does not start a project's Backend yet.
 
+**Stylesheets (Web and Mobile).** Two kinds of CSS file style a page; a desktop
+project has neither. The **project stylesheet** is `[web] stylesheet` (default
+`webforms/application.css`; `[mobile] stylesheet`, default
+`mobileforms/application.css`); each **form stylesheet** is `<Form>.css` beside
+the form in the same folder. A new Web or Mobile project starts with both, a new
+form gets its own, a moved form takes its sheet with it, and deleting a form
+deletes an untouched sheet and asks first about an edited one. A form's sheet is
+generated from its theme: a banner, the theme's rules for the control types the
+form uses inside `@layer pr-theme { … }` between two marker comments carrying a
+hash, then an empty section that is the developer's. Switching the theme replaces
+the block only while it is untouched; otherwise the IDE asks (keep the sheet,
+replace the block, or cancel the switch). The developer's section is never
+rewritten, and files are read and written as bytes. `[web] theme_file` names a
+whole-theme file that replaces the built-in theme. Edit a form's sheet from the
+form's **Stylesheet…** button (a code window with line numbers, colouring and the
+findings by line; Apply writes the file, Revert to theme default and Undo last
+apply are offered).
+
+The cascade, lowest to highest: (1) the player's structure, `@layer pr-base`;
+(2) the theme, `@layer pr-theme` — the theme's sheet, then a form sheet's
+generated block; (3) the control properties, `@layer pr-props`; (4) the project
+stylesheet, `@layer pr-app`; (5) the form stylesheet outside its block,
+unlayered and scoped to that form, with the rules that select a `CssClass` name
+ordered among them by specificity and order; (6) a control's `CssStyle`. Any
+unlayered rule beats every layered one, so a sheet's plain rule beats a
+property. `CssStyle` is not a real inline `style` attribute (the page's policy
+allows none): it is one rule per control, after every sheet, which a sheet rule
+beats only with greater specificity or `!important`. A form sheet stays inside
+its form (`@scope`, else CSS nesting); one that can be kept inside neither is
+refused, never applied to the whole page. **The layer guard:** the form root
+(`.pr-form-root`) and each layer element (`.pr-form-layer`) have their
+`position`, `inset`, `z-index`, `isolation`, `overflow`, `pointer-events`,
+`display` and `visibility` set `!important` in `pr-base` (the form, `.pr-form`,
+its `position`, `inset` and `z-index`), so no sheet can restack, hide or disable a
+layer; a rule on one of them, or on a layer by its name, that sets `position`,
+`z-index`, `display`, `visibility`, `pointer-events` or `interactivity` is an
+error at Check and Build, with its line.
+
+Check and Build check every sheet: unbalanced braces, an unterminated string or
+comment, `@import`, `expression(`, `javascript:`, `behavior:`, a `url()` that is
+neither the bundle's nor `data:`, and a layer-guard rule are errors that stop the Build
+(`file:line: message`); an unknown property, a value that does not parse and a
+vendor prefix outside the project's browsers are warnings. The bundle copies the
+sheets byte for byte and its Content-Security-Policy allows exactly the origins
+they load from. The Properties panel marks a property a sheet overrides
+("overridden by CSS", with file and line, or "may be overridden" for a rule under
+`@media`, `@container`, `@supports` or with a pseudo-class); the designer does not
+paint the CSS. With the Preview open, **Apply** puts the form's sheet straight
+into the served bundle and the page takes it in place — no Build, no restart of
+the application; a sheet with an error is not put in place, and the Build that
+follows reports it.
+
 ## Where things that are NOT project files live
 
 - **The System Knowledge Base** — platform documentation, regenerated from the
@@ -6891,7 +6943,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Italic" => (BOOL_DOMAIN, "Italic text."),
         "Underline" => (BOOL_DOMAIN, "Underlined text."),
         "Strikethrough" => (BOOL_DOMAIN, "Struck-through text."),
-        "Tooltip" => ("free text", "Text shown in a small pop-up while the pointer rests on the control in the running form, after its HoverDelayMs (empty = no tooltip). Every visual control shows it."),
+        // ── Web and Mobile only (WASM-007 R2) ──
+        "CssClass" => ("space-separated CSS class names, or empty", "Web and Mobile forms only. Classes added to the control's element after `pr-control` and its type class (`pr-button`, `pr-label`, …), so the project's and the form's stylesheets can select it (`.card { … }`); a name that is not a valid class name is dropped. The designer does not paint the CSS: a control a sheet styles carries a small `#` badge on the canvas."),
+        "CssStyle" => ("a CSS declaration list, or empty", "Web and Mobile forms only (shown as \"Style (CSS)\"). Declarations for this control alone — `border-radius: 12px; letter-spacing: 1px` — applied after every stylesheet, as one rule `[data-pr-inst=\"n\"] #<control>` in no layer: it beats the properties, and a sheet rule of the same or lower specificity, but, unlike a real inline `style` attribute (which the page never uses), a more specific sheet rule or a sheet's `!important` rule still beats it. A declaration that does not parse, opens a rule, or loads from outside the bundle is dropped and reported (in the Properties panel under the field, and in the browser console). Nothing is written to the form while it is empty."),
+        "Tooltip" => ("free text","Text shown in a small pop-up while the pointer rests on the control in the running form, after its HoverDelayMs (empty = no tooltip). Every visual control shows it."),
         "Cursor" => (
             "one of: `Default` | `Hand` | `Text` | `Wait` | `Crosshair` | `No` | `SizeAll` | `SizeNS` | `SizeWE`",
             "Mouse cursor shown while hovering the control.",
@@ -9054,6 +9109,13 @@ fn controls_reference_doc() -> String {
                 let (domain, desc) = property_reference(name).unwrap_or(("", ""));
                 push_prop_line(&mut doc, name, ty, &default, domain, desc);
             }
+        }
+        // WASM-007 R2: not seeded (a desktop form never carries them); the Properties panel shows them on a
+        // Web or Mobile project only and writes them only when not empty.
+        doc.push_str("\nOn a Web or Mobile form only — not seeded, shown in the Properties panel's CSS group there, written to the form only when not empty:\n\n");
+        for name in ["CssClass", "CssStyle"] {
+            let (domain, desc) = property_reference(name).unwrap_or(("", ""));
+            push_prop_line(&mut doc, name, "String", "(empty)", domain, desc);
         }
     }
     doc.push_str("\n## Universal events (visual controls)\n\n");
@@ -13479,6 +13541,30 @@ generated = ["generated/inner-form1.cbl"]
         let p = proj("src/main.cbl", vec!["a.cbl"], vec!["b.cbl"]);
         assert_eq!(resolve_main(&p, &dir), None);
         fs::remove_dir_all(&dir).ok();
+    }
+
+    /// WASM-007 T25: `CssClass` and `CssStyle` are documented (on every control, Web and Mobile only), and the
+    /// project document states the two stylesheets, the cascade with level 6's difference from a real inline
+    /// style, and the layer guard.
+    #[test]
+    fn property_reference_documents_the_css_properties_and_the_stylesheets() {
+        for control in ["Button", "Label", "DataGrid"] {
+            for name in ["CssClass", "CssStyle"] {
+                let (domain, desc) = property_reference_for(control, name).unwrap_or_else(|| panic!("{control}::{name}"));
+                assert!(!domain.is_empty() && desc.contains("Web and Mobile forms only"), "{control}::{name}: {desc}");
+            }
+        }
+        let dir = temp_dir("pubdocs-css");
+        publish_system_documentation(&dir).unwrap();
+        let kb = dir.join("Knowledge Base");
+        let controls = fs::read_to_string(kb.join("form_designer_controls.md")).unwrap();
+        assert!(controls.contains("- `CssClass` (String, default (empty);") && controls.contains("- `CssStyle` (String, default (empty);"));
+        let project = fs::read_to_string(kb.join("project_model_and_settings.md")).unwrap();
+        for needle in ["**Stylesheets (Web and Mobile).**", "`webforms/application.css`", "`@layer pr-app`", "not a real inline `style` attribute", "**The layer guard:**", "no Build, no restart"] {
+            assert!(project.contains(needle), "project_model_and_settings.md lacks {needle}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+        println!("KB: CssClass and CssStyle documented on Button, Label, DataGrid; the stylesheet section in project_model_and_settings.md");
     }
 
     #[test]

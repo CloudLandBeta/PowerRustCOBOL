@@ -15126,10 +15126,15 @@ impl CoboltApp {
             return;
         };
         let action = modal.show(ctx, tr);
+        let (form, layers) = (modal.form.clone(), modal.layers.clone());
         if let Some((sheet, text)) = action.write {
             // As bytes: the developer's line endings and spacing are kept (R4).
-            if let Err(e) = std::fs::write(&sheet, text.as_bytes()) {
-                self.output.push_status(crate::ui_text::idef("Could not update stylesheet {}: {}", &[&sheet.display(), &e]));
+            match std::fs::write(&sheet, text.as_bytes()) {
+                // R11 (T23): straight into the open Preview, without a Build.
+                Ok(()) => {
+                    self.web_preview.apply_form_stylesheet(&form, &text, &layers);
+                }
+                Err(e) => self.output.push_status(crate::ui_text::idef("Could not update stylesheet {}: {}", &[&sheet.display(), &e])),
             }
             // The marks and badges read the new text now, not at the next once-a-second look.
             for (_, d) in &mut self.designers {

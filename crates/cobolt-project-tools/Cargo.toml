@@ -62,3 +62,10 @@ semver     = "1"
 [dev-dependencies]
 # The web build's tests read each program module's import section (WASM-002 AC4b).
 cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["scan"] }
+# The Preview's style update timed in a real Chrome (WASM-007 T23, AC8), driven by
+# `cobolt-web-bundle`'s DevTools client (`tests/support/cdp.rs`, reached by path)
+# and its dependencies, the same versions, all already in the lock file.
+tempfile    = "3"
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+png         = "0.17"
+base64      = "0.22"

@@ -362,6 +362,31 @@ pub fn stylesheet_origins(o: &BundleOptions) -> Vec<String> {
     v
 }
 
+/// The Preview's CSS-only fast path (WASM-007 R11, T23): a bundle's `config.json` with form `form`'s stylesheet
+/// replaced by `css`, and the sheet file it now names — what the Build would write for that sheet, without a
+/// Build. Only that form's `css` entry changes, so the page's `update()` takes it with `set_form_stylesheet`
+/// alone; the form's description keeps naming the sheet it was built with (the player does not read that
+/// name). The sheet is checked as the Build checks it (the same origins, the form's `layers`); a sheet with an
+/// error is refused, `file:line: message`, and the Build that follows reports it. Like [`assemble_bundle`]
+/// this reads and writes no file.
+pub fn with_form_stylesheet(config_json: &[u8], form: &str, css: &str, layers: &[String]) -> Result<(BundleFile, Vec<u8>), Vec<String>> {
+    let mut config: Value = serde_json::from_slice(config_json).map_err(|e| vec![format!("config.json: {e}")])?;
+    let Some(entry) = config["forms"].as_array_mut().and_then(|fs| fs.iter_mut().find(|f| f["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(form)))) else {
+        return Err(vec![format!("config.json: the bundle has no form `{form}`")]);
+    };
+    // The name the Build wrote, whatever the caller's spelling.
+    let label = format!("forms/{}.css", entry["name"].as_str().unwrap_or(form));
+    let problems = stylesheet_errors(&label, css, &stylesheet_origins(&BundleOptions::default()), cobolt_forms::stylesheet_lint::Browsers::default(), layers);
+    if !problems.is_empty() {
+        return Err(problems);
+    }
+    let bytes = css.as_bytes().to_vec();
+    let path = hash::hashed_name(&label, &bytes);
+    entry["css"] = json!({"url": path, "integrity": hash::sri(&bytes)});
+    let text = serde_json::to_string_pretty(&config).expect("config serialises");
+    Ok((BundleFile { path, bytes }, text.into_bytes()))
+}
+
 #[derive(Debug, Clone)]
 pub struct BundleOutput {
     pub files: Vec<BundleFile>,

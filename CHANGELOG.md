@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.132 — 2026-10-31 — WASM-007 T15–T30: CSS3 styling and the form stylesheet
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.115.)*
+
+WASM-007 (CSS3 styling and the form stylesheet), from T15 to T30. The details and the evidence are in `specs/WASM-007-css3-styling-and-form-stylesheet/tasks.md`.
+
+* **The layer guard** (T15; `cobolt-web-player` `base_css.rs`). The form root and each layer element have their position, stacking, overflow, pointer and visibility declarations set `!important` in `pr-base`, so no stylesheet can restack, hide or disable a layer. Check reports a rule that tries, with its line.
+* **The stylesheet files** (T16–T19).
+  * `[web]`/`[mobile] stylesheet` defaults to `<forms folder>/application.css` and is written to the manifest only when changed. `theme_file` is optional.
+  * A new Web or Mobile project starts with its sheets, and a new form gets its own `<Form>.css`. A moved form takes its sheet with it. Deleting a form deletes an untouched sheet and asks first about an edited one.
+  * A theme switch replaces the sheet's generated block only while it is untouched; otherwise the IDE asks. The developer's section is never rewritten.
+  * Check and Build check every sheet and stop on an error, naming file and line. The bundle copies the sheets byte for byte, and its policy allows exactly the image and font origins they load from.
+* **The IDE** (T20–T22).
+  * Properties: a CSS group with `CssClass` and "Style (CSS)" on Web and Mobile forms, plus a "CSS" mark on every property a sheet overrides, with its file and line.
+  * The **Stylesheet…** window: line numbers, colouring, findings by line, Apply, Revert to theme default and Undo last apply.
+  * A `#` badge on the canvas marks a control a sheet styles.
+* **The Preview takes a stylesheet in place** (T23; the operator's option (a)). Apply writes the form's sheet straight into the bundle the open Preview serves (`ServerHandle::apply_form_stylesheet`, `cobolt_web_bundle::with_form_stylesheet`) and counts the change, with no Build: the page calls `set_form_stylesheet` and the application does not restart. A sheet with an error is not put in place, and the Build that follows reports it. Measured in Chrome: 89–337 ms from Apply to the new computed style over 5 rounds, under the 500 ms budget.
+* **Fixed: the sheets a page loads at start were never applied** (found by T23's browser run). The loader sets a form's sheet, the project sheet and a theme file before the page is mounted, and the player dropped them because it had no surface yet; `Player::mount` now applies them. Until now only a sheet changed later by the Preview took effect.
+* **i18n and the System KB** (T24, T25). Every stylesheet string is in six languages, and a new test checks them. The KB documents `CssClass`, `CssStyle`, the two stylesheets, the cascade and the layer guard; `assets/knowledge/chunked.data` was regenerated.
+* **Measured in Chrome** (T26–T28).
+  * AC5: `background-color` set at each of the six cascade levels steps down level by level as each is removed, with selectors chosen so that only the cascade can explain the winner.
+  * AC6: a host page's `button` rule and a form sheet's do not cross the shadow boundary, and `--pr-accent` on the mount element reaches the controls.
+  * AC10: a sheet that tries to move the layers changes nothing.
+  * AC2: all 44 `Exact` properties give their computed style, 0 mismatches.
+  * AC3: a new form's generated sheet differs from the properties alone in 0 % of the pixels for each of the three themes.
+* **Desktop unchanged** (T29). A desktop form of every control type, and each of the 27 example desktop forms, saves byte-identical with no CSS property.
+* The prebuilt `assets/web-player/` was rebuilt.
+
 ## 2.0.131 — 2026-10-31 — WASM-004 T13b–T22: the border look drawn in CSS, form layers on the web, hit testing, keyboard order and touch targets
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.114.)*

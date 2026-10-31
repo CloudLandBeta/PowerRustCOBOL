@@ -98,16 +98,16 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A test enumerates every appearance property and checks that the table has an entry for it with a marking; an unmapped property fails the test.
-- [ ] **AC2** — For a reference form, setting each exact-marked property to a distinct value produces the expected computed style in a headless browser.
-- [ ] **AC3** — A new form's stylesheet reproduces its theme's look: the form rendered with the stylesheet and with the properties alone are pixel-compared within a stated tolerance.
-- [ ] **AC4** — The modal opens from the button, shows diagnostics for a deliberately bad stylesheet, applies, cancels and reverts (with the confirmation); text saved and reloaded is byte-identical.
-- [ ] **AC5** — The cascade of R8 holds for a fixture that sets the same property at each level (the visible value is the highest level's).
-- [ ] **AC6** — A host-page rule does not change the embedded application, and the application's stylesheet does not change the host page; a host-set custom property changes the application's accent.
-- [ ] **AC7** — A stylesheet with a remote `url()` is refused unless that origin is allowed; the printed policy lists the sources actually used.
-- [ ] **AC8** — A style change appears in the open Preview within the budget the plan sets (measured and reported).
-- [ ] **AC9** — The modal keeps the same rectangle over 120 frames in each of the six languages and after dragging the grip it keeps the dragged size (the self-resizing guard).
-- [ ] **AC10** — A stylesheet rule that sets `z-index` or `pointer-events` on a layer root is reported by Check with its line (R16).
+- [x] **AC1** — A test enumerates every appearance property and checks that the table has an entry for it with a marking; an unmapped property fails the test.
+- [x] **AC2** — For a reference form, setting each exact-marked property to a distinct value produces the expected computed style in a headless browser.
+- [x] **AC3** — A new form's stylesheet reproduces its theme's look: the form rendered with the stylesheet and with the properties alone are pixel-compared within a stated tolerance.
+- [x] **AC4** — The modal opens from the button, shows diagnostics for a deliberately bad stylesheet, applies, cancels and reverts (with the confirmation); text saved and reloaded is byte-identical.
+- [x] **AC5** — The cascade of R8 holds for a fixture that sets the same property at each level (the visible value is the highest level's).
+- [x] **AC6** — A host-page rule does not change the embedded application, and the application's stylesheet does not change the host page; a host-set custom property changes the application's accent.
+- [x] **AC7** — A stylesheet with a remote `url()` is refused unless that origin is allowed; the printed policy lists the sources actually used.
+- [x] **AC8** — A style change appears in the open Preview within the budget the plan sets (measured and reported).
+- [x] **AC9** — The modal keeps the same rectangle over 120 frames in each of the six languages and after dragging the grip it keeps the dragged size (the self-resizing guard).
+- [x] **AC10** — A stylesheet rule that sets `z-index` or `pointer-events` on a layer root is reported by Check with its line (R16).
 
 ## 6. Constraints & steering check
 

@@ -15967,6 +15967,62 @@ mod i18n_tests {
         }
     }
 
+    /// WASM-007 T24: every string of the stylesheet work — the button, the window, its confirmations, the
+    /// delete and theme-switch questions, the CSS rows, the override marks and every lint code — in the six
+    /// languages, none empty, each with the English text's placeholders.
+    #[test]
+    fn the_stylesheet_strings_are_in_every_language() {
+        let keys = |t: &Tr| {
+            let mut v = vec![
+                ("btn_stylesheet", t.btn_stylesheet),
+                ("stylesheet_title", t.stylesheet_title),
+                ("btn_css_apply", t.btn_css_apply),
+                ("btn_css_revert", t.btn_css_revert),
+                ("btn_css_undo_apply", t.btn_css_undo_apply),
+                ("css_revert_confirm", t.css_revert_confirm),
+                ("btn_css_revert_ok", t.btn_css_revert_ok),
+                ("css_discard_confirm", t.css_discard_confirm),
+                ("btn_css_discard", t.btn_css_discard),
+                ("btn_css_keep_editing", t.btn_css_keep_editing),
+                ("css_no_findings", t.css_no_findings),
+                ("css_findings_hint", t.css_findings_hint),
+                ("dlg_delete_form_sheet_title", t.dlg_delete_form_sheet_title),
+                ("dlg_delete_form_sheet_body", t.dlg_delete_form_sheet_body),
+                ("theme_sheet_title", t.theme_sheet_title),
+                ("theme_sheet_body", t.theme_sheet_body),
+                ("theme_sheet_keep", t.theme_sheet_keep),
+                ("theme_sheet_replace", t.theme_sheet_replace),
+                ("sec_css", t.sec_css),
+                ("lbl_css_class", t.lbl_css_class),
+                ("lbl_css_style", t.lbl_css_style),
+                ("css_overridden_by", t.css_overridden_by),
+                ("css_may_be_overridden", t.css_may_be_overridden),
+                ("css_overridden_by_style", t.css_overridden_by_style),
+                ("css_lint_line", t.css_lint_line),
+            ];
+            for c in cobolt_forms::stylesheet_lint::Code::ALL {
+                v.push(("lint code", crate::panels::stylesheet_modal::code_text(t, c)));
+            }
+            v
+        };
+        let en = keys(&Language::English.tr());
+        let mut translated = 0;
+        for &lang in Language::ALL {
+            let t = lang.tr();
+            for ((name, s), (_, e)) in keys(&t).into_iter().zip(&en) {
+                assert!(!s.trim().is_empty(), "{lang:?}: {name} is empty");
+                assert_eq!(s.matches("{}").count(), e.matches("{}").count(), "{lang:?}: {name} has other placeholders than English: {s}");
+                if lang != Language::English && s != *e {
+                    translated += 1;
+                } else if lang != Language::English {
+                    // Only where the word is the same: `CSS` everywhere, and French "Style (CSS)".
+                    assert!(name == "sec_css" || (lang == Language::French && name == "lbl_css_style"), "{lang:?}: {name} is the English text: {s}");
+                }
+            }
+        }
+        println!("stylesheet strings: {} strings × 6 languages ({} lint codes), {translated} translations differ from English", en.len(), cobolt_forms::stylesheet_lint::Code::ALL.len());
+    }
+
     /// WASM-002 T21: Check's portable-subset heading, the size-budget warning
     /// and the missing player, in all six languages, with the placeholders of
     /// the English text (none) kept.

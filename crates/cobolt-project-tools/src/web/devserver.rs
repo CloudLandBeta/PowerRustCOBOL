@@ -137,6 +137,30 @@ impl ServerHandle {
         }
     }
 
+    /// The CSS-only fast path (WASM-007 R11, T23; an amendment to WASM-008's
+    /// protocol): write form `form`'s new stylesheet into the served bundle —
+    /// the sheet file, then its `config.json` entry, replaced whole so the page
+    /// never reads half of it — and count the change now, without a Build. The
+    /// page's next poll hands the new configuration to `app.update`, which calls
+    /// `set_form_stylesheet` only. A sheet the Build would refuse is not written:
+    /// `Err` with its `file:line: message` lines, and the Build reports it.
+    pub fn apply_form_stylesheet(&self, form: &str, css: &str, layers: &[String]) -> Result<(), Vec<String>> {
+        let root = &self.state.root;
+        let config = std::fs::read(root.join("config.json")).map_err(|e| vec![format!("config.json: {e}")])?;
+        let (sheet, next) = cobolt_web_bundle::with_form_stylesheet(&config, form, css, layers)?;
+        let io = |e: std::io::Error| vec![format!("{}: {e}", root.display())];
+        let path = root.join(&sheet.path);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(io)?;
+        }
+        std::fs::write(&path, &sheet.bytes).map_err(io)?;
+        let tmp = root.join(".config.json.tmp");
+        std::fs::write(&tmp, &next).map_err(io)?;
+        std::fs::rename(&tmp, root.join("config.json")).map_err(io)?;
+        self.notify_changed();
+        Ok(())
+    }
+
     /// When the last change was seen.
     pub fn last_change(&self) -> Option<Instant> {
         self.state.last_change.lock().ok().and_then(|t| *t)
@@ -858,6 +882,38 @@ mod tests {
         let v = server.version();
         server.notify_changed();
         assert_eq!(server.version(), v + 1);
+        drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+    }
+
+    /// WASM-007 T23: a form's stylesheet is written into the served bundle and
+    /// counted at once — no Build, no watcher wait; the page is served the new
+    /// configuration naming the new sheet. A sheet with an error writes nothing.
+    #[test]
+    fn a_form_stylesheet_is_applied_in_place_and_counted_at_once() {
+        let (outer, root) = bundle("fastcss");
+        let config = r#"{"forms":[{"name":"main-form","url":"forms/main-form.1.json","integrity":"x","css":{"url":"forms/main-form.0.css","integrity":"y"}}],"player":{}}"#;
+        std::fs::write(root.join("config.json"), config).unwrap();
+        let server = start(&root, &ServeOptions::default()).unwrap();
+        let v = server.version();
+        let css = "#LBL-OUT { word-spacing: 7px }\r\n";
+        server.apply_form_stylesheet("MAIN-FORM", css, &[]).unwrap();
+        assert_eq!(server.version(), v + 1, "counted at once");
+        let served: serde_json::Value = serde_json::from_slice(&get(server.port(), "/config.json").body).unwrap();
+        let entry = &served["forms"][0];
+        assert_eq!(entry["url"], "forms/main-form.1.json", "the description is not touched (no restart)");
+        let sheet = entry["css"]["url"].as_str().unwrap();
+        assert_ne!(sheet, "forms/main-form.0.css");
+        assert_eq!(get(server.port(), &format!("/{sheet}")).body, css.as_bytes(), "the sheet byte for byte");
+        assert!(!root.join(".config.json.tmp").exists());
+
+        let before = std::fs::read(root.join("config.json")).unwrap();
+        let v = server.version();
+        let e = server.apply_form_stylesheet("main-form", ".a { background: url(https://evil.example/x) }", &[]).unwrap_err();
+        assert!(e[0].starts_with("forms/main-form.css:1:"), "{e:?}");
+        assert_eq!(std::fs::read(root.join("config.json")).unwrap(), before, "nothing written");
+        assert_eq!(server.version(), v);
+        println!("devserver fast path: {sheet} served, count moved at once; refused {e:?}");
         drop(server);
         let _ = std::fs::remove_dir_all(outer);
     }

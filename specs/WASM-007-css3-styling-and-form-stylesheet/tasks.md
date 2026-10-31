@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — CSS3 styling and the form stylesheet (WASM-007)
 
-- **Status:** in progress — T1–T14 done and tested (2.0.113, 2026-10-31: the layer order with `pr-theme`/`pr-app`, the refused unscoped sheet, the inline `CssStyle`, the state contract, AC1 on every appearance property, `stylesheet_lint`, the web themes). **Stopped at T15**, which waits for WASM-004 T18 (the layer element). Not started: T15–T30 (the layer guard, the stylesheet files, the Build gate, the IDE half, the Preview's in-place update, the browser runs)
+- **Status:** done — T1–T30 done and tested (2.0.113 for T1–T14, 2.0.116 for T15–T30, 2026-10-31). Q2a, Q3a, Q4 and Q6 stay open with the working assumptions below.
 - **Plan:** ./plan.md   **Date:** 2026-10-22 (first written 2026-10-20; revised to match the plan at 2.0.29)
 
 Ordered, small, independently verifiable tasks. Each names the files it touches, the requirements it satisfies and how it is verified. Native tests print what they measured. Browser runs use Chrome 152 on 127.0.0.1 only (plus Safari and Firefox where a task says so); their numbers are written here when they are run. Browser tooling runs outside the repository (PRIME DIRECTIVE); the repository holds only the Rust fixtures and tests.
@@ -170,7 +170,7 @@ Working assumptions (open questions; the operator may rule otherwise, and each i
       - `designer::…::the_css_badge_marks_styled_controls_and_not_the_theme_blocks`: badges for `CssStyle` and a `.card` class rule, none for a control only the theme block's `.pr-button` names;
       - `the_css_rows…`.
 
-- [ ] **T23 — Preview updates a style change in place** (R11, AC8; with WASM-008)
+- [x] **T23 — Preview updates a style change in place** (R11, AC8; with WASM-008)
   - **Decided (operator, 2026-10-31): option (a), the CSS-only fast path.** Apply in the stylesheet window writes the sheet straight into the bundle the open Preview serves (the sheet file and its `config.json` entry) and notifies the page, with no Build and no watcher wait, so AC8's 500 ms is measured from Apply. Any change other than a stylesheet still goes through the normal Build. The Preview protocol change this needs is made here, recorded as an amendment for WASM-008.
   - Files: `crates/cobolt-project-tools/src/web/devserver.rs` (the poll script at `:486` reloads the page today; for a change that touched only `.css` files it calls `player.set_stylesheet` / `set_form_stylesheet` / `set_theme` with the fetched text instead), the change list the watcher exposes (protocol owned by WASM-008).
   - Verify: project tools `devserver` — a `.css`-only change is reported as such and the script takes the in-place branch; a `.wcfrm` change still reloads. Browser (**AC8**): Apply in the modal → the changed computed style in the open Preview, time measured against the **500 ms** budget and written here; `set_form_stylesheet` driven for the first time.
@@ -196,44 +196,98 @@ Working assumptions (open questions; the operator may rule otherwise, and each i
       - (b) shorter intervals (watcher, dev-server watch, page poll), with the Build still in the path;
       - (c) the budget measured from the bundle change rather than from Apply.
     - **Not done in this task:** the budget measurement; the devserver test that a `.css`-only change "is reported as such" (it has no separate report, see above).
+  - **Done 2026-10-31, option (a) (amendment to WASM-008's Preview protocol).**
+    - **The bundle half** (`cobolt-web-bundle/src/lib.rs::with_form_stylesheet`; pure, like `assemble_bundle`): it takes a bundle's `config.json`, a form name and the new sheet. It returns the sheet file as the Build would name it (`forms/<name>.<hash>.css`, the name taken from the config's entry) and the `config.json` with only that form's `css` `{url, integrity}` changed. The form's description is not touched (the player never reads its `stylesheet` name), so `update()` takes the change with `set_form_stylesheet` alone and does not `reset` the application. The sheet is checked as the Build checks it (`stylesheet_errors`, the Build's origins, the form's layers); an error refuses it, `file:line: message`.
+    - **The server half** (`cobolt-project-tools/src/web/devserver.rs::ServerHandle::apply_form_stylesheet`): writes the sheet, then `config.json` through a temporary file and a rename (the page never reads half of it), then `notify_changed()` at once. The page's existing poll (400 ms) hands the new configuration to `app.update`.
+    - **The IDE half** (`panels/web_preview.rs::WebPreview::apply_form_stylesheet`, `SourceWatcher::absorb`; `app.rs::show_stylesheet_modal`): after Apply writes the source file, the open Preview puts the sheet in place and the watcher takes the write as seen, so no Build follows. The fast path is not taken when nothing is served, a build is running or a change is already pending, or when the sheet would be refused; the normal watcher Build then follows the write and reports what it finds. `StylesheetModal::form` and `::layers` are now public, for the call.
+    - **Found and fixed (player, `api.rs::Player::mount`):** the sheets the loader sets before the page is mounted (a form's sheet, the project sheet, a theme file — `hostpage.rs` step 8) were never applied. `styles_changed` had no surface to go to, and `mount` did not apply them once it had one. The first Chrome run showed it: the built `#LBL-OUT { word-spacing: 1px }` never took effect, and the adopted sheets of the form and the project were empty. `mount` now calls `styles_changed`. The prebuilt player was rebuilt (`build_player --out assets/web-player`).
+    - Choice made here: the "reported as such" devserver test is replaced by the fast path's own tests. Since WASM-016 every change already goes through `update()`, so there is no separate `.css` report to test.
+    - **Evidence:**
+      - bundle `--test stylesheets`: 4 passed. New: `a_form_sheet_replaced_in_place_changes_only_its_css_entry` — the sheet byte for byte, the same entry the Build writes for those bytes, nothing else of `config.json` changed, an `https://evil.example` url and a `#LAYER-1` rule refused at their lines, an unknown form refused.
+      - project tools `--lib devserver`: 15 passed. New: `a_form_stylesheet_is_applied_in_place_and_counted_at_once` — the count moved by one at once, the description untouched, the sheet served byte for byte, no temporary file left; a refused sheet writes nothing and does not count.
+      - IDE `--bin cobolt-ide web_preview`: the new `an_applied_stylesheet_reaches_the_open_preview_without_a_build` passed. It checks: served and counted, still 1 build after 6 watcher looks; a refused sheet took the Build (2 builds); nothing served → `false`. The 3 `web_preview` tests that need `rcrun` failed for that reason only (`target/debug/rcrun` missing in this worktree, a known red); T30's sweep builds it first.
+      - **AC8 in Chrome 156** (`cobolt-project-tools --test preview_style_chrome`, new). The Build's own bundle of a one-form Web project, served by the Preview's dev server with its live-update script; each round is `apply_form_stylesheet`, with the rounds started at different points of the page's poll. **Apply → computed style in 337 / 312 / 243 / 169 / 89 ms over 5 rounds (min 89, median 243, max 337); budget 500 ms.** The page did not reload (1 navigation) and the player stayed. By construction the worst case is the page's poll interval (400 ms) plus the fetches.
+    - New dev-dependencies of `cobolt-project-tools` for the Chrome test (`tempfile`, `tungstenite`, `png`, `base64`): the same versions `cobolt-web-bundle` uses, all already in the lock file. The DevTools client is `cobolt-web-bundle/tests/support/cdp.rs`, included by path.
 
-- [ ] **T24 — i18n** (spec §6)
+- [x] **T24 — i18n** (spec §6)
   - Files: `crates/cobolt-ide/src/i18n.rs`.
   - Do: `Tr` fields in six languages (en, es, pt-BR, fr, ja, zh) for the button, the modal's title and buttons, the confirmations (Revert, Cancel with changes, delete an edited sheet, theme switch), every lint code's message (the lint returns codes plus arguments), the "Style (CSS)" and `CssClass` labels, the override marks, the badge tooltip.
   - Verify: IDE `no_empty_ui_translations` (`i18n.rs:15273`) and a new `the_stylesheet_strings_are_in_every_language` that also checks every lint code has a message.
+  - **Done 2026-10-31.** The strings were added with T17–T22 (35 of them: the button, the window and its buttons, the Revert/Cancel confirmations, the delete and theme-switch questions, the CSS group and its two labels, the three override marks, `css_lint_line`, and one message per lint code through `stylesheet_modal::code_text`). The status texts and the badge tooltip are `ide_text_data.rs` UI texts, six languages each. New `i18n::i18n_tests::the_stylesheet_strings_are_in_every_language`: none empty, the English placeholders kept in every language. A translation may equal the English only where the word is the same (`CSS` everywhere; French "Style (CSS)"). Evidence: IDE `--bin cobolt-ide` printed `stylesheet strings: 35 strings × 6 languages (10 lint codes), 169 translations differ from English`, and `no_empty_ui_translations` passed (2 passed).
 
-- [ ] **T25 — System KB** (spec §6)
+- [x] **T25 — System KB** (spec §6)
   - Files: `crates/cobolt-compiler/src/lib.rs` (`property_reference_for` `:6380`: `CssClass`, `CssStyle`; `control_structure` `:7797` and the form/project notes: the two stylesheets, the cascade of plan §1.1 with level 6's stated difference from a real inline style, the layer guard), `assets/knowledge/chunked.data` regenerated with `cargo run -p cobolt-ide --example build_chunked_kb`.
   - Verify: compiler `property_reference` for both names; IDE `prebuilt_chunked_kb_matches_the_published_documentation` (`grace_host.rs:4780`) green.
+  - **Done 2026-10-31.**
+    - `cobolt-compiler/src/lib.rs::property_reference`: new `CssClass` and `CssStyle` entries, Web and Mobile only. `CssStyle` states level 6's difference from a real inline style: it is one rule after every sheet, which a more specific sheet rule or an `!important` still beats.
+    - The controls document's universal section lists both, as not seeded (`control_structure` is not where universals are written; they are after `UNIVERSAL_PROPS`).
+    - The project document (`project_model_and_settings.md`) gains **Stylesheets (Web and Mobile)**: the two files and their defaults, creation, moving and deletion, the generated block and the theme switch, `theme_file`, the Stylesheet… window, the cascade of plan §1.1, scoping and refusal, the layer guard (with the exact selectors and declarations `base_css.rs` guards), the Check/Build errors and warnings, the override marks, and Apply into the open Preview.
+    - `assets/knowledge/chunked.data` was regenerated (`cargo run -p cobolt-ide --example build_chunked_kb`): 3679 records from 8 documents, 13 246 464 → 13 295 616 bytes.
+    - Evidence: compiler `--lib` new `property_reference_documents_the_css_properties_and_the_stylesheets` passed (both names on Button, Label and DataGrid; both lines in `form_designer_controls.md`; six needles in `project_model_and_settings.md`), with `publishes_system_documentation_correctly` (2 passed). IDE `prebuilt_chunked_kb_matches_the_published_documentation` passed: `prebuilt store: current for all 8 published documents (13295616 bytes embedded)`.
 
 ## Browser runs (AC2, AC3, AC5, AC6, AC10)
 
-- [ ] **T26 — Cascade, isolation and the guard in Chrome** (R8, R9, R15, R16; AC5, AC6, AC10)
+- [x] **T26 — Cascade, isolation and the guard in Chrome** (R8, R9, R15, R16; AC5, AC6, AC10)
   - Files: a fixture `.wcfrm` and its sheets under the player's test fixtures (Rust test data, no `.css` committed as source — the sheets are built by the fixture's Rust code).
   - Do: **AC5** — `background-color` set at each of the six levels of plan §1.1; the visible value is the highest level's, and removing levels from the top steps down the table. **AC6** — host page `button { color: red }` and a form sheet `button { … }`: neither crosses the boundary; `--pr-accent` set on the mount element changes the accent. **AC10** — T15's guard holds with the offending rule applied anyway.
   - Verify: the computed values per step written here.
+  - **Done 2026-10-31** (`cobolt-web-bundle/tests/page_stylesheets.rs`, new; Chrome 156). The fixture's main form, its sheets built in Rust, one bundle per step. Choice made here: the fixture is the bundle crate's (its Chrome harness and player live there), not a file under the player's fixtures.
+    - **AC5.** `LBL-CAS` paints `rgb(k, k, k)` at level k: 2 in the form sheet's `pr-theme` block, 3 as `BackgroundColor`, 4 in the project sheet, 5 in the form sheet, 6 as `CssStyle`. Each lower level has the higher specificity (`#LBL-CAS#LBL-CAS#LBL-CAS.pr-label` at 2, `#LBL-CAS#LBL-CAS.pr-label` at 4, `.pr-label` at 5), so only the cascade can explain the winner. Levels 1–6: `rgb(6, 6, 6)`; 1–5: `rgb(5, 5, 5)`; 1–4: `rgb(4, 4, 4)`; 1–3: `rgb(3, 3, 3)`; 1–2: `rgb(2, 2, 2)`; 1 alone (base + Liquid Glass): `rgba(0, 0, 0, 0)`.
+    - **AC6.** A host page sheet `button { color: rgb(255, 0, 0) !important }` and the form sheet's `button { color: rgb(0, 0, 255) }`: the host's button `rgb(255, 0, 0)`, the form's button `rgb(0, 0, 255)` — neither crosses. `--pr-accent` set on the mount element (`#4e8cff` before) reads `rgb(1, 2, 3)` on a control.
+    - **AC10.** A form sheet set through `player.set_form_stylesheet` (as the Build would refuse it), every guarded declaration `!important` the other way (`.pr-form-layer` static, z 0, pointer auto, …; `.pr-form-root` static, visible, z 9; `.pr-form` static, z 7). It is adopted (its rule found in `adoptedStyleSheets`); before and after are identical: layer `absolute, 1, none, isolate, none (hidden), visible`; root `absolute, hidden, isolate, auto`; form `absolute, 0`.
 
-- [ ] **T27 — Exact properties give the expected computed style** (R1; AC2)
+- [x] **T27 — Exact properties give the expected computed style** (R1; AC2)
   - Do: the gallery bundle; each `Exact` row set to a distinct value through the host API; `getComputedStyle` compared.
   - Verify: property → expected → got written here; zero mismatches among `Exact` rows.
+  - **Done 2026-10-31** (`cobolt-web-bundle/tests/page_exact_properties.rs`, new; Chrome 156). The fixture's main form gains one control per check; the expected values are written by hand from what each property means on the desktop, not computed by the player's code. The host API cannot set a property on a page (`type_into` is headless-only), so the values are the form's; the Snackbar's notification is shown through `player.invoke(0, 'X-SNACK', 'Show', …)`. The test fails on an `Exact` row of `web_class::FIDELITY` that it does not check.
+    - **44 of 44 `Exact` rows checked in 26 controls, 0 mismatches:**
+      - BackgroundColor `rgb(17, 34, 51)`; the four BackgroundGradient* rows `linear-gradient(90deg, rgb(255, 0, 0), rgb(0, 0, 255))`; ForegroundColor `rgb(68, 85, 102)`; FontName `"Courier New"` first; FontSize `21px`.
+      - Bold `400 rgb(1, 2, 3) 1px 0px 0px` (the desktop's second stamp one pixel right, as a text shadow, weight kept; TABLE's "font-weight: 700" text is stale); Italic `italic`; Underline + Strikethrough `underline line-through`; Tooltip `title` `a tip`; Cursor Hand `pointer`.
+      - Padding: +9 px each side over the same Label without it (it adds to the Label's 3 px caption inset). PaddingLeft/Top/Right/Bottom on a Panel: `4 5 6 7` more than the same Panel without them (the client area's layout padding, spec 056).
+      - Transparency 50: `rgba(17, 34, 51, 0.5)`, `opacity` 1 (the frame fades, not the content); CornerRadius `11px`; BorderColor + BorderWidth `rgb(119, 136, 153) 3px solid`.
+      - The shadow: ShadowColor/Direction/Distance give rings all in red at `10px 0px`; ShadowLightColor (green) appears nowhere, because a regular shadow never draws the Neumorphic light colour, on the desktop either. ShadowOpacity: core ring `0.60` against `0.20`. ShadowBlur off: one shadow, fewer than with it on.
+      - TextAlignment Right `flex-end right`; VerticalAlignment Bottom `flex-end`; WordWrap `pre-wrap`.
+      - The chart's BorderGradient* + BorderTransparency 50: `::after` `linear-gradient(270deg, rgba(255, 0, 0, 0.5), rgba(0, 0, 255, 0.5))` over a `4px` transparent border.
+      - The Snackbar's CornerRadiusTopLeft/TopRight/BottomLeft/BottomRight 3/6/9/12: the notification's radii `3px 6px 12px 9px` (CSS order).
+      - ZOrder `5`; Visible false `display: none`; Enabled false `aria-disabled` and `disabled` both true.
 
-- [ ] **T28 — A new form's stylesheet reproduces its theme** (R4, Q5; AC3)
+- [x] **T28 — A new form's stylesheet reproduces its theme** (R4, Q5; AC3)
   - Do: per built-in web theme, a new form with its generated sheet vs the same form with properties only, in the same browser run; differing pixels counted.
   - Verify: the ratio per theme written here, under the plan §5 tolerance (≤ 1 % of pixels differing by more than 8/255 in any channel).
+  - **Done 2026-10-31** (`cobolt-web-bundle/tests/page_theme_sheet.rs`, new; Chrome 156). For each theme, the fixture's main form is drawn twice in one Chrome: once with `web_themes::form_stylesheet(theme, used_types(form))` as its sheet, once with its properties alone. Both pages carry the same theme as `theme.css` (`theme_rules`, the condition T14 recorded). The form's 1000 × 700 rectangle is captured each time. **Differing pixels (> 8/255): liquid-glass 0 of 700 000 (0.0000 %), elegance 0 (0.0000 %), spatial 0 (0.0000 %); tolerance 1 %.** That the zero means something is checked in the same run: the themes themselves differ in 11.03 % (liquid-glass vs elegance) and 11.06 % (elegance vs spatial) of the pixels. The form sheet was adopted (one more sheet, one rule).
 
 ## Desktop unchanged (R14)
 
-- [ ] **T29 — No desktop form changes**
+- [x] **T29 — No desktop form changes**
   - Files: tests only (`crates/cobolt-forms`, `crates/cobolt-ide`).
   - Verify: forms — a desktop `.cfrm` fixture loads and saves byte-identical and carries neither `CssClass` nor `CssStyle`; ProgressBar's `Style` still `Continuous`/`Blocks` (`paint.rs` tests at `:25940`, `:26150` green); IDE — a desktop form shows no Stylesheet button and no CSS rows; a desktop project creates no `.css`.
+  - **Done 2026-10-31.** New `cobolt-forms/tests/a_desktop_form_carries_no_css.rs` (`--features render`):
+    - no control type of the 63 seeds `CssClass` or `CssStyle`;
+    - a desktop form with one control of each type (a ProgressBar `Style` = `Blocks`) carries neither key, and written again it is byte-identical. The fixture is the form as one load leaves it, because a load docks a SideMenu to the form's edge, which `Control::new` does not;
+    - the ProgressBar's `Style` reads back `Blocks`;
+    - each of the 27 example desktop forms (`examples/*/forms/*.cfrm`) is written with neither key and twice to the same bytes.
+    - Printed: `63 control types, no CSS property, saved byte-identical; 27 example forms the same`.
+    - The other halves are tests that already exist, run in T30's sweep: the ProgressBar paint tests (`a_segmented_progress_bar_takes_the_developers_block_size` and the `Blocks` cases in `paint.rs`); IDE `properties::tests::the_css_rows_show_on_a_web_form_only_and_an_empty_value_removes_the_property` (no CSS rows and no Stylesheet… button on a desktop form, and a saved desktop form holds neither key); project tools `create::…a_web_or_mobile_project_starts_with_its_stylesheets_and_a_desktop_one_with_none`.
 
 ## Finalize
 
-- [ ] **T30 — Finalize** (2.x.x line: no documentation task; `README.md` and `docs/` are never touched)
+- [x] **T30 — Finalize** (2.x.x line: no documentation task; `README.md` and `docs/` are never touched)
   - Bump `z` once in `crates/cobolt-ide/src/version.rs`; one `CHANGELOG.md` entry above the previous heading, dated, saying "Written on features-2x".
   - Run the tests of the crates touched, `--no-fail-fast`, reading every `test result` line: `cargo test --no-fail-fast -p cobolt-forms --features render`, `-p cobolt-compiler`, `-p cobolt-web-bundle`, `-p cobolt-project-tools`, `-p cobolt-ide --bin cobolt-ide`, and `cargo test --no-fail-fast --manifest-path crates/cobolt-web-player/Cargo.toml --lib`.
   - Verify: all green; the credential scan of the staged diff is clean.
+  - **Done 2026-10-31.** `crates/cobolt-ide/src/version.rs` 2.0.115 → **2.0.116** (once); `CHANGELOG.md` entry `2.0.116 — 2026-10-31 — WASM-007 T15–T30` above 2.0.115, "Written on `features-2x`". `rcrun` built first (`cargo build -p cobolt-cli --bin rcrun`) for the IDE tests that start it. Every `test result` line read:
+    - forms `--features render`: 94 targets, 1773 passed, 0 failed.
+    - compiler: 12 targets, 230 passed, 0 failed.
+    - web bundle (the Chrome suites included): 26 targets, 69 passed, 0 failed.
+    - project tools (`preview_style_chrome` included): 16 targets, 190 passed, 0 failed.
+    - player `--lib`: 335 passed, 0 failed; `--test freshness` 5 passed and `--test sinks` 3 passed against the rebuilt `assets/web-player/`.
+    - IDE `--bin cobolt-ide`: 1923 passed, 6 failed, 5 ignored.
+      - One of the 6 was this spec's: `project_model::…a_web_project_holding_a_legacy_cfrm_opens_unmodified_and_lists_it` expected the `webforms/` listing from before T17, without the two stylesheets a new Web project now has. Its expectation was updated; re-run, 1 passed.
+      - The other 5 are the known reds of 2.x.x, none in this spec's code. They are `docs_embed::…every_document_ships_in_every_language` (Portuguese guides), `claude_code::bundle::…claude_validates_the_written_bundle` (the `claude` CLI), the two `external_crates_service::flow_tests` (network), and `editor::…every_completion_description_exists_in_six_languages` (12 English-only texts of the backend built-ins: `On the backend, …`, the upload/download calls).
+    - Credential scan of the change (the working diff without `assets/`, plus the new files; nothing is staged, the pipeline commits): no AWS key id, secret, private key, Anthropic/GitHub/Slack token or JWT.
+    - Not touched: `README.md`, `docs/`.
+    - Not removed: the temporary folders of the three failed Chrome runs (`$TMPDIR/prc-preview-style-80201`, `-80431`, `-80638`). Removing them was refused by the environment's permissions; they are outside the repository.
 
 ## Done criteria
 
-Every acceptance criterion is covered by a task's verification: **AC1** T12 · **AC2** T27 · **AC3** T14, T28 · **AC4** T17, T21 · **AC5** T8, T26 · **AC6** T26 · **AC7** T13, T19 · **AC8** T23 · **AC9** T21 · **AC10** T13, T15, T26. Today none is fully met (T1's test covers the theme-owned properties only). Q2a, Q3a, Q4 and Q6 stay open with the working assumptions above.
+Every acceptance criterion is covered by a task's verification: **AC1** T12 · **AC2** T27 · **AC3** T14, T28 · **AC4** T17, T21 · **AC5** T8, T26 · **AC6** T26 · **AC7** T13, T19 · **AC8** T23 · **AC9** T21 · **AC10** T13, T15, T26. All ten are met as of 2.0.116 (2026-10-31), each by the evidence of its tasks. Q2a, Q3a, Q4 and Q6 stay open with the working assumptions above.

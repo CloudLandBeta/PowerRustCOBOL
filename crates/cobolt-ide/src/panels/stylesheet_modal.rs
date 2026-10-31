@@ -195,9 +195,9 @@ pub struct StylesheetModal {
     /// The form's stylesheet file (`<forms folder>/<Form>.css`).
     pub sheet: PathBuf,
     /// The form, for the title.
-    form: String,
+    pub form: String,
     /// The form's layers, for the layer-guard finding (R16).
-    layers: Vec<String>,
+    pub layers: Vec<String>,
     /// What the file holds (`None`: there is no file yet).
     saved: Option<String>,
     /// The editor's text.

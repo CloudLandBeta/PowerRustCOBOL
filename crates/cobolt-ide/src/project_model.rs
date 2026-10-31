@@ -2975,8 +2975,12 @@ mod project_kind_tests {
         assert_eq!(p.files.forms, ["webforms/main-form.cfrm"], "the name is kept");
         assert_eq!(p.category_of_path("webforms/main-form.cfrm"), Category::WebForms);
         assert_eq!(p.files_in(Category::WebForms), ["webforms/main-form.cfrm"]);
-        // The walk lists every file under webforms/: the rail's sidecar (a new Web project is a shell) sits beside the form.
-        assert_eq!(recursive_category_files(&dir, Category::WebForms), ["webforms/SideMenu-1.menu.yaml", "webforms/main-form.cfrm"]);
+        // The walk lists every file under webforms/: the rail's sidecar (a new Web project is a shell) and the project's and
+        // the form's stylesheets (WASM-007 T17) sit beside the form.
+        assert_eq!(
+            recursive_category_files(&dir, Category::WebForms),
+            ["webforms/SideMenu-1.menu.yaml", "webforms/application.css", "webforms/main-form.cfrm", "webforms/main-form.css"]
+        );
         assert_eq!(tree(&dir), before, "opening renamed or rewrote nothing");
         println!("legacy web form: {} files unchanged by opening; webforms/main-form.cfrm listed under WebForms", before.len());
         let _ = std::fs::remove_dir_all(dir);

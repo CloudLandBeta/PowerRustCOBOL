@@ -927,6 +927,9 @@ impl Player {
         let el: web_sys::Element = root.dyn_into().map_err(|_| JsError::new("mount() needs a DOM element"))?;
         let surface = crate::dom::create(&self.inner, el).map_err(|e| JsError::new(&e))?;
         *self.inner.surface.borrow_mut() = Some(surface);
+        // The sheets the loader set before the page existed (a form's, the project's, a theme file — WASM-007
+        // R4) had no surface to go to: apply them now.
+        self.inner.styles_changed();
         Ok(())
     }
 

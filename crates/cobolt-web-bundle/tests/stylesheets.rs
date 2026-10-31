@@ -92,3 +92,45 @@ fn without_a_theme_the_bundle_carries_no_theme_css() {
     assert!(out.config().get("theme").is_none());
     assert!(out.files.iter().all(|f| !f.path.starts_with("theme.")));
 }
+
+/// The Preview's CSS-only fast path (WASM-007 R11, T23): the sheet written as the Build would write it, and
+/// only that form's `css` entry of `config.json` changed — so the page's `update()` calls
+/// `set_form_stylesheet` and does not restart the application.
+#[test]
+fn a_form_sheet_replaced_in_place_changes_only_its_css_entry() {
+    let mut input = support::input_with(stub_player(), BundleOptions::default());
+    let first = input.forms[0].name.clone();
+    input.forms[0].stylesheet = Some(".a { color: red }\n".into());
+    let out = assemble_bundle(&input).unwrap_or_else(|e| panic!("{e}"));
+    let before = out.config();
+    let config_bytes = out.file("config.json").unwrap().bytes.clone();
+
+    let edited = "/* mine */\r\n#LBL-OUT   { word-spacing: 7px }\r\n";
+    let (sheet, next) = cobolt_web_bundle::with_form_stylesheet(&config_bytes, &first.to_ascii_uppercase(), edited, &[]).unwrap_or_else(|e| panic!("{e:?}"));
+    let after: serde_json::Value = serde_json::from_slice(&next).unwrap();
+    assert_eq!(sheet.bytes, edited.as_bytes(), "the sheet byte for byte");
+    let entry = |c: &serde_json::Value| c["forms"].as_array().unwrap().iter().find(|f| f["name"] == first.as_str()).unwrap().clone();
+    assert_eq!(entry(&after)["css"]["url"], sheet.path.as_str());
+    assert_eq!(entry(&after)["css"]["integrity"], cobolt_web_bundle::hash::sri(edited.as_bytes()).as_str());
+    // What the Build would name it: the same bytes give the same file.
+    let mut rebuilt = input.clone();
+    rebuilt.forms[0].stylesheet = Some(edited.into());
+    let built = assemble_bundle(&rebuilt).unwrap();
+    assert_eq!(entry(&built.config())["css"], entry(&after)["css"], "the Build would write the same entry");
+    // Nothing else moved: not the form's description (no restart), not the other keys.
+    let mut expect = before.clone();
+    for f in expect["forms"].as_array_mut().unwrap() {
+        if f["name"] == first.as_str() {
+            f["css"] = entry(&after)["css"].clone();
+        }
+    }
+    assert_eq!(after, expect, "only the css entry changed");
+
+    // Refused as the Build refuses: the error with its line; and an unknown form.
+    let e = cobolt_web_bundle::with_form_stylesheet(&config_bytes, &first, ".a {}\n.b { background: url(https://evil.example/x.png) }\n", &[]).expect_err("refused");
+    assert!(e[0].starts_with(&format!("forms/{first}.css:2:")), "{e:?}");
+    let e = cobolt_web_bundle::with_form_stylesheet(&config_bytes, &first, "#LAYER-1 { pointer-events: none }\n", &["LAYER-1".into()]).expect_err("the layer guard");
+    assert!(e[0].contains(":1:"), "{e:?}");
+    assert!(cobolt_web_bundle::with_form_stylesheet(&config_bytes, "nope", "", &[]).is_err());
+    println!("fast path: {} → {} ({} bytes); only {first}'s css entry changed; refused {e:?}", entry(&before)["css"]["url"], sheet.path, sheet.bytes.len());
+}

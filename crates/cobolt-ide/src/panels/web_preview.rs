@@ -518,6 +518,15 @@ impl SourceWatcher {
         }
         self.pending.take()
     }
+
+    /// Take the folders as they are now as seen, so a write the Preview has
+    /// already shown (WASM-007 T23's stylesheet) does not rebuild. Not while a
+    /// change is pending: that one still rebuilds, and the write with it.
+    pub fn absorb(&mut self) {
+        if self.pending.is_none() {
+            self.last = self.fingerprint();
+        }
+    }
 }
 
 // ── The Preview ─────────────────────────────────────────────────────────────
@@ -1078,6 +1087,28 @@ impl WebPreview {
             let _ = live.session.send(&command);
         }
         live.applied = self.controls.clone();
+    }
+
+    /// The CSS-only fast path (WASM-007 R11, T23; the operator's decision of
+    /// 2026-10-31): the stylesheet window's Apply has written form `form`'s
+    /// sheet to the project; put it straight into the bundle being served and
+    /// count the change, with no Build and no watcher wait, so the open page
+    /// takes it at its next poll. `false` when nothing is served, a build is
+    /// running, or the sheet would be refused — the normal Build then follows
+    /// the write and reports what it finds.
+    pub fn apply_form_stylesheet(&mut self, form: &str, css: &str, layers: &[String]) -> bool {
+        let started = Instant::now();
+        if self.job.is_some() || self.rebuild_after.is_some() {
+            return false;
+        }
+        let Some(live) = self.live.as_mut() else { return false };
+        if live.server.apply_form_stylesheet(form, css, layers).is_err() {
+            return false;
+        }
+        live.watcher.absorb();
+        let ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        self.say(Note::Updated { ms });
+        true
     }
 
     /// Load the page again.
@@ -1669,6 +1700,55 @@ mod tests {
             assert!(!p.serving());
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// WASM-007 T23 (the operator's option (a)): Apply's sheet goes straight into the served bundle and is
+    /// counted at once — no Build, and the watcher does not rebuild for it; a sheet the Build would refuse
+    /// takes the normal path, a Build, which reports it.
+    #[cfg(unix)]
+    #[test]
+    fn an_applied_stylesheet_reaches_the_open_preview_without_a_build() {
+        quiet();
+        let manifest = project("fastcss");
+        let dir = manifest.parent().unwrap().to_path_buf();
+        let (helper, _log) = fake_helper(&dir);
+        let backend = Fake::new();
+        let mut p = WebPreview::default();
+        assert!(p.start(launch(&manifest, backend.clone(), Some(helper)), Intent::Show(Target::WebView)));
+        wait_until(&mut p, "the Preview to be showing", |p| p.serving());
+        let root = p.live.as_ref().unwrap().server.root().to_path_buf();
+        std::fs::write(root.join("config.json"), r#"{"forms":[{"name":"main-form","url":"forms/main-form.1.json","integrity":"x"}]}"#).unwrap();
+        let url = p.url().unwrap();
+        let mut now = Instant::now();
+        p.poll(now);
+
+        let css = "#LBL-OUT { word-spacing: 7px }\n";
+        std::fs::write(dir.join("webforms/main-form.css"), css).unwrap();
+        let v = version_of(&url);
+        assert!(p.apply_form_stylesheet("main-form", css, &[]), "{:?}", p.notes());
+        assert!(version_of(&url) > v, "counted at once");
+        assert!(matches!(p.notes().last(), Some(Note::Updated { .. })), "{:?}", p.notes());
+        let config: serde_json::Value = serde_json::from_str(&http_get(&url, "/config.json")).unwrap();
+        let sheet = config["forms"][0]["css"]["url"].as_str().unwrap().to_owned();
+        assert_eq!(http_get(&url, &format!("/{sheet}")), css);
+        for _ in 0..6 {
+            now += WATCH_EVERY;
+            p.poll(now);
+        }
+        assert!(!p.building());
+        assert_eq!(backend.builds.load(Ordering::SeqCst), 1, "no Build for the sheet the Preview already shows");
+
+        // A sheet the Build refuses is not put in place; the watcher's Build follows the write.
+        let bad = ".a { background: url(https://evil.example/x) }\n";
+        std::fs::write(dir.join("webforms/main-form.css"), bad).unwrap();
+        assert!(!p.apply_form_stylesheet("main-form", bad, &[]));
+        wait_until(&mut p, "the Build after a refused sheet", |p| !p.building() && p.notes().iter().filter(|n| matches!(n, Note::Updated { .. })).count() == 2);
+        assert_eq!(backend.builds.load(Ordering::SeqCst), 2);
+        p.close();
+        // Nothing is served: nothing to do.
+        assert!(!p.apply_form_stylesheet("main-form", css, &[]));
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("web preview fast path: {sheet} served and counted without a Build (1 build); a refused sheet took the Build (2 builds)");
     }
 
     #[cfg(unix)]

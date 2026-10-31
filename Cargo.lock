@@ -2415,6 +2415,7 @@ dependencies = [
 name = "cobolt-project-tools"
 version = "0.2.0"
 dependencies = [
+ "base64 0.22.1",
  "cobolt-ast",
  "cobolt-codegen",
  "cobolt-compiler",
@@ -2433,12 +2434,15 @@ dependencies = [
  "dirs 5.0.1",
  "flate2",
  "native-tls",
+ "png 0.17.16",
  "semver 1.0.28",
  "serde",
  "serde_json",
  "tar",
+ "tempfile",
  "toml 0.8.23",
  "toml_edit 0.22.27",
+ "tungstenite 0.28.0",
  "ureq",
 ]
 
