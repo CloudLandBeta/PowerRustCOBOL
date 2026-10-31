@@ -54,6 +54,9 @@ struct LoadedForm {
     /// before the lowering replaced them (the backend's programs are made from
     /// these; WASM-005 T11, T14).
     sites: Vec<cobolt_codegen::remote_controls::CallSite>,
+    /// The IndexedFile controls whose file the program declares (spec 111):
+    /// their verbs run on the backend, and the Build generates their programs.
+    indexed: Vec<String>,
 }
 
 /// Every control of a form, nested ones included, in the model's order.
@@ -211,6 +214,7 @@ impl GeneratorBackend {
                 program: parsed.program.expect("checked above"),
                 lines,
                 sites: Vec::new(),
+                indexed: Vec::new(),
             };
             for w in cobolt_compiler::link_common_code(&path, &mut loaded.program) {
                 warnings.push(diag(
@@ -225,6 +229,17 @@ impl GeneratorBackend {
             // the Build generates for it, in the parsed program only.
             loaded.sites = cobolt_compiler::web_remote::class_c_call_sites(&loaded.program, &loaded.form);
             if let Err(errs) = cobolt_compiler::web_remote::lower_class_c_calls(&mut loaded.program, &loaded.form) {
+                refused.extend(errs.into_iter().map(|e| {
+                    diag(location_in(rel, &loaded.lines, e.line), WebDiagnosticKind::Other, String::new(), e.message)
+                }));
+                continue;
+            }
+            // Spec 111: an IndexedFile's verbs run on the backend too.
+            loaded.indexed = cobolt_compiler::web_remote_indexed::served_files(&loaded.program, &loaded.form)
+                .into_iter()
+                .map(|f| f.control)
+                .collect();
+            if let Err(errs) = cobolt_compiler::web_remote_indexed::lower_indexed_files(&mut loaded.program, &loaded.form) {
                 refused.extend(errs.into_iter().map(|e| {
                     diag(location_in(rel, &loaded.lines, e.line), WebDiagnosticKind::Other, String::new(), e.message)
                 }));
@@ -328,7 +343,8 @@ fn backend_programs(
     let mut all = cobolt_codegen::remote_controls::GeneratedBackend::default();
     let mut refused = Vec::new();
     for f in forms {
-        match cobolt_codegen::remote_controls::generate_backend(std::slice::from_ref(&f.form), &load) {
+        let serves = |_: &Form, c: &cobolt_forms::Control| f.indexed.iter().any(|i| i.eq_ignore_ascii_case(&c.id));
+        match cobolt_codegen::remote_controls::generate_backend_serving(std::slice::from_ref(&f.form), &load, &serves) {
             Ok(mut g) => all.programs.append(&mut g.programs),
             Err(errs) => {
                 refused.extend(errs.into_iter().map(|e| diag(f.rel.clone(), WebDiagnosticKind::Other, String::new(), e)))

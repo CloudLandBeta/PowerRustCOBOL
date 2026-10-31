@@ -5338,3 +5338,9 @@ mod viewer_codegen_tests {
         assert!(parsed.program.is_some());
     }
 }
+
+/// The file name the facade gives an IndexedFile control's `SELECT` (spec 111:
+/// the web build finds the control's file in the form's program by it).
+pub fn indexed_file_name(ctrl: &Control) -> String {
+    indexed_control_file_name(ctrl)
+}

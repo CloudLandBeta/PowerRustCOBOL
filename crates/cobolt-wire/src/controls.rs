@@ -370,18 +370,27 @@ const METHOD_RESULT: &[Field] = &[
     Field { name: "ROWS", role: Role::Rows, shape: Shape::Table { max: MAX_WINDOW_ROWS, counter: "ROWS-RETURNED", of: ROW } },
 ];
 
-/// An IndexedFile call: the key and the record it starts from…
+/// An IndexedFile call. The backend keeps nothing between calls (O4), so every
+/// call carries what the verb needs: `KEY-MODE` is how the verb positions —
+/// `OPEN` takes the open mode (`INPUT`, `OUTPUT`, `I-O`, `EXTEND`), a read or a
+/// `START` the comparison against the record's primary key (`EQ`, `GT`, `GE`,
+/// `LT`, `LE`; blank: no positioning, the file's own first or last record) —
+/// and `RECORD-IMAGE` is the record area, whose primary key is the key.
 const IX_PARAMS: &[Field] = &[
-    Field { name: "KEY-VALUE", role: Role::Key, shape: Shape::Text(256) },
-    Field { name: "RECORD-IMAGE", role: Role::Value, shape: Shape::Text(4096) },
+    Field { name: "KEY-MODE", role: Role::Key, shape: Shape::Text(8) },
+    Field { name: "RECORD-IMAGE", role: Role::Value, shape: Shape::Text(IX_RECORD_BYTES) },
 ];
 
-/// …and what the file did: its FILE STATUS and the record now current.
+/// …and what the file did: its FILE STATUS, the record now current, and `1`
+/// in `PAST-END` when a sequential read ran past the last record.
 const IX_RESULT: &[Field] = &[
     Field { name: "FILE-STATUS", role: Role::Status, shape: Shape::Text(2) },
-    Field { name: "RECORD-IMAGE", role: Role::Value, shape: Shape::Text(4096) },
-    Field { name: "AT-END", role: Role::Count, shape: Shape::Count(1) },
+    Field { name: "RESULT-IMAGE", role: Role::Value, shape: Shape::Text(IX_RECORD_BYTES) },
+    Field { name: "PAST-END", role: Role::Count, shape: Shape::Count(1) },
 ];
+
+/// The widest record an IndexedFile call carries, in bytes.
+pub const IX_RECORD_BYTES: usize = 4096;
 
 const fn m(
     control: &'static str,

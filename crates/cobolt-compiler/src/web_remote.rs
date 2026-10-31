@@ -454,7 +454,7 @@ fn call_statements(p: &Lowering, args: &[Expr], at: Span) -> Result<Vec<Stmt>, S
 
 /// Put `args[k-1]` where the template has `RC-ARG-k`, and `at` for every span
 /// of the template's own.
-fn fill(v: &mut serde_json::Value, args: &[&Expr], at: Span) {
+pub(crate) fn fill(v: &mut serde_json::Value, args: &[&Expr], at: Span) {
     if let serde_json::Value::Object(o) = v {
         if let Some(serde_json::Value::Array(id)) = o.get("Identifier") {
             if let Some(k) = id.first().and_then(|n| n.as_str()).and_then(|n| n.strip_prefix("RC-ARG-")).and_then(|k| k.parse::<usize>().ok()) {
@@ -487,7 +487,7 @@ fn parse_template(src: &str) -> Result<Program, String> {
     parsed.program.ok_or_else(|| "the generated statements do not parse".to_owned())
 }
 
-fn parse_statements(body: &str) -> Result<Vec<Stmt>, String> {
+pub(crate) fn parse_statements(body: &str) -> Result<Vec<Stmt>, String> {
     use cobolt_ast::program::ProcedureBody;
     let src = format!("       IDENTIFICATION DIVISION.\n       PROGRAM-ID. RC-LOWERING.\n       PROCEDURE DIVISION.\n       RC-SITE.\n{body}           .\n");
     let p = parse_template(&src)?;
@@ -498,7 +498,7 @@ fn parse_statements(body: &str) -> Result<Vec<Stmt>, String> {
     Ok(stmts.into_iter().filter(|s| !matches!(s, Stmt::SentenceEnd { .. })).collect())
 }
 
-fn parse_working_storage(text: &str) -> Result<Vec<cobolt_ast::data::DataDecl>, String> {
+pub(crate) fn parse_working_storage(text: &str) -> Result<Vec<cobolt_ast::data::DataDecl>, String> {
     use cobolt_ast::program::DataSection;
     let src = format!(
         "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. RC-LOWERING.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n{text}       PROCEDURE DIVISION.\n           GOBACK.\n"
@@ -511,7 +511,7 @@ fn parse_working_storage(text: &str) -> Result<Vec<cobolt_ast::data::DataDecl>, 
 
 /// Append `decls` to the WORKING-STORAGE of `program`, making the section (and
 /// the DATA DIVISION) when it has none.
-fn add_working_storage(program: &mut Program, decls: Vec<cobolt_ast::data::DataDecl>) {
+pub(crate) fn add_working_storage(program: &mut Program, decls: Vec<cobolt_ast::data::DataDecl>) {
     use cobolt_ast::program::{DataDivision, DataSection};
     let data = program.data.get_or_insert_with(|| DataDivision { sections: Vec::new(), span: program.procedure.span });
     if let Some(DataSection::WorkingStorage(ws)) = data.sections.iter_mut().find(|s| matches!(s, DataSection::WorkingStorage(_))) {
@@ -524,7 +524,7 @@ fn add_working_storage(program: &mut Program, decls: Vec<cobolt_ast::data::DataD
 }
 
 /// Every data name `program` and its nested programs declare, with its line.
-fn declared_names(program: &Program, out: &mut Vec<(String, u32)>) {
+pub(crate) fn declared_names(program: &Program, out: &mut Vec<(String, u32)>) {
     use cobolt_ast::program::DataSection;
     fn items(d: &[cobolt_ast::data::DataDecl], out: &mut Vec<(String, u32)>) {
         for x in d {
@@ -557,7 +557,7 @@ fn walk(v: &serde_json::Value, f: &mut impl FnMut(&serde_json::Value)) {
     }
 }
 
-fn flatten<'a>(list: &'a [Control], out: &mut Vec<&'a Control>) {
+pub(crate) fn flatten<'a>(list: &'a [Control], out: &mut Vec<&'a Control>) {
     for c in list {
         out.push(c);
         flatten(&c.children, out);

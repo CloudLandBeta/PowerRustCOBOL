@@ -50,6 +50,8 @@ use cobolt_forms::{
 use cobolt_indexed::{parse_pic, AccessMode, FieldUsage, IndexedDefinition, IndexedField, PicCategory};
 use cobolt_wire::controls::{self, Field, Operation, Shape};
 
+pub mod indexed;
+
 /// The folder, under `backend/`, the Build owns.
 pub const GENERATED_DIR: &str = "generated";
 /// The generated programs' `[[export]]` entries, beside them.
@@ -232,6 +234,17 @@ pub fn generate_backend(
     forms: &[Form],
     load_cidx: &dyn Fn(&str) -> Result<IndexedDefinition, String>,
 ) -> Result<GeneratedBackend, Vec<String>> {
+    generate_backend_serving(forms, load_cidx, &|_, _| true)
+}
+
+/// [`generate_backend`], serving an IndexedFile control only when `serves`
+/// says the form's program declares its file (the web build knows; a form that
+/// reaches the control through PartiQL alone has no file to serve).
+pub fn generate_backend_serving(
+    forms: &[Form],
+    load_cidx: &dyn Fn(&str) -> Result<IndexedDefinition, String>,
+    serves: &dyn Fn(&Form, &Control) -> bool,
+) -> Result<GeneratedBackend, Vec<String>> {
     let mut out = GeneratedBackend::default();
     let mut errs = Vec::new();
     for form in forms {
@@ -252,6 +265,11 @@ pub fn generate_backend(
                 Ok(mut programs) => out.programs.append(&mut programs),
                 Err(e) => errs.push(format!("{at}: {e}")),
             }
+        }
+        // Spec 111: an IndexedFile control's verbs, one program each.
+        match indexed::programs(form, load_cidx, serves) {
+            Ok(mut programs) => out.programs.append(&mut programs),
+            Err(mut e) => errs.append(&mut e),
         }
     }
     let mut seen = std::collections::HashSet::new();
@@ -355,7 +373,7 @@ fn write_linkage(out: &mut String, op: &Operation) {
     }
 }
 
-fn write_fields(out: &mut String, fields: &[Field], level: u8, indent: usize) {
+pub(crate) fn write_fields(out: &mut String, fields: &[Field], level: u8, indent: usize) {
     let pad = " ".repeat(indent);
     for f in fields {
         match f.shape {
@@ -371,7 +389,7 @@ fn write_fields(out: &mut String, fields: &[Field], level: u8, indent: usize) {
 }
 
 /// Every name the catalogue's groups declare: a source field may not share one.
-fn linkage_names(op: &Operation) -> Vec<String> {
+pub(crate) fn linkage_names(op: &Operation) -> Vec<String> {
     fn walk(fields: &[Field], out: &mut Vec<String>) {
         for f in fields {
             out.push(f.name.to_owned());
@@ -1860,6 +1878,47 @@ pub mod fixtures {
         ];
         def.fields = vec![root];
         def
+    }
+
+    /// The path the fixture IndexedFile control stores for [`parts_cidx`].
+    pub const PARTS_CIDX_PATH: &str = "data/parts.cidx";
+
+    /// A parts file of DISPLAY fields only (spec 111): a numeric key, a name and
+    /// a quantity — a record that travels as text.
+    pub fn parts_cidx(assign_path: &str) -> IndexedDefinition {
+        let mut def = IndexedDefinition::new("PARTS", assign_path);
+        def.record_format = RecordFormatDef::Fixed { length: 29 };
+        def.keys = KeySchema {
+            primary: KeyDef {
+                name: Some("PART-ID".into()),
+                parts: vec![KeyPartDef { field_name: "PART-ID".into(), offset: 0, length: 5, encoding: KeyEncodingDef::Bytes }],
+                duplicates_allowed: false,
+                ordering: KeyOrderingDef::Ascending,
+            },
+            alternates: Vec::new(),
+        };
+        let mut root = leaf(1, "PART-REC", "", FieldUsage::Display, 0, 29);
+        root.offset = None;
+        root.length = None;
+        root.children = vec![
+            leaf(5, "PART-ID", "9(5)", FieldUsage::Display, 0, 5),
+            leaf(5, "PART-NAME", "X(20)", FieldUsage::Display, 5, 20),
+            leaf(5, "PART-QTY", "9(4)", FieldUsage::Display, 25, 4),
+        ];
+        def.fields = vec![root];
+        def
+    }
+
+    /// `SHOP`: an IndexedFile control over [`parts_cidx`], with the roles given.
+    pub fn indexed_form(roles: &str) -> Form {
+        let mut shop = Form::new("SHOP", "Shop", 400, 300);
+        let mut ix = Control::new("IXF-1", ControlType::IndexedFile, 0, 0);
+        ix.set_prop("IndexedFile", PropValue::String(PARTS_CIDX_PATH.into()));
+        if !roles.is_empty() {
+            ix.set_prop(cobolt_forms::web_class::BACKEND_ROLES, PropValue::String(roles.into()));
+        }
+        shop.controls.push(ix);
+        shop
     }
 
     fn field(name: &str, t: BindingDataType) -> BindingField {

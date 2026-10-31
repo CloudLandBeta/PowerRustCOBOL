@@ -2520,6 +2520,7 @@ dependencies = [
  "bincode",
  "cobolt-ast",
  "cobolt-codegen",
+ "cobolt-compiler",
  "cobolt-forms",
  "cobolt-indexed",
  "cobolt-lexer",
