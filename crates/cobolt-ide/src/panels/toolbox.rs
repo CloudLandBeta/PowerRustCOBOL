@@ -35,6 +35,11 @@ const TOOLS: &[ToolEntry] = &[
         category: "Common",
     },
     ToolEntry {
+        label: "Hyperlink",
+        ct: ControlType::Hyperlink,
+        category: "Common",
+    },
+    ToolEntry {
         label: "TextBox",
         ct: ControlType::TextBox,
         category: "Common",
@@ -950,6 +955,7 @@ fn icon_btn(
             None => {
                 let tooltip = match entry.ct {
                     ControlType::Animator => "PlayGIF/WebP/APNG files",
+                    ControlType::Hyperlink => crate::i18n::current_tr(ui.ctx()).toolbox_hyperlink_tip,
                     _ => entry.label,
                 };
                 resp.on_hover_text(tooltip);
@@ -1061,6 +1067,14 @@ pub(crate) fn paint_control_icon(
                 egui::FontId::proportional(r * 2.2),
                 color,
             );
+        }
+        // WASM-006 — two links of a chain over the underline of link text.
+        ControlType::Hyperlink => {
+            for dx in [-r * 0.55, r * 0.55] {
+                let b = egui::Rect::from_center_size(Pos2::new(c.x + dx, c.y - r * 0.2), Vec2::new(r * 1.5, r * 0.9));
+                painter.rect_stroke(b, r * 0.45, s, egui::StrokeKind::Middle);
+            }
+            painter.line_segment([Pos2::new(c.x - r * 1.2, c.y + r * 0.75), Pos2::new(c.x + r * 1.2, c.y + r * 0.75)], s);
         }
         ControlType::TextBox => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 1.4));

@@ -315,6 +315,26 @@ pub fn styled_text(
     FontStyle::of(ctrl).text(painter, pos, anchor, text, font_id, color)
 }
 
+/// A property as text, empty when absent.
+fn sv_prop(ctrl: &Control, key: &str) -> String {
+    ctrl.get_prop(key).map(|v| v.as_str().to_string()).unwrap_or_default()
+}
+
+/// The colour a Hyperlink's text is painted in (WASM-006 R2): its `LinkColor`, else the theme's link
+/// colour for the surface `ink` was chosen against — a light ink means a dark surface.
+pub fn hyperlink_ink(ctrl: &Control, ink: Color32) -> Color32 {
+    let own = sv_prop(ctrl, "LinkColor");
+    let c = if own.trim().is_empty() {
+        let lum = 0.2126 * ink.r() as f32 + 0.7152 * ink.g() as f32 + 0.0722 * ink.b() as f32;
+        parse_color(crate::hyperlink::link_colors(lum > 127.0).0)
+    } else {
+        parse_color(&own)
+    };
+    // The control's own fade (`a` of `ink`) still applies.
+    let a = ink.a();
+    Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), ((c.a() as u16 * a as u16) / 255) as u8)
+}
+
 fn paint_styled_galley(
     painter: &egui::Painter,
     ctrl: &Control,
@@ -1862,7 +1882,7 @@ pub(crate) fn paints_no_card(ctrl: &Control) -> bool {
         matches!(ctrl.control_type, CT::RadioButton) && border_style == "None";
     let switch_frameless = matches!(ctrl.control_type, CT::Switch);
     let sidemenu_frameless = matches!(ctrl.control_type, CT::SideMenu);
-    let label_frameless = matches!(ctrl.control_type, CT::Label)
+    let label_frameless = matches!(ctrl.control_type, CT::Label | CT::Hyperlink)
         && !background_gradient
         && user_background_color(ctrl).is_none();
 
@@ -5001,7 +5021,7 @@ fn draw_control_body(
         frame_round
     };
 
-    let is_label = matches!(ctrl.control_type, CT::Label);
+    let is_label = matches!(ctrl.control_type, CT::Label | CT::Hyperlink);
 
     // The BackgroundColor the developer explicitly chose, if any. The universal
     // seeded default and the values the Neumorphic style appliers stamp on
@@ -5956,7 +5976,7 @@ fn draw_control_body(
         // never as centered text.
         CT::GroupBox => String::new(),
         // Controls with an intrinsic text label use their Caption property.
-        CT::Label | CT::Button => ctrl
+        CT::Label | CT::Hyperlink | CT::Button => ctrl
             .get_prop("Caption")
             .map(|v| v.to_string())
             .unwrap_or_else(|| ctrl.id.clone()),
@@ -6272,6 +6292,13 @@ fn draw_control_body(
         } else {
             txt_color
         };
+        // WASM-006 R2 — a Hyperlink's text is link text: `LinkColor`, else the theme's link colour for
+        // the surface its ink was chosen against (light ink ⇒ a dark surface).
+        let txt_color = if matches!(ctrl.control_type, CT::Hyperlink) {
+            hyperlink_ink(ctrl, txt_color)
+        } else {
+            txt_color
+        };
         let fsize = ctrl_font_size(ctrl);
         let font_name = ctrl
             .get_prop("FontName")
@@ -6351,7 +6378,7 @@ fn draw_control_body(
                 }
             }
             paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
-        } else if matches!(ctrl.control_type, CT::Label) {
+        } else if matches!(ctrl.control_type, CT::Label | CT::Hyperlink) {
             // Honour the Label's TextAlignment (Left / Center / Right /
             // Justified) and VerticalAlignment (Top / Middle / Bottom).
             let align_raw = ctrl
@@ -6465,7 +6492,18 @@ fn draw_control_body(
                         color: txt_color,
                     });
                 }
-                _ => paint_styled_galley(painter, ctrl, text_pos, galley, txt_color),
+                _ => {
+                    // WASM-006 R2 — the link's underline, under the text it underlines. `LinkUnderline`
+                    // `Hover` is resolved by the run-form renderer, which knows the pointer.
+                    let underline = matches!(ctrl.control_type, CT::Hyperlink)
+                        && crate::hyperlink::Underline::parse(&sv_prop(ctrl, "LinkUnderline")).shows(false);
+                    let text_rect = galley.rect.translate(text_pos.to_vec2());
+                    paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
+                    if underline {
+                        let y = (text_rect.bottom() - 1.0).round() + 0.5;
+                        painter.line_segment([egui::pos2(text_rect.left(), y), egui::pos2(text_rect.right(), y)], Stroke::new(1.0, txt_color));
+                    }
+                }
             }
         } else if matches!(ctrl.control_type, CT::TextBox) {
             // Inset by at least the corner radius so text stays inside the rounded

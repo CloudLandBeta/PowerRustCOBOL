@@ -1527,6 +1527,15 @@ fn map_start_op(op: cobolt_ast::expr::CmpOp) -> crate::indexed::StartOp {
 
 // ── Interpreter ───────────────────────────────────────────────────────────────
 
+/// Where a Hyperlink click is (WASM-006 D2): which handler has to return before the next step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkStage {
+    /// `onClick` is running: `onBeforeNavigate` follows unless it sets `Cancel`.
+    BeforeNavigate,
+    /// `onBeforeNavigate` is running: the navigation follows unless it sets `Cancel`.
+    Follow,
+}
+
 /// What `COBOL-WAIT-EVENT` should present next (spec 032).
 enum WaitOutcome {
     /// A real UI event from the form window.
@@ -1803,6 +1812,9 @@ pub struct Interpreter {
     /// say 'onResponse will fire'. It never did").
     control_ids: std::collections::HashMap<String, String>,
     async_dispatch_queue: std::collections::VecDeque<(String, String)>,
+    /// WASM-006 D2 — the Hyperlink clicks whose handlers are running: `(control, stage)`. Advanced at the
+    /// next `COBOL-WAIT-EVENT`, when the handler of the step before has returned.
+    link_steps: Vec<(String, LinkStage)>,
     /// Spec 058 §8 — the conversation a Streamed-layout Viewer is showing,
     /// per control.
     ///
@@ -2259,6 +2271,7 @@ impl Interpreter {
             kb_tools: Vec::new(),
             control_ids: std::collections::HashMap::new(),
             async_dispatch_queue: std::collections::VecDeque::new(),
+            link_steps: Vec::new(),
             viewer_bytes: std::collections::HashMap::new(),
             viewer_conversations: std::collections::HashMap::new(),
             viewer_history: std::collections::HashMap::new(),
@@ -3083,7 +3096,11 @@ impl Interpreter {
         // R19/R20's pair, in the same two shapes as Save As above.
         let mut os_asks: Vec<(String, ViewerOsAction)> = Vec::new();
         let mut os_answers: Vec<(String, ViewerOsAction, String)> = Vec::new();
+        let mut link_answers: Vec<(String, String)> = Vec::new();
         for upd in pending {
+            if upd.prop == Self::LINK_NAVIGATE_ANSWER {
+                link_answers.push((upd.ctrl_id.clone(), upd.value.clone()));
+            }
             let asked_for_csv = upd.prop == Self::DATAGRID_EXPORT_REQUEST
                 && !matches!(upd.value.trim(), "" | "0");
             if asked_for_csv {
@@ -3131,6 +3148,13 @@ impl Interpreter {
         }
         for (obj, action, answer) in os_answers {
             self.run_viewer_os_answer(&obj, action, &answer);
+        }
+        // WASM-006 OQ1 — the system browser took the address: the application is still here, so
+        // `onNavigated` is raised. A refusal has already written `LastError`.
+        for (obj, answer) in link_answers {
+            if answer.trim() == "1" {
+                self.queue_control_event(&obj, "onNavigated");
+            }
         }
     }
 
@@ -11485,6 +11509,8 @@ impl Interpreter {
                 // Spec 094: the handler of the last event has returned — write
                 // (or keep pending) what a bound grid's operator edited in it.
                 self.settle_grid_edits();
+                // WASM-006: a Hyperlink click whose handler has just returned takes its next step.
+                self.advance_link_steps();
                 if self.event_rx.is_some() {
                     // Wait for the next thing to present: a real UI event, an
                     // async completion (spec 032), or channel disconnect. While
@@ -11520,6 +11546,10 @@ impl Interpreter {
                             // Spec 094: a cell edited in a writable bound grid is
                             // kept pending before its handler runs.
                             self.note_grid_edit(&ev.ctrl_id, &ev.event_id);
+                            // WASM-006 R5, R6: a Hyperlink's click resets `Cancel` before its handler.
+                            if ev.event_id.eq_ignore_ascii_case("onClick") && self.is_hyperlink(&ev.ctrl_id) {
+                                self.start_link_click(&ev.ctrl_id);
+                            }
                             // For array member events, make the 1-based card index
                             // available to the handler (generated as CONTROL-ARRAY-INDEX
                             // in LINKAGE for array-member event handlers).
@@ -14811,6 +14841,101 @@ impl Interpreter {
             .insert(ctrl_id.trim().to_ascii_uppercase(), def.menu.clone());
     }
 
+    fn is_hyperlink(&self, obj: &str) -> bool {
+        self.objects
+            .get(obj.trim())
+            .map(|o| o.class == "Hyperlink")
+            .unwrap_or(false)
+    }
+
+    /// The request a Hyperlink writes for the host (WASM-006 R16): the address, in the URL parser's form,
+    /// for the system's browser or the operating system's handler (`mailto:`, `tel:`, `sms:`), or a
+    /// `#name` for the form to scroll to.
+    const LINK_NAVIGATE_REQUEST: &'static str = "_NavigateRequest";
+    /// The host's answer: `1` when the address was handed over, empty when it was not (the reason is
+    /// in `LastError`).
+    const LINK_NAVIGATE_ANSWER: &'static str = "_NavigateAnswer";
+
+    /// A Hyperlink's methods (WASM-006 R12): `SetUrl`, `GetUrl`, `Open`, `OpenIn(target)`. `None` for any
+    /// other method, which the universal dispatch answers (`SetCaption`, `GetCaption`, …).
+    fn hyperlink_method(&mut self, obj: &str, m: &str, args: &[CobolValue]) -> Option<String> {
+        use cobolt_forms::hyperlink::{check, plan, project_policy, wants_download, Click, LinkProps, Platform};
+        let arg = |i: usize| args.get(i).map(|v| v.as_display_string().trim().to_string()).unwrap_or_default();
+        match m {
+            "GETURL" => Some(self.obj_get(obj, "Url")),
+            "SETURL" => {
+                // R7, AC4: a refused address leaves the control unchanged and says why.
+                let url = arg(0);
+                let allow_data = wants_download(&self.obj_get(obj, "Download"));
+                match check(&url, allow_data, &project_policy()) {
+                    Ok(_) => self.obj_set(obj, "Url", url),
+                    Err(r) => self.obj_set(obj, "LastError", format!("SetUrl refused: {}", r.message)),
+                }
+                Some(String::new())
+            }
+            "OPEN" | "OPENIN" => {
+                let mut props = LinkProps::read_with(|k| self.obj_get(obj, k));
+                if m == "OPENIN" {
+                    props.target = arg(0);
+                }
+                match plan(&props, Click::default(), Platform::native(), &project_policy()) {
+                    Ok(Some(np)) => self.link_navigate(obj, &np.url),
+                    Ok(None) => {}
+                    Err(r) => self.obj_set(obj, "LastError", format!("{} refused: {}", if m == "OPENIN" { "OpenIn" } else { "Open" }, r.message)),
+                }
+                Some(String::new())
+            }
+            _ => None,
+        }
+    }
+
+    /// A Hyperlink was clicked and its click is about to be presented: `Cancel` back to false (R6),
+    /// and the rest of the sequence waits for the handler.
+    fn start_link_click(&mut self, obj: &str) {
+        self.obj_set(obj, "Cancel", "0".into());
+        self.link_steps.retain(|(c, _)| !c.eq_ignore_ascii_case(obj));
+        self.link_steps.push((obj.to_owned(), LinkStage::BeforeNavigate));
+    }
+
+    /// The handlers of the steps waiting have returned: stop where one set `Cancel`, raise
+    /// `onBeforeNavigate` after `onClick`, and navigate after `onBeforeNavigate` (plan D2).
+    fn advance_link_steps(&mut self) {
+        for (obj, stage) in std::mem::take(&mut self.link_steps) {
+            let cancel = self.obj_get(&obj, "Cancel");
+            let cancelled = matches!(cancel.trim().to_ascii_uppercase().as_str(), "1" | "TRUE" | "YES" | "ON");
+            if cancelled {
+                continue;
+            }
+            match stage {
+                LinkStage::BeforeNavigate => {
+                    self.queue_control_event(&obj, "onBeforeNavigate");
+                    self.link_steps.push((obj, LinkStage::Follow));
+                }
+                LinkStage::Follow => {
+                    use cobolt_forms::hyperlink::{plan, project_policy, Click, LinkProps, Platform};
+                    let props = LinkProps::read_with(|k| self.obj_get(&obj, k));
+                    match plan(&props, Click::default(), Platform::native(), &project_policy()) {
+                        Ok(Some(np)) => self.link_navigate(&obj, &np.url),
+                        Ok(None) => {}
+                        Err(r) => self.obj_set(&obj, "LastError", r.message),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Ask the host to follow `url` (R16: the system's browser whatever the `Target`; a fragment
+    /// scrolls the form). The request is cleared at once: each write is its own request, and the
+    /// next click on the same address must reach the host as one too.
+    fn link_navigate(&mut self, obj: &str, url: &str) {
+        self.obj_set(obj, Self::LINK_NAVIGATE_REQUEST, url.to_owned());
+        self.obj_set(obj, Self::LINK_NAVIGATE_REQUEST, String::new());
+        // R10 + OQ1: a fragment link leaves the application where it is.
+        if url.starts_with('#') {
+            self.queue_control_event(obj, "onNavigated");
+        }
+    }
+
     fn is_side_menu(&self, obj: &str) -> bool {
         self.objects
             .get(obj.trim())
@@ -16293,6 +16418,12 @@ impl Interpreter {
 
         if self.is_side_menu(obj) {
             if let Some(answer) = self.side_menu_method(obj, &m, &arg) {
+                return val(answer);
+            }
+        }
+        // WASM-006 R12 — routed by class first: `Open` means something else on other controls.
+        if self.is_hyperlink(obj) {
+            if let Some(answer) = self.hyperlink_method(obj, &m, args) {
                 return val(answer);
             }
         }
@@ -21016,6 +21147,102 @@ MAIN.
     }
 
     /// Every event queued for `ctrl` so far, in order.
+    fn link_interp(props: &[(&str, &str)]) -> (Interpreter, std::sync::mpsc::Receiver<StateUpdate>) {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. LINK-T13.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("program should parse"));
+        let mut seed: Vec<(String, String)> = cobolt_forms::hyperlink::SEEDS.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        seed.extend(props.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        interp.seed_objects([("LNK-1".to_owned(), "Hyperlink".to_owned(), seed)]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        interp.state_tx = Some(tx);
+        (interp, rx)
+    }
+
+    fn requests(rx: &std::sync::mpsc::Receiver<StateUpdate>) -> Vec<String> {
+        rx.try_iter().filter(|u| u.prop == "_NavigateRequest" && !u.value.is_empty()).map(|u| u.value).collect()
+    }
+
+    /// WASM-006 T13, AC4 — `SetUrl` refuses `javascript:`, `vbscript:` and `data:text/html`, leaves the
+    /// control as it was and says why in `LastError`; an accepted address is stored.
+    #[test]
+    fn set_url_refuses_the_dangerous_schemes_and_leaves_the_control_unchanged() {
+        let (mut interp, _rx) = link_interp(&[("Url", "https://ok.example/")]);
+        for bad in ["javascript:alert(1)", "vbscript:msgbox(1)", "data:text/html,<script>alert(1)</script>"] {
+            interp.exec_method("LNK-1", "SETURL", &[CobolValue::from_str(bad, bad.len())]);
+            let url = interp.exec_method("LNK-1", "GETURL", &[]).as_display_string();
+            let why = interp.obj_get("LNK-1", "LastError");
+            println!("SetUrl({bad:?}) -> GetUrl {:?}, LastError {why:?}", url.trim());
+            assert_eq!(url.trim(), "https://ok.example/");
+            assert!(why.contains("refused"), "{why}");
+        }
+        interp.exec_method("LNK-1", "SETURL", &[CobolValue::from_str("mailto:a@b.c?subject=Hi", 23)]);
+        assert_eq!(interp.exec_method("LNK-1", "GETURL", &[]).as_display_string().trim(), "mailto:a@b.c?subject=Hi");
+    }
+
+    /// WASM-006 T13, AC6 — Cancel set in `onClick` stops the click, set in `onBeforeNavigate` stops it
+    /// too, and not set lets exactly one request through, after `onBeforeNavigate` was raised.
+    #[test]
+    fn cancel_in_either_handler_stops_the_navigation_and_none_lets_one_request_through() {
+        // Cancel in onClick.
+        let (mut interp, rx) = link_interp(&[("Url", "https://example.com/a?x=1&y=2")]);
+        interp.obj_set("LNK-1", "Cancel", "1".into());
+        interp.start_link_click("LNK-1");
+        assert_eq!(interp.obj_get("LNK-1", "Cancel"), "0", "reset before the handler");
+        interp.obj_set("LNK-1", "Cancel", "1".into()); // the onClick handler
+        interp.advance_link_steps();
+        interp.advance_link_steps();
+        assert!(requests(&rx).is_empty());
+        assert!(queued_for(&interp, "LNK-1").is_empty(), "no onBeforeNavigate after a cancelled onClick");
+
+        // Cancel in onBeforeNavigate.
+        let (mut interp, rx) = link_interp(&[("Url", "https://example.com/")]);
+        interp.start_link_click("LNK-1");
+        interp.advance_link_steps(); // onClick returned: onBeforeNavigate is raised
+        assert_eq!(queued_for(&interp, "LNK-1"), ["onBeforeNavigate"]);
+        interp.obj_set("LNK-1", "Cancel", "1".into()); // the onBeforeNavigate handler
+        interp.advance_link_steps();
+        assert!(requests(&rx).is_empty());
+
+        // Not cancelled: one request, with the address in its parsed form.
+        let (mut interp, rx) = link_interp(&[("Url", "https://example.com/a?x=1&y=2"), ("Target", "NewTab")]);
+        interp.start_link_click("LNK-1");
+        interp.advance_link_steps();
+        interp.advance_link_steps();
+        interp.advance_link_steps();
+        let sent = requests(&rx);
+        println!("not cancelled: {sent:?}");
+        assert_eq!(sent, ["https://example.com/a?x=1&y=2"]);
+    }
+
+    /// WASM-006 T13 — `Open` and `OpenIn` ask the host whatever the target (R16: the desktop opens the
+    /// system browser); a refused address asks nothing; a fragment raises `onNavigated`.
+    #[test]
+    fn open_asks_the_host_for_every_target_and_refuses_what_the_policy_refuses() {
+        for target in ["Self", "NewTab", "NewWindow", "Parent", "Top"] {
+            let (mut interp, rx) = link_interp(&[("Url", "https://example.com/"), ("Target", target)]);
+            interp.exec_method("LNK-1", "OPEN", &[]);
+            assert_eq!(requests(&rx), ["https://example.com/"], "{target}");
+        }
+        let (mut interp, rx) = link_interp(&[("Url", "https://example.com/")]);
+        interp.exec_method("LNK-1", "OPENIN", &[CobolValue::from_str("NewWindow", 9)]);
+        assert_eq!(requests(&rx).len(), 1);
+        let (mut interp, rx) = link_interp(&[("Url", "javascript:alert(1)")]);
+        interp.exec_method("LNK-1", "OPEN", &[]);
+        assert!(requests(&rx).is_empty());
+        assert!(interp.obj_get("LNK-1", "LastError").contains("refused"));
+        let (mut interp, rx) = link_interp(&[("Url", "#Terms")]);
+        interp.exec_method("LNK-1", "OPEN", &[]);
+        assert_eq!(requests(&rx), ["#Terms"]);
+        assert_eq!(queued_for(&interp, "LNK-1"), ["onNavigated"]);
+    }
+
     fn queued_for(interp: &Interpreter, ctrl: &str) -> Vec<String> {
         interp
             .async_dispatch_queue

@@ -192,6 +192,9 @@ pub fn is_known_method(name: &str) -> bool {
             | "ASK" | "GET" | "POST" | "PUT" | "DELETE" | "CALL" | "SETHEADER"
             | "CLEARHEADERS" | "SETTIMEOUT" | "OPEN" | "EXECUTE" | "EXEC"
             | "QUERY" | "FETCH" | "FETCHALL"
+        // Hyperlink (WASM-006 R12): `Open` is listed above; `OpenIn(target)` takes `Self`,
+        // `NewTab`, `NewWindow`, `Parent` or `Top`.
+            | "SETURL" | "GETURL" | "OPENIN"
         // IndexedFile PartiQL (spec 108): `Execute`, `Fetch`, `Get`, `ColumnNames` and
         // `ColumnCount` are listed above for other controls; this one is new.
             | "EXECUTETRANSACTION"
@@ -224,6 +227,13 @@ pub fn is_known_method(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hyperlink_methods_are_known() {
+        for m in ["SetUrl", "GetUrl", "Open", "OpenIn", "SetCaption", "GetCaption"] {
+            assert!(is_known_method(m), "{m} must parse as a method call");
+        }
+    }
 
     #[test]
     fn the_indexed_file_partiql_methods_are_known() {

@@ -14,7 +14,7 @@
 //! * a **block kind** the tree can hold maps to one fixed element (a heading to `h1`…`h6`, a table to
 //!   `table`), and nothing else becomes an element — raw HTML the source embedded is shown as the
 //!   inert text it is;
-//! * a **link** is an anchor only when [`crate::weblink::check`] allows its scheme; otherwise it is plain
+//! * a **link** is an anchor only when [`crate::hyperlink::check`] allows its scheme; otherwise it is plain
 //!   text. Every anchor is `rel="noopener noreferrer nofollow"` and opens in a new tab;
 //! * an **image** is loaded only from the application's own files, a `data:` image or an allowed origin
 //!   ([`ViewCtx::image_url`]); otherwise its alt text is shown;
@@ -30,7 +30,7 @@ use super::controls::root;
 use super::svg::svg_to_vnode;
 use super::{MermaidState, VNode, ViewCtx};
 use crate::value::{fmt_number, parse_f64, truthy};
-use crate::weblink::{check, Policy};
+use crate::hyperlink::{check, Policy};
 
 /// A document the page has read for a Viewer: its text and how to read it.
 #[derive(Debug, Clone, PartialEq)]
@@ -151,7 +151,7 @@ fn inline_styles(mut n: VNode, s: &TextStyle) -> VNode {
     n
 }
 
-/// The scheme check every link goes through (the WebLink policy: `http`, `https`, `mailto`, `tel`,
+/// The scheme check every link goes through (the Hyperlink policy: `http`, `https`, `mailto`, `tel`,
 /// a bundle-relative path or a fragment; never `javascript:` or `data:`).
 pub fn link_allowed(url: &str, policy: &Policy) -> bool {
     let u = url.trim();

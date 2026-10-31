@@ -272,6 +272,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tl",
  "toml 0.8.23",
+ "url",
 ]
 
 [[package]]

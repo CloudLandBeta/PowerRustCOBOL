@@ -1367,6 +1367,7 @@ impl FormBody {
             pre_focus,
             Some(scope),
         );
+        self.follow_link_activations(&out.link_activations);
         self.forward_interaction(&out.prop_updates, out.events, blocked);
     }
 
@@ -1464,6 +1465,12 @@ impl FormBody {
             Handoff::Print
         } else if prop.eq_ignore_ascii_case(Handoff::Share.request_prop()) {
             Handoff::Share
+        } else if prop.eq_ignore_ascii_case(Handoff::OpenUrl.request_prop()) {
+            // WASM-006 R16 — a Hyperlink's request from the interpreter, after its handlers.
+            if !value.trim().is_empty() {
+                self.follow_link(ctrl_id, value.trim());
+            }
+            return true;
         } else {
             return false;
         };
@@ -1476,6 +1483,38 @@ impl FormBody {
         self.pending_os_handoff
             .push((ctrl_id.to_owned(), what, PathBuf::from(path)));
         true
+    }
+
+    /// Follow what a Hyperlink asks for (WASM-006 R10, R16): a `#name` scrolls the form to the control
+    /// of that name and focuses it; any other address goes to the system's default browser (or the
+    /// operating system's handler), whatever its `Target`. The opener checks the policy again.
+    pub(crate) fn follow_link(&mut self, ctrl_id: &str, url: &str) {
+        if let Some(name) = url.strip_prefix('#') {
+            let target = self.controls.iter().find(|c| c.id.eq_ignore_ascii_case(name)).map(|c| c.id.clone());
+            if let Some(id) = target {
+                static FRAGMENT_FOCUS_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let n = FRAGMENT_FOCUS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                self.state_entry_mut(&id).set(cobolt_forms::render::SET_FOCUS_PROP, format!("link-{n}"));
+            }
+            return;
+        }
+        self.pending_os_handoff.push((ctrl_id.to_owned(), crate::os_handoff::Handoff::OpenUrl, PathBuf::from(url)));
+    }
+
+    /// The Hyperlinks the renderer activated this frame (WASM-006): one nobody intercepts is followed
+    /// here at once; a refused one says why in `LastError`; one with a bound handler is the
+    /// interpreter's, which answers with a `_NavigateRequest` when its handlers have not cancelled it.
+    pub(crate) fn follow_link_activations(&mut self, acts: &[cobolt_forms::render::LinkActivation]) {
+        for a in acts.iter().filter(|a| !a.intercepted) {
+            match &a.plan {
+                Ok(Some(np)) => self.follow_link(&a.ctrl_id, &np.url),
+                Ok(None) => {}
+                Err(r) => {
+                    self.state_entry_mut(&a.ctrl_id).set("LastError", r.message.clone());
+                    let _ = self.input_tx.send(StateUpdate::new(a.ctrl_id.clone(), "LastError", r.message.clone()));
+                }
+            }
+        }
     }
 
     /// Start whatever handoffs the state drain queued, and collect the answers
@@ -3492,6 +3531,7 @@ impl FormBody {
 
             // Live values to the interpreter, then the events — with the
             // timer-tick backlog coalescing. Shared with the root's path.
+            self.follow_link_activations(&output.link_activations);
             if self.forward_interaction(&output.prop_updates, output.events, blocked) {
                 platform_acted = true;
             }
@@ -7318,6 +7358,7 @@ impl FormHost {
         if armed {
             // Live values, then the events with Timer-tick coalescing — shared
             // with the child-window path.
+            self.root.follow_link_activations(&output.link_activations);
             if self
                 .root
                 .forward_interaction(&output.prop_updates, output.events, root_blocked)

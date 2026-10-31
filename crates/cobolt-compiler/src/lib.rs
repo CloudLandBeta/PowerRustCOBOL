@@ -1030,6 +1030,50 @@ struct CoboltProject {
     /// `[[sql-connections]]` — the project's named SQL connections (spec 087).
     #[serde(default, rename = "sql-connections")]
     sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
+    /// `[links]` — the schemes the project's Hyperlinks may follow beyond the defaults (WASM-006 R7).
+    #[serde(default)]
+    links: LinksConfig,
+}
+
+/// `[links]` in the project manifest (WASM-006 R7, OQ3): `schemes` widens what a Hyperlink follows —
+/// never for `javascript:`, `vbscript:` or `data:`, which `cobolt_forms::hyperlink::check` refuses
+/// whatever is listed. Empty by default: nothing is widened unless the project names it.
+#[derive(Debug, Clone, Default, Deserialize)]
+struct LinksConfig {
+    #[serde(default)]
+    schemes: Vec<String>,
+}
+
+/// The project's extra link schemes (`[links] schemes`), trimmed, lower-cased, empty entries
+/// dropped; an empty list for a manifest without them or one that cannot be read. Public for the
+/// same reason as [`project_file_memory_limit`]: `rcrun run-form` publishes it for every form.
+pub fn project_link_schemes(manifest_path: &Path) -> Vec<String> {
+    std::fs::read_to_string(manifest_path)
+        .ok()
+        .and_then(|text| toml::from_str::<CoboltProject>(&text).ok())
+        .map(|p| normalize_link_schemes(&p.links.schemes))
+        .unwrap_or_default()
+}
+
+fn normalize_link_schemes(schemes: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for s in schemes {
+        let s = s.trim().trim_end_matches(':').to_ascii_lowercase();
+        if !s.is_empty() && !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    out
+}
+
+/// The link-schemes constant every generated `main.rs` carries, as `generate_main_rs` writes it —
+/// empty. `build_core` replaces it with the project's `[links] schemes`.
+const LINK_SCHEMES_DEFAULT_LINE: &str = "const PROJECT_LINK_SCHEMES: &[&str] = &[];";
+
+/// Put the project's extra link schemes into a generated `main.rs` (WASM-006 R7).
+fn bake_link_schemes(main_rs: String, schemes: &[String]) -> String {
+    let list: Vec<String> = normalize_link_schemes(schemes).iter().map(|s| format!("\"{}\"", s.escape_default())).collect();
+    main_rs.replace(LINK_SCHEMES_DEFAULT_LINE, &format!("const PROJECT_LINK_SCHEMES: &[&str] = &[{}];", list.join(", ")))
 }
 
 /// `[ide]` in the project manifest — the subset a build reads. Everything else
@@ -1873,6 +1917,7 @@ pub fn build_single_file(
         rag: RagConfig::default(),
         agents: AgentsConfig::default(),
         ide: IdeConfig::default(),
+        links: LinksConfig::default(),
         sql_connections: Vec::new(),
     };
     build_core(proj, project_dir, opts, false)
@@ -2943,6 +2988,7 @@ fn build_core(
         proj.forms.focus_ring_pulse,
     );
     let main_rs = bake_indexed_engine(main_rs, &proj.ide.indexed_engine);
+    let main_rs = bake_link_schemes(main_rs, &proj.links.schemes);
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
     // ── 10. Run cargo build --release (cargo build, for a debug build) ────────
@@ -4186,9 +4232,12 @@ fn generate_main_rs_for(
          /// Carries NO credential: keys arrive through the environment.\n\
          #[allow(dead_code)]\nconst PROJECT_CONNECTIONS: &str = \"{}\";\n\
          /// `[agents] file_memory_limit_mb` — memory one model file search may load.\n\
-         #[allow(dead_code)]\nconst PROJECT_FILE_MEMORY_LIMIT_MB: u64 = {};\n",
+         #[allow(dead_code)]\nconst PROJECT_FILE_MEMORY_LIMIT_MB: u64 = {};\n\
+         /// `[links] schemes` — what the project's Hyperlinks may follow beyond the defaults.\n\
+         #[allow(dead_code)]\n{}\n",
         connections_json.escape_default(),
-        file_memory_limit_mb
+        file_memory_limit_mb,
+        LINK_SCHEMES_DEFAULT_LINE
     );
 
     let form_runtime_code = if has_forms {
@@ -4371,6 +4420,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     cobolt_form_host::seeding::publish_search_connections(project_connections.search.clone());
     cobolt_form_host::seeding::publish_aws_connections(project_connections.aws.clone());
     cobolt_runtime::mcp_tool::publish_file_memory_limit(PROJECT_FILE_MEMORY_LIMIT_MB * 1024 * 1024);
+    cobolt_form_host::seeding::publish_link_schemes(PROJECT_LINK_SCHEMES.iter().map(|s| s.to_string()).collect());
     let (maps_api_key, search_api_key) = cobolt_form_host::seeding::resolve_api_keys();
     let seed = cobolt_form_host::seeding::build_object_seed(
         &first_form,
@@ -6553,6 +6603,22 @@ const BOOL_DOMAIN: &str = "`1` (true) or `0` (false)";
 /// `IconSize` was described as a TreeView's; property audit, 2026-09-25).
 pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str, &'static str)> {
     let specific = match (control, name) {
+        // WASM-006 — the Hyperlink's `<a>` capabilities. There is no `Ping` (operator, 2026-10-20).
+        ("Hyperlink", "Url") => Some(("an address, or empty", "The address the link opens: `http`, `https`, `mailto` (with `subject`, `body`, `cc`, `bcc`), `tel`, `sms`, a relative address or a `#name` on this form. `javascript:`, `vbscript:` and `data:` are ALWAYS refused (a `data:` address only for a `Download`); any other scheme only when the project lists it under `[links] schemes`. The address goes through the WHATWG URL parser (percent-encoding, an internationalised host in its ASCII form) and that parsed form is what is checked and followed. A refused address is never rewritten: kept as written, shown in red under the field in the Properties panel, and the link stays inert. `SetUrl` refuses the same addresses at run time (see `LastError`).")),
+        ("Hyperlink", "Target") => Some(("`Self` | `NewTab` | `NewWindow` | `Parent` | `Top` (default `Self`)", "Where the page opens in a browser (HTML `_self`, `_blank`, `_parent`, `_top`). Modifier keys override it: Ctrl-click (Linux, Windows) or ⌘-click (macOS) and a middle click open a new tab. On a DESKTOP form every address opens in the system's default browser whatever the Target.")),
+        ("Hyperlink", "WindowFeatures") => Some(("a `window.open` feature string, or empty", "For `NewWindow`: the size and position, as `window.open` takes them — `width=600,height=400,left=100,top=100`.")),
+        ("Hyperlink", "Rel") => Some(("a space-separated list, or empty", "The `rel` of the anchor (`noopener`, `noreferrer`, `nofollow`, `external`, …). EMPTY on a new tab or window means `noopener noreferrer`: the page opened gets no handle back to the application. Set it explicitly to loosen that.")),
+        ("Hyperlink", "Download") => Some(("empty, a file name, or `yes`", "Empty: the link navigates. A file name: a click downloads the address and offers that name; `yes`/`true`: the name is taken from the address. Alt-click (⌥-click on macOS) downloads too.")),
+        ("Hyperlink", "HrefLang") => Some(("a language tag, or empty", "The language of the page linked to (`en`, `pt-BR`), written to the anchor's `hreflang`.")),
+        ("Hyperlink", "MimeType") => Some(("a media type, or empty", "The media type of what the link points to (the anchor's `type`), such as `application/pdf`.")),
+        ("Hyperlink", "ReferrerPolicy") => Some(("one of HTML's eight referrer policies, or empty", "How much of this page's address the opened page is told (`no-referrer`, `origin`, `strict-origin-when-cross-origin`, …); empty is the browser's default.")),
+        ("Hyperlink", "LinkUnderline") => Some(("`Always` | `Hover` | `Never` (default `Always`)", "When the link text is underlined. `Hover`: only while the pointer is over it. Separate from the font's Boolean `Underline`.")),
+        ("Hyperlink", "AccessibleLabel") => Some(("free text, or empty", "The name a screen reader announces (`aria-label` in a browser); empty means the Caption. The Tooltip is the link's `title`.")),
+        ("Hyperlink", "LinkColor") => Some(("colour, or empty (the theme's link colour)", "The link text's colour at rest.")),
+        ("Hyperlink", "HoverColor") => Some(("colour, or empty (the theme's)", "The link text's colour while the pointer is over it.")),
+        ("Hyperlink", "ActiveColor") => Some(("colour, or empty (the theme's)", "The link text's colour while it is pressed.")),
+        ("Hyperlink", "VisitedColor") => Some(("colour, or empty (the theme's)", "In a browser, the colour of a link already visited. Browsers let `:visited` change the COLOUR only (and ignore its alpha), so this is the whole supported subset. A desktop form has no history and ignores it.")),
+        ("Hyperlink", "Cancel") => Some(("Boolean, run time only", "Set it in `onClick` or `onBeforeNavigate` — `SET LNK-1::Cancel TO TRUE` — and the click does not navigate. It is reset to FALSE before each click. Test it with `IF LNK-1::Cancel = 1`.")),
         ("Button", "IconSize") => Some((
             "pixels, one of: `16` `32` `48` `64` `80` `96` `128` (default 32)",
             "Edge length of the Button's square icon slot: the IconPath image is drawn at exactly IconSize x IconSize, so supply an image of that proportion (pad a non-square one with transparency) or it is distorted. A Button with an icon and an empty Caption is an icon button: the icon is centred and nothing else is drawn on the face.",
@@ -7822,6 +7888,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
 fn event_reference(name: &str) -> &'static str {
     match name {
         "onChange" => "value or text changed",
+        "onBeforeNavigate" => "Hyperlink: about to navigate, after `onClick` — set `Cancel` to TRUE to stop it. In a browser the event's argument is `target⇥url`",
+        "onNavigated" => "Hyperlink: the navigation happened and the application is still here — a `#name` link, a new tab or window, or (desktop) the system browser took the address",
         "onTextChanged" => "text content changed",
         "onEnter" => "focus entered the box (alias of onGotFocus)",
         "onLeave" => "focus left the box (alias of onLostFocus)",
@@ -7986,6 +8054,7 @@ fn control_purpose(name: &str) -> &'static str {
     match name {
         "Button" => "Clickable push button.",
         "TextBox" => "Single- or multi-line text input.",
+        "Hyperlink" => "Link text that opens an address like an HTML `<a>`: a web page, an e-mail (`mailto:`), a phone number (`tel:`, `sms:`), a download or a `#name` on the form. Caption is the friendly text, Url the address. The hand cursor, link colours and an underline by default. In a browser it IS an anchor (Ctrl/⌘-click, middle-click and the context menu work as on any site); on a desktop form a click opens the system's default browser, whatever the Target. It is a tab stop and Enter follows it. A click raises `onClick` (in a browser with the modifier keys held, `Ctrl,Shift`), then `onBeforeNavigate`; `SET LNK-1::Cancel TO TRUE` in either stops the navigation. It has the Label's properties, events and methods plus the link's.",
         "Label" => "Static text display. At RUN TIME its caption is SELECTABLE TEXT: drag across it to select, and Cmd/Ctrl+C copies the selection to the clipboard — a drag that starts on one Label and ends on another takes in both, so a reading can be copied along with the caption naming it. There is no property to switch on and nothing to write in COBOL; every Label behaves this way, in the running form and in Preview alike. A Label with a bound onClick still fires it, TAB still walks past labels to the form's own controls, and on the DESIGNER CANVAS a drag still positions the control. Do NOT tell a developer to use a ReadOnly TextBox to make text copyable — that was the workaround before labels could be selected.",
         "CheckBox" => "Boolean on/off box with caption. It has TWO surfaces, each with its own properties. The FRAME is the card behind caption and box: BackgroundColor fills it and BorderStyle/BorderColor/BorderWidth rim it, exactly as on every other control — it is 100 % transparent by default, so nothing shows until one of those is set. The BOX is the tick square: CheckBoxColor fills it, CheckBoxBorderStyle/Color/Width rim it, CheckColor draws the tick inside it and CheckSize scales that tick. Never tell a user to set BackgroundColor to colour the box, or CheckBoxColor to colour the frame.",
         "RadioButton" => "Mutually-exclusive choice within a GroupName. Its indicator is a real drawn CIRCLE on every theme — filled when chosen, an empty rim when not — never a character in the caption. A theme that describes a toggle surface colours it (Elegance paints its green); on every other theme the circle takes the control's own `CheckColor`, and `CheckBoxColor` sets the circle's face where the developer wants one. An unchosen circle's rim is picked for CONTRAST against whatever the control was dropped on, so it is visible on a dark form and on a pale card alike.",
@@ -8134,6 +8203,16 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
     match name {
         "Button" => caption_methods,
         "Label" => caption_methods,
+        "Hyperlink" => {
+            let mut m = caption_methods.clone();
+            m.extend([
+                ("SetUrl(address: String)", "Set the address. A refused one (`javascript:`, `vbscript:`, `data:`, a scheme the project does not list) leaves Url unchanged and says why in `LastError`."),
+                ("GetUrl() → String", "Read the address."),
+                ("Open()", "Act as a plain click, honouring Target (no onClick or onBeforeNavigate). Called from a handler that waited (a dialog, a remote CALL) a browser may block a new tab or window as a pop-up; the page says so."),
+                ("OpenIn(target: String)", "As Open, in the target given: `Self`, `NewTab`, `NewWindow`, `Parent` or `Top`."),
+            ]);
+            m
+        }
         "CheckBox" | "RadioButton" => {
             let mut v = caption_methods;
             v.extend([
@@ -8587,6 +8666,18 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
 /// data-flow contracts, and other things a code generator must know).
 fn control_usage_notes(name: &str) -> &'static str {
     match name {
+        "Hyperlink" => "\
+### Usage (addresses, modifier keys, Cancel)\n\
+Accepted: `http`, `https`, `mailto` (`?subject=…&body=…&cc=…&bcc=…`), `tel`, `sms`, a relative address and `#name` (scrolls to the control of that name on the form and focuses it). Always refused, in the designer and by `SetUrl`: `javascript:`, `vbscript:`, `data:` (allowed only for a `Download`). Any other scheme needs the project's `[links] schemes = [\"ftp\"]`; that list can never allow the three refused ones. A new tab or window with an empty `Rel` gets `noopener noreferrer`. There is no `Ping` property.\n\n\
+Modifier keys follow the operating system. Linux and Windows (Chrome's table): Ctrl-click or middle-click opens a new tab, Shift-click a new window, Alt-click downloads. macOS, iOS and iPadOS (Safari's table): ⌘-click opens a new tab (⇧⌘-click makes it active, ⌘⌥-click is a new tab too), ⌥-click downloads, Shift-click is a plain click. On a DESKTOP form every address opens in the system's default browser, `mailto:`/`tel:`/`sms:` in the operating system's handler.\n\n\
+A link with no handler bound to `onClick`, `onBeforeNavigate` or `onNavigated` is left to the browser. With one, the click runs `onClick`, then `onBeforeNavigate`, then navigates; setting Cancel in either stops it:\n\
+```cobol\n\
+       WHEN \"onBeforeNavigate\"\n\
+           IF WS-UNSAVED = 1\n\
+               SET LNK-1::Cancel TO TRUE\n\
+           END-IF\n\
+```\n\
+Do not wait in a link's handler (a dialog, a remote CALL) before a new tab: the browser then sees no click and may block the tab as a pop-up. `onNavigated` is raised only where the application is still loaded afterwards: a `#name` link, a new tab or window, or (desktop) the system browser taking the address. `VisitedColor` is the only `:visited` style a browser allows.",
         "KnowledgeBase" => "\
 ### Usage (events carry their own values)\n\
 Every call that writes or searches answers at once with 1 (started) or 0 (see `LastError`); the result arrives as an event, and the properties you read in that event's branch are the values THAT event carried:\n\
@@ -10552,6 +10643,38 @@ function_prefix = "sales-"
     /// Spec 075 T2 — `[agents] file_memory_limit_mb` is read from the
     /// manifest (0 or absent → 64) and baked into a built application, which
     /// publishes it before the first form is seeded.
+    /// WASM-006 T11 — `[links] schemes` is read (absent → none), normalised, baked into a built
+    /// application's `main.rs` and published there for every form it hosts. The dangerous schemes may be
+    /// listed; the policy refuses them anyway (`cobolt_forms::hyperlink::check`).
+    #[test]
+    fn the_link_schemes_are_read_baked_in_and_published() {
+        let dir = std::env::temp_dir().join(format!("prc-006-links-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("cobolt.toml");
+        let base = "[project]\nname = \"Demo\"\nversion = \"1.0.0\"\nmain = \"MAIN.cbl\"\n";
+        std::fs::write(&manifest, base).unwrap();
+        assert!(project_link_schemes(&manifest).is_empty(), "absent → nothing widened");
+        std::fs::write(&manifest, format!("{base}[links]\nschemes = [\"javascript\", \" FTP: \", \"ftp\", \"\"]\n")).unwrap();
+        let schemes = project_link_schemes(&manifest);
+        println!("[links] schemes -> {schemes:?}");
+        assert_eq!(schemes, ["javascript", "ftp"]);
+        let policy = cobolt_forms::hyperlink::Policy { extra_schemes: schemes.clone() };
+        assert!(cobolt_forms::hyperlink::check("ftp://files.example/a", false, &policy).is_ok(), "ftp widened");
+        assert!(cobolt_forms::hyperlink::check("javascript:alert(1)", false, &policy).is_err(), "never javascript");
+        assert!(project_link_schemes(&dir.join("missing.toml")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let src = generate_main_rs(
+            "Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[],
+            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, "{}", 64,
+        );
+        assert!(src.contains(LINK_SCHEMES_DEFAULT_LINE), "every main carries the constant");
+        assert!(src.contains("cobolt_form_host::seeding::publish_link_schemes(PROJECT_LINK_SCHEMES.iter().map(|s| s.to_string()).collect());"));
+        let baked = bake_link_schemes(src, &schemes);
+        assert!(baked.contains(r#"const PROJECT_LINK_SCHEMES: &[&str] = &["javascript", "ftp"];"#));
+        assert!(!baked.contains(LINK_SCHEMES_DEFAULT_LINE));
+    }
+
     #[test]
     fn the_file_memory_limit_is_read_and_baked_in() {
         let dir = std::env::temp_dir().join(format!("prc-075-limit-{}", std::process::id()));
@@ -10598,6 +10721,7 @@ function_prefix = "sales-"
             rag: RagConfig::default(),
             agents: AgentsConfig::default(),
             ide: IdeConfig::default(),
+            links: LinksConfig::default(),
             sql_connections: Vec::new(),
         }
     }

@@ -69,10 +69,11 @@ pub const BASE_CSS: &str = r#"
 .pr-switch { display: block; cursor: pointer; background: #555a64; border: 0; border-radius: 999px; padding: 0; }
 .pr-switch .pr-thumb { position: absolute; top: 12%; left: 6%; height: 76%; aspect-ratio: 1; border-radius: 50%; background: #fff; }
 .pr-switch[aria-checked="true"] { background: var(--pr-accent); } .pr-switch[aria-checked="true"] .pr-thumb { left: auto; right: 6%; }
-.pr-weblink { cursor: pointer; text-decoration: none; color: var(--pr-link, #6aa6ff); display: inline-flex; align-items: center; }
-.pr-weblink.pr-underline-always { text-decoration: underline; } .pr-weblink.pr-underline-hover:hover { text-decoration: underline; }
-.pr-weblink:visited { color: var(--pr-visited, #b58cff); } .pr-weblink:active { color: var(--pr-active, #ff7a7a); }
-.pr-weblink[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+.pr-hyperlink { cursor: pointer; text-decoration: none; color: var(--pr-link, #6aa6ff); display: inline-flex; align-items: center; }
+.pr-hyperlink:hover { color: var(--pr-hover, var(--pr-link, #9cc3ff)); }
+.pr-hyperlink.pr-underline-always { text-decoration: underline; } .pr-hyperlink.pr-underline-hover:hover { text-decoration: underline; }
+.pr-hyperlink:visited { color: var(--pr-visited, #b58cff); } .pr-hyperlink:active { color: var(--pr-active, #ff7a7a); }
+.pr-hyperlink[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 
 /* containers */
 .pr-groupbox { border: 1px solid var(--pr-border); border-radius: var(--pr-radius); padding: 0; margin: 0; min-width: 0; }
@@ -335,7 +336,7 @@ mod tests {
     fn the_public_class_contract_is_in_the_base_sheet() {
         // The class of a control is `pr-` + its type name in lower case (css::type_class).
         for class in [
-            "pr-button", "pr-textbox", "pr-label", "pr-listbox", "pr-combobox", "pr-groupbox", "pr-panel", "pr-tabcontrol", "pr-weblink",
+            "pr-button", "pr-textbox", "pr-label", "pr-listbox", "pr-combobox", "pr-groupbox", "pr-panel", "pr-tabcontrol", "pr-hyperlink",
             "pr-datagrid", "pr-treeview", "pr-dialog", "pr-snackbar", "pr-viewer", "pr-maps", "pr-menubar", "pr-sidemenu", "pr-toolbar",
             "pr-statusbar", "pr-splitter", "pr-progressbar", "pr-slider", "pr-switch", "pr-filedropzone", "pr-knob", "pr-gauge",
         ] {

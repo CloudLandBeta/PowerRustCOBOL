@@ -2230,6 +2230,7 @@ dependencies = [
  "tl",
  "toml 0.8.23",
  "ureq",
+ "url",
  "zip 8.6.0",
 ]
 

@@ -33,7 +33,7 @@ use std::collections::BTreeMap;
 use cobolt_forms::model::{Control, ControlType, Rect};
 
 use crate::css::{self, Decls};
-use crate::kinds::{player_kind, PlayerKind};
+use crate::kinds::player_kind;
 use crate::layout_css;
 use crate::metrics;
 use crate::tree::{Ctl, Kind};
@@ -269,16 +269,20 @@ fn nudged_padding(align: &str, base: f64, nudge: f64, frame: f64, row: f64) -> (
 pub fn kind_decls(ctls: &[Ctl], i: usize) -> Decls {
     let c = &ctls[i];
     let mut d = Decls::new();
-    if let Some(k) = player_kind(c) {
-        if k == PlayerKind::WebLink {
-            if let Some(v) = color(c, "linkcolor") {
-                push(&mut d, "--pr-link", v);
-            }
-        }
+    if player_kind(c).is_some() {
         return d;
     }
     let Kind::Control(t) = &c.kind else { return d };
     match t {
+        // WASM-006 R3 — the state colours as the custom properties `base_css` reads; `:visited` takes
+        // the colour only (Q5, plan D8: browsers apply nothing else to a visited link).
+        ControlType::Hyperlink => {
+            for (prop, var) in [("linkcolor", "--pr-link"), ("hovercolor", "--pr-hover"), ("activecolor", "--pr-active"), ("visitedcolor", "--pr-visited")] {
+                if let Some(v) = color(c, prop) {
+                    push(&mut d, var, v);
+                }
+            }
+        }
         ControlType::Label => {
             push(&mut d, "display", "flex");
             let (_, justify) = css::h_align(c.text_or("textalignment", "Left"));

@@ -18,8 +18,7 @@
 //! fails when [`ControlType::ALL`] and this table disagree (WASM-004 AC1), so a control added to
 //! the model is classified or the build is red.
 //!
-//! The new controls of the series that the model does not carry yet — **WebLink**,
-//! **Authentication**, **Canvas2D**, **Canvas3D** and the five E objects — reach the player as
+//! The new controls of the series that the model does not carry yet — **Authentication**, **Canvas2D**, **Canvas3D** and the five E objects — reach the player as
 //! `ControlType::Custom` (the model's own way of holding a type it does not know) and are
 //! recognised here by name: [`player_kind_of`].
 //!
@@ -60,6 +59,7 @@ pub const TABLE: &[Row] = &[
     r("Button", A, "<button>", ""),
     r("TextBox", A, "<input> / <textarea>", ""),
     r("Label", A, "<span>", ""),
+    r("Hyperlink", A, "<a href>", "WASM-006: navigation by the browser; a bound onClick/onBeforeNavigate navigates from script"),
     r("CheckBox", A, "<input type=checkbox> in a <label>", ""),
     r("RadioButton", A, "<input type=radio> in a <label>", ""),
     r("ListBox", A, "<ul role=listbox>", ""),
@@ -375,7 +375,6 @@ pub fn backend_roles(ctrl: &crate::model::Control) -> Vec<String> {
 /// Controls that exist only in the browser series and that the model carries as `Custom`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerKind {
-    WebLink,
     Authentication,
     Canvas2D,
     Canvas3D,
@@ -387,7 +386,6 @@ pub enum PlayerKind {
 }
 
 pub const PLAYER_KINDS: &[(PlayerKind, &str)] = &[
-    (PlayerKind::WebLink, "WebLink"),
     (PlayerKind::Authentication, "Authentication"),
     (PlayerKind::Canvas2D, "Canvas2D"),
     (PlayerKind::Canvas3D, "Canvas3D"),
@@ -403,18 +401,13 @@ impl PlayerKind {
     pub fn name(self) -> &'static str {
         PLAYER_KINDS.iter().find(|(k, _)| *k == self).map(|(_, n)| *n).unwrap()
     }
-    /// The control's name in the series (what the KB, Check and the agents say). `WebLink` was
-    /// renamed **Hyperlink** by WASM-006; the player keeps the old spelling until WASM-006
-    /// renames it, and both spellings are recognised by [`player_kind_of`].
+    /// The control's name in the series (what the KB, Check and the agents say). The Hyperlink, which
+    /// the player once carried here as `WebLink`, is a model type since WASM-006 T6.
     pub fn series_name(self) -> &'static str {
-        match self {
-            PlayerKind::WebLink => "Hyperlink",
-            k => k.name(),
-        }
+        self.name()
     }
     pub fn class(self) -> Class {
         match self {
-            PlayerKind::WebLink => A,
             PlayerKind::Authentication => C,
             PlayerKind::Canvas2D | PlayerKind::Canvas3D => B,
             _ => E,
@@ -422,7 +415,7 @@ impl PlayerKind {
     }
     /// Does it have a place on the page?
     pub fn visual(self) -> bool {
-        matches!(self, PlayerKind::WebLink | PlayerKind::Authentication | PlayerKind::Canvas2D | PlayerKind::Canvas3D)
+        matches!(self, PlayerKind::Authentication | PlayerKind::Canvas2D | PlayerKind::Canvas3D)
     }
 }
 
@@ -451,14 +444,14 @@ mod tests {
         assert_eq!(table.len(), table_set.len(), "a control is listed twice");
         assert_eq!(model.difference(&table_set).collect::<Vec<_>>(), Vec::<&&str>::new(), "controls missing from the table");
         assert_eq!(table_set.difference(&model).collect::<Vec<_>>(), Vec::<&&str>::new(), "table rows the model does not have");
-        assert_eq!(TABLE.len(), 62, "the catalogue is 62 types; count it, do not trust this line");
+        assert_eq!(TABLE.len(), 63, "the catalogue is 63 types; count it, do not trust this line");
     }
 
     #[test]
     fn the_classes_have_the_sizes_the_spec_describes() {
         let n = |c: Class| TABLE.iter().filter(|r| r.class == c).count();
         println!("class A: {}  B: {}  C: {}  D: {}  E: {}", n(A), n(B), n(C), n(D), n(E));
-        assert_eq!(n(A) + n(B) + n(C) + n(D) + n(E), 62);
+        assert_eq!(n(A) + n(B) + n(C) + n(D) + n(E), 63);
         assert_eq!(n(B), 12, "7 charts, Knob, Gauge, Animator, Maps, Viewer");
         assert_eq!(n(C), 8 + 16, "8 service controls (+ DataGrid, FileDropZone) and the 16 AWS controls");
     }
@@ -466,7 +459,8 @@ mod tests {
     #[test]
     fn the_series_controls_are_found_by_name() {
         let t = ControlType::from_str("WebLink");
-        assert_eq!(player_kind_of(&t), Some(PlayerKind::WebLink));
+        assert_eq!(t, ControlType::Hyperlink, "the interim name is read as the model type");
+        assert_eq!(player_kind_of(&t), None, "a model type, not a series kind");
         assert_eq!(class_of(&t), Class::A);
         assert_eq!(class_of(&ControlType::from_str("Authentication")), Class::C);
         assert_eq!(class_of(&ControlType::from_str("Canvas3D")), Class::B);
@@ -484,8 +478,7 @@ mod tests {
             assert_eq!(player_kind_of(&ControlType::from_str(k.series_name())), Some(*k), "{}", k.series_name());
             assert!(!ControlType::ALL.iter().any(|t| t.as_str().eq_ignore_ascii_case(k.series_name())), "{} is a model type now: move its row to TABLE", k.series_name());
         }
-        assert_eq!(player_kind_of(&ControlType::from_str("Hyperlink")), Some(PlayerKind::WebLink));
-        assert_eq!(player_kind_of(&ControlType::from_str("WebLink")), Some(PlayerKind::WebLink), "the old spelling");
+        assert_eq!(player_kind_of(&ControlType::from_str("Hyperlink")), None, "a model type since WASM-006 T6");
     }
 
     #[test]
@@ -598,7 +591,7 @@ mod tests {
         assert!(matches!(plug_in, ControlType::Custom { .. }), "a namespaced name is a plug-in control");
         assert!(!available_on_web(&plug_in));
         assert!(available_on_web(&ControlType::Button));
-        assert!(available_on_web(&ControlType::from_str("WebLink")), "a series control is not a plug-in");
+        assert!(available_on_web(&ControlType::from_str("Authentication")), "a series control is not a plug-in");
         let unavailable: Vec<&str> = ControlType::ALL.iter().filter(|t| !available_on_web(t)).map(|t| t.as_str()).collect();
         println!("built-in controls not available on the web: {} {:?}", unavailable.len(), unavailable);
         assert!(unavailable.is_empty(), "no built-in control is class D today (plan D-T14b)");

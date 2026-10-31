@@ -836,6 +836,8 @@ impl WebBuildBackend for GeneratorBackend {
             max_frame: Some(req.web.max_payload_bytes),
             backend_contract,
             backend_idempotent,
+            // `[links] schemes` (WASM-006 R7): the same reader the desktop hosts publish from.
+            link_schemes: cobolt_compiler::project_link_schemes(&req.manifest),
             // A see-through theme (Spatial), or a main form whose own face is translucent, needs
             // something behind it: the same stand-in for a desktop its pictures are drawn over.
             backdrop: {

@@ -156,7 +156,6 @@ fn element_of(cx: &ViewCtx, i: usize) -> VNode {
     let Kind::Control(t) = &c.kind else { return VNode::new("div").key("root") };
     if let Some(k) = player_kind(c) {
         return match k {
-            PlayerKind::WebLink => weblink(cx, i),
             PlayerKind::Authentication => authentication(cx, i),
             PlayerKind::Canvas2D | PlayerKind::Canvas3D => canvas(cx, i, k),
             _ => hidden_object(cx, i),
@@ -165,6 +164,7 @@ fn element_of(cx: &ViewCtx, i: usize) -> VNode {
     match t {
         ControlType::Button => button(cx, i),
         ControlType::Label => label(cx, i),
+        ControlType::Hyperlink => hyperlink(cx, i),
         ControlType::TextBox => text_box(cx, i),
         ControlType::CheckBox | ControlType::RadioButton => check_or_radio(cx, i),
         ControlType::ListBox => list_box(cx, i),
@@ -931,13 +931,14 @@ pub fn file_drop_zone(cx: &ViewCtx, i: usize) -> VNode {
 
 // ── The series' own controls ────────────────────────────────────────────────
 
-/// A WebLink (WASM-006): a real anchor, so the browser's own behaviour (Ctrl-click, the context menu,
-/// middle-click, "copy link address") works, with `rel` forced safe and **no `ping`**.
-pub fn weblink(cx: &ViewCtx, i: usize) -> VNode {
+/// A Hyperlink (WASM-006): a real anchor, so the browser's own behaviour (Ctrl-click, the context menu,
+/// middle-click, "copy link address") works, with `rel` forced safe and **no `ping`**. `hreflang`,
+/// `type` and `aria-label` (from `AccessibleLabel`) are written as set; `title` is the Tooltip (`root`).
+pub fn hyperlink(cx: &ViewCtx, i: usize) -> VNode {
     let c = cx.tree.ctl(i);
-    let props = crate::weblink::LinkProps::read(cx.tree, i);
-    let plain = crate::weblink::plan(&props, crate::weblink::Click::default(), &cx.tree.policy);
-    let mut n = root(cx, i, "a").class("pr-weblink");
+    let props = crate::hyperlink::read_props(cx.tree, i);
+    let plain = crate::hyperlink::plan(&props, crate::hyperlink::Click::default(), cx.tree.platform, &cx.tree.policy);
+    let mut n = root(cx, i, "a");
     n = n.on("click").on("auxclick");
     match plain {
         Ok(Some(p)) => {
@@ -964,11 +965,22 @@ pub fn weblink(cx: &ViewCtx, i: usize) -> VNode {
     let text = cx.tree.get(i, "Caption");
     let text = if text.is_empty() { cx.tree.get(i, "Text") } else { text };
     let text = if text.is_empty() { props.url.clone() } else { text };
-    let underline = cx.tree.get(i, "Underline").to_ascii_lowercase();
-    match underline.as_str() {
-        "always" | "1" | "true" => n = n.class("pr-underline-always"),
-        "hover" => n = n.class("pr-underline-hover"),
-        _ => {}
+    let hreflang = cx.tree.get(i, "HrefLang");
+    if !hreflang.trim().is_empty() {
+        n = n.attr("hreflang", hreflang.trim().to_owned());
+    }
+    let mime = cx.tree.get(i, "MimeType");
+    if !mime.trim().is_empty() {
+        n = n.attr("type", mime.trim().to_owned());
+    }
+    let label = cx.tree.get(i, "AccessibleLabel");
+    if !label.trim().is_empty() {
+        n = n.attr("aria-label", label.trim().to_owned());
+    }
+    match cobolt_forms::hyperlink::Underline::parse(&cx.tree.get(i, "LinkUnderline")) {
+        cobolt_forms::hyperlink::Underline::Always => n = n.class("pr-underline-always"),
+        cobolt_forms::hyperlink::Underline::Hover => n = n.class("pr-underline-hover"),
+        cobolt_forms::hyperlink::Underline::Never => {}
     }
     let _ = c;
     n.text(text)
@@ -1004,6 +1016,49 @@ mod tests {
         let e = Empty::default();
         let cx = e.cx(&t);
         view(&cx, i)
+    }
+
+    /// WASM-006 T8 (R3, R4) — the anchor carries `hreflang`, `type`, `aria-label` and `title` as set,
+    /// `rel` safe for a new tab, the state colours as custom properties, and never `ping`.
+    #[test]
+    fn a_hyperlink_is_an_anchor_with_every_attribute_it_was_given_and_no_ping() {
+        let (t, i) = tree_with(
+            "Hyperlink",
+            "LNK-1",
+            &[
+                ("Caption", "Example"),
+                ("Url", "https://example.com/"),
+                ("Target", "NewTab"),
+                ("HrefLang", "pt-BR"),
+                ("MimeType", "text/html"),
+                ("AccessibleLabel", "Example site"),
+                ("Tooltip", "Opens example.com"),
+                ("LinkUnderline", "Hover"),
+                ("LinkColor", "#112233"),
+                ("VisitedColor", "#445566"),
+            ],
+        );
+        let e = Empty::default();
+        let cx = e.cx(&t);
+        let n = view(&cx, i);
+        println!("{}", n.describe());
+        assert_eq!(n.tag, "a");
+        assert!(n.has_class("pr-hyperlink") && n.has_class("pr-underline-hover"));
+        assert_eq!(n.text.as_deref(), Some("Example"));
+        assert_eq!(n.attr_of("href"), Some("https://example.com/"));
+        assert_eq!(n.attr_of("target"), Some("_blank"));
+        assert_eq!(n.attr_of("rel"), Some("noopener noreferrer"));
+        assert_eq!(n.attr_of("hreflang"), Some("pt-BR"));
+        assert_eq!(n.attr_of("type"), Some("text/html"));
+        assert_eq!(n.attr_of("aria-label"), Some("Example site"));
+        assert_eq!(n.attr_of("title"), Some("Opens example.com"));
+        assert!(n.attr_of("ping").is_none(), "no ping in v1");
+        let decls = crate::view::style::kind_decls(&t.ctls, i);
+        let text = format!("{decls:?}");
+        assert!(text.contains("--pr-link") && text.contains("--pr-visited"), "{text}");
+        // The interim name loads as the same control.
+        let (old, j) = tree_with("WebLink", "LNK-2", &[("Url", "https://example.com/")]);
+        assert_eq!(view(&e.cx(&old), j).tag, "a");
     }
 
     #[test]

@@ -245,8 +245,10 @@ pub struct FormTree {
     /// The Authentication controls' live state, by control (WASM-009).
     pub auths: BTreeMap<usize, crate::auth::AuthUi>,
     /// What a link may point at, beyond the defaults: the project's extra schemes (WASM-006 R7). Every
-    /// place that checks an address — the WebLink control, `SetUrl`, a Viewer's links, `Navigate` — reads it here.
-    pub policy: crate::weblink::Policy,
+    /// place that checks an address — the Hyperlink control, `SetUrl`, a Viewer's links, `Navigate` — reads it here.
+    pub policy: crate::hyperlink::Policy,
+    /// Whose modifier-key conventions a link's click follows (WASM-006 Q2): Safari's on Apple platforms.
+    pub platform: crate::hyperlink::Platform,
     /// What this form was opened with, in order (WASM-011 R4): the query of its route.
     pub params: Vec<(String, String)>,
     /// The form's `SPECIAL-NAMES` decide how a PICTURE reads and prints: `DECIMAL-POINT IS COMMA` swaps the
@@ -458,7 +460,7 @@ impl FormTree {
             let abi = entry.control_by_name(&c.id);
             if let Some(a) = abi {
                 // Compared through the model's own parser, so a type the model carries as `Custom`
-                // (WebLink, Authentication, …) matches under the name the manifest uses for it.
+                // (Authentication, …) matches under the name the manifest uses for it.
                 if ControlType::from_str(&a.kind) != c.control_type {
                     return Err(PairError(format!(
                         "control `{}` of form `{}` is a {} in the form description but a {} in the program: rebuild the application",
@@ -534,7 +536,8 @@ impl FormTree {
             written: std::collections::HashSet::new(),
             conversations: BTreeMap::new(),
             auths: BTreeMap::new(),
-            policy: crate::weblink::Policy::default(),
+            policy: crate::hyperlink::Policy::default(),
+            platform: crate::hyperlink::Platform::Other,
             params: Vec::new(),
             theme: form.theme.clone().unwrap_or_default().trim().to_owned(),
             decimal_comma: cobolt_forms::picture::decimal_comma_from_special_names(&form.cobol_structure.special_names),

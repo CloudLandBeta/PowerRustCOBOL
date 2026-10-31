@@ -167,7 +167,9 @@ pub struct BundleOptions {
     /// Add the optional service-worker shim for hosts that cannot set headers (off by default).
     pub service_worker_shim: bool,
     pub debug_level: u32,
-    pub weblink_schemes: Vec<String>,
+    /// The project's extra link schemes for its Hyperlinks (WASM-006 R7), written to `config.json` as
+    /// `options.link_schemes`.
+    pub link_schemes: Vec<String>,
     pub recaptcha_site_key: String,
     pub auth_flow: String,
     /// Override the host page's texts (the developer translates them): `loading`, `unsupported`, …
@@ -219,7 +221,7 @@ impl Default for BundleOptions {
             workers: None,
             service_worker_shim: false,
             debug_level: 0,
-            weblink_schemes: Vec::new(),
+            link_schemes: Vec::new(),
             recaptcha_site_key: String::new(),
             auth_flow: "in-app".into(),
             texts: BTreeMap::new(),
@@ -746,7 +748,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
             "workers": o.workers,
             "debug_level": o.debug_level,
             "locale": o.locale,
-            "weblink_schemes": o.weblink_schemes,
+            "link_schemes": o.link_schemes,
             "recaptcha_site_key": o.recaptcha_site_key,
             "auth_flow": o.auth_flow,
             "tile_url": o.tile_url.clone().unwrap_or_default(),

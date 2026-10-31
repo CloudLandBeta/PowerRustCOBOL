@@ -1683,6 +1683,9 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         ControlType::Snackbar => SNACKBAR,
         ControlType::ToolBar => TOOLBAR,
         ControlType::FileDropZone => FILE_DROP_ZONE,
+        // WASM-006 R6 — a handler sets `Cancel` during `onClick` or `onBeforeNavigate` to stop the
+        // navigation; reset to false before each click.
+        ControlType::Hyperlink => &["Cancel"],
         _ => &[],
     }
 }
@@ -2775,6 +2778,8 @@ pub enum ControlType {
     Button,
     TextBox,
     Label,
+    /// WASM-006 — link text that navigates like an HTML `<a>` (a Label's look, an address).
+    Hyperlink,
     CheckBox,
     RadioButton,
     ListBox,
@@ -2954,6 +2959,7 @@ impl ControlType {
         ControlType::Button,
         ControlType::TextBox,
         ControlType::Label,
+        ControlType::Hyperlink,
         ControlType::CheckBox,
         ControlType::RadioButton,
         ControlType::ListBox,
@@ -3020,6 +3026,7 @@ impl ControlType {
             ControlType::Button => "Button",
             ControlType::TextBox => "TextBox",
             ControlType::Label => "Label",
+            ControlType::Hyperlink => "Hyperlink",
             ControlType::CheckBox => "CheckBox",
             ControlType::RadioButton => "RadioButton",
             ControlType::ListBox => "ListBox",
@@ -3091,6 +3098,9 @@ impl ControlType {
             "Button" => ControlType::Button,
             "TextBox" => ControlType::TextBox,
             "Label" => ControlType::Label,
+            // `WebLink` is the browser player's interim name (WASM-006 before Q1): a form written
+            // with it loads as a Hyperlink and is saved as one.
+            "Hyperlink" | "WebLink" => ControlType::Hyperlink,
             "CheckBox" => ControlType::CheckBox,
             "RadioButton" => ControlType::RadioButton,
             "ListBox" => ControlType::ListBox,
@@ -3170,7 +3180,7 @@ impl ControlType {
         match self {
             ControlType::Button => (80, 28),
             ControlType::TextBox => (160, 24),
-            ControlType::Label => (120, 20),
+            ControlType::Label | ControlType::Hyperlink => (120, 20),
             ControlType::CheckBox => (120, 22),
             // Wider than a CheckBox because its default caption is longer
             // ("RadioButton-1" against "CheckBox-1") and, since 1.61.152, every
@@ -3377,7 +3387,7 @@ impl ControlType {
                     }
                 }
                 // Captions and labels.
-                ControlType::Label | ControlType::Button | ControlType::GroupBox => {
+                ControlType::Label | ControlType::Hyperlink | ControlType::Button | ControlType::GroupBox => {
                     if eq("Caption") {
                         vec!["onTextChanged"]
                     } else {
@@ -3440,6 +3450,34 @@ impl ControlType {
                 "onEnter",
                 "onLeave",
                 "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onLoad",
+            ],
+            // WASM-006 R13 — the Label's events, and the two of a navigation: `onBeforeNavigate`
+            // (where `Cancel` applies) and `onNavigated`.
+            ControlType::Hyperlink => &[
+                "onClick",
+                "onBeforeNavigate",
+                "onNavigated",
+                "onGotFocus",
                 "onDblClick",
                 "onDoubleClick",
                 "onRightClick",
@@ -5238,6 +5276,7 @@ pub(crate) fn border_style_default(control_type: &ControlType) -> &'static str {
         // Controls that paint their own complete face, or none at all: a rim
         // around them is a second outline the developer never asked for.
         ControlType::Label
+        | ControlType::Hyperlink
         | ControlType::CheckBox
         | ControlType::RadioButton
         | ControlType::PictureBox
@@ -5258,6 +5297,7 @@ impl Control {
         let has_caption = matches!(
             control_type,
             ControlType::Label
+                | ControlType::Hyperlink
                 | ControlType::Button
                 | ControlType::CheckBox
                 | ControlType::RadioButton
@@ -5400,6 +5440,24 @@ impl Control {
                 props.insert("WordWrap".into(), PropValue::Bool(false));
                 props.insert("AutoSize".into(), PropValue::Bool(false));
                 props.insert("BorderStyle".into(), PropValue::String("None".into()));
+            }
+            // WASM-006 — the Label's seeds, the hand cursor (R2; the developer may pick another) and
+            // every `<a>` capability as a property (R3) — **no `Ping`** (operator, 2026-10-20). The
+            // state colours are empty: the theme's link colours ([`crate::hyperlink::link_colors`]).
+            ControlType::Hyperlink => {
+                props.insert("CornerRadius".into(), PropValue::Int(0));
+                props.insert("TextAlignment".into(), PropValue::String("Left".into()));
+                props.insert(
+                    "VerticalAlignment".into(),
+                    PropValue::String("Middle".into()),
+                );
+                props.insert("WordWrap".into(), PropValue::Bool(false));
+                props.insert("AutoSize".into(), PropValue::Bool(false));
+                props.insert("BorderStyle".into(), PropValue::String("None".into()));
+                props.insert("Cursor".into(), PropValue::String("Hand".into()));
+                for (k, v) in crate::hyperlink::SEEDS {
+                    props.insert((*k).into(), PropValue::String((*v).into()));
+                }
             }
             ControlType::CheckBox | ControlType::RadioButton => {
                 // A radio is SELECTED, a check box is CHECKED — one seeded key
@@ -7704,6 +7762,8 @@ impl ControlType {
                 | ControlType::TreeView
                 | ControlType::Slider
                 | ControlType::TabControl
+                // WASM-006 R9 — a link keeps the focus and Enter follows it.
+                | ControlType::Hyperlink
                 | ControlType::Custom { .. }
         )
     }

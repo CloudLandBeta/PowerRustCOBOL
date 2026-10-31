@@ -28,6 +28,8 @@ hmac        = { workspace = true }
 sha2        = { workspace = true }
 indexmap    = { workspace = true }
 thiserror   = { workspace = true }
+# A Hyperlink's address is parsed and checked here (WASM-006 Q6): pure, builds for wasm32.
+url         = { workspace = true }
 # The Viewer's Markdown walker (spec 058, T9) — unconditional like the rest
 # of viewer.rs (not egui, so not behind `render`). Version matched to
 # cobolt-ide's own pin so the two never resolve to different releases.

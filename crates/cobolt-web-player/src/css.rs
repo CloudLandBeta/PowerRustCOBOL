@@ -722,7 +722,8 @@ mod tests {
         let names = class_names(t.ctl(i));
         assert_eq!(names, ["pr-control", "pr-button", "primary", "big"], "a class with a quote is dropped");
         assert_eq!(type_class(&ControlType::DateTimePicker), "datetimepicker");
-        assert_eq!(type_class(&ControlType::from_str("WebLink")), "weblink", "a type the model carries as Custom keeps a stable class");
+        assert_eq!(type_class(&ControlType::from_str("Authentication")), "authentication", "a type the model carries as Custom keeps a stable class");
+        assert_eq!(type_class(&ControlType::from_str("WebLink")), "hyperlink", "the interim name is the model's Hyperlink");
         assert_eq!(type_class(&ControlType::from_str("acme:thing")), "acme-thing", "a plug-in control is named after its plug-in");
     }
 

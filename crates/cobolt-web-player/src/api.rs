@@ -66,7 +66,10 @@ pub struct PlayerConfig {
     pub backend_contract: String,
     /// The exported programs declared `idempotent`: the only ones repeated after a lost connection (R9).
     pub backend_idempotent: Vec<String>,
-    pub weblink_schemes: Vec<String>,
+    /// The project's extra link schemes (WASM-006 R7). `weblink_schemes` is the key a page built before
+    /// the control was named Hyperlink writes; it is read the same.
+    #[serde(alias = "weblink_schemes")]
+    pub link_schemes: Vec<String>,
     pub recaptcha_site_key: String,
     /// `"in-app"` or `"hosted"` (WASM-009 R8b).
     pub auth_flow: String,
@@ -395,6 +398,7 @@ impl Inner {
                 Act::Change { prop, value } => self.host.borrow_mut().user_change(inst, ctl, &prop, &value),
                 Act::Prevent => {}
                 Act::Auth(action) => self.host.borrow_mut().auth_act(inst, ctl, action),
+                Act::Link { plan, click } => self.host.borrow_mut().link_click(inst, ctl, plan, click),
                 Act::Ui(op) => {
                     if let Some(sf) = self.surface.borrow().as_ref() {
                         sf.ui_op(self, inst, ctl, op);
@@ -781,8 +785,24 @@ fn make_host(cfg: &PlayerConfig, manifest_json: &str) -> Result<Host, JsError> {
         if cfg.auth_flow.eq_ignore_ascii_case("hosted") { crate::auth::Flow::Hosted } else { crate::auth::Flow::InApp },
         &cfg.recaptcha_site_key,
     );
-    host.policy = crate::weblink::Policy { extra_schemes: cfg.weblink_schemes.clone() };
+    host.policy = crate::hyperlink::Policy { extra_schemes: cfg.link_schemes.clone() };
+    host.platform = browser_platform();
     Ok(host)
+}
+
+/// Whose modifier-key table a link follows (WASM-006 Q2): `navigator.userAgentData.platform` where the
+/// browser has it, `navigator.platform` otherwise.
+fn browser_platform() -> crate::hyperlink::Platform {
+    let Some(w) = web_sys::window() else { return crate::hyperlink::Platform::Other };
+    let nav: JsValue = w.navigator().into();
+    let ua_data = Reflect::get(&nav, &"userAgentData".into()).ok().filter(|v| v.is_object());
+    let name = ua_data
+        .and_then(|d| Reflect::get(&d, &"platform".into()).ok())
+        .and_then(|v| v.as_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| Reflect::get(&nav, &"platform".into()).ok().and_then(|v| v.as_string()))
+        .unwrap_or_default();
+    crate::hyperlink::Platform::from_navigator(&name)
 }
 
 // ── the exported object ─────────────────────────────────────────────────────

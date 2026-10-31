@@ -58,6 +58,24 @@ pub fn connections() -> &'static [cobolt_forms::connections::RestConnection] {
     CONNECTIONS.get().map(|v| v.as_slice()).unwrap_or(&[])
 }
 
+/// Publish the project's extra link schemes (`[links] schemes`, WASM-006 R7), read by every Hyperlink
+/// the process hosts — the interpreter's `SetUrl`, a click's check, the opener. They live in
+/// `cobolt_forms::hyperlink` (the interpreter cannot see this crate); the first call wins, as for the
+/// connections.
+pub fn publish_link_schemes(schemes: Vec<String>) {
+    cobolt_forms::hyperlink::publish_project_schemes(schemes);
+}
+
+/// The published link schemes; none when the host never had a project.
+pub fn link_schemes() -> &'static [String] {
+    cobolt_forms::hyperlink::project_schemes()
+}
+
+/// The link policy every Hyperlink of this process is checked against.
+pub fn link_policy() -> cobolt_forms::hyperlink::Policy {
+    cobolt_forms::hyperlink::project_policy()
+}
+
 /// Whether this process runs a **Web or Mobile** project's forms (WASM-005
 /// R13): then a grid bound to an indexed file or a SQL query reads and saves
 /// through the backend, and is seeded so. Published once by the host that knows
@@ -1423,4 +1441,22 @@ pub fn grid_write_seed(binding: &cobolt_forms::DataBindingDef) -> Vec<(&'static 
         ("_BindingWritable", if writable { "1" } else { "0" }.to_owned()),
         ("_BindingKeyFields", keys.join(",")),
     ]
+}
+
+#[cfg(test)]
+mod tests_006 {
+    /// WASM-006 T11 — the published link schemes make the policy every Hyperlink of the process is
+    /// checked against; first call wins (a child form cannot replace them).
+    #[test]
+    fn the_published_link_schemes_widen_the_policy_and_the_first_call_wins() {
+        use super::{link_policy, link_schemes, publish_link_schemes};
+        publish_link_schemes(vec!["ftp".into()]);
+        publish_link_schemes(vec!["gopher".into()]);
+        println!("link schemes: {:?}", link_schemes());
+        assert_eq!(link_schemes(), ["ftp".to_owned()]);
+        let p = link_policy();
+        assert!(cobolt_forms::hyperlink::check("ftp://x/y", false, &p).is_ok());
+        assert!(cobolt_forms::hyperlink::check("gopher://x/y", false, &p).is_err());
+        assert!(cobolt_forms::hyperlink::check("javascript:1", false, &p).is_err());
+    }
 }

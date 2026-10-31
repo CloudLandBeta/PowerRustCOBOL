@@ -248,6 +248,8 @@ pub fn cmd_run_form(args: &[String]) {
             cobolt_runtime::mcp_tool::publish_file_memory_limit(
                 cobolt_compiler::project_file_memory_limit(m),
             );
+            // `[links] schemes` (WASM-006 R7), for every Hyperlink of this process.
+            cobolt_form_host::seeding::publish_link_schemes(cobolt_compiler::project_link_schemes(m));
             crate::install_project_sql_catalog(m);
         }
         let anchor = manifest

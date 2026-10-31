@@ -24,6 +24,23 @@
 
 
 
+## 2.0.102 — 2026-10-30 — WASM-006: the Hyperlink control — link text that opens an address, on desktop, web and mobile forms
+
+*(Written on `features-2x-wasm`, after 2.0.101.)*
+
+A new control in the toolbox of every project kind: **Hyperlink**, a Label that shows friendly text for an address and behaves like an HTML `<a>` (WASM-006; operator's decisions Q1–Q6 of 2026-10-22).
+
+* **The control.** `ControlType::Hyperlink` (`cobolt-forms/src/model.rs`): the Label's properties, events and methods, the hand cursor, and every `<a>` capability as a property except `ping` — `Url`, `Target` (`Self` | `NewTab` | `NewWindow` | `Parent` | `Top`), `WindowFeatures`, `Rel`, `Download`, `HrefLang`, `MimeType`, `ReferrerPolicy`, `LinkUnderline` (`Always` | `Hover` | `Never`), `AccessibleLabel`, `LinkColor`, `HoverColor`, `ActiveColor`, `VisitedColor`, and the run-time flag `Cancel`. Events `onBeforeNavigate` and `onNavigated` beside the Label's. A tab stop that Enter follows. A form written with the player's interim type `WebLink` loads as a Hyperlink and is saved as one.
+  * `LinkUnderline`, not `Underline`: every control already has the font's Boolean `Underline` (plan D10).
+* **One link policy** (`cobolt-forms/src/hyperlink.rs`) for the browser player, the desktop host, the interpreter and the Properties panel. `javascript:`, `vbscript:` and `data:` are refused however they are spelled; other schemes only when the project lists them under `[links] schemes`. Addresses go through the WHATWG URL parser (`url`, now a workspace dependency). A new tab or window with an empty `Rel` opens with `noopener noreferrer`. Modifier keys follow the operating system: Chrome's table on Linux and Windows, Safari's on Apple platforms.
+* **Cancel.** A click on a link with a bound `onClick`, `onBeforeNavigate` or `onNavigated` runs `onClick`, then `onBeforeNavigate`, then navigates; `SET LNK-1::Cancel TO TRUE` in either stops it. A link nobody handles is left to the browser.
+* **Desktop.** A click opens the system's default browser whatever the Target (`mailto:`/`tel:`/`sms:` go to the operating system's handler), through the form host's OS handoff (`Handoff::OpenUrl`, `_NavigateRequest`/`_NavigateAnswer`): `open` on macOS, `xdg-open` on Linux, `rundll32 url.dll,FileProtocolHandler` on Windows (to be confirmed on a Windows machine), the URL as one argument and never through a shell. One host, so `rcrun run-form`, embedded child forms and the compiled binary all get it. A `#name` link focuses that control. `SetUrl`, `GetUrl`, `Open`, `OpenIn` in the interpreter; a refusal leaves the control unchanged and says why in `LastError`.
+* **Browser.** The player's `WebLink` became the model's Hyperlink: the anchor writes `hreflang`, `type` and `aria-label`; the state colours are CSS custom properties; `Open`, `OpenIn` and fragment links now reach handled page commands (`open`, `open-in`, `scroll-to` — they were dropped before). The click sequence runs in the host behind each handler. ABI amendment **A18** (`specs/WASM-ABI-v1.md`) adds the two events. `config.json` writes `options.link_schemes`; the loader still reads `weblink_schemes`.
+* **Project setting.** `[links] schemes` in the project manifest: read by `cobolt_compiler::project_link_schemes`, published by `rcrun run-form`, baked into a built application, passed to the Web build, kept by the IDE's save.
+* **IDE.** Toolbox entry and icon; a *Link* section in the Properties panel with the Url's parsed form or its refusal under the field (a refused value loaded from a `.cfrm` is kept as written); help for every link property and the new strings in six languages.
+* **System KB.** Properties, events, purpose, methods and usage notes in the compiler's tables; `chunked.data` regenerated.
+* **Not done here.** The headless browser acceptance (T18), the operator's desktop checks (T19) and the mobile shell (T20, waits for WASM-012).
+
 ## 2.0.101 — 2026-10-30 — WASM-005 T15 closed: a Web or Mobile DataGrid bound to a REST API or an agent is refused at Check and Build
 
 *(Written on `features-2x-wasm`, after 2.0.100.)*

@@ -795,10 +795,11 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
 /// operation this rejects is exactly one the apply path would silently skip.
 /// Every control type the designer can deploy. One list, used to build the
 /// context block AND to prove an event name wrong without a form.
-pub(crate) const ALL_CONTROL_TYPES: [&str; 53] = [
+pub(crate) const ALL_CONTROL_TYPES: [&str; 54] = [
     "Button",
     "TextBox",
     "Label",
+    "Hyperlink",
     "CheckBox",
     "RadioButton",
     "ListBox",

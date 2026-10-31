@@ -78,6 +78,9 @@ sha2        = "0.10"
 # Data structures
 indexmap    = { version = "2", features = ["serde"] }
 
+# WASM-006 Q6 — a Hyperlink's address goes through the WHATWG URL parser (already in the lock at 2.5.8)
+url         = "2.5"
+
 # Logging
 tracing              = "0.1"
 tracing-subscriber   = { version = "0.3", features = ["env-filter"] }

@@ -589,11 +589,9 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
                 "{method} needs the operating system (class D); use the backend to produce the document and download it"
             )))
         }
-        // ── WebLink (WASM-006): a player-level control (Authentication is the host's: it holds the session) ──
-        "SETURL" | "GETURL" | "OPEN" | "OPENIN"
-            if crate::kinds::player_kind(&tree.ctls[ctl]) == Some(crate::kinds::PlayerKind::WebLink) =>
-        {
-            return crate::weblink::method(tree, ctl, &m, args);
+        // ── Hyperlink (WASM-006 R12) ──
+        "SETURL" | "GETURL" | "OPEN" | "OPENIN" if is_class(&tree.ctls[ctl], ControlType::Hyperlink) => {
+            return crate::hyperlink::method(tree, ctl, &m, args);
         }
         _ => {
             return Err(MethodError::Unsupported(format!(

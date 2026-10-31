@@ -978,6 +978,7 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "control-button",
             "control-text-box",
             "control-label",
+            "control-hyperlink",
             "control-check-box",
             "control-radio-button",
             "control-list-box",
@@ -7037,6 +7038,12 @@ fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
             p(&[(7.0, 18.0), (12.0, 5.5), (17.0, 18.0)]),
             p(&[(9.0, 14.0), (15.0, 14.0)]),
             p(&[(4.5, 21.0), (19.5, 21.0)]),
+        ],
+        // WASM-006 — two links of a chain over the underline a link's text carries.
+        "control-hyperlink" => vec![
+            rr(2.5, 6.5, 11.0, 7.0, 3.5),
+            rr(10.5, 6.5, 11.0, 7.0, 3.5),
+            p(&[(4.5, 19.5), (19.5, 19.5)]),
         ],
         "control-check-box" => vec![
             rr(2.5, 7.8, 8.4, 8.4, 1.2),

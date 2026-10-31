@@ -648,6 +648,18 @@ pub struct RenderInput<'a> {
 /// goes in it.
 pub type ChromeUnderControls<'a> = &'a dyn Fn(&egui::Painter, Rect);
 
+/// One Hyperlink activation (see [`RenderOutput::link_activations`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkActivation {
+    pub ctrl_id: String,
+    pub click: crate::hyperlink::Click,
+    /// `Ok(None)`: the link has no address. `Err`: the address is refused (R7).
+    pub plan: Result<Option<crate::hyperlink::NavPlan>, crate::hyperlink::Refused>,
+    /// A handler is bound to `onClick`, `onBeforeNavigate` or `onNavigated`: the interpreter runs the
+    /// sequence and the host must not follow `plan` itself.
+    pub intercepted: bool,
+}
+
 /// A UI event emitted by an interactive control. Neutral (no `cobolt-runtime`
 /// dependency); callers map it to their event type.
 #[derive(Clone, Debug)]
@@ -690,6 +702,11 @@ pub struct RenderOutput {
     /// `DroppedFiles` prop write, the same channel the OS drag-drop path
     /// already uses.
     pub file_picker_requests: Vec<String>,
+    /// WASM-006 — the Hyperlinks activated this frame (a click, a middle click, Enter while focused):
+    /// what was pressed and what [`crate::hyperlink::plan`] made of it. The host follows the plan when
+    /// no handler intercepts the link; otherwise the interpreter runs the click sequence (`onClick` →
+    /// `onBeforeNavigate` → `_NavigateRequest`) and the host follows its request.
+    pub link_activations: Vec<LinkActivation>,
     /// Toolbar buttons pressed this frame whose action the PLATFORM must carry
     /// out â printing, sharing, a screenshot, the clipboard, another process.
     /// `(toolbar control id, button id, action string)`.
@@ -5695,7 +5712,8 @@ fn control_pointer_events(
         // once-per-press by construction — no dependence on how many passes a
         // frame happens to need, or on spotting a discard that may be requested
         // after this runs. The next press sets it again.
-        if clicked && want("onClick") {
+        // A Hyperlink raises its own `onClick`, carrying the modifier keys (WASM-006 R5).
+        if clicked && want("onClick") && *ct != ControlType::Hyperlink {
             let began_over = ui
                 .ctx()
                 .memory_mut(|m| m.data.remove_temp::<bool>(press_mem).unwrap_or(false));
@@ -15520,6 +15538,49 @@ fn render_interactive(
             }
         }
 
+        CT::Hyperlink => {
+            // WASM-006 R2, R9, R14 — the Designer's face, in the colour of its state (hover, pressed),
+            // underlined as `LinkUnderline` says for the pointer that is over it now. A tab stop that Enter
+            // activates; the focus ring is the form's own (`paint_focus_ring`).
+            let resp = with_tooltip(ui.interact(screen, ctrl_id, Sense::click()), ctrl);
+            focus_keyboard_events(ui, &resp, id, out, &bound);
+            if enabled {
+                ui.memory_mut(|m| m.interested_in_focus(ctrl_id, ui.layer_id()));
+            }
+            let caption = sv(ctrl, "Caption");
+            let name = {
+                let own = sv(ctrl, "AccessibleLabel");
+                if own.trim().is_empty() { caption.clone() } else { own }
+            };
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, enabled, &name));
+            let hovered = resp.hovered() && enabled;
+            let pressed = resp.is_pointer_button_down_on() && enabled;
+            let mut drawn = ctrl.clone();
+            let state_color = if pressed { sv(ctrl, "ActiveColor") } else if hovered { sv(ctrl, "HoverColor") } else { String::new() };
+            if !state_color.trim().is_empty() {
+                drawn.set_prop("LinkColor", crate::PropValue::String(state_color));
+            }
+            let underline = crate::hyperlink::Underline::parse(&sv(ctrl, "LinkUnderline")).shows(hovered);
+            drawn.set_prop("LinkUnderline", crate::PropValue::String(if underline { "Always" } else { "Never" }.into()));
+            paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
+            let enter = enabled && resp.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+            let middle = enabled && resp.middle_clicked();
+            if (enabled && resp.clicked()) || middle || enter {
+                let m = ui.input(|i| i.modifiers);
+                let click = crate::hyperlink::Click { ctrl: m.ctrl, meta: m.mac_cmd, shift: m.shift, alt: m.alt, button: if middle { 1 } else { 0 } };
+                let plan = crate::hyperlink::plan(
+                    &crate::hyperlink::LinkProps::of(ctrl),
+                    click,
+                    crate::hyperlink::Platform::native(),
+                    &crate::hyperlink::project_policy(),
+                );
+                let intercepted = ["onClick", "onBeforeNavigate", "onNavigated"].iter().any(|e| bound.contains(e));
+                if intercepted {
+                    out.events.push(UiEvent::with_value(id, "onClick", &click.modifiers_text()));
+                }
+                out.link_activations.push(LinkActivation { ctrl_id: id.to_owned(), click, plan, intercepted });
+            }
+        }
         CT::Label => {
             // A Label IS text, and text a reader cannot select is text they
             // cannot copy — into a ticket, a mail, the next field. Every other
@@ -34405,5 +34466,185 @@ mod viewer_run_at_tests {
         assert_eq!(viewer_run_at(&runs, egui::pos2(350.0, 40.0)), Some(2), "between rows: the nearer row, then across");
         assert_eq!(viewer_run_at(&runs, egui::pos2(20.0, 75.0)), Some(3), "the paragraph below");
         assert_eq!(viewer_run_at(&[], egui::pos2(0.0, 0.0)), None);
+    }
+}
+
+/// WASM-006 T12 — the Hyperlink's two faces, measured on what is painted (the Designer's `paint.rs`,
+/// the running form's `render.rs`), and its activation: a click with the platform's new-tab modifier,
+/// and Enter on the focused link.
+#[cfg(test)]
+mod hyperlink_tests {
+    use super::*;
+    use crate::paint;
+    use crate::model::{Control, ControlType, PropValue};
+    use egui::{pos2, Event, Modifiers, PointerButton, Vec2};
+
+    fn link(props: &[(&str, &str)]) -> Control {
+        let mut c = Control::new("LNK-1", ControlType::Hyperlink, 0, 0);
+        c.rect = crate::model::Rect { x: 0, y: 0, w: 160, h: 24 };
+        c.set_prop("Caption", PropValue::String("Example".into()));
+        c.set_prop("Url", PropValue::String("https://example.com/".into()));
+        for (k, v) in props {
+            c.set_prop(*k, PropValue::String((*v).into()));
+        }
+        c
+    }
+
+    /// The text colours and the stroked segments of one Designer paint.
+    fn designer_paint(c: &Control) -> (Vec<Color32>, Vec<(Color32, f32)>) {
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 200.0)));
+        let mut full = ctx.run_ui(input, |ui| {
+            paint::draw_control(ui.painter(), pos2(0.0, 0.0), c, false, true, 1.0, 1.0, None);
+        });
+        full.textures_delta.clear();
+        let (mut texts, mut segs) = (Vec::new(), Vec::new());
+        fn walk(s: &egui::Shape, texts: &mut Vec<Color32>, segs: &mut Vec<(Color32, f32)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, texts, segs)),
+                egui::Shape::Text(t) => {
+                    texts.push(t.fallback_color);
+                    texts.extend(t.galley.job.sections.iter().map(|sec| sec.format.color));
+                }
+                egui::Shape::LineSegment { stroke, .. } if stroke.width > 0.0 => segs.push((stroke.color, stroke.width)),
+                _ => {}
+            }
+        }
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut texts, &mut segs);
+        }
+        (texts, segs)
+    }
+
+    #[test]
+    fn the_designer_paints_the_caption_in_link_color_and_underlines_it_as_set() {
+        let want = paint::parse_color("#112233");
+        let (texts, segs) = designer_paint(&link(&[("LinkColor", "#112233"), ("LinkUnderline", "Always")]));
+        println!("Always: text colours {texts:?}, segments {segs:?}");
+        assert!(texts.iter().any(|c| (c.r(), c.g(), c.b()) == (0x11, 0x22, 0x33)), "the caption is painted in LinkColor");
+        assert!(segs.iter().any(|(c, _)| *c == want), "an underline in the link's colour");
+        let (_, never) = designer_paint(&link(&[("LinkColor", "#112233"), ("LinkUnderline", "Never")]));
+        assert!(!never.iter().any(|(c, _)| *c == want), "Never: no underline, got {never:?}");
+        let (_, hover) = designer_paint(&link(&[("LinkColor", "#112233"), ("LinkUnderline", "Hover")]));
+        assert!(!hover.iter().any(|(c, _)| *c == want), "Hover: none at rest");
+        // No LinkColor: the theme's link colour, never the Label's ink.
+        let (texts, _) = designer_paint(&link(&[]));
+        let (light, dark) = (paint::parse_color(crate::hyperlink::link_colors(false).0), paint::parse_color(crate::hyperlink::link_colors(true).0));
+        assert!(texts.iter().any(|c| (c.r(), c.g(), c.b()) == (light.r(), light.g(), light.b()) || (c.r(), c.g(), c.b()) == (dark.r(), dark.g(), dark.b())), "{texts:?}");
+    }
+
+    /// Run the form for `frames`; return the activations, the events and the underline segments of
+    /// the last frame in the link's colour.
+    fn run(controls: &[Control], frames: Vec<Vec<Event>>, color: Color32) -> (Vec<LinkActivation>, Vec<UiEvent>, usize) {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        struct Plain;
+        impl FormState for Plain {}
+        let (mut acts, mut evs, mut last_segs) = (Vec::new(), Vec::new(), 0);
+        for (i, events) in frames.into_iter().enumerate() {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(800.0, 600.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * 0.05);
+            let held = events.iter().find_map(|e| match e {
+                Event::Key { modifiers, .. } | Event::PointerButton { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            });
+            input.events = held.map(Event::ModifiersChanged).into_iter().chain(events).collect();
+            let out_acts = std::cell::RefCell::new(Vec::new());
+            let out_evs = std::cell::RefCell::new(Vec::new());
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let st = Plain;
+                    let active = crate::containers::ActiveTabs::default();
+                    let inp = RenderInput {
+                        controls,
+                        state: &st,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let out = render_form(ui, &inp);
+                    out_acts.borrow_mut().extend(out.link_activations);
+                    out_evs.borrow_mut().extend(out.events);
+                });
+            });
+            full.textures_delta.clear();
+            fn count(s: &egui::Shape, c: Color32) -> usize {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().map(|s| count(s, c)).sum(),
+                    egui::Shape::LineSegment { stroke, .. } if stroke.color == c => 1,
+                    _ => 0,
+                }
+            }
+            last_segs = full.shapes.iter().map(|cs| count(&cs.shape, color)).sum();
+            acts.extend(out_acts.into_inner());
+            evs.extend(out_evs.into_inner());
+        }
+        (acts, evs, last_segs)
+    }
+
+    fn click(p: egui::Pos2, modifiers: Modifiers) -> Vec<Vec<Event>> {
+        let b = |pressed| Event::PointerButton { pos: p, button: PointerButton::Primary, pressed, modifiers };
+        vec![vec![], vec![Event::PointerMoved(p), b(true)], vec![Event::PointerMoved(p), b(false)], vec![]]
+    }
+
+    /// The platform's own new-tab modifier: ⌘ on macOS, Ctrl elsewhere (plan D3).
+    fn new_tab_modifier() -> Modifiers {
+        if cfg!(target_os = "macos") {
+            Modifiers { mac_cmd: true, command: true, ..Default::default() }
+        } else {
+            Modifiers { ctrl: true, command: true, ..Default::default() }
+        }
+    }
+
+    #[test]
+    fn a_click_with_the_platforms_new_tab_modifier_plans_a_new_tab_and_reports_the_keys() {
+        let mut c = link(&[]);
+        c.ensure_event("onClick");
+        let p = pos2(20.0, 12.0);
+        let (acts, evs, _) = run(&[c], click(p, new_tab_modifier()), Color32::TRANSPARENT);
+        println!("activations {acts:?}\nevents {:?}", evs.iter().map(|e| (&e.event, &e.value)).collect::<Vec<_>>());
+        assert_eq!(acts.len(), 1, "one click, one activation");
+        let plan = acts[0].plan.clone().unwrap().unwrap();
+        assert_eq!(plan.target, crate::hyperlink::Target::NewTab);
+        assert!(acts[0].intercepted, "onClick is bound");
+        let want = if cfg!(target_os = "macos") { "Meta" } else { "Ctrl" };
+        assert!(evs.iter().any(|e| e.event == "onClick" && e.value.as_deref() == Some(want)), "onClick carries the modifiers");
+        assert_eq!(evs.iter().filter(|e| e.event == "onClick").count(), 1, "one onClick, not the generic one too");
+    }
+
+    #[test]
+    fn a_link_nobody_handles_is_activated_for_the_host_with_no_event() {
+        let p = pos2(20.0, 12.0);
+        let (acts, evs, _) = run(&[link(&[])], click(p, Modifiers::default()), Color32::TRANSPARENT);
+        assert_eq!(acts.len(), 1);
+        assert!(!acts[0].intercepted);
+        assert_eq!(acts[0].plan.clone().unwrap().unwrap().url, "https://example.com/");
+        assert!(evs.iter().all(|e| e.event != "onClick"));
+    }
+
+    #[test]
+    fn enter_on_the_focused_link_activates_it() {
+        let c = link(&[]);
+        let tab = Event::Key { key: egui::Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::default() };
+        let enter = Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::default() };
+        let (acts, _, _) = run(&[c], vec![vec![], vec![tab], vec![], vec![enter], vec![]], Color32::TRANSPARENT);
+        println!("{acts:?}");
+        assert_eq!(acts.len(), 1, "Tab reaches the link and Enter follows it");
+    }
+
+    #[test]
+    fn hover_underlines_only_while_the_pointer_is_over_the_link() {
+        let c = link(&[("LinkColor", "#112233"), ("LinkUnderline", "Hover")]);
+        let color = paint::parse_color("#112233");
+        let (_, _, away) = run(&[c.clone()], vec![vec![Event::PointerMoved(pos2(300.0, 200.0))], vec![]], color);
+        let (_, _, over) = run(&[c], vec![vec![Event::PointerMoved(pos2(20.0, 12.0))], vec![Event::PointerMoved(pos2(21.0, 12.0))]], color);
+        println!("underline segments: away {away}, over {over}");
+        assert_eq!(away, 0);
+        assert!(over >= 1);
     }
 }

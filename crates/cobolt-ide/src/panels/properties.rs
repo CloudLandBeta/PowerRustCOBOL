@@ -7928,6 +7928,59 @@ impl PropertiesPanel {
                 ui.add_space(4.0);
             }
 
+            // ── Hyperlink (WASM-006) ─────────────────────────────────────────
+            ControlType::Hyperlink if phase == TypeSection::Basic => {
+                section_header(ui, tr.sec_link);
+                let cur = ctrl.get_prop("Url").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                text_row_hint(ui, &mut self.hints, id, "Url", &cur, "Url:", "", action);
+                // R7, R14, Q6: what the address becomes, or why it is refused. The stored text is never
+                // rewritten here (a refused value loaded from a .cfrm stays as written, D5).
+                match hyperlink_url_note(&cur, tr) {
+                    UrlNote::Refused(why) => {
+                        ui.label(RichText::new(why).small().color(Color32::from_rgb(0xE0, 0x5A, 0x5A)));
+                    }
+                    UrlNote::Opens(parsed) => {
+                        ui.label(RichText::new(parsed).small().weak());
+                    }
+                    UrlNote::Empty => {}
+                }
+                combo_row_inline(ui, id, "Target", ctrl, action, cobolt_forms::hyperlink::TARGETS);
+                for key in ["WindowFeatures", "Rel", "Download", "HrefLang", "MimeType", "AccessibleLabel"] {
+                    let cur = ctrl.get_prop(key).map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.hints, id, key, &cur, &format!("{key}:"), "", action);
+                }
+                combo_row_inline(ui, id, "ReferrerPolicy", ctrl, action, cobolt_forms::hyperlink::REFERRER_POLICIES);
+                combo_row_inline(ui, id, "LinkUnderline", ctrl, action, cobolt_forms::hyperlink::UNDERLINES);
+                let (link, hover, active, visited) = cobolt_forms::hyperlink::link_colors(true);
+                for (key, builtin) in [("LinkColor", link), ("HoverColor", hover), ("ActiveColor", active), ("VisitedColor", visited)] {
+                    color_prop_row_default(ui, id, key, key, ctrl, action, builtin);
+                }
+                section_header(ui, tr.sec_basic);
+                combo_row_inline_labeled(
+                    ui,
+                    id,
+                    "TextAlignment",
+                    "Horizontal alignment",
+                    ctrl,
+                    action,
+                    &["Left", "Center", "Right", "Justified"],
+                    "Left",
+                );
+                combo_row_inline_labeled(
+                    ui,
+                    id,
+                    "VerticalAlignment",
+                    "Vertical alignment",
+                    ctrl,
+                    action,
+                    &["Top", "Middle", "Bottom"],
+                    "Middle",
+                );
+                bool_row_inline(ui, id, "WordWrap", "WordWrap", ctrl, action);
+                bool_row_inline(ui, id, "AutoSize", "AutoSize", ctrl, action);
+                ui.add_space(4.0);
+            }
+
             // ── TextBox ───────────────────────────────────────────────────────
             ControlType::TextBox if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
@@ -20234,3 +20287,55 @@ mod label_help_tests {
 #[cfg(test)]
 #[path = "datagrid_settings_106_tests.rs"]
 mod datagrid_settings_106_tests;
+
+/// What the Properties panel says under a Hyperlink's Url (WASM-006 R14).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum UrlNote {
+    Empty,
+    /// The address as the URL parser reads it (Q6).
+    Opens(String),
+    /// The address is refused, and why (R7).
+    Refused(String),
+}
+
+fn hyperlink_url_note(url: &str, tr: &Tr) -> UrlNote {
+    use cobolt_forms::hyperlink::{check, parse, project_policy};
+    if url.trim().is_empty() {
+        return UrlNote::Empty;
+    }
+    match check(url, false, &project_policy()) {
+        Ok(_) => UrlNote::Opens(format!("{} {}", tr.hyperlink_url_opens, parse(url, None))),
+        Err(r) => UrlNote::Refused(format!("{} {}", tr.hyperlink_url_refused, r.message)),
+    }
+}
+
+#[cfg(test)]
+mod hyperlink_panel_tests {
+    use super::*;
+
+    /// WASM-006 T15 — a `javascript:` Url loaded from a .cfrm shows the refusal, and nothing is written
+    /// back: the stored text stays as the developer wrote it (D5). An accepted one shows its parsed form.
+    #[test]
+    fn a_javascript_url_shows_the_refusal_and_keeps_the_stored_text() {
+        for lang in [
+            crate::i18n::Language::English,
+            crate::i18n::Language::Spanish,
+            crate::i18n::Language::Portuguese,
+            crate::i18n::Language::Japanese,
+            crate::i18n::Language::Chinese,
+            crate::i18n::Language::French,
+        ] {
+            let tr = lang.tr();
+            let note = hyperlink_url_note("javascript:alert(1)", &tr);
+            println!("{lang:?}: {note:?}");
+            assert!(matches!(&note, UrlNote::Refused(t) if t.starts_with(tr.hyperlink_url_refused) && t.contains("javascript")));
+        }
+        let tr = crate::i18n::Language::English.tr();
+        assert_eq!(hyperlink_url_note("https://bücher.example/a b", &tr), UrlNote::Opens("Opens: https://xn--bcher-kva.example/a%20b".into()));
+        assert_eq!(hyperlink_url_note("  ", &tr), UrlNote::Empty);
+        let mut c = cobolt_forms::Control::new("LNK-1", ControlType::Hyperlink, 0, 0);
+        c.set_prop("Url", cobolt_forms::PropValue::String("javascript:alert(1)".into()));
+        let _ = hyperlink_url_note(&c.get_prop("Url").unwrap().as_str().to_string(), &tr);
+        assert_eq!(c.get_prop("Url").unwrap().as_str(), "javascript:alert(1)", "never rewritten");
+    }
+}

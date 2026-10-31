@@ -80,6 +80,10 @@ name = "label"
 path = "label.rs"
 
 [[test]]
+name = "hyperlink"
+path = "hyperlink.rs"
+
+[[test]]
 name = "line"
 path = "line.rs"
 

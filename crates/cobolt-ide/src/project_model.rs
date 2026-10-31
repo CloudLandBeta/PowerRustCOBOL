@@ -80,6 +80,10 @@ pub struct CoboltProject {
     /// there is one, so a project without them keeps its file unchanged.
     #[serde(default, rename = "sql-connections", skip_serializing_if = "Vec::is_empty")]
     pub sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
+    /// `[links]` — the schemes the project's Hyperlinks may follow beyond the defaults (WASM-006 R7).
+    /// Written only when there is one, so a project without it keeps its file unchanged.
+    #[serde(default, skip_serializing_if = "LinksSettings::is_default")]
+    pub links: LinksSettings,
     /// `[desktop]` — the options the Desktop templates offer (WASM-001 R4).
     /// Written only when a choice differs from the default, so a default
     /// Desktop manifest is unchanged. The four tables below are declared last
@@ -96,6 +100,20 @@ pub struct CoboltProject {
     /// `[backend]` — the Backend part of a Web or Mobile project (WASM-003 R1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend: Option<BackendSettings>,
+}
+
+/// `[links]` in the project manifest (WASM-006 R7): extra schemes a Hyperlink may follow. Read by
+/// `cobolt_compiler::project_link_schemes`; kept here so saving the project never drops it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinksSettings {
+    #[serde(default)]
+    pub schemes: Vec<String>,
+}
+
+impl LinksSettings {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 /// `[agents]` in the project manifest (spec 065 R34 / 075).
@@ -900,6 +918,7 @@ impl CoboltProject {
             rag: RagSettings::default(),
             agents: AgentsSettings::default(),
             sql_connections: Vec::new(),
+            links: LinksSettings::default(),
             desktop: None,
             web: None,
             mobile: None,
@@ -1975,6 +1994,26 @@ mod tests {
     /// Spec 075 T3 — `[agents] file_memory_limit_mb` round-trips, a default
     /// project writes no `[agents]` table, and one without it loads as 0 (the
     /// default, 64 MB) — the same value the compiler reads.
+    /// WASM-006 T11 — `[links] schemes` round-trips through the IDE's save, a default project writes no
+    /// `[links]` table, and what the IDE writes is what the compiler's reader publishes.
+    #[test]
+    fn the_link_schemes_round_trip_and_stay_absent_by_default() {
+        let fresh = toml::to_string_pretty(&proj()).unwrap();
+        assert!(!fresh.contains("[links]"), "a default project keeps no [links] table");
+        let mut p = proj();
+        p.links.schemes = vec!["ftp".into()];
+        let text = toml::to_string_pretty(&p).unwrap();
+        assert!(text.contains("[links]"), "{text}");
+        let back: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(back.links.schemes, ["ftp".to_owned()]);
+        let dir = std::env::temp_dir().join(format!("prc-006-ide-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("cobolt.toml");
+        std::fs::write(&manifest, &text).unwrap();
+        assert_eq!(cobolt_compiler::project_link_schemes(&manifest), ["ftp".to_owned()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_file_memory_limit_round_trips_and_stays_absent_by_default() {
         let fresh = toml::to_string_pretty(&proj()).unwrap();
