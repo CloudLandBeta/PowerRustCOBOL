@@ -39,6 +39,11 @@ Working assumptions (open questions; the operator may rule otherwise, and each i
 - [ ] **T7 — Browser probe: `@layer` inside `@scope` and inside a nesting wrapper** (R8, R9; plan §5 first risk)
   - Files: none in the repository (a probe page built by tooling outside it, using the player's `base_css::scoped` / `base_css::nested` output for a form sheet that contains `@layer pr-theme { … }`).
   - Verify: in Chrome 152, Safari and Firefox, a rule inside the form sheet's `pr-theme` block loses to a `pr-props` rule and an unlayered rule of the same sheet wins; results per engine written here. If one engine drops the block, T8 lifts the marked `pr-theme` block out of the form text before scoping (plan §5) — the decision is recorded here before T8 starts.
+  - **Run 2026-10-30 (partial):** probe page outside the repository, constructed sheets adopted in the order `@layer pr-base, pr-theme, pr-props, pr-app;` → `@layer pr-props { … }` → the form sheet wrapped as `base_css::scoped` and as `base_css::nested` emit it.
+    - **Chrome 156** (headless, the installed Chrome; 152 is no longer on this machine), both wrappers identical: the `pr-theme` rule applies where nothing beats it (`color` rgb(9, 9, 9)); `pr-props` beats it (`background-color` rgb(2, 2, 2)); the sheet's unlayered rule beats `pr-props` (`color` rgb(3, 3, 3)). **Pass.**
+    - **Safari:** not run — `safaridriver` exists but remote automation is not enabled (`safaridriver --enable` needs an administrator's authentication).
+    - **Firefox:** not run — not installed on this machine.
+    - Box left open: the decision for T8 (keep the block inside the wrapper, or lift it out) waits for the Safari and Firefox results.
 
 - [ ] **T8 — The layer order stated once; the project sheet in `pr-app`** (R8, Q3; plan §1.1, C2)
   - Files: `crates/cobolt-web-player/src/base_css.rs` (first statement `@layer pr-base, pr-theme, pr-props, pr-app;`), `dom/sheets.rs` (a `pr-app` wrapper for the application sheet), `dom/mod.rs::adopt` (`:214`: base, theme, instances, app, forms, inline), `view/style.rs` and `css.rs` headers (C11: `pr-properties` → `pr-props`, the one name `wrap_layer` writes).
