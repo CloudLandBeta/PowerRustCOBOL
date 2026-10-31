@@ -741,7 +741,7 @@ impl Surface for Dom {
         let text = match s {
             LinkState::Ready | LinkState::Closed => None,
             LinkState::Connecting | LinkState::Greeting | LinkState::Authenticating => Some("Connecting\u{2026}"),
-            LinkState::Backoff => Some("Reconnecting\u{2026}"),
+            LinkState::Retrying { .. } => Some("Reconnecting\u{2026}"),
         };
         let sh = &self.sh;
         let Ok(mut st) = sh.state.try_borrow_mut() else { return };

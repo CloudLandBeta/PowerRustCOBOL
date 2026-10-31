@@ -5,148 +5,342 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Plan — The Backend project and the secure frontend–backend channel
 
-- **Spec:** [spec.md](spec.md). **Status:** revised 2026-10-22 against the spec as it stands after the operator's answers of that day (commit 79400bd9). The 2026-10-20 work (M3) — the backend crate, the headless build, the channel and the token checks, tested over a real TLS loopback — stands; this revision adds what the new answers require (§0) and is **not implemented**. The contract half (WASM-014) is M4 and the identity half (WASM-009 backend) is M5 — see their plans.
-- **Written:** 2026-10-20 by the implementing agent while the operator was away; **revised 2026-10-22** (this /plan run). Decisions the operator has since made are marked *operator*; the rest are this plan's, each with what it chose, why and what the alternative cost — for the operator to overturn.
-- **Evidence** (§8) is the 2026-10-20 run; nothing is claimed there that was not run. The work of §0 has no evidence yet.
+- **Spec:** [spec.md](spec.md). **Status:** revised **2026-10-31** against the spec as it stands after the operator's ruling of 2026-10-24
+  (WASM-INDEX D21: R24–R26, AC11–AC12) and the decision of 2026-10-30 on R24 (both sides generate a key pair at start; X25519 + HKDF-SHA256 +
+  ChaCha20-Poly1305). Everything the 2026-10-22 revision planned is **implemented** (tasks T1–T14, 2.0.39; evidence in tasks.md *Evidence
+  (re-run, 2026-10-23)*). This revision designs the two new parts — the retry policy and blocked state (§2.8, task T15a) and the encrypted
+  channel (§2.7, task T15b) — and brings the rest of the plan in line with what was built. **§2.7 and §2.8 are not implemented.**
+- **Written:** 2026-10-20; revised 2026-10-22 and 2026-10-31 (this `/plan` run). Decisions the operator made are marked *operator*; the rest
+  are this plan's, each with what it chose, why and what the alternative costs — for the operator to overturn.
+- The contract half (WASM-014) and the identity half (WASM-009 backend) have their own plans. The modal that R26 shows is WASM-016 R20 (web)
+  and WASM-012 R15 (device); the members of the handshake are WASM-014 R18; the threat model is WASM-013 R17.
 
-## 0. What changed on 2026-10-22, and why
+## 0. What changed, and why
 
-| # | Spec change | Was (2026-10-20 plan / code) | Now (this plan) |
+### 0.1 On 2026-10-31 (this revision)
+
+| # | Spec change or finding | Was (2026-10-22 plan / code today) | Now (this plan) |
 |---|---|---|---|
-| C1 | **R2:** the server is **built on Leptos** (`cargo-leptos`, WASM-002 Q2) and carries the WebSocket channel **and the HTTPS endpoints**; the Leptos plumbing is invisible, the developer sees only COBOL | A hand-rolled HTTP front on `tokio` + `httparse` (`crates/cobolt-server/src/http.rs` `read_head`, `respond`; routing in `serve.rs` `serve_stream`, `health_loop`) | The HTTP front (accept → TLS → route → upgrade) moves onto Leptos's server integration (`leptos_axum` over `axum`/`hyper`); **everything after the upgrade is unchanged** (§2.2, §4 D1). How `cargo-leptos` enters the build is an open conflict with WASM-017 R17 (§7 O1) |
-| C2 | **Q2 decided** (*operator*): statefulness is **a project property**, default fresh `WORKING-STORAGE` per call | Fresh per call, hard-wired (`crates/cobolt-server/src/exec.rs` `execute` builds a new `Interpreter` every call); the System KB says so unconditionally (`crates/cobolt-compiler/src/lib.rs`, section *Calling the backend*) | `[backend] state = "per-call" \| "per-connection"` in `cobolt.toml`, default `per-call`; `per-connection` keeps one run unit per connection (§2.6) |
-| C3 | **Q3 decided** (*operator*): the backend **also serves ordinary HTTPS endpoints** | "One endpoint", `GET /health` (+ `/dl/<token>` from WASM-014 R15); a general router was called speculative | A real router (the Leptos/axum one of C1) with a fixed, closed route table; the identity endpoints of WASM-009 mount on it (§2.2) |
-| C4 | Q4, Q5, Q6, Q7 **decided** (*operator*) as the plan had already assumed | Assumptions | Now binding; no design change. Q7 is read as *the binary refuses a non-loopback `ws` in every mode*, which removes `unsafe_plain_ws` (§4 D4) |
-| C5 | — (found while grounding this revision) | Two lists of exported programs: the IDE writes `[backend] exports` in `cobolt.toml` (`crates/cobolt-compiler/src/project_kind.rs` `BackendSettings::exports`; edited in `crates/cobolt-ide/src/panels/web_settings.rs`), the server reads only `backend/exports.toml` (`crates/cobolt-server/src/backend.rs` `Backend::load`); the scaffold (`crates/cobolt-project-tools/src/create.rs`) writes no `exports.toml`, so a new project's backend does not start | `backend/exports.toml` is the only list (§3, §4 D5) |
-| C6 | — (found) | The player speaks ABI amendment A8 (`{"type":"call",…}`, no `hello`; `crates/cobolt-web-player/src/net.rs`); the server speaks `{"t":…}` with a mandatory `hello` (`crates/cobolt-wire/src/proto.rs` `parse_client`). They cannot talk | Recorded as a cross-spec risk owned by WASM-014 (the wire) / WASM-016 (the player); not changed here (§5 R1) |
+| C7 | **R24 + Decided (operator, 2026-10-30):** the channel is encrypted on top of TLS; **both sides** generate a fresh key pair at start (the backend when its process starts, each frontend when the application opens); a per-connection session key is agreed from the two; X25519, HKDF-SHA256, ChaCha20-Poly1305 from the RustCrypto crates | Plain JSON text frames under TLS (`crates/cobolt-wire/src/proto.rs`); the server refuses binary frames (`crates/cobolt-server/src/serve.rs` `session`, the `Message::Binary` arm, "binary frames are not part of the protocol") | A sealed channel: after the two `hello` messages every data frame in both directions is one ChaCha20-Poly1305 binary frame under per-direction keys (§2.7, D7–D10) |
+| C8 | **R25:** a broken connection is retried with windows of **10, 20, 30 s**, at most 3; then every waiting call fails *transport* and the application is told; no fourth attempt on its own | Two different back-offs. Player: 250 ms doubling to 10 s with ±25 % jitter, only while a call waits (`crates/cobolt-web-player/src/net.rs` `Config::backoff_start_ms`/`backoff_max_ms`, the computation after `on_close`'s failure loop, `retry_at`). Rust client: 100 ms back-off within `ClientConfig::reconnect_deadline` = 20 s (`crates/cobolt-server/src/client.rs` `on_disconnect`), and four quick attempts for a first connection (`ensure`) | One policy value in `cobolt-wire` used by both clients; the two back-offs and the jitter go (§2.8, D11–D13) |
+| C9 | **R26:** while it retries, the application is blocked and the "connecting" modal shows | Nothing: the player has no blocked state | The connection state machine raises and clears a **blocked** state; the modal and the event are WASM-016 T29b / WASM-012 T25b, which read it (§2.8) |
+| C10 | **R8** now points at R25 for the client's reconnection | The client reconnected by its own back-off | Server keep-alive unchanged (pings every 20 s, 60 s idle cut); the client's reconnection is R25's |
+| C11 | **AC11, AC12** added | — | Tests in §6 |
+| C12 | **T15 split (operator, 2026-10-30)** into T15a (R25–R26; WASM-005 T18b waits only for it) and T15b (R24; waits for WASM-013 T24b and WASM-014 T19b) | One task | §2.8 is independent of §2.7 and goes first; nothing in §2.8 depends on the encryption |
+| C13 | **ABI A15 (WASM-014 T6, 2026-10-26):** the player now speaks `proto.rs` (`hello`, `auth`, `call` with `key`, the `t`-tagged envelope) | Plan §5 R1: the player spoke A8 (`type`, no `hello`) and the two could not talk | **Risk R1 is closed.** The sealed channel of §2.7 is therefore one change made in three speakers of one protocol (§2.7) |
+| C14 | Built since 2026-10-22 and now the design (tasks.md T5, T7, T10, T10a) | The plan predicted them | §2.2 (Leptos route table and server function, T10a), §2.6 (serialised by the ordering ticket; no `session: "new"`, T5), §2.1 (the IDE runs a child `rcrun backend run`, operator 2026-10-23, T10) |
 
-Kept unchanged: the security order of a connection and a call, tokens (§2.3), hardening (§2.4), cross-connection locking (§2.5), the System KB built-in, the CLI.
+### 0.2 On 2026-10-22 (kept for the record; all implemented, T1–T14, 2.0.39)
+
+C1 the HTTP front on Leptos (R2) → T6, T7, T10a; C2 `[backend] state` (Q2) → T3, T5; C3 a closed HTTPS route table (Q3) → T7; C4 Q4–Q7
+binding, `unsafe_plain_ws` removed → T4; C5 `backend/exports.toml` the one list → T2, T3, T9; C6 the envelope mismatch → closed by C13.
 
 ## 1. Decisions on the open questions
 
-All seven questions are now decided by the operator; the spec has nothing left open. What the plan does with each:
+All seven questions of the spec are decided by the operator, and so is the construction of R24. What the plan does with each:
 
 | Q | Operator's decision | Design |
 |---|---|---|
-| **Q1** | `backend/` inside the Web or Mobile project | §2.1. One list of exports, in that folder (C5) |
-| **Q2** | A project property, default fresh `WORKING-STORAGE` per call | `per-call` as built; `per-connection` added (§2.6) |
-| **Q3** | Yes, ordinary HTTPS endpoints | A closed route table on the Leptos router (§2.2) |
-| **Q4** | No program is safe to repeat by default | `idempotent = false` unless an export says `true` (`ExportDecl::idempotent`, `backend.rs`); semantics in WASM-014 |
-| **Q5** | Development token in a development run only, never in a release build | As built: HS256 with a secret made fresh at every start, setting named `unsafe_dev_token_secret`; a release start refuses every `unsafe_*` (`crates/cobolt-server/src/config.rs`); the built binary always starts as release. Test `a_release_start_refuses_every_unsafe_setting_and_a_development_start_only_warns` |
-| **Q6** | One binary per host, spec 041 | As built: `crates/cobolt-compiler/src/backend_build.rs` builds for `host_triple` only |
-| **Q7** | Both: TLS in the binary, and behind a reverse proxy | As built (`native-tls` acceptor; loopback `ws` behind a proxy), minus `unsafe_plain_ws` (§4 D4) |
+| **Q1** | `backend/` inside the Web or Mobile project | §2.1; one list of exports, `backend/exports.toml` |
+| **Q2** | A project property, default fresh `WORKING-STORAGE` per call | `[backend] state = "per-call" \| "per-connection"` (§2.6), built |
+| **Q3** | Yes, ordinary HTTPS endpoints | The closed route table on the Leptos router (§2.2), built |
+| **Q4** | No program is safe to repeat by default | `idempotent = false` unless an export says `true` (`backend.rs` `ExportDecl`); R25's reconnection repeats only those (§2.8) |
+| **Q5** | Development token in a development run only | Built: `unsafe_dev_token_secret`, a release start refuses every `unsafe_*` (`config.rs`) |
+| **Q6** | One binary per host, spec 041 | Built: `backend_build.rs` builds for `host_triple` only |
+| **Q7** | Both: TLS in the binary, and behind a reverse proxy | Built: `native-tls` acceptor; plain `ws` on loopback only, in every mode (T4). With R24 the frames are also unreadable to that proxy (§2.7) |
+| **R24** | Both sides generate a key pair at start; ephemeral–ephemeral agreement per connection; X25519, HKDF-SHA256, ChaCha20-Poly1305 (`x25519-dalek`, `hkdf`, `sha2`, `chacha20poly1305`) | §2.7 |
 
-Further decisions of 2026-10-20 that still hold (unchanged): **TLS is `native-tls`** (`ring`, `aws-lc-rs` barred by `dependency_guards_063`); **JWT is `jsonwebtoken` 11 with `rust_crypto`**, used only to verify a signature and decode, every policy check ours; the macOS PEM/EC limitation (`Identity::from_pkcs8` takes RSA only, use `tls.pkcs12` for EC); **a closed set of failure classes with stable codes** (`crates/cobolt-wire/src/error.rs`); **an unknown program answers "no token" to an unauthenticated caller** so names cannot be enumerated; **strict configuration** (`deny_unknown_fields`, all faults reported together); **secrets print as nothing** (`Secret`'s `Debug`).
+Decisions of 2026-10-20 that still hold: **TLS is `native-tls`** (`ring`, `aws-lc-rs` barred by the dependency guards); **JWT is `jsonwebtoken`
+11 with `rust_crypto`**, used only to verify and decode, every policy check ours; macOS PEM/EC (`Identity::from_pkcs8` takes RSA only; EC via
+`tls.pkcs12`); **a closed set of failure classes with stable codes** (`crates/cobolt-wire/src/error.rs`); **an unknown program answers "no
+token" to an unauthenticated caller**; **strict configuration** (`deny_unknown_fields`); **secrets print as nothing** (`Secret`'s `Debug`).
 
 ## 2. Design
 
-### 2.1 The project and the build (R1–R4, R20, R22)
-- **Project shape** (`crates/cobolt-server/src/backend.rs`): `backend/exports.toml`, `backend/src/*.cbl`, `backend/COPYBOOKS/`, `backend/backend.toml` (the deployment), `backend/contract/interface.json` (written by Build), `backend/contract/released/<version>.json`.
-- **Exports** (R1): `exports.toml` is the whole of what the channel can run — `program`, `roles`, `public`, `idempotent`, `independent`, `long_running`, `stream`, `directions`, `deprecated` (`ExportDecl`). A program not in it is unreachable by any spelling. **New (C5):** the IDE's Backend settings section edits this file (§3), and the scaffold writes it.
-- **Loading** parses and analyses every program, checks each export names a program, turns `USING`/`RETURNING` groups into wire layouts (`cobolt_wire::layout::from_decl`), builds the interface description; the exported program becomes the top-level program with the other backend programs nested in it.
-- **Build** (`backend_build.rs`): read and check → write `interface.json` (R4) → compare with the last released contract (WASM-014 R5) → generate a Cargo project (`cobolt-server[server]`, `cobolt-runtime` with only the features the programs reach, the bundle by `include_bytes!`, `main` = `cobolt_server::standalone::main`) → build → install `bin/<project>-backend`. No `eframe`, no `egui`, no form host. **New (C1):** the generated project is unchanged in shape — the Leptos server lives inside `cobolt-server` behind its `server` feature, so the developer's generated Cargo project names no Leptos crate and contains no Leptos code (R2 "invisible"). **New (C2):** the bundle carries the `state` property.
-- **The compiler links only the loader** (`cobolt-server` feature `loader`), so an application build links no socket, TLS, token or Leptos code; the guard checks it.
-- **CLI** (`crates/cobolt-cli/src/main.rs` `cmd_backend`): `rcrun backend run|describe|check|release|build [dir]`. `run` additionally reads `[backend] state` from the project's `cobolt.toml` (the CLI already resolves `project_dir`).
-- **Scaffold (R22):** `crates/cobolt-project-tools/src/create.rs` already writes `backend/src/health.cbl` (`BACKEND_STARTER`, `HEALTH`); it must also write `backend/exports.toml` exporting `HEALTH` as `public` and a development `backend/backend.toml` (loopback, no secrets). The authentication programs are WASM-009 M5 and are added to the scaffold when they exist.
+### 2.1 The project and the build (R1–R4, R20, R22) — built
+- **Project shape** (`crates/cobolt-server/src/backend.rs`): `backend/exports.toml`, `backend/src/*.cbl`, `backend/COPYBOOKS/`, `backend/backend.toml`,
+  `backend/contract/interface.json` (written by Build), `backend/contract/released/<version>.json`.
+- **Exports** (R1): `exports.toml` is the whole of what the channel can run (`ExportDecl`: `program`, `roles`, `public`, `idempotent`,
+  `independent`, `long_running`, `stream`, `directions`, `deprecated`). The IDE's Backend settings edit it (`crates/cobolt-ide/src/panels/web_settings.rs`
+  `write_exports`); an old `[backend] exports` list is copied once into it on open (`migrate_exports`), `cobolt.toml` untouched.
+- **Build** (`crates/cobolt-compiler/src/backend_build.rs`): read and check → `interface.json` (R4) → compare with the last released contract →
+  a generated Cargo project (`cobolt-server[server]`, the bundle by `include_bytes!`, `main` = `cobolt_server::standalone::main`) → build →
+  `bin/<project>-backend`. The generated project names no Leptos crate (R2 "invisible"); the bundle carries `state`. The compiler links only the
+  loader (`cobolt-server` feature `loader`).
+- **CLI** (`crates/cobolt-cli/src/main.rs` `cmd_backend`): `rcrun backend run|describe|check|release|build [dir]`.
+- **IDE** (R20, *operator* 2026-10-23): Run → Start/Stop Backend runs `rcrun backend run <project>` as a child (`crates/cobolt-ide/src/backend_run.rs`
+  `BackendRun`), its log live in the Output panel; the IDE links no server crate (guard `the_ide_runs_the_backend_as_a_child_and_links_none_of_the_server`).
+- **Scaffold** (R22): `crates/cobolt-project-tools/src/create.rs` writes `backend/src/health.cbl`, `backend/exports.toml` (`HEALTH`, public) and a
+  loopback `backend/backend.toml`. The WASM-009 authentication programs join the scaffold when WASM-009 M5 provides them.
+- **R24 adds nothing here:** no key is generated at Build, none is written into the bundle, the generated project or `interface.json` (R24
+  "never written into the build or the bundle").
 
-### 2.2 The channel and the HTTPS surface (R2, R5–R8, R14, R16, Q3)
-**Connection order (unchanged as a security model, re-hosted):** accept → connection limit → TLS (`native-tls`, `tokio-native-tls`) → HTTP request parsed by `hyper` within the handshake timeout and the header-size cap → **route** → for the upgrade: **Origin check** → upgrade with frame and message size capped → `hello` within the handshake timeout.
-**Call order (unchanged):** connection rate → (non-public) valid token → program lookup → user rate → role → concurrency permits → ordering ticket → `spawn_blocking` run under a deadline → projection to the caller's contract.
+### 2.2 The channel and the HTTPS surface (R2, R5–R8, R14, R16, Q3) — built
+**Connection order:** accept → connection limit → TLS (`native-tls`) → hyper `http1` with `header_read_timeout` = handshake timeout and
+`max_buf_size` = the head cap → route → for the upgrade: Origin check → upgrade with frame and message caps → `hello` within the handshake
+timeout. **New with §2.7:** → key agreement → sealed frames.
+**Call order (unchanged):** connection rate → (non-public) valid token → program lookup → user rate → role → concurrency permits → ordering
+ticket → `spawn_blocking` run under a deadline → projection to the caller's contract.
 
-- **Where Leptos enters (C1).** `cobolt-server` (feature `server`) builds an `axum::Router` through `leptos_axum`, compiled for the server side only (`ssr`), no client crate, no hydration, no pages. It is driven by our own accept loop: the `native-tls` stream goes to `hyper_util`'s connection server with upgrades enabled, so the connection limit, the TLS handshake timeout and the loopback/TLS rules stay ours. The upgrade route performs the Origin check, then takes the raw upgraded connection and hands it to `tokio_tungstenite::WebSocketStream::from_raw_socket` with today's `WebSocketConfig` caps, then calls the existing `serve.rs` `session` unchanged (it is already generic over `AsyncRead + AsyncWrite`). Everything from `on_hello` / `on_text` / `on_call` on is untouched.
-- **Route table (Q3), closed:** `GET /health`; `GET /dl/<token>` (WASM-014 R15, `serve_download`); `GET /` and `GET /ws` with an upgrade; the identity routes WASM-009 defines (refresh cookie, provider redirect), mounted by that module on the same router; everything else **404**. Every HTTP answer carries the security headers already sent by `http.rs` `respond`. A developer cannot add routes in v1 (a public REST API is a non-goal); the endpoints are the platform's, not COBOL's.
-- **What retires:** `http.rs` `read_head`/`respond` and the routing branches of `serve_stream`; `health_loop` becomes a second listener on the same router (optional plain loopback `health_listen`, kept).
-- **Wire, keep-alive, Origin, limits:** unchanged — JSON text frames tagged `t` (`proto.rs`), pings every 20 s and a 60 s idle cut, exact Origin match (`*` refused at configuration), limits 1 MiB / 30 s / 20 per s burst 40 / 50 per s burst 100 / 8 / 64 / 1000, codes 7000–7004.
+- **Leptos (R2; operator 2026-10-23, "use Leptos de fato"):** `crates/cobolt-server/src/front.rs` — the platform routes are a `leptos_router`
+  table (`PlatformRoutes`: `/`, `/ws`, `/dl/:token`) read by `leptos_axum::generate_route_list` and mounted in `serve.rs` `front_router`
+  with `LeptosRoutes::leptos_routes_with_handler`; `GET /health` is a Leptos server function (`front::health`). Plain `cargo build`, no
+  `cargo-leptos` (§7 O1).
+- **Route table (Q3), closed:** `/health`, `/dl/{token}`, `/` and `/ws` with an upgrade, the WASM-009 identity routes when they exist; everything
+  else 404 (`loopback::routes_are_closed`). Security headers as a response layer.
+- **Keep-alive, Origin, limits:** WebSocket pings every 20 s, a 60 s idle cut, exact Origin match, limits 1 MiB / 30 s / 20 per s burst 40 /
+  50 per s burst 100 / 8 / 64 / 1000, codes 7000–7004. Unchanged by this revision except that the frame cap is read as a plaintext cap (§2.7).
 
-### 2.3 Tokens (R9–R13) — unchanged
-`jwt.rs`: shape and 16 KiB cap → allowed algorithm (`RS256`/`ES256` default; never `none`, never HMAC except the development token) → key by `kid`, key `alg` must equal the token's → issuer, `exp`, `nbf`, `leeway_seconds` ≤ 300 → audience/app client → access token, never one carrying `at_hash`/`nonce`. Profiles `generic`, `cognito`, `keycloak`, `entra`. **R11:** the token travels as a first message `{"t":"auth","token":…}` — never a URL, query, header or sub-protocol; a call may carry a fresher token (R13, `authentication 2002` on expiry). Expiry re-checked at every call. JWKS (`jwks.rs`) TTL 3600 s, refresh never more often than 30 s whatever the cause, last keys kept up to a day during an outage. Claims through `COBOL::"WS-CLAIM"` (R12), read-only.
-**New with C2:** in `per-connection` mode the claims are re-installed at **every** call (`Interpreter::set_remote_claims`, `crates/cobolt-runtime/src/interpreter/remote.rs`), so a token refreshed mid-connection is what the program sees; a call whose token names a **different subject** than the one that opened the session is refused (`authorisation`) rather than handed another user's `WORKING-STORAGE`.
+### 2.3 Tokens (R9–R13) — built, unchanged
+`jwt.rs`: shape and 16 KiB cap → allowed algorithm (`RS256`/`ES256`; never `none`; HMAC only for the development token) → key by `kid` →
+issuer, `exp`, `nbf`, leeway ≤ 300 s → audience → access token only. **R11:** the token travels as the message `{"t":"auth","token":…}` after
+`hello`, never in a URL, query, header or sub-protocol; **with §2.7 that message is the first sealed frame**, so the token is never readable at a
+TLS endpoint either. A call may carry a fresher token (R13, `authentication 2002`). JWKS TTL 3600 s, refresh ≥ 30 s apart. Claims through
+`COBOL::"WS-CLAIM"` (R12), re-installed at every call; in `per-connection` mode a token naming another subject is refused `authorisation 3000`.
 
-### 2.4 Hardening (R15, R17, R18, R21) — unchanged
-Strict payload reader (`Interpreter::group_from_json`) before the program starts; panic and run-time errors answered `server 9001` without detail; `LogRecord` has no field for a token, a password, a payload or a claim; secrets from `env:`/`file:`/`backend.toml`, never a form; `/health` body as today. **New:** the log record of a call gains the session mode (`per-call`/`per-connection`), not its contents.
+### 2.4 Hardening (R15, R17, R18, R21) — built, unchanged
+Strict payload reader (`Interpreter::group_from_json`) before the program starts; faults answered `server 9001` without detail; `LogRecord` has
+no field for a token, a password, a payload or a claim, and gains the session mode only. **New with §2.7:** no key material — private key,
+shared secret, session keys, nonces — is ever logged, put in `/health`, or written to disk.
 
-### 2.5 Concurrency across connections (R19) — unchanged
-`Interpreter::set_file_lock_wait` (`crates/cobolt-runtime/src/interpreter.rs`) takes a `<path>.lck` advisory lock per `OPEN` (exclusive except `INPUT`), waits up to the configured time, else status 93; held until `CLOSE` has flushed (the 2026-10-20 runtime fix). SQL relies on the database's isolation. **New with C2:** in `per-connection` mode a program may keep a file open between calls; the lock is then held across calls of that connection, and other connections wait or get 93 — correct and visible, and stated in the KB text. A dropped connection ends its run unit, which closes its files and releases its locks.
+### 2.5 Concurrency across connections (R19) — built, unchanged
+`Interpreter::set_file_lock_wait` (`crates/cobolt-runtime/src/interpreter.rs`): a `<path>.lck` advisory lock per `OPEN`, waited for up to the configured time,
+else status 93; released after `CLOSE` has flushed. In `per-connection` mode a file left open holds its lock across that connection's calls; a
+dropped connection releases everything (`a_file_held_open_across_calls_makes_others_wait_or_93`).
 
-### 2.6 Statefulness as a project property (R18, Q2) — new
-- **Property:** `[backend] state = "per-call"` (default, also when absent — existing projects unchanged) or `"per-connection"`, in `cobolt.toml`; shown in the IDE's Backend settings section; copied into the bundle by the build and read by `rcrun backend run`.
-- **`per-call`:** today's `exec::execute`.
-- **`per-connection`:** one session per connection holding one `Interpreter` per exported program it has called (each exported program is its own top-level program, §2.1). A call re-enters that interpreter: arguments read into `LINKAGE`, the program runs, `WORKING-STORAGE` persists as for a program `CALL`ed again in one COBOL run unit; `EXTERNAL` items are shared across the session's interpreters through one `ExternalStore` (`Interpreter::external_store`, and the constructor `Interpreter::with_external_store(program, store)`). Calls of one session are **serialised** (the concurrency permit per connection becomes 1 for stateful programs; `independent` is ignored and the build warns). The session ends with the connection; a reconnection starts a fresh session, and the client is told so by the `hello` answer (a `session: "new"` member, owned by WASM-014's protocol) — no state is ever resumed across connections, so R7's "never run twice" and Q4 are untouched.
-- **Prerequisite to verify first (§5 R3):** that `Interpreter::run` (interpreter.rs) can be entered more than once on one instance with `WORKING-STORAGE` kept and SQL work ended per call (`sql_end` runs at the end of each `run`), and that the interpreter can move between `spawn_blocking` threads (`Send`). If either fails, the runtime change is a separate, stated task, not a workaround in the server.
-- **Isolation (R18) in this mode** is per connection, never per program across users: two connections never share an interpreter.
+### 2.6 Statefulness as a project property (R18, Q2) — built
+`per-call` (default): `exec::execute`, a fresh unit per call. `per-connection`: `exec::Session`, one run unit per exported program the connection
+called, one `ExternalStore` shared through `Interpreter::new_with_channels_and_store`; the first subject is bound (`Session::admit`). **As built (T5),
+and now the design:** a connection's calls run in turn through the **ordering ticket**, not a per-connection permit of 1 (a permit taken with
+`try_acquire` would *refuse* a pipelined call, against R6); `independent` is ignored in this mode and the Build notes it. A call cut off, cancelled
+or faulted drops that program's run unit. A reconnection starts fresh state whatever the client sends; **no `hello` member says "new"**
+(WASM-014's `hello.session` is a client id for idempotency, the other direction; §7 O4).
+
+### 2.7 The sealed channel (R24; AC11) — new, task T15b
+
+**What the operator decided** (2026-10-30, binding): both sides generate a fresh X25519 key pair at start and never store it; each connection
+agrees a session key from the two; HKDF-SHA256 and ChaCha20-Poly1305; RustCrypto crates, pure Rust, also for WebAssembly. **What this plan
+adds:** where each key lives, the handshake members (a proposal to WASM-014, which owns them), the frame format, and the refusals.
+
+- **Where the code lives (D7).** A module `seal` in `cobolt-wire`, behind a new feature **`channel`** (off by default): the key pair from 32
+  random bytes, the agreement, the key derivation, `seal(&mut self, text) -> Vec<u8>` and `open(&mut self, bytes) -> Result<String, CallError>`.
+  It takes its randomness from the caller, so it builds unchanged for `wasm32` and native and is tested natively. Four speakers turn it on and
+  call it: the server (`cobolt-server` feature `server`), the Rust client (`client`), the player (`crates/cobolt-web-player`, its own workspace
+  and lock), and the mock backend the browser tests use (`crates/cobolt-web-bundle/examples/mock_backend.rs`, `tests/e2e_chrome.rs`). The
+  test helpers of `crates/cobolt-server/tests/support/mod.rs` and the minimal client of `crates/cobolt-compiler/tests/backend_build_wasm003.rs` go
+  through the same module. The compiler, the semantic analyser and the interpreter, which link `cobolt-wire` without the feature, gain nothing.
+- **Key pairs (R24 "generated when the application starts").**
+  - *Backend:* one `x25519_dalek::StaticSecret` (feature `static_secrets` — the same secret serves every connection of the process, which
+    `EphemeralSecret` cannot) made in `serve.rs` when the server starts (`Shared`), from `getrandom` (already a dependency of the `server` and
+    `client` features, 0.4). One per process: `rcrun backend run`, the IDE's child and the built binary all make theirs at start.
+  - *Player:* made when the application opens (where `api.rs` seeds the session, `client.seed_session(…)` with `Math.random`), but from
+    **`crypto.getRandomValues`** — `Math.random` is not a cryptographic source — through `web-sys`/`js-sys`, handed to `net.rs` as 32 bytes;
+    a reload is a new application start and a new key pair.
+  - *Rust client* (desktop and native hosts of `CALL … WITH WEBSOCKET LINKAGE`): made when the `WsClient` is created (`WsClient::new`,
+    reached from `install_default_from_env` at host start); its clones share it.
+  - Secrets are zeroised on drop (`zeroize`, feature of `x25519-dalek`; `zeroize` 1.8.2 is in `Cargo.lock`), never serialised, never `Debug`.
+- **Handshake (proposal to WASM-014 R18; D8).** The client's `hello` gains `key` (its X25519 public key) and `nonce` (32 fresh random bytes
+  for this connection), both base64; the server's `hello` gains its `key` and its own fresh `nonce`. Both sides compute
+  `shared = X25519(own secret, peer key)`; an all-zero `shared` (a low-order peer key) refuses the connection. Then
+  `HKDF-SHA256(salt = SHA-256(transcript), ikm = shared)` expands two 32-byte keys, `info = "prc-channel/1 c2s"` and `"prc-channel/1 s2c"`.
+  The **transcript** is the protocol number, both public keys and both nonces in a fixed order; binding it means a frame of one connection
+  cannot be opened in another, and the per-connection nonces are what makes the session key new on every connection although each side keeps
+  its key pair for its whole run (R24 "per-connection session key"). No secret is sent: a party that only reads frames, even holding the
+  TLS session, sees two public keys and two nonces.
+- **Frames.** After the two `hello`s, every data message in either direction — `auth` first, then calls, replies, errors, progress,
+  subscriptions, uploads — is **one binary WebSocket message**: `ChaCha20-Poly1305(key of that direction, nonce = 4 zero bytes ‖ 64-bit
+  big-endian counter, plaintext = the JSON text as today)`. The counter starts at 0 per direction per connection and is implicit (not sent);
+  WebSocket over TCP is ordered, so a frame that does not open — tampered, replayed, reordered, dropped — **ends the connection** with
+  *transport*, and the calls follow R7. A text message after the handshake is refused the same way (no plaintext downgrade). WebSocket
+  ping/pong control frames stay as they are (empty, no content). Everything inside a sealed frame is the protocol of `proto.rs`
+  unchanged, so every rule above — call order, tokens, limits, idempotency — is untouched.
+- **Limits.** `max_frame_bytes` stays the plaintext limit announced in `ServerHello`; the socket's caps are raised by the 16-byte tag, so a
+  developer's `max_payload_bytes` (WASM-005 R11) means what it meant.
+- **Refusals (WASM-014 R18 "refused with the class *transport*").** A protocol-2 `hello` without a usable `key`/`nonce`, or an exchange
+  that fails → error *transport* and close. A protocol-1 client (no exchange possible) → the existing version refusal at `hello`
+  (`PROTOCOL_UNSUPPORTED` 6002), since `PROTOCOL`/`PROTOCOL_MIN` in `crates/cobolt-wire/src/contract.rs` (both 1 today) become 2 (D9). There
+  is no unencrypted mode, in development or release.
+- **What it does not protect** (to be stated with WASM-013 R17, as its decided text already says): the agreement is unauthenticated, so a
+  party that actively rewrites the handshake is stopped by TLS's server authentication alone; behind a TLS-terminating proxy that rewrites
+  `hello`s, R24 does not hold. AC11 asks for what it does give: a **capture** at the TLS endpoint holds no readable frame, and no capture opens
+  under a later start.
+- **Scope (§7 O5, working assumption).** R24 covers the WebSocket channel, where every call and answer travels (AC11). The plain HTTPS routes —
+  `/health`, `/dl/<token>` downloads (WASM-014 R15) and WASM-009's identity routes — stay TLS-only.
+
+### 2.8 Retries and the blocked state (R25, R26, R7, R8; AC12) — new, task T15a
+
+- **One policy (D11).** `cobolt_wire::retry::Policy { first: 10 s, step: 10 s, attempts: 3 }`, plain arithmetic in `cobolt-wire` (no feature,
+  no dependency): attempt *n* has the window `first + (n-1)·step` → 10, 20, 30 s. Both clients use it; the spec's numbers are its defaults and
+  the only values a release uses; tests pass a shorter policy. It is not a project setting (R25 fixes the numbers).
+- **An attempt (§7 O6, working assumption).** An attempt is one connect → `hello` (→ key agreement) → `auth` given its window to complete. An
+  attempt that fails before its window ends (on loopback a stopped backend refuses at once) **waits out the window** before the next starts,
+  so the three attempts take 10, 20 and 30 s whatever the failure, as AC12 measures them; one that succeeds ends the cycle at once.
+- **What starts a cycle (§7 O7, working assumption).** The loss of an established connection, and a call that needs a connection the client does
+  not have. A page that makes no call opens no connection, as today.
+- **During the cycle.** The client is **blocked** (R26): the player's state machine (`net.rs` `LinkState`) gains `Retrying { attempt, window_ends }`,
+  and it reports *blocked* on and off through its outgoing queue (`Client::out`) — on at the break, off when an attempt succeeds or the cycle gives
+  up; WASM-016 T29b draws the modal from it, WASM-012 T25b on a device. Calls wait (WASM-005 R18): a call's own timeout is **paused** while the
+  client is blocked, so the cycle and not the call's timer decides its fate (D12). New calls made meanwhile (a timer's handler) queue.
+- **When an attempt succeeds:** a new connection (a new session key, §2.7) and `auth`; subscriptions subscribe again (as today); calls that were
+  sent when the line dropped follow R7 / WASM-014 R9 — repeated once under the same idempotency key **only** when their program is declared
+  `idempotent`, otherwise failed *transport* 1001 with `may_have_run: true`; calls that had not been sent go out.
+- **When the third attempt fails:** every waiting call fails *transport* — 1001 with `may_have_run: true` if it had been sent, 1000 if it never was
+  — with the message "the backend could not be reached"; *blocked* goes off with **unreachable** on, which the player turns into WASM-016 R21's
+  failure caption and event; no further attempt starts on its own. The next call the application makes starts a new cycle (§7 O8). The
+  codes reuse WASM-014 R7's closed list; a distinct code is WASM-014's to add.
+- **What retires (D13).** In the player: `Config::backoff_start_ms`, `backoff_max_ms`, the jitter (`Client::jitter`) and "a failed attempt that leaves
+  nothing waiting stops there" (R25 retries any break). In the Rust client: `ClientConfig::reconnect_deadline`, `on_disconnect`'s 100 ms back-off and
+  `ensure`'s four quick attempts. Their tests (`net.rs` "doubling, capped at backoff_max", and the rest of that group) are replaced by the policy's.
+- **The Rust client and R26 (§7 O9, working assumption).** The same policy applies to the Rust client (`client.rs` says "the rules are the
+  same"); it exposes *blocked*/*unreachable* to its host, but no spec draws a desktop modal, so a desktop form is not blocked by this task.
+- **Server side:** nothing changes for R25; R8's keep-alive stands.
 
 ## 3. Data / model changes
-- **`cobolt.toml` `[backend]`** (`BackendSettings`, `crates/cobolt-compiler/src/project_kind.rs`): add `state` (string, default `per-call`). `exports` (a list of names) is **retired as a source** but still deserialised: when a project is opened whose `backend/exports.toml` is absent and whose `[backend] exports` is non-empty, the IDE writes `exports.toml` from it (each name, no roles, not public) and reports it in the Output panel; the old list is left in place, not deleted (user code is sacred). `ManifestView::backend_exports` (`crates/cobolt-compiler/src/lib.rs`) and the Web settings field are re-pointed at `exports.toml`.
-- **`backend/exports.toml`:** unchanged schema; now also written by the IDE.
-- **Bundle** (`crates/cobolt-server/src/bundle.rs`): gains `state`; the bundle is regenerated at every build, so no compatibility shim.
-- **`backend.toml`:** `unsafe_plain_ws` removed (§4 D4). A file that still has it fails to start with a message naming the reason (`deny_unknown_fields` already makes it a start error; the message is made specific).
-- **Wire:** the `hello` answer gains `session` (with WASM-014). No other format changes.
+- **Wire** (with WASM-014, which owns the members): `proto.rs` `Hello` and `ServerHello` gain `key` and `nonce` (base64, required from
+  protocol 2); `PROTOCOL` and `PROTOCOL_MIN` become 2; after the handshake the envelope is unchanged but carried sealed in binary frames
+  (§2.7). `Hello` still has no `session` member: the player's (ABI A15) is ignored by serde, as today.
+- **ABI** (`specs/WASM-ABI-v1.md`): a row amending A15 — the sealed frames, the two members, and that the module still sees frames of A12 only
+  (no change to the module or the generator). Written by the task that changes the player.
+- **Configuration:** `cobolt.toml`, `exports.toml`, `backend.toml`, the bundle and `interface.json` **unchanged**. Player `Config` loses
+  `backoff_start_ms`/`backoff_max_ms`; `ClientConfig` loses `reconnect_deadline`; both gain the policy value (defaults = R25).
+- **Prebuilt player:** `assets/web-player/` is rebuilt after `net.rs`/`api.rs` change, and its source fingerprint (`src/fingerprint.rs`, the
+  freshness test) updated.
+- **Formats a user holds:** a Web bundle built before §2.7 cannot talk to a backend built after it (and the reverse); the backend answers its
+  `hello` with the version refusal, which the player already reports (*version* 6001/6002). Acceptable on the unreleased 2.x.x line; stated.
 
 ## 4. Key decisions & alternatives
-- **D1 — Re-host the HTTP front on Leptos's server integration; keep the session code.** Why: R2 requires the server to be built on Leptos, and the security-relevant code (`session`, `on_call`, `jwt.rs`) has tests that must keep passing unchanged; only the part Leptos replaces (parsing, routing, upgrade) moves. Rejected: rewriting the session on `axum::extract::ws` (a second WebSocket type, the frame caps re-proved, every loopback test re-earned for no behavioural gain); keeping the hand-rolled front (contradicts R2).
-- **D2 — Leptos inside `cobolt-server`, not in the generated project.** Why: R2's "invisible plumbing"; the generated project stays a thin `main`; one place to guard dependencies. Rejected: generating Leptos code per project (the developer's Build would then own Leptos source, and D10's "no per-project Leptos code" spirit is lost).
-- **D3 — `per-connection` as one run unit per connection, serialised.** Why: it is COBOL's own `CALL`-again semantics, so nothing new to teach; serialisation removes intra-session races. Rejected: one shared instance per user across connections (survives reconnection but leaks across tabs and needs eviction); per-program-per-user caches (unbounded memory).
-- **D4 — Remove `unsafe_plain_ws`.** Why: R5 accepts plain `ws` only on loopback; Q7's decision keeps "the binary refuses a non-loopback `ws` either way"; a development relaxation that serves `ws` on a LAN address contradicts both. A developer testing from a phone uses TLS with a development certificate. Rejected: keep it as a development-only warning (it is how an unencrypted backend reaches a network by mistake). *Reading recorded:* R5's "only … in a development run" and Q7's reverse-proxy mode together allow loopback `ws` in a release start **only** as the reverse-proxy arrangement; the spec's R5 wording should say so at the next `/clarify`.
-- **D5 — `backend/exports.toml` is the single list.** Why: it carries roles, `public`, `idempotent`, directions — the `cobolt.toml` list of names cannot express R9/R12/Q4; the server and the compiler already read it. Rejected: making `cobolt.toml` the source (would need the full schema in the project manifest and a second parser).
-- **D6 — The route table is closed.** Why: Q3 asks for endpoints, the non-goals exclude a public REST API; every endpoint is platform code reviewed with the security model.
+- **D1 — Re-host the HTTP front on Leptos; keep the session code.** Built (T7, T10a). Rejected: a session on `axum::extract::ws`; a hand-rolled front.
+- **D2 — Leptos inside `cobolt-server`, not in the generated project.** Built.
+- **D3 — `per-connection` = one run unit per connection, in turn.** Built (serialised by the ordering ticket, §2.6).
+- **D4 — `unsafe_plain_ws` removed from the server.** Built (T4). *Reading recorded, for the next `/clarify`:* R5's "only … in a development run"
+  and Q7's reverse-proxy mode together allow loopback `ws` in a release start behind a proxy.
+- **D5 — `backend/exports.toml` is the single list.** Built.
+- **D6 — The route table is closed.** Built.
+- **D7 — The sealed channel is one module of `cobolt-wire` behind a feature.** Why: four speakers (server, Rust client, player, mock) must
+  agree byte for byte, and `cobolt-wire` is already the protocol's one home that the player links; the feature keeps the compiler,
+  semantic analyser and interpreter closures free of crypto. Rejected: a new crate (one more workspace member and path for the player's
+  separate workspace, for no isolation the feature does not give); code in each speaker (four implementations of the same frames).
+- **D8 — Keys and nonces in the two `hello`s, client first.** Why: the protocol already opens with the client's `hello` and the server's answer,
+  so the agreement costs no extra round trip, and `auth` — the token — is then the first sealed frame. *Differs in wording from WASM-014 R18's
+  decided text* ("the backend's in its hello, the frontend's in its reply"), which would need a client message after the server's `hello` and
+  leave a public connection (no `auth`) with nothing to carry the key: **a proposal to WASM-014, not decided here (§7 O10).** Rejected: a key
+  in a sub-protocol or a header (R11's spirit, and the browser cannot set headers on a WebSocket).
+- **D9 — Implicit per-direction counters as nonces; any failure to open ends the connection; no plaintext mode.** Why: a 96-bit nonce must
+  never repeat under one key; per-connection keys from fresh nonces make that true by construction; an implicit counter also refuses replay and
+  reordering for free on an ordered transport. Rejected: random nonces sent in each frame (12 bytes per frame, no replay refusal without a
+  window); a development switch for plaintext frames (it is how an unencrypted channel ships by mistake — the reason `unsafe_plain_ws` went).
+- **D10 — The protocol number goes to 2 with no fallback.** Why: an old client cannot do the exchange, and WASM-014 R18 refuses a connection
+  that cannot. The version refusal names the problem; a silent fallback to plaintext would defeat R24. Whether the contract version (WASM-014
+  R16) also moves is WASM-014's.
+- **D11 — One retry policy in `cobolt-wire`, numbers from the spec.** Why: two clients drifted into two back-offs; one value keeps them equal and
+  makes AC12 testable with a short policy. Rejected: a project setting (R25 fixes the numbers).
+- **D12 — A call's timeout pauses while blocked.** Why: WASM-005 R18 says the call *waits* while the frontend retries and its fate is decided by
+  the reconnection or the give-up; the player's default call timeout (30 s, `net.rs` `Config::default`) is shorter than the 60 s cycle and would
+  otherwise fail calls with 1002 mid-cycle. Rejected: letting the timer run (AC12's "the waiting call reaches `ON EXCEPTION` with *transport*
+  after the third attempt" would depend on the call timeout).
+- **D13 — No jitter.** Why: R25 fixes 10/20/30 s and AC12 measures them. Cost: many clients of one restarted backend return together (§5 R8).
 
 ## 5. Risks & mitigations
-- **R1 — The player and the server do not speak the same envelope (C6).** The player follows ABI A8 (`type`, no `hello`); the server follows `proto.rs` (`t`, mandatory `hello`). Until aligned, end-to-end fact (2) of WASM-PLAN fails although AC1–AC8 pass with the Rust client. → A8 itself says the player's `net.rs` is a proposal until WASM-014 replaces it; alignment is WASM-014/WASM-016 work, flagged to their plans; this plan changes neither side.
-- **R2 — Leptos's server closure may bring a barred crate** (`ring`, `aws-lc-*`, `rustls*`, `openssl*`) or raise the MSRV above 1.92. → `default-features = false` on every Leptos crate, `ssr` only; extend `crates/cobolt-server/tests/dependency_guards.rs` to the new closure and to "no Leptos in the loader's closure"; check `rust-version` of each added crate. If a barred crate is unavoidable, stop and report; do not weaken the guard.
-- **R3 — Re-entering an interpreter (`per-connection`) may not keep `WORKING-STORAGE`, or `Interpreter` may not be `Send`.** → A first task proves both with a unit test; failure turns into a runtime task (with parity across the hosts) before the server work.
-- **R4 — `per-connection` holds file locks across calls.** → Documented in the KB; per-call deadline still applies; a dropped connection releases everything; a test shows another connection getting status 93 rather than hanging.
-- **R5 — The 2026-10-20 evidence is for the hand-rolled front.** → Every loopback test runs again on the Leptos front unchanged; the binary size and cold build time are measured again and reported against 53.1 MB / 29 s.
-- **R6 — Two export lists in old projects (C5).** → The one-way, non-destructive migration of §3, with a test.
-- **R7 — Windows and Linux were never run** (still true). → Code stays on `std`, `tokio`, `native-tls`, `hyper`; the gap is stated in the evidence, not claimed.
+- **R1 — closed** (C13): the player speaks `proto.rs` since WASM-014 T6.
+- **R2 — Leptos's closure.** Held (T6, T10a): no barred crate, highest `rust-version` 1.90; guards in `crates/cobolt-server/tests/dependency_guards.rs`.
+- **R3, R4 — re-entry and locks in `per-connection`.** Held (T1, T1a, T5).
+- **R5 — Size and build time.** Measured on the Leptos front: 71 s cold debug build, 67.2 MB (T10a). §2.7 adds the crypto crates; re-measure.
+- **R6 — Old export lists.** Held (T9 migration).
+- **R7 — Windows and Linux were never run** (still true). Code stays on `std`, `tokio`, `native-tls`, `hyper`, RustCrypto.
+- **R8 — Crypto crate generations.** `Cargo.lock` holds `curve25519-dalek` 4.1.3, `hkdf` 0.12.4, `sha2` 0.10.9 *and* 0.11.0, `chacha20` 0.10.0,
+  `aead` 0.6.1, and no `x25519-dalek` or `chacha20poly1305`. → Pick one RustCrypto generation for the four crates (the one matching `sha2`
+  0.10/`hkdf` 0.12 that `x25519-dalek` 2 on `curve25519-dalek` 4 fits, unless the newer one is required), use the **same versions** in the
+  player's own lock, check each `rust-version` ≤ 1.92 and add them to both dependency guards (`cobolt-server/tests/dependency_guards.rs`,
+  `cobolt-web-player/tests/dependency_guard.rs`). If a barred crate or a newer MSRV is unavoidable, stop and report.
+- **R9 — Randomness in the browser.** `Math.random` seeds the session id today (`api.rs`); a key from it would be guessable. → The key's 32
+  bytes come from `crypto.getRandomValues` only; `net.rs` takes bytes and cannot make a key itself; a test asserts the player's key source.
+- **R10 — Unauthenticated agreement.** An active party holding the TLS session can substitute keys. → Stated in WASM-013 R17 (decided text) and
+  here (§2.7); not claimed otherwise; AC11 tests the passive capture it asks for.
+- **R11 — Everything that speaks the protocol breaks at once** (server, Rust client, player, mock backend, the test clients). → One task changes
+  them together, behind `cobolt-wire`'s module; the loopback, client-contract, e2e Chrome, `backend_cli` and `backend_build_wasm003` suites
+  are the gate; a bundle/backend mismatch is reported by the version refusal (§3).
+- **R12 — Retry tests take a minute.** The spec values give a 60 s cycle. → Logic tested with a short policy and the player's simulated clock;
+  **one** real-socket run at the spec values, its windows printed (AC12 says "measured").
+- **R13 — Synchronised reconnection** (D13). Accepted by the spec's fixed timings; the server's connection limit and rate limits (§2.2) bound it.
+- **R14 — The prebuilt player must be rebuilt.** → The freshness test fails until it is; build it with a warm `target-player` (a cold build is
+  ~4 GB); report the `player.wasm` size before and after.
 
 ## 6. Test strategy
-Kept, and run again on the Leptos front: `cobolt-server` `loopback` (11), `token_rules` (15), `config_rules` (10), `dependency_guards` (4), `client_contract`; `cobolt-cli` `backend_cli` (3); `cobolt-compiler` `backend_build_wasm003` (3). Each reports what it did today (counts, timings, sizes).
-New:
-- `loopback::routes_are_closed` — `/health` 200, `/dl/<bad>` refused, `/ws` and `/` upgrade, any other path 404, a non-upgrade `GET /ws` 404; reports each status. (C3)
-- `loopback::a_large_or_slow_request_head_is_refused` — header over the cap → 431, a head that never ends → closed within the handshake timeout. (the `http.rs` behaviour, now on `hyper`)
-- `config_rules::plain_ws_is_never_served_on_a_non_loopback_address` — replaces the `unsafe_plain_ws` case; also a `backend.toml` still naming it fails with a specific message. (D4)
-- `dependency_guards`: no barred crate in the Leptos closure; no `leptos*`/`axum`/`hyper` in the loader's closure. (R2)
-- Runtime: `interpreter_reentry_keeps_working_storage` (cobolt-runtime) — run one program twice on one instance, a counter answers 1 then 2; SQL work ends at each run. (R3)
-- `loopback::per_connection_state_is_kept_and_never_shared` — two connections, interleaved calls of a counter: each sees 1, 2, 3 on its own; a reconnect starts at 1; a call with a token of another subject is refused; `per-call` still answers 1 every time. Reports the sequences. (R18, Q2)
-- `loopback::a_file_held_open_across_calls_makes_others_wait_or_93`. (§2.5)
-- `cobolt-project-tools` create test: a new Web project has `backend/exports.toml` exporting `HEALTH` public, and `rcrun backend check` on it passes. (R22, C5)
-- `cobolt-ide`: opening a project with `[backend] exports` and no `exports.toml` writes the file and leaves `cobolt.toml` untouched. (C5)
-- System KB freshness test after the KB edit (below).
-Manual: `rcrun backend run` on a new Web project, `curl -k https://127.0.0.1:<port>/health`; IDE Start/Stop when AC9's IDE half lands.
+Kept (they ran green on 2026-10-23, tasks.md T13/T14): `cobolt-server` lib, `client_contract`, `config_rules`, `dependency_guards`, `loopback`,
+`token_rules`; `cobolt-cli` `backend_cli`; `cobolt-compiler` `backend_build_wasm003`; `cobolt-project-tools` `backend_secret_not_scanned`;
+`cobolt-ide` `backend_run` and `web_settings`. **All are re-run on the sealed channel unchanged in what they assert.**
 
-## 7. Open items (none of the spec's questions is open)
-- **O1 — How `cargo-leptos` enters (conflict between WASM-003 R2 and WASM-017 R17).** R2 names `cargo-leptos`; WASM-017 R17 says `cargo-leptos` exists **only in the product's build**. The backend is built on the developer's machine. **Decided by the operator (2026-10-23):** the front must use Leptos for real (routes through `leptos_axum` and server functions, tasks.md T10a), not hyper + axum with Leptos linked and unused; still built with plain `cargo build`, so `cargo-leptos` is not needed on the developer's machine and R17 holds; WASM-002's plan (§4.4) already treats `cargo-leptos` as the product's tool. **To confirm by the operator**; if `cargo-leptos` must run the backend build, the Backend Build gains a tool check (IDE strings ×6) and R17 needs an amendment.
-- **O2 — `per-connection` names.** `state = "per-call" | "per-connection"` is this plan's spelling; the operator may prefer other words in the settings panel (the Tr keys carry the visible text).
-- **O3 — WASM-INDEX D4 and D5 still say "Open"** although Q2 and Q3 are decided; the index is another file, left for its owner.
-- **Not done (unchanged from 2026-10-20, not this spec's code):** the IDE's Start/Stop and Output panel (AC9, IDE half; `cobolt_server::dev::DevServer` is ready); R23/AC10 (`connect-src` is written by `crates/cobolt-web-bundle/src/csp.rs`; the frontend secret scan is WASM-002/010); a real identity provider was never contacted.
+New for T15a (R25, R26; AC12):
+- `cobolt-wire` `retry::tests` — windows 10/20/30 s, three attempts, nothing after the third.
+- `cobolt-web-player` `net.rs` tests on the simulated clock (replacing the back-off group): a break → *blocked* on, attempts at windows
+  10 000 / 20 000 / 30 000 ms, an early refusal waits out its window, a fourth attempt never starts; success in attempt 2 → *blocked* off, an
+  `idempotent` call repeated once under its key, another failed 1001 `may_have_run: true`, an unsent one sent; give-up → every waiting call
+  1000/1001, *unreachable* on; a call's timeout does not fire while blocked; a call after give-up starts a new cycle. Each prints the
+  transitions and times.
+- `cobolt-server` `loopback` with the Rust client: the same cases with a short policy over real sockets (stop the backend, restart it inside
+  attempt 2), and **one run at the spec values** with the backend stopped for good — the three windows measured and printed, the call reaches
+  *transport* after the third, no fourth connection seen by a listener on the port.
+- Browser (with WASM-016 T29b): `cobolt-web-bundle` `e2e_chrome` against `mock_backend` stopped and restarted — the blocked state and the event
+  reach the page (the modal's look is WASM-016 AC13–AC14).
+
+New for T15b (R24; AC11):
+- `cobolt-wire` `seal::tests` — the RFC 7748 X25519 vector and the RFC 8439 ChaCha20-Poly1305 vector through our wrappers; both sides derive the
+  same two keys; two connections of the same key pairs derive different keys; a tampered, replayed, reordered or truncated frame is refused;
+  a low-order peer key is refused; a key pair made from other bytes differs.
+- `cobolt-server` `loopback::the_channel_is_ciphertext_at_a_terminating_proxy` (AC11) — client → a test proxy that terminates TLS and records
+  every WebSocket message it relays → backend. Asserts: only the two `hello`s are text; every later message is binary; no recorded byte
+  string contains the program name, a payload value, the token or `"t":`; then the backend and the client restart, a new capture shows
+  different public keys, and replaying the first capture's frames into a new connection is refused. Prints message counts and the two key
+  fingerprints.
+- `loopback::a_connection_without_the_exchange_is_refused` — protocol 1 → *version* 6002; protocol 2 without `key` → *transport*; a text
+  frame after the handshake → *transport*, connection closed.
+- `loopback::the_frame_limit_is_the_plaintext_limit` — a payload exactly at `max_frame_bytes` passes, one byte more → 7000.
+- `loopback::concurrent_callers_…` (AC7) re-run sealed; its 400-call time compared with the unsealed run and printed.
+- `the_log_has_neither_…` (AC8) extended: no key, shared secret or nonce in the log.
+- Player: a native test that `net.rs` refuses to start a sealed connection without key bytes from its owner; `dependency_guard` with the crypto
+  crates; `freshness` after the rebuild; `e2e_chrome` against the sealed `mock_backend`.
+- Dependency guards: the four crates present in the `server`, `client` and player closures, absent from the `loader` closure and the
+  compiler's; nothing barred; MSRV printed.
+
+Manual (operator, never driven by the agent): a Web project's backend started from the IDE, the page opened, the backend stopped and restarted —
+the modal and the calls behave as AC12 says.
+
+## 7. Open items
+- **O1 — `cargo-leptos` (WASM-003 R2 vs WASM-017 R17).** The operator ruled on 2026-10-23 that the front uses Leptos for real (built, T10a) with
+  plain `cargo build`. Whether `cargo-leptos` must ever run the backend build stays **to confirm**; if yes, the Backend Build gains a tool check
+  (IDE strings ×6) and WASM-017 R17 an amendment.
+- **O2 — The words `per-call` / `per-connection`.** This plan's spelling; the visible text is in Tr keys.
+- **O3 — WASM-INDEX D4 and D5 still say "Open"** although Q2 and Q3 are decided (checked 2026-10-31); another file, left to its owner.
+- **O4 — A `hello` member saying "state is new" after a reconnection.** WASM-014 defines none; nothing added (§2.6).
+- **O5 — R24's scope** (working assumption §2.7): the WebSocket channel only; `/health`, `/dl/<token>` and the identity routes stay TLS-only. **To confirm.**
+- **O6 — What R25's "timeout" is** (working assumption §2.8): the window an attempt is given, waited out when the attempt fails early. **To confirm.**
+- **O7 — Whether a first connection that fails runs the cycle** (working assumption §2.8: yes, when a call needs it). **To confirm.**
+- **O8 — After the give-up,** whether the application's next call may start a new cycle (working assumption: yes; R25 forbids only an attempt
+  "on its own"). **To confirm.**
+- **O9 — The Rust client and R26** (working assumption §2.8: same policy, state exposed, no desktop modal — no spec draws one). **To confirm.**
+- **O10 — Handshake order** (D8): keys in the client's `hello` and the server's answer, against WASM-014 R18's wording "the frontend's in its
+  reply". WASM-014 owns the members (its T19b); **to confirm** there before T15b starts.
+- **Not done, not this spec's code:** the IDE's Output panel does not show the `connect-src` the build reports (needs a Tr label; tasks.md T12);
+  no real identity provider was ever contacted; the modal (WASM-016 T29b, WASM-012 T25b); the threat-model text (WASM-013 T24b).
 
 ## 8. Steering compliance
-- [ ] **i18n ×6:** new IDE strings — the `state` property label and its two values, the exports-migration notice, (O1) a missing-tool message — as `Tr` keys in all six languages.
-- [x] **Generated-code contract:** `interface.json` and the generated backend Cargo project are regenerated at every Build, never hand-edited; nothing new is hand-maintained in them.
-- [x] **Docs:** `README.md` and `docs/` untouched on 2.x.x; 2.x.x speaks in `specs/`.
-- [ ] **System KB:** the *Calling the backend* section (`crates/cobolt-compiler/src/lib.rs`) says "every call runs in a fresh interpreter" — rewrite for the property, the `per-connection` lock behaviour and the single `exports.toml`; regenerate `assets/knowledge/chunked.data` in the same change. `COBOL::"WS-CLAIM"` already in `BUILTINS` (`crates/cobolt-runtime/src/builtins.rs`).
-- [ ] **Interpreter/binary parity:** the backend is a host of the interpreter; any runtime change from R3 lands in `rcrun run-form`, embedded child forms, the compiled binary and the backend.
-- [x] **PRIME DIRECTIVE:** Rust only; `cargo-leptos` (if O1 keeps it) is a tool, not repository source.
-- [x] **User code is sacred:** the `[backend] exports` migration writes a new file and deletes nothing.
-- [x] **Tech steering:** pure-Rust dependencies, OS TLS, no `ring`/`aws-lc-rs`, guarded by tests (spec 063 AC8 / 103).
-- [ ] **Fix vs feature:** feature (2.x.x, bump z only); R19's locking stays a fix with its forward-port rule.
+- [x] **i18n ×6:** no new IDE string in T15a/T15b — the captions are the host page's (WASM-016 R20–R21); wire errors are codes + English text
+  (§6 of the spec). Earlier keys (state, exports, Start/Stop) are in all six tables (T9, T10).
+- [x] **Generated-code contract:** `interface.json` and the generated backend project are regenerated at every Build, never hand-edited; R24 puts
+  no key in either.
+- [x] **Docs:** `README.md` and `docs/` untouched on 2.x.x; what 2.x.x says about itself is in `specs/` (and the ABI row of §3).
+- [ ] **System KB:** *Calling the backend* (`crates/cobolt-compiler/src/lib.rs`) gains the encrypted channel (no setting, nothing to write) and
+  the retry behaviour a developer sees (`ON EXCEPTION` with *transport* after three attempts of 10, 20 and 30 s; idempotent programs
+  repeated); `assets/knowledge/chunked.data` regenerated in the same change (`cargo run -p cobolt-ide --example build_chunked_kb`). No new
+  `COBOL::"…"` built-in.
+- [ ] **Interpreter/binary parity:** the Rust client is the one `rcrun run-form`, embedded child forms and the compiled binary use for
+  `CALL … WITH WEBSOCKET LINKAGE`; one change in `client.rs` reaches all of them — verified by the compiled-binary test reaching a sealed backend.
+- [x] **PRIME DIRECTIVE:** Rust only; Web Crypto is called from Rust through `web-sys`/`js-sys`, no new JavaScript source.
+- [x] **User code is sacred:** no developer file is changed or removed.
+- [ ] **Tech steering:** pure-Rust crypto, no `ring`/`aws-lc-rs`, guarded by tests in both lock files (spec 063 AC8 / 103); MSRV ≤ 1.92 checked.
+- [x] **Fix vs feature:** feature (2.x.x, bump `z` only, once per finalize — T15a and T15b each have one).
 
-## 9. Evidence (2026-10-20, hand-rolled front; to be re-run on the Leptos front)
-
-Everything below ran on macOS (Darwin 24.5, aarch64), debug builds, over real TLS sockets on loopback; the numbers are what the tests printed.
-
-| Criterion | Where it is proved | Result |
-|---|---|---|
-| **AC1** one exported and one non-exported program build to one executable; only the first answers | `loopback::an_exported_program_answers_and_nothing_else_does` (nine spellings incl. `../` and a NUL: all `not-found 5000`); `compiler::backend_build_wasm003::the_built_backend_…` | pass. Built in **29 s** (debug, cold staging), **53.1 MB**; `--describe` prints `interface.json`; `--check` exits 2 on `unsafe_allow_any_origin` or a missing file; `GET /health` → 200 |
-| **AC2** bad tokens refused, good accepted | `loopback::tokens_are_accepted_…`, `token_rules` (15) | pass: **14** bad tokens refused twice each; 1 good accepted; JWKS fetched **1** time, still 1 after 200 unknown `kid`s |
-| **AC3** role refused before the program starts | `loopback::a_role_is_checked_before_the_program_starts` | pass |
-| **AC4** foreign Origin refused; non-loopback `ws` refused | `loopback::a_foreign_origin_…` (5 refused 403); `config_rules::plain_ws_is_for_loopback_only_and_tls_is_all_or_nothing` | pass (the `unsafe_plain_ws` escape it tolerated is removed by D4) |
-| **AC5** payload validation | `loopback::a_payload_that_does_not_fit_…` | pass |
-| **AC6** distinct limit errors | `loopback::size_time_and_rate_limits_…` | pass: timeout at 703.5 ms (limit 700); burst 10 → 4 answered, 6 refused 7001; 8 kB frame over 4 kB → 7000 |
-| **AC7** concurrent callers isolated | `loopback::concurrent_callers_…` | pass: 400 calls in 0.18 s, each its caller's own, every counter 1 (`per-call`) |
-| **AC8** no token or password in the log | `loopback::the_log_has_neither_the_token_nor_a_field_…` | pass |
-| **AC9** IDE start/stop; binary identical | `cli::backend_cli` (3) | **partial**: IDE half not done |
-| **AC10** frontend secret scan | — | **not done** (WASM-002/010) |
-| R19 file sharing | `loopback::calls_that_share_a_file_take_turns_and_none_is_lost` | pass: 24 writers, 473 ms, all status 00 (3 of 24 got 90 before the runtime fix) |
-
-Test counts then: `cobolt-server` 41, `cobolt-cli backend_cli` 3, `cobolt-compiler backend_build_wasm003` 3. `loopback` once failed under machine load (`a_foreign_origin…`, 36 s) and passed 12 times alone — a timing sensitivity of the test client's 10-second waits. Dependencies then added: `tokio-tungstenite` 0.28 (`handshake`), `futures-util`, `native-tls`, `tokio-native-tls`, `jsonwebtoken` 11 (`rust_crypto`), `httparse`, `ureq` 2, `getrandom` 0.4, `base64` 0.22; test-only `rcgen` 0.14, `p256`, `rsa`, `signature`, `rand_core`. This revision adds the Leptos server crates (`leptos`, `leptos_axum`, `axum`, `hyper`, `hyper-util`) and, once the front moves, drops `httparse`.
+## 9. Evidence
+The 2026-10-20 evidence (hand-rolled front) was superseded by the re-run of **2026-10-23 on the Leptos front** recorded in tasks.md *Evidence
+(re-run)*: AC1–AC10 pass (AC9's IDE half by `backend_run` tests; the window itself is the operator's to look at), built binary 71 s / 67.2 MB,
+`cobolt-server` 70 tests. macOS only; no real identity provider. **AC11 and AC12 have no evidence yet** (T15b, T15a).

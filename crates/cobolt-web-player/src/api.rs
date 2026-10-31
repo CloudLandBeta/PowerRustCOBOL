@@ -330,6 +330,10 @@ pub(crate) struct Inner {
     inbox: RefCell<VecDeque<Inbox>>,
     net: RefCell<Option<Client<WsSocket>>>,
     net_timer: RefCell<Option<Timeout>>,
+    /// The connection's latest *blocked* and *unreachable* (WASM-003 R26, WASM-016 R21): what the
+    /// "connecting" modal (WASM-016 T29b) is drawn from; `stats()` reports them.
+    net_blocked: Cell<bool>,
+    net_unreachable: Cell<bool>,
     timers: RefCell<Vec<(u32, Timeout)>>,
     pub(crate) display_log: RefCell<Vec<String>>,
     pub(crate) errors: RefCell<Vec<crate::host::RunError>>,
@@ -459,6 +463,8 @@ impl Inner {
                     }
                 }
                 Out::Warning(w) => web_sys::console::warn_1(&w.into()),
+                Out::Blocked(b) => self.net_blocked.set(b),
+                Out::Unreachable(u) => self.net_unreachable.set(u),
             }
         }
         if refresh {
@@ -835,6 +841,8 @@ impl Player {
             inbox: RefCell::new(VecDeque::new()),
             net: RefCell::new(None),
             net_timer: RefCell::new(None),
+            net_blocked: Cell::new(false),
+            net_unreachable: Cell::new(false),
             timers: RefCell::new(Vec::new()),
             display_log: RefCell::new(Vec::new()),
             errors: RefCell::new(Vec::new()),
@@ -978,6 +986,7 @@ impl Player {
             "events_coalesced": s.events_coalesced, "events_dropped": s.events_dropped, "module_calls": s.module_calls,
             "yields": s.yields, "traps": s.traps, "bytes_in": s.bytes_in, "bytes_out": s.bytes_out,
             "instances": self.inner.host.borrow().trees.len(), "tasks": self.inner.host.borrow().live_tasks(),
+            "blocked": self.inner.net_blocked.get(), "unreachable": self.inner.net_unreachable.get(),
         })
         .to_string()
     }

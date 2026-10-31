@@ -418,6 +418,8 @@ pub struct Proxy {
     pub addr: std::net::SocketAddr,
     mode: Arc<AtomicU8>,
     kill: Arc<tokio::sync::watch::Sender<u64>>,
+    /// When each connection reached the proxy, refused ones included (WASM-003 R25: the attempts).
+    accepted: Arc<Mutex<Vec<std::time::Instant>>>,
     _thread: std::thread::JoinHandle<()>,
 }
 
@@ -428,6 +430,8 @@ impl Proxy {
         let kill = Arc::new(kill_tx);
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let (m2, k2) = (mode.clone(), kill_rx);
+        let accepted = Arc::new(Mutex::new(Vec::new()));
+        let a2 = accepted.clone();
         let thread = std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
             rt.block_on(async move {
@@ -435,6 +439,7 @@ impl Proxy {
                 let _ = ready_tx.send(listener.local_addr().unwrap());
                 loop {
                     let Ok((client, _)) = listener.accept().await else { continue };
+                    a2.lock().unwrap().push(std::time::Instant::now());
                     if m2.load(Ordering::SeqCst) == PROXY_REFUSE {
                         drop(client);
                         continue;
@@ -453,7 +458,12 @@ impl Proxy {
             });
         });
         let addr = ready_rx.recv().unwrap();
-        Proxy { addr, mode, kill, _thread: thread }
+        Proxy { addr, mode, kill, accepted, _thread: thread }
+    }
+
+    /// When each connection reached the proxy so far.
+    pub fn accepted(&self) -> Vec<std::time::Instant> {
+        self.accepted.lock().unwrap().clone()
     }
 
     pub fn set(&self, mode: u8) {
