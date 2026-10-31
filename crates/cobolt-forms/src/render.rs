@@ -5084,6 +5084,14 @@ pub fn merge_props<'a>(
 ) -> Control {
     let mut c = base.clone();
     for (k, v) in props {
+        // Spec 110: `ResetCaption` writes this marker; the attribute goes back
+        // to inherited, even one the designer had set.
+        if v == crate::caption::INHERIT {
+            if let Some(key) = c.properties.keys().find(|p| p.eq_ignore_ascii_case(k)).cloned() {
+                c.properties.shift_remove(&key);
+            }
+            continue;
+        }
         // Geometry is matched case-insensitively for the same reason as
         // `set_prop` below it: these names arrive from COBOL literals and from
         // the object registry, which upper-cases its keys.
@@ -8683,6 +8691,36 @@ fn render_interactive(
                 .inner
             };
             let resp = with_tooltip(resp, ctrl);
+            // Spec 110: the caption is part of the TextBox. Clicking it, or
+            // Alt+its mnemonic, puts the focus in the box; it takes no focus of
+            // its own and fires no event of its own.
+            if let Some(cap) = ctrl.caption_layout() {
+                let origin = screen.min - Vec2::new(ctrl.rect.x as f32, ctrl.rect.y as f32);
+                let cap_rect = Rect::from_min_size(
+                    origin + Vec2::new(cap.rect.x, cap.rect.y),
+                    Vec2::new(cap.rect.w, cap.rect.h),
+                );
+                let hit = ui.interact(
+                    cap_rect.intersect(clip),
+                    ctrl_id.with("caption"),
+                    egui::Sense::click(),
+                );
+                let mnemonic = cap
+                    .mnemonic
+                    .and_then(|i| cap.text.chars().nth(i))
+                    .and_then(|c| egui::Key::from_name(&c.to_uppercase().to_string()));
+                let alt = mnemonic.is_some_and(|k| {
+                    ui.input(|i| {
+                        i.events.iter().any(|e| {
+                            matches!(e, egui::Event::Key { key, pressed: true, modifiers, .. }
+                                if *key == k && modifiers.alt)
+                        })
+                    })
+                });
+                if enabled && (hit.clicked() || alt) {
+                    ui.memory_mut(|m| m.request_focus(ctrl_id));
+                }
+            }
             // Per-keystroke validation. egui is immediate-mode, so a keystroke
             // is refused by putting the previous value back and reporting no
             // change — the operator sees the character simply not appear.

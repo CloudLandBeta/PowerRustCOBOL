@@ -15564,10 +15564,23 @@ impl Interpreter {
                 return v;
             }
         }
-        self.objects
+        let own = self
+            .objects
             .get_property(obj, &prop)
             .map(|v| v.to_string())
-            .unwrap_or_default()
+            .filter(|v| v != cobolt_forms::caption::INHERIT);
+        // Spec 110: an inherited caption attribute reads as the TextBox's own
+        // value at this moment, never as empty.
+        if own.is_none() {
+            if let Some(host) = cobolt_forms::caption::host_property(&prop) {
+                return self
+                    .objects
+                    .get_property(obj, host)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
+            }
+        }
+        own.unwrap_or_default()
     }
 
     /// Read one field off the TreeView node an argument names, by index.
@@ -15980,6 +15993,16 @@ impl Interpreter {
                         if let Some(v) = self.partiql_selected_value(&root) {
                             let n = v.len();
                             return Ok(CobolValue::from_str(&v, n));
+                        }
+                    }
+                }
+                // Spec 110: a caption attribute that is not set reads as the
+                // TextBox's own value now, never as empty.
+                if let [PathSeg::Prop(p)] = path.as_slice() {
+                    if let Some(host) = cobolt_forms::caption::host_property(p) {
+                        let own = self.objects.get_property(&root, p);
+                        if own.is_none_or(|v| v.to_string() == cobolt_forms::caption::INHERIT) {
+                            return Ok(prop_to_value(self.objects.get_property(&root, host).cloned()));
                         }
                     }
                 }
@@ -16450,6 +16473,31 @@ impl Interpreter {
                 let n = SET_FOCUS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 self.obj_set(obj, "_SetFocus", n.to_string());
                 none
+            }
+            // Spec 110: back to inherited, one caption attribute or (no
+            // argument) every font and colour attribute. The marker travels the
+            // ordinary property channel; the live merge removes the property.
+            "RESETCAPTION" => {
+                let names: Vec<&'static str> = if args.is_empty() {
+                    cobolt_forms::caption::INHERITABLE.to_vec()
+                } else {
+                    (0..args.len())
+                        .filter_map(|i| cobolt_forms::caption::inheritable(&arg(i)))
+                        .collect()
+                };
+                for n in names {
+                    self.obj_set(obj, n, cobolt_forms::caption::INHERIT.into());
+                }
+                none
+            }
+            // Is this caption attribute set (1) or inherited (0)?
+            "CAPTIONISSET" => {
+                let set = cobolt_forms::caption::inheritable(&arg(0)).is_some_and(|n| {
+                    self.objects
+                        .get_property(obj, n)
+                        .is_some_and(|v| v.to_string() != cobolt_forms::caption::INHERIT)
+                });
+                val(if set { "1".into() } else { "0".into() })
             }
             "BRINGTOFRONT" => {
                 self.obj_set(obj, "ZOrder", "10000".into());

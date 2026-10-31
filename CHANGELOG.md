@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.113 — 2026-10-31
+
+**Feature (spec 110, T5-T6): focus and COBOL access for the TextBox caption.** Clicking a TextBox caption, or pressing Alt plus its `&` mnemonic letter, puts the focus in the box (the caption itself takes none). From COBOL, `TXT::ResetCaption()` puts every caption font and colour attribute back to inherited, `TXT::ResetCaption("CaptionFontSize")` one of them, and `TXT::CaptionIsSet("CaptionFontSize")` answers 1 or 0; reading an attribute that is not set answers the TextBox's own value. The System KB documents the `Caption*` properties and both methods. *(Not yet: accessible name, designer group, other hosts.)*
+
 ## 2.0.112 — 2026-10-31
 
 **Feature (spec 110, T1-T4): the caption of a TextBox.** A TextBox can carry a caption (`CaptionText`, `CaptionPosition` Top/Bottom/Left/Right, `CaptionAlign`, `CaptionVAlign`, `CaptionGap`, `CaptionFont*`, `CaptionForeColor`, `CaptionBackColor`) drawn beside the box. The caption has no coordinates of its own: its rectangle is computed from the box and the measured text, so it moves and resizes with the box at a fixed distance. Font and colour are inherited from the TextBox per attribute until set; an attribute is "set" exactly when its property exists, so a form saves only what was set and a form without captions is unchanged. Both the designer canvas and the running form draw it. The version skips 2.0.111, which the uncommitted spec 109 work on `features-2x-spec109` already uses. *(Not yet: focus by clicking the caption, Alt+mnemonic, COBOL methods `ResetCaption`/`CaptionIsSet`, designer group.)*

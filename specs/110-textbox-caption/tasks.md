@@ -32,12 +32,12 @@ Ordered, small, independently-verifiable tasks. References are spec.md sections 
   - Do: one measuring function shared by designer and runtime; draw the caption (mnemonic underline, back colour, disabled colour); Visible follows the box; relayout when font/geometry/Caption* changes.
   - Verify: tests for the four positions moving with the box, FontSize change updating an inherited caption in the same frame; guard `engine_reference_form_parity_static_vs_faces` green.
 
-- [ ] **T5 — Interaction** (§6, AC focus/tab)
+- [x] **T5 — Interaction** (focus by click and Alt+mnemonic done and tested; accessible name NOT yet) (§6, AC focus/tab)
   - Files: `crates/cobolt-forms/src/render.rs`, `model.rs`.
   - Do: caption rect joins the hit area (not the edit area) and focuses the box; Alt+mnemonic; accessible name; tab order unchanged.
   - Verify: tests extending `set_focus_moves_the_keyboard_focus.rs` style.
 
-- [ ] **T6 — COBOL access and System KB** (§6)
+- [x] **T6 — COBOL access and System KB** (§6) (ResetCaption/CaptionIsSet in cobolt-ast + interpreter, inherited reads, INHERIT marker merged in render::merge_props, compiler doc tables, chunked.data rebuilt; cobolt-project-tools reference.rs, cobolt-codegen and cobolt-wasm NOT yet checked: T7)
   - Files: tables in `cobolt-compiler`, `cobolt-project-tools/src/reference.rs`, `cobolt-codegen` (only if a static table lists TextBox members), `assets/knowledge/chunked.data`.
   - Do: register `Caption*`, `ResetCaption`, `CaptionIsSet` (`is_known_method`); regenerate with `cargo run -p cobolt-ide --example build_chunked_kb`.
   - Verify: a sample handler using the §6 forms compiles (`check`); `prebuilt_chunked_kb_matches_the_published_documentation` green.

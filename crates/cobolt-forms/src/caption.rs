@@ -220,6 +220,11 @@ pub const INHERITABLE: [&str; 6] = [
     "CaptionForeColor",
 ];
 
+/// The value a running program writes to put an attribute back to inherited
+/// (`ResetCaption`). It travels the ordinary property channel; the live merge
+/// turns it into the removal of the property.
+pub const INHERIT: &str = "\u{1}inherit";
+
 /// Every caption property of a TextBox, set or inherited.
 pub const PROPERTY_NAMES: [&str; 12] = [
     "CaptionText",
@@ -235,6 +240,23 @@ pub const PROPERTY_NAMES: [&str; 12] = [
     "CaptionForeColor",
     "CaptionBackColor",
 ];
+
+/// The inheritable attribute `name` spells (any case), in its canonical form.
+pub fn inheritable(name: &str) -> Option<&'static str> {
+    INHERITABLE.iter().copied().find(|n| n.eq_ignore_ascii_case(name.trim()))
+}
+
+/// The TextBox property an inheritable caption attribute falls back to.
+pub fn host_property(name: &str) -> Option<&'static str> {
+    Some(match inheritable(name)? {
+        "CaptionFontName" => "FontName",
+        "CaptionFontSize" => "FontSize",
+        "CaptionFontBold" => "Bold",
+        "CaptionFontItalic" => "Italic",
+        "CaptionFontUnderline" => "Underline",
+        _ => "ForegroundColor",
+    })
+}
 
 fn parse_position(s: &str) -> CaptionPosition {
     match s.to_ascii_lowercase().as_str() {

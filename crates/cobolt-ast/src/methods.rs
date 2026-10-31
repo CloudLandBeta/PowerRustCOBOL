@@ -122,6 +122,7 @@ pub fn is_known_method(name: &str) -> bool {
             | "BRINGTOFRONT" | "SENDTOBACK" | "REFRESH" | "VALIDATE"
             | "MOVETO" | "RESIZE"
         // Generic / text / caption
+            | "RESETCAPTION" | "CAPTIONISSET"
             | "SETPROPERTY" | "GETPROPERTY" | "SETCAPTION" | "SETTEXT"
             | "GETCAPTION" | "GETTEXT" | "APPENDTEXT" | "SETCOLOR" | "SELECTALL"
             | "CLEAR"
