@@ -179,7 +179,7 @@ finished module's execution pass (rule #9).
 
 ## S5 — Selective storage and runtime services
 
-- [ ] **T5.1 — Dependency-aware emission in `write_control_group`** (R29, R30)
+- [x] **T5.1 — Dependency-aware emission in `write_control_group`** (R29, R30)
   - Files: `cobolt-codegen/src/lib.rs`.
   - Do: omit a group only when T0.1 and the generator's own scan of authored code prove it unused; retain on any dynamic reference.
   - Verify: AC15 cases — whole-group MOVE, referenced PIC fields, GLOBAL, REDEFINES, BY REFERENCE, Common Code, dynamic references, bindings, debugger watches.

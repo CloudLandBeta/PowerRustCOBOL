@@ -159,3 +159,24 @@ DataBindings (in the form): order_by = { field: "AMOUNT", descending: true }
 - The Web and Mobile player does not apply them yet.
 
 📷 Screenshot needed: a read-only grid sorted by amount, with a currency column.
+
+## S5 — Compact control storage (2.0.111)
+
+**What it does.** Every control on a form gets a group of data items in the generated
+program (`WS-BTN-OK`, with its text, visible and enabled flags). Most are never read. A
+form can ask for the unread ones to be left out, which makes the program shorter to read.
+
+```text
+<Form ... compact-storage="true">
+```
+
+**Notes**
+- A group stays when any line of the program names it: a handler, a procedure, your own
+  working-storage, a `REDEFINES`.
+- A name that only *begins* like the group (`WS-TXT-A-COUNT`) also keeps it. Keeping too
+  much is the safe mistake.
+- Off by default. A form without the attribute is generated exactly as before.
+
+**Caveats**
+- The debugger cannot watch an item that was left out.
+- There is no switch in the IDE yet; the attribute is set in the form file.

@@ -62,6 +62,8 @@
 //!       END PROGRAM MAIN-FORM.
 //! ```
 
+use std::collections::HashSet;
+
 use cobolt_forms::code_site::{CodeSite, StructureSection};
 use cobolt_forms::model::PropValue;
 use cobolt_forms::picture::Picture;
@@ -355,16 +357,65 @@ pub fn generate_with_user_lines(form: &Form) -> (String, Vec<(u32, u32)>) {
 /// generated COBOL by nothing — the map is a return value, never text in the
 /// file (R8, pinned by the `generated_bytes_golden` test).
 pub fn generate_with_map(form: &Form) -> (String, SourceMap) {
+    if !form.compact_storage {
+        return generate_omitting(form, &HashSet::new());
+    }
+    // Spec 109 S5 (R29): the first pass writes everything; a control's group
+    // is left out in the second only when nothing outside the groups names it.
+    let (full, _) = generate_omitting(form, &HashSet::new());
+    let omit = unreferenced_control_groups(form, &full);
+    generate_omitting(form, &omit)
+}
+
+fn generate_omitting(form: &Form, omit: &HashSet<String>) -> (String, SourceMap) {
     let mut out = String::with_capacity(4096);
     let mut map = SourceMap::default();
 
     write_header(&mut out);
     write_identification(&mut out, form);
     write_environment(&mut out, form, &mut map);
-    write_data_division(&mut out, form, &mut map);
+    write_data_division(&mut out, form, &mut map, omit);
     write_procedure_division(&mut out, form, &mut map);
 
     (out, map)
+}
+
+/// The ids of the controls whose `WS-<ID>` group no other line of the program
+/// names (spec 109 R29). Any word that begins with the group's name keeps it —
+/// a false retention costs lines, a false omission breaks authored code — and a
+/// control that is not a plain one is never listed.
+fn unreferenced_control_groups(form: &Form, full: &str) -> HashSet<String> {
+    let outside: String = full
+        .lines()
+        .filter(|l| {
+            // The group's own declaration: `01 WS-<ID>.` and its `05` items.
+            // A line that says REDEFINES or names a second item is a reference.
+            let t = l.trim_start().to_ascii_uppercase();
+            let own_group = t.starts_with("01 WS-")
+                && t.trim_end().ends_with('.')
+                && t.split_whitespace().count() == 2;
+            let own_item = t.starts_with("05 WS-")
+                && t.contains(" PIC ")
+                && !t.contains("REDEFINES");
+            !(own_group || own_item)
+        })
+        .map(|l| l.to_ascii_uppercase())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut omit = HashSet::new();
+    for ctrl in collect_all_controls(&form.controls) {
+        let name = format!("WS-{}", cobol_word(&ctrl.id)).to_ascii_uppercase();
+        let named = outside.match_indices(&name).any(|(at, _)| {
+            outside[..at]
+                .chars()
+                .next_back()
+                .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '-'))
+        });
+        if !named {
+            omit.insert(ctrl.id.clone());
+        }
+    }
+    omit
 }
 
 /// 1-based number of the line that the NEXT character pushed to `out` will start.
@@ -521,7 +572,12 @@ fn write_environment(out: &mut String, form: &Form, map: &mut SourceMap) {
     out.push('\n');
 }
 
-fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
+fn write_data_division(
+    out: &mut String,
+    form: &Form,
+    map: &mut SourceMap,
+    omit: &HashSet<String>,
+) {
     out.push_str("       DATA DIVISION.\n");
     // ── COBOL Structure: FILE SECTION (spec 005) — precedes WORKING-STORAGE ───
     weave_block(
@@ -932,7 +988,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
     // ── Per-control groups ────────────────────────────────────────────────
     if !all_controls.is_empty() {
         out.push_str("      *>── Form controls ───────────────────────────────────────────────\n");
-        for ctrl in &all_controls {
+        for ctrl in all_controls.iter().filter(|c| !omit.contains(&c.id)) {
             let start = next_line_number(out);
             write_control_group(out, ctrl);
             map.own(control_owner(ctrl), start, out);

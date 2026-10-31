@@ -254,6 +254,7 @@ enum OwnedEvent {
         theme: Option<String>,
         use_theme_background: bool,
         glass_style: crate::model::GlassStyle,
+        compact_storage: bool,
         // 037 Main form & window lifecycle
         main_form: bool,
         taskbar_icon: String,
@@ -370,6 +371,9 @@ fn next_owned<R: std::io::BufRead>(
                     let glass_style = get_attr(e, b"glass-style")?
                         .map(|v| crate::model::GlassStyle::from_str(&v))
                         .unwrap_or_default();
+                    let compact_storage = get_attr(e, b"compact-storage")?
+                        .map(|v| v == "true" || v == "1")
+                        .unwrap_or(false);
                     // 037 window-lifecycle attributes — every one optional so
                     // pre-037 files load with the exact historical behaviour.
                     let main_form = get_attr(e, b"main-form")?
@@ -474,6 +478,7 @@ fn next_owned<R: std::io::BufRead>(
                         theme,
                         use_theme_background,
                         glass_style,
+                        compact_storage,
                         main_form,
                         taskbar_icon,
                         can_minimize,
@@ -659,6 +664,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 theme,
                 use_theme_background,
                 glass_style,
+                compact_storage,
                 main_form,
                 taskbar_icon,
                 can_minimize,
@@ -699,6 +705,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.theme = theme;
                 f.use_theme_background = use_theme_background;
                 f.glass_style = glass_style;
+                f.compact_storage = compact_storage;
                 f.main_form = main_form;
                 f.taskbar_icon = taskbar_icon;
                 f.can_minimize = can_minimize;
@@ -1762,6 +1769,9 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         }
         if form.glass_style != crate::model::GlassStyle::Classic {
             elem.push_attribute(("glass-style", form.glass_style.as_str()));
+        }
+        if form.compact_storage {
+            elem.push_attribute(("compact-storage", "true"));
         }
         if !form.background_image.is_empty() {
             elem.push_attribute(("background-image", form.background_image.as_str()));

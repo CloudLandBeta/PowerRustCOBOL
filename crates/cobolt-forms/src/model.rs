@@ -8929,6 +8929,10 @@ pub struct Form {
     /// Which Liquid Glass recipe to apply to control surfaces.
     pub glass_style: GlassStyle,
 
+    /// Spec 109 S5 (R29, R35): opt-in. When set, the generator leaves out the
+    /// `WS-<ID>` storage group of a control that no authored code names.
+    pub compact_storage: bool,
+
     // ── 037 Main form & window lifecycle ────────────────────────────────────
     /// Exactly one form per project holds this (spec 037 R1–R3); enforced by
     /// the IDE (normalisation + reassignment), not by this crate.
@@ -9108,6 +9112,7 @@ impl Form {
             theme: None,
             use_theme_background: false,
             glass_style: GlassStyle::default(),
+            compact_storage: false,
             main_form: false,
             taskbar_icon: String::new(),
             can_minimize: true,
