@@ -5866,6 +5866,7 @@ impl DesignerPanel {
         let has_caption = matches!(
             ct,
             ControlType::Label
+                | ControlType::Hyperlink
                 | ControlType::Button
                 | ControlType::CheckBox
                 | ControlType::RadioButton
@@ -17656,6 +17657,7 @@ fn control_type_name(ct: &ControlType) -> &'static str {
     match ct {
         CT::Button => "Button",
         CT::Label => "Label",
+        CT::Hyperlink => "Hyperlink",
         CT::TextBox => "TextBox",
         CT::CheckBox => "CheckBox",
         CT::RadioButton => "RadioButton",

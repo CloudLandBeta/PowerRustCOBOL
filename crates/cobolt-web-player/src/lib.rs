@@ -12,7 +12,7 @@
 //! | Layer | Modules | Touches the browser? |
 //! |---|---|---|
 //! | The ABI host (WASM-ABI-v1) | [`host`], [`tree`], [`methods`] | no |
-//! | Policy and front halves | [`weblink`], [`auth`], [`kinds`], [`net`], [`par`], [`value`] | no |
+//! | Policy and front halves | [`hyperlink`], [`auth`], [`kinds`], [`net`], [`par`], [`value`] | no |
 //! | The JavaScript boundary and the page (drawn by Leptos) | `api`, `dom` | yes (`wasm32` only) |
 
 pub mod auth;
@@ -31,7 +31,7 @@ pub mod theme_css;
 pub mod tree;
 pub mod value;
 pub mod view;
-pub mod weblink;
+pub mod hyperlink;
 pub mod zoom;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fingerprint;

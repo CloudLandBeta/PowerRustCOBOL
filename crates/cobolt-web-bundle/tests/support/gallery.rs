@@ -183,7 +183,7 @@ pub fn gallery_cfrm(standard: &str, o: &Options) -> String {
     s += &ctl("MNB-G", "MenuBar", 800, 862, 380, 26, None, None, &[]);
     s += &ctl("MAP-G", "Maps", 800, 896, 380, 220, None, None, &[("CenterLat", "51.5074"), ("CenterLng", "-0.1278"), ("Zoom", "11"), ("Width", "380"), ("Height", "220"), ("Markers", "lon\t51.5074\t-0.1278\tLondon\tThe capital")]);
     s += &ctl("DZ-G", "FileDropZone", 540, 930, 240, 70, None, None, &[("Hint", "Drop files here")]);
-    s += &ctl("LNK-G", "WebLink", 240, 812, 200, 24, None, None, &[("Url", "https://example.com/"), ("Caption", "example.com"), ("Target", "NewTab")]);
+    s += &ctl("LNK-G", "Hyperlink", 240, 812, 200, 24, None, None, &[("Url", "https://example.com/"), ("Caption", "example.com"), ("Target", "NewTab")]);
     s += &ctl("SNK-G", "Snackbar", 240, 840, 56, 56, None, None, &[("Text", "Saved"), ("Category", "Info"), ("Buttons", "undo|Undo")]);
     s += &ctl("AUTH-G", "Authentication", 240, 904, 290, 220, None, None, &spatial(&[]));
     s += &ctl("TXT-NUM", "TextBox", 540, 1010, 240, 28, None, None, &[("Picture", "ZZ,ZZ9.99-"), ("Text", "1234.5")]);

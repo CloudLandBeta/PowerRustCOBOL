@@ -230,6 +230,9 @@ pub enum Effect {
     Download { name: String, text: String },
     Clipboard(String),
     Navigate { url: String, target: String },
+    /// A Hyperlink's click went through its handlers and nobody cancelled it: carry out `plan`
+    /// (WASM-006 R5, R6) and raise `onNavigated` where the application survives it.
+    FollowLink { inst: u32, ctl: usize, plan: crate::hyperlink::NavPlan },
     Fullscreen(bool),
     /// A spec-055 snackbar `Show()` etc. is a tree command; this is the host-level notice.
     Notice(String),
@@ -324,6 +327,9 @@ enum Work {
     Event(QueuedEvent),
     /// Discard the run that trapped (`pr_cancel(-1)`).
     Cancel,
+    /// The next step of an intercepted link click (WASM-006 D1, D2): it waits, like an event, behind the
+    /// handler of the step before, and makes no call of its own.
+    Link(crate::hyperlink::LinkStep),
 }
 
 #[derive(Debug, Clone)]
@@ -386,7 +392,9 @@ pub struct Host {
     /// The signed-in session (WASM-009): the access token lives here, in memory only.
     pub auth: crate::auth::Session,
     /// The project's extra link schemes (WASM-006 R7), copied into every form instance.
-    pub policy: crate::weblink::Policy,
+    pub policy: crate::hyperlink::Policy,
+    /// The platform whose modifier-key table links follow (WASM-006 Q2), copied into every form instance.
+    pub platform: crate::hyperlink::Platform,
     /// Counts the changes of the session's token: the page gives the connection the new one when it moves.
     pub auth_epoch: u64,
     /// What the page says about Authentication controls that leave it open: the flow, the reCAPTCHA site key.
@@ -460,7 +468,8 @@ impl Host {
             app: HashMap::new(),
             last_error: 0,
             auth: crate::auth::Session::default(),
-            policy: crate::weblink::Policy::default(),
+            policy: crate::hyperlink::Policy::default(),
+            platform: crate::hyperlink::Platform::Other,
             auth_epoch: 0,
             auth_defaults: (crate::auth::Flow::InApp, String::new()),
             auth_calls: BTreeMap::new(),
@@ -576,6 +585,28 @@ impl Host {
         let Some(ev) = self.manifest.event_index(event) else { return false };
         self.enqueue(inst, abi, ev, args);
         true
+    }
+
+    /// An intercepted click on a Hyperlink (WASM-006 D1): `Cancel` reset, `onClick` raised with the modifier
+    /// keys, and the rest of the sequence queued behind its handler ([`crate::hyperlink::advance`]).
+    pub fn link_click(&mut self, inst: u32, ctl: usize, plan: crate::hyperlink::NavPlan, click: crate::hyperlink::Click) {
+        let ((prop, value), (event, arg), step) = crate::hyperlink::start(inst, ctl, plan, click);
+        self.ui_set(inst, ctl, prop, value);
+        self.dom_event(inst, ctl, event, vec![arg]);
+        self.work.push_back(Work::Link(step));
+    }
+
+    fn link_step(&mut self, step: crate::hyperlink::LinkStep) {
+        let cancelled = self.trees.get(&step.inst).map(|t| step.ctl < t.ctls.len() && crate::hyperlink::cancelled(t, step.ctl)).unwrap_or(true);
+        let (inst, ctl) = (step.inst, step.ctl);
+        match crate::hyperlink::advance(step, cancelled) {
+            crate::hyperlink::Next::Stop => {}
+            crate::hyperlink::Next::Raise { event, arg, then } => {
+                self.dom_event(inst, ctl, event, vec![arg]);
+                self.work.push_back(Work::Link(then));
+            }
+            crate::hyperlink::Next::Follow(plan) => self.effects.push(Effect::FollowLink { inst, ctl, plan }),
+        }
     }
 
     /// The user changed a property (typed in a box, ticked a check box, picked an item): store it
@@ -804,6 +835,7 @@ impl Host {
         let blocked: Vec<u32> = self.tasks.values().map(|t| t.inst).collect();
         self.work.iter().position(|w| match w {
             Work::Event(e) => !blocked.contains(&e.inst) && self.trees.contains_key(&e.inst),
+            Work::Link(s) => !blocked.contains(&s.inst) && self.trees.contains_key(&s.inst),
             Work::Close { .. } | Work::Open { .. } | Work::Cancel => true,
         })
     }
@@ -843,11 +875,18 @@ impl Host {
             self.stats.module_calls += 1;
             return Some(ModuleCall::Resume { task: id, frame });
         }
-        // 2. New work, in order; an event waits behind the live task of its own instance.
-        let pos = self.runnable_work()?;
-        let w = self.work.remove(pos)?;
+        // 2. New work, in order; an event waits behind the live task of its own instance. A link's step
+        //    makes no call: it is taken here and the search goes on.
+        let w = loop {
+            let pos = self.runnable_work()?;
+            match self.work.remove(pos)? {
+                Work::Link(step) => self.link_step(step),
+                w => break w,
+            }
+        };
         self.stats.module_calls += 1;
         match w {
+            Work::Link(_) => unreachable!("taken above"),
             Work::Event(e) => {
                 self.stats.events_delivered += 1;
                 let desc = self.describe_event(e.inst, e.ctrl, e.event);
@@ -1136,6 +1175,7 @@ impl Host {
         let mut tree = FormTree::build(&desc, &self.manifest.forms[form], &self.manifest, inst, opener).map_err(|e| e.to_string())?;
         tree.init_auth(self.auth_defaults.0, &self.auth_defaults.1, &self.auth);
         tree.policy = self.policy.clone();
+        tree.platform = self.platform;
         tree.params = params;
         tree.live = self.live_at_open(&tree, mode);
         self.trees.insert(inst, tree);
@@ -2445,6 +2485,8 @@ impl Host {
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod link_tests;
 #[cfg(test)]
 mod description_tests;
 #[cfg(test)]

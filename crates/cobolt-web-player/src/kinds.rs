@@ -18,8 +18,7 @@
 //! fails when [`ControlType::ALL`] and this table disagree (WASM-004 AC1), so a control added to
 //! the model is classified or the build is red.
 //!
-//! The new controls of the series that the model does not carry yet — **WebLink**,
-//! **Authentication**, **Canvas2D**, **Canvas3D** and the five E objects — reach the player as
+//! The new controls of the series that the model does not carry yet — **Authentication**, **Canvas2D**, **Canvas3D** and the five E objects — reach the player as
 //! `ControlType::Custom` (the model's own way of holding a type it does not know) and are
 //! recognised here by name: [`player_kind`].
 
@@ -56,13 +55,15 @@ mod tests {
     #[test]
     fn the_series_controls_are_found_by_name() {
         let t = ControlType::from_str("WebLink");
-        assert_eq!(player_kind_of(&t), Some(PlayerKind::WebLink));
+        assert_eq!(t, ControlType::Hyperlink, "the interim name is the model's type (WASM-006 T6)");
+        assert_eq!(player_kind_of(&t), None);
         assert_eq!(class_of(&t), Class::A);
+        assert_eq!(TABLE.len(), 63, "the catalogue, Hyperlink included");
         assert_eq!(class_of(&ControlType::from_str("Authentication")), Class::C);
         assert_eq!(class_of(&ControlType::from_str("Canvas3D")), Class::B);
         assert_eq!(class_of(&ControlType::from_str("Physics2D")), Class::E);
         assert_eq!(class_of(&ControlType::from_str("acme:thing")), Class::D, "a plug-in control is not available");
-        assert!(!is_non_visual(&ControlType::from_str("WebLink")));
+        assert!(!is_non_visual(&ControlType::Hyperlink));
         assert!(is_non_visual(&ControlType::from_str("ImageBuffer")));
         assert!(is_non_visual(&ControlType::Timer));
         assert!(!is_non_visual(&ControlType::Button));

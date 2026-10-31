@@ -767,7 +767,7 @@ export async function mount(target, options = {}) {
       unsafe_plain_ws: !!(config.backend && config.backend.unsafe_plain_ws),
       backend_contract: (config.backend && config.backend.contract) || '',
       backend_idempotent: (config.backend && config.backend.idempotent) || [],
-      weblink_schemes: (config.options && config.options.weblink_schemes) || [],
+      link_schemes: (config.options && (config.options.link_schemes || config.options.weblink_schemes)) || [],
       recaptcha_site_key: (config.options && config.options.recaptcha_site_key) || '',
       auth_flow: (config.options && config.options.auth_flow) || 'in-app',
       // The hosted sign-in flow comes back with an authorisation code (WASM-009 R8b): the backend's

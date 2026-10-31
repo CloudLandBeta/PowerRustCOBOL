@@ -825,3 +825,47 @@ fn duplicate_catch_clauses_are_rejected() {
         );
     }
 }
+
+// ── Hyperlink (WASM-006 T7): its methods, and `Cancel` read and written as a property ─────────
+
+/// Every `Member` node of `e`'s debug text with the given name, as `(name, parens)`.
+fn members_named(debug: &str, name: &str) -> Vec<bool> {
+    // The parser upper-cases a member's name.
+    let needle = format!("member: \"{}\"", name.to_ascii_uppercase());
+    debug
+        .match_indices(&needle)
+        .map(|(at, _)| debug[at..].split("parens: ").nth(1).map(|r| r.starts_with("true")).unwrap_or(false))
+        .collect()
+}
+
+#[test]
+fn a_hyperlinks_cancel_is_a_property_when_set_and_when_tested() {
+    let stmts = parse_stmts(&prog(
+        "    SET LNK-1::Cancel TO TRUE.\n    IF LNK-1::Cancel = 1\n        DISPLAY \"stopped\"\n    END-IF.\n    STOP RUN.\n",
+    ));
+    let debug = format!("{stmts:?}");
+    let cancel = members_named(&debug, "Cancel");
+    println!("Cancel members (parens?): {cancel:?}");
+    assert_eq!(cancel, vec![false, false], "both are the bare property, not the CANCEL method: {debug}");
+    assert!(matches!(stmts[0], Stmt::Move { .. }), "SET … TO TRUE: {:?}", stmts[0]);
+    assert!(stmts.iter().any(|s| matches!(s, Stmt::If { .. })), "{debug}");
+}
+
+#[test]
+fn a_hyperlinks_methods_parse_inline_and_through_invoke() {
+    let stmts = parse_stmts(&prog(
+        "    INVOKE LNK-1 \"OpenIn\" USING \"NewTab\".\n    LNK-1::SetUrl(\"https://example.com/\").\n    LNK-1::OpenIn(\"NewWindow\").\n    LNK-1::Open().\n    MOVE LNK-1::GetUrl() TO WS-URL.\n    STOP RUN.\n",
+    ));
+    match &stmts[0] {
+        Stmt::Invoke { object, method, args, .. } => {
+            assert_eq!((object.as_str(), method.as_str(), args.len()), ("LNK-1", "OpenIn", 1));
+        }
+        other => panic!("expected INVOKE, got {other:?}"),
+    }
+    let debug = format!("{stmts:?}");
+    for m in ["SetUrl", "OpenIn", "Open", "GetUrl"] {
+        let found = members_named(&debug, m);
+        println!("{m}: {found:?}");
+        assert_eq!(found, vec![true], "{m}(…) is a method call, not a subscript");
+    }
+}

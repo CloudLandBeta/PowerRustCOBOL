@@ -100,7 +100,7 @@ fn every_control_type_has_its_class_its_id_and_its_data_name() {
         assert_eq!(v.key, "root");
         checked.push(want);
     }
-    // The model's own types and the series' (WebLink, Authentication, Canvas…) are all in the table.
+    // The model's own types and the series' (Authentication, Canvas…) are all in the table.
     assert_eq!(names.len(), TABLE.len());
     let all: BTreeSet<String> = ControlType::ALL.iter().map(|t| t.as_str().to_owned()).collect();
     let in_table: BTreeSet<&String> = names.iter().collect();
@@ -111,7 +111,7 @@ fn every_control_type_has_its_class_its_id_and_its_data_name() {
 
 #[test]
 fn the_series_controls_keep_their_plain_names_whatever_the_model_calls_them() {
-    for k in [PlayerKind::WebLink, PlayerKind::Authentication, PlayerKind::Canvas2D, PlayerKind::Canvas3D] {
+    for k in [PlayerKind::Authentication, PlayerKind::Canvas2D, PlayerKind::Canvas3D] {
         let name = k.name();
         let (t, i) = tree_with(name, "S-1", &[]);
         assert_eq!(type_class(&ControlType::from_str(name)), name.to_ascii_lowercase());

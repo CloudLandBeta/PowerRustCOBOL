@@ -149,6 +149,10 @@ pub enum Act {
     Download { name: String, text: String },
     /// Open a window with features (`window.open`).
     OpenWindow { url: String, target: String, features: String, rel: String },
+    /// A Hyperlink click with a handler bound (WASM-006 D1): the host runs the click sequence.
+    Link { plan: crate::hyperlink::NavPlan, click: crate::hyperlink::Click },
+    /// Carry out a planned navigation from script (a fragment link: scroll to and focus its place).
+    Follow(crate::hyperlink::NavPlan),
     /// The files a drop accepted, for the player to hold.
     Files { accepted: Vec<(String, u64)> },
     /// An Authentication control's user acted (WASM-009): the host's machine takes it.
@@ -252,7 +256,8 @@ pub fn on_event(cx: &ViewCtx, ctl: usize, p: &Payload) -> Vec<Act> {
     let own_click = p.kind == "click"
         && match c.control_type() {
             Some(ControlType::MenuBar | ControlType::SideMenu | ControlType::ToolBar) => p.id.is_some(),
-            _ => crate::kinds::player_kind(c) == Some(crate::kinds::PlayerKind::WebLink),
+            Some(ControlType::Hyperlink) => true,
+            _ => false,
         };
     // The expand icon of a card takes its own click: it is not a click on the card, nor on anything that holds the card (spec 090 R3).
     if p.key == generic_key(c) && !own_click && !p.expander {
@@ -266,12 +271,18 @@ fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     let c = tree.ctl(i);
     if let Some(k) = crate::kinds::player_kind(c) {
         return match k {
-            crate::kinds::PlayerKind::WebLink => weblink(cx, i, p),
             crate::kinds::PlayerKind::Authentication => authentication(cx, i, p),
             _ => Vec::new(),
         };
     }
     let Kind::Control(t) = &c.kind else { return Vec::new() };
+    if *t == ControlType::Hyperlink {
+        // A disabled link is still an anchor in the page: its click is stopped here, not ignored.
+        if !c.enabled() {
+            return if matches!(p.kind.as_str(), "click" | "auxclick") { vec![Act::Prevent] } else { Vec::new() };
+        }
+        return hyperlink(cx, i, p);
+    }
     if !c.enabled() {
         return Vec::new();
     }
@@ -1162,33 +1173,34 @@ fn drop_zone(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     }
 }
 
-// ── WebLink ─────────────────────────────────────────────────────────────────
+// ── Hyperlink ─────────────────────────────────────────────────────────────────
 
-fn weblink(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
-    use crate::weblink::{plan, Click, LinkProps, Target};
-    if !matches!(p.kind.as_str(), "click" | "auxclick") {
+fn hyperlink(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
+    use crate::hyperlink::{fragment_of, intercepted, plan, read_props, Click, Target};
+    let enter = p.kind == "keydown" && p.key_name == "Enter";
+    if !matches!(p.kind.as_str(), "click" | "auxclick") && !enter {
+        return Vec::new();
+    }
+    // Enter on a focused anchor makes the browser click it: the click that follows does the work.
+    if enter {
         return Vec::new();
     }
     let click = Click { ctrl: p.ctrl, meta: p.meta, shift: p.shift, alt: p.alt, button: if p.kind == "auxclick" { 1 } else { 0 } };
-    let props = LinkProps::read(cx.tree, i);
-    let mut out = Vec::new();
-    match plan(&props, click, &cx.tree.policy) {
-        Ok(Some(np)) => {
-            // The browser performs the navigation (so Ctrl-click, middle-click and the context menu keep
-            // their native meaning); the player steps in only for what an anchor cannot say.
-            if np.target == Target::NewWindow && !np.features.is_empty() && np.download.is_none() {
-                out.push(Act::Prevent);
-                out.push(Act::OpenWindow { url: np.url.clone(), target: np.target.html().to_owned(), features: np.features.clone(), rel: np.rel.clone() });
-            }
+    let props = read_props(cx.tree, i);
+    match plan(&props, click, cx.tree.platform, &cx.tree.policy) {
+        // A handler is bound (D1): the browser's navigation is prevented and the host runs the sequence
+        // `onClick` → `onBeforeNavigate` → the navigation, stopped by `Cancel` after either.
+        Ok(Some(np)) if intercepted(cx.tree, i) => vec![Act::Prevent, Act::Link { plan: np, click }],
+        // Nobody handles it: the browser performs the navigation (so Ctrl-click, middle-click and the
+        // context menu keep their native meaning); the player steps in only for what an anchor cannot say.
+        Ok(Some(np)) if fragment_of(&np.url).is_some() && np.download.is_none() => vec![Act::Prevent, Act::Follow(np)],
+        Ok(Some(np)) if np.target == Target::NewWindow && !np.features.is_empty() && np.download.is_none() => {
+            vec![Act::Prevent, Act::OpenWindow { url: np.url.clone(), target: np.target.html().to_owned(), features: np.features.clone(), rel: np.rel.clone() }]
         }
-        Ok(None) => out.push(Act::Prevent),
-        Err(r) => {
-            out.push(Act::Prevent);
-            out.push(Act::Notice(r.message));
-        }
+        Ok(Some(_)) => Vec::new(),
+        Ok(None) => vec![Act::Prevent, ev1("onClick", click.modifiers_text())],
+        Err(r) => vec![Act::Prevent, Act::Notice(r.message), ev1("onClick", click.modifiers_text())],
     }
-    out.push(ev1("onClick", click.modifiers_text()));
-    out
 }
 
 /// The Authentication control (WASM-009): what a submit of its form, a click on one of its links or
@@ -1837,6 +1849,9 @@ mod tests {
         assert_eq!(acts[0], "prevent");
     }
 
+    /// WASM-006 D1: a link nobody handles is left to the browser (nothing prevented); a refused address is
+    /// stopped and said; a fragment link is scrolled to by the player; a link with a bound navigation event
+    /// is prevented and handed to the host's click sequence with its modifier keys.
     #[test]
     fn a_web_link_click_hands_the_navigation_to_the_browser_and_refuses_a_script_address() {
         let (t, w) = {
@@ -1846,16 +1861,32 @@ mod tests {
             (t, w)
         };
         let e = Empty::default();
-        let acts = names(&run(&t, w, &e, Payload::new("click", "root")));
-        assert_eq!(acts, ["onClick()"], "{acts:?}");
+        assert!(run(&t, w, &e, Payload::new("click", "root")).is_empty(), "native: the default is not prevented");
         let mut ctrl = Payload::new("click", "root");
         ctrl.ctrl = true;
-        assert_eq!(names(&run(&t, w, &e, ctrl)), ["onClick(Ctrl)"]);
+        assert!(run(&t, w, &e, ctrl).is_empty());
         let mut bad = t.clone();
         bad.set(w, "Url", "javascript:alert(1)");
         let acts = run(&bad, w, &e, Payload::new("click", "root"));
         assert_eq!(acts[0], Act::Prevent);
         assert!(matches!(acts[1], Act::Notice(_)), "{acts:?}");
+        let mut frag = t.clone();
+        frag.set(w, "Url", "#lnk");
+        let acts = run(&frag, w, &e, Payload::new("click", "root"));
+        assert!(matches!(acts.as_slice(), [Act::Prevent, Act::Follow(p)] if p.url == "#lnk"), "{acts:?}");
+        // Bound: the tree's control carries the handler list the manifest gives it.
+        let mut bound = t.clone();
+        bound.ctls[w].bound.push("onclick".into());
+        let mut cmd = Payload::new("click", "root");
+        cmd.meta = true;
+        let acts = run(&bound, w, &e, cmd.clone());
+        assert!(matches!(acts.as_slice(), [Act::Prevent, Act::Link { click, plan }] if click.meta && plan.target == crate::hyperlink::Target::NewTab), "{acts:?}");
+        // The modifier table follows the platform: on Apple ⌘-click is a new tab; on Linux/Windows it is not.
+        bound.set(w, "Target", "Self");
+        bound.platform = crate::hyperlink::Platform::Apple;
+        assert!(matches!(run(&bound, w, &e, cmd.clone()).as_slice(), [_, Act::Link { plan, .. }] if plan.target == crate::hyperlink::Target::NewTab));
+        bound.platform = crate::hyperlink::Platform::Other;
+        assert!(matches!(run(&bound, w, &e, cmd).as_slice(), [_, Act::Link { plan, .. }] if plan.target == crate::hyperlink::Target::SelfFrame));
     }
 
     #[test]

@@ -652,6 +652,17 @@ impl Shared {
                 }
             }
             "refresh" => self.mark_dirty(inst, ctl),
+            // A Hyperlink's `Open` / `OpenIn` (WASM-006 R12, C9) and its fragment address (R10).
+            "open" | "open-in" => {
+                if let Some(plan) = crate::hyperlink::plan_from_args(args) {
+                    self.follow(inner, inst, ctl, &plan);
+                }
+            }
+            "scroll-to" => {
+                if let Some(name) = args.first() {
+                    self.scroll_to(inner, inst, name);
+                }
+            }
             "setbreadcrumbdetail" | "clearbreadcrumbdetail" | "settitlevisible" | "setwindowstate" | "timer-start" | "timer-stop" => {}
             _ => {}
         }

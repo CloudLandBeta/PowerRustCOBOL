@@ -40,6 +40,9 @@ use std::process::Command;
 pub enum Handoff {
     Print,
     Share,
+    /// WASM-006 R16 — a Hyperlink's address, to the system's default browser (or the operating
+    /// system's handler for `mailto:`, `tel:`, `sms:`). The "path" it carries is the URL.
+    OpenUrl,
 }
 
 impl Handoff {
@@ -48,6 +51,7 @@ impl Handoff {
         match self {
             Self::Print => "_PrintRequest",
             Self::Share => "_ShareRequest",
+            Self::OpenUrl => "_NavigateRequest",
         }
     }
 
@@ -56,6 +60,7 @@ impl Handoff {
         match self {
             Self::Print => "_PrintAnswer",
             Self::Share => "_ShareAnswer",
+            Self::OpenUrl => "_NavigateAnswer",
         }
     }
 }
@@ -95,6 +100,12 @@ pub fn command_for(what: Handoff, os: &str) -> Option<(&'static str, &'static [&
         (Handoff::Share, "macos") => Some(("open", &[])),
         (Handoff::Share, "linux") => Some(("xdg-open", &[])),
         (Handoff::Share, "windows") => Some(("cmd", &["/C", "start", ""])),
+        // WASM-006 D7 — never through a shell: `cmd` re-parses `&`, `|` and `^`, and a URL's query has
+        // `&`. Each opener takes the URL as ONE argument. Windows: the URL protocol handler (OQ4, to be
+        // confirmed on a Windows machine).
+        (Handoff::OpenUrl, "macos") => Some(("open", &[])),
+        (Handoff::OpenUrl, "linux") => Some(("xdg-open", &[])),
+        (Handoff::OpenUrl, "windows") => Some(("rundll32", &["url.dll,FileProtocolHandler"])),
         _ => None,
     }
 }
@@ -103,6 +114,9 @@ pub fn command_for(what: Handoff, os: &str) -> Option<(&'static str, &'static [&
 ///
 /// Blocking — run it on a thread. `hand_off_async` does exactly that.
 pub fn hand_off(what: Handoff, path: &Path) -> Outcome {
+    if what == Handoff::OpenUrl {
+        return open_url(&path.to_string_lossy(), &cobolt_forms::hyperlink::project_policy());
+    }
     if !path.is_file() {
         return Outcome::refused(format!("no document at {}", path.display()));
     }
@@ -112,6 +126,7 @@ pub fn hand_off(what: Handoff, path: &Path) -> Outcome {
             match what {
                 Handoff::Print => "print command",
                 Handoff::Share => "way to hand a document on",
+                Handoff::OpenUrl => "way to open an address",
             }
         ));
     };
@@ -128,6 +143,37 @@ pub fn hand_off(what: Handoff, path: &Path) -> Outcome {
         }
         Err(e) => Outcome::refused(format!("{program} could not be run: {e}")),
     }
+}
+
+/// Open `url` in the system's default browser (WASM-006 R16). Checked against the link policy first:
+/// a refused address never reaches the opener, and the refusal says why (R7).
+pub fn open_url(url: &str, policy: &cobolt_forms::hyperlink::Policy) -> Outcome {
+    let url = cobolt_forms::hyperlink::parse(url, None);
+    if let Err(r) = cobolt_forms::hyperlink::check(&url, false, policy) {
+        return Outcome::refused(r.message);
+    }
+    if url.is_empty() || matches!(cobolt_forms::hyperlink::kind_of(&url), cobolt_forms::hyperlink::UrlKind::Relative | cobolt_forms::hyperlink::UrlKind::Fragment) {
+        return Outcome::refused(format!("`{url}` is not an address the system browser can open"));
+    }
+    let Some(program) = open_url_command(&url, std::env::consts::OS) else {
+        return Outcome::refused("this platform offers no way to open an address");
+    };
+    let name = program.get_program().to_string_lossy().into_owned();
+    let mut program = program;
+    match program.status() {
+        Ok(status) if status.success() => Outcome::ok(),
+        Ok(status) => Outcome::refused(format!("{name} refused the address ({status})")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Outcome::refused(format!("{name} is not installed on this machine")),
+        Err(e) => Outcome::refused(format!("{name} could not be run: {e}")),
+    }
+}
+
+/// The command that opens `url` on `os`: the opener of [`command_for`], the URL its one last argument.
+pub fn open_url_command(url: &str, os: &str) -> Option<Command> {
+    let (program, args) = command_for(Handoff::OpenUrl, os)?;
+    let mut cmd = Command::new(program);
+    cmd.args(args).arg(url);
+    Some(cmd)
 }
 
 /// [`hand_off`] on a thread, answering through `reply`.
@@ -210,5 +256,40 @@ mod tests {
         assert_eq!(Handoff::Print.answer_prop(), "_PrintAnswer");
         assert_eq!(Handoff::Share.request_prop(), "_ShareRequest");
         assert_eq!(Handoff::Share.answer_prop(), "_ShareAnswer");
+    }
+
+    /// WASM-006 T14 (D7) — the URL opener of each platform takes the address as ONE argument, with
+    /// its `&` intact, and no shell program is ever in the command.
+    #[test]
+    fn the_url_opener_takes_the_address_as_one_argument_and_never_a_shell() {
+        let url = "https://x.test/?a=1&b=2";
+        for os in ["macos", "linux", "windows"] {
+            let cmd = open_url_command(url, os).expect("every platform has an opener");
+            let program = cmd.get_program().to_string_lossy().into_owned();
+            let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+            println!("  {os:<7} {program} {args:?}");
+            assert_eq!(args.last().map(String::as_str), Some(url), "{os}: the URL is the last argument, whole");
+            assert_eq!(args.iter().filter(|a| a.contains("x.test")).count(), 1);
+            for shell in ["cmd", "sh", "bash", "powershell", "pwsh"] {
+                assert_ne!(program, shell, "{os}: no shell");
+                assert!(!args.iter().any(|a| a.eq_ignore_ascii_case(shell)), "{os}: no shell");
+            }
+        }
+        assert_eq!(command_for(Handoff::OpenUrl, "windows").map(|c| c.0), Some("rundll32"));
+        assert_eq!(Handoff::OpenUrl.request_prop(), "_NavigateRequest");
+    }
+
+    /// A refused scheme never reaches the opener: the refusal comes back with the reason (R7, AC10).
+    #[test]
+    fn a_refused_address_never_reaches_the_opener() {
+        let p = cobolt_forms::hyperlink::Policy::default();
+        for bad in ["javascript:alert(1)", "vbscript:x", "data:text/html,x", "file:///etc/passwd"] {
+            let o = open_url(bad, &p);
+            println!("  {bad:?} -> {o:?}");
+            assert!(!o.accepted);
+            assert!(o.reason.contains("scheme"), "{o:?}");
+        }
+        let o = open_url("relative/page.html", &p);
+        assert!(!o.accepted && o.reason.contains("not an address"), "{o:?}");
     }
 }

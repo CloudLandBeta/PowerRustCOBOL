@@ -67,3 +67,20 @@ fn with_a_site_key_exactly_the_recaptcha_prefixes_are_opened_where_they_are_need
     assert_eq!(out.config()["options"]["recaptcha_site_key"], "site-key");
     assert!(out.report.notes.iter().any(|n| n.contains("reCAPTCHA")), "the build says what it opened");
 }
+
+/// WASM-006 T8 — the project's extra link schemes reach the player as `options.link_schemes`, and a
+/// `config.json` written before the control was named Hyperlink (`options.weblink_schemes`) still
+/// widens the policy: the loader reads either key.
+#[test]
+fn the_link_schemes_reach_the_player_under_the_new_key_and_the_old_one_is_still_read() {
+    let out = support::assemble(stub_player(), BundleOptions { link_schemes: vec!["ftp".into()], ..Default::default() });
+    let cfg = out.config();
+    println!("options: {}", cfg["options"]);
+    assert_eq!(cfg["options"]["link_schemes"], serde_json::json!(["ftp"]));
+    assert!(cfg["options"].get("weblink_schemes").is_none(), "the old key is no longer written");
+    let loader = cobolt_web_bundle::hostpage::loader_js();
+    assert!(
+        loader.contains("link_schemes: (config.options && (config.options.link_schemes || config.options.weblink_schemes)) || []"),
+        "the loader passes either key to the player"
+    );
+}

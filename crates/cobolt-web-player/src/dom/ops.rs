@@ -51,6 +51,7 @@ impl Shared {
                 }
             }
             Effect::Navigate { url, target } => self.navigate(url, target),
+            Effect::FollowLink { inst, ctl, plan } => self.follow(inner, *inst, *ctl, plan),
             Effect::Fullscreen(on) => {
                 if *on {
                     let _ = Reflect::get(&self.root, &"requestFullscreen".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()).map(|f| f.call0(&self.root));
@@ -128,15 +129,26 @@ impl Shared {
         let _ = web_sys::Url::revoke_object_url(&url);
     }
 
+    /// `url` as the browser's URL parser resolves it against the page (WASM-006 Q6): percent-encoded, an
+    /// internationalised host in its ASCII form; what the parser cannot place is left as it is.
+    fn resolve(&self, url: &str) -> String {
+        let norm = crate::hyperlink::normalize(url);
+        if norm.starts_with('#') {
+            return norm;
+        }
+        let base = self.doc.base_uri().ok().flatten().unwrap_or_default();
+        web_sys::Url::new_with_base(&norm, &base).map(|u| u.href()).unwrap_or(norm)
+    }
+
     fn navigate(self: &Rc<Self>, url: &str, target: &str) {
         let policy = self.inner.upgrade().and_then(|i| i.host.try_borrow().ok().map(|h| h.policy.clone())).unwrap_or_default();
-        match crate::weblink::check(url, false, &policy) {
+        match crate::hyperlink::check(url, false, &policy) {
             Ok(_) => {
-                let norm = crate::weblink::normalize(url);
+                let norm = self.resolve(url);
                 if let Some(w) = web_sys::window() {
-                    let t = crate::weblink::Target::parse(target);
+                    let t = crate::hyperlink::Target::parse(target);
                     match t {
-                        crate::weblink::Target::SelfFrame => {
+                        crate::hyperlink::Target::SelfFrame => {
                             let _ = w.location().assign(&norm);
                         }
                         other => {
@@ -147,6 +159,76 @@ impl Shared {
             }
             Err(r) => self.notice(&r.message),
         }
+    }
+
+    /// Carry out a Hyperlink's planned navigation from script (WASM-006 D1): after its handlers, or for a
+    /// program's `Open` / `OpenIn`, or for a fragment link. The address is checked again here — the plan
+    /// may have waited behind a handler that changed the policy's inputs.
+    pub(crate) fn follow(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, plan: &crate::hyperlink::NavPlan) {
+        use crate::hyperlink::{check, fragment_of, raises_navigated, rel_isolates, Target};
+        let policy = inner.host.try_borrow().ok().map(|h| h.policy.clone()).unwrap_or_default();
+        if let Err(r) = check(&plan.url, plan.download.is_some(), &policy) {
+            self.notice(&r.message);
+            return;
+        }
+        let Some(w) = web_sys::window() else { return };
+        if let Some(name) = fragment_of(&plan.url) {
+            self.scroll_to(inner, inst, &name);
+        } else if let Some(name) = &plan.download {
+            let a = h::el(&self.doc, "a", &[]);
+            h::attr(&a, "href", &self.resolve(&plan.url));
+            h::attr(&a, "download", name);
+            if !plan.referrer_policy.is_empty() {
+                h::attr(&a, "referrerpolicy", &plan.referrer_policy);
+            }
+            h::append(&self.root, &a);
+            if let Ok(el) = a.clone().dyn_into::<web_sys::HtmlElement>() {
+                el.click();
+            }
+            a.remove();
+        } else {
+            let url = self.resolve(&plan.url);
+            match plan.target {
+                Target::SelfFrame => {
+                    let _ = w.location().assign(&url);
+                }
+                Target::Parent | Target::Top => {
+                    let up = if plan.target == Target::Top { w.top().ok().flatten() } else { w.parent().ok().flatten() };
+                    let _ = up.unwrap_or(w).location().assign(&url);
+                }
+                Target::NewTab | Target::NewWindow => {
+                    // R8: a new context gets no handle back to this one unless `Rel` loosened it explicitly.
+                    let mut feats = plan.features.trim().to_owned();
+                    if rel_isolates(&plan.rel) {
+                        feats = if feats.is_empty() { "noopener,noreferrer".to_owned() } else { format!("{feats},noopener,noreferrer") };
+                    }
+                    let opened = w.open_with_url_and_target_and_features(&url, "_blank", &feats).ok().flatten();
+                    // With `noopener` the browser answers null whether or not it opened the page: only a
+                    // loosened link can tell that a pop-up blocker refused it.
+                    if opened.is_none() && !rel_isolates(&plan.rel) {
+                        self.notice("The browser blocked the new window. Allow pop-ups for this site and try again.");
+                        return;
+                    }
+                }
+            }
+        }
+        if raises_navigated(plan) {
+            inner.push(Inbox::Acts { inst, ctl, acts: vec![Act::Event { name: "onNavigated", args: vec![plan.url.clone()] }] });
+        }
+    }
+
+    /// A fragment link's place (R10): the control of the instance named so, whatever the case, else the
+    /// page's element with that id — scrolled into view and focused.
+    pub(crate) fn scroll_to(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, name: &str) {
+        let target = inner.host.try_borrow().ok().and_then(|h| h.trees.get(&inst).and_then(|t| crate::hyperlink::fragment_target(t, name)));
+        let el = match target {
+            Some(i) => self.control_element(inst, i),
+            None => self.doc.get_element_by_id(name),
+        };
+        let Some(el) = el else { return };
+        el.scroll_into_view();
+        let focusable = el.query_selector("input,textarea,select,button,a[href],[tabindex]").ok().flatten();
+        h::focus(focusable.as_ref().unwrap_or(&el));
     }
 
     // ── a form in a window of its own (WASM-011 R9–R12) ─────────────────────
@@ -331,6 +413,7 @@ impl Shared {
                 self.open_named(inner, &form, Some(inst), mode, Vec::new());
             }
             Act::Notice(t) => self.notice(&t),
+            Act::Follow(plan) => self.follow(inner, inst, ctl, &plan),
             Act::Download { name, text } => self.download(&name, &text),
             Act::OpenWindow { url, target, features, rel } => {
                 let feat = if rel.contains("noopener") || features.is_empty() { format!("{features},noopener") } else { features };
