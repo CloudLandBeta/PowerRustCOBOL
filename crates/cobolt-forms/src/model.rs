@@ -1503,6 +1503,11 @@ pub fn property_names_for(type_name: &str) -> Vec<String> {
     ] {
         names.push(f.to_string());
     }
+    // Spec 110: a TextBox's caption properties are absent until set (absent =
+    // inherited), so `Control::new` does not seed them; they are still named.
+    if ControlType::from_str(type_name) == ControlType::TextBox {
+        names.extend(crate::caption::PROPERTY_NAMES.iter().map(|n| n.to_string()));
+    }
     names.sort_unstable();
     names.dedup();
     names

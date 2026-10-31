@@ -2772,6 +2772,48 @@ pub struct CaptionLayout {
     pub color: Color32,
 }
 
+/// Paint a TextBox's caption (spec 110). Called after the control's own face by
+/// every public entry point, so the designer canvas and the running form draw
+/// it from the same layout. Nothing happens for a control without a caption.
+fn paint_textbox_caption(painter: &egui::Painter, origin: Pos2, ctrl: &Control, alpha_mul: f32) {
+    let Some(l) = ctrl.caption_layout() else { return };
+    let min = origin + Vec2::new(l.rect.x, l.rect.y);
+    let rect = Rect::from_min_size(min, Vec2::new(l.rect.w, l.rect.h));
+    let fade = |c: Color32| {
+        Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (f32::from(c.a()) * alpha_mul.clamp(0.0, 1.0)) as u8)
+    };
+    if let Some(bg) = &l.back_color {
+        painter.rect_filled(rect, 0.0, fade(parse_color(bg)));
+    }
+    // A disabled box wears the theme's disabled ink whatever the caption was set to.
+    let ink = if ctrl.enabled {
+        parse_color(&l.fore_color)
+    } else {
+        Color32::from_gray(140)
+    };
+    let ink = fade(ink);
+    let size = l.font.size.max(1.0);
+    let font_id = if l.font.bold {
+        crate::fonts::bold_font_id(painter.ctx(), &l.font.name, size)
+    } else {
+        None
+    }
+    .unwrap_or_else(|| crate::fonts::font_id(painter.ctx(), &l.font.name, size));
+    painter.text(min, egui::Align2::LEFT_TOP, &l.text, font_id, ink);
+    let base = rect.max.y - 1.0;
+    if l.font.underline {
+        painter.hline(rect.x_range(), base, Stroke::new(1.0, ink));
+    }
+    if let Some(i) = l.mnemonic {
+        let before: String = l.text.chars().take(i).collect();
+        let letter: String = l.text.chars().skip(i).take(1).collect();
+        let s = f64::from(size);
+        let x0 = min.x + crate::textmetrics::text_width(&before, s) as f32;
+        let x1 = x0 + crate::textmetrics::text_width(&letter, s) as f32;
+        painter.hline(x0..=x1, base, Stroke::new(1.0, ink));
+    }
+}
+
 /// What [`draw_control_body`] does with the control's caption.
 enum CaptionMode<'a> {
     /// Stamp it — the designer canvas and every non-interactive surface.
@@ -2808,6 +2850,7 @@ pub fn draw_control(
         pic_tex,
         &mut CaptionMode::Paint,
     );
+    paint_textbox_caption(painter, origin, ctrl, alpha_mul);
 }
 
 /// [`draw_control`], except a **Label's caption is returned rather than
@@ -2841,6 +2884,7 @@ pub fn draw_control_capturing_label(
         pic_tex,
         &mut CaptionMode::Capture(&mut caption),
     );
+    paint_textbox_caption(painter, origin, ctrl, alpha_mul);
     caption
 }
 
@@ -2926,6 +2970,7 @@ pub fn draw_control_face(
         pic_tex,
         &mut CaptionMode::Skip,
     );
+    paint_textbox_caption(painter, origin, ctrl, alpha_mul);
 }
 
 #[allow(clippy::too_many_arguments)]

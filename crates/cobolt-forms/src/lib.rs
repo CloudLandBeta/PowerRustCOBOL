@@ -23,6 +23,7 @@
 
 pub mod assets;
 pub mod aws_catalog;
+pub mod caption;
 pub mod chart;
 pub mod code_site;
 pub mod containers;
