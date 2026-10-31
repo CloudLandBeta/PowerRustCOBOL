@@ -313,13 +313,14 @@ the modal and the calls behave as AC12 says.
 - **O3 — WASM-INDEX D4 and D5 still say "Open"** although Q2 and Q3 are decided (checked 2026-10-31); another file, left to its owner.
 - **O4 — A `hello` member saying "state is new" after a reconnection.** WASM-014 defines none; nothing added (§2.6).
 - **O5 — R24's scope** (working assumption §2.7): the WebSocket channel only; `/health`, `/dl/<token>` and the identity routes stay TLS-only. **To confirm.**
-- **O6 — What R25's "timeout" is** (working assumption §2.8): the window an attempt is given, waited out when the attempt fails early. **To confirm.**
-- **O7 — Whether a first connection that fails runs the cycle** (working assumption §2.8: yes, when a call needs it). **To confirm.**
+- **O6 — What R25's "timeout" is** (working assumption §2.8): the window an attempt is given, waited out when the attempt fails early. **Confirmed (operator, 2026-10-31).**
+- **O7 — Whether a first connection that fails runs the cycle** (working assumption §2.8: yes, when a call needs it). **Confirmed (operator, 2026-10-31).**
 - **O8 — After the give-up,** whether the application's next call may start a new cycle (working assumption: yes; R25 forbids only an attempt
-  "on its own"). **To confirm.**
-- **O9 — The Rust client and R26** (working assumption §2.8: same policy, state exposed, no desktop modal — no spec draws one). **To confirm.**
+  "on its own"). **Confirmed (operator, 2026-10-31).**
+- **O9 — The Rust client and R26** (working assumption §2.8: same policy, state exposed, no desktop modal — no spec draws one). **Confirmed (operator, 2026-10-31).**
 - **O10 — Handshake order** (D8): keys in the client's `hello` and the server's answer, against WASM-014 R18's wording "the frontend's in its
-  reply". WASM-014 owns the members (its T19b); **to confirm** there before T15b starts.
+  reply". WASM-014 owns the members (its T19b). **Decided (operator, 2026-10-31): the frontend's key in its `hello`, the backend's in
+  the answer**; WASM-014 R18 is corrected to match.
 - **Not done, not this spec's code:** the IDE's Output panel does not show the `connect-src` the build reports (needs a Tr label; tasks.md T12);
   no real identity provider was ever contacted; the modal (WASM-016 T29b, WASM-012 T25b); the threat-model text (WASM-013 T24b).
 
