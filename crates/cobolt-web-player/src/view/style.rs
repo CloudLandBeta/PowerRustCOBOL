@@ -8,13 +8,13 @@
 //! what the Properties panel says about every control of one form instance.
 //!
 //! ```text
-//!   lowest                                                                      highest
-//!   theme defaults  <  properties (this module)  <  form stylesheet  <  CssClass  <  Style
-//!   @layer pr-base     @layer pr-props               unlayered rules                 CSSOM
+//!   lowest                                                                                         highest
+//!   structure  <  theme defaults  <  properties (this module)  <  project sheet  <  form sheet, CssClass  <  CssStyle
+//!   pr-base       pr-theme           pr-props                     pr-app            unlayered, scoped        unlayered, last
 //! ```
 //!
-//! The rules are written inside `@layer pr-props`, and the base stylesheet inside `@layer pr-base`
-//! (declared first, so it is the lower layer). **Any unlayered rule beats any layered one whatever its
+//! The rules are written inside `@layer pr-props`; the order of the layers is declared once, by the
+//! base stylesheet's first statement (`base_css::LAYER_ORDER`). **Any unlayered rule beats any layered one whatever its
 //! specificity**, so the developer's stylesheet wins over a property without a single `!important`
 //! or a specificity contest — which is the operator's ruling "CSS wins" (2026-10-19) made structural.
 //!
@@ -688,6 +688,72 @@ pub fn control_css(inst: u32, ctls: &[Ctl], i: usize, responsive: bool) -> Strin
     out
 }
 
+/// The inline CSS of one instance (WASM-007 R2, level 6 of R8) and what was dropped from it.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct InlineCss {
+    /// Unlayered rules, one per control with a `CssStyle`.
+    pub css: String,
+    /// `(control, declaration, why)` for every declaration left out.
+    pub dropped: Vec<(String, String, String)>,
+}
+
+/// `#NAME` with the characters a CSS identifier cannot hold escaped (a name may start with a digit).
+fn id_selector(name: &str) -> String {
+    let mut out = String::from("#");
+    for (i, ch) in name.chars().enumerate() {
+        let plain = ch.is_ascii_alphabetic() || ch == '_' || ch == '-' || (i > 0 && ch.is_ascii_digit()) || (!ch.is_ascii() && !ch.is_control());
+        if plain {
+            out.push(ch);
+        } else if !ch.is_control() {
+            out.push_str(&format!("\\{:x} ", ch as u32));
+        }
+    }
+    out
+}
+
+/// A property name a declaration may carry: a standard one, or a custom property.
+fn is_property_name(n: &str) -> bool {
+    !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') && !n.starts_with(|c: char| c.is_ascii_digit())
+}
+
+/// The controls' `CssStyle` as rules (WASM-007 R2, level 6 of R8): one **unlayered** rule per control,
+/// selector `[data-pr-inst="n"] #NAME` — the instance's root, so it stays inside the form as the form
+/// sheet does, and an id, so it beats a form-sheet rule that is not `!important`. The sheet carrying
+/// it is adopted after the form sheets (`base_css::adoption_order`). The value is a declaration list,
+/// never a `style` attribute (the page's CSP has no `'unsafe-inline'`): a declaration that does not
+/// parse, or that the safety check refuses, is dropped and reported.
+pub fn inline_css(inst: u32, ctls: &[Ctl], allowed_origins: &[String]) -> InlineCss {
+    let mut out = InlineCss::default();
+    for c in ctls.iter().skip(1) {
+        let Some(text) = c.raw("cssstyle").filter(|t| !t.trim().is_empty()) else { continue };
+        let mut d = Decls::new();
+        for part in cobolt_forms::css::split_top(text, ';') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            let mut drop = |why: &str| out.dropped.push((c.name.clone(), part.to_owned(), why.to_owned()));
+            if part.contains(['{', '}', '<', '>']) {
+                drop("a declaration cannot open or close a rule");
+                continue;
+            }
+            let parsed = cobolt_forms::css::parse_declarations(part);
+            let Some(decl) = parsed.first().filter(|d| is_property_name(&d.name)) else {
+                drop("not a declaration (`property: value`)");
+                continue;
+            };
+            if let Err(e) = css::css_is_safe(part, allowed_origins) {
+                drop(&e);
+                continue;
+            }
+            let value = if decl.important { format!("{} !important", decl.value) } else { decl.value.clone() };
+            push(&mut d, &decl.name, value);
+        }
+        out.css.push_str(&rule(&format!("[data-pr-inst=\"{inst}\"] {}", id_selector(&c.name)), &d));
+    }
+    out
+}
+
 /// Put rules in the property layer.
 pub fn wrap_layer(parts: &[String]) -> String {
     let mut out = String::from("@layer pr-props {\n");
@@ -705,6 +771,44 @@ mod tests {
 
     fn decl<'a>(d: &'a Decls, k: &str) -> Option<&'a str> {
         d.iter().rev().find(|(x, _)| x == k).map(|(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn inline_css_is_one_unlayered_rule_per_control_with_only_what_parsed() {
+        let mut t = tree();
+        let go = t.by_name("BTN-GO").unwrap();
+        t.set(go, "CssStyle", "background-color: red; nonsense; color: blue !important; --pr-accent: #123");
+        let out = inline_css(7, &t.ctls, &[]);
+        assert_eq!(out.css, "[data-pr-inst=\"7\"] #BTN-GO { background-color: red; color: blue !important; --pr-accent: #123; }\n");
+        assert!(!out.css.contains("@layer"), "level 6 is unlayered");
+        assert_eq!(out.dropped.len(), 1, "{:?}", out.dropped);
+        assert_eq!((out.dropped[0].0.as_str(), out.dropped[0].1.as_str()), ("BTN-GO", "nonsense"));
+        // A control with no CssStyle writes nothing.
+        assert_eq!(out.css.matches(" { ").count(), 1);
+        eprintln!("inline: {} rule(s), dropped {:?}", out.css.lines().count(), out.dropped);
+    }
+
+    #[test]
+    fn a_hostile_inline_value_cannot_open_a_rule_or_load_anything() {
+        let mut t = tree();
+        let go = t.by_name("BTN-GO").unwrap();
+        t.set(go, "CssStyle", "color: red } body { color: green; background: url(http://x/y.png); width: 1px</style><script>; a{b: c; height: 2px");
+        let out = inline_css(1, &t.ctls, &[]);
+        assert_eq!(out.css, "[data-pr-inst=\"1\"] #BTN-GO { height: 2px; }\n", "{out:?}");
+        assert_eq!(out.css.matches('{').count(), 1, "one rule, never another");
+        assert!(!out.css.contains("url(") && !out.css.contains("body") && !out.css.contains("<"));
+        assert_eq!(out.dropped.len(), 4, "{:?}", out.dropped);
+        // An allowed origin is kept.
+        t.set(go, "CssStyle", "background: url(https://cdn.example/a.png)");
+        assert!(inline_css(1, &t.ctls, &["https://cdn.example".into()]).css.contains("url(https://cdn.example/a.png)"));
+        eprintln!("hostile inline CSS: {} declarations dropped, one rule kept", out.dropped.len());
+    }
+
+    #[test]
+    fn an_id_selector_escapes_what_an_identifier_cannot_hold() {
+        assert_eq!(id_selector("BTN-GO"), "#BTN-GO");
+        assert_eq!(id_selector("1ST"), "#\\31 ST");
+        assert_eq!(id_selector("A\"B"), "#A\\22 B");
     }
 
     #[test]

@@ -7,12 +7,13 @@
 //! **Properties to CSS** (WASM-007 R1): the one table that turns a control's appearance
 //! properties into CSS3 declarations, each entry marked *exact*, *approximate* or *not on the web*.
 //!
-//! The declarations this module computes are the **lowest layer** of the cascade (WASM-007 R8: the
-//! theme's defaults, then the properties, then the form stylesheet, then the control's `CssClass`
-//! rules, then its `Style`). The renderer puts them where CSS the developer wrote can override them
-//! — as inline CSSOM declarations *under* `@layer`-less author rules is not possible, so the
-//! property layer is applied as a constructed stylesheet rule in a lower cascade layer
-//! (`@layer pr-properties`), and the developer's stylesheet and `Style` come after it. Nothing here
+//! The declarations this module computes are the **property level** of the cascade (WASM-007 R8,
+//! stated once in `base_css::LAYER_ORDER`: the base, the theme's defaults, then the properties, then
+//! the project stylesheet, then the form stylesheet and the control's `CssClass` rules, then its
+//! `CssStyle`). The renderer puts them where CSS the developer wrote can override them — as inline
+//! CSSOM declarations *under* `@layer`-less author rules is not possible, so the property layer is
+//! applied as a constructed stylesheet rule in a cascade layer (`@layer pr-props`,
+//! `view/style.rs::wrap_layer`), and the developer's stylesheets come after it. Nothing here
 //! writes a `style` attribute: under the page's CSP (no `'unsafe-inline'` for styles) only CSSOM
 //! declarations are allowed.
 //!
@@ -86,6 +87,13 @@ pub const TABLE: &[Mapping] = &[
     m("PerspectiveDistance", "perspective()"),
     m("PerspectiveStrength", "perspective()"),
     m("BorderGradientEnabled", "border-image"),
+    m("BorderGradientStartColor", "—"),
+    m("BorderGradientEndColor", "—"),
+    m("BorderGradientDirection", "—"),
+    m("CornerRadiusTopLeft", "—"),
+    m("CornerRadiusTopRight", "—"),
+    m("CornerRadiusBottomLeft", "—"),
+    m("CornerRadiusBottomRight", "—"),
     m("BorderBlur", "—"),
     m("BorderTransparency", "—"),
     m("ZOrder", "z-index"),
@@ -505,28 +513,10 @@ pub fn appearance(ctl: &Ctl) -> Decls {
     d
 }
 
-/// Does a CSS declaration value attempt to load something from outside the bundle? (WASM-007 R13:
-/// `url()` is limited to the project's assets and data URIs; legacy script-in-CSS is refused.)
-pub fn css_is_safe(css: &str, allowed_origins: &[String]) -> Result<(), String> {
-    let lower = css.to_ascii_lowercase();
-    for bad in ["expression(", "javascript:", "vbscript:", "-moz-binding", "behavior:", "@import"] {
-        if lower.contains(bad) {
-            return Err(format!("the stylesheet uses `{bad}`, which is refused"));
-        }
-    }
-    let mut rest = lower.as_str();
-    while let Some(i) = rest.find("url(") {
-        let after = &rest[i + 4..];
-        let end = after.find(')').unwrap_or(after.len());
-        let arg = after[..end].trim().trim_matches(|c| c == '"' || c == '\'').trim();
-        let internal = arg.is_empty() || arg.starts_with("data:") || arg.starts_with("blob:") || arg.starts_with('#') || (!arg.contains(':') && !arg.starts_with("//"));
-        if !internal && !allowed_origins.iter().any(|o| arg.starts_with(&o.to_ascii_lowercase())) {
-            return Err(format!("the stylesheet loads `{}`, which is outside the project's assets and allowed origins", &arg[..arg.len().min(60)]));
-        }
-        rest = &after[end..];
-    }
-    Ok(())
-}
+/// Does a stylesheet attempt to load something from outside the bundle? (WASM-007 R13.) The one
+/// check lives in `cobolt_forms::stylesheet_lint`, where the Build and the IDE run it too, so the
+/// three never disagree.
+pub use cobolt_forms::stylesheet_lint::css_is_safe;
 
 /// The class names of a control's element (WASM-007 R3): its type, then the developer's `CssClass`.
 pub fn class_names(ctl: &Ctl) -> Vec<String> {
@@ -568,6 +558,16 @@ mod tests {
             t.set(i, k, v);
         }
         i
+    }
+
+    /// The property layer has one name, the one `view/style.rs::wrap_layer` writes (WASM-007 plan C11).
+    #[test]
+    fn the_property_layer_is_named_once() {
+        let stale = concat!("pr-", "properties");
+        for (file, text) in [("css.rs", include_str!("css.rs")), ("view/style.rs", include_str!("view/style.rs")), ("base_css.rs", include_str!("base_css.rs"))] {
+            assert!(!text.contains(stale), "{file} still names the property layer `{stale}`");
+        }
+        assert!(crate::base_css::LAYER_ORDER.contains("pr-props") && crate::view::style::wrap_layer(&[]).starts_with("@layer pr-props {"));
     }
 
     #[test]

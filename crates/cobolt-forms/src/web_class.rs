@@ -188,6 +188,13 @@ pub const FIDELITY: &[PropertyFidelity] = {
         f("PerspectiveDistance", Approximate, ""),
         f("PerspectiveStrength", Approximate, ""),
         f("BorderGradientEnabled", NotOnWeb, "charts only; the frame is a plain border"),
+        f("BorderGradientStartColor", NotOnWeb, "charts only; the frame is a plain border"),
+        f("BorderGradientEndColor", NotOnWeb, "charts only; the frame is a plain border"),
+        f("BorderGradientDirection", NotOnWeb, "charts only; the frame is a plain border"),
+        f("CornerRadiusTopLeft", NotOnWeb, "Snackbar only; a notification takes the theme's radius (--pr-radius)"),
+        f("CornerRadiusTopRight", NotOnWeb, "Snackbar only; a notification takes the theme's radius (--pr-radius)"),
+        f("CornerRadiusBottomLeft", NotOnWeb, "Snackbar only; a notification takes the theme's radius (--pr-radius)"),
+        f("CornerRadiusBottomRight", NotOnWeb, "Snackbar only; a notification takes the theme's radius (--pr-radius)"),
         f("BorderBlur", NotOnWeb, "an operating-system effect"),
         f("BorderTransparency", NotOnWeb, ""),
         f("ZOrder", Exact, ""),
@@ -196,6 +203,22 @@ pub const FIDELITY: &[PropertyFidelity] = {
         f("OsBlur", NotOnWeb, "the operating-system blur behind a window has no page equivalent; backdrop-filter is not applied by default"),
     ]
 };
+
+/// Whether a seeded property is an **appearance property** of WASM-007 R1 — the families the spec lists
+/// (§1, "What exists today"): the universal look (background and its gradient, the ink, the font, the
+/// tooltip and cursor, padding, transparency, the shadow, the perspective) and the per-type frame
+/// (corner radius, including the Snackbar's four corners; border style, colour and width; the charts'
+/// border gradient, blur and transparency). A type's own colours (`HeaderBackgroundColor`, `LinkColor`,
+/// …) are what its view draws, not this table's.
+pub fn is_appearance_property(name: &str) -> bool {
+    const NAMES: &[&str] = &[
+        "BackgroundColor", "ForegroundColor", "FontName", "FontSize", "Bold", "Italic", "Underline", "Strikethrough", "Tooltip",
+        "Cursor", "Transparency", "BorderStyle", "BorderColor", "BorderWidth", "BorderBlur", "BorderTransparency", "RotateX",
+        "RotateY", "PerspectiveDistance", "PerspectiveStrength",
+    ];
+    const FAMILIES: &[&str] = &["BackgroundGradient", "Padding", "Shadow", "CornerRadius", "BorderGradient"];
+    NAMES.contains(&name) || FAMILIES.iter().any(|f| name.starts_with(f))
+}
 
 /// The fidelity row of a property (case-insensitive); `None` for a property not in [`FIDELITY`].
 pub fn fidelity_of(property: &str) -> Option<&'static PropertyFidelity> {
@@ -434,6 +457,34 @@ pub fn player_kind_of(t: &ControlType) -> Option<PlayerKind> {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    /// WASM-007 AC1: every appearance property a seed creates, on any control type, has a fidelity row.
+    #[test]
+    fn every_appearance_property_has_a_row() {
+        use crate::model::Control;
+        let mut seen: std::collections::BTreeMap<String, usize> = Default::default();
+        for t in ControlType::ALL {
+            let c = Control::new("X-1", t.clone(), 0, 0);
+            for k in c.properties.keys().filter(|k| is_appearance_property(k)) {
+                *seen.entry(k.clone()).or_default() += 1;
+            }
+        }
+        let missing: Vec<&String> = seen.keys().filter(|k| fidelity_of(k).is_none()).collect();
+        assert!(missing.is_empty(), "appearance properties with no fidelity row: {missing:?}");
+        // The families the spec names are really seeded, so the walk is not vacuous.
+        for k in ["BackgroundColor", "ShadowEnabled", "CornerRadius", "CornerRadiusTopLeft", "BorderGradientStartColor", "BorderBlur"] {
+            assert!(seen.contains_key(k), "{k} is no longer seeded on any type");
+        }
+        let count = |f: Fidelity| seen.keys().filter(|k| fidelity_of(k).map(|r| r.fidelity) == Some(f)).count();
+        println!(
+            "AC1: {} appearance properties seeded over {} control types — Exact {}, Approximate {}, NotOnWeb {}",
+            seen.len(),
+            ControlType::ALL.len(),
+            count(Fidelity::Exact),
+            count(Fidelity::Approximate),
+            count(Fidelity::NotOnWeb)
+        );
+    }
 
     #[test]
     fn the_table_and_the_model_agree_on_every_control() {

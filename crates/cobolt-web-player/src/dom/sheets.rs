@@ -10,7 +10,7 @@
 //! A *constructed* stylesheet (`new CSSStyleSheet()` + `replaceSync`) added to the shadow root's
 //! `adoptedStyleSheets` is what the policy allows, and it is what the player uses. A browser without
 //! constructed stylesheets gets an empty `<style>` element filled through `insertRule` — also CSSOM,
-//! also allowed — one rule at a time (every sheet the player writes is a single top-level block).
+//! also allowed — one top-level statement at a time (`base_css::top_level_statements`).
 //!
 //! The browser's `web-sys` binding for these is behind an unstable flag; the calls are made with
 //! `Reflect`, which keeps the build on stable and the surface small.
@@ -102,36 +102,24 @@ impl Sheet {
         }
         if let Some(el) = &self.style_el {
             if let Some(sheet) = Reflect::get(el, &"sheet".into()).ok().filter(|s| !s.is_null() && !s.is_undefined()) {
-                loop {
-                    let n = Reflect::get(&sheet, &"cssRules".into()).ok().and_then(|r| Reflect::get(&r, &"length".into()).ok()).and_then(|n| n.as_f64()).unwrap_or(0.0);
-                    if n < 1.0 {
-                        break;
-                    }
+                let len = || Reflect::get(&sheet, &"cssRules".into()).ok().and_then(|r| Reflect::get(&r, &"length".into()).ok()).and_then(|n| n.as_f64()).unwrap_or(0.0) as u32;
+                while len() > 0 {
                     let _ = call(&sheet, "deleteRule", &[0.into()]);
                 }
-                let _ = call(&sheet, "insertRule", &[css.into(), 0.into()]);
-                return Reflect::get(&sheet, &"cssRules".into()).ok().and_then(|r| Reflect::get(&r, &"length".into()).ok()).and_then(|n| n.as_f64()).unwrap_or(0.0) as usize;
+                // insertRule takes one statement: the base sheet opens with the layer order, then its block.
+                for rule in crate::base_css::top_level_statements(css) {
+                    let _ = call(&sheet, "insertRule", &[rule.into(), len().into()]);
+                }
+                return len() as usize;
             }
         }
         0
     }
 
     /// Set a form's stylesheet **scoped to the form's root** (WASM-007 R9): `@scope`, else CSS nesting,
-    /// else — in a browser with neither — the sheet unscoped, which the build report names.
-    /// Returns which one applied.
-    pub fn set_scoped(&self, form: &str, css: &str) -> Scoping {
-        let attempts = [(Scoping::Scope, crate::base_css::scoped(form, css)), (Scoping::Nested, crate::base_css::nested(form, css))];
-        for (how, text) in attempts {
-            if css.trim().is_empty() {
-                self.set("");
-                return how;
-            }
-            if self.set(&text) > 0 {
-                return how;
-            }
-        }
-        self.set(css);
-        Scoping::Unscoped
+    /// else — unsafe, or in a browser with neither — refused and left empty (`base_css::apply_form_sheet`).
+    pub fn set_scoped(&self, form: &str, css: &str, origins: &[String]) -> Result<crate::base_css::Scoping, String> {
+        crate::base_css::apply_form_sheet(form, css, origins, |t| self.set(t))
     }
 
     /// Take the sheet off the scope.
@@ -141,11 +129,4 @@ impl Sheet {
         }
         let _ = &self.scope;
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Scoping {
-    Scope,
-    Nested,
-    Unscoped,
 }
