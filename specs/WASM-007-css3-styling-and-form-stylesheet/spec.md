@@ -129,6 +129,7 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 - **Q3 — A project-wide stylesheet** (an application stylesheet under the forms' ones) is not asked for; add it now or leave it to a later spec? Recommended: leave it, but reserve its place in the cascade.
   **Decided (operator, 2026-10-22):** add the project-wide stylesheet now.
 - **Q4 — Class naming** (`pr-button`) and the list of custom properties are a public contract once shipped; settle them at `/plan` and pin them with a test.
+  - **Decided (operator, 2026-10-31):** the names in `view/contract.rs` (`pr-control`, `pr-<type>`, `pr-form`, `pr-form-layer`) and its published custom properties are the contract, pinned by test.
   **Not answered (operator reply of 2026-10-22 does not address it):** the reply "100% Leptos" does not settle the class names and custom properties as a contract.
 - **Q5 — The visual bar:** how close to the desktop's Spatial/Liquid Glass look must the CSS get — the glass shadows, the perspective and spec 057's drawn corners have no exact CSS twin. Accept "approximate"
   per property (R1), or require parity for the three built-in themes?
