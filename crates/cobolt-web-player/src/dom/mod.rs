@@ -94,8 +94,12 @@ struct DialogRec {
 pub(crate) struct State {
     pub instances: BTreeMap<u32, InstanceView>,
     pub base: Sheet,
+    /// The web theme (`@layer pr-theme`, WASM-007 Q5).
+    pub theme: Sheet,
     pub app: Sheet,
     pub forms: BTreeMap<String, Sheet>,
+    /// The controls' inline CSS (`CssStyle`, level 6 of WASM-007 R8), after the form sheets.
+    pub inline: Sheet,
     dialogs: BTreeMap<u32, DialogRec>,
     /// The navigation chain of the shell (spec 049 R19): main form first.
     pub chain: Vec<Crumb>,
@@ -112,6 +116,14 @@ pub(crate) struct State {
     pub files: HashMap<(u32, usize), Vec<web_sys::File>>,
     pub dirty: BTreeSet<(u32, usize)>,
     pub panels: u32,
+}
+
+impl State {
+    /// Rewrite the inline sheet from every open instance's `CssStyle` rules.
+    pub(crate) fn refresh_inline(&self) {
+        let text: String = self.instances.values().map(|iv| iv.inline.as_str()).collect();
+        self.inline.set(&text);
+    }
 }
 
 pub(crate) struct Shared {
@@ -153,12 +165,17 @@ pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface
     h::attr(&pane, "hidden", "");
     let base = scope.new_sheet();
     base.set(&crate::base_css::base_layer());
+    let theme = scope.new_sheet();
+    theme.set(&crate::base_css::theme_layer(""));
     let app = scope.new_sheet();
+    let inline = scope.new_sheet();
     let state = State {
         instances: BTreeMap::new(),
         base,
+        theme,
         app,
         forms: BTreeMap::new(),
+        inline,
         dialogs: BTreeMap::new(),
         chain: Vec::new(),
         shell: false,
@@ -224,18 +241,12 @@ impl Shared {
         }
     }
 
-    /// Put the sheets on the page, in cascade order: the base (lowest layer), the properties of every
-    /// instance (the next layer), the application's stylesheet, then each form's (unlayered, so they win).
+    /// Put the sheets on the page, in the cascade order of `base_css::LAYER_ORDER`: the base, the theme,
+    /// the properties of every instance, the project stylesheet, each form's (unlayered, so they win),
+    /// then the inline CSS.
     pub(crate) fn adopt(&self) {
         let st = self.state.borrow();
-        let mut list: Vec<&Sheet> = vec![&st.base];
-        for iv in st.instances.values() {
-            list.push(&iv.sheet);
-        }
-        list.push(&st.app);
-        for s in st.forms.values() {
-            list.push(s);
-        }
+        let list = crate::base_css::adoption_order(&st.base, &st.theme, st.instances.values().map(|iv| &iv.sheet), &st.app, st.forms.values(), &st.inline);
         self.scope.adopt(&list);
     }
 
@@ -819,15 +830,16 @@ impl Shared {
 
     fn styles_changed(self: &Rc<Self>, inner: &Rc<Inner>) {
         // The application stylesheet and each form's.
-        let (app, forms, origins) = {
+        let (theme, app, forms, origins) = {
             let s = inner.styles.borrow();
-            (s.app.clone(), s.forms.clone(), inner.cfg.image_origins.clone())
+            (s.theme.clone(), s.app.clone(), s.forms.clone(), inner.cfg.image_origins.clone())
         };
         {
             let Ok(mut st) = self.state.try_borrow_mut() else { return };
-            match crate::css::css_is_safe(&app, &origins) {
+            // The theme: a refused theme file leaves the one in place, as a refused project sheet does.
+            match crate::css::css_is_safe(&theme, &origins) {
                 Ok(()) => {
-                    st.app.set(&app);
+                    st.theme.set(&crate::base_css::theme_layer(&theme));
                 }
                 Err(e) => {
                     drop(st);
@@ -835,16 +847,28 @@ impl Shared {
                     return self.after_styles(inner);
                 }
             }
-            for (name, css) in &forms {
-                match crate::css::css_is_safe(css, &origins) {
-                    Ok(()) => {
-                        let sheet = st.forms.entry(name.clone()).or_insert_with(|| self.scope.new_sheet());
-                        sheet.set_scoped(name, css);
-                    }
-                    Err(e) => {
-                        web_sys::console::error_1(&format!("the stylesheet of form {name} is refused: {e}").into());
-                    }
+            match crate::css::css_is_safe(&app, &origins) {
+                Ok(()) => {
+                    st.app.set(&crate::base_css::app_layer(&app));
                 }
+                Err(e) => {
+                    drop(st);
+                    self.set_banner(Some((e, false)));
+                    return self.after_styles(inner);
+                }
+            }
+            // A refused form sheet is left empty and shown on the banner, as a refused project sheet is.
+            let mut refused = Vec::new();
+            for (name, css) in &forms {
+                let sheet = st.forms.entry(name.clone()).or_insert_with(|| self.scope.new_sheet());
+                if let Err(e) = sheet.set_scoped(name, css, &origins) {
+                    web_sys::console::error_1(&e.clone().into());
+                    refused.push(e);
+                }
+            }
+            drop(st);
+            if !refused.is_empty() {
+                self.set_banner(Some((refused.join("\n"), false)));
             }
         }
         self.after_styles(inner);
@@ -880,7 +904,9 @@ impl Shared {
                 iv.dispose();
             }
             st.base.dispose();
+            st.theme.dispose();
             st.app.dispose();
+            st.inline.dispose();
             for (_, s) in std::mem::take(&mut st.forms) {
                 s.dispose();
             }

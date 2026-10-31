@@ -58,6 +58,8 @@ pub(crate) struct InstanceView {
     pub sheet: Sheet,
     /// The property-layer rules, one entry per control (0 is the form).
     pub css: Vec<String>,
+    /// This instance's share of the inline sheet (`style::inline_css`, the controls' `CssStyle`).
+    pub inline: String,
     pub bp: Option<String>,
     pub width: f64,
     /// Held for what dropping it does: the size observer stops and the form's key listener is removed with the instance.
@@ -294,6 +296,7 @@ impl Shared {
             ui: UiState::default(),
             sheet,
             css: built.css,
+            inline: String::new(),
             bp: None,
             width: 0.0,
             _observer: observer,
@@ -392,7 +395,11 @@ impl Shared {
             if st.content_inst == Some(inst) {
                 st.content_inst = None;
             }
-            (st.instances.remove(&inst), st.chain.len() != before)
+            let removed = st.instances.remove(&inst);
+            if removed.as_ref().is_some_and(|iv| !iv.inline.is_empty()) {
+                st.refresh_inline();
+            }
+            (removed, st.chain.len() != before)
         };
         if let Some(iv) = iv {
             if matches!(iv.mode, OpenMode::Panel | OpenMode::Window) {
@@ -447,6 +454,7 @@ impl Shared {
         struct Plan {
             vnodes: Vec<(usize, VNode)>,
             css: Vec<(usize, String)>,
+            inline: style::InlineCss,
             title: String,
         }
         let plan = {
@@ -522,7 +530,8 @@ impl Shared {
                     (i, text)
                 })
                 .collect();
-            Plan { vnodes, css, title: tree.get(0, "Title") }
+            let inline = style::inline_css(inst, &ctls, &inner.cfg.image_origins);
+            Plan { vnodes, css, inline, title: tree.get(0, "Title") }
         };
 
         // Phase B: change the page.
@@ -562,12 +571,22 @@ impl Shared {
             if changed {
                 iv.sheet.set(&style::wrap_layer(&iv.css));
             }
+            let inline_changed = iv.inline != plan.inline.css;
+            if inline_changed {
+                iv.inline = plan.inline.css.clone();
+                for (ctl, decl, why) in &plan.inline.dropped {
+                    web_sys::console::warn_1(&format!("CssStyle of {ctl}: `{decl}` is left out: {why}").into());
+                }
+            }
             if let Some(f) = &iv.frame {
                 if let Some(t) = nodes::find_key(f, "title") {
                     if t.text_content().as_deref() != Some(plan.title.as_str()) {
                         t.set_text_content(Some(&plan.title));
                     }
                 }
+            }
+            if inline_changed {
+                st.refresh_inline();
             }
         }
 

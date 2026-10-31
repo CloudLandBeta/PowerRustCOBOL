@@ -24,6 +24,29 @@
 
 
 
+## 2.0.113 — 2026-10-31 — WASM-007 T8–T14: the web cascade stated once, inline CSS, the stylesheet check, and three web themes
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.112.)*
+
+The player half of WASM-007's revised plan (`specs/WASM-007-css3-styling-and-form-stylesheet/tasks.md` T8–T14). The run stopped at T15, which waits for WASM-004 T18 (the layer element).
+
+* **One cascade order** (T8). `base_css::LAYER_ORDER` — `@layer pr-base, pr-theme, pr-props, pr-app;` — opens the base sheet. The project stylesheet now sits in `pr-app`, under every form's sheet; it was unlayered beside them, so a more specific project rule beat a form rule. `base_css::adoption_order` is the one adoption order: base, theme, instances, project, forms, inline. A browser without constructed sheets inserts the base sheet one statement at a time.
+* **No unscoped form sheet** (T9). A form sheet refused by the safety check, or one the browser keeps under neither `@scope` nor nesting, is left empty and shown on the banner, as a refused project sheet is. It used to be applied unscoped, styling every form of the page.
+* **Inline CSS, `CssStyle`** (T10). One unlayered rule per control, `[data-pr-inst="n"] #NAME`, adopted after the form sheets. A declaration that does not parse, holds a brace or `<`, or loads from outside the project is dropped and logged; never a `style` attribute. The key is `CssStyle` because `ProgressBar` already has `Style`; that is the working assumption of the open question Q6, not a decision.
+* **States in selectors** (T11). A test renders all 63 control types and pins, for the 21 a person uses, the element a selector reaches and whether it answers `:hover`, `:focus-visible`, `:disabled`/`[aria-disabled]` and `:checked`/`[aria-checked]`/`[aria-selected]`. No view needed fixing.
+* **AC1 on every appearance property** (T12). `web_class::is_appearance_property` and `every_appearance_property_has_a_row`: 46 properties over 63 types — Exact 29, Approximate 7, Not on the web 10. The charts' `BorderGradientStartColor/EndColor/Direction` and the Snackbar's four `CornerRadius*` gained rows, all *not on the web*: the player reads none of them.
+* **`cobolt_forms::stylesheet_lint`** (T13). It reports, with the line:
+  * errors: unbalanced braces, unterminated strings and comments, refused constructs, remote `url()`s, and rules that move or hide a form layer (R16, AC10);
+  * warnings: unknown properties, colours and lengths that do not parse, and vendor prefixes outside the project's browsers.
+  * `sources()` gives the `style-src`/`font-src` origins a sheet uses (AC7).
+  * The player's `css_is_safe` is now this module's, with the same messages.
+* **Web themes** (T14). `cobolt_forms::web_themes`: `liquid-glass`, `elegance` and `spatial`, each one stylesheet in `@layer pr-theme` that defines the 13 published custom properties. `form_stylesheet` writes a new form's sheet: a banner, the theme's rules for the form's types between hashed markers, and an empty section for the developer. `generated_block_untouched` and `replace_generated_block` are there for the theme switch.
+  * The player's base sheet keeps only the structure. The look moved to the Liquid Glass theme declaration by declaration, in order, with resets and default custom properties repeated in the base, so Liquid Glass renders exactly as before.
+  * New `player.set_theme(id or theme text)`.
+* **Prebuilt player rebuilt.** `plain/player_bg.wasm` 3 580 105 → 3 594 305 bytes, `threaded` 3 409 177 → 3 423 535.
+* **Tests.** Player: 356 passed, 0 failed (`--lib` 314, `abi_host` 25, `dependency_guard` 6, `exposed` 2, `freshness` 5, `grid_calls` 1, `sinks` 3). `cobolt-forms --features render`: 1765 passed, 0 failed, over 93 result lines. `cobolt-web-bundle`: 60 passed, 0 failed. `cobolt-ide --bin cobolt-ide`: 1905 passed, 10 failed — the 2.x.x line's known reds. Five need `rcrun` built in the worktree (`backend_run` ×2, `web_preview` ×3). Five are unrelated: `docs_embed`, `claude_code::bundle`, `external_crates_service` ×2, and `editor` completion descriptions. None touches this change.
+* **Not done.** T15–T30: the layer guard, the `.css` files on disk and in `cobolt.toml`, the Build gate, the IDE's Properties rows and stylesheet modal, the override marks, the Preview's in-place update, i18n, the System KB entries, and the Chrome runs. Q2a, Q3a, Q4 and Q6 stay open as working assumptions.
+
 ## 2.0.112 — 2026-10-31 — WASM-003 T15a: one retry policy for a broken connection — three attempts of 10, 20 and 30 s, the blocked state, then the exception
 
 *(Written on `features-2x-wasm`, after 2.0.102. 2.0.103–2.0.111 are taken on sibling branches, so this run takes the next free number.)*

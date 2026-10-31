@@ -313,6 +313,8 @@ pub(crate) trait Surface {
 /// that they can arrive before the page is mounted and be replaced while it runs.
 #[derive(Default, Clone)]
 pub(crate) struct Styles {
+    /// The web theme (WASM-007 Q5): a built-in id, or a whole theme stylesheet; empty is Liquid Glass.
+    pub theme: String,
     pub app: String,
     pub forms: std::collections::BTreeMap<String, String>,
     pub assets: std::collections::BTreeMap<String, String>,
@@ -1082,6 +1084,14 @@ impl Player {
     /// Set or replace the application stylesheet, without reloading the player (WASM-016 R16, WASM-007 Q3).
     pub fn set_stylesheet(&self, css: &str) {
         self.inner.styles.borrow_mut().app = css.to_owned();
+        self.inner.styles_changed();
+    }
+
+    /// Set or replace the web theme, without reloading the player (WASM-007 Q5): a built-in id
+    /// (`liquid-glass`, `elegance`, `spatial`), or the text of a whole theme stylesheet (the project's
+    /// `theme_file`, the bundle's `theme.css`), which replaces the built-in one. Empty is Liquid Glass.
+    pub fn set_theme(&self, theme: &str) {
+        self.inner.styles.borrow_mut().theme = theme.to_owned();
         self.inner.styles_changed();
     }
 

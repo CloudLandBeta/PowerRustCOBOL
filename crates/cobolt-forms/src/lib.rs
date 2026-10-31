@@ -82,6 +82,11 @@ pub mod viewer;
 /// The CSS the Viewer's HTML subset honours: a cascade for styling, never
 /// layout, and nothing fetched.
 pub mod css;
+/// The check of a web form's stylesheet (WASM-007 R5, R13, R16): diagnostics with lines, the safety
+/// check the player runs, and the origins the Content-Security-Policy must allow. No egui.
+pub mod stylesheet_lint;
+/// The web themes (WASM-007 Q5): one stylesheet each, and a new form's stylesheet made from one. No egui.
+pub mod web_themes;
 /// A flowchart's connectors made orthogonal, meeting each shape at a side's middle.
 #[cfg(feature = "mermaid")]
 pub mod mermaid_route;

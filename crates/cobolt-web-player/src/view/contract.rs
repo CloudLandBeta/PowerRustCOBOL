@@ -20,23 +20,9 @@ use crate::css::{class_names, type_class};
 use crate::kinds::{PlayerKind, TABLE};
 use crate::tree::testing::tree_with;
 
-/// The custom properties the base layer defines, which a host page can set on the mount element
-/// (WASM-007 R9). Sorted.
-const CUSTOM_PROPERTIES: &[&str] = &[
-    "--pr-accent",
-    "--pr-border",
-    "--pr-danger",
-    "--pr-field",
-    "--pr-field-border",
-    "--pr-field-text",
-    "--pr-focus",
-    "--pr-font",
-    "--pr-radius",
-    "--pr-surface",
-    "--pr-surface-2",
-    "--pr-text",
-    "--pr-text-dim",
-];
+/// The custom properties every web theme defines, which a host page can set on the mount element
+/// (WASM-007 R9): one list, in `cobolt_forms::web_themes`, which its own tests check against each theme.
+use cobolt_forms::web_themes::CUSTOM_PROPERTIES;
 
 /// `--pr-…` names in `css`, with whether each is a definition (`--pr-x:`) or a use (`var(--pr-x)`).
 fn custom_properties(css: &str) -> (BTreeSet<String>, BTreeSet<String>) {
@@ -67,8 +53,9 @@ fn custom_properties(css: &str) -> (BTreeSet<String>, BTreeSet<String>) {
 
 #[test]
 fn the_custom_properties_a_host_page_can_set_are_the_published_list() {
-    let (defined, used) = custom_properties(BASE_CSS);
-    // The base layer defines these and a few more for its own parts (`--pr-line`, the grid colours…):
+    // What the page adopts: the base sheet and the default theme (Liquid Glass) as `pr-theme`.
+    let (defined, used) = custom_properties(&format!("{}\n{}", crate::base_css::base_layer(), crate::base_css::theme_layer("")));
+    // The base layer and the theme define these and a few more for their own parts (`--pr-line`, the grid colours…):
     // the published ones must all be there; the others are the player's own business.
     let missing: Vec<&&str> = CUSTOM_PROPERTIES.iter().filter(|p| !defined.contains(**p)).collect();
     assert!(missing.is_empty(), "published custom properties the base layer no longer defines: {missing:?}");
@@ -129,18 +116,62 @@ fn css_class_adds_the_developers_classes_after_the_type_class_and_drops_what_is_
     assert_eq!(&classes[2..], ["primary", "big_one", "x-1"], "only names made of letters, digits, - and _ pass");
 }
 
+/// The element of a view that the keyboard reaches: a native control, or one with `tabindex="0"`.
+fn focus_target(v: &super::VNode) -> Option<&super::VNode> {
+    v.find(&|n| matches!(n.tag, "button" | "input" | "select" | "textarea" | "a") || n.attr_of("tabindex") == Some("0"))
+}
+
+/// R3: `:hover`, `:focus-visible`, `:disabled`, `:checked` — or the ARIA state the base styles — work on every control a
+/// person can use, because the element a selector addresses is the native one or carries that state.
 #[test]
 fn the_states_a_stylesheet_may_select_are_the_browsers_own_pseudo_classes() {
-    // R3: `:hover`, `:focus-visible`, `:disabled`, `:checked` work because the elements are the native ones.
     let e = Empty::default();
-    let (t, i) = tree_with("Button", "B-1", &[("Enabled", "0")]);
-    let v = controls::view(&e.cx(&t), i);
-    assert_eq!(v.tag, "button");
-    assert!(v.prop_of("disabled").is_some() || v.attr_of("disabled").is_some() || v.has_class("pr-disabled"), "a disabled button is disabled to the browser: {}", v.describe());
-    let (t, i) = tree_with("CheckBox", "C-1", &[("Checked", "1")]);
-    let v = controls::view(&e.cx(&t), i);
-    let input = v.find(&|n| n.tag == "input").expect("a native check box");
-    assert_eq!(input.attr_of("type"), Some("checkbox"));
-    assert!(input.prop_of("checked").is_some(), ":checked follows the model");
+    // The types that hold a checked or selected state, and where a selector finds it.
+    let checked: &[(&str, &[(&str, &str)])] = &[
+        ("CheckBox", &[("Checked", "1")]),
+        ("RadioButton", &[]),
+        ("Switch", &[]),
+        ("TabControl", &[]),
+        ("TreeView", &[]),
+        ("ListBox", &[("Items", "one\ntwo")]),
+    ];
+    let (mut interactive, mut display) = (Vec::new(), Vec::new());
+    for r in TABLE {
+        let extra: &[(&str, &str)] = checked.iter().find(|(n, _)| *n == r.control).map_or(&[], |(_, p)| p);
+        let (t, i) = tree_with(r.control, "X-1", extra);
+        let on = controls::view(&e.cx(&t), i);
+        let Some(target) = focus_target(&on) else {
+            display.push(r.control);
+            continue;
+        };
+        let mut states = vec![":hover", ":focus-visible"];
+        // Disabled: the native element's `disabled` (`:disabled`), and on every control the root's `aria-disabled` twin.
+        let mut off_props = extra.to_vec();
+        off_props.push(("Enabled", "0"));
+        let (t, i) = tree_with(r.control, "X-1", &off_props);
+        let off = controls::view(&e.cx(&t), i);
+        assert_eq!(off.attr_of("aria-disabled"), Some("true"), "{}: a disabled control says so to a selector: {}", r.control, off.describe());
+        let native_off = focus_target(&off).is_some_and(|n| matches!(n.tag, "button" | "input" | "select" | "textarea") && (n.prop_of("disabled").is_some() || n.attr_of("disabled").is_some()));
+        states.push(if native_off { ":disabled" } else { "[aria-disabled]" });
+        if checked.iter().any(|(n, _)| *n == r.control) {
+            let native = on.find(&|n| n.tag == "input" && matches!(n.attr_of("type"), Some("checkbox" | "radio")));
+            let twin = on.find(&|n| n.attr_of("aria-checked").is_some() || n.attr_of("aria-selected").is_some());
+            assert!(native.is_some() || twin.is_some(), "{}: no element answers :checked or its ARIA twin: {}", r.control, on.describe());
+            states.push(if native.is_some() { ":checked" } else if twin.unwrap().attr_of("aria-checked").is_some() { "[aria-checked]" } else { "[aria-selected]" });
+        }
+        if r.control == "CheckBox" {
+            assert!(on.find(&|n| n.tag == "input").and_then(|n| n.prop_of("checked")).is_some(), ":checked follows the model");
+        }
+        interactive.push(format!("{} <{}> {}", r.control, target.tag, states.join(" ")));
+    }
+    // Every control a person types into, clicks or picks from is in the interactive list.
+    for must in ["Button", "TextBox", "CheckBox", "RadioButton", "ComboBox", "ListBox", "TabControl", "DataGrid", "DateTimePicker", "NumericUpDown", "TreeView", "Slider", "Switch", "Knob", "Hyperlink", "Splitter", "Maps", "Viewer", "ToolBar", "SideMenu"] {
+        assert!(interactive.iter().any(|l| l.starts_with(&format!("{must} "))), "{must} has no element the keyboard reaches");
+    }
     assert!(BASE_CSS.contains(":focus-visible"), "the base layer styles keyboard focus");
+    println!("states per interactive control type ({}):", interactive.len());
+    for l in &interactive {
+        println!("  {l}");
+    }
+    println!("display only ({}): {}", display.len(), display.join(", "));
 }
