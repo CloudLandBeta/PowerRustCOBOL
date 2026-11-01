@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.135 — 2026-11-01 — WASM-005 T18b: a `CALL … WITH WEBSOCKET LINKAGE` in flight waits while the connection is retried
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.118.)*
+
+WASM-005 (the `WEBSOCKET` call and the data controls through the backend). The details and the evidence are in `specs/WASM-005-websocket-call-and-remote-data/tasks.md`.
+
+* **R18 / AC11 proven through the COBOL statement** (T18b; the operator's ruling D21 of 2026-10-24). The behaviour comes from WASM-003 T15a (2.0.112): three attempts of 10, 20 and 30 s. A new test, `cobolt-server/tests/loopback.rs` `a_websocket_call_in_flight_waits_through_the_retries`, runs real `CALL … WITH WEBSOCKET LINKAGE` programs in the interpreter, through `rcrun`'s client, against a TLS loopback backend that is cut while the calls are in flight. What it shows:
+  * The statement after the `CALL` does not run while the client retries.
+  * If the backend comes back in time, the call to the program declared `idempotent` completes. The backend answers it from its store, so the program does not run twice.
+  * The other program's call reaches `ON EXCEPTION` with `TRANSPORT` 1001. 1001 means the call had been sent and may have been received.
+  * If the backend is gone for good, both waiting calls reach `ON EXCEPTION` once the third attempt fails: the sent one with 1001, the one made while the client was blocked with 1000 (never sent). The message is "the backend could not be reached". `WS-LAST-ERROR` and `RETURN-CODE` read the same code.
+* **System KB.** The section *Calling the backend* now lists code 1001 ("connection lost after the call was sent — it may have been received"). It explains 1000 and 1001 in COBOL's terms, not by the transport's `may_have_run` field, which a program cannot read. `chunked.data` was regenerated.
+* **Still open:** in the browser, the *blocked* state reaching the page with the modal (WASM-003 T15a-5) is WASM-003's. The player's own tests and the `e2e_chrome` *backend lost* scenario cover the module's call.
+
 ## 2.0.134 — 2026-11-01 — WASM-006 T17, T18, T19b: the Hyperlink in Chrome, and `onNavigated` before a link leaves the application
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.117.)*

@@ -970,3 +970,108 @@ fn the_retry_windows_are_10_20_30_seconds() {
     }
     rig.server.stop();
 }
+
+// ── WASM-005 R18, AC11: a `CALL … WITH WEBSOCKET LINKAGE` in flight while the client retries ──
+
+/// A program that makes one `WEBSOCKET` call and DISPLAYs how it ended: `OK <reply>`, or
+/// `EXCEPTION <class>|<code>|<RETURN-CODE>|<message>` as `WS-LAST-ERROR` and `RETURN-CODE` read it.
+fn caller_source(program: &str) -> String {
+    format!(
+        r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. CALLER.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-ANSWER.
+    05 REPLY PIC X(4).
+01 WS-CLASS   PIC X(16).
+01 WS-CODE    PIC 9(4).
+01 WS-RC      PIC 9(4).
+01 WS-MESSAGE PIC X(60).
+PROCEDURE DIVISION.
+MAIN.
+    CALL "{program}" WITH WEBSOCKET LINKAGE RETURNING WS-ANSWER
+        ON EXCEPTION
+            COBOL::"WS-LAST-ERROR" ( WS-CLASS WS-CODE WS-MESSAGE )
+            MOVE RETURN-CODE TO WS-RC
+            DISPLAY "EXCEPTION " FUNCTION TRIM(WS-CLASS) "|" WS-CODE "|" WS-RC "|" FUNCTION TRIM(WS-MESSAGE)
+        NOT ON EXCEPTION
+            DISPLAY "OK " REPLY
+    END-CALL
+    STOP RUN.
+"#
+    )
+}
+
+/// Run [`caller_source`] in the real interpreter on its own thread (the interpreter is not
+/// `Send`), the client as its transport; answers the line it DISPLAYed.
+fn cobol_call_in_background(client: &cobolt_server::client::WsClient, program: &str) -> std::thread::JoinHandle<String> {
+    let src = caller_source(program);
+    let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
+    let errors: Vec<_> = parsed.diagnostics.iter().filter(|d| d.is_error()).map(|d| format!("{}: {}", d.span.line, d.message)).collect();
+    assert!(errors.is_empty(), "the caller parses: {errors:?}");
+    let program = parsed.program.expect("a program");
+    let transport = client.clone();
+    std::thread::spawn(move || {
+        let (_etx, erx) = std::sync::mpsc::channel();
+        let (stx, _srx) = std::sync::mpsc::channel();
+        let (dtx, drx) = std::sync::mpsc::channel::<String>();
+        let mut interp = cobolt_runtime::Interpreter::new_with_channels(program, erx, stx, dtx);
+        interp.set_remote_transport(Box::new(transport));
+        interp.run().expect("the caller runs");
+        drx.try_iter().map(|l| l.trim().to_owned()).filter(|l| l.starts_with("OK ") || l.starts_with("EXCEPTION ")).last().unwrap_or_default()
+    })
+}
+
+/// AC11 through the COBOL statement: the calls wait through the retries; back in time, the
+/// idempotent program's call completes (answered from the backend's store, not run twice) and
+/// the other reports `TRANSPORT` 1001 — sent, so it may have been received; gone for good, every
+/// waiting call reaches `ON EXCEPTION` with `TRANSPORT` once the third attempt fails.
+#[test]
+fn a_websocket_call_in_flight_waits_through_the_retries() {
+    use std::sync::atomic::Ordering;
+    let policy = cobolt_wire::retry::Policy { first_ms: 1_500, step_ms: 1_500, attempts: 3 };
+    let (rig, proxy, client) = retry_world("retry-cobol", policy);
+    assert_eq!(cobol_call_in_background(&client, "SAFE-READ").join().unwrap(), "OK safe", "warm");
+
+    // 1. Back before attempt 2.
+    let replays = rig.server.stats().replays.load(Ordering::SeqCst);
+    proxy.set(PROXY_SWALLOW_REPLIES);
+    let (safe, unsafe_) = (cobol_call_in_background(&client, "SAFE-READ"), cobol_call_in_background(&client, "UNSAFE-WRITE"));
+    std::thread::sleep(Duration::from_millis(400));
+    proxy.set(PROXY_REFUSE);
+    let broke = Instant::now();
+    proxy.kill_all();
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(client.link_status().blocked, "blocked while it retries");
+    assert!(!safe.is_finished() && !unsafe_.is_finished(), "the statements after the CALLs have not run");
+    std::thread::sleep(Duration::from_millis(250));
+    proxy.set(PROXY_FORWARD);
+    let (safe, unsafe_) = (safe.join().unwrap(), unsafe_.join().unwrap());
+    let back = broke.elapsed();
+    assert_eq!(safe, "OK safe", "the idempotent program's call completes");
+    assert_eq!(unsafe_, "EXCEPTION TRANSPORT|1001|1001|the connection was lost during the call", "sent, so it may have been received");
+    let replayed = rig.server.stats().replays.load(Ordering::SeqCst) - replays;
+    assert_eq!(replayed, 1, "the repeated call is answered from the backend's store: SAFE-READ ran once");
+    println!("\n  back before attempt 2 ({:.0} ms after the break): SAFE-READ {safe:?} (answered from the store: {replayed}); UNSAFE-WRITE {unsafe_:?}", back.as_secs_f64() * 1000.0);
+
+    // 2. Gone for good: the sent call and the one made while blocked, after the third attempt.
+    let before = proxy.accepted().len();
+    proxy.set(PROXY_SWALLOW_REPLIES);
+    let sent = cobol_call_in_background(&client, "UNSAFE-WRITE");
+    std::thread::sleep(Duration::from_millis(400));
+    proxy.set(PROXY_REFUSE);
+    let broke = Instant::now();
+    proxy.kill_all();
+    std::thread::sleep(Duration::from_millis(2_000));
+    let queued = cobol_call_in_background(&client, "SAFE-READ");
+    let (sent, queued) = (sent.join().unwrap(), queued.join().unwrap());
+    let gave_up = broke.elapsed();
+    assert_eq!(sent, "EXCEPTION TRANSPORT|1001|1001|the backend could not be reached", "sent: it may have been received");
+    assert_eq!(queued, "EXCEPTION TRANSPORT|1000|1000|the backend could not be reached", "never sent");
+    assert!(gave_up >= Duration::from_millis(policy.cycle_ms()), "not before the third attempt's window: {gave_up:?}");
+    let attempts: Vec<u128> = proxy.accepted()[before..].iter().map(|t| t.saturating_duration_since(broke).as_millis()).collect();
+    assert_eq!(attempts.len(), 3, "three attempts: {attempts:?}");
+    println!("  gone for good: attempts at {attempts:?} ms, ON EXCEPTION after {:.0} ms (cycle {} ms): sent {sent:?}; queued {queued:?}", gave_up.as_secs_f64() * 1000.0, policy.cycle_ms());
+    rig.server.stop();
+}

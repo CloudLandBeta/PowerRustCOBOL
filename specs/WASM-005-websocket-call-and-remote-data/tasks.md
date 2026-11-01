@@ -14,6 +14,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   see T14). **2026-10-24 (third run):** T14 landed as 2.0.55 (the operator's three decisions); stopped at T15 (what a `RestApi`
   and an `AgentAi` binding read and save on the backend, see T15). **2026-10-30:** T15 closed as 2.0.101 (operator: RestApi/AgentAi
   deferred to their own spec, refused on the web meanwhile); stopped at T18b (waits for WASM-003 T15, the retry policy).
+  **2026-11-01:** T18b done and T19 finalized as 2.0.119 (WASM-003 T15a had landed as 2.0.112).
 - **Plan:** ./plan.md   **Rules:** ./mapping-rules.md   **Date:** 2026-10-22
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it satisfies, and how to verify it. Check off as completed.
@@ -821,15 +822,56 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 
 ## Finalize
 
-- [ ] **T18b — D21: a call in flight while the frontend retries** (R18; AC11) — added 2026-10-24 by the operator's ruling.
-  - **Now waits for WASM-003 T15a only** (operator, 2026-10-30: WASM-003 T15 split; the retry policy is T15a, the encryption T15b).
+- [x] **T18b — D21: a call in flight while the frontend retries** (R18; AC11) — added 2026-10-24 by the operator's ruling.
+  - **Done, 2026-11-01 (2.0.119).** WASM-003 T15a landed as 2.0.112 (`cobolt_wire::retry::Policy`; `cobolt-server/src/client.rs`
+    `Actor::cycle` / `on_disconnect`; `cobolt-web-player/src/net.rs` `LinkState::Retrying`), so the behaviour R18 asks for exists in
+    both clients; this task proves it **through the COBOL statement** and says in the KB how a program reads it.
+  - Files: `crates/cobolt-server/tests/loopback.rs` (new test and its helpers `caller_source`, `cobol_call_in_background`, beside
+    T15a's `retry_world`); `crates/cobolt-compiler/src/lib.rs` (*Calling the backend*: the *A lost connection* and *Failure* bullets);
+    `assets/knowledge/chunked.data` (regenerated).
+  - Do: run real `CALL "<program>" WITH WEBSOCKET LINKAGE RETURNING WS-ANSWER … ON EXCEPTION COBOL::"WS-LAST-ERROR" ( … ) … NOT ON
+    EXCEPTION … END-CALL` programs in the interpreter (`Interpreter::set_remote_transport` with `rcrun`'s `WsClient`) against the TLS
+    loopback backend behind T15a's `Proxy`, cut while the calls are in flight; read what `WS-LAST-ERROR` and `RETURN-CODE` give.
+  - **Working assumption (not an operator decision):** R18's "whether it may have been received" is read by a COBOL program from
+    the **code**, because `WS-LAST-ERROR` gives class, code, message and detail and no `may_have_run`: after a lost connection
+    `TRANSPORT` **1001** = the call had been sent, it may have been received; **1000** = it was never sent. Both clients already
+    answer so (`client.rs` `on_disconnect`; `net.rs` `fail(…, CLOSED, …, Some(true))` / `NO_CONNECTION … Some(false)`). The KB
+    said `may_have_run`, which a program cannot read, and its code list lacked 1001; both fixed. A fifth `WS-LAST-ERROR` output
+    would be a new built-in signature — not added here.
+  - Verify: `cargo test -p cobolt-server --test loopback a_websocket_call_in_flight_waits_through_the_retries -- --nocapture` —
+    **pass**, 11.49 s (policy 1.5/3/4.5 s): *back before attempt 2* (1526 ms after the break) — both statements had not finished
+    while blocked; `SAFE-READ` (`idempotent`) → `OK safe`, the server's `replays` counter +1, so the program ran once;
+    `UNSAFE-WRITE` → `EXCEPTION TRANSPORT|1001|1001|the connection was lost during the call` (class | `WS-LAST-ERROR` code |
+    `RETURN-CODE` | message). *Gone for good*: attempts at `[2, 1505, 4508]` ms, `ON EXCEPTION` after 9010 ms (cycle 9000):
+    the sent call `TRANSPORT|1001|1001|the backend could not be reached`, the one made while blocked `TRANSPORT|1000|1000|the
+    backend could not be reached`, exactly three connections. The browser module's half is T15a's evidence, re-run here:
+    `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --lib net` 21/0 (`success_in_attempt_2_repeats_the_safe_call_and_fails_the_other`,
+    `a_break_is_retried_at_10_20_30_seconds_then_given_up`); the Chrome *backend lost* / *down for good* scenarios of
+    `cobolt-web-bundle/tests/e2e_chrome.rs` ran in T19's sweep. `prebuilt_chunked_kb_matches_the_published_documentation`: T19's sweep.
+    `build_chunked_kb`: 3701 records from 8 documents, 13 348 864 → 13 352 960 bytes.
+  - **Was:** waits for WASM-003 T15a only (operator, 2026-10-30: WASM-003 T15 split; the retry policy is T15a, the encryption T15b).
   - **Blocked (run of 2026-10-30): waits for WASM-003 T15.** R18 says the call waits *through the retries of WASM-003 R25* (three
     attempts of 10, 20 and 30 s, then give up); AC11 counts "the third attempt". That policy is WASM-003's T15 (unchecked, with
     the asymmetric channel and a Finalize of its own). Today `cobolt-server/src/client.rs` reconnects with back-off inside one
     `ClientConfig::reconnect_deadline` (20 s), resends a safe call (`c.safe && c.attempts < 2`) and fails any other call at
     once with `may_have_run(c.sent)` instead of waiting for the reconnection. Building the three attempts here would be
     WASM-003 T15's work. This task also has no Files/Do/Verify yet; write them when WASM-003 T15 lands.
-- [ ] **T19 — Finalize: version, CHANGELOG, the tests of every touched crate**
+- [x] **T19 — Finalize: version, CHANGELOG, the tests of every touched crate**
+  - **Done, run of 2026-11-01 (T18b):** `z` bumped once, 2.0.118 → **2.0.119**, one CHANGELOG entry above 2.0.118; System KB
+    (`cobolt-compiler/src/lib.rs`, *A lost connection* and *Failure*) carries 1001/1000 in COBOL's terms, `chunked.data` regenerated
+    (3701 records, 13 352 960 bytes). `df` before: 81 GiB free; after: 19 GiB. Sweeps with `--no-fail-fast`, every `test result`
+    line summed: `cobolt-ast parser semantic runtime wire server wasm codegen compiler form-host web-bundle project-tools` — 361
+    lines, 3118 passed, **2 failed, neither from this run**, 35 ignored: `cobolt-form-host` `host::parity::corpus_golden` (the
+    `chart-3d.cfrm` golden, as on 2026-10-30) and `cobolt-wasm --test player_fixture` (`program.wasm is stale`; none of this
+    run's files reach `cobolt-wasm` — it depends on lexer, ast, wasm-rt, decimal, wire, forms, parser, semantic, runtime, codegen;
+    left for whoever moved the generator, not regenerated here); `e2e_chrome` 1/0 (171 s), the new loopback test ok.
+    `cobolt-web-player` (`--manifest-path`) — 8 lines, 381 passed, 0 failed. `cobolt-forms --features render` — 94 lines, 1777
+    passed, 0 failed, 2 ignored. `cobolt-ide --bin cobolt-ide` — 1924 passed, 10 failed, 5 ignored: the five known 2.x.x reds
+    (`claude_validates_the_written_bundle`, `every_document_ships_in_every_language`, `compatible_and_reserved_collisions_still_refuse`,
+    `live_resolver_verdicts`, `every_completion_description_exists_in_six_languages`) and five that needed `target/debug/rcrun`,
+    absent in this worktree (`backend_run` ×2, `web_preview` ×3) — after `cargo build -p cobolt-cli --bin rcrun`,
+    `backend_run::tests panels::web_preview::tests` 23 passed, 0 failed. Both KB freshness tests ok. Credential scan of the diff:
+    nothing. `README.md` and `docs/` untouched; no `Tr` key added.
   - **Partial, run of 2026-10-23 (stopped at T11):** `z` bumped once to 2.0.51 (2.0.50 is `2.x.x`'s forward-port `7a8e4c1f`), one
     CHANGELOG entry, plan §3 *Project file* line carries T3's key names, the System KB gained the `backend/generated/` bullet and the
     `rcrun backend run` SQL connections (chunked.data regenerated: 3569 records, 12 800 000 bytes). Sweep with `--no-fail-fast`:
@@ -900,6 +942,7 @@ calls, so they are correct either way. **O5:** spec R2 still says "group item"; 
 | AC8 — SQL text, path or URL to a generated endpoint refused, no execution | T6 (structural), T9, T12, T17 |
 | AC9 — a secret on a web form stops Build; on the backend it builds | T13 (with T8, T11) |
 | AC10 — parser/AST/semantic/runtime green; KB carries phrase and built-ins; freshness test | T1, T18, T19 |
+| AC11 — a call in flight waits through the retries; safe one completes, other `TRANSPORT` 1001; gone for good, `TRANSPORT` after the third | T18b (with WASM-003 T15a) |
 
 ## Done criteria
 All acceptance criteria in spec.md are checked except what is explicitly blocked (T5 on O1; T16 on WASM-016), the tests of every touched crate pass,
