@@ -88,9 +88,11 @@ pub enum Command {
     /// pixels, through the engine's own snapshot (WASM-008 T41).
     Render { path: String },
     /// Run a closed list of steps on the page (`click`, `type`, `wait`, `get`,
-    /// `text`, `style`, `rect`, `focused`, `key`, `snapshot`; the helper checks
-    /// them and refuses any other) and answer `scripted`. `click` and `type`
-    /// fire real DOM events (the operator's decision of 2026-11-01).
+    /// `text`, `style`, `rect`, `focused`, `key`, `snapshot`, `page`; the helper
+    /// checks them and refuses any other) and answer `scripted`. `click` and
+    /// `type` fire real DOM events (the operator's decision of 2026-11-01);
+    /// `page` reads a window property of a fixed list, of the page or of the
+    /// `phone-frame` (WASM-008 T47).
     Script {
         steps: Vec<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -112,6 +114,9 @@ pub enum Event {
     Failed { message: String },
     /// The helper ended.
     Closed,
+    /// The page started loading `url`: its first load, and every reload after
+    /// it (WASM-008 T47) — so a test reads "no page reload" instead of inferring it.
+    Loading { url: String },
     /// What the page reported — the JSON of `/__prc/log`.
     Page(PageEvent),
     /// The answer to `render`: the PNG at `path`, of these pixels.
@@ -137,6 +142,9 @@ enum HelperEvent {
         message: String,
     },
     Closed,
+    Loading {
+        url: String,
+    },
     Rendered {
         path: String,
         width: u32,
@@ -190,6 +198,7 @@ impl Event {
                 HelperEvent::Blocked { url } => Event::Blocked { url },
                 HelperEvent::Failed { message } => Event::Failed { message },
                 HelperEvent::Closed => Event::Closed,
+                HelperEvent::Loading { url } => Event::Loading { url },
                 HelperEvent::Rendered { path, width, height } => Event::Rendered { path, width, height },
                 HelperEvent::Scripted { values, text, errors } => Event::Scripted { values, text, errors },
             });
@@ -737,6 +746,8 @@ mod tests {
             (r#"{"event":"blocked","url":"https://example.com/"}"#, Event::Blocked { url: "https://example.com/".into() }),
             (r#"{"event":"failed","message":"no web view"}"#, Event::Failed { message: "no web view".into() }),
             (r#"{"event":"closed","extra":1}"#, Event::Closed),
+            // `cobolt-web-preview` pins `loading` (WASM-008 T47).
+            (r#"{"event":"loading","url":"http://127.0.0.1:8123/"}"#, Event::Loading { url: "http://127.0.0.1:8123/".into() }),
             // The helper's own text (`cobolt-web-preview` pins `rendered` and `scripted`).
             (
                 r#"{"event":"rendered","height":2532,"path":"/tmp/a.png","width":1170}"#,

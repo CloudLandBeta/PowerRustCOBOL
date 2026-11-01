@@ -920,6 +920,15 @@ export async function mount(target, options = {}) {
             if (nm.abi !== ABI_VERSION) throw new LoadError(`This application was built for ABI ${nm.abi} and this player speaks ABI ${ABI_VERSION}: rebuild the application with the current IDE.`, 'abi');
             checkProgramModule(env, nmod, nm.limits);
             nextLink = choice.mode === 'worker' ? createWorkerLink(env, nmod, nm, bridge, url(next.worker.url), policy) : createMainLink(env, nmod, nm, bridge);
+            // The new program starts before the running one is let go (WASM-008 T47): a worker created in the task
+            // that terminated the previous one failed to load in WebKit, and a new program that cannot start now
+            // leaves the running application as it was.
+            try {
+              await nextLink.instantiate();
+            } catch (e) {
+              nextLink.dispose();
+              throw e;
+            }
           }
           const descriptions = [];
           for (const f of next.forms) {
@@ -930,7 +939,6 @@ export async function mount(target, options = {}) {
           if (nextLink) {
             link.dispose();
             link = nextLink;
-            await link.instantiate();
             link.part = callPart;
             link.partModule = loadPart;
             chosenManifestText = nextManifest;

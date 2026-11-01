@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — Preview and Run in the browser and on the device; the web view stays headless
 
-- **Status:** in progress. **2026-11-01 (2.0.122):** T41–T46 done; stopped at T47 (an operator decision on the step vocabulary and the reload signal, see T47). T1–T10 were done against the plan of 2026-10-20 and stay checked with their evidence (results at the bottom).
+- **Status:** in progress. **2026-11-01 (2.0.123):** T47, T48 and T49 done; only **T11** is open — the operator's own look at the Preview (and the Mobile emulator half, after WASM-012). **2026-11-01 (2.0.122):** T41–T46 done; stopped at T47 (an operator decision on the step vocabulary and the reload signal, see T47). T1–T10 were done against the plan of 2026-10-20 and stay checked with their evidence (results at the bottom).
   The open tasks T14–T29 of 2026-10-22 were never implemented and are **replaced** by T30–T49, written against the plan of **2026-10-23**
   (spec §0, R12–R16, AC11–AC15; plan C10–C19). T11 stays, re-worded for the browser and the emulator.
 - **Plan:** ./plan.md   **Date:** 2026-10-23   **Line:** 2.x.x (`features-2x`), a **feature**. Code read at **2.0.49**
@@ -312,7 +312,7 @@ tests skip with a printed reason when the helper or a display is absent (plan §
 
 ## Acceptance evidence
 
-- [ ] **T47 — AC11, AC12, AC5, AC14 driven headless on the real build** (R12, R13, R3, R5, R7, R15; plan §7)
+- [x] **T47 — AC11, AC12, AC5, AC14 driven headless on the real build** (R12, R13, R3, R5, R7, R15; plan §7)
   - Depends on: T33–T41. Uses the real Web Build (WASM-010's generator and the shipped player, C16) on a hello-world Web project and a Mobile
     one; the browser launch is decided with `PRC_PREVIEW_NO_BROWSER`, and the **served page** is driven by the headless helper.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide web_preview --no-fail-fast` —
@@ -330,11 +330,27 @@ tests skip with a printed reason when the helper or a display is absent (plan §
     (3) **A `loading` event in the helper protocol**, raised on wry's `PageLoadEvent::Started` with the URL, sent to the IDE and the tools whether or not a script runs, so "no page reload" is an assertion and not an inference.
     (4) **The update race is fixed here**, not deferred: the dev server's folder watcher and `notify_changed` are two writers of the same truth, and a Preview that reloads 3 times in 5 defeats R13's in-place promise. One build generation number owned by the dev server; `app.update` compares against the generation that finished building, never a file it reads mid-write. AC12 then asserts 5 of 5 in-place.
     WASM-015 plan §3.2 shares this vocabulary: the same roles and the `page` step are the ones its read-only steps use, recorded there when WASM-015 runs.
+  - Done (2.0.123). (1) + (2) `crates/cobolt-web-preview/src/main.rs`: the runner's `find` knows `preview-errors` (`.prc-preview-errors` in the page's `document`) and `phone-frame` (`#pr-phone`); a `page` step (`steps::PAGE_PROPERTIES`: `innerWidth`, `innerHeight`, `devicePixelRatio`, `crossOriginIsolated`, `location.pathname`; `frame` only from `steps::FRAMES` = `phone-frame`, waiting up to 10 s for the frame's document), any other name refused at parse time; still no `eval`. (3) `lines::loading` — `{"event":"loading","url":..}` said on every `PageLoadEvent::Started`, script or not; `cobolt_project_tools::web::preview::Event::Loading { url }` reads it (both sides pinned). (4) The race had **two** causes, both fixed here: (a) `devserver.rs` — one writer of the change count: `ServerHandle::build_started` stops the watcher counting while a build writes the folder (the generator's `replace_dir` swaps the whole folder), `notify_changed` counts the build's end once and re-takes the watcher's baseline, `build_failed` counts nothing; `apply_form_stylesheet` brackets its own write; the IDE's `spawn_build` / `finish` bracket every build into a served folder (`IDE/src/panels/web_preview.rs`), and T44's test brackets its rebuild the same way. (b) Found by T47 on the real build: with the race gone, every property change still reloaded the page — `app.update` (`crates/cobolt-web-bundle/src/hostpage.rs`, WASM-016 R16) terminated the running program worker and created the new one in the same task, and WebKit failed to load that worker (a plain `Event` of type `error`, while a `fetch` of the same `worker.<hash>.js` answered 200 with COEP and CORP — measured with a temporary probe, removed). The new program now starts **before** the running one is let go, and a new program that cannot start leaves the running application as it was.
+  - Verified: `PRC_REQUIRE_WEBVIEW=1 cargo test -p cobolt-ide --bin cobolt-ide web_preview --no-fail-fast` **19 passed, 0 failed, 1 ignored** (the ignored one is the manual proof run). New `acceptance_on_the_real_build_in_the_headless_helper_008` (about 26 s), on a hello-world Web project and a Mobile one built by the real generator with the committed player (`RealBuild`, a stand-in that wraps `GeneratorBackend` and refuses on request):
+    **AC11** — default: "Opened http://127.0.0.1:…/ in the system's default browser." (first build 1.5 s); named: "Opened … in Google Chrome." (the first present known browser, reusing the server); a scripted click on BTN-GREET set LBL-OUT to `Hello`; the interactive Preview starting no helper stays T35's assertion.
+    **AC12** — 5 of 5 property changes and 7 of 7 changes in all arrived in place, one page load in the whole run (the helper's `loading` events counted): property `program` 71.8 / 29.0 / 26.8 / 24.9 / 29.5 ms, class rule (`webforms/application.css`) `stylesheet` 6.1 ms, form stylesheet (`apply_form_stylesheet`) `stylesheet of main-form` 8.2 ms — all under D6's working 500 ms (Q5 *to confirm*: reported, not asserted); the new Caption read back after each property change, unchanged after the stylesheet. A thrown error (a served `thrower.js`; the bundle's CSP takes `'self'` only), the player's `console.error` and a COBOL run-time error (BTN-ERR subscripts past `OCCURS 3`: code 1100, unit `BTN-ERR onClick`, line 190) each carried `form` = `main-form` and became Output lines `main-form: …`. Inside the helper the Preview script posts over `window.ipc` (T33); the test posts the same JSON to `/__prc/log`, as a browser sends it, and reads the notes.
+    **AC5** — the stand-in refusing the next build (the eighth, after AC12's): `BuildRefused`; the `preview-errors` overlay read back by `text`: "Dismiss | The build failed; this is the last good version. | … webforms/main-form.wcfrm:3: broken on purpose by the test"; LBL-OUT still `Ready 5`, the last good bundle.
+    **AC14** — a Mobile project with `NoDeviceTools`: `/__prc/phone` opened, `NotTheDevice` at 390; the frame's `innerWidth` **390** = the Phone preset; the application at `/` in the frame. **Deviation from this task's text, stated:** `crossOriginIsolated` inside the frame is `false` for a Mobile project, because a Mobile build is served with **no** isolation headers by design (`WebBuildRequest::from_manifest` sets `Isolation::Off`, pinned by `a_mobile_request_takes_its_engines_and_variants_from_the_platform`: "a shell serves no isolation headers"). What plan §9 promises — the phone page carries the bundle's headers, so the frame is isolated whenever the bundle is — is asserted both ways: the Mobile frame equals its bundle's setting (`false`), and `/__prc/phone` over the Web project's `require-corp` server gives `crossOriginIsolated` **true** in the frame and around it, `innerWidth` 390.
+    Also: `cargo test -p cobolt-web-preview --no-fail-fast` 8 + 3 (headless) passed; `cargo test -p cobolt-project-tools --lib --no-fail-fast web::` 54 passed (new `a_build_is_counted_once_at_its_end_never_in_mid_write_008`: a whole-folder swap during a build counted 0 times, its end once, a failed build 0, a later hand edit once); `cargo test -p cobolt-web-bundle --no-fail-fast` all green (29 result lines). The three Backend tests of the filter need `target/debug/rcrun` (`cargo build -p cobolt-cli --bin rcrun`); with it built they pass (9/9 of `web_preview::tests::a_`).
 
-- [ ] **T48 — AC9 and AC15 on the whole IDE** (R10, R16)
+- [x] **T48 — AC9 and AC15 on the whole IDE** (R10, R16)
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`, every `test result` line read — the desktop Preview window
     (`show_preview_window`) and `ExternalFormRun::spawn` tests unchanged and green; no web action for a Desktop project; no interactive
     path spawns `prc-web-preview` (the T35 assertion). Failures that pre-date this spec are named, not hidden.
+  - Verified (2.0.123, `PRC_REQUIRE_WEBVIEW=1`, `rcrun` built): **1931 passed, 5 failed, 5 ignored** (one `test result` line). The desktop
+    form-run paths green (`form_runtime::built_app_run_tests::*`, `form_codegen_roundtrip_tests::*`, `run_form_dir_tests::*`); a Desktop project
+    draws no web settings and keeps its catalogue (`web_settings::tests::a_desktop_project_draws_nothing`,
+    `toolbox::project_kind_tests::*`); `preview_opens_the_projects_browser_reuses_its_address_and_starts_no_helper` green; T47's acceptance
+    test green inside the sweep. The 5 failures are the line's known pre-existing reds, none in code this spec touches:
+    `docs_embed::tests::every_document_ships_in_every_language` (translations deleted by GOLDEN RULE #8),
+    `panels::editor::completion_text_tests::every_completion_description_exists_in_six_languages` (English-only WebSocket built-in
+    descriptions), `claude_code::bundle::tests::claude_validates_the_written_bundle` (the installed `claude` validator asks for a README),
+    `external_crates_service::flow_tests::live_resolver_verdicts` and `…::compatible_and_reserved_collisions_still_refuse` (live crates.io).
 
 - [ ] **T11 — Once, by the operator** (R12, R14, R15; AC11, AC13, AC14 — the look)
   - Preview a Web project in the default and in a named browser; edit the stylesheet and watch it change; break the build and see the
@@ -343,7 +359,7 @@ tests skip with a printed reason when the helper or a display is absent (plan §
 
 ## Finalize
 
-- [ ] **T49 — Version, CHANGELOG, tests of the touched crates** (all)
+- [x] **T49 — Version, CHANGELOG, tests of the touched crates** (all)
   - Files: `IDE/src/version.rs` (`VERSION`, `:22`; `2.0.49` when this list was written — bump `z` **once** from whatever it is then),
     `CHANGELOG.md`.
   - Do: **one** entry above the previous `## [PowerRustCOBOL 2.0.x]` heading (`CHANGELOG.md:20` today), dated, marked *Written on
@@ -356,6 +372,17 @@ tests skip with a printed reason when the helper or a display is absent (plan §
     `cargo test -p cobolt-compiler --no-fail-fast`, `cargo test -p cobolt-project-tools --no-fail-fast`,
     `cargo test -p cobolt-web-preview --no-fail-fast`, `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`; `cargo fmt --check` on the
     files touched (the tree is not fmt-clean — format only what changed); no new warnings.
+  - Done: 2.0.122 carried T41–T46's version and entry; **2.0.123** (`version.rs`, bumped once) and one `CHANGELOG.md` entry above
+    2.0.122 for T47–T49. No documentation task (2.x.x: `README.md` and `docs/` untouched).
+  - Verified (`df -h .` first: 27 GiB, then 16 GiB at the lowest, 38 GiB at the end): `cargo test -p cobolt-compiler --no-fail-fast` 12 result lines,
+    **232 passed, 0 failed, 5 ignored**; `PRC_REQUIRE_WEBVIEW=1 cargo test -p cobolt-project-tools --no-fail-fast` 20 result lines, **208
+    passed, 0 failed, 1 ignored** (lib 128, `tools` 16 with T43/T44); `cargo test -p cobolt-web-preview --no-fail-fast` **8 + 3**;
+    `cargo test -p cobolt-web-bundle --no-fail-fast` (touched by T47) all 29 result lines green; `cargo test -p cobolt-ide --bin cobolt-ide
+    --no-fail-fast` **1931 passed, 5 failed (pre-existing, named at T48), 5 ignored**, and at 2.0.123 `version`, `i18n`, `web_preview`
+    **50 passed, 0 failed, 1 ignored**. No warning in the touched files. `rustfmt --check` (default width): `hostpage.rs` clean; the other
+    touched files were not rustfmt-clean before (HEAD: 63 / 39 / 74 / 129 / 64 hunks in `cobolt-web-preview` `main.rs`, `preview.rs`,
+    `devserver.rs`, `web_preview.rs`, `tests/tools.rs`); the new code follows their wide style and adds 5 / 0 / 5 / 21 / 0 long-line hunks,
+    left as the neighbouring code is rather than re-wrapped alone.
 
 ## Coverage of the acceptance criteria
 

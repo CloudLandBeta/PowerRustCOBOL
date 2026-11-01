@@ -875,6 +875,8 @@ fn layers_start_hidden_in_the_web_view_and_after_an_update_008() {
     // script hands it to `app.update`, which restarts the application in place.
     // (An unchanged bundle answers `unchanged` and restarts nothing.)
     std::fs::write(dir.join("webforms/main-form.wcfrm"), form.replace(">See<", ">See it<")).unwrap();
+    // As the IDE does (WASM-008 T47): the page is told of the build once, at its end.
+    server.build_started();
     GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("the changed form builds: {e}"));
     let started = std::time::Instant::now();
     server.notify_changed();

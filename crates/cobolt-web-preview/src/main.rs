@@ -24,6 +24,7 @@
 //!               {"cmd":"script","steps":[{"click":{"control":"BTN-GO"}}],"time_limit_s":20}
 //! here -> IDE   {"event":"ready","visible":false}   {"event":"blocked","url":".."}
 //!               {"event":"failed","message":".."}   {"event":"closed"}
+//!               {"event":"loading","url":".."}   (the page starts loading: the first time, and every reload)
 //!               {"event":"console","level":"error","text":"..","form":".."}
 //!               {"event":"error","message":"..","source":"..","line":3,"form":".."}
 //!               {"event":"cobol-error","form":"..","unit":"..","line":7,"code":"..","message":".."}
@@ -74,6 +75,12 @@ mod lines {
     /// `{"event":"blocked","url":..}`
     pub fn blocked(url: &str) -> String {
         serde_json::json!({ "event": "blocked", "url": url }).to_string()
+    }
+
+    /// `{"event":"loading","url":..}`: the page has started loading — its first
+    /// load, and every reload after it (WASM-008 T47), whether or not a script runs.
+    pub fn loading(url: &str) -> String {
+        serde_json::json!({ "event": "loading", "url": url }).to_string()
     }
 
     /// `{"event":"rendered","path":..,"width":..,"height":..}`: the PNG is written,
@@ -185,8 +192,16 @@ mod steps {
     /// The longest `wait` one step may ask for.
     pub const MAX_WAIT_MS: u64 = 30_000;
 
-    /// What a step addresses: a control by name (`[data-name=..]`), or one of the
-    /// player's roles — `form`, `snackbar`, `layer:<NAME>` (WASM-015 plan §3.2).
+    /// The window properties the `page` step reads, and nothing else (WASM-008 T47).
+    pub const PAGE_PROPERTIES: [&str; 5] = ["innerWidth", "innerHeight", "devicePixelRatio", "crossOriginIsolated", "location.pathname"];
+
+    /// The roles a `page` step may name as its `frame`.
+    pub const FRAMES: [&str; 1] = ["phone-frame"];
+
+    /// What a step addresses: a control by name (`[data-name=..]`), or a role —
+    /// the player's `form`, `snackbar`, `layer:<NAME>` (WASM-015 plan §3.2), and the
+    /// Preview's `preview-errors` (the failed build's overlay) and `phone-frame`
+    /// (the frame of `/__prc/phone`), both outside the player (WASM-008 T47).
     fn target(v: Option<&Value>) -> Result<String, String> {
         let s = v.and_then(Value::as_str).ok_or("needs `control`, a control's name or a role")?;
         let name = s.strip_prefix("layer:").unwrap_or(s);
@@ -225,6 +240,7 @@ mod steps {
     /// {"text":{"control":".."}}  {"style":{"control":"..","property":"color"}}
     /// {"rect":{"control":".."}}  {"focused":{}}  {"key":{"key":"Tab","shift":false}}
     /// {"snapshot":{}}
+    /// {"page":{"property":"innerWidth","frame":"phone-frame"}}   a window property of a fixed list
     /// ```
     pub fn parse_step(step: &Value) -> Result<Value, String> {
         let obj = step.as_object().filter(|o| o.len() == 1).ok_or("a step is an object with one key")?;
@@ -249,6 +265,19 @@ mod steps {
                 let key = word(field("key"), "key")?;
                 let shift = field("shift").and_then(Value::as_bool).unwrap_or(false);
                 json!({ "op": "key", "key": key, "shift": shift })
+            }
+            "page" => {
+                let property = field("property").and_then(Value::as_str).ok_or("`page` needs `property`")?;
+                if !PAGE_PROPERTIES.contains(&property) {
+                    return Err(format!("`{property}` is not a page property ({})", PAGE_PROPERTIES.join(", ")));
+                }
+                match field("frame") {
+                    None => json!({ "op": "page", "property": property }),
+                    Some(f) => {
+                        let frame = f.as_str().filter(|f| FRAMES.contains(f)).ok_or_else(|| format!("`frame` is one of {}", FRAMES.join(", ")))?;
+                        json!({ "op": "page", "property": property, "frame": frame })
+                    }
+                }
             }
             other => return Err(format!("`{other}` is not a step")),
         })
@@ -312,6 +341,8 @@ mod steps {
   }
   function find(t) {
     var all;
+    if (t === 'preview-errors') return document.querySelector('.prc-preview-errors');
+    if (t === 'phone-frame') return document.getElementById('pr-phone');
     if (t === 'form') { all = scope().querySelectorAll('.pr-form-root'); return all[all.length - 1] || null; }
     if (t === 'snackbar') return scope().querySelector('.pr-snackbar');
     if (t.indexOf('layer:') === 0) return scope().querySelector('[data-layer="' + t.slice(6) + '"]');
@@ -395,6 +426,25 @@ mod steps {
         await settle(); return;
       }
       case 'snapshot': throw new Error('the page does not hand the player\'s state to the helper (WASM-015)');
+      case 'page': {
+        var w = window;
+        if (s.frame) {
+          var fr = need(s.frame), by = Date.now() + 10000;
+          while (!(fr.contentDocument && fr.contentDocument.readyState === 'complete' && fr.contentWindow.location.href !== 'about:blank')) {
+            if (Date.now() > by) throw new Error('`' + s.frame + '` did not load');
+            await sleep(25);
+          }
+          w = fr.contentWindow;
+        }
+        switch (s.property) {
+          case 'innerWidth': return w.innerWidth;
+          case 'innerHeight': return w.innerHeight;
+          case 'devicePixelRatio': return w.devicePixelRatio;
+          case 'crossOriginIsolated': return !!w.crossOriginIsolated;
+          case 'location.pathname': return String(w.location.pathname);
+        }
+        throw new Error('`' + s.property + '` is not a page property');
+      }
     }
     throw new Error('`' + s.op + '` is not a step');
   }
@@ -405,7 +455,7 @@ mod steps {
       var values = [], errors = [], from = seen, e0 = errs.length;
       for (var i = 0; i < steps.length; i++) {
         try { var v = await step(steps[i]); if (v !== undefined) values.push(v); }
-        catch (e) { errors.push('step ' + (i + 1) + ' (' + steps[i].op + '): ' + (e && e.message || e)); if (/^(get|text|style|rect)$/.test(steps[i].op)) values.push(null); }
+        catch (e) { errors.push('step ' + (i + 1) + ' (' + steps[i].op + '): ' + (e && e.message || e)); if (/^(get|text|style|rect|page)$/.test(steps[i].op)) values.push(null); }
       }
       var text = said.slice(Math.max(0, said.length - (seen - from))).join('\n');
       errors = errs.slice(e0).concat(errors);
@@ -717,9 +767,13 @@ mod run {
                             say(&line);
                         }
                     })
-                    .with_on_page_load_handler(move |event, _url| {
+                    .with_on_page_load_handler(move |event, url| {
                         let _ = load_proxy.send_event(match event {
-                            PageLoadEvent::Started => UserEvent::Loading,
+                            PageLoadEvent::Started => {
+                                // Said at once, script or not: "no page reload" is then read, not inferred.
+                                say(&lines::loading(&url));
+                                UserEvent::Loading
+                            }
                             PageLoadEvent::Finished => UserEvent::Loaded,
                         });
                     })
@@ -1011,6 +1065,8 @@ mod tests {
         assert_eq!(lines::closed(), r#"{"event":"closed"}"#);
         assert_eq!(lines::failed("no web view"), r#"{"event":"failed","message":"no web view"}"#);
         assert_eq!(lines::blocked("https://example.com/"), r#"{"event":"blocked","url":"https://example.com/"}"#);
+        assert_eq!(lines::loading("http://127.0.0.1:8123/"), r#"{"event":"loading","url":"http://127.0.0.1:8123/"}"#);
+        assert!(lines::from_page(r#"{"event":"loading","url":"x"}"#).is_none(), "the page cannot say it is loading");
         // The page events, as the served Preview script posts them (WASM-008 T33).
         // (An object's keys are written in alphabetical order; the IDE reads them by name.)
         let read = |page: &str| serde_json::from_str::<serde_json::Value>(&lines::from_page(page).unwrap()).unwrap();
@@ -1092,6 +1148,30 @@ mod tests {
             assert!(e.starts_with("step 1: ") && e.contains(why), "{bad}: {e}");
         }
         assert!(steps::parse(&serde_json::json!({ "cmd": "script" })).is_err());
+
+        // WASM-008 T47: the Preview's two roles, and the `page` step's fixed list of window properties.
+        for role in ["preview-errors", "phone-frame"] {
+            let s = steps::parse_step(&serde_json::json!({ "text": { "control": role } })).unwrap();
+            assert_eq!(s, serde_json::json!({ "op": "text", "target": role }));
+            assert!(steps::RUNNER.contains(&format!("t === '{role}'")), "{role} is found by the runner");
+        }
+        for p in steps::PAGE_PROPERTIES {
+            let s = steps::parse_step(&serde_json::json!({ "page": { "property": p } })).unwrap();
+            assert_eq!(s, serde_json::json!({ "op": "page", "property": p }));
+            assert!(steps::RUNNER.contains(&format!("case '{p}'")), "{p} is read by the runner");
+        }
+        let framed = steps::parse_step(&serde_json::json!({ "page": { "property": "crossOriginIsolated", "frame": "phone-frame" } })).unwrap();
+        assert_eq!(framed, serde_json::json!({ "op": "page", "property": "crossOriginIsolated", "frame": "phone-frame" }));
+        for (bad, why) in [
+            (serde_json::json!({ "page": {} }), "`page` needs `property`"),
+            (serde_json::json!({ "page": { "property": "document.cookie" } }), "is not a page property"),
+            (serde_json::json!({ "page": { "property": "localStorage" } }), "is not a page property"),
+            (serde_json::json!({ "page": { "property": "innerWidth", "frame": "form" } }), "`frame` is one of phone-frame"),
+            (serde_json::json!({ "page": { "property": "innerWidth", "frame": 1 } }), "`frame` is one of phone-frame"),
+        ] {
+            let e = steps::parse_step(&bad).unwrap_err();
+            assert!(e.contains(why), "{bad}: {e}");
+        }
         // The runner answers under its own event, and defines itself once, unreplaceably.
         assert!(steps::RUNNER.contains(steps::RUNNER_EVENT));
         assert!(steps::RUNNER.contains("writable: false, configurable: false"));

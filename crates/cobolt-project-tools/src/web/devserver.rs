@@ -23,7 +23,10 @@
 //! - **live reload**: the server watches the bundle folder, counts the changes
 //!   (`/__prc/version`) and serves the few lines of script that poll the count
 //!   and reload the page. The script is added to `index.html` as it is sent;
-//!   the file on disk is never touched.
+//!   the file on disk is never touched. While a build writes the folder
+//!   ([`ServerHandle::build_started`]) the watcher counts nothing: the build's
+//!   end ([`ServerHandle::notify_changed`]) is the one change the page sees, so
+//!   the page never reads a bundle half written (WASM-008 T47).
 //!
 //! - **page events** (WASM-008 R13, D13): `POST /__prc/log` is the one route
 //!   that is not `GET`/`HEAD`. The served page reports its console lines,
@@ -117,6 +120,11 @@ struct State {
     live_reload: bool,
     /// Counts the changes the watcher has seen.
     version: AtomicU64,
+    /// The folder's fingerprint as last counted; the watcher and a build's end
+    /// both compare against it, under its lock.
+    watched: Mutex<u64>,
+    /// A build is writing the folder: the watcher waits for its end.
+    building: AtomicBool,
     /// When the last change was seen, for the report.
     last_change: Mutex<Option<Instant>>,
     stop: AtomicBool,
@@ -323,12 +331,36 @@ impl ServerHandle {
         self.state.version.load(Ordering::SeqCst)
     }
 
+    /// A build starts writing the folder: until it ends ([`Self::notify_changed`]
+    /// or [`Self::build_failed`]) the watcher counts nothing, so the page is
+    /// never told of a bundle half written (WASM-008 T47: the generator swaps
+    /// the whole folder, and a page that read it in mid-swap reloaded).
+    pub fn build_started(&self) {
+        self.state.building.store(true, Ordering::SeqCst);
+    }
+
     /// Count a change now, without waiting for the watcher: a build that has
-    /// just finished says so, and the page reloads at its next poll.
+    /// just finished says so, and the page takes it at its next poll. This is
+    /// the one change counted for the build — the watcher starts again from
+    /// the folder as the build left it.
     pub fn notify_changed(&self) {
+        self.settle_watch();
         self.state.version.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut t) = self.state.last_change.lock() {
             *t = Some(Instant::now());
+        }
+    }
+
+    /// A build ended without a new bundle (it failed, or wrote nothing): no
+    /// change is counted, and the watcher starts again from the folder as it is.
+    pub fn build_failed(&self) {
+        self.settle_watch();
+    }
+
+    fn settle_watch(&self) {
+        if let Ok(mut w) = self.state.watched.lock() {
+            *w = fingerprint(&self.state.root);
+            self.state.building.store(false, Ordering::SeqCst);
         }
     }
 
@@ -340,6 +372,16 @@ impl ServerHandle {
     /// `set_form_stylesheet` only. A sheet the Build would refuse is not written:
     /// `Err` with its `file:line: message` lines, and the Build reports it.
     pub fn apply_form_stylesheet(&self, form: &str, css: &str, layers: &[String]) -> Result<(), Vec<String>> {
+        self.build_started();
+        let written = self.write_form_stylesheet(form, css, layers);
+        match &written {
+            Ok(()) => self.notify_changed(),
+            Err(_) => self.build_failed(),
+        }
+        written
+    }
+
+    fn write_form_stylesheet(&self, form: &str, css: &str, layers: &[String]) -> Result<(), Vec<String>> {
         let root = &self.state.root;
         let config = std::fs::read(root.join("config.json")).map_err(|e| vec![format!("config.json: {e}")])?;
         let (sheet, next) = cobolt_web_bundle::with_form_stylesheet(&config, form, css, layers)?;
@@ -351,9 +393,7 @@ impl ServerHandle {
         std::fs::write(&path, &sheet.bytes).map_err(io)?;
         let tmp = root.join(".config.json.tmp");
         std::fs::write(&tmp, &next).map_err(io)?;
-        std::fs::rename(&tmp, root.join("config.json")).map_err(io)?;
-        self.notify_changed();
-        Ok(())
+        std::fs::rename(&tmp, root.join("config.json")).map_err(io)
     }
 
     /// When the last change was seen.
@@ -446,6 +486,8 @@ pub fn start(dir: &Path, options: &ServeOptions) -> Result<ServerHandle, ServeEr
         isolation: options.isolation,
         live_reload: options.live_reload,
         version: AtomicU64::new(1),
+        watched: Mutex::new(fingerprint(&root)),
+        building: AtomicBool::new(false),
         last_change: Mutex::new(None),
         stop: AtomicBool::new(false),
         port,
@@ -524,12 +566,19 @@ pub fn fingerprint(root: &Path) -> u64 {
 }
 
 fn watch_loop(state: Arc<State>) {
-    let mut last = fingerprint(&state.root);
     while !state.stop.load(Ordering::SeqCst) {
         thread::sleep(WATCH_INTERVAL);
+        // A build writing the folder is counted once, at its end, by the build.
+        if state.building.load(Ordering::SeqCst) {
+            continue;
+        }
+        let Ok(mut last) = state.watched.lock() else { return };
+        if state.building.load(Ordering::SeqCst) {
+            continue;
+        }
         let now = fingerprint(&state.root);
-        if now != last {
-            last = now;
+        if now != *last {
+            *last = now;
             state.version.fetch_add(1, Ordering::SeqCst);
             if let Ok(mut t) = state.last_change.lock() {
                 *t = Some(Instant::now());
@@ -1397,6 +1446,54 @@ mod tests {
         assert_eq!(server.version(), v + 1);
         drop(server);
         let _ = std::fs::remove_dir_all(outer);
+    }
+
+    /// WASM-008 T47: a build is one change. While it writes the folder — the
+    /// generator swaps the whole folder — the watcher counts nothing; its end
+    /// counts once, and the watcher starts again from the folder it left. A
+    /// failed build counts nothing, during or after.
+    #[test]
+    fn a_build_is_counted_once_at_its_end_never_in_mid_write_008() {
+        let (outer, root) = bundle("generation");
+        let server = start(&root, &ServeOptions::default()).unwrap();
+        let settle = || thread::sleep(WATCH_INTERVAL * 4);
+        let v = server.version();
+        server.build_started();
+        // The generator's swap: the folder moved away, then a new one in its place.
+        let old = outer.join("bundle.old");
+        std::fs::rename(&root, &old).unwrap();
+        settle();
+        std::fs::create_dir_all(&root).unwrap();
+        for f in ["index.html", "app.js", "program.wasm", "player.wasm"] {
+            std::fs::copy(old.join(f), root.join(f)).unwrap();
+        }
+        std::fs::write(root.join("app.css"), "body{margin:3px}").unwrap();
+        settle();
+        assert_eq!(server.version(), v, "nothing is counted while the build writes");
+        server.notify_changed();
+        assert_eq!(server.version(), v + 1, "the build's end is one change");
+        settle();
+        assert_eq!(server.version(), v + 1, "the watcher does not count the build again");
+        assert_eq!(String::from_utf8_lossy(&get(server.port(), "/app.css").body), "body{margin:3px}");
+
+        server.build_started();
+        std::fs::write(root.join("app.js"), "console.log('half')").unwrap();
+        settle();
+        server.build_failed();
+        settle();
+        assert_eq!(server.version(), v + 1, "a failed build counts nothing, during or after");
+
+        // Outside a build the watcher counts as before.
+        std::fs::write(root.join("app.css"), "body{margin:4px}").unwrap();
+        let mut waited = 0;
+        while server.version() == v + 1 && waited < 4000 {
+            thread::sleep(Duration::from_millis(10));
+            waited += 10;
+        }
+        assert_eq!(server.version(), v + 2, "a hand edit is still seen");
+        drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+        println!("devserver: a whole-folder swap during a build counted 0 times, its end once; a failed build 0; a later edit once");
     }
 
     /// WASM-007 T23: a form's stylesheet is written into the served bundle and

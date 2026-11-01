@@ -897,7 +897,13 @@ impl WebPreview {
             let _ = tx.send(done);
         });
         match spawned {
-            Ok(_) => self.job = Some(Job { rx, kind }),
+            Ok(_) => {
+                // The page being served is told of this build once, at its end, never in mid-write (WASM-008 T47).
+                if let Some(live) = &self.live {
+                    live.server.build_started();
+                }
+                self.job = Some(Job { rx, kind });
+            }
             Err(e) => self.say(Note::BuildFailed(e.to_string())),
         }
     }
@@ -998,6 +1004,14 @@ impl WebPreview {
             };
             live.server.set_build_errors(errors);
         }
+        // The build's end is the one change the served page sees (WASM-008 T47).
+        if let Some(live) = &self.live {
+            if built {
+                live.server.notify_changed();
+            } else {
+                live.server.build_failed();
+            }
+        }
         match kind {
             // A Build ends here; a Mobile one says where it stops.
             JobKind::Initial(Intent::Build) => {
@@ -1018,9 +1032,6 @@ impl WebPreview {
             }
             JobKind::Rebuild(changed) => {
                 if built {
-                    if let Some(live) = &self.live {
-                        live.server.notify_changed();
-                    }
                     let ms = Instant::now().saturating_duration_since(changed).as_millis().min(u128::from(u64::MAX)) as u64;
                     self.say(Note::Updated { ms });
                 }
@@ -1934,6 +1945,360 @@ mod tests {
         std::env::remove_var(preview::HELPER_ENV);
         let _ = std::fs::remove_dir_all(&dir);
         println!("no helper process was started by any Preview (its mark is absent)");
+    }
+
+    // ── WASM-008 T47: the acceptance criteria on the real build, in the headless helper ──
+
+    /// The helper the workspace built (`cargo build -p cobolt-web-preview`), beside
+    /// the test binaries' folder: `target/<profile>/prc-web-preview`.
+    fn built_helper() -> Option<PathBuf> {
+        let exe = std::env::current_exe().ok()?;
+        let p = exe.parent()?.parent()?.join(preview::HELPER_NAME);
+        p.is_file().then_some(p)
+    }
+
+    /// The real generator with the repository's committed player (outside an
+    /// install `web_player_dir()` is `assets/web-player` of the working folder),
+    /// which refuses on purpose while `fail` is set — AC5's stand-in.
+    #[derive(Default)]
+    struct RealBuild {
+        builds: AtomicUsize,
+        fail: std::sync::atomic::AtomicBool,
+    }
+
+    impl WebBuildBackend for RealBuild {
+        fn name(&self) -> &str {
+            "generator"
+        }
+
+        fn bundle_dir(&self, request: &WebBuildRequest) -> PathBuf {
+            cobolt_project_tools::web::generator::GeneratorBackend.bundle_dir(request)
+        }
+
+        fn build(&self, request: &WebBuildRequest) -> Result<BuildReport, WebBuildError> {
+            self.builds.fetch_add(1, Ordering::SeqCst);
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(WebBuildError::Refused(vec!["webforms/main-form.wcfrm:3: broken on purpose by the test".into()]));
+            }
+            let mut request = request.clone();
+            request.player_dir = Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/web-player"));
+            cobolt_project_tools::web::generator::GeneratorBackend.build(&request)
+        }
+    }
+
+    /// A form with a label, a greeting button and a button whose handler
+    /// subscripts past its table (a COBOL run-time error, with its unit and line).
+    fn hello_form(caption: &str) -> String {
+        let event = |control: &str, data: &str, body: &str| {
+            format!(
+                "<Event name=\"onClick\" paragraph=\"{control}--ONCLICK\"><![CDATA[       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n{data}       PROCEDURE DIVISION.\n{body}]]></Event>"
+            )
+        };
+        let greet = event("BTN-GREET", "", "           MOVE \"Hello\" TO LBL-OUT::Caption.\n");
+        let fail = event(
+            "BTN-ERR",
+            "       WORKING-STORAGE SECTION.\n       01 WS-T.\n          05 WS-E PIC X OCCURS 3.\n       01 WS-I PIC 9 VALUE 7.\n",
+            "           MOVE \"X\" TO WS-E(WS-I).\n",
+        );
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="main-form" title="Hello" width="900" height="600" index-base="1" main-form="true">
+  <Control id="LBL-OUT" type="Label" x="50" y="40" w="300" h="30"><Property name="Caption">{caption}</Property></Control>
+  <Control id="BTN-GREET" type="Button" x="50" y="100" w="120" h="30" tab-order="1"><Property name="Caption">Greet</Property>{greet}</Control>
+  <Control id="BTN-ERR" type="Button" x="200" y="100" w="120" h="30" tab-order="2"><Property name="Caption">Fail</Property>{fail}</Control>
+</Form>
+"#
+        )
+    }
+
+    /// Poll the Preview and the helper together until `pick` answers.
+    fn drive<T>(
+        p: &mut WebPreview,
+        s: &mut preview::PreviewSession,
+        seen: &mut Vec<preview::Event>,
+        secs: u64,
+        what: &str,
+        mut pick: impl FnMut(&[preview::Event], &WebPreview) -> Option<T>,
+    ) -> T {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        loop {
+            p.poll(Instant::now());
+            seen.extend(s.poll());
+            if let Some(t) = pick(seen, p) {
+                return t;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for {what}; notes: {:?}; events: {seen:?}", p.notes());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Poll the Preview alone until `done` (a real build takes seconds, not the 30 s of `wait_until`'s fake clock).
+    fn drive_preview(p: &mut WebPreview, secs: u64, what: &str, mut done: impl FnMut(&WebPreview) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        while !done(p) {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}; notes: {:?}", p.notes());
+            p.poll(Instant::now());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// WASM-008 T47 (AC11, AC12, AC5, AC14): the Preview on the real Web Build
+    /// (the generator and the committed player), its browser launch decided
+    /// with `PRC_PREVIEW_NO_BROWSER`, and the page it serves driven in the
+    /// headless helper. Skips with a printed reason when the helper is not
+    /// built or there is no web view, unless `PRC_REQUIRE_WEBVIEW=1`.
+    #[test]
+    fn acceptance_on_the_real_build_in_the_headless_helper_008() {
+        use cobolt_project_tools::web::preview::{Emulation, Event, PreviewSession};
+        use serde_json::json;
+        quiet();
+        let require = std::env::var("PRC_REQUIRE_WEBVIEW").as_deref() == Ok("1");
+        let Some(helper) = built_helper() else {
+            assert!(!require, "PRC_REQUIRE_WEBVIEW=1 and the helper is not built (cargo build -p cobolt-web-preview)");
+            println!("skipped: the helper is not built (cargo build -p cobolt-web-preview)");
+            return;
+        };
+        let en = Language::English.tr();
+
+        // ── AC11: the Preview of a Web project opens the browser; a click in the page works ──
+        let dir = scratch("t47-web");
+        std::fs::create_dir_all(dir.join("webforms")).unwrap();
+        let manifest = dir.join("Hello.project.toml");
+        std::fs::write(
+            &manifest,
+            "[project]\nname = \"Hello.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"web\"\n\n[files]\nforms = [\"webforms/main-form.wcfrm\"]\n\n[web]\nmulti_memory = true\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("webforms/main-form.wcfrm"), hello_form("Ready")).unwrap();
+        std::fs::write(dir.join("webforms/application.css"), ".pr-form-root { letter-spacing: 0px }\n").unwrap();
+        let backend = Arc::new(RealBuild::default());
+        let mut l = launch(&manifest, backend.clone());
+        l.name = "Hello".into();
+        l.has_backend = false;
+        let mut p = WebPreview::default();
+        let t = Instant::now();
+        assert!(p.start(l.clone(), Intent::Show));
+        drive_preview(&mut p, 300, "the Preview to be opened", |p| p.opened().is_some() || !p.active());
+        let (url, choice) = p.opened().cloned().unwrap_or_else(|| panic!("not opened: {:?}", p.notes()));
+        assert_eq!(choice, BrowserChoice::System);
+        println!("AC11: default -> {:?} ({} ms, real build)", Note::Opened { browser: String::new(), url: url.clone() }.text(&en), t.elapsed().as_millis());
+        if let Some(present) = preview::KnownBrowser::ALL.into_iter().find(|b| b.is_present()) {
+            let mut named = l.clone();
+            named.browser = BrowserChoice::Named(present);
+            assert!(p.start(named, Intent::Show), "the same Preview, opened again");
+            assert_eq!(p.opened().unwrap().1, BrowserChoice::Named(present));
+            println!("AC11: named   -> {}", p.notes().last().unwrap().text(&en));
+        }
+        let builds_at_open = backend.builds.load(Ordering::SeqCst);
+
+        // A page script that throws, as an application's own script can (the bundle's CSP takes `'self'` only).
+        let root = p.live.as_ref().unwrap().server.root().to_path_buf();
+        std::fs::write(root.join("thrower.js"), "setTimeout(function () { throw new Error('thrown on purpose by the test'); }, 300);\n").unwrap();
+        let index = std::fs::read_to_string(root.join("index.html")).unwrap();
+        std::fs::write(root.join("index.html"), index.replacen("</body>", "<script src=\"/thrower.js\"></script></body>", 1)).unwrap();
+
+        let page = format!("{url}?pr-form=main-form");
+        let mut s = PreviewSession::start(&page, 900, 600, &Emulation::default(), &helper).unwrap();
+        match s.ready(Duration::from_secs(30)) {
+            Ok(visible) => assert_eq!(visible, Some(false), "AC15: no window on show"),
+            Err(e) => {
+                p.close();
+                let _ = std::fs::remove_dir_all(&dir);
+                assert!(!require, "PRC_REQUIRE_WEBVIEW=1 and no web view: {e}");
+                println!("skipped: no web view on this system ({e})");
+                return;
+            }
+        }
+        let mut seen: Vec<Event> = Vec::new();
+        let (values, _, errors) = s
+            .script(vec![json!({"wait": {"control": "BTN-GREET"}}), json!({"click": {"control": "BTN-GREET"}}), json!({"get": {"control": "LBL-OUT", "property": "Caption"}})], 30)
+            .unwrap();
+        assert_eq!(values, vec![json!("Hello")], "AC11: a scripted click changed the label ({errors:?})");
+        println!("AC11: a click on BTN-GREET in the served page set LBL-OUT to \"Hello\"; the Preview itself starts no helper (T35's assertion)");
+
+        // ── AC12: console, uncaught and COBOL errors carry the form; they reach the Output notes ──
+        let (_, _, errors) = s.script(vec![json!({"click": {"control": "BTN-ERR"}}), json!({"wait": {"ms": 600}})], 30).unwrap();
+        println!("AC12: the page's own errors during the click: {errors:?}");
+        let page_events: Vec<PageEvent> = drive(&mut p, &mut s, &mut seen, 30, "the page's error events", |seen, _| {
+            let got: Vec<PageEvent> = seen
+                .iter()
+                .filter_map(|e| match e {
+                    Event::Page(pe @ PageEvent::Console { level, .. }) if level == "error" => Some(pe.clone()),
+                    Event::Page(pe @ (PageEvent::Error { .. } | PageEvent::CobolError { .. })) => Some(pe.clone()),
+                    _ => None,
+                })
+                .collect();
+            let has = |f: &dyn Fn(&PageEvent) -> bool| got.iter().any(f);
+            (has(&|e| matches!(e, PageEvent::Console { .. }))
+                && has(&|e| matches!(e, PageEvent::Error { message, .. } if message.contains("thrown on purpose")))
+                && has(&|e| matches!(e, PageEvent::CobolError { .. })))
+            .then_some(got)
+        });
+        // Inside the helper the Preview script posts over `window.ipc` (T33); in a browser the same JSON
+        // goes to `/__prc/log`. It is posted there as the browser would, and read back as Output notes.
+        let _ = p.take_outbox();
+        let body = format!("[{}]", page_events.iter().map(PageEvent::to_line).collect::<Vec<_>>().join(","));
+        assert_eq!(post_events(&url, &body), 204);
+        p.poll(Instant::now());
+        let lines: Vec<String> = p.take_outbox().iter().flat_map(|n| n.lines(&en)).collect();
+        for l in &lines {
+            println!("AC12: output: {l}");
+        }
+        for e in &page_events {
+            let (form, kind) = match e {
+                PageEvent::Console { form, .. } => (form, "console.error"),
+                PageEvent::Error { form, .. } => (form, "thrown error"),
+                PageEvent::CobolError { form, .. } => (form, "COBOL run-time error"),
+                PageEvent::Updated { form, .. } => (form, "update"),
+            };
+            assert!(!form.is_empty(), "{kind} carries its form: {e:?}");
+            assert!(lines.iter().any(|l| l.starts_with(&format!("{form}: "))), "{kind} reached the Output with its form: {lines:?}");
+        }
+        let cobol = page_events.iter().find_map(|e| if let PageEvent::CobolError { unit, line, .. } = e { Some((unit.clone(), *line)) } else { None }).unwrap();
+        assert!(!cobol.0.is_empty(), "the COBOL error names its unit: {page_events:?}");
+        println!("AC12: the COBOL run-time error's unit {:?}, line {}", cobol.0, cobol.1);
+
+        // ── AC12: a property, a class rule and the stylesheet arrive in place — no page reload ──
+        let loads = |seen: &[Event]| seen.iter().filter(|e| matches!(e, Event::Loading { .. })).count();
+        let mut measured: Vec<(String, String, f64)> = Vec::new();
+        let mut in_place = |p: &mut WebPreview, s: &mut PreviewSession, seen: &mut Vec<Event>, kind: &str, change: &dyn Fn(&mut WebPreview)| {
+            let from = seen.len();
+            change(p);
+            let (how, ms) = drive(p, s, seen, 180, kind, |seen, _| {
+                seen[from..].iter().find_map(|e| match e {
+                    Event::Page(PageEvent::Updated { how, ms, .. }) if how != "unchanged" => Some((how.clone(), *ms)),
+                    _ => None,
+                })
+            });
+            // A reload would follow at once: give it the time to show.
+            let until = Instant::now() + Duration::from_millis(600);
+            while Instant::now() < until {
+                seen.extend(s.poll());
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(how != "reload" && how != "unmounted", "{kind}: {how}");
+            assert_eq!(loads(&seen[from..]), 0, "{kind}: the page did not load again ({how}); events: {:?}", &seen[from..]);
+            measured.push((kind.to_owned(), how, ms));
+        };
+        let loads_before = loads(&seen);
+        for n in 1..=5 {
+            let form = dir.join("webforms/main-form.wcfrm");
+            in_place(&mut p, &mut s, &mut seen, &format!("property {n}/5"), &|_| std::fs::write(&form, hello_form(&format!("Ready {n}"))).unwrap());
+            let (values, _, _) = s.script(vec![json!({"get": {"control": "LBL-OUT", "property": "Caption"}})], 30).unwrap();
+            assert_eq!(values, vec![json!(format!("Ready {n}"))], "the new Caption is on the page");
+        }
+        let css = dir.join("webforms/application.css");
+        in_place(&mut p, &mut s, &mut seen, "class rule", &|_| std::fs::write(&css, ".pr-form-root { letter-spacing: 1px }\n").unwrap());
+        let sheet = "#LBL-OUT { word-spacing: 7px }\n";
+        std::fs::write(dir.join("webforms/main-form.css"), sheet).unwrap();
+        in_place(&mut p, &mut s, &mut seen, "stylesheet", &|p| assert!(p.apply_form_stylesheet("main-form", sheet, &[]), "{:?}", p.notes()));
+        drop(in_place);
+        let (values, _, _) = s.script(vec![json!({"get": {"control": "LBL-OUT", "property": "Caption"}})], 30).unwrap();
+        assert_eq!(values, vec![json!("Ready 5")], "the stylesheet restarted nothing");
+        for (kind, how, ms) in &measured {
+            println!("AC12: {kind:<14} -> updated in place, how = {how:?}, {ms:.1} ms (D6's working 500 ms; Q5 to confirm)");
+        }
+        assert_eq!(loads(&seen), loads_before, "no reload across the 7 changes");
+        let builds_now = backend.builds.load(Ordering::SeqCst);
+        println!("AC12: 7 of 7 changes in place, 5 of 5 property changes; {} builds after the first; page loads {}", builds_now - builds_at_open, loads(&seen));
+
+        // ── AC5: a failed build keeps the last good page and draws its errors over it ──
+        backend.fail.store(true, Ordering::SeqCst);
+        std::fs::write(dir.join("webforms/main-form.wcfrm"), hello_form("Broken")).unwrap();
+        drive_preview(&mut p, 120, "the refused build", |p| p.notes().iter().any(|n| matches!(n, Note::BuildRefused(_))));
+        let (values, _, errors) = s
+            .script(
+                vec![
+                    json!({"wait": {"control": "preview-errors"}}),
+                    json!({"text": {"control": "preview-errors"}}),
+                    json!({"get": {"control": "LBL-OUT", "property": "Caption"}}),
+                ],
+                30,
+            )
+            .unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        let overlay = values[0].as_str().unwrap_or_default().to_owned();
+        assert!(overlay.contains(en.pk_page_errors_title) && overlay.contains("broken on purpose by the test"), "AC5: the overlay: {overlay:?}");
+        assert_eq!(values[1], json!("Ready 5"), "AC5: the last good bundle is still the page");
+        println!("AC5: the overlay read back: {:?}; LBL-OUT still {}", overlay.replace('\n', " | "), values[1]);
+        backend.fail.store(false, Ordering::SeqCst);
+        s.close();
+
+        // AC14, plan §9: `/__prc/phone` carries the bundle's isolation headers, so a same-origin frame is
+        // isolated whenever the bundle is — here a Web bundle served `require-corp`.
+        let isolation = WebBuildRequest::from_manifest(&manifest).unwrap().web.isolation;
+        assert_ne!(isolation, Isolation::Off);
+        let server = &p.live.as_ref().unwrap().server;
+        server.set_phone(Some(PhoneFrame { width: 390, height: 844 }));
+        let mut s = PreviewSession::start(&server.phone_url(), 600, 1000, &Emulation::default(), &helper).unwrap();
+        assert_eq!(s.ready(Duration::from_secs(30)).unwrap(), Some(false));
+        let (values, _, errors) = s
+            .script(
+                vec![
+                    json!({"wait": {"control": "phone-frame"}}),
+                    json!({"page": {"property": "innerWidth", "frame": "phone-frame"}}),
+                    json!({"page": {"property": "crossOriginIsolated", "frame": "phone-frame"}}),
+                    json!({"page": {"property": "crossOriginIsolated"}}),
+                ],
+                30,
+            )
+            .unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        println!("AC14: a {} bundle at /__prc/phone: frame innerWidth {}, crossOriginIsolated {} in the frame, {} around it", isolation.as_str(), values[0], values[1], values[2]);
+        assert_eq!(values, vec![json!(390), json!(true), json!(true)], "the frame keeps the bundle's isolation");
+        s.close();
+        p.close();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // ── AC14: no device → the phone page; the application in its frame at the phone's width, isolated ──
+        let dir = scratch("t47-mobile");
+        std::fs::create_dir_all(dir.join("mobileforms")).unwrap();
+        let manifest = dir.join("Phone.project.toml");
+        std::fs::write(
+            &manifest,
+            "[project]\nname = \"Phone.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"mobile\"\n\n[files]\nforms = [\"mobileforms/main-form.mcfrm\"]\n\n[mobile]\nplatform = \"android\"\ndevice = \"phone\"\norientation = \"portrait\"\nmulti_memory = true\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("mobileforms/main-form.mcfrm"), hello_form("Phone")).unwrap();
+        let mut l = launch(&manifest, backend.clone());
+        l.kind = ProjectKind::Mobile;
+        l.has_backend = false;
+        l.platform = Some(MobilePlatform::Android);
+        l.device = Some(DeviceClass::Phone);
+        l.orientation = Some(Orientation::Portrait);
+        let mut p = WebPreview::default();
+        assert!(p.start(l, Intent::Show));
+        drive_preview(&mut p, 300, "the phone page to be opened", |p| p.opened().is_some() || !p.active());
+        let (phone, _) = p.opened().cloned().unwrap_or_else(|| panic!("not opened: {:?}", p.notes()));
+        assert!(phone.ends_with(devserver::PHONE_PATH), "{phone}");
+        let preset = presets::default_for(ProjectKind::Mobile, Some(DeviceClass::Phone)).viewport(false);
+        let mut s = PreviewSession::start(&phone, 600, 1000, &Emulation::default(), &helper).unwrap();
+        assert_eq!(s.ready(Duration::from_secs(30)).unwrap(), Some(false));
+        let (values, _, errors) = s
+            .script(
+                vec![
+                    json!({"wait": {"control": "phone-frame"}}),
+                    json!({"page": {"property": "innerWidth", "frame": "phone-frame"}}),
+                    json!({"page": {"property": "crossOriginIsolated", "frame": "phone-frame"}}),
+                    json!({"page": {"property": "location.pathname", "frame": "phone-frame"}}),
+                    json!({"page": {"property": "location.pathname"}}),
+                ],
+                30,
+            )
+            .unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        println!("AC14: {phone}: frame innerWidth {}, crossOriginIsolated {}, frame at {}, page at {} (preset {} x {})", values[0], values[1], values[2], values[3], preset.width, preset.height);
+        assert_eq!(values[0], json!(preset.width), "AC14: the frame is the preset's CSS width");
+        // A Mobile bundle is served without isolation headers (WASM-017: a shell serves none,
+        // `WebBuildRequest::from_manifest`); the frame is isolated exactly as the page alone would be.
+        let isolated = WebBuildRequest::from_manifest(&manifest).unwrap().web.isolation != Isolation::Off;
+        assert_eq!(values[1], json!(isolated), "AC14: the frame keeps the bundle's isolation");
+        assert_eq!(values[2], json!("/"), "the application runs in the frame");
+        assert_eq!(values[3], json!(devserver::PHONE_PATH));
+        assert!(p.notes().iter().any(|n| matches!(n, Note::NotTheDevice { width, .. } if *width == preset.width)), "{:?}", p.notes());
+        s.close();
+        p.close();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ── the Backend during a Preview (WASM-008 R6) ──

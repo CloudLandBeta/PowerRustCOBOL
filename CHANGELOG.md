@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.139 — 2026-11-01 — WASM-008 T47–T49: the web Preview's acceptance criteria on the real build; changes reach a running page in place
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.122.)*
+
+WASM-008 (the web Preview), following the agent decision of 2026-11-01 recorded at T47. The details and the evidence are in `specs/WASM-008-webview-preview/tasks.md`.
+
+* **Changes reach the running page in place.** Two faults made an edit reload the whole page instead of updating it, and both are fixed:
+  * The development server counted the generator's rewrite of the bundle folder while it was still going, so the page could read half a bundle. A build is now counted once, when it ends. A failed build is not counted at all.
+  * The page's in-place update stopped the running program worker before starting the new one, and WebKit then failed to load the new worker. The new program now starts first. If it cannot start, the running application is left as it was.
+  * Measured on the real build in the headless web view: 5 of 5 property changes arrived in place (21–72 ms), as did a class rule in the application stylesheet (about 7 ms) and a form's stylesheet (about 8 ms). The page loaded once in the whole run.
+* **The headless helper's script steps** (shared with WASM-015) gain two roles and one step:
+  * the role `preview-errors`, the failed build's overlay;
+  * the role `phone-frame`, the frame of the phone page;
+  * a read-only `page` step that reads one of a fixed list of window properties (`innerWidth`, `innerHeight`, `devicePixelRatio`, `crossOriginIsolated`, `location.pathname`), of the page or of the phone frame.
+
+  Every other property name is refused, and there is still no `eval`. The helper also reports `loading` each time the page starts loading, so a test can see whether the page reloaded.
+* **Acceptance on the real Web Build:**
+  * The Preview opens the default and a named browser, and a click works in the served page.
+  * Console errors, uncaught errors and COBOL run-time errors carry their form name and reach the Output panel. A COBOL error also names its handler and line.
+  * A failed build leaves the last good page with its errors drawn over it.
+  * A Mobile project with no device or emulator gets the phone page, with the frame at the preset's width. The frame keeps the bundle's isolation: on with `require-corp`, off for a Mobile bundle, which is served without isolation headers by design.
+* Still open: the operator's own look at the Preview (T11), and a Mobile run on a real emulator, which waits for WASM-012.
+
 ## 2.0.138 — 2026-11-01 — WASM-008 T41–T46: the headless helper renders and runs scripts; render_form and run_form draw web forms; the helper on Linux and in the installers
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.121.)*
