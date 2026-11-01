@@ -5,9 +5,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — WebAssembly build target and host page (WASM-002)
 
-- **Status:** in progress — T1–T15, T17–T22 done (T19, T20 on 2026-11-01, 2.0.120); **stopped at T16**: its check through the
-  PowerRustCOBOL MCP tools could not be run in this session (the servers were not connected, `rcrun mcp` over a pipe was denied); T25
-  stays open on T16. T23 (WASM-012) and T24 (other browsers) are not this machine's. Earlier: T1–T15, T17, T18, T21, T22 done (2.0.37, 2026-10-23). T1–T9 done and measured on 2026-10-20 (the assembler, the loader and the page, the CSP, the secret scan,
+- **Status:** done here — T1–T22 and T25 done (T16 and T25 on 2026-11-01, 2.0.125: the MCP check through `rcrun mcp` over stdio,
+  and the budget line in every Web Build report). Open: T23 (the Mobile build, WASM-012) and T24 (Firefox, Safari, iOS web view,
+  Android WebView — not installed on this machine). Earlier: T19, T20 on 2026-11-01 (2.0.120). Earlier: T1–T15, T17, T18, T21, T22 done (2.0.37, 2026-10-23). T1–T9 done and measured on 2026-10-20 (the assembler, the loader and the page, the CSP, the secret scan,
   the size report, the dev server). This revision (2026-10-22) follows the plan revised the same day: the host page's code becomes
   Build-generated Rust output (plan C1, Q6), the 5 MB budget line (C4), the real `WebBuildBackend` with Check and Build (C6). Mobile
   (R2, AC7) stays WASM-012's.
@@ -181,8 +181,31 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
     → `Failed` starting `PLAYER_UNAVAILABLE_PREFIX` and naming the path. Pin: no manifest field yet, current player used. `web_build player`
     2/2.
 
-- [ ] **T16 — Link the backend where the program starts** (R1; plan §1 layer 2)
-  - *2026-11-01 (2.0.120), still not checked:* the automated half is green — `cargo test -p cobolt-ide --bin cobolt-ide web_preview`
+- [x] **T16 — Link the backend where the program starts** (R1; plan §1 layer 2)
+  - *Done 2026-11-01 (2.0.125):* the check through the MCP tools, run on `rcrun mcp` (2.0.125, this worktree's
+    `target/debug/rcrun`) driven over stdio by JSON-RPC (`initialize`, then `tools/call`), with `PRC_NO_IDE_LAUNCH=1` so no window
+    was opened: `create_project` (template `web`, a temporary folder outside the repository) → `open_project` → `check` 0 errors, 0
+    warnings (1 form, 1 source) → `build` answers `"status": "built"`, `"engine": "cobolt-wasm"`, `"bundle": "dist/web"`, both
+    module variants, 11,235,688 B in 30 parts, 1,533 ms, no warning, and **`"budget": {"first_download_bytes": 3960924,
+    "budget_bytes": 5000000, "over": false}`**. Automated half: `web_build` 25/25 (the budget assertions in
+    `a_web_project_builds_to_modules_and_a_bundle`), `hello_world_chrome` 1/1 (asserts `report.budget.over == false` through the
+    tools), `tools` 16/16, `build` 0 passed / 1 ignored (pre-existing); `cobolt-ide --bin cobolt-ide -- web_preview i18n check`
+    62 passed, 1 ignored.
+  - **Agent decision under the operator delegation of 2026-11-01:** the size report of the Web Build carries the budget line on
+    **every** build, as a structured field. Options weighed: (a) leave the budget as a warning only when over (plan §3, "no new
+    field") and check the box on `status`/`engine` alone — the verification's "size report including the budget line" could then
+    never be met on an under-budget build, and R8's purpose (growth visible from one build to the next) is lost until the bundle
+    is already too big; (b) also push an informational line into `warnings` on every build — mixes information with warnings, and
+    every caller that treats a non-empty `warnings` as "something to fix" (the agents, the IDE's Preview notes) would misread it;
+    (c) a new optional field `web::BuildReport.budget: Option<BudgetLine>` (re-exported from `cobolt-web-bundle`), filled by
+    `GeneratorBackend`, answered by `to_json()` as `"budget": {first_download_bytes, budget_bytes, over}` (`null` for a backend
+    that does not measure it). Chose (c): typed, additive (every other constructor uses `..BuildReport::default()`, the JSON gains
+    a key and loses none), keeps the over-budget **warning** exactly as it was (T12, T21's translated heading untouched), and lets
+    agents and a future IDE line read the number without parsing English. Plan §3's "no new field" is superseded for this one
+    field; Q5 (scope, unit, first paint) stays open — the field reports whatever `FIRST_DOWNLOAD_BUDGET` says. Not done here: the
+    IDE's Output does not print the line on an under-budget build (plan §6's manual IDE look is the operator's; showing it would
+    need a new `Tr` key ×6 and is left to the IDE side).
+  - *2026-11-01 (2.0.120), not checked then:* the automated half is green — `cargo test -p cobolt-ide --bin cobolt-ide web_preview`
     21 passed, 1 ignored; `cargo test -p cobolt-project-tools --test tools` 14 passed (`--test build` 0 passed, 1 ignored, as before).
     The same tools `rcrun mcp` serves, called in-process by T19's test (`create_project` web, `open_project`, `check`, `build` with
     `GeneratorBackend` linked), answer `"status": "built"`, `"engine": "cobolt-wasm"`. **Blocked here:** the check *through the MCP
@@ -316,7 +339,25 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
 
 ## Finalize
 
-- [ ] **T25 — Version, CHANGELOG, tests of the touched crates**
+- [x] **T25 — Version, CHANGELOG, tests of the touched crates**
+  - *Done 2026-11-01 (2.0.125):* `VERSION` 2.0.124 → **2.0.125** (once); one CHANGELOG entry above `## 2.0.124` (T16, the budget
+    field). Every `test result` line read: `cobolt-project-tools --no-fail-fast` 20 lines, **209 passed, 0 failed, 1 ignored**
+    (lib 129, `web_build` 25, `tools` 16, `kinds` 9, `hello_world_chrome` 1 — run with `--nocapture`: Chrome/156.0.8078.80, AC1 in
+    the window and in a `<div>`, AC2 at 420×300 and 640×420); `cobolt-web-bundle --no-fail-fast` 31 lines, **84 passed, 0 failed**
+    (`e2e_node`, `e2e_chrome`, `generated_host_page` 6, `budget` 2, `no_string_execution` 3 among them); `cobolt-ide --bin cobolt-ide
+    --no-fail-fast` **1,934 passed, 5 failed, 5 ignored** — the five pre-existing reds recorded in WASM-010 T25 and in this task's
+    2026-10-23 pass (`every_completion_description_exists_in_six_languages`, `every_document_ships_in_every_language`,
+    `live_resolver_verdicts`, `compatible_and_reserved_collisions_still_refuse`, `claude_validates_the_written_bundle`), none in a
+    file this change touched; `cobolt-compiler` **236 passed, 0 failed, 5 ignored** and `cobolt-cli` **64 passed, 0 failed, 6
+    ignored** (AC8; 300 / 0 / 11 together, as at 2.0.120 plus the tests added since). **How those last two were measured:** the
+    combined `--no-fail-fast` run was disturbed by something outside this session deleting files in this worktree's `target/` during
+    the build (`failed to open object file`, `failed to move dependency graph … No such file`, and freshly linked test executables
+    gone before they ran — "never executed" on 15 targets), so the targets it did not run, and the three it failed, were re-run one at
+    a time: the ten `cobolt-compiler` integration targets, `backend_cli`… `side_menu_own_toggle`, `powercloud_hosts` 11/11 (its first
+    failure was a 2.5 s wait in `every_tab_of_powercloud_runs_against_the_fake_servers`), and the two `resolve_main_tests` that build a
+    generated crate (each green alone; together their nested `cargo build`s lost each other's incremental session folders). rustfmt:
+    the added lines follow rustfmt; `generator.rs`, `mod.rs` and the two test files already carried rustfmt differences and were not
+    reformatted. Spec AC boxes: none newly proved (AC6 stays open on its Mobile half, AC7 on WASM-012, AC4 on WASM-010).
   - Files: `crates/cobolt-ide/src/version.rs` (`VERSION`, `2.0.29` when this list was written — bump `z` **once** from whatever it is then),
     `CHANGELOG.md`.
   - Do: one entry above the previous `## [PowerRustCOBOL 2.0.x]` heading, dated, with *(Written on `features-2x`, after 2.0.N.)*, saying what

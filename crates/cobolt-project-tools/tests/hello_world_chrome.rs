@@ -103,6 +103,7 @@ fn the_web_templates_build_answers_a_click_and_embeds_in_a_div_in_chrome() {
     let built = tools.call("build", &json!({})).unwrap();
     assert_eq!(built["status"], "built", "{built}");
     assert_eq!(built["engine"], "cobolt-wasm", "{built}");
+    assert_eq!(built["report"]["budget"]["over"], false, "the size report carries the budget line (R8): {built}");
     println!(
         "build: status {}, engine {}, bundle {}, {} bytes in {} parts, variants {}, warnings {}",
         built["status"],

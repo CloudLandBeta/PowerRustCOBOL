@@ -1,5 +1,15 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.141 — 2026-11-01 — WASM-002 T16: the Web Build's size report carries the 5 MB budget line on every build; checked through `rcrun mcp`
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.124.)*
+
+WASM-002 (the WebAssembly build target and the host page). The details and the evidence are in `specs/WASM-002-wasm-build-target-and-host-page/tasks.md`.
+
+* **The budget line on every build** (R8). The Web Build's report (`cobolt_project_tools::web::BuildReport`) gains a `budget` field: the first download in bytes, the 5,000,000-byte budget, and whether it is over. The agents' `build` tool answers it as `"budget": {"first_download_bytes", "budget_bytes", "over"}`. Until now the budget appeared only as a warning when a bundle went over it, so an under-budget build showed no line and its growth was not visible. The over-budget warning is unchanged. What the budget covers (Q5) is still the working assumption: the first download, counted in 10⁶ bytes, a warning only.
+* **T16 checked through the MCP tools.** `rcrun mcp`, driven over stdio: `create_project` (the Web template), `open_project`, `check` (0 errors, 0 warnings), then `build` answers `"status": "built"`, `"engine": "cobolt-wasm"`: 11,235,688 bytes in 30 parts, both module variants, a first download of 3,960,924 bytes against the 5,000,000 budget, no warning.
+* **Still open:** T23 (the Mobile build, WASM-012) and T24 (Firefox, Safari, the iOS web view and the Android WebView are not installed here). The IDE's Output does not print the budget line for an under-budget build.
+
 ## 2.0.140 — 2026-11-01 — WASM-009: the Authentication control signs users in through the Backend, with Cognito, Keycloak and Entra
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.123.)*

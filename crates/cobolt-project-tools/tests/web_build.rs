@@ -142,6 +142,13 @@ fn a_web_project_builds_to_modules_and_a_bundle() {
     assert!(got.iter().any(|(n, _)| n == "plain") && got.iter().any(|(n, _)| n.starts_with("parts/")), "{got:?}");
     assert_eq!(report.to_json()["player"].as_array().unwrap().len(), got.len());
     eprintln!("player sizes in the report: {got:?}");
+    // WASM-002 R8/T16: the budget line is in every report, under the budget as well as over it.
+    let budget = report.budget.expect("the report carries the first download against the budget");
+    assert_eq!(budget.budget_bytes, cobolt_web_bundle::FIRST_DOWNLOAD_BUDGET);
+    assert!(budget.first_download_bytes > 0 && !budget.over(), "{budget:?}");
+    let line = &report.to_json()["budget"];
+    assert_eq!(line["first_download_bytes"], budget.first_download_bytes, "{line}");
+    assert_eq!(line["over"], false, "{line}");
     // A second build replaces the bundle in one step and leaves nothing beside it.
     let again = GeneratorBackend.build(&req).unwrap();
     assert_eq!(again.size.parts.len(), report.size.parts.len());

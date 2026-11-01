@@ -43,6 +43,8 @@ pub use devserver::{ServeError, ServeOptions, ServerHandle};
 /// (WASM-002 T21): the size-budget warning and the missing player. The tools
 /// keep the English text.
 pub use cobolt_web_bundle::OVER_BUDGET_PREFIX;
+/// The first download against the size budget (WASM-002 R8, Q5).
+pub use cobolt_web_bundle::BudgetLine;
 pub use generator::PLAYER_UNAVAILABLE_PREFIX;
 
 /// Where a Build puts a Web bundle, relative to the project: the `dist/`
@@ -209,6 +211,10 @@ pub struct BuildReport {
     /// each variant (`plain`, `threaded`) and each part loaded on first use
     /// (`parts/mermaid` …), in bytes after `wasm-opt`.
     pub player: Vec<PartSize>,
+    /// The first download against the 5 MB budget (WASM-002 R8, Q5), on every
+    /// build — not only as a warning when over — so its growth is visible;
+    /// `None` when the backend does not measure it.
+    pub budget: Option<BudgetLine>,
 }
 
 impl BuildReport {
@@ -225,6 +231,11 @@ impl BuildReport {
             "duration_ms": self.duration_ms,
             "connect_src": self.connect_src,
             "player": self.player.iter().map(|p| serde_json::json!({"name": p.name, "bytes": p.bytes})).collect::<Vec<_>>(),
+            "budget": self.budget.map(|b| serde_json::json!({
+                "first_download_bytes": b.first_download_bytes,
+                "budget_bytes": b.budget_bytes,
+                "over": b.over(),
+            })),
         })
     }
 }

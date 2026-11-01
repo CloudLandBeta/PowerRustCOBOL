@@ -1063,6 +1063,7 @@ impl WebBuildBackend for GeneratorBackend {
             duration_ms: started.elapsed().as_millis() as u64,
             connect_src: connect_src(&bundle.report.csp_meta),
             player: player_sizes(&player),
+            budget: Some(bundle.report.budget),
         })
     }
 }
