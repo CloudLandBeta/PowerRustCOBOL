@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.138 — 2026-11-01 — WASM-008 T41–T46: the headless helper renders and runs scripts; render_form and run_form draw web forms; the helper on Linux and in the installers
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.121.)*
+
+WASM-008 (the web Preview), following the operator's decision of 2026-11-01 on T41. The details and the evidence are in `specs/WASM-008-webview-preview/tasks.md`.
+
+* **`render` and `script` in the headless helper** (`prc-web-preview`, T41):
+  * `render` writes a PNG of the viewport, `width × dpr` by `height × dpr` pixels, from the engine's own snapshot: WKWebView on macOS, WebView2 on Windows, WebKitGTK on Linux. An engine that cannot take the picture answers `failed` naming it.
+  * `script` runs a closed list of steps: `click`, `type`, `wait`, `get`, `text`, `style`, `rect`, `focused`, `key`. `click` and `type` fire real DOM events on the page. Every step is checked by the helper first, and nothing the caller sends is run as code (there is no `eval`).
+  * Both wait for the page to load and for each other, and both have a time limit. A script cut short by a page reload answers at once.
+  * The IDE's side has the new commands and answers, and blocking `ready`, `render` and `script` calls for the headless tools.
+* **The helper on Linux** (T42): WebKitGTK 4.1 through wry. Without a display the helper says so and stops. Its licences are recorded in `THIRD_PARTY_NOTICES.md`; no `ring` or `aws-lc-rs` comes with it.
+* **`render_form` and `run_form` draw a web form** (T43):
+  * A `.wcfrm` or `.mcfrm` is built once into a temporary folder, served on loopback, and drawn or scripted in the helper with no window on show. `dist/web` and the project are not written.
+  * The answer is the desktop one plus `engine`. Without the helper, the tools say so; they never answer a desktop picture of a web form.
+  * The agent's knowledge text says the same.
+* **Layers start hidden** (T44): checked in the web view at open and after a change reaches the running page.
+* **Shipping** (T45):
+  * The workflow builds, tests (with `PRC_REQUIRE_WEBVIEW=1`, Xvfb on Linux) and packages `prc-web-preview` beside the IDE on all three systems.
+  * The `.deb` and `.rpm` recommend WebKitGTK 4.1; it is needed only for agent and test renders.
+  * The IDE notes a missing WebKitGTK or WebView2 runtime in the Output panel, in six languages. Nothing is blocked.
+* **System KB** (T46): still current; `assets/knowledge/chunked.data` was not rebuilt.
+
+T47 (the acceptance run on the real build) is not done; see the task list for why.
+
 ## 2.0.137 — 2026-11-01 — WASM-008 T30–T40: Preview and Run open the browser; the Mobile phone-width fallback; page events, the error overlay and the Backend's token; the helper is headless only
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.120.)*

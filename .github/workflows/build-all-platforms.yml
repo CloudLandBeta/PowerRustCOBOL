@@ -122,9 +122,11 @@ jobs:
       # openssl-sys links the system OpenSSL (native-tls), and eframe needs the
       # xcb/xkbcommon headers. alsa-sys (the sound built-ins, through rodio and
       # cpal) links libasound and finds it with pkg-config, so it needs the
-      # ALSA headers. Everything else the tree touches — winit's X11
+      # ALSA headers. Everything else the IDE touches — winit's X11
       # and Wayland bindings, the file dialog's XDG portal client — is loaded at
-      # runtime, so no GTK development package is required.
+      # runtime. The one GTK package is for prc-web-preview (WASM-008 T45), the
+      # headless helper that draws a web form for render_form, run_form and the
+      # tests with WebKitGTK 4.1; xvfb gives its tests a display.
       #
       # OPENSSL_STATIC makes openssl-sys link libssl.a/libcrypto.a from
       # libssl-dev instead of the shared objects, which is what frees the
@@ -143,7 +145,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config libssl-dev libxkbcommon-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libasound2-dev
+            libasound2-dev \
+            libwebkit2gtk-4.1-dev xvfb
           echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
           echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
           echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
@@ -160,7 +163,19 @@ jobs:
         run: >
           cargo build --release --locked
           --target ${{ matrix.target }}
-          -p cobolt-ide -p cobolt-cli
+          -p cobolt-ide -p cobolt-cli -p cobolt-web-preview
+
+      # The headless web view helper draws, on every system (WASM-008 T45):
+      # PRC_REQUIRE_WEBVIEW=1 turns its tests' "no web view, skipped" into a
+      # failure. Linux runs them under Xvfb; WebView2 comes with the runner.
+      - name: Test the headless web view helper
+        shell: bash
+        env:
+          PRC_REQUIRE_WEBVIEW: "1"
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then run="xvfb-run -a"; else run=""; fi
+          $run cargo test --release --locked --target ${{ matrix.target }} -p cobolt-web-preview --no-fail-fast
 
       - name: Name the package
         shell: bash
@@ -206,6 +221,7 @@ jobs:
           mkdir -p "$out"
           cp "target/${{ matrix.target }}/release/cobolt-ide${{ matrix.ext }}" "$out/PowerRustCOBOL${{ matrix.ext }}"
           cp "target/${{ matrix.target }}/release/rcrun${{ matrix.ext }}" "$out/rcrun${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/prc-web-preview${{ matrix.ext }}" "$out/prc-web-preview${{ matrix.ext }}"
           cp -R assets "$out/assets"
           rm -rf "$out/assets/knowledge"
           git archive HEAD examples | tar -x -C "$out"
@@ -272,6 +288,7 @@ jobs:
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp "target/${{ matrix.target }}/release/cobolt-ide" "$app/Contents/MacOS/PowerRustCOBOL"
           cp "target/${{ matrix.target }}/release/rcrun" "$app/Contents/MacOS/rcrun"
+          cp "target/${{ matrix.target }}/release/prc-web-preview" "$app/Contents/MacOS/prc-web-preview"
           cp -R assets "$app/Contents/Resources/assets"
           # Already inside the binary — see the Linux/Windows staging step.
           rm -rf "$app/Contents/Resources/assets/knowledge"
@@ -320,6 +337,7 @@ jobs:
           # Ad-hoc signature. Apple Silicon refuses to run an unsigned binary,
           # and assembling the bundle invalidates the one the linker applied.
           codesign --force --sign - "$app/Contents/MacOS/rcrun"
+          codesign --force --sign - "$app/Contents/MacOS/prc-web-preview"
           codesign --force --sign - "$app"
           codesign --verify --strict "$app"
 
@@ -1031,6 +1049,7 @@ jobs:
           Maintainer: Emerson Lopes <emersonlopes@gmail.com>
           Installed-Size: $size
           Depends: libasound2 | libasound2t64
+          Recommends: libwebkit2gtk-4.1-0
           Suggests: build-essential
           Description: PowerRustCOBOL AI - the next generation COBOL RAD IDE
            Design forms visually, run them on a fast tree-walking COBOL-85
@@ -1174,6 +1193,10 @@ jobs:
           # compiler, and forcing one on every user who wants to design forms
           # would be wrong. gcc is what carries the linker here.
           Suggests:       gcc
+          # Weak as well: WebKitGTK 4.1 is needed only for agent and test renders
+          # of web forms (prc-web-preview, WASM-008 T45); the IDE, Build and the
+          # Preview, which opens the browser, run without it.
+          Recommends:     libwebkit2gtk-4.1.so.0()(64bit)
 
           %description
           Design forms visually, run them on a fast tree-walking COBOL-85
@@ -1403,7 +1426,7 @@ jobs:
             "" \
             "First run on Windows: the executable is unsigned, so SmartScreen warns once. Choose More info, then Run anyway." \
             "" \
-            "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland and ALSA sound (libasound2) libraries your desktop already provides." \
+            "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland and ALSA sound (libasound2) libraries your desktop already provides. WebKitGTK 4.1 (libwebkit2gtk-4.1-0) is needed only for agent and test renders of web forms; on Windows those use the WebView2 runtime that Windows 10 and 11 include." \
             > "$RUNNER_TEMP/notes.md"
 
           # Draft first, files second, publish last. An immutable release takes

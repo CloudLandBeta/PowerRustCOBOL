@@ -136,6 +136,42 @@ License: MIT, or MIT OR Apache-2.0, per crate
 Used by: the AWS crates
 ```
 
+```text
+Component: wry 0.57 (web view) and tao 0.35 (window)
+Homepage: https://github.com/tauri-apps/wry — https://github.com/tauri-apps/tao
+License: wry Apache-2.0 OR MIT; tao Apache-2.0
+Used by: cobolt-web-preview (`prc-web-preview`, the headless helper that draws a web form for
+render_form, run_form and the tests); nothing a built application links
+Notes: Unmodified. No TLS or crypto crate comes with them (no ring, no aws-lc-rs on any target).
+
+Component: objc2 0.6, block2 0.6, objc2-foundation 0.3, objc2-app-kit 0.3, objc2-web-kit 0.3 (macOS)
+Homepage: https://github.com/madsmtm/objc2
+License: objc2, block2, objc2-foundation MIT; objc2-app-kit, objc2-web-kit Zlib OR Apache-2.0 OR MIT
+Used by: cobolt-web-preview (WKWebView's snapshot for `render`); the same versions wry uses
+
+Component: webview2-com 0.39, windows 0.62 (Windows)
+Homepage: https://github.com/wravery/webview2-rs — https://github.com/microsoft/windows-rs
+License: webview2-com MIT; windows MIT OR Apache-2.0
+Used by: cobolt-web-preview (WebView2's CapturePreview for `render`); the same versions wry uses
+Notes: The WebView2 runtime itself is Microsoft's, installed with Windows or Edge; not distributed here.
+
+Component: webkit2gtk 2.0.2, webkit2gtk-sys, javascriptcore-rs 1.1, soup3 0.5, gtk 0.18, gdk 0.18,
+           gio 0.18, glib 0.18, cairo-rs 0.18 and their -sys crates (Linux)
+Homepage: https://github.com/tauri-apps/webkit2gtk-rs — https://github.com/gtk-rs/gtk3-rs — https://github.com/gtk-rs/gtk-rs-core
+License: MIT
+Used by: cobolt-web-preview on Linux (wry's WebKitGTK backend; WebKitGTK's snapshot for `render`)
+Notes: The bindings link the system's WebKitGTK 4.1, libsoup 3, GTK 3 and cairo dynamically (each
+       under the LGPL, in its own version; cairo LGPL-2.1 OR MPL-1.1); they are not distributed with PowerRustCOBOL, the
+       .deb/.rpm packages name them as dependencies.
+
+Component: option-ext 0.2
+Homepage: https://github.com/soc/option-ext
+License: MPL-2.0
+Used by: dirs-sys, through wry's dirs 7 (cobolt-web-preview)
+Notes: Unmodified. MPL-2.0 is a file-level copyleft: its Source Code Form is available from
+       https://crates.io/crates/option-ext (version 0.2.0).
+```
+
 ## Template entry
 
 ```text

@@ -323,13 +323,13 @@ fn every_form_tool_takes_the_web_and_mobile_form_extensions() {
     for (kind, template, form) in [("web", "web", "webforms/main-form.wcfrm"), ("mobile", "android-phone", "mobileforms/main-form.mcfrm")] {
         let folder = base.join(kind);
         call(&mut bare(), "create_project", json!({"folder": folder.to_string_lossy(), "name": "Ext", "template": template})).unwrap();
+        // A web or mobile form is drawn by the system web view (WASM-008 T43), never by
+        // the desktop engine: the desktop renderer and runner must not be called.
         let renderer: Renderer = Arc::new(|cfrm: &Path, _: &Path, _: &cobolt_project_tools::tools::render::Picture| {
-            assert!(cobolt_compiler::project_kind::is_form_path(cfrm));
-            Ok((vec![0x89, b'P', b'N', b'G'], [10, 10]))
+            Err(format!("the desktop renderer was asked to draw {}", cfrm.display()))
         });
-        let runner: FormRunner = Arc::new(|cfrm: &Path, cbl: &Path, _: &[Value], _: u64| {
-            assert!(cobolt_compiler::project_kind::is_form_path(cfrm) && cbl.is_file());
-            Ok(RunOutcome { report: json!({"ran": true}), display: vec![], png: None })
+        let runner: FormRunner = Arc::new(|cfrm: &Path, _: &Path, _: &[Value], _: u64| -> Result<RunOutcome, String> {
+            Err(format!("the desktop runner was asked to run {}", cfrm.display()))
         });
         let shared = Arc::new(Shared::new().with_renderer(renderer).with_runner(runner));
         let mut tools = ProjectTools::with_shared(HeadlessHost::new(&folder, "test"), shared);
@@ -346,12 +346,17 @@ fn every_form_tool_takes_the_web_and_mobile_form_extensions() {
         let checked = call(&mut tools, "check", json!({"path": form})).unwrap();
         assert_eq!(checked["errors"], 0, "{checked}");
         println!("{kind:<6} check       checks {form} as a form, {} errors", checked["errors"]);
-        let r = tools.call_tool("run_form", &json!({"path": form}));
-        assert_eq!(r.is_error, None, "{:?}", r.content);
-        println!("{kind:<6} run_form    runs {form}");
-        let r = tools.call_tool("render_form", &json!({"path": form}));
-        assert_eq!(r.is_error, None, "{:?}", r.content);
-        println!("{kind:<6} render_form pictures {form}");
+        // With no helper (PRC_WEB_PREVIEW names nothing) both take the form and say
+        // the web view is missing — not "takes a form", not a desktop answer.
+        std::env::set_var(cobolt_project_tools::web::preview::HELPER_ENV, "/definitely/not/the/helper");
+        for tool in ["run_form", "render_form"] {
+            let r = tools.call_tool(tool, &json!({"path": form}));
+            let text = r.content.iter().find_map(|c| c.as_text()).unwrap_or_default().to_owned();
+            assert_eq!(r.is_error, Some(true), "{text}");
+            assert!(text.contains("prc-web-preview") && !text.contains("desktop renderer") && !text.contains("desktop runner"), "{tool}: {text}");
+            println!("{kind:<6} {tool:<11} takes {form} and routes it to the web view (no helper here: said so)");
+        }
+        std::env::remove_var(cobolt_project_tools::web::preview::HELPER_ENV);
         let added = call(&mut tools, "add_to_project", json!({"path": form})).unwrap_or_else(|e| json!({"refused": e}));
         assert!(added.get("list").is_none_or(|l| l == "forms"), "{added}");
     }

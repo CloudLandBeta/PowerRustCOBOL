@@ -32,6 +32,7 @@ pub mod powerchat;
 pub mod render;
 pub mod run;
 pub mod validate;
+pub mod web_form;
 
 /// What every handler serving one project shares: the lock that serialises
 /// writing tools, and the build in flight (so a repeated `build` joins it
@@ -555,6 +556,10 @@ impl<H: ProjectHost> ProjectTools<H> {
         let path = opt_str(args, "path").ok_or("run_form needs a 'path'")?;
         let steps: Vec<Value> = args.get("steps").and_then(Value::as_array).cloned().unwrap_or_default();
         let limit = args.get("time_limit_s").and_then(Value::as_u64).unwrap_or(20).clamp(1, 120);
+        if web_form::is_web_form(&path) {
+            // The web view draws a web form (WASM-008 T43); it writes nothing into the project.
+            return web_form::run(root, &path, &steps, limit);
+        }
         let runner = self.shared.runner.clone();
         // A run writes the generated program: one writer at a time.
         let shared = Arc::clone(&self.shared);
@@ -565,7 +570,11 @@ impl<H: ProjectHost> ProjectTools<H> {
     fn render(&mut self, args: &Value, root: &ProjectRoot) -> Result<(Vec<u8>, Value), String> {
         let path = opt_str(args, "path").ok_or("render_form needs a 'path'")?;
         let scale = args.get("scale").and_then(Value::as_f64).unwrap_or(1.0).clamp(0.25, 3.0) as f32;
+        let web = web_form::is_web_form(&path);
         if args.get("in_shell").and_then(Value::as_bool).unwrap_or(false) {
+            if web {
+                return Err("in_shell is for a desktop form; a web form is drawn as the browser shows it".to_owned());
+            }
             let runner = self.shared.runner.clone();
             let shared = Arc::clone(&self.shared);
             let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
@@ -575,6 +584,9 @@ impl<H: ProjectHost> ProjectTools<H> {
             (None, None) => None,
             (w, h) => Some([w.unwrap_or(0.0) as f32, h.unwrap_or(0.0) as f32]),
         };
+        if web {
+            return web_form::render(&self.host, root, &path, scale, window);
+        }
         render::run(&self.host, root, self.shared.renderer.as_ref(), &path, scale, window)
     }
 

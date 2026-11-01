@@ -30,12 +30,33 @@ path = "src/main.rs"
 # `cobolt_project_tools::web::preview`, and both sides pin the same lines.
 serde_json = { workspace = true }
 
-# The system web view: WKWebView on macOS, WebView2 on Windows. wry and tao are
-# the web view and window crates Tauri 2 (the mobile shell, WASM-012) uses, under
-# the Apache-2.0 / MIT licences, MSRV 1.85. No TLS or crypto crate comes with
-# them (`ring` and `aws-lc-rs` stay out of the lock). On Linux the web view is
-# WebKitGTK, which needs system libraries; this program does not use it there yet,
-# and the IDE falls back to the system browser.
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+# The system web view: WKWebView on macOS, WebView2 on Windows, WebKitGTK 4.1 on
+# Linux (WASM-008 T42). wry and tao are the web view and window crates Tauri 2 (the
+# mobile shell, WASM-012) uses, under the Apache-2.0 / MIT licences, MSRV 1.85. No
+# TLS or crypto crate comes with them (`ring` and `aws-lc-rs` stay out of the lock).
+# On Linux the bindings (webkit2gtk, gtk, cairo-rs, glib: MIT) link the system's
+# WebKitGTK 4.1 and GTK 3 (LGPL) dynamically; the packages declare them (T45).
+# Elsewhere the program says it has no web view and stops.
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 wry = { version = "0.57", default-features = false, features = ["os-webview"] }
 tao = { version = "0.35", default-features = false, features = ["rwh_06"] }
+
+# The engines' own snapshots, for `render` (WASM-008 T41, the operator's decision
+# of 2026-11-01): wry has none, so the helper reaches each engine through wry's
+# platform handle. The same versions wry itself uses, so nothing new is built:
+# objc2, block2, objc2-foundation MIT; objc2-app-kit, objc2-web-kit Zlib OR
+# Apache-2.0 OR MIT; webview2-com MIT; windows MIT OR Apache-2.0 (THIRD_PARTY_NOTICES.md).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSString", "NSValue"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "WKSnapshotConfiguration", "WKWebView"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_System_Com", "Win32_UI_Shell"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
+cairo-rs = { version = "0.18", features = ["png"] }

@@ -448,8 +448,10 @@ pub const APPLICATION_RULES: [(&str, &str); 14] = [
          when it is created (`create_project` takes `kind`; a mobile one also takes `platform` `android` or \
          `ios` and `device` `phone` or `tablet`) and never changed by editing the manifest. A Web or Mobile \
          project is built to WebAssembly and shown in a browser or a mobile web view, not run by the \
-         interpreter: `render_form` and `run_form` still work on a web form, but they show the desktop \
-         engine's picture and behaviour, and only the IDE's Preview shows the page as a browser does. Its \
+         interpreter. `render_form` and `run_form` draw a web form with the system web view, headless \
+         (the page the build makes, as a browser shows it; the answer names the `engine`); a step \
+         of `run_form` sets Text by typing and raises onClick by a real click. Without the web view \
+         helper they say so rather than show the desktop picture. Its \
          forms live in `webforms/` as `.wcfrm` (Web) or `mobileforms/` as `.mcfrm` (Mobile) — write a form there, then register \
          it with `add_to_project` — and the project may have a \
          Backend in `backend/`, which is COBOL too. A web form is responsive and wears the Spatial look \
@@ -1208,9 +1210,9 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("Call `build`: for a Web project it builds the bundle under `dist/web/` and reports \
                    its size, its start-up and its warnings. If the answer says the WebAssembly \
                    generator is not included in this program yet, tell the developer — the project is \
-                   still correct, and the IDE's Preview shows a bundle as soon as one exists. The \
-                   developer looks at the page in the IDE (Preview: a device, an orientation, the \
-                   language, the console); do not drive the IDE window."),
+                   still correct. Look at a web form with `render_form` and `run_form` (the system web \
+                   view, headless). The developer looks at the page with the IDE's Preview, in \
+                   their browser or on a device; do not drive the IDE or a browser window."),
             ],
             uses_tools: tools(&["create_project", "list_files", "kb_lookup", "add_to_project", "regenerate", "check", "build"]),
             example: None,

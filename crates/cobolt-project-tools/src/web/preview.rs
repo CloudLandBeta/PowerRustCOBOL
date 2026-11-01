@@ -84,6 +84,18 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         safe_area: Option<[u32; 4]>,
     },
+    /// Write a PNG of the viewport to `path`, at `width × dpr` by `height × dpr`
+    /// pixels, through the engine's own snapshot (WASM-008 T41).
+    Render { path: String },
+    /// Run a closed list of steps on the page (`click`, `type`, `wait`, `get`,
+    /// `text`, `style`, `rect`, `focused`, `key`, `snapshot`; the helper checks
+    /// them and refuses any other) and answer `scripted`. `click` and `type`
+    /// fire real DOM events (the operator's decision of 2026-11-01).
+    Script {
+        steps: Vec<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        time_limit_s: Option<u32>,
+    },
     /// Close the web view and end.
     Close,
 }
@@ -102,6 +114,12 @@ pub enum Event {
     Closed,
     /// What the page reported — the JSON of `/__prc/log`.
     Page(PageEvent),
+    /// The answer to `render`: the PNG at `path`, of these pixels.
+    Rendered { path: String, width: u32, height: u32 },
+    /// The answer to `script`: the values the reading steps read, in order
+    /// (`null` for a step that failed), what the page logged meanwhile, and the
+    /// page's and the steps' errors.
+    Scripted { values: Vec<serde_json::Value>, text: String, errors: Vec<String> },
 }
 
 /// The helper's own events, as their lines are written.
@@ -119,6 +137,19 @@ enum HelperEvent {
         message: String,
     },
     Closed,
+    Rendered {
+        path: String,
+        width: u32,
+        height: u32,
+    },
+    Scripted {
+        #[serde(default)]
+        values: Vec<serde_json::Value>,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        errors: Vec<String>,
+    },
 }
 
 /// What the page is told about the device it runs on (WASM-008 R5). Every
@@ -159,6 +190,8 @@ impl Event {
                 HelperEvent::Blocked { url } => Event::Blocked { url },
                 HelperEvent::Failed { message } => Event::Failed { message },
                 HelperEvent::Closed => Event::Closed,
+                HelperEvent::Rendered { path, width, height } => Event::Rendered { path, width, height },
+                HelperEvent::Scripted { values, text, errors } => Event::Scripted { values, text, errors },
             });
         }
         PageEvent::parse(line).map(Event::Page)
@@ -461,6 +494,8 @@ pub struct PreviewSession {
     stdin: Option<ChildStdin>,
     events: Option<Receiver<Event>>,
     closed: bool,
+    /// Events that arrived while a headless call waited for its answer.
+    kept: Vec<Event>,
 }
 
 impl PreviewSession {
@@ -493,7 +528,7 @@ impl PreviewSession {
             }
             let _ = tx.send(Event::Closed);
         });
-        let mut session = Self { child: Some(child), stdin, events: Some(rx), closed: false };
+        let mut session = Self { child: Some(child), stdin, events: Some(rx), closed: false, kept: Vec::new() };
         let opened = session.send(&Command::open(url, width, height, emulation));
         if opened {
             Ok(session)
@@ -517,7 +552,7 @@ impl PreviewSession {
     /// saying so, `Closed` is among them: a web view that crashed is reported,
     /// not waited for (WASM-008 AC6).
     pub fn poll(&mut self) -> Vec<Event> {
-        let mut out = Vec::new();
+        let mut out = std::mem::take(&mut self.kept);
         if let Some(rx) = &self.events {
             while let Ok(e) = rx.try_recv() {
                 if e == Event::Closed {
@@ -548,6 +583,64 @@ impl PreviewSession {
             if !self.closed && matches!(child.try_wait(), Ok(Some(_))) {
                 self.closed = true;
             }
+        }
+    }
+
+    /// Wait up to `limit` for the first event `pick` accepts. A `Failed` or
+    /// `Closed` on the way is the error; every other event is kept for the
+    /// next [`poll`](Self::poll).
+    fn wait_for(&mut self, limit: std::time::Duration, pick: impl Fn(&Event) -> bool) -> Result<Event, String> {
+        let deadline = std::time::Instant::now() + limit;
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let Some(rx) = &self.events else { return Err("the helper is not running".to_owned()) };
+            let event = match rx.recv_timeout(left.max(std::time::Duration::from_millis(1))) {
+                Ok(e) => e,
+                Err(mpsc::RecvTimeoutError::Timeout) => return Err(format!("the helper did not answer within {} s", limit.as_secs())),
+                Err(mpsc::RecvTimeoutError::Disconnected) => Event::Closed,
+            };
+            match event {
+                e if pick(&e) => return Ok(e),
+                Event::Failed { message } => return Err(message),
+                Event::Closed => {
+                    self.closed = true;
+                    return Err("the helper ended".to_owned());
+                }
+                e => self.kept.push(e),
+            }
+        }
+    }
+
+    /// Wait for `ready` (the web view is made): what the helper says of its
+    /// window's visibility (`None` from an older helper). Headless runs only.
+    pub fn ready(&mut self, limit: std::time::Duration) -> Result<Option<bool>, String> {
+        match self.wait_for(limit, |e| matches!(e, Event::Ready { .. }))? {
+            Event::Ready { visible } => Ok(visible),
+            _ => unreachable!("only Ready is picked"),
+        }
+    }
+
+    /// A PNG of the viewport at `path`; its pixels (WASM-008 T41). The helper
+    /// waits for the page's load first.
+    pub fn render(&mut self, path: &Path, limit: std::time::Duration) -> Result<(u32, u32), String> {
+        if !self.send(&Command::Render { path: path.to_string_lossy().into_owned() }) {
+            return Err("the helper is not running".to_owned());
+        }
+        match self.wait_for(limit, |e| matches!(e, Event::Rendered { .. }))? {
+            Event::Rendered { width, height, .. } => Ok((width, height)),
+            _ => unreachable!("only Rendered is picked"),
+        }
+    }
+
+    /// Run `steps` on the page and wait for the answer: (values, text, errors).
+    pub fn script(&mut self, steps: Vec<serde_json::Value>, time_limit_s: u32) -> Result<(Vec<serde_json::Value>, String, Vec<String>), String> {
+        if !self.send(&Command::Script { steps, time_limit_s: Some(time_limit_s) }) {
+            return Err("the helper is not running".to_owned());
+        }
+        let limit = std::time::Duration::from_secs(u64::from(time_limit_s) + 30);
+        match self.wait_for(limit, |e| matches!(e, Event::Scripted { .. }))? {
+            Event::Scripted { values, text, errors } => Ok((values, text, errors)),
+            _ => unreachable!("only Scripted is picked"),
         }
     }
 
@@ -603,6 +696,12 @@ mod tests {
                 r#"{"cmd":"emulate","dpr":2.0,"locale":"pt-BR","safe_area":[47,0,34,0]}"#,
             ),
             (Command::Emulate { dpr: None, locale: None, safe_area: Some([0, 0, 0, 0]) }, r#"{"cmd":"emulate","safe_area":[0,0,0,0]}"#),
+            (Command::Render { path: "/tmp/a.png".into() }, r#"{"cmd":"render","path":"/tmp/a.png"}"#),
+            (
+                Command::Script { steps: vec![serde_json::json!({ "click": { "control": "BTN-GO" } })], time_limit_s: Some(20) },
+                r#"{"cmd":"script","steps":[{"click":{"control":"BTN-GO"}}],"time_limit_s":20}"#,
+            ),
+            (Command::Script { steps: vec![], time_limit_s: None }, r#"{"cmd":"script","steps":[]}"#),
             (Command::Close, r#"{"cmd":"close"}"#),
         ];
         for (command, text) in cases {
@@ -638,6 +737,16 @@ mod tests {
             (r#"{"event":"blocked","url":"https://example.com/"}"#, Event::Blocked { url: "https://example.com/".into() }),
             (r#"{"event":"failed","message":"no web view"}"#, Event::Failed { message: "no web view".into() }),
             (r#"{"event":"closed","extra":1}"#, Event::Closed),
+            // The helper's own text (`cobolt-web-preview` pins `rendered` and `scripted`).
+            (
+                r#"{"event":"rendered","height":2532,"path":"/tmp/a.png","width":1170}"#,
+                Event::Rendered { path: "/tmp/a.png".into(), width: 1170, height: 2532 },
+            ),
+            (
+                r#"{"errors":["step 2 (click): no `X` on the page"],"event":"scripted","text":"HELLO","values":["Ana",true]}"#,
+                Event::Scripted { values: vec!["Ana".into(), true.into()], text: "HELLO".into(), errors: vec!["step 2 (click): no `X` on the page".into()] },
+            ),
+            (r#"{"event":"scripted"}"#, Event::Scripted { values: vec![], text: String::new(), errors: vec![] }),
         ];
         for (text, event) in cases {
             assert_eq!(Event::parse(text), Some(event), "{text}");

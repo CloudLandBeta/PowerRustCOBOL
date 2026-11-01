@@ -253,6 +253,10 @@ pub struct Tr {
     /// generated, so there is nothing to show its stops against. `{form}`.
     pub status_debug_form_not_generated: &'static str,
     pub status_exec_rust_toolchain_missing: &'static str,
+    /// The system web view the headless helper draws with (WebKitGTK 4.1 on Linux, the WebView2
+    /// runtime on Windows) is not installed: only render_form and run_form are affected, never
+    /// Build or the Preview (WASM-008 T45). `{what}` names it.
+    pub status_web_view_missing: &'static str,
     pub status_exec_rust_block_error: &'static str,
     /// Confirmation before deleting a common procedure. `{name}` is the
     /// procedure, `{lines}` the number of non-blank lines about to go. Code the
@@ -2903,6 +2907,7 @@ const EN: Tr = Tr {
     status_debug_form_unresolved: "Debug: the application opened a form named {form}, which no form in this project carries — its stops cannot be shown.",
     status_debug_form_not_generated: "Debug: the program for {form} has not been generated yet — its stops cannot be shown.",
     status_exec_rust_toolchain_missing: "The Rust toolchain is required to build a program with EXEC RUST. Install it from https://rustup.rs — only building needs it, not the binary you produce.",
+    status_web_view_missing: "{what} is not installed: the coding-agent tools render_form and run_form cannot draw web forms on this computer. Build and the Preview in your browser are not affected.",
     status_exec_rust_block_error: "EXEC RUST error",
     proc_delete_confirm_title: "Delete this procedure?",
     proc_delete_confirm_message: "Delete the common procedure {name}?\n\nIt holds {lines} line(s) of your COBOL. This cannot be recovered except by Undo.",
@@ -5055,6 +5060,7 @@ const ES: Tr = Tr {
     status_debug_form_unresolved: "Depuración: la aplicación abrió un formulario llamado {form}, que ningún formulario de este proyecto lleva por nombre; no se pueden mostrar sus paradas.",
     status_debug_form_not_generated: "Depuración: el programa de {form} todavía no se ha generado; no se pueden mostrar sus paradas.",
     status_exec_rust_toolchain_missing: "Se necesita la cadena de herramientas de Rust para compilar un programa con EXEC RUST. Instálela desde https://rustup.rs: solo hace falta para compilar, no para el binario que produzca.",
+    status_web_view_missing: "{what} no está instalado: las herramientas del agente de programación render_form y run_form no pueden dibujar formularios web en este equipo. Build y la vista previa en su navegador no se ven afectados.",
     status_exec_rust_block_error: "Error de EXEC RUST",
     proc_delete_confirm_title: "¿Eliminar este procedimiento?",
     proc_delete_confirm_message: "¿Eliminar el procedimiento común {name}?\n\nContiene {lines} línea(s) de su COBOL. No se puede recuperar salvo con Deshacer.",
@@ -7208,6 +7214,7 @@ const PT: Tr = Tr {
     status_debug_form_unresolved: "Depuração: o aplicativo abriu um formulário chamado {form}, que nenhum formulário deste projeto tem como nome; não é possível mostrar suas paradas.",
     status_debug_form_not_generated: "Depuração: o programa de {form} ainda não foi gerado; não é possível mostrar suas paradas.",
     status_exec_rust_toolchain_missing: "O conjunto de ferramentas Rust é necessário para compilar um programa com EXEC RUST. Instale-o em https://rustup.rs — só a compilação precisa dele, não o binário que você produz.",
+    status_web_view_missing: "{what} não está instalado: as ferramentas do agente de programação render_form e run_form não conseguem desenhar formulários web neste computador. O Build e a pré-visualização no seu navegador não são afetados.",
     status_exec_rust_block_error: "Erro de EXEC RUST",
     proc_delete_confirm_title: "Excluir este procedimento?",
     proc_delete_confirm_message: "Excluir o procedimento comum {name}?\n\nEle contém {lines} linha(s) do seu COBOL. Não é possível recuperar, exceto com Desfazer.",
@@ -9361,6 +9368,7 @@ const JA: Tr = Tr {
     status_debug_form_unresolved: "デバッグ: アプリケーションが {form} という名前のフォームを開きましたが、このプロジェクトにその名前のフォームはありません。停止位置を表示できません。",
     status_debug_form_not_generated: "デバッグ: {form} のプログラムはまだ生成されていません。停止位置を表示できません。",
     status_exec_rust_toolchain_missing: "EXEC RUST を含むプログラムのビルドには Rust ツールチェーンが必要です。https://rustup.rs から導入してください — 必要なのはビルド時だけで、生成されたバイナリには不要です。",
+    status_web_view_missing: "{what} がインストールされていません。コーディングエージェントのツール render_form と run_form は、このコンピューターで Web フォームを描画できません。ビルドとブラウザーでのプレビューには影響しません。",
     status_exec_rust_block_error: "EXEC RUST エラー",
     proc_delete_confirm_title: "この手続きを削除しますか？",
     proc_delete_confirm_message: "共通手続き {name} を削除しますか？\n\nあなたが書いた COBOL が {lines} 行含まれています。元に戻す以外に復元する方法はありません。",
@@ -11513,6 +11521,7 @@ const ZH: Tr = Tr {
     status_debug_form_unresolved: "调试：应用程序打开了名为 {form} 的窗体，但本项目中没有同名窗体，无法显示它的停止位置。",
     status_debug_form_not_generated: "调试：{form} 的程序尚未生成，无法显示它的停止位置。",
     status_exec_rust_toolchain_missing: "编译包含 EXEC RUST 的程序需要 Rust 工具链。请从 https://rustup.rs 安装 — 只有编译需要它，生成的二进制文件不需要。",
+    status_web_view_missing: "未安装 {what}：编码代理工具 render_form 和 run_form 无法在这台计算机上绘制 Web 窗体。构建和浏览器中的预览不受影响。",
     status_exec_rust_block_error: "EXEC RUST 错误",
     proc_delete_confirm_title: "删除此过程？",
     proc_delete_confirm_message: "删除公共过程 {name}？\n\n其中包含您编写的 {lines} 行 COBOL。除撤销外无法恢复。",
@@ -13672,6 +13681,7 @@ const FR: Tr = Tr {
     status_debug_form_unresolved: "Débogage : l'application a ouvert un formulaire nommé {form}, qu'aucun formulaire de ce projet ne porte ; ses arrêts ne peuvent pas être affichés.",
     status_debug_form_not_generated: "Débogage : le programme de {form} n'a pas encore été généré ; ses arrêts ne peuvent pas être affichés.",
     status_exec_rust_toolchain_missing: "La chaîne d'outils Rust est nécessaire pour compiler un programme contenant EXEC RUST. Installez-la depuis https://rustup.rs — seule la compilation en a besoin, pas le binaire produit.",
+    status_web_view_missing: "{what} n'est pas installé : les outils de l'agent de programmation render_form et run_form ne peuvent pas dessiner de formulaires web sur cet ordinateur. Build et l'aperçu dans votre navigateur ne sont pas concernés.",
     status_exec_rust_block_error: "Erreur EXEC RUST",
     proc_delete_confirm_title: "Supprimer cette procédure ?",
     proc_delete_confirm_message: "Supprimer la procédure commune {name} ?\n\nElle contient {lines} ligne(s) de votre COBOL. Rien ne la récupère, sauf Annuler.",

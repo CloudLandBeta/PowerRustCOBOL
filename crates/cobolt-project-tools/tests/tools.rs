@@ -654,3 +654,259 @@ fn add_powerchat_makes_powerchat_the_applications_own() {
     let _ = std::fs::remove_dir_all(&start);
     println!("add_powerchat: 14 forms + menu + 7 pictures + 3 defaults, check 0 errors, one main form, Assistant item modeless; second add and a name clash refused untouched");
 }
+
+/// The helper the workspace built (`cargo build -p cobolt-web-preview`), beside
+/// the test binaries' folder: `target/<profile>/prc-web-preview`.
+fn built_helper() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let p = exe.parent()?.parent()?.join(cobolt_project_tools::web::preview::HELPER_NAME);
+    p.is_file().then_some(p)
+}
+
+/// Every pixel of `b` against `a`: (pixels differing by more than 2 in any
+/// channel, the largest channel difference, the pixel count).
+fn pixel_difference(a: &[u8], b: &[u8]) -> (usize, u8, usize) {
+    let decode = |bytes: &[u8]| {
+        let mut r = png::Decoder::new(Cursor::new(bytes.to_vec())).read_info().unwrap();
+        let mut buf = vec![0; r.output_buffer_size()];
+        let info = r.next_frame(&mut buf).unwrap();
+        buf.truncate(info.buffer_size());
+        (info.width, info.height, info.color_type.samples(), buf)
+    };
+    let (wa, ha, sa, pa) = decode(a);
+    let (wb, hb, sb, pb) = decode(b);
+    assert_eq!((wa, ha, sa), (wb, hb, sb), "the same size and channels");
+    let (mut over, mut max) = (0, 0u8);
+    for (x, y) in pa.chunks(sa).zip(pb.chunks(sb)) {
+        let d = x.iter().zip(y).map(|(p, q)| p.abs_diff(*q)).max().unwrap_or(0);
+        max = max.max(d);
+        if d > 2 {
+            over += 1;
+        }
+    }
+    (over, max, (wa * ha) as usize)
+}
+
+/// WASM-008 T43 (R9, R16; AC8, AC9, AC15): `render_form` and `run_form` draw a
+/// web form with the system web view, headless, and answer the desktop fields
+/// plus `engine`; without the helper they say so and never answer a desktop
+/// picture of a web form. Skips with a printed reason when the helper is not
+/// built or there is no web view, unless `PRC_REQUIRE_WEBVIEW=1`.
+#[test]
+fn render_form_and_run_form_draw_a_web_form_with_the_system_web_view_008() {
+    use cobolt_mcp::McpHandler;
+    use cobolt_project_tools::web::{self, generator::GeneratorBackend, preview::HELPER_ENV};
+    let require = std::env::var("PRC_REQUIRE_WEBVIEW").as_deref() == Ok("1");
+    let base = std::env::temp_dir().join(format!("prc-008-web-form-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let folder = base.join("Hello");
+    let mut tools = ProjectTools::new(HeadlessHost::new(base.clone(), "test"));
+    let made = tools.call("create_project", &json!({"folder": folder.to_string_lossy(), "name": "Hello", "template": "web"})).unwrap();
+    let manifest = folder.join(made["project"].as_str().unwrap());
+    tools.call("open_project", &json!({"path": manifest.to_string_lossy()})).unwrap();
+    web::link(std::sync::Arc::new(GeneratorBackend));
+    let form = "webforms/main-form.wcfrm";
+
+    // No helper: an error naming it, no picture (R16).
+    std::env::set_var(HELPER_ENV, "/definitely/not/the/helper");
+    for tool in ["render_form", "run_form"] {
+        let r = tools.call_tool(tool, &json!({"path": form, "steps": []}));
+        assert_eq!(r.is_error, Some(true), "{tool}");
+        assert!(r.content.iter().all(|c| serde_json::to_value(c).unwrap()["type"] != "image"), "{tool}: no picture");
+        assert!(r.content[0].as_text().unwrap().contains("prc-web-preview"), "{tool}: {:?}", r.content[0].as_text());
+    }
+    let Some(helper) = built_helper() else {
+        std::env::remove_var(HELPER_ENV);
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(!require, "PRC_REQUIRE_WEBVIEW=1 and the helper is not built (cargo build -p cobolt-web-preview)");
+        println!("skipped: the helper is not built (cargo build -p cobolt-web-preview); the no-helper answers were checked");
+        return;
+    };
+    std::env::set_var(HELPER_ENV, &helper);
+
+    // render_form: the desktop answer's fields, plus `engine`.
+    let started = std::time::Instant::now();
+    let r = tools.call_tool("render_form", &json!({"path": form}));
+    if r.is_error == Some(true) {
+        let why = r.content[0].as_text().unwrap_or_default().to_owned();
+        std::env::remove_var(HELPER_ENV);
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(!require && why.contains("web view did not start"), "{why}");
+        println!("skipped: no web view on this system ({why})");
+        return;
+    }
+    let first_ms = started.elapsed().as_millis();
+    assert_eq!(serde_json::to_value(&r.content[0]).unwrap()["type"], "image");
+    let meta: Value = serde_json::from_str(r.content[1].as_text().unwrap()).unwrap();
+    let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<String>>();
+    let desktop_render: std::collections::BTreeSet<String> = ["form", "width", "height", "scale", "note", "project"].map(String::from).into();
+    let mut expected = desktop_render.clone();
+    expected.insert("engine".into());
+    assert_eq!(keys(&meta), expected, "{meta}");
+    assert_eq!(meta["engine"], cobolt_project_tools::tools::web_form::ENGINE);
+    assert!(!folder.join("dist/web").exists(), "the call built into a folder of its own, not dist/web");
+
+    // AC8: five renders of the same form agree (per channel <= 2 on all but 0.5 % of the pixels).
+    let png_of = |tools: &mut ProjectTools<HeadlessHost>| {
+        let r = tools.call_tool("render_form", &json!({"path": form}));
+        let v = serde_json::to_value(&r.content[0]).unwrap();
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.decode(v["data"].as_str().unwrap()).unwrap()
+    };
+    let reference = png_of(&mut tools);
+    // Kept for a look (the system temporary folder, never the repository).
+    let kept = std::env::temp_dir().join("prc-008-web-form-render.png");
+    let _ = std::fs::write(&kept, &reference);
+    let mut worst = (0usize, 0u8, 1usize);
+    for _ in 0..4 {
+        let d = pixel_difference(&reference, &png_of(&mut tools));
+        if d.0 * worst.2 >= worst.0 * d.2 {
+            worst = d;
+        }
+    }
+    println!(
+        "AC8: 5 renders of {form} at {}x{}: worst {} of {} pixels differ by more than 2 ({:.3} %), largest channel difference {}; first render {first_ms} ms; kept at {}",
+        meta["width"], meta["height"], worst.0, worst.2, worst.0 as f64 * 100.0 / worst.2 as f64, worst.1, kept.display()
+    );
+    assert!(worst.0 as f64 <= worst.2 as f64 * 0.005, "{worst:?}");
+
+    // run_form: the template's handler through a real click, the desktop answer's fields plus `engine`.
+    let steps = json!([
+        {"set": {"control": "TXT-NAME", "property": "Text", "value": "Ada"}},
+        {"event": {"control": "BTN-GREET", "name": "onClick"}},
+        {"wait_ms": 200},
+        {"read": {"control": "LBL-RESULT", "property": "Caption"}},
+        {"dump": true}
+    ]);
+    let r = tools.call_tool("run_form", &json!({"path": form, "steps": steps}));
+    assert_eq!(r.is_error, None, "{:?}", r.content[0].as_text());
+    let meta: Value = serde_json::from_str(r.content.iter().rev().find_map(|c| c.as_text()).unwrap()).unwrap();
+    let mut expected: std::collections::BTreeSet<String> =
+        ["form", "steps", "reads", "program_ended", "on_pane", "windows", "timed_out", "elapsed_ms", "picture", "display", "project"].map(String::from).into();
+    expected.insert("engine".into());
+    let mut got = keys(&meta);
+    got.remove("runtime_error");
+    assert_eq!(got, expected, "{meta}");
+    let greeting = meta["reads"]["LBL-RESULT::Caption"].as_str().unwrap_or_default();
+    assert!(greeting.contains("Ada"), "the handler greeted the typed name: {meta}");
+    assert_eq!(meta["steps"][4]["done"], false, "dump has no web form: {meta}");
+    assert!(meta["picture"]["width"].as_u64().unwrap_or(0) > 0, "{meta}");
+
+    std::env::remove_var(HELPER_ENV);
+    web::unlink();
+    let _ = std::fs::remove_dir_all(&base);
+    println!("run_form: typed, clicked, read {greeting:?} in {} ms; engine {}; no window on show", meta["elapsed_ms"], meta["engine"]);
+}
+
+/// WASM-008 T44 (R11, AC10): a layered web form, built by the real generator,
+/// served with live update and driven in the headless helper. Every layer is
+/// hidden when the form opens and again after an `app.update` of the running
+/// page; it is shown only by the program's own handler (`MOVE 1 TO
+/// LYR-SEE::Visible`). The Preview holds no layer state, and the form
+/// description has no layer `Visible` to start one shown.
+#[test]
+fn layers_start_hidden_in_the_web_view_and_after_an_update_008() {
+    use cobolt_project_tools::web::devserver::{self, ServeOptions};
+    use cobolt_project_tools::web::generator::GeneratorBackend;
+    use cobolt_project_tools::web::preview::{Emulation, Event, PreviewSession};
+    use cobolt_project_tools::web::{WebBuildBackend, WebBuildRequest};
+    use std::time::Duration;
+    let require = std::env::var("PRC_REQUIRE_WEBVIEW").as_deref() == Ok("1");
+    let Some(helper) = built_helper() else {
+        assert!(!require, "PRC_REQUIRE_WEBVIEW=1 and the helper is not built (cargo build -p cobolt-web-preview)");
+        println!("skipped: the helper is not built (cargo build -p cobolt-web-preview)");
+        return;
+    };
+    let handler = |control: &str, body: &str| {
+        format!("<Event name=\"onClick\" paragraph=\"{control}--ONCLICK\"><![CDATA[       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n{body}]]></Event>")
+    };
+    let see = handler("BTN-SEE", "           MOVE 1 TO LYR-SEE::Visible.\n");
+    let top = handler("BTN-TOP", "           MOVE 1 TO LYR-TOP::Visible.\n");
+    let form = format!(
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="main-form" title="Layers" width="900" height="600" index-base="1" main-form="true">
+  <Layer name="LYR-SEE" color="#10203080"/>
+  <Layer name="LYR-TOP" color="#203040"/>
+  <Control id="BTN-SEE" type="Button" x="50" y="300" w="100" h="30" tab-order="1"><Property name="Caption">See</Property>{see}</Control>
+  <Control id="BTN-TOP" type="Button" x="380" y="130" w="160" h="60" layer="LYR-SEE"><Property name="Caption">Top</Property>{top}</Control>
+  <Control id="TXT-T1" type="TextBox" x="600" y="250" w="150" h="28" layer="LYR-TOP"></Control>
+</Form>
+"##
+    );
+    assert!(!form.contains("Visible=") && !form.contains("visible="), "no layer is described as shown");
+    let dir = std::env::temp_dir().join(format!("prc-008-layers-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("webforms")).unwrap();
+    std::fs::write(
+        dir.join("Layers.project.toml"),
+        "[project]\nname = \"Layers.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"web\"\n\n[files]\nforms = [\"webforms/main-form.wcfrm\"]\n\n[web]\nmulti_memory = true\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("webforms/main-form.wcfrm"), &form).unwrap();
+    let req = WebBuildRequest::from_manifest(&dir.join("Layers.project.toml")).unwrap();
+    let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("the layered form builds: {e}"));
+    let server = devserver::start(&report.bundle_dir, &ServeOptions { port: 0, isolation: req.web.isolation.clone(), live_reload: true }).unwrap();
+    let mut s = PreviewSession::start(&server.url(), 900, 600, &Emulation::default(), &helper).unwrap();
+    match s.ready(Duration::from_secs(30)) {
+        Ok(visible) => assert_eq!(visible, Some(false), "AC15: no window on show"),
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(!require, "PRC_REQUIRE_WEBVIEW=1 and no web view: {e}");
+            println!("skipped: no web view on this system ({e})");
+            return;
+        }
+    }
+    let both = json!([{"get": {"control": "layer:LYR-SEE", "property": "Visible"}}, {"get": {"control": "layer:LYR-TOP", "property": "Visible"}}]);
+    let read = |s: &mut PreviewSession, before: Vec<Value>| {
+        let mut steps = vec![json!({"wait": {"control": "BTN-SEE"}})];
+        steps.extend(before);
+        steps.extend(both.as_array().unwrap().iter().cloned());
+        let (values, _, errors) = s.script(steps, 30).unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        values
+    };
+    let at_open = read(&mut s, vec![]);
+    assert_eq!(at_open, vec![json!(false), json!(false)], "every layer starts hidden");
+    let one = read(&mut s, vec![json!({"click": {"control": "BTN-SEE"}}), json!({"wait": {"ms": 100}})]);
+    assert_eq!(one, vec![json!(true), json!(false)], "the handler's MOVE 1 TO LYR-SEE::Visible shows that layer only");
+
+    // A change to the form (a caption), rebuilt into the served folder: the page's Preview
+    // script hands it to `app.update`, which restarts the application in place.
+    // (An unchanged bundle answers `unchanged` and restarts nothing.)
+    std::fs::write(dir.join("webforms/main-form.wcfrm"), form.replace(">See<", ">See it<")).unwrap();
+    GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("the changed form builds: {e}"));
+    let started = std::time::Instant::now();
+    server.notify_changed();
+    // The changed form is running once its button says so: then the program has
+    // restarted, in place (`updated`, how = `program`/`forms`) or, when the update
+    // could not be taken in mid-rebuild, by the Preview script's reload (no event).
+    let mut running = false;
+    while !running && started.elapsed() < Duration::from_secs(60) {
+        match s.script(vec![json!({"wait": {"control": "BTN-SEE"}}), json!({"get": {"control": "BTN-SEE", "property": "Text"}})], 30) {
+            Ok((values, _, _)) => running = values.first() == Some(&json!("See it")),
+            // The reload came in the middle of this read: read again on the new page.
+            Err(e) if e.contains("loaded again") => {}
+            Err(e) => panic!("{e}"),
+        }
+    }
+    assert!(running, "the changed form reached the page within 60 s");
+    let restarted_ms = started.elapsed().as_millis();
+    let updates: Vec<String> = s
+        .poll()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Page(devserver::PageEvent::Updated { how, ms, .. }) => Some(format!("{how} {ms:.1} ms")),
+            _ => None,
+        })
+        .collect();
+    let how = if updates.is_empty() { "a reload".to_owned() } else { format!("updated: {}", updates.join(", ")) };
+    let after = read(&mut s, vec![]);
+    assert_eq!(after, vec![json!(false), json!(false)], "after the update ({how}) every layer is hidden again");
+    let shown = read(&mut s, vec![json!({"click": {"control": "BTN-SEE"}}), json!({"click": {"control": "BTN-TOP"}}), json!({"wait": {"ms": 100}})]);
+    assert_eq!(shown, vec![json!(true), json!(true)], "each shown by its own handler");
+    s.close();
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+    println!("layers: hidden at open; LYR-SEE shown by its handler; hidden again after the change reached the page ({how}; running in {restarted_ms} ms); both shown by their handlers");
+}

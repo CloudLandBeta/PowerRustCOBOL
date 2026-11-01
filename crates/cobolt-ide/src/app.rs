@@ -2452,6 +2452,12 @@ impl CoboltApp {
         if let crate::toolchain::Status::Ok { path, .. } = &toolchain {
             crate::toolchain::ensure_on_path(path);
         }
+        // WASM-008 T45: without the system web view only render_form and run_form
+        // cannot draw a web form; a note says so, and nothing is blocked.
+        if let crate::toolchain::WebView::Missing(what) = crate::toolchain::detect_web_view() {
+            let note = app.lang.tr().status_web_view_missing.replace("{what}", what);
+            app.output.push_status(note);
+        }
         // Ask GitHub whether there is a newer build, on a background thread so
         // a slow or absent network is never something the developer waits for.
         // Once per run: there is no rechecking loop, and no persisted answer —

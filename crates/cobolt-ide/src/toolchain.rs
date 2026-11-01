@@ -228,6 +228,63 @@ where
     Status::Missing
 }
 
+// ── The system web view (WASM-008 T45) ───────────────────────────────────────
+
+/// Can the headless helper (`prc-web-preview`) draw a web form here? Only the
+/// coding-agent tools `render_form` and `run_form` (and the tests) need it:
+/// Build makes the bundle without it, and the Preview opens the browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebView {
+    Present,
+    /// What is missing, as the note names it.
+    Missing(&'static str),
+}
+
+/// Where WebKitGTK 4.1 is, on the distributions the packages name.
+const WEBKITGTK_LIBS: &[&str] = &[
+    "/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0",
+    "/usr/lib/aarch64-linux-gnu/libwebkit2gtk-4.1.so.0",
+    "/usr/lib64/libwebkit2gtk-4.1.so.0",
+    "/usr/lib/libwebkit2gtk-4.1.so.0",
+];
+
+/// The WebView2 runtime's registration (Microsoft's documented way to find it),
+/// machine-wide and per user.
+const WEBVIEW2_KEYS: &[&str] = &[
+    r"HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+    r"HKLM\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+    r"HKCU\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+];
+
+/// Probe this machine: a file test on Linux, a registry query on Windows;
+/// WebKit is part of macOS.
+pub fn detect_web_view() -> WebView {
+    if cfg!(target_os = "linux") {
+        web_view_with("WebKitGTK 4.1 (libwebkit2gtk-4.1-0)", WEBKITGTK_LIBS, |p| Path::new(p).is_file())
+    } else if cfg!(windows) {
+        web_view_with("The WebView2 runtime", WEBVIEW2_KEYS, |key| {
+            std::process::Command::new("reg")
+                .args(["query", key, "/v", "pv"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        })
+    } else {
+        WebView::Present
+    }
+}
+
+/// The decision, apart from the machine: present when any `places` answers.
+fn web_view_with(what: &'static str, places: &[&str], found: impl Fn(&str) -> bool) -> WebView {
+    if places.iter().any(|p| found(p)) {
+        WebView::Present
+    } else {
+        WebView::Missing(what)
+    }
+}
+
 /// Make the directory holding `program` visible to the child processes this IDE
 /// starts, so a `cargo` found outside PATH is still a `cargo` Build can run.
 ///
@@ -702,6 +759,21 @@ mod tests {
             Some(Install::Finished(outcome)) => assert_eq!(outcome.version, Some(v(1, 92, 0))),
             _ => panic!("the outcome should have been collected"),
         }
+    }
+
+    /// WASM-008 T45: a missing web view is named, and only as a note for the
+    /// agent tools — the decision reads the places it is given.
+    #[test]
+    fn toolchain_web_view_is_found_in_any_place_or_named_when_missing() {
+        assert_eq!(web_view_with("X", &["a", "b"], |p| p == "b"), WebView::Present);
+        assert_eq!(web_view_with("WebKitGTK 4.1", &["a", "b"], |_| false), WebView::Missing("WebKitGTK 4.1"));
+        assert_eq!(web_view_with("X", &[], |_| true), WebView::Missing("X"));
+        assert!(WEBKITGTK_LIBS.iter().all(|p| p.ends_with("libwebkit2gtk-4.1.so.0")));
+        let here = detect_web_view();
+        if cfg!(target_os = "macos") {
+            assert_eq!(here, WebView::Present, "WebKit is part of macOS");
+        }
+        println!("web view on this machine: {here:?}");
     }
 
     #[test]
