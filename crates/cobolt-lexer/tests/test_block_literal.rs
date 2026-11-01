@@ -157,3 +157,20 @@ fn the_closing_fence_may_be_indented() {
         "leading whitespace inside the block is content, verbatim"
     );
 }
+
+/// What follows the closing fence on its line is code: ```` ```) ```` closes the
+/// call it was passed to, and the next statement is not swallowed.
+#[test]
+fn code_after_the_closing_fence_is_still_lexed() {
+    let src = "CALL \"X\" USING ```\nHi\n```)\nSTOP RUN.\n";
+    let toks: Vec<Token> = tokenize(src, SourceFormat::Free)
+        .into_iter()
+        .map(|st| st.token)
+        .collect();
+    let at = toks
+        .iter()
+        .position(|t| *t == Token::StringLiteral("Hi".into()))
+        .expect("the block is a literal");
+    assert_eq!(toks[at + 1], Token::RParen, "{toks:?}");
+    assert!(toks.contains(&Token::Stop), "{toks:?}");
+}

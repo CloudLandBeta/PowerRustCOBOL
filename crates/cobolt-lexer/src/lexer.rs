@@ -793,7 +793,11 @@ impl<'src> Lexer<'src> {
                 // Content ends at the newline before this line — excluded.
                 let content_end = cursor.saturating_sub(1).max(content_start);
                 let text = self.preprocessed[content_start..content_end].to_string();
-                let close_end = cursor + line.trim_end_matches('\n').len();
+                // The fence ends with its backticks: what follows them on the
+                // same line (`)` closing a call, a `.`) is code and is lexed.
+                let lead = line.len() - line.trim_start().len();
+                let ticks = line.trim_start().chars().take_while(|&c| c == '`').count();
+                let close_end = cursor + lead + ticks;
 
                 // Skip every raw token the block swallowed.
                 while self.pos < self.raw_tokens.len()

@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.120 — 2026-11-01
+
+**Fix: the ``` block literal no longer swallows what follows its closing fence.** The lexer took the whole closing line as part of the block, so ```` ```) ```` lost its `)` and the call it closed ran on into the next statement. The block now ends with the fence's backticks and the rest of the line is lexed as code. `cobolt-lexer/tests/test_block_literal.rs::code_after_the_closing_fence_is_still_lexed` pins it; the lexer's other 66 tests and the block-literal suite are green.
+
 ## 2.0.119 — 2026-11-01
 
 **Fix: `Len` is a property, not a method - `X::Len()` and `X::Length()` are refused.** The length of a data item is written `WS-NAME::Len` (and `WS-NAME::Trim()::Len`), without parentheses; the parenthesised call, which the language accepted beside the property, is gone. The analyser reports `'WS-A::Len()': Len is a property of a data item, not a method. Write 'WS-A::Len' without the parentheses.` (also for `INVOKE WS-A::Len()` and for a chain such as `Trim()::Length()`), `rcrun`, the IDE and a built application refuse it at run time with the same sentence, and the WebAssembly generator refuses it at Build. An object reference's own `Len()` is untouched. The text a data item's error ends with, the System KB and the code-style guidance given to the agents now say "the methods Trim, Upper, Lower, Replace and Split, and the property Len". The new-project template, the `PowerCloud` and `PowerDemo3` example forms (and their golden snapshots), `tests/cobol/string-ops/test-data-item-methods.cbl` (92/92) and `tests/cobol/code-style/test-code-style.cbl` (30/30) were rewritten to the property form. The IDE's save-time spelling rewrite is unchanged (`Length` becomes `Len`); its Output-panel line now reads `Upper()/Lower()/Len`.
