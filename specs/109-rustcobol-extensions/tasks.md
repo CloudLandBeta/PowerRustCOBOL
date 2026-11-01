@@ -183,7 +183,7 @@ finished module's execution pass (rule #9).
   - Files: `cobolt-codegen/src/lib.rs`.
   - Do: omit a group only when T0.1 and the generator's own scan of authored code prove it unused; retain on any dynamic reference.
   - Verify: AC15 cases — whole-group MOVE, referenced PIC fields, GLOBAL, REDEFINES, BY REFERENCE, Common Code, dynamic references, bindings, debugger watches.
-- [ ] **T5.2 — Runtime services replace generator plumbing** (R30, R31)
+- [x] **T5.2 — Runtime services replace generator plumbing** (R30, R31)
   - Verify: old helper paragraph names still reachable; event/procedure regression suites and unmodified example forms pass (AC16).
 - [ ] **T5.3 — Slice close S5** (AC15, AC16)
 

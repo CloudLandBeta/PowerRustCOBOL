@@ -69,6 +69,7 @@ use cobolt_forms::model::PropValue;
 use cobolt_forms::picture::Picture;
 use cobolt_forms::{Control, ControlType, Form};
 
+mod compact_helpers;
 pub mod data_binding;
 pub mod indexed;
 pub mod project;
@@ -364,7 +365,10 @@ pub fn generate_with_map(form: &Form) -> (String, SourceMap) {
     // is left out in the second only when nothing outside the groups names it.
     let (full, _) = generate_omitting(form, &HashSet::new());
     let omit = unreferenced_control_groups(form, &full);
-    generate_omitting(form, &omit)
+    let (text, mut map) = generate_omitting(form, &omit);
+    // T5.2 (R30): and the helper paragraphs nothing names.
+    let text = compact_helpers::omit_unnamed(text, &mut map, &compact_helpers::candidates(form));
+    (text, map)
 }
 
 fn generate_omitting(form: &Form, omit: &HashSet<String>) -> (String, SourceMap) {

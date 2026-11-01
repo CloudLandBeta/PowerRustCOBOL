@@ -283,3 +283,18 @@ flowchart LR
 - Not available in Web or Mobile projects yet: the build says so.
 
 📷 Screenshot needed: the same panel in Expanded and in Compact.
+
+## S5 — Helper paragraphs (2.0.117)
+
+With `compact-storage` on, the generator also leaves out the helper paragraphs your own code never
+performs: the animation dispatch (`COBOL-PLAY-ANIMATION`, `COBOL-STOP-ANIMATION`), the
+`<control>-PLAY-<animation>` triggers, a chart's `-SET-TABLE`, `-ADD-POINT`, `-CLEAR`, `-REFRESH`, a
+database's `-CONNECT`, `-EXEC`, `-FETCH-ALL`, `-CLOSE` and a grid's `-EXPORT-CSV`.
+
+**Notes**
+- Write `PERFORM CH-BAR-REFRESH` anywhere in the form and that paragraph stays; so does anything it needs.
+- The event loop, your handlers and procedures, and the binding paragraphs are never touched.
+
+**Caveats**
+- A paragraph you call from another place by a name the form does not contain is not seen; keep
+  `compact-storage` off on such a form.

@@ -247,3 +247,15 @@ COBOL::Layout("Clear", "PNL-FILTERS")
   the table lacks installs nothing. Caveat in the Guide.
 - **Needs `Responsive`** on the form (the golden rule already requires it); on a form that is not laid out,
   the script is stored and does nothing.
+
+### 8.6 T5.2 — what it became (2026-11-01)
+
+The task read "runtime services replace generator plumbing". The inventory (`inventory.md`, helper paragraphs) found
+that **no authored line names any generated helper paragraph, in any example**, and that nothing in the runtime, the
+form host, the browser generator or the player looks one up by name. So the saving the task was after needs no new
+runtime call: under `compact-storage`, a helper paragraph that no other line names is not written (animation
+dispatch and triggers, chart, database and CSV wrappers), repeated until nothing more goes, with the source map
+shifted. The one weighty candidate for a real service, the animation dispatch, cannot be swapped for a runtime
+answer yet because the browser generator compiles that paragraph and is not told the form's animations
+(`FormSpec` carries control names only). Open: if a later slice wants a runtime-owned dispatch, that plumbing is
+where it starts. The event loop (151 lines on `main-form`) is untouched.

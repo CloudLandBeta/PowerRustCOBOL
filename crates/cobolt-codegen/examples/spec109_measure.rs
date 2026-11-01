@@ -192,10 +192,95 @@ fn measure() {
     );
 }
 
+
+/// What a paragraph of the outer program is for, by the names the generator gives.
+fn helper_kind(name: &str) -> &'static str {
+    let n = name.to_ascii_uppercase();
+    if n == "COBOL-EVENT-LOOP" {
+        "event loop"
+    } else if n == "COBOL-PLAY-ANIMATION" || n == "COBOL-STOP-ANIMATION" {
+        "animation dispatch"
+    } else if n.contains("-PLAY-") || n.contains("-STOP-") && n.starts_with("COBOL-") {
+        "animation trigger"
+    } else if ["-SET-TABLE", "-ADD-POINT", "-CLEAR", "-REFRESH"].iter().any(|s| n.ends_with(s)) {
+        "chart wrapper"
+    } else if ["-CONNECT", "-EXEC", "-FETCH-ALL", "-CLOSE", "-ON-CONNECT", "-ON-QUERY-DONE", "-ON-ERROR"].iter().any(|s| n.ends_with(s)) {
+        "database wrapper"
+    } else if n.ends_with("-EXPORT-CSV") {
+        "csv export"
+    } else if n.starts_with("COBOL-DATA-BINDING") || n.starts_with("COBOL-BIND") {
+        "binding"
+    } else if n.starts_with("COBOL-") {
+        "other runtime paragraph"
+    } else {
+        "handler or procedure"
+    }
+}
+
+fn helpers() {
+    use std::collections::BTreeMap;
+    println!("| Project | Kind of paragraph | Paragraphs | Lines | Named by authored code |");
+    println!("|---|---|---|---|---|");
+    let mut all: BTreeMap<&'static str, (usize, usize, usize)> = BTreeMap::new();
+    for project in PROJECTS {
+        let dir = repo().join("examples").join(project).join("forms");
+        let mut rows: BTreeMap<&'static str, (usize, usize, usize)> = BTreeMap::new();
+        for path in forms_in(&dir) {
+            if path.to_string_lossy().contains(".recovered.") {
+                continue;
+            }
+            let form = load(&path);
+            let (cbl, user) = cobolt_codegen::generate_with_user_lines(&form);
+            let lines: Vec<&str> = cbl.lines().collect();
+            let user_text: String = user
+                .iter()
+                .flat_map(|(a, b)| lines[(*a as usize - 1)..(*b as usize).min(lines.len())].iter().copied())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .to_ascii_uppercase();
+            // The outer program: from the first PROCEDURE DIVISION to the first nested unit.
+            let Some(start) = lines.iter().position(|l| l.trim_start().to_ascii_uppercase().starts_with("PROCEDURE DIVISION")) else { continue };
+            let end = lines[start..]
+                .iter()
+                .position(|l| l.trim_start().to_ascii_uppercase().starts_with("IDENTIFICATION DIVISION"))
+                .map_or(lines.len(), |p| start + p);
+            let labels: Vec<(usize, &str)> = (start..end)
+                .filter_map(|i| {
+                    let t = lines[i];
+                    let name = t.strip_prefix("       ")?.strip_suffix('.')?;
+                    (!name.is_empty() && !name.contains(' ') && !name.contains("DIVISION") && !name.starts_with('*'))
+                        .then_some((i, name))
+                })
+                .collect();
+            for (k, (at, name)) in labels.iter().enumerate() {
+                let stop = labels.get(k + 1).map_or(end, |(n, _)| *n);
+                let kind = helper_kind(name);
+                let named = user_text.contains(&format!("PERFORM {}", name.to_ascii_uppercase()))
+                    || user_text.contains(&format!("\"{}\"", name.to_ascii_uppercase()));
+                let r = rows.entry(kind).or_default();
+                r.0 += 1;
+                r.1 += stop - at;
+                r.2 += usize::from(named);
+            }
+        }
+        for (kind, (p, l, n)) in &rows {
+            println!("| {project} | {kind} | {p} | {l} | {n} |");
+            let a = all.entry(kind).or_default();
+            a.0 += p;
+            a.1 += l;
+            a.2 += n;
+        }
+    }
+    for (kind, (p, l, n)) in &all {
+        println!("| **All** | **{kind}** | **{p}** | **{l}** | **{n}** |");
+    }
+}
+
 fn main() {
     match std::env::args().nth(1).as_deref() {
         Some("inventory") => inventory(),
         Some("measure") => measure(),
-        _ => eprintln!("usage: spec109_measure inventory | measure"),
+        Some("helpers") => helpers(),
+        _ => eprintln!("usage: spec109_measure inventory | measure | helpers"),
     }
 }

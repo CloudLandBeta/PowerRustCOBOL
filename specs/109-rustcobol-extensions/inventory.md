@@ -221,13 +221,77 @@ So the figures in spec §2 hold: no later slice changed the default output.
 
 ## What this does not cover
 
-- **Generated helper paragraphs.** T0.1 asks which of them authored code reads (`COBOL-PLAY-ANIMATION`,
-  the binding populate paragraphs, `<CTRL>-OPEN`, …). That list is **not** produced here; S5's second half
-  (T5.2, runtime services replacing the generator's plumbing) has no inventory yet, and nothing was changed
-  for it. Every helper paragraph is still emitted.
 - **Common Code and other forms.** A group is judged by the program of its own form. Common Code reaches a
   form's data only through `CALL … USING` of items the form names, so such an item is a name in the form.
 - **Debugger watches.** A watch typed at run time names an item by hand; an omitted group cannot be watched.
   That is why `compact-storage` is opt-in.
 - **Dynamic references.** COBOL cannot build a data-name at run time, so none exists in these forms; the one
   late-bound spelling is the debugger watch above.
+
+## Generated helper paragraphs (T5.2)
+
+```bash
+cargo run -p cobolt-codegen --example spec109_measure -- helpers
+```
+
+Every paragraph of a form's outer program, by what it is for, with how many lines it takes and how many of them
+the developer's own code names (`PERFORM <name>` or `CALL "<name>"` inside a handler or procedure body).
+`Named by authored code` is **0 for every kind in every example project**.
+
+| Project | Kind of paragraph | Paragraphs | Lines | Named by authored code |
+|---|---|---|---|---|
+| PowerAnalytics | animation dispatch | 2 | 336 | 0 |
+| PowerAnalytics | animation trigger | 160 | 482 | 0 |
+| PowerAnalytics | chart wrapper | 24 | 147 | 0 |
+| PowerAnalytics | csv export | 1 | 13 | 0 |
+| PowerAnalytics | database wrapper | 8 | 79 | 0 |
+| PowerAnalytics | event loop | 1 | 151 | 0 |
+| PowerAnalytics | handler or procedure | 4 | 45 | 0 |
+| PowerAnalytics | other runtime paragraph | 2 | 16 | 0 |
+| PowerChat | animation dispatch | 2 | 8 | 0 |
+| PowerChat | animation trigger | 1 | 6 | 0 |
+| PowerChat | csv export | 3 | 54 | 0 |
+| PowerChat | database wrapper | 4 | 22 | 0 |
+| PowerChat | event loop | 14 | 722 | 0 |
+| PowerChat | handler or procedure | 8 | 48 | 0 |
+| PowerChat | other runtime paragraph | 20 | 181 | 0 |
+| PowerCloud | event loop | 5 | 255 | 0 |
+| PowerCloud | other runtime paragraph | 7 | 75 | 0 |
+| PowerDemo3 | animation dispatch | 10 | 116 | 0 |
+| PowerDemo3 | animation trigger | 24 | 85 | 0 |
+| PowerDemo3 | chart wrapper | 56 | 348 | 0 |
+| PowerDemo3 | csv export | 4 | 75 | 0 |
+| PowerDemo3 | database wrapper | 11 | 112 | 0 |
+| PowerDemo3 | event loop | 62 | 3373 | 0 |
+| PowerDemo3 | handler or procedure | 20 | 219 | 0 |
+| PowerDemo3 | other runtime paragraph | 71 | 634 | 0 |
+| PowerSpatial | chart wrapper | 4 | 27 | 0 |
+| PowerSpatial | event loop | 5 | 230 | 0 |
+| PowerSpatial | other runtime paragraph | 10 | 121 | 0 |
+| **All** | **animation dispatch** | **14** | **460** | **0** |
+| **All** | **animation trigger** | **185** | **573** | **0** |
+| **All** | **chart wrapper** | **84** | **522** | **0** |
+| **All** | **csv export** | **8** | **142** | **0** |
+| **All** | **database wrapper** | **23** | **213** | **0** |
+| **All** | **event loop** | **87** | **4731** | **0** |
+| **All** | **handler or procedure** | **32** | **312** | **0** |
+| **All** | **other runtime paragraph** | **110** | **1027** | **0** |
+
+What this says, and what was done with it:
+
+- **Nothing looks a helper paragraph up by name.** Searched in `cobolt-runtime`, `cobolt-form-host`,
+  `cobolt-wasm` and `cobolt-web-player` for the paragraph names and for the suffixes they are built from
+  (`-SET-TABLE`, `-ADD-POINT`, `-REFRESH`, `-EXPORT-CSV`, `-CONNECT`, `COBOL-PLAY-ANIMATION`, …): no match. The
+  generated event loop is what runs handlers, so a helper is reachable only by a line of the program.
+- **Left out when nothing names them (2.0.117, opt-in with `compact-storage`):** the animation dispatch
+  (`COBOL-PLAY-ANIMATION`, `COBOL-STOP-ANIMATION`), the `<ctrl>-PLAY-<animation>` triggers, a chart's
+  `-SET-TABLE` / `-ADD-POINT` / `-CLEAR` / `-REFRESH`, a database's `-CONNECT` / `-EXEC` / `-FETCH-ALL` /
+  `-CLOSE` and a grid's `-EXPORT-CSV` (or its `CSVParagraph`). A paragraph that any other line names stays, comments
+  included; removing one can leave another unnamed (the dispatch, once its triggers are gone), so the pass repeats.
+- **Kept always:** the event loop, `COBOL-MAIN`, `COBOL-START-TIMERS`, the binding paragraphs, a database's
+  `-ON-CONNECT` / `-ON-QUERY-DONE` / `-ON-ERROR` (event handler stubs, not helpers) and every handler.
+- **Not replaced by a runtime service.** The spec's wording for T5.2 is "runtime services replace generator
+  plumbing". The one candidate with weight, the animation dispatch (336 lines on PowerAnalytics), cannot be
+  swapped for a call the runtime answers without the browser generator learning the form's animations: it
+  compiles this very paragraph and its `FormSpec` carries the controls' names but not their animations. Leaving
+  the paragraph out when nothing performs it gives the same saving, needs no new call and breaks no host.
