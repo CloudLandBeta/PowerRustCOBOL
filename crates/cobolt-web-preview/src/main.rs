@@ -4,35 +4,40 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! **The helper process of the web Preview** (WASM-008 R1, R2, R4, R5, R8).
+//! **The headless helper of the web Preview** (WASM-008 R9, R16, R2, R8).
+//!
+//! The interactive Preview is the developer's browser, or a device (WASM-008
+//! §0, the operator's ruling of 2026-10-23); this program is what draws a web
+//! form for `render_form` / `run_form` and the tests, with **no window anyone
+//! sees**: its window is built invisible and placed off every screen, and on
+//! macOS the program takes no place in the Dock.
 //!
 //! The IDE starts this program, writes JSON lines to its standard input and
 //! reads JSON lines from its standard output (`cobolt_project_tools::web::preview`
 //! is the IDE's side of the same protocol, and pins the same lines):
 //!
 //! ```text
-//! IDE -> here   {"cmd":"open","url":"http://127.0.0.1:8123/","title":"P","width":390,"height":844}
-//!               (`open` may also carry "dpr":3.0 "dark":true "locale":"pt-BR" "safe_area":[top,right,bottom,left],
-//!               so the first load already has the emulation the developer chose)
-//!               {"cmd":"size","width":820,"height":1180}   {"cmd":"reload"}   {"cmd":"close"}
-//!               {"cmd":"scheme","dark":true}   {"cmd":"devtools"}
+//! IDE -> here   {"cmd":"open","url":"http://127.0.0.1:8123/","width":390,"height":844,"dpr":3.0,"dark":false,"locale":"pt-BR"}
+//!               {"cmd":"reload"}   {"cmd":"scheme","dark":true}   {"cmd":"close"}
 //!               {"cmd":"emulate","dpr":2.0,"locale":"pt-BR","safe_area":[47,0,34,0]}   (any of the three; one reload)
-//! here -> IDE   {"event":"ready"}   {"event":"console","level":"error","text":"..."}
-//!               {"event":"error","message":"..","source":"..","line":3}
-//!               {"event":"blocked","url":"https://example.com/"}   {"event":"failed","message":".."}
-//!               {"event":"closed"}
+//! here -> IDE   {"event":"ready","visible":false}   {"event":"blocked","url":".."}
+//!               {"event":"failed","message":".."}   {"event":"closed"}
+//!               {"event":"console","level":"error","text":"..","form":".."}
+//!               {"event":"error","message":"..","source":"..","line":3,"form":".."}
+//!               {"event":"cobol-error","form":"..","unit":"..","line":7,"code":"..","message":".."}
+//!               {"event":"updated","how":"..","ms":12.5,"form":".."}
 //! ```
 //!
-//! The window is the operating system's: it changes size only when the IDE sends
-//! `size` (the developer chose a preset or an orientation) or the developer
-//! drags its edge. The web view loads the Preview's own address and nothing else
-//! — a navigation to another origin, and a request for a new window, are
-//! refused and reported as `blocked`.
+//! `size` and `devtools` are gone with the visible window: they answer
+//! `failed`. Any other unknown command is ignored. The web view loads the
+//! Preview's own address and nothing else — a navigation to another origin,
+//! and a request for a new window, are refused and reported as `blocked`.
 //!
-//! The page's console and its uncaught errors reach the IDE through a script the
-//! web view runs before the page does; the same script applies the device
-//! emulation the IDE asked for (pixel ratio, language, safe-area insets), which
-//! it keeps in the page origin's `localStorage` and reapplies on every load.
+//! The page events are the served page's own Preview script's, which posts
+//! them here over `window.ipc` and to `/__prc/log` in a browser, so both say
+//! the same; the script this program runs first applies only the device
+//! emulation (pixel ratio, language, safe-area insets), kept in the page
+//! origin's `localStorage` and reapplied on every load.
 
 /// Messages of this program's own, as protocol lines.
 mod lines {
@@ -41,9 +46,15 @@ mod lines {
         serde_json::json!({ "event": "failed", "message": message }).to_string()
     }
 
-    /// `{"event":"ready"}`
-    pub fn ready() -> String {
-        serde_json::json!({ "event": "ready" }).to_string()
+    /// `{"event":"ready","visible":false}`: the page is loading, in a window
+    /// that is (or, if the system says otherwise, is not) invisible.
+    pub fn ready(visible: bool) -> String {
+        format!("{{\"event\":\"ready\",\"visible\":{visible}}}")
+    }
+
+    /// The answer to a command the headless helper no longer has.
+    pub fn removed(command: &str) -> String {
+        failed(&format!("`{command}` is not a command of the headless helper"))
     }
 
     /// `{"event":"closed"}`
@@ -56,30 +67,28 @@ mod lines {
         serde_json::json!({ "event": "blocked", "url": url }).to_string()
     }
 
-    /// What the page's script posts → the event line for the IDE.
-    /// `console` and `error` messages are forwarded; anything else is dropped.
+    /// What the served page's Preview script posts over `window.ipc` → the
+    /// event line for the IDE. It is the same JSON the page posts to
+    /// `/__prc/log` in a browser (`cobolt_project_tools::web::devserver::PageEvent`):
+    /// the four page events are forwarded with their own fields, as text,
+    /// numbers or nothing; anything else is dropped.
     pub fn from_page(message: &str) -> Option<String> {
         let v: serde_json::Value = serde_json::from_str(message).ok()?;
-        match v.get("t")?.as_str()? {
-            "console" => Some(
-                serde_json::json!({
-                    "event": "console",
-                    "level": v.get("level").and_then(|l| l.as_str()).unwrap_or("log"),
-                    "text": v.get("text").and_then(|l| l.as_str()).unwrap_or(""),
-                })
-                .to_string(),
-            ),
-            "error" => Some(
-                serde_json::json!({
-                    "event": "error",
-                    "message": v.get("message").and_then(|l| l.as_str()).unwrap_or(""),
-                    "source": v.get("source").and_then(|l| l.as_str()).unwrap_or(""),
-                    "line": v.get("line").and_then(|l| l.as_u64()).unwrap_or(0),
-                })
-                .to_string(),
-            ),
-            _ => None,
+        let fields: &[&str] = match v.get("event")?.as_str()? {
+            "console" => &["level", "text", "form"],
+            "error" => &["message", "source", "line", "form"],
+            "cobol-error" => &["form", "unit", "line", "code", "message"],
+            "updated" => &["how", "ms", "form"],
+            _ => return None,
+        };
+        let mut out = serde_json::Map::new();
+        out.insert("event".into(), v["event"].clone());
+        for f in fields {
+            if let Some(x) = v.get(*f).filter(|x| x.is_string() || x.is_number()) {
+                out.insert((*f).into(), x.clone());
+            }
         }
+        Some(serde_json::Value::Object(out).to_string())
     }
 }
 
@@ -98,26 +107,11 @@ fn may_navigate(origin: &str, target: &str) -> bool {
         || (target.starts_with(origin) && matches!(target.as_bytes().get(origin.len()), Some(b'/' | b'?' | b'#')))
 }
 
-/// The script run before every page: console and error capture, and the device
-/// emulation the IDE has asked for, kept in `localStorage`.
+/// The script run before every page: the device emulation the IDE has asked
+/// for, kept in `localStorage`. The console, error and update capture is the
+/// served page's own Preview script (the dev server's), which posts over
+/// `window.ipc` here and to `/__prc/log` in a browser, so both say the same.
 const INIT_SCRIPT: &str = r#"(function () {
-  function send(o) { try { window.ipc.postMessage(JSON.stringify(o)); } catch (e) {} }
-  ['log', 'info', 'warn', 'error', 'debug'].forEach(function (level) {
-    var original = console[level];
-    console[level] = function () {
-      var text = Array.prototype.map.call(arguments, function (a) {
-        try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); }
-      }).join(' ');
-      send({ t: 'console', level: level, text: text });
-      if (original) { original.apply(console, arguments); }
-    };
-  });
-  window.addEventListener('error', function (e) {
-    send({ t: 'error', message: String(e.message), source: String(e.filename || ''), line: e.lineno || 0 });
-  });
-  window.addEventListener('unhandledrejection', function (e) {
-    send({ t: 'error', message: String(e.reason), source: 'promise', line: 0 });
-  });
   function stored(key) { try { return window.localStorage.getItem('__prc_' + key); } catch (e) { return null; } }
   var dpr = parseFloat(stored('dpr'));
   if (dpr > 0) { Object.defineProperty(window, 'devicePixelRatio', { get: function () { return dpr; }, configurable: true }); }
@@ -205,7 +199,7 @@ fn main() {
 mod run {
     use std::io::{BufRead, Write};
 
-    use tao::dpi::LogicalSize;
+    use tao::dpi::{LogicalPosition, LogicalSize};
     use tao::event::{Event, WindowEvent};
     use tao::event_loop::{ControlFlow, EventLoopBuilder};
     use tao::window::{Theme, Window, WindowBuilder};
@@ -231,8 +225,19 @@ mod run {
         view: WebView,
     }
 
+    /// Where the window is put: off every screen, so that an engine that will
+    /// not paint a hidden window still has nothing on show (plan §5).
+    const OFF_SCREEN: LogicalPosition<f64> = LogicalPosition::new(-32000.0, -32000.0);
+
     pub fn run() {
-        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+        #[allow(unused_mut)]
+        let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+        #[cfg(target_os = "macos")]
+        {
+            use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
+            // No Dock icon and no menu bar: nothing of this program is on show.
+            event_loop.set_activation_policy(ActivationPolicy::Accessory);
+        }
         let proxy = event_loop.create_proxy();
         std::thread::spawn(move || {
             let stdin = std::io::stdin();
@@ -259,11 +264,14 @@ mod run {
                     match name {
                         "open" if shown.is_none() => {
                             let url = cmd.get("url").and_then(|v| v.as_str()).unwrap_or("").to_owned();
-                            let title = cmd.get("title").and_then(|v| v.as_str()).unwrap_or("Preview").to_owned();
                             let (w, h) = (num("width").max(200) as f64, num("height").max(200) as f64);
                             let origin = origin_of(&url);
                             let emulation = Emulation::from_open(&cmd);
-                            let mut builder = WindowBuilder::new().with_title(title).with_inner_size(LogicalSize::new(w, h));
+                            let mut builder = WindowBuilder::new()
+                                .with_visible(false)
+                                .with_position(OFF_SCREEN)
+                                .with_decorations(false)
+                                .with_inner_size(LogicalSize::new(w, h));
                             if let Some(dark) = emulation.dark {
                                 builder = builder.with_theme(Some(if dark { Theme::Dark } else { Theme::Light }));
                             }
@@ -280,7 +288,6 @@ mod run {
                             let view = WebViewBuilder::new()
                                 .with_url(&url)
                                 .with_initialization_script(format!("{}{INIT_SCRIPT}", emulation.seed_script()))
-                                .with_devtools(true)
                                 .with_ipc_handler(|request| {
                                     if let Some(line) = lines::from_page(request.body()) {
                                         say(&line);
@@ -302,8 +309,9 @@ mod run {
                                 .build(&window);
                             match view {
                                 Ok(view) => {
+                                    let visible = window.is_visible();
                                     shown = Some(Shown { window, view });
-                                    say(&lines::ready());
+                                    say(&lines::ready(visible));
                                 }
                                 Err(e) => {
                                     say(&lines::failed(&format!("the web view could not be made: {e}")));
@@ -311,11 +319,7 @@ mod run {
                                 }
                             }
                         }
-                        "size" => {
-                            if let Some(s) = &shown {
-                                s.window.set_inner_size(LogicalSize::new(num("width").max(200) as f64, num("height").max(200) as f64));
-                            }
-                        }
+                        "size" | "devtools" => say(&lines::removed(name)),
                         "reload" => {
                             if let Some(s) = &shown {
                                 let _ = s.view.reload();
@@ -332,11 +336,6 @@ mod run {
                                 // The same fields an `open` carries; the page loads again once.
                                 let seed = Emulation::from_open(&cmd).seed_script();
                                 let _ = s.view.evaluate_script(&format!("{seed}location.reload();"));
-                            }
-                        }
-                        "devtools" => {
-                            if let Some(s) = &shown {
-                                s.view.open_devtools();
                             }
                         }
                         "close" => {
@@ -364,23 +363,34 @@ mod tests {
     /// (`cobolt_project_tools::web::preview::Event::parse` pins the same text).
     #[test]
     fn the_events_are_the_ides_contract() {
-        assert_eq!(lines::ready(), r#"{"event":"ready"}"#);
+        assert_eq!(lines::ready(false), r#"{"event":"ready","visible":false}"#);
+        assert_eq!(lines::removed("size"), r#"{"event":"failed","message":"`size` is not a command of the headless helper"}"#);
         assert_eq!(lines::closed(), r#"{"event":"closed"}"#);
         assert_eq!(lines::failed("no web view"), r#"{"event":"failed","message":"no web view"}"#);
         assert_eq!(lines::blocked("https://example.com/"), r#"{"event":"blocked","url":"https://example.com/"}"#);
-        assert_eq!(
-            lines::from_page(r#"{"t":"console","level":"error","text":"boom"}"#).unwrap(),
-            r#"{"event":"console","level":"error","text":"boom"}"#
-        );
+        // The page events, as the served Preview script posts them (WASM-008 T33).
         // (An object's keys are written in alphabetical order; the IDE reads them by name.)
-        let error: serde_json::Value =
-            serde_json::from_str(&lines::from_page(r#"{"t":"error","message":"x is not defined","source":"app.js","line":12}"#).unwrap()).unwrap();
+        let read = |page: &str| serde_json::from_str::<serde_json::Value>(&lines::from_page(page).unwrap()).unwrap();
         assert_eq!(
-            error,
-            serde_json::json!({ "event": "error", "message": "x is not defined", "source": "app.js", "line": 12 })
+            read(r#"{"event":"console","level":"error","text":"boom","form":"MAIN-FORM"}"#),
+            serde_json::json!({ "event": "console", "level": "error", "text": "boom", "form": "MAIN-FORM" })
+        );
+        assert_eq!(
+            read(r#"{"event":"error","message":"x is not defined","source":"app.js","line":12,"form":"F"}"#),
+            serde_json::json!({ "event": "error", "message": "x is not defined", "source": "app.js", "line": 12, "form": "F" })
+        );
+        assert_eq!(
+            read(r#"{"event":"cobol-error","form":"F","unit":"BTN-CLICK","line":7,"code":"EC-SIZE","message":"m","x":{"y":1}}"#),
+            serde_json::json!({ "event": "cobol-error", "form": "F", "unit": "BTN-CLICK", "line": 7, "code": "EC-SIZE", "message": "m" })
+        );
+        assert_eq!(
+            read(r#"{"event":"updated","how":"stylesheet","ms":12.5,"form":{"nested":true}}"#),
+            serde_json::json!({ "event": "updated", "how": "stylesheet", "ms": 12.5 }),
+            "a field of the wrong kind is left out"
         );
         assert!(lines::from_page("not json").is_none());
-        assert!(lines::from_page(r#"{"t":"other"}"#).is_none());
+        assert!(lines::from_page(r#"{"event":"ready"}"#).is_none(), "the page cannot speak for the helper");
+        assert!(lines::from_page(r#"{"t":"console","text":"old shape"}"#).is_none());
         assert!(lines::from_page(r#"{"nothing":1}"#).is_none());
     }
 
@@ -410,12 +420,12 @@ mod tests {
     /// that carries none seeds nothing (WASM-008 R5).
     #[test]
     fn an_open_line_seeds_the_first_load() {
-        let plain: serde_json::Value = serde_json::from_str(r#"{"cmd":"open","url":"http://127.0.0.1:1/","title":"P","width":390,"height":844}"#).unwrap();
+        let plain: serde_json::Value = serde_json::from_str(r#"{"cmd":"open","url":"http://127.0.0.1:1/","width":390,"height":844}"#).unwrap();
         assert_eq!(Emulation::from_open(&plain), Emulation::default());
         assert_eq!(Emulation::from_open(&plain).seed_script(), "");
 
         let full: serde_json::Value = serde_json::from_str(
-            r#"{"cmd":"open","url":"http://127.0.0.1:1/","title":"P","width":390,"height":844,"dpr":3.0,"dark":true,"locale":"pt-BR","safe_area":[47,0,34,0]}"#,
+            r#"{"cmd":"open","url":"http://127.0.0.1:1/","width":390,"height":844,"dpr":3.0,"dark":true,"locale":"pt-BR","safe_area":[47,0,34,0]}"#,
         )
         .unwrap();
         let e = Emulation::from_open(&full);
@@ -448,8 +458,12 @@ mod tests {
     #[test]
     fn the_script_keeps_what_the_ide_sets() {
         // The commands store under `__prc_<key>`; the script reads the same keys back.
-        for needle in ["'__prc_' + key", "stored('dpr')", "stored('locale')", "stored('safe')", "window.ipc.postMessage", "unhandledrejection", "--prc-safe-area-top"] {
+        for needle in ["'__prc_' + key", "stored('dpr')", "stored('locale')", "stored('safe')", "--prc-safe-area-top"] {
             assert!(INIT_SCRIPT.contains(needle), "{needle}");
+        }
+        // The capture is the served page's (one script for the browser and here).
+        for gone in ["window.ipc.postMessage", "unhandledrejection", "console[level]"] {
+            assert!(!INIT_SCRIPT.contains(gone), "{gone}");
         }
     }
 }

@@ -4,24 +4,25 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! **The web view of the Preview, as the IDE talks to it** (WASM-008 R1, R2,
-//! R5, R8).
+//! **How the web Preview is opened, and the headless helper** (WASM-008 R12,
+//! R9, R16, R2, R8).
 //!
-//! The system web view (WKWebView, WebView2, WebKitGTK) lives in a **helper
-//! process**, `prc-web-preview` (crate `cobolt-web-preview`), in a window of its
-//! own — the way `rcrun run-form` holds a form. A web view that hangs or
-//! crashes takes the helper down and nothing else (WASM-008 R2, AC6), and the
-//! window is the operating system's, which no layout of ours can resize.
+//! The Preview and Run open the served page in the developer's browser — the
+//! system's default, or the one the project names ([`BrowserChoice`],
+//! [`open_in_browser`]); nothing here is a window of the IDE's.
 //!
-//! The two talk in **JSON lines**: the IDE writes [`Command`]s to the helper's
-//! standard input and reads [`Event`]s from its standard output. The helper is
-//! built from the same definitions' *text* — it depends on `serde_json` and
-//! nothing of ours — so `tests` here pin every line either side writes.
+//! The system web view (WKWebView, WebView2, WebKitGTK) is used **headless**
+//! only, in a helper process, `prc-web-preview` (crate `cobolt-web-preview`),
+//! whose window no one sees: `render_form`, `run_form` and the tests draw a
+//! web form with it. A web view that hangs or crashes takes the helper down
+//! and nothing else (R2).
 //!
-//! When the helper is not installed (or does not start), [`PreviewSession`]
-//! falls back to what is always there: the system browser, opened on the same
-//! served bundle. The developer loses the console in the Output panel and the
-//! device presets, never the Preview.
+//! The two talk in **JSON lines**: [`PreviewSession`] writes [`Command`]s to
+//! the helper's standard input and reads [`Event`]s from its standard output.
+//! The helper is built from the same definitions' *text* — it depends on
+//! `serde_json` and nothing of ours — so `tests` here pin every line either
+//! side writes. The page's own events have the JSON of `/__prc/log` and are
+//! read by the same type ([`PageEvent`]).
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -30,6 +31,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 use serde::{Deserialize, Serialize};
+
+use crate::web::devserver::PageEvent;
 
 /// The helper's file name.
 #[cfg(windows)]
@@ -46,17 +49,16 @@ pub const HELPER_ENV: &str = "PRC_WEB_PREVIEW";
 /// fall-back does not open a window on the developer's screen.
 pub const NO_BROWSER_ENV: &str = "PRC_PREVIEW_NO_BROWSER";
 
-/// What the IDE asks of the helper.
+/// What the IDE asks of the helper (plan §3).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Command {
-    /// Open the window on `url`, `width` x `height` points. Only the origin
-    /// of `url` may be navigated to afterwards (WASM-008 R8). The emulation the
-    /// developer already chose rides along, so the page loads once, not once
-    /// per setting.
+    /// Open the invisible web view on `url`, at a viewport of `width` x
+    /// `height` CSS pixels. Only the origin of `url` may be navigated to
+    /// afterwards (WASM-008 R8). The emulation rides along, so the page loads
+    /// once, not once per setting.
     Open {
         url: String,
-        title: String,
         width: u32,
         height: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -65,12 +67,7 @@ pub enum Command {
         dark: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         locale: Option<String>,
-        /// top, right, bottom, left — CSS pixels.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        safe_area: Option<[u32; 4]>,
     },
-    /// Resize the window — the developer picked a preset or an orientation.
-    Size { width: u32, height: u32 },
     /// Load the page again.
     Reload,
     /// Prefer the dark or the light colour scheme.
@@ -87,27 +84,40 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         safe_area: Option<[u32; 4]>,
     },
-    /// Open the web view's developer tools.
-    Devtools,
-    /// Close the window and end.
+    /// Close the web view and end.
     Close,
 }
 
-/// What the helper tells the IDE.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "event", rename_all = "snake_case")]
+/// What the helper tells the IDE: its own events, and the page's.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
-    /// The window is open and the page is loading.
-    Ready,
-    /// The page wrote to its console.
-    Console { level: String, text: String },
-    /// An uncaught error or an unhandled promise rejection.
-    Error { message: String, source: String, line: u32 },
+    /// The web view is made and the page is loading; `visible` is what the
+    /// system says of its window (`false`; `None` from an older helper).
+    Ready { visible: Option<bool> },
     /// The page tried to go to `url`, which is not its own origin; it did not.
     Blocked { url: String },
-    /// The helper could not show a web view; `message` says why.
+    /// The helper could not do what it was asked; `message` says why.
     Failed { message: String },
-    /// The window was closed, or the helper ended.
+    /// The helper ended.
+    Closed,
+    /// What the page reported — the JSON of `/__prc/log`.
+    Page(PageEvent),
+}
+
+/// The helper's own events, as their lines are written.
+#[derive(Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+enum HelperEvent {
+    Ready {
+        #[serde(default)]
+        visible: Option<bool>,
+    },
+    Blocked {
+        url: String,
+    },
+    Failed {
+        message: String,
+    },
     Closed,
 }
 
@@ -126,18 +136,9 @@ pub struct Emulation {
 }
 
 impl Command {
-    /// The command that opens the window.
-    pub fn open(url: &str, title: &str, width: u32, height: u32, emulation: &Emulation) -> Command {
-        Command::Open {
-            url: url.to_owned(),
-            title: title.to_owned(),
-            width,
-            height,
-            dpr: emulation.dpr,
-            dark: emulation.dark,
-            locale: emulation.locale.clone(),
-            safe_area: emulation.safe_area,
-        }
+    /// The command that opens the web view (the insets go by `emulate`).
+    pub fn open(url: &str, width: u32, height: u32, emulation: &Emulation) -> Command {
+        Command::Open { url: url.to_owned(), width, height, dpr: emulation.dpr, dark: emulation.dark, locale: emulation.locale.clone() }
     }
 
     /// One line of JSON, newline-terminated.
@@ -149,9 +150,18 @@ impl Command {
 }
 
 impl Event {
-    /// The event a line carries, or `None` for a line that is not one.
+    /// The event a line carries, or `None` for a line that is not one (an
+    /// event this IDE does not know is ignored; so is a field).
     pub fn parse(line: &str) -> Option<Event> {
-        serde_json::from_str(line.trim()).ok()
+        if let Ok(e) = serde_json::from_str::<HelperEvent>(line.trim()) {
+            return Some(match e {
+                HelperEvent::Ready { visible } => Event::Ready { visible },
+                HelperEvent::Blocked { url } => Event::Blocked { url },
+                HelperEvent::Failed { message } => Event::Failed { message },
+                HelperEvent::Closed => Event::Closed,
+            });
+        }
+        PageEvent::parse(line).map(Event::Page)
     }
 }
 
@@ -210,18 +220,243 @@ pub fn is_preview_url(url: &str) -> bool {
     (host == "127.0.0.1" || host == "localhost") && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit())
 }
 
-/// How the Preview is shown.
+/// A browser the project may name in `preview_browser` (WASM-008 R12, D11):
+/// a closed list, each resolved the way its operating system finds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    /// In the system web view of the helper process.
-    WebView,
-    /// In the system browser: the helper is not installed or did not start.
-    SystemBrowser,
+pub enum KnownBrowser {
+    Chrome,
+    Chromium,
+    Edge,
+    Firefox,
+    /// macOS only.
+    Safari,
+    Brave,
 }
 
-/// The Preview, running.
+impl KnownBrowser {
+    pub const ALL: [KnownBrowser; 6] = [
+        KnownBrowser::Chrome,
+        KnownBrowser::Chromium,
+        KnownBrowser::Edge,
+        KnownBrowser::Firefox,
+        KnownBrowser::Safari,
+        KnownBrowser::Brave,
+    ];
+
+    /// The word `preview_browser` carries.
+    pub fn id(self) -> &'static str {
+        match self {
+            KnownBrowser::Chrome => "chrome",
+            KnownBrowser::Chromium => "chromium",
+            KnownBrowser::Edge => "edge",
+            KnownBrowser::Firefox => "firefox",
+            KnownBrowser::Safari => "safari",
+            KnownBrowser::Brave => "brave",
+        }
+    }
+
+    /// The browser's own name (a product name, the same in every language).
+    pub fn name(self) -> &'static str {
+        match self {
+            KnownBrowser::Chrome => "Google Chrome",
+            KnownBrowser::Chromium => "Chromium",
+            KnownBrowser::Edge => "Microsoft Edge",
+            KnownBrowser::Firefox => "Firefox",
+            KnownBrowser::Safari => "Safari",
+            KnownBrowser::Brave => "Brave Browser",
+        }
+    }
+
+    pub fn parse(id: &str) -> Option<KnownBrowser> {
+        let id = id.trim();
+        Self::ALL.into_iter().find(|b| b.id().eq_ignore_ascii_case(id))
+    }
+
+    /// The macOS application bundle's name.
+    fn mac_app(self) -> &'static str {
+        match self {
+            KnownBrowser::Edge => "Microsoft Edge",
+            other => other.name(),
+        }
+    }
+
+    /// The Windows executable the registry's App Paths names.
+    fn windows_exe(self) -> Option<&'static str> {
+        match self {
+            KnownBrowser::Chrome | KnownBrowser::Chromium => Some("chrome.exe"),
+            KnownBrowser::Edge => Some("msedge.exe"),
+            KnownBrowser::Firefox => Some("firefox.exe"),
+            KnownBrowser::Brave => Some("brave.exe"),
+            KnownBrowser::Safari => None,
+        }
+    }
+
+    /// The usual commands on a Linux `PATH`, first found wins.
+    fn linux_commands(self) -> &'static [&'static str] {
+        match self {
+            KnownBrowser::Chrome => &["google-chrome", "google-chrome-stable"],
+            KnownBrowser::Chromium => &["chromium", "chromium-browser"],
+            KnownBrowser::Edge => &["microsoft-edge", "microsoft-edge-stable"],
+            KnownBrowser::Firefox => &["firefox"],
+            KnownBrowser::Brave => &["brave-browser", "brave"],
+            KnownBrowser::Safari => &[],
+        }
+    }
+
+    /// Is this browser on this machine? (The settings row offers only these.)
+    pub fn is_present(self) -> bool {
+        resolve_known(self).is_ok()
+    }
+}
+
+/// Which browser the Preview opens (WASM-008 R12), parsed from the project's
+/// `preview_browser`: empty = the system's default, a known id, else a path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrowserChoice {
+    System,
+    Named(KnownBrowser),
+    Path(PathBuf),
+}
+
+impl BrowserChoice {
+    pub fn parse(setting: &str) -> BrowserChoice {
+        let s = setting.trim();
+        if s.is_empty() {
+            BrowserChoice::System
+        } else if let Some(b) = KnownBrowser::parse(s) {
+            BrowserChoice::Named(b)
+        } else {
+            BrowserChoice::Path(PathBuf::from(s))
+        }
+    }
+
+    /// The name an Output line gives this browser.
+    pub fn label(&self) -> String {
+        match self {
+            BrowserChoice::System => String::new(),
+            BrowserChoice::Named(b) => b.name().to_owned(),
+            BrowserChoice::Path(p) => p.display().to_string(),
+        }
+    }
+}
+
+/// The program and arguments [`open_in_browser`] starts — a plan the tests read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchPlan {
+    pub program: PathBuf,
+    pub args: Vec<String>,
+}
+
+impl LaunchPlan {
+    fn new(program: impl Into<PathBuf>, args: &[&str]) -> Self {
+        LaunchPlan { program: program.into(), args: args.iter().map(|a| (*a).to_owned()).collect() }
+    }
+}
+
+/// How `choice` opens `url` on this system. A browser that is not here is an
+/// error naming it; the caller falls back to [`BrowserChoice::System`]. Only a
+/// loopback `http` address is ever planned (WASM-008 R8).
+pub fn launch_plan(url: &str, choice: &BrowserChoice) -> Result<LaunchPlan, String> {
+    if !is_preview_url(url) {
+        return Err("only the Preview's own address is opened".to_owned());
+    }
+    match choice {
+        BrowserChoice::System => Ok(system_plan(url)),
+        BrowserChoice::Named(b) => {
+            let mut plan = resolve_known(*b)?;
+            plan.args.push(url.to_owned());
+            Ok(plan)
+        }
+        BrowserChoice::Path(p) => {
+            if !p.exists() {
+                return Err(format!("{} was not found", p.display()));
+            }
+            if cfg!(target_os = "macos") && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("app")) {
+                let app = p.to_string_lossy();
+                return Ok(LaunchPlan::new("open", &["-a", &app, url]));
+            }
+            Ok(LaunchPlan::new(p, &[url]))
+        }
+    }
+}
+
+fn system_plan(url: &str) -> LaunchPlan {
+    if cfg!(target_os = "macos") {
+        LaunchPlan::new("open", &[url])
+    } else if cfg!(target_os = "windows") {
+        LaunchPlan::new("cmd", &["/C", "start", "", url])
+    } else {
+        LaunchPlan::new("xdg-open", &[url])
+    }
+}
+
+/// The program that starts `browser` here, without the address.
+fn resolve_known(browser: KnownBrowser) -> Result<LaunchPlan, String> {
+    let missing = || format!("{} was not found on this computer", browser.name());
+    if cfg!(target_os = "macos") {
+        let app = format!("{}.app", browser.mac_app());
+        let mut roots = vec![PathBuf::from("/Applications"), PathBuf::from("/System/Applications")];
+        if let Some(home) = std::env::var_os("HOME") {
+            roots.push(PathBuf::from(home).join("Applications"));
+        }
+        let found = roots.iter().any(|r| r.join(&app).is_dir());
+        return if found { Ok(LaunchPlan::new("open", &["-a", browser.mac_app()])) } else { Err(missing()) };
+    }
+    if browser == KnownBrowser::Safari {
+        return Err("Safari is not available on this system".to_owned());
+    }
+    if cfg!(target_os = "windows") {
+        let exe = browser.windows_exe().ok_or_else(missing)?;
+        return if windows_app_path_exists(exe) {
+            Ok(LaunchPlan::new("cmd", &["/C", "start", "", exe]))
+        } else {
+            Err(missing())
+        };
+    }
+    browser
+        .linux_commands()
+        .iter()
+        .find_map(|c| find_on_path(c))
+        .map(|p| LaunchPlan::new(p, &[]))
+        .ok_or_else(missing)
+}
+
+/// Is `exe` registered under App Paths (the per-user hive, then the machine's)?
+fn windows_app_path_exists(exe: &str) -> bool {
+    ["HKCU", "HKLM"].iter().any(|hive| {
+        let key = format!(r"{hive}\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}");
+        std::process::Command::new("reg")
+            .args(["query", &key, "/ve"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    })
+}
+
+fn find_on_path(command: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path).map(|d| d.join(command)).find(|p| p.is_file())
+}
+
+/// Open `url` in the browser `choice` names (WASM-008 R12). With
+/// [`NO_BROWSER_ENV`] set the decision is made — the plan resolved, a missing
+/// browser still an error — and nothing is started.
+pub fn open_in_browser(url: &str, choice: &BrowserChoice) -> Result<(), String> {
+    let plan = launch_plan(url, choice)?;
+    if std::env::var_os(NO_BROWSER_ENV).is_some() {
+        return Ok(());
+    }
+    let mut cmd = std::process::Command::new(&plan.program);
+    cmd.args(&plan.args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let name = if matches!(choice, BrowserChoice::System) { "the system browser".to_owned() } else { choice.label() };
+    cmd.spawn().map(|_| ()).map_err(|e| format!("{name} could not be started: {e}"))
+}
+
+/// The headless helper, running (R9, R16): nothing of it is on show, and no
+/// browser is ever opened in its place.
 pub struct PreviewSession {
-    mode: Mode,
     child: Option<Child>,
     stdin: Option<ChildStdin>,
     events: Option<Receiver<Event>>,
@@ -229,37 +464,16 @@ pub struct PreviewSession {
 }
 
 impl PreviewSession {
-    /// Show `url`. With a `helper`, its window opens at `width` x `height`;
-    /// without one, or if it will not start, the system browser opens the page.
-    /// The mode that resulted is [`PreviewSession::mode`].
-    pub fn start(
-        url: &str,
-        title: &str,
-        width: u32,
-        height: u32,
-        emulation: &Emulation,
-        helper: Option<&Path>,
-    ) -> Result<Self, String> {
+    /// Load `url` in the `helper` at a viewport of `width` x `height`. A
+    /// helper that is missing or will not start is an error saying so.
+    pub fn start(url: &str, width: u32, height: u32, emulation: &Emulation, helper: &Path) -> Result<Self, String> {
         if !is_preview_url(url) {
             return Err("the Preview shows only its own development server".to_owned());
         }
-        if let Some(path) = helper {
-            if let Ok(session) = Self::spawn(path, url, title, width, height, emulation) {
-                return Ok(session);
-            }
-        }
-        open_in_system_browser(url)?;
-        Ok(Self { mode: Mode::SystemBrowser, child: None, stdin: None, events: None, closed: false })
+        Self::spawn(helper, url, width, height, emulation).map_err(|e| format!("{}: {e}", helper.display()))
     }
 
-    fn spawn(
-        path: &Path,
-        url: &str,
-        title: &str,
-        width: u32,
-        height: u32,
-        emulation: &Emulation,
-    ) -> Result<Self, String> {
+    fn spawn(path: &Path, url: &str, width: u32, height: u32, emulation: &Emulation) -> Result<Self, String> {
         let mut child = std::process::Command::new(path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -279,9 +493,8 @@ impl PreviewSession {
             }
             let _ = tx.send(Event::Closed);
         });
-        let mut session =
-            Self { mode: Mode::WebView, child: Some(child), stdin, events: Some(rx), closed: false };
-        let opened = session.send(&Command::open(url, title, width, height, emulation));
+        let mut session = Self { child: Some(child), stdin, events: Some(rx), closed: false };
+        let opened = session.send(&Command::open(url, width, height, emulation));
         if opened {
             Ok(session)
         } else {
@@ -290,12 +503,7 @@ impl PreviewSession {
         }
     }
 
-    pub fn mode(&self) -> Mode {
-        self.mode
-    }
-
-    /// Send a command. `false` when the helper is gone (the pipe is broken) or
-    /// there is none: in the system-browser mode a command has nowhere to go.
+    /// Send a command. `false` when the helper is gone (the pipe is broken).
     pub fn send(&mut self, command: &Command) -> bool {
         let Some(stdin) = self.stdin.as_mut() else { return false };
         let ok = stdin.write_all(command.to_line().as_bytes()).and_then(|_| stdin.flush()).is_ok();
@@ -329,8 +537,7 @@ impl PreviewSession {
         out
     }
 
-    /// Is the web view still there? (The system-browser mode has no window of
-    /// ours to ask about, so it reports `false`.)
+    /// Is the helper still there?
     pub fn alive(&mut self) -> bool {
         self.poll_state();
         self.child.is_some() && !self.closed
@@ -377,20 +584,18 @@ mod tests {
     fn the_lines_the_ide_writes_are_the_helpers_contract() {
         let cases: Vec<(Command, &str)> = vec![
             (
-                Command::open("http://127.0.0.1:8123/", "P", 390, 844, &Emulation::default()),
-                r#"{"cmd":"open","url":"http://127.0.0.1:8123/","title":"P","width":390,"height":844}"#,
+                Command::open("http://127.0.0.1:8123/", 390, 844, &Emulation::default()),
+                r#"{"cmd":"open","url":"http://127.0.0.1:8123/","width":390,"height":844}"#,
             ),
             (
                 Command::open(
                     "http://127.0.0.1:8123/",
-                    "P",
                     390,
                     844,
-                    &Emulation { dpr: Some(3.0), dark: Some(true), locale: Some("pt-BR".into()), safe_area: Some([47, 0, 34, 0]) },
+                    &Emulation { dpr: Some(3.0), dark: Some(false), locale: Some("pt-BR".into()), safe_area: Some([47, 0, 34, 0]) },
                 ),
-                r#"{"cmd":"open","url":"http://127.0.0.1:8123/","title":"P","width":390,"height":844,"dpr":3.0,"dark":true,"locale":"pt-BR","safe_area":[47,0,34,0]}"#,
+                r#"{"cmd":"open","url":"http://127.0.0.1:8123/","width":390,"height":844,"dpr":3.0,"dark":false,"locale":"pt-BR"}"#,
             ),
-            (Command::Size { width: 820, height: 1180 }, r#"{"cmd":"size","width":820,"height":1180}"#),
             (Command::Reload, r#"{"cmd":"reload"}"#),
             (Command::Scheme { dark: true }, r#"{"cmd":"scheme","dark":true}"#),
             (
@@ -398,27 +603,41 @@ mod tests {
                 r#"{"cmd":"emulate","dpr":2.0,"locale":"pt-BR","safe_area":[47,0,34,0]}"#,
             ),
             (Command::Emulate { dpr: None, locale: None, safe_area: Some([0, 0, 0, 0]) }, r#"{"cmd":"emulate","safe_area":[0,0,0,0]}"#),
-            (Command::Devtools, r#"{"cmd":"devtools"}"#),
             (Command::Close, r#"{"cmd":"close"}"#),
         ];
         for (command, text) in cases {
             assert_eq!(command.to_line(), format!("{text}\n"));
             assert_eq!(serde_json::from_str::<Command>(text).unwrap(), command);
         }
+        // Gone with the visible window (WASM-008 T40); `title` on `open` too.
+        for gone in [r#"{"cmd":"size","width":820,"height":1180}"#, r#"{"cmd":"devtools"}"#] {
+            assert!(serde_json::from_str::<Command>(gone).is_err(), "{gone}");
+        }
+        let line = Command::open("http://127.0.0.1:8123/", 1, 1, &Emulation::default()).to_line();
+        assert!(!line.contains("title"), "{line}");
     }
 
     #[test]
     fn the_lines_the_helper_writes_are_understood() {
+        let console = |text: &str, form: &str| Event::Page(PageEvent::Console { level: "error".into(), text: text.into(), form: form.into() });
         let cases: Vec<(&str, Event)> = vec![
-            (r#"{"event":"ready"}"#, Event::Ready),
-            (r#"{"event":"console","level":"error","text":"boom"}"#, Event::Console { level: "error".into(), text: "boom".into() }),
+            (r#"{"event":"ready","visible":false}"#, Event::Ready { visible: Some(false) }),
+            (r#"{"event":"ready"}"#, Event::Ready { visible: None }),
+            (r#"{"event":"console","level":"error","text":"boom","form":"MAIN-FORM"}"#, console("boom", "MAIN-FORM")),
+            // A line of an older helper, without `form`, still reads.
+            (r#"{"event":"console","level":"error","text":"boom"}"#, console("boom", "")),
             (
-                r#"{"event":"error","message":"x is not defined","source":"app.js","line":12}"#,
-                Event::Error { message: "x is not defined".into(), source: "app.js".into(), line: 12 },
+                r#"{"event":"error","message":"x is not defined","source":"app.js","line":12,"form":"F"}"#,
+                Event::Page(PageEvent::Error { message: "x is not defined".into(), source: "app.js".into(), line: 12, form: "F".into() }),
             ),
+            (
+                r#"{"event":"cobol-error","form":"F","unit":"BTN-CLICK","line":7,"code":"EC-SIZE","message":"m"}"#,
+                Event::Page(PageEvent::CobolError { form: "F".into(), unit: "BTN-CLICK".into(), line: 7, code: "EC-SIZE".into(), message: "m".into() }),
+            ),
+            (r#"{"event":"updated","how":"stylesheet","ms":12.5}"#, Event::Page(PageEvent::Updated { how: "stylesheet".into(), ms: 12.5, form: String::new() })),
             (r#"{"event":"blocked","url":"https://example.com/"}"#, Event::Blocked { url: "https://example.com/".into() }),
             (r#"{"event":"failed","message":"no web view"}"#, Event::Failed { message: "no web view".into() }),
-            (r#"{"event":"closed"}"#, Event::Closed),
+            (r#"{"event":"closed","extra":1}"#, Event::Closed),
         ];
         for (text, event) in cases {
             assert_eq!(Event::parse(text), Some(event), "{text}");
@@ -449,16 +668,82 @@ mod tests {
             assert!(!is_preview_url(bad), "{bad}");
             assert!(open_in_system_browser(bad).is_err(), "{bad}");
         }
-        assert!(PreviewSession::start("https://example.com/", "x", 1, 1, &Emulation::default(), None).is_err());
+        assert!(PreviewSession::start("https://example.com/", 1, 1, &Emulation::default(), Path::new("/bin/true")).is_err());
     }
 
-    /// A helper that is not there, or will not start, leaves the system browser.
+    /// WASM-008 T31 (R12, R8): the setting parses into a choice; each known
+    /// browser resolves on this system to a program and arguments (or an error
+    /// naming it); a non-loopback address is refused for every choice; with
+    /// `PRC_PREVIEW_NO_BROWSER` nothing is started.
     #[test]
-    fn a_missing_helper_means_the_system_browser_not_a_failure() {
-        // `start` with a helper that cannot run falls through to the browser; to
-        // keep the test from opening one, check the helper's own failure.
+    fn the_launcher_resolves_each_choice_and_opens_only_the_preview_008() {
+        assert_eq!(BrowserChoice::parse(""), BrowserChoice::System);
+        assert_eq!(BrowserChoice::parse("  "), BrowserChoice::System);
+        for b in KnownBrowser::ALL {
+            assert_eq!(BrowserChoice::parse(b.id()), BrowserChoice::Named(b));
+            assert_eq!(BrowserChoice::parse(&b.id().to_uppercase()), BrowserChoice::Named(b));
+        }
+        assert_eq!(BrowserChoice::parse("opera"), BrowserChoice::Path(PathBuf::from("opera")), "an unknown id is a path");
+        assert_eq!(BrowserChoice::parse("/usr/bin/x-www"), BrowserChoice::Path(PathBuf::from("/usr/bin/x-www")));
+
+        let url = "http://127.0.0.1:8123/";
+        let system = launch_plan(url, &BrowserChoice::System).unwrap();
+        assert_eq!(system.args.last().map(String::as_str), Some(url));
+        println!("system default -> {} {:?}", system.program.display(), system.args);
+        for b in KnownBrowser::ALL {
+            match launch_plan(url, &BrowserChoice::Named(b)) {
+                Ok(plan) => {
+                    assert_eq!(plan.args.last().map(String::as_str), Some(url));
+                    assert!(b.is_present());
+                    println!("{:<8} -> {} {:?}", b.id(), plan.program.display(), plan.args);
+                }
+                Err(e) => {
+                    assert!(e.contains(b.name()), "{e}");
+                    assert!(!b.is_present());
+                    println!("{:<8} -> not here: {e}", b.id());
+                }
+            }
+        }
+        if !cfg!(target_os = "macos") {
+            let e = launch_plan(url, &BrowserChoice::Named(KnownBrowser::Safari)).unwrap_err();
+            assert!(e.contains("not available"), "{e}");
+        }
+        let missing = BrowserChoice::Path(PathBuf::from("/definitely/not/a/browser"));
+        let e = launch_plan(url, &missing).unwrap_err();
+        assert!(e.contains("/definitely/not/a/browser"), "{e}");
+        let exe = std::env::current_exe().unwrap();
+        let here = launch_plan(url, &BrowserChoice::Path(exe.clone())).unwrap();
+        assert_eq!((here.program, here.args), (exe, vec![url.to_owned()]));
+
+        let choices = [
+            BrowserChoice::System,
+            BrowserChoice::Named(KnownBrowser::Firefox),
+            BrowserChoice::Path(std::env::current_exe().unwrap()),
+        ];
+        for bad in ["https://127.0.0.1:8123/", "http://example.com:80/", "file:///etc/passwd", "javascript:alert(1)", ""] {
+            for c in &choices {
+                assert!(launch_plan(bad, c).is_err(), "{bad} with {c:?}");
+                assert!(open_in_browser(bad, c).is_err(), "{bad} with {c:?}");
+            }
+        }
+
+        // The switch decides without starting: the test's own executable as
+        // the "browser" would run this test binary again if it were spawned.
+        std::env::set_var(NO_BROWSER_ENV, "1");
+        let before = std::time::Instant::now();
+        assert!(open_in_browser(url, &BrowserChoice::Path(std::env::current_exe().unwrap())).is_ok());
+        assert!(open_in_browser(url, &BrowserChoice::System).is_ok());
+        assert!(open_in_browser(url, &missing).is_err(), "a missing browser is still an error with the switch set");
+        println!("NO_BROWSER_ENV: decided in {:?}, nothing started", before.elapsed());
+    }
+
+    /// A helper that is not there is an error naming it — never a browser
+    /// opened in its place (R16).
+    #[test]
+    fn a_missing_helper_is_an_error_not_a_browser() {
         let nothing = PathBuf::from("/definitely/not/a/helper");
-        assert!(PreviewSession::spawn(&nothing, "http://127.0.0.1:1/", "t", 100, 100, &Emulation::default()).is_err());
+        let e = PreviewSession::start("http://127.0.0.1:1/", 100, 100, &Emulation::default(), &nothing).err().expect("an error");
+        assert!(e.contains("/definitely/not/a/helper"), "{e}");
     }
 
     /// A helper process that speaks the protocol: events arrive, commands
@@ -481,17 +766,16 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let mut s = PreviewSession::spawn(&helper, "http://127.0.0.1:9/", "T", 390, 844, &Emulation::default()).unwrap();
-        assert_eq!(s.mode(), Mode::WebView);
+        let mut s = PreviewSession::spawn(&helper, "http://127.0.0.1:9/", 390, 844, &Emulation::default()).unwrap();
         let mut got = Vec::new();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         while got.len() < 3 && std::time::Instant::now() < deadline {
             got.extend(s.poll());
             thread::sleep(std::time::Duration::from_millis(10));
         }
-        assert_eq!(got[0], Event::Ready);
-        assert_eq!(got[1], Event::Console { level: "error".into(), text: "from the page".into() });
-        assert_eq!(got[2], Event::Error { message: "uncaught".into(), source: "app.js".into(), line: 3 });
+        assert_eq!(got[0], Event::Ready { visible: None });
+        assert_eq!(got[1], Event::Page(PageEvent::Console { level: "error".into(), text: "from the page".into(), form: String::new() }));
+        assert_eq!(got[2], Event::Page(PageEvent::Error { message: "uncaught".into(), source: "app.js".into(), line: 3, form: String::new() }));
         assert!(s.alive());
         // A second command reaches the helper, which then ends (as a crash would).
         assert!(s.send(&Command::Reload));

@@ -19,8 +19,8 @@
 //! allows that script by its hash ([`crate::hash::csp_sha256`]), never by `'unsafe-inline'`, so the
 //! policy stays default-deny. On a served page the notice stays hidden and costs nothing.
 //!
-//! The words for the IDE's buttons are the IDE's own (its `Tr` tables: `tb_run`, `pk_prev_title`), so a
-//! developer finds the button the notice names.
+//! The words for the IDE's buttons are the IDE's own (its `Tr` table's `tb_run`, and the designer's
+//! Preview button), so a developer finds the button the notice names.
 
 /// The id of the notice's element, and of nothing else on the page.
 pub const ID: &str = "pr-file-notice";

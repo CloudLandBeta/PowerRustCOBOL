@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.137 — 2026-11-01 — WASM-008 T30–T40: Preview and Run open the browser; the Mobile phone-width fallback; page events, the error overlay and the Backend's token; the helper is headless only
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.120.)*
+
+WASM-008 (the web Preview), re-scoped by the operator on 2026-10-23. The details and the evidence are in `specs/WASM-008-webview-preview/tasks.md`.
+
+* **Preview and Run open the browser** (T30, T31, T35, T37):
+  * They open the system's default browser, or the one named in `preview_browser` under `[web]` or `[mobile]`. The setting is written only when the developer sets it.
+  * The setting has one row: *System default*, the known browsers present on this machine, or *Other…* with a path.
+  * A path is started only after the developer confirms it once, for this project folder. The answer is kept in `preview_browsers.toml` in the IDE's per-user folder, never in the project.
+  * A browser that cannot be started falls back to the system's default, and the Output panel says so.
+  * The controls window, its presets and 24 of its keys are gone. A second Preview reuses the running server.
+* **Page events in the Output panel** (T32, T33, T36):
+  * The served page posts its console lines, its uncaught errors, the player's COBOL run-time errors (with the unit and line), and its in-place update times to `POST /__prc/log`.
+  * That route is loopback only, checks the Host and the Origin, and has size and rate caps. The events are parsed into typed events.
+  * Each event becomes one Output line, led by the form's name. One line per kind of update says how long the page took.
+  * The page polls every 150 ms, and the watcher looks at the same rate.
+* **The error overlay** (T34): a failed rebuild's lines ride on `/__prc/version`. The page shows them over the last good page, as text, until the next good build. A tab still open after the Preview stops shows a stopped banner.
+* **The Backend during Preview and Run** (T38):
+  * `BackendRun::token()` keeps the development token. The Output panel shows `<development token>` in its place.
+  * The served `config.json` is rewritten in the response only. It names the Backend's loopback `ws://` address, sets `unsafe_plain_ws`, and carries `backend.dev_token`. The bundle on disk stays byte-identical.
+  * The player does not send the token yet (WASM-016). Until it does, the Output panel says that calls answer an authentication error.
+* **Mobile: the device first, the browser at a phone width otherwise** (T39):
+  * A `DeviceRunner` seam stands in for WASM-012's device tools. Its only implementation answers that there are no device tools.
+  * A Mobile Preview therefore opens `/__prc/phone`: the application in a same-origin frame at the `[mobile]` device's CSS size and orientation. The frame is served with the bundle's isolation headers, under a not-the-device banner.
+  * The Output panel names the missing tool, and its status line reads "Preview in the browser at W × H CSS pixels, not on the device".
+  * The real device run waits for WASM-012.
+* **The helper `prc-web-preview` is headless only** (T40):
+  * Its window is invisible, off every screen, and takes no Dock icon on macOS.
+  * `size`, `devtools` and `title` are gone; `size` and `devtools` answer `failed`.
+  * Its page events are the `/__prc/log` JSON, read by one `PageEvent` type.
+  * A new test runs the built helper on macOS: `ready` reports `"visible":false`.
+* **Stopped at T41** (`render` / `script`), for an operator decision:
+  * The plan sends `click` and `type` through the player's `dispatch()` / `type_into()`, which the player refuses on a mounted page (`cobolt-web-player/src/api.rs`, headless only).
+  * wry 0.57 has no snapshot API, so `render` needs new direct platform dependencies in the helper.
+  * T42–T48 are not done.
+* All six languages are covered: 20 keys added, 24 removed.
+
 ## 2.0.136 — 2026-11-01 — WASM-002 T19, T20: the Web template's own Build answers a click in Chrome and embeds in a `<div>`; Desktop builds as before
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.119.)*

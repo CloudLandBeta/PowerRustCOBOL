@@ -25,10 +25,19 @@
 //!   and reload the page. The script is added to `index.html` as it is sent;
 //!   the file on disk is never touched.
 //!
+//! - **page events** (WASM-008 R13, D13): `POST /__prc/log` is the one route
+//!   that is not `GET`/`HEAD`. The served page reports its console lines,
+//!   uncaught errors, COBOL run-time errors and in-place update times there;
+//!   the server checks the `Host` and the `Origin`, the size, the type, a
+//!   closed set of events and a rate, parses them into [`PageEvent`]s and
+//!   queues them for [`ServerHandle::take_page_events`]. Another local process
+//!   could still post — it can only add lines to the Output panel.
+//!
 //! One connection, one request, one thread; `Connection: close`. A Preview
 //! serves one developer.
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -39,13 +48,27 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use cobolt_compiler::project_kind::Isolation;
+use serde::{Deserialize, Serialize};
 
 /// The path the page polls for the change count.
 pub const VERSION_PATH: &str = "/__prc/version";
 /// The path of the live-reload script the server adds to `index.html`.
 pub const RELOAD_SCRIPT_PATH: &str = "/__prc/livereload.js";
+/// The path the page posts its events to (WASM-008 R13, D13).
+pub const LOG_PATH: &str = "/__prc/log";
+/// The page that shows the application at a phone's width, in a frame, when
+/// no device or emulator can run it (WASM-008 R15, D12).
+pub const PHONE_PATH: &str = "/__prc/phone";
 /// The largest request head the server reads (request line and headers).
 const MAX_HEAD: usize = 16 * 1024;
+/// The largest body `POST /__prc/log` takes.
+pub const MAX_LOG_BODY: usize = 16 * 1024;
+/// The most events one `POST /__prc/log` may carry.
+pub const MAX_EVENTS_PER_POST: usize = 40;
+/// The most events taken in one second; a burst over it is refused.
+pub const MAX_EVENTS_PER_SECOND: u32 = 200;
+/// The most events kept for the IDE between two polls.
+const MAX_QUEUED_EVENTS: usize = 1000;
 /// How often the watcher looks at the bundle folder.
 pub const WATCH_INTERVAL: Duration = Duration::from_millis(150);
 
@@ -100,6 +123,178 @@ struct State {
     port: u16,
     /// Requests answered, for the tests and the Output panel.
     served: AtomicU64,
+    /// Page events accepted and not yet taken by the IDE.
+    page_events: Mutex<VecDeque<PageEvent>>,
+    /// `POST /__prc/log` requests refused, for the tests and the report.
+    log_refused: AtomicU64,
+    /// The rate window: when it started and how many events it took.
+    log_window: Mutex<(Instant, u32)>,
+    /// The last build's error lines; `/__prc/version` carries them while any.
+    build_errors: Mutex<Vec<String>>,
+    /// The texts the page shows, in the developer's language.
+    page_strings: Mutex<PageStrings>,
+    /// The development Backend of this run: its address and token, put into
+    /// the served `config.json` only (WASM-008 R6, D4).
+    dev_backend: Mutex<Option<DevBackend>>,
+    /// The size `/__prc/phone` frames the application at; `None`: no such page.
+    phone: Mutex<Option<PhoneFrame>>,
+}
+
+/// The CSS size of the phone `/__prc/phone` shows the application in (a
+/// preset in the project's orientation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhoneFrame {
+    pub width: u32,
+    pub height: u32,
+}
+
+fn html_text(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// `/__prc/phone`: the not-the-device banner, then the application in a
+/// same-origin frame of the phone's CSS size. It is served with the bundle's
+/// isolation headers, so the frame is isolated as the page alone would be.
+pub fn phone_page(frame: PhoneFrame, banner: &str) -> String {
+    let (w, h) = (frame.width, frame.height);
+    format!(
+        "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>{t}</title>\n\
+         <style>html,body{{margin:0;background:#202124;font:13px system-ui,sans-serif;color:#e8eaed}}\
+         #pr-phone-banner{{padding:8px 12px;background:#3c4043;text-align:center}}\
+         #pr-phone{{display:block;margin:16px auto;width:{w}px;height:{h}px;border:0;background:#fff;\
+         border-radius:12px;box-shadow:0 0 0 10px #000}}</style></head>\n\
+         <body><div id=\"pr-phone-banner\" role=\"status\">{t}</div>\n\
+         <iframe id=\"pr-phone\" src=\"/\" width=\"{w}\" height=\"{h}\" title=\"{t}\"></iframe></body></html>\n",
+        t = html_text(banner)
+    )
+}
+
+/// The Backend a Preview runs against, for this run only (WASM-008 R6, D4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DevBackend {
+    /// `ws://127.0.0.1:<port>/ws`.
+    pub url: String,
+    /// The development token `rcrun backend run` printed.
+    pub token: String,
+}
+
+/// `config.json` as this run serves it: the development Backend's address
+/// among `backend.origins`, `backend.unsafe_plain_ws` on and the token in
+/// `backend.dev_token`. Only a loopback `ws://` address is ever put there; the
+/// file on disk is never changed. `None` when `config` is not a JSON object.
+pub fn with_dev_backend(config: &[u8], dev: &DevBackend) -> Option<Vec<u8>> {
+    let lower = dev.url.to_ascii_lowercase();
+    let loopback = ["ws://127.0.0.1:", "ws://localhost:", "ws://[::1]:"].iter().any(|p| lower.starts_with(p));
+    if !loopback {
+        return None;
+    }
+    let mut v: serde_json::Value = serde_json::from_slice(config).ok()?;
+    let root = v.as_object_mut()?;
+    let backend = root.entry("backend").or_insert_with(|| serde_json::json!({}));
+    let backend = backend.as_object_mut()?;
+    let origin = {
+        let rest = &dev.url["ws://".len()..];
+        format!("ws://{}", rest.split(['/', '?', '#']).next().unwrap_or(""))
+    };
+    let origins = backend.entry("origins").or_insert_with(|| serde_json::json!([]));
+    if let Some(list) = origins.as_array_mut() {
+        if !list.iter().any(|o| o.as_str() == Some(origin.as_str()) || o.as_str() == Some(dev.url.as_str())) {
+            list.push(serde_json::Value::String(dev.url.clone()));
+        }
+    }
+    backend.insert("unsafe_plain_ws".into(), serde_json::Value::Bool(true));
+    backend.insert("dev_token".into(), serde_json::Value::String(dev.token.clone()));
+    serde_json::to_vec(&v).ok()
+}
+
+/// The texts the Preview script shows in the page (WASM-008 §2.2), handed to
+/// the server by the IDE in the developer's language and inserted with
+/// `textContent` only. The defaults are English, for a server no IDE drives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageStrings {
+    /// The banner of a page whose Preview has stopped (three failed polls).
+    pub stopped: String,
+    /// The title of the overlay of a failed build.
+    pub errors_title: String,
+    /// The overlay's dismiss button.
+    pub dismiss: String,
+    /// The banner of the phone page: this is the browser, not the device.
+    pub not_the_device: String,
+}
+
+impl Default for PageStrings {
+    fn default() -> Self {
+        Self {
+            stopped: "The Preview has stopped. Start it again from the IDE.".to_owned(),
+            errors_title: "The build failed; this is the last good version.".to_owned(),
+            dismiss: "Dismiss".to_owned(),
+            not_the_device: "This is the browser at a phone's width, not the device.".to_owned(),
+        }
+    }
+}
+
+/// What the served page reports (WASM-008 R13, R5, plan §3): the same JSON
+/// over `POST /__prc/log` and from the headless helper. Every event carries
+/// the `form` it came from (empty when the page could not tell). A field the
+/// page leaves out reads as empty; an unknown field is ignored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "kebab-case")]
+pub enum PageEvent {
+    /// A `console.*` line.
+    Console {
+        #[serde(default)]
+        level: String,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        form: String,
+    },
+    /// An uncaught error or an unhandled promise rejection.
+    Error {
+        #[serde(default)]
+        message: String,
+        #[serde(default)]
+        source: String,
+        #[serde(default)]
+        line: u32,
+        #[serde(default)]
+        form: String,
+    },
+    /// A COBOL run-time error the player recorded (`errors()`): the program
+    /// unit (the handler) and its line.
+    CobolError {
+        #[serde(default)]
+        form: String,
+        #[serde(default)]
+        unit: String,
+        #[serde(default)]
+        line: u32,
+        #[serde(default)]
+        code: String,
+        #[serde(default)]
+        message: String,
+    },
+    /// An in-place update finished: what `app.update` answered and how long it took.
+    Updated {
+        #[serde(default)]
+        how: String,
+        #[serde(default)]
+        ms: f64,
+        #[serde(default)]
+        form: String,
+    },
+}
+
+impl PageEvent {
+    /// The event a JSON line carries, or `None` for one outside the set.
+    pub fn parse(line: &str) -> Option<PageEvent> {
+        serde_json::from_str(line.trim()).ok()
+    }
+
+    /// One line of JSON.
+    pub fn to_line(&self) -> String {
+        serde_json::to_string(self).expect("an event serialises")
+    }
 }
 
 /// A running server. Dropping it stops it.
@@ -171,6 +366,54 @@ impl ServerHandle {
         self.state.served.load(Ordering::SeqCst)
     }
 
+    /// The page events posted since the last call, oldest first.
+    pub fn take_page_events(&self) -> Vec<PageEvent> {
+        self.state.page_events.lock().map(|mut q| q.drain(..).collect()).unwrap_or_default()
+    }
+
+    /// How many `POST /__prc/log` requests were refused.
+    pub fn page_events_refused(&self) -> u64 {
+        self.state.log_refused.load(Ordering::SeqCst)
+    }
+
+    /// The last build's error lines (WASM-008 R7): while there are any,
+    /// `/__prc/version` carries them and the page draws them over itself; an
+    /// empty list (the next good build) removes them. The bundle on disk is
+    /// whatever the last good build left.
+    pub fn set_build_errors(&self, errors: Vec<String>) {
+        if let Ok(mut e) = self.state.build_errors.lock() {
+            *e = errors;
+        }
+    }
+
+    /// The development Backend of this run (WASM-008 R6): the served
+    /// `config.json` names it and carries its token; `None` serves the file as
+    /// it is on disk.
+    pub fn set_dev_backend(&self, dev: Option<DevBackend>) {
+        if let Ok(mut d) = self.state.dev_backend.lock() {
+            *d = dev;
+        }
+    }
+
+    /// Serve `/__prc/phone` with the application framed at `frame` (`None`: not served).
+    pub fn set_phone(&self, frame: Option<PhoneFrame>) {
+        if let Ok(mut f) = self.state.phone.lock() {
+            *f = frame;
+        }
+    }
+
+    /// The address of the phone page.
+    pub fn phone_url(&self) -> String {
+        format!("{}{}", self.url().trim_end_matches('/'), PHONE_PATH)
+    }
+
+    /// The texts the page shows, in the developer's language.
+    pub fn set_page_strings(&self, strings: PageStrings) {
+        if let Ok(mut s) = self.state.page_strings.lock() {
+            *s = strings;
+        }
+    }
+
     /// Stop the server and wait for its threads.
     pub fn stop(&mut self) {
         self.state.stop.store(true, Ordering::SeqCst);
@@ -207,6 +450,13 @@ pub fn start(dir: &Path, options: &ServeOptions) -> Result<ServerHandle, ServeEr
         stop: AtomicBool::new(false),
         port,
         served: AtomicU64::new(0),
+        page_events: Mutex::new(VecDeque::new()),
+        log_refused: AtomicU64::new(0),
+        log_window: Mutex::new((Instant::now(), 0)),
+        build_errors: Mutex::new(Vec::new()),
+        page_strings: Mutex::new(PageStrings::default()),
+        dev_backend: Mutex::new(None),
+        phone: Mutex::new(None),
     });
     let mut threads = Vec::new();
     {
@@ -425,11 +675,16 @@ struct Request {
     method: String,
     path: String,
     host: Option<String>,
+    origin: Option<String>,
+    content_type: Option<String>,
+    content_length: Option<usize>,
+    /// Read only for `POST /__prc/log` within [`MAX_LOG_BODY`].
+    body: Vec<u8>,
 }
 
 fn read_request(stream: &TcpStream) -> Result<Request, (u16, &'static str)> {
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-    let mut reader = BufReader::new(stream.take(MAX_HEAD as u64));
+    let mut reader = BufReader::new(stream.take((MAX_HEAD + MAX_LOG_BODY) as u64));
     let mut line = String::new();
     reader.read_line(&mut line).map_err(|_| (400, "bad request"))?;
     let mut parts = line.split_whitespace();
@@ -439,6 +694,9 @@ fn read_request(stream: &TcpStream) -> Result<Request, (u16, &'static str)> {
         return Err((400, "bad request"));
     }
     let mut host = None;
+    let mut origin = None;
+    let mut content_type = None;
+    let mut content_length = None;
     let mut read = line.len();
     loop {
         let mut h = String::new();
@@ -452,12 +710,27 @@ fn read_request(stream: &TcpStream) -> Result<Request, (u16, &'static str)> {
             break;
         }
         if let Some((name, value)) = h.split_once(':') {
+            let value = value.trim();
             if name.eq_ignore_ascii_case("host") {
-                host = Some(value.trim().to_owned());
+                host = Some(value.to_owned());
+            } else if name.eq_ignore_ascii_case("origin") {
+                origin = Some(value.to_owned());
+            } else if name.eq_ignore_ascii_case("content-type") {
+                content_type = Some(value.to_owned());
+            } else if name.eq_ignore_ascii_case("content-length") {
+                content_length = Some(value.parse().map_err(|_| (400, "bad request"))?);
             }
         }
     }
-    Ok(Request { method, path, host })
+    let mut body = Vec::new();
+    let bare = path.split(['?', '#']).next().unwrap_or("");
+    if method == "POST" && bare == LOG_PATH {
+        if let Some(n) = content_length.filter(|n| *n <= MAX_LOG_BODY) {
+            body.resize(n, 0);
+            reader.read_exact(&mut body).map_err(|_| (400, "bad request"))?;
+        }
+    }
+    Ok(Request { method, path, host, origin, content_type, content_length, body })
 }
 
 /// Is `host` (a `Host` header) one of this server's own names?
@@ -465,6 +738,62 @@ fn host_is_ours(host: Option<&str>, port: u16) -> bool {
     let Some(host) = host else { return false };
     let host = host.to_ascii_lowercase();
     host == format!("127.0.0.1:{port}") || host == format!("localhost:{port}") || host == format!("[::1]:{port}")
+}
+
+/// Is `origin` (an `Origin` header) this server's own?
+fn origin_is_ours(origin: Option<&str>, port: u16) -> bool {
+    let Some(origin) = origin else { return false };
+    let origin = origin.to_ascii_lowercase();
+    origin == format!("http://127.0.0.1:{port}") || origin == format!("http://localhost:{port}")
+}
+
+/// Take a `POST /__prc/log` (Host already checked). `Err` is the status and the
+/// reason of a refusal; nothing of a refused request is kept.
+fn take_log(request: &Request, state: &State) -> Result<usize, (u16, &'static str, &'static str)> {
+    if !origin_is_ours(request.origin.as_deref(), state.port) {
+        return Err((403, "Forbidden", "foreign origin"));
+    }
+    match request.content_length {
+        None => return Err((411, "Length Required", "no length")),
+        Some(n) if n > MAX_LOG_BODY => return Err((413, "Payload Too Large", "too large")),
+        Some(_) => {}
+    }
+    let is_json = request
+        .content_type
+        .as_deref()
+        .and_then(|t| t.split(';').next())
+        .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"));
+    if !is_json {
+        return Err((415, "Unsupported Media Type", "not json"));
+    }
+    let items: Vec<serde_json::Value> = serde_json::from_slice(&request.body).map_err(|_| (400, "Bad Request", "not a list of events"))?;
+    if items.len() > MAX_EVENTS_PER_POST {
+        return Err((413, "Payload Too Large", "too many events"));
+    }
+    let events: Vec<PageEvent> = items
+        .into_iter()
+        .map(serde_json::from_value)
+        .collect::<Result<_, _>>()
+        .map_err(|_| (400, "Bad Request", "unknown event"))?;
+    {
+        let mut w = state.log_window.lock().map_err(|_| (500, "Internal Server Error", "lock"))?;
+        if w.0.elapsed() >= Duration::from_secs(1) {
+            *w = (Instant::now(), 0);
+        }
+        let n = u32::try_from(events.len()).unwrap_or(u32::MAX);
+        if w.1.saturating_add(n) > MAX_EVENTS_PER_SECOND {
+            return Err((429, "Too Many Requests", "too many events this second"));
+        }
+        w.1 += n;
+    }
+    let count = events.len();
+    if let Ok(mut q) = state.page_events.lock() {
+        q.extend(events);
+        while q.len() > MAX_QUEUED_EVENTS {
+            q.pop_front();
+        }
+    }
+    Ok(count)
 }
 
 fn respond(
@@ -505,21 +834,73 @@ fn text_response(stream: &mut TcpStream, status: u16, reason: &str, body: &str, 
     respond(stream, status, reason, "text/plain; charset=utf-8", &[], body.as_bytes(), head_only, state)
 }
 
-/// The script added to `index.html`: poll the change count; on a change, hand the application its new
-/// configuration so that it takes the new module, descriptions and stylesheet in place, without reloading
-/// the page or the player (`app.update`, WASM-016 R16), and reload only when it answers that it cannot (or
-/// the page holds no application).
-fn reload_script() -> &'static str {
-    "(function(){var v=null;\
-     function inPlace(){var el=document.querySelector('[data-pr-config]');\
-     if(!el||!window.PowerRustCOBOL){return Promise.resolve('reload');}\
-     return PowerRustCOBOL.mount(el).then(function(app){if(!app||typeof app.update!=='function'){return 'reload';}\
-     return fetch(el.getAttribute('data-pr-config')||'config.json',{cache:'no-store'}).then(function(r){return r.json();})\
-     .then(function(c){return app.update(c);});});}\
-     function poll(){fetch('/__prc/version',{cache:'no-store'})\
-     .then(function(r){return r.json();}).then(function(j){if(v===null){v=j.version;return;}if(j.version===v){return;}v=j.version;\
-     return inPlace().then(function(a){if(a==='reload'||a==='unmounted'){location.reload();}},function(){location.reload();});})\
-     .catch(function(){}).finally(function(){setTimeout(poll,400);});}poll();})();\n"
+/// The **Preview script** added to `index.html` (WASM-008 R3, R5, R7, R13, D6):
+///
+/// - polls the change count every 150 ms; on a change, hands the application its new configuration so it
+///   takes the new module, descriptions and stylesheet in place, without reloading the page or the player
+///   (`app.update`, WASM-016 R16), and reloads only when it answers that it cannot (or the page holds no
+///   application); each update is timed with `performance.now()` and reported as `updated {how, ms}`;
+/// - wraps `console.*`, `window.onerror` and `unhandledrejection` and reports them as `console` / `error`;
+/// - after each settled run, reports the player's new run-time errors (`errors()`) as `cobol-error`;
+/// - tags every event with its `form` (the route `#/form` of an SPA, `pr-form` of a standalone window) and
+///   sends it over `window.ipc` inside the headless helper, else `POST /__prc/log`;
+/// - draws a failed build's errors (`/__prc/version`'s `errors`) over the page in a dismissable overlay,
+///   and a "the Preview has stopped" banner after three failed polls in a row.
+///
+/// Every text the page shows comes from [`PageStrings`] and goes in with `textContent`; nothing is parsed
+/// as markup and nothing is evaluated.
+const PREVIEW_SCRIPT: &str = r#"var ipc=window.ipc&&typeof window.ipc.postMessage==='function'?window.ipc:null;
+var queue=[],timer=null,v=null,fails=0,banner=null,overlay=null,shown='',sent=0;
+function form(){var m=/^#\/([^\/?#]+)/.exec(location.hash||'');if(m){try{return decodeURIComponent(m[1]);}catch(x){return m[1];}}
+try{return new URLSearchParams(location.search).get('pr-form')||'';}catch(x){return '';}}
+function flush(){timer=null;var batch=queue.splice(0,40);if(!batch.length){return;}
+fetch('/__prc/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(batch),cache:'no-store',keepalive:true}).catch(function(){});
+if(queue.length){timer=setTimeout(flush,100);}}
+function send(e){if(!e.form){e.form=form();}
+if(ipc){try{ipc.postMessage(JSON.stringify(e));}catch(x){}return;}
+if(queue.length<200){queue.push(e);}if(!timer){timer=setTimeout(flush,100);}}
+function text(a){try{return typeof a==='string'?a:(a instanceof Error?String(a.stack||a):JSON.stringify(a));}catch(x){return String(a);}}
+['log','info','warn','error','debug'].forEach(function(level){var original=console[level];
+console[level]=function(){send({event:'console',level:level,text:Array.prototype.map.call(arguments,text).join(' ').slice(0,4000)});
+if(original){original.apply(console,arguments);}};});
+window.addEventListener('error',function(e){send({event:'error',message:String(e.message||''),source:String(e.filename||''),line:e.lineno||0});});
+window.addEventListener('unhandledrejection',function(e){send({event:'error',message:text(e.reason),source:'promise',line:0});});
+function el(tag,cls,t){var n=document.createElement(tag);n.className=cls;if(t){n.textContent=t;}return n;}
+function look(n,css){Object.keys(css).forEach(function(k){n.style.setProperty(k,css[k]);});}
+var box={position:'fixed',left:'0',right:'0','z-index':'2147483647',font:'13px/1.4 system-ui,sans-serif',padding:'8px 12px'};
+function showBanner(){if(banner||!document.body){return;}banner=el('div','prc-preview-stopped',S.stopped);
+look(banner,box);look(banner,{top:'0',background:'#5a1a1a',color:'#fff'});document.body.appendChild(banner);}
+function hideBanner(){if(banner){banner.remove();banner=null;}}
+function showErrors(list){list=Array.isArray(list)?list:[];var key=JSON.stringify(list);if(key===shown){return;}shown=key;
+if(overlay){overlay.remove();overlay=null;}if(!list.length||!document.body){return;}
+overlay=el('div','prc-preview-errors');look(overlay,box);look(overlay,{bottom:'0','max-height':'50vh',overflow:'auto',background:'#2b0d0d',color:'#ffdede'});
+var b=el('button','prc-preview-errors-dismiss',S.dismiss);b.type='button';look(b,{float:'right'});
+b.addEventListener('click',function(){if(overlay){overlay.remove();overlay=null;}});
+overlay.appendChild(b);overlay.appendChild(el('div','prc-preview-errors-title',S.errors_title));
+list.forEach(function(line){var pre=el('pre','prc-preview-error',String(line));look(pre,{margin:'4px 0','white-space':'pre-wrap'});overlay.appendChild(pre);});
+document.body.appendChild(overlay);}
+function mounted(){var c=document.querySelector('[data-pr-config]');if(!c||!window.PowerRustCOBOL){return Promise.resolve(null);}
+return PowerRustCOBOL.mount(c).then(function(app){return app&&typeof app.update==='function'?app:null;},function(){return null;});}
+function cobolErrors(){return mounted().then(function(app){if(!app||!app.player||typeof app.player.errors!=='function'){return;}
+return Promise.resolve(typeof app.settled==='function'?app.settled():null).then(function(){var list;
+try{list=JSON.parse(app.player.errors());}catch(x){return;}if(!Array.isArray(list)){return;}if(list.length<sent){sent=0;}
+list.slice(sent).forEach(function(e){send({event:'cobol-error',form:String(e.form||form()),unit:String(e.event||''),line:Number(e.line)||0,
+code:e.code==null?'':String(e.code),message:String(e.message||e.text||'')});});sent=list.length;});}).catch(function(){});}
+function inPlace(){var host=document.querySelector('[data-pr-config]');return mounted().then(function(app){if(!app){return 'reload';}
+return fetch(host.getAttribute('data-pr-config')||'config.json',{cache:'no-store'}).then(function(r){return r.json();})
+.then(function(c){var t0=performance.now();return Promise.resolve(app.update(c)).then(function(a){
+send({event:'updated',how:String(a),ms:Math.round((performance.now()-t0)*10)/10});return a;});});});}
+function reload(){flush();location.reload();}
+function poll(){fetch('/__prc/version',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){fails=0;hideBanner();showErrors(j.errors);
+if(v===null){v=j.version;return;}if(j.version===v){return;}v=j.version;
+return inPlace().then(function(a){if(a==='reload'||a==='unmounted'){reload();}},reload);},
+function(){fails+=1;if(fails>=3){showBanner();}}).then(cobolErrors).catch(function(){}).finally(function(){setTimeout(poll,150);});}
+poll();"#;
+
+/// The Preview script with the page's texts: `(function(S){…})({…});`.
+fn reload_script(strings: &PageStrings) -> String {
+    let data = serde_json::to_string(strings).expect("strings serialise");
+    format!("(function(S){{\n{PREVIEW_SCRIPT}\n}})({data});\n")
 }
 
 /// `html` with the live-reload script tag before `</body>` (or at the end).
@@ -545,25 +926,53 @@ fn handle(mut stream: TcpStream, state: &State) -> std::io::Result<()> {
         }
     };
     let head_only = request.method == "HEAD";
-    if request.method != "GET" && !head_only {
+    let bare = request.path.split(['?', '#']).next().unwrap_or("");
+    let is_log = request.method == "POST" && bare == LOG_PATH && state.live_reload;
+    if request.method != "GET" && !head_only && !is_log {
         text_response(&mut stream, 405, "Method Not Allowed", "only GET and HEAD", false, state)?;
         return finish(stream, state);
     }
     // A name other than our own on the Host header is a page elsewhere reaching
     // in (DNS rebinding); it is refused before any file is looked at.
     if !host_is_ours(request.host.as_deref(), state.port) {
+        if is_log {
+            state.log_refused.fetch_add(1, Ordering::SeqCst);
+        }
         text_response(&mut stream, 403, "Forbidden", "unknown host", head_only, state)?;
         return finish(stream, state);
     }
-    let bare = request.path.split(['?', '#']).next().unwrap_or("");
+    if is_log {
+        match take_log(&request, state) {
+            Ok(_) => respond(&mut stream, 204, "No Content", "text/plain; charset=utf-8", &[], b"", false, state)?,
+            Err((code, reason, why)) => {
+                state.log_refused.fetch_add(1, Ordering::SeqCst);
+                text_response(&mut stream, code, reason, why, false, state)?;
+            }
+        }
+        return finish(stream, state);
+    }
     if state.live_reload && bare == VERSION_PATH {
-        let body = format!("{{\"version\":{}}}", state.version.load(Ordering::SeqCst));
+        let version = state.version.load(Ordering::SeqCst);
+        let errors = state.build_errors.lock().map(|e| e.clone()).unwrap_or_default();
+        let body = if errors.is_empty() {
+            format!("{{\"version\":{version}}}")
+        } else {
+            serde_json::json!({ "version": version, "errors": errors }).to_string()
+        };
         respond(&mut stream, 200, "OK", "application/json; charset=utf-8", &[], body.as_bytes(), head_only, state)?;
         return finish(stream, state);
     }
     if state.live_reload && bare == RELOAD_SCRIPT_PATH {
-        respond(&mut stream, 200, "OK", "text/javascript; charset=utf-8", &[], reload_script().as_bytes(), head_only, state)?;
+        let strings = state.page_strings.lock().map(|s| s.clone()).unwrap_or_default();
+        respond(&mut stream, 200, "OK", "text/javascript; charset=utf-8", &[], reload_script(&strings).as_bytes(), head_only, state)?;
         return finish(stream, state);
+    }
+    if bare == PHONE_PATH {
+        if let Some(frame) = state.phone.lock().ok().and_then(|f| *f) {
+            let banner = state.page_strings.lock().map(|s| s.not_the_device.clone()).unwrap_or_default();
+            respond(&mut stream, 200, "OK", "text/html; charset=utf-8", &[], phone_page(frame, &banner).as_bytes(), head_only, state)?;
+            return finish(stream, state);
+        }
     }
     match resolve(&state.root, &request.path) {
         Ok(file) => match std::fs::read(&file) {
@@ -571,6 +980,13 @@ fn handle(mut stream: TcpStream, state: &State) -> std::io::Result<()> {
                 let mime = mime_for(&file);
                 if state.live_reload && file.file_name().is_some_and(|n| n == "index.html") {
                     body = with_reload_script(&body);
+                }
+                // The development Backend goes into the response, never into the file (D4).
+                if bare == "/config.json" {
+                    let dev = state.dev_backend.lock().ok().and_then(|d| d.clone());
+                    if let Some(next) = dev.and_then(|d| with_dev_backend(&body, &d)) {
+                        body = next;
+                    }
                 }
                 respond(&mut stream, 200, "OK", mime, &[], &body, head_only, state)?;
             }
@@ -831,6 +1247,103 @@ mod tests {
         let _ = std::fs::remove_dir_all(outer);
     }
 
+    fn post_log(port: u16, origin: Option<&str>, content_type: &str, body: &str) -> Reply {
+        let origin = origin.map(|o| format!("Origin: {o}\r\n")).unwrap_or_default();
+        raw(
+            port,
+            &format!(
+                "POST {LOG_PATH} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{origin}Content-Type: {content_type}\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        )
+    }
+
+    /// WASM-008 T32 (R13, D13): `POST /__prc/log` takes the four page events
+    /// from the server's own page, in order, typed; every other request to it
+    /// is refused and counted; every other POST is still 405.
+    #[test]
+    fn page_events_are_taken_from_our_own_page_only_008() {
+        let (outer, root) = bundle("log");
+        let server = start(&root, &ServeOptions::default()).unwrap();
+        let p = server.port();
+        let ours = format!("http://127.0.0.1:{p}");
+        let batch = r#"[{"event":"console","level":"error","text":"boom","form":"MAIN-FORM"},
+            {"event":"error","message":"x is not defined","source":"app.js","line":12,"form":"MAIN-FORM"},
+            {"event":"cobol-error","form":"MAIN-FORM","unit":"BTN-OK-CLICK","line":7,"code":"EC-SIZE","message":"size error","extra":1},
+            {"event":"updated","how":"stylesheet","ms":38.5,"form":"MAIN-FORM"}]"#;
+        assert_eq!(post_log(p, Some(&ours), "application/json", batch).status, 204);
+        let got = server.take_page_events();
+        assert_eq!(
+            got,
+            vec![
+                PageEvent::Console { level: "error".into(), text: "boom".into(), form: "MAIN-FORM".into() },
+                PageEvent::Error { message: "x is not defined".into(), source: "app.js".into(), line: 12, form: "MAIN-FORM".into() },
+                PageEvent::CobolError {
+                    form: "MAIN-FORM".into(),
+                    unit: "BTN-OK-CLICK".into(),
+                    line: 7,
+                    code: "EC-SIZE".into(),
+                    message: "size error".into()
+                },
+                PageEvent::Updated { how: "stylesheet".into(), ms: 38.5, form: "MAIN-FORM".into() },
+            ]
+        );
+        assert!(server.take_page_events().is_empty(), "taken once");
+        assert_eq!(server.page_events_refused(), 0);
+        println!("page events: a batch of 4 kinds came out in order with its form");
+
+        let one = r#"[{"event":"console","level":"log","text":"x"}]"#;
+        let too_many = format!("[{}]", vec![r#"{"event":"console","level":"log","text":"x"}"#; MAX_EVENTS_PER_POST + 1].join(","));
+        let oversize = format!(r#"[{{"event":"console","level":"log","text":"{}"}}]"#, "a".repeat(MAX_LOG_BODY));
+        let localhost = format!("http://localhost:{p}");
+        let cases: Vec<(&str, Reply)> = vec![
+            ("wrong Host", raw(p, &format!("POST {LOG_PATH} HTTP/1.1\r\nHost: evil.example:{p}\r\nOrigin: {ours}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{one}", one.len()))),
+            ("foreign Origin", post_log(p, Some("http://evil.example"), "application/json", one)),
+            ("another port's Origin", post_log(p, Some("http://127.0.0.1:1"), "application/json", one)),
+            ("no Origin", post_log(p, None, "application/json", one)),
+            ("text/plain", post_log(p, Some(&ours), "text/plain", one)),
+            ("body over 16 KiB", post_log(p, Some(&ours), "application/json", &oversize)),
+            ("41 events", post_log(p, Some(&ours), "application/json", &too_many)),
+            ("unknown event", post_log(p, Some(&ours), "application/json", r#"[{"event":"keylog","text":"x"}]"#)),
+            ("not a list", post_log(p, Some(&ours), "application/json", r#"{"event":"console"}"#)),
+            ("not json", post_log(p, Some(&ours), "application/json", "hello")),
+        ];
+        let mut refused = 0;
+        for (why, r) in &cases {
+            assert!(r.status >= 400, "{why} -> {}", r.status);
+            refused += 1;
+            println!("  refused: {why:<22} -> {}", r.status);
+        }
+        assert_eq!(server.page_events_refused(), refused);
+        assert!(server.take_page_events().is_empty(), "nothing of a refused request is kept");
+        assert_eq!(post_log(p, Some(&localhost), "application/json; charset=utf-8", one).status, 204, "localhost is ours too");
+        assert_eq!(server.take_page_events().len(), 1);
+
+        // The rate: 200 events a second, then refused until the second is over.
+        let forty = format!("[{}]", vec![r#"{"event":"console","level":"log","text":"x"}"#; MAX_EVENTS_PER_POST].join(","));
+        let mut accepted = 1; // the localhost one above, in this window or the last
+        let mut burst_refused = false;
+        for _ in 0..8 {
+            match post_log(p, Some(&ours), "application/json", &forty).status {
+                204 => accepted += MAX_EVENTS_PER_POST,
+                429 => burst_refused = true,
+                other => panic!("unexpected {other}"),
+            }
+        }
+        assert!(burst_refused, "a burst over {MAX_EVENTS_PER_SECOND}/s is refused");
+        let taken = server.take_page_events().len();
+        assert!(taken <= MAX_EVENTS_PER_SECOND as usize * 2, "{taken}");
+        println!("  rate: 8 posts of 40 in a burst -> {taken} events taken, the rest refused with 429 ({accepted} counted)");
+        println!("page events: {} refusals counted ({} cases + the burst)", server.page_events_refused(), cases.len());
+
+        // Every other method on every other path is still 405; GET on the route is not a file.
+        assert_eq!(raw(p, &format!("POST /app.js HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nContent-Length: 0\r\n\r\n")).status, 405);
+        assert_eq!(raw(p, &format!("PUT {LOG_PATH} HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nContent-Length: 0\r\n\r\n")).status, 405);
+        assert_eq!(get(p, LOG_PATH).status, 404);
+        drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+    }
+
     #[test]
     fn it_listens_on_loopback_only() {
         let (outer, root) = bundle("loopback");
@@ -914,6 +1427,131 @@ mod tests {
         assert_eq!(std::fs::read(root.join("config.json")).unwrap(), before, "nothing written");
         assert_eq!(server.version(), v);
         println!("devserver fast path: {sheet} served, count moved at once; refused {e:?}");
+        drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+    }
+
+    /// WASM-008 T33 (R13, R5, R3, D6): the Preview script relays the console,
+    /// errors, COBOL errors and update times over `window.ipc` or `/__prc/log`,
+    /// polls at 150 ms, and inserts no markup and evaluates nothing; the page's
+    /// texts are the ones the IDE handed over.
+    #[test]
+    fn the_preview_script_relays_and_never_parses_markup_008() {
+        let script = reload_script(&PageStrings::default());
+        for needle in [
+            "app.update(c)",
+            "a==='reload'",
+            "errors()",
+            "/__prc/log",
+            "window.ipc",
+            "performance.now",
+            "setTimeout(poll,150)",
+            "unhandledrejection",
+            "'cobol-error'",
+            "'updated'",
+            "pr-form",
+            "location.hash",
+            "fails>=3",
+            "textContent",
+        ] {
+            assert!(script.contains(needle), "{needle}");
+        }
+        for banned in ["innerHTML", "outerHTML", "insertAdjacentHTML", "eval(", "new Function", "document.write", "setAttribute('style'"] {
+            assert!(!script.contains(banned), "{banned}");
+        }
+        assert!(!script.contains("setTimeout(poll,400)"), "the poll is 150 ms now (D6)");
+
+        let (outer, root) = bundle("strings");
+        let server = start(&root, &ServeOptions::default()).unwrap();
+        let p = server.port();
+        let pt = PageStrings {
+            stopped: "A pré-visualização parou.".into(),
+            errors_title: "A compilação falhou </script><b>".into(),
+            dismiss: "Fechar".into(),
+            not_the_device: "Não é o dispositivo.".into(),
+        };
+        server.set_page_strings(pt.clone());
+        let served = String::from_utf8(get(p, RELOAD_SCRIPT_PATH).body).unwrap();
+        let data = served.rsplit_once("})(").unwrap().1.trim_end().trim_end_matches(");");
+        assert_eq!(serde_json::from_str::<PageStrings>(data).unwrap(), pt, "the texts arrive as data, in the IDE's language");
+        println!("preview script: {} bytes, polls every 150 ms, no markup sink, texts as data ({} bytes)", served.len(), data.len());
+        drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+    }
+
+    /// WASM-008 T34 (R7, AC5): a failed build's errors ride on `/__prc/version`
+    /// until the next good build; the overlay uses `textContent` only.
+    #[test]
+    fn a_failed_build_s_errors_ride_on_the_version_until_a_good_one_008() {
+        let (outer, root) = bundle("errors");
+        let server = start(&root, &ServeOptions::default()).unwrap();
+        let p = server.port();
+        let read = || serde_json::from_slice::<serde_json::Value>(&get(p, VERSION_PATH).body).unwrap();
+        assert_eq!(read().get("errors"), None);
+        let before = std::fs::read(root.join("index.html")).unwrap();
+        let lines = vec!["webforms/main-form.wcfrm:12: BTN-OK has no Click handler".to_owned(), "src/main.cbl:3: <script>".to_owned()];
+        server.set_build_errors(lines.clone());
+        let j = read();
+        assert_eq!(j["errors"], serde_json::json!(lines));
+        assert!(j["version"].as_u64().is_some());
+        assert_eq!(std::fs::read(root.join("index.html")).unwrap(), before, "the bundle is not touched");
+        server.set_build_errors(Vec::new());
+        assert_eq!(read().get("errors"), None, "a good build removes them");
+        let script = reload_script(&PageStrings::default());
+        let overlay = &script[script.find("function showErrors").unwrap()..script.find("function mounted").unwrap()];
+        assert!(overlay.contains("textContent") || overlay.contains("el('pre'"), "{overlay}");
+        assert!(!overlay.contains("innerHTML") && !overlay.contains("insertAdjacentHTML"));
+        println!("build errors: {} lines carried by /__prc/version, removed by the next good build", lines.len());
+        drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+    }
+
+    #[test]
+    fn the_development_backend_rides_in_the_served_config_only_008() {
+        let (outer, root) = bundle("devbackend");
+        let config = br#"{"backend":{"origins":["wss://api.example.com"],"unsafe_plain_ws":false,"call_timeout_ms":30000}}"#;
+        std::fs::write(root.join("config.json"), config).unwrap();
+        let server = start(&root, &ServeOptions::default()).unwrap();
+        let p = server.port();
+        let read = || serde_json::from_slice::<serde_json::Value>(&get(p, "/config.json").body).unwrap();
+        assert_eq!(read()["backend"].get("dev_token"), None, "no Backend, the file as it is");
+        let dev = DevBackend { url: "ws://127.0.0.1:47011/ws".into(), token: "eyJhbGciOiJIUzI1NiJ9.e30.sig".into() };
+        server.set_dev_backend(Some(dev.clone()));
+        let j = read();
+        assert_eq!(j["backend"]["origins"], serde_json::json!(["wss://api.example.com", "ws://127.0.0.1:47011/ws"]));
+        assert_eq!(j["backend"]["unsafe_plain_ws"], serde_json::json!(true));
+        assert_eq!(j["backend"]["dev_token"], serde_json::json!(dev.token));
+        assert_eq!(j["backend"]["call_timeout_ms"], serde_json::json!(30000), "the rest is kept");
+        assert_eq!(std::fs::read(root.join("config.json")).unwrap(), config.to_vec(), "the bundle is not touched");
+        // Only a loopback ws:// address is ever served.
+        let far = DevBackend { url: "ws://203.0.113.9:47011/ws".into(), token: "t".into() };
+        assert_eq!(with_dev_backend(config, &far), None);
+        server.set_dev_backend(None);
+        assert_eq!(read()["backend"].get("dev_token"), None, "the run ended, the token is gone");
+        println!("config.json: dev Backend {} served in the response only; the file on disk byte-identical", dev.url);
+        drop(server);
+        let _ = std::fs::remove_dir_all(outer);
+    }
+
+    #[test]
+    fn the_phone_page_frames_the_application_at_the_preset_width_isolated_008() {
+        let (outer, root) = bundle("phone");
+        let server = start(&root, &ServeOptions { isolation: Isolation::RequireCorp, ..Default::default() }).unwrap();
+        let p = server.port();
+        assert_eq!(get(p, PHONE_PATH).status, 404, "no phone page until the Preview asks for one");
+        let phone = crate::web::presets::preset("phone").unwrap().viewport(false);
+        server.set_page_strings(PageStrings { not_the_device: "Not the device <b>".into(), ..PageStrings::default() });
+        server.set_phone(Some(PhoneFrame { width: phone.width, height: phone.height }));
+        let r = get(p, PHONE_PATH);
+        assert_eq!(r.status, 200);
+        let body = String::from_utf8_lossy(&r.body).into_owned();
+        assert!(body.contains("<iframe id=\"pr-phone\" src=\"/\" width=\"390\" height=\"844\""), "{body}");
+        assert!(body.contains("width:390px;height:844px"), "{body}");
+        assert!(body.contains("Not the device &lt;b&gt;") && !body.contains("<b>"), "the banner is text: {body}");
+        assert_eq!(r.header("Cross-Origin-Opener-Policy"), Some("same-origin"));
+        assert_eq!(r.header("Cross-Origin-Embedder-Policy"), Some("require-corp"));
+        assert_eq!(server.phone_url(), format!("{}{PHONE_PATH}", server.url().trim_end_matches('/')));
+        println!("/__prc/phone: a 390 x 844 frame of /, COOP/COEP on, the banner as text");
         drop(server);
         let _ = std::fs::remove_dir_all(outer);
     }

@@ -121,6 +121,7 @@ impl WebBuildRequest {
                     single_memory_fallback: true,
                     stylesheet: mobile.stylesheet.clone(),
                     theme_file: mobile.theme_file.clone(),
+                    preview_browser: mobile.preview_browser.clone(),
                 };
                 (web, mobile.module_variants())
             }

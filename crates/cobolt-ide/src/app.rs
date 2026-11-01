@@ -202,7 +202,7 @@ impl BenchmarkProgress {
 }
 
 use crate::panels::new_project::NewProjectDialog;
-use crate::panels::web_preview::{Intent as WebIntent, Launch as WebLaunch, Target as WebTarget, WebPreview};
+use crate::panels::web_preview::{Intent as WebIntent, Launch as WebLaunch, WebPreview};
 
 // ── CoboltApp ─────────────────────────────────────────────────────────────────
 
@@ -956,8 +956,12 @@ pub struct CoboltApp {
     new_indexed_dir: Option<String>,
     new_project: NewProjectDialog,
     /// The web Preview of a Web or Mobile project: its build job, development
-    /// server, web view and controls window (WASM-008).
+    /// server and the browser it opens (WASM-008).
     web_preview: WebPreview,
+    /// A Preview waiting for *Start "<path>" to show the Preview?* — the
+    /// application path the project names, asked once per project folder on
+    /// this machine (WASM-008 D11).
+    browser_confirm: Option<(WebIntent, PathBuf)>,
     /// The project's backend started from the Run menu: a child
     /// `rcrun backend run` (WASM-003 R20), or by the web Preview of a
     /// project with a Backend (WASM-008 R6); dropping it stops it.
@@ -2331,6 +2335,7 @@ impl CoboltApp {
             new_indexed_dir: None,
             new_project: NewProjectDialog::new(),
             web_preview: WebPreview::default(),
+            browser_confirm: None,
             backend_run: None,
             backend_by_preview: false,
 
@@ -2731,7 +2736,7 @@ impl CoboltApp {
     // ── Web and Mobile projects (WASM-002, WASM-008) ──────────────────────────
 
     /// Is the open project a Web or Mobile one? Those are built into a bundle
-    /// and shown in a web view, not run by the interpreter.
+    /// and shown in a browser, not run by the interpreter.
     fn is_web_project(&self) -> bool {
         self.cobolt_project.as_ref().is_some_and(|p| !p.kind().is_desktop())
     }
@@ -2742,17 +2747,26 @@ impl CoboltApp {
         let manifest = self.project_path.clone()?;
         let tr = self.lang.tr();
         let mobile = p.mobile_settings();
+        // `[web]` or, for a Mobile project's fallback, `[mobile]` (WASM-008 C15).
+        let setting = match mobile {
+            Some(m) => m.preview_browser.clone(),
+            None => p.web_settings().preview_browser,
+        };
         Some(WebLaunch {
             manifest,
             name: p.project.name.clone(),
-            title: format!("{} - {}", tr.pk_prev_title, p.project.name),
             kind: p.kind(),
+            platform: mobile.map(|m| m.platform),
             device: mobile.map(|m| m.device),
             orientation: mobile.map(|m| m.orientation),
-            locale: p.project.locale.clone(),
+            // WASM-012 brings the device tools; until then a Mobile Preview is the browser at a phone's size.
+            devices: std::sync::Arc::new(crate::panels::web_preview::NoDeviceTools),
             has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
             backend: cobolt_project_tools::web::backend(),
-            helper: cobolt_project_tools::web::preview::helper_path(),
+            browser: cobolt_project_tools::web::preview::BrowserChoice::parse(&setting),
+            path_confirmed: false,
+            page_strings: crate::panels::web_preview::page_strings(&tr),
+            language: self.lang,
             backend_url: None,
         })
     }
@@ -2762,11 +2776,24 @@ impl CoboltApp {
     /// from disk, so the designers with unsaved edits are saved first, as
     /// Run Form saves the form it runs.
     fn start_web(&mut self, intent: WebIntent) {
-        let Some(launch) = self.web_launch() else {
+        let Some(mut launch) = self.web_launch() else {
             self.output
                 .push_status(crate::ui_text::ide("Open or create a project first (File → New/Open Project)."));
             return;
         };
+        // An application path is started only once the developer said yes to
+        // it here, for this project folder (WASM-008 D11); until asked, ask.
+        if let (WebIntent::Show, cobolt_project_tools::web::preview::BrowserChoice::Path(path)) = (intent, &launch.browser) {
+            let dir = launch.manifest.parent().map(Path::to_path_buf).unwrap_or_default();
+            let store = crate::panels::web_settings::BrowserConfirmations::load_from(&crate::panels::web_settings::confirmations_path());
+            match store.answer(&dir, path) {
+                Some(allowed) => launch.path_confirmed = allowed,
+                None => {
+                    self.browser_confirm = Some((intent, path.clone()));
+                    return;
+                }
+            }
+        }
         for idx in 0..self.designers.len() {
             if self.designers[idx].1.dirty {
                 self.do_save_designer(idx);
@@ -2783,19 +2810,28 @@ impl CoboltApp {
         }
     }
 
-    /// The designer's Preview button in a Web or Mobile project: start the
-    /// Preview, or close it when it is already there.
+    /// The designer's Preview button in a Web or Mobile project: build, serve
+    /// and open the page in the browser; while it is served, open the same
+    /// address again (Stop ends it).
     fn toggle_web_preview(&mut self) {
-        if self.web_preview.active() {
-            self.web_preview.close();
-        } else {
-            self.start_web(WebIntent::Show(WebTarget::WebView));
-        }
+        self.start_web(WebIntent::Show);
     }
 
-    /// Once a frame: move the Preview along, hand its notes to the Output
-    /// panel in the developer's language, and draw its controls window.
+    /// Once a frame: move the Preview along and hand its notes to the Output
+    /// panel in the developer's language. The page is in the browser; the IDE
+    /// draws no window for it.
     fn show_web_preview(&mut self, ctx: &Context) {
+        if let Some((intent, path)) = self.browser_confirm.clone() {
+            if let Some(allowed) = crate::panels::web_settings::show_browser_confirm(ctx, &self.lang.tr(), &path.display().to_string()) {
+                let dir = self.project_path.as_ref().and_then(|m| m.parent()).map(Path::to_path_buf).unwrap_or_default();
+                let file = crate::panels::web_settings::confirmations_path();
+                let mut store = crate::panels::web_settings::BrowserConfirmations::load_from(&file);
+                store.record(&dir, &path, allowed);
+                store.save_to(&file);
+                self.browser_confirm = None;
+                self.start_web(intent);
+            }
+        }
         let wants_frame = self.web_preview.poll(std::time::Instant::now());
         let tr = self.lang.tr();
         for note in self.web_preview.take_outbox() {
@@ -2803,7 +2839,6 @@ impl CoboltApp {
                 self.output.push_status(line);
             }
         }
-        self.web_preview.show(ctx, &tr);
         // The Backend the Preview started ends with it (Close, Stop, the web view closed, a failed start).
         if self.backend_by_preview && !self.web_preview.active() {
             self.stop_backend();
@@ -2885,7 +2920,7 @@ impl CoboltApp {
         }
         // A Web or Mobile project is built and opened in the browser.
         if self.is_web_project() {
-            self.start_web(WebIntent::Show(WebTarget::Browser));
+            self.start_web(WebIntent::Show);
             return;
         }
         // Was this project last fully built by an older PowerRustCOBOL? Ask
@@ -3337,6 +3372,7 @@ impl CoboltApp {
 
     fn do_stop(&mut self) {
         self.web_preview.close();
+        self.browser_confirm = None;
         if self.backend_by_preview {
             self.stop_backend();
         }
@@ -4990,6 +5026,7 @@ impl CoboltApp {
     fn open_project_at(&mut self, path: PathBuf) {
         // A Preview belongs to the project it was started for; so does a backend.
         self.web_preview.close();
+        self.browser_confirm = None;
         self.stop_backend();
         match load_project(&path) {
             Ok(mut proj) => {

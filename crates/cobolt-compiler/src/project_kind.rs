@@ -429,6 +429,13 @@ pub struct WebSettings {
     /// Written only when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_file: Option<String>,
+    /// The browser Preview and Run open the page in (WASM-008 R12, Q7):
+    /// empty = the system's default browser; a known id (`chrome`,
+    /// `chromium`, `edge`, `firefox`, `safari`, `brave`); anything else = an
+    /// application path the developer confirms once on this machine. Written
+    /// only when set.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub preview_browser: String,
 }
 
 impl Default for WebSettings {
@@ -445,6 +452,7 @@ impl Default for WebSettings {
             single_memory_fallback: true,
             stylesheet: web_stylesheet(),
             theme_file: None,
+            preview_browser: String::new(),
         }
     }
 }
@@ -509,6 +517,10 @@ pub struct MobileSettings {
     /// The whole-theme file, as [`WebSettings::theme_file`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_file: Option<String>,
+    /// The browser of the fallback Preview at a phone width (WASM-008 R15,
+    /// C15), as [`WebSettings::preview_browser`]. Written only when set.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub preview_browser: String,
 }
 
 fn auto() -> String {
@@ -535,6 +547,7 @@ impl MobileSettings {
             call_timeout_ms: DEFAULT_CALL_TIMEOUT_MS,
             stylesheet: mobile_stylesheet(),
             theme_file: None,
+            preview_browser: String::new(),
         }
     }
 
@@ -792,6 +805,35 @@ mod tests {
         assert!(text.contains("stylesheet = \"webforms/site.css\"") && text.contains("theme_file = \"webforms/brand-theme.css\""), "{text}");
         assert_eq!(toml::from_str::<WebSettings>(&text).unwrap(), set);
         println!("stylesheet keys: web default {}, mobile default {}, absent keys not written, set values round-trip", web.stylesheet, mobile.stylesheet);
+    }
+
+    /// WASM-008 T30 (R12, Q7): `preview_browser` in `[web]` and `[mobile]`.
+    /// An existing table (no key) loads and saves byte for byte; an id and a
+    /// path round-trip; the key is absent from the saved text when empty.
+    #[test]
+    fn the_preview_browser_is_optional_and_only_written_when_set_008() {
+        let old_web = "style = \"spa\"\nmulti_memory = true\nisolation = \"require-corp\"\nbackend_url = \"wss://api.example.com/ws\"\n\n[browsers]\nchromium = true\nfirefox = true\nsafari = true\nios_webview = true\nandroid_webview = true\n";
+        let web: WebSettings = toml::from_str(old_web).unwrap();
+        assert_eq!(web.preview_browser, "");
+        assert_eq!(toml::to_string(&web).unwrap(), old_web, "an existing [web] table is saved unchanged");
+        let old_mobile = "platform = \"android\"\ndevice = \"phone\"\norientation = \"portrait\"\nmin_os = \"auto\"\nstyle = \"spa\"\nmulti_memory = true\nbackend_url = \"\"\n";
+        let mobile: MobileSettings = toml::from_str(old_mobile).unwrap();
+        assert_eq!(mobile.preview_browser, "");
+        assert_eq!(toml::to_string(&mobile).unwrap(), old_mobile, "an existing [mobile] table is saved unchanged");
+        assert!(!toml::to_string(&WebSettings::default()).unwrap().contains("preview_browser"));
+        assert!(!toml::to_string(&MobileSettings::new(MobilePlatform::Ios, DeviceClass::Phone)).unwrap().contains("preview_browser"));
+
+        for value in ["firefox", "/Applications/Firefox Developer Edition.app", "C:\\Tools\\browser.exe"] {
+            let set = WebSettings { preview_browser: value.into(), ..WebSettings::default() };
+            let text = toml::to_string(&set).unwrap();
+            assert!(text.contains("preview_browser = "), "{text}");
+            assert_eq!(toml::from_str::<WebSettings>(&text).unwrap(), set);
+            let set = MobileSettings { preview_browser: value.into(), ..MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone) };
+            let text = toml::to_string(&set).unwrap();
+            assert_eq!(toml::from_str::<MobileSettings>(&text).unwrap(), set);
+            println!("preview_browser {value:?} round-trips in [web] and [mobile]");
+        }
+        println!("preview_browser: existing [web] ({} bytes) and [mobile] ({} bytes) saved byte for byte", old_web.len(), old_mobile.len());
     }
 
     #[test]

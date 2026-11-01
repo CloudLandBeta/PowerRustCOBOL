@@ -12,6 +12,10 @@
 //! Its standard output and standard error (the address, the development token,
 //! one JSON log line per record) are read on two threads and handed to the
 //! Output panel; Stop, a second Start and the IDE's exit kill the child.
+//!
+//! The development token is kept here and never handed on as a line: the
+//! Output panel shows [`TOKEN_SHOWN`] where it was printed, and the Preview
+//! puts [`BackendRun::token`] into the `config.json` it serves (WASM-008 R6).
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -20,6 +24,13 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 /// What `rcrun backend run` prints first, then the address.
 const LISTENING: &str = "backend listening on ";
+
+/// What `rcrun backend run` prints the line before the token
+/// (`crates/cobolt-cli/src/main.rs`).
+const TOKEN_FOLLOWS: &str = "development token";
+
+/// What the Output panel shows in place of the token.
+pub const TOKEN_SHOWN: &str = "<development token>";
 
 /// Something the running backend did since the last [`BackendRun::poll`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,8 +48,40 @@ pub struct BackendRun {
     pub project_dir: PathBuf,
     child: Child,
     lines: Receiver<String>,
-    url: Option<String>,
+    reading: Reading,
     exit_status: Option<ExitStatus>,
+}
+
+/// What the lines said so far: the address and the token.
+#[derive(Debug, Default)]
+struct Reading {
+    url: Option<String>,
+    token: Option<String>,
+    token_next: bool,
+}
+
+impl Reading {
+    /// The event for one printed line; the token's line is kept, and shown as [`TOKEN_SHOWN`].
+    fn take(&mut self, line: String) -> BackendEvent {
+        if self.token_next {
+            self.token_next = false;
+            let token = line.trim();
+            if !token.is_empty() && !token.contains(' ') {
+                self.token = Some(token.to_owned());
+                return BackendEvent::Line(TOKEN_SHOWN.to_owned());
+            }
+        }
+        if self.url.is_none() {
+            if let Some(url) = line.strip_prefix(LISTENING) {
+                self.url = Some(url.trim().to_string());
+                return BackendEvent::Listening(url.trim().to_string());
+            }
+        }
+        if self.token.is_none() && line.starts_with(TOKEN_FOLLOWS) {
+            self.token_next = true;
+        }
+        BackendEvent::Line(line)
+    }
 }
 
 /// The `rcrun` to run: beside the IDE's executable, else the one on `PATH`.
@@ -85,12 +128,17 @@ impl BackendRun {
         if let Some(err) = child.stderr.take() {
             forward(err, tx);
         }
-        Ok(BackendRun { project_dir: project_dir.to_path_buf(), child, lines, url: None, exit_status: None })
+        Ok(BackendRun { project_dir: project_dir.to_path_buf(), child, lines, reading: Reading::default(), exit_status: None })
     }
 
     /// The address, once the child has printed it.
     pub fn url(&self) -> Option<&str> {
-        self.url.as_deref()
+        self.reading.url.as_deref()
+    }
+
+    /// The development token, once the child has printed it (for this run only).
+    pub fn token(&self) -> Option<&str> {
+        self.reading.token.as_deref()
     }
 
     pub fn is_running(&self) -> bool {
@@ -102,21 +150,14 @@ impl BackendRun {
     pub fn poll(&mut self) -> Vec<BackendEvent> {
         let mut events = Vec::new();
         while let Ok(line) = self.lines.try_recv() {
-            if self.url.is_none() {
-                if let Some(url) = line.strip_prefix(LISTENING) {
-                    self.url = Some(url.trim().to_string());
-                    events.push(BackendEvent::Listening(url.trim().to_string()));
-                    continue;
-                }
-            }
-            events.push(BackendEvent::Line(line));
+            events.push(self.reading.take(line));
         }
         if self.exit_status.is_none() {
             if let Ok(Some(status)) = self.child.try_wait() {
                 self.exit_status = Some(status);
                 // What it printed while dying: the reader threads end at EOF.
                 while let Ok(line) = self.lines.recv_timeout(std::time::Duration::from_millis(200)) {
-                    events.push(BackendEvent::Line(line));
+                    events.push(self.reading.take(line));
                 }
                 events.push(BackendEvent::Exited(status.code()));
             }
@@ -205,9 +246,14 @@ mod tests {
         let lines: Vec<&String> = log.iter().filter_map(|e| if let BackendEvent::Line(l) = e { Some(l) } else { None }).collect();
         println!("captured {} line(s):", lines.len());
         for l in &lines {
-            println!("  {}", if l.split('.').count() == 3 && !l.contains(' ') { "<development token>" } else { l });
+            println!("  {l}");
         }
         assert!(lines.iter().any(|l| l.contains("\"event\":\"start\"")), "the start record: {lines:?}");
+        // WASM-008 R6: the token is kept, and no line carries it.
+        let token = run.token().map(str::to_owned).expect("the development token");
+        assert_eq!(token.split('.').count(), 3, "a JWT");
+        assert!(lines.iter().all(|l| !l.contains(&token)), "the token reached a line");
+        assert!(lines.iter().any(|l| *l == TOKEN_SHOWN), "{lines:?}");
 
         let stopping = Instant::now();
         run.stop();
@@ -228,6 +274,27 @@ mod tests {
         assert!(freed, "port {port} still taken");
         assert!(get_health(port).is_err(), "nothing answers on {port} after Stop");
         println!("process {pid} gone, port {port} free after {} ms", stopping.elapsed().as_millis());
+    }
+
+    /// The token line is kept and shown masked; a token-shaped line elsewhere is left alone.
+    #[test]
+    fn the_token_is_kept_and_never_handed_on_as_a_line_008() {
+        let mut r = Reading::default();
+        let printed = [
+            "backend listening on ws://127.0.0.1:47011/ws",
+            "development token (valid for this run only; HS256, roles user and admin):",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZXYifQ.c2ln",
+            "Press Ctrl-C to stop.",
+        ];
+        let events: Vec<BackendEvent> = printed.iter().map(|l| r.take(l.to_string())).collect();
+        assert_eq!(events[0], BackendEvent::Listening("ws://127.0.0.1:47011/ws".into()));
+        assert_eq!(events[2], BackendEvent::Line(TOKEN_SHOWN.into()));
+        assert_eq!(events[3], BackendEvent::Line("Press Ctrl-C to stop.".into()));
+        assert_eq!(r.token.as_deref(), Some(printed[2]));
+        assert!(events.iter().all(|e| !matches!(e, BackendEvent::Line(l) if l.contains(printed[2]))));
+        for e in &events {
+            println!("{e:?}");
+        }
     }
 
     /// A start that cannot run (no backend in the folder) ends by itself, and

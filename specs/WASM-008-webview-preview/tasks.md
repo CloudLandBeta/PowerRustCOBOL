@@ -90,14 +90,15 @@ tests skip with a printed reason when the helper or a display is absent (plan §
 
 ### The project setting and the launcher
 
-- [ ] **T30 — `preview_browser` in `[web]` and `[mobile]`** (R12, Q7; plan §2.6, D11, C15)
+- [x] **T30 — `preview_browser` in `[web]` and `[mobile]`** (R12, Q7; plan §2.6, D11, C15)
   - Files: `CC/src/project_kind.rs` (`WebSettings`, `:363`; `MobileSettings`, `:446`).
   - Do: `pub preview_browser: String` on both, `#[serde(default, skip_serializing_if = "String::is_empty")]`. Empty = system default; a
     known id (`chrome`, `chromium`, `edge`, `firefox`, `safari`, `brave`); anything else = an application path. No reader yet.
   - Verify: `cargo test -p cobolt-compiler --lib project_kind --no-fail-fast` — an existing Web and an existing Mobile `cobolt.toml` (no key)
     load and save **byte-for-byte unchanged**; a set value (an id and a path) round-trips; the key is absent from the saved text when empty.
+  - Done (2.0.121): `preview_browser` on `WebSettings` and `MobileSettings` (and carried by `web::WebBuildRequest`'s Mobile→Web mapping); `the_preview_browser_is_optional_and_only_written_when_set_008` — an existing `[web]` (232 B) and `[mobile]` (117 B) table saved byte for byte, `firefox` and two paths round-trip; `project_kind` 19/19.
 
-- [ ] **T31 — The launcher: `open_in_browser`, `BrowserChoice`, `KnownBrowser`** (R12, R8; plan §2.1)
+- [x] **T31 — The launcher: `open_in_browser`, `BrowserChoice`, `KnownBrowser`** (R12, R8; plan §2.1)
   - Files: `PT/src/web/preview.rs` (beside `open_in_system_browser`, `:172`, and `is_preview_url`, `:200`).
   - Do: `BrowserChoice { System, Named(KnownBrowser), Path(PathBuf) }` parsed from the T30 string; `KnownBrowser` a closed list resolved
     per OS (macOS `open -a "<App>" <url>`; Windows the App Paths executable; Linux the first usual command on `PATH`); Safari only on macOS.
@@ -107,10 +108,11 @@ tests skip with a printed reason when the helper or a display is absent (plan §
   - Verify: `cargo test -p cobolt-project-tools --lib web::preview --no-fail-fast` — each known id resolves on the current OS to the
     printed program and arguments; an unknown id parses as a path; a non-loopback or non-`http` URL is refused for every choice; Safari on a
     non-macOS target is "not available"; with `NO_BROWSER_ENV` nothing is spawned.
+  - Done (2.0.121): `KnownBrowser`, `BrowserChoice`, `LaunchPlan`, `launch_plan`, `open_in_browser` in `web/preview.rs`; on this Mac Chrome and Safari resolve to `open -a "<App>" <url>`, Chromium/Edge/Firefox/Brave answer "… was not found on this computer"; `web::preview` 6/6.
 
 ### The served page and the dev server
 
-- [ ] **T32 — `POST /__prc/log` and `PageEvent`** (R13, R5; plan §2.2, D13)
+- [x] **T32 — `POST /__prc/log` and `PageEvent`** (R13, R5; plan §2.2, D13)
   - Files: `PT/src/web/devserver.rs` (the method check at `:525`; `ServerHandle`, `:106`).
   - Do: the only non-`GET`/`HEAD` route. Refused (and counted): wrong Host (`host_is_ours`), `Origin` not the server's own, body > 16 KiB,
     `Content-Type` not `application/json`, more than 40 events in a request or 200 per second, an event outside
@@ -118,8 +120,9 @@ tests skip with a printed reason when the helper or a display is absent (plan §
     `ServerHandle::take_page_events()`. Every other method on every other path still answers 405 (the existing test at `:801` stays).
   - Verify: `cargo test -p cobolt-project-tools --lib web::devserver --no-fail-fast` — each refusal case answered and counted, printed;
     a valid batch of the four kinds comes out of `take_page_events` in order with its `form`; the 405 test unchanged.
+  - Done (2.0.121): `POST /__prc/log`, `PageEvent` (kebab-case `event` tag), `take_page_events`, `page_events_refused`; 10 refusal cases (403 ×4, 415, 413 ×2, 400 ×3) and a 429 burst counted; the route answers only while live reload is on; `web::devserver` 16/16 at the time.
 
-- [ ] **T33 — The Preview script** (R13, R5, R3; plan §2.2, D6)
+- [x] **T33 — The Preview script** (R13, R5, R3; plan §2.2, D6)
   - Files: `PT/src/web/devserver.rs` (`reload_script`, `:488`; `with_reload_script`, `:502`), `WP/src/main.rs` (`INIT_SCRIPT`, `:103`).
   - Do: `reload_script` grows into one Rust constant that (a) wraps `console.*`, `window.onerror`, `unhandledrejection`, sending each event
     over `window.ipc` when the page is inside the helper and `fetch('/__prc/log', POST)` otherwise — so the helper's own capture in
@@ -133,17 +136,19 @@ tests skip with a printed reason when the helper or a display is absent (plan §
     `window.ipc`, `performance.now`, `150`; contains no `innerHTML` / `insertAdjacentHTML` / `eval`; the existing `app.update(c)` /
     `a==='reload'` assertion (`:840`) kept; `cargo test -p cobolt-web-preview --no-fail-fast` — the init-script test (`main.rs:451`) updated to
     what `INIT_SCRIPT` still carries. The page run itself is proved headless in T47.
+  - Done (2.0.121): `PREVIEW_SCRIPT` (5 020 bytes served) with `PageStrings` as data; the helper's `INIT_SCRIPT` keeps only the emulation and `lines::from_page` forwards the four page events; `node --check` (outside the repository) parses it; `web::devserver` 18/18, `cobolt-web-preview` 5/5.
 
-- [ ] **T34 — A failed build shows its errors over the last good page** (R7, AC5; plan §1 R7 row)
+- [x] **T34 — A failed build shows its errors over the last good page** (R7, AC5; plan §1 R7 row)
   - Files: `PT/src/web/devserver.rs` (`ServerHandle::set_build_errors`; `"errors":[…]` in `/__prc/version`; the overlay in the T33 script).
   - Do: a dismissable overlay built with `textContent` (WASM-INDEX D14); the next good build clears it; `dist/web` untouched by the failure
     (the generator's atomic replace).
   - Verify: `cargo test -p cobolt-project-tools --lib web::devserver --no-fail-fast` — `set_build_errors` then `/__prc/version` carries them,
     an empty set removes the key; the overlay code uses `textContent` only. AC5 end to end is T47.
+  - Done (2.0.121): `ServerHandle::set_build_errors`; `/__prc/version` carries `errors` while any; the overlay uses `textContent` only; `a_failed_build_s_errors_ride_on_the_version_until_a_good_one_008`.
 
 ### The IDE: browser, notes, setting, backend
 
-- [ ] **T35 — Preview and Run open the browser; the controls window goes** (R12, R16, R10; AC11, AC9; plan §1 R12 row, C10)
+- [x] **T35 — Preview and Run open the browser; the controls window goes** (R12, R16, R10; AC11, AC9; plan §1 R12 row, C10)
   - Files: `IDE/src/panels/web_preview.rs` (`Target`, `:478`; `Live`, `:530`; `WebPreview`, `:540`; `start`, `:607`; `serve`, `:756`;
     `fall_back_to_the_browser`, `:827`; `apply_controls` / `reload` / `devtools` / `show` / `body`, `:846`–`:922`; `Controls`, `:245`),
     `IDE/src/app.rs` (`web_launch`, `toggle_web_preview` `:2736`, `show_web_preview`, `do_run` `:2823`), `IDE/src/i18n.rs`,
@@ -160,8 +165,9 @@ tests skip with a printed reason when the helper or a display is absent (plan §
     helper process** (asserted, AC15's "no visible helper window"); a second Preview reuses the URL; `every_note_reads_in_all_six_languages_without_a_gap`
     and `this_file_has_no_literal_text_for_a_widget` green; `the_controls_window_keeps_its_size` and the preset tests deleted with the code
     they tested (stated in the commit). `cargo test -p cobolt-project-tools --lib web::preview --no-fail-fast` green.
+  - Done (2.0.121): `Target`, `Controls`, the controls window, `PreviewSession` in `Live`, and 24 `pk_prev_*`/`pk_ps_*` keys removed (with `the_controls_window_keeps_its_size`, the four controls tests, `nothing_is_drawn_while_the_window_is_closed` and `a_web_view_that_cannot_start_leaves_the_browser_not_nothing`, whose code is gone); 8 keys added in six languages; `preview_opens_the_projects_browser_reuses_its_address_and_starts_no_helper` — system / Firefox absent → `BrowserFailed` + system / Chrome present → Chrome / missing path → `BrowserFailed` / unconfirmed path → `BrowserNotConfirmed`, a second Preview reuses the address (no new build), the marking helper never ran; `web_preview` 15/15, `i18n` 21/21.
 
-- [ ] **T36 — Page events become Output lines** (R13, R5, R3; AC12, AC4, AC2; plan §1 R13/R5 rows)
+- [x] **T36 — Page events become Output lines** (R13, R5, R3; AC12, AC4, AC2; plan §1 R13/R5 rows)
   - Files: `IDE/src/panels/web_preview.rs` (`poll_events`, `:789`; `Note`, `:65`), `IDE/src/i18n.rs`.
   - Do: each poll drains `take_page_events` (T32) into `Note::Console { level, text, form }`, `Note::PageError { …, form }`,
     `Note::CobolError { form, unit, line, code, message }` (line `form: message (unit:line)`), `Note::Updated { ms, how }` (beside the rebuild
@@ -170,8 +176,9 @@ tests skip with a printed reason when the helper or a display is absent (plan §
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide web_preview --no-fail-fast` — events POSTed to a served stand-in bundle become Output
     lines containing the form name, the COBOL unit and line for `cobol-error`, `how` and `ms` for `updated`; a flood stays at 40 per poll;
     `a_change_is_reported_once_the_folders_are_still` (`:1357`) updated to the 150 ms look and prints it.
+  - Done (2.0.121): `Note::Console`/`PageError` carry `form`; `Note::CobolError` (`form: COBOL run-time error code: message (unit:line)`), `Note::PageUpdated { how, ms }` with one line per `UpdateKind` (styles, program, forms, reload, unchanged), `Note::PreviewStopped`; 7 keys in six languages; `page_events_become_output_lines_with_the_form_008` — 5 posted kinds → 5 lines, a burst of 80 → 40; the watcher reports a save in 310 ms at the 150 ms look (was one 400 ms look plus a quiet one); a failed rebuild's lines reach `/__prc/version` and a good one clears them (`building_serving_opening_and_rebuilding_on_a_change`); `web_preview` 16/16.
 
-- [ ] **T37 — The browser row and the path confirmation** (R12, Q7; plan §2.6)
+- [x] **T37 — The browser row and the path confirmation** (R12, Q7; plan §2.6)
   - Files: `IDE/src/panels/web_settings.rs` (`show`, `:286`; `row`, `:57`), `IDE/src/app.rs`, `IDE/src/i18n.rs`, a small machine-local
     store beside `debug_settings.toml` under `crate::llm::base_dir()` (the pattern of `IDE/src/debug_settings.rs:90`), **not** in the project.
   - Do: one row: *System default*, the known browsers present on this machine, *Other…* with a path field. The first Preview with a path
@@ -181,8 +188,9 @@ tests skip with a printed reason when the helper or a display is absent (plan §
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide web_settings --no-fail-fast` and `… web_preview` — an unconfirmed path is **not
     started** (the launch plan is never run) and says so; a confirmed one is used next time; a project copied to another folder asks again;
     the settings row and the modal read in six languages without a gap and keep their rectangle over 120 frames in each.
+  - Done (2.0.121): one row (System default / the known browsers present here / Other… with a path) in `web_settings.rs` `browser_row`; `BrowserConfirmations` in `preview_browsers.toml` under `llm::base_dir()`, keyed by the canonical project folder + path; `show_browser_confirm` is a `fixed_dialog` of 460 px; `start_web` asks before an unconfirmed path, an answer is recorded and the Preview restarts; 8 keys in six languages. `a_browser_path_is_confirmed_once_per_project_folder_008` (unanswered → `None`, the launch never run → `BrowserNotConfirmed`; answered → used; a copied folder asks again) and `the_browser_row_and_the_confirmation_read_in_six_languages_and_keep_their_size_008` (708 frames, rectangles unchanged); `web_settings` 13/13, `web_preview` 16/16.
 
-- [ ] **T38 — The backend during Preview and Run** (R6; plan §2.5, D4, D7, D8)
+- [x] **T38 — The backend during Preview and Run** (R6; plan §2.5, D4, D7, D8)
   - Files: `IDE/src/backend_run.rs` (`BackendEvent`, `:26`; `poll`, `:93`), `IDE/src/app.rs` (`start_backend` `:2772`, `poll_backend` —
     `BackendEvent::Line(line) => self.output.push_line(line)` prints the token in clear today; `do_run` `:2823`), `PT/src/web/devserver.rs`
     (the per-run `config.json`), `IDE/src/panels/web_preview.rs`.
@@ -194,10 +202,11 @@ tests skip with a printed reason when the helper or a display is absent (plan §
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide backend_run --no-fail-fast` and `… web_preview` with a fixture `backend/` — the
     served `config.json` names the backend and carries a token; the Output panel never contains the token's text; after the run a search of
     `dist/web` finds no token and `config.json` on disk is byte-identical to before.
+  - Done (2.0.121): `BackendRun::token()` keeps the line after `development token …`, and the line handed on is `<development token>` (`TOKEN_SHOWN`), so neither the Output panel nor the failure tail can see it; `devserver::with_dev_backend` / `ServerHandle::set_dev_backend` rewrite `/config.json` in the response only (loopback `ws://` only: the address in `backend.origins`, `unsafe_plain_ws: true`, `backend.dev_token`); the Preview hands the pair over once both are printed, for the Backend it said Ready for, and clears it on Stop or a new start. The player reads no `dev_token` yet (grep: only cobolt-server and the CLI do), so `Note::TokenUnused` (Warn, six languages) says calls answer an authentication error until WASM-016 sends it. Run starts the Backend first (`start_with_backend`); a Preview without one says `BackendOff`. `the_token_is_kept_and_never_handed_on_as_a_line_008`, `the_ide_starts_the_backend_reads_its_log_and_stops_it` (real `rcrun`: token kept, no line carries it), `the_development_backend_rides_in_the_served_config_only_008` (devserver 19/19), and in `a_preview_starts_the_backend_waits_for_it_and_builds_the_page_for_where_it_listens` the served `config.json` carries the real token while the file on disk is byte-identical and no bundle file, line or note contains it; `backend_run` + `web_preview` 20/20 (1 ignored).
 
 ### Mobile
 
-- [ ] **T39 — Mobile: the device first, the browser at a phone width otherwise** (R14, R15; AC13, AC14; plan §2.3, D12)
+- [x] **T39 — Mobile: the device first, the browser at a phone width otherwise** (R14, R15; AC13, AC14; plan §2.3, D12)
   - Files: `IDE/src/panels/web_preview.rs` (the `DeviceRunner` trait and its "no device tools" implementation; the Mobile branch),
     `PT/src/web/devserver.rs` (`/__prc/phone`, written on the fly with the bundle's isolation headers), `IDE/src/app.rs` (the status line),
     `IDE/src/i18n.rs`.
@@ -212,10 +221,11 @@ tests skip with a printed reason when the helper or a display is absent (plan §
     the hand-over only — the real device run **waits for WASM-012** and is not claimed). `cargo test -p cobolt-project-tools --lib
     web::devserver` — the phone page carries the bundle's COOP/COEP and the preset's width. The frame's `innerWidth` and
     `crossOriginIsolated` read headless are in T47.
+  - Done (2.0.121): `DeviceRunner { detect, list, run(dev_url), log }` and `NoDeviceTools` (answers `adb` / `xcrun simctl` missing) in `web_preview.rs`; `Launch` gains `platform` and `devices` (`app.rs` `web_launch` passes `[mobile] platform` and `NoDeviceTools`). `open_on_device`: the first listed device runs the dev address (`Note::OnDevice`, its log read each poll as `Note::DeviceLog`, 40 a poll); otherwise `ServerHandle::set_phone` + `phone_url()` and `Note::NotTheDevice { platform, install, width, height }`, whose second line is the status line "Preview in the browser at W × H CSS pixels, not on the device"; 5 keys in six languages. `devserver::phone_page`: the banner as escaped text over a same-origin `<iframe src="/">` of the preset CSS size, 404 until set. `the_phone_page_frames_the_application_at_the_preset_width_isolated_008` (390 × 844, COOP `same-origin`, COEP `require-corp`; devserver 20/20); `a_mobile_preview_without_device_tools_opens_the_phone_page_008` (phone portrait → `/__prc/phone` at 390 × 844, tablet landscape → 1180 × 820, decided with `PRC_PREVIEW_NO_BROWSER`, the note in six languages names `adb`); `a_mobile_preview_hands_the_address_to_a_device_and_reads_its_log_008` (calls in order: `detect android`, `list android`, `run Pixel 8 http://127.0.0.1:…/`; no browser opened; the log lines are notes). AC13 is claimed for the hand-over only; the real device run waits for WASM-012. `web_preview` + `i18n` 39/39 (1 ignored).
 
 ### The headless helper
 
-- [ ] **T40 — The helper is headless only; the protocol of plan §3** (R16, R9, R2; AC15; plan §2.4, §3, C14)
+- [x] **T40 — The helper is headless only; the protocol of plan §3** (R16, R9, R2; AC15; plan §2.4, §3, C14)
   - Files: `WP/src/main.rs` (`run`, `:234`; the `open` arm `:260`; `size` `:314`; `devtools` `:337`; the `lines` module `:38`; the header
     comment `:17-18`), `WP/Cargo.toml` (the description at `:9`), `PT/src/web/preview.rs` (`Command`, `:52`; `Event`, `:99`; `Mode`;
     `PreviewSession`, kept for the headless runner only).
@@ -228,6 +238,7 @@ tests skip with a printed reason when the helper or a display is absent (plan §
     each line pinned byte-for-byte from both sides; an old `console` line (no `form`) still parses; `size`/`devtools` answer `failed`;
     `a_session_relays_events_and_notices_a_helper_that_died` (`preview.rs:468`) green (R2 for the helper, the remaining half of AC6); the
     helper reports its window not visible.
+  - Done (2.0.121): the helper builds its window `with_visible(false)`, at `(-32000, -32000)`, undecorated, and on macOS with `ActivationPolicy::Accessory` (no Dock icon); `with_devtools(true)` and `title` gone; `size` / `devtools` answer `failed` (`lines::removed`); an unknown command is ignored; `ready` carries `visible` from `Window::is_visible`. IDE side (`preview.rs`): `Command::Open { url, width, height, dpr, dark, locale }`, `Size` and `Devtools` removed; `Event::{Ready { visible }, Blocked, Failed, Closed, Page(PageEvent)}` — the page events parsed by the one `devserver::PageEvent` type, an unknown event or field ignored; `Mode` and the system-browser fallback removed from `PreviewSession` (headless only: a missing helper is an error naming it). Header comment and `Cargo.toml` description rewritten. Pinned both sides: `the_lines_the_ide_writes_are_the_helpers_contract` (and `size`/`devtools`/`title` no longer parse), `the_lines_the_helper_writes_are_understood` (an old `console` line without `form` reads, `ready` with and without `visible`), `the_events_are_the_ides_contract`; `a_session_relays_events_and_notices_a_helper_that_died` green. New `tests/headless.rs` runs the **built** helper on a loopback page: `{"event":"ready","visible":false}`, `size`/`devtools` refused, an unknown command ignored, `closed`, exit 0 (macOS, 0.65 s). `cobolt-web-preview` 5 + 1, `cobolt-project-tools --lib web::` 53/53.
 
 - [ ] **T41 — `render` and `script`** (R9; AC8; plan §2.4)
   - Files: `WP/src/main.rs`, `PT/src/web/preview.rs` (a headless session API over the same pipes).
@@ -238,6 +249,7 @@ tests skip with a printed reason when the helper or a display is absent (plan §
   - Verify: `cargo test -p cobolt-web-preview --no-fail-fast` on a served fixture page — the PNG's size equals the requested viewport × dpr;
     a script that clicks, types, waits and reads a property answers the values, text and errors; skips with a printed reason without a
     display, and **fails** instead of skipping when `PRC_REQUIRE_WEBVIEW=1` (the CI switch, plan §5).
+  - **Stopped here (2.0.121), for the operator:** (1) the steps cannot go through `dispatch` / `type_into` on a served page — both refuse any player that is not `cfg.headless` (`cobolt-web-player/src/api.rs:1038-1060`: "dispatch() is for headless runs; a page raises events itself"), and a page that `render` can draw is a mounted, non-headless player. The ways out each decide something outside this spec: relax the player's gate for a driven page (WASM-016's API and its security surface), drive the rendered DOM instead (real `click`/`input` events, contrary to plan §2.4's mechanism), or run the player unmounted (nothing to render). (2) wry 0.57 exposes no snapshot on any engine (no `snapshot`/`takeSnapshot`/`CapturePreview` in its sources), so `render` needs direct platform crates in the helper (`objc2-web-kit` for `takeSnapshotWithConfiguration`, `webview2-com` for `CapturePreview`, `webkit2gtk` for `get_snapshot`) — new dependencies, two of three platforms not runnable here. T42–T48 are not started; T49's version and CHANGELOG were done for T30–T40 (2.0.121), its box stays open.
 
 - [ ] **T42 — The helper on Linux** (R9, R16; plan §2.4, D2)
   - Files: `WP/Cargo.toml` (the target gate at `:39` and the comment `:33-38`), `WP/src/main.rs` (the `cfg`s at `:145`, `:153`, `:190`,

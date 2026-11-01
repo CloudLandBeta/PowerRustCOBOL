@@ -7,56 +7,49 @@
 //! **The web Preview, on the IDE's side** (WASM-008, WASM-002 R8).
 //!
 //! A Web or Mobile project is not run by the interpreter: its Build produces a
-//! bundle, a small server hands the bundle to a web view, and the web view is
-//! the Preview. This module is everything the IDE does around that:
+//! bundle, a small server hands the bundle to a **browser**, and the browser
+//! is the Preview (the operator's ruling of 2026-10-23, WASM-008 R12–R16). This
+//! module is everything the IDE does around that:
 //!
 //! 1. a **build job** on a thread of its own, through the
 //!    [`WebBuildBackend`] the program linked (the IDE never waits for it);
-//! 2. the **development server** that serves the bundle on a loopback port;
-//! 3. the **web view** — the helper process, or the system browser when the
-//!    helper is not installed — and the commands the controls send it;
+//! 2. the **development server** that serves the bundle on a loopback port,
+//!    with the Preview script that updates the page in place and reports its
+//!    console, errors and update times back (`devserver`);
+//! 3. the **launcher**: the browser the project names (`preview_browser`), or
+//!    the system's default one — the IDE opens no window of its own for the
+//!    page, and starts no web-view helper (that one is headless, for the
+//!    agents' tools and the tests);
 //! 4. a **watcher** over the project's own folders: when a form, a stylesheet,
 //!    a program or the Backend changes on disk, the bundle is built again and
-//!    the open page reloads itself (live reload);
-//! 5. the **controls window**: device preset, orientation, pixel ratio, colour
-//!    scheme, language, safe-area insets, Reload, Developer tools, Open in the
-//!    browser, Close.
+//!    the open page takes it in place.
 //!
 //! What it says goes through [`Note`]s — a message with its facts, not its
-//! words — so the Output panel and the controls window both show it in the
-//! language the developer chose, from the `Tr` tables.
-//!
-//! **The controls window never changes size by itself.** Its width and its
-//! height are constants; every row in it has a fixed height and its text is
-//! truncated, never negotiated; the log at the bottom is a scroll area that
-//! takes whatever the rows leave. There is nothing in it that can ask for
-//! more room, in any of the six languages (`tests::the_controls_window_keeps_its_size`).
+//! words — so the Output panel shows it in the language the developer chose,
+//! from the `Tr` tables.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cobolt_compiler::project_kind::{DeviceClass, Isolation, Orientation, ProjectKind};
+use cobolt_compiler::project_kind::{DeviceClass, Isolation, MobilePlatform, Orientation, ProjectKind};
 use cobolt_project_tools::web::devbackend::{self, DevBackendPlan};
-use cobolt_project_tools::web::devserver::{self, ServeOptions, ServerHandle};
-use cobolt_project_tools::web::presets::{self, PresetClass, Viewport, PIXEL_RATIOS, PRESETS};
-use cobolt_project_tools::web::preview::{self, Command, Emulation, Event, Mode, PreviewSession};
+use cobolt_project_tools::web::devserver::{self, DevBackend, PageEvent, PageStrings, PhoneFrame, ServeOptions, ServerHandle};
+use cobolt_project_tools::web::presets;
+use cobolt_project_tools::web::preview::{self, BrowserChoice};
 use cobolt_project_tools::web::{BuildReport, PartSize, PlayerPinError, WebBuildBackend, WebBuildError, WebBuildRequest, WebDiagnostic, WebDiagnosticKind};
 
 use crate::backend_run::{BackendEvent, BackendRun};
-use crate::i18n::Tr;
+use crate::i18n::{Language, Tr};
 
-/// How often the watcher looks at the project's folders.
-pub const WATCH_EVERY: Duration = Duration::from_millis(400);
-/// The controls window's size. Constants, on purpose.
-pub const WINDOW_W: f32 = 420.0;
-/// The body's height; the window is this plus its chrome (title bar and margins).
-pub const BODY_H: f32 = 480.0;
-/// The notes the window keeps.
+/// How often the watcher looks at the project's folders (WASM-008 D6: a
+/// change is reported after one more, quiet, look).
+pub const WATCH_EVERY: Duration = Duration::from_millis(150);
+/// The notes the Preview keeps.
 const MAX_NOTES: usize = 300;
 /// A page that logs in a loop must not flood the Output panel: this many
-/// console and error lines are taken from the helper at a time, the rest of
+/// console and error lines are taken from the page at a time, the rest of
 /// that burst is dropped.
 const CHATTER_PER_POLL: usize = 40;
 /// How long a Preview waits for the Backend it started to say where it
@@ -86,14 +79,14 @@ pub enum Note {
     NoBundle,
     Serving { name: String, url: String },
     ServerFailed(String),
-    HelperFailed(String),
-    ModeWebView,
-    ModeBrowser,
-    /// The page tried to go to this address.
-    Blocked(String),
+    /// The page was opened at `url` in `browser` (empty: the system's default).
+    Opened { browser: String, url: String },
+    /// The browser the project names could not be started; the default is used.
+    BrowserFailed { name: String, why: String },
+    /// The application path the project names is not confirmed on this machine.
+    BrowserNotConfirmed { path: String },
     /// A rebuild finished this long after the change that caused it.
     Updated { ms: u64 },
-    Closed,
     BackendOff,
     /// The Preview starts the project's Backend on `listen` and waits up to `secs` for it.
     BackendStarting { listen: String, secs: u64 },
@@ -111,8 +104,70 @@ pub enum Note {
     BackendFailed { code: Option<i32>, why: Vec<String> },
     /// The Backend did not say where it listens within `secs`.
     BackendTimeout { secs: u64 },
-    Console { level: String, text: String },
-    PageError { message: String, source: String, line: u32 },
+    /// A console line of the page, from form `form` (empty: unknown).
+    Console { level: String, text: String, form: String },
+    /// An uncaught error or a rejected promise of the page.
+    PageError { message: String, source: String, line: u32, form: String },
+    /// A COBOL run-time error the player recorded: the program unit and its line.
+    CobolError { form: String, unit: String, line: u32, code: String, message: String },
+    /// The page took a change in place (`how`, what `app.update` answered) in `ms`.
+    PageUpdated { how: String, ms: f64 },
+    /// The Preview was stopped; an open tab says so at its next polls.
+    PreviewStopped,
+    /// The served `config.json` carries the development token of the Backend
+    /// at `url`, which the player does not send yet (WASM-008 T38; WASM-016).
+    TokenUnused { url: String },
+    /// A Mobile Preview in the browser at a phone's size (R15): no device
+    /// tools (`install`, what was not found) or no device running (`None`).
+    NotTheDevice { platform: String, install: Option<String>, width: u32, height: u32 },
+    /// The application runs on `device`, served from `url` (R14).
+    OnDevice { device: String, url: String },
+    /// `device` could not run it; the browser at a phone's size follows.
+    DeviceFailed { device: String, why: String },
+    /// A line of the device's log.
+    DeviceLog(String),
+}
+
+/// What kind of in-place update `app.update` answered (WASM-016 R16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateKind {
+    /// Stylesheets or the theme, every instance and value kept.
+    Styles,
+    /// A new program module: the application restarted in the same player.
+    Program,
+    /// New form descriptions: the application restarted in the same player.
+    Forms,
+    /// The page reloaded (another player, worker or style).
+    Reload,
+    /// Nothing to take.
+    Unchanged,
+}
+
+impl UpdateKind {
+    /// The kind of `how` (`"stylesheet, stylesheet of MAIN-FORM"`, `"program"`, …).
+    pub fn of(how: &str) -> UpdateKind {
+        let parts: Vec<&str> = how.split(',').map(str::trim).collect();
+        if parts.contains(&"program") {
+            UpdateKind::Program
+        } else if parts.contains(&"forms") {
+            UpdateKind::Forms
+        } else if parts.iter().any(|p| *p == "reload" || *p == "unmounted") {
+            UpdateKind::Reload
+        } else if parts.iter().all(|p| p.is_empty() || *p == "unchanged") {
+            UpdateKind::Unchanged
+        } else {
+            UpdateKind::Styles
+        }
+    }
+}
+
+/// `form: line`, or the line alone when the page could not tell its form.
+fn with_form(form: &str, line: String) -> String {
+    if form.is_empty() {
+        line
+    } else {
+        format!("{form}: {line}")
+    }
 }
 
 /// How a note is coloured.
@@ -184,8 +239,8 @@ impl Note {
             | Note::BuildRefused(_)
             | Note::PlayerPin(_)
             | Note::ServerFailed(_)
-            | Note::HelperFailed(_)
             | Note::PageError { .. }
+            | Note::CobolError { .. }
             | Note::BackendFailed { .. }
             | Note::BackendTimeout { .. } => {
                 Severity::Error
@@ -194,12 +249,14 @@ impl Note {
             Note::NotLinked
             | Note::NoBundle
             | Note::BuildWarning(_)
-            | Note::ModeBrowser
-            | Note::Blocked(_)
+            | Note::BrowserFailed { .. }
+            | Note::BrowserNotConfirmed { .. }
             | Note::BackendOff
             | Note::BackendPortBusy { .. }
             | Note::BackendTaken { .. }
-            | Note::BackendMismatch { .. } => Severity::Warn,
+            | Note::BackendMismatch { .. }
+            | Note::TokenUnused { .. }
+            | Note::DeviceFailed { .. } => Severity::Warn,
             Note::Console { level, .. } if level == "warn" => Severity::Warn,
             _ => Severity::Info,
         }
@@ -250,12 +307,11 @@ impl Note {
             Note::NoBundle => vec![tr.pk_prev_no_bundle.to_owned()],
             Note::Serving { name, url } => vec![fill(tr.pk_prev_serving, &[name, url])],
             Note::ServerFailed(why) => vec![fill(tr.pk_prev_server_failed, &[why])],
-            Note::HelperFailed(why) => vec![fill(tr.pk_prev_helper_failed, &[why])],
-            Note::ModeWebView => vec![tr.pk_prev_mode_webview.to_owned()],
-            Note::ModeBrowser => vec![tr.pk_prev_mode_browser.to_owned()],
-            Note::Blocked(url) => vec![fill(tr.pk_prev_blocked, &[url])],
+            Note::Opened { browser, url } if browser.is_empty() => vec![fill(tr.pk_prev_opened_default, &[url])],
+            Note::Opened { browser, url } => vec![fill(tr.pk_prev_opened_in, &[url, browser])],
+            Note::BrowserFailed { name, why } => vec![fill(tr.pk_prev_browser_failed, &[name, why])],
+            Note::BrowserNotConfirmed { path } => vec![fill(tr.pk_prev_browser_not_confirmed, &[path])],
             Note::Updated { ms } => vec![fill(tr.pk_prev_updated, &[&ms.to_string()])],
-            Note::Closed => vec![tr.pk_prev_closed.to_owned()],
             Note::BackendOff => vec![tr.pk_prev_backend_off.to_owned()],
             Note::BackendStarting { listen, secs } => vec![fill(tr.pk_prev_backend_starting, &[listen, &secs.to_string()])],
             Note::BackendReady { url } => vec![fill(tr.pk_prev_backend_ready, &[url])],
@@ -270,10 +326,35 @@ impl Note {
                 out
             }
             Note::BackendTimeout { secs } => vec![fill(tr.pk_prev_backend_timeout, &[&secs.to_string()])],
-            Note::Console { level, text } => vec![fill(tr.pk_prev_console, &[level, text])],
-            Note::PageError { message, source, line } => {
-                vec![fill(tr.pk_prev_error, &[message, source, &line.to_string()])]
+            Note::Console { level, text, form } => vec![with_form(form, fill(tr.pk_prev_console, &[level, text]))],
+            Note::PageError { message, source, line, form } => {
+                vec![with_form(form, fill(tr.pk_prev_error, &[message, source, &line.to_string()]))]
             }
+            Note::CobolError { form, unit, line, code, message } => {
+                vec![with_form(form, fill(tr.pk_prev_cobol_error, &[code, message, unit, &line.to_string()]))]
+            }
+            Note::PageUpdated { how, ms } => {
+                let ms = format!("{ms:.1}");
+                vec![match UpdateKind::of(how) {
+                    UpdateKind::Styles => fill(tr.pk_prev_upd_styles, &[&ms, how]),
+                    UpdateKind::Program => fill(tr.pk_prev_upd_program, &[&ms]),
+                    UpdateKind::Forms => fill(tr.pk_prev_upd_forms, &[&ms]),
+                    UpdateKind::Reload => fill(tr.pk_prev_upd_reload, &[&ms]),
+                    UpdateKind::Unchanged => fill(tr.pk_prev_upd_unchanged, &[&ms]),
+                }]
+            }
+            Note::PreviewStopped => vec![tr.pk_prev_stopped.to_owned()],
+            Note::TokenUnused { url } => vec![tr.pk_prev_token_unused.replacen("{}", url, 1)],
+            Note::NotTheDevice { platform, install, width, height } => vec![
+                match install {
+                    Some(tool) => tr.pk_prev_not_device_tools.replacen("{}", platform, 1).replacen("{}", tool, 1),
+                    None => tr.pk_prev_not_device_none.replacen("{}", platform, 1),
+                },
+                tr.pk_prev_phone_status.replacen("{}", &width.to_string(), 1).replacen("{}", &height.to_string(), 1),
+            ],
+            Note::OnDevice { device, url } => vec![tr.pk_prev_on_device.replacen("{}", device, 1).replacen("{}", url, 1)],
+            Note::DeviceFailed { device, why } => vec![tr.pk_prev_device_failed.replacen("{}", device, 1).replacen("{}", why, 1)],
+            Note::DeviceLog(line) => vec![line.clone()],
         }
     }
 
@@ -290,168 +371,13 @@ pub fn looks_like_a_token(line: &str) -> bool {
     t.starts_with("eyJ") && t.split('.').count() == 3 && !t.contains(' ')
 }
 
-// ── The controls ────────────────────────────────────────────────────────────
-
-/// What the developer has chosen to preview the page as.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Controls {
-    /// A [`presets::PRESETS`] id.
-    pub preset: &'static str,
-    pub landscape: bool,
-    pub dpr: f32,
-    pub dark: bool,
-    /// A language tag; empty leaves the web view's own.
-    pub locale: String,
-    /// Tell the page the device's safe-area insets.
-    pub safe_area: bool,
-}
-
-impl Default for Controls {
-    fn default() -> Self {
-        Self::initial(ProjectKind::Web, None, None, "")
-    }
-}
-
-impl Controls {
-    /// The controls a project's Preview opens with: the preset its kind and
-    /// device ask for, in the orientation the project declares.
-    pub fn initial(kind: ProjectKind, device: Option<DeviceClass>, orientation: Option<Orientation>, locale: &str) -> Self {
-        let preset = presets::default_for(kind, device);
-        Self {
-            preset: preset.id,
-            // A desktop page is wide by nature; a phone or a tablet is upright
-            // unless the project says landscape ("follows the device" opens upright).
-            landscape: preset.class == PresetClass::Desktop || orientation == Some(Orientation::Landscape),
-            dpr: preset.dpr,
-            dark: false,
-            locale: locale.trim().to_owned(),
-            safe_area: preset.class != PresetClass::Desktop,
-        }
-    }
-
-    /// Choose another device: its pixel ratio and its insets come with it, and
-    /// so does its natural orientation when it is a different kind of screen
-    /// (a desktop is wide, a phone upright).
-    pub fn choose(&mut self, id: &'static str) {
-        if let Some(p) = presets::preset(id) {
-            let was_desktop = presets::preset(self.preset).is_some_and(|q| q.class == PresetClass::Desktop);
-            let is_desktop = p.class == PresetClass::Desktop;
-            if was_desktop != is_desktop {
-                self.landscape = is_desktop;
-            }
-            self.preset = p.id;
-            self.dpr = p.dpr;
-            self.safe_area = !is_desktop;
-        }
-    }
-
-    /// The device in its orientation, at the chosen pixel ratio.
-    pub fn viewport(&self) -> Viewport {
-        let preset = presets::preset(self.preset).unwrap_or(&PRESETS[0]);
-        preset.viewport(self.landscape).with_dpr(self.dpr)
-    }
-
-    /// The window's size, in points.
-    pub fn window(&self) -> (u32, u32) {
-        self.viewport().window_size()
-    }
-
-    /// The insets the page is told: top, right, bottom, left.
-    pub fn insets(&self) -> [u32; 4] {
-        if self.safe_area {
-            let s = self.viewport().safe_area;
-            [s.top, s.right, s.bottom, s.left]
-        } else {
-            [0; 4]
-        }
-    }
-
-    /// What an `open` carries.
-    pub fn emulation(&self) -> Emulation {
-        Emulation {
-            dpr: Some(self.dpr),
-            dark: Some(self.dark),
-            locale: (!self.locale.is_empty()).then(|| self.locale.clone()),
-            safe_area: Some(self.insets()),
-        }
-    }
-
-    /// The commands that bring a web view showing `before` to this: nothing
-    /// for what did not change, and **one** `Emulate` for the pixel ratio, the
-    /// language and the insets together, so the page loads once.
-    pub fn changes_from(&self, before: &Controls) -> Vec<Command> {
-        let mut out = Vec::new();
-        if self.window() != before.window() {
-            let (width, height) = self.window();
-            out.push(Command::Size { width, height });
-        }
-        if self.dark != before.dark {
-            out.push(Command::Scheme { dark: self.dark });
-        }
-        let (now, was) = (self.emulation(), before.emulation());
-        if now.dpr != was.dpr || now.locale != was.locale || now.safe_area != was.safe_area {
-            out.push(Command::Emulate {
-                dpr: (now.dpr != was.dpr).then_some(self.dpr),
-                locale: if now.locale != was.locale { now.locale.clone() } else { None },
-                safe_area: (now.safe_area != was.safe_area).then(|| self.insets()),
-            });
-        }
-        out
-    }
-}
-
-/// Is `tag` a language tag a page can be told (`pt-BR`, `en`, `zh-Hans-CN`)?
-pub fn valid_locale(tag: &str) -> bool {
-    let t = tag.trim();
-    (2..=35).contains(&t.len())
-        && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-        && t.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
-        && !t.starts_with('-')
-        && !t.ends_with('-')
-        && !t.contains("--")
-}
-
-/// The height of a row of the controls window.
-const ROW_H: f32 = 22.0;
-
-/// The height of a button of the controls window.
-const BUTTON_H: f32 = 24.0;
-/// The width of the column of names at the left of the controls.
-const LABEL_W: f32 = 130.0;
-
-/// A button whose text is cut at the button's edge, never wrapped.
-fn button(text: &str) -> egui::Button<'_> {
-    egui::Button::new(text).truncate()
-}
-
-/// A button of exactly `size`, enabled or not, its text also on hover.
-fn sized_button(ui: &mut egui::Ui, enabled: bool, size: [f32; 2], text: &str) -> egui::Response {
-    ui.add_enabled_ui(enabled, |ui| ui.add_sized(size, button(text))).inner.on_hover_text(text)
-}
-
-/// A checkbox in a box of exactly `width` x [`ROW_H`] whose label is cut, never
-/// wrapped, so no language can make the row taller or wider.
-fn check(ui: &mut egui::Ui, width: f32, value: &mut bool, text: &str) {
-    let size = egui::vec2(width.max(20.0), ROW_H);
-    ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
-        ui.set_min_size(size);
-        ui.set_max_size(size);
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-        ui.checkbox(value, text).on_hover_text(text);
-    });
-}
-
-/// A preset's name in the developer's language.
-pub fn preset_text<'a>(tr: &'a Tr, id: &str) -> &'a str {
-    match id {
-        "phone-compact" => tr.pk_ps_phone_compact,
-        "phone" => tr.pk_ps_phone,
-        "phone-large" => tr.pk_ps_phone_large,
-        "tablet" => tr.pk_ps_tablet,
-        "tablet-large" => tr.pk_ps_tablet_large,
-        "desktop" => tr.pk_ps_desktop,
-        "desktop-wide" => tr.pk_ps_desktop_wide,
-        _ => "",
+/// The texts the served page shows, in the developer's language (WASM-008 §2.2).
+pub fn page_strings(tr: &Tr) -> PageStrings {
+    PageStrings {
+        stopped: tr.pk_page_stopped.to_owned(),
+        errors_title: tr.pk_page_errors_title.to_owned(),
+        dismiss: tr.pk_page_dismiss.to_owned(),
+        not_the_device: tr.pk_page_not_device.to_owned(),
     }
 }
 
@@ -532,43 +458,96 @@ impl SourceWatcher {
     }
 }
 
-// ── The Preview ─────────────────────────────────────────────────────────────
+// ── Devices (WASM-008 R14, D12) ─────────────────────────────────────────────
 
-/// Where a started Preview is shown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Target {
-    /// The system web view (the helper process), with the device controls.
-    WebView,
-    /// The system browser — what *Run* does for a Web or Mobile project.
-    Browser,
+/// The seam to a device or an emulator: a Mobile Preview runs there first.
+/// WASM-012's `mobile_toolchain` / `mobile_devices` implement it; until then
+/// [`NoDeviceTools`] is the only one, and every Mobile Preview takes the
+/// browser at a phone's size.
+pub trait DeviceRunner: Send + Sync {
+    /// `Err(tool)`: what is not on this machine to run on `platform`.
+    fn detect(&self, platform: MobilePlatform) -> Result<(), String>;
+    /// The devices and running emulators of `platform`, the first one used.
+    fn list(&self, platform: MobilePlatform) -> Vec<String>;
+    /// Run the application served at `dev_url` on `device`.
+    fn run(&self, device: &str, dev_url: &str) -> Result<(), String>;
+    /// The device's log lines since the last call.
+    fn log(&self) -> Vec<String>;
 }
+
+/// No device tools on this machine (until WASM-012).
+pub struct NoDeviceTools;
+
+impl DeviceRunner for NoDeviceTools {
+    fn detect(&self, platform: MobilePlatform) -> Result<(), String> {
+        Err(device_tool(platform).to_owned())
+    }
+
+    fn list(&self, _platform: MobilePlatform) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn run(&self, _device: &str, _dev_url: &str) -> Result<(), String> {
+        Err(String::new())
+    }
+
+    fn log(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+/// The tool a platform's devices are reached with (a name, not a sentence).
+pub fn device_tool(platform: MobilePlatform) -> &'static str {
+    match platform {
+        MobilePlatform::Android => "adb",
+        MobilePlatform::Ios => "xcrun simctl",
+    }
+}
+
+/// The platform's name, as its maker writes it.
+fn platform_name(platform: MobilePlatform) -> &'static str {
+    match platform {
+        MobilePlatform::Android => "Android",
+        MobilePlatform::Ios => "iOS",
+    }
+}
+
+// ── The Preview ─────────────────────────────────────────────────────────────
 
 /// What a start asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Intent {
     /// Build the bundle and say how it went.
     Build,
-    /// Build, serve and show.
-    Show(Target),
+    /// Build, serve and open the page in the browser — Preview and Run alike
+    /// (WASM-008 R12; D7: two actions, the same page).
+    Show,
 }
 
 /// What the Preview needs to know about the project it was started for.
 #[derive(Clone)]
 pub struct Launch {
     pub manifest: PathBuf,
-    /// The project's name, for the window title and the *Serving* note.
+    /// The project's name, for the *Serving* note.
     pub name: String,
-    /// The OS window's title, in the developer's language.
-    pub title: String,
     pub kind: ProjectKind,
+    /// A Mobile project's `[mobile]` platform, device and orientation.
+    pub platform: Option<MobilePlatform>,
     pub device: Option<DeviceClass>,
     pub orientation: Option<Orientation>,
-    /// The project's language tag; empty when it has none.
-    pub locale: String,
+    /// Where a Mobile Preview runs first (R14).
+    pub devices: Arc<dyn DeviceRunner>,
     pub has_backend: bool,
     pub backend: Arc<dyn WebBuildBackend>,
-    /// The helper process, if it is installed.
-    pub helper: Option<PathBuf>,
+    /// The browser the project names (`preview_browser`, WASM-008 R12, Q7).
+    pub browser: BrowserChoice,
+    /// A [`BrowserChoice::Path`] the developer confirmed on this machine for
+    /// this project (WASM-008 D11); an unconfirmed path is never started.
+    pub path_confirmed: bool,
+    /// The texts the served page shows, in the developer's language.
+    pub page_strings: PageStrings,
+    /// The developer's language, for a failed build's lines over the page (R7).
+    pub language: Language,
     /// The Backend address the page is built for instead of `[web] backend_url`:
     /// the one the Backend the Preview started reports (the manifest names none).
     pub backend_url: Option<String>,
@@ -605,10 +584,7 @@ struct AwaitBackend {
 
 struct Live {
     server: ServerHandle,
-    session: PreviewSession,
     watcher: SourceWatcher,
-    /// What the web view was last told, so a change sends only the difference.
-    applied: Controls,
 }
 
 /// The web Preview of the open project. One at a time.
@@ -620,15 +596,17 @@ pub struct WebPreview {
     backend_wait: Option<AwaitBackend>,
     /// A change seen while a build was running: build again when it ends.
     rebuild_after: Option<Instant>,
-    pub controls: Controls,
-    locale_edit: String,
     notes: Vec<Note>,
     outbox: Vec<Note>,
-    blocked: Option<String>,
-    /// The height the log had in the last frame the window was drawn.
-    log_h: f32,
-    /// Is the controls window shown?
-    pub open: bool,
+    /// Where the page was last opened, and in what (the launcher's decision).
+    opened: Option<(String, BrowserChoice)>,
+    /// The address of the Backend this Preview runs against (it said Ready).
+    backend_for: Option<String>,
+    /// That Backend's address and token, once both were printed: put into
+    /// the served `config.json`, never into the bundle (WASM-008 R6).
+    dev_backend: Option<DevBackend>,
+    /// The application runs on a device: its log is read each poll.
+    on_device: bool,
 }
 
 impl WebPreview {
@@ -662,9 +640,9 @@ impl WebPreview {
         self.live.as_ref().map(|l| l.server.url())
     }
 
-    /// How the page is shown, once it is.
-    pub fn mode(&self) -> Option<Mode> {
-        self.live.as_ref().map(|l| l.session.mode())
+    /// The address last opened and the browser it was opened in.
+    pub fn opened(&self) -> Option<&(String, BrowserChoice)> {
+        self.opened.as_ref()
     }
 
     /// The notes of this Preview, oldest first.
@@ -678,9 +656,6 @@ impl WebPreview {
     }
 
     fn say(&mut self, note: Note) {
-        if let Note::Blocked(url) = &note {
-            self.blocked = Some(url.clone());
-        }
         self.outbox.push(note.clone());
         self.notes.push(note);
         if self.notes.len() > MAX_NOTES {
@@ -689,27 +664,55 @@ impl WebPreview {
         }
     }
 
-    /// Start: build, then (for [`Intent::Show`]) serve and show. `false` when a
-    /// build is already running.
+    /// Start: build, then (for [`Intent::Show`]) serve and open. `false` when a
+    /// build is already running. A Preview of the same project that is already
+    /// serving is **reused**: the same address is opened again, so a tab the
+    /// developer has open keeps working (WASM-008 §1 R12).
     pub fn start(&mut self, launch: Launch, intent: Intent) -> bool {
         if self.job.is_some() || self.backend_wait.is_some() {
             return false;
         }
-        self.begin(&launch, intent);
+        if self.reuse(&launch, intent) {
+            return true;
+        }
+        self.begin(intent);
         self.build(launch, intent);
         true
     }
 
-    /// A start that shows the page is a new Preview: the old one goes, the window opens.
-    fn begin(&mut self, launch: &Launch, intent: Intent) {
+    /// Open the page being served again, when `launch` is the project it serves.
+    fn reuse(&mut self, launch: &Launch, intent: Intent) -> bool {
+        if intent != Intent::Show || self.live.is_none() {
+            return false;
+        }
+        let same = self.launch.as_ref().is_some_and(|l| l.manifest == launch.manifest);
+        if !same {
+            return false;
+        }
+        // The browser setting may have changed since; the server and the watcher stay.
+        if let Some(l) = self.launch.as_mut() {
+            l.browser = launch.browser.clone();
+            l.path_confirmed = launch.path_confirmed;
+            l.page_strings = launch.page_strings.clone();
+            l.language = launch.language;
+        }
+        if let Some(live) = &self.live {
+            live.server.set_page_strings(launch.page_strings.clone());
+        }
+        self.open_page();
+        true
+    }
+
+    /// A start that shows the page is a new Preview: the old one goes.
+    fn begin(&mut self, intent: Intent) {
         if intent != Intent::Build {
-            // A Preview already showing is replaced, not stacked.
+            // A Preview of another project is replaced, not stacked.
             self.live = None;
             self.notes.clear();
-            self.blocked = None;
-            self.controls = Controls::initial(launch.kind, launch.device, launch.orientation, &launch.locale);
-            self.locale_edit = self.controls.locale.clone();
-            self.open = true;
+            self.opened = None;
+            self.backend_for = None;
+            self.dev_backend = None;
+            self.on_device = false;
         }
     }
 
@@ -742,13 +745,16 @@ impl WebPreview {
         }
         let project_dir = launch.manifest.parent().map(Path::to_path_buf).unwrap_or_default();
         let exports = project_dir.join(cobolt_compiler::project_kind::BACKEND_FOLDER).join("exports.toml");
+        if self.reuse(&launch, intent) {
+            return Some(false);
+        }
         if intent == Intent::Build || !exports.is_file() {
             return self.start(launch, intent).then_some(false);
         }
         let manifest_url = WebBuildRequest::from_manifest(&launch.manifest).map(|r| r.web.backend_url).unwrap_or_default();
         let plan = devbackend::plan(&manifest_url, devbackend::configured_listen(&project_dir).as_deref(), devbackend::loopback_port_is_free);
         launch.backend_url = None;
-        self.begin(&launch, intent);
+        self.begin(intent);
         let (listen, bake, busy_port) = match plan {
             DevBackendPlan::Remote { url } => {
                 self.say(Note::BackendRemote { url });
@@ -804,6 +810,7 @@ impl WebPreview {
         if wait.bake {
             launch.backend_url = Some(url.to_owned());
         }
+        self.backend_for = Some(url.to_owned());
         self.say(Note::BackendReady { url: url.to_owned() });
         if !wait.bake && devbackend::origin(&wait.manifest_url) != devbackend::origin(url) {
             self.say(Note::BackendMismatch { running: url.to_owned(), page: wait.manifest_url.clone() });
@@ -819,6 +826,21 @@ impl WebPreview {
         let events = run.poll();
         for event in &events {
             self.on_backend_event(event);
+        }
+        // The token is printed after the address, maybe in a later poll.
+        let dev = match (&self.backend_for, run.is_running(), run.url(), run.token()) {
+            (Some(ours), true, Some(url), Some(token)) if ours == url => Some(DevBackend { url: url.to_owned(), token: token.to_owned() }),
+            _ => None,
+        };
+        if dev != self.dev_backend {
+            self.dev_backend = dev;
+            if let Some(live) = &self.live {
+                live.server.set_dev_backend(self.dev_backend.clone());
+            }
+            // Never silent: calls will be refused until the player sends the token.
+            if let Some(d) = &self.dev_backend {
+                self.say(Note::TokenUnused { url: d.url.clone() });
+            }
         }
         events
     }
@@ -880,19 +902,24 @@ impl WebPreview {
         }
     }
 
-    /// End everything: the web view, the server, the watcher. A build that is
-    /// still running finishes on its thread and its result is dropped.
+    /// End everything: the server and the watcher. A build that is still
+    /// running finishes on its thread and its result is dropped. A browser tab
+    /// left open says, at its next polls, that the Preview has stopped.
     pub fn stop(&mut self) {
-        self.live = None;
+        if self.live.take().is_some() {
+            self.say(Note::PreviewStopped);
+        }
         self.job = None;
         self.backend_wait = None;
         self.rebuild_after = None;
+        self.backend_for = None;
+        self.dev_backend = None;
+        self.on_device = false;
     }
 
-    /// Close the Preview and its window.
+    /// Close the Preview (Stop, another project, the IDE closing).
     pub fn close(&mut self) {
         self.stop();
-        self.open = false;
     }
 
     /// Look at everything that moves: the build, the web view's events, the
@@ -904,6 +931,7 @@ impl WebPreview {
         }
         self.poll_job();
         self.poll_events();
+        self.poll_device();
         let changed = self.live.as_mut().and_then(|l| l.watcher.poll(now));
         if let Some(when) = changed {
             self.rebuild_after.get_or_insert(when);
@@ -960,6 +988,16 @@ impl WebPreview {
             Err(WebBuildError::Failed(why)) => self.say(Note::BuildFailed(why)),
             Err(WebBuildError::PlayerPin(e)) => self.say(Note::PlayerPin(e)),
         }
+        // R7, AC5: the page keeps the last good bundle (the generator replaces
+        // it whole, or not at all) and shows a failed build's lines over it;
+        // the next good build takes them away.
+        if let (JobKind::Rebuild(_), Some(live)) = (&kind, &self.live) {
+            let errors = match (built || not_linked, self.notes.last(), self.launch.as_ref()) {
+                (false, Some(note), Some(launch)) => note.lines(&launch.language.tr()),
+                _ => Vec::new(),
+            };
+            live.server.set_build_errors(errors);
+        }
         match kind {
             // A Build ends here; a Mobile one says where it stops.
             JobKind::Initial(Intent::Build) => {
@@ -967,13 +1005,13 @@ impl WebPreview {
                     self.say(Note::PackageNote);
                 }
             }
-            JobKind::Initial(Intent::Show(target)) => {
+            JobKind::Initial(Intent::Show) => {
                 // A build that worked is shown. So is the bundle that is already
                 // there when no generator is linked — it may have been made
                 // somewhere else. A build that failed shows nothing: an old page
                 // under a new error would mislead.
                 match done.bundle {
-                    Some(bundle) if built || not_linked => self.serve(&bundle, done.isolation, target),
+                    Some(bundle) if built || not_linked => self.serve(&bundle, done.isolation),
                     Some(_) => {}
                     None => self.say(Note::NoBundle),
                 }
@@ -990,7 +1028,7 @@ impl WebPreview {
         }
     }
 
-    fn serve(&mut self, bundle: &Path, isolation: Isolation, target: Target) {
+    fn serve(&mut self, bundle: &Path, isolation: Isolation) {
         let Some(launch) = self.launch.clone() else { return };
         if !bundle.join("index.html").is_file() {
             self.say(Note::NoBundle);
@@ -1004,92 +1042,117 @@ impl WebPreview {
                 return;
             }
         };
-        let url = server.url();
-        self.say(Note::Serving { name: launch.name.clone(), url: url.clone() });
-        let (w, h) = self.controls.window();
-        let helper = if target == Target::WebView { launch.helper.as_deref() } else { None };
-        let session = match PreviewSession::start(&url, &launch.title, w, h, &self.controls.emulation(), helper) {
-            Ok(s) => s,
-            Err(e) => {
-                self.say(Note::HelperFailed(e));
-                return;
-            }
-        };
-        self.say(if session.mode() == Mode::WebView { Note::ModeWebView } else { Note::ModeBrowser });
+        server.set_page_strings(launch.page_strings.clone());
+        server.set_dev_backend(self.dev_backend.clone());
+        self.say(Note::Serving { name: launch.name.clone(), url: server.url() });
         // A Backend this Preview did not arrange (a start without one) is said to be off.
         if launch.has_backend && !self.notes.iter().any(|n| matches!(n, Note::BackendReady { .. } | Note::BackendTaken { .. } | Note::BackendRemote { .. })) {
             self.say(Note::BackendOff);
         }
         let watcher = SourceWatcher::new(&launch.manifest, launch.kind, launch.has_backend);
-        self.live = Some(Live { server, session, watcher, applied: self.controls.clone() });
+        self.live = Some(Live { server, watcher });
+        self.open_page();
     }
 
-    fn poll_events(&mut self) {
-        let events = match self.live.as_mut() {
-            Some(l) => l.session.poll(),
-            None => return,
-        };
-        let mut chatter = 0usize;
-        for event in events {
-            match event {
-                Event::Ready => {}
-                Event::Console { level, text } => {
-                    chatter += 1;
-                    if chatter <= CHATTER_PER_POLL {
-                        self.say(Note::Console { level, text });
-                    }
-                }
-                Event::Error { message, source, line } => {
-                    chatter += 1;
-                    if chatter <= CHATTER_PER_POLL {
-                        self.say(Note::PageError { message, source, line });
-                    }
-                }
-                Event::Blocked { url } => self.say(Note::Blocked(url)),
-                Event::Failed { message } => {
-                    // No web view here: say why, and show the page in the browser instead.
-                    self.say(Note::HelperFailed(message));
-                    self.fall_back_to_the_browser();
+    /// Open the served page in the project's browser (WASM-008 R12): a named
+    /// one or a confirmed path, else — and whenever that one cannot be
+    /// started — the system's default, said in the Output panel.
+    fn open_page(&mut self) {
+        let Some(mut url) = self.url() else { return };
+        if self.launch.as_ref().is_some_and(|l| l.kind == ProjectKind::Mobile) {
+            match self.open_on_device(&url) {
+                Some(phone) => url = phone,
+                None => return,
+            }
+        }
+        let Some(launch) = self.launch.as_ref() else { return };
+        let mut choice = launch.browser.clone();
+        if let BrowserChoice::Path(p) = &choice {
+            if !launch.path_confirmed {
+                self.say(Note::BrowserNotConfirmed { path: p.display().to_string() });
+                choice = BrowserChoice::System;
+            }
+        }
+        if choice != BrowserChoice::System {
+            match preview::open_in_browser(&url, &choice) {
+                Ok(()) => {
+                    self.say(Note::Opened { browser: choice.label(), url: url.clone() });
+                    self.opened = Some((url, choice));
                     return;
                 }
-                Event::Closed => {
-                    self.live = None;
-                    self.rebuild_after = None;
-                    self.say(Note::Closed);
-                    return;
+                Err(why) => {
+                    self.say(Note::BrowserFailed { name: choice.label(), why });
+                    choice = BrowserChoice::System;
                 }
             }
         }
-    }
-
-    fn fall_back_to_the_browser(&mut self) {
-        let Some(title) = self.launch.as_ref().map(|l| l.title.clone()) else { return };
-        let (w, h) = self.controls.window();
-        let emulation = self.controls.emulation();
-        let Some(live) = self.live.as_mut() else { return };
-        live.session.close();
-        match PreviewSession::start(&live.server.url(), &title, w, h, &emulation, None) {
-            Ok(session) => {
-                live.session = session;
-                self.say(Note::ModeBrowser);
+        match preview::open_in_browser(&url, &choice) {
+            Ok(()) => {
+                self.say(Note::Opened { browser: String::new(), url: url.clone() });
+                self.opened = Some((url, choice));
             }
-            Err(e) => {
-                self.live = None;
-                self.say(Note::HelperFailed(e));
-            }
+            Err(why) => self.say(Note::BrowserFailed { name: String::new(), why }),
         }
     }
 
-    /// Send the web view what changed in the controls since it was last told.
-    pub fn apply_controls(&mut self) {
-        let Some(live) = self.live.as_mut() else { return };
-        if live.session.mode() != Mode::WebView || live.applied == self.controls {
+    /// A Mobile Preview (R14, R15, D12): the first device or running emulator
+    /// runs the application (`None`); without one, the phone page is set up at
+    /// `[mobile] device` and `orientation` and its address is answered, to be
+    /// opened in the project's browser, and the Output panel says why.
+    fn open_on_device(&mut self, url: &str) -> Option<String> {
+        let launch = self.launch.as_ref()?;
+        let platform = launch.platform.unwrap_or(MobilePlatform::Android);
+        let devices = launch.devices.clone();
+        let landscape = launch.orientation == Some(Orientation::Landscape);
+        let view = presets::default_for(ProjectKind::Mobile, launch.device).viewport(landscape);
+        let install = devices.detect(platform).err();
+        if install.is_none() {
+            if let Some(device) = devices.list(platform).into_iter().next() {
+                match devices.run(&device, url) {
+                    Ok(()) => {
+                        self.on_device = true;
+                        self.say(Note::OnDevice { device, url: url.to_owned() });
+                        return None;
+                    }
+                    Err(why) => self.say(Note::DeviceFailed { device, why }),
+                }
+            }
+        }
+        let live = self.live.as_ref()?;
+        live.server.set_phone(Some(PhoneFrame { width: view.width, height: view.height }));
+        let phone = live.server.phone_url();
+        self.say(Note::NotTheDevice { platform: platform_name(platform).to_owned(), install, width: view.width, height: view.height });
+        Some(phone)
+    }
+
+    /// The device's log, at most [`CHATTER_PER_POLL`] lines a poll.
+    fn poll_device(&mut self) {
+        if !self.on_device {
             return;
         }
-        for command in self.controls.changes_from(&live.applied) {
-            let _ = live.session.send(&command);
+        let Some(devices) = self.launch.as_ref().map(|l| l.devices.clone()) else { return };
+        for line in devices.log().into_iter().take(CHATTER_PER_POLL) {
+            self.say(Note::DeviceLog(line));
         }
-        live.applied = self.controls.clone();
+    }
+
+    /// What the served page reported (WASM-008 R13, R5, R3): its console
+    /// lines, uncaught errors, COBOL run-time errors and in-place update
+    /// times, each with its form; at most [`CHATTER_PER_POLL`] a poll, the
+    /// rest of a burst dropped.
+    fn poll_events(&mut self) {
+        let events = match self.live.as_ref() {
+            Some(l) => l.server.take_page_events(),
+            None => return,
+        };
+        for event in events.into_iter().take(CHATTER_PER_POLL) {
+            self.say(match event {
+                PageEvent::Console { level, text, form } => Note::Console { level, text, form },
+                PageEvent::Error { message, source, line, form } => Note::PageError { message, source, line, form },
+                PageEvent::CobolError { form, unit, line, code, message } => Note::CobolError { form, unit, line, code, message },
+                PageEvent::Updated { how, ms, .. } => Note::PageUpdated { how, ms },
+            });
+        }
     }
 
     /// The CSS-only fast path (WASM-007 R11, T23; the operator's decision of
@@ -1113,179 +1176,12 @@ impl WebPreview {
         self.say(Note::Updated { ms });
         true
     }
+}
 
-    /// Load the page again.
-    pub fn reload(&mut self) {
-        if let Some(live) = self.live.as_mut() {
-            if live.session.mode() == Mode::WebView {
-                let _ = live.session.send(&Command::Reload);
-            } else {
-                // The browser tab reloads itself when the server counts a change.
-                live.server.notify_changed();
-            }
-        }
-    }
-
-    /// Open the web view's developer tools.
-    pub fn devtools(&mut self) {
-        if let Some(live) = self.live.as_mut() {
-            let _ = live.session.send(&Command::Devtools);
-        }
-    }
-
-    /// Show the served page in the system browser as well.
-    pub fn open_in_browser(&mut self) {
-        let Some(url) = self.url() else { return };
-        if let Err(e) = preview::open_in_system_browser(&url) {
-            self.say(Note::HelperFailed(e));
-        }
-    }
-
-    // ── The controls window ─────────────────────────────────────────────────
-
-    /// The controls window. Does nothing while it is not [`WebPreview::open`].
-    pub fn show(&mut self, ctx: &egui::Context, tr: &Tr) {
-        if !self.open {
-            return;
-        }
-        let mut open = true;
-        let screen = ctx.content_rect();
-        let default_pos = egui::pos2((screen.right() - WINDOW_W - 24.0).max(12.0), (screen.top() + 84.0).max(12.0));
-        egui::Window::new(egui::RichText::new(tr.pk_prev_title).strong())
-            .id(egui::Id::new("web_preview_controls"))
-            .open(&mut open)
-            .collapsible(false)
-            // NEVER `resizable(true)`: see the module comment.
-            .resizable(false)
-            // The outer width; the height is whatever the one exact body needs, plus
-            // the same chrome every frame (`panels::fixed_dialog` explains why).
-            .fixed_size([WINDOW_W, 0.0])
-            .default_pos(default_pos)
-            .show(ctx, |ui| {
-                let body = egui::vec2(crate::panels::fixed_dialog::content_width(ui, WINDOW_W), BODY_H);
-                ui.set_width(body.x);
-                // The window learns its size from ONE allocation of exactly `body`.
-                // The body is drawn in a child of that rectangle, which tells the
-                // window nothing of what it draws and clips whatever would pass the
-                // edge, so nothing in it — a language, a log, a button — can make
-                // the window larger.
-                let (rect, _) = ui.allocate_exact_size(body, egui::Sense::hover());
-                let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min)));
-                inner.set_clip_rect(rect.intersect(ui.clip_rect()));
-                self.body(&mut inner, tr, body.x, ctx);
-            });
-        if !open {
-            self.close();
-        }
-    }
-
-    fn body(&mut self, ui: &mut egui::Ui, tr: &Tr, width: f32, ctx: &egui::Context) {
-        let before = self.controls.clone();
-        let web_view = self.mode() == Some(Mode::WebView);
-        // Rows close together: the window is a palette, not a form.
-        ui.spacing_mut().item_spacing.y = 4.0;
-        let half = ((width - ui.spacing().item_spacing.x) / 2.0).floor();
-
-        // A name on the left in a column of LABEL_W (cut, with the whole name on hover),
-        // its control in the rest of the row.
-        let field_w = (width - LABEL_W - ui.spacing().item_spacing.x).max(40.0);
-        let label = |ui: &mut egui::Ui, text: &str| {
-            ui.add_sized([LABEL_W, ROW_H], egui::Label::new(text).truncate()).on_hover_text(text);
-        };
-        ui.add_enabled_ui(web_view, |ui| {
-            ui.horizontal(|ui| {
-                label(ui, tr.pk_prev_device);
-                let shown = preset_text(tr, self.controls.preset).to_owned();
-                egui::ComboBox::from_id_salt("web_preview_device").width(field_w).selected_text(shown).show_ui(ui, |ui| {
-                    for p in PRESETS {
-                        if ui.selectable_label(self.controls.preset == p.id, preset_text(tr, p.id)).clicked() {
-                            self.controls.choose(p.id);
-                        }
-                    }
-                });
-            });
-            check(ui, width, &mut self.controls.landscape, tr.pk_prev_landscape);
-            ui.horizontal(|ui| {
-                label(ui, tr.pk_prev_dpr);
-                egui::ComboBox::from_id_salt("web_preview_dpr")
-                    .width(field_w)
-                    .selected_text(format!("{}×", self.controls.dpr))
-                    .show_ui(ui, |ui| {
-                        for &d in PIXEL_RATIOS {
-                            ui.selectable_value(&mut self.controls.dpr, d, format!("{d}×"));
-                        }
-                    });
-            });
-            check(ui, width, &mut self.controls.dark, tr.pk_prev_dark);
-            ui.horizontal(|ui| {
-                label(ui, tr.pk_prev_locale);
-                let edit = ui.add_sized([field_w, ROW_H], egui::TextEdit::singleline(&mut self.locale_edit).hint_text("en-US"));
-                if edit.lost_focus() && valid_locale(&self.locale_edit) {
-                    self.controls.locale = self.locale_edit.trim().to_owned();
-                }
-            });
-            check(ui, width, &mut self.controls.safe_area, tr.pk_prev_safe_area);
-        });
-        // Whatever changed reaches the web view now, not on a later frame.
-        if self.controls != before {
-            self.apply_controls();
-        }
-
-        ui.add_space(4.0);
-        let serving = self.live.is_some();
-        // Every button is exactly `half` x BUTTON_H: no text and no state can change a row.
-        let cell = [half, BUTTON_H];
-        ui.horizontal(|ui| {
-            if sized_button(ui, serving, cell, tr.pk_prev_reload).clicked() {
-                self.reload();
-            }
-            if sized_button(ui, web_view, cell, tr.pk_prev_devtools).clicked() {
-                self.devtools();
-            }
-        });
-        ui.horizontal(|ui| {
-            if sized_button(ui, serving, cell, tr.pk_prev_open_browser).clicked() {
-                self.open_in_browser();
-            }
-            if sized_button(ui, self.active(), cell, tr.pk_prev_close).clicked() {
-                self.close();
-            }
-        });
-
-        // The page tried to leave: a button, always the same height, there or not.
-        match (self.blocked.clone(), tr.pk_prev_open_blocked) {
-            (Some(url), label) => {
-                let external = url.starts_with("http://") || url.starts_with("https://");
-                let response = ui.add_enabled_ui(external, |ui| ui.add_sized([width, BUTTON_H], button(label))).inner;
-                if response.on_hover_text(&url).clicked() {
-                    ctx.open_url(egui::OpenUrl::new_tab(url));
-                }
-            }
-            (None, _) => {
-                ui.allocate_space(egui::vec2(width, BUTTON_H));
-            }
-        }
-
-        ui.separator();
-        let log_h = ui.available_height().max(60.0);
-        self.log_h = log_h;
-        egui::ScrollArea::vertical()
-            .id_salt("web_preview_log")
-            .max_height(log_h)
-            .min_scrolled_height(log_h)
-            .auto_shrink([false, false])
-            .stick_to_bottom(true)
-            .show(ui, |ui| {
-                for note in &self.notes {
-                    let colour = match note.severity() {
-                        Severity::Info => ui.visuals().text_color(),
-                        Severity::Warn => ui.visuals().warn_fg_color,
-                        Severity::Error => ui.visuals().error_fg_color,
-                    };
-                    ui.add(egui::Label::new(egui::RichText::new(note.text(tr)).small().color(colour)).wrap());
-                }
-            });
-    }
+/// What other modules' tests use to drive a Preview (the settings' path confirmation).
+#[cfg(test)]
+pub(crate) mod tests_support {
+    pub(crate) use super::tests::open_with;
 }
 
 #[cfg(test)]
@@ -1357,18 +1253,21 @@ mod tests {
         }
     }
 
-    fn launch(manifest: &Path, backend: Arc<dyn WebBuildBackend>, helper: Option<PathBuf>) -> Launch {
+    fn launch(manifest: &Path, backend: Arc<dyn WebBuildBackend>) -> Launch {
         Launch {
             manifest: manifest.to_path_buf(),
             name: "P".into(),
-            title: "Web Preview - P".into(),
             kind: ProjectKind::Web,
+            platform: None,
             device: None,
             orientation: None,
-            locale: "pt-BR".into(),
+            devices: Arc::new(NoDeviceTools),
             has_backend: true,
             backend,
-            helper,
+            browser: BrowserChoice::System,
+            path_confirmed: false,
+            page_strings: page_strings(&Language::English.tr()),
+            language: Language::English,
             backend_url: None,
         }
     }
@@ -1384,23 +1283,126 @@ mod tests {
         }
     }
 
-    /// A stand-in for the helper: it logs every line it is given and says
-    /// `closed` when asked to close.
+    /// A stand-in for the headless helper that leaves a mark if anything starts
+    /// it: the interactive Preview never does (WASM-008 R16, AC15).
     #[cfg(unix)]
-    fn fake_helper(dir: &Path) -> (PathBuf, PathBuf) {
+    fn marking_helper(dir: &Path) -> (PathBuf, PathBuf) {
         use std::os::unix::fs::PermissionsExt;
-        let log = dir.join("helper.log");
-        let helper = dir.join("fake-helper");
-        std::fs::write(
-            &helper,
-            format!(
-                "#!/bin/sh\necho '{{\"event\":\"ready\"}}'\nwhile read line; do\n  echo \"$line\" >> '{}'\n  case \"$line\" in\n    *'\"cmd\":\"close\"'*) echo '{{\"event\":\"closed\"}}'; exit 0;;\n  esac\ndone\n",
-                log.display()
-            ),
-        )
-        .unwrap();
+        let mark = dir.join("helper-was-started");
+        let helper = dir.join("marking-helper");
+        std::fs::write(&helper, format!("#!/bin/sh\ntouch '{}'\necho '{{\"event\":\"ready\"}}'\nexit 0\n", mark.display())).unwrap();
         std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
-        (helper, log)
+        (helper, mark)
+    }
+
+    /// Start a Preview of a scratch project whose browser is `choice`, wait for
+    /// the page to be opened, and answer what it said.
+    pub(crate) fn open_with(choice: BrowserChoice, confirmed: bool) -> Vec<Note> {
+        quiet();
+        let manifest = project(&format!("open-with-{confirmed}"));
+        let mut p = WebPreview::default();
+        let mut l = launch(&manifest, Fake::new());
+        l.browser = choice;
+        l.path_confirmed = confirmed;
+        assert!(p.start(l, Intent::Show));
+        wait_until(&mut p, "the page to be opened", |p| p.opened().is_some());
+        let notes = p.notes().to_vec();
+        p.close();
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+        notes
+    }
+
+    /// A device runner that has one device and two log lines, and writes down
+    /// what it was asked, in order.
+    struct FakeDevices {
+        calls: Mutex<Vec<String>>,
+        log: Mutex<Vec<String>>,
+    }
+
+    impl DeviceRunner for FakeDevices {
+        fn detect(&self, platform: MobilePlatform) -> Result<(), String> {
+            self.calls.lock().unwrap().push(format!("detect {}", platform.as_str()));
+            Ok(())
+        }
+
+        fn list(&self, platform: MobilePlatform) -> Vec<String> {
+            self.calls.lock().unwrap().push(format!("list {}", platform.as_str()));
+            vec!["Pixel 8".into(), "Pixel Tablet".into()]
+        }
+
+        fn run(&self, device: &str, dev_url: &str) -> Result<(), String> {
+            self.calls.lock().unwrap().push(format!("run {device} {dev_url}"));
+            Ok(())
+        }
+
+        fn log(&self) -> Vec<String> {
+            std::mem::take(&mut *self.log.lock().unwrap())
+        }
+    }
+
+    fn mobile_launch(manifest: &Path, devices: Arc<dyn DeviceRunner>, device: DeviceClass, orientation: Orientation) -> Launch {
+        let mut l = launch(manifest, Fake::new());
+        l.kind = ProjectKind::Mobile;
+        l.platform = Some(MobilePlatform::Android);
+        l.device = Some(device);
+        l.orientation = Some(orientation);
+        l.devices = devices;
+        l
+    }
+
+    /// AC14, the IDE half: with no device tools a Mobile Preview opens the
+    /// phone page at `[mobile] device` and `orientation`, and says why.
+    #[test]
+    fn a_mobile_preview_without_device_tools_opens_the_phone_page_008() {
+        quiet();
+        for (device, orientation, w, h) in [(DeviceClass::Phone, Orientation::Portrait, 390, 844), (DeviceClass::Tablet, Orientation::Landscape, 1180, 820)] {
+            let manifest = project(&format!("phone-{}-{}", device.as_str(), orientation.as_str()));
+            let mut p = WebPreview::default();
+            assert!(p.start(mobile_launch(&manifest, Arc::new(NoDeviceTools), device, orientation), Intent::Show));
+            wait_until(&mut p, "the phone page to be opened", |p| p.opened().is_some());
+            let (opened, _) = p.opened().cloned().unwrap();
+            assert!(opened.ends_with(devserver::PHONE_PATH), "{opened}");
+            let note = Note::NotTheDevice { platform: "Android".into(), install: Some("adb".into()), width: w, height: h };
+            assert!(p.notes().contains(&note), "{:?}", p.notes());
+            let page = http_get(&p.url().unwrap(), devserver::PHONE_PATH);
+            assert!(page.contains(&format!("width=\"{w}\" height=\"{h}\"")), "{page}");
+            assert!(page.contains(Language::English.tr().pk_page_not_device), "the banner: {page}");
+            for &lang in Language::ALL {
+                let lines = note.lines(&lang.tr());
+                assert_eq!(lines.len(), 2, "{lang:?}");
+                assert!(lines.iter().all(|l| !l.contains("{}")), "{lang:?} {lines:?}");
+                assert!(lines[0].contains("adb") && lines[0].contains("Android") && lines[1].contains(&w.to_string()), "{lang:?} {lines:?}");
+            }
+            println!("{}: {opened} at {w} x {h}; {}", device.as_str(), note.text(&Language::English.tr()).replace('\n', " / "));
+            p.close();
+            let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+        }
+    }
+
+    /// AC13, the hand-over only (the real device run waits for WASM-012): a
+    /// runner with a device gets the development address, no browser is
+    /// opened, and the device's log reaches the Output notes.
+    #[test]
+    fn a_mobile_preview_hands_the_address_to_a_device_and_reads_its_log_008() {
+        quiet();
+        let manifest = project("on-device");
+        let fake = Arc::new(FakeDevices { calls: Mutex::new(Vec::new()), log: Mutex::new(vec!["I/chromium: started".into(), "I/chromium: MAIN-FORM shown".into()]) });
+        let mut p = WebPreview::default();
+        assert!(p.start(mobile_launch(&manifest, fake.clone(), DeviceClass::Phone, Orientation::Auto), Intent::Show));
+        wait_until(&mut p, "the device run", |p| p.notes().iter().any(|n| matches!(n, Note::OnDevice { .. })));
+        let url = p.url().unwrap();
+        p.poll(Instant::now());
+        let calls = fake.calls.lock().unwrap().clone();
+        assert_eq!(calls, ["detect android".to_owned(), "list android".to_owned(), format!("run Pixel 8 {url}")]);
+        assert!(p.opened().is_none(), "no browser when a device runs it");
+        assert!(p.notes().contains(&Note::OnDevice { device: "Pixel 8".into(), url: url.clone() }));
+        assert!(p.notes().contains(&Note::DeviceLog("I/chromium: MAIN-FORM shown".into())), "{:?}", p.notes());
+        assert!(!p.notes().iter().any(|n| matches!(n, Note::NotTheDevice { .. })));
+        for c in &calls {
+            println!("runner: {c}");
+        }
+        p.close();
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
     }
 
     /// No test opens a browser window on the developer's screen.
@@ -1423,73 +1425,6 @@ mod tests {
         let mut out = String::new();
         s.read_to_string(&mut out).unwrap();
         out.split_once("\r\n\r\n").map(|(_, body)| body.to_owned()).unwrap_or(out)
-    }
-
-    // ── controls ──
-
-    #[test]
-    fn a_projects_kind_and_device_choose_its_first_preview() {
-        let web = Controls::initial(ProjectKind::Web, None, None, "");
-        assert_eq!((web.preset, web.dpr, web.safe_area), ("desktop", 1.0, false));
-        assert_eq!(web.window(), (1280, 800), "a desktop page opens wide");
-        let phone = Controls::initial(ProjectKind::Mobile, Some(DeviceClass::Phone), Some(Orientation::Portrait), "pt-BR");
-        assert_eq!((phone.preset, phone.dpr, phone.safe_area, phone.locale.as_str()), ("phone", 3.0, true, "pt-BR"));
-        assert_eq!(phone.window(), (390, 844));
-        let tablet = Controls::initial(ProjectKind::Mobile, Some(DeviceClass::Tablet), Some(Orientation::Landscape), "");
-        assert_eq!(tablet.preset, "tablet");
-        assert_eq!(tablet.window(), (1180, 820), "a landscape tablet is wider than tall");
-        let auto = Controls::initial(ProjectKind::Mobile, Some(DeviceClass::Phone), Some(Orientation::Auto), "");
-        assert_eq!(auto.window(), (390, 844), "'follows the device' opens upright");
-    }
-
-    #[test]
-    fn choosing_a_device_brings_its_ratio_and_insets() {
-        let mut c = Controls::initial(ProjectKind::Web, None, None, "");
-        c.choose("phone-large");
-        assert_eq!((c.dpr, c.safe_area, c.insets()), (3.0, true, [59, 0, 34, 0]));
-        c.choose("desktop-wide");
-        assert_eq!((c.dpr, c.safe_area, c.insets()), (1.0, false, [0; 4]));
-        c.choose("no-such-preset");
-        assert_eq!(c.preset, "desktop-wide", "an unknown id changes nothing");
-    }
-
-    #[test]
-    fn a_change_sends_only_what_changed_and_loads_the_page_once() {
-        let was = Controls::initial(ProjectKind::Mobile, Some(DeviceClass::Phone), Some(Orientation::Portrait), "pt-BR");
-        assert!(was.changes_from(&was).is_empty());
-
-        let mut now = was.clone();
-        now.dark = true;
-        assert_eq!(now.changes_from(&was), vec![Command::Scheme { dark: true }]);
-
-        let mut turned = was.clone();
-        turned.landscape = true;
-        let cmds = turned.changes_from(&was);
-        assert_eq!(cmds[0], Command::Size { width: 844, height: 390 });
-        assert_eq!(cmds.len(), 2, "the insets turn with the screen: {cmds:?}");
-        assert!(matches!(cmds[1], Command::Emulate { dpr: None, locale: None, safe_area: Some([0, 47, 20, 47]) }));
-
-        // A new device changes size, ratio and insets: three things, ONE emulate (one reload).
-        let mut tablet = was.clone();
-        tablet.choose("tablet");
-        let cmds = tablet.changes_from(&was);
-        assert_eq!(cmds.iter().filter(|c| matches!(c, Command::Emulate { .. })).count(), 1);
-        assert_eq!(cmds[0], Command::Size { width: 820, height: 1180 });
-        assert_eq!(cmds[1], Command::Emulate { dpr: Some(2.0), locale: None, safe_area: Some([24, 0, 20, 0]) });
-
-        let mut lang = was.clone();
-        lang.locale = "ja".into();
-        assert_eq!(lang.changes_from(&was), vec![Command::Emulate { dpr: None, locale: Some("ja".into()), safe_area: None }]);
-    }
-
-    #[test]
-    fn only_a_language_tag_is_told_to_a_page() {
-        for ok in ["en", "pt-BR", "zh-Hans-CN", "ja", "es-419"] {
-            assert!(valid_locale(ok), "{ok}");
-        }
-        for bad in ["", "e", "-en", "en-", "en--US", "en US", "en_US", "1en", "en;alert(1)", "en'", &"a".repeat(36)] {
-            assert!(!valid_locale(bad), "{bad:?}");
-        }
     }
 
     // ── notes ──
@@ -1562,15 +1497,15 @@ mod tests {
             Note::NoBundle,
             Note::Serving { name: "P".into(), url: "http://127.0.0.1:1/".into() },
             Note::ServerFailed("busy".into()),
-            Note::HelperFailed("none".into()),
-            Note::ModeWebView,
-            Note::ModeBrowser,
-            Note::Blocked("https://example.com/".into()),
+            Note::Opened { browser: String::new(), url: "http://127.0.0.1:1/".into() },
+            Note::Opened { browser: "Firefox".into(), url: "http://127.0.0.1:1/".into() },
             Note::Updated { ms: 180 },
-            Note::Closed,
+            Note::BrowserFailed { name: "Firefox".into(), why: "Firefox was not found on this computer".into() },
+            Note::BrowserNotConfirmed { path: "/Applications/Other.app".into() },
+            Note::Opened { browser: "/Applications/Other.app".into(), url: "http://127.0.0.1:1/".into() },
             Note::BackendOff,
-            Note::Console { level: "log".into(), text: "hi".into() },
-            Note::PageError { message: "x is not defined".into(), source: "app.js".into(), line: 12 },
+            Note::Console { level: "log".into(), text: "hi".into(), form: String::new() },
+            Note::PageError { message: "x is not defined".into(), source: "app.js".into(), line: 12, form: "MAIN-FORM".into() },
             Note::BuildWarning(
                 format!("{} 5100000 bytes, over the budget of 5000000 bytes", cobolt_project_tools::web::OVER_BUDGET_PREFIX).into(),
             ),
@@ -1592,6 +1527,19 @@ mod tests {
             Note::BackendFailed { code: Some(1), why: vec!["rcrun backend: no exports.toml".into()] },
             Note::BackendFailed { code: None, why: vec![] },
             Note::BackendTimeout { secs: 60 },
+            Note::CobolError { form: "MAIN-FORM".into(), unit: "BTN-OK-CLICK".into(), line: 7, code: "EC-SIZE".into(), message: "size error".into() },
+            Note::PageUpdated { how: "stylesheet, stylesheet of MAIN-FORM".into(), ms: 12.25 },
+            Note::PageUpdated { how: "program".into(), ms: 80.0 },
+            Note::PageUpdated { how: "forms".into(), ms: 40.0 },
+            Note::PageUpdated { how: "reload".into(), ms: 3.0 },
+            Note::PageUpdated { how: "unchanged".into(), ms: 1.0 },
+            Note::PreviewStopped,
+            Note::TokenUnused { url: "ws://127.0.0.1:8443/ws".into() },
+            Note::NotTheDevice { platform: "Android".into(), install: Some("adb".into()), width: 390, height: 844 },
+            Note::NotTheDevice { platform: "iOS".into(), install: None, width: 820, height: 1180 },
+            Note::OnDevice { device: "Pixel 8".into(), url: "http://127.0.0.1:5173/".into() },
+            Note::DeviceFailed { device: "Pixel 8".into(), why: "offline".into() },
+            Note::DeviceLog("I/chromium: hello".into()),
         ];
         let mut shown = 0;
         for &lang in Language::ALL {
@@ -1610,7 +1558,14 @@ mod tests {
         assert!(notes[3].text(&en).contains("not measured"));
         assert!(notes[5].lines(&en).len() == 2 && notes[5].lines(&en)[1].starts_with("  a.cfrm:3"));
         assert_eq!(notes[18].severity(), Severity::Info);
-        assert_eq!(Note::Console { level: "error".into(), text: String::new() }.severity(), Severity::Error);
+        assert_eq!(Note::Console { level: "error".into(), text: String::new(), form: String::new() }.severity(), Severity::Error);
+        // WASM-008 T36: the form leads the page's lines; a COBOL error names its unit and line.
+        assert_eq!(notes[19].text(&en), "MAIN-FORM: Page error: x is not defined (app.js:12)");
+        let cobol = notes[35].text(&en);
+        assert!(cobol.starts_with("MAIN-FORM: ") && cobol.contains("size error") && cobol.contains("(BTN-OK-CLICK:7)") && cobol.contains("EC-SIZE"), "{cobol}");
+        assert!(notes[36].text(&en).contains("12.2 ms") && notes[36].text(&en).contains("stylesheet of MAIN-FORM"));
+        let kinds: std::collections::BTreeSet<String> = (36..41).map(|i| notes[i].text(&en)).collect();
+        assert_eq!(kinds.len(), 5, "one Output line per kind of update");
         assert_eq!(notes[14].severity(), Severity::Warn);
         // WASM-016 T27: the player's sizes, its parts on a line of their own, and the pin's facts in the sentence.
         let sizes = notes[22].lines(&en);
@@ -1648,6 +1603,7 @@ mod tests {
         let t0 = Instant::now();
         assert_eq!(w.poll(t0), None, "nothing changed");
         assert_eq!(w.poll(t0 + Duration::from_millis(100)), None, "too soon to look again");
+        assert_eq!(WATCH_EVERY, Duration::from_millis(150), "WASM-008 D6");
 
         std::fs::write(dir.join("webforms/main-form.cfrm"), "<Form changed='yes'/>").unwrap();
         std::fs::write(dir.join("webforms/theme.css"), "body{color:red}").unwrap();
@@ -1666,6 +1622,23 @@ mod tests {
         std::fs::write(&manifest, format!("{MANIFEST}# edited\n")).unwrap();
         assert_eq!(w.poll(t2 + Duration::from_millis(2000)), None);
         assert!(w.poll(t2 + Duration::from_millis(2500)).is_some());
+
+        // In real time (a watcher of its own: the looks above were at made-up instants): a save is
+        // reported after the look that sees it and one quiet look (D6).
+        let mut w = SourceWatcher::new(&manifest, ProjectKind::Web, false);
+        let _ = w.poll(Instant::now());
+        let t = Instant::now();
+        std::fs::write(dir.join("webforms/main-form.cfrm"), "<Form again='yes'/>").unwrap();
+        let reported = loop {
+            if let Some(seen) = w.poll(Instant::now()) {
+                break seen;
+            }
+            assert!(t.elapsed() < Duration::from_secs(5), "the change was not reported");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let after = t.elapsed();
+        assert!(reported >= t);
+        println!("watcher: a save reported {} ms after it (looks every {} ms, one quiet look)", after.as_millis(), WATCH_EVERY.as_millis());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1679,8 +1652,8 @@ mod tests {
         let backend = Fake::new();
         *backend.fail.lock().unwrap() = Some(WebBuildError::Refused(vec!["a.cfrm:3: EXEC RUST - move it to the Backend".into()]));
         let mut p = WebPreview::default();
-        assert!(p.start(launch(&manifest, backend.clone(), None), Intent::Build));
-        assert!(!p.start(launch(&manifest, backend.clone(), None), Intent::Build), "one build at a time");
+        assert!(p.start(launch(&manifest, backend.clone()), Intent::Build));
+        assert!(!p.start(launch(&manifest, backend.clone()), Intent::Build), "one build at a time");
         wait_until(&mut p, "the build", |p| !p.building());
         assert!(matches!(p.notes().last(), Some(Note::BuildRefused(l)) if l.len() == 1), "{:?}", p.notes());
         assert!(!p.serving());
@@ -1688,41 +1661,35 @@ mod tests {
         // Not linked, and no bundle: it says both.
         let mut p = WebPreview::default();
         let unlinked: Arc<dyn WebBuildBackend> = Arc::new(cobolt_project_tools::web::NotYetLinked);
-        p.start(launch(&manifest, unlinked.clone(), None), Intent::Show(Target::WebView));
+        p.start(launch(&manifest, unlinked.clone()), Intent::Show);
         wait_until(&mut p, "the build", |p| !p.building());
         assert_eq!(p.notes().iter().filter(|n| matches!(n, Note::NotLinked | Note::NoBundle)).count(), 2, "{:?}", p.notes());
         assert!(!p.serving());
 
-        // Not linked, but a bundle is there from somebody else: it is shown (the stand-in helper).
-        #[cfg(unix)]
-        {
-            std::fs::create_dir_all(dir.join("dist/web")).unwrap();
-            std::fs::write(dir.join("dist/web/index.html"), "<html>made elsewhere</html>").unwrap();
-            let (helper, _log) = fake_helper(&dir);
-            let mut p = WebPreview::default();
-            p.start(launch(&manifest, unlinked, Some(helper)), Intent::Show(Target::WebView));
-            wait_until(&mut p, "the server", |p| p.serving());
-            assert!(p.notes().contains(&Note::NotLinked));
-            assert!(http_get(&p.url().unwrap(), "/").contains("made elsewhere"));
-            p.close();
-            assert!(!p.serving());
-        }
+        // Not linked, but a bundle is there from somebody else: it is shown.
+        std::fs::create_dir_all(dir.join("dist/web")).unwrap();
+        std::fs::write(dir.join("dist/web/index.html"), "<html>made elsewhere</html>").unwrap();
+        let mut p = WebPreview::default();
+        p.start(launch(&manifest, unlinked), Intent::Show);
+        wait_until(&mut p, "the server", |p| p.serving());
+        assert!(p.notes().contains(&Note::NotLinked));
+        assert!(http_get(&p.url().unwrap(), "/").contains("made elsewhere"));
+        p.close();
+        assert!(!p.serving());
         let _ = std::fs::remove_dir_all(dir);
     }
 
     /// WASM-007 T23 (the operator's option (a)): Apply's sheet goes straight into the served bundle and is
     /// counted at once — no Build, and the watcher does not rebuild for it; a sheet the Build would refuse
     /// takes the normal path, a Build, which reports it.
-    #[cfg(unix)]
     #[test]
     fn an_applied_stylesheet_reaches_the_open_preview_without_a_build() {
         quiet();
         let manifest = project("fastcss");
         let dir = manifest.parent().unwrap().to_path_buf();
-        let (helper, _log) = fake_helper(&dir);
         let backend = Fake::new();
         let mut p = WebPreview::default();
-        assert!(p.start(launch(&manifest, backend.clone(), Some(helper)), Intent::Show(Target::WebView)));
+        assert!(p.start(launch(&manifest, backend.clone()), Intent::Show));
         wait_until(&mut p, "the Preview to be showing", |p| p.serving());
         let root = p.live.as_ref().unwrap().server.root().to_path_buf();
         std::fs::write(root.join("config.json"), r#"{"forms":[{"name":"main-form","url":"forms/main-form.1.json","integrity":"x"}]}"#).unwrap();
@@ -1759,18 +1726,15 @@ mod tests {
         println!("web preview fast path: {sheet} served and counted without a Build (1 build); a refused sheet took the Build (2 builds)");
     }
 
-    #[cfg(unix)]
     #[test]
-    fn building_serving_showing_following_the_controls_and_rebuilding_on_a_change() {
+    fn building_serving_opening_and_rebuilding_on_a_change() {
         quiet();
         let manifest = project("flow");
         let dir = manifest.parent().unwrap().to_path_buf();
-        let (helper, log) = fake_helper(&dir);
         let backend = Fake::new();
         let mut p = WebPreview::default();
         let t = Instant::now();
-        assert!(p.start(launch(&manifest, backend.clone(), Some(helper)), Intent::Show(Target::WebView)));
-        assert!(p.open, "the controls window opens with the Preview");
+        assert!(p.start(launch(&manifest, backend.clone()), Intent::Show));
         wait_until(&mut p, "the Preview to be showing", |p| p.serving());
 
         let kinds: Vec<&str> = p
@@ -1781,39 +1745,19 @@ mod tests {
                 Note::BuildDone { .. } => "done",
                 Note::BuildWarning(_) => "warning",
                 Note::Serving { .. } => "serving",
-                Note::ModeWebView => "web-view",
                 Note::BackendOff => "backend-off",
+                Note::Opened { .. } => "opened",
                 _ => "other",
             })
             .collect();
-        assert_eq!(kinds, ["building", "done", "warning", "serving", "web-view", "backend-off"], "{:?}", p.notes());
-        assert_eq!(p.mode(), Some(Mode::WebView));
+        assert_eq!(kinds, ["building", "done", "warning", "serving", "backend-off", "opened"], "{:?}", p.notes());
         let url = p.url().unwrap();
         let page = http_get(&url, "/");
         assert!(page.contains("build 1") && page.contains("/__prc/livereload.js"), "the page is served with live reload: {page}");
         assert_eq!(p.take_outbox().len(), 6);
         assert!(p.take_outbox().is_empty(), "each note reaches the Output panel once");
-
-        // The controls reach the web view: a phone in landscape in the dark.
-        p.controls.choose("phone");
-        p.controls.landscape = true;
-        p.controls.dark = true;
-        p.apply_controls();
-        p.reload();
-        let deadline = Instant::now() + Duration::from_secs(30);
-        let lines = loop {
-            let text = std::fs::read_to_string(&log).unwrap_or_default();
-            if text.lines().count() >= 5 || Instant::now() > deadline {
-                break text;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        };
-        let lines: Vec<&str> = lines.lines().collect();
-        assert!(lines[0].contains(r#""cmd":"open""#) && lines[0].contains(r#""locale":"pt-BR""#) && lines[0].contains(r#""width":1280"#), "{lines:?}");
-        assert!(lines.iter().any(|l| l.contains(r#""cmd":"size","width":844,"height":390"#)), "{lines:?}");
-        assert!(lines.iter().any(|l| l.contains(r#""cmd":"scheme","dark":true"#)), "{lines:?}");
-        assert_eq!(lines.iter().filter(|l| l.contains(r#""cmd":"emulate""#)).count(), 1, "one reload for ratio and insets: {lines:?}");
-        assert!(lines.iter().any(|l| l.contains(r#""cmd":"reload""#)), "{lines:?}");
+        // The served script carries the IDE's texts for the page.
+        assert!(http_get(&url, devserver::RELOAD_SCRIPT_PATH).contains(Language::English.tr().pk_page_stopped));
 
         // A change in a form: the bundle is built again and the page is told.
         let version_before = version_of(&url);
@@ -1822,18 +1766,174 @@ mod tests {
         assert_eq!(backend.builds.load(Ordering::SeqCst), 2);
         assert!(http_get(&url, "/").contains("build 2"), "the new bundle is the one served");
         let version_after = version_of(&url);
-        assert!(version_after > version_before, "the page's next poll sees a new version and reloads ({version_before} -> {version_after})");
+        assert!(version_after > version_before, "the page's next poll sees a new version ({version_before} -> {version_after})");
 
-        // A page that closes its window ends the Preview and says so; the IDE goes on.
+        // R7, AC5: a failed rebuild leaves the last good bundle served and puts its lines on
+        // `/__prc/version` for the overlay; the next good build takes them away.
+        let version_json = |url: &str| serde_json::from_str::<serde_json::Value>(&http_get(url, "/__prc/version")).unwrap();
+        *backend.fail.lock().unwrap() = Some(WebBuildError::Failed("webforms/main-form.cfrm:1: broken on purpose".into()));
+        std::fs::write(dir.join("webforms/main-form.cfrm"), "<Form broken='true'/>").unwrap();
+        wait_until(&mut p, "the failed rebuild", |p| p.notes().iter().any(|n| matches!(n, Note::BuildFailed(_))));
+        let errors = version_json(&url)["errors"].clone();
+        assert!(errors[0].as_str().unwrap().contains("broken on purpose"), "{errors}");
+        assert!(http_get(&url, "/").contains("build 2"), "the last good bundle is still the one served");
+        *backend.fail.lock().unwrap() = None;
+        std::fs::write(dir.join("webforms/main-form.cfrm"), "<Form fixed='true'/>").unwrap();
+        wait_until(&mut p, "the good rebuild", |p| p.notes().iter().filter(|n| matches!(n, Note::Updated { .. })).count() == 2);
+        assert_eq!(version_json(&url).get("errors"), None, "a good build takes the errors away");
+        assert!(http_get(&url, "/").contains("build 4"));
+
         p.close();
-        assert!(!p.active() && !p.open);
+        assert!(!p.active());
         let _ = std::fs::remove_dir_all(&dir);
-        println!(
-            "web preview: build -> serve -> web view in {} ms; a form edit rebuilt and republished; controls reached the helper as {} lines ({} emulate)",
-            t.elapsed().as_millis(),
-            lines.len(),
-            lines.iter().filter(|l| l.contains("emulate")).count()
-        );
+        println!("web preview: build -> serve -> browser in {} ms; a form edit rebuilt and republished", t.elapsed().as_millis());
+    }
+
+    /// `POST /__prc/log` as the served Preview script sends it.
+    fn post_events(url: &str, body: &str) -> u16 {
+        use std::io::{Read, Write};
+        let port: u16 = url.trim_end_matches('/').rsplit(':').next().unwrap().parse().unwrap();
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        write!(
+            s,
+            "POST /__prc/log HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        let mut out = String::new();
+        s.read_to_string(&mut out).unwrap();
+        out.split_whitespace().nth(1).unwrap().parse().unwrap()
+    }
+
+    /// WASM-008 T36 (R13, R5, R3; AC12, AC4, AC2): what the page posts becomes
+    /// Output lines with the form's name, a COBOL error with its unit and line,
+    /// an update with how and how long; a flood is cut at 40 a poll.
+    #[test]
+    fn page_events_become_output_lines_with_the_form_008() {
+        quiet();
+        let manifest = project("events");
+        let dir = manifest.parent().unwrap().to_path_buf();
+        let mut p = WebPreview::default();
+        assert!(p.start(launch(&manifest, Fake::new()), Intent::Show));
+        wait_until(&mut p, "the Preview to be showing", |p| p.serving());
+        let url = p.url().unwrap();
+        let _ = p.take_outbox();
+        let batch = r#"[{"event":"console","level":"error","text":"boom","form":"MAIN-FORM"},
+            {"event":"error","message":"x is not defined","source":"app.js","line":12,"form":"MAIN-FORM"},
+            {"event":"cobol-error","form":"ORDERS","unit":"BTN-SAVE-CLICK","line":41,"code":"EC-SIZE","message":"size error on WS-TOTAL"},
+            {"event":"updated","how":"stylesheet","ms":18.4,"form":"MAIN-FORM"},
+            {"event":"updated","how":"program","ms":95.0,"form":"MAIN-FORM"}]"#;
+        assert_eq!(post_events(&url, batch), 204);
+        p.poll(Instant::now());
+        let en = Language::English.tr();
+        let lines: Vec<String> = p.take_outbox().iter().flat_map(|n| n.lines(&en)).collect();
+        for l in &lines {
+            println!("  output: {l}");
+        }
+        assert_eq!(lines.len(), 5, "{lines:?}");
+        assert!(lines[0].starts_with("MAIN-FORM: ") && lines[0].contains("boom"));
+        assert!(lines[1].starts_with("MAIN-FORM: ") && lines[1].contains("x is not defined (app.js:12)"));
+        assert!(lines[2].starts_with("ORDERS: ") && lines[2].contains("(BTN-SAVE-CLICK:41)") && lines[2].contains("size error on WS-TOTAL"));
+        assert!(lines[3].contains("18.4 ms") && lines[3].contains("stylesheet"));
+        assert!(lines[4].contains("95.0 ms") && lines[4].contains("new program"));
+        for &lang in Language::ALL {
+            for n in p.notes().iter().rev().take(5) {
+                let t = n.text(&lang.tr());
+                assert!(!t.contains("{}") && !t.trim().is_empty(), "{lang:?}: {t}");
+            }
+        }
+
+        // A flood: two posts of 40 between two polls; 40 reach the Output panel.
+        let forty = format!("[{}]", vec![r#"{"event":"console","level":"log","text":"again","form":"MAIN-FORM"}"#; 40].join(","));
+        assert_eq!(post_events(&url, &forty), 204);
+        assert_eq!(post_events(&url, &forty), 204);
+        p.poll(Instant::now());
+        let flood = p.take_outbox().len();
+        assert_eq!(flood, CHATTER_PER_POLL, "a flood stays at {CHATTER_PER_POLL} a poll");
+        p.poll(Instant::now());
+        assert!(p.take_outbox().is_empty(), "the rest of the burst was dropped");
+        println!("page events: 5 kinds became 5 Output lines; a burst of 80 gave {flood} lines");
+        p.close();
+        assert_eq!(p.take_outbox(), vec![Note::PreviewStopped]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// WASM-008 T35 (R12, R16; AC11, AC15): Preview and Run open the browser
+    /// the project names, else the system's default; a named browser that is
+    /// not there, a path that is missing or not confirmed, falls back to the
+    /// default and says so; a second Preview reuses the address; no helper
+    /// process is ever started.
+    #[cfg(unix)]
+    #[test]
+    fn preview_opens_the_projects_browser_reuses_its_address_and_starts_no_helper() {
+        quiet();
+        let manifest = project("browser");
+        let dir = manifest.parent().unwrap().to_path_buf();
+        let (helper, mark) = marking_helper(&dir);
+        std::env::set_var(preview::HELPER_ENV, &helper);
+        let backend = Fake::new();
+        let run = |choice: BrowserChoice, confirmed: bool| {
+            let mut p = WebPreview::default();
+            let mut l = launch(&manifest, backend.clone());
+            l.browser = choice;
+            l.path_confirmed = confirmed;
+            assert!(p.start(l, Intent::Show));
+            wait_until(&mut p, "the page to be opened", |p| p.opened().is_some() || p.notes().iter().any(|n| matches!(n, Note::ServerFailed(_))));
+            p
+        };
+
+        let p = run(BrowserChoice::System, false);
+        let (url, used) = p.opened().unwrap().clone();
+        assert_eq!(used, BrowserChoice::System);
+        assert!(p.notes().contains(&Note::Opened { browser: String::new(), url: url.clone() }));
+        println!("no setting      -> the system browser at {url}");
+
+        let firefox = preview::KnownBrowser::Firefox;
+        let p = run(BrowserChoice::Named(firefox), false);
+        if firefox.is_present() {
+            assert_eq!(p.opened().unwrap().1, BrowserChoice::Named(firefox));
+            println!("firefox         -> Firefox");
+        } else {
+            assert_eq!(p.opened().unwrap().1, BrowserChoice::System);
+            assert!(p.notes().iter().any(|n| matches!(n, Note::BrowserFailed { name, .. } if name == "Firefox")), "{:?}", p.notes());
+            println!("firefox         -> not on this machine: BrowserFailed, then the system browser");
+        }
+        if let Some(present) = preview::KnownBrowser::ALL.into_iter().find(|b| b.is_present()) {
+            let p = run(BrowserChoice::Named(present), false);
+            assert_eq!(p.opened().unwrap().1, BrowserChoice::Named(present));
+            assert!(p.notes().iter().any(|n| matches!(n, Note::Opened { browser, .. } if browser == present.name())));
+            println!("{:<15} -> {} (present here)", present.id(), present.name());
+        }
+
+        let missing = BrowserChoice::Path(PathBuf::from("/definitely/not/a/browser"));
+        let p = run(missing.clone(), true);
+        assert_eq!(p.opened().unwrap().1, BrowserChoice::System);
+        assert!(p.notes().iter().any(|n| matches!(n, Note::BrowserFailed { name, .. } if name == "/definitely/not/a/browser")), "{:?}", p.notes());
+        println!("a missing path  -> BrowserFailed naming it, then the system browser");
+
+        let unconfirmed = BrowserChoice::Path(std::env::current_exe().unwrap());
+        let p = run(unconfirmed, false);
+        assert_eq!(p.opened().unwrap().1, BrowserChoice::System, "an unconfirmed path is never started");
+        assert!(p.notes().iter().any(|n| matches!(n, Note::BrowserNotConfirmed { .. })), "{:?}", p.notes());
+        println!("unconfirmed path -> BrowserNotConfirmed, then the system browser");
+
+        // Preview again: the same address, no new build, no new server.
+        let mut p = run(BrowserChoice::System, false);
+        let first = p.url().unwrap();
+        let builds = backend.builds.load(Ordering::SeqCst);
+        assert!(p.start(launch(&manifest, backend.clone()), Intent::Show));
+        assert!(!p.building(), "nothing is built again");
+        assert_eq!(p.url().unwrap(), first);
+        assert_eq!(p.opened().unwrap().0, first, "the same address is opened again");
+        assert_eq!(backend.builds.load(Ordering::SeqCst), builds);
+        assert_eq!(p.notes().iter().filter(|n| matches!(n, Note::Opened { .. })).count(), 2);
+        println!("Preview again   -> {first} reused, {builds} builds in all");
+
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!mark.exists(), "the interactive Preview started the web-view helper");
+        std::env::remove_var(preview::HELPER_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("no helper process was started by any Preview (its mark is absent)");
     }
 
     // ── the Backend during a Preview (WASM-008 R6) ──
@@ -1910,7 +2010,7 @@ mod tests {
         let backend = Fake::new();
         let (mut p, mut ide) = (WebPreview::default(), None);
         let t = Instant::now();
-        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(true));
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(true));
         assert!(p.awaiting_backend() && p.active() && ide.is_some());
         assert_eq!(backend.builds.load(Ordering::SeqCst), 0, "nothing is built before the Backend listens");
         assert!(matches!(&p.notes()[0], Note::BackendStarting { listen, .. } if *listen == format!("127.0.0.1:{port}")), "{:?}", p.notes());
@@ -1923,6 +2023,42 @@ mod tests {
         assert!(!p.notes().contains(&Note::BackendOff), "{:?}", p.notes());
         assert!(get_health(&url).starts_with("HTTP/1.1 200"), "the Backend answers where the page calls");
         println!("backend listening and the page served {} ms after Run; built for {url}", t.elapsed().as_millis());
+        // WASM-008 R6: the served config.json names the Backend and carries its token; the file does not.
+        let root = p.live.as_ref().unwrap().server.root().to_path_buf();
+        let on_disk = br#"{"backend":{"origins":[],"unsafe_plain_ws":false}}"#;
+        std::fs::write(root.join("config.json"), on_disk).unwrap();
+        let page = p.url().unwrap();
+        let served = |p: &mut WebPreview, ide: &mut Option<BackendRun>| {
+            let _ = p.pump_backend(ide);
+            serde_json::from_str::<serde_json::Value>(&http_get(&page, "/config.json")).unwrap()
+        };
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut config = served(&mut p, &mut ide);
+        while config["backend"].get("dev_token").is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+            config = served(&mut p, &mut ide);
+        }
+        let token = ide.as_ref().and_then(|r| r.token()).expect("the token was printed").to_owned();
+        assert_eq!(config["backend"]["dev_token"], serde_json::json!(token), "{config}");
+        assert_eq!(config["backend"]["unsafe_plain_ws"], serde_json::json!(true));
+        assert_eq!(config["backend"]["origins"], serde_json::json!([url]));
+        assert_eq!(std::fs::read(root.join("config.json")).unwrap(), on_disk.to_vec(), "the bundle is not touched");
+        let mut stack = vec![root.clone()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                let path = e.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    assert!(!String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains(&token), "{} carries the token", path.display());
+                }
+            }
+        }
+        let en = Language::English.tr();
+        assert!(events.iter().all(|e| !matches!(e, BackendEvent::Line(l) if l.contains(&token))), "a line carried the token");
+        assert!(p.notes().iter().all(|n| !n.text(&en).contains(&token)), "a note carried the token");
+        assert!(p.notes().contains(&Note::TokenUnused { url: url.clone() }), "why calls will be refused: {:?}", p.notes());
+        println!("served config.json carries the development token; config.json on disk byte-identical; no line or note carries it");
         // A rebuild after a change keeps the address.
         std::fs::write(manifest.parent().unwrap().join("webforms/extra.css"), "x{}").unwrap();
         pump_until(&mut p, &mut ide, "a rebuild", 30, |_| backend.builds.load(Ordering::SeqCst) >= 2);
@@ -1945,7 +2081,7 @@ mod tests {
         let manifest = backend_project("be-busy", &format!("127.0.0.1:{busy}"), "");
         let backend = Fake::new();
         let (mut p, mut ide) = (WebPreview::default(), None);
-        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(true));
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(true));
         assert!(p.notes().contains(&Note::BackendPortBusy { port: busy }), "{:?}", p.notes());
         pump_until(&mut p, &mut ide, "the page to be served", 90, |p| p.serving());
         let url = backend.urls.lock().unwrap()[0].clone();
@@ -1974,7 +2110,7 @@ mod tests {
         let url = ide.as_ref().unwrap().url().unwrap().to_owned();
         let backend = Fake::new();
         let mut p = WebPreview::default();
-        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(false));
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(false));
         pump_until(&mut p, &mut ide, "the page to be served", 30, |p| p.serving());
         assert_eq!(*backend.urls.lock().unwrap(), [url.clone()]);
         assert!(!p.notes().iter().any(|n| matches!(n, Note::BackendStarting { .. })), "{:?}", p.notes());
@@ -1990,7 +2126,7 @@ mod tests {
         let manifest = backend_project("be-remote", "127.0.0.1:0", "wss://api.example.com/ws");
         let backend = Fake::new();
         let (mut p, mut ide) = (WebPreview::default(), None);
-        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(false));
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(false));
         assert!(ide.is_none());
         wait_until(&mut p, "the page to be served", |p| p.serving());
         assert_eq!(*backend.urls.lock().unwrap(), ["wss://api.example.com/ws"]);
@@ -2002,7 +2138,7 @@ mod tests {
         let manifest = backend_project("be-taken", "127.0.0.1:0", &taken);
         let backend = Fake::new();
         let mut p = WebPreview::default();
-        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &rcrun), Some(false));
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &rcrun), Some(false));
         assert!(ide.is_none());
         wait_until(&mut p, "the page to be served", |p| p.serving());
         assert_eq!(*backend.urls.lock().unwrap(), [taken.clone()]);
@@ -2028,7 +2164,7 @@ mod tests {
         let failing = script("failing-rcrun", "echo 'rcrun backend: backend.toml: server.listen is wrong' >&2\nexit 1");
         let backend = Fake::new();
         let (mut p, mut ide) = (WebPreview::default(), None);
-        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &failing), Some(true));
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &failing), Some(true));
         pump_until(&mut p, &mut ide, "the failure", 30, |p| !p.awaiting_backend());
         let failed = p.notes().iter().find_map(|n| if let Note::BackendFailed { code, why } = n { Some((*code, why.clone())) } else { None });
         assert_eq!(failed, Some((Some(1), vec!["rcrun backend: backend.toml: server.listen is wrong".to_owned()])), "{:?}", p.notes());
@@ -2037,7 +2173,7 @@ mod tests {
         let silent = script("silent-rcrun", "exec sleep 30");
         let mut p = WebPreview::default();
         let mut ide = None;
-        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut ide, &silent), Some(true));
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut ide, &silent), Some(true));
         p.poll(Instant::now() + BACKEND_WAIT + Duration::from_millis(1));
         assert!(p.notes().contains(&Note::BackendTimeout { secs: BACKEND_WAIT.as_secs() }), "{:?}", p.notes());
         assert!(!p.active(), "the Preview stops; the IDE then stops the Backend it started");
@@ -2045,7 +2181,7 @@ mod tests {
 
         let missing = PathBuf::from("/nonexistent/rcrun");
         let mut p = WebPreview::default();
-        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone(), None), Intent::Show(Target::Browser), &mut None, &missing), Some(false));
+        assert_eq!(p.start_with_backend(launch(&manifest, backend.clone()), Intent::Show, &mut None, &missing), Some(false));
         assert!(p.notes().iter().any(|n| matches!(n, Note::BackendFailed { code: None, why } if why[0].contains("/nonexistent/rcrun"))), "{:?}", p.notes());
         assert_eq!(backend.builds.load(Ordering::SeqCst), 0);
     }
@@ -2063,25 +2199,28 @@ mod tests {
         let manifest = PathBuf::from(std::env::var("PRC_PROOF_MANIFEST").expect("PRC_PROOF_MANIFEST"));
         let url_file = PathBuf::from(std::env::var("PRC_PROOF_URL_FILE").expect("PRC_PROOF_URL_FILE"));
         let stop_file = PathBuf::from(std::env::var("PRC_PROOF_STOP_FILE").expect("PRC_PROOF_STOP_FILE"));
+        let en = Language::English.tr();
         // `web_player_dir()` answers `assets/web-player` of the working folder outside an install.
         std::env::set_current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).unwrap();
         let launch = Launch {
             manifest: manifest.clone(),
             name: "proof".into(),
-            title: "Web Preview - proof".into(),
             kind: ProjectKind::Web,
+            platform: None,
             device: None,
             orientation: None,
-            locale: String::new(),
+            devices: Arc::new(NoDeviceTools),
             has_backend: true,
             backend: Arc::new(cobolt_project_tools::web::generator::GeneratorBackend),
-            helper: None,
+            browser: BrowserChoice::System,
+            path_confirmed: false,
+            page_strings: page_strings(&en),
+            language: Language::English,
             backend_url: None,
         };
-        let en = Language::English.tr();
         let (mut p, mut ide) = (WebPreview::default(), None);
         let t = Instant::now();
-        let started = p.start_with_backend(launch, Intent::Show(Target::Browser), &mut ide, &built_rcrun());
+        let started = p.start_with_backend(launch, Intent::Show, &mut ide, &built_rcrun());
         println!("start_with_backend -> {started:?}");
         let say = |p: &mut WebPreview, events: Vec<BackendEvent>| {
             for n in p.take_outbox() {
@@ -2125,118 +2264,6 @@ mod tests {
             }
         }
         println!("STOPPED: preview active {}, backend {}", p.active(), if ide.is_some() { "kept (not started by the Preview)" } else { "stopped" });
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_web_view_that_cannot_start_leaves_the_browser_not_nothing() {
-        // The page is shown in the browser when the helper reports it has no web view.
-        use std::os::unix::fs::PermissionsExt;
-        quiet();
-        let manifest = project("nohelper");
-        let dir = manifest.parent().unwrap().to_path_buf();
-        let helper = dir.join("no-web-view");
-        std::fs::write(&helper, "#!/bin/sh\necho '{\"event\":\"failed\",\"message\":\"no web view here\"}'\necho '{\"event\":\"closed\"}'\nexit 3\n").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let mut p = WebPreview::default();
-        p.start(launch(&manifest, Fake::new(), Some(helper)), Intent::Show(Target::WebView));
-        wait_until(&mut p, "the fall-back", |p| p.notes().contains(&Note::ModeBrowser));
-        let n = p.notes();
-        let failed = n.iter().position(|x| *x == Note::HelperFailed("no web view here".into())).expect("the helper's reason is said");
-        let browser = n.iter().position(|x| *x == Note::ModeBrowser).unwrap();
-        assert!(failed < browser, "the reason comes first: {n:?}");
-        assert_eq!(p.mode(), Some(Mode::SystemBrowser));
-        assert!(p.serving(), "the page is still served, for the browser");
-        p.close();
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    // ── the window ──
-
-    /// A Preview with every kind of thing to show: a long log, a blocked link.
-    fn busy() -> WebPreview {
-        let mut p = WebPreview::default();
-        p.open = true;
-        p.controls = Controls::initial(ProjectKind::Mobile, Some(DeviceClass::Phone), None, "pt-BR");
-        p.locale_edit = "pt-BR".into();
-        for i in 0..40 {
-            p.say(Note::Console { level: "log".into(), text: format!("line {i} with a long text that wraps around the edge of the log, for sure, in any language") });
-        }
-        p.say(Note::BuildRefused(vec!["a.cfrm:3: EXEC RUST - move it to the Backend, which can run it".into(); 5]));
-        p.say(Note::ModeBrowser);
-        p.say(Note::Blocked("https://example.com/a/very/long/address/that/goes/on/and/on?with=query&and=more".into()));
-        p.say(Note::BackendOff);
-        p
-    }
-
-    /// A Preview that has said nothing yet.
-    fn empty() -> WebPreview {
-        let mut p = WebPreview::default();
-        p.open = true;
-        p
-    }
-
-    /// The window's rectangle after each of `frames` frames, and the height the log had in the last.
-    fn window_rect(lang: Language, frames: usize, make: impl Fn() -> WebPreview) -> (Vec<egui::Rect>, f32) {
-        let ctx = egui::Context::default();
-        crate::app::apply_glass_visuals(&ctx, crate::theme::default_theme());
-        let tr = lang.tr();
-        let mut p = make();
-        let mut rects = Vec::new();
-        for _ in 0..frames {
-            let mut input = egui::RawInput::default();
-            input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0)));
-            ctx.begin_pass(input);
-            p.show(&ctx, &tr);
-            let mut full = ctx.end_pass();
-            full.textures_delta.clear();
-            rects.push(ctx.memory(|m| m.area_rect(egui::Id::new("web_preview_controls"))).expect("the window registered an area"));
-        }
-        (rects, p.log_h)
-    }
-
-    #[test]
-    fn the_controls_window_keeps_its_size() {
-        let mut checked = 0;
-        let mut sizes = std::collections::BTreeSet::new();
-        let mut min_log = f32::MAX;
-        for &lang in Language::ALL {
-            for (state, make) in [("busy", busy as fn() -> WebPreview), ("empty", empty as fn() -> WebPreview)] {
-                let (rects, log_h) = window_rect(lang, 12, make);
-                assert!(log_h >= 100.0, "{lang:?} {state}: the log has room to be read ({log_h} points)");
-                min_log = min_log.min(log_h);
-                let first = rects[2];
-                for (i, r) in rects.iter().enumerate().skip(2) {
-                    assert_eq!(r.size(), first.size(), "{lang:?} {state}: frame {i} changed the window's size");
-                    assert_eq!(r.min, first.min, "{lang:?} {state}: frame {i} moved the window");
-                }
-                assert!(
-                    (first.width() - WINDOW_W).abs() < 2.0 && first.height() > BODY_H && first.height() < BODY_H + 120.0,
-                    "{lang:?} {state}: {:?}",
-                    first.size()
-                );
-                sizes.insert(((first.width() * 10.0) as i32, (first.height() * 10.0) as i32));
-                checked += rects.len() - 2;
-            }
-        }
-        assert_eq!(sizes.len(), 1, "the window is the same size in every language and state: {sizes:?}");
-        let (w, h) = sizes.into_iter().next().unwrap();
-        println!(
-            "web preview: the controls window held {} x {} over {checked} frames (6 languages x 2 states, one size for all); the log kept at least {min_log:.0} points",
-            w as f32 / 10.0,
-            h as f32 / 10.0
-        );
-    }
-
-    #[test]
-    fn nothing_is_drawn_while_the_window_is_closed() {
-        let ctx = egui::Context::default();
-        let mut p = WebPreview::default();
-        ctx.begin_pass(egui::RawInput::default());
-        p.show(&ctx, &Language::English.tr());
-        let mut full = ctx.end_pass();
-        full.textures_delta.clear();
-        assert!(ctx.memory(|m| m.area_rect(egui::Id::new("web_preview_controls"))).is_none());
     }
 
     /// No English text reaches a widget from this file: every word the

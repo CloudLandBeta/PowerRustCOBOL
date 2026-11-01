@@ -21,6 +21,14 @@
 //! programs to `backend/exports.toml`, their one home (WASM-003 D5). The Backend's address is checked against the
 //! rule of WASM-003 R5 as it is typed — `wss://`, or `ws://` for a loopback
 //! address — and a refused address is never written to the project.
+//!
+//! The **browser the Preview opens** (WASM-008 R12, Q7, D11) is one row: the
+//! system's default, a browser of the closed list that is on this machine, or
+//! *Other…* with an application's path. A path is started only after the
+//! developer said yes once, on this machine, for this project folder: the
+//! answer is kept in [`BrowserConfirmations`], beside `debug_settings.toml`,
+//! never in the project — so a downloaded project cannot make the Preview
+//! start a program by itself.
 
 use std::path::{Path, PathBuf};
 
@@ -31,6 +39,8 @@ use cobolt_compiler::project_kind::{
 };
 use cobolt_compiler::ProjectKind;
 use cobolt_project_tools::templates;
+use cobolt_project_tools::web::preview::{BrowserChoice, KnownBrowser};
+use serde::{Deserialize, Serialize};
 
 use crate::i18n::Tr;
 use crate::panels::new_project::{choice_label, LOCALES};
@@ -282,6 +292,155 @@ pub fn migrate_exports(project_dir: &Path, p: &CoboltProject) -> Result<Option<P
     Ok(Some(path))
 }
 
+// ── The Preview's browser (WASM-008 R12, Q7, D11) ───────────────────────────
+
+/// One answer to *Start "<path>" to show the Preview?*
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserConfirmation {
+    /// The project folder, as the system names it (canonical).
+    pub project: String,
+    /// The application path the project names.
+    pub path: String,
+    pub allowed: bool,
+}
+
+/// The answers this machine's developer gave, kept in
+/// `preview_browsers.toml` under the IDE's per-user folder.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserConfirmations {
+    #[serde(default, rename = "confirmation")]
+    pub entries: Vec<BrowserConfirmation>,
+}
+
+/// Where the answers are kept: beside `debug_settings.toml`.
+pub fn confirmations_path() -> PathBuf {
+    crate::llm::base_dir().join("preview_browsers.toml")
+}
+
+fn folder_key(project_dir: &Path) -> String {
+    std::fs::canonicalize(project_dir).unwrap_or_else(|_| project_dir.to_path_buf()).to_string_lossy().into_owned()
+}
+
+impl BrowserConfirmations {
+    /// The answers in `file`; none when it is missing or unreadable.
+    pub fn load_from(file: &Path) -> Self {
+        std::fs::read_to_string(file).ok().and_then(|t| toml::from_str(&t).ok()).unwrap_or_default()
+    }
+
+    /// Write the answers to `file` (best effort, as the IDE's other settings).
+    pub fn save_to(&self, file: &Path) {
+        if let Ok(text) = toml::to_string_pretty(self) {
+            if let Some(dir) = file.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(file, text);
+        }
+    }
+
+    /// The answer for `path` in the project at `project_dir`: `None` when the
+    /// developer has not been asked here (another folder is another question).
+    pub fn answer(&self, project_dir: &Path, path: &Path) -> Option<bool> {
+        let (project, path) = (folder_key(project_dir), path.to_string_lossy());
+        self.entries.iter().find(|e| e.project == project && e.path == path).map(|e| e.allowed)
+    }
+
+    /// Keep the answer for `path` in the project at `project_dir`.
+    pub fn record(&mut self, project_dir: &Path, path: &Path, allowed: bool) {
+        let (project, path) = (folder_key(project_dir), path.to_string_lossy().into_owned());
+        self.entries.retain(|e| !(e.project == project && e.path == path));
+        self.entries.push(BrowserConfirmation { project, path, allowed });
+    }
+}
+
+/// The known browsers on this machine, looked up once (the lookup reads the
+/// file system, and on Windows asks the registry).
+pub fn present_browsers() -> &'static [KnownBrowser] {
+    static PRESENT: std::sync::OnceLock<Vec<KnownBrowser>> = std::sync::OnceLock::new();
+    PRESENT.get_or_init(|| KnownBrowser::ALL.into_iter().filter(|b| b.is_present()).collect())
+}
+
+/// The setting as the row shows it.
+fn browser_text(tr: &Tr, setting: &str) -> String {
+    match BrowserChoice::parse(setting) {
+        BrowserChoice::System => tr.pk_set_browser_system.to_owned(),
+        BrowserChoice::Named(b) => b.name().to_owned(),
+        BrowserChoice::Path(_) => tr.pk_set_browser_other.to_owned(),
+    }
+}
+
+/// The row of the Preview's browser: `setting` is `[web]` or `[mobile]`
+/// `preview_browser`, changed only by what the developer picks or types.
+fn browser_row(ui: &mut Ui, lay: RowLayout, tr: &Tr, setting: &mut String) {
+    let other_id = egui::Id::new("kind_preview_browser_other");
+    let mut other = ui.data(|d| d.get_temp::<bool>(other_id)).unwrap_or(false) || matches!(BrowserChoice::parse(setting), BrowserChoice::Path(_));
+    row(ui, lay, tr.pk_set_preview_browser, |ui| {
+        let shown = if other { tr.pk_set_browser_other.to_owned() } else { browser_text(tr, setting) };
+        egui::ComboBox::from_id_salt("kind_preview_browser").selected_text(shown).show_ui(ui, |ui| {
+            if ui.selectable_label(!other && setting.is_empty(), tr.pk_set_browser_system).clicked() {
+                setting.clear();
+                other = false;
+            }
+            let mut listed: Vec<KnownBrowser> = present_browsers().to_vec();
+            // A browser the project names that is not here is still shown, so it can be seen and changed.
+            if let BrowserChoice::Named(b) = BrowserChoice::parse(setting) {
+                if !listed.contains(&b) {
+                    listed.push(b);
+                }
+            }
+            for b in listed {
+                let on = !other && BrowserChoice::parse(setting) == BrowserChoice::Named(b);
+                if ui.selectable_label(on, b.name()).clicked() {
+                    *setting = b.id().to_owned();
+                    other = false;
+                }
+            }
+            if ui.selectable_label(other, tr.pk_set_browser_other).clicked() && !other {
+                other = true;
+                if !matches!(BrowserChoice::parse(setting), BrowserChoice::Path(_)) {
+                    setting.clear();
+                }
+            }
+        });
+    });
+    if other {
+        row(ui, lay, "", |ui| {
+            let w = ui.available_width();
+            ui.add(egui::TextEdit::singleline(setting).hint_text(BROWSER_PATH_HINT).desired_width(w));
+        });
+    }
+    ui.data_mut(|d| d.insert_temp(other_id, other));
+}
+
+/// What the path box shows while it is empty: the shape of a path.
+const BROWSER_PATH_HINT: &str = "/\u{2026}";
+
+/// The outer width of the path confirmation.
+pub const CONFIRM_W: f32 = 460.0;
+
+/// *Start "<path>" to show the Preview?* — a dialog of one width
+/// ([`crate::panels::fixed_dialog`]). `Some(answer)` once the developer
+/// answers; closing it is a no.
+pub fn show_browser_confirm(ctx: &egui::Context, tr: &Tr, path: &str) -> Option<bool> {
+    let mut open = true;
+    let mut answer = None;
+    crate::panels::fixed_dialog::show(ctx, tr.pk_prev_confirm_title, CONFIRM_W, &mut open, |ui| {
+        ui.add(egui::Label::new(tr.pk_prev_confirm_text.replacen("{}", path, 1)).wrap());
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            if ui.button(tr.pk_prev_confirm_yes).clicked() {
+                answer = Some(true);
+            }
+            if ui.button(tr.pk_prev_confirm_no).clicked() {
+                answer = Some(false);
+            }
+        });
+    });
+    if !open {
+        answer = Some(false);
+    }
+    answer
+}
+
 /// Draw the section for a Web or Mobile project; nothing for a Desktop one.
 pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout) {
     if draft.kind.is_desktop() {
@@ -435,6 +594,17 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
         });
         note(ui, lay, tr.pk_set_max_payload_hint, dim);
     }
+
+    // The browser of the Preview and Run (WASM-008 R12); a Mobile project's fallback (R15).
+    match draft.kind {
+        ProjectKind::Web => browser_row(ui, lay, tr, &mut draft.web.preview_browser),
+        _ => {
+            if let Some(m) = &mut draft.mobile {
+                browser_row(ui, lay, tr, &mut m.preview_browser);
+            }
+        }
+    }
+    note(ui, lay, tr.pk_set_preview_browser_hint, dim);
 
     if draft.kind == ProjectKind::Web {
         row(ui, lay, tr.pk_set_isolation, |ui| {
@@ -758,6 +928,88 @@ mod tests {
             }
         }
         println!("web/mobile settings section: {drawn} frames over 6 languages x 3 kinds, widest {widest:.0} px of 1400");
+    }
+
+    /// WASM-008 T37 (Q7, D11): a path is asked once per project folder on this
+    /// machine; the answer is kept outside the project; a copy of the project
+    /// in another folder is asked again; an unconfirmed path is never started.
+    #[test]
+    fn a_browser_path_is_confirmed_once_per_project_folder_008() {
+        let dir = scratch("confirm");
+        let project = dir.join("Shop");
+        let copy = dir.join("Shop copy");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&copy).unwrap();
+        let file = dir.join("settings").join("preview_browsers.toml");
+        let path = std::env::current_exe().unwrap();
+
+        let mut store = BrowserConfirmations::load_from(&file);
+        assert_eq!(store.answer(&project, &path), None, "never asked: the IDE asks before it starts anything");
+        store.record(&project, &path, true);
+        store.save_to(&file);
+        let again = BrowserConfirmations::load_from(&file);
+        assert_eq!(again.answer(&project, &path), Some(true), "a confirmed path is used next time");
+        assert_eq!(again.answer(&copy, &path), None, "the same project in another folder asks again");
+        assert_eq!(again.answer(&project, Path::new("/another/program")), None, "another path asks again");
+        let mut refused = again.clone();
+        refused.record(&project, &path, false);
+        assert_eq!(refused.answer(&project, &path), Some(false));
+        assert_eq!(refused.entries.len(), 1, "one answer per folder and path");
+        assert!(!project.join("preview_browsers.toml").exists() && file.is_file(), "the answer is kept outside the project");
+
+        // Unconfirmed: the Preview never runs the path's launch plan, and says so.
+        std::env::set_var(cobolt_project_tools::web::preview::NO_BROWSER_ENV, "1");
+        let notes = crate::panels::web_preview::tests_support::open_with(BrowserChoice::Path(path.clone()), false);
+        assert!(notes.iter().any(|n| matches!(n, crate::panels::web_preview::Note::BrowserNotConfirmed { .. })), "{notes:?}");
+        let notes = crate::panels::web_preview::tests_support::open_with(BrowserChoice::Path(path.clone()), true);
+        assert!(notes.iter().any(|n| matches!(n, crate::panels::web_preview::Note::Opened { browser, .. } if *browser == path.display().to_string())), "{notes:?}");
+        println!("browser confirmation: asked once for {} in {}, kept in {}; a copy in another folder asks again", path.display(), project.display(), file.display());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// WASM-008 T37: the browser row and the confirmation read in six
+    /// languages without a gap, and the confirmation keeps its rectangle over
+    /// 120 frames in each.
+    #[test]
+    fn the_browser_row_and_the_confirmation_read_in_six_languages_and_keep_their_size_008() {
+        let mut checked = 0;
+        let mut sizes = std::collections::BTreeSet::new();
+        let long_path = "/Applications/A Browser With A Very Long Name Indeed For Testing.app/Contents/MacOS/browser";
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            for t in [tr.pk_set_preview_browser, tr.pk_set_preview_browser_hint, tr.pk_set_browser_system, tr.pk_set_browser_other, tr.pk_prev_confirm_title, tr.pk_prev_confirm_yes, tr.pk_prev_confirm_no] {
+                assert!(!t.trim().is_empty() && !t.contains("{}") && !t.to_lowercase().contains("cobolt"), "{lang:?}: {t:?}");
+            }
+            let q = tr.pk_prev_confirm_text.replacen("{}", long_path, 1);
+            assert!(q.contains(long_path) && !q.contains("{}"), "{lang:?}: {q}");
+
+            let ctx = egui::Context::default();
+            crate::app::apply_glass_visuals(&ctx, crate::theme::default_theme());
+            let mut first: Option<egui::Rect> = None;
+            for frame in 0..120 {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0)));
+                let mut out = ctx.run_ui(input, |ui| {
+                    assert_eq!(show_browser_confirm(ui.ctx(), &tr, long_path), None, "nobody answered");
+                });
+                out.textures_delta.clear();
+                let rect = ctx.memory(|m| {
+                    m.layer_ids().filter(|l| l.order == egui::Order::Middle).find_map(|l| m.area_rect(l.id))
+                });
+                let Some(rect) = rect else { continue };
+                if frame >= 2 {
+                    match first {
+                        None => first = Some(rect),
+                        Some(f) => assert_eq!(rect, f, "{lang:?}: frame {frame} moved or resized the confirmation"),
+                    }
+                    checked += 1;
+                }
+            }
+            let f = first.expect("the confirmation was drawn");
+            assert!((f.width() - CONFIRM_W).abs() < 2.0, "{lang:?}: {:?}", f.size());
+            sizes.insert(((f.width() * 10.0) as i32, lang.code()));
+        }
+        println!("browser confirmation: {checked} frames over 6 languages, one width {CONFIRM_W} for all ({} languages)", sizes.len());
     }
 
     #[test]
