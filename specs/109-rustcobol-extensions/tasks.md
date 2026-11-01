@@ -24,7 +24,7 @@ finished module's execution pass (rule #9).
 
 ## T0 — Inventory
 
-- [ ] **T0.1 — Control-storage dependency inventory** (R29, Q9)
+- [x] **T0.1 — Control-storage dependency inventory** (R29, Q9)
   - Files: new `specs/109-rustcobol-extensions/inventory.md` (report only).
   - Do: over PowerAnalytics and every `examples/*/forms`, list each `WS-<control>`
     group/item and each generated helper paragraph that authored code, Common Code or
@@ -200,7 +200,7 @@ finished module's execution pass (rule #9).
   - Verify: goldens hold the high-level syntax, no legacy expansion, banner kept, authored code verbatim, regeneration identical, zero new diagnostics (AC9); PowerAnalytics workloads compared original vs updated (AC10).
 - [ ] **T-KB — System KB per slice** (R27) — `cobolt-compiler` doc tables, `cargo run -p cobolt-ide --example build_chunked_kb`; `prebuilt_chunked_kb_matches_the_published_documentation` green (AC14).
 - [ ] **T-DOC — Guide text kept in specs** (R27, §8) — `specs/109-…/guide-notes.md` per slice (COBOL and prose, never Rust; mermaid, screenshot placeholders, Notes, Caveats). On 2.x.x nothing under `README.md` or `docs/`; written into `docs/developers-guide-en.md` (and its five translations deleted) when 2.x.x merges to main (AC14).
-- [ ] **T-M — Measurement** (R36, AC11, AC20)
+- [x] **T-M — Measurement** (R36, AC11, AC20)
   - Report total/nonblank/executable/generated-only/user-code LOC and bytes per fixture and per construct against the frozen baseline; honest gap report against the 4,344-line study target.
   - Verify: numbers produced by the run; no comment or whitespace stripping counts.
 - [ ] **T-FIN — Finalize** — full `cargo test --no-fail-fast` sweep read line by line; NIST census plus finished modules; quarantine sweep of non-Rust files; AC23 scan; confirm no commit/push, merge or forum post unless the operator asks.
