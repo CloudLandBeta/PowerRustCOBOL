@@ -484,7 +484,6 @@ mod tests {
             ("ToUpperCase()", "Upper()"),
             ("LowerCase()", "Lower()"),
             ("ToLowerCase()", "Lower()"),
-            ("Length()", "Len()"),
             ("Length", "Len"),
         ] {
             let r = free(&format!("    MOVE WS-A::{old} TO WS-B.\n"));
@@ -495,7 +494,7 @@ mod tests {
 
     #[test]
     fn the_canonical_spellings_and_the_other_methods_are_left_alone() {
-        let src = "    MOVE WS-A::Trim()::Upper() TO WS-B.\n    MOVE WS-A::Lower() TO WS-B.\n    COMPUTE N = WS-A::Len().\n    MOVE WS-A::Replace(\"a\", \"b\") TO WS-B.\n    MOVE WS-A::Split(\",\")(2) TO WS-B.\n    MOVE WS-A::upper() TO WS-B.\n";
+        let src = "    MOVE WS-A::Trim()::Upper() TO WS-B.\n    MOVE WS-A::Lower() TO WS-B.\n    COMPUTE N = WS-A::Len.\n    MOVE WS-A::Replace(\"a\", \"b\") TO WS-B.\n    MOVE WS-A::Split(\",\")(2) TO WS-B.\n    MOVE WS-A::upper() TO WS-B.\n";
         let r = free(src);
         assert_eq!(r.text, src);
         assert!(!r.changed());
@@ -503,18 +502,18 @@ mod tests {
 
     #[test]
     fn mixed_case_is_found_and_the_replacement_is_always_the_canonical_case() {
-        let r = free("    MOVE WS-A::uppercase() TO X.\n    MOVE WS-A::UPPERCASE() TO X.\n    MOVE WS-A::tolowercase() TO X.\n    MOVE WS-A::toLowerCase() TO X.\n    COMPUTE N = WS-A::LENGTH.\n    COMPUTE N = WS-A::length().\n");
+        let r = free("    MOVE WS-A::uppercase() TO X.\n    MOVE WS-A::UPPERCASE() TO X.\n    MOVE WS-A::tolowercase() TO X.\n    MOVE WS-A::toLowerCase() TO X.\n    COMPUTE N = WS-A::LENGTH.\n    COMPUTE N = WS-A::length.\n");
         assert_eq!(
             r.text,
-            "    MOVE WS-A::Upper() TO X.\n    MOVE WS-A::Upper() TO X.\n    MOVE WS-A::Lower() TO X.\n    MOVE WS-A::Lower() TO X.\n    COMPUTE N = WS-A::Len.\n    COMPUTE N = WS-A::Len().\n"
+            "    MOVE WS-A::Upper() TO X.\n    MOVE WS-A::Upper() TO X.\n    MOVE WS-A::Lower() TO X.\n    MOVE WS-A::Lower() TO X.\n    COMPUTE N = WS-A::Len.\n    COMPUTE N = WS-A::Len.\n"
         );
         assert_eq!(r.edits.iter().map(|e| e.old.as_str()).collect::<Vec<_>>(), ["uppercase", "UPPERCASE", "tolowercase", "toLowerCase", "LENGTH", "length"]);
     }
 
     #[test]
     fn a_chain_is_rewritten_link_by_link() {
-        let r = free("    MOVE WS-NAME::Trim()::UpperCase() TO WS-OUT.\n    MOVE WS-NAME::ToLowerCase()::Trim()::Length() TO WS-N.\n");
-        assert_eq!(r.text, "    MOVE WS-NAME::Trim()::Upper() TO WS-OUT.\n    MOVE WS-NAME::Lower()::Trim()::Len() TO WS-N.\n");
+        let r = free("    MOVE WS-NAME::Trim()::UpperCase() TO WS-OUT.\n    MOVE WS-NAME::ToLowerCase()::Trim()::Length TO WS-N.\n");
+        assert_eq!(r.text, "    MOVE WS-NAME::Trim()::Upper() TO WS-OUT.\n    MOVE WS-NAME::Lower()::Trim()::Len TO WS-N.\n");
         assert_eq!(r.edits.len(), 3);
     }
 

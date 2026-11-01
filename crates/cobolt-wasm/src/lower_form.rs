@@ -312,6 +312,12 @@ impl Lower<'_, '_> {
                     format!("{} is not a value method of a data item: a data item answers {}", s.name, cobolt_ast::methods::DATA_ITEM_METHODS_TEXT),
                 );
             };
+            if code == cobolt_wasm_rt::strings::VM_LEN && s.parens {
+                return self.err(
+                    line,
+                    format!("{} is a property of a data item, not a method: write it without the parentheses", s.name),
+                );
+            }
             let a = match s.args.first() {
                 Some(x) => self.operand_or_temp(x)?,
                 None => 0,

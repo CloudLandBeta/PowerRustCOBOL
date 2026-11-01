@@ -27269,7 +27269,7 @@ mod event_editor_drag_tests {
 }
 
 /// One spelling for the value methods (operator, 2026-10-10). Saving a handler
-/// or a procedure writes `Upper()` / `Lower()` / `Len()` for the older
+/// or a procedure writes `Upper()` / `Lower()` / `Len` for the older
 /// spellings, reports it, and makes it a step of its own that one Undo takes
 /// back.
 #[cfg(test)]
@@ -27323,7 +27323,7 @@ mod value_method_tests {
         assert_eq!(notices[0].count, 3);
         assert_eq!(notices[0].place, "F ▸ TXT-A ▸ onClick");
         let line = notices[0].text(&crate::i18n::Language::English.tr());
-        assert_eq!(line, "Value methods: 3 spellings changed to Upper()/Lower()/Len() in F ▸ TXT-A ▸ onClick");
+        assert_eq!(line, "Value methods: 3 spellings changed to Upper()/Lower()/Len in F ▸ TXT-A ▸ onClick");
         assert!(dp.take_canon_notices().is_empty(), "taken means taken");
         println!("  {line}");
     }

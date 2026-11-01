@@ -228,7 +228,7 @@ const GREET_HANDLER: &str = "       ENVIRONMENT DIVISION.\n\
            *> Greets the person whose name is in the box. An empty box asks for a name\n\
            *> instead, so the first click already shows both ways through the handler.\n\
 \n\
-           IF    TXT-NAME::Text::Trim()::Len() = 0\n\
+           IF    TXT-NAME::Text::Trim()::Len = 0\n\
                SET     LBL-RESULT::Caption       TO    \"Type your name first.\"\n\
            ELSE\n\
                MOVE    SPACES                    TO    LBL-RESULT::Caption\n\

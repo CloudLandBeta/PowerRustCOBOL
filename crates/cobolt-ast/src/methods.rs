@@ -102,11 +102,34 @@ pub fn canonical_data_item_method(name: &str) -> Option<&'static str> {
         .map(|(_, canonical)| *canonical)
 }
 
+/// The value methods that are **properties**: `Len` (and its older spelling
+/// `Length`) is written without parentheses — `WS-TEXT::Len`, `WS-TEXT::Trim()::Len`.
+/// `WS-TEXT::Len()` is not a program (operator, 2026-11-01); the analyser, the
+/// interpreter and the WebAssembly generator refuse it with [`property_called_message`].
+pub const VALUE_PROPERTIES: &[&str] = &["Len", "Length"];
+
+/// `true` if `name` is a value property (see [`VALUE_PROPERTIES`]); case does not matter.
+pub fn is_value_property(name: &str) -> bool {
+    VALUE_PROPERTIES.iter().any(|m| m.eq_ignore_ascii_case(name.trim()))
+}
+
+/// The error for a value property written as a call: `WS-A::Len()`.
+pub fn property_called_message(root: &str, name: &str) -> String {
+    format!(
+        "'{}::{}()': {} is a property of a data item, not a method. Write '{}::{}' without the parentheses.",
+        root.trim(),
+        name.trim(),
+        name.trim(),
+        root.trim(),
+        name.trim()
+    )
+}
+
 /// What a data item does answer, as the sentence an error ends with. The older
 /// spellings are named so that a developer who meets one in somebody else's
 /// code learns that it works, and which spelling is the current one.
-pub const DATA_ITEM_METHODS_TEXT: &str = "Trim, Upper, Lower, Replace, Len and Split \
-(UpperCase, ToUpperCase, LowerCase, ToLowerCase and Length are older spellings that still work)";
+pub const DATA_ITEM_METHODS_TEXT: &str = "the methods Trim, Upper, Lower, Replace and Split, written with parentheses, and the property Len, written without them \
+(UpperCase, ToUpperCase, LowerCase and ToLowerCase are older spellings of the methods and Length of the property; they still work)";
 
 /// `true` if `name` is a recognised control/collection method. A `GET-`/`SET-`
 /// prefix is always a method (explicit accessor, spec 010).
@@ -315,7 +338,8 @@ mod tests {
 
     #[test]
     fn the_error_sentence_names_the_canonical_set_and_says_the_old_spellings_work() {
-        assert!(DATA_ITEM_METHODS_TEXT.starts_with("Trim, Upper, Lower, Replace, Len and Split"));
+        assert!(DATA_ITEM_METHODS_TEXT.starts_with("the methods Trim, Upper, Lower, Replace and Split"));
+        assert!(DATA_ITEM_METHODS_TEXT.contains("the property Len"));
         for alias in ["UpperCase", "ToUpperCase", "LowerCase", "ToLowerCase", "Length"] {
             assert!(DATA_ITEM_METHODS_TEXT.contains(alias), "{alias}");
         }

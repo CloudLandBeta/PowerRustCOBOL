@@ -2315,7 +2315,7 @@ impl EditorPanel {
     }
 
     /// Write the single spelling of the value methods into tab `idx`
-    /// (`Upper()`, `Lower()`, `Len()` for `UpperCase`/`ToUpperCase`,
+    /// (`Upper()`, `Lower()`, `Len` for `UpperCase`/`ToUpperCase`,
     /// `LowerCase`/`ToLowerCase`, `Length` — [`crate::value_methods`]), in the
     /// buffer itself, so that what is on screen is what is written. Reported in
     /// [`Self::canon_notices`]. Code that does not parse cleanly, a file that is
@@ -7413,7 +7413,7 @@ mod encoding_tests {
 }
 
 /// One spelling for the value methods (operator, 2026-10-10): saving or
-/// beautifying a COBOL file writes `Upper()` / `Lower()` / `Len()` for the older
+/// beautifying a COBOL file writes `Upper()` / `Lower()` / `Len` for the older
 /// spellings — in the buffer, on disk, reported, and undone by one Ctrl+Z.
 #[cfg(test)]
 mod value_method_tests {
@@ -7430,7 +7430,7 @@ mod value_method_tests {
        PROCEDURE DIVISION.
        MAIN-PARA.
            MOVE WS-NAME::Trim()::UpperCase() TO WS-OUT.
-           COMPUTE WS-N = WS-NAME::Length().
+           COMPUTE WS-N = WS-NAME::Length.
            MOVE WS-NAME::ToLowerCase() TO WS-OUT. *> ::Length stays in a comment
            STOP RUN.
 ";
@@ -7453,11 +7453,11 @@ mod value_method_tests {
         let on_disk = std::fs::read_to_string(dir.path().join("demo.cbl")).unwrap();
         assert_eq!(on_disk, ed.tabs[0].content, "what is on screen is what is on disk");
         assert!(on_disk.contains("MOVE WS-NAME::Trim()::Upper() TO WS-OUT."), "{on_disk}");
-        assert!(on_disk.contains("COMPUTE WS-N = WS-NAME::Len()."), "{on_disk}");
+        assert!(on_disk.contains("COMPUTE WS-N = WS-NAME::Len."), "{on_disk}");
         assert!(on_disk.contains("MOVE WS-NAME::Lower() TO WS-OUT. *> ::Length stays in a comment"), "{on_disk}");
         assert!(!ed.tabs[0].dirty);
         // Everything else is byte for byte what it was.
-        assert_eq!(on_disk.replace("Upper()", "UpperCase()").replace("::Len()", "::Length()").replace("::Lower()", "::ToLowerCase()"), PROGRAM);
+        assert_eq!(on_disk.replace("Upper()", "UpperCase()").replace("::Len.", "::Length.").replace("::Lower()", "::ToLowerCase()"), PROGRAM);
 
         assert_eq!(ed.canon_notices.len(), 1);
         assert_eq!((ed.canon_notices[0].count, ed.canon_notices[0].place.as_str()), (3, "demo.cbl"));

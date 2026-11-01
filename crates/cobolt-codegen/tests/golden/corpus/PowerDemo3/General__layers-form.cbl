@@ -350,7 +350,7 @@
 
        PROCEDURE DIVISION.
 
-           IF    TXT-NAME::Text::Trim()::Len() = 0
+           IF    TXT-NAME::Text::Trim()::Len = 0
                SET     LBL-ERROR-TEXT::Caption   TO    "Type a customer name before saving."
                SET     ERROR-LAYER::Visible      TO    TRUE
            ELSE

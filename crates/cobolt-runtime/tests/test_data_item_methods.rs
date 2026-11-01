@@ -96,7 +96,8 @@ fn the_worked_examples_all_pass() {
 fn every_listed_value_method_evaluates() {
     for m in cobolt_ast::methods::DATA_ITEM_METHODS {
         let args = if m.eq_ignore_ascii_case("Replace") { "\"a\" \"b\"" } else { "" };
-        let code = format!("    MOVE WS-TEXT::{m}({args}) TO WS-OUT.");
+        let call = if cobolt_ast::methods::is_value_property(m) { String::new() } else { format!("({args})") };
+        let code = format!("    MOVE WS-TEXT::{m}{call} TO WS-OUT.");
         run(&code).unwrap_or_else(|e| panic!("{m}: {e}"));
     }
     run("    MOVE WS-TEXT::Split(\"l\")(2) TO WS-OUT.").expect("Split(sep)(n)");
@@ -128,6 +129,11 @@ fn the_canonical_spellings_work_in_every_form_the_aliases_did() {
                 "    STRING WS-TEXT::{m}() DELIMITED BY SIZE INTO WS-OUT. DISPLAY WS-OUT.",
                 "    INVOKE WS-TEXT::{m}(). DISPLAY \"ran\".",
             ] {
+                // `Len` is a property: no parentheses, and nothing to INVOKE.
+                if canonical == "Len" && form.contains("INVOKE") {
+                    continue;
+                }
+                let form = &if canonical == "Len" { form.replace("{m}()", "{m}") } else { form.to_string() };
                 let with_alias = run(&form.replace("{m}", alias)).unwrap_or_else(|e| panic!("{alias} in {form}: {e}"));
                 let with_canonical = run(&form.replace("{m}", canonical)).unwrap_or_else(|e| panic!("{canonical} in {form}: {e}"));
                 assert_eq!(with_alias, with_canonical, "{alias} vs {canonical} in {form}");
@@ -165,8 +171,8 @@ fn a_name_a_data_item_does_not_answer_is_a_run_time_error() {
             e.to_ascii_uppercase().contains(&format!("NO METHOD OR PROPERTY '{method}'")),
             "{code}: {e}"
         );
-        assert!(e.contains("A data item answers: Trim, Upper, Lower, Replace, Len and Split"), "{code}: {e}");
-        assert!(e.contains("older spellings that still work"), "{code}: {e}");
+        assert!(e.contains("A data item answers: the methods Trim, Upper, Lower, Replace and Split"), "{code}: {e}");
+        assert!(e.contains("the property Len") && e.contains("still work"), "{code}: {e}");
         shown.push(e);
     }
     println!("run-time data-item method check — {} unknown names stopped the run, e.g.:\n  {}", shown.len(), shown[0]);
@@ -253,7 +259,7 @@ WORKING-STORAGE SECTION.
 PROCEDURE DIVISION.
     DISPLAY \"a old: [\" FUNCTION TRIM(WS-LINE) \"]\"
     DISPLAY \"a new: [\" WS-LINE::Trim() \"]\"
-    DISPLAY \"a len: \" WS-LINE::Len()
+    DISPLAY \"a len: \" WS-LINE::Len
     GOBACK.
 END PROGRAM SUB-A.
 IDENTIFICATION DIVISION.
@@ -264,7 +270,7 @@ WORKING-STORAGE SECTION.
 PROCEDURE DIVISION.
     DISPLAY \"b old: [\" FUNCTION TRIM(WS-LINE) \"]\"
     DISPLAY \"b new: [\" WS-LINE::Trim() \"]\"
-    DISPLAY \"b len: \" WS-LINE::Len()
+    DISPLAY \"b len: \" WS-LINE::Len
     GOBACK.
 END PROGRAM SUB-B.
 END PROGRAM DUPP.
@@ -322,6 +328,7 @@ fn every_value_method_answers_the_same_for_a_contained_programs_item() {
         assert!(calls.iter().any(|(c, _)| c.eq_ignore_ascii_case(m)), "{m} is not exercised");
     }
     for (m, args) in calls {
+        let call = if cobolt_ast::methods::is_value_property(m) { String::new() } else { format!("({args})") };
         let src = format!(
             "\
 IDENTIFICATION DIVISION.
@@ -339,9 +346,9 @@ WORKING-STORAGE SECTION.
 01 LK-TEXT PIC X(20) VALUE \"  Hello  \".
 01 LK-OUT  PIC X(60).
 PROCEDURE DIVISION.
-    MOVE LK-TEXT::{m}({args}) TO LK-OUT
+    MOVE LK-TEXT::{m}{call} TO LK-OUT
     DISPLAY \"local: [\" LK-OUT \"]\"
-    MOVE WS-TOP::{m}({args}) TO LK-OUT
+    MOVE WS-TOP::{m}{call} TO LK-OUT
     DISPLAY \"outer: [\" LK-OUT \"]\"
     GOBACK.
 END PROGRAM SUB-ONE.
@@ -472,4 +479,18 @@ END PROGRAM OBJP.
 ";
     let out = run_whole(src).expect("a handle's method still dispatches");
     assert!(out.iter().any(|l| l.contains('5')), "{out:?}");
+}
+
+/// `Len` is a property (operator, 2026-11-01): the interpreter itself refuses
+/// `X::Len()` and `X::Length()`, so a host that skips the analyser cannot run one.
+#[test]
+fn len_with_parentheses_is_a_run_time_error_and_without_them_it_answers() {
+    for call in ["Len()", "Length()", "Trim()::Len()"] {
+        let e = run(&format!("    COMPUTE WS-N = WS-TEXT::{call}.")).expect_err(call);
+        assert!(e.contains("is a property of a data item, not a method"), "{call}: {e}");
+        assert!(e.contains("without the parentheses"), "{call}: {e}");
+    }
+    for ok in ["Len", "Length", "Trim()::Len"] {
+        run(&format!("    COMPUTE WS-N = WS-TEXT::{ok}.")).unwrap_or_else(|e| panic!("{ok}: {e}"));
+    }
 }

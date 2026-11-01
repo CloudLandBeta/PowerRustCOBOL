@@ -606,7 +606,7 @@ fn yield_is_invisible() {
 /// it back, so the label showed a stray `\u{1}` instead of "Hello, Ada".
 #[test]
 fn string_into_a_property_writes_the_property() {
-    let greet = "    IF TXT-NAME::Text::Trim()::Len() = 0\n        SET LBL-RESULT::Caption TO \"Type your name first.\"\n    ELSE\n        MOVE SPACES TO LBL-RESULT::Caption\n        STRING \"Hello, \" TXT-NAME::Text::Trim() DELIMITED BY SIZE INTO LBL-RESULT::Caption\n    END-IF\n";
+    let greet = "    IF TXT-NAME::Text::Trim()::Len = 0\n        SET LBL-RESULT::Caption TO \"Type your name first.\"\n    ELSE\n        MOVE SPACES TO LBL-RESULT::Caption\n        STRING \"Hello, \" TXT-NAME::Text::Trim() DELIMITED BY SIZE INTO LBL-RESULT::Caption\n    END-IF\n";
     let main = form_source(
         "MAIN-FORM",
         "",

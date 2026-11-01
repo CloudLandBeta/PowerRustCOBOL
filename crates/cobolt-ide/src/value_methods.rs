@@ -6,7 +6,7 @@
 
 //! One spelling for the value methods of a data item, in the IDE.
 //!
-//! `Upper()`, `Lower()` and `Len()` are the spellings that are written;
+//! `Upper()`, `Lower()` and `Len` are the spellings that are written;
 //! `UpperCase()`, `ToUpperCase()`, `LowerCase()`, `ToLowerCase()` and
 //! `Length()` still run (operator, 2026-10-10). When the developer saves a piece
 //! of COBOL, the editor finds the older spellings in it and writes the single

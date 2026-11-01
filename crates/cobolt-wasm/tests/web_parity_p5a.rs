@@ -145,7 +145,7 @@ fn a_value_method_keeps_every_byte_of_a_long_text() {
     body.push_str("    SET LST-1::CheckedItems TO WS-BIG::Trim()\n    MOVE SPACES TO WS-OUT\n    SET WS-OUT TO LST-1::CheckedItems::Upper()\n");
     body.push_str(MEASURE);
     body.push_str("    DISPLAY \"VM LEN \" WS-L \" NAMES \" WS-C \" FIRST [\" WS-OUT(1:26) \"] LAST [\" WS-OUT(WS-L - 28 : 29) \"]\"\n");
-    body.push_str("    MOVE \"ab\" TO WS-V\n    MOVE WS-V::Len() TO WS-L\n    DISPLAY \"LEN8 \" WS-L\n");
+    body.push_str("    MOVE \"ab\" TO WS-V\n    MOVE WS-V::Len TO WS-L\n    DISPLAY \"LEN8 \" WS-L\n");
     let (lines, errors) = click_all(DATA, &[&body]);
     assert!(errors.is_empty(), "{errors:?}");
     assert_eq!(lines, ["VM LEN 017997 NAMES 000600 FIRST [FUNDO DE INVESTIMENTO 0000] LAST [  FUNDO DE INVESTIMENTO 00600]", "LEN8 000008"]);

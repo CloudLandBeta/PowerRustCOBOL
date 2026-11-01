@@ -15494,7 +15494,7 @@ impl Interpreter {
     }
 
     /// The data item a member chain starts from, when it starts from one:
-    /// `WS-TEXT` in `WS-TEXT::Trim()::Len()`, `T(i)::Trim()` and
+    /// `WS-TEXT` in `WS-TEXT::Trim()::Len`, `T(i)::Trim()` and
     /// `WS-TEXT(3:5)::Upper()`. `None` for a chain rooted in a control or any
     /// other object, which is that object's own business.
     fn value_item_root(&self, recv: &Expr) -> Option<String> {
@@ -15860,7 +15860,7 @@ impl Interpreter {
             member,
             args,
             span,
-            ..
+            parens,
         } = expr
         {
             let is_var_or_lit = match recv.as_ref() {
@@ -15947,6 +15947,14 @@ impl Interpreter {
                         return Ok(CobolValue::from_str(&res_str, len));
                     }
                     "LEN" | "LENGTH" => {
+                        // `Len` is a property: `X::Len()` is not a program.
+                        if *parens {
+                            if let Some(root) = self.value_item_root(recv) {
+                                return Err(RuntimeError::General {
+                                    message: cobolt_ast::methods::property_called_message(&root, member),
+                                });
+                            }
+                        }
                         let count = recv_val.as_display_string().chars().count();
                         return Ok(CobolValue::Numeric(CobolNumeric::integer(count as i64)));
                     }

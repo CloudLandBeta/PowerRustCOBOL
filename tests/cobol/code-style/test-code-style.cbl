@@ -174,10 +174,10 @@
            MOVE "GREGORY HOUSE" TO WS-EXP.
            PERFORM CHECK-TEXT.
            MOVE "no" TO WS-RES.
-           IF PERSON::Name::Len() > 5
+           IF PERSON::Name::Len > 5
                MOVE "yes" TO WS-RES
            END-IF.
-           MOVE "C4 Len() of a property in an IF" TO WS-LABEL.
+           MOVE "C4 Len of a property in an IF" TO WS-LABEL.
            MOVE "yes" TO WS-EXP.
            PERFORM CHECK-TEXT.
 

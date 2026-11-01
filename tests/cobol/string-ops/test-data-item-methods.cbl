@@ -7,9 +7,9 @@
       *>   Len (method and bare property)
       *>   Split(sep) · Split(sep)(n) · chains of them.
       *>
-      *> CANONICAL SPELLINGS: Upper(), Lower() and Len() are the
+      *> CANONICAL SPELLINGS: Upper(), Lower() and Len are the
       *> spellings to WRITE. UpperCase() / ToUpperCase(), LowerCase()
-      *> / ToLowerCase() and Length() are ACCEPTED ALIASES: they run
+      *> / ToLowerCase() and Length are ACCEPTED ALIASES: they run
       *> exactly as before so no program breaks, and the IDE rewrites
       *> them to the canonical spelling when a file is saved. This
       *> test keeps the aliases honest, so it uses them ON PURPOSE in
@@ -164,22 +164,22 @@
            MOVE "hello" TO WS-A.
            MOVE "Len #1 (PIC X(20))" TO WS-LABEL.
            MOVE 20 TO WS-EXPN.
-           COMPUTE WS-N = WS-A::Len().
+           COMPUTE WS-N = WS-A::Len.
            PERFORM CHECK-NUM.
            MOVE "x" TO WS-CSV.
            MOVE "Len #2 (PIC X(30))" TO WS-LABEL.
            MOVE 30 TO WS-EXPN.
-           COMPUTE WS-N = WS-CSV::Len().
+           COMPUTE WS-N = WS-CSV::Len.
            PERFORM CHECK-NUM.
 
            MOVE 10 TO WS-GI.
            MOVE "Length #1 (PIC X(5))" TO WS-LABEL.
            MOVE 5 TO WS-EXPN.
-           COMPUTE WS-N = WS-S5::Length().
+           COMPUTE WS-N = WS-S5::Length.
            PERFORM CHECK-NUM.
            MOVE "Length #2 (PIC X(8))" TO WS-LABEL.
            MOVE 8 TO WS-EXPN.
-           COMPUTE WS-N = WS-S8::Length().
+           COMPUTE WS-N = WS-S8::Length.
            PERFORM CHECK-NUM.
 
            MOVE 11 TO WS-GI.
@@ -224,9 +224,9 @@
            MOVE WS-A::Trim()::Upper() TO WS-RES.
            PERFORM CHECK-TEXT.
            MOVE "  hi  " TO WS-A.
-           MOVE "Chain #2 Trim()::Len()" TO WS-LABEL.
+           MOVE "Chain #2 Trim()::Len" TO WS-LABEL.
            MOVE 2 TO WS-EXPN.
-           COMPUTE WS-N = WS-A::Trim()::Len().
+           COMPUTE WS-N = WS-A::Trim()::Len.
            PERFORM CHECK-NUM.
 
            MOVE 15 TO WS-GI.
@@ -282,9 +282,9 @@
            MOVE WS-A::Lower() TO WS-EXP.
            MOVE WS-A::ToLowerCase() TO WS-RES.
            PERFORM CHECK-TEXT.
-           MOVE "Length() = Len()" TO WS-LABEL.
-           COMPUTE WS-EXPN = WS-A::Len().
-           COMPUTE WS-N = WS-A::Length().
+           MOVE "Length = Len" TO WS-LABEL.
+           COMPUTE WS-EXPN = WS-A::Len.
+           COMPUTE WS-N = WS-A::Length.
            PERFORM CHECK-NUM.
            MOVE "Length = Len (properties)" TO WS-LABEL.
            COMPUTE WS-EXPN = WS-A::Len.
@@ -314,8 +314,8 @@
            MOVE "ToLowerCase()"           TO WS-G-NAME (6).
            MOVE "Lower()"                 TO WS-G-NAME (7).
            MOVE "Replace(from, to)"       TO WS-G-NAME (8).
-           MOVE "Len()"                   TO WS-G-NAME (9).
-           MOVE "Length()"                TO WS-G-NAME (10).
+           MOVE "Len"                   TO WS-G-NAME (9).
+           MOVE "Length"                TO WS-G-NAME (10).
            MOVE "::Length (property)"     TO WS-G-NAME (11).
            MOVE "Split(sep)"              TO WS-G-NAME (12).
            MOVE "Split(sep)(n)"           TO WS-G-NAME (13).
@@ -387,7 +387,7 @@
            END-PERFORM.
            DISPLAY "--------------------------------------------".
            DISPLAY "FORMS EXERCISED : 21".
-           DISPLAY "CANONICAL       : Upper() Lower() Len()".
+           DISPLAY "CANONICAL       : Upper() Lower() Len".
            DISPLAY "ALIASES CHECKED : 5 (UpperCase ToUpperCase".
            DISPLAY "                  LowerCase ToLowerCase Length)".
            DISPLAY "ALIAS CHECKS    : " WS-ALIAS-OK " passed of "
@@ -463,13 +463,13 @@
            MOVE "Hello COBOL" TO UN-EXP.
            MOVE UN-A::Replace("World" "COBOL") TO UN-RES.
            PERFORM UN-CHECK-TEXT.
-           MOVE "Len()" TO UN-LABEL.
+           MOVE "Len" TO UN-LABEL.
            MOVE 20 TO UN-EXPN.
-           COMPUTE UN-N = UN-A::Len().
+           COMPUTE UN-N = UN-A::Len.
            PERFORM UN-CHECK-NUM.
-           MOVE "Length()" TO UN-LABEL.
+           MOVE "Length" TO UN-LABEL.
            MOVE 5 TO UN-EXPN.
-           COMPUTE UN-N = UN-S5::Length().
+           COMPUTE UN-N = UN-S5::Length.
            PERFORM UN-CHECK-NUM.
            MOVE "::Length (property)" TO UN-LABEL.
            MOVE 8 TO UN-EXPN.
@@ -577,13 +577,13 @@
            MOVE "Hello COBOL" TO DP-EXP.
            MOVE DP-A::Replace("World" "COBOL") TO DP-RES.
            PERFORM D1-CHECK-TEXT.
-           MOVE "Len()" TO DP-LABEL.
+           MOVE "Len" TO DP-LABEL.
            MOVE 20 TO DP-EXPN.
-           COMPUTE DP-N = DP-A::Len().
+           COMPUTE DP-N = DP-A::Len.
            PERFORM D1-CHECK-NUM.
-           MOVE "Length()" TO DP-LABEL.
+           MOVE "Length" TO DP-LABEL.
            MOVE 5 TO DP-EXPN.
-           COMPUTE DP-N = DP-S5::Length().
+           COMPUTE DP-N = DP-S5::Length.
            PERFORM D1-CHECK-NUM.
            MOVE "::Length (property)" TO DP-LABEL.
            MOVE 8 TO DP-EXPN.
@@ -684,13 +684,13 @@
            MOVE "Bye World" TO DP-EXP.
            MOVE DP-A::Replace("Hello" "Bye") TO DP-RES.
            PERFORM D2-CHECK-TEXT.
-           MOVE "Len()" TO DP-LABEL.
+           MOVE "Len" TO DP-LABEL.
            MOVE 12 TO DP-EXPN.
-           COMPUTE DP-N = DP-A::Len().
+           COMPUTE DP-N = DP-A::Len.
            PERFORM D2-CHECK-NUM.
-           MOVE "Length()" TO DP-LABEL.
+           MOVE "Length" TO DP-LABEL.
            MOVE 6 TO DP-EXPN.
-           COMPUTE DP-N = DP-S5::Length().
+           COMPUTE DP-N = DP-S5::Length.
            PERFORM D2-CHECK-NUM.
            MOVE "::Length (property)" TO DP-LABEL.
            MOVE 9 TO DP-EXPN.
@@ -792,13 +792,13 @@
            MOVE "Hello COBOL" TO GL-EXP.
            MOVE WS-GLB-A::Replace("World" "COBOL") TO GL-RES.
            PERFORM GL-CHECK-TEXT.
-           MOVE "Len()" TO GL-LABEL.
+           MOVE "Len" TO GL-LABEL.
            MOVE 20 TO GL-EXPN.
-           COMPUTE GL-N = WS-GLB-A::Len().
+           COMPUTE GL-N = WS-GLB-A::Len.
            PERFORM GL-CHECK-NUM.
-           MOVE "Length()" TO GL-LABEL.
+           MOVE "Length" TO GL-LABEL.
            MOVE 5 TO GL-EXPN.
-           COMPUTE GL-N = WS-GLB-S5::Length().
+           COMPUTE GL-N = WS-GLB-S5::Length.
            PERFORM GL-CHECK-NUM.
            MOVE "::Length (property)" TO GL-LABEL.
            MOVE 8 TO GL-EXPN.

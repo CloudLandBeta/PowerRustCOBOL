@@ -129,7 +129,7 @@ impl Interpreter {
                         },
                         Some(other) => {
                             return Err(general(format!(
-                                "SortByDescending takes a lambda such as ITEM => ITEM::Len(){}",
+                                "SortByDescending takes a lambda such as ITEM => ITEM::Len{}",
                                 if matches!(other, Expr::Lambda { .. }) { "" } else { " (not a plain value)" }
                             )))
                         }

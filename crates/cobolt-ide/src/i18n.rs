@@ -1864,7 +1864,7 @@ pub struct Tr {
     pub bt_err_intro: &'static str,
     // ── One spelling for the value methods (operator, 2026-10-10) ───────
     /// Output line: a save changed ONE older spelling (`UpperCase`, `ToUpperCase`,
-    /// `LowerCase`, `ToLowerCase`, `Length`) to `Upper()` / `Lower()` / `Len()`.
+    /// `LowerCase`, `ToLowerCase`, `Length`) to `Upper()` / `Lower()` / `Len`.
     /// `{place}` is a file name or `form ▸ control ▸ event`.
     pub vm_rewritten_one: &'static str,
     /// The same line for several: `{n}` spellings, in `{place}`.
@@ -4173,8 +4173,8 @@ const EN: Tr = Tr {
     bt_ok:              "OK",
     bt_err_title:       "Beautify blocked",
     bt_err_intro:       "The code has errors — nothing was changed. Fix these first:",
-    vm_rewritten_one:   "Value methods: 1 spelling changed to Upper()/Lower()/Len() in {place}",
-    vm_rewritten_many:  "Value methods: {n} spellings changed to Upper()/Lower()/Len() in {place}",
+    vm_rewritten_one:   "Value methods: 1 spelling changed to Upper()/Lower()/Len in {place}",
+    vm_rewritten_many:  "Value methods: {n} spellings changed to Upper()/Lower()/Len in {place}",
     sec_shadow:         "🌑 Drop Shadow",
         theme_defaults_title: "🎨 Default Theme Settings",
     theme_defaults_theme: "Theme",
@@ -6277,8 +6277,8 @@ const ES: Tr = Tr {
     bt_ok:              "Aceptar",
     bt_err_title:       "Embellecido bloqueado",
     bt_err_intro:       "El código tiene errores — no se cambió nada. Corrija esto primero:",
-    vm_rewritten_one:   "Métodos de valor: 1 nombre cambiado a Upper()/Lower()/Len() en {place}",
-    vm_rewritten_many:  "Métodos de valor: {n} nombres cambiados a Upper()/Lower()/Len() en {place}",
+    vm_rewritten_one:   "Métodos de valor: 1 nombre cambiado a Upper()/Lower()/Len en {place}",
+    vm_rewritten_many:  "Métodos de valor: {n} nombres cambiados a Upper()/Lower()/Len en {place}",
     sec_shadow:         "🌑 Sombra paralela",
         theme_defaults_title: "🎨 Ajustes predeterminados del tema",
     theme_defaults_theme: "Tema",
@@ -8381,8 +8381,8 @@ const PT: Tr = Tr {
     bt_ok:              "OK",
     bt_err_title:       "Embelezamento bloqueado",
     bt_err_intro:       "O código tem erros — nada foi alterado. Corrija isto primeiro:",
-    vm_rewritten_one:   "Métodos de valor: 1 nome alterado para Upper()/Lower()/Len() em {place}",
-    vm_rewritten_many:  "Métodos de valor: {n} nomes alterados para Upper()/Lower()/Len() em {place}",
+    vm_rewritten_one:   "Métodos de valor: 1 nome alterado para Upper()/Lower()/Len em {place}",
+    vm_rewritten_many:  "Métodos de valor: {n} nomes alterados para Upper()/Lower()/Len em {place}",
     sec_shadow:         "🌑 Sombra projetada",
         theme_defaults_title: "🎨 Configurações padrão do tema",
     theme_defaults_theme: "Tema",
@@ -10484,8 +10484,8 @@ const JA: Tr = Tr {
     bt_ok:              "OK",
     bt_err_title:       "整形できません",
     bt_err_intro:       "コードにエラーがあるため何も変更されませんでした。まず修正してください:",
-    vm_rewritten_one:   "値メソッド: 1 件を Upper()/Lower()/Len() に書き換えました（{place}）",
-    vm_rewritten_many:  "値メソッド: {n} 件を Upper()/Lower()/Len() に書き換えました（{place}）",
+    vm_rewritten_one:   "値メソッド: 1 件を Upper()/Lower()/Len に書き換えました（{place}）",
+    vm_rewritten_many:  "値メソッド: {n} 件を Upper()/Lower()/Len に書き換えました（{place}）",
     sec_shadow:         "🌑 ドロップシャドウ",
         theme_defaults_title: "🎨 テーマの既定設定",
     theme_defaults_theme: "テーマ",
@@ -12593,8 +12593,8 @@ const ZH: Tr = Tr {
     bt_ok: "确定",
     bt_err_title: "无法美化",
     bt_err_intro: "代码存在错误，未做任何更改。请先修正：",
-    vm_rewritten_one: "值方法：已将 1 处写法改为 Upper()/Lower()/Len()（{place}）",
-    vm_rewritten_many: "值方法：已将 {n} 处写法改为 Upper()/Lower()/Len()（{place}）",
+    vm_rewritten_one: "值方法：已将 1 处写法改为 Upper()/Lower()/Len（{place}）",
+    vm_rewritten_many: "值方法：已将 {n} 处写法改为 Upper()/Lower()/Len（{place}）",
     sec_shadow: "🌑 投影",
         theme_defaults_title: "🎨 主题默认设置",
     theme_defaults_theme: "主题",
@@ -14698,8 +14698,8 @@ const FR: Tr = Tr {
     bt_ok:              "OK",
     bt_err_title:       "Embellissement bloqué",
     bt_err_intro:       "Le code contient des erreurs — rien n'a été modifié. Corrigez d'abord :",
-    vm_rewritten_one:   "Méthodes de valeur : 1 nom remplacé par Upper()/Lower()/Len() dans {place}",
-    vm_rewritten_many:  "Méthodes de valeur : {n} noms remplacés par Upper()/Lower()/Len() dans {place}",
+    vm_rewritten_one:   "Méthodes de valeur : 1 nom remplacé par Upper()/Lower()/Len dans {place}",
+    vm_rewritten_many:  "Méthodes de valeur : {n} noms remplacés par Upper()/Lower()/Len dans {place}",
     sec_shadow:         "🌑 Ombre portée",
         theme_defaults_title: "🎨 Réglages par défaut du thème",
     theme_defaults_theme: "Thème",
@@ -15771,7 +15771,7 @@ mod i18n_tests {
             for (name, line, wants_n) in [("one", t.vm_rewritten_one, false), ("many", t.vm_rewritten_many, true)] {
                 assert_eq!(line.matches("{place}").count(), 1, "{lang:?}/{name}: {line:?}");
                 assert_eq!(line.matches("{n}").count(), usize::from(wants_n), "{lang:?}/{name}: {line:?}");
-                assert!(line.contains("Upper()/Lower()/Len()"), "{lang:?}/{name}: the COBOL stays in English: {line:?}");
+                assert!(line.contains("Upper()/Lower()/Len"), "{lang:?}/{name}: the COBOL stays in English: {line:?}");
             }
             let filled = t.vm_rewritten_many.replace("{n}", "3").replace("{place}", "Form ▸ BTN-1 ▸ onClick");
             assert!(filled.contains('3') && filled.contains("Form ▸ BTN-1 ▸ onClick"), "{filled}");

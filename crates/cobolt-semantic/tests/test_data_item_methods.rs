@@ -83,8 +83,8 @@ fn a_method_a_data_item_does_not_have_is_an_error() {
             "{code}: {}",
             e[0]
         );
-        assert!(e[0].contains("Trim, Upper, Lower, Replace, Len and Split"), "the message says what a data item does answer: {}", e[0]);
-        assert!(e[0].contains("older spellings that still work"), "{}", e[0]);
+        assert!(e[0].contains("the methods Trim, Upper, Lower, Replace and Split"), "the message says what a data item does answer: {}", e[0]);
+        assert!(e[0].contains("the property Len") && e[0].contains("still work"), "{}", e[0]);
         shown.push(e[0].clone());
     }
     println!("data-item method check — {} unknown names refused, e.g.:\n  {}", shown.len(), shown[0]);
@@ -101,12 +101,11 @@ fn every_value_method_a_data_item_has_passes_in_every_spelling() {
     MOVE WS-TEXT::ToLowerCase() TO WS-OUT.
     MOVE WS-TEXT::Lower() TO WS-OUT.
     MOVE WS-TEXT::Replace(\"a\" \"b\") TO WS-OUT.
-    COMPUTE WS-N = WS-TEXT::Len().
-    COMPUTE WS-N = WS-TEXT::Length().
+    COMPUTE WS-N = WS-TEXT::Len.
     COMPUTE WS-N = WS-TEXT::Length.
     MOVE WS-TEXT::Split(\"-\") TO WS-OUT.
     MOVE WS-TEXT::Split(\"-\")(2) TO WS-OUT.
-    MOVE WS-TEXT::Trim()::Len() TO WS-N.
+    MOVE WS-TEXT::Trim()::Len TO WS-N.
     MOVE WS-TEXT::TRIM() TO WS-OUT.
     MOVE WS-ROW(2)::Upper() TO WS-OUT.
     MOVE WS-TEXT(1:3)::Lower() TO WS-OUT.
@@ -117,7 +116,8 @@ fn every_value_method_a_data_item_has_passes_in_every_spelling() {
 #[test]
 fn the_shared_list_matches_what_the_analyser_accepts() {
     for m in cobolt_ast::methods::DATA_ITEM_METHODS {
-        let e = errors(&format!("    MOVE WS-TEXT::{m}() TO WS-OUT."));
+        let call = if cobolt_ast::methods::is_value_property(m) { "" } else { "()" };
+        let e = errors(&format!("    MOVE WS-TEXT::{m}{call} TO WS-OUT."));
         assert!(e.is_empty(), "{m}: {e:?}");
     }
 }
@@ -198,7 +198,8 @@ fn an_item_a_contained_program_declares_is_checked_like_any_other() {
     // Every value method passes on the handler's own item.
     for m in cobolt_ast::methods::DATA_ITEM_METHODS {
         let args = if m.eq_ignore_ascii_case("Replace") { "\"a\" \"b\"" } else { "" };
-        let e = contained_errors(&format!("    MOVE LK-FILE::{m}({args}) TO WS-DEST."));
+        let call = if cobolt_ast::methods::is_value_property(m) { String::new() } else { format!("({args})") };
+        let e = contained_errors(&format!("    MOVE LK-FILE::{m}{call} TO WS-DEST."));
         assert!(e.is_empty(), "{m} on a handler-local item: {e:?}");
     }
     // Any other name is refused, naming the item.
@@ -207,4 +208,19 @@ fn an_item_a_contained_program_declares_is_checked_like_any_other() {
     assert!(e[0].to_ascii_uppercase().contains("'LK-FILE::CONTAINS'"), "{}", e[0]);
     // The handle of the handler's own OBJECT REFERENCE keeps its class's methods.
     assert!(contained_errors("    MOVE LK-OBJ::Len() TO WS-DEST.").is_empty());
+}
+
+#[test]
+fn len_is_a_property_and_len_with_parentheses_is_refused() {
+    for call in ["Len()", "Length()", "len()", "Trim()::Len()", "Upper()::Length()"] {
+        let e = errors(&format!("    COMPUTE WS-N = WS-TEXT::{call}."));
+        assert_eq!(e.len(), 1, "{call}: {e:?}");
+        assert!(e[0].contains("is a property of a data item, not a method"), "{call}: {}", e[0]);
+        assert!(e[0].contains("without the parentheses"), "{call}: {}", e[0]);
+    }
+    for ok in ["Len", "Length", "Trim()::Len", "Upper()::Length"] {
+        assert_eq!(errors(&format!("    COMPUTE WS-N = WS-TEXT::{ok}.")), Vec::<String>::new(), "{ok}");
+    }
+    // As a statement it is no better.
+    assert_eq!(errors("    INVOKE WS-TEXT::Len().").len(), 1);
 }

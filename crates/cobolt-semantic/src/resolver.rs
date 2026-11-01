@@ -585,6 +585,9 @@ impl<'a> ResolveCtx<'a> {
                 // and is exempt.
                 self.check_receiver(object, *span, &format!("INVOKE {}::{}()", object.trim(), method.trim()));
                 self.check_data_item_method(object, method, *span);
+                if cobolt_ast::methods::is_value_property(method) && self.is_value_item(object) {
+                    self.error(cobolt_ast::methods::property_called_message(object, method), *span);
+                }
                 if !comma_form {
                     self.check_open_form_signature(method, args, *span);
                 }
@@ -882,14 +885,14 @@ impl<'a> ResolveCtx<'a> {
     }
 
     /// [`Self::check_data_item_method`] for a member chain: every link after a
-    /// data item is a value method (`WS-TEXT::Trim()::Len()`), so the first
+    /// data item is a value method (`WS-TEXT::Trim()::Len`), so the first
     /// one that is not is reported. A chain rooted anywhere else — a control, a
     /// layer, `me` — is the object's own business and is not touched.
     fn check_data_item_chain(&mut self, expr: &Expr) {
-        let mut links: Vec<(&str, cobolt_lexer::Span)> = Vec::new();
+        let mut links: Vec<(&str, cobolt_lexer::Span, bool)> = Vec::new();
         let mut cur = expr;
-        while let Expr::Member { recv, member, span, .. } = cur {
-            links.push((member.as_str(), *span));
+        while let Expr::Member { recv, member, span, parens, .. } = cur {
+            links.push((member.as_str(), *span, *parens));
             cur = recv;
         }
         fn root_name(e: &Expr) -> Option<&str> {
@@ -906,7 +909,11 @@ impl<'a> ResolveCtx<'a> {
         // Spec 109: once a chain holds a collection — after `Split`, `Map` … — the
         // collection methods are its links; on a plain item they are not.
         let mut in_collection = false;
-        for (method, span) in links.into_iter().rev() {
+        for (method, span, parens) in links.into_iter().rev() {
+            if parens && cobolt_ast::methods::is_value_property(method) && self.is_value_item(root) {
+                self.error(cobolt_ast::methods::property_called_message(root, method), span);
+                return;
+            }
             let collection_link = in_collection && cobolt_ast::methods::is_collection_method(method);
             if !cobolt_ast::methods::is_data_item_method(method)
                 && !cobolt_ast::methods::is_format_method(method)

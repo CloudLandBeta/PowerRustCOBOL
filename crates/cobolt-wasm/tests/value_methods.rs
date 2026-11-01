@@ -68,5 +68,18 @@ fn a_method_a_data_item_does_not_have_is_refused_naming_the_list() {
         Ok(_) => panic!("compiled"),
         Err(e) => e.to_string(),
     };
-    assert!(err.to_ascii_uppercase().contains("REVERSE") && err.contains("Trim, Upper, Lower, Replace, Len and Split"), "{err}");
+    assert!(err.to_ascii_uppercase().contains("REVERSE") && err.contains("the methods Trim, Upper, Lower, Replace and Split"), "{err}");
+}
+
+#[test]
+fn len_written_as_a_call_is_refused_by_the_generator() {
+    for call in ["Len()", "Trim()::Length()"] {
+        let src = program(&format!("    COMPUTE WS-N = WS-NAME::{call}\n"));
+        let prog = common::parse(&src);
+        let err = match cobolt_wasm::compile_program(&prog, &cobolt_wasm::Options::default()) {
+            Ok(_) => panic!("{call} compiled"),
+            Err(e) => e.to_string(),
+        };
+        assert!(err.contains("is a property of a data item") && err.contains("without the parentheses"), "{call}: {err}");
+    }
 }

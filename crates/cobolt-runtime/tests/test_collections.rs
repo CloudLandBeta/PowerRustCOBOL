@@ -70,7 +70,7 @@ fn collection_methods_and_the_lambda_behave_as_specified() {
         ("Take", shown("DISPLAY WS-NUM::Split(\",\")::Take(2)::Join(\"+\")"), "3+10"),
         (
             "SortByDescending",
-            shown("DISPLAY WS-NUM::Split(\",\")::Map(ITEM => ITEM::Trim())::SortByDescending(ITEM => ITEM::Len())::Join(\",\")"),
+            shown("DISPLAY WS-NUM::Split(\",\")::Map(ITEM => ITEM::Trim())::SortByDescending(ITEM => ITEM::Len)::Join(\",\")"),
             "10,3,7",
         ),
         ("Take 0 is empty", shown("DISPLAY WS-NUM::Split(\",\")::Take(0)::Sum()"), "0"),
