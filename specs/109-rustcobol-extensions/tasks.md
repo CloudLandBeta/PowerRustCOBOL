@@ -171,10 +171,10 @@ finished module's execution pass (rule #9).
 
 ## S7 — Animation sequences
 
-- [ ] **T7.1 — Fix the syntax** (R33, Q8) — decision note; `delay_ms` adds to `AFTER`; operator reviews.
-- [ ] **T7.2 — Model, scheduler entries, cancel/restart/close** — `cobolt-forms/src/model.rs`, `cobolt-form-host`, `cobolt-runtime`.
+- [x] **T7.1 — Fix the syntax** (R33, Q8) — decision note; `delay_ms` adds to `AFTER`; operator reviews.
+- [x] **T7.2 — Model, scheduler entries, cancel/restart/close** — `cobolt-forms/src/model.rs`, `cobolt-form-host`, `cobolt-runtime`.
   - Verify: deterministic clock; absolute offsets, equal-time order, cancel, restart, two forms, close before completion; existing timers' traces unchanged (AC18).
-- [ ] **T7.3 — Generator emission** — `cobolt-codegen`.
+- [x] **T7.3 — Generator emission** — `cobolt-codegen`.
 - [ ] **T7.4 — Slice close S7** (AC18)
 
 ## S5 — Selective storage and runtime services

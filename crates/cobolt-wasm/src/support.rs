@@ -194,6 +194,7 @@ const fn web(name: &'static str, api: &'static str, engines: Engines) -> Builtin
 /// Every built-in, alphabetically, as `BUILTINS` lists them. A test fails when a
 /// name of `BUILTINS` has no row here, or a row names no built-in (R8).
 pub const BUILTIN_TABLE: &[BuiltinClass] = &[
+    c("ANIMATIONSEQUENCE", Support::Unsupported("the player has no scheduler for timed SHOW / HIDE / PLAY entries yet (spec 109 S7, WASM-PARITY #46)")),
     c("APPEND-FILE", Support::BackendOnly(FILES)),
     web("AUDIO-PAUSE", "HTMLAudioElement", BOTH),
     web("AUDIO-PLAY", "HTMLAudioElement", BOTH),

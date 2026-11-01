@@ -105,122 +105,129 @@ Per spec §8 "Where the work lands"; representative paths only.
 - [ ] User code sacred; no window self-resize; no "cobolt" in user text; no credentials
 - [ ] Push window rule #1; merge into 2.x.x only when asked; forum posts only on request
 
-## 8. Decision notes for S6 and S7 (T6.1, T7.1) — proposed 2026-10-31, awaiting the operator
+## 8. Decision notes for S6 and S7 (T6.1, T7.1) — revised 2026-11-01 after the operator's ruling
 
-Grounded in the source: the solver reads **properties** (`LayoutMode`, `FlexDirection`,
-`FlexWrap`, `Gap`/`RowGap`/`ColumnGap`, `GridColumns`, `GridRows`, `ColumnSpan`, `RowSpan`,
-`Order`, `Padding*`, `MinWidth`/`MaxWidth`/`MinHeight`/`MaxHeight`, `Dock`, `Anchor`) and a
-breakpoint table of sparse `(control, property, value)` overrides (`layout/breakpoints.rs`).
-The animation side is `AnimRuntime` (`cobolt-forms/src/anim.rs`): a frame-delta clock, one
-`AnimPlayback` per `(control, name)` with `delay_remaining`.
-
-### 8.1 S6 — Declarative layout (Q7)
-
-**Principle.** A `LAYOUT` block is *authored shorthand for properties the solver already
-reads*. It adds no solver input, no coordinate system and no second solver (R32). At load
-the block is lowered into a **derived overlay** of the controls' layout properties and the
-breakpoint table's overrides; the designed values are never written (spec 056 R10).
-
-**Grammar** (one block per container; `ME` is the form):
+**Operator ruling (2026-11-01):** no new grammar. The new verbs are *methods of the `COBOL`
+object*, written as ordinary COBOL — one method per feature whose first argument names the
+action, and whose last argument may carry a script, so a whole sequence is one call:
 
 ```cobol
-LAYOUT PNL-FILTERS
-    MODE FLEX ROW WRAP          *> MODE FLEX ROW|COLUMN [WRAP] | GRID | FLOW
-    GAP 14                      *> GAP n  or  GAP row column
-    PADDING HORIZONTAL 24       *> PADDING n | HORIZONTAL n | VERTICAL n
-    COLUMNS 2                   *> grid only; COLUMNS WHEN COMPACT 1 OTHERWISE 2
-    ORDER LV-DROP BTN-GO        *> reading order of children (the `Order` property)
-    ITEM LV-DROP SPAN 2 GROW 1 MIN-WIDTH 160 MAX-WIDTH 480
+COBOL::AnimationSequence("Create", "DASHBOARD-INTRO", ```
+    SHOW C-KPI                 AFTER 0
+    SHOW C-BAR                 AFTER 50
+    PLAY C-RADAR "fade-in"     AFTER 100
+    HIDE LBL-WAIT              AFTER 100
+```)
+COBOL::AnimationSequence("Start", "DASHBOARD-INTRO")
+DISPLAY COBOL::AnimationSequence("Status", "DASHBOARD-INTRO")   *> Playing | Stopped
+COBOL::AnimationSequence("Stop", "DASHBOARD-INTRO")
+```
+
+What the source already gives us (so this needs no lexer change):
+
+- `COBOL::Name(args)` already parses as the built-in `CALL "COBOL-NAME"` (`cobol_object_call`,
+  `cobolt-parser/src/stmt.rs`); `AnimationSequence` is registered in `builtins.rs` like the others,
+  which also gives completion, the agents' prompts and the KB table.
+- The ``` block literal already exists (`cobolt-lexer`, free format only).
+- Nothing is persisted in the `.cfrm`: a sequence lives in the running form instance.
+
+### 8.1 S7 — `COBOL::AnimationSequence(action, name [, script | out-item])`
+
+| Action (case-insensitive) | Effect |
+|---|---|
+| `"Create"`, name, script | Parse and validate the script; register the sequence on this form instance, replacing a stopped one of the same name (a running one is stopped first). |
+| `"Start"` | Run from 0. A running sequence is left alone (no restart). |
+| `"Stop"` | Drop the entries not yet fired. What already happened stays. |
+| `"Restart"` | `Stop`, then `Start`. |
+| `"Status"` | `Playing` while an entry remains, otherwise `Stopped`. |
+| `"Delete"` | Stop and forget the sequence. |
+
+- **Script** (one entry per line, or separated by `;` so a fixed-format program can use a plain
+  literal): `SHOW ctrl AFTER n`, `HIDE ctrl AFTER n`, `PLAY ctrl "animation" AFTER n`. `AFTER`
+  is whole milliseconds from the sequence's start, never from the previous entry; a `PLAY`'s own
+  `delay_ms` adds to it. Blank lines and `*>` comments are ignored. These words are *data in a
+  string*, not COBOL syntax: no reserved word is added.
+- **Validation at `Create`**: every control must exist on the form, every animation on its
+  control; a bad line stops the run with its line number and text. An unknown sequence name in
+  `Start`/`Stop`/`Restart`/`Status`/`Delete` is a runtime error (a typo in a wait loop must not
+  look like "Stopped").
+- **Order and clock**: an entry fires when `elapsed >= n`, by `(n, line order)`, at most once.
+  The clock is the accumulated frame delta in whole ms, ticked beside `AnimRuntime`; tests drive
+  it with explicit deltas (AC18). One `SequenceRuntime` per form instance, dropped with the host,
+  so nothing fires against a closed or replaced form, and two open forms never share one.
+- **`SHOW`/`HIDE`** set `Visible` through the path `SET ctrl::Visible` uses; they never invent a
+  `PlayAnimation`. Existing timers, `STAGE-TICK` and animation events are untouched.
+- **As a value.** `Status` answers inside an expression: `DISPLAY COBOL::AnimationSequence(
+  "Status", NAME)`, `IF COBOL::AnimationSequence("Status", NAME) = "Playing"`. Today a `COBOL::`
+  call is *always* the next statement (`can_start_expr` refuses it as an operand, because a
+  built-in statement may follow a `DISPLAY` with no period). The rule that keeps both readings:
+  a `COBOL::` call whose **first argument is the literal `"Status"`** (or another action the
+  table marks as answering) is a value; every other `COBOL::` call stays a statement. This is
+  the one parser change of the slice; it is pinned by tests for `DISPLAY`, `MOVE`, `IF`,
+  `EVALUATE` and for a statement that follows a `DISPLAY`, and the NIST census runs after it.
+  The statement form also accepts a trailing out-item: `COBOL::AnimationSequence("Status", NAME,
+  WS-STATE)`.
+- **Web and Mobile**: refused at build time with the construct named, plus a `WASM-PARITY` row.
+- **Generator**: emits nothing — the call is the user's COBOL; no state machine is generated.
+
+### 8.2 S6 — `COBOL::Layout(action, container [, script])` (same shape)
+
+The same ruling applied to layout, so the `LAYOUT … END-LAYOUT` block of the first draft goes
+away: the rules are a script passed to a method, lowered into the properties the solver already
+reads (`LayoutMode`, `FlexDirection`, `Gap`, `GridColumns`, `Order`, `Padding*`, size limits)
+and the breakpoint table's overrides. No second solver; the design is never written (056 R10).
+
+```cobol
+COBOL::Layout("Apply", "PNL-FILTERS", ```
+    MODE FLEX ROW WRAP
+    GAP 14
+    PADDING HORIZONTAL 24
+    ORDER LV-DROP BTN-GO
+    ITEM LV-DROP SPAN 2 MIN-WIDTH 160 MAX-WIDTH 480
     WHEN COMPACT
         MODE FLEX COLUMN
         GAP 8
-    END-WHEN
-END-LAYOUT
+```)
+COBOL::Layout("Clear", "PNL-FILTERS")
 ```
 
-- Lowering table: `MODE`→`LayoutMode`/`FlexDirection`/`FlexWrap`; `GAP`→`Gap`/`RowGap`/`ColumnGap`;
-  `PADDING`→`Padding*`; `COLUMNS`→`GridColumns`; `ORDER`→`Order` 1..n in the list given;
-  `ITEM`→`ColumnSpan`, `FlexGrow`, `Min/MaxWidth`. Names are the solver's own, English.
-- `WHEN <breakpoint>` lowers to the breakpoint table's overrides; the names are the table's
-  (default Compact, Medium, Expanded; boundaries 599/600 and 1023/1024). An unknown name is
-  an error. `COLUMNS WHEN … OTHERWISE …` is the one-line form of the same thing.
-- **The sketch's `BELOW x GAP n` and `MARGIN` are not adopted as such.** The solver has no
-  sibling-relative placement (designed rectangles in, placements out). `BELOW` is accepted
-  only as `ORDER` within one Flex/Grid/Flow container, with `GAP` as the container's gap;
-  between siblings of an Absolute parent it is a diagnostic (use `DOCK`/`ANCHOR` or a
-  container mode). `MARGIN` has no engine property: `PADDING` of the container only.
-- **Persisted** as the block's text in `<layout-rules>` on the `<Form>` (additive, default
-  absent), parsed by a small parser in `cobolt-forms`; opt-in per form (R35). Source text is
-  kept verbatim so the developer's own comments and order survive a save.
-- **Precedence.** A control named by a block is *owned*: its `Dock`, `Anchor`, `Order`,
-  span and size-limit properties come from the block, and the inspector shows them read-only
-  ("set by LAYOUT"). Unnamed controls and forms without a block behave as today.
-- **Imperative writes.** `SET CTRL::Left/Top/Width/Height/Dock/Anchor` on an owned control is a
-  **Check error** when the property name is a literal in the source; a dynamic write is
-  ignored at run time with a `RuntimeWarning`. (Option B: let the write win. Rejected: two
-  writers is the competing-writer problem R32 forbids.)
-- **Diagnostics with spans** (control id + `.cfrm` line): a control in two blocks; a container
-  inside its own `ORDER`; a `MODE` that does not fit the control (`COLUMNS` on a Flex
-  container); `ITEM` for a non-child; an unknown breakpoint.
-- **Window.** Never resized by a rule. `MinFormWidth` is not touched by lowering; the form's
-  minimum stays the narrowest breakpoint's (056 R18).
-- **Web and Mobile.** The player already lowers the four modes and the breakpoint selection
-  to CSS from these same properties (`layout_css.rs`), so a block that lowers to properties
-  works there with no player change. Anything outside the table is a build-time refusal naming
-  the construct, plus a `WASM-PARITY` row (R23).
-- **Generator.** Emits nothing per control: the block travels with the form description; the
-  generated COBOL has no `COMPUTE`/`SET` lists (R20).
+- Actions: `Apply` (replaces the container's earlier script), `Clear` (back to the designed
+  properties). The overlay lives in the running form instance, not in the `.cfrm`; relayout
+  happens on the next pass, never by resizing the window.
+- Script words are the solver's own (English) property vocabulary; `WHEN <breakpoint>` uses the
+  table's names (Compact, Medium, Expanded; edges 599/600 and 1023/1024).
+- Not adopted from the sketch: `BELOW x GAP n` (no sibling-relative placement in the solver) →
+  `ORDER` inside one Flex/Grid/Flow container; `MARGIN` (no engine property) → `PADDING`.
+- Ownership: while a script owns a control, `SET ctrl::Left/Top/Width/Height/Dock/Anchor` on it is
+  ignored with a runtime warning (the sketch's Check error is no longer possible: the script is a
+  string). Diagnostics at `Apply` carry the line: a control in two containers' scripts, a mode
+  that does not fit (`COLUMNS` on Flex), an unknown breakpoint or control.
+- Web and Mobile: the player already lowers the modes to CSS from these properties, but a
+  *runtime* overlay needs a player command; first cut is a build-time refusal plus a
+  `WASM-PARITY` row.
 
-### 8.2 S7 — Animation sequences (Q8)
+### 8.3 Still to confirm
 
-**Principle.** A sequence is a list of timed entries run by a small `SequenceRuntime` that
-sits beside `AnimRuntime` and is ticked by the same frame delta; one per form instance.
+1. The value rule above — `COBOL::` is a value only when its first argument is the literal
+   `"Status"` — changes the parser. Accept, or answer `Status` only through the trailing out-item?
+2. `;` as an entry separator, so the same call works in fixed format. Accept?
+3. S6 as `COBOL::Layout(...)` with runtime overlay and ignore-with-warning on a competing write.
+   Accept, or leave S6 for a later round?
 
-**Declaration** (persisted as the block's text in `<sequences>` on the `<Form>`):
+### 8.4 The operator's answers (2026-11-01) and what S7 became
 
-```cobol
-ANIMATION-SEQUENCE DASHBOARD-INTRO
-    SHOW C-KPI    AFTER 0
-    SHOW C-BAR    AFTER 50
-    PLAY C-RADAR "fade-in" AFTER 100
-    HIDE LBL-WAIT AFTER 100
-END-SEQUENCE
-```
-
-- Actions: `SHOW`/`HIDE` set `Visible` through the path `SET ctrl::Visible` uses; `PLAY` starts
-  a named `AnimationDef` on the control. `SHOW` alone never invents a `PlayAnimation` (§5.7).
-  Anything else (a paragraph, a CALL) is not an entry: keep it in the handler that starts the
-  sequence.
-- `AFTER n`: whole milliseconds from the sequence's start, never from the previous entry.
-  For `PLAY`, the animation's own `delay_ms` **adds** to `AFTER` (spec Q8 recommendation).
-- Order: an entry fires when `elapsed >= n`; entries due in the same frame fire by `(n,
-  declaration order)`; each fires at most once.
-- **Clock.** Accumulated frame deltas in integer ms; no wall clock inside the runtime. Tests
-  drive it with explicit deltas (AC18).
-- **Verbs are inline built-ins, not new statements** (rule: built-in CALLs are inline; no new
-  reserved words, no change to the lexer or the NIST census):
-  `COBOL::"SEQUENCE-START" ( "DASHBOARD-INTRO" )`, `COBOL::"SEQUENCE-CANCEL" ( name )`,
-  `COBOL::"SEQUENCE-RESTART" ( name )` (cancel, then start from 0) and
-  `COBOL::"SEQUENCE-RUNNING" ( name flag )` (flag is `1` while entries remain).
-  Starting a sequence that runs is a no-op; starting an unknown name is a runtime error.
-- **Cancel** drops the entries not yet fired; what already happened stays (no undo), and a
-  started animation keeps playing unless the handler stops it with the existing
-  `_StopAnimation`. **Form close** drops the instance's runtime with the host, so nothing fires
-  against a closed or replaced form; two open forms never share a sequence.
-- **Existing timers and animations** are untouched. A sequence is adopted by writing one; the
-  generator never rewrites a user's `STAGE-TICK`.
-- **Web and Mobile.** First cut: refused at build time with the construct named, plus a
-  `WASM-PARITY` row (the player has no scheduler for non-animation actions yet).
-- **Generator.** Emits the invocation and nothing of the state machine (§5.7).
-
-### 8.3 Questions for the operator
-
-1. **`BELOW`/`MARGIN`:** accept the narrowing above (ORDER within a container; PADDING only)?
-2. **Imperative write on an owned control:** Check error for a literal property, ignore plus
-   warning for a dynamic one — or let the write win?
-3. **Sequence verbs:** inline built-ins `COBOL::"SEQUENCE-START"` (recommended) or new
-   `START SEQUENCE x` statements?
-4. **Completion:** poll with `SEQUENCE-RUNNING` only (recommended for the first cut), or add an
-   `onSequenceDone` event?
-5. **Web:** refuse sequences at build time now (recommended), or implement a player scheduler in
-   the same slice?
+- **`Status` answers through the trailing item** — `COBOL::AnimationSequence("Status", NAME, WS-STATE)` —
+  not as a value. No parser change; `COBOL::` stays a statement everywhere. (§8.3 Q1: the alternative.)
+- **`;` separates entries**, so a plain literal works in fixed format (Q2: yes). The ``` block is the
+  free-format spelling of the same script.
+- **S6 as `COBOL::Layout`** with a runtime overlay and ignore-with-warning on a competing write (Q3: yes).
+- **Built as:** the sequences and their clock live in the interpreter (`interpreter/sequence.rs`), not in
+  the form host. The wait for the next event already polls while something is pending; it now also polls
+  while a sequence plays and fires the due entries from there. So `rcrun run-form`, an embedded child
+  form and the compiled binary behave the same with no host change, and a closed form takes its
+  sequences with it. The pure part (script reader, ordering, start/stop/restart) is
+  `cobolt-forms/src/sequence.rs`, driven in tests with exact milliseconds.
+- **Found on the way:** the lexer swallowed whatever followed the closing ``` fence on its line, so the
+  `)` of ```` ```) ```` vanished. Fixed in `cobolt-lexer` (a fix, its own commit, 2.0.113).
+- **Not validated at `Create`:** the animation named by a `PLAY`; the interpreter does not hold the
+  controls' animation definitions. An unknown name is a no-op on the page, as `PlayAnimation` already is.

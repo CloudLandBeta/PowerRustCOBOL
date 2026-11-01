@@ -33,6 +33,7 @@ const fn b(name: &'static str, params: &'static str, description: &'static str) 
 
 /// Every built-in, alphabetically.
 pub const BUILTINS: &[Builtin] = &[
+    b("ANIMATIONSEQUENCE", "action in, name in, [script in | state out]", "Timed SHOW / HIDE / PLAY entries run from one call: Create (name, script of `SHOW ctrl AFTER ms` lines), Start, Stop, Restart, Delete, and Status (name, item: Playing or Stopped)"),
     b("APPEND-FILE", "path in, text in, [status out]", "Append a line of text to a file, creating it if missing"),
     b("AUDIO-PAUSE", "[status out]", "Pause the sound that is playing; its position holds"),
     b("AUDIO-PLAY", "file in, [status out]", "Play an MP3, OGG Vorbis, WAV or FLAC file, replacing any sound already playing"),

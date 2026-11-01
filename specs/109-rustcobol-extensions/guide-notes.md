@@ -180,3 +180,56 @@ form can ask for the unread ones to be left out, which makes the program shorter
 **Caveats**
 - The debugger cannot watch an item that was left out.
 - There is no switch in the IDE yet; the attribute is set in the form file.
+
+## S7 — Animation sequences (2.0.114)
+
+**What it does.** A form can show, hide and animate several controls at set moments from one
+call, instead of a timer paragraph that counts ticks. You describe the moments in a small script,
+create the sequence once, and start it when you want it.
+
+```cobol
+COBOL::AnimationSequence("Create", "DASHBOARD-INTRO", ```
+    SHOW C-KPI                      AFTER 0
+    SHOW C-BAR                      AFTER 50
+    PLAY C-RADAR "fade-in"          AFTER 100
+    HIDE LBL-WAIT                   AFTER 100
+```)
+
+COBOL::AnimationSequence("Start", "DASHBOARD-INTRO")
+COBOL::AnimationSequence("Status", "DASHBOARD-INTRO", WS-STATE)   *> Playing or Stopped
+COBOL::AnimationSequence("Stop", "DASHBOARD-INTRO")
+```
+
+```mermaid
+sequenceDiagram
+    participant P as Your program
+    participant F as The form
+    P->>F: Create, then Start
+    F-->>F: 0 ms: SHOW C-KPI
+    F-->>F: 50 ms: SHOW C-BAR
+    F-->>F: 100 ms: PLAY C-RADAR, HIDE LBL-WAIT
+```
+
+**Notes**
+- `AFTER` counts milliseconds from the start of the sequence, never from the previous line. It is 0
+  when left out. Entries at the same moment run in the order written.
+- One line per entry, or separate them with `;` — so a plain literal works in fixed format:
+  `"SHOW A AFTER 0; SHOW B AFTER 50"`. Blank lines and `*>` comments are ignored.
+- `Create` checks the script and, when the form is running, that each control exists; the error names
+  the line. `Start` on a sequence that is playing does nothing; `Restart` begins again; `Stop` drops
+  the entries that have not come yet but does not undo what already happened; `Delete` forgets it.
+- `PLAY` starts an animation by name, as `PlayAnimation` does; the animation's own delay adds to `AFTER`.
+- A closed form takes its sequences with it. Two open forms never share one.
+
+**Caveats**
+- Entries come due while the form waits for an event. A long handler delays them until it returns.
+- A name the program never created is an error, in `Status` too.
+- Not available in Web or Mobile projects yet: the build says so.
+- The script word `PLAY` does not check the animation's name.
+
+📷 Screenshot needed: a dashboard whose cards appear one after another.
+
+## Block literal — what follows the closing fence (2.0.113)
+
+A ``` block can now be closed in the middle of a statement: ```` ```) ```` ends the block and the
+parenthesis closes the call. Before, everything after the fence on its line was dropped.

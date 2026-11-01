@@ -40,6 +40,7 @@ mod grid_edit;
 mod grid_unit;
 mod kb;
 mod remote_binding;
+mod sequence;
 /// WASM-005 — `CALL … WITH WEBSOCKET LINKAGE`: groups out of the environment,
 /// through the JSON mapping, over the run's transport, and back.
 pub mod remote;
@@ -1672,6 +1673,12 @@ pub struct Interpreter {
     /// Spec 092 — this program's door to the application's one sound player
     /// (`COBOL-AUDIO-…`). Dropping it stops the sound this program started.
     audio: crate::audio_runtime::AudioHandle,
+    /// Spec 109 S7 — the animation sequences this form instance created
+    /// (`COBOL::AnimationSequence`), the instant its clock counts from, and a
+    /// pinned time for tests.
+    sequences: cobolt_forms::sequence::SequenceSet,
+    sequence_epoch: std::time::Instant,
+    sequence_now: Option<u64>,
     /// Spec 076 — each agent's model-list entry and its generation when last
     /// used, so a change to it raises `onModelChanged` (R16).
     model_entry_seen: HashMap<String, (String, u64)>,
@@ -2235,6 +2242,9 @@ impl Interpreter {
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
             free_memory_probe: None,
             audio: crate::audio_runtime::AudioHandle::new(),
+            sequences: cobolt_forms::sequence::SequenceSet::default(),
+            sequence_epoch: std::time::Instant::now(),
+            sequence_now: None,
             model_entry_seen: HashMap::new(),
             designed_menus: HashMap::new(),
             agent_declared_tools: HashMap::new(),
@@ -3999,6 +4009,7 @@ impl Interpreter {
         // has returned by now: collect its result and move the loop on.
         self.tool_loops_resume();
         loop {
+            self.sequences_tick();
             self.drain_async_ops();
             if let Some((ctrl, event_id)) = self.async_dispatch_queue.pop_front() {
                 // Spec 068 — a KnowledgeBase event's own values, written as it
@@ -4023,7 +4034,10 @@ impl Interpreter {
             }
             // An agent using a model-list entry polls too, so a change made by
             // another form is noticed while this one is idle (spec 076 R16).
-            let has_pending = !self.async_pending.is_empty() || !self.model_entry_seen.is_empty();
+            let sequence_due = self.sequences_wait_ms();
+            let has_pending = !self.async_pending.is_empty()
+                || !self.model_entry_seen.is_empty()
+                || sequence_due.is_some();
             let debugging = self.debug_event_tx.is_some();
             let rx = match self.event_rx.as_ref() {
                 Some(rx) => rx,
@@ -4031,7 +4045,8 @@ impl Interpreter {
             };
             if has_pending || debugging {
                 let poll = if has_pending {
-                    Self::ASYNC_POLL_MS
+                    // Wake for the next sequence entry rather than a poll late.
+                    sequence_due.map_or(Self::ASYNC_POLL_MS, |d| d.clamp(1, Self::ASYNC_POLL_MS))
                 } else {
                     Self::DEBUG_WAIT_POLL_MS
                 };
@@ -11743,6 +11758,8 @@ impl Interpreter {
                     self.env.set_str(&var, status.as_word());
                 }
             }
+            // Spec 109 S7 — COBOL::AnimationSequence(action, name [, script | item])
+            "COBOL-ANIMATIONSEQUENCE" => self.animation_sequence_call(using, span)?,
             "COBOL-AUDIO-PAUSE" | "COBOL-AUDIO-RESUME" | "COBOL-AUDIO-STOP" => {
                 let status = match prog_name.as_str() {
                     "COBOL-AUDIO-PAUSE" => self.audio.pause(),
