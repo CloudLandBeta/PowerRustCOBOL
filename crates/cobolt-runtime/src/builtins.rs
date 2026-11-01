@@ -40,6 +40,7 @@ pub const BUILTINS: &[Builtin] = &[
     b("AUDIO-RESUME", "[status out]", "Resume a paused sound from where it was paused"),
     b("AUDIO-STATE", "state out, [position-ms out], [duration-ms out]", "IDLE, PLAYING, PAUSED, ENDED or ERROR, with the position and length in milliseconds"),
     b("AUDIO-STOP", "[status out]", "Stop the sound and return to IDLE"),
+    b("AUTH-OP", "operation in, request in, result out", "On the backend, one identity operation of a generated AUTH-* program (sign in, sign up, refresh …); generated code only, run by the /auth routes — anywhere else the run-time error \"identity operations run in the Backend\""),
     b("AWS-CLEAR-CREDENTIALS", "connection in, [status out]", "Forget the AWS keys set for a connection and end the server that held them"),
     b("AWS-CREDENTIALS-SET", "connection in, flag out", "Whether AWS keys are set for a connection: Y or N (never the keys)"),
     b("AWS-SET-CREDENTIALS", "connection in, key-id in, secret in, token in, [status out]", "Give a connection AWS keys for this run, kept in memory only (never read back)"),

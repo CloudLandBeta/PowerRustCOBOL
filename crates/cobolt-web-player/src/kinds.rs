@@ -18,7 +18,7 @@
 //! fails when [`ControlType::ALL`] and this table disagree (WASM-004 AC1), so a control added to
 //! the model is classified or the build is red.
 //!
-//! The new controls of the series that the model does not carry yet — **Authentication**, **Canvas2D**, **Canvas3D** and the five E objects — reach the player as
+//! The new controls of the series that the model does not carry yet — **Canvas2D**, **Canvas3D** and the five E objects — reach the player as
 //! `ControlType::Custom` (the model's own way of holding a type it does not know) and are
 //! recognised here by name: [`player_kind`].
 
@@ -29,6 +29,11 @@ use crate::tree::{Ctl, Kind};
 // The table, the classes and the series kinds live in `cobolt-forms` (WASM-001 T14, plan D-T14a):
 // the IDE's toolbox reads the same rows. No row is repeated here.
 pub use cobolt_forms::web_class::{available_on_web, class_of, player_kind_of, Class, PlayerKind, Row, PLAYER_KINDS, TABLE};
+
+/// Is this the Authentication control (WASM-009)? A model type since T2, found by its variant.
+pub fn is_authentication(c: &Ctl) -> bool {
+    matches!(&c.kind, Kind::Control(ControlType::Authentication))
+}
 
 pub fn player_kind(c: &Ctl) -> Option<PlayerKind> {
     match &c.kind {
@@ -58,8 +63,12 @@ mod tests {
         assert_eq!(t, ControlType::Hyperlink, "the interim name is the model's type (WASM-006 T6)");
         assert_eq!(player_kind_of(&t), None);
         assert_eq!(class_of(&t), Class::A);
-        assert_eq!(TABLE.len(), 63, "the catalogue, Hyperlink included");
-        assert_eq!(class_of(&ControlType::from_str("Authentication")), Class::C);
+        assert_eq!(TABLE.len(), 64, "the catalogue, Hyperlink and Authentication included");
+        assert_eq!(ControlType::from_str("Authentication"), ControlType::Authentication, "a model type since WASM-009 T2");
+        assert_eq!(ControlType::from_str("unknown:Authentication"), ControlType::Authentication, "the spelling an older save wrote");
+        assert_eq!(player_kind_of(&ControlType::Authentication), None);
+        assert_eq!(class_of(&ControlType::Authentication), Class::C);
+        assert!(!is_non_visual(&ControlType::Authentication), "it has a place on the page");
         assert_eq!(class_of(&ControlType::from_str("Canvas3D")), Class::B);
         assert_eq!(class_of(&ControlType::from_str("Physics2D")), Class::E);
         assert_eq!(class_of(&ControlType::from_str("acme:thing")), Class::D, "a plug-in control is not available");

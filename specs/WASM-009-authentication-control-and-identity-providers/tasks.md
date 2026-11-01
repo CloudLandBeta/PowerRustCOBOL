@@ -91,15 +91,18 @@ pushes or switches branches.
 
 ## M0 — baseline
 
-- [ ] **T1 — Baseline: the tests of the existing browser half and of the token validator are green** (R1–R6 as far as they exist)
+- [x] **T1 — Baseline: the tests of the existing browser half and of the token validator are green** (R1–R6 as far as they exist)
   - Files: none changed.
   - Do: run the tests that the plan cites as existing. A red test here is a defect, fixed in the crate that owns it, before T2 starts.
   - Verify: `cargo test -p cobolt-web-player --no-fail-fast` (`auth.rs` 19, `view/auth.rs` 10, `host/auth_tests.rs` 12, `kinds.rs`) ·
     `cargo test -p cobolt-server --test token_rules --test config_rules --test loopback --test dependency_guards`. Record the counts in this task.
+  - **Done 2026-11-01 (2.0.123).** The player is its own workspace, so the command is `cargo test --manifest-path
+    crates/cobolt-web-player/Cargo.toml --no-fail-fast`: lib 339 passed, `abi_host` 25, `dependency_guard` 6, `exposed` 2, `freshness` 5,
+    `grid_calls` 1, `sinks` 3 — 0 failed. `cobolt-server`: `config_rules` 11, `dependency_guards` 5, `loopback` 18, `token_rules` 15 — 0 failed.
 
 ## M1 — the control in the model, the vocabulary and the IDE
 
-- [ ] **T2 — `ControlType::Authentication` and `Form.requires_sign_in`** (R1, R3, R11; AC9; D1, D11)
+- [x] **T2 — `ControlType::Authentication` and `Form.requires_sign_in`** (R1, R3, R11; AC9; D1, D11)
   - Files: `crates/cobolt-forms/src/model.rs` (`ALL`, `as_str`, `from_str`, default size, event list, `Form.requires_sign_in` next to
     `form_format`); `src/xml.rs` (the `requires-sign-in` attribute is read beside `:423` and written only when true, beside `:1813`);
     `crates/cobolt-web-player/src/kinds.rs` (find the control by its variant; add the TABLE row).
@@ -116,30 +119,68 @@ pushes or switches branches.
       `requires-sign-in` round-trip; a form without the attribute is unchanged byte-for-byte.
     - `cargo test -p cobolt-web-player kinds`.
     - `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast` (the `ControlType::ALL`-driven tests).
+  - **Done 2026-11-01.** The vocabulary lives in a new pure-data module, `crates/cobolt-forms/src/authentication.rs` (`EVENTS`, `MODES`,
+    `CONSENTS`, `SCREEN_FLAGS`, `TEXT_PROPS`, `SEEDS`, `RUNTIME_PROPS`, `METHODS`), which `model.rs` (`supported_events`,
+    `runtime_property_names_for`, the `Control::new` seeds) and the IDE read. Counted, not trusted: `web_class::TABLE` holds **64** rows
+    (one more than the expected 63, because WASM-006's Hyperlink landed after this list was written) and class C is `8 + 16 + 1`.
+    `PlayerKind::Authentication` is gone; the player finds the control with `kinds::is_authentication`. The only non-exhaustive `match` the
+    workspace check flagged was the designer's `control_type_name`. Tests: `authentication::tests` 5 (round-trip of every property and a
+    second save identical; the legacy `unknown:Authentication` file; `requires-sign-in` round-trip and an older form byte for byte). Runs:
+    `cobolt-forms --features render` lib 1446 passed / 0 failed after the T5 fix below, every integration target ok; the player lib 339, `kinds`
+    included; `cobolt-ide --bin cobolt-ide` 1929 passed, 8 failed, of which 3 were this change's and are fixed (`form_property_lists_agree`
+    — the agent validator `agent.rs` `form_property_valid` now accepts `requiressignin`; the two toolbox counts, T6) and re-run green. The
+    other 5 are pre-existing and untouched here: `docs_embed` every-language, `claude_validates_the_written_bundle`,
+    `prebuilt_chunked_kb_matches_the_published_documentation` (T28 regenerates the store), the two `external_crates_service` flow tests, and
+    `every_completion_description_exists_in_six_languages` (12 backend completion texts committed English-only in `cc0aed10`, none of them
+    this spec's).
+  - Agent decision under the operator delegation of 2026-11-01: **Authentication is class C but not `uses_backend`.** Options: (a) let the
+    class-C rule apply, which gives the control the `BackendConfig`/`BackendRoles` properties every service control carries; (b) exclude it.
+    Chosen (b): the control's backend is configured once, in `[identity]` (R9), and its routes are `/auth/*`, not `CALL … WITH WEBSOCKET`; a
+    per-control backend address would be a second, contradicting source of truth. The exclusion is one named line in `web_class::uses_backend`.
+  - Agent decision under the operator delegation of 2026-11-01: **the control's name prefix is `Auth`** (`AUTH-1`), short like `Hyperlink`'s
+    siblings, matching the plan's examples (`AUTH-1::GetClaim`).
 
-- [ ] **T3 — `GETCLAIM`, `GRANTCONSENT`, `DENYCONSENT` join the closed vocabulary** (R3; §4)
+- [x] **T3 — `GETCLAIM`, `GRANTCONSENT`, `DENYCONSENT` join the closed vocabulary** (R3; §4)
   - Files: `crates/cobolt-ast/src/methods.rs` (`is_known_method` `:85`); a parser test.
   - Do: add the three names. Nothing else changes.
   - Verify: a parser test shows that `SET WS-SUB TO AUTH-1::GetClaim( "sub" )` parses as a method call, not as a subscript, and that
     `INVOKE AUTH-1 "GrantConsent"` parses. Run `cargo test -p cobolt-ast -p cobolt-parser --no-fail-fast`.
+  - **Done 2026-11-01.** `methods.rs` test `the_authentication_methods_are_known_009`; `crates/cobolt-parser/tests/test_authentication_methods.rs`
+    (2 tests: the inline `GetClaim( "sub" )` is a `Member` with `parens` and the upper-cased `GETCLAIM`, and an unknown `Claims(…)` stays a
+    subscript; the statement form and `INVOKE AUTH-1 "GrantConsent"` both parse). `cobolt-ast` and `cobolt-parser`: every target 0 failed.
 
-- [ ] **T4 — The control's six-language default texts** (R1; AC1; D12)
+- [x] **T4 — The control's six-language default texts** (R1; AC1; D12)
   - Files: `crates/cobolt-forms/src/auth_texts.rs` (new) and `src/lib.rs` (the module line).
   - Do: one table, EN/ES/PT/JA/ZH/FR. It holds the 18 labels of `Labels::read` (`auth.rs:697`), the 3 messages of `Texts` (`:197`), and the texts
     of the new screens of T7 (New password, MFA kinds, Choose, MFA set-up). Write the Portuguese in pt-BR. The table has a lookup by locale code,
     falling back to EN.
   - Verify: a test that no entry is empty in any language and that the six rows have the same keys; it prints the keys × languages count.
     Run `cargo test -p cobolt-forms --features render auth_texts`.
+  - **Done 2026-11-01.** `auth_texts.rs`: 34 keys × 6 languages = 204 texts, none empty; the key set equals the control's `TEXT_PROPS`; each
+    language keeps the English `{0}` (the masked destination). The 18 labels, the 3 messages, and 13 texts of the T7 screens. Lookup
+    `language_index` reads `pt-BR`, `es_ES`, `zh-Hans`, `FR`, unknown → English; `text_or_default` lets a non-blank developer value win. 2 tests,
+    green.
 
-- [ ] **T5 — The Designer draws the control** (R1; D12)
+- [ ] **T5 — The Designer draws the control** (R1; D12) — automated part done; unchecked until the operator's `render_form` look
   - Files: `crates/cobolt-forms/src/paint.rs`.
   - Do: draw the Sign in screen from T4's table, in the form's locale, inside the common control frame. When `Mode = Hosted`, draw the single
     hosted button. The developer's property values win.
   - Verify: a paint test measures the painted output, not a predicted colour: the labels appear, and `Mode = Hosted` paints one button. Run
     `cargo test -p cobolt-forms --features render --no-fail-fast`. Manual (the operator's): `render_form` of a fixture form. Call the GUI Border
     Validation Agent if border geometry was added.
+  - **Done 2026-11-01**, except the manual check. `paint.rs` `draw_authentication_screen`, called from `draw_control_body` inside the common
+    frame, clipped to `rect ∩ painter.clip_rect()`. Test `the_designer_paints_the_sign_in_screen_or_one_hosted_button` walks the painted
+    shapes: in `en`, the title and the button both read "Sign in" and there is one filled accent button; in `pt-BR`, "Senha" and "Entrar"; a
+    developer's `PasswordLabel` replaces the default; `ShowSignUp` off removes its link; `Mode = Hosted` paints exactly one button, "Continue to
+    sign in", and no other text. No border geometry was added (the fields are plain stroked rectangles inside the control's own frame; corners,
+    radius and the frame are untouched), so the GUI Border Validation Agent was not needed.
+  - Agent decision under the operator delegation of 2026-11-01: **the Designer's locale is the IDE's language**, published into the egui
+    context by `i18n::set_language` (`paint::set_authentication_locale`). Options: (a) a form-level locale property; (b) the IDE language.
+    A `.cfrm` has no locale today, and the player resolves texts against the application's run-time `Locale` (ABI §12.1), which the
+    Designer cannot know; the developer's IDE language is the best stand-in and needs no new format field.
+  - **Owed (operator):** `render_form` of a form holding the control, once the MCP is connected.
 
-- [ ] **T6 — Toolbox (Web and Mobile only), properties, help and `Tr` ×6** (R1, R11; i18n)
+- [ ] **T6 — Toolbox (Web and Mobile only), properties, help and `Tr` ×6** (R1, R11; i18n) — automated part done; unchecked until the operator's toolbox look
   - Files: `crates/cobolt-ide/src/panels/toolbox.rs`, `panels/properties.rs`, `prop_help_data.rs`, `i18n.rs`.
   - Do:
     - Add a toolbox entry for `ControlType::Authentication`. Give `ToolEntry` a project-kind filter, which does not exist today: the
@@ -151,10 +192,25 @@ pushes or switches branches.
     - `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`, with these new tests: the entry is present for Web and absent for Desktop;
       no `Tr` field is empty in any language.
     - Manual (the operator's): the toolbox of a Web project and of a Desktop project.
+  - **Done 2026-11-01**, except the manual check. Toolbox entry "Authentication" (Common, padlock icon, tooltip); Properties panel sections
+    "Authentication" (Mode, the four Show flags, RecaptchaSiteKey, RecaptchaConsent) and "Authentication texts" (each of the 34 texts, its
+    hint the default in the IDE language); the form's `RequiresSignIn` row only when `web_project`; 42 `PROP_HELP` rows ×6; 4 new `Tr` fields
+    ×6 (`toolbox_authentication_tip`, `sec_authentication`, `sec_authentication_texts`, `form_requires_sign_in`). Tests: new
+    `the_authentication_entry_is_offered_to_web_and_mobile_only_009`; `every_control_property_is_explained_in_six_languages` covers the new
+    help. The project-kind test `a_desktop_project_is_offered_the_whole_catalogue_and_web_and_mobile_lose_only_class_d` pinned "Desktop =
+    the whole catalogue"; this task deliberately changes that (R11), so it was **corrected, not silenced**: Desktop is the catalogue minus the
+    one Web/Mobile-only entry, asserted to be exactly one. Re-run: 20 targeted tests green.
+  - Agent decision under the operator delegation of 2026-11-01: **the project-kind filter is one predicate, not a field on `ToolEntry`.**
+    Options: (a) a `kinds` field on all 64 `ToolEntry` literals; (b) `web_class::web_and_mobile_only(ct)` in `cobolt-forms`, read by the
+    toolbox's `offered_to`. Chosen (b): the toolbox and Check (T23) must give the same answer, and the class table already lives in
+    `web_class`; a per-entry field would be a second table free to drift, and would touch 63 entries that do not change.
+  - Agent decision under the operator delegation of 2026-11-01: **`Mode` and `RecaptchaConsent` values are not translated** — they are
+    identifiers a handler compares (`IF AUTH-1::Mode = "Hosted"`), as Hyperlink's `Target` values are; their help is translated.
+  - **Owed (operator):** look at the toolbox of a Web project and of a Desktop project in the IDE.
 
 ## M2 — the browser half catches up with the decisions
 
-- [ ] **T7 — The machine: `onSignUpCompleted` once, New password, MFA kinds, Choose, MFA set-up** (R1, R3; C3, C8; D2, D16)
+- [x] **T7 — The machine: `onSignUpCompleted` once, New password, MFA kinds, Choose, MFA set-up** (R1, R3; C3, C8; D2, D16)
   - Files: `crates/cobolt-web-player/src/auth.rs`.
   - Do:
     - Change `on_result` (`:570`) so that `SignUpCompleted` is raised once: after `Confirm` succeeds, or straight after `SignUp` when the provider
@@ -170,8 +226,42 @@ pushes or switches branches.
     - `NeedsNewPassword` leads to `NewPassword`;
     - each MFA kind leads to its screen and names the masked destination;
     - a locale switch changes the defaults but never a developer-set label.
+  - **Done 2026-11-01.** `auth.rs`: `Screen::{NewPassword, MfaChoose, MfaSetup}`; `MfaKind` (`Totp`, `Sms{masked}`, `Email{masked}`,
+    `Choice(Vec<MfaChoice>)`, `TotpSetup{secret, otpauth_uri}`, `NewPassword`; its `Debug` hides the enrolment key) carried by
+    `AuthResult::NeedsMfa{session, kind}`; `NeedsNewPassword{session}` is the same challenge as `MfaKind::NewPassword`. New actions
+    `NewPassword{password, repeat}` (the two must agree before anything is sent: `PasswordsDifferText`) and `MfaChoose`; new calls
+    `NewPassword`, `MfaChoose`, `MfaSetup` (wire kinds `new-password`, `mfa-choose`, `mfa-setup`). `wire::decode` reads `kind`,
+    `destination`, `choices`, `secret`, `otpauth_uri`, and refuses what it cannot show safely (an unknown kind, an empty or unknown choice,
+    a destination with control characters or over 64 characters, an enrolment link that is not `otpauth://totp/…`, a key that is not
+    base32). `Labels::read` and `Texts::read` take a locale; every default comes from `cobolt_forms::auth_texts`. The host resolves one
+    locale per page — the application's `Locale` property when the program sets it, else the page's (`api.rs` `make_host` and
+    `set_locale` → `Host::set_page_locale`) — and `FormTree::relocale_auth` re-reads the defaults when either changes.
+    **Two existing tests pinned the old behaviour and were corrected, not silenced:** `sign_up_confirm_sign_in` asserted
+    `onSignUpCompleted` right after `SignUp` (now: not there, exactly one after `Confirm`); `a_temporary_password_sends_the_user_to_the_new_password_screen`
+    asserted `Screen::Reset` (now `Screen::NewPassword`, then the two-field check and the sign-in). New tests (`auth.rs`):
+    `sign_up_completed_is_raised_once_with_and_without_confirmation` (also a provider that signs a new account straight in:
+    `SignUpCompleted` then `SignedIn`), `a_sign_in_answered_needs_confirm_raises_no_event`,
+    `each_mfa_kind_leads_to_its_screen_and_names_the_destination` (six kinds; Choose → its code raises `onMfaRequired` once; set-up's
+    first code goes to `MfaSetup`; `Show` never opens a challenge screen and leaving one abandons it),
+    `with_show_mfa_off_a_second_factor_fails_generically`, `a_locale_switch_changes_the_defaults_but_never_a_developer_label`,
+    `challenge_kinds_decode_and_bad_ones_are_refused`; host tests `the_texts_follow_the_application_locale_and_the_developer_words_stay`
+    and `sign_up_completes_once_and_a_temporary_password_asks_for_a_new_one`. Run: `cargo test --manifest-path
+    crates/cobolt-web-player/Cargo.toml --no-fail-fast`: lib **356 passed, 0 failed** (339 before T7–T9), `abi_host` 25, `dependency_guard`
+    6, `exposed` 2, `grid_calls` 1, `sinks` 3. `freshness` fails 1 of 5 by design until the shipped player is rebuilt from this source
+    (`the_shipped_player_was_built_from_the_source_that_is_here`); T29 rebuilds `assets/web-player` after the last player change (T22).
+  - Agent decision under the operator delegation of 2026-11-01: **`ShowMfa = false` makes a second factor fail generically**
+    (`ErrorText` and `onError` `mfa/not-offered`), instead of opening a screen the developer turned off. Before, the flag changed
+    nothing reachable (no link ever led to the MFA screen), so it was dead. Options: (a) ignore the flag and always show the challenge;
+    (b) honour it. Chosen (b): R1 makes the screens the developer's choice, and a developer who knows the pool has no MFA should hear about
+    a misconfigured pool through `onError`, not see a screen they never designed. A new password is not a second factor and is always
+    answered.
+  - Agent decision under the operator delegation of 2026-11-01: **`onMfaRequired` is raised once per second factor**, when it starts,
+    not again when a Choose leads to its code or an enrolment leads to a code; and never for a new password.
+  - Agent decision under the operator delegation of 2026-11-01: **the locale of the defaults is the application's `Locale` when the
+    program set it, else the page's** (the player's `locale` setting). One locale per page, so a form opened later shows the same
+    language as the one already open.
 
-- [ ] **T8 — The consent hook** (R4, Q6; D10)
+- [x] **T8 — The consent hook** (R4, Q6; D10)
   - Files: `crates/cobolt-web-player/src/auth.rs` (consent state; `guarded` `:520` holds the action); `src/dom/captcha.rs` (`captcha_load` `:97`
     is not called before consent); `src/host.rs` (`auth_method` `:1632` gains `GRANTCONSENT` / `DENYCONSENT`); `config_from` (`:730`) reads
     `RecaptchaConsent`.
@@ -183,8 +273,22 @@ pushes or switches branches.
   - Verify: `cargo test -p cobolt-web-player --no-fail-fast`, with new tests: with `Ask`, no `Op::Captcha` is issued before consent; grant runs
     the held action once; deny gives the generic message and the `consent/declined` argument; `Implied` behaves exactly as today. One of these
     is a host test in `host/auth_tests.rs`.
+  - **Done 2026-11-01.** `Config.consent_ask` from `RecaptchaConsent` (`config_from`); `Machine::guarded` holds the action
+    (`held`) and answers only `Op::Notify(ConsentRequired)` while reCAPTCHA is on, `Ask` is set and no consent was given. `dom/captcha.rs`
+    did not need a change: `captcha_load` runs only for an `Effect::AuthCaptcha`, which the machine no longer asks for before consent.
+    `Action::GrantConsent` runs the held action through the same path (`Op::Captcha` first); `Action::DenyConsent` drops it with
+    `ErrorText` and `onError` `consent/declined`. `host.rs` `auth_method` queues `GRANTCONSENT` / `DENYCONSENT` like `SIGNOUT`;
+    `auth_share_consent` makes a grant the page's (every control, and every form opened later via `init_auth(.., consent)`). Tests:
+    `with_ask_nothing_of_recaptcha_happens_before_consent_and_grant_runs_the_action_once`,
+    `deny_fails_the_held_action_with_the_generic_message_and_consent_declined`, `implied_and_no_recaptcha_behave_as_before` (`auth.rs`);
+    host tests `consent_ask_holds_the_action_until_the_program_grants_it_and_the_page_keeps_it` and
+    `deny_consent_fails_the_held_action_with_the_generic_message_and_consent_declined` (`host/auth_tests.rs`, which now binds
+    `onConsentRequired` too). All green in the run recorded under T7.
+  - Agent decision under the operator delegation of 2026-11-01: **a refusal is not remembered**: after `DenyConsent` the next protected
+    action asks again (the user may change their mind; a grant is what "holds for the page's lifetime"). `Ask` with no site key asks
+    nothing, as there is nothing to consent to.
 
-- [ ] **T9 — The new screens in the view** (R1, R2; AC1)
+- [x] **T9 — The new screens in the view** (R1, R2; AC1)
   - Files: `crates/cobolt-web-player/src/view/auth.rs`.
   - Do:
     - New password: two `new-password` fields.
@@ -196,10 +300,25 @@ pushes or switches branches.
   - Verify: `cargo test -p cobolt-web-player --no-fail-fast`. The 10 existing view tests stay green. New tests check, per new screen, the
     `autocomplete` values, that every input has a label, and that there is one `role="alert"`. If `qrcode` is added, `cargo tree -p
     cobolt-web-player` shows no C build and the licence is Apache/MIT-compatible.
+  - **Done 2026-11-01.** `view/auth.rs`: New password (`new_password` and `repeat_password`, both `new-password`); MFA names its kind and
+    the masked destination (`Labels::mfa_text`); Choose has one `type="button"` per offered kind (`data-id="mfa:<kind>"`) and no submit;
+    MFA set-up has the explanation, the QR code, an `otpauth://` link (for a phone that cannot scan its own screen), the key in groups
+    of four in a `<code translate="no">`, then the code field. `view/interact.rs`: the New password and set-up submits, and the `mfa:`
+    clicks. **The dependency check passed, so `qrcode` is added**: `qrcode = { version = "0.14", default-features = false }` (0.14.1,
+    MIT OR Apache-2.0, rust-version 1.67.1). `cargo tree -p qrcode --target wasm32-unknown-unknown` shows it alone, with no dependency;
+    the player's `dependency_guard` (licences, MSRV, no C build, run over the browser closure) passes 6/6. The code is one SVG `<path>`
+    (`VNode::svg`, no markup inserted, `sinks` 3/3) on a white square with the four-module quiet zone, `role="img"`, named by
+    `MfaSetupCaption`. Tests: `each_new_screen_labels_its_fields_says_what_they_are_and_has_one_alert` (six kinds),
+    `the_code_screen_names_its_kind_and_the_masked_destination_in_the_locale`, `the_choose_screen_has_one_plain_button_per_offered_kind`,
+    `the_setup_screen_shows_the_qr_code_the_link_and_the_key` (also: an address too long for a QR code gives no code, and the screen
+    still has the link and the key); the 10 existing view tests stay green; interact tests extended.
+  - Agent decision under the operator delegation of 2026-11-01: **add `qrcode`** rather than ship the link-and-key fallback. Scanning
+    is how almost every user enrols an authenticator app; typing a 16–32 character key on a phone is where enrolment is abandoned. The
+    crate passed every guard and adds no transitive dependency.
 
 ## M3 — the identity backend
 
-- [ ] **T10 — `[identity]` is resolved and validated; `[auth]` is derived from it** (R9; D3, D13; C7)
+- [x] **T10 — `[identity]` is resolved and validated; `[auth]` is derived from it** (R9; D3, D13; C7)
   - Files: `crates/cobolt-server/src/config.rs` (`IdentitySection` `:191`, `RecaptchaSection` `:205`, `resolve` `:358`); `src/jwks.rs` (discovery
     through `HttpFetcher` / `address_allowed`); `tests/config_rules.rs`.
   - Do:
@@ -210,8 +329,40 @@ pushes or switches branches.
     - `[auth]` is derived from discovery (issuer, `jwks_uri`, client ids, profile); an explicit `[auth]` wins. `Debug` still redacts.
   - Verify: `cargo test -p cobolt-server --test config_rules`, with one new case per rule. For discovery, use a loopback fetcher test: the
     Keycloak and Entra `jwks_uri` come from the metadata, not from `<issuer>/.well-known/jwks.json`.
+  - Done (2026-11-01): `config.rs` gains `Provider`, `IdentityFlow`, `provider_settings`, `ResolvedIdentity` / `ResolvedRecaptcha`,
+    `IdentitySection::resolve`, `cookie_key_bytes`, `is_secret_reference`, `Discovery`, `discover` and `Resolved::discover`;
+    `Resolved.identity` is now the resolved form and `Resolved.auth_from_identity` says `[auth]` waits for the metadata. `serve::start` calls
+    `cfg.discover(fetcher)` before it builds the key set, so an unreadable provider stops the start. `config_rules`: 17 passed, 0 failed (6 new
+    cases plus the existing redaction test, now with a full Cognito section and the cookie key among the strings that must not print).
+  - Agent decision under the operator delegation of 2026-11-01: **the setting names per provider.** The names are snake_case, like the rest of
+    `backend.toml`.
+    - Cognito: `region`, `user_pool_id` and `client_id` (required); `client_secret`, `domain`, `scopes` and `endpoint` (optional).
+    - Keycloak: `issuer` (the realm URL) and `client_id`.
+    - Entra: `tenant` and `client_id`.
+    - Entra External ID: `tenant_subdomain` and `client_id`.
+    - Optional on all three: `client_secret`, `scopes`, `audience`; plus `authority` (a national cloud or a custom domain) on both Entra
+      providers.
 
-- [ ] **T11 — HTTP: a bounded body, cookies, CORS with credentials** (R5, Q3; D5)
+    Options weighed: free keys passed through to the adapters (the drafts did this), or a closed list. A closed list wins: a misspelt key fails
+    the start with the known names listed, as `deny_unknown_fields` already does for every other section. Only the keys marked secret go through
+    `resolve_secret`, and a secret is never stored in `settings`.
+  - Agent decision under the operator delegation of 2026-11-01: **a flow the provider does not offer is an error, not a fallback.** Keycloak and
+    Entra workforce with `in-app` or `native`, Cognito with `native`, and Cognito `hosted` without a `domain` all stop the start. These are §6's
+    `-` cells, and refusing them in the configuration means a sign-in never fails later at run time.
+  - Agent decision under the operator delegation of 2026-11-01: **`cookie_key` is 32 bytes, given as base64 (standard or URL-safe, padded or
+    not) or as 64 hex digits.** Both are what `openssl rand` prints.
+  - Agent decision under the operator delegation of 2026-11-01: **origins and the attempts limit.**
+    - `origins` defaults to `server.allowed_origins`, so one list serves both routes. An empty list stops a release start.
+    - An origin is `https://host[:port]`, or `http://` on loopback only; no path, no `*`.
+    - `attempts_per_minute` defaults to 10 (D13), and 0 is refused.
+  - Agent decision under the operator delegation of 2026-11-01: **how discovery checks the issuer.**
+    - Cognito and Keycloak: the issuer must equal the configured authority exactly.
+    - Entra: the tenant is named by its id, so the issuer must be a `/v2.0` issuer on the authority's host.
+    - Entra External ID: the issuer must be on `*.ciamlogin.com`, or on the configured `authority`.
+    - Every address in the metadata must be `https` (`http` only on loopback).
+  - Working assumption (O1, still to confirm): `auto` means Cognito in-app and the other providers hosted.
+
+- [x] **T11 — HTTP: a bounded body, cookies, CORS with credentials** (R5, Q3; D5)
   - Files: `crates/cobolt-server/src/http.rs`.
   - Do:
     - A body reader capped at 16 KiB.
@@ -221,8 +372,20 @@ pushes or switches branches.
   - Verify: `cargo test -p cobolt-server http`, with new unit tests: an over-long body is refused; cookie parse/emit round-trip; the
     `__Host-` attributes; a non-listed origin gets no CORS header. `cargo test -p cobolt-server --test dependency_guards` stays green (still no
     `hyper`).
+  - Done (2026-11-01): `http.rs` gains:
+    - `MAX_BODY` (16 KiB) and `read_body`, which refuses a declared length over the cap before reading and cuts off a body that overruns it
+      while being read;
+    - `parse_cookies` / `cookie`, and `SetCookie::host` / `delete` / `header`. The `__Host-` name is enforced, the value must be base64url,
+      `Path=/; Secure; HttpOnly`, with no `Domain`;
+    - `cors_headers`: the one listed origin echoed with credentials and `Vary: Origin`, nothing for any other origin, `null` or none;
+    - `PREFLIGHT_HEADERS`. `SECURITY_HEADERS` already carried `cache-control: no-store`.
 
-- [ ] **T12 — The identity module's spine: trait, sealing, OIDC, reCAPTCHA, generic failures** (R4, R8, R10; AC3, AC4; D2, D7, D8, D9)
+    Results: `cargo test -p cobolt-server --lib http` 5 passed, 0 failed (4 new); `--test dependency_guards` 5 passed, 0 failed.
+  - Plan drift, recorded: the Verify line's "still no `hyper`" predates WASM-003 R2, under which hyper, axum and Leptos are the HTTP front.
+    `dependency_guards` now lists them as `LEPTOS_FRONT` and bars only C-built crypto and a second TLS stack, and it is green. Bodies are read
+    from axum's data stream with `futures-util` (already linked), so `http-body-util` does not become a direct dependency.
+
+- [x] **T12 — The identity module's spine: trait, sealing, OIDC, reCAPTCHA, generic failures** (R4, R8, R10; AC3, AC4; D2, D7, D8, D9)
   - Files: `crates/cobolt-server/src/identity/{mod.rs, seal.rs, oidc.rs, recaptcha.rs, ops.rs}` (new; rebuilt from `drafts/` against this plan,
     with `session.rs.draft` dropped); `src/lib.rs`; `crates/cobolt-server/Cargo.toml` and the workspace `Cargo.toml` (`chacha20poly1305`);
     `tests/dependency_guards.rs`; `tests/identity_enumeration.rs` (new).
@@ -245,8 +408,49 @@ pushes or switches branches.
     - `cargo test -p cobolt-server --test identity_enumeration`. AC3: identical bodies for an unknown user and a wrong password; medians over 50
       attempts each, printed, with a difference under 50 ms against the mock; a reset for an unknown address is identical to one for a known
       address.
+  - Done (2026-11-01): `crates/cobolt-server/src/identity/` was rebuilt from the drafts against this plan:
+    - `mod.rs` — the D2 trait. `Challenge` carries `MfaKind`, with the player's six kinds and wire words, and the provider's step name.
+    - `seal.rs` — XChaCha20-Poly1305 with the issue time inside and the purpose as associated data.
+    - `client.rs` — the provider HTTP client, from `http.rs.draft`. It is renamed so it does not clash with `crate::http`, and it reuses
+      `jwks::address_allowed`.
+    - `oidc.rs` — PKCE S256, `Oidc::from_discovery`, exchange, refresh and revoke.
+    - `recaptcha.rs` — the four checks, the over-quota failure, and the two-minute single-use cache, with a replay refused before Google
+      is asked.
+    - `ops.rs` — `IdentityService::run`.
 
-- [ ] **T13 — The three adapters, their mocks and one conformance suite** (R8, R8b; AC8; O1)
+    `limits.rs` gains `KeyedLimiter::per_minute` (and `Bucket::with_rate`), so the D8 limit reuses the existing limiter.
+    `session.rs.draft` is dropped. `chacha20poly1305` (workspace) and `hmac` (for T13) are server-only dependencies.
+  - Results:
+    - `cargo test -p cobolt-server --lib identity`: 12 passed, 0 failed. AC4 printed its six cases (no token, replayed, another action,
+      another hostname, low score, over quota); each answered `AUTH-FAILED` with the sign-in message, and two good tokens were accepted.
+    - `--test identity_enumeration`: 2 passed, 0 failed. The bodies were identical. Medians over 50 attempts each: unknown user
+      254.5 ms, wrong password 253.6 ms, a difference of 0.9 ms. The resets were identical apart from the sealed session's nonce (252.9 ms
+      vs 253.1 ms).
+    - `--test dependency_guards`: 5 passed, 0 failed (no C crypto).
+  - No password or code in a `LogRecord`: its fields (`log.rs`) are `ts`, `event`, `call`, `connection`, `program`, `subject`, `duration_ms`,
+    `outcome`, the numeric `code` of an error class, `bytes_*` and a fixed-vocabulary note. The service itself writes only `op`, `outcome` and
+    `ms` through `tracing`. T17's AC7 log grep proves it end to end.
+  - Agent decision under the operator delegation of 2026-11-01: **`chacha20poly1305` 0.11, not 0.10.** It reuses `aead` 0.6.1 and `chacha20`
+    0.10, which are already in the lock (so 2 new packages instead of 8), and its MSRV is 1.85, within 1.92. 0.10 would have pinned a second,
+    older `aead` line for the life of the backend.
+  - Agent decision under the operator delegation of 2026-11-01: **every continuation that leaves the backend is sealed** (D7 extended).
+    - A challenge's provider session and the name it belongs to are sealed (purpose `challenge`, 15 min), so the page can neither read
+      Cognito's `Session` nor answer a code for another account.
+    - A sign-up or reset continuation is sealed too (purpose `flow`, 1 h).
+    - The hosted flow's verifier, nonce, `state`, callback, return address and the player's `pr-state` travel as one sealed `HOSTED` value
+      (purpose `hosted`, 10 min). The T17 route puts it in `__Host-pr_hosted`, so the route needs no second seal.
+    - Options weighed: hand the raw provider session to the page, as the drafts did, or keep server-side state. Sealing keeps the backend
+      stateless (WASM-INDEX D4) and closes the "swap the name" hole.
+  - Agent decision under the operator delegation of 2026-11-01: **the outcome words** are `OK`, `CHALLENGE`, `CONFIRMATION-REQUIRED`,
+    `AUTH-FAILED`, `AUTH-RESET-REQUESTED`, `INVALID`, `RATE-LIMITED` and `HOSTED`.
+    - A reCAPTCHA refusal answers `AUTH-FAILED` (`AUTH-RESET-REQUESTED` for a reset), as D9 requires.
+    - A provider outage is a server error with no detail, never a sign-in failure.
+  - Agent decision under the operator delegation of 2026-11-01: **the timing pad covers every answer of a guarded operation, success
+    included.** The median is learnt only from accepted sign-ins, timed before any pad. Padding only failures would still let a success, or a
+    reset for an existing account, show through when it ran shorter than the median. Both limiter buckets (source and account) are charged on
+    every attempt, so one cannot be probed without spending the other.
+
+- [x] **T13 — The three adapters, their mocks and one conformance suite** (R8, R8b; AC8; O1)
   - Files: `crates/cobolt-server/src/identity/{cognito.rs, keycloak.rs, entra.rs}`; `tests/support/idp_mock.rs` (from `idp_mock.rs.draft`);
     `tests/identity_conformance.rs` (new); `crates/cobolt-server/Cargo.toml` (`hmac.workspace = true` for Cognito `SECRET_HASH`).
   - Do:
@@ -260,8 +464,63 @@ pushes or switches branches.
   - Verify: `cargo test -p cobolt-server --test identity_conformance`. It prints an operations × adapters matrix: every `Y` succeeds, and every
     `-` or hosted operation answers "not supported here" with the hosted fallback. A further test shows that §6's table and `capabilities()`
     agree.
+  - Done (2026-11-01):
+    - `identity/cognito.rs`:
+      - `USER_PASSWORD_AUTH` with `SECRET_HASH` on every call that names a user;
+      - the challenges (`SMS_MFA`, `SOFTWARE_TOKEN_MFA`, `EMAIL_OTP` *and* `EMAIL_MFA`, `SELECT_MFA_TYPE`, `NEW_PASSWORD_REQUIRED`, and
+        `MFA_SETUP` through `AssociateSoftwareToken` / `VerifySoftwareToken`), the self-service calls, refresh (`REFRESH_TOKEN_AUTH`, or
+        `GetTokensFromRefreshToken` with `refresh_rotation = "true"`), `RevokeToken` + `GlobalSignOut`, and the managed login for hosted;
+      - `classify` maps every telling error to `Rejected`.
+    - `identity/keycloak.rs`: hosted only, with refresh and revocation at the realm metadata's addresses.
+    - `identity/entra.rs`:
+      - workforce: hosted, refresh, no revocation;
+      - External ID `native`: sign-in (`initiate`/`challenge`/`token`, with `mfa_required` → `introspect` → `challenge` → `mfa_oob`), sign-up
+        (`start`/`challenge`/`continue`) and the reset (`start`/`challenge`/`continue`/`submit`/`poll_completion`);
+      - `redirect` and `registration_required` become `Unsupported`, and the hosted fallback answers them;
+      - `user_not_found` (AADSTS50034) and `invalid_grant` (AADSTS50126) are both `Rejected`.
+    - `identity::adapter` builds the adapter `[identity]` names; Keycloak and Entra take their endpoints from the metadata. `identity::service`
+      wraps it with the sealer, reCAPTCHA and the limits.
+    - `tests/support/idp_mock.rs` is the three products' wire shapes as an in-process `Http`, with requests recorded.
+  - Results: `cargo test -p cobolt-server --test identity_conformance -- --nocapture` passed 5, failed 0. The matrix it printed (Y = succeeded;
+    `- (hosted)` = answered `HOSTED`):
 
-- [ ] **T14 — `COBOL::"AUTH-OP"` and `BackendHooks.identity`; refused everywhere else** (R7; D4, D15)
+    | Operation | Cognito | Keycloak | Entra | Entra External (`native`) |
+    |---|---|---|---|---|
+    | Sign in | Y | - (hosted) | - (hosted) | Y |
+    | Sign up | Y | - (hosted) | - (hosted) | Y |
+    | Confirm | Y | - (hosted) | - (hosted) | Y |
+    | Reset | Y | - (hosted) | - (hosted) | Y |
+    | New password | Y | - (hosted) | - (hosted) | - (hosted) |
+    | MFA TOTP | Y | - (hosted) | - (hosted) | - (hosted) |
+    | MFA SMS | Y | - (hosted) | - (hosted) | - (hosted) |
+    | MFA e-mail | Y | - (hosted) | - (hosted) | Y |
+    | MFA set-up | Y | - (hosted) | - (hosted) | - (hosted) |
+    | Refresh | Y | Y | Y | Y |
+    | Revoke | Y | Y | - (logout only) | - (logout only) |
+    | Hosted | Y | Y | Y | Y |
+
+    `the_table_and_each_adapters_capabilities_agree` checks §6 against `capabilities()` and the default flows. The other three tests are:
+    - unknown user vs wrong password identical on Cognito (LEGACY `UserNotFoundException`) and Entra (50034 vs 50126);
+    - Cognito's `SECRET_HASH`, both e-mail spellings, the choice, the set-up's `otpauth://` address, and rotation;
+    - Entra's redirect fallback and its choice.
+
+    `cargo test -p cobolt-server --no-fail-fast`: lib 32, client_contract 13, config_rules 17, dependency_guards 5, generated_backend 5,
+    generated_controls 6, generated_refusals 1, identity_conformance 5, identity_enumeration 2, loopback 18, remote_bindings 1, token_rules 15
+    — all passed, 0 failed.
+  - Agent decision under the operator delegation of 2026-11-01: **`resend_code` answers `Option<String>`**, the provider's new continuation,
+    where D2's draft returned `()`. Entra's native sign-up issues a fresh `continuation_token` on every `challenge`, so a resend that dropped
+    it would strand the user. Cognito answers `None`.
+  - Agent decision under the operator delegation of 2026-11-01: **Cognito gains two optional settings**, recorded under T10's list:
+    - `refresh_rotation`: rotation is a property of the app client that the adapter cannot discover, so it is configuration (§9 R6).
+    - `totp_issuer`: the name an authenticator app shows; it defaults to the pool id.
+  - Agent decision under the operator delegation of 2026-11-01: **the mocks are an in-process `Http`, not a loopback socket** as in
+    `idp_mock.rs.draft`. The adapters' only door to the network is the `Http` trait, so the suite exercises exactly the bytes they send,
+    deterministically and without ports. The `UreqHttp` transport is tested on its own (`identity::client`).
+  - Agent decision under the operator delegation of 2026-11-01: **SMS in Entra's native API is modelled as refused** (`redirect`), because
+    §6 marks it UNVERIFIED → hosted. The adapter handles an SMS method if the API offers one, so a live run that shows it works needs only the
+    table changed.
+
+- [x] **T14 — `COBOL::"AUTH-OP"` and `BackendHooks.identity`; refused everywhere else** (R7; D4, D15)
   - Files: `crates/cobolt-runtime/src/interpreter/remote.rs` (`BackendHooks` `:45` gains `identity: Option<Arc<dyn IdentityHook>>`);
     `src/builtins.rs` (`BUILTINS` `:35`); `crates/cobolt-server/src/identity/hook.rs` and `src/exec.rs` (the hook is set when the identity service
     exists); `crates/cobolt-wasm/src/support.rs` (`browser_builtin` stays without `AUTH-OP`, plus a test).
@@ -276,8 +535,32 @@ pushes or switches branches.
     - `cargo test -p cobolt-wasm --no-fail-fast` (refused, with its line).
     - `cargo test -p cobolt-ide --bin cobolt-ide the_system_kb_teaches_every_builtin_inline` stays red until T28 documents the built-in; record
       that as expected here and green at T28.
+  - Done (2026-11-01):
+    - `interpreter/remote.rs` gains `IdentityHook`, `BackendHooks.identity`, `AUTH_OP_OUTSIDE_BACKEND` and `builtin_auth_op`. The request
+      group goes out through `group_to_json` and the answer comes back through `group_from_json`.
+    - `interpreter.rs` dispatches `COBOL-AUTH-OP`, and `builtins.rs` has its `BUILTINS` row.
+    - `exec.rs` `ExecOptions.identity` feeds the hook. Both WebSocket call sites in `serve.rs` set it to `None`, so a WebSocket export that
+      calls `AUTH-OP` gets the error (D4).
+    - `cobolt-wasm` `BUILTIN_TABLE` classifies `AUTH-OP` as `BackendOnly` with the D15 reason.
+    - The identity service implements the hook in T17, where the routes set it per call with the caller's address.
+  - Results:
+    - `cargo test -p cobolt-runtime --test test_auth_op`: 3 passed, 0 failed (the error with no hooks and with hooks but no identity; the
+      JSON in and out through a fake hook; a service error ends the call). `--test test_backend_hooks`: 11 passed, 0 failed; `--lib builtins`:
+      1 passed, 0 failed.
+    - `cargo test -p cobolt-wasm --test subset_table`: 6 passed, 0 failed. 73 of 73 built-ins are classified, and `AUTH-OP` is refused at
+      line 10 with "identity operations run in the Backend".
+  - Parity (interpreter-binary-parity skill):
+    - The hook is set in exactly one place, `cobolt-server/src/exec.rs`, which serves both `rcrun backend run` and the built backend
+      binary.
+    - None of the three form hosts — `cobolt-cli/src/form_gui.rs`, `cobolt-form-host/src/host.rs`, and `run_form_app` / `run_headless` in
+      `cobolt-compiler/src/lib.rs` — calls `set_backend_hooks` (checked with grep). The compiled desktop binary links the same
+      `cobolt-runtime`, so all three reach the same `AUTH_OP_OUTSIDE_BACKEND` branch.
+    - Seen live: `rcrun run` on a program calling `AUTH-OP` printed `before`, then `runtime error: COBOL::"AUTH-OP": identity operations
+      run in the Backend`.
+    - The four-crate sweep the skill names (`-p cobolt-runtime -p cobolt-form-host -p cobolt-compiler -p cobolt-cli`) runs at T29.
+  - Expected red until T28: `the_system_kb_teaches_every_builtin_inline`, because `AUTH-OP` is not yet in the System KB.
 
-- [ ] **T15 — The generated `AUTH-*` programs, copybook and exports fragment** (R7; D4; generated-code contract)
+- [x] **T15 — The generated `AUTH-*` programs, copybook and exports fragment** (R7; D4; generated-code contract)
   - Files: `crates/cobolt-codegen/src/identity.rs` (new) and `src/lib.rs` (the module line, beside `:70-72`).
   - Do: generate the 13 programs of D4 (`AUTH-SIGN-IN` … `AUTH-CAPABILITIES`), `AUTH-GROUPS.cpy` (`AUTH-REQUEST`, `AUTH-RESULT`, with the drafts'
     member names) and an `exports.toml` fragment (`public = true`). Each body is one inline `COBOL::"AUTH-OP"` call with no scratch items
@@ -285,16 +568,83 @@ pushes or switches branches.
   - Verify: `cargo test -p cobolt-codegen --no-fail-fast`. New tests: every program parses with `cobolt-parser` and passes `cobolt-semantic`;
     two runs give identical bytes; every file starts with the banner. If the snapshot test needs a golden, regenerate it with `UPDATE_GOLDEN=1`
     and read the diff.
+  - Done (2026-11-01):
+    - `cobolt-codegen/src/identity.rs` holds:
+      - `PROGRAMS`, the 13 `(PROGRAM-ID, operation)` pairs in the order of D4;
+      - `REQUEST` and `RESULT`, the member names and sizes. `EXPIRES-IN PIC 9(9)` is the one number.
+      - `groups()`, `copybook()`, `program()`, `exports_toml()`, `files()`, `is_generated()` and `sync()`.
+    - The programs are free format, like the other generated backend programs (`backend.rs` `load_all_programs`). Each one is
+      `PROCEDURE DIVISION USING AUTH-REQUEST RETURNING AUTH-RESULT` with both groups in the LINKAGE SECTION and one statement,
+      `COBOL::"AUTH-OP" ( "<OP>" AUTH-REQUEST AUTH-RESULT )`, then `GOBACK`.
+    - Every file carries `remote_controls::GENERATED_MARK` in its banner.
+    - The Build (`cobolt-project-tools/src/web/generator.rs`, after `write_backend_programs`) calls `identity::sync`. It writes the folder
+      while `backend/backend.toml` has an `[identity]` section and removes the generated files once the section is gone.
+    - `write_backend_programs` already leaves the `identity/` subfolder alone, because it is a directory and not a generated file.
+  - Agent decision under the operator delegation of 2026-11-01 — the groups are written into each program, and `AUTH-GROUPS.cpy` is a
+    reference copy:
+    - Options weighed:
+      - (a) `COPY AUTH-GROUPS.` in each program;
+      - (b) the groups inline in each program, with the copybook beside them.
+    - Reasons for (b):
+      - `load_all_programs` parses each `generated/*.cbl` on its own, with no copybook search path for `generated/`.
+      - The other generated backend programs already write their LINKAGE groups inline.
+      - The copybook is still generated from the same `groups()` text, so a developer program that calls an `AUTH-*` program can
+        `COPY` it and get exactly the same layout.
+  - Agent decision — a developer's file inside `backend/generated/identity/` is never replaced:
+    - The Build stops with the file named, matching `write_backend_programs`. The generated mark decides ownership, so user code stays
+      untouched.
+  - Results:
+    - `cargo test -p cobolt-codegen --no-fail-fast`: 12 test binaries, 121 passed, 0 failed.
+    - New tests: `identity::tests::every_program_parses_and_checks_clean`, which runs all 13 programs through `cobolt-parser` and
+      `cobolt-semantic` with 0 errors and checks each PROGRAM-ID; `the_output_is_deterministic_and_every_file_carries_the_banner`; and
+      `sync_writes_only_its_folder_and_never_a_developer_file`, which covers the 15 files written, the unchanged-file no-op, a foreign file
+      refused and kept, removal on the section's absence, and `exports.toml` and `src/` staying byte-identical.
+    - No golden snapshot was needed.
 
-- [ ] **T16 — `Backend::load` merges `backend/generated/identity/`; the programs stay off the WebSocket** (R7; D4)
+- [x] **T16 — `Backend::load` merges `backend/generated/identity/`; the programs stay off the WebSocket** (R7; D4)
   - Files: `crates/cobolt-server/src/backend.rs` (`load` `:244`, `load_programs` `:271`); `src/serve.rs` (the WebSocket's export table leaves out
     the identity programs).
   - Do: read the generated folder and merge its fragment. A developer export with the same name is an error that names both files. Generation
     never writes `backend/exports.toml` or `backend/src/`.
   - Verify: `cargo test -p cobolt-server --no-fail-fast`. New tests: the merge; the duplicate refused; a WebSocket call to `AUTH-SIGN-IN`
     answers "unknown program"; the developer's files are byte-identical before and after.
+  - Done (2026-11-01):
+    - `backend.rs`:
+      - `IDENTITY_DIR`.
+      - `ExportDecl.identity`. Only `generated/identity/exports.toml` may set it: the developer's file is refused, and so is the other
+        generated fragment.
+      - `read_exports` merges both fragments in turn and records which file declared each export, so a clash names both files.
+      - `load_all_programs` reads `generated/identity/*.cbl` as free format; a PROGRAM-ID already taken is refused.
+      - `Backend.identity` is a map apart from `exports`. `Backend::identity_program()` is the routes' lookup (T17).
+      - An identity program is not pushed into `interface`, carries no nested programs, and is never nested in another program.
+      - `exported_names` (the IDE's and compiler's list) leaves identity programs out.
+    - `serve.rs` needed no change. Both WebSocket call paths resolve through `Backend::program()` (`serve.rs` `:1024` and `:1396`), which
+      never sees the identity map.
+    - The packed backend (`bundle.rs`) carries the merged `exports.toml` text and the programs as before, so the pack format is unchanged.
+  - Agent decision under the operator delegation of 2026-11-01 — the identity programs are marked by `identity = true` in their fragment
+    and held in their own map:
+    - Options weighed:
+      - (a) filter `AUTH-*` names at the WebSocket;
+      - (b) keep a separate table built from a typed flag.
+    - Reasons for (b):
+      - (a) is a name convention: a developer program called `AUTH-X` would vanish, and a missed name would be callable.
+      - With (b) the WebSocket cannot reach the programs because its lookup has no entry for them.
+      - With (b) they stay out of the contract, so adding `[identity]` never changes the contract version a client negotiates.
+      - With (b) the bincode pack needs no new field.
+  - Results:
+    - `cargo test -p cobolt-server --test identity_backend`: 5 passed, 0 failed.
+      - The merge: 13 identity programs; contract `[HELLO]`; public, `USING AUTH-REQUEST RETURNING AUTH-RESULT`; the same after a pack round
+        trip; gone once `[identity]` is removed. The developer's 2 files are byte-identical.
+      - A developer export of `auth-sign-in` is refused naming `exports.toml` and `generated/identity/exports.toml`.
+      - `identity = true` in the developer's file is refused.
+      - A `src` program with PROGRAM-ID `AUTH-MFA` is refused.
+      - The cross-check: `PROGRAMS` against `ops::OPERATIONS`, and `REQUEST`/`RESULT` against `ops::REQUEST_MEMBERS`/`RESULT_MEMBERS`.
+    - `--test loopback`: 19 passed, 0 failed. The new `the_identity_programs_are_not_on_the_websocket` calls all 13 over the TLS WebSocket;
+      each answers `not-found` 5000. The hello on contract 1.2.0 is accepted, and `GET-CUSTOMER` still answers.
+    - `--test generated_backend`: 5 passed, 0 failed.
+    - `cargo test -p cobolt-server --no-fail-fast`: every `test result` line reads 0 failed, 126 passed in total.
 
-- [ ] **T17 — The `/auth/*` route table** (R5, R6, R7, R8b, Q3; AC7; D5)
+- [x] **T17 — The `/auth/*` route table** (R5, R6, R7, R8b, Q3; AC7; D5)
   - Files: `crates/cobolt-server/src/identity/routes.rs` (new; transport-neutral `fn(AuthRequest) -> AuthResponse`); `src/serve.rs`
     (`serve_stream` `:309` mounts them beside `/health` and `/dl/`); `tests/loopback.rs`.
   - Do:
@@ -313,16 +663,119 @@ pushes or switches branches.
 
     For AC7, extend `loopback.rs`, next to `the_log_has_neither_the_token_nor_a_field_…`: run a full in-app flow and a full hosted flow against
     the mocks, and grep the captured log for every token and password issued in the run. Print the strings searched and the hits (expected 0).
+  - Done (2026-11-01):
+    - `identity/routes.rs`:
+      - `AuthRequest` / `AuthResponse` and `AuthRoutes::handle`, the closed table of D5.
+      - `cobol_runner`, which runs the generated `AUTH-*` program through `exec::execute`. The program's `ExecOptions.identity` is a
+        per-call hook that carries the caller's address into `IdentityService::run`.
+      - `REFRESH_COOKIE` / `HOSTED_COOKIE` / `REFRESH_AGE` (30 days) / `HANDLE_AGE` (60 s).
+    - `serve.rs`:
+      - `Shared.auth`, built at start by `identity_routes()` (adapter + service + runner).
+      - `Options.identity_http`, so a test supplies the mock.
+      - The `auth` handler reads the body under `http::MAX_BODY` and runs the table on a blocking worker, because the program runs there and
+        a guarded answer waits out its pad.
+      - It logs only `<method> /auth/<route> <status>`.
+      - `front.rs` gains `AUTH_PATHS`, mounted with `any()` like `/health`.
+    - `config.rs`: `Resolved.discovery` keeps the provider's metadata. `discover()` also reads it for Keycloak and Entra when `[auth]` is
+      explicit, because the adapters need its endpoints.
+    - `ops.rs`: `HOSTED_AGE` is public.
+    - A start with `[identity]` and no generated programs stops with the missing program names and "build the project".
+  - Fixed on the way — `RETURN` was a member of both groups:
+    - `RETURN` is a COBOL reserved word, so `05 RETURN PIC X(1024).` parsed clean but was not a member. Every request carrying the
+      group was then refused as `unknown-key at AUTH-REQUEST.RETURN`.
+    - The member is now `RETURN-URI` (matching `REDIRECT-URI`) in `ops.rs`, `cobolt-codegen/src/identity.rs` and the tests.
+    - A new guard test, `identity_backend.rs` `every_member_survives_the_parse`, compares the groups *as the backend parsed them* with
+      `REQUEST_MEMBERS` / `RESULT_MEMBERS`. The T15 parse test could not catch this.
+  - Agent decisions under the operator delegation of 2026-11-01:
+    - **`X-PR-Client: native` counts only with no `Origin`, and it is not in the preflight allow-list.**
+      - Options weighed: honour the header whenever it is sent; or (chosen) never honour it from a browser.
+      - Reason: a page that could send it would receive the refresh token in the body, which R5 forbids. A browser always sends `Origin`
+        with a POST, so "no `Origin`" is the shell's Rust side (D6). A request with neither `Origin` nor the header is refused.
+      - `http::PREFLIGHT_HEADERS` lost `x-pr-client`.
+    - **The page's members are allow-listed:**
+      - A page may send `USERNAME`, `PASSWORD`, `ONE-TIME-CODE`, `SESSION`, `CHOICE`, `EMAIL`, `PHONE`, `GIVEN-NAME`, `FAMILY-NAME`,
+        `CAPTCHA-TOKEN` and `ACCESS-TOKEN`.
+      - The routes fill `REFRESH-TOKEN`, `HOSTED`, `STATE`, `REDIRECT-URI`, `RETURN-URI` and `PAGE-STATE` (the native client may also send
+        `REFRESH-TOKEN`).
+      - Anything else is a 400 that names the member. The alternative, silently dropping unknown members, would hide a player bug.
+    - **The hosted callback's address is taken from the request's `Host`** (`https` under TLS): `<scheme>://<host>/auth/hosted/callback`.
+      - Options weighed: a new `redirect_uri` setting; or the request's `Host`.
+      - Reason: the provider checks the address against its registered list, so a forged `Host` only makes the provider refuse. A setting
+        would be one more value to keep in step with the deployment.
+      - A `Host` with characters outside a host name is refused.
+    - **A failed hosted callback answers a plain 400 page** and removes the hosted cookie. The cases are: no hosted cookie, a provider
+      `error`, a wrong `state`, or a code the provider refuses.
+      - The return address is inside the sealed cookie the service opens, so it is not known on the refusal path.
+      - `loader.js` has no error parameter, and the PRIME DIRECTIVE keeps it unchanged.
+    - **The refresh cookie is sealed for 30 days (`REFRESH_AGE`).** The provider's own refresh lifetime ends a session sooner when it is
+      shorter: Keycloak's SSO limits, and Cognito's per-client setting of up to 3650 days. D7's "refused when older than the provider's
+      lifetime" is enforced by the provider's refusal plus this outer bound.
+    - **`/auth/*` is mounted with axum `any()`, not as a Leptos route listing.**
+      - Leptos's listings register GET only, so a POST reached `method_not_allowed_fallback` (seen: 404).
+      - `/health` is mounted the same way. The routes' own table stays closed: any other name or method is 404.
+    - **An identity program answers on the interpreter in a blocking worker per request.** `ExecOptions::plain` gives it no files, no
+      claims and no configurations.
+  - Results:
+    - `cargo test -p cobolt-server --test identity_routes -- --nocapture`: 6 passed, 0 failed. Cases printed:
+      - the cookie: `__Host-pr_refresh=<sealed>; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=2592000`, no `Domain`, and the body's
+        `REFRESH-TOKEN` empty;
+      - no `X-PR-Identity`, `X-PR-Identity: 0`, a form content type, a foreign origin, origin `null`, and no origin without native → 403;
+      - a page sending `REFRESH-TOKEN` or `HOSTED` → 400; an unknown route → 404;
+      - the preflight: allowed 204, foreign 403;
+      - the provider was asked 0 times across all those refusals;
+      - native: the token in the body and no cookie; a page with `X-PR-Client: native` still gets the cookie;
+      - refresh with no cookie, a tampered cookie, or another key's cookie → AUTH-FAILED with the cookie removed;
+      - sign-out removes the cookie and the provider revoked the token;
+      - hosted: a 302 to the provider and back with `pr-code` (43 chars) and `pr-state`; 2 tokens searched in 2 `Location`s, 0 hits;
+      - the handle answers once, and a second time falls back to the cookie;
+      - a foreign return → 400; a `state` mismatch → 400; no hosted cookie or a provider error → 400; a handle past its age → AUTH-FAILED.
+    - `--test loopback`: 20 passed, 0 failed. AC7, `the_identity_routes_log_no_token_password_code_or_cookie`, ran over TLS:
+      - in-app sign-in → MFA → refresh → sign-out, then a hosted sign-in → callback → finish;
+      - it searched the log (8 records, 705 bytes) for 16 strings — the password, the code, the client secret, the cookie key, the sealed
+        session, 4 access tokens, the auth code, the handle, 2 sealed cookies, and 4 refresh tokens;
+      - total hits: 0.
+    - `--test identity_backend`: 7 passed, 0 failed, including `every_member_survives_the_parse` (17 and 21 members as parsed) and
+      `an_identity_section_without_its_programs_stops_the_start`.
+    - `--test config_rules`: 17 passed. `discovery_takes_the_issuer_…` now says that Keycloak reads its metadata even with `[auth]`
+      written, and that Cognito with `[auth]` reads nothing.
+    - `cargo test -p cobolt-server -p cobolt-codegen --no-fail-fast`: every `test result` line reads 0 failed, 257 passed.
 
-- [ ] **T18 — `rcrun backend auth test` and the project scaffold** (R9; D13; WASM-003 R22)
+- [x] **T18 — `rcrun backend auth test` and the project scaffold** (R9; D13; WASM-003 R22)
   - Files: `crates/cobolt-cli/src/main.rs` (a new `auth test` verb beside those at `:543`); `crates/cobolt-project-tools/src/create.rs` (a
     commented `[identity]` stub using `env:` references, and the regenerate hook of T15).
   - Do: print one line per check and never a value. The checks: discovery and its issuer; JWKS keys; for in-app Cognito, the refusal for a
     random user; for hosted, the authorise endpoint; reCAPTCHA `invalid-input-response` versus `invalid-input-secret`.
   - Verify: `cargo test -p cobolt-cli --no-fail-fast` — a test against the T13 mocks, whose output contains no configured secret.
     `cargo test -p cobolt-project-tools --no-fail-fast` — a new Web project's `backend.toml` has the stub and no literal secret.
+  - Done:
+    - `cobolt_server::identity::check` (new): `connection_test(identity, http)` runs the five checks, one `Line` each (`ok`, `FAIL`, `skip`).
+      `test_backend(backend_dir, http)` reads `backend.toml`, asks for `[identity]` first, resolves it as for development and runs them.
+    - `rcrun backend auth test [dir]` (`crates/cobolt-cli/src/main.rs`, `cmd_backend`): prints the lines and exits 1 on any `FAIL`.
+    - `cobolt_compiler::backend_build::regenerate_identity(backend_dir)` writes or removes T15's generated identity programs. It is called
+      by `build_backend`, by `rcrun backend run|describe|check|release`, and by the web Build (`project-tools/src/web/generator.rs`).
+    - `create.rs` `starter_backend_config`: a commented `[identity]`, `[identity.settings]` and `[identity.recaptcha]` stub whose every
+      secret is an `env:` reference.
+  - Agent decision under the operator delegation of 2026-11-01:
+    - **The checks live in `cobolt-server`, not in the CLI.**
+      - Options weighed: the CLI's own code; or a library function in the server crate.
+      - Reason: the IDE's Test connection (T19) and any later host print the same lines, and the checks reuse the server's adapters and
+        discovery, so a test cannot pass where the server would fail.
+    - **No line holds a configured value.** An error is cut at its first `:` or `(` (`reason()`), and a discovery error keeps only the
+      text after its address. The alternative, printing the provider's whole message, leaks addresses, pool ids and client ids.
+    - **`regenerate_identity` lives in the compiler and is called on every path that loads the backend.** A project edited by hand or by
+      the IDE is never served with programs that disagree with its `[identity]`. The alternative, regenerating only on Build, left
+      `rcrun backend run` failing on a project never built.
+  - Results:
+    - `cargo test -p cobolt-server --test identity_check`: 3 passed, 0 failed. A good configuration gives 5 `ok`. A wrong reCAPTCHA secret,
+      another issuer and an unreachable provider each fail on their own line. Nine configured values were searched in every run's
+      output: 0 hits.
+    - `cargo test -p cobolt-cli -p cobolt-project-tools --no-fail-fast`: 42 `test result` lines, 272 passed, 0 failed.
+      - `backend_cli` ran 6 tests, including
+        `auth_test_prints_its_checks_without_a_value_and_backend_check_regenerates_the_identity_programs`.
+      - `kinds` ran 9 tests: the stub is present; every `secret`/`cookie_key` line is a comment with `env:`; and the stub, uncommented,
+        parses.
 
-- [ ] **T19 — The IDE's Identity settings and Test connection** (R9; D13; i18n)
+- [x] **T19 — The IDE's Identity settings and Test connection** (R9; D13; i18n)
   - Files: `crates/cobolt-ide/src/panels/web_settings.rs`, `i18n.rs`.
   - Do: an **Identity** section that edits `backend/backend.toml` `[identity]`. Its fields: provider; the provider's fields; flow (`Auto` by
     default); origins; the reCAPTCHA site key, secret and threshold; `cookie_key`. Secret fields accept only `env:NAME` or `file:PATH`, and a
@@ -330,8 +783,46 @@ pushes or switches branches.
     Use explicit sizes and never size from the available space (no self-inflation).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`. New tests: a literal secret is refused; the TOML written keeps the
     developer's other sections byte-for-byte; no `Tr` field is empty. Manual (the operator's): the page in six languages.
+  - Done:
+    - `web_settings.rs`:
+      - `IdentityDraft` holds the page's values. `problems()` reports a secret written by value and a threshold outside 0..1.
+      - `read_identity` and `write_identity` edit `backend/backend.toml` with `toml_edit`. Only `[identity]` changes; inside it, a key the
+        page does not edit (`attempts_per_minute`, `recaptcha.hostnames`) stays. No provider removes the section.
+      - `identity_rows` draws the section under the Backend rows: provider and flow combos, the provider's own settings (from
+        `cobolt_server::identity_settings::provider_settings`), origins, `cookie_key`, the reCAPTCHA fields, a note per problem, and Test
+        connection. Fixed widths come from `available_width()` of the row's own cell, as the other rows do; nothing grows.
+      - `IdentityTest` runs `rcrun backend auth test <project>` on a thread and shows its lines; `FAIL` lines are in the error colour.
+    - `settings_form.rs` loads the draft with the exports and passes the project folder and the test to `show()`.
+    - `app.rs` `save_settings_form` writes the section when it was edited. A refused write says why in the status line, and the page stays
+      dirty (`restore_identity_baseline`).
+    - `i18n.rs` has 23 `Tr` fields in six languages.
+    - `Cargo.toml` adds `cobolt-server` with `loader` only, so the page offers exactly the words the backend accepts without linking the server.
+  - Agent decision under the operator delegation of 2026-11-01:
+    - **A secret box hides a value only when it is not a reference.** `env:NAME` stays readable (it is not a secret); a value typed by
+      mistake is masked while the page refuses it. Options weighed: always masked (hides what a reference points to); never masked (shows a
+      pasted secret on screen).
+    - **A draft with a problem is never written, and the save keeps the page dirty.** The alternative, writing the other settings and
+      dropping the secret, would leave a section the server refuses at start.
+    - **Test connection runs the CLI, not the library in-process.** It tests the file as saved, exactly as `rcrun` and the server read
+      it, and a slow provider never blocks the IDE.
+  - Results:
+    - `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast -- web_settings`: 15 passed, 0 failed. New:
+      - `the_identity_is_written_only_with_references_and_the_rest_of_the_file_stays`: a literal `client_secret` is refused with the
+        setting's name and not the value; the file is untouched; the reference draft writes, the other sections stay byte for byte, and it
+        reads back equal; the same draft again writes nothing; a threshold of 1.5 is refused; no provider gives back the original file.
+      - `every_identity_text_is_given_in_every_language`: 23 fields × 6 languages, none empty, the placeholders kept.
+      - `the_section_keeps_to_the_width_it_is_given_in_every_language` now draws the Identity rows too, each problem note included.
+    - Full sweep `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`: 1932 passed, 7 failed, 5 ignored.
+      - Five are the known pre-existing reds: `every_document_ships_in_every_language`, `claude_validates_the_written_bundle`,
+        `live_resolver_verdicts`, `compatible_and_reserved_collisions_still_refuse`, and
+        `every_completion_description_exists_in_six_languages`.
+      - This spec's `AUTH-OP` description had joined the last of those; it now has a six-language entry in `ide_text_data.rs`. The other
+        11 English-only descriptions predate this spec.
+      - Two are T28's: `the_system_kb_teaches_every_builtin_inline` (`AUTH-OP` not yet in the KB) and
+        `prebuilt_chunked_kb_matches_the_published_documentation`.
+    - Owed (the operator's): the page in six languages, and Test connection against the mocks, through the MCP tools.
 
-- [ ] **T20 — Bundle: label exemption, exact-value secret scan, one site key** (R4, R6, R9; AC6; D9, D14; C9)
+- [x] **T20 — Bundle: label exemption, exact-value secret scan, one site key** (R4, R6, R9; AC6; D9, D14; C9)
   - Files: `crates/cobolt-web-bundle/src/secrets.rs` (`secret_property` `:168`); `src/lib.rs` (`connect-src` gains the backend's https origin);
     the Build path in `crates/cobolt-compiler` that fills `BundleOptions` (the site key from `[identity.recaptcha] site_key` into
     `recaptcha_site_key` `:154`); the bundle and compiler tests.
@@ -345,10 +836,35 @@ pushes or switches branches.
     - the same values held only as `env:` in `backend.toml` build;
     - `PasswordLabel="Senha"` is not flagged;
     - the site key reaches the CSP (`csp_origins.rs`).
+  - Done (2026-11-01):
+    - `secrets.rs`: `secret_property` exempts names ending in `label`, `caption`, `text` or `link`. `KnownSecrets` (setting name, value)
+      and `scan_values(file, text, known)` give a `ValueFinding` that prints `file: line N: identity.<setting>` and never the value.
+    - `cobolt-server/src/identity_settings.rs`: `resolve_secret` moved here from `config.rs` (which re-exports it), so the `loader` feature
+      the compiler links can resolve `env:`/`file:` too. `build_identity(text, backend_dir)` answers `BuildIdentity { site_key, secrets }`;
+      its `Debug` names the settings only. `cobolt-compiler/src/backend_build.rs` `identity_for_build(backend_dir)` reads `backend.toml`.
+    - `cobolt-web-bundle/src/lib.rs`: `BundleOptions.known_secrets` and `sign_in_form`. The exact-value scan runs over every text file of
+      the bundle, also when the pattern scan is skipped. When a form holds an Authentication control, the backend's https origin
+      (`http_origin_of_backend`: `wss://` → `https://`, loopback `ws://` → `http://`) joins `connect-src`.
+    - `cobolt-project-tools/src/web/generator.rs`: `known_secrets_in_sources` searches the forms and the `.cpy` files of `sources` and
+      `backend`, in both Check and Build; the Build passes `recaptcha_site_key`, `known_secrets` and `sign_in_form` to the bundle.
+  - Results:
+    - `cargo test -p cobolt-web-bundle -p cobolt-compiler --no-fail-fast`: 42 result lines, 315 passed, 0 failed (run before T21/T22;
+      rerun at T29).
+    - New: `tests/identity_bundle.rs` (3 tests: a known secret refused in `forms/…`, `config.json` and `assets/notes.<hash>.txt`, each by
+      file, line and setting with no value shown; the same values held only in the backend build and `PasswordLabel="Senha"` not
+      flagged; the https origin in `connect-src` only with the control, and the site key opening reCAPTCHA). Two `secrets.rs` unit tests;
+      `identity_settings` test `a_build_reads_the_site_key_and_every_secret_that_resolves_never_showing_one`; generator test
+      `a_known_identity_secret_in_a_form_or_a_copybook_stops_the_build_by_file_and_setting`.
+  - Agent decision under the operator delegation of 2026-11-01: **a value shorter than 8 characters is not searched for**
+    (`MIN_EXACT_VALUE`). Options: (a) search every value; (b) a floor. Chosen (b): a 3-character "secret" would match ordinary text and
+    stop builds for nothing, while every real identity secret (client secret, reCAPTCHA secret, 32-byte cookie key) is far longer. A
+    secret that short is a weakness of the provider's setting, not something a text search can protect.
+  - Agent decision under the operator delegation of 2026-11-01: **the exact-value scan is never skipped**, even where the pattern scan
+    has an opt-out. The pattern scan guesses and may need an escape hatch; the exact-value scan knows the value, so a hit is always real.
 
 ## M4 — the player speaks HTTPS; route protection; mobile
 
-- [ ] **T21 — Identity requests leave the WebSocket** (R5, R6, R8b; C2; D5)
+- [x] **T21 — Identity requests leave the WebSocket** (R5, R6, R8b; C2; D5)
   - Files: `crates/cobolt-web-player/src/auth.rs` (`mod wire` `:761` is replaced by HTTPS request/response types); `src/api.rs`, `src/host.rs`
     (`fetch` with `credentials: "include"` and `X-PR-Identity: 1`; the `ID_BASE` identity path is removed; hosted sign-in navigates to
     `/auth/hosted/start`; `auth_hosted_return` `:1735` calls `hosted/finish`); `src/net.rs` (refresh-and-repeat-once now uses `POST
@@ -358,8 +874,33 @@ pushes or switches branches.
   - Verify: `cargo test -p cobolt-web-player --no-fail-fast` — the machine and host tests are rewritten from the frame encoding to the request
     types; each test whose expectation changes is named in this task. `cargo test -p cobolt-web-bundle --no-fail-fast`.
     `cargo test -p cobolt-web-bundle --test no_string_execution`. `git diff --stat crates/cobolt-web-bundle/assets/loader.js` is empty.
+  - Done (2026-11-01):
+    - `auth.rs`: `mod wire` is replaced by `pub mod https` — `ID_BASE` (the call numbers, in the player's memory only), `IDENTITY_HEADER`,
+      `Post { route, body }` (its `Debug` hides the body), `post(call)`, `hosted_finish(handle)`, `base_of(backend)`,
+      `hosted_start_url(base, return, state)`, `state_matches` (constant time) and `decode(status, body)` of an `AUTH-RESULT`.
+    - New `src/auth_fetch.rs` (wasm32 only): the `fetch` with `credentials: "include"`, `Content-Type: application/json` and
+      `X-PR-Identity: 1`, built through `js_sys::Reflect` — no JavaScript is added. `keep_state` / `take_state` keep the hosted
+      `state` (16 random bytes, hex) in `sessionStorage` under `pr-hosted-state`.
+    - `api.rs`: the `is_auth_id` branch of `drain_net` is gone. `send_auth_call`: `HostedStart` navigates to `/auth/hosted/start`;
+      `HostedFinish` checks the state first; everything else is one `fetch`, answered through `Inbox::Raw` to `auth_answered`.
+      The `wire::` → `https::` renames in `host.rs`, `host/auth_tests.rs`, `grid.rs`, `tests/grid_calls.rs` and `net.rs`.
+    - `net.rs`: the storage guard also holds `auth_fetch.rs` to `sessionStorage` with `HOSTED_STATE_KEY` only. A test frame body is now
+      `{"ROWS":""}`.
+    - `examples/mock_backend.rs` serves `/auth/*` over HTTP on the WebSocket's port (it peeks at the request line), answers `AUTH-RESULT`
+      with an `HttpOnly` `pr_refresh` cookie and CORS with credentials; `hosted/start` answers 302 back with `pr-code=hosted-code`.
+  - Tests whose expectation changed: `every_call_encodes_to_one_json_object_and_every_status_decodes` became
+    `every_call_is_one_post_to_its_route_and_every_outcome_decodes`; `challenge_kinds_decode_and_bad_ones_are_refused` now reads
+    `AUTH-RESULT` JSON. New: `the_hosted_flow_starts_on_the_backend_and_its_return_needs_the_kept_state`. `auth_ids_are_apart_from_the_modules`
+    is kept with the new numbering.
+  - Results: `cargo test -p cobolt-web-player --no-fail-fast` (native): 398 passed; the one red is `freshness` (the shipped player is
+    rebuilt at T29). The wasm32 check is clean (2 pre-existing warnings). `--test no_string_execution`: 3 passed. The loader is written
+    by `cobolt-web-bundle/src/hostpage.rs` (there is no tracked `loader.js`): `git diff --stat` of it is empty.
+  - Agent decision under the operator delegation of 2026-11-01: **the hosted state is kept in `sessionStorage`**, the one storage the
+    player touches. Options: (a) the player's memory (lost with the page, which the provider's page replaces); (b) a cookie (sent to every
+    request, and readable by script); (c) `sessionStorage` (this tab only, gone when it closes). Chosen (c): it survives the navigation to
+    the provider and back and nothing else. The state is not a secret — it only binds the return to the tab that started it.
 
-- [ ] **T22 — `RequiresSignIn` in the player** (R11; Q4; D11)
+- [x] **T22 — `RequiresSignIn` in the player** (R11; Q4; D11)
   - Files: `crates/cobolt-web-player/src/host.rs`, `src/tree.rs`; `crates/cobolt-compiler/src/project_kind.rs` (`WebSettings` `:273` gains
     `sign_in_form`, `#[serde(default)]`).
   - Do:
@@ -368,14 +909,44 @@ pushes or switches branches.
     - After `onSignedOut`, an open protected form closes and the sign-in form shows.
     - The sign-in form defaults to the first form holding an Authentication control.
   - Verify: `cargo test -p cobolt-web-player --no-fail-fast`. New host tests cover each of the three paths, including the parameters.
+  - Done (2026-11-01):
+    - `cobolt-forms/src/description.rs`: `FormProperties.requires_sign_in` and `sign_in_form` (both `serde(default)`, written only when
+      true), set by `describe` and read back by `to_form`.
+    - `cobolt-compiler/src/project_kind.rs`: `WebSettings.sign_in_form: Option<String>` (`serde(default)`, written only when set, so an
+      existing manifest saves unchanged); the mobile settings in `cobolt-project-tools/src/web/mod.rs` carry `None`.
+    - `host.rs`: `sign_in_named` and `pending_sign_in`; `add_description` records the flag; `sign_in_form()` (the named one, else the first
+      form holding an Authentication control); `sign_in_gate` runs when a `Work::Open` is taken from the queue, so the start form and every
+      later open pass through it; `after_signed_in` and `after_signed_out` run after the developer's handler in `Op::Notify`.
+  - New tests (`host/auth_tests.rs`): `a_protected_form_opened_signed_out_shows_the_sign_in_form_and_opens_after_the_sign_in` (with its
+    parameters), `signing_out_closes_the_protected_forms_and_shows_the_sign_in_form`, `without_a_sign_in_form_a_protected_form_is_refused_by_name`.
+    All 19 `auth_tests` pass.
+  - Agent decision under the operator delegation of 2026-11-01: **the sign-in form travels in the form descriptions, not in
+    `config.json`.** Options: (a) a `sign_in_form` member of the page's configuration; (b) a flag on the sign-in form's description,
+    written by the Build. Chosen (b): `config.json` is read by the loader, so (a) would change JavaScript (PRIME DIRECTIVE); the
+    descriptions are read by the player in Rust, and the flag sits beside `requires_sign_in`, which is already there.
 
-- [ ] **T23 — Check rules for the control** (R8b, R9, R11; D11, D13; plan §9 R1)
+- [x] **T23 — Check rules for the control** (R8b, R9, R11; D11, D13; plan §9 R1)
   - Files: the Check of Web/Mobile projects in `crates/cobolt-compiler` (where project-kind checks already run), plus its tests.
   - Do:
     - Errors: a form requires sign-in and there is no sign-in form; `Mode = InApp` for a provider with no in-app sign-in.
     - Warnings: `RecaptchaSiteKey` differs from the backend's `site_key`; the page origin and the backend are cross-site, so cookie refresh is
       unavailable (O4).
   - Verify: `cargo test -p cobolt-compiler --no-fail-fast`, with one test per rule. Each message names the form or the setting.
+  - Done (2026-11-01):
+    - New `cobolt-compiler/src/identity_rules.rs`: `identity_rules(forms, web, backend_toml)` answers `IdentityFinding { error, subject,
+      message }`. Errors: a protected form with no sign-in form (named per form); a `web.sign_in_form` that names no form of the project;
+      `Mode = InApp` on a control whose provider has no in-app sign-in (Keycloak, Entra, Entra External ID without `flow = "native"`).
+      Warnings: a control's `RecaptchaSiteKey` that differs from `identity.recaptcha.site_key`; an `identity.origins` entry on another site
+      than `web.backend_url`.
+    - `cobolt-project-tools/src/web/generator.rs` `identity_findings` runs them in `compile()` (Check and Build): an error refuses with
+      the form's file as its location, a warning joins the others.
+  - Results: `cargo test -p cobolt-compiler --lib identity_rules`: 4 passed, 0 failed —
+    `a_protected_form_without_a_sign_in_form_is_an_error_naming_the_form`, `in_app_for_a_provider_without_in_app_sign_in_is_an_error_naming_the_control`,
+    `a_site_key_that_differs_from_the_backends_is_a_warning_naming_the_control`, `a_page_and_a_backend_on_different_sites_is_a_warning_naming_the_setting`.
+  - Agent decision under the operator delegation of 2026-11-01: **the same-site test is approximate** — the last two labels of the host,
+    three for a short second-level word (`example.co.uk`), an address or `localhost` as itself — rather than the public-suffix list.
+    Options: (a) the list (a new dependency and a data file to keep current); (b) the approximation. Chosen (b) because the finding is a
+    warning, never a refusal: a wrong guess costs a line of output, not a build. Revisit if it ever becomes an error.
 
 - [ ] **T24 — Mobile: the shell's identity command and the OS secure store** (R5 mobile; Q7; D6) — **BLOCKED on WASM-012 (O9)**
   - Files: the WASM-012 shell (does not exist); `crates/cobolt-web-player/src/host.rs` (on mobile, use the shell command instead of `fetch`).
@@ -383,10 +954,11 @@ pushes or switches branches.
     `X-PR-Client: native` (served by T17), stores the refresh token in the OS store and returns only the access token and claims. The hosted
     flow goes through the system browser and a deep link with the same handle. Biometric unlock follows O3.
   - Verify: until it is unblocked, record "blocked: WASM-012 not implemented" here. T17's `native` body answer is tested on its own.
+  - **blocked: WASM-012 not implemented** (2026-11-01). There is no Tauri shell, no identity command and no secure store to call.
 
 ## M5 — assurance in a browser and against Keycloak
 
-- [ ] **T25 — Browser checks: accessibility, storage, refresh, console** (R2, R5, R6; AC1, AC5, AC7; O8)
+- [x] **T25 — Browser checks: accessibility, storage, refresh, console** (R2, R5, R6; AC1, AC5, AC7; O8)
   - Files: `crates/cobolt-web-bundle/tests/support/cdp.rs` (new: a minimal CDP driver over the existing `tungstenite` dev-dependency);
     `tests/auth_browser.rs` (new); `examples/mock_backend.rs` (from T21).
   - Do: start the mock backend and a bundle and drive Chrome headless through CDP. If no Chrome binary is found, skip with a printed reason.
@@ -397,6 +969,24 @@ pushes or switches branches.
     - **AC7:** capture the console for a full flow and grep it for the run's tokens.
   - Verify: `cargo test -p cobolt-web-bundle --test auth_browser -- --nocapture`. It prints rules × screens with failures by node, the storage
     contents, the refresh count, and the strings searched with their hits. Record here whether Chrome ran, and its version.
+  - Done (2026-11-01). **Chrome ran: Chrome/156.0.8078.80** (`/Applications/Google Chrome.app`).
+    - The test uses the existing driver, `tests/support/cdp.rs`; nothing was added to it.
+    - `tests/auth_browser.rs` (new): the fixture's main form gains `AUTH-1`, and the bundle names the mock as its backend.
+      `examples/mock_backend.rs` runs in the test's own process: its server loop became `pub fn serve(listener, ttl, first_ttl)` and its
+      lines also go to `LOG` when a test turns it on. `--first-ttl` gives the first token its own lifetime.
+    - AC1, on 10 screens (Sign in four times, Sign up, Confirm, Forgot, Reset, MFA, Signed in), all pass:
+      - every textbox and button has an accessible name (`Accessibility.queryAXTree`), and the group is named;
+      - there is exactly one live region;
+      - Tab from the first field reaches the primary action;
+      - Tab leaves the control again.
+    - AC5:
+      - storage after the sign-in is `{"local":[],"session":[],"cookie":""}`;
+      - the refresh cookie is `HttpOnly`, `SameSite=Strict`;
+      - with a first token of 61 s there is **exactly 1** refresh in the next ~5 s;
+      - after it, `BTN-REMOTE`'s call is answered `pong` on a signed-in connection, and no token is refused.
+    - AC7: the console of the whole flow was searched for a token (the JWT header), the password, `pr_refresh` and the MFA session: 0
+      hits each. The capture is proven by the test's own canary line, so an empty result means a clean console, not a deaf capture.
+    - `cargo test -p cobolt-web-bundle --test auth_browser -- --nocapture`: 1 passed, 0 failed (11 s).
 
 - [ ] **T26 — AC2 against a real Keycloak** (R12; AC2; O2, O7)
   - Files: `crates/cobolt-server/tests/identity_keycloak.rs` (new).
@@ -405,17 +995,39 @@ pushes or switches branches.
     step needs O7's envelope alignment and is recorded as skipped if that is absent.
   - Verify: `cargo test -p cobolt-server --test identity_keycloak -- --nocapture` prints which steps ran. Live Cognito and Entra runs are the
     operator's; record which ran.
+  - Written (2026-11-01), **skipped here: no Keycloak is available** (`PR_KEYCLOAK_URL` unset; the Docker daemon is not running).
+    - `crates/cobolt-server/tests/identity_keycloak.rs` drives what the backend does for Keycloak, a hosted provider, through the real
+      `Keycloak` adapter and `UreqHttp`:
+      1. the realm's metadata;
+      2. the authorization address with PKCE;
+      3. the realm's login form, answered as a browser answers it (cookies, no redirects followed);
+      4. the state checked and the code exchanged;
+      5. the refresh;
+      6. the sign-out revoking the refresh token, which is then refused.
+    - It reads `PR_KEYCLOAK_CLIENT`, `PR_KEYCLOAK_REDIRECT`, `PR_KEYCLOAK_USER` and `PR_KEYCLOAK_PASSWORD`.
+    - Printed as skipped: the call of an exported program (O7). Printed as the operator's to try by hand: creating an account,
+      confirming it, forgot/reset and MFA, which are the realm's own pages.
+    - Run: `SKIPPED: PR_KEYCLOAK_URL is not set …`, 1 passed. No step ran.
+    - Owed (the operator's): one run against a local Keycloak with `PR_KEYCLOAK_URL` set; live Cognito and Entra runs. None of them ran.
 
 ## M6 — what 2.x.x says about itself, the System KB, finalize
 
-- [ ] **T27 — ABI amendment** (C2)
+- [x] **T27 — ABI amendment** (C2)
   - Files: `specs/WASM-ABI-v1.md` §12.
   - Do: add an amendment row. The Authentication control's identity requests leave the WebSocket; A8's `0x80000000` ids are no longer used for
     identity; the requests go to the `/auth/*` routes. Add `GrantConsent` and `DenyConsent` to §12.1 and `onConsentRequired` to §12.2. Nothing
     under `docs/`.
   - Verify: the row cites T21. `git diff --stat -- docs README.md` is empty.
+  - Done (2026-11-01): `specs/WASM-ABI-v1.md` gains amendment **A19**, which cites T21 and D5. It says:
+    - identity requests leave the WebSocket;
+    - A8's ids from `0x80000000` are no longer used for identity;
+    - the requests go to the `/auth/<route>` `POST`s, with the hosted `GET /auth/hosted/start`.
 
-- [ ] **T28 — System KB: the control, `RequiresSignIn`, `AUTH-OP`, the capability table** (R3; AC9; System KB rule)
+    Also added: the `GrantConsent` / `DenyConsent` row in §12.1, `onConsentRequired` in §12.2, and `onError`'s Authentication argument
+    (the outcome word or the HTTP status, never a message). `git diff --numstat` of the file is 4/2. `git diff --stat -- docs README.md`
+    is empty.
+
+- [x] **T28 — System KB: the control, `RequiresSignIn`, `AUTH-OP`, the capability table** (R3; AC9; System KB rule)
   - Files: `crates/cobolt-compiler/src/lib.rs` (the property, method and event doc tables, beside the `AwsCognito` rows `:7513`);
     `assets/knowledge/chunked.data` (regenerated).
   - Do: document:
@@ -428,8 +1040,32 @@ pushes or switches branches.
     Then run `cargo run -p cobolt-ide --example build_chunked_kb`.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide the_system_kb_teaches_every_builtin_inline prebuilt_chunked_kb_matches_the_published_documentation`
     is green. An unchanged `chunked.data` with a green test means the wrong file was edited.
+  - Done (2026-11-01), all in `crates/cobolt-compiler/src/lib.rs`:
+    - **Built-in table:** an `AUTH-OP` row, between `AUDIO-STOP` and the `AWS-` rows. It says that only the generated `AUTH-*` programs
+      call it, on the backend, and that anywhere else it is the run-time error.
+    - **`property_reference_for`:** `("Authentication", …)` arms for `Mode`, `State`, `UserName`, `Email`, `RecaptchaSiteKey` and
+      `RecaptchaConsent`, plus one for each of `SCREEN_FLAGS` and of `TEXT_PROPS` (empty means the six-language default).
+    - **`event_reference`:** the new events `onSignUpCompleted`, `onPasswordResetRequested`, `onMfaRequired` and `onConsentRequired`.
+      The shared `onSignedIn`, `onSignedOut` and `onError` gain their Authentication meaning (`onError`'s argument is the outcome word,
+      never a message).
+    - **Purpose and methods:** `control_purpose`, and `control_method_docs` with `SignOut`, `Refresh`, `GetClaim`, `GrantConsent` and
+      `DenyConsent`.
+    - **`control_usage_notes`:**
+      - where the provider is set, and that secrets are `env:`/`file:` only;
+      - that the control talks only to the backend;
+      - the capability table of plan §6;
+      - `RequiresSignIn` with D11's note (the backend's token check is the boundary);
+      - the same-site rule (§9 R1);
+      - the consent hook, with COBOL using `INVOKE … "Show"`/`"GrantConsent"`.
+    - **The Form section:** `RequiresSignIn`.
+  - The KB build first failed on a damaged doc comment in `generator.rs` (my T23 insertion had cut the first line of
+    `known_secrets_in_sources`'s comment). It is restored.
+  - `cargo run -p cobolt-ide --example build_chunked_kb`: 3779 records from 8 documents. The md5 of `chunked.data` changed from
+    `d9125c4e…` to `a0d34e14…`.
+  - `cargo test -p cobolt-ide --bin cobolt-ide -- the_system_kb_teaches_every_builtin_inline prebuilt_chunked_kb_matches_the_published_documentation`:
+    2 passed, 0 failed.
 
-- [ ] **T29 — Finalize: version, CHANGELOG, the tests of every touched crate**
+- [x] **T29 — Finalize: version, CHANGELOG, the tests of every touched crate**
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`, and this file (check-offs, the T1 counts, blocked items, whether Chrome and
     Keycloak ran).
   - Do: bump `z` **once** in `crates/cobolt-ide/src/version.rs`, to the next `z` after whatever it holds then; never the minor. Add **one** entry
@@ -440,6 +1076,35 @@ pushes or switches branches.
     - `cargo test -p cobolt-ast -p cobolt-parser -p cobolt-runtime -p cobolt-wasm -p cobolt-codegen -p cobolt-server -p cobolt-web-player -p cobolt-web-bundle -p cobolt-compiler -p cobolt-cli -p cobolt-project-tools --no-fail-fast`
     - `cargo test -p cobolt-forms --features render --no-fail-fast`
     - `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`
+  - Done (2026-11-01):
+    - `crates/cobolt-ide/src/version.rs` 2.0.123 → **2.0.124** (once). `CHANGELOG.md` gains `## 2.0.124 — 2026-11-01 — WASM-009: …` above
+      2.0.123; it names T24 (WASM-012), T26 (no Keycloak), T5/T6's looks and O1 as open. Nothing under `docs/` or `README.md` changed.
+    - The shipped player was rebuilt (`build_player -- --out assets/web-player`) after the last change to its sources.
+  - The sweeps hit an environment fault first: while they ran, something outside this session deleted the test binaries and the
+    incremental cache under this worktree's `target/` (318, then 350 targets "never executed"; free disk jumped by 15-30 GiB each time).
+    A build into an APFS clone of the target outside the repository (`CARGO_TARGET_DIR=~/w9-target`) kept its binaries, so the crate,
+    forms and IDE sweeps ran there; the player sweep ran in its own target.
+  - Results, every `test result` line read:
+    - `cargo test -p cobolt-ast -p cobolt-parser -p cobolt-runtime -p cobolt-wasm -p cobolt-codegen -p cobolt-server -p cobolt-web-bundle
+      -p cobolt-compiler -p cobolt-cli -p cobolt-project-tools -p cobolt-form-host --no-fail-fast`: 367 result lines, 3072 passed, 3 failed:
+      - `every_class_c_control_has_a_row` (`cobolt-runtime`), this spec's: the Authentication control is class C with no catalogue row by
+        T2's decision. The test now leaves it out with that reason; rerun: 2 passed.
+      - `the_players_generated_fixture_is_what_the_generator_writes` (`cobolt-wasm`): the fixture was stale (T14's `support.rs`, and the
+        `AccessibleLabel` seed of the committed WASM-004/006 work). Regenerated with `UPDATE_PLAYER_FIXTURE=1`; rerun: 1 passed; the player
+        with it: 402 passed, 0 failed.
+      - `host::parity::corpus_golden` (`cobolt-form-host`), **pre-existing**: commit `4488d800` (2026-10-25) widened the committed
+        `PowerDemo3/forms/Charts/chart-3d.cfrm` from 1216 to 2300 (0.75 × 2300 = 1725 in the golden's line), after its golden of
+        2026-10-14. The example is the developer's and the golden is not this spec's; left as it is.
+    - `cargo test -p cobolt-forms --features render --no-fail-fast`: 94 result lines, 1784 passed, 0 failed. (The first run had 1 red,
+      `no_font_size_read_is_left_outside_the_resolver`: T5's Designer paint read `FontSize` directly. It now goes through
+      `layout::fonts::resolve_font_size`.)
+    - `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`: 1934 passed, 5 failed — the five known reds: `docs_embed`, the claude
+      bundle, the two `external_crates_service` flow tests, and `every_completion_description_exists_in_six_languages`. The last is down to
+      the 12 English-only WS-* texts of `cc0aed10` that T1 recorded: this spec's four method descriptions (`SignOut`, `GetClaim`,
+      `GrantConsent`, `DenyConsent`) were added to `ide_text_data.rs` in six languages. Both System KB tests pass.
+    - `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --no-fail-fast`: 8 result lines, 402 passed, 0 failed (freshness
+      included).
+  - Chrome ran (T25, Chrome/156.0.8078.80); Keycloak did not (T26).
 
     Manual checks (plan §10) are the operator's, through the MCP tools (`render_form`, `check`): the toolbox of a Web project and of a Desktop
     project, the Identity page in six languages, and Test connection against the mocks. The application is never driven by the agent.

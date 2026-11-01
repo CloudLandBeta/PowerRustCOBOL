@@ -57,6 +57,7 @@ use thiserror::Error;
 mod build_cache;
 pub mod warmup;
 pub mod backend_build;
+pub mod identity_rules;
 pub mod exec_rust;
 pub mod runtime_features;
 pub mod external_crates;
@@ -5207,6 +5208,7 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"AUDIO-RESUME"` | [status out] | Resume a paused sound from where it was paused |
 | `COBOL::"AUDIO-STATE"` | state out, [position-ms out], [duration-ms out] | IDLE, PLAYING, PAUSED, ENDED or ERROR, with the position and length in milliseconds |
 | `COBOL::"AUDIO-STOP"` | [status out] | Stop the sound and return to IDLE |
+| `COBOL::"AUTH-OP"` | operation in, request in, result out | On the backend, one identity operation (`SIGN-IN`, `REFRESH`, …) of the `[identity]` provider, `AUTH-REQUEST` in and `AUTH-RESULT` out; only the generated `AUTH-*` programs call it, and anywhere else it is a run-time error ("identity operations run in the Backend") |
 | `COBOL::"AWS-CLEAR-CREDENTIALS"` | connection in, [status out] | Forget the AWS keys set for a connection and end the server that held them |
 | `COBOL::"AWS-CREDENTIALS-SET"` | connection in, flag out | Whether AWS keys are set for a connection: Y or N (never the keys) |
 | `COBOL::"AWS-SET-CREDENTIALS"` | connection in, key-id in, secret in, token in, [status out] | Give a connection AWS keys for this run, kept in memory only (never read back) |
@@ -6877,6 +6879,39 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
             "one of: `Text` | `Markdown` | `Image` | `Pdf` | `HtmlSubset` (runtime-set)",
             "The format the runtime detected for the loaded document, from its extension and content; written on every load. Setting it does not change how the document is decoded.",
         )),
+        // WASM-009 — the Authentication control (plan §4).
+        ("Authentication", "Mode") => Some((
+            "one of: `Auto` | `InApp` | `Hosted` (default Auto)",
+            "How the end user signs in. `Auto`: the flow of the backend's identity provider (Cognito in-app; Keycloak, Entra and Entra External ID on the provider's own page). `InApp`: the control's own screens. `Hosted`: one button that goes to the provider's page and back. Check refuses `InApp` when the provider has no in-app sign-in. At run time it reads the effective flow, `InApp` or `Hosted`.",
+        )),
+        ("Authentication", "State") => Some((
+            "`SignedIn` | `SignedOut` (runtime-only, read-only)",
+            "Whether the end user is signed in. The tokens stay inside the player: COBOL never reads one.",
+        )),
+        ("Authentication", "UserName") => Some((
+            "text (runtime-only, read-only)",
+            "The signed-in user's name (`cognito:username`, else `preferred_username`); empty when nobody is signed in.",
+        )),
+        ("Authentication", "Email") => Some((
+            "text (runtime-only, read-only)",
+            "The signed-in user's e-mail address; empty when nobody is signed in or the provider gave none.",
+        )),
+        ("Authentication", "RecaptchaSiteKey") => Some((
+            "a reCAPTCHA v3 site key, or empty",
+            "An override. Empty (the default) uses the backend's `[identity.recaptcha] site_key`; Check warns when the two differ, because the backend verifies tokens of its own key only. Only the SITE key belongs here — the secret stays in the backend.",
+        )),
+        ("Authentication", "RecaptchaConsent") => Some((
+            "one of: `Implied` | `Ask` (default Implied)",
+            "`Implied`: reCAPTCHA loads at the first protected action. `Ask`: Google's script is not loaded until the end user consents — the first protected action raises `onConsentRequired` and waits for `GrantConsent` or `DenyConsent`.",
+        )),
+        ("Authentication", n) if cobolt_forms::authentication::SCREEN_FLAGS.contains(&n) => Some((
+            BOOL_DOMAIN,
+            "Whether the control offers this screen (Sign up, Confirm, Forgot password, the second factor). On by default. In the hosted flow the provider's own page decides what it offers.",
+        )),
+        ("Authentication", n) if cobolt_forms::authentication::TEXT_PROPS.contains(&n) => Some((
+            "free text, or empty",
+            "Words the end user reads on the control's screens. Empty (the default) is the control's own text in the application's language — English, Spanish, Portuguese, Japanese, Chinese or French; a value you set is shown as written in every language.",
+        )),
         _ => None,
     };
     specific.or_else(|| property_reference(name))
@@ -8126,7 +8161,7 @@ fn event_reference(name: &str) -> &'static str {
         "onModelChanged" => "AgentObject (spec 076): the model-list entry this agent last used (`ModelEntry`) was changed or withdrawn — by this form or any other in the application; re-read your settings or choose another entry",
         "onToolCall" => "the model called a tool the program declared with `AddTool` — read `ToolCallId` / `ToolName` / `ToolArguments`, answer with `SetToolResult`; a handler that sets nothing sends an empty result",
         "onToolUse" => "the model is using a tool the RUNTIME answers itself — a Knowledge Base search (`ToolKind` = `KnowledgeBase`) or a registered indexed file (`ToolKind` = `IndexedFile`); `ToolName` and `ToolArguments` say which and with what. Raised before the tool runs, while the model is still working — for showing \"searching the Knowledge Base…\"; nothing to answer, the result goes straight to the model",
-        "onError" => "the operation failed (message in `LastError`)",
+        "onError" => "the operation failed (message in `LastError`). Authentication: a sign-in, sign-up or reset failed; the control shows the end user its own generic text, and in a browser the event's argument is the outcome word or HTTP status (`auth-failed`, `rate-limited`, `consent/declined`, `http/403`), never a message",
         "onTimeout" => "the async operation exceeded its timeout; it has been cancelled, and `LastError` says so (\"No answer within N seconds: the call was cancelled.\")",
         "onComplete" => "the async operation finished successfully",
         "onCancelled" => "the async operation was cancelled",
@@ -8169,9 +8204,14 @@ fn event_reference(name: &str) -> &'static str {
         "onInstancesStopped" => "AwsEC2: `Stop` answered — rows `InstanceId`, `State`, `Previous`; `onComplete` follows",
         "onSignedUp" => "AwsCognito: `SignUp` created the user — `Confirmed` says whether a confirmation code is still needed; `onComplete` follows",
         "onConfirmed" => "AwsCognito: `Confirm` accepted the code; `onComplete` follows",
-        "onSignedIn" => "AwsCognito: `SignIn` answered — `SignedIn` is 1 and `UserName` set, or `Challenge` names what Cognito asks for instead; `onComplete` follows",
+        "onSignedIn" => "AwsCognito: `SignIn` answered — `SignedIn` is 1 and `UserName` set, or `Challenge` names what Cognito asks for instead; `onComplete` follows. Authentication: the end user is signed in — `State` is `SignedIn`, `UserName` and `Email` are set, `GetClaim` reads the token's claims; a protected form the user was sent away from opens now",
         "onAttribute" => "AwsCognito: `GetAttribute` answered — `ResponseBody` holds the attribute's value; `onComplete` follows",
-        "onSignedOut" => "AwsCognito: `SignOut` ended the session — `SignedIn` is 0; `onComplete` follows",
+        "onSignedOut" => "AwsCognito: `SignOut` ended the session — `SignedIn` is 0; `onComplete` follows. Authentication: the session ended (`SignOut`, or a refresh the backend refused) — `State` is `SignedOut`; an open form with `RequiresSignIn` gives way to the sign-in form",
+        // WASM-009 — the Authentication control's own events (plan §4).
+        "onSignUpCompleted" => "Authentication: the new account is usable — raised once, after `Confirm` accepted the code, or straight after sign-up when the provider needs no confirmation",
+        "onPasswordResetRequested" => "Authentication: the end user asked to reset a password; the answer is the same whether or not the account exists, so it never tells who has one",
+        "onMfaRequired" => "Authentication: the sign-in needs a second factor; the control shows its code screen (TOTP, SMS or e-mail, naming the masked destination)",
+        "onConsentRequired" => "Authentication, with `RecaptchaConsent = Ask`: a protected action (sign-in, sign-up, forgot password) needs reCAPTCHA and the end user has not consented yet. The action waits: show your consent text, then call `GrantConsent` (it goes on, and Google's script loads only now) or `DenyConsent` (it fails with the generic message)",
         "onKnowledgeBasesListed" => "AwsKnowledgeBase: `ListKnowledgeBases` finished — `RowCount` knowledge bases, each read with `GetField(n, \"Id\")`, `\"Name\"`, `\"Description\"` and `\"Type\"`; `onComplete` follows",
         "onEventRecorded" => "AwsAgentMemory: `RecordEvent` stored the event — `EventId` holds its id. Its primary event; `onComplete` follows",
         "onRetrieved" => "AwsAgentMemory: `Retrieve` answered — `RowCount` records, each read with `GetField(n, \"Text\")`, `\"Score\"`, `\"Id\"` and `\"CreatedAt\"`; `onComplete` follows",
@@ -8272,6 +8312,7 @@ fn control_purpose(name: &str) -> &'static str {
         "AwsTextract" => "Non-visual: reads a document — a local file or an `s3://bucket/key` object: its lines (`DetectText`), its form fields and its table cells (`AnalyzeDocument`), as rows. Read-only.",
         "AwsEC2" => "Non-visual: describes, starts and stops EC2 instances. Starting and stopping need `AllowWrite`.",
         "AwsCognito" => "Non-visual: signs an application's own users up, in and out of a Cognito user pool. The tokens stay inside the runtime: COBOL sees `SignedIn` and `UserName`, never a token. Signing up and confirming need `AllowWrite`.",
+        "Authentication" => "Signs the application's end users in, up and out on a Web or Mobile form, recovers a password and answers a second factor — on its own screens (in-app) or with one button to the identity provider's page (hosted). It works through the backend's `/auth/*` routes, never to the provider from the page; the provider (Cognito, Keycloak, Entra, Entra External ID) is set once, in the backend's `[identity]` settings. Tokens stay in the player: COBOL sees `State`, `UserName`, `Email` and `GetClaim`, never a token.",
         "AwsGlue" => "Non-visual: starts AWS Glue jobs and crawlers, follows a job run's state, and reads a Data Catalog table's columns as rows. Starting anything needs `AllowWrite`.",
         _ => "",
     }
@@ -8786,6 +8827,14 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
             ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
         ],
+        // WASM-009 — the Authentication control's methods (plan §4).
+        "Authentication" => vec![
+            ("SignOut()", "End the session: the token is forgotten at once and the backend revokes the refresh cookie; `onSignedOut`."),
+            ("Refresh()", "Ask the backend for a fresh access token now (the control also refreshes on its own before one expires); a refused refresh signs the user out."),
+            ("GetClaim(name: String) → String", "One claim of the signed-in user's token (`sub`, `email`, `roles` …); empty when absent or nobody is signed in. Inline: `SET WS-SUB TO AUTH-1::GetClaim( \"sub\" )`."),
+            ("GrantConsent()", "The end user consented to reCAPTCHA (`RecaptchaConsent = Ask`): the protected action that waits goes on, and the consent holds for the page's lifetime."),
+            ("DenyConsent()", "The end user declined: the protected action that waits fails with the generic message and `onError` (`consent/declined`)."),
+        ],
         // 051 — the SideMenu's programmatic door to standalone child windows,
         // and (066) the rows a program adds at run time.
         "SideMenu" => vec![
@@ -9051,6 +9100,49 @@ An application whose user types in AWS keys hands them to a connection with `COB
 `AllowWrite` is off by default and every Lambda invocation needs it. A payload or argument that is not valid JSON is refused before anything is sent, with `LastError` naming the argument. A profile that is not signed in fails with `onError` and a `LastError` that names the profile and the `aws login` command (`aws sso login` for an IAM Identity Center profile).\n\
 \n\
 Every argument may be left empty: the control's own property stands in for it (`KnowledgeBaseId`, `RuntimeArn`, `JobName` …), so a form that sets them in the designer calls `Query` with only the question. Answers that list things — passages, records, tables, columns — are rows: `RowCount`, then `GetField(n, name)` with the field names each method documents. A failure the service reports inside its answer (an AgentCore `status: error`, an S3 Tables listing error) raises `onError` with the service's own message, exactly like a refused call.\n",
+        "Authentication" => "\
+### Usage — signing in on a Web or Mobile form\n\
+Drop the control on the form that signs users in. The identity provider is set ONCE, in the backend's `[identity]` section (`backend/backend.toml`; the project's Web settings → Identity page edits it): `provider` (`cognito`, `keycloak`, `entra`, `entra-external`), its settings, `flow`, `origins`, `[identity.recaptcha]` and `cookie_key`. Every secret there is written as `env:NAME` or `file:PATH`, never as the value: Check and Build stop when a known identity secret appears in a form, a copybook or the bundle, naming the file and the setting and never the value.\n\
+\n\
+**The control talks only to the backend.** Its requests are HTTPS `POST`s to the backend's `/auth/*` routes; the backend runs the generated identity programs (`backend/generated/identity/`, `AUTH-SIGN-IN` … `AUTH-CAPABILITIES`, one `COBOL::\"AUTH-OP\"` each) and speaks to the provider. The page never holds a refresh token: it lives in an HttpOnly cookie, and the access token the control keeps is the one `CALL … WITH WEBSOCKET LINKAGE` sends. Failures are generic on purpose: a wrong user name and a wrong password read the same, and a reset request answers the same whether or not the account exists.\n\
+\n\
+**What each provider offers** (`GET /auth/capabilities`; the control shows only what is possible):\n\
+\n\
+| Operation | Cognito | Keycloak | Entra workforce | Entra External ID |\n\
+|---|---|---|---|---|\n\
+| Default flow (`Mode = Auto`) | in-app | hosted | hosted | hosted; in-app with `flow = \"native\"` |\n\
+| Sign in with password | in-app | hosted | hosted | in-app (native) |\n\
+| Sign up, confirm by code | in-app | hosted | hosted | in-app (native) |\n\
+| Forgot / reset password | in-app | hosted | hosted | in-app (native) |\n\
+| New password at first sign-in | in-app | hosted | hosted | hosted |\n\
+| MFA: TOTP | in-app | hosted | hosted | hosted |\n\
+| MFA: SMS / e-mail code | in-app | hosted | hosted | e-mail in-app (native); SMS hosted |\n\
+| MFA enrolment | TOTP in-app | hosted | hosted | hosted |\n\
+| Refresh | yes | yes | yes | yes |\n\
+| Sign-out | revokes | revokes | logout only | logout only |\n\
+| Social / federated sign-in | hosted | hosted | hosted | hosted |\n\
+\n\
+`Mode = InApp` on a provider whose column says hosted is refused by Check, at the control.\n\
+\n\
+**Protecting forms.** A form's `RequiresSignIn` (Properties panel, Web and Mobile forms; `requires-sign-in=\"true\"` in the `.cfrm`) sends a signed-out user to the sign-in form — the one the project's `[web] sign_in_form` names, else the first form holding an Authentication control — and opens the protected form after `onSignedIn`; signing out closes every protected form. Check refuses a protected form when the project has no sign-in form. This is the user's experience only: **the boundary is the backend's token check** — protect the data with the roles of `backend/exports.toml`, never with `RequiresSignIn` alone.\n\
+\n\
+**The page and the backend on the same site.** The refresh cookie is `SameSite=Strict`: when the page's origin (`[identity] origins`) and the backend's address are on different sites (`app.example.com` and `api.example.com` are the same site; `example.com` and `example.net` are not), the browser never sends it, and a session ends when its access token expires. Check warns about each such origin.\n\
+\n\
+**reCAPTCHA and consent.** With `[identity.recaptcha]` set, sign-in, sign-up and forgot password carry a reCAPTCHA v3 token the backend verifies (action, hostname, score). `RecaptchaConsent = Ask` loads Google's script only after consent:\n\
+\n\
+```cobol\n\
+      *> onConsentRequired of AUTH-1: show your own consent text\n\
+           INVOKE PNL-CONSENT \"Show\"\n\
+      *> onClick of BTN-ACCEPT:\n\
+           INVOKE AUTH-1 \"GrantConsent\"\n\
+           INVOKE PNL-CONSENT \"Hide\"\n\
+      *> onClick of BTN-DECLINE:\n\
+           INVOKE AUTH-1 \"DenyConsent\"\n\
+           INVOKE PNL-CONSENT \"Hide\"\n\
+      *> onSignedIn of AUTH-1:\n\
+           MOVE AUTH-1::UserName TO LBL-WELCOME::Caption\n\
+           SET WS-SUB TO AUTH-1::GetClaim( \"sub\" )\n\
+```\n",
         "WebSearch" => "\
 ### Usage — the generated paragraph vs. `INVOKE 'Search'`\n\
 Every `WebSearch` control also gets a generated `<id>-SEARCH` paragraph (`PERFORM SEARCH-1-SEARCH`) that builds a Custom Search URL and calls `COBOL-HTTP-GET` directly — but it does PLAIN, UNENCODED string concatenation: a multi-word `Query` truncates at its first space, and it never includes the API key (so it 401s against the real API on its own). **Use `INVOKE <id> 'Search'` instead** — it percent-encodes the query and resolves the credential-store key automatically; the paragraph exists only as a low-level fallback. Same \"not configured\" contract as Maps: no `google-custom-search` key configured (Settings → Integrations) fails immediately with `onError`, no request sent (R33).\n",
@@ -9250,6 +9342,13 @@ fn controls_reference_doc() -> String {
          dragged SMALLER than the form keeps a form-sized background (the form scrolls \
          inside it) rather than cropping it to the window. The designer canvas and the \
          preview always show the backdrop at the form's own size.\n\n",
+    );
+    // WASM-009 D11.
+    doc.push_str(
+        "On a Web or Mobile form, `RequiresSignIn` (Boolean, default false; `requires-sign-in=\"true\"` in the \
+         form file) sends a signed-out user to the sign-in form first and opens this form after \
+         `onSignedIn`. It is the user's experience only; the backend's token check is the boundary. \
+         See the Authentication control.\n\n",
     );
     doc.push_str("Form events (bind a handler in the designer; `onLoad` / `onClose` are pre-stubbed):\n\n");
     for (group, events) in cobolt_forms::model::FORM_EVENT_GROUPS {

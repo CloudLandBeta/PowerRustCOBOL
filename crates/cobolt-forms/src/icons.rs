@@ -1022,6 +1022,7 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "control-side-menu",
             "control-snackbar",
             "control-viewer",
+            "control-authentication",
             "control-aws-mcp",
             "control-aws-lambda",
             "control-aws-knowledge-base",
@@ -7474,6 +7475,13 @@ fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
             p(&[(14.0, 16.4), (14.0, 18.8)]),
             p(&[(7.6, 12.0), (5.2, 12.0)]),
             p(&[(16.4, 12.0), (18.8, 12.0)]),
+        ],
+        // WASM-009 — a padlock: the shackle, the body and its keyhole.
+        "control-authentication" => vec![
+            p(&[(8.0, 11.0), (8.0, 7.6), (9.2, 5.4), (12.0, 4.4), (14.8, 5.4), (16.0, 7.6), (16.0, 11.0)]),
+            rr(5.0, 11.0, 14.0, 10.0, 2.0),
+            c(12.0, 15.2, 1.5),
+            p(&[(12.0, 16.7), (12.0, 18.6)]),
         ],
         // cognito: a user and a key.
         "control-aws-cognito" => vec![

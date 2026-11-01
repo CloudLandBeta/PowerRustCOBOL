@@ -105,6 +105,12 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::Viewer,
         category: "Common",
     },
+    // WASM-009 — sign-in and the identity flows; Web and Mobile projects only (`offered_to`).
+    ToolEntry {
+        label: "Authentication",
+        ct: ControlType::Authentication,
+        category: "Common",
+    },
     // ── Containers ─────────────────────────────────────────────────────────────
     ToolEntry {
         label: "GroupBox",
@@ -442,10 +448,14 @@ pub struct ToolboxPanel {
     pub project_kind: ProjectKind,
 }
 
-/// Is this control offered to a project of `kind`? Desktop: every control.
-/// Web and Mobile: everything but class D (`cobolt_forms::web_class`).
+/// Is this control offered to a project of `kind`? Desktop: every control but those made for
+/// Web and Mobile only (the Authentication control, WASM-009 R1). Web and Mobile: everything but
+/// class D (`cobolt_forms::web_class`).
 fn offered_to(kind: ProjectKind, ct: &ControlType) -> bool {
-    kind.is_desktop() || cobolt_forms::web_class::available_on_web(ct)
+    if kind.is_desktop() {
+        return !cobolt_forms::web_class::web_and_mobile_only(ct);
+    }
+    cobolt_forms::web_class::available_on_web(ct)
 }
 
 /// A user control follows the rule through what it is made of: it is offered
@@ -966,6 +976,7 @@ fn icon_btn(
                 let tooltip = match entry.ct {
                     ControlType::Animator => "PlayGIF/WebP/APNG files",
                     ControlType::Hyperlink => crate::i18n::current_tr(ui.ctx()).toolbox_hyperlink_tip,
+                    ControlType::Authentication => crate::i18n::current_tr(ui.ctx()).toolbox_authentication_tip,
                     _ => entry.label,
                 };
                 resp.on_hover_text(tooltip);
@@ -1077,6 +1088,24 @@ pub(crate) fn paint_control_icon(
                 egui::FontId::proportional(r * 2.2),
                 color,
             );
+        }
+        // WASM-009 — a padlock: the shackle, the body and its keyhole.
+        ControlType::Authentication => {
+            let body = egui::Rect::from_center_size(Pos2::new(c.x, c.y + r * 0.35), Vec2::new(r * 2.0, r * 1.4));
+            painter.rect_stroke(body, 1.5, s, egui::StrokeKind::Middle);
+            let top = body.top();
+            painter.add(egui::Shape::line(
+                vec![
+                    Pos2::new(c.x - r * 0.6, top),
+                    Pos2::new(c.x - r * 0.6, top - r * 0.55),
+                    Pos2::new(c.x - r * 0.35, top - r * 0.9),
+                    Pos2::new(c.x + r * 0.35, top - r * 0.9),
+                    Pos2::new(c.x + r * 0.6, top - r * 0.55),
+                    Pos2::new(c.x + r * 0.6, top),
+                ],
+                s,
+            ));
+            painter.circle_stroke(Pos2::new(c.x, body.center().y - r * 0.1), r * 0.2, s);
         }
         // WASM-006 — two links of a chain over the underline of link text.
         ControlType::Hyperlink => {
@@ -2104,6 +2133,23 @@ mod snackbar_icon_tests {
 mod palette_coverage_tests {
     use super::*;
 
+    /// WASM-009 R1 — the Authentication control is offered to Web and Mobile projects and not to a
+    /// Desktop one; every other entry is offered exactly as before.
+    #[test]
+    fn the_authentication_entry_is_offered_to_web_and_mobile_only_009() {
+        let has = |k: ProjectKind| tools_for(k).any(|e| e.ct == ControlType::Authentication);
+        assert!(has(ProjectKind::Web) && has(ProjectKind::Mobile));
+        assert!(!has(ProjectKind::Desktop));
+        let desktop = tools_for(ProjectKind::Desktop).count();
+        assert_eq!(desktop, TOOLS.len() - 1, "a desktop project still sees every other entry");
+        for tr in crate::i18n::Language::ALL.iter().map(|l| l.tr()) {
+            for t in [tr.toolbox_authentication_tip, tr.sec_authentication, tr.sec_authentication_texts, tr.form_requires_sign_in] {
+                assert!(!t.trim().is_empty());
+            }
+        }
+        println!("toolbox: web {} entries, mobile {}, desktop {desktop}", tools_for(ProjectKind::Web).count(), tools_for(ProjectKind::Mobile).count());
+    }
+
     /// Spec 058 T5 — `TOOLS` is a plain static list with no test cross-
     /// checking it against the catalogue, so a forgotten entry compiles
     /// clean and the control simply never appears in the Designer palette.
@@ -2546,7 +2592,11 @@ mod project_kind_tests {
     fn a_desktop_project_is_offered_the_whole_catalogue_and_web_and_mobile_lose_only_class_d() {
         let desktop = offered(ProjectKind::Desktop);
         println!("desktop toolbox: {} controls (the catalogue: {})", desktop.len(), TOOLS.len());
-        assert_eq!(desktop.len(), TOOLS.len(), "a Desktop project keeps today's toolbox (R11)");
+        // R11 — a Desktop project keeps today's toolbox; the only entry it lacks is a Web/Mobile-only
+        // one (WASM-009: Authentication).
+        let web_only = TOOLS.iter().filter(|e| cobolt_forms::web_class::web_and_mobile_only(&e.ct)).count();
+        assert_eq!(web_only, 1);
+        assert_eq!(desktop.len(), TOOLS.len() - web_only, "a Desktop project keeps today's toolbox (R11)");
         let class_d: Vec<&str> = TOOLS
             .iter()
             .filter(|e| cobolt_forms::web_class::class_of(&e.ct) == cobolt_forms::web_class::Class::D)
@@ -2556,7 +2606,7 @@ mod project_kind_tests {
             let list = offered(kind);
             let hidden: Vec<&str> = desktop.iter().copied().filter(|l| !list.contains(l)).collect();
             println!("{} toolbox: {} controls, {} hidden {:?}", kind.as_str(), list.len(), hidden.len(), hidden);
-            assert_eq!(list.len(), desktop.len() - class_d.len());
+            assert_eq!(list.len(), TOOLS.len() - class_d.len());
             assert_eq!(hidden, class_d, "exactly the class D controls are hidden");
         }
     }

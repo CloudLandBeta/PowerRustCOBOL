@@ -122,6 +122,7 @@ impl WebBuildRequest {
                     stylesheet: mobile.stylesheet.clone(),
                     theme_file: mobile.theme_file.clone(),
                     preview_browser: mobile.preview_browser.clone(),
+                    sign_in_form: None,
                 };
                 (web, mobile.module_variants())
             }

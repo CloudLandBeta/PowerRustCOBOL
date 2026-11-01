@@ -388,9 +388,9 @@ mod tests {
     #[test]
     fn grid_ids_are_their_own_range() {
         assert!(is_grid_id(ID_BASE) && is_grid_id(u32::MAX));
-        assert!(!is_grid_id(1) && !is_grid_id(0x7fff_ffff) && !is_grid_id(crate::auth::wire::ID_BASE));
-        assert!(!crate::auth::wire::is_auth_id(ID_BASE), "an id of the grids' range is not the Authentication control's");
-        assert!(crate::auth::wire::is_auth_id(ID_BASE - 1));
+        assert!(!is_grid_id(1) && !is_grid_id(0x7fff_ffff) && !is_grid_id(crate::auth::https::ID_BASE));
+        assert!(!crate::auth::https::is_auth_id(ID_BASE), "an id of the grids' range is not the Authentication control's");
+        assert!(crate::auth::https::is_auth_id(ID_BASE - 1));
     }
 
     /// The frames fit the catalogue's layouts — what the generated programs read — and are built as

@@ -85,6 +85,9 @@ pub struct Stats {
 pub struct Options {
     pub sink: Option<Arc<dyn LogSink>>,
     pub fetcher: Option<Arc<dyn JwksFetcher>>,
+    /// How the identity service reaches the provider and reCAPTCHA (WASM-009); a test's mock, or
+    /// `None` for the real HTTPS client.
+    pub identity_http: Option<Arc<dyn crate::identity::client::Http>>,
 }
 
 pub(crate) struct Shared {
@@ -102,6 +105,8 @@ pub(crate) struct Shared {
     pub shutdown: watch::Receiver<bool>,
     pub idem: idem::Store,
     pub files: Arc<FileStore>,
+    /// The `/auth/*` routes, when `backend.toml` has an `[identity]` section (WASM-009 D5).
+    pub auth: Option<Arc<crate::identity::routes::AuthRoutes>>,
 }
 
 /// A running server.
@@ -182,7 +187,17 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         missing.sort();
         return Err(missing.join("\n"));
     }
+    // `[identity]` without `[auth] issuer`: the issuer and the key address are the provider's
+    // metadata's (WASM-009 D3); a provider that cannot be read stops the start, not the first sign-in.
+    let mut cfg = cfg;
+    let fetcher: Arc<dyn JwksFetcher> = options.fetcher.clone().unwrap_or_else(|| Arc::new(HttpFetcher));
+    cfg.discover(fetcher.as_ref())?;
     let cfg = Arc::new(cfg);
+    let backend = Arc::new(backend);
+    let auth = match &cfg.identity {
+        Some(identity) => Some(Arc::new(identity_routes(&cfg, identity, &backend, options.identity_http.clone())?)),
+        None => None,
+    };
     let sink: Arc<dyn LogSink> = options.sink.unwrap_or_else(|| Arc::new(StdoutSink));
     let tls = match &cfg.tls {
         Some(src) => Some(crate::tlsutil::acceptor(src)?),
@@ -192,8 +207,7 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         None
     } else {
         let uri = cfg.auth.jwks_uri.clone().ok_or("no key address")?;
-        let fetcher = options.fetcher.unwrap_or_else(|| Arc::new(HttpFetcher));
-        Some(Arc::new(Jwks::new(uri, cfg.auth.jwks_ttl, cfg.auth.jwks_min_refresh, fetcher)))
+        Some(Arc::new(Jwks::new(uri, cfg.auth.jwks_ttl, cfg.auth.jwks_min_refresh, fetcher.clone())))
     };
     let validator = Arc::new(TokenValidator::new(cfg.auth.clone(), jwks.clone(), cfg.dev_token_secret.as_ref().map(|s| s.expose().to_owned())));
     let (stop_tx, stop_rx) = watch::channel(false);
@@ -204,7 +218,7 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         next_call: AtomicU64::new(1),
         stats: Stats::default(),
         cfg: cfg.clone(),
-        backend: Arc::new(backend),
+        backend,
         validator,
         sink,
         tls,
@@ -212,6 +226,7 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         shutdown: stop_rx,
         idem: idem::Store::new(Duration::from_secs(cfg.limits.idempotency_ttl), cfg.limits.idempotency_max_entries),
         files: Arc::new(FileStore::new(&files_cfg)),
+        auth,
     });
 
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(SocketAddr, Option<SocketAddr>), String>>();
@@ -232,6 +247,33 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         .map_err(|e| format!("thread: {e}"))?;
     let (addr, health_addr) = ready_rx.recv().map_err(|_| "the server thread ended before listening".to_string())??;
     Ok(ServerHandle { addr, health_addr, shared, stop: stop_tx, thread: Some(thread) })
+}
+
+/// The `/auth/*` routes of `[identity]`: its adapter and service, running the identity programs the
+/// Build generated. A section without those programs stops the start, not the first sign-in.
+fn identity_routes(
+    cfg: &Resolved,
+    identity: &crate::config::ResolvedIdentity,
+    backend: &Arc<Backend>,
+    http: Option<Arc<dyn crate::identity::client::Http>>,
+) -> Result<crate::identity::routes::AuthRoutes, String> {
+    use crate::identity::{self, routes};
+    let missing: Vec<String> = crate::identity::ops::OPERATIONS
+        .iter()
+        .map(|op| format!("AUTH-{op}"))
+        .filter(|program| backend.identity_program(program).is_none())
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "backend.toml has an [identity] section, but backend/generated/identity/ lacks the identity programs {}: build the project, which generates them",
+            missing.join(", ")
+        ));
+    }
+    let http = http.unwrap_or_else(|| Arc::new(identity::client::UreqHttp));
+    let provider = identity::adapter(identity, cfg.discovery.as_ref(), http.clone())?;
+    let service = Arc::new(identity::service(identity, provider, http)?);
+    let run = routes::cobol_runner(backend.clone(), service.clone(), Duration::from_millis(cfg.limits.file_lock_wait_ms));
+    Ok(routes::AuthRoutes::new(service, run, identity.origins.clone()))
 }
 
 async fn run(shared: Arc<Shared>, ready: std::sync::mpsc::Sender<Result<(SocketAddr, Option<SocketAddr>), String>>) {
@@ -388,6 +430,8 @@ fn front_router(ctx: ConnCtx) -> Router {
         .route(crate::front::HEALTH_PATH, any(health))
         .leptos_routes_with_handler(crate::front::listings(&crate::front::UPGRADE_PATHS), upgrade)
         .leptos_routes_with_handler(crate::front::listings(&[crate::front::DOWNLOAD_PATH]), download)
+        .route(crate::front::AUTH_PATHS[0], any(auth))
+        .route(crate::front::AUTH_PATHS[1], any(auth))
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .layer(axum::middleware::map_response(security_headers))
@@ -488,6 +532,47 @@ async fn upgrade(State(c): State<ConnCtx>, mut req: Request) -> Response {
     rh.insert(header::CONNECTION, HeaderValue::from_static("Upgrade"));
     if let Ok(v) = HeaderValue::from_str(&accept) {
         rh.insert(header::SEC_WEBSOCKET_ACCEPT, v);
+    }
+    res
+}
+
+/// `/auth/*` (WASM-009 D5): the request is read (its body under [`http::MAX_BODY`]) and answered by
+/// [`crate::identity::routes::AuthRoutes`] on a worker thread, because the identity program runs
+/// there and a guarded answer waits out its pad. Without `[identity]` the routes do not exist.
+async fn auth(State(c): State<ConnCtx>, req: Request) -> Response {
+    let Some(routes) = c.shared.auth.clone() else { return plain(StatusCode::NOT_FOUND, "not found") };
+    let (parts, body) = req.into_parts();
+    let body = match http::read_body(&parts.headers, body, http::MAX_BODY).await {
+        Ok(b) => b,
+        Err(http::BodyError::TooLarge) => return plain(StatusCode::PAYLOAD_TOO_LARGE, "the request is too large"),
+        Err(http::BodyError::Broken) => return plain(StatusCode::BAD_REQUEST, "the request broke off"),
+    };
+    let request = crate::identity::routes::AuthRequest {
+        method: parts.method.as_str().to_owned(),
+        route: parts.uri.path().strip_prefix("/auth/").unwrap_or("").to_owned(),
+        query: parts.uri.query().unwrap_or("").to_owned(),
+        headers: parts.headers.iter().filter_map(|(k, v)| v.to_str().ok().map(|v| (k.as_str().to_owned(), v.to_owned()))).collect(),
+        body,
+        peer_ip: c.peer.ip().to_string(),
+        host: parts.headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("").to_owned(),
+        secure: c.shared.tls.is_some(),
+    };
+    let (method, route) = (request.method.clone(), request.route.clone());
+    let answer = match tokio::task::spawn_blocking(move || routes.handle(&request)).await {
+        Ok(a) => a,
+        Err(_) => return plain(StatusCode::INTERNAL_SERVER_ERROR, "the identity request failed"),
+    };
+    // The route and the status only: never a header, a body or a query of an identity request.
+    let mut r = LogRecord::new("auth");
+    r.connection = Some(c.conn_id);
+    r.note = Some(format!("{method} /auth/{route} {}", answer.status));
+    c.shared.sink.emit(&r);
+    let mut res = Response::new(Body::from(answer.body));
+    *res.status_mut() = StatusCode::from_u16(answer.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    for (k, v) in &answer.headers {
+        if let (Ok(k), Ok(v)) = (header::HeaderName::from_bytes(k.as_bytes()), HeaderValue::from_str(v)) {
+            res.headers_mut().append(k, v);
+        }
     }
     res
 }
@@ -1211,6 +1296,8 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
             emit: None,
             files,
             configurations,
+            // The identity programs are not WebSocket exports (WASM-009 D4).
+            identity: None,
         };
         let args2 = arg_texts.clone();
         let mode = if session.is_some() { StateMode::PerConnection } else { StateMode::PerCall };
@@ -1461,6 +1548,7 @@ async fn on_subscribe(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<M
             emit: Some(emit),
             files,
             configurations: shared.cfg.configurations.clone(),
+            identity: None,
         };
         let prog2 = prog.clone();
         let outcome = tokio::task::spawn_blocking(move || exec::execute(&prog2, &arg_texts, opts)).await;

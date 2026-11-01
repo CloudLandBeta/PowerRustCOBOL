@@ -646,20 +646,39 @@ impl FormTree {
 
     /// Make the state of every Authentication control from its properties. `flow` and `site_key`
     /// are the page's settings, for what a control leaves open; `session` is the application's
-    /// (a form opened while the user is signed in shows it).
-    pub fn init_auth(&mut self, flow: crate::auth::Flow, site_key: &str, session: &crate::auth::Session) {
-        let ids: Vec<usize> = (0..self.ctls.len()).filter(|&i| crate::kinds::player_kind(&self.ctls[i]) == Some(crate::kinds::PlayerKind::Authentication)).collect();
+    /// (a form opened while the user is signed in shows it). `locale` is the language of the
+    /// defaults; `consent` whether reCAPTCHA consent was already given on this page (D10).
+    pub fn init_auth(&mut self, flow: crate::auth::Flow, site_key: &str, session: &crate::auth::Session, locale: &str, consent: bool) {
+        let ids: Vec<usize> = (0..self.ctls.len()).filter(|&i| crate::kinds::is_authentication(&self.ctls[i])).collect();
         for i in ids {
             let cfg = {
                 let this = &*self;
-                crate::auth::config_from(&|p| this.get(i, p), flow, site_key)
+                crate::auth::config_from(&|p| this.get(i, p), flow, site_key, locale)
             };
             let mut ui = crate::auth::AuthUi::new(cfg);
+            ui.locale = locale.to_owned();
+            ui.machine.consent_given = consent;
             if session.is_signed_in() {
                 ui.machine.adopt(session);
             }
             self.auths.insert(i, ui);
             self.sync_auth_props(i);
+        }
+    }
+
+    /// The application's language changed: the defaults the Authentication controls show follow it
+    /// (D12); what the developer wrote does not change.
+    pub fn relocale_auth(&mut self, locale: &str) {
+        let ids: Vec<usize> = self.auths.keys().copied().collect();
+        for i in ids {
+            let texts = {
+                let this = &*self;
+                crate::auth::Texts::read(&|p| this.get(i, p), locale)
+            };
+            if let Some(ui) = self.auth_mut(i) {
+                ui.locale = locale.to_owned();
+                ui.machine.cfg.texts = texts;
+            }
         }
     }
 

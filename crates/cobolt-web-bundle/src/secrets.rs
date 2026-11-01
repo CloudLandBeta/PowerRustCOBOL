@@ -180,6 +180,11 @@ fn secret_property(line: &str) -> bool {
     if name.ends_with("name") || name.ends_with("file") || name.ends_with("enabled") || name.ends_with("type") || name.ends_with("character") || name.ends_with("length") {
         return false;
     }
+    // Words shown to the user about a secret, not the secret: the Authentication control's
+    // `PasswordLabel`, `ForgotPasswordLink`, … (WASM-009 D14).
+    if ["label", "caption", "text", "link"].iter().any(|w| name.ends_with(w)) {
+        return false;
+    }
     let tail = &after[q + 1..];
     let value = if let Some(g) = tail.strip_prefix('>') {
         g.split('<').next().unwrap_or("")
@@ -247,6 +252,52 @@ pub fn scan_text(file: &str, text: &str, entropy_len: usize) -> Vec<Finding> {
                     push("high-entropy string", Severity::Warning);
                     break;
                 }
+            }
+        }
+    }
+    out
+}
+
+/// The shortest value the exact-value scan searches for: a shorter one would be found in ordinary text.
+pub const MIN_EXACT_VALUE: usize = 8;
+
+/// Secrets the Build knows by value, `(setting, value)` (WASM-009 D14): the backend's `[identity]`
+/// secrets as they resolve on the building machine. Its `Debug` names the settings only.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct KnownSecrets(pub Vec<(String, String)>);
+
+impl std::fmt::Debug for KnownSecrets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.iter().map(|(n, _)| n)).finish()
+    }
+}
+
+/// A known secret found by its value: where, and which setting it is — never the value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueFinding {
+    pub file: String,
+    pub line: usize,
+    pub setting: String,
+}
+
+impl std::fmt::Display for ValueFinding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: line {}: the value of {} (backend.toml) is written here; the value is not shown", self.file, self.line, self.setting)
+    }
+}
+
+/// Every line of `text` that holds one of `known`'s values. A value shorter than
+/// [`MIN_EXACT_VALUE`] is not searched for. This finds what a pattern cannot: a reCAPTCHA secret
+/// and its public site key share a shape (`6L…`).
+pub fn scan_values(file: &str, text: &str, known: &KnownSecrets) -> Vec<ValueFinding> {
+    let mut out = Vec::new();
+    for (setting, value) in &known.0 {
+        if value.len() < MIN_EXACT_VALUE {
+            continue;
+        }
+        for (i, line) in text.lines().enumerate() {
+            if line.contains(value.as_str()) {
+                out.push(ValueFinding { file: file.to_owned(), line: i + 1, setting: setting.clone() });
             }
         }
     }
@@ -371,6 +422,33 @@ mod tests {
             assert!(found.iter().any(|f| f.severity == Severity::Error), "{file}: {found:?}");
             println!("{file}: {} finding(s), first: {}", found.len(), found[0]);
         }
+    }
+
+    /// WASM-009 D14: the Authentication control's own words about a password are not secrets.
+    #[test]
+    fn a_label_caption_text_or_link_named_after_a_secret_is_not_a_finding() {
+        for ok in [
+            "<Property name=\"PasswordLabel\">Senha</Property>",
+            "<Property name=\"NewPasswordCaption\">New password</Property>",
+            "<Property name=\"ForgotPasswordLink\">Forgot your password?</Property>",
+            "<Property name=\"TokenText\">Code</Property>",
+        ] {
+            assert!(errors("f.wcfrm", ok).is_empty(), "{ok}");
+        }
+        assert_eq!(errors("f.wcfrm", "<Property name=\"Password\">Senha</Property>"), ["a property named like a secret holds a value"]);
+    }
+
+    /// WASM-009 D14: a known value is found by file, line and setting, and never shown; a short one is not searched for.
+    #[test]
+    fn a_known_secret_is_found_by_its_value_and_named_by_its_setting() {
+        let value = format!("6Lc{}", "-a-recaptcha-secret");
+        let known = KnownSecrets(vec![("identity.recaptcha.secret".into(), value.clone()), ("identity.cookie_key".into(), "short".into())]);
+        let text = format!("<Property name=\"Hint\">x</Property>\nconst k = '{value}'; short");
+        let found = scan_values("app.js", &text, &known);
+        assert_eq!(found, vec![ValueFinding { file: "app.js".into(), line: 2, setting: "identity.recaptcha.secret".into() }]);
+        let shown = found[0].to_string();
+        assert!(shown.contains("app.js: line 2") && shown.contains("identity.recaptcha.secret") && !shown.contains(&value), "{shown}");
+        assert!(!format!("{known:?}").contains(&value));
     }
 
     #[test]

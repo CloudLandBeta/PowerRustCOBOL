@@ -194,23 +194,48 @@ pub struct UploadSlot {
 }
 
 /// The identity backend (WASM-009): which provider the generated public programs talk to.
+///
+/// ```toml
+/// [identity]
+/// provider = "cognito"                 # cognito | keycloak | entra | entra-external
+/// flow = "auto"                        # auto | in-app | hosted | native (entra-external only)
+/// origins = ["https://app.example.com"]
+/// cookie_key = "env:PR_COOKIE_KEY"     # 32 bytes, base64 or hex; never a literal in release
+/// [identity.settings]
+/// region = "eu-west-1"
+/// user_pool_id = "eu-west-1_AbCdEf123"
+/// client_id = "1example23456789"
+/// client_secret = "env:COGNITO_CLIENT_SECRET"
+/// [identity.recaptcha]
+/// site_key = "6Lc…"                    # public: Build copies it into the page
+/// secret = "env:RECAPTCHA_SECRET"
+/// ```
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IdentitySection {
     pub provider: String,
-    /// `in-app` or `hosted`; default per provider (WASM-009 R8b).
+    /// `auto` (the provider's own flow, the default), `in-app`, `hosted`, or `native` (WASM-009 R8b).
     pub flow: Option<String>,
-    /// Provider settings: region/pool/realm/tenant, client id, client secret (`env:`), and so on.
+    /// Provider settings: region/pool/realm/tenant, client id, client secret (`env:`), and so on
+    /// ([`provider_settings`] lists them per provider).
     #[serde(default)]
     pub settings: std::collections::BTreeMap<String, String>,
     pub recaptcha: Option<RecaptchaSection>,
-    /// Sign-in/sign-up/reset attempts allowed per source address per minute.
+    /// Sign-in/sign-up/reset attempts allowed per source address, and per account, per minute.
     pub attempts_per_minute: Option<u32>,
+    /// The page origins the `/auth/*` routes answer (CORS with credentials, D5). Default: `server.allowed_origins`.
+    #[serde(default)]
+    pub origins: Vec<String>,
+    /// The key that seals the refresh cookie and the hosted-flow cookie (D7): `env:NAME` or `file:PATH`.
+    pub cookie_key: Option<Secret>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecaptchaSection {
+    /// The public site key. Build copies it into the page (`BundleOptions.recaptcha_site_key`) and
+    /// `/auth/capabilities` serves it, so one setting turns both halves on (D9).
+    pub site_key: Option<String>,
     /// The secret key: `env:NAME` or `file:PATH`; never in a form.
     pub secret: Secret,
     /// Refuse a score below this (default 0.5).
@@ -220,6 +245,117 @@ pub struct RecaptchaSection {
     pub hostnames: Vec<String>,
     /// Override the verification endpoint (tests; default Google's).
     pub endpoint: Option<String>,
+}
+
+// The providers' vocabulary lives in `identity_settings` (the `loader` level), so the IDE's Identity
+// page reads the same table the backend checks.
+pub use crate::identity_settings::{is_secret_reference, provider_settings, resolve_secret, IdentityFlow, Provider};
+
+impl Provider {
+    /// The token conventions of its access tokens.
+    pub fn profile(self) -> Profile {
+        match self {
+            Provider::Cognito => Profile::Cognito,
+            Provider::Keycloak => Profile::Keycloak,
+            Provider::Entra | Provider::EntraExternal => Profile::Entra,
+        }
+    }
+}
+
+/// `[identity]` with its rules checked and its secrets read.
+#[derive(Debug, Clone)]
+pub struct ResolvedIdentity {
+    pub provider: Provider,
+    pub flow: IdentityFlow,
+    /// The provider's settings that are not secrets, by name.
+    pub settings: std::collections::BTreeMap<String, String>,
+    pub client_id: String,
+    pub client_secret: Option<Secret>,
+    pub origins: Vec<String>,
+    /// 32 bytes.
+    pub cookie_key: Secret,
+    pub recaptcha: Option<ResolvedRecaptcha>,
+    pub attempts_per_minute: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedRecaptcha {
+    pub site_key: Option<String>,
+    pub secret: Secret,
+    pub min_score: f64,
+    pub hostnames: Vec<String>,
+    pub endpoint: Option<String>,
+}
+
+impl ResolvedIdentity {
+    fn setting(&self, name: &str) -> &str {
+        self.settings.get(name).map(String::as_str).unwrap_or("")
+    }
+
+    /// The OpenID authority: the issuer for Cognito and Keycloak, the tenant's base for Entra.
+    pub fn authority(&self) -> String {
+        match self.provider {
+            Provider::Cognito => format!("https://cognito-idp.{}.amazonaws.com/{}", self.setting("region"), self.setting("user_pool_id")),
+            Provider::Keycloak => self.setting("issuer").trim_end_matches('/').to_owned(),
+            Provider::Entra => match self.settings.get("authority") {
+                Some(a) => a.trim_end_matches('/').to_owned(),
+                None => format!("https://login.microsoftonline.com/{}", self.setting("tenant")),
+            },
+            Provider::EntraExternal => match self.settings.get("authority") {
+                Some(a) => a.trim_end_matches('/').to_owned(),
+                None => {
+                    let s = self.setting("tenant_subdomain");
+                    format!("https://{s}.ciamlogin.com/{s}.onmicrosoft.com")
+                }
+            },
+        }
+    }
+
+    /// Where the provider's OpenID metadata is.
+    pub fn discovery_uri(&self) -> String {
+        match self.provider {
+            Provider::Cognito | Provider::Keycloak => format!("{}/.well-known/openid-configuration", self.authority()),
+            Provider::Entra | Provider::EntraExternal => format!("{}/v2.0/.well-known/openid-configuration", self.authority()),
+        }
+    }
+
+    /// Is `issuer`, as the metadata reports it, this provider's? Cognito and Keycloak name it
+    /// exactly; Entra names the tenant by its id, which the settings may give by domain, so the
+    /// issuer must be on Microsoft's sign-in host for the cloud the authority names.
+    pub fn issuer_matches(&self, issuer: &str) -> bool {
+        let issuer = issuer.trim_end_matches('/');
+        match self.provider {
+            Provider::Cognito | Provider::Keycloak => issuer == self.authority(),
+            Provider::Entra => {
+                let host = |u: &str| u.strip_prefix("https://").and_then(|r| r.split('/').next()).map(str::to_ascii_lowercase);
+                issuer.ends_with("/v2.0") && host(issuer).is_some() && host(issuer) == host(&self.authority())
+            }
+            Provider::EntraExternal => {
+                let host = issuer.strip_prefix("https://").and_then(|r| r.split('/').next()).unwrap_or("").to_ascii_lowercase();
+                issuer.ends_with("/v2.0") && (host.ends_with(".ciamlogin.com") || self.settings.contains_key("authority"))
+            }
+        }
+    }
+}
+
+/// The 32-byte sealing key of `cookie_key` (D7): base64 (standard or URL-safe, padded or not) or 64 hex digits.
+pub fn cookie_key_bytes(text: &str) -> Result<[u8; 32], String> {
+    use base64::Engine;
+    let t = text.trim();
+    let decoded = if t.len() == 64 && t.chars().all(|c| c.is_ascii_hexdigit()) {
+        (0..32).map(|i| u8::from_str_radix(&t[2 * i..2 * i + 2], 16).map_err(|e| e.to_string())).collect::<Result<Vec<u8>, String>>()
+    } else {
+        let e = base64::engine::general_purpose::STANDARD.decode(t).or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(t));
+        e.or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(t)).or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(t)).map_err(|_| "not base64 or hex".to_string())
+    }?;
+    decoded.try_into().map_err(|v: Vec<u8>| format!("{} bytes, not 32", v.len()))
+}
+
+/// An origin as CORS compares it: `https://host[:port]`, or `http://` on loopback; no path.
+fn origin_ok(o: &str) -> bool {
+    let rest = o.strip_prefix("https://").or_else(|| o.strip_prefix("http://"));
+    let Some(rest) = rest else { return false };
+    !rest.is_empty() && !rest.contains('/') && !rest.contains('*') && (o.starts_with("https://") || crate::jwks::address_allowed(o))
 }
 
 /// A named configuration of a web form's control (WASM-005 T11, operator
@@ -328,7 +464,158 @@ impl std::fmt::Debug for IdentitySection {
             .field("settings", &self.settings.keys().collect::<Vec<_>>())
             .field("recaptcha", &self.recaptcha)
             .field("attempts_per_minute", &self.attempts_per_minute)
+            .field("origins", &self.origins)
+            .field("cookie_key", &self.cookie_key)
             .finish()
+    }
+}
+
+impl IdentitySection {
+    /// Check `[identity]` and read its secrets (WASM-009 D3, D7, D13). A literal secret stops a
+    /// release start, as an `unsafe_*` setting does, and warns in development.
+    fn resolve(&self, mode: RunMode, default_origins: &[String], errs: &mut Vec<String>, warnings: &mut Vec<String>) -> Option<ResolvedIdentity> {
+        let at = errs.len();
+        let provider = Provider::parse(&self.provider);
+        if provider.is_none() {
+            errs.push(format!("identity.provider \"{}\" is not one of cognito, keycloak, entra, entra-external", self.provider));
+        }
+        let flow_word = self.flow.as_deref().unwrap_or("auto").trim().to_ascii_lowercase();
+        let flow = match flow_word.as_str() {
+            "auto" => provider.map(Provider::default_flow),
+            "in-app" | "inapp" => Some(IdentityFlow::InApp),
+            "hosted" => Some(IdentityFlow::Hosted),
+            "native" => Some(IdentityFlow::Native),
+            other => {
+                errs.push(format!("identity.flow \"{other}\" is not one of auto, in-app, hosted, native"));
+                None
+            }
+        };
+        // A literal secret: refused in release, a warning in development.
+        let mut literal = |name: &str, spec: &str, errs: &mut Vec<String>| {
+            if !is_secret_reference(spec) {
+                match mode {
+                    RunMode::Release => errs.push(format!("{name} is written in backend.toml: give it as env:NAME or file:PATH (the file is committed; WASM-009 R9)")),
+                    RunMode::Development => warnings.push(format!("{name} is written in backend.toml — for development only; a release build refuses it (use env:NAME or file:PATH)")),
+                }
+            }
+        };
+        let mut settings = std::collections::BTreeMap::new();
+        let mut client_secret = None;
+        if let (Some(p), Some(f)) = (provider, flow) {
+            let known = provider_settings(p);
+            for (k, v) in &self.settings {
+                match known.iter().find(|(n, _, _)| n == k) {
+                    None => errs.push(format!("identity.settings.{k} is not a {} setting (known: {})", p.word(), known.iter().map(|(n, _, _)| *n).collect::<Vec<_>>().join(", "))),
+                    Some((_, _, true)) => {
+                        literal(&format!("identity.settings.{k}"), v, errs);
+                        match resolve_secret(v) {
+                            Ok(s) if !s.is_empty() => client_secret = Some(Secret::new(s)),
+                            Ok(_) => errs.push(format!("identity.settings.{k} is empty")),
+                            Err(e) => errs.push(format!("identity.settings.{k}: {e}")),
+                        }
+                    }
+                    Some(_) => {
+                        settings.insert(k.clone(), v.trim().to_owned());
+                    }
+                }
+            }
+            for (n, required, _) in known {
+                if *required && self.settings.get(*n).is_none_or(|v| v.trim().is_empty()) {
+                    errs.push(format!("identity.settings.{n} is required for provider {}", p.word()));
+                }
+            }
+            match (p, f) {
+                (Provider::Keycloak | Provider::Entra, IdentityFlow::InApp | IdentityFlow::Native) => errs.push(format!(
+                    "identity.flow {} is not available for {}: its sign-in is the provider's page (hosted); see the capability table",
+                    f.word(),
+                    p.word()
+                )),
+                (Provider::Cognito, IdentityFlow::Native) => errs.push("identity.flow native is Entra External ID's API; Cognito's in-app flow is in-app".to_string()),
+                (Provider::Cognito, IdentityFlow::Hosted) if !settings.contains_key("domain") => {
+                    errs.push("identity.flow hosted for cognito needs identity.settings.domain (the managed login's domain)".to_string())
+                }
+                _ => {}
+            }
+            for (k, v) in &settings {
+                if matches!(k.as_str(), "issuer" | "domain" | "authority" | "endpoint") && !(v.starts_with("https://") || crate::jwks::address_allowed(v)) {
+                    errs.push(format!("identity.settings.{k} \"{v}\" must be an https:// address (http:// only for loopback)"));
+                }
+            }
+        }
+        // The sealing key: required, never a plaintext fallback (D7).
+        let cookie_key = match &self.cookie_key {
+            None => {
+                errs.push("identity.cookie_key is missing: the refresh cookie is sealed with it and there is no unsealed fallback (WASM-009 D7); set it to env:NAME or file:PATH holding 32 random bytes (base64 or hex)".to_string());
+                None
+            }
+            Some(spec) => {
+                literal("identity.cookie_key", spec.expose(), errs);
+                match resolve_secret(spec.expose()).and_then(|t| cookie_key_bytes(&t).map(|_| t).map_err(|e| format!("not a 32-byte key ({e})"))) {
+                    Ok(t) => Some(Secret::new(t)),
+                    Err(e) => {
+                        errs.push(format!("identity.cookie_key: {e}"));
+                        None
+                    }
+                }
+            }
+        };
+        let origins = if self.origins.is_empty() { default_origins.to_vec() } else { self.origins.clone() };
+        for o in &origins {
+            if !origin_ok(o) {
+                errs.push(format!("identity.origins: \"{o}\" is not an origin (https://host[:port], or http:// on loopback; no path, no *)"));
+            }
+        }
+        if origins.is_empty() && mode == RunMode::Release {
+            errs.push("identity.origins is empty (and so is server.allowed_origins): no page could sign in".to_string());
+        }
+        let recaptcha = self.recaptcha.as_ref().and_then(|r| {
+            literal("identity.recaptcha.secret", r.secret.expose(), errs);
+            let min_score = r.min_score.unwrap_or(0.5);
+            if !(0.0..=1.0).contains(&min_score) {
+                errs.push(format!("identity.recaptcha.min_score {min_score} is not between 0.0 and 1.0"));
+            }
+            if let Some(e) = &r.endpoint {
+                if !(e.starts_with("https://") || crate::jwks::address_allowed(e)) {
+                    errs.push(format!("identity.recaptcha.endpoint \"{e}\" must be an https:// address (http:// only for loopback)"));
+                }
+            }
+            match resolve_secret(r.secret.expose()) {
+                Ok(s) if !s.is_empty() => Some(ResolvedRecaptcha {
+                    site_key: r.site_key.as_ref().map(|k| k.trim().to_owned()).filter(|k| !k.is_empty()),
+                    secret: Secret::new(s),
+                    min_score,
+                    hostnames: r.hostnames.clone(),
+                    endpoint: r.endpoint.clone(),
+                }),
+                Ok(_) => {
+                    errs.push("identity.recaptcha.secret is empty".to_string());
+                    None
+                }
+                Err(e) => {
+                    errs.push(format!("identity.recaptcha.secret: {e}"));
+                    None
+                }
+            }
+        });
+        let attempts_per_minute = self.attempts_per_minute.unwrap_or(10);
+        if attempts_per_minute == 0 {
+            errs.push("identity.attempts_per_minute is 0: nobody could sign in".to_string());
+        }
+        if errs.len() > at {
+            return None;
+        }
+        let client_id = settings.get("client_id").cloned().unwrap_or_default();
+        Some(ResolvedIdentity {
+            provider: provider?,
+            flow: flow?,
+            settings,
+            client_id,
+            client_secret,
+            origins,
+            cookie_key: cookie_key?,
+            recaptcha,
+            attempts_per_minute,
+        })
     }
 }
 
@@ -345,7 +632,13 @@ pub struct Resolved {
     pub auth: ResolvedAuth,
     pub limits: Limits,
     pub files: FilesResolved,
-    pub identity: Option<IdentitySection>,
+    pub identity: Option<ResolvedIdentity>,
+    /// `[auth]` is to be filled from the provider's metadata at start ([`Resolved::discover`]): the
+    /// configuration has `[identity]` and no `[auth] issuer` (WASM-009 D3, C7).
+    pub auth_from_identity: bool,
+    /// The provider's metadata, read at start ([`Resolved::discover`]) when `[auth]` is left to
+    /// `[identity]` or the adapter needs the provider's endpoints (Keycloak, Entra).
+    pub discovery: Option<Discovery>,
     pub dev_token_secret: Option<Secret>,
     /// The controls' named configurations, read (WASM-005 T11).
     pub configurations: std::sync::Arc<Configurations>,
@@ -410,17 +703,6 @@ pub struct FilesResolved {
     pub max_upload_bytes: u64,
     pub slots: Vec<UploadSlot>,
     pub download_ttl: u64,
-}
-
-/// Read a secret given as `env:NAME`, `file:PATH` or a literal.
-pub fn resolve_secret(spec: &str) -> Result<String, String> {
-    if let Some(name) = spec.strip_prefix("env:") {
-        std::env::var(name).map_err(|_| format!("the environment variable {name} is not set"))
-    } else if let Some(path) = spec.strip_prefix("file:") {
-        std::fs::read_to_string(path).map(|s| s.trim().to_string()).map_err(|e| format!("cannot read the secret file {path}: {e}"))
-    } else {
-        Ok(spec.to_string())
-    }
 }
 
 impl ServerConfig {
@@ -562,7 +844,10 @@ impl ServerConfig {
         if leeway > 300 {
             errs.push(format!("auth.leeway_seconds {leeway} is over 300: clock skew is bounded"));
         }
-        if self.auth.issuer.is_empty() && self.unsafe_dev_token_secret.is_none() {
+        // `[identity]` without `[auth] issuer`: the issuer and its keys come from the provider's
+        // metadata at start (WASM-009 D3); an explicit `[auth]` wins.
+        let auth_from_identity = self.identity.is_some() && self.auth.issuer.is_empty();
+        if self.auth.issuer.is_empty() && self.unsafe_dev_token_secret.is_none() && !auth_from_identity {
             errs.push("auth.issuer is empty: with no issuer no token can be accepted, and only programs declared public would answer".to_string());
         }
         for i in &self.auth.issuer {
@@ -622,11 +907,25 @@ impl ServerConfig {
         };
 
         let configurations = Configurations::resolve(&self.configurations, &mut errs);
+        let identity = self.identity.as_ref().and_then(|i| i.resolve(mode, &self.server.allowed_origins, &mut errs, &mut warnings));
 
         if !errs.is_empty() {
             return Err(errs);
         }
         let jwks_uri = self.auth.jwks_uri.clone().or_else(|| self.auth.issuer.first().map(|i| format!("{}/.well-known/jwks.json", i.trim_end_matches('/'))));
+        // Derived from `[identity]`: the profile, and the client ids / audiences, now; the issuer
+        // and the key address when the metadata is read.
+        let (profile, client_ids, audiences) = match (&identity, auth_from_identity) {
+            (Some(i), true) => {
+                let audience = i.settings.get("audience").cloned();
+                let audiences = match i.provider {
+                    Provider::Entra | Provider::EntraExternal => vec![audience.unwrap_or_else(|| i.client_id.clone())],
+                    _ => audience.into_iter().collect(),
+                };
+                (i.provider.profile(), vec![i.client_id.clone()], audiences)
+            }
+            _ => (self.auth.profile, self.auth.client_ids.clone(), self.auth.audiences.clone()),
+        };
         Ok(Resolved {
             name: self.server.name.clone().unwrap_or_else(|| "prc-backend".to_string()),
             listen: listen.expect("checked"),
@@ -636,11 +935,11 @@ impl ServerConfig {
             allow_missing_origin: self.server.allow_missing_origin,
             allow_any_origin: self.unsafe_allow_any_origin,
             auth: ResolvedAuth {
-                profile: self.auth.profile,
+                profile,
                 issuers: self.auth.issuer.clone(),
                 jwks_uri,
-                audiences: self.auth.audiences.clone(),
-                client_ids: self.auth.client_ids.clone(),
+                audiences,
+                client_ids,
                 algorithms,
                 leeway,
                 jwks_ttl: self.auth.jwks_ttl_seconds.unwrap_or(3600),
@@ -649,10 +948,76 @@ impl ServerConfig {
             },
             limits,
             files,
-            identity: self.identity.clone(),
+            identity,
+            auth_from_identity,
+            discovery: None,
             dev_token_secret,
             configurations: std::sync::Arc::new(configurations),
             warnings,
         })
     }
 }
+
+/// The parts of a provider's OpenID metadata the backend uses.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Discovery {
+    pub issuer: String,
+    pub jwks_uri: String,
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    pub revocation_endpoint: Option<String>,
+    pub end_session_endpoint: Option<String>,
+}
+
+/// Read a provider's metadata document (`/.well-known/openid-configuration`) for `identity`:
+/// the issuer it names must be the configured provider's, and every address in it must be
+/// https (http only on loopback). The keys are wherever the metadata says, never a guessed
+/// `<issuer>/.well-known/jwks.json` (Keycloak and Entra keep them elsewhere).
+pub fn discover(identity: &ResolvedIdentity, fetcher: &dyn crate::jwks::JwksFetcher) -> Result<Discovery, String> {
+    let uri = identity.discovery_uri();
+    let doc = fetcher.fetch(&uri).map_err(|e| format!("the provider's metadata ({uri}): {e}"))?;
+    let v: serde_json::Value = serde_json::from_str(&doc).map_err(|_| format!("the provider's metadata ({uri}) is not JSON"))?;
+    let text = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_owned);
+    let issuer = text("issuer").ok_or_else(|| format!("the provider's metadata ({uri}) has no issuer"))?;
+    if !identity.issuer_matches(&issuer) {
+        return Err(format!("the provider's metadata names the issuer {issuer}, which is not the configured {} ({})", identity.provider.word(), identity.authority()));
+    }
+    let need = |k: &str| -> Result<String, String> {
+        let a = text(k).ok_or_else(|| format!("the provider's metadata has no {k}"))?;
+        if crate::jwks::address_allowed(&a) {
+            Ok(a)
+        } else {
+            Err(format!("the provider's metadata gives {k} = {a}, which is not https"))
+        }
+    };
+    let optional = |k: &str| text(k).filter(|a| crate::jwks::address_allowed(a));
+    Ok(Discovery {
+        jwks_uri: need("jwks_uri")?,
+        authorization_endpoint: need("authorization_endpoint")?,
+        token_endpoint: need("token_endpoint")?,
+        revocation_endpoint: optional("revocation_endpoint"),
+        end_session_endpoint: optional("end_session_endpoint"),
+        issuer: issuer.trim_end_matches('/').to_owned(),
+    })
+}
+
+impl Resolved {
+    /// Read the provider's metadata once, at start: it fills `[auth]` when the configuration leaves
+    /// it to `[identity]` (WASM-009 D3, C7), and it gives the Keycloak and Entra adapters their
+    /// endpoints. Nothing to do without `[identity]`, or for Cognito with `[auth]` given (its
+    /// endpoints follow from its region and domain).
+    pub fn discover(&mut self, fetcher: &dyn crate::jwks::JwksFetcher) -> Result<(), String> {
+        let Some(identity) = &self.identity else { return Ok(()) };
+        if !self.auth_from_identity && identity.provider == Provider::Cognito {
+            return Ok(());
+        }
+        let d = discover(identity, fetcher)?;
+        if self.auth_from_identity {
+            self.auth.issuers = vec![d.issuer.clone()];
+            self.auth.jwks_uri = Some(d.jwks_uri.clone());
+        }
+        self.discovery = Some(d);
+        Ok(())
+    }
+}
+

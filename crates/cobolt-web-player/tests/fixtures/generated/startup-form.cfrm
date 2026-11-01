@@ -101,6 +101,7 @@
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">3</Property>
+    <Property name="AccessibleLabel"></Property>
     <Event name="onClick" paragraph="BTN-GO--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
            MOVE "clicked" TO LBL-OUT::Caption.]]></Event>
   </Control>
@@ -150,6 +151,7 @@
     <Property name="PinBottomRightY">0</Property>
     <Property name="PinBottomLeftX">0</Property>
     <Property name="PinBottomLeftY">0</Property>
+    <Property name="AccessibleLabel"></Property>
   </Control>
   <Control id="TMR-1" type="Timer" x="10" y="100" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -180,6 +182,7 @@
     <Property name="ZOrder">0</Property>
     <Property name="Interval">50</Property>
     <Property name="Enabled">false</Property>
+    <Property name="AccessibleLabel"></Property>
     <Event name="onTick" paragraph="TMR-1--ONTICK"><![CDATA[       PROCEDURE DIVISION.
            MOVE "ticked" TO LBL-OUT::Caption.]]></Event>
   </Control>

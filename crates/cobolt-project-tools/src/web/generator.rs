@@ -296,6 +296,7 @@ impl GeneratorBackend {
             }
         }
         let forms = self.load_forms(req, warnings)?;
+        identity_findings(req, &forms, warnings)?;
         let specs = form_specs(&forms);
         // WASM-017 R8, D3: the project's payload limit is the arena's frame;
         // the batch and answer regions stay as ABI v1 §2 sizes them.
@@ -862,6 +863,51 @@ fn stylesheets(req: &WebBuildRequest, forms: &[LoadedForm]) -> Result<Sheets, We
     }
 }
 
+/// The sign-in rules of the forms, `[web]` and the backend's `[identity]` (WASM-009 T23): an error
+/// refuses the Check and the Build, a warning is reported with the others.
+fn identity_findings(req: &WebBuildRequest, forms: &[LoadedForm], warnings: &mut Vec<WebDiagnostic>) -> Result<(), WebBuildError> {
+    let refs: Vec<&Form> = forms.iter().map(|f| &f.form).collect();
+    let toml = std::fs::read_to_string(req.project_dir.join("backend").join("backend.toml")).ok();
+    let manifest = req.manifest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut errors = Vec::new();
+    for f in cobolt_compiler::identity_rules::identity_rules(&refs, &req.web, toml.as_deref()) {
+        let form = f.subject.split(" ▸ ").next().unwrap_or("");
+        let location = forms.iter().find(|l| l.form.name.eq_ignore_ascii_case(form)).map(|l| l.rel.replace('\\', "/")).unwrap_or_else(|| manifest.clone());
+        let d = diag(location, WebDiagnosticKind::Other, f.subject, f.message);
+        if f.error {
+            errors.push(d);
+        } else {
+            warnings.push(d);
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(WebBuildError::Refused(errors))
+    }
+}
+
+/// The project's forms and copybooks searched for the backend's identity secrets by value (WASM-009
+/// D14): a form is published in the bundle and a copybook is committed with the project, so neither
+/// may hold one. Fails naming the file, the line and the setting, never the value.
+fn known_secrets_in_sources(req: &WebBuildRequest, known: &cobolt_web_bundle::secrets::KnownSecrets) -> Result<(), WebBuildError> {
+    if known.0.is_empty() {
+        return Ok(());
+    }
+    let copybooks = req.sources.iter().chain(&req.backend).filter(|p| p.to_ascii_lowercase().ends_with(".cpy"));
+    let mut found = Vec::new();
+    for rel in req.forms.iter().chain(copybooks) {
+        if let Ok(text) = std::fs::read_to_string(req.project_dir.join(rel)) {
+            found.extend(cobolt_web_bundle::secrets::scan_values(&rel.replace('\\', "/"), &text, known).iter().map(|f| f.to_string()));
+        }
+    }
+    if found.is_empty() {
+        Ok(())
+    } else {
+        Err(WebBuildError::Failed(found.join("\n")))
+    }
+}
+
 impl WebBuildBackend for GeneratorBackend {
     fn name(&self) -> &str {
         "cobolt-wasm"
@@ -878,6 +924,9 @@ impl WebBuildBackend for GeneratorBackend {
         let (forms, _) = self.compile(req, &mut warnings)?;
         stylesheets(req, &forms)?;
         backend_programs(req, &forms)?;
+        // WASM-009 D14: what Build refuses, Check says.
+        let identity = cobolt_compiler::backend_build::identity_for_build(&req.project_dir.join("backend"));
+        known_secrets_in_sources(req, &cobolt_web_bundle::secrets::KnownSecrets(identity.secrets))?;
         Ok(warnings)
     }
 
@@ -892,6 +941,13 @@ impl WebBuildBackend for GeneratorBackend {
         write_backend_programs(&req.project_dir, &backend).map_err(|e| {
             WebBuildError::Failed(format!("cannot write backend/{}: {e}", cobolt_codegen::remote_controls::GENERATED_DIR))
         })?;
+        // WASM-009 T15: the identity programs follow the backend's `[identity]` section.
+        cobolt_compiler::backend_build::regenerate_identity(&req.project_dir.join("backend")).map_err(|e| WebBuildError::Failed(e.to_string()))?;
+        // WASM-009 D9, D14: the page's reCAPTCHA site key comes from the backend, and no form or
+        // copybook may hold one of the backend's identity secrets (the bundle is searched too).
+        let identity = cobolt_compiler::backend_build::identity_for_build(&req.project_dir.join("backend"));
+        let known_secrets = cobolt_web_bundle::secrets::KnownSecrets(identity.secrets);
+        known_secrets_in_sources(req, &known_secrets)?;
         let player = match &req.player_dir {
             Some(dir) => player_dir_from(Some(dir.clone()), None),
             None => player_dir(),
@@ -961,6 +1017,9 @@ impl WebBuildBackend for GeneratorBackend {
             },
             theme: sheets.theme.take(),
             browsers: browsers_of(&req.web.browsers),
+            recaptcha_site_key: identity.site_key.unwrap_or_default(),
+            sign_in_form: req.web.sign_in_form.clone(),
+            known_secrets,
             ..BundleOptions::default()
         };
         let program_multi = modules.multi.as_ref().map(|c| c.wasm.clone());
@@ -1011,6 +1070,50 @@ impl WebBuildBackend for GeneratorBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WASM-009 D14 (AC6): the backend's identity secrets, known by value, are found in a form and in a
+    /// copybook, each named by file, line and setting and never shown; the same project with the values
+    /// only behind `env:` in `backend.toml` passes. The site key is read for the page.
+    #[test]
+    fn a_known_identity_secret_in_a_form_or_a_copybook_stops_the_build_by_file_and_setting() {
+        use crate::create;
+        let dir = std::env::temp_dir().join(format!("pr-identity-sources-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let request = create::CreateRequest::new("Shop").template("web");
+        create::create_project_with(&dir, &request).unwrap();
+        let plan = create::plan(&request, &crate::templates::builtin()).unwrap();
+        let mut req = WebBuildRequest::from_manifest(&dir.join(&plan.manifest_name)).unwrap();
+        let (client, recaptcha, cookie) = ("client-secret-AC6-0123456789", "6Lc-recaptcha-secret-AC6-0123", "Y29va2llLWtleS1BQzYtMDEyMzQ1Njc4OQ==");
+        for (k, v) in [("PRC_AC6_CLIENT", client), ("PRC_AC6_RECAPTCHA", recaptcha), ("PRC_AC6_COOKIE", cookie)] {
+            std::env::set_var(k, v);
+        }
+        let backend = dir.join("backend");
+        let mut toml = std::fs::read_to_string(backend.join("backend.toml")).unwrap();
+        toml.push_str("\n[identity]\nprovider = \"cognito\"\ncookie_key = \"env:PRC_AC6_COOKIE\"\n[identity.settings]\nregion = \"eu-west-1\"\nuser_pool_id = \"eu-west-1_P\"\nclient_id = \"app\"\nclient_secret = \"env:PRC_AC6_CLIENT\"\n[identity.recaptcha]\nsite_key = \"6Lc-site-key-public\"\nsecret = \"env:PRC_AC6_RECAPTCHA\"\n");
+        std::fs::write(backend.join("backend.toml"), toml).unwrap();
+        let identity = cobolt_compiler::backend_build::identity_for_build(&backend);
+        assert_eq!(identity.site_key.as_deref(), Some("6Lc-site-key-public"), "the page's site key comes from the backend");
+        let known = cobolt_web_bundle::secrets::KnownSecrets(identity.secrets);
+        assert_eq!(known.0.len(), 3, "{known:?}");
+        known_secrets_in_sources(&req, &known).expect("the values only behind env: build");
+
+        let form = req.forms.first().expect("a form").clone();
+        let mut text = std::fs::read_to_string(dir.join(&form)).unwrap();
+        text.push_str(&format!("<!-- {client} -->\n<!-- {recaptcha} -->\n"));
+        std::fs::write(dir.join(&form), text).unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/KEYS.cpy"), format!("       01 K PIC X(40) VALUE \"{cookie}\".\n")).unwrap();
+        req.sources.push("src/KEYS.cpy".into());
+        let WebBuildError::Failed(e) = known_secrets_in_sources(&req, &known).unwrap_err() else { panic!("a failure") };
+        println!("{e}");
+        for (file, setting) in [(form.as_str(), "identity.settings.client_secret"), (form.as_str(), "identity.recaptcha.secret"), ("src/KEYS.cpy", "identity.cookie_key")] {
+            assert!(e.lines().any(|l| l.starts_with(&format!("{file}: line ")) && l.contains(setting)), "{file} / {setting}: {e}");
+        }
+        for v in [client, recaptcha, cookie] {
+            assert!(!e.contains(v), "a value is shown: {e}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A kept player: a folder with the record a `build_player` writes (only what the pin reads).
     fn kept(dir: &Path, version: &str, abi: u32, description: u32) {

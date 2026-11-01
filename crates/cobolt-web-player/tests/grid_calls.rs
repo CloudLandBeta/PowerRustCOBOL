@@ -184,7 +184,7 @@ fn a_remote_grid_fills_window_by_window_and_saves_its_unit_through_the_players_o
 
     // The ids: all of the grids' range, none the module's or the Authentication control's.
     for id in [id1, id2, id3, id4, id5, id6, id7, id8] {
-        assert!(id >= ID_BASE && !cobolt_web_player::auth::wire::is_auth_id(id));
+        assert!(id >= ID_BASE && !cobolt_web_player::auth::https::is_auth_id(id));
     }
     println!(
         "T16: refresh in 2 windows (100 + 50), a second refresh joined the first, save of DELETE+UPDATE+INSERT (SavedRows 3), refusal 92 marked 1,2 and restored, transport failure kept the change and the next Save() sent it, DiscardEdit; 8 calls, ids {id1:#x}..{id8:#x}"

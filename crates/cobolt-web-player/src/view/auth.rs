@@ -7,8 +7,11 @@
 //! **The Authentication control's screens** (WASM-009 R1–R3, WASM-004 class C).
 //!
 //! The control shows one screen at a time — sign in, create account, confirm, forgot password,
-//! choose a new password, a verification code, and, once signed in, who is signed in and a sign-out
-//! action — built from the machine's state in [`crate::auth`]. In the hosted flow (R8b) the sign-in
+//! choose a new password, a verification code (naming its kind and where it was sent), the choice of
+//! a second factor, the set-up of an authenticator app, the new password a temporary one must be
+//! replaced by, and, once signed in, who is signed in and a sign-out action — built from the
+//! machine's state in [`crate::auth`]. The words are the developer's properties, or the defaults in
+//! the application's language (D12). In the hosted flow (R8b) the sign-in
 //! screen has the one "continue" action and the provider's pages do the rest.
 //!
 //! What a password manager and an assistive technology need is here, as data:
@@ -28,7 +31,7 @@
 
 use super::controls::root;
 use super::{VNode, ViewCtx};
-use crate::auth::{AuthUi, Flow, Labels, Screen};
+use crate::auth::{AuthUi, Flow, Labels, MfaChoice, MfaKind, Screen};
 
 /// The control as an element.
 pub fn view(cx: &ViewCtx, i: usize) -> VNode {
@@ -36,7 +39,7 @@ pub fn view(cx: &ViewCtx, i: usize) -> VNode {
     let Some(ui) = cx.tree.auth(i) else {
         return n.attr("aria-label", "Sign in");
     };
-    let l = Labels::read(&|p| cx.tree.get(i, p));
+    let l = Labels::read(&|p| cx.tree.get(i, p), &ui.locale);
     let m = &ui.machine;
     let title = match m.screen {
         Screen::SignIn | Screen::SignedIn => l.sign_in.clone(),
@@ -45,6 +48,9 @@ pub fn view(cx: &ViewCtx, i: usize) -> VNode {
         Screen::Forgot => l.forgot.clone(),
         Screen::Reset => l.reset.clone(),
         Screen::Mfa => l.mfa.clone(),
+        Screen::NewPassword => l.new_password_caption.clone(),
+        Screen::MfaChoose => l.mfa_choose.clone(),
+        Screen::MfaSetup => l.mfa_setup_caption.clone(),
     };
     let mut n = n
         .attr("aria-label", title.clone())
@@ -158,11 +164,92 @@ fn screen(ui: &AuthUi, l: &Labels, title: &str) -> VNode {
             .child(nav_row(vec![button("nav-signin", "show:SignIn", &l.back)])),
         Screen::Mfa => form(form_key)
             .child(heading())
+            .child(say("kind", l.mfa_text(m.mfa_kind.as_ref().unwrap_or(&MfaKind::Totp))))
             .child(field("code", &l.code, "text", "one-time-code", ""))
             .child(status)
             .child(submit(&l.mfa))
             .child(nav_row(vec![button("nav-signin", "show:SignIn", &l.back)])),
+        Screen::NewPassword => form(form_key)
+            .child(heading())
+            .child(field("new_password", &l.new_password, "password", "new-password", ""))
+            .child(field("repeat_password", &l.repeat_password, "password", "new-password", ""))
+            .child(status)
+            .child(submit(&l.new_password_caption))
+            .child(nav_row(vec![button("nav-signin", "show:SignIn", &l.back)])),
+        Screen::MfaChoose => {
+            let kinds: &[MfaChoice] = match &m.mfa_kind {
+                Some(MfaKind::Choice(k)) => k,
+                _ => &[],
+            };
+            let mut choices = VNode::new("div").key("choices").class("pr-auth-choices").attr("role", "group").attr("aria-label", title.to_owned());
+            for (n, c) in kinds.iter().enumerate() {
+                let mut b = button(&format!("choice-{}", c.wire_name()), &format!("mfa:{}", c.wire_name()), l.choice(*c));
+                if busy {
+                    b = b.flag("disabled", true);
+                }
+                choices = choices.child(b.flag("autofocus", ui.interacted && n == 0));
+            }
+            form(form_key).child(heading()).child(choices).child(status).child(nav_row(vec![button("nav-signin", "show:SignIn", &l.back)]))
+        }
+        Screen::MfaSetup => {
+            let mut f = form(form_key).child(heading()).child(say("kind", l.mfa_setup.clone()));
+            if let Some(MfaKind::TotpSetup { secret, otpauth_uri }) = &m.mfa_kind {
+                if let Some(qr) = qr_code(otpauth_uri, &l.mfa_setup_caption) {
+                    f = f.child(qr);
+                }
+                // A phone that is the device being used cannot scan its own screen: the link opens the app.
+                f = f.child(VNode::new("a").key("otpauth").class("pr-auth-otpauth").attr("href", otpauth_uri.clone()).text(l.choice_totp.clone()));
+                f = f.child(
+                    VNode::new("p")
+                        .key("secret")
+                        .class("pr-auth-secret")
+                        .child(VNode::new("span").key("t").text(l.secret.clone()))
+                        .child(VNode::new("code").key("v").attr("translate", "no").text(grouped(secret))),
+                );
+            }
+            f.child(field("code", &l.code, "text", "one-time-code", ""))
+                .child(status)
+                .child(submit(&l.mfa))
+                .child(nav_row(vec![button("nav-signin", "show:SignIn", &l.back)]))
+        }
     }
+}
+
+/// A line of explanation under the title.
+fn say(key: &'static str, text: String) -> VNode {
+    VNode::new("p").key(key).class("pr-auth-hint").text(text)
+}
+
+/// An enrolment key in groups of four, as authenticator apps print it: easier to read and to type.
+fn grouped(secret: &str) -> String {
+    let chars: Vec<char> = secret.chars().collect();
+    chars.chunks(4).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join(" ")
+}
+
+/// The `otpauth://` address as a QR code: one SVG path of the dark modules on a light square with the
+/// four-module quiet zone the standard asks for, so it scans on a dark theme too. `None` when the
+/// address does not fit a QR code; the link and the key still complete the screen (plan §9 R8).
+fn qr_code(data: &str, label: &str) -> Option<VNode> {
+    let code = qrcode::QrCode::with_error_correction_level(data.as_bytes(), qrcode::EcLevel::M).ok()?;
+    let w = code.width();
+    let mut d = String::new();
+    for (n, c) in code.to_colors().iter().enumerate() {
+        if *c == qrcode::Color::Dark {
+            d.push_str(&format!("M{} {}h1v1h-1z", n % w, n / w));
+        }
+    }
+    let side = w + 8;
+    Some(
+        VNode::svg("svg")
+            .key("qr")
+            .class("pr-auth-qr")
+            .attr("viewBox", format!("-4 -4 {side} {side}"))
+            .attr("role", "img")
+            .attr("aria-label", label.to_owned())
+            .attr("shape-rendering", "crispEdges")
+            .child(VNode::svg("rect").key("bg").attr("x", "-4").attr("y", "-4").attr("width", side.to_string()).attr("height", side.to_string()).attr("fill", "#fff"))
+            .child(VNode::svg("path").key("modules").attr("d", d).attr("fill", "#000")),
+    )
 }
 
 /// A labelled input. `hint` is the default value (the attribute, not the live value), so what the
@@ -203,7 +290,7 @@ mod tests {
 
     fn view_of(props: &[(&str, &str)], flow: Flow) -> VNode {
         let (mut t, i) = tree_with("Authentication", "AUTH-1", props);
-        t.init_auth(flow, "", &crate::auth::Session::default());
+        t.init_auth(flow, "", &crate::auth::Session::default(), "en", false);
         let e = Empty::default();
         let cx = e.cx(&t);
         view(&cx, i)
@@ -211,7 +298,7 @@ mod tests {
 
     fn with_screen(screen: Screen, props: &[(&str, &str)]) -> VNode {
         let (mut t, i) = tree_with("Authentication", "AUTH-1", props);
-        t.init_auth(Flow::InApp, "", &crate::auth::Session::default());
+        t.init_auth(Flow::InApp, "", &crate::auth::Session::default(), "en", false);
         t.auth_mut(i).unwrap().machine.screen = screen;
         let e = Empty::default();
         let cx = e.cx(&t);
@@ -306,7 +393,7 @@ mod tests {
     #[test]
     fn the_signed_in_screen_names_the_user_and_offers_sign_out_and_never_a_token() {
         let (mut t, i) = tree_with("Authentication", "AUTH-1", &[]);
-        t.init_auth(Flow::InApp, "", &crate::auth::Session::default());
+        t.init_auth(Flow::InApp, "", &crate::auth::Session::default(), "en", false);
         let token = crate::auth::MockBackend::token(&serde_json::json!({"preferred_username": "ana", "email": "ana@example.com", "exp": 4102444800u64}));
         {
             let ui = t.auth_mut(i).unwrap();
@@ -328,7 +415,7 @@ mod tests {
     #[test]
     fn a_failure_is_shown_in_the_live_region_and_the_form_is_made_again_with_the_user_name_kept() {
         let (mut t, i) = tree_with("Authentication", "AUTH-1", &[]);
-        t.init_auth(Flow::InApp, "", &crate::auth::Session::default());
+        t.init_auth(Flow::InApp, "", &crate::auth::Session::default(), "en", false);
         let before = {
             let e = Empty::default();
             let cx = e.cx(&t);
@@ -357,7 +444,7 @@ mod tests {
     #[test]
     fn the_keyboard_focus_goes_to_the_first_empty_field_only_after_the_user_has_acted() {
         let (mut t, i) = tree_with("Authentication", "AUTH-1", &[]);
-        t.init_auth(Flow::InApp, "", &crate::auth::Session::default());
+        t.init_auth(Flow::InApp, "", &crate::auth::Session::default(), "en", false);
         let focused = |t: &crate::tree::FormTree| {
             let e = Empty::default();
             let cx = e.cx(t);
@@ -382,7 +469,7 @@ mod tests {
     #[test]
     fn a_busy_machine_disables_the_submit_and_says_so_to_assistive_technology() {
         let (mut t, i) = tree_with("Authentication", "AUTH-1", &[]);
-        t.init_auth(Flow::InApp, "", &crate::auth::Session::default());
+        t.init_auth(Flow::InApp, "", &crate::auth::Session::default(), "en", false);
         t.auth_mut(i).unwrap().machine.act(Action::SignIn { user: "a".into(), password: "b".into() });
         let e = Empty::default();
         let cx = e.cx(&t);
@@ -394,7 +481,7 @@ mod tests {
     #[test]
     fn the_program_reads_state_user_and_email_as_properties() {
         let (mut t, i) = tree_with("Authentication", "AUTH-1", &[]);
-        t.init_auth(Flow::InApp, "", &crate::auth::Session::default());
+        t.init_auth(Flow::InApp, "", &crate::auth::Session::default(), "en", false);
         assert_eq!((t.get(i, "State").as_str(), t.get(i, "UserName").as_str(), t.get(i, "Mode").as_str()), ("SignedOut", "", "InApp"));
         let token = crate::auth::MockBackend::token(&serde_json::json!({"preferred_username": "ana", "email": "a@x.y", "exp": 4102444800u64}));
         let mut s = crate::auth::Session::default();
@@ -403,4 +490,90 @@ mod tests {
         t.sync_auth_props(i);
         assert_eq!((t.get(i, "State").as_str(), t.get(i, "UserName").as_str(), t.get(i, "Email").as_str()), ("SignedIn", "ana", "a@x.y"));
     }
+
+    // ── WASM-009 T9: the new screens ────────────────────────────────────────
+
+    /// The control after the provider answered a sign-in with `kind`, in `locale`.
+    fn challenged(kind: crate::auth::MfaKind, locale: &str) -> VNode {
+        let (mut t, i) = tree_with("Authentication", "AUTH-1", &[]);
+        t.init_auth(Flow::InApp, "", &crate::auth::Session::default(), locale, false);
+        {
+            let ui = t.auth_mut(i).unwrap();
+            ui.machine.busy = true;
+            let call = crate::auth::BackendCall::SignIn { user: "ana".into(), password: "p".into(), captcha: None };
+            ui.machine.on_result(&call, crate::auth::AuthResult::NeedsMfa { session: "s".into(), kind }, 0.0);
+        }
+        let e = Empty::default();
+        let cx = e.cx(&t);
+        view(&cx, i)
+    }
+
+    fn setup_kind() -> MfaKind {
+        MfaKind::TotpSetup { secret: "JBSWY3DPEHPK3PXP".into(), otpauth_uri: "otpauth://totp/Demo:ana?secret=JBSWY3DPEHPK3PXP&issuer=Demo".into() }
+    }
+
+    /// AC1/R2 — per new screen: the `autocomplete` tokens, a label round every input, one live region.
+    #[test]
+    fn each_new_screen_labels_its_fields_says_what_they_are_and_has_one_alert() {
+        let cases: Vec<(MfaKind, &str, Vec<&str>)> = vec![
+            (MfaKind::NewPassword, "NewPassword", vec!["new-password", "new-password"]),
+            (MfaKind::Sms { masked: "+1•••23".into() }, "Mfa", vec!["one-time-code"]),
+            (MfaKind::Email { masked: "a•••@example.com".into() }, "Mfa", vec!["one-time-code"]),
+            (MfaKind::Totp, "Mfa", vec!["one-time-code"]),
+            (MfaKind::Choice(vec![MfaChoice::Totp, MfaChoice::Sms, MfaChoice::Email]), "MfaChoose", vec![]),
+            (setup_kind(), "MfaSetup", vec!["one-time-code"]),
+        ];
+        for (kind, screen, tokens) in cases {
+            let n = challenged(kind.clone(), "en");
+            assert_eq!(n.attr_of("data-auth-screen"), Some(screen), "{kind:?}");
+            assert_eq!(inputs(&n).iter().map(|x| x.2.as_str()).collect::<Vec<_>>(), tokens, "{kind:?}");
+            let (mut labels, mut ins, mut alerts) = (Vec::new(), Vec::new(), Vec::new());
+            n.find_all(&|x| x.tag == "label", &mut labels);
+            n.find_all(&|x| x.tag == "input", &mut ins);
+            n.find_all(&|x| x.attr_of("role") == Some("alert"), &mut alerts);
+            assert_eq!(labels.len(), ins.len(), "{kind:?}: one label per field");
+            assert!(labels.iter().all(|l| l.find_tag("input").is_some() && !l.all_text().is_empty()), "{kind:?}");
+            assert_eq!(alerts.len(), 1, "{kind:?}: one live region");
+            println!("{screen}: {tokens:?}");
+        }
+    }
+
+    #[test]
+    fn the_code_screen_names_its_kind_and_the_masked_destination_in_the_locale() {
+        let n = challenged(MfaKind::Sms { masked: "+1•••23".into() }, "en");
+        assert!(n.all_text().contains("Enter the code sent by text message to +1•••23."), "{}", n.all_text());
+        let n = challenged(MfaKind::Email { masked: "a•••@example.com".into() }, "pt-BR");
+        assert!(n.all_text().contains("Digite o código enviado por e-mail para a•••@example.com."), "{}", n.all_text());
+        assert_eq!(n.attr_of("aria-label"), Some("Código de verificação"));
+    }
+
+    #[test]
+    fn the_choose_screen_has_one_plain_button_per_offered_kind() {
+        let n = challenged(MfaKind::Choice(vec![MfaChoice::Sms, MfaChoice::Email]), "en");
+        let mut buttons = Vec::new();
+        n.find_all(&|x| x.attr_of("data-id").is_some_and(|d| d.starts_with("mfa:")), &mut buttons);
+        let ids: Vec<&str> = buttons.iter().map(|b| b.attr_of("data-id").unwrap()).collect();
+        assert_eq!(ids, ["mfa:sms", "mfa:email"]);
+        assert!(buttons.iter().all(|b| b.attr_of("type") == Some("button") && b.on.contains(&"click")));
+        assert_eq!(buttons.iter().map(|b| b.all_text()).collect::<Vec<_>>(), ["Text message", "E-mail"]);
+        assert!(n.find(&|x| x.attr_of("type") == Some("submit")).is_none(), "no submit: Enter chooses nothing");
+    }
+
+    /// D16 — the set-up screen: the QR code (DOM nodes, no markup), the link, and the key in groups.
+    #[test]
+    fn the_setup_screen_shows_the_qr_code_the_link_and_the_key() {
+        let n = challenged(setup_kind(), "en");
+        let qr = n.find(&|x| x.tag == "svg").expect("a QR code");
+        assert_eq!((qr.attr_of("role"), qr.attr_of("aria-label")), (Some("img"), Some("Set up your authenticator app")));
+        let path = qr.find(&|x| x.tag == "path").unwrap().attr_of("d").unwrap().to_owned();
+        let modules = path.matches('M').count();
+        assert!(modules > 100, "dark modules drawn: {modules}");
+        let a = n.find(&|x| x.tag == "a").unwrap();
+        assert_eq!(a.attr_of("href"), Some("otpauth://totp/Demo:ana?secret=JBSWY3DPEHPK3PXP&issuer=Demo"));
+        assert!(n.find(&|x| x.tag == "code").unwrap().all_text() == "JBSW Y3DP EHPK 3PXP");
+        println!("QR: viewBox {:?}, {modules} dark modules", qr.attr_of("viewBox"));
+        // An address too long for a QR code still leaves a complete screen: the link and the key.
+        assert!(qr_code(&format!("otpauth://totp/x?secret={}", "A".repeat(5000)), "x").is_none());
+    }
 }
+

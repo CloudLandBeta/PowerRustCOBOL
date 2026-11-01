@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.140 — 2026-11-01 — WASM-009: the Authentication control signs users in through the Backend, with Cognito, Keycloak and Entra
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.123.)*
+
+WASM-009 (the Authentication control and identity providers), following the agent decisions of 2026-11-01 recorded under each task. The details and the evidence are in `specs/WASM-009-authentication-control-and-identity-providers/tasks.md`.
+
+* **The control.** `Authentication` is a real control of Web and Mobile forms (a form saved as `unknown:Authentication` loads as it and is saved as it). It has its toolbox entry, its properties and help, and its default texts in six languages. Its methods `GetClaim`, `GrantConsent` and `DenyConsent` join the methods COBOL can call inline. It gains:
+  * a New password screen, the second-factor kinds (TOTP, SMS, e-mail) with a Choose screen, and TOTP set-up;
+  * `onSignUpCompleted` raised once;
+  * `RecaptchaConsent = Ask`, which raises `onConsentRequired` and does not load Google's script until the program grants consent.
+* **The Backend speaks to the provider.** The provider is set once, in `backend/backend.toml` `[identity]`: Cognito, Keycloak, Entra, or Entra External ID. Secrets are `env:` or `file:` only. `[auth]` is derived from it.
+  * One adapter per provider, behind one interface, with one conformance suite.
+  * Cookies and handles are sealed with XChaCha20-Poly1305, and there is no plaintext fallback.
+  * Failures are generic (a wrong user and a wrong password read the same), timing is padded, and attempts are limited per address.
+  * reCAPTCHA v3 is verified on the Backend.
+  * The routes are a closed HTTPS table, `/auth/*`. The refresh token lives only in an `HttpOnly`, `SameSite=Strict` cookie.
+* **Identity operations are COBOL programs.** The Build generates the public `AUTH-*` programs and the `AUTH-GROUPS` copybook in `backend/generated/identity/`. Each program is one `COBOL::"AUTH-OP"` call. `AUTH-OP` runs only in the Backend; anywhere else it is a run-time error.
+* **The player** sends identity requests as HTTPS `POST`s instead of WebSocket frames (ABI amendment A19). The hosted flow returns through `/auth/hosted/finish`, checked against a state kept for the tab. A form's `RequiresSignIn` sends a signed-out user to the sign-in form and opens the form after the sign-in. This is the user's experience only: the Backend's token check is the boundary.
+* **Check, Build and the IDE:**
+  * Check refuses a protected form with no sign-in form, and `Mode = InApp` for a provider without in-app sign-in. It warns about a different reCAPTCHA site key and a page and Backend on different sites.
+  * The Build refuses an identity secret found by value in a form, a copybook or the bundle, naming the file and the setting and never the value.
+  * `rcrun backend auth test` checks the settings, and the project's Web settings have an Identity page with Test connection.
+* **Proven in Chrome 156:** on 10 screens every input and button is named, there is one live region, and Tab reaches the action and leaves. No token is in the page's storage, the refresh cookie is `HttpOnly`, a token about to expire is refreshed exactly once, and the console holds no token or password.
+* The System KB documents the control, `RequiresSignIn`, `AUTH-OP`, the capability table, the same-site rule and the consent hook.
+* Still open:
+  * Mobile (T24) waits for WASM-012's shell and secure store.
+  * The Keycloak run (T26) skipped: no Keycloak was available. Its test runs when `PR_KEYCLOAK_URL` is set. Live Cognito and Entra runs are the operator's.
+  * The operator's look at the Designer and the toolbox (T5, T6) and at the Identity page.
+  * O1, each provider's default flow, is still to confirm.
+
 ## 2.0.139 — 2026-11-01 — WASM-008 T47–T49: the web Preview's acceptance criteria on the real build; changes reach a running page in place
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.122.)*

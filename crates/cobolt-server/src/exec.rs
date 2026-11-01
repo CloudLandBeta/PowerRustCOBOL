@@ -70,6 +70,9 @@ pub struct ExecOptions {
     pub files: Option<Arc<dyn BackendFiles>>,
     /// `backend.toml`'s `[[configuration]]` entries, for a declared control.
     pub configurations: Arc<Configurations>,
+    /// The identity service, for a generated `AUTH-*` program run by the
+    /// `/auth/*` routes (WASM-009 D4); never set for a WebSocket call.
+    pub identity: Option<Arc<dyn cobolt_runtime::interpreter::remote::IdentityHook>>,
 }
 
 impl ExecOptions {
@@ -83,6 +86,7 @@ impl ExecOptions {
             emit: None,
             files: None,
             configurations: Arc::default(),
+            identity: None,
         }
     }
 }
@@ -275,7 +279,7 @@ fn run_call(unit: &mut Unit, prog: &ExportedProgram, args: &[String], opts: Exec
     interp.set_cancel_flag(opts.cancel);
     interp.set_remote_claims(opts.claims);
     interp.set_file_lock_wait(Some(opts.file_lock_wait));
-    interp.set_backend_hooks(BackendHooks { progress: opts.progress, emit: opts.emit, files: opts.files, cancel_requested: opts.cancel_requested });
+    interp.set_backend_hooks(BackendHooks { progress: opts.progress, emit: opts.emit, files: opts.files, cancel_requested: opts.cancel_requested, identity: opts.identity });
 
     // 1. Read the arguments into the parameters, all or nothing each, before anything runs.
     *sound = true;

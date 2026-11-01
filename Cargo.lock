@@ -1915,8 +1915,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
 dependencies = [
  "cfg-if",
+ "cipher",
  "cpufeatures 0.3.0",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "chacha20poly1305"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b89e1c441e926b9c82a8d023f6e1b7ae0adcfaa7d621814e4d60789bac751cb"
+dependencies = [
+ "aead",
+ "chacha20",
+ "cipher",
+ "poly1305",
 ]
 
 [[package]]
@@ -2292,6 +2305,7 @@ dependencies = [
  "cobolt-project-tools",
  "cobolt-runtime",
  "cobolt-semantic",
+ "cobolt-server",
  "cobolt-stdlib",
  "dirs 5.0.1",
  "eframe",
@@ -2524,6 +2538,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bincode",
+ "chacha20poly1305",
  "cobolt-ast",
  "cobolt-codegen",
  "cobolt-compiler",
@@ -2537,6 +2552,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.4.2",
+ "hmac 0.12.1",
  "hyper",
  "hyper-util",
  "jsonwebtoken",
@@ -9178,6 +9194,16 @@ name = "pollster"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc6355899e1c9462875b6757c79f3caa011a1fdae12bbb1a2e72dd1f234f8336"
+
+[[package]]
+name = "poly1305"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e2d0073b297041425c7c3df6eb4792d598a15323fe63346852b092eca02904c"
+dependencies = [
+ "cpufeatures 0.3.0",
+ "universal-hash",
+]
 
 [[package]]
 name = "polycool"

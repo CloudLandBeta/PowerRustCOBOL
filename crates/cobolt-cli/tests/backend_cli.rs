@@ -266,3 +266,49 @@ fn a_new_web_projects_backend_checks_clean_and_answers_its_health_probe() {
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// WASM-009 T18: `rcrun backend auth test` prints one line per check and never a configured value,
+/// and fails when a check fails (here the provider is a closed loopback port). `rcrun backend check`
+/// brings the identity programs in line with `[identity]` first (D4) - they join the backend, not
+/// its contract - and removes them when the section goes.
+#[test]
+fn auth_test_prints_its_checks_without_a_value_and_backend_check_regenerates_the_identity_programs() {
+    let dir = project("auth");
+    let secret = "kc-client-secret-must-not-print";
+    let cookie = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+    let toml = "[server]\nlisten = \"127.0.0.1:0\"\nallowed_origins = [\"https://app.example.test\"]\n[identity]\nprovider = \"keycloak\"\ncookie_key = \"env:PRC_CLI_AUTH_COOKIE\"\n[identity.settings]\nissuer = \"http://127.0.0.1:9/realms/shop-realm\"\nclient_id = \"shop-client-id\"\nclient_secret = \"env:PRC_CLI_AUTH_SECRET\"\n";
+    std::fs::write(dir.join("backend").join("backend.toml"), toml).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_rcrun"))
+        .args(["backend", "auth", "test"])
+        .arg(&dir)
+        .env("PRC_CLI_AUTH_SECRET", secret)
+        .env("PRC_CLI_AUTH_COOKIE", cookie)
+        .output()
+        .expect("rcrun runs");
+    let (stdout, stderr) = (String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned());
+    println!("rcrun backend auth test (exit {:?}):\n{stdout}{stderr}", out.status.code());
+    assert_eq!(out.status.code(), Some(1), "a failed check fails the command");
+    assert!(stdout.lines().next().is_some_and(|l| l.starts_with("FAIL  discovery")), "{stdout}");
+    assert!(stdout.lines().count() >= 4, "one line per check: {stdout}");
+    for value in [secret, cookie, "shop-client-id", "shop-realm", "127.0.0.1:9"] {
+        assert!(!stdout.contains(value) && !stderr.contains(value), "{value} printed:\n{stdout}{stderr}");
+    }
+
+    let (code, _, err) = rcrun(&["auth"], &dir);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("rcrun backend auth test"), "{err}");
+
+    // `check` writes the identity programs; the contract stays the developer's one program.
+    let (code, out, err) = rcrun(&["check"], &dir);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("1 exported program(s)"), "{out}");
+    let generated = dir.join("backend").join("generated").join("identity");
+    let files = std::fs::read_dir(&generated).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(files, 15, "13 programs, the copybook and the exports fragment");
+    // The section removed: the programs go with it.
+    std::fs::write(dir.join("backend").join("backend.toml"), "[server]\nlisten = \"127.0.0.1:0\"\n").unwrap();
+    assert_eq!(rcrun(&["check"], &dir).0, 0);
+    assert!(!generated.exists(), "the identity folder is removed with the section");
+    println!("backend check: 15 identity files written with [identity], removed without it; contract 1 program");
+    let _ = std::fs::remove_dir_all(&dir);
+}

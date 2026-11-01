@@ -41,6 +41,10 @@ pub mod http;
 #[cfg(feature = "server")]
 pub mod idem;
 #[cfg(feature = "server")]
+pub mod identity;
+#[cfg(feature = "loader")]
+pub mod identity_settings;
+#[cfg(feature = "server")]
 pub mod jwks;
 #[cfg(feature = "server")]
 pub mod jwt;

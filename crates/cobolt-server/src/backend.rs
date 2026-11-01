@@ -75,8 +75,15 @@ impl StateMode {
 /// `exports.toml`, then the Build's `generated/exports.toml`; empty when they
 /// cannot be read.
 pub fn exported_names(backend_dir: &Path) -> Vec<String> {
-    read_exports(backend_dir).map(|(_, f)| f.exports.into_iter().map(|e| e.program).collect()).unwrap_or_default()
+    read_exports(backend_dir)
+        .map(|(_, f)| f.exports.into_iter().filter(|e| !e.identity).map(|e| e.program).collect())
+        .unwrap_or_default()
 }
+
+/// The folder, under [`GENERATED_DIR`], of the identity programs the Build generates from
+/// `backend.toml`'s `[identity]` section (WASM-009 R7, D4): `AUTH-*.cbl`, `AUTH-GROUPS.cpy` and their
+/// `exports.toml`. Its exports are served only by the `/auth/*` routes, never over the WebSocket.
+pub const IDENTITY_DIR: &str = "identity";
 
 /// The folder, under `backend/`, where the Build writes the programs of a web
 /// form's data controls and their `exports.toml` (WASM-005 R16): the Build's,
@@ -115,6 +122,12 @@ pub fn read_exports(dir: &Path) -> Result<(String, ExportsFile), Vec<String>> {
                 e.program.to_ascii_uppercase()
             )
         })
+        .chain(mine.exports.iter().filter(|e| e.identity).map(|e| {
+            format!(
+                "exports.toml: export {} sets identity; only the Build's {GENERATED_DIR}/{IDENTITY_DIR}/exports.toml does",
+                e.program.to_ascii_uppercase()
+            )
+        }))
         .collect();
     if !declared.is_empty() {
         return Err(declared);
@@ -124,32 +137,42 @@ pub fn read_exports(dir: &Path) -> Result<(String, ExportsFile), Vec<String>> {
             "exports.toml declares an upload slot; a deployment's slots are backend.toml's [files] slots, a form's the Build's {GENERATED_DIR}/exports.toml"
         )]);
     }
-    let gen_path = dir.join(GENERATED_DIR).join("exports.toml");
-    let Ok(gen_text) = std::fs::read_to_string(&gen_path) else {
-        return Ok((text, mine));
-    };
-    let generated: GeneratedExports =
-        toml::from_str(&gen_text).map_err(|e| vec![format!("{GENERATED_DIR}/exports.toml: {e}")])?;
-    let clashes: Vec<String> = generated
-        .exports
-        .iter()
-        .filter(|g| mine.exports.iter().any(|m| m.program.eq_ignore_ascii_case(&g.program)))
-        .map(|g| {
-            format!(
-                "exports.toml: {} is exported by exports.toml and by the Build's {GENERATED_DIR}/exports.toml; rename the program in backend/src",
-                g.program.to_ascii_uppercase()
-            )
-        })
-        .collect();
-    if !clashes.is_empty() {
-        return Err(clashes);
-    }
-    if !text.ends_with('\n') {
+    // Which file declared each export so far, to name both files of a clash.
+    let mut origin: Vec<(String, String)> = mine.exports.iter().map(|e| (e.program.to_ascii_uppercase(), "exports.toml".to_string())).collect();
+    let mut merged = mine;
+    for (rel, identity) in [(format!("{GENERATED_DIR}/exports.toml"), false), (format!("{GENERATED_DIR}/{IDENTITY_DIR}/exports.toml"), true)] {
+        let Ok(gen_text) = std::fs::read_to_string(dir.join(&rel)) else { continue };
+        let generated: GeneratedExports = toml::from_str(&gen_text).map_err(|e| vec![format!("{rel}: {e}")])?;
+        let mut errs: Vec<String> = Vec::new();
+        for g in &generated.exports {
+            let name = g.program.to_ascii_uppercase();
+            if g.identity != identity || (identity && g.control.is_some()) {
+                errs.push(format!("{rel}: export {name} is not what the Build writes there; build the project again"));
+            }
+            if let Some((_, first)) = origin.iter().find(|(n, _)| *n == name) {
+                errs.push(if identity {
+                    format!(
+                        "{first}: {name} is exported by {first} and by the Build's {rel}, the backend's [identity] programs; remove it from {first} and rename the program in backend/src"
+                    )
+                } else {
+                    format!("exports.toml: {name} is exported by exports.toml and by the Build's {rel}; rename the program in backend/src")
+                });
+            }
+        }
+        if identity && !generated.slots.is_empty() {
+            errs.push(format!("{rel}: declares an upload slot, which the Build never writes there; build the project again"));
+        }
+        if !errs.is_empty() {
+            return Err(errs);
+        }
+        origin.extend(generated.exports.iter().map(|g| (g.program.to_ascii_uppercase(), rel.clone())));
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
         text.push('\n');
+        text.push_str(&gen_text);
+        merged = ExportsFile::from_toml(&text).map_err(|e| vec![e])?;
     }
-    text.push('\n');
-    text.push_str(&gen_text);
-    let merged = ExportsFile::from_toml(&text).map_err(|e| vec![e])?;
     Ok((text, merged))
 }
 
@@ -165,6 +188,21 @@ pub fn load_all_programs(dir: &Path, errs: &mut Vec<String>) -> Vec<Program> {
             if programs.iter().any(|q| q.identification.program_id.eq_ignore_ascii_case(id)) {
                 errs.push(format!(
                     "backend/src has a program with the PROGRAM-ID {} of a program the Build generated in {GENERATED_DIR}/; rename it",
+                    id.to_ascii_uppercase()
+                ));
+                continue;
+            }
+            programs.push(p);
+        }
+    }
+    // WASM-009 R7: the identity programs, also generated (free format).
+    let identity_dir = generated_dir.join(IDENTITY_DIR);
+    if identity_dir.is_dir() {
+        for p in load_programs_as(&identity_dir, Some(cobolt_lexer::SourceFormat::Free), errs) {
+            let id = &p.identification.program_id;
+            if programs.iter().any(|q| q.identification.program_id.eq_ignore_ascii_case(id)) {
+                errs.push(format!(
+                    "a program of backend/src or {GENERATED_DIR}/ has the PROGRAM-ID {} of an identity program the Build generated in {GENERATED_DIR}/{IDENTITY_DIR}/; rename it",
                     id.to_ascii_uppercase()
                 ));
                 continue;
@@ -202,6 +240,10 @@ pub struct ExportDecl {
     /// only the Build's `generated/exports.toml` declares one.
     #[serde(default)]
     pub control: Option<ControlDecl>,
+    /// An identity program (WASM-009 R7, D4), run only by the `/auth/*` routes: it is not on the
+    /// WebSocket and not in the contract. Only the Build's `generated/identity/exports.toml` sets it.
+    #[serde(default)]
+    pub identity: bool,
 }
 
 /// An upload slot of a web form's FileDropZone or Viewer (WASM-005 T12, R15): what the
@@ -312,6 +354,8 @@ pub struct Backend {
     /// Released contracts, oldest first (for answering older clients, WASM-014 R4).
     pub history: Vec<InterfaceDescription>,
     exports: HashMap<String, Arc<ExportedProgram>>,
+    /// The identity programs (WASM-009 D4), apart from `exports` so that no WebSocket call reaches them.
+    identity: HashMap<String, Arc<ExportedProgram>>,
     /// Whether `WORKING-STORAGE` outlives a call (the project's `[backend] state`).
     pub state: StateMode,
     /// The upload slots of the web forms' FileDropZones and Viewers (WASM-005 T12).
@@ -325,6 +369,11 @@ impl Backend {
 
     pub fn programs(&self) -> impl Iterator<Item = &Arc<ExportedProgram>> {
         self.exports.values()
+    }
+
+    /// An identity program (`AUTH-SIGN-IN` …), for the `/auth/*` routes only.
+    pub fn identity_program(&self, name: &str) -> Option<&Arc<ExportedProgram>> {
+        self.identity.get(&name.trim().to_ascii_uppercase())
     }
 
     /// The interface the contract version `v` described, for projecting an
@@ -347,12 +396,14 @@ impl Backend {
     pub fn build(programs: Vec<Program>, exports: &ExportsFile, history: Vec<InterfaceDescription>) -> Result<Backend, Vec<String>> {
         let mut errs = Vec::new();
         let mut map: HashMap<String, Arc<ExportedProgram>> = HashMap::new();
+        let mut identity: HashMap<String, Arc<ExportedProgram>> = HashMap::new();
         let mut interface = InterfaceDescription::new(&exports.contract.version);
 
         let exported_names: Vec<String> = exports.exports.iter().map(|e| e.program.to_ascii_uppercase()).collect();
+        let identity_names: Vec<String> = exports.exports.iter().filter(|e| e.identity).map(|e| e.program.to_ascii_uppercase()).collect();
         for decl in &exports.exports {
             let name = decl.program.to_ascii_uppercase();
-            if map.contains_key(&name) {
+            if map.contains_key(&name) || identity.contains_key(&name) {
                 errs.push(format!("exports.toml: {name} is exported twice"));
                 continue;
             }
@@ -409,32 +460,39 @@ impl Backend {
                 }
             }
 
-            // Every other program rides inside this one, as Common Code does.
+            // Every other program rides inside this one, as Common Code does. An identity program
+            // calls only `COBOL::"AUTH-OP"` and carries none; no other program carries one.
             let mut top = prog.clone();
-            for other in &programs {
-                if !other.identification.program_id.eq_ignore_ascii_case(&name) {
-                    // Another exported program is a procedure here too: it may be CALLed locally.
-                    top.nested_programs.push(other.clone());
+            if !decl.identity {
+                for other in &programs {
+                    let id = other.identification.program_id.to_ascii_uppercase();
+                    if id != name && !identity_names.contains(&id) {
+                        // Another exported program is a procedure here too: it may be CALLed locally.
+                        top.nested_programs.push(other.clone());
+                    }
                 }
             }
-            interface.programs.push(sig.clone());
-            map.insert(
-                name.clone(),
-                Arc::new(ExportedProgram {
-                    sig,
-                    program: top,
-                    params: params_names,
-                    returning: prog.procedure.returning.clone(),
-                    control: decl.control.clone(),
-                }),
-            );
+            let exported = Arc::new(ExportedProgram {
+                sig: sig.clone(),
+                program: top,
+                params: params_names,
+                returning: prog.procedure.returning.clone(),
+                control: decl.control.clone(),
+            });
+            if decl.identity {
+                // Not in the contract: no client calls it by name.
+                identity.insert(name, exported);
+            } else {
+                interface.programs.push(sig);
+                map.insert(name, exported);
+            }
         }
         let _ = exported_names;
         if !errs.is_empty() {
             return Err(errs);
         }
         interface.programs.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(Backend { interface, history, exports: map, state: StateMode::default(), slots: exports.slots.clone() })
+        Ok(Backend { interface, history, exports: map, identity, state: StateMode::default(), slots: exports.slots.clone() })
     }
 
     /// Read a backend folder: `exports.toml`, `src/*.cbl`, the Build's

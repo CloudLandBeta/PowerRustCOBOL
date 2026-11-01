@@ -11,6 +11,8 @@
 //! protocol allows and what it does not.
 
 mod support;
+#[path = "support/idp_mock.rs"]
+mod idp_mock;
 
 use std::time::{Duration, Instant};
 
@@ -216,6 +218,27 @@ async fn an_exported_program_answers_and_nothing_else_does() {
         assert_eq!(code(&r), 5000);
         tried += 1;
     }
+    rig.server.stop();
+}
+
+/// WASM-009 T16 (D4): the identity programs the Build writes are served by the `/auth/*` routes only.
+/// Over the WebSocket each is "no such program", the contract the hello checks is unchanged, and the
+/// developer's programs answer as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_identity_programs_are_not_on_the_websocket() {
+    let dir = backend_dir("auth-ws", EXPORTS, &sources());
+    cobolt_codegen::identity::sync(&dir, true).expect("generates");
+    let rig = rig(dir, "");
+    let token = good_token(&rig, "user-42", json!({}));
+    let mut c = ready(&rig, &token).await;
+    for (i, (name, _)) in cobolt_codegen::identity::PROGRAMS.iter().enumerate() {
+        let r = c.call(1 + i as u64, name, &[("ref", r#"{"USERNAME":"ana","PASSWORD":"x"}"#)], true).await;
+        assert_eq!(class(&r), "not-found", "{name}: {r}");
+        assert_eq!(code(&r), 5000, "{name}");
+    }
+    let r = c.call(99, "GET-CUSTOMER", &[("ref", REQ)], true).await;
+    assert_eq!(r["t"], "reply", "{r}");
+    println!("over the WebSocket: {} identity programs, each not-found 5000; GET-CUSTOMER answers", cobolt_codegen::identity::PROGRAMS.len());
     rig.server.stop();
 }
 
@@ -477,6 +500,108 @@ async fn the_log_has_neither_the_token_nor_a_field_the_program_was_given() {
     assert!(!log.contains("hunter2"), "a field of the payload is in the log");
     assert!(log.contains("\"call\"") && log.contains("user-8") && log.contains("GET-CUSTOMER") && log.contains("duration_ms"), "the log still says who did what: {log}");
     println!("\n  log: {} records, {} bytes, no token (whole or in part) and no payload field", rig.sink.records().len(), log.len());
+    rig.server.stop();
+}
+
+/// One `/auth/*` request over TLS: the status, the response's headers (names in lower case) and body.
+async fn auth_http(rig: &Rig, method: &str, target: &str, headers: &[(&str, &str)], body: &str) -> (u16, Vec<(String, String)>, String) {
+    let mut req = format!("{method} {target} HTTP/1.1\r\nHost: localhost:{}\r\n", rig.server.addr.port());
+    for (k, v) in headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    if method == "POST" {
+        req.push_str(&format!("Content-Length: {}\r\n", body.len()));
+    }
+    req.push_str("\r\n");
+    req.push_str(body);
+    let (status, text) = raw_request(rig, req.as_bytes()).await;
+    let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+    let headers = head.lines().skip(1).filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_owned())).collect();
+    (status, headers, body.to_owned())
+}
+
+fn header_of<'a>(headers: &'a [(String, String)], name: &str) -> Vec<&'a str> {
+    headers.iter().filter(|(k, _)| k == name).map(|(_, v)| v.as_str()).collect()
+}
+
+/// The `name=value` of a `Set-Cookie` of `name`, for sending back.
+fn cookie_pair(headers: &[(String, String)], name: &str) -> String {
+    header_of(headers, "set-cookie").into_iter().find(|c| c.starts_with(&format!("{name}="))).and_then(|c| c.split(';').next()).unwrap_or_else(|| panic!("no {name} cookie: {headers:?}")).to_owned()
+}
+
+/// WASM-009 AC7 (T17): a whole in-app sign-in with a second step, a refresh, a sign-out, and a whole
+/// hosted sign-in, over the real TLS server, each request running its generated `AUTH-*` program
+/// against the provider mocks. Every token, password, code, cookie and handle the run issued is then
+/// searched for in the backend's log: none may be there.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_identity_routes_log_no_token_password_code_or_cookie() {
+    use idp_mock::{IdpMock, CLIENT_ID, CLIENT_SECRET, COGNITO_DOMAIN, MFA_CODE};
+    const COOKIE_KEY: &str = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+    std::env::set_var("PRC_AC7_SECRET", CLIENT_SECRET);
+    std::env::set_var("PRC_AC7_COOKIE", COOKIE_KEY);
+    let dir = backend_dir("ac7-identity", EXPORTS, &sources());
+    cobolt_codegen::identity::sync(&dir, true).expect("generates");
+    let mock = std::sync::Arc::new(IdpMock::new());
+    mock.state.lock().unwrap().secret = true;
+    let extra = format!(
+        "[identity]\nprovider = \"cognito\"\ncookie_key = \"env:PRC_AC7_COOKIE\"\n[identity.settings]\nregion = \"eu-west-1\"\nuser_pool_id = \"eu-west-1_Pool\"\nclient_id = \"{CLIENT_ID}\"\nclient_secret = \"env:PRC_AC7_SECRET\"\ndomain = \"{COGNITO_DOMAIN}\"\n"
+    );
+    let rig = rig_with_identity(dir, &extra, mock.clone());
+    let json_post = [("Origin", ORIGIN), ("Content-Type", "application/json"), ("X-PR-Identity", "1")];
+    let mut secrets: Vec<String> = vec!["Passw0rd!".into(), MFA_CODE.into(), CLIENT_SECRET.into(), COOKIE_KEY.into()];
+
+    // In-app: password, then the authenticator's code.
+    let (st, _, b) = auth_http(&rig, "POST", "/auth/sign-in", &json_post, r#"{"USERNAME":"tina","PASSWORD":"Passw0rd!"}"#).await;
+    let v: Value = serde_json::from_str(&b).unwrap_or_else(|_| panic!("{st} {b}"));
+    assert_eq!(v["OUTCOME"], "CHALLENGE", "{v}");
+    let session = v["SESSION"].as_str().unwrap().to_owned();
+    secrets.push(session.clone());
+    let (_, h, b) = auth_http(&rig, "POST", "/auth/mfa", &json_post, &json!({"SESSION": session, "ONE-TIME-CODE": MFA_CODE}).to_string()).await;
+    let v: Value = serde_json::from_str(&b).unwrap();
+    assert_eq!(v["OUTCOME"], "OK", "{v}");
+    secrets.push(v["ACCESS-TOKEN"].as_str().unwrap().to_owned());
+    let refresh = cookie_pair(&h, "__Host-pr_refresh");
+    secrets.push(refresh.split_once('=').unwrap().1.to_owned());
+    let with_cookie: Vec<(&str, &str)> = json_post.iter().copied().chain([("Cookie", refresh.as_str())]).collect();
+    let (_, _, b) = auth_http(&rig, "POST", "/auth/refresh", &with_cookie, "{}").await;
+    let v: Value = serde_json::from_str(&b).unwrap();
+    assert_eq!(v["OUTCOME"], "OK", "{v}");
+    secrets.push(v["ACCESS-TOKEN"].as_str().unwrap().to_owned());
+    let (_, h, _) = auth_http(&rig, "POST", "/auth/sign-out", &with_cookie, "{}").await;
+    assert!(header_of(&h, "set-cookie").iter().any(|c| c.starts_with("__Host-pr_refresh=;") && c.contains("Max-Age=0")));
+
+    // Hosted: the provider's page, the callback, the handle.
+    let (st, h, b) = auth_http(&rig, "GET", "/auth/hosted/start?return=https%3A%2F%2Fapp.example.test%2Fhome&state=page-7", &[], "").await;
+    assert_eq!(st, 302, "{b}");
+    let hosted = cookie_pair(&h, "__Host-pr_hosted");
+    secrets.push(hosted.split_once('=').unwrap().1.to_owned());
+    let (code, state) = mock.authorize(header_of(&h, "location")[0], "ana", "Passw0rd!").expect("the provider's page");
+    secrets.push(code.clone());
+    let (st, h, b) = auth_http(&rig, "GET", &format!("/auth/hosted/callback?code={code}&state={state}"), &[("Cookie", hosted.as_str())], "").await;
+    assert_eq!(st, 302, "{b}");
+    let back = header_of(&h, "location")[0].to_owned();
+    assert!(back.starts_with("https://app.example.test/home?pr-code=") && back.ends_with("&pr-state=page-7"), "{back}");
+    let handle = back.split("pr-code=").nth(1).unwrap().split('&').next().unwrap().to_owned();
+    secrets.push(handle.clone());
+    secrets.push(cookie_pair(&h, "__Host-pr_refresh").split_once('=').unwrap().1.to_owned());
+    let (_, _, b) = auth_http(&rig, "POST", "/auth/hosted/finish", &json_post, &json!({"HANDLE": handle}).to_string()).await;
+    let v: Value = serde_json::from_str(&b).unwrap();
+    assert_eq!(v["OUTCOME"], "OK", "{v}");
+    secrets.push(v["ACCESS-TOKEN"].as_str().unwrap().to_owned());
+    secrets.extend(mock.state.lock().unwrap().refresh.keys().cloned());
+
+    let log = rig.sink.lines().join("\n");
+    println!("\n  AC7: searched the log ({} records, {} bytes) for {} strings:", rig.sink.records().len(), log.len(), secrets.len());
+    let mut hits = 0;
+    for s in &secrets {
+        let n = log.matches(s.as_str()).count();
+        hits += n;
+        let shown: String = s.chars().take(24).collect();
+        println!("    {:<28} {:>4} chars  hits {n}", if s.len() > 24 { format!("{shown}…") } else { shown }, s.len());
+    }
+    println!("  total hits: {hits}");
+    assert_eq!(hits, 0, "a secret is in the log:\n{log}");
+    assert!(log.contains("POST /auth/sign-in 200") && log.contains("GET /auth/hosted/callback 302"), "the log still says what happened: {log}");
     rig.server.stop();
 }
 

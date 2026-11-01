@@ -98,7 +98,7 @@ fn every_control_type_has_its_class_its_id_and_its_data_name() {
 
 #[test]
 fn the_series_controls_keep_their_plain_names_whatever_the_model_calls_them() {
-    for k in [PlayerKind::Authentication, PlayerKind::Canvas2D, PlayerKind::Canvas3D] {
+    for k in [PlayerKind::Canvas2D, PlayerKind::Canvas3D] {
         let name = k.name();
         let (t, i) = tree_with(name, "S-1", &[]);
         assert_eq!(type_class(&ControlType::from_str(name)), name.to_ascii_lowercase());

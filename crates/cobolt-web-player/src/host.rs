@@ -410,6 +410,15 @@ pub struct Host {
     next_auth_id: u32,
     /// What the program asked of an Authentication control (`SignOut`, `Refresh`), until the driver gives the time.
     auth_queue: Vec<(u32, usize, crate::auth::Action)>,
+    /// The page's language (the player's configuration, `set_locale`); the application's `Locale`
+    /// property, when the program sets it, wins (WASM-009 D12).
+    page_locale: String,
+    /// The program granted reCAPTCHA consent on this page (D10): it holds for the page's lifetime.
+    auth_consent: bool,
+    /// The form the Build named the sign-in form (`[web] sign_in_form`, WASM-009 D11), when it named one.
+    sign_in_named: Option<usize>,
+    /// A protected form asked for while signed out, opened once the user signs in: `(form, opener, mode, params)`.
+    pending_sign_in: Option<(usize, Option<u32>, OpenMode, Params)>,
     /// Remote-bound grids (WASM-005 R13, T16): what the player knows of each, per instance and control.
     grids: BTreeMap<(u32, usize), crate::grid::RemoteGrid>,
     /// The grids' backend calls in flight: `id → what was asked`.
@@ -478,8 +487,12 @@ impl Host {
             auth_defaults: (crate::auth::Flow::InApp, String::new()),
             auth_calls: BTreeMap::new(),
             auth_captchas: BTreeMap::new(),
-            next_auth_id: crate::auth::wire::ID_BASE,
+            next_auth_id: crate::auth::https::ID_BASE,
             auth_queue: Vec::new(),
+            page_locale: "en".into(),
+            auth_consent: false,
+            sign_in_named: None,
+            pending_sign_in: None,
             grids: BTreeMap::new(),
             grid_calls: BTreeMap::new(),
             next_grid_id: crate::grid::ID_BASE,
@@ -513,7 +526,76 @@ impl Host {
     pub fn add_description(&mut self, json: &str) -> Result<(), String> {
         let d = cobolt_forms::description::from_json(json).map_err(|e| e.to_string())?;
         let form = cobolt_forms::description::to_form(&d).map_err(|e| e.to_string())?;
+        if d.form.sign_in_form {
+            self.sign_in_named = self.manifest.form_by_name(&d.name).map(|e| e.id as usize);
+        }
         self.add_form(form)
+    }
+
+    // ── RequiresSignIn (WASM-009 R11, D11) ──────────────────────────────────
+
+    /// The sign-in form: the one the Build named, else the first form holding an Authentication control.
+    pub fn sign_in_form(&self) -> Option<usize> {
+        fn has_auth(cs: &[cobolt_forms::model::Control]) -> bool {
+            cs.iter().any(|c| c.control_type == cobolt_forms::model::ControlType::Authentication || has_auth(&c.children))
+        }
+        self.sign_in_named.or_else(|| self.manifest.forms.iter().map(|f| f.id as usize).find(|i| self.forms[*i].as_ref().is_some_and(|f| has_auth(&f.controls))))
+    }
+
+    fn requires_sign_in(&self, form: usize) -> bool {
+        self.forms.get(form).and_then(|f| f.as_ref()).is_some_and(|f| f.requires_sign_in)
+    }
+
+    /// An open about to happen, seen by the sign-in rule. A protected form asked for while signed out
+    /// is remembered (its name and parameters) and the sign-in form opens instead, unless it is open
+    /// already. UX only: the backend's token check is the boundary (D11).
+    fn sign_in_gate(&mut self, w: Work) -> Option<Work> {
+        let Work::Open { form, opener, mode, handle, params } = w else { return Some(w) };
+        let sign_in = self.sign_in_form();
+        if !self.requires_sign_in(form) || self.auth.is_signed_in() || sign_in == Some(form) {
+            return Some(Work::Open { form, opener, mode, handle, params });
+        }
+        // An opener waiting for this form's result is told it did not open.
+        self.finish_failed_open(handle.as_deref());
+        self.pending_sign_in = Some((form, opener, mode, params));
+        let Some(sign_in) = sign_in else {
+            let name = self.manifest.forms[form].name.clone();
+            self.report(RunError {
+                code: err::GENERIC,
+                message: format!("form `{name}` requires sign-in and the application has no sign-in form (a form with an Authentication control)"),
+                form: Some(name),
+                event: None,
+                unit: 0,
+                line: 0,
+            });
+            return None;
+        };
+        if self.trees.values().any(|t| t.form_idx == sign_in) {
+            return None;
+        }
+        Some(Work::Open { form: sign_in, opener: None, mode: OpenMode::Root, handle: None, params: Vec::new() })
+    }
+
+    /// The user signed in: the protected form asked for meanwhile opens, behind `onSignedIn`'s handler.
+    fn after_signed_in(&mut self) {
+        if let Some((form, opener, mode, params)) = self.pending_sign_in.take() {
+            let opener = opener.filter(|o| self.trees.contains_key(o));
+            let mode = if opener.is_some() { mode } else { OpenMode::Root };
+            self.work.push_back(Work::Open { form, opener, mode, handle: None, params });
+        }
+    }
+
+    /// The user signed out: every open protected form closes, and the sign-in form shows.
+    fn after_signed_out(&mut self) {
+        let protected: Vec<u32> = self.trees.values().filter(|t| self.requires_sign_in(t.form_idx)).map(|t| t.inst).collect();
+        for inst in protected {
+            self.close_instance(inst);
+        }
+        if let Some(sign_in) = self.sign_in_form() {
+            if !self.trees.values().any(|t| t.form_idx == sign_in) && !self.work.iter().any(|w| matches!(w, Work::Open { form, .. } if *form == sign_in)) {
+                self.work.push_back(Work::Open { form: sign_in, opener: None, mode: OpenMode::Root, handle: None, params: Vec::new() });
+            }
+        }
     }
 
     /// Every form the program has must have a description before the application starts.
@@ -893,6 +975,11 @@ impl Host {
             let pos = self.runnable_work()?;
             match self.work.remove(pos)? {
                 Work::Link(step) => self.link_step(step),
+                w @ Work::Open { .. } => {
+                    if let Some(w) = self.sign_in_gate(w) {
+                        break w;
+                    }
+                }
                 w => break w,
             }
         };
@@ -1185,7 +1272,8 @@ impl Host {
             return Err(format!("form `{}` has no description loaded", self.manifest.forms[form].name));
         };
         let mut tree = FormTree::build(&desc, &self.manifest.forms[form], &self.manifest, inst, opener).map_err(|e| e.to_string())?;
-        tree.init_auth(self.auth_defaults.0, &self.auth_defaults.1, &self.auth);
+        let locale = self.auth_locale();
+        tree.init_auth(self.auth_defaults.0, &self.auth_defaults.1, &self.auth, &locale, self.auth_consent);
         tree.policy = self.policy.clone();
         tree.platform = self.platform;
         tree.params = params;
@@ -1578,7 +1666,7 @@ impl Host {
         let Some(idx) = self.trees.get(&inst).and_then(|t| t.by_name(control)) else {
             return Err(format!("no control `{control}` in instance {inst}"));
         };
-        if crate::kinds::player_kind(&self.trees[&inst].ctls[idx]) == Some(crate::kinds::PlayerKind::Authentication) {
+        if crate::kinds::is_authentication(&self.trees[&inst].ctls[idx]) {
             return self.auth_method(inst, idx, method, args).map_err(|e| match e {
                 CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
             });
@@ -1632,7 +1720,7 @@ impl Host {
             }
         }
         // Authentication is the host's: it holds the session (WASM-009).
-        if crate::kinds::player_kind(&self.trees[&inst].ctls[idx]) == Some(crate::kinds::PlayerKind::Authentication) {
+        if crate::kinds::is_authentication(&self.trees[&inst].ctls[idx]) {
             return self.auth_method(inst, idx, name, args);
         }
         // A grid the backend serves: its binding methods are the host's (WASM-005 T16).
@@ -1792,7 +1880,11 @@ impl Host {
         if lower == "title" {
             self.effects.push(Effect::Title(value.to_owned()));
         }
+        let relocale = lower == "locale";
         self.app.insert(lower, value.to_owned());
+        if relocale {
+            self.auth_relocale();
+        }
     }
 
     fn form_get(&self, inst: u32, name: &str) -> Option<String> {
@@ -2057,7 +2149,8 @@ impl Host {
         }
     }
 
-    /// The Authentication control's methods (WASM-009 R3): `SignOut`, `Refresh`, `GetClaim`.
+    /// The Authentication control's methods (WASM-009 R3): `SignOut`, `Refresh`, `GetClaim`,
+    /// `GrantConsent`, `DenyConsent`.
     fn auth_method(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Result<Option<String>, CmdError> {
         match name.to_ascii_uppercase().as_str() {
             "GETCLAIM" => Ok(Some(self.auth.claim(args.first().copied().unwrap_or("")))),
@@ -2069,6 +2162,15 @@ impl Host {
             }
             "REFRESH" => {
                 self.auth_queue.push((inst, idx, crate::auth::Action::Refresh));
+                Ok(None)
+            }
+            // D10: the program's answer to `onConsentRequired`.
+            "GRANTCONSENT" => {
+                self.auth_queue.push((inst, idx, crate::auth::Action::GrantConsent));
+                Ok(None)
+            }
+            "DENYCONSENT" => {
+                self.auth_queue.push((inst, idx, crate::auth::Action::DenyConsent));
                 Ok(None)
             }
             other => {
@@ -2086,6 +2188,28 @@ impl Host {
     /// What the page says for controls that leave it open: the flow (`Mode`) and the reCAPTCHA site key.
     pub fn set_auth_defaults(&mut self, flow: crate::auth::Flow, site_key: &str) {
         self.auth_defaults = (flow, site_key.to_owned());
+    }
+
+    /// The page's language changed (`set_locale`): the Authentication controls' defaults follow it,
+    /// unless the program set the application's `Locale`.
+    pub fn set_page_locale(&mut self, locale: &str) {
+        self.page_locale = locale.to_owned();
+        self.auth_relocale();
+    }
+
+    /// The language of the Authentication controls' defaults: the application's `Locale`, else the page's.
+    fn auth_locale(&self) -> String {
+        match self.app.get("locale").map(|l| l.trim()).filter(|l| !l.is_empty()) {
+            Some(l) => l.to_owned(),
+            None => self.page_locale.clone(),
+        }
+    }
+
+    fn auth_relocale(&mut self) {
+        let locale = self.auth_locale();
+        for t in self.trees.values_mut() {
+            t.relocale_auth(&locale);
+        }
     }
 
     /// The user acted on Authentication control `ctl` of instance `inst`.
@@ -2190,13 +2314,13 @@ impl Host {
             match op {
                 Op::Backend(call) => {
                     let id = self.next_auth_id;
-                    self.next_auth_id = self.next_auth_id.wrapping_add(1).max(crate::auth::wire::ID_BASE);
+                    self.next_auth_id = self.next_auth_id.wrapping_add(1).max(crate::auth::https::ID_BASE);
                     self.auth_calls.insert(id, (inst, ctl, call.clone()));
                     self.effects.push(Effect::AuthCall { id, call });
                 }
                 Op::Captcha { action } => {
                     let id = self.next_auth_id;
-                    self.next_auth_id = self.next_auth_id.wrapping_add(1).max(crate::auth::wire::ID_BASE);
+                    self.next_auth_id = self.next_auth_id.wrapping_add(1).max(crate::auth::https::ID_BASE);
                     let site_key = self.trees.get(&inst).and_then(|t| t.auth(ctl)).map(|u| u.machine.cfg.recaptcha_site_key.clone()).unwrap_or_default();
                     self.auth_captchas.insert(id, (inst, ctl));
                     self.effects.push(Effect::AuthCaptcha { id, site_key, action });
@@ -2208,6 +2332,12 @@ impl Host {
                         _ => Vec::new(),
                     };
                     self.dom_event(inst, ctl, ev.handler_name(), args);
+                    // RequiresSignIn (D11): after the developer's handler, which was queued first.
+                    match ev {
+                        AuthEvent::SignedIn => self.after_signed_in(),
+                        AuthEvent::SignedOut => self.after_signed_out(),
+                        _ => {}
+                    }
                 }
                 Op::Message(m) => {
                     if let Some(ui) = self.trees.get_mut(&inst).and_then(|t| t.auth_mut(ctl)) {
@@ -2228,7 +2358,22 @@ impl Host {
                 }
             }
         }
+        self.auth_share_consent(inst, ctl);
         self.auth_sync(inst, ctl);
+    }
+
+    /// Consent given to one control is the page's (D10): every control, and every form opened
+    /// later, has it.
+    fn auth_share_consent(&mut self, inst: u32, ctl: usize) {
+        if self.auth_consent || !self.trees.get(&inst).and_then(|t| t.auth(ctl)).is_some_and(|u| u.machine.consent_given) {
+            return;
+        }
+        self.auth_consent = true;
+        for t in self.trees.values_mut() {
+            for ui in t.auths.values_mut() {
+                ui.machine.consent_given = true;
+            }
+        }
     }
 
     /// After a machine moved: publish its properties, make the application's session the same, and

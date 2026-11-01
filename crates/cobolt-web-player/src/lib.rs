@@ -49,6 +49,8 @@ pub const EXPOSED: &[(&str, &str)] = &[
 #[cfg(target_arch = "wasm32")]
 pub mod api;
 #[cfg(target_arch = "wasm32")]
+mod auth_fetch;
+#[cfg(target_arch = "wasm32")]
 mod superlink;
 #[cfg(target_arch = "wasm32")]
 mod dom;

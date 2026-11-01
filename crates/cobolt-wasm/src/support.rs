@@ -183,6 +183,7 @@ const HTTP: &str = "HTTP calls run on the backend, which holds the keys and is n
 const SECRETS: &str = "keys and model providers stay on the backend; call a backend program with CALL … WITH WEBSOCKET LINKAGE";
 const BACKEND_VERB: &str = "it is a verb of a backend program, which runs on the server";
 const NO_PATHS: &str = "a browser page has no file paths; let the backend hold the file";
+const IDENTITY: &str = "identity operations run in the Backend, through its /auth routes; on the page the Authentication control signs the user in (WASM-009 D15)";
 
 const fn c(name: &'static str, support: Support) -> BuiltinClass {
     BuiltinClass { name, support, api: None }
@@ -201,6 +202,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     web("AUDIO-RESUME", "HTMLAudioElement", BOTH),
     c("AUDIO-STATE", Support::Unsupported("its answers have no way back into a browser module yet")),
     web("AUDIO-STOP", "HTMLAudioElement", BOTH),
+    c("AUTH-OP", Support::BackendOnly(IDENTITY)),
     c("AWS-CLEAR-CREDENTIALS", Support::BackendOnly(SECRETS)),
     c("AWS-CREDENTIALS-SET", Support::BackendOnly(SECRETS)),
     c("AWS-SET-CREDENTIALS", Support::BackendOnly(SECRETS)),

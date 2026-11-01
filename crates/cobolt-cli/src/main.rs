@@ -482,13 +482,22 @@ fn mcp_start_folder(claude_project_dir: Option<std::ffi::OsString>) -> PathBuf {
 /// `dir` is the project folder (it holds `backend/`) or the backend folder
 /// itself (it holds `exports.toml`); the default is the working directory.
 fn cmd_backend(args: &[String]) {
-    let verb = args.first().map(String::as_str).unwrap_or("");
+    let mut verb = args.first().map(String::as_str).unwrap_or("");
+    let mut i = 1;
+    // `auth test` (WASM-009 D13): the one verb of two words.
+    if verb == "auth" {
+        if args.get(1).map(String::as_str) != Some("test") {
+            eprintln!("usage: rcrun backend auth test [dir]");
+            process::exit(2);
+        }
+        verb = "auth-test";
+        i = 2;
+    }
     let mut dir: Option<PathBuf> = None;
     let mut listen: Option<String> = None;
     let mut debug = false;
     let mut quiet = false;
     let mut accept_breaking = false;
-    let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--listen" => {
@@ -512,8 +521,8 @@ fn cmd_backend(args: &[String]) {
         }
         i += 1;
     }
-    if !matches!(verb, "run" | "describe" | "check" | "release" | "build") {
-        eprintln!("usage: rcrun backend <run|describe|check|release|build> [dir]");
+    if !matches!(verb, "run" | "describe" | "check" | "release" | "build" | "auth-test") {
+        eprintln!("usage: rcrun backend <run|describe|check|release|build|auth test> [dir]");
         process::exit(2);
     }
 
@@ -545,8 +554,24 @@ fn cmd_backend(args: &[String]) {
     };
     // `[backend] state` (WASM-003 Q2): checked by every verb, used by `run`.
     let state = cobolt_compiler::backend_build::backend_state(&project_dir).unwrap_or_else(|e| fail(vec![e.to_string()]));
+    // WASM-009 D4: the identity programs follow `[identity]` before anything reads the folder (the
+    // backend build does the same on its own).
+    if matches!(verb, "run" | "describe" | "check" | "release") {
+        cobolt_compiler::backend_build::regenerate_identity(&backend_dir).unwrap_or_else(|e| fail(vec![e.to_string()]));
+    }
 
     match verb {
+        "auth-test" => {
+            // One line per check, never a configured value; a failed check fails the command.
+            let http: std::sync::Arc<dyn cobolt_server::identity::client::Http> = std::sync::Arc::new(cobolt_server::identity::client::UreqHttp);
+            let lines = cobolt_server::identity::check::test_backend(&backend_dir, http).unwrap_or_else(|e| fail(e));
+            for l in &lines {
+                println!("{l}");
+            }
+            if lines.iter().any(|l| l.status == cobolt_server::identity::check::Status::Fail) {
+                process::exit(1);
+            }
+        }
         "describe" => {
             let path = cobolt_server::dev::write_interface(&backend_dir).unwrap_or_else(|e| fail(e));
             let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -662,6 +687,8 @@ fn cmd_help() {
         "  rcrun backend release [dir]           Record the current contract as released\n",
         "  rcrun backend build   [dir]           Build the headless backend binary → bin/<name>-backend\n",
         "         [--debug] [--accept-breaking] [--quiet]\n",
+        "  rcrun backend auth test [dir]         Test the [identity] provider and reCAPTCHA settings\n",
+        "                                         (one line per check; no value is printed)\n",
         "  rcrun version                         Print version\n",
         "  rcrun help                            Print this message\n",
         "\n",

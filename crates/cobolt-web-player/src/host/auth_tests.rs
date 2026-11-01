@@ -14,7 +14,7 @@ use crate::auth::{Action, AuthResult, BackendCall, MockBackend, Screen, Texts};
 use cobolt_forms::xml::load_form_from_str;
 use cobolt_wasm_abi::manifest::{ControlEntry, FormEntry, HandlerEntry, Limits, VariantInfo};
 
-const EVENTS: [&str; 6] = ["onSignedIn", "onSignedOut", "onError", "onSignUpCompleted", "onMfaRequired", "onPasswordResetRequested"];
+const EVENTS: [&str; 7] = ["onSignedIn", "onSignedOut", "onError", "onSignUpCompleted", "onMfaRequired", "onPasswordResetRequested", "onConsentRequired"];
 
 /// A program with one form holding one Authentication control; handlers bound to `bound`.
 fn host(bound: &[&str], props: &str) -> Host {
@@ -79,7 +79,7 @@ fn a_sign_in_makes_one_backend_call_and_the_answer_signs_the_application_in() {
     open(&mut h, 0);
     h.auth_act(0, 1, Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
     let (id, call) = call_of(&mut h);
-    assert!(crate::auth::wire::is_auth_id(id), "an id of the control's range, never the module's");
+    assert!(crate::auth::https::is_auth_id(id), "an id of the control's range, never the module's");
     assert_eq!(call, BackendCall::SignIn { user: "ana".into(), password: "s3cret!".into(), captcha: None });
     assert!(h.trees[&0].auth(1).unwrap().machine.busy);
 
@@ -277,5 +277,217 @@ fn auth_call_ids_are_apart_from_the_modules_and_grow() {
     }
     let ids: Vec<u32> = h.effects.iter().filter_map(|e| if let Effect::AuthCall { id, .. } = e { Some(*id) } else { None }).collect();
     assert_eq!(ids.len(), 3);
-    assert!(ids.iter().all(|i| crate::auth::wire::is_auth_id(*i)) && ids.windows(2).all(|w| w[0] < w[1]));
+    assert!(ids.iter().all(|i| crate::auth::https::is_auth_id(*i)) && ids.windows(2).all(|w| w[0] < w[1]));
+}
+
+/// The events queued so far, by name, with their arguments.
+fn queued(h: &Host) -> Vec<(String, Vec<String>)> {
+    h.work
+        .iter()
+        .filter_map(|w| if let Work::Event(e) = w { Some((h.manifest.events[e.event as usize].clone(), e.args.clone())) } else { None })
+        .collect()
+}
+
+/// WASM-009 T8 (D10) — `RecaptchaConsent = Ask` through the host: no reCAPTCHA effect before
+/// consent, `GrantConsent` runs the held action once, and the consent is the page's: a form opened
+/// later has it.
+#[test]
+fn consent_ask_holds_the_action_until_the_program_grants_it_and_the_page_keeps_it() {
+    let props = r#"<Property name="RecaptchaSiteKey">site-key</Property><Property name="RecaptchaConsent">Ask</Property>"#;
+    let mut h = host(&["onConsentRequired"], props);
+    open(&mut h, 0);
+    h.auth_act(0, 1, Action::SignIn { user: "ana".into(), password: "p".into() });
+    assert!(h.effects.iter().all(|e| !matches!(e, Effect::AuthCaptcha { .. } | Effect::AuthCall { .. })), "nothing of reCAPTCHA before consent: {:?}", h.effects);
+    assert_eq!(queued(&h), vec![("onConsentRequired".to_owned(), vec![])]);
+    h.invoke(0, "AUTH-1", "GrantConsent", &[]).unwrap();
+    h.auth_flush();
+    let captchas: Vec<_> = h.effects.drain(..).filter(|e| matches!(e, Effect::AuthCaptcha { .. })).collect();
+    assert_eq!(captchas.len(), 1, "the held action asks for its token, once");
+    // A second instance of the form, opened now, does not ask again.
+    open(&mut h, 1);
+    h.auth_act(1, 1, Action::Forgot { user: "ana".into() });
+    assert!(h.effects.iter().any(|e| matches!(e, Effect::AuthCaptcha { action: "forgot_password", .. })), "{:?}", h.effects);
+}
+
+#[test]
+fn deny_consent_fails_the_held_action_with_the_generic_message_and_consent_declined() {
+    let props = r#"<Property name="RecaptchaSiteKey">site-key</Property><Property name="RecaptchaConsent">Ask</Property>"#;
+    let mut h = host(&["onError"], props);
+    open(&mut h, 0);
+    h.auth_act(0, 1, Action::SignUp { user: "u".into(), email: "e@x.y".into(), password: "p".into() });
+    h.invoke(0, "AUTH-1", "DenyConsent", &[]).unwrap();
+    h.auth_flush();
+    assert!(h.effects.iter().all(|e| !matches!(e, Effect::AuthCaptcha { .. } | Effect::AuthCall { .. })));
+    assert_eq!(h.trees[&0].auth(1).unwrap().message, Texts::default().generic_error);
+    assert_eq!(queued(&h), vec![("onError".to_owned(), vec!["consent/declined".to_owned()])]);
+}
+
+/// WASM-009 T7 (D12) — the defaults follow the page's language and then the application's
+/// `Locale`, which wins; the developer's words never move.
+#[test]
+fn the_texts_follow_the_application_locale_and_the_developer_words_stay() {
+    let mut h = host(&[], r#"<Property name="ErrorText">Erro nosso.</Property>"#);
+    h.set_page_locale("pt-BR");
+    open(&mut h, 0);
+    let ui = h.trees[&0].auth(1).unwrap();
+    assert_eq!((ui.locale.as_str(), ui.machine.cfg.texts.sign_in_failed.as_str()), ("pt-BR", "O nome de usuário ou a senha não estão corretos."));
+    assert_eq!(ui.machine.cfg.texts.generic_error, "Erro nosso.");
+    h.app_set("Locale", "ja-JP");
+    let ui = h.trees[&0].auth(1).unwrap();
+    assert_eq!((ui.locale.as_str(), ui.machine.cfg.texts.sign_in_failed.as_str()), ("ja-JP", "ユーザー名またはパスワードが正しくありません。"));
+    assert_eq!(ui.machine.cfg.texts.generic_error, "Erro nosso.", "a developer's text never follows the locale");
+    h.set_page_locale("fr");
+    assert_eq!(h.trees[&0].auth(1).unwrap().locale, "ja-JP", "the application's Locale outranks the page's");
+}
+
+/// WASM-009 T7 (C8, D16) — through the host: one onSignUpCompleted, and a temporary password to
+/// the New password screen without onMfaRequired.
+#[test]
+fn sign_up_completes_once_and_a_temporary_password_asks_for_a_new_one() {
+    let mut h = host(&["onSignUpCompleted", "onMfaRequired"], "");
+    open(&mut h, 0);
+    h.auth_act(0, 1, Action::SignUp { user: "bia".into(), email: "b@x.y".into(), password: "p4ss!word".into() });
+    let (id, _) = call_of(&mut h);
+    h.auth_answer(id, AuthResult::NeedsConfirm, 0.0);
+    assert!(queued(&h).is_empty());
+    h.auth_act(0, 1, Action::Confirm { user: "bia".into(), code: "123456".into() });
+    let (id, _) = call_of(&mut h);
+    h.auth_answer(id, AuthResult::Done, 0.0);
+    assert_eq!(queued(&h), vec![("onSignUpCompleted".to_owned(), vec![])]);
+
+    h.auth_act(0, 1, Action::SignIn { user: "bia".into(), password: "tmp".into() });
+    let (id, _) = call_of(&mut h);
+    h.auth_answer(id, AuthResult::NeedsNewPassword { session: "np".into() }, 0.0);
+    assert_eq!(h.trees[&0].auth(1).unwrap().machine.screen, Screen::NewPassword);
+    assert_eq!(queued(&h).len(), 1, "no onMfaRequired for a new password");
+}
+
+// ── T22: RequiresSignIn (R11, Q4, D11) ──────────────────────────────────────
+
+/// A program with a sign-in form (`login`, an Authentication control, `onSignedIn` bound) and a
+/// protected one (`orders`, no controls). With `named`, the Build named `login` the sign-in form.
+fn protected_app(named: bool) -> Host {
+    let login = load_form_from_str(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="login" title="Sign in" width="640" height="480" index-base="1">
+  <Control id="AUTH-1" type="Authentication" x="10" y="10" w="300" h="300"></Control>
+</Form>"#,
+    )
+    .unwrap();
+    let mut orders = load_form_from_str(r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="orders" title="Orders" width="640" height="480" index-base="1">
+</Form>"#)
+    .unwrap();
+    orders.requires_sign_in = true;
+    let events: Vec<String> = EVENTS.iter().map(|s| s.to_string()).collect();
+    let entry = |id: u32, name: &str, main: bool, controls: Vec<ControlEntry>, handlers: Vec<HandlerEntry>| FormEntry {
+        id,
+        name: name.into(),
+        main,
+        instances: 2,
+        region_size: 64,
+        controls,
+        handlers,
+        layers: vec![],
+    };
+    let manifest = Manifest {
+        abi: 1,
+        generator: "test".into(),
+        project: "demo".into(),
+        variant: VariantInfo { multi_memory: true, conformance: false },
+        limits: Limits::default(),
+        names: vec![],
+        events,
+        forms: vec![
+            entry(0, "orders", true, vec![], vec![]),
+            entry(1, "login", false, vec![ControlEntry { id: 3, name: "AUTH-1".into(), kind: "Authentication".into() }], vec![HandlerEntry { ctrl: 3, event: 0, entry: 0 }]),
+        ],
+        builtins: vec![],
+        imports: vec![],
+        sizes: Default::default(),
+    };
+    let mut h = Host::new(manifest, HostOptions::default());
+    if named {
+        let mut d = cobolt_forms::description::describe(&login);
+        d.form.sign_in_form = true;
+        h.add_description(&cobolt_forms::description::to_json(&d)).unwrap();
+    } else {
+        h.add_form(login).unwrap();
+    }
+    h.add_form(orders).unwrap();
+    h
+}
+
+/// The work queue, as `(kind, form or instance, parameters)`.
+fn work_list(h: &Host) -> Vec<(&'static str, String, Params)> {
+    h.work
+        .iter()
+        .filter_map(|w| match w {
+            Work::Open { form, params, .. } => Some(("open", h.manifest.forms[*form].name.clone(), params.clone())),
+            Work::Close { inst } => Some(("close", inst.to_string(), Vec::new())),
+            Work::Event(e) => Some(("event", h.manifest.events[e.event as usize].clone(), Vec::new())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_protected_form_opened_signed_out_shows_the_sign_in_form_and_opens_after_the_sign_in() {
+    for named in [false, true] {
+        let mut h = protected_app(named);
+        assert_eq!(h.sign_in_form(), Some(1), "named {named}: the login form");
+        let params = vec![("id".to_string(), "42".to_string())];
+        h.start_with(0, params.clone());
+        let Some(ModuleCall::OpenForm { form, .. }) = h.next_call() else { panic!("an open") };
+        assert_eq!(form, 1, "signed out, a deep link to `orders` opens the sign-in form instead");
+        h.inflight = None;
+        h.create_tree(5, 1, None, Vec::new()).unwrap();
+
+        h.auth_act(5, 1, Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
+        let (id, _) = call_of(&mut h);
+        h.auth_answer(id, signed_in(signed_in_token()), 0.0);
+        let q = work_list(&h);
+        println!("named {named}: after the sign-in: {q:?}");
+        assert_eq!(q, vec![("event", "onSignedIn".to_string(), vec![]), ("open", "orders".to_string(), params.clone())], "the developer's handler first, then the form asked for, with its parameters");
+        let Some(ModuleCall::Event { .. }) = h.next_call() else { panic!("onSignedIn first") };
+        h.inflight = None;
+        let Some(ModuleCall::OpenForm { form, .. }) = h.next_call() else { panic!("then the open") };
+        assert_eq!(form, 0, "signed in, `orders` opens");
+    }
+}
+
+#[test]
+fn signing_out_closes_the_protected_forms_and_shows_the_sign_in_form() {
+    let mut h = protected_app(false);
+    h.create_tree(5, 1, None, Vec::new()).unwrap();
+    h.auth_act(5, 1, Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
+    let (id, _) = call_of(&mut h);
+    h.auth_answer(id, signed_in(signed_in_token()), 0.0);
+    h.work.clear();
+    h.create_tree(7, 0, None, Vec::new()).unwrap();
+
+    h.auth_act(5, 1, Action::SignOut);
+    let q = work_list(&h);
+    println!("after the sign-out, the sign-in form open: {q:?}");
+    assert!(q.contains(&("close", "7".to_string(), vec![])), "{q:?}");
+    assert!(!q.iter().any(|(k, _, _)| *k == "open"), "the sign-in form is open already: {q:?}");
+
+    // The sign-in form closed meanwhile: signing out opens it again.
+    h.trees.remove(&5);
+    h.trees.remove(&7);
+    h.work.clear();
+    h.create_tree(8, 0, None, Vec::new()).unwrap();
+    h.after_signed_out();
+    assert_eq!(work_list(&h), vec![("close", "8".to_string(), vec![]), ("open", "login".to_string(), vec![])], "no sign-in form open: it opens");
+}
+
+#[test]
+fn without_a_sign_in_form_a_protected_form_is_refused_by_name() {
+    let mut h = protected_app(false);
+    h.forms[1] = None;
+    assert_eq!(h.sign_in_form(), None);
+    h.start();
+    assert!(h.next_call().is_none(), "nothing opens");
+    let msg = h.effects.iter().find_map(|e| if let Effect::RuntimeError(r) = e { Some(r.message.clone()) } else { None }).expect("an error");
+    assert!(msg.contains("orders") && msg.contains("sign-in form"), "{msg}");
 }

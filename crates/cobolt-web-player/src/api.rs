@@ -455,16 +455,6 @@ impl Inner {
                     // A remote grid's call (WASM-005 T16): the rows or the save's outcome are the host's.
                     self.host.borrow_mut().grid_answer(id, frame);
                 }
-                Out::Answer { id, frame } if auth::wire::is_auth_id(id) => {
-                    // An Authentication control's call (WASM-009): the answer is the machine's, not the module's.
-                    let answered = self.host.borrow_mut().auth_answer(id, auth::wire::decode(&frame), now_ms() as f64);
-                    if matches!(answered, Some(auth::BackendCall::SignOut)) {
-                        // The server forgets who the connection was when it is closed: a later call opens a new one.
-                        if let Some(c) = self.net.borrow_mut().as_mut() {
-                            c.reset_session();
-                        }
-                    }
-                }
                 Out::Answer { id, frame } => self.host.borrow_mut().remote_answer(id, frame),
                 Out::State(s) => {
                     if let Some(sf) = self.surface.borrow().as_ref() {
@@ -570,12 +560,54 @@ impl Inner {
         Ok(())
     }
 
-    /// An Authentication control's backend call (WASM-009 R7).
+    /// An Authentication control's backend call (WASM-009 R7, D5): an HTTPS request to the backend's
+    /// `/auth/*` routes, never a WebSocket frame. Its answer comes back through the inbox.
     fn send_auth_call(self: &Rc<Self>, id: u32, call: auth::BackendCall) {
-        if let Err(e) = self.net_submit(id, &auth::wire::encode(&call)) {
-            // Nothing to send it through: the control reads it as any failed call (the user sees the generic message).
-            let answered = self.host.borrow_mut().auth_answer(id, auth::AuthResult::Failed { detail: e }, now_ms() as f64);
-            let _ = answered;
+        let Some(base) = self.cfg.backend_origins.first().and_then(|b| auth::https::base_of(b)) else {
+            // Nothing to send it to: the control reads it as any failed call (the user sees the generic message).
+            self.auth_answered(id, auth::AuthResult::Failed { detail: "the application has no backend configured".into() });
+            return;
+        };
+        let post = match &call {
+            auth::BackendCall::HostedStart => {
+                // A navigation, not a request: the backend sets the flow's cookie and sends the browser on.
+                let result = match crate::auth_fetch::keep_state() {
+                    Some(state) => auth::AuthResult::Hosted { redirect_url: auth::https::hosted_start_url(&base, &crate::auth_fetch::page_address(), &state) },
+                    None => auth::AuthResult::Failed { detail: "the page cannot keep the sign-in state".into() },
+                };
+                self.auth_answered(id, result);
+                return;
+            }
+            auth::BackendCall::HostedFinish { state, .. } if !auth::https::state_matches(crate::auth_fetch::take_state().as_deref(), state) => {
+                // A return this tab did not start (a link from someone else's sign-in): never redeemed.
+                self.auth_answered(id, auth::AuthResult::Failed { detail: "hosted state".into() });
+                return;
+            }
+            other => match auth::https::post(other) {
+                Some(p) => p,
+                None => return,
+            },
+        };
+        let weak = Rc::downgrade(self);
+        spawn_local(async move {
+            let result = match crate::auth_fetch::post(&post.url(&base), &post.body).await {
+                Ok((status, body)) => auth::https::decode(status, &body),
+                Err(e) => auth::AuthResult::Failed { detail: e },
+            };
+            if let Some(i) = weak.upgrade() {
+                i.push(Inbox::Raw(Box::new(move |inner| inner.auth_answered(id, result))));
+            }
+        });
+    }
+
+    /// The answer to identity call `id` reached the page.
+    fn auth_answered(self: &Rc<Self>, id: u32, result: auth::AuthResult) {
+        let answered = self.host.borrow_mut().auth_answer(id, result, now_ms() as f64);
+        if matches!(answered, Some(auth::BackendCall::SignOut)) {
+            // The server forgets who the connection was when it is closed: a later call opens a new one.
+            if let Some(c) = self.net.borrow_mut().as_mut() {
+                c.reset_session();
+            }
         }
     }
 
@@ -816,6 +848,9 @@ fn make_host(cfg: &PlayerConfig, manifest_json: &str) -> Result<Host, JsError> {
         if cfg.auth_flow.eq_ignore_ascii_case("hosted") { crate::auth::Flow::Hosted } else { crate::auth::Flow::InApp },
         &cfg.recaptcha_site_key,
     );
+    if !cfg.locale.trim().is_empty() {
+        host.set_page_locale(&cfg.locale);
+    }
     host.policy = crate::hyperlink::Policy { extra_schemes: cfg.link_schemes.clone() };
     host.platform = browser_platform();
     Ok(host)
@@ -1148,6 +1183,7 @@ impl Player {
 
     pub fn set_locale(&self, locale: &str) {
         self.inner.styles.borrow_mut().locale = locale.to_owned();
+        self.inner.host.borrow_mut().set_page_locale(locale);
         self.inner.styles_changed();
     }
 

@@ -50,7 +50,22 @@ pub struct BackendHooks {
     /// Set when the caller asks to cancel; the program reaches it with
     /// `COBOL::"WS-CANCELLED"` and `COBOL::"WS-PROGRESS"`.
     pub cancel_requested: Arc<AtomicBool>,
+    /// The identity service, set only when the backend's `/auth/*` routes run
+    /// one of the generated `AUTH-*` programs (WASM-009 D4, D15).
+    pub identity: Option<Arc<dyn IdentityHook>>,
 }
+
+/// What `COBOL::"AUTH-OP"` reaches: one identity operation, its `AUTH-REQUEST`
+/// group as JSON in, its `AUTH-RESULT` group as JSON out (WASM-009 D4). The
+/// backend's identity service implements it; nothing else does.
+pub trait IdentityHook: Send + Sync {
+    fn run(&self, operation: &str, request_json: &str) -> Result<String, CallError>;
+}
+
+/// The run-time error of `COBOL::"AUTH-OP"` anywhere but the backend (D15):
+/// the same words in `rcrun run-form`, an embedded child form and a compiled
+/// desktop binary.
+pub const AUTH_OP_OUTSIDE_BACKEND: &str = "COBOL::\"AUTH-OP\": identity operations run in the Backend";
 
 /// An application failure a backend program reported with `COBOL::"WS-FAIL"`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -527,6 +542,31 @@ impl Interpreter {
         };
         self.remote.app_failure = Some(AppFailure { code: code as u32, message, detail });
         Err(RuntimeError::StopRun)
+    }
+
+    /// `COBOL::"AUTH-OP"( operation request result )`: one identity operation of
+    /// a generated `AUTH-*` program (WASM-009 D4). The request group goes to the
+    /// identity service as JSON and its answer is read back into the result group.
+    /// Only the backend's `/auth/*` routes set the hook; everywhere else this is
+    /// [`AUTH_OP_OUTSIDE_BACKEND`].
+    pub(super) fn builtin_auth_op(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        let Some(hooks) = &self.remote.hooks else {
+            return Err(RuntimeError::General { message: AUTH_OP_OUTSIDE_BACKEND.into() });
+        };
+        let Some(identity) = hooks.identity.clone() else {
+            return Err(RuntimeError::General {
+                message: format!("{AUTH_OP_OUTSIDE_BACKEND}, through its /auth routes: this call did not come through them (or backend.toml has no [identity])"),
+            });
+        };
+        if using.len() < 3 {
+            return Err(RuntimeError::General { message: "COBOL::\"AUTH-OP\" needs an operation, a request group and a result group".into() });
+        }
+        let op = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_string();
+        let request = self.expr_to_name(call_arg_expr(&using[1]));
+        let result = self.expr_to_name(call_arg_expr(&using[2]));
+        let json = self.group_to_json(&request).map_err(|e| RuntimeError::General { message: format!("COBOL::\"AUTH-OP\": {e}") })?;
+        let answer = identity.run(&op, &json).map_err(|e| RuntimeError::General { message: format!("COBOL::\"AUTH-OP\" {op}: {}", e.message) })?;
+        self.group_from_json(&result, &answer).map_err(|e| RuntimeError::General { message: format!("COBOL::\"AUTH-OP\": {e}") })
     }
 
     /// `COBOL::"WS-PROGRESS"( percent message )`: report progress. A safe point:

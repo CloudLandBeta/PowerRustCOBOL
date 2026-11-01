@@ -185,14 +185,193 @@ fn the_tls_identity_and_the_provider_settings_print_without_their_secrets() {
     let kind = ["PRI", "VATE"].concat();
     std::fs::write(dir.join("k.pem"), format!("-----BEGIN {kind} KEY-----\nMIIEvQprivateprivateprivate\n-----END {kind} KEY-----\n")).unwrap();
     let text = format!(
-        "{GOOD}\n[tls]\ncert_chain = \"c.pem\"\nprivate_key = \"k.pem\"\n[identity]\nprovider = \"cognito\"\n[identity.settings]\nclient_secret = \"super-secret-client-value\"\nregion = \"eu-west-1\"\n[identity.recaptcha]\nsecret = \"recaptcha-secret-value\"\n"
+        "{GOOD}\n[tls]\ncert_chain = \"c.pem\"\nprivate_key = \"k.pem\"\n[identity]\nprovider = \"cognito\"\ncookie_key = \"{COOKIE_KEY}\"\n[identity.settings]\nclient_secret = \"super-secret-client-value\"\nregion = \"eu-west-1\"\nuser_pool_id = \"eu-west-1_Pool\"\nclient_id = \"app-client\"\n[identity.recaptcha]\nsecret = \"recaptcha-secret-value\"\n"
     );
     let cfg = ServerConfig::from_toml(&text).unwrap();
-    let r = cfg.resolve(RunMode::Release, &dir).unwrap();
+    // Development: the literal secrets are accepted, with a warning (a release start refuses them).
+    let r = cfg.resolve(RunMode::Development, &dir).unwrap();
     let dump = format!("{cfg:?} {r:?}");
-    for leaked in ["privateprivate", "super-secret-client-value", "recaptcha-secret-value"] {
+    for leaked in ["privateprivate", "super-secret-client-value", "recaptcha-secret-value", COOKIE_KEY] {
         assert!(!dump.contains(leaked), "{leaked} is in the dump: {dump}");
     }
     assert!(dump.contains("client_secret"), "the names of the settings may show: {dump}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── [identity] (WASM-009 T10: D3, D7, D13) ────────────────────────────────────
+
+/// 32 bytes, base64: a stand-in sealing key.
+const COOKIE_KEY: &str = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+
+/// A Cognito `[identity]` with its secrets given as `env:` names the test sets.
+fn cognito(extra: &str) -> String {
+    std::env::set_var("PRC_T10_COOKIE_KEY", COOKIE_KEY);
+    std::env::set_var("PRC_T10_CLIENT_SECRET", "client-secret-value");
+    std::env::set_var("PRC_T10_RECAPTCHA", "recaptcha-secret-value");
+    format!(
+        "[server]\nlisten = \"127.0.0.1:8443\"\nallowed_origins = [\"https://app.example.test\"]\n[identity]\nprovider = \"cognito\"\ncookie_key = \"env:PRC_T10_COOKIE_KEY\"\n{extra}\n[identity.settings]\nregion = \"eu-west-1\"\nuser_pool_id = \"eu-west-1_Pool\"\nclient_id = \"app-client\"\nclient_secret = \"env:PRC_T10_CLIENT_SECRET\"\n"
+    )
+}
+
+#[test]
+fn an_identity_section_alone_resolves_and_derives_auth_from_the_provider() {
+    use cobolt_server::config::{IdentityFlow, Profile, Provider};
+    let r = resolve(&cognito(""), RunMode::Release).expect("an [identity] needs no [auth]");
+    let i = r.identity.as_ref().unwrap();
+    assert_eq!(i.provider, Provider::Cognito);
+    assert_eq!(i.flow, IdentityFlow::InApp, "auto is Cognito's in-app flow (O1, the working assumption)");
+    assert_eq!(i.client_id, "app-client");
+    assert_eq!(i.client_secret.as_ref().map(|s| s.expose()), Some("client-secret-value"));
+    assert!(!i.settings.contains_key("client_secret"), "a secret is not kept with the plain settings");
+    assert_eq!(i.origins, vec!["https://app.example.test".to_string()], "the origins default to server.allowed_origins");
+    assert_eq!(i.attempts_per_minute, 10);
+    assert!(r.auth_from_identity);
+    assert_eq!(r.auth.profile, Profile::Cognito);
+    assert_eq!(r.auth.client_ids, vec!["app-client".to_string()]);
+    assert_eq!(i.discovery_uri(), "https://cognito-idp.eu-west-1.amazonaws.com/eu-west-1_Pool/.well-known/openid-configuration");
+    // An explicit [auth] wins.
+    let text = format!("{}\n[auth]\nissuer = [\"https://idp.example.test/pool\"]\naudiences = [\"prc-api\"]\n", cognito(""));
+    let r = resolve(&text, RunMode::Release).unwrap();
+    assert!(!r.auth_from_identity);
+    assert_eq!(r.auth.issuers, vec!["https://idp.example.test/pool".to_string()]);
+    assert_eq!(r.auth.audiences, vec!["prc-api".to_string()]);
+}
+
+#[test]
+fn the_provider_and_the_flow_must_be_known_and_each_provider_names_what_it_needs() {
+    let e = errors(&cognito("").replace("\"cognito\"", "\"okta\""), RunMode::Release);
+    assert!(e.contains("okta") && e.contains("cognito, keycloak, entra, entra-external"), "{e}");
+    let e = errors(&cognito("flow = \"popup\""), RunMode::Release);
+    assert!(e.contains("popup") && e.contains("auto, in-app, hosted, native"), "{e}");
+    let e = errors(&cognito("").replace("user_pool_id = \"eu-west-1_Pool\"\n", ""), RunMode::Release);
+    assert!(e.contains("identity.settings.user_pool_id is required for provider cognito"), "{e}");
+    let e = errors(&cognito("").replace("region = ", "realm = "), RunMode::Release);
+    assert!(e.contains("identity.settings.realm is not a cognito setting"), "{e}");
+    // Keycloak's sign-in is its own page: in-app is refused; hosted (auto) resolves.
+    let kc = cognito("").replace("\"cognito\"", "\"keycloak\"").replace("region = \"eu-west-1\"\nuser_pool_id = \"eu-west-1_Pool\"\n", "issuer = \"https://kc.example.test/realms/shop\"\n");
+    let r = resolve(&kc, RunMode::Release).expect("keycloak");
+    assert_eq!(r.identity.as_ref().unwrap().flow, cobolt_server::config::IdentityFlow::Hosted);
+    let e = errors(&kc.replace("[identity]\n", "[identity]\nflow = \"in-app\"\n"), RunMode::Release);
+    assert!(e.contains("not available for keycloak"), "{e}");
+    let e = errors(&kc.replace("https://kc.example.test", "http://kc.example.test"), RunMode::Release);
+    assert!(e.contains("must be an https:// address"), "{e}");
+    // Cognito's hosted flow needs the managed login's domain.
+    let e = errors(&cognito("flow = \"hosted\""), RunMode::Release);
+    assert!(e.contains("needs identity.settings.domain"), "{e}");
+    // Entra and Entra External ID.
+    let entra = cognito("").replace("\"cognito\"", "\"entra\"").replace("region = \"eu-west-1\"\nuser_pool_id = \"eu-west-1_Pool\"\n", "tenant = \"contoso.onmicrosoft.com\"\n");
+    let r = resolve(&entra, RunMode::Release).expect("entra");
+    assert_eq!(r.identity.as_ref().unwrap().discovery_uri(), "https://login.microsoftonline.com/contoso.onmicrosoft.com/v2.0/.well-known/openid-configuration");
+    assert_eq!(r.auth.audiences, vec!["app-client".to_string()], "Entra's aud is the client id unless an audience is set");
+    let ext = cognito("flow = \"native\"").replace("\"cognito\"", "\"entra-external\"").replace("region = \"eu-west-1\"\nuser_pool_id = \"eu-west-1_Pool\"\n", "tenant_subdomain = \"shop\"\n");
+    let r = resolve(&ext, RunMode::Release).expect("entra-external native");
+    assert_eq!(r.identity.as_ref().unwrap().flow, cobolt_server::config::IdentityFlow::Native);
+    assert_eq!(r.identity.as_ref().unwrap().authority(), "https://shop.ciamlogin.com/shop.onmicrosoft.com");
+}
+
+#[test]
+fn a_secret_written_in_the_file_stops_a_release_start_and_only_warns_in_development() {
+    for (find, put, name) in [
+        ("client_secret = \"env:PRC_T10_CLIENT_SECRET\"", "client_secret = \"written-in-the-file\"", "identity.settings.client_secret"),
+        ("cookie_key = \"env:PRC_T10_COOKIE_KEY\"", "cookie_key = \"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=\"", "identity.cookie_key"),
+    ] {
+        let text = cognito("").replace(find, put);
+        let e = errors(&text, RunMode::Release);
+        assert!(e.contains(name) && e.contains("env:NAME or file:PATH"), "{name}: {e}");
+        let r = resolve(&text, RunMode::Development).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert!(r.warnings.iter().any(|w| w.contains(name)), "{name}: {:?}", r.warnings);
+    }
+    let text = format!("{}[identity.recaptcha]\nsite_key = \"site-key-public\"\nsecret = \"literal-recaptcha\"\n", cognito(""));
+    assert!(errors(&text, RunMode::Release).contains("identity.recaptcha.secret"));
+    let text = format!("{}[identity.recaptcha]\nsite_key = \"site-key-public\"\nsecret = \"env:PRC_T10_RECAPTCHA\"\nmin_score = 0.7\n", cognito(""));
+    let r = resolve(&text, RunMode::Release).unwrap();
+    let rc = r.identity.as_ref().unwrap().recaptcha.as_ref().unwrap();
+    assert_eq!((rc.site_key.as_deref(), rc.secret.expose(), rc.min_score), (Some("site-key-public"), "recaptcha-secret-value", 0.7));
+    assert!(!format!("{r:?}").contains("recaptcha-secret-value"));
+}
+
+#[test]
+fn without_a_32_byte_cookie_key_the_backend_does_not_start() {
+    let e = errors(&cognito("").replace("cookie_key = \"env:PRC_T10_COOKIE_KEY\"\n", ""), RunMode::Development);
+    assert!(e.contains("identity.cookie_key is missing") && e.contains("no unsealed fallback"), "{e}");
+    std::env::set_var("PRC_T10_SHORT_KEY", "AQIDBA==");
+    let e = errors(&cognito("").replace("PRC_T10_COOKIE_KEY", "PRC_T10_SHORT_KEY"), RunMode::Release);
+    assert!(e.contains("not a 32-byte key") && e.contains("4 bytes"), "{e}");
+    let e = errors(&cognito("").replace("PRC_T10_COOKIE_KEY", "PRC_T10_NOT_SET_ANYWHERE"), RunMode::Release);
+    assert!(e.contains("identity.cookie_key"), "{e}");
+    assert_eq!(cobolt_server::config::cookie_key_bytes(&"ab".repeat(32)).unwrap(), [0xab; 32], "64 hex digits are a key too");
+}
+
+#[test]
+fn the_identity_origins_are_origins_and_one_is_needed_in_release() {
+    let e = errors(&cognito("origins = [\"https://app.example.test/path\", \"https://*.example.test\", \"http://app.example.test\"]"), RunMode::Release);
+    assert_eq!(e.matches("is not an origin").count(), 3, "{e}");
+    let r = resolve(&cognito("origins = [\"https://shop.example.test\", \"http://localhost:5173\"]"), RunMode::Release).unwrap();
+    assert_eq!(r.identity.unwrap().origins.len(), 2);
+    let e = errors(&cognito("").replace("allowed_origins = [\"https://app.example.test\"]\n", ""), RunMode::Release);
+    assert!(e.contains("identity.origins is empty"), "{e}");
+}
+
+/// A provider's metadata, served by a stand-in fetcher: the issuer and the key address are taken
+/// from it, never guessed — Keycloak's keys are under `/protocol/openid-connect/certs`, Entra's
+/// under `/discovery/v2.0/keys`.
+struct Metadata(std::collections::HashMap<String, String>);
+
+impl cobolt_server::jwks::JwksFetcher for Metadata {
+    fn fetch(&self, uri: &str) -> Result<String, String> {
+        self.0.get(uri).cloned().ok_or_else(|| format!("404 {uri}"))
+    }
+}
+
+fn metadata(uri: &str, issuer: &str, jwks: &str) -> Metadata {
+    let doc = serde_json::json!({
+        "issuer": issuer,
+        "jwks_uri": jwks,
+        "authorization_endpoint": format!("{issuer}/authorize"),
+        "token_endpoint": format!("{issuer}/token"),
+        "end_session_endpoint": format!("{issuer}/logout"),
+    });
+    Metadata([(uri.to_string(), doc.to_string())].into_iter().collect())
+}
+
+#[test]
+fn discovery_takes_the_issuer_and_the_keys_from_the_provider_metadata() {
+    let kc = cognito("").replace("\"cognito\"", "\"keycloak\"").replace("region = \"eu-west-1\"\nuser_pool_id = \"eu-west-1_Pool\"\n", "issuer = \"https://kc.example.test/realms/shop\"\n");
+    let mut r = resolve(&kc, RunMode::Release).unwrap();
+    let iss = "https://kc.example.test/realms/shop";
+    let certs = "https://kc.example.test/realms/shop/protocol/openid-connect/certs";
+    r.discover(&metadata(&format!("{iss}/.well-known/openid-configuration"), iss, certs)).unwrap();
+    assert_eq!(r.auth.issuers, vec![iss.to_string()]);
+    assert_eq!(r.auth.jwks_uri.as_deref(), Some(certs), "the key address is the metadata's, not <issuer>/.well-known/jwks.json");
+
+    let entra = cognito("").replace("\"cognito\"", "\"entra\"").replace("region = \"eu-west-1\"\nuser_pool_id = \"eu-west-1_Pool\"\n", "tenant = \"contoso.onmicrosoft.com\"\n");
+    let mut r = resolve(&entra, RunMode::Release).unwrap();
+    let tenant_iss = "https://login.microsoftonline.com/0f1e2d3c-0000-4000-8000-000000000001/v2.0";
+    let keys = "https://login.microsoftonline.com/0f1e2d3c-0000-4000-8000-000000000001/discovery/v2.0/keys";
+    let uri = "https://login.microsoftonline.com/contoso.onmicrosoft.com/v2.0/.well-known/openid-configuration";
+    r.discover(&metadata(uri, tenant_iss, keys)).unwrap();
+    assert_eq!(r.auth.issuers, vec![tenant_iss.to_string()], "Entra names the tenant by its id");
+    assert_eq!(r.auth.jwks_uri.as_deref(), Some(keys));
+
+    // Metadata that names another issuer, or an http key address, stops the start.
+    let mut r = resolve(&kc, RunMode::Release).unwrap();
+    let e = r.discover(&metadata(&format!("{iss}/.well-known/openid-configuration"), "https://evil.example.test/realms/shop", certs)).unwrap_err();
+    assert!(e.contains("not the configured keycloak"), "{e}");
+    let e = r.discover(&metadata(&format!("{iss}/.well-known/openid-configuration"), iss, "http://kc.example.test/certs")).unwrap_err();
+    assert!(e.contains("not https"), "{e}");
+    let e = r.discover(&Metadata(Default::default())).unwrap_err();
+    assert!(e.contains("the provider's metadata"), "{e}");
+    // With an explicit [auth], Keycloak still reads its metadata — the adapter's endpoints are there
+    // (T17) — but [auth] stays as written.
+    let explicit = format!("{kc}\n[auth]\nissuer = [\"{iss}\"]\naudiences = [\"prc-api\"]\njwks_uri = \"https://keys.example.test/k\"\n");
+    let mut r = resolve(&explicit, RunMode::Release).unwrap();
+    assert!(r.discover(&Metadata(Default::default())).is_err(), "Keycloak's endpoints come from its metadata");
+    r.discover(&metadata(&format!("{iss}/.well-known/openid-configuration"), iss, certs)).unwrap();
+    assert_eq!(r.auth.jwks_uri.as_deref(), Some("https://keys.example.test/k"), "[auth] as written");
+    assert_eq!(r.discovery.as_ref().map(|d| d.token_endpoint.as_str()), Some(format!("{iss}/token").as_str()));
+    // Cognito's endpoints follow from its region and domain: with [auth] given there is nothing to read.
+    let mut r = resolve(&format!("{}\n[auth]\nissuer = [\"{iss}\"]\naudiences = [\"prc-api\"]\n", cognito("")), RunMode::Release).unwrap();
+    r.discover(&Metadata(Default::default())).expect("no fetch for Cognito when [auth] is given");
+    assert!(r.discovery.is_none());
+}
+

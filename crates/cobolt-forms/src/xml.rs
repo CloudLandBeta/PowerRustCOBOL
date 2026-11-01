@@ -272,6 +272,8 @@ enum OwnedEvent {
         modal_overlay_style: crate::model::ModalOverlayStyle,
         // 049 Application shell
         form_format: crate::model::FormFormat,
+        // WASM-009 R11
+        requires_sign_in: bool,
         // 038 Window effects opt-out
         window_effects: bool,
         // Window start position (operator, 2026-07-31)
@@ -429,6 +431,10 @@ fn next_owned<R: std::io::BufRead>(
                     let form_format = get_attr(e, b"form-format")?
                         .map(|v| crate::model::FormFormat::from_str(&v))
                         .unwrap_or_default();
+                    // WASM-009 R11 — absent means false, so every older form is unchanged.
+                    let requires_sign_in = get_attr(e, b"requires-sign-in")?
+                        .map(|v| v == "true" || v == "1")
+                        .unwrap_or(false);
                     let window_effects = get_attr(e, b"window-effects")?
                         .map(|v| v != "false" && v != "0")
                         .unwrap_or(true);
@@ -494,6 +500,7 @@ fn next_owned<R: std::io::BufRead>(
                         dock_length,
                         modal_overlay_style,
                         form_format,
+                        requires_sign_in,
                         window_effects,
                         x,
                         y,
@@ -680,6 +687,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 dock_length,
                 modal_overlay_style,
                 form_format,
+                requires_sign_in,
                 window_effects,
                 x,
                 y,
@@ -721,6 +729,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.dock_length = dock_length;
                 f.modal_overlay_style = modal_overlay_style;
                 f.form_format = form_format;
+                f.requires_sign_in = requires_sign_in;
                 f.window_effects = window_effects;
                 f.x = x;
                 f.y = y;
@@ -1834,6 +1843,10 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         // so every pre-049 form round-trips byte-identical.
         if form.form_format != crate::model::FormFormat::Standalone {
             elem.push_attribute(("form-format", form.form_format.as_str()));
+        }
+        // WASM-009 R11 — written only when true, so every other form round-trips byte-identical.
+        if form.requires_sign_in {
+            elem.push_attribute(("requires-sign-in", "true"));
         }
         // 038 — the effects opt-out, additive like the 037 attributes.
         if !form.window_effects {

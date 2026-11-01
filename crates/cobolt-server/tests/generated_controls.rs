@@ -158,7 +158,7 @@ fn a_named_configuration_that_backend_toml_lacks_stops_the_start() {
     );
     let resolved = ServerConfig::from_toml(&text).unwrap().resolve(RunMode::Release, &dir).unwrap();
     let backend = Backend::load(&dir).unwrap_or_else(|e| panic!("{e:#?}"));
-    let e = cobolt_server::start(resolved, backend, cobolt_server::Options { sink: None, fetcher: None }).err().expect("refused");
+    let e = cobolt_server::start(resolved, backend, cobolt_server::Options { sink: None, fetcher: None, identity_http: None }).err().expect("refused");
     assert!(e.contains("no [[configuration]] named \"ASSISTANT\""), "{e}");
     assert!(e.contains("RC-4-SHOP-7-AGENT-1-ASK-1"), "{e}");
     assert!(!e.contains("CRM\""), "CRM is there: {e}");

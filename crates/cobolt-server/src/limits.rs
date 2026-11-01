@@ -21,8 +21,13 @@ pub struct Bucket {
 
 impl Bucket {
     pub fn new(rate_per_sec: u32, burst: u32) -> Self {
+        Bucket::with_rate(rate_per_sec.max(1) as f64, burst)
+    }
+
+    /// `rate` tokens per second, fractional (a per-minute limit is `n / 60.0`).
+    pub fn with_rate(rate: f64, burst: u32) -> Self {
         let burst = burst.max(1) as f64;
-        Bucket { rate: rate_per_sec.max(1) as f64, burst, tokens: burst, last: Instant::now() }
+        Bucket { rate, burst, tokens: burst, last: Instant::now() }
     }
 
     /// Take one token; false when the bucket is empty.
@@ -42,7 +47,7 @@ impl Bucket {
 
 /// One bucket per key (a user's subject, a source address), evicted when idle.
 pub struct KeyedLimiter {
-    rate: u32,
+    rate: f64,
     burst: u32,
     buckets: Mutex<HashMap<String, Bucket>>,
 }
@@ -51,7 +56,12 @@ const MAX_KEYS: usize = 20_000;
 
 impl KeyedLimiter {
     pub fn new(rate: u32, burst: u32) -> Self {
-        KeyedLimiter { rate, burst, buckets: Mutex::new(HashMap::new()) }
+        KeyedLimiter { rate: rate.max(1) as f64, burst, buckets: Mutex::new(HashMap::new()) }
+    }
+
+    /// `n` a minute, all of which may be spent at once (the identity attempts, WASM-009 D8).
+    pub fn per_minute(n: u32) -> Self {
+        KeyedLimiter { rate: n.max(1) as f64 / 60.0, burst: n, buckets: Mutex::new(HashMap::new()) }
     }
 
     pub fn take(&self, key: &str) -> bool {
@@ -63,6 +73,6 @@ impl KeyedLimiter {
                 return false;
             }
         }
-        m.entry(key.to_string()).or_insert_with(|| Bucket::new(self.rate, self.burst)).take()
+        m.entry(key.to_string()).or_insert_with(|| Bucket::with_rate(self.rate, self.burst)).take()
     }
 }

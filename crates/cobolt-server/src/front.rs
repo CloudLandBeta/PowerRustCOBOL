@@ -33,6 +33,11 @@ pub const UPGRADE_PATHS: [&str; 2] = ["/", "/ws"];
 pub const DOWNLOAD_PATH: &str = "/dl/{token}";
 /// The health probe: the server function's address.
 pub const HEALTH_PATH: &str = "/health";
+/// The identity routes (WASM-009 D5): one segment (`/auth/sign-in`) or the hosted flow's two
+/// (`/auth/hosted/start`). Mounted for every method, like the health probe, because they take POST
+/// and the CORS preflight's OPTIONS as well as GET; which names and methods exist is the identity
+/// routes' own closed table (`identity/routes.rs`), and any other is 404.
+pub const AUTH_PATHS: [&str; 2] = ["/auth/{op}", "/auth/hosted/{step}"];
 
 /// The platform's routes. They render nothing: Leptos owns the table, the
 /// handlers of `serve.rs` answer them.

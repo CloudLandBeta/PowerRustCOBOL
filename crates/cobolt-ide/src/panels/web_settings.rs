@@ -292,6 +292,335 @@ pub fn migrate_exports(project_dir: &Path, p: &CoboltProject) -> Result<Option<P
     Ok(Some(path))
 }
 
+// ── The Backend's identity provider (WASM-009 T19, R9, D13) ─────────────────
+
+/// `backend/backend.toml` of the project in `project_dir`.
+pub fn backend_config_path(project_dir: &Path) -> PathBuf {
+    project_dir.join(BACKEND_FOLDER).join("backend.toml")
+}
+
+/// The Identity section as the page edits it: `[identity]` of `backend.toml`, every value as text.
+/// An empty `provider` is "no `[identity]`"; an empty `flow` is `auto`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct IdentityDraft {
+    pub provider: String,
+    pub flow: String,
+    /// The provider's settings, by the names [`provider_settings`] gives them.
+    pub settings: std::collections::BTreeMap<String, String>,
+    /// One origin per line.
+    pub origins_text: String,
+    pub cookie_key: String,
+    pub site_key: String,
+    pub recaptcha_secret: String,
+    /// Empty: the backend's default (0.5).
+    pub min_score: String,
+}
+
+/// What is wrong with a draft, said by the setting's name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IdentityProblem {
+    /// A secret written by value (R9): never saved.
+    LiteralSecret(String),
+    /// The reCAPTCHA threshold is not a number from 0 to 1.
+    Threshold,
+}
+
+use cobolt_server::identity_settings::{is_secret_reference, provider_settings, IdentityFlow, Provider};
+
+const PROVIDERS: [Provider; 4] = [Provider::Cognito, Provider::Keycloak, Provider::Entra, Provider::EntraExternal];
+const FLOWS: [IdentityFlow; 3] = [IdentityFlow::InApp, IdentityFlow::Hosted, IdentityFlow::Native];
+
+impl IdentityDraft {
+    fn provider(&self) -> Option<Provider> {
+        Provider::parse(&self.provider)
+    }
+
+    /// The secret settings with their values: the provider's, the cookie key, reCAPTCHA's.
+    fn secrets(&self) -> Vec<(String, &str)> {
+        let mut out: Vec<(String, &str)> = Vec::new();
+        if let Some(p) = self.provider() {
+            for (name, _, secret) in provider_settings(p) {
+                if *secret {
+                    out.push((format!("identity.settings.{name}"), self.settings.get(*name).map(String::as_str).unwrap_or("")));
+                }
+            }
+        }
+        out.push(("identity.cookie_key".into(), self.cookie_key.as_str()));
+        out.push(("identity.recaptcha.secret".into(), self.recaptcha_secret.as_str()));
+        out
+    }
+
+    /// The draft's problems; a draft with any is not written.
+    pub fn problems(&self) -> Vec<IdentityProblem> {
+        if self.provider().is_none() {
+            return Vec::new();
+        }
+        let mut out: Vec<IdentityProblem> = self
+            .secrets()
+            .into_iter()
+            .filter(|(_, v)| !v.trim().is_empty() && !is_secret_reference(v))
+            .map(|(name, _)| IdentityProblem::LiteralSecret(name))
+            .collect();
+        let score = self.min_score.trim();
+        if !score.is_empty() && !score.parse::<f64>().is_ok_and(|v| (0.0..=1.0).contains(&v)) {
+            out.push(IdentityProblem::Threshold);
+        }
+        out
+    }
+}
+
+/// `[identity]` of the project's `backend.toml`; the default (no provider) when there is none.
+pub fn read_identity(project_dir: &Path) -> IdentityDraft {
+    let Ok(doc) = std::fs::read_to_string(backend_config_path(project_dir)).unwrap_or_default().parse::<toml_edit::DocumentMut>() else {
+        return IdentityDraft::default();
+    };
+    let Some(id) = doc.get("identity").and_then(|i| i.as_table_like()) else { return IdentityDraft::default() };
+    let text = |t: &dyn toml_edit::TableLike, k: &str| t.get(k).and_then(|v| v.as_str()).unwrap_or("").to_owned();
+    let mut d = IdentityDraft { provider: text(id, "provider"), flow: text(id, "flow"), cookie_key: text(id, "cookie_key"), ..Default::default() };
+    if d.flow == "auto" {
+        d.flow.clear();
+    }
+    if let Some(settings) = id.get("settings").and_then(|s| s.as_table_like()) {
+        for (k, v) in settings.iter() {
+            if let Some(v) = v.as_str() {
+                d.settings.insert(k.to_owned(), v.to_owned());
+            }
+        }
+    }
+    if let Some(origins) = id.get("origins").and_then(|o| o.as_array()) {
+        d.origins_text = origins.iter().filter_map(|o| o.as_str()).collect::<Vec<_>>().join("\n");
+    }
+    if let Some(r) = id.get("recaptcha").and_then(|r| r.as_table_like()) {
+        d.site_key = text(r, "site_key");
+        d.recaptcha_secret = text(r, "secret");
+        d.min_score = r.get("min_score").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))).map(|f| f.to_string()).unwrap_or_default();
+    }
+    d
+}
+
+/// Write the draft as `[identity]` of `backend.toml`. Only that section changes: every other section,
+/// and the comments around them, stay byte for byte; inside it, a key the page does not edit
+/// (`attempts_per_minute`, `recaptcha.hostnames`) stays too. No provider removes the section. A draft
+/// with a problem is refused (a secret by value is never written, R9). Returns whether the file changed.
+pub fn write_identity(project_dir: &Path, d: &IdentityDraft) -> Result<bool, String> {
+    if let Some(p) = d.problems().first() {
+        return Err(match p {
+            IdentityProblem::LiteralSecret(name) => format!("{name} holds a secret by value"),
+            IdentityProblem::Threshold => "identity.recaptcha.min_score is not a number from 0 to 1".into(),
+        });
+    }
+    let path = backend_config_path(project_dir);
+    let before = match std::fs::read_to_string(&path) {
+        Ok(t) => Some(t),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut doc: toml_edit::DocumentMut = before.as_deref().unwrap_or("").parse().map_err(|e| format!("{}: {e}", path.display()))?;
+    match d.provider() {
+        None => {
+            doc.remove("identity");
+        }
+        Some(provider) => {
+            if !doc.contains_key("identity") {
+                doc.insert("identity", toml_edit::Item::Table(toml_edit::Table::new()));
+            }
+            let id = doc["identity"].as_table_mut().ok_or("[identity] is not a table")?;
+            let set = |t: &mut toml_edit::Table, k: &str, v: &str| {
+                if v.trim().is_empty() {
+                    t.remove(k);
+                } else if t.get(k).and_then(|x| x.as_str()) != Some(v.trim()) {
+                    t.insert(k, toml_edit::value(v.trim()));
+                }
+            };
+            set(id, "provider", provider.word());
+            set(id, "flow", d.flow.trim());
+            set(id, "cookie_key", &d.cookie_key);
+            let origins: Vec<&str> = d.origins_text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+            if origins.is_empty() {
+                id.remove("origins");
+            } else {
+                let kept: Vec<&str> = id.get("origins").and_then(|o| o.as_array()).map(|a| a.iter().filter_map(|v| v.as_str()).collect()).unwrap_or_default();
+                if kept != origins {
+                    id.insert("origins", toml_edit::value(origins.iter().copied().collect::<toml_edit::Array>()));
+                }
+            }
+            // The provider's settings: the ones it names, in its order; another provider's are dropped.
+            let names: Vec<&str> = provider_settings(provider).iter().map(|(n, _, _)| *n).collect();
+            if !id.contains_key("settings") {
+                id.insert("settings", toml_edit::Item::Table(toml_edit::Table::new()));
+            }
+            let settings = id["settings"].as_table_mut().ok_or("[identity.settings] is not a table")?;
+            let stale: Vec<String> = settings.iter().map(|(k, _)| k.to_owned()).filter(|k| !names.contains(&k.as_str())).collect();
+            for k in stale {
+                settings.remove(&k);
+            }
+            for n in &names {
+                set(settings, n, d.settings.get(*n).map(String::as_str).unwrap_or(""));
+            }
+            let recaptcha_given = [&d.site_key, &d.recaptcha_secret, &d.min_score].iter().any(|v| !v.trim().is_empty());
+            if recaptcha_given {
+                if !id.contains_key("recaptcha") {
+                    id.insert("recaptcha", toml_edit::Item::Table(toml_edit::Table::new()));
+                }
+                let r = id["recaptcha"].as_table_mut().ok_or("[identity.recaptcha] is not a table")?;
+                set(r, "site_key", &d.site_key);
+                set(r, "secret", &d.recaptcha_secret);
+                match d.min_score.trim().parse::<f64>() {
+                    Ok(v) if r.get("min_score").and_then(|x| x.as_float()) != Some(v) => {
+                        r.insert("min_score", toml_edit::value(v));
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        r.remove("min_score");
+                    }
+                }
+            } else {
+                id.remove("recaptcha");
+            }
+        }
+    }
+    let after = doc.to_string();
+    if before.as_deref().unwrap_or("") == after {
+        return Ok(false);
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    std::fs::write(&path, after).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(true)
+}
+
+/// The Identity section's Test connection (T18's `rcrun backend auth test`): running on a thread,
+/// or the lines it printed last.
+#[derive(Default)]
+pub struct IdentityTest {
+    running: Option<std::sync::mpsc::Receiver<Vec<String>>>,
+    lines: Vec<String>,
+}
+
+impl IdentityTest {
+    /// Start `rcrun backend auth test <project_dir>`; its output (stdout, then stderr) comes back whole.
+    fn start(&mut self, ctx: &egui::Context, project_dir: &Path) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (dir, ctx) = (project_dir.to_path_buf(), ctx.clone());
+        std::thread::spawn(move || {
+            let lines = match std::process::Command::new(crate::backend_run::rcrun()).args(["backend", "auth", "test"]).arg(&dir).output() {
+                Ok(o) => String::from_utf8_lossy(&o.stdout).lines().chain(String::from_utf8_lossy(&o.stderr).lines()).map(str::to_owned).collect(),
+                Err(e) => vec![format!("rcrun: {e}")],
+            };
+            let _ = tx.send(lines);
+            ctx.request_repaint();
+        });
+        self.running = Some(rx);
+        self.lines.clear();
+    }
+
+    fn poll(&mut self) {
+        if let Some(rx) = &self.running {
+            if let Ok(lines) = rx.try_recv() {
+                self.lines = lines;
+                self.running = None;
+            }
+        }
+    }
+}
+
+fn flow_text<'a>(tr: &'a Tr, flow: &str) -> &'a str {
+    match flow {
+        "in-app" => tr.pk_set_id_flow_in_app,
+        "hosted" => tr.pk_set_id_flow_hosted,
+        "native" => tr.pk_set_id_flow_native,
+        _ => tr.pk_set_id_flow_auto,
+    }
+}
+
+/// A secret's box shows what it holds (a reference, never a secret) but hides a value typed by
+/// mistake, so it is not shown on screen while the page refuses it.
+fn secret_box(ui: &mut Ui, value: &mut String) {
+    let w = ui.available_width();
+    let hide = !value.trim().is_empty() && !is_secret_reference(value);
+    ui.add(egui::TextEdit::singleline(value).hint_text("env:NAME").password(hide).desired_width(w));
+}
+
+/// The Identity rows (WASM-009 T19).
+fn identity_rows(ui: &mut Ui, d: &mut IdentityDraft, tr: &Tr, theme: &Theme, lay: RowLayout, project_dir: Option<&Path>, test: &mut IdentityTest) {
+    let dim = theme.text_dim;
+    ui.add_space(8.0);
+    row(ui, lay, "", |ui| {
+        section(ui, tr.pk_set_sec_identity, theme);
+    });
+    row(ui, lay, tr.pk_set_id_provider, |ui| {
+        let shown = Provider::parse(&d.provider).map_or(tr.pk_set_id_provider_none, |p| p.word());
+        egui::ComboBox::from_id_salt("identity_provider").selected_text(shown).show_ui(ui, |ui| {
+            ui.selectable_value(&mut d.provider, String::new(), tr.pk_set_id_provider_none);
+            for p in PROVIDERS {
+                ui.selectable_value(&mut d.provider, p.word().to_owned(), p.word());
+            }
+        });
+    });
+    let Some(provider) = Provider::parse(&d.provider) else { return };
+    row(ui, lay, tr.pk_set_id_flow, |ui| {
+        egui::ComboBox::from_id_salt("identity_flow").selected_text(flow_text(tr, &d.flow)).show_ui(ui, |ui| {
+            ui.selectable_value(&mut d.flow, String::new(), tr.pk_set_id_flow_auto);
+            for f in FLOWS {
+                ui.selectable_value(&mut d.flow, f.word().to_owned(), flow_text(tr, f.word()));
+            }
+        });
+    });
+    for (name, _required, secret) in provider_settings(provider) {
+        let value = d.settings.entry((*name).to_owned()).or_default();
+        row(ui, lay, name, |ui| {
+            if *secret {
+                secret_box(ui, value);
+            } else {
+                let w = ui.available_width();
+                ui.add(egui::TextEdit::singleline(value).desired_width(w));
+            }
+        });
+    }
+    note(ui, lay, tr.pk_set_id_settings_hint, dim);
+    row(ui, lay, tr.pk_set_id_origins, |ui| {
+        let w = ui.available_width();
+        ui.add(egui::TextEdit::multiline(&mut d.origins_text).desired_rows(2).desired_width(w));
+    });
+    note(ui, lay, tr.pk_set_id_origins_hint, dim);
+    row(ui, lay, tr.pk_set_id_cookie_key, |ui| secret_box(ui, &mut d.cookie_key));
+    note(ui, lay, tr.pk_set_id_cookie_key_hint, dim);
+    row(ui, lay, tr.pk_set_id_recaptcha_site_key, |ui| {
+        let w = ui.available_width();
+        ui.add(egui::TextEdit::singleline(&mut d.site_key).desired_width(w));
+    });
+    row(ui, lay, tr.pk_set_id_recaptcha_secret, |ui| secret_box(ui, &mut d.recaptcha_secret));
+    row(ui, lay, tr.pk_set_id_recaptcha_threshold, |ui| {
+        ui.add(egui::TextEdit::singleline(&mut d.min_score).hint_text("0.5").desired_width(60.0));
+    });
+    note(ui, lay, tr.pk_set_id_secret_hint, dim);
+    for p in d.problems() {
+        let text = match p {
+            IdentityProblem::LiteralSecret(name) => tr.pk_set_id_literal_secret.replacen("{}", &name, 1),
+            IdentityProblem::Threshold => tr.pk_set_id_recaptcha_threshold_bad.to_owned(),
+        };
+        note(ui, lay, &text, theme.error);
+    }
+    test.poll();
+    row(ui, lay, "", |ui| {
+        let running = test.running.is_some();
+        let label = if running { tr.pk_set_id_testing } else { tr.pk_set_id_test };
+        if ui.add_enabled(!running && project_dir.is_some(), egui::Button::new(label)).clicked() {
+            if let Some(dir) = project_dir {
+                test.start(ui.ctx(), dir);
+            }
+        }
+    });
+    note(ui, lay, tr.pk_set_id_test_hint, dim);
+    for line in &test.lines {
+        let colour = if line.starts_with("FAIL") { theme.error } else { dim };
+        row(ui, lay, "", |ui| {
+            ui.add(egui::Label::new(RichText::new(line).monospace().small().color(colour)).wrap());
+        });
+    }
+}
+
 // ── The Preview's browser (WASM-008 R12, Q7, D11) ───────────────────────────
 
 /// One answer to *Start "<path>" to show the Preview?*
@@ -442,7 +771,7 @@ pub fn show_browser_confirm(ctx: &egui::Context, tr: &Tr, path: &str) -> Option<
 }
 
 /// Draw the section for a Web or Mobile project; nothing for a Desktop one.
-pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout) {
+pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout, project_dir: Option<&Path>, identity_test: &mut IdentityTest) {
     if draft.kind.is_desktop() {
         return;
     }
@@ -649,6 +978,7 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
             });
         });
         note(ui, lay, tr.pk_set_state_hint, dim);
+        identity_rows(ui, &mut draft.identity, tr, theme, lay, project_dir, identity_test);
     } else {
         note(ui, lay, tr.pk_set_no_backend, dim);
     }
@@ -910,6 +1240,8 @@ mod tests {
                 if let Some(m) = &mut draft.mobile {
                     m.backend_url = "http://nope".into();
                 }
+                // The Identity rows, every one of them, with a problem note of each kind.
+                draft.identity = IdentityDraft { provider: "cognito".into(), cookie_key: "a-literal-key".into(), min_score: "2".into(), ..Default::default() };
                 for _ in 0..4 {
                     let mut input = egui::RawInput::default();
                     input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 3000.0)));
@@ -917,7 +1249,7 @@ mod tests {
                     let mut out = ctx.run_ui(input, |ui| {
                         let before = ui.available_width();
                         let lay = RowLayout { splitter: 260.0, resizer_width: 5.0, gap_after_resizer: 10.0, property_indent: 12.0 };
-                        show(ui, &mut draft, &tr, theme, lay);
+                        show(ui, &mut draft, &tr, theme, lay, None, &mut IdentityTest::default());
                         used = ui.min_rect().width();
                         assert!(ui.min_rect().width() <= before + 0.5, "[{lang:?}] the section is wider than the room it was given");
                     });
@@ -1026,10 +1358,92 @@ mod tests {
         let mut out = ctx.run_ui(input, |ui| {
             let lay = RowLayout { splitter: 260.0, resizer_width: 5.0, gap_after_resizer: 10.0, property_indent: 12.0 };
             let before = ui.cursor().top();
-            show(ui, &mut draft, &tr, theme, lay);
+            show(ui, &mut draft, &tr, theme, lay, None, &mut IdentityTest::default());
             height = ui.cursor().top() - before;
         });
         out.textures_delta.clear();
         assert_eq!(height, 0.0, "a Desktop project's Settings form gains no row");
+    }
+
+    /// WASM-009 T19: the Identity section in every language has a text.
+    #[test]
+    fn every_identity_text_is_given_in_every_language() {
+        for lang in Language::ALL {
+            let tr = lang.tr();
+            for (name, text) in [
+                ("sec_identity", tr.pk_set_sec_identity),
+                ("id_provider", tr.pk_set_id_provider),
+                ("id_provider_none", tr.pk_set_id_provider_none),
+                ("id_flow", tr.pk_set_id_flow),
+                ("id_flow_auto", tr.pk_set_id_flow_auto),
+                ("id_flow_in_app", tr.pk_set_id_flow_in_app),
+                ("id_flow_hosted", tr.pk_set_id_flow_hosted),
+                ("id_flow_native", tr.pk_set_id_flow_native),
+                ("id_settings_hint", tr.pk_set_id_settings_hint),
+                ("id_secret_hint", tr.pk_set_id_secret_hint),
+                ("id_literal_secret", tr.pk_set_id_literal_secret),
+                ("id_origins", tr.pk_set_id_origins),
+                ("id_origins_hint", tr.pk_set_id_origins_hint),
+                ("id_cookie_key", tr.pk_set_id_cookie_key),
+                ("id_cookie_key_hint", tr.pk_set_id_cookie_key_hint),
+                ("id_recaptcha_site_key", tr.pk_set_id_recaptcha_site_key),
+                ("id_recaptcha_secret", tr.pk_set_id_recaptcha_secret),
+                ("id_recaptcha_threshold", tr.pk_set_id_recaptcha_threshold),
+                ("id_recaptcha_threshold_bad", tr.pk_set_id_recaptcha_threshold_bad),
+                ("id_test", tr.pk_set_id_test),
+                ("id_testing", tr.pk_set_id_testing),
+                ("id_test_hint", tr.pk_set_id_test_hint),
+                ("identity_write_failed", tr.pk_set_identity_write_failed),
+            ] {
+                assert!(!text.trim().is_empty(), "[{lang:?}] pk_set_{name} is empty");
+            }
+            assert!(tr.pk_set_id_literal_secret.contains("{}") && tr.pk_set_identity_write_failed.contains("{}"), "[{lang:?}] a placeholder is missing");
+        }
+    }
+
+    const BACKEND_TOML: &str = "# The backend of the test.\n[server]\nlisten = \"127.0.0.1:8080\"   # loopback\nallowed_origins = [\"https://app.example.test\"]\n\n[limits]\nmax_frame_bytes = 65536\n";
+
+    /// WASM-009 T19 (R9): a secret typed by value is refused and the file is not touched; a
+    /// reference is written, every other section stays byte for byte, and the file reads back as
+    /// the draft. No provider removes the section and gives the file back as it was.
+    #[test]
+    fn the_identity_is_written_only_with_references_and_the_rest_of_the_file_stays() {
+        let dir = scratch("identity");
+        let path = backend_config_path(&dir);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, BACKEND_TOML).unwrap();
+
+        let mut d = IdentityDraft { provider: "cognito".into(), flow: "in-app".into(), cookie_key: "env:PRC_COOKIE".into(), origins_text: "https://app.example.test\n\n".into(), ..Default::default() };
+        for (k, v) in [("region", "eu-west-1"), ("user_pool_id", "eu-west-1_Pool"), ("client_id", "client-1"), ("client_secret", "a-real-secret")] {
+            d.settings.insert(k.into(), v.into());
+        }
+        assert_eq!(d.problems(), vec![IdentityProblem::LiteralSecret("identity.settings.client_secret".into())]);
+        let e = write_identity(&dir, &d).expect_err("a secret by value is refused");
+        assert!(!e.contains("a-real-secret"), "the refusal names the setting, not the value: {e}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), BACKEND_TOML, "a refused draft writes nothing");
+
+        d.settings.insert("client_secret".into(), "env:PRC_CLIENT_SECRET".into());
+        d.site_key = "site-key-public".into();
+        d.recaptcha_secret = "file:/run/secrets/recaptcha".into();
+        d.min_score = "0.7".into();
+        assert!(d.problems().is_empty(), "{:?}", d.problems());
+        assert_eq!(write_identity(&dir, &d), Ok(true));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with(BACKEND_TOML), "the other sections stay byte for byte:\n{text}");
+        assert!(!text.contains("a-real-secret"));
+        let mut expected = d.clone();
+        expected.origins_text = "https://app.example.test".into();
+        assert_eq!(read_identity(&dir), expected, "the file reads back as the draft");
+        text.parse::<toml_edit::DocumentMut>().expect("the written file is TOML");
+        assert_eq!(write_identity(&dir, &d), Ok(false), "the same draft again changes nothing");
+
+        // A threshold out of range is refused too.
+        let bad = IdentityDraft { min_score: "1.5".into(), ..d.clone() };
+        assert_eq!(bad.problems(), vec![IdentityProblem::Threshold]);
+        assert!(write_identity(&dir, &bad).is_err());
+
+        assert_eq!(write_identity(&dir, &IdentityDraft::default()), Ok(true));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), BACKEND_TOML, "no provider removes [identity] alone");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -6009,6 +6009,29 @@ fn draw_control_body(
             }
             return;
         }
+        // WASM-009 — the Sign in screen, or the hosted flow's one button, in the Designer's
+        // language; the developer's own texts win (`auth_texts`).
+        CT::Authentication => {
+            let ink = resolve_label_ink(
+                painter.ctx(),
+                ctrl,
+                false,
+                theme_token(painter.ctx(), crate::surface_theme::ColorToken::Card)
+                    .unwrap_or(Color32::from_gray(250)),
+                Color32::from_gray(25),
+            );
+            let accent = theme_token(
+                painter.ctx(),
+                crate::surface_theme::ColorToken::Accent(crate::surface_theme::AccentName::Blue),
+            )
+            .unwrap_or(Color32::from_rgb(37, 99, 235));
+            let locale = authentication_locale(painter.ctx());
+            draw_authentication_screen(painter, rect, ctrl, &locale, ink, accent, face_alpha);
+            if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
+                draw_regular_drop_shadow(painter, shadow, face_alpha);
+            }
+            return;
+        }
         // The canvas draws the REAL tree (below), like every other control that
         // carries content — a placeholder here would be painted underneath it.
         CT::TreeView => String::new(),
@@ -18366,6 +18389,77 @@ pub(crate) fn glass_config_applies(ctx: &egui::Context) -> bool {
 /// theme is active (R13). The caller keeps its own literal in the `unwrap_or` —
 /// that literal IS the Liquid Glass default, and Liquid Glass answers `None`, so
 /// the historical value is reached by the historical code.
+fn authentication_locale_id() -> egui::Id {
+    egui::Id::new("prc_authentication_locale")
+}
+
+/// WASM-009 — the language the Designer paints an Authentication control's default texts in
+/// (`en`, `es`, `pt`, `ja`, `zh`, `fr`). The IDE publishes its own language here; unset is English.
+pub fn set_authentication_locale(ctx: &egui::Context, locale: &str) {
+    ctx.data_mut(|d| d.insert_temp(authentication_locale_id(), locale.to_owned()));
+}
+
+fn authentication_locale(ctx: &egui::Context) -> String {
+    ctx.data(|d| d.get_temp::<String>(authentication_locale_id())).unwrap_or_default()
+}
+
+/// WASM-009 — the Authentication control's face: the Sign in screen (a title, the user name and
+/// password fields, the button, the two links the developer kept), or, with `Mode = Hosted`, the
+/// one button that goes to the provider's page. Inside the common frame, which the caller drew.
+fn draw_authentication_screen(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    ctrl: &Control,
+    locale: &str,
+    ink: Color32,
+    accent: Color32,
+    alpha: f32,
+) {
+    let text = |key: &str| {
+        let own = ctrl.get_prop(key).map(|v| v.as_str().to_string()).unwrap_or_default();
+        crate::auth_texts::text_or_default(&own, key, locale)
+    };
+    let on = |key: &str| ctrl.get_prop(key).map(|v| v.as_bool()).unwrap_or(true);
+    let fade = |c: Color32| c.gamma_multiply(alpha.clamp(0.0, 1.0));
+    let clip = rect.intersect(painter.clip_rect());
+    let p = painter.with_clip_rect(clip);
+    let size = crate::layout::fonts::resolve_font_size(ctrl, 13.0, 4.0, 200.0);
+    let font = egui::FontId::proportional(size);
+    let pad = 14.0_f32.min(rect.width() / 8.0);
+    let inner = rect.shrink(pad);
+    let button = |at: egui::Rect, caption: &str| {
+        p.rect_filled(at, egui::CornerRadius::same(4), fade(accent));
+        p.text(at.center(), egui::Align2::CENTER_CENTER, caption, font.clone(), fade(Color32::WHITE));
+    };
+    let hosted = ctrl.get_prop("Mode").map(|v| v.as_str().eq_ignore_ascii_case("Hosted")).unwrap_or(false);
+    if hosted {
+        let h = (size * 2.4).min(inner.height());
+        let at = egui::Rect::from_center_size(inner.center(), Vec2::new(inner.width(), h));
+        button(at, &text("HostedCaption"));
+        return;
+    }
+    let mut y = inner.top();
+    p.text(Pos2::new(inner.left(), y), egui::Align2::LEFT_TOP, text("SignInCaption"), egui::FontId::proportional(size * 1.3), fade(ink));
+    y += size * 2.2;
+    let field_h = size * 2.0;
+    for key in ["UserLabel", "PasswordLabel"] {
+        p.text(Pos2::new(inner.left(), y), egui::Align2::LEFT_TOP, text(key), font.clone(), fade(ink));
+        y += size * 1.4;
+        let field = egui::Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), field_h));
+        p.rect_stroke(field, egui::CornerRadius::same(3), Stroke::new(1.0, fade(ink.gamma_multiply(0.45))), egui::StrokeKind::Inside);
+        y += field_h + size * 0.8;
+    }
+    let at = egui::Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), field_h));
+    button(at, &text("SignInCaption"));
+    y += field_h + size * 0.9;
+    for (flag, key) in [("ShowForgot", "ForgotLink"), ("ShowSignUp", "CreateAccountLink")] {
+        if on(flag) {
+            p.text(Pos2::new(inner.left(), y), egui::Align2::LEFT_TOP, text(key), font.clone(), fade(accent));
+            y += size * 1.5;
+        }
+    }
+}
+
 pub(crate) fn theme_token(
     ctx: &egui::Context,
     tok: crate::surface_theme::ColorToken,

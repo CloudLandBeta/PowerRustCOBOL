@@ -1691,6 +1691,8 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         // WASM-006 R6 — a handler sets `Cancel` during `onClick` or `onBeforeNavigate` to stop the
         // navigation; reset to false before each click.
         ControlType::Hyperlink => &["Cancel"],
+        // WASM-009 — who is signed in, written by the player; never a token (R6).
+        ControlType::Authentication => crate::authentication::RUNTIME_PROPS,
         _ => &[],
     }
 }
@@ -2910,6 +2912,10 @@ pub enum ControlType {
     AwsEC2,
     /// Sign an application's users up, in and out of a Cognito user pool.
     AwsCognito,
+    /// WASM-009 — signs an application's users in, up and out in a browser or on a device
+    /// (sign-in, account creation and confirmation, password recovery, MFA), through the
+    /// backend's identity programs. Web and Mobile projects only.
+    Authentication,
     // Plugin-provided
     Custom {
         plugin_id: String,
@@ -3035,6 +3041,7 @@ impl ControlType {
         ControlType::WebSearch,
         ControlType::Snackbar,
         ControlType::Viewer,
+        ControlType::Authentication,
         ControlType::AwsMcp,
         ControlType::AwsLambda,
         ControlType::AwsKnowledgeBase,
@@ -3118,6 +3125,7 @@ impl ControlType {
             ControlType::AwsTextract => "AwsTextract",
             ControlType::AwsEC2 => "AwsEC2",
             ControlType::AwsCognito => "AwsCognito",
+            ControlType::Authentication => "Authentication",
             ControlType::Custom {
                 plugin_id,
                 control_id,
@@ -3192,6 +3200,9 @@ impl ControlType {
             "AwsTextract" => ControlType::AwsTextract,
             "AwsEC2" => ControlType::AwsEC2,
             "AwsCognito" => ControlType::AwsCognito,
+            // A form saved before WASM-009 T2 carried the control as a plug-in of no plug-in
+            // (`type="unknown:Authentication"`): it loads as the real type and is saved as one.
+            "Authentication" | "unknown:Authentication" => ControlType::Authentication,
             other => {
                 if let Some((p, c)) = other.split_once(':') {
                     ControlType::Custom {
@@ -3270,6 +3281,8 @@ impl ControlType {
             ControlType::Viewer => (400, 320),
             // Spec 078: non-visual, the tray card's footprint.
             crate::aws_pattern!() => (56, 56),
+            // The Sign in screen: a title, two labelled fields, the button and two links.
+            ControlType::Authentication => (320, 320),
             ControlType::Custom { .. } => (100, 30),
         }
     }
@@ -3305,6 +3318,7 @@ impl ControlType {
             ControlType::Maps => "onMapClick",
             ControlType::WebSearch => "onResultsReceived",
             ControlType::Snackbar => "onButtonClick",
+            ControlType::Authentication => "onSignedIn",
             t @ crate::aws_pattern!() => crate::aws_catalog::get(t).map_or("onComplete", |c| c.events[0]),
             // Gauge is read-only (no interactive primary event, R10); the
             // catch-all below applies but is functionally inert since
@@ -4241,6 +4255,7 @@ impl ControlType {
                 "onEnabledChanged",
                 "onLoad",
             ],
+            ControlType::Authentication => crate::authentication::EVENTS,
             ControlType::Custom { .. } => &["onClick"],
         }
     }
@@ -5498,6 +5513,19 @@ impl Control {
                 props.insert("Cursor".into(), PropValue::String("Hand".into()));
                 for (k, v) in crate::hyperlink::SEEDS {
                     props.insert((*k).into(), PropValue::String((*v).into()));
+                }
+            }
+            // WASM-009 — the flow, the screens the developer keeps (all on), reCAPTCHA, and every
+            // text empty: empty is the default in the application's language (`auth_texts`).
+            ControlType::Authentication => {
+                for (k, v) in crate::authentication::SEEDS {
+                    props.insert((*k).into(), PropValue::String((*v).into()));
+                }
+                for k in crate::authentication::SCREEN_FLAGS {
+                    props.insert((*k).into(), PropValue::Bool(true));
+                }
+                for k in crate::authentication::TEXT_PROPS {
+                    props.insert((*k).into(), PropValue::String(String::new()));
                 }
             }
             ControlType::CheckBox | ControlType::RadioButton => {
@@ -9091,6 +9119,10 @@ pub struct Form {
     /// How this form may be loaded: its own window, the shell's ContentPane, or
     /// either (spec 049 R1). Defaults to `Standalone`.
     pub form_format: FormFormat,
+    /// WASM-009 R11 (Q4, a form-level property): a signed-out user who opens this form is shown
+    /// the application's sign-in form first, then this one. Web and Mobile forms only. It is
+    /// navigation, not security: the backend's token check on non-public programs is the boundary.
+    pub requires_sign_in: bool,
     /// The shell MenuPane's background (049 R39) — only meaningful on the main
     /// form, which owns the shell. `None` = the default chrome fill.
     pub menu_pane_background: Option<MenuPaneBackground>,
@@ -9240,6 +9272,7 @@ impl Form {
             dock_length: 0,
             modal_overlay_style: ModalOverlayStyle::default(),
             form_format: FormFormat::default(),
+            requires_sign_in: false,
             menu_pane_background: None,
             window_effects: true,
             x: 0,

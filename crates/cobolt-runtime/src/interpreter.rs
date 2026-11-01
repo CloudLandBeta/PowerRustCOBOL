@@ -11878,6 +11878,11 @@ impl Interpreter {
             "COBOL-WS-CANCELLED" => self.builtin_ws_cancelled(using),
             "COBOL-WS-PAUSE" => self.builtin_ws_pause(using, span)?,
             "COBOL-WS-EMIT" => self.builtin_ws_emit(using)?,
+            // COBOL-AUTH-OP operation request result
+            //   One identity operation of a generated AUTH-* program, served by
+            //   the backend's identity service (WASM-009 D4); the same run-time
+            //   error everywhere else (D15).
+            "COBOL-AUTH-OP" => self.builtin_auth_op(using, span)?,
             "COBOL-WS-FILE-PATH" => self.builtin_ws_file_path(using, span)?,
             "COBOL-WS-FILE-PUBLISH" => self.builtin_ws_file_publish(using, span)?,
             // The frontend's side: the last warning, and files in and out.

@@ -8003,6 +8003,29 @@ impl PropertiesPanel {
                 ui.add_space(4.0);
             }
 
+            // ── Authentication (WASM-009) ────────────────────────────────────
+            ControlType::Authentication if phase == TypeSection::Basic => {
+                use cobolt_forms::authentication as auth;
+                section_header(ui, tr.sec_authentication);
+                combo_row_inline(ui, id, "Mode", ctrl, action, auth::MODES);
+                for key in auth::SCREEN_FLAGS {
+                    bool_row_inline(ui, id, key, key, ctrl, action);
+                }
+                let cur = ctrl.get_prop("RecaptchaSiteKey").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                text_row_hint(ui, &mut self.hints, id, "RecaptchaSiteKey", &cur, "RecaptchaSiteKey:", "", action);
+                combo_row_inline(ui, id, "RecaptchaConsent", ctrl, action, auth::CONSENTS);
+                // R1 — every word the end user reads; an empty field shows its default (in the IDE's
+                // language) as the hint, and the application shows it in its own language.
+                section_header(ui, tr.sec_authentication_texts);
+                let lang = crate::i18n::current_language(ui.ctx()).code();
+                for key in auth::TEXT_PROPS {
+                    let cur = ctrl.get_prop(key).map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    let hint = cobolt_forms::auth_texts::default_text(key, lang);
+                    text_row_hint(ui, &mut self.hints, id, key, &cur, &format!("{key}:"), hint, action);
+                }
+                ui.add_space(4.0);
+            }
+
             // ── Hyperlink (WASM-006) ─────────────────────────────────────────
             ControlType::Hyperlink if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_link);
@@ -12682,6 +12705,16 @@ impl PropertiesPanel {
                 }
                 if !search_hides_extras() {
                     ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
+                }
+
+                // ── WASM-009 R11: a web or mobile form may require sign-in ──────────
+                if self.web_project {
+                    let mut on = form.requires_sign_in;
+                    property_row_keyed(ui, tr.form_requires_sign_in, Some("RequiresSignIn"), |ui| {
+                        if ui.checkbox(&mut on, "").changed() {
+                            action.form_props.push(("RequiresSignIn".into(), on.to_string()));
+                        }
+                    });
                 }
 
                 // ── CSS (WASM-007 R5): a web or mobile form's own stylesheet ─────────

@@ -436,6 +436,10 @@ pub struct WebSettings {
     /// only when set.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub preview_browser: String,
+    /// The form a signed-out user is sent to when they open a form that requires sign-in
+    /// (WASM-009 R11, D11). `None`: the first form holding an Authentication control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in_form: Option<String>,
 }
 
 impl Default for WebSettings {
@@ -453,6 +457,7 @@ impl Default for WebSettings {
             stylesheet: web_stylesheet(),
             theme_file: None,
             preview_browser: String::new(),
+            sign_in_form: None,
         }
     }
 }

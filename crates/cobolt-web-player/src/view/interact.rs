@@ -269,11 +269,11 @@ pub fn on_event(cx: &ViewCtx, ctl: usize, p: &Payload) -> Vec<Act> {
 fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     let tree = cx.tree;
     let c = tree.ctl(i);
-    if let Some(k) = crate::kinds::player_kind(c) {
-        return match k {
-            crate::kinds::PlayerKind::Authentication => authentication(cx, i, p),
-            _ => Vec::new(),
-        };
+    if crate::kinds::is_authentication(c) {
+        return authentication(cx, i, p);
+    }
+    if crate::kinds::player_kind(c).is_some() {
+        return Vec::new();
     }
     let Kind::Control(t) = &c.kind else { return Vec::new() };
     if *t == ControlType::Hyperlink {
@@ -1221,8 +1221,10 @@ fn authentication(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
                 Screen::Confirm => (Action::Confirm { user: field("user"), code: field("code") }, &["user", "code"]),
                 Screen::Forgot => (Action::Forgot { user: field("user") }, &["user"]),
                 Screen::Reset => (Action::Reset { user: field("user"), code: field("code"), new_password: raw("new_password") }, &["user", "code", "new_password"]),
-                Screen::Mfa => (Action::Mfa { code: field("code") }, &["code"]),
-                Screen::SignedIn => return vec![Act::Prevent],
+                Screen::Mfa | Screen::MfaSetup => (Action::Mfa { code: field("code") }, &["code"]),
+                Screen::NewPassword => (Action::NewPassword { password: raw("new_password"), repeat: raw("repeat_password") }, &["new_password", "repeat_password"]),
+                // The Choose screen is answered by its buttons; Enter submits nothing.
+                Screen::MfaChoose | Screen::SignedIn => return vec![Act::Prevent],
             };
             // The browser's own `required` validation normally stops an empty field before this point;
             // an empty one that gets here (a script, an old browser) is not sent.
@@ -1234,6 +1236,10 @@ fn authentication(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
         ("click", _) => match p.id.as_deref() {
             Some("signout") => vec![Act::Auth(Action::SignOut)],
             Some("hosted") => vec![Act::Auth(Action::Hosted)],
+            Some(id) if id.starts_with("mfa:") => match crate::auth::MfaChoice::from_wire(&id["mfa:".len()..]) {
+                Some(c) => vec![Act::Auth(Action::MfaChoose(c))],
+                None => Vec::new(),
+            },
             Some(id) => match id.strip_prefix("show:") {
                 Some("SignIn") => vec![Act::Auth(Action::Show(Screen::SignIn))],
                 Some("SignUp") => vec![Act::Auth(Action::Show(Screen::SignUp))],
@@ -1910,7 +1916,7 @@ mod tests {
 
     fn auth_tree() -> (FormTree, usize) {
         let (mut t, i) = tree_with("Authentication", "AUTH-1", &[]);
-        t.init_auth(crate::auth::Flow::InApp, "", &crate::auth::Session::default());
+        t.init_auth(crate::auth::Flow::InApp, "", &crate::auth::Session::default(), "en", false);
         (t, i)
     }
 
@@ -1931,6 +1937,9 @@ mod tests {
             (Screen::Forgot, vec![("user", "ana")], Action::Forgot { user: "ana".into() }),
             (Screen::Reset, vec![("user", "ana"), ("code", "9"), ("new_password", "n w")], Action::Reset { user: "ana".into(), code: "9".into(), new_password: "n w".into() }),
             (Screen::Mfa, vec![("code", "000000")], Action::Mfa { code: "000000".into() }),
+            // WASM-009 T9: the set-up screen's first code, and the new password typed twice.
+            (Screen::MfaSetup, vec![("code", "123456")], Action::Mfa { code: "123456".into() }),
+            (Screen::NewPassword, vec![("new_password", " a b "), ("repeat_password", " a b ")], Action::NewPassword { password: " a b ".into(), repeat: " a b ".into() }),
         ];
         for (screen, fields, want) in cases {
             let (mut t, i) = auth_tree();
@@ -1965,6 +1974,14 @@ mod tests {
         assert_eq!(run(&t, i, &e, click("hosted")), vec![Act::Auth(Action::Hosted)]);
         assert!(run(&t, i, &e, click("show:Nowhere")).is_empty(), "an unknown id asks for nothing");
         assert!(run(&t, i, &e, click("javascript:alert(1)")).is_empty());
+        // WASM-009 T9: the Choose screen's buttons.
+        assert_eq!(run(&t, i, &e, click("mfa:email")), vec![Act::Auth(Action::MfaChoose(crate::auth::MfaChoice::Email))]);
+        assert_eq!(run(&t, i, &e, click("mfa:totp")), vec![Act::Auth(Action::MfaChoose(crate::auth::MfaChoice::Totp))]);
+        assert!(run(&t, i, &e, click("mfa:fax")).is_empty());
+        // Enter on the Choose screen submits nothing.
+        let (mut t, i) = auth_tree();
+        t.auth_mut(i).unwrap().machine.screen = Screen::MfaChoose;
+        assert_eq!(run(&t, i, &e, submit(&[])), vec![Act::Prevent]);
     }
 
     #[test]

@@ -94,6 +94,13 @@ fn constructs_outside_the_subset_are_refused_at_their_line_with_the_alternative(
             &["OPEN-DB", "backend", "CALL … WITH WEBSOCKET LINKAGE"],
         ),
         (
+            // WASM-009 D15: the identity built-in of the generated AUTH-* programs is the backend's.
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. A1.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 AUTH-REQUEST.\n   05 USERNAME PIC X(10).\n01 AUTH-RESULT.\n   05 OUTCOME PIC X(10).\nPROCEDURE DIVISION.\n    COBOL::\"AUTH-OP\" ( \"SIGN-IN\" AUTH-REQUEST AUTH-RESULT ).\n    STOP RUN.\n",
+            10,
+            ErrorKind::BackendOnly,
+            &["AUTH-OP", "identity operations run in the Backend"],
+        ),
+        (
             "IDENTIFICATION DIVISION.\nPROGRAM-ID. T1.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 A PIC X(3) VALUE \"abc\".\nPROCEDURE DIVISION.\n    DISPLAY FUNCTION UPPER-CASE(A) FUNCTION UPPER-CASE(A) FUNCTION UPPER-CASE(A)\n            FUNCTION UPPER-CASE(A) FUNCTION UPPER-CASE(A).\n    STOP RUN.\n",
             // the line of the fifth function, where the limit is crossed
             8,

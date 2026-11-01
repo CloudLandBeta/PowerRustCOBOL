@@ -92,6 +92,7 @@
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">3</Property>
+    <Property name="AccessibleLabel"></Property>
     <Event name="onClick" paragraph="BTN-GO--ONCLICK"><![CDATA[       DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-CLICKS PIC 9(3) VALUE 0.
@@ -146,5 +147,6 @@
     <Property name="PinBottomRightY">0</Property>
     <Property name="PinBottomLeftX">0</Property>
     <Property name="PinBottomLeftY">0</Property>
+    <Property name="AccessibleLabel"></Property>
   </Control>
 </Form>

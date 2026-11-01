@@ -8679,6 +8679,11 @@ impl DesignerPanel {
                     self.dirty = true;
                 }
             }
+            // WASM-009 R11 — the sign-in form first for a signed-out user (Web and Mobile forms).
+            "RequiresSignIn" => {
+                self.form.requires_sign_in = value == "true" || value == "1";
+                self.dirty = true;
+            }
             // WASM-017 R2 — kept as written; the Build refuses out of range.
             "Instances" => {
                 if let Ok(v) = value.trim().parse::<u32>() {
@@ -8840,6 +8845,7 @@ impl DesignerPanel {
             "DockGap" => Some(self.form.dock_gap.to_string()),
             "DockLength" => Some(self.form.dock_length.to_string()),
             "Instances" => Some(self.form.effective_instances(self.form.main_form).to_string()),
+            "RequiresSignIn" => Some(bool_str(self.form.requires_sign_in)),
             "ModalOverlayStyle" => Some(self.form.modal_overlay_style.as_str().to_string()),
             "WindowEffects" => Some(bool_str(self.form.window_effects)),
             "FormFormat" => Some(self.form.form_format.as_str().to_string()),
@@ -17770,6 +17776,8 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::AwsEC2 => "AwsEC2",
         CT::AwsCognito => "AwsCognito",
         CT::AwsLambda => "AwsLambda",
+        // `Auth-1`, uppercased `AUTH-1`: the name the KB and the spec's examples use.
+        CT::Authentication => "Auth",
         CT::Custom { .. } => "Control",
     }
 }
@@ -18198,6 +18206,8 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "DockLength",
     // WASM-017 R2 — Web and Mobile forms
     "Instances",
+    // WASM-009 R11 — Web and Mobile forms
+    "RequiresSignIn",
     // 051 R19/R28
     "ModalOverlayStyle",
     "WindowEffects",

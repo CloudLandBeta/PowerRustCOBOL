@@ -172,6 +172,14 @@ pub struct BundleOptions {
     pub link_schemes: Vec<String>,
     pub recaptcha_site_key: String,
     pub auth_flow: String,
+    /// The backend's identity secrets as they resolve here (WASM-009 D14): the bundle must hold none
+    /// of their values. Searched even when `skip_secret_scan` is set: a value known to be a secret
+    /// is never a false finding.
+    pub known_secrets: secrets::KnownSecrets,
+    /// The form a signed-out user is sent to when they open one that requires sign-in (`[web]
+    /// sign_in_form`, WASM-009 D11); its description says so. `None`: the player takes the first form
+    /// holding an Authentication control.
+    pub sign_in_form: Option<String>,
     /// Override the host page's texts (the developer translates them): `loading`, `unsupported`, …; the player's
     /// "connecting" modal reads `connecting`, `unreachable` and `reload` (WASM-016 R20–R21).
     pub texts: BTreeMap<String, String>,
@@ -231,6 +239,8 @@ impl Default for BundleOptions {
             link_schemes: Vec::new(),
             recaptcha_site_key: String::new(),
             auth_flow: "in-app".into(),
+            known_secrets: secrets::KnownSecrets::default(),
+            sign_in_form: None,
             texts: BTreeMap::new(),
             release: true,
             unsafe_plain_ws: false,
@@ -675,6 +685,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     let mut forms_cfg = Vec::new();
     for mf in &manifest.forms {
         let mut description = described[&mf.name.to_ascii_lowercase()].1.clone();
+        description.form.sign_in_form = o.sign_in_form.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&mf.name));
         // The stylesheet first, so the description can name it (WASM-016 R3).
         let css = input.forms.iter().find(|f| f.name.eq_ignore_ascii_case(&mf.name)).and_then(|f| f.stylesheet.clone()).map(|css| {
             let cp = b.add_hashed(&format!("forms/{}.css", mf.name), css.into_bytes());
@@ -732,6 +743,22 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
             if !csp_opts.extra_img.contains(&origin) {
                 csp_opts.extra_img.push(origin.clone());
                 notes.push(format!("a form has a Maps control: the Content-Security-Policy allows images from {origin} (the map tiles)"));
+            }
+        }
+    }
+    // The Authentication control's identity requests go to the backend's `/auth/*` routes over HTTPS
+    // (WASM-009 D5): the backend's https origin joins `connect-src`, only when a form has the control.
+    let uses_auth = described.values().any(|(f, _)| {
+        fn has(cs: &[cobolt_forms::model::Control]) -> bool {
+            cs.iter().any(|c| c.control_type == ControlType::Authentication || has(&c.children))
+        }
+        has(&f.controls)
+    });
+    if uses_auth {
+        for origin in o.backend_origins.iter().filter_map(|b| http_origin_of_backend(b)) {
+            if !csp_opts.extra_connect.contains(&origin) {
+                csp_opts.extra_connect.push(origin.clone());
+                notes.push(format!("a form has an Authentication control: the Content-Security-Policy allows requests to {origin} (the backend's /auth/* routes, WASM-009)"));
             }
         }
     }
@@ -986,6 +1013,19 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         }
         warnings.extend(warns.iter().map(|f| f.to_string()));
     }
+    if !o.known_secrets.0.is_empty() {
+        let found: Vec<String> = b
+            .files
+            .iter()
+            .filter(|f| secrets::is_text_path(&f.path))
+            .filter_map(|f| std::str::from_utf8(&f.bytes).ok().map(|t| secrets::scan_values(&f.path, t, &o.known_secrets)))
+            .flatten()
+            .map(|f| f.to_string())
+            .collect();
+        if !found.is_empty() {
+            return Err(BundleError { problems: found });
+        }
+    }
 
     // ── the first download against the budget (R8, Q5: a warning only) ─────
     let size_of = |path: &str| b.files.iter().find(|f| f.path == path).map_or(0, |f| f.bytes.len() as u64);
@@ -1030,6 +1070,18 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         font_bytes,
     };
     Ok(BundleOutput { files: b.files, report })
+}
+
+/// The origin a backend address (`wss://host[:port]/path`, or `ws://` to the local machine) answers
+/// HTTPS on (`http://` for `ws://`): where the player sends the `/auth/*` requests.
+pub fn http_origin_of_backend(address: &str) -> Option<String> {
+    let (scheme, rest) = address.split_once("://")?;
+    let scheme = match scheme.to_ascii_lowercase().as_str() {
+        "wss" | "https" => "https",
+        "ws" | "http" => "http",
+        _ => return None,
+    };
+    origin_of(&format!("{scheme}://{rest}"))
 }
 
 /// `https://host[:port]` of an address (a tile template included), or `None` when it names no origin.

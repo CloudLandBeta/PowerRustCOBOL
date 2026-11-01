@@ -32,7 +32,7 @@ fn interp(src: &str) -> (Interpreter, mpsc::Receiver<String>) {
 }
 
 fn hooks(cancel: Arc<AtomicBool>) -> BackendHooks {
-    BackendHooks { progress: None, emit: None, files: None, cancel_requested: cancel }
+    BackendHooks { progress: None, emit: None, files: None, cancel_requested: cancel, identity: None }
 }
 
 fn shown(rx: &mpsc::Receiver<String>) -> Vec<String> {

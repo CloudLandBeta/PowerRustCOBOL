@@ -99,6 +99,31 @@ pub fn backend_state(project_dir: &Path) -> Result<cobolt_server::backend::State
     view.backend_state_mode().map_err(|message| CompilerError::Semantic { file: manifest.display().to_string().into(), message })
 }
 
+/// Does `backend/backend.toml` have an `[identity]` section (WASM-009 R7)? Only its presence is read
+/// here; its settings are checked when the backend starts.
+pub fn backend_has_identity(backend_dir: &Path) -> bool {
+    std::fs::read_to_string(backend_dir.join("backend.toml"))
+        .ok()
+        .and_then(|t| t.parse::<toml::Value>().ok())
+        .is_some_and(|v| v.get("identity").is_some())
+}
+
+/// Bring `backend/generated/identity/` in line with `backend.toml` (WASM-009 D4): the identity
+/// programs are written while the section is there and removed once it is gone. Every path that runs
+/// or builds a backend calls this first — the backend build, `rcrun backend run|check|describe|release`,
+/// the Web Build — so the programs never lag behind the section. Only that folder is written.
+pub fn regenerate_identity(backend_dir: &Path) -> Result<(), CompilerError> {
+    cobolt_codegen::identity::sync(backend_dir, backend_has_identity(backend_dir)).map(|_| ()).map_err(CompilerError::Workspace)
+}
+
+/// What the Web Build takes from `backend/backend.toml`'s `[identity]` (WASM-009 D9, D14): the
+/// public reCAPTCHA site key for the page, and the secrets as they resolve on this machine, which
+/// no form, copybook or bundle file may hold. No file or no section gives the default.
+pub fn identity_for_build(backend_dir: &Path) -> cobolt_server::identity_settings::BuildIdentity {
+    let text = std::fs::read_to_string(backend_dir.join("backend.toml")).unwrap_or_default();
+    cobolt_server::identity_settings::build_identity(&text, backend_dir)
+}
+
 /// Build the backend of the project in `project_dir`.
 pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<BackendBuildResult, CompilerError> {
     let log = |m: &str| {
@@ -118,6 +143,7 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
 
     // 1. Read and check.
     let state = backend_state(project_dir)?;
+    regenerate_identity(&backend_dir)?;
     let mut bundle = cobolt_server::bundle::Bundle::from_dir(&backend_dir).map_err(|errs| CompilerError::Parse { file: "backend".into(), message: errs.join("\n") })?;
     bundle.state = state;
     log(&format!("   state: {}", state.as_str()));

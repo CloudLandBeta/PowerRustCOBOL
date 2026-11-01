@@ -267,6 +267,9 @@ pub fn is_known_method(name: &str) -> bool {
             | "LISTKNOWLEDGEBASES" | "RECORDEVENT" | "RETRIEVE" | "LISTTABLES"
             | "APPENDROWS" | "STARTJOBRUN" | "GETJOBRUN" | "STARTCRAWLER" | "GETTABLESCHEMA"
             | "ANALYZEDOCUMENT" | "CONFIRM" | "DELETEITEM" | "DELETEOBJECT" | "DESCRIBE" | "DETECTENTITIES" | "DETECTFACES" | "DETECTKEYPHRASES" | "DETECTLABELS" | "DETECTLANGUAGE" | "DETECTSENTIMENT" | "DETECTTEXT" | "GETATTRIBUTE" | "GETITEM" | "GETOBJECT" | "LIST" | "PUTITEM" | "PUTOBJECT" | "PUTVECTORS" | "QUERYVECTORS" | "SCAN" | "SIGNIN" | "SIGNOUT" | "SIGNUP" | "SYNTHESIZE" | "UPDATEITEM"
+        // WASM-009 — the Authentication control (`SignOut` and `Refresh` are listed above):
+        // a claim of the signed-in user's token, and the answer to `onConsentRequired`.
+            | "GETCLAIM" | "GRANTCONSENT" | "DENYCONSENT"
         // AWS controls (092) — RecognizeCelebrities, ListBuckets, AwsCall.
             | "RECOGNIZECELEBRITIES" | "LISTBUCKETS" | "AWSCALL"
         // Collection verbs + scalar transforms (exec_member_method)
@@ -286,6 +289,13 @@ mod tests {
     #[test]
     fn the_hyperlink_methods_are_known() {
         for m in ["SetUrl", "GetUrl", "Open", "OpenIn", "SetCaption", "GetCaption"] {
+            assert!(is_known_method(m), "{m} must parse as a method call");
+        }
+    }
+
+    #[test]
+    fn the_authentication_methods_are_known_009() {
+        for m in ["SignOut", "Refresh", "GetClaim", "GrantConsent", "DenyConsent"] {
             assert!(is_known_method(m), "{m} must parse as a method call");
         }
     }

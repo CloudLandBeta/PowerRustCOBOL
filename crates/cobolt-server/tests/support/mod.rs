@@ -256,6 +256,21 @@ pub fn rig(dir: std::path::PathBuf, extra_toml: &str) -> Rig {
 
 /// [`rig`], with the project's `[backend] state` (WASM-003 Q2).
 pub fn rig_with_state(dir: std::path::PathBuf, extra_toml: &str, state: cobolt_server::backend::StateMode) -> Rig {
+    rig_full(dir, extra_toml, state, None)
+}
+
+/// [`rig`] with an `[identity]` section in `extra_toml`, its provider and reCAPTCHA reached through
+/// `http` (WASM-009: the mocks of `idp_mock.rs`).
+pub fn rig_with_identity(dir: std::path::PathBuf, extra_toml: &str, http: Arc<dyn cobolt_server::identity::client::Http>) -> Rig {
+    rig_full(dir, extra_toml, cobolt_server::backend::StateMode::PerCall, Some(http))
+}
+
+fn rig_full(
+    dir: std::path::PathBuf,
+    extra_toml: &str,
+    state: cobolt_server::backend::StateMode,
+    identity_http: Option<Arc<dyn cobolt_server::identity::client::Http>>,
+) -> Rig {
     let serial = Serial::take();
     let cert = test_cert();
     let issuer = Arc::new(Issuer::new("https://idp.example.test/pool", "k1"));
@@ -285,7 +300,7 @@ jwks_uri = "https://idp.example.test/pool/.well-known/jwks.json"
     backend.state = state;
     let iface = backend.interface.clone();
     let sink = MemorySink::new();
-    let server = cobolt_server::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: Some(jwks.clone()) }).expect("start");
+    let server = cobolt_server::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: Some(jwks.clone()), identity_http }).expect("start");
     Rig { server, cert, issuer, jwks, sink, dir, iface, _serial: serial }
 }
 

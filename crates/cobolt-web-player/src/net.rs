@@ -1147,11 +1147,11 @@ mod tests {
 
     #[test]
     fn the_players_own_ids_start_at_0x80000000_and_only_module_answers_are_size_limited() {
-        assert_eq!(PLAYER_ID_BASE, crate::auth::wire::ID_BASE);
+        assert_eq!(PLAYER_ID_BASE, crate::auth::https::ID_BASE);
         assert!(crate::grid::ID_BASE > PLAYER_ID_BASE);
         let mut c = ready_client();
         let big = format!(r#"{{"ROWS":"{}"}}"#, "z".repeat(70_000));
-        c.request_as(PLAYER_ID_BASE + 7, br#"{"identity":"refresh"}"#, 0);
+        c.request_as(PLAYER_ID_BASE + 7, br#"{"ROWS":""}"#, 0);
         c.on_message(&reply(PLAYER_ID_BASE + 7, &big));
         let (id, v) = answers(&mut c).remove(0);
         assert_eq!(id, PLAYER_ID_BASE + 7);
@@ -1376,8 +1376,15 @@ mod tests {
         assert_eq!(hellos.len(), 2);
         assert_eq!(hellos[0], hellos[1], "the same session on a reconnect");
         assert_eq!(hellos[0].len(), 16);
-        // And the connection's code never touches browser storage.
+        // And the connection's code never touches browser storage. The one value the player keeps
+        // there is the hosted flow's random state (WASM-009 D5), in `auth_fetch.rs`, in this tab's
+        // `sessionStorage` and under its one key: checked below.
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let fetch = std::fs::read_to_string(root.join("auth_fetch.rs")).unwrap();
+        for line in fetch.lines().filter(|l| ["local_storage", "session_storage", "indexed_db", "_item("].iter().any(|w| l.contains(w))) {
+            assert!(!line.contains("local_storage") && !line.contains("indexed_db"), "auth_fetch.rs: {line}");
+            assert!(!line.contains("_item(") || line.contains("HOSTED_STATE_KEY"), "auth_fetch.rs keeps only the hosted state: {line}");
+        }
         let mut hits = Vec::new();
         for f in ["net.rs", "api.rs"] {
             let text = std::fs::read_to_string(root.join(f)).unwrap();

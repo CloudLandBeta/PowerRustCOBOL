@@ -71,6 +71,7 @@ use cobolt_forms::{Control, ControlType, Form};
 
 mod compact_helpers;
 pub mod data_binding;
+pub mod identity;
 pub mod indexed;
 pub mod project;
 pub mod remote_controls;

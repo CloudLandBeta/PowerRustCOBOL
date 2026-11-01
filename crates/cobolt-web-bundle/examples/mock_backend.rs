@@ -4,14 +4,16 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! `cargo run -p cobolt-web-bundle --example mock_backend -- [--port 8096] [--ttl 3600]`
+//! `cargo run -p cobolt-web-bundle --example mock_backend -- [--port 8096] [--ttl 3600] [--first-ttl 61]`
 //!
 //! A mock of the project's Backend for trying the player in a real browser (WASM-009, WASM-015): a
 //! WebSocket server on the loopback that speaks the backend's protocol as far as the player uses it
 //! (`cobolt_wire::proto`, WASM-014 T6: `hello`, `{"t":"auth","token"}`, `{"t":"call","id","key",…}`) and
-//! plays an identity provider. The identity requests (`{"identity":…}`) are the Authentication control's
-//! own (WASM-009) and have no message in the real backend's protocol yet; this mock answers them inside a
-//! `call`:
+//! plays an identity provider. The identity requests are the Authentication control's (WASM-009 D5, T21):
+//! HTTPS-style requests to `/auth/*` on the same port, as the real backend serves them — a JSON
+//! `AUTH-REQUEST` in, an `AUTH-RESULT` out, the refresh "cookie" (`pr_refresh`, `HttpOnly`) set by the
+//! answer and never in its body. The hosted flow's `GET /auth/hosted/start` comes straight back to the
+//! page with `?pr-code=hosted-code&pr-state=<the page's state>`, as if the provider had signed `hosted` in.
 //!
 //! | user | password | what it does |
 //! |---|---|---|
@@ -22,7 +24,8 @@
 //! A sign-in carrying a reCAPTCHA token refuses one it has seen before (a replay). The server
 //! prints one line per request — the kind, the user, whether a captcha token came — and **never** a
 //! password, a code or a token (WASM-009 R10, AC7); the tests read that output. Any other call (the
-//! fixture program's `PING`) is answered `pong`.
+//! fixture program's `PING`) is answered `pong`. `--first-ttl` gives the first token issued a lifetime
+//! of its own (the browser test's forced expiry, WASM-009 T25); every later one lives `--ttl`.
 
 use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
@@ -45,6 +48,17 @@ fn b64url(bytes: &[u8]) -> String {
     out
 }
 
+/// The lines the server says, kept as well when the browser test runs it in its own process
+/// (`tests/auth_browser.rs` sets `Some`); the example itself keeps none.
+pub static LOG: Mutex<Option<Vec<String>>> = Mutex::new(None);
+
+fn say(line: String) {
+    println!("{line}");
+    if let Some(log) = LOG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        log.push(line);
+    }
+}
+
 fn now_s() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
@@ -58,6 +72,8 @@ struct State {
     refresh_ok: HashSet<String>,
     captchas_seen: HashSet<String>,
     ttl: u64,
+    /// The lifetime of the first token issued, when it is not `ttl`.
+    first_ttl: Option<u64>,
 }
 
 struct User {
@@ -66,8 +82,8 @@ struct User {
     email: String,
 }
 
-fn token_for(st: &mut State, user: &str, email: &str) -> String {
-    let payload = json!({"sub": format!("u-{user}"), "preferred_username": user, "email": email, "exp": now_s() + st.ttl});
+fn token_for(st: &mut State, user: &str, email: &str, ttl: u64) -> String {
+    let payload = json!({"sub": format!("u-{user}"), "preferred_username": user, "email": email, "exp": now_s() + ttl});
     let t = format!("{}.{}.{}", b64url(br#"{"alg":"none","typ":"JWT"}"#), b64url(payload.to_string().as_bytes()), "bW9jaw");
     st.live_tokens.insert(t.clone(), user.to_owned());
     st.refresh_ok.insert(user.to_owned());
@@ -85,123 +101,243 @@ fn ok(id: u64, result: Value) -> String {
     r.to_string()
 }
 
-fn err(id: u64, class: &str, code: i64) -> String {
-    json!({"t": "error", "id": id, "class": class, "code": code, "message": "refused"}).to_string()
+/// An `AUTH-RESULT` with `OUTCOME` and the given members.
+fn outcome(word: &str, members: Value) -> Value {
+    let mut r = json!({"OUTCOME": word, "OUTCOME-TEXT": ""});
+    if let Value::Object(m) = members {
+        r.as_object_mut().unwrap().extend(m);
+    }
+    r
 }
 
-/// Handle one identity frame. `signed_in_user` is who this connection authenticated as, if anyone.
-fn identity(st: &mut State, id: u64, f: &Value, signed_in_user: &Option<String>) -> String {
+/// One identity operation: the route, the request's members and the user the refresh cookie names.
+/// Answers the result and, for a sign-in, the user the cookie should now name (`Some("")` clears it).
+fn identity(st: &mut State, route: &str, f: &Value, cookie_user: Option<&str>) -> (Value, Option<String>) {
     let s = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-    let kind = s("identity");
-    let user = s("user");
-    let captcha = f.get("captcha").and_then(Value::as_str).map(str::to_owned);
-    println!("identity={kind} user={user} captcha={}", if captcha.is_some() { "present" } else { "absent" });
+    let user = s("USERNAME");
+    let captcha = Some(s("CAPTCHA-TOKEN")).filter(|c| !c.is_empty());
+    say(format!("identity={route} user={user} captcha={}", if captcha.is_some() { "present" } else { "absent" }));
+    let failed = || (outcome("AUTH-FAILED", json!({})), None);
     // reCAPTCHA: a token is single-use; a replay is refused like a wrong password (R4, R10).
     if let Some(c) = &captcha {
         if !st.captchas_seen.insert(c.clone()) {
-            return err(id, "authentication", 3);
+            return failed();
         }
     }
-    let ttl = st.ttl as f64;
     let signed_in = |st: &mut State, user: &str, email: &str| {
-        let t = token_for(st, user, email);
-        ok(id, json!({"status": "signed-in", "access_token": t, "expires_in": ttl}))
+        let ttl = st.first_ttl.take().unwrap_or(st.ttl);
+        let t = token_for(st, user, email, ttl);
+        (outcome("OK", json!({"ACCESS-TOKEN": t, "EXPIRES-IN": ttl, "USERNAME": user})), Some(user.to_owned()))
     };
-    match kind.as_str() {
+    match route {
         "sign-in" => match st.users.get(&user) {
-            Some(u) if u.password == s("password") && !u.confirmed => ok(id, json!({"status": "needs-confirm"})),
-            Some(u) if u.password == s("password") && user == "mfa" => {
+            Some(u) if u.password == s("PASSWORD") && !u.confirmed => (outcome("CONFIRMATION-REQUIRED", json!({})), None),
+            Some(u) if u.password == s("PASSWORD") && user == "mfa" => {
                 let _ = u;
-                ok(id, json!({"status": "needs-mfa", "session": "mfa-session"}))
+                (outcome("CHALLENGE", json!({"CHALLENGE": "totp", "SESSION": "mfa-session"})), None)
             }
-            Some(u) if u.password == s("password") => {
+            Some(u) if u.password == s("PASSWORD") => {
                 let email = u.email.clone();
                 signed_in(st, &user, &email)
             }
-            _ => err(id, "authentication", 3),
+            _ => failed(),
         },
         "sign-up" => {
-            st.users.insert(user, User { password: s("password"), confirmed: false, email: s("email") });
-            ok(id, json!({"status": "needs-confirm"}))
+            st.users.insert(user, User { password: s("PASSWORD"), confirmed: false, email: s("EMAIL") });
+            (outcome("CONFIRMATION-REQUIRED", json!({})), None)
         }
         "confirm" => match st.users.get_mut(&user) {
-            Some(u) if s("code") == "123456" => {
+            Some(u) if s("ONE-TIME-CODE") == "123456" => {
                 u.confirmed = true;
-                ok(id, json!({"status": "done"}))
+                (outcome("OK", json!({})), None)
             }
-            _ => err(id, "application", 4),
+            _ => failed(),
         },
         // The same answer whether or not the user exists (R10).
-        "forgot" => ok(id, json!({"status": "reset-requested"})),
+        "forgot" => (outcome("AUTH-RESET-REQUESTED", json!({})), None),
         "reset" => match st.users.get_mut(&user) {
-            Some(u) if s("code") == "654321" => {
-                u.password = s("new_password");
-                ok(id, json!({"status": "done"}))
+            Some(u) if s("ONE-TIME-CODE") == "654321" => {
+                u.password = s("PASSWORD");
+                (outcome("OK", json!({})), None)
             }
-            _ => err(id, "application", 4),
+            _ => failed(),
         },
         "mfa" => {
-            if s("session") == "mfa-session" && s("code") == "000000" {
+            if s("SESSION") == "mfa-session" && s("ONE-TIME-CODE") == "000000" {
                 signed_in(st, "mfa", "mfa@example.com")
             } else {
-                err(id, "authentication", 3)
+                failed()
             }
         }
-        "refresh" => match signed_in_user {
-            Some(u) if st.refresh_ok.contains(u) => {
-                let email = st.users.get(u).map(|x| x.email.clone()).unwrap_or_default();
-                signed_in(st, u, &email)
+        "refresh" => match cookie_user.filter(|u| st.refresh_ok.contains(*u)).map(str::to_owned) {
+            Some(u) => {
+                let email = st.users.get(&u).map(|x| x.email.clone()).unwrap_or_default();
+                signed_in(st, &u, &email)
             }
-            // A connection with no session still has the browser's cookie: any signed-in user's refresh works.
-            _ => match st.refresh_ok.iter().next().cloned() {
-                Some(u) => {
-                    let email = st.users.get(&u).map(|x| x.email.clone()).unwrap_or_default();
-                    signed_in(st, &u, &email)
-                }
-                None => err(id, "authentication", 3),
-            },
+            None => (outcome("AUTH-FAILED", json!({})), Some(String::new())),
         },
         "sign-out" => {
-            st.refresh_ok.clear();
-            st.live_tokens.clear();
-            ok(id, json!({"status": "done"}))
+            if let Some(u) = cookie_user {
+                st.refresh_ok.remove(u);
+            }
+            st.live_tokens.retain(|_, owner| Some(owner.as_str()) != cookie_user);
+            (outcome("OK", json!({})), Some(String::new()))
         }
-        "hosted-start" => ok(id, json!({"status": "hosted", "redirect_url": "http://127.0.0.1:8099/index.html?pr-code=hosted-code&pr-state=hosted-state"})),
-        "hosted-finish" => {
-            if s("code") == "hosted-code" && s("state") == "hosted-state" {
+        "hosted/finish" => {
+            if s("HANDLE") == "hosted-code" {
                 signed_in(st, "hosted", "hosted@example.com")
             } else {
-                err(id, "authentication", 3)
+                failed()
             }
         }
-        _ => err(id, "validation", 4001),
+        _ => (outcome("INVALID", json!({})), None),
     }
 }
 
+/// `%XX` decoding of one query value.
+fn unpercent(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'%' if i + 2 < b.len() => {
+                out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap_or(b'?'));
+                i += 3;
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Serve one HTTP request on `/auth/*` and close.
+fn serve_auth(mut stream: std::net::TcpStream, state: &Arc<Mutex<State>>) {
+    use std::io::{Read, Write};
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let head_end = loop {
+        let Ok(n) = stream.read(&mut chunk) else { return };
+        if n == 0 {
+            return;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            break p + 4;
+        }
+        if buf.len() > 64 * 1024 {
+            return;
+        }
+    };
+    let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
+    let mut lines = head.split("\r\n");
+    let mut first = lines.next().unwrap_or("").split(' ');
+    let (method, target) = (first.next().unwrap_or("").to_owned(), first.next().unwrap_or("").to_owned());
+    let headers: Vec<(String, String)> = lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_owned())).collect();
+    let header = |k: &str| headers.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+    let length: usize = header("content-length").and_then(|v| v.parse().ok()).unwrap_or(0).min(16 * 1024);
+    while buf.len() < head_end + length {
+        let Ok(n) = stream.read(&mut chunk) else { return };
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+    let body = &buf[head_end..(head_end + length).min(buf.len())];
+    let (path, query) = target.split_once('?').unwrap_or((target.as_str(), ""));
+    let route = path.trim_start_matches("/auth/").to_owned();
+    let cookie_user = header("cookie").and_then(|c| c.split(';').map(str::trim).find_map(|p| p.strip_prefix("pr_refresh=").map(str::to_owned))).filter(|u| !u.is_empty());
+    let origin = header("origin");
+    let mut extra: Vec<String> = Vec::new();
+    if let Some(o) = &origin {
+        extra.push(format!("Access-Control-Allow-Origin: {o}"));
+        extra.push("Access-Control-Allow-Credentials: true".into());
+        extra.push("Vary: Origin".into());
+    }
+    let (status, ctype, out): (&str, &str, String) = match method.as_str() {
+        "OPTIONS" => {
+            extra.push("Access-Control-Allow-Methods: GET, POST, OPTIONS".into());
+            extra.push("Access-Control-Allow-Headers: content-type, x-pr-identity".into());
+            ("204 No Content", "text/plain", String::new())
+        }
+        "GET" if route == "hosted/start" => {
+            let param = |k: &str| query.split('&').find_map(|p| p.strip_prefix(&format!("{k}="))).map(unpercent).unwrap_or_default();
+            let (back, page_state) = (param("return"), param("state"));
+            say("identity=hosted/start (the provider signs `hosted` in)".into());
+            let sep = if back.contains('?') { '&' } else { '?' };
+            extra.push(format!("Location: {back}{sep}pr-code=hosted-code&pr-state={page_state}"));
+            ("302 Found", "text/plain", String::new())
+        }
+        "POST" if header("x-pr-identity").as_deref() != Some("1") || !header("content-type").unwrap_or_default().starts_with("application/json") => {
+            ("403 Forbidden", "text/plain", "an identity request needs Content-Type: application/json and X-PR-Identity: 1".into())
+        }
+        "POST" => {
+            let req: Value = serde_json::from_slice(body).unwrap_or_else(|_| json!({}));
+            let (result, cookie) = identity(&mut state.lock().unwrap(), &route, &req, cookie_user.as_deref());
+            match cookie {
+                Some(u) if u.is_empty() => extra.push("Set-Cookie: pr_refresh=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0".into()),
+                Some(u) => extra.push(format!("Set-Cookie: pr_refresh={u}; Path=/; HttpOnly; SameSite=Strict")),
+                None => {}
+            }
+            ("200 OK", "application/json", result.to_string())
+        }
+        _ => ("404 Not Found", "text/plain", "not found".into()),
+    };
+    let mut res = format!("HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n", out.len());
+    for h in extra {
+        res.push_str(&h);
+        res.push_str("\r\n");
+    }
+    res.push_str("\r\n");
+    res.push_str(&out);
+    let _ = stream.write_all(res.as_bytes());
+}
+
 fn main() {
-    let (mut port, mut ttl) = (8096u16, 3600u64);
+    let (mut port, mut ttl, mut first_ttl) = (8096u16, 3600u64, None);
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--port" => port = it.next().and_then(|v| v.parse().ok()).expect("a port"),
             "--ttl" => ttl = it.next().and_then(|v| v.parse().ok()).expect("seconds"),
+            "--first-ttl" => first_ttl = Some(it.next().and_then(|v| v.parse().ok()).expect("seconds")),
             other => panic!("unknown argument {other}"),
         }
     }
-    let state = Arc::new(Mutex::new(State { ttl, ..State::default() }));
+    let listener = TcpListener::bind(("127.0.0.1", port)).expect("the port is free");
+    println!("mock backend listening on ws://127.0.0.1:{port}/ws and http://127.0.0.1:{port}/auth/ (token lifetime {ttl} s)");
+    serve(listener, ttl, first_ttl);
+}
+
+/// Serve `listener` until the process ends: the identity requests on `/auth/`, the WebSocket otherwise.
+pub fn serve(listener: TcpListener, ttl: u64, first_ttl: Option<u64>) {
+    let state = Arc::new(Mutex::new(State { ttl, first_ttl, ..State::default() }));
     {
         let mut st = state.lock().unwrap();
         st.users.insert("ana".into(), User { password: "s3cret!".into(), confirmed: true, email: "ana@example.com".into() });
         st.users.insert("mfa".into(), User { password: "s3cret!".into(), confirmed: true, email: "mfa@example.com".into() });
     }
-    let listener = TcpListener::bind(("127.0.0.1", port)).expect("the port is free");
-    println!("mock backend listening on ws://127.0.0.1:{port}/ws (token lifetime {ttl} s)");
     for stream in listener.incoming().flatten() {
         let state = state.clone();
         std::thread::spawn(move || {
+            // An identity request is plain HTTP on `/auth/`; anything else is the WebSocket.
+            let mut peek = [0u8; 64];
+            let n = stream.peek(&mut peek).unwrap_or(0);
+            let line = String::from_utf8_lossy(&peek[..n]);
+            if line.split(' ').nth(1).is_some_and(|p| p.starts_with("/auth/")) {
+                serve_auth(stream, &state);
+                return;
+            }
             let Ok(mut ws) = accept(stream) else { return };
             let mut who: Option<String> = None;
-            println!("connection opened");
+            say("connection opened".into());
             while let Ok(msg) = ws.read() {
                 let Message::Text(text) = msg else {
                     if matches!(msg, Message::Close(_)) {
@@ -223,7 +359,7 @@ fn main() {
                         if good {
                             who = owner;
                         }
-                        println!("auth message: token {}", if good { "accepted" } else { "refused" });
+                        say(format!("auth message: token {}", if good { "accepted" } else { "refused" }));
                         let answer = if good {
                             json!({"t": "auth-ok", "sub": who.clone().unwrap_or_default(), "expires_in": state.lock().unwrap().ttl})
                         } else {
@@ -233,20 +369,13 @@ fn main() {
                     }
                     Some("call") => {
                         let id = v.get("id").and_then(Value::as_u64).unwrap_or(0);
-                        let frame = v.clone();
-                        let reply = if frame.get("identity").is_some() {
-                            let mut st = state.lock().unwrap();
-                            identity(&mut st, id, &frame, &who)
-                        } else {
-                            println!("call: a program request");
-                            ok(id, json!("pong"))
-                        };
-                        let _ = ws.send(Message::text(reply));
+                        say(format!("call: a program request{}", if who.is_some() { " (signed in)" } else { "" }));
+                        let _ = ws.send(Message::text(ok(id, json!("pong"))));
                     }
                     _ => {}
                 }
             }
-            println!("connection closed");
+            say("connection closed".into());
         });
     }
 }

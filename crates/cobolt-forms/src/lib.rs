@@ -75,6 +75,10 @@ pub mod theme;
 pub mod theme_pack;
 /// The Hyperlink control's link policy (WASM-006): one check for every writer and every host.
 pub mod hyperlink;
+/// The Authentication control's vocabulary (WASM-009): events, seeds, texts, methods.
+pub mod authentication;
+/// The Authentication control's default texts in six languages (WASM-009 D12).
+pub mod auth_texts;
 /// WASM-004's class of every control for the web — the one table the toolbox and the player read.
 pub mod web_class;
 pub mod xml;

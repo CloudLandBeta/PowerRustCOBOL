@@ -30,6 +30,7 @@ server = [
     "loader", "net",
     "dep:cobolt-runtime", "dep:jsonwebtoken", "dep:ureq",
     "dep:sha2", "dep:base64", "dep:getrandom", "dep:tracing-subscriber",
+    "dep:chacha20poly1305", "dep:hmac",
     "dep:leptos", "dep:leptos_axum", "dep:leptos_router", "dep:axum", "dep:hyper", "dep:hyper-util",
 ]
 
@@ -91,6 +92,9 @@ axum        = { workspace = true, optional = true }
 hyper       = { workspace = true, optional = true }
 hyper-util  = { workspace = true, optional = true }
 sha2      = { workspace = true, optional = true }
+# The identity service (WASM-009): the sealed cookies (D7) and Cognito's `SECRET_HASH` (HMAC-SHA256).
+chacha20poly1305 = { workspace = true, optional = true }
+hmac      = { workspace = true, optional = true }
 base64    = { version = "0.22", optional = true }
 getrandom = { version = "0.4", optional = true }
 

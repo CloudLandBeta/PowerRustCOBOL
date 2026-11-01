@@ -142,6 +142,12 @@ pub enum Screen {
     Forgot,
     Reset,
     Mfa,
+    /// The provider wants a new password before it signs the user in (a temporary one; D16).
+    NewPassword,
+    /// The provider offers several second factors: one button per kind.
+    MfaChoose,
+    /// The user enrols an authenticator app: its link, its key, then a code.
+    MfaSetup,
     SignedIn,
 }
 
@@ -154,7 +160,82 @@ impl Screen {
             Screen::Forgot => "Forgot",
             Screen::Reset => "Reset",
             Screen::Mfa => "Mfa",
+            Screen::NewPassword => "NewPassword",
+            Screen::MfaChoose => "MfaChoose",
+            Screen::MfaSetup => "MfaSetup",
             Screen::SignedIn => "SignedIn",
+        }
+    }
+
+    /// A screen that answers a provider's challenge: reached from an answer, never by `Show`.
+    fn is_challenge(self) -> bool {
+        matches!(self, Screen::Mfa | Screen::NewPassword | Screen::MfaChoose | Screen::MfaSetup)
+    }
+}
+
+/// A second factor the provider can send a code through (`Choice` lists them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MfaChoice {
+    Totp,
+    Sms,
+    Email,
+}
+
+impl MfaChoice {
+    /// Its name on the wire.
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            MfaChoice::Totp => "totp",
+            MfaChoice::Sms => "sms",
+            MfaChoice::Email => "email",
+        }
+    }
+
+    pub fn from_wire(s: &str) -> Option<MfaChoice> {
+        match s {
+            "totp" => Some(MfaChoice::Totp),
+            "sms" => Some(MfaChoice::Sms),
+            "email" => Some(MfaChoice::Email),
+            _ => None,
+        }
+    }
+}
+
+/// What a challenge asks for (WASM-009 D2): a code from an app, by text message or by e-mail (with
+/// the masked destination the provider reported), a choice between them, the enrolment of an
+/// authenticator app, or a new password.
+#[derive(Clone, PartialEq, Eq)]
+pub enum MfaKind {
+    Totp,
+    Sms { masked: String },
+    Email { masked: String },
+    Choice(Vec<MfaChoice>),
+    /// The key is shown to the user, who types it into the app; it is never logged.
+    TotpSetup { secret: String, otpauth_uri: String },
+    NewPassword,
+}
+
+impl std::fmt::Debug for MfaKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MfaKind::Totp => f.write_str("Totp"),
+            MfaKind::Sms { masked } => f.debug_struct("Sms").field("masked", masked).finish(),
+            MfaKind::Email { masked } => f.debug_struct("Email").field("masked", masked).finish(),
+            MfaKind::Choice(c) => f.debug_tuple("Choice").field(c).finish(),
+            MfaKind::TotpSetup { .. } => f.debug_struct("TotpSetup").field("secret", &Hidden).field("otpauth_uri", &Hidden).finish(),
+            MfaKind::NewPassword => f.write_str("NewPassword"),
+        }
+    }
+}
+
+impl MfaKind {
+    /// The screen that answers it.
+    pub fn screen(&self) -> Screen {
+        match self {
+            MfaKind::Totp | MfaKind::Sms { .. } | MfaKind::Email { .. } => Screen::Mfa,
+            MfaKind::Choice(_) => Screen::MfaChoose,
+            MfaKind::TotpSetup { .. } => Screen::MfaSetup,
+            MfaKind::NewPassword => Screen::NewPassword,
         }
     }
 }
@@ -175,6 +256,8 @@ pub struct Config {
     pub mfa: bool,
     /// The reCAPTCHA v3 *site* key (public); empty = off.
     pub recaptcha_site_key: String,
+    /// `RecaptchaConsent = Ask` (D10): the first protected action waits for `GrantConsent`.
+    pub consent_ask: bool,
     pub texts: Texts,
 }
 
@@ -187,25 +270,38 @@ impl Default for Config {
             forgot: true,
             mfa: true,
             recaptcha_site_key: String::new(),
+            consent_ask: false,
             texts: Texts::default(),
         }
     }
 }
 
-/// The control's texts, translatable by the developer (WASM-009 R1). These are the defaults.
+/// The messages the machine shows, translatable by the developer (WASM-009 R1). An empty property
+/// is the default in the application's language (`cobolt_forms::auth_texts`, D12).
 #[derive(Debug, Clone)]
 pub struct Texts {
     pub sign_in_failed: String,
     pub reset_requested: String,
     pub generic_error: String,
+    pub passwords_differ: String,
 }
 
 impl Default for Texts {
+    /// The English defaults.
     fn default() -> Self {
+        Texts::read(&|_| String::new(), "en")
+    }
+}
+
+impl Texts {
+    /// The messages through `get` (a property by name; empty = not set), defaults in `locale`.
+    pub fn read(get: &dyn Fn(&str) -> String, locale: &str) -> Texts {
+        let pick = |prop: &str| cobolt_forms::auth_texts::text_or_default(&get(prop), prop, locale);
         Texts {
-            sign_in_failed: "The user name or the password is not right.".into(),
-            reset_requested: "If the address is registered, a code has been sent to it.".into(),
-            generic_error: "That did not work. Try again in a moment.".into(),
+            sign_in_failed: pick("SignInFailedText"),
+            reset_requested: pick("ResetRequestedText"),
+            generic_error: pick("ErrorText"),
+            passwords_differ: pick("PasswordsDifferText"),
         }
     }
 }
@@ -239,10 +335,18 @@ pub enum Action {
     Confirm { user: String, code: String },
     Forgot { user: String },
     Reset { user: String, code: String, new_password: String },
+    /// A code for the challenge on screen: `Mfa`, or `MfaSetup`'s first code from the new app.
     Mfa { code: String },
+    /// The New password screen: the password, typed twice.
+    NewPassword { password: String, repeat: String },
+    /// The Choose screen: the second factor the user picked.
+    MfaChoose(MfaChoice),
     Hosted,
     /// The page came back from the provider with an authorisation code (the hosted flow).
     HostedFinish { code: String, state: String },
+    /// The program's `GrantConsent` / `DenyConsent` (D10).
+    GrantConsent,
+    DenyConsent,
     SignOut,
     /// The program asked (`Refresh`), or the server refused an expired token: refresh now.
     Refresh,
@@ -260,8 +364,12 @@ impl std::fmt::Debug for Action {
             Action::Forgot { user } => f.debug_struct("Forgot").field("user", user).finish(),
             Action::Reset { user, .. } => f.debug_struct("Reset").field("user", user).field("code", &Hidden).field("new_password", &Hidden).finish(),
             Action::Mfa { .. } => f.debug_struct("Mfa").field("code", &Hidden).finish(),
+            Action::NewPassword { .. } => f.debug_struct("NewPassword").field("password", &Hidden).field("repeat", &Hidden).finish(),
+            Action::MfaChoose(c) => f.debug_tuple("MfaChoose").field(c).finish(),
             Action::Hosted => f.write_str("Hosted"),
             Action::HostedFinish { .. } => f.debug_struct("HostedFinish").field("code", &Hidden).field("state", &Hidden).finish(),
+            Action::GrantConsent => f.write_str("GrantConsent"),
+            Action::DenyConsent => f.write_str("DenyConsent"),
             Action::SignOut => f.write_str("SignOut"),
             Action::Refresh => f.write_str("Refresh"),
             Action::Tick { now_ms } => f.debug_struct("Tick").field("now_ms", now_ms).finish(),
@@ -278,6 +386,12 @@ pub enum BackendCall {
     Forgot { user: String, captcha: Option<String> },
     Reset { user: String, code: String, new_password: String },
     Mfa { session: String, code: String },
+    /// The answer to a new-password challenge.
+    NewPassword { session: String, new_password: String },
+    /// The second factor picked on the Choose screen.
+    MfaChoose { session: String, choice: MfaChoice },
+    /// The first code of a newly enrolled authenticator app.
+    MfaSetup { session: String, code: String },
     /// Silent refresh with the `HttpOnly` cookie the browser holds.
     Refresh,
     SignOut,
@@ -301,6 +415,9 @@ impl std::fmt::Debug for BackendCall {
             BackendCall::Forgot { user, captcha } => f.debug_struct("Forgot").field("user", user).field("captcha", &hide(captcha)).finish(),
             BackendCall::Reset { user, .. } => f.debug_struct("Reset").field("user", user).field("code", &Hidden).field("new_password", &Hidden).finish(),
             BackendCall::Mfa { .. } => f.debug_struct("Mfa").field("session", &Hidden).field("code", &Hidden).finish(),
+            BackendCall::NewPassword { .. } => f.debug_struct("NewPassword").field("session", &Hidden).field("new_password", &Hidden).finish(),
+            BackendCall::MfaChoose { choice, .. } => f.debug_struct("MfaChoose").field("session", &Hidden).field("choice", choice).finish(),
+            BackendCall::MfaSetup { .. } => f.debug_struct("MfaSetup").field("session", &Hidden).field("code", &Hidden).finish(),
             BackendCall::Refresh => f.write_str("Refresh"),
             BackendCall::SignOut => f.write_str("SignOut"),
             BackendCall::HostedStart => f.write_str("HostedStart"),
@@ -314,8 +431,11 @@ impl std::fmt::Debug for BackendCall {
 pub enum AuthResult {
     SignedIn { access_token: String, expires_in_s: Option<f64> },
     NeedsConfirm,
-    NeedsMfa { session: String },
-    NeedsNewPassword,
+    /// A challenge: `session` is the provider's, sent back with the answer; `kind` says what is asked.
+    NeedsMfa { session: String, kind: MfaKind },
+    /// A temporary password must be replaced first (Cognito `NEW_PASSWORD_REQUIRED`): the same as
+    /// `NeedsMfa` with `MfaKind::NewPassword`.
+    NeedsNewPassword { session: String },
     ResetRequested,
     Done,
     Hosted { redirect_url: String },
@@ -328,8 +448,8 @@ impl std::fmt::Debug for AuthResult {
         match self {
             AuthResult::SignedIn { expires_in_s, .. } => f.debug_struct("SignedIn").field("access_token", &Hidden).field("expires_in_s", expires_in_s).finish(),
             AuthResult::NeedsConfirm => f.write_str("NeedsConfirm"),
-            AuthResult::NeedsMfa { .. } => f.debug_struct("NeedsMfa").field("session", &Hidden).finish(),
-            AuthResult::NeedsNewPassword => f.write_str("NeedsNewPassword"),
+            AuthResult::NeedsMfa { kind, .. } => f.debug_struct("NeedsMfa").field("session", &Hidden).field("kind", kind).finish(),
+            AuthResult::NeedsNewPassword { .. } => f.debug_struct("NeedsNewPassword").field("session", &Hidden).finish(),
             AuthResult::ResetRequested => f.write_str("ResetRequested"),
             AuthResult::Done => f.write_str("Done"),
             AuthResult::Hosted { redirect_url } => f.debug_struct("Hosted").field("redirect_url", redirect_url).finish(),
@@ -346,6 +466,8 @@ pub enum AuthEvent {
     SignUpCompleted,
     PasswordResetRequested,
     MfaRequired,
+    /// A protected action waits for `GrantConsent` / `DenyConsent` (D10).
+    ConsentRequired,
     Error(String),
 }
 
@@ -357,6 +479,7 @@ impl AuthEvent {
             AuthEvent::SignUpCompleted => "onSignUpCompleted",
             AuthEvent::PasswordResetRequested => "onPasswordResetRequested",
             AuthEvent::MfaRequired => "onMfaRequired",
+            AuthEvent::ConsentRequired => "onConsentRequired",
             AuthEvent::Error(_) => "onError",
         }
     }
@@ -401,8 +524,14 @@ pub struct Machine {
     pub user_name: String,
     pub email: String,
     mfa_session: Option<Secret>,
+    /// What the challenge on screen asks for (the MFA, Choose, Set-up and New password screens).
+    pub mfa_kind: Option<MfaKind>,
     /// A sign-in/up/forgot waiting for its reCAPTCHA token.
     pending: Option<Pending>,
+    /// A sign-in/up/forgot held until the program grants or denies consent (D10).
+    held: Option<(Pending, &'static str)>,
+    /// Consent to load reCAPTCHA was given; it holds for the page's lifetime (the host shares it).
+    pub consent_given: bool,
     /// A backend call is in flight.
     pub busy: bool,
     /// Who the current flow is for (confirm / reset screens).
@@ -418,10 +547,18 @@ impl Machine {
             user_name: String::new(),
             email: String::new(),
             mfa_session: None,
+            mfa_kind: None,
             pending: None,
+            held: None,
+            consent_given: false,
             busy: false,
             flow_user: String::new(),
         }
+    }
+
+    /// Is a protected action held, waiting for `GrantConsent` / `DenyConsent`?
+    pub fn consent_pending(&self) -> bool {
+        self.held.is_some()
     }
 
     pub fn state_name(&self) -> &'static str {
@@ -442,8 +579,17 @@ impl Machine {
             Screen::SignUp => self.cfg.sign_up && self.cfg.flow == Flow::InApp,
             Screen::Confirm => self.cfg.confirm && self.cfg.flow == Flow::InApp,
             Screen::Forgot | Screen::Reset => self.cfg.forgot && self.cfg.flow == Flow::InApp,
-            Screen::Mfa => self.cfg.mfa && self.cfg.flow == Flow::InApp,
+            // A challenge's screens answer a provider's question: only an answer opens them.
+            Screen::Mfa | Screen::NewPassword | Screen::MfaChoose | Screen::MfaSetup => false,
         }
+    }
+
+    /// The challenge session, if one is open and the screen on show answers it.
+    fn challenge(&self, on: Screen) -> Option<String> {
+        if self.screen != on {
+            return None;
+        }
+        self.mfa_session.as_ref().map(|Secret(s)| s.clone())
     }
 
     /// The user acted.
@@ -451,6 +597,11 @@ impl Machine {
         match a {
             Action::Show(s) => {
                 if self.allowed(s) && !self.session.is_signed_in() {
+                    if self.screen.is_challenge() {
+                        // Leaving a challenge abandons it: its session is no use any more.
+                        self.mfa_session = None;
+                        self.mfa_kind = None;
+                    }
                     self.screen = s;
                 }
                 vec![]
@@ -460,12 +611,49 @@ impl Machine {
             Action::Forgot { user } => self.guarded(Pending::Forgot { user }, "forgot_password"),
             Action::Confirm { user, code } => self.call(BackendCall::Confirm { user, code }),
             Action::Reset { user, code, new_password } => self.call(BackendCall::Reset { user, code, new_password }),
-            Action::Mfa { code } => match self.mfa_session.clone() {
-                Some(Secret(session)) => self.call(BackendCall::Mfa { session, code }),
-                None => vec![],
-            },
+            Action::Mfa { code } => {
+                if let Some(session) = self.challenge(Screen::Mfa) {
+                    self.call(BackendCall::Mfa { session, code })
+                } else if let Some(session) = self.challenge(Screen::MfaSetup) {
+                    self.call(BackendCall::MfaSetup { session, code })
+                } else {
+                    vec![]
+                }
+            }
+            Action::NewPassword { password, repeat } => {
+                let Some(session) = self.challenge(Screen::NewPassword) else { return vec![] };
+                if password != repeat {
+                    // Checked here, not by the provider: a typing slip costs no attempt.
+                    return vec![Op::Message(self.cfg.texts.passwords_differ.clone())];
+                }
+                self.call(BackendCall::NewPassword { session, new_password: password })
+            }
+            Action::MfaChoose(choice) => {
+                let offered = matches!(&self.mfa_kind, Some(MfaKind::Choice(c)) if c.contains(&choice));
+                match self.challenge(Screen::MfaChoose) {
+                    Some(session) if offered => self.call(BackendCall::MfaChoose { session, choice }),
+                    _ => vec![],
+                }
+            }
             Action::Hosted => self.call(BackendCall::HostedStart),
             Action::HostedFinish { code, state } => self.call(BackendCall::HostedFinish { code, state }),
+            Action::GrantConsent => {
+                self.consent_given = true;
+                match self.held.take() {
+                    Some((p, action)) => {
+                        self.busy = false;
+                        self.guarded(p, action)
+                    }
+                    None => vec![],
+                }
+            }
+            Action::DenyConsent => match self.held.take() {
+                Some(_) => {
+                    self.busy = false;
+                    vec![Op::Message(self.cfg.texts.generic_error.clone()), Op::Notify(AuthEvent::Error("consent/declined".into()))]
+                }
+                None => vec![],
+            },
             Action::Refresh => {
                 if self.session.is_signed_in() && !self.busy {
                     self.call(BackendCall::Refresh)
@@ -479,6 +667,8 @@ impl Machine {
                 self.session.sign_out();
                 self.user_name.clear();
                 self.email.clear();
+                self.mfa_session = None;
+                self.mfa_kind = None;
                 self.screen = Screen::SignIn;
                 let mut ops = vec![Op::Backend(BackendCall::SignOut)];
                 if was {
@@ -516,10 +706,17 @@ impl Machine {
         }
     }
 
-    /// A sign-in, sign-up or forgot request: with reCAPTCHA on it waits for the token first (R4).
+    /// A sign-in, sign-up or forgot request: with reCAPTCHA on it waits for the token first (R4);
+    /// with `RecaptchaConsent = Ask` and no consent yet, it waits for the program first (D10), and
+    /// nothing of reCAPTCHA is loaded meanwhile.
     fn guarded(&mut self, p: Pending, action: &'static str) -> Vec<Op> {
         if self.busy {
             return vec![];
+        }
+        if self.captcha_on() && self.cfg.consent_ask && !self.consent_given {
+            self.held = Some((p, action));
+            self.busy = true;
+            return vec![Op::Notify(AuthEvent::ConsentRequired)];
         }
         if self.captcha_on() {
             self.pending = Some(p);
@@ -588,31 +785,32 @@ impl Machine {
                     self.email = email;
                 }
                 self.screen = Screen::SignedIn;
+                self.mfa_session = None;
+                self.mfa_kind = None;
                 // A silent refresh does not announce a new sign-in.
                 if matches!(call, BackendCall::Refresh) && was {
                     vec![]
+                } else if matches!(call, BackendCall::SignUp { .. }) {
+                    // A provider that signs a new account straight in: the account is usable (C8).
+                    vec![Op::Notify(AuthEvent::SignUpCompleted), Op::Notify(AuthEvent::SignedIn)]
                 } else {
                     vec![Op::Notify(AuthEvent::SignedIn)]
                 }
             }
-            (BackendCall::SignUp { .. }, AuthResult::NeedsConfirm) | (BackendCall::SignIn { .. }, AuthResult::NeedsConfirm) => {
+            // The account exists but is not usable yet: to the Confirm screen, and no event — it is
+            // raised once, when the confirmation succeeds (C8). Without a Confirm screen the user
+            // confirms elsewhere (the provider's e-mail link) and signs in afterwards.
+            (BackendCall::SignUp { .. } | BackendCall::SignIn { .. }, AuthResult::NeedsConfirm) => {
                 self.screen = if self.cfg.confirm { Screen::Confirm } else { Screen::SignIn };
-                vec![Op::Notify(AuthEvent::SignUpCompleted)]
+                vec![]
             }
-            (BackendCall::SignUp { .. }, AuthResult::Done) | (BackendCall::Confirm { .. }, AuthResult::Done) => {
+            // The account is usable: confirmed, or created by a provider that needs no confirmation.
+            (BackendCall::SignUp { .. } | BackendCall::Confirm { .. }, AuthResult::Done) => {
                 self.screen = Screen::SignIn;
                 vec![Op::Notify(AuthEvent::SignUpCompleted)]
             }
-            (_, AuthResult::NeedsMfa { session }) => {
-                self.mfa_session = Some(Secret(session));
-                self.screen = Screen::Mfa;
-                vec![Op::Notify(AuthEvent::MfaRequired)]
-            }
-            // The provider asks for a new password before it signs the user in (a temporary one).
-            (BackendCall::SignIn { .. }, AuthResult::NeedsNewPassword) if self.cfg.forgot => {
-                self.screen = Screen::Reset;
-                vec![]
-            }
+            (_, AuthResult::NeedsNewPassword { session }) => self.challenged(call, session, MfaKind::NewPassword),
+            (_, AuthResult::NeedsMfa { session, kind }) => self.challenged(call, session, kind),
             (BackendCall::Forgot { .. }, _) => {
                 // The same message whether or not the address is known (R10).
                 self.screen = Screen::Reset;
@@ -630,12 +828,43 @@ impl Machine {
                 self.screen = Screen::SignIn;
                 vec![Op::Notify(AuthEvent::SignedOut), Op::Notify(AuthEvent::Error(detail))]
             }
-            (BackendCall::SignIn { .. } | BackendCall::Mfa { .. } | BackendCall::HostedFinish { .. }, AuthResult::Failed { detail }) => {
+            (
+                BackendCall::SignIn { .. }
+                | BackendCall::Mfa { .. }
+                | BackendCall::MfaSetup { .. }
+                | BackendCall::MfaChoose { .. }
+                | BackendCall::NewPassword { .. }
+                | BackendCall::HostedFinish { .. },
+                AuthResult::Failed { detail },
+            ) => {
                 // One message for an unknown user and a wrong password alike (R10).
                 vec![Op::Message(t.sign_in_failed), Op::Notify(AuthEvent::Error(detail))]
             }
             (_, AuthResult::Failed { detail }) => vec![Op::Message(t.generic_error), Op::Notify(AuthEvent::Error(detail))],
             (_, _) => vec![Op::Message(t.generic_error)],
+        }
+    }
+
+    /// The provider answered with a challenge: open the screen that answers it. `onMfaRequired` is
+    /// raised when a second factor starts, not again when one challenge leads to the next (a Choose
+    /// then its code), and never for a new password, which is not a second factor.
+    fn challenged(&mut self, call: &BackendCall, session: String, kind: MfaKind) -> Vec<Op> {
+        let is_mfa = kind != MfaKind::NewPassword;
+        if is_mfa && !self.cfg.mfa {
+            // The developer offers no second-factor screen (`ShowMfa` off): the control cannot answer.
+            self.mfa_session = None;
+            self.mfa_kind = None;
+            self.screen = Screen::SignIn;
+            return vec![Op::Message(self.cfg.texts.generic_error.clone()), Op::Notify(AuthEvent::Error("mfa/not-offered".into()))];
+        }
+        let follows = matches!(call, BackendCall::Mfa { .. } | BackendCall::MfaChoose { .. } | BackendCall::MfaSetup { .. });
+        self.mfa_session = Some(Secret(session));
+        self.screen = kind.screen();
+        self.mfa_kind = Some(kind);
+        if is_mfa && !follows {
+            vec![Op::Notify(AuthEvent::MfaRequired)]
+        } else {
+            vec![]
         }
     }
 }
@@ -660,16 +889,19 @@ pub struct AuthUi {
     /// one they were in has just been replaced). Never set on the first screen, which must not
     /// steal the focus from the page when it loads.
     pub interacted: bool,
+    /// The language of the defaults the screens show: the application's `Locale` (ABI §12.1),
+    /// else the page's (D12). The host keeps it current.
+    pub locale: String,
 }
 
 impl AuthUi {
     pub fn new(cfg: Config) -> AuthUi {
-        AuthUi { machine: Machine::new(cfg), message: String::new(), attempt: 0, user_hint: String::new(), interacted: false }
+        AuthUi { machine: Machine::new(cfg), message: String::new(), attempt: 0, user_hint: String::new(), interacted: false, locale: "en".into() }
     }
 }
 
-/// The words on the control. Every one is a property the developer can set (WASM-009 R1); these
-/// are the defaults.
+/// The words on the control. Every one is a property the developer can set (WASM-009 R1); an empty
+/// one is the default in the application's language (`cobolt_forms::auth_texts`, D12).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Labels {
     pub sign_in: String,
@@ -690,44 +922,81 @@ pub struct Labels {
     pub back: String,
     pub signed_in_as: String,
     pub busy: String,
+    pub new_password_caption: String,
+    pub repeat_password: String,
+    /// `{0}` stands for the masked destination.
+    pub mfa_totp: String,
+    pub mfa_sms: String,
+    pub mfa_email: String,
+    pub mfa_choose: String,
+    pub choice_totp: String,
+    pub choice_sms: String,
+    pub choice_email: String,
+    pub mfa_setup_caption: String,
+    pub mfa_setup: String,
+    pub secret: String,
 }
 
 impl Labels {
-    /// Read the labels through `get` (a property by name; empty = not set).
-    pub fn read(get: &dyn Fn(&str) -> String) -> Labels {
-        let pick = |prop: &str, default: &str| {
-            let v = get(prop);
-            if v.trim().is_empty() {
-                default.to_owned()
-            } else {
-                v
-            }
-        };
+    /// Read the labels through `get` (a property by name; empty = not set), defaults in `locale`.
+    pub fn read(get: &dyn Fn(&str) -> String, locale: &str) -> Labels {
+        let pick = |prop: &str| cobolt_forms::auth_texts::text_or_default(&get(prop), prop, locale);
         Labels {
-            sign_in: pick("SignInCaption", "Sign in"),
-            sign_up: pick("SignUpCaption", "Create account"),
-            confirm: pick("ConfirmCaption", "Confirm account"),
-            forgot: pick("ForgotCaption", "Forgot password"),
-            reset: pick("ResetCaption", "Choose a new password"),
-            mfa: pick("MfaCaption", "Verification code"),
-            sign_out: pick("SignOutCaption", "Sign out"),
-            hosted: pick("HostedCaption", "Continue to sign in"),
-            user: pick("UserLabel", "User name"),
-            email: pick("EmailLabel", "E-mail"),
-            password: pick("PasswordLabel", "Password"),
-            new_password: pick("NewPasswordLabel", "New password"),
-            code: pick("CodeLabel", "Code"),
-            create_account: pick("CreateAccountLink", "Create an account"),
-            forgot_link: pick("ForgotLink", "Forgot your password?"),
-            back: pick("BackCaption", "Back to sign in"),
-            signed_in_as: pick("SignedInAsText", "Signed in as"),
-            busy: pick("BusyText", "Please wait"),
+            sign_in: pick("SignInCaption"),
+            sign_up: pick("SignUpCaption"),
+            confirm: pick("ConfirmCaption"),
+            forgot: pick("ForgotCaption"),
+            reset: pick("ResetCaption"),
+            mfa: pick("MfaCaption"),
+            sign_out: pick("SignOutCaption"),
+            hosted: pick("HostedCaption"),
+            user: pick("UserLabel"),
+            email: pick("EmailLabel"),
+            password: pick("PasswordLabel"),
+            new_password: pick("NewPasswordLabel"),
+            code: pick("CodeLabel"),
+            create_account: pick("CreateAccountLink"),
+            forgot_link: pick("ForgotLink"),
+            back: pick("BackCaption"),
+            signed_in_as: pick("SignedInAsText"),
+            busy: pick("BusyText"),
+            new_password_caption: pick("NewPasswordCaption"),
+            repeat_password: pick("RepeatPasswordLabel"),
+            mfa_totp: pick("MfaTotpText"),
+            mfa_sms: pick("MfaSmsText"),
+            mfa_email: pick("MfaEmailText"),
+            mfa_choose: pick("MfaChooseCaption"),
+            choice_totp: pick("MfaTotpChoice"),
+            choice_sms: pick("MfaSmsChoice"),
+            choice_email: pick("MfaEmailChoice"),
+            mfa_setup_caption: pick("MfaSetupCaption"),
+            mfa_setup: pick("MfaSetupText"),
+            secret: pick("SecretLabel"),
+        }
+    }
+
+    /// What the MFA screen says about a code's kind, naming the masked destination.
+    pub fn mfa_text(&self, kind: &MfaKind) -> String {
+        match kind {
+            MfaKind::Sms { masked } => self.mfa_sms.replace("{0}", masked),
+            MfaKind::Email { masked } => self.mfa_email.replace("{0}", masked),
+            _ => self.mfa_totp.clone(),
+        }
+    }
+
+    /// The Choose screen's button for `c`.
+    pub fn choice(&self, c: MfaChoice) -> &str {
+        match c {
+            MfaChoice::Totp => &self.choice_totp,
+            MfaChoice::Sms => &self.choice_sms,
+            MfaChoice::Email => &self.choice_email,
         }
     }
 }
 
-/// The control's configuration from its properties; the page's settings fill what the control leaves open.
-pub fn config_from(get: &dyn Fn(&str) -> String, default_flow: Flow, default_site_key: &str) -> Config {
+/// The control's configuration from its properties; the page's settings fill what the control
+/// leaves open. `locale` is the language of the default messages.
+pub fn config_from(get: &dyn Fn(&str) -> String, default_flow: Flow, default_site_key: &str, locale: &str) -> Config {
     let on = |prop: &str| {
         let v = get(prop);
         let v = v.trim().to_ascii_lowercase();
@@ -740,86 +1009,223 @@ pub fn config_from(get: &dyn Fn(&str) -> String, default_flow: Flow, default_sit
     };
     let site = get("RecaptchaSiteKey");
     let site = if site.trim().is_empty() { default_site_key.to_owned() } else { site.trim().to_owned() };
-    let mut texts = Texts::default();
-    for (prop, slot) in [("SignInFailedText", &mut texts.sign_in_failed), ("ResetRequestedText", &mut texts.reset_requested), ("ErrorText", &mut texts.generic_error)] {
-        let v = get(prop);
-        if !v.trim().is_empty() {
-            *slot = v;
-        }
+    Config {
+        flow,
+        sign_up: on("ShowSignUp"),
+        confirm: on("ShowConfirm"),
+        forgot: on("ShowForgot"),
+        mfa: on("ShowMfa"),
+        recaptcha_site_key: site,
+        consent_ask: get("RecaptchaConsent").trim().eq_ignore_ascii_case("ask"),
+        texts: Texts::read(get, locale),
     }
-    Config { flow, sign_up: on("ShowSignUp"), confirm: on("ShowConfirm"), forgot: on("ShowForgot"), mfa: on("ShowMfa"), recaptcha_site_key: site, texts }
 }
 
-// ── the wire ────────────────────────────────────────────────────────────────
+// ── the identity requests ───────────────────────────────────────────────────
 
-/// How a [`BackendCall`] travels over the player's connection to the backend and how its answer
-/// comes back. **The player's proposal** pending the identity programs' wire (WASM-009 R7,
-/// WASM-014); it lives here, in one place, so that aligning it is a change to this module.
+/// How a [`BackendCall`] reaches the backend and how its answer comes back (WASM-009 D5, C2): an
+/// HTTPS request to the backend's `/auth/*` routes, never a WebSocket frame. A WebSocket message
+/// cannot set a cookie, and the refresh token lives in the backend's `HttpOnly` cookie, which the
+/// page never reads. The request body is the identity program's `AUTH-REQUEST` (only the members a
+/// page may send); the answer is its `AUTH-RESULT`.
 ///
-/// The request is the connection's ordinary call frame (a JSON object), the answer its ordinary
-/// answer: `{"id":N,"result":{"status":…}}` or `{"id":N,"error":{…}}`.
-pub mod wire {
-    use super::{AuthResult, BackendCall};
-    use serde_json::{json, Value};
+/// This module is pure: the browser half (`api.rs`) sends what [`post`] describes with
+/// `credentials: "include"`, `Content-Type: application/json` and `X-PR-Identity: 1`, and hands the
+/// answer to [`decode`].
+pub mod https {
+    use super::{AuthResult, BackendCall, Hidden, MfaChoice, MfaKind};
+    use serde_json::{Map, Value};
 
-    /// Ids from this one up to the remote grids' range (`crate::grid::ID_BASE`) are the
-    /// Authentication control's; below it the program module's (ABI A8).
+    /// The ids the host gives its identity calls, to match each answer to the call that asked. They
+    /// stay in the page: nothing sends them (ABI A8's range is no longer used for identity, T27).
     pub const ID_BASE: u32 = 0x8000_0000;
 
     pub fn is_auth_id(id: u32) -> bool {
         id >= ID_BASE && id < crate::grid::ID_BASE
     }
 
-    /// The request frame for `call`.
-    pub fn encode(call: &BackendCall) -> Vec<u8> {
-        let v = match call {
-            BackendCall::SignIn { user, password, captcha } => json!({"identity": "sign-in", "user": user, "password": password, "captcha": captcha}),
-            BackendCall::SignUp { user, email, password, captcha } => {
-                json!({"identity": "sign-up", "user": user, "email": email, "password": password, "captcha": captcha})
-            }
-            BackendCall::Confirm { user, code } => json!({"identity": "confirm", "user": user, "code": code}),
-            BackendCall::Forgot { user, captcha } => json!({"identity": "forgot", "user": user, "captcha": captcha}),
-            BackendCall::Reset { user, code, new_password } => json!({"identity": "reset", "user": user, "code": code, "new_password": new_password}),
-            BackendCall::Mfa { session, code } => json!({"identity": "mfa", "session": session, "code": code}),
-            BackendCall::Refresh => json!({"identity": "refresh"}),
-            BackendCall::SignOut => json!({"identity": "sign-out"}),
-            BackendCall::HostedStart => json!({"identity": "hosted-start"}),
-            BackendCall::HostedFinish { code, state } => json!({"identity": "hosted-finish", "code": code, "state": state}),
-        };
-        v.to_string().into_bytes()
+    /// The header every identity POST carries: no HTML form can send it, so a cross-site form cannot
+    /// post to the routes (the backend refuses a POST without it).
+    pub const IDENTITY_HEADER: (&str, &str) = ("X-PR-Identity", "1");
+
+    /// One POST to `/auth/<route>` with a JSON body.
+    #[derive(Clone, PartialEq, Eq)]
+    pub struct Post {
+        pub route: &'static str,
+        pub body: String,
     }
 
-    /// What an answer frame means. An error frame, or one that cannot be read, is a failure whose
-    /// detail is the error's class and code — never its text (R6, R10).
-    pub fn decode(frame: &[u8]) -> AuthResult {
-        let Ok(v) = serde_json::from_slice::<Value>(frame) else {
+    impl Post {
+        /// The address on the backend at `base` (`https://host[:port]`).
+        pub fn url(&self, base: &str) -> String {
+            format!("{}/auth/{}", base.trim_end_matches('/'), self.route)
+        }
+    }
+
+    /// The body holds passwords and codes: a log shows the route only.
+    impl std::fmt::Debug for Post {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("Post").field("route", &self.route).field("body", &Hidden).finish()
+        }
+    }
+
+    fn body(members: &[(&str, &str)]) -> String {
+        let mut m = Map::new();
+        for (k, v) in members {
+            m.insert((*k).to_owned(), Value::String((*v).to_owned()));
+        }
+        Value::Object(m).to_string()
+    }
+
+    /// The POST for `call`. `None` for [`BackendCall::HostedStart`], which is a navigation
+    /// ([`hosted_start_url`]), not a request; [`BackendCall::HostedFinish`] posts its handle
+    /// ([`hosted_finish`]) once the page has checked the state it kept.
+    pub fn post(call: &BackendCall) -> Option<Post> {
+        let captcha = |c: &Option<String>| c.clone().unwrap_or_default();
+        let (route, members): (&'static str, Vec<(&str, String)>) = match call {
+            BackendCall::SignIn { user, password, captcha: c } => ("sign-in", vec![("USERNAME", user.clone()), ("PASSWORD", password.clone()), ("CAPTCHA-TOKEN", captcha(c))]),
+            BackendCall::SignUp { user, email, password, captcha: c } => {
+                ("sign-up", vec![("USERNAME", user.clone()), ("EMAIL", email.clone()), ("PASSWORD", password.clone()), ("CAPTCHA-TOKEN", captcha(c))])
+            }
+            BackendCall::Confirm { user, code } => ("confirm", vec![("USERNAME", user.clone()), ("ONE-TIME-CODE", code.clone())]),
+            BackendCall::Forgot { user, captcha: c } => ("forgot", vec![("USERNAME", user.clone()), ("CAPTCHA-TOKEN", captcha(c))]),
+            BackendCall::Reset { user, code, new_password } => ("reset", vec![("USERNAME", user.clone()), ("ONE-TIME-CODE", code.clone()), ("PASSWORD", new_password.clone())]),
+            BackendCall::Mfa { session, code } => ("mfa", vec![("SESSION", session.clone()), ("ONE-TIME-CODE", code.clone())]),
+            BackendCall::NewPassword { session, new_password } => ("mfa", vec![("SESSION", session.clone()), ("PASSWORD", new_password.clone())]),
+            BackendCall::MfaChoose { session, choice } => ("mfa", vec![("SESSION", session.clone()), ("CHOICE", choice.wire_name().to_owned())]),
+            BackendCall::MfaSetup { session, code } => ("mfa-setup", vec![("SESSION", session.clone()), ("ONE-TIME-CODE", code.clone())]),
+            BackendCall::Refresh => ("refresh", Vec::new()),
+            BackendCall::SignOut => ("sign-out", Vec::new()),
+            BackendCall::HostedStart => return None,
+            BackendCall::HostedFinish { code, .. } => return Some(hosted_finish(code)),
+        };
+        let members: Vec<(&str, &str)> = members.iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| (*k, v.as_str())).collect();
+        Some(Post { route, body: body(&members) })
+    }
+
+    /// `POST /auth/hosted/finish {"HANDLE": …}`: the single-use handle the hosted return carried
+    /// (`?pr-code=`). It is not a token: the backend answers the sign-in it stands for, once.
+    pub fn hosted_finish(handle: &str) -> Post {
+        Post { route: "hosted/finish", body: body(&[("HANDLE", handle)]) }
+    }
+
+    /// The origin the backend at `address` (`wss://host[:port]/path`) answers HTTPS on: `https://`
+    /// for `wss://`, `http://` for a `ws://` (the local machine only, as the connection itself).
+    pub fn base_of(address: &str) -> Option<String> {
+        let (scheme, rest) = address.trim().split_once("://")?;
+        let scheme = match scheme.to_ascii_lowercase().as_str() {
+            "wss" | "https" => "https",
+            "ws" | "http" => "http",
+            _ => return None,
+        };
+        let host = rest.split(['/', '?', '#']).next().filter(|h| !h.is_empty())?;
+        Some(format!("{scheme}://{host}"))
+    }
+
+    /// Where the page goes to sign in on the provider's page: `GET /auth/hosted/start`, which sets
+    /// the flow's cookie and sends the browser on. `back` is the page to come back to; `state` the
+    /// random value the page keeps until it does.
+    pub fn hosted_start_url(base: &str, back: &str, state: &str) -> String {
+        format!("{}/auth/hosted/start?return={}&state={}", base.trim_end_matches('/'), percent(back), percent(state))
+    }
+
+    /// Does the hosted return's `pr-state` match the value the page kept before it left? Without a
+    /// kept value (a link someone else made, a second tab) nothing matches: a handle from another
+    /// browser's sign-in is never redeemed here.
+    pub fn state_matches(kept: Option<&str>, given: &str) -> bool {
+        match kept {
+            Some(k) if !k.is_empty() && k.len() == given.len() => k.bytes().zip(given.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0,
+            _ => false,
+        }
+    }
+
+    fn percent(s: &str) -> String {
+        let mut out = String::new();
+        for b in s.bytes() {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+                out.push(b as char);
+            } else {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+        out
+    }
+
+    /// What an answer means. A refusal (any status but 200), or a body that cannot be read, is a
+    /// failure whose detail is the status or the outcome word — never the backend's text (R6, R10).
+    pub fn decode(status: u16, body: &[u8]) -> AuthResult {
+        if status != 200 {
+            return AuthResult::Failed { detail: format!("http/{status}") };
+        }
+        let Ok(Value::Object(r)) = serde_json::from_slice::<Value>(body) else {
             return AuthResult::Failed { detail: "malformed answer".into() };
         };
-        if let Some(e) = v.get("error") {
-            let class = e.get("class").and_then(Value::as_str).unwrap_or("error");
-            let code = e.get("code").and_then(Value::as_i64).unwrap_or(0);
-            return AuthResult::Failed { detail: format!("{class}/{code}") };
+        let text = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned();
+        match text("OUTCOME").as_str() {
+            "OK" => {
+                let access_token = text("ACCESS-TOKEN");
+                if access_token.is_empty() {
+                    return AuthResult::Done;
+                }
+                let expires_in_s = r.get("EXPIRES-IN").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))).filter(|s| *s > 0.0);
+                AuthResult::SignedIn { access_token, expires_in_s }
+            }
+            "CHALLENGE" => {
+                let session = text("SESSION");
+                match mfa_kind(&r) {
+                    Some(MfaKind::NewPassword) => AuthResult::NeedsNewPassword { session },
+                    Some(kind) => AuthResult::NeedsMfa { session, kind },
+                    None => AuthResult::Failed { detail: "unknown challenge".into() },
+                }
+            }
+            "CONFIRMATION-REQUIRED" => AuthResult::NeedsConfirm,
+            "AUTH-RESET-REQUESTED" => AuthResult::ResetRequested,
+            "" => AuthResult::Failed { detail: "malformed answer".into() },
+            // AUTH-FAILED, INVALID, RATE-LIMITED, HOSTED (this provider signs in on its own page).
+            other if other.len() <= 32 && other.bytes().all(|b| b.is_ascii_uppercase() || b == b'-') => AuthResult::Failed { detail: other.to_ascii_lowercase() },
+            _ => AuthResult::Failed { detail: "unknown outcome".into() },
         }
-        let Some(r) = v.get("result") else {
-            return AuthResult::Failed { detail: "malformed answer".into() };
+    }
+
+    /// The kind of a `CHALLENGE` answer (D2). An answer without one is an app code. The masked
+    /// destination is shown as text, so it is kept short and printable; an enrolment link is only
+    /// ever an `otpauth://` address. Anything else is no challenge.
+    fn mfa_kind(r: &Map<String, Value>) -> Option<MfaKind> {
+        let text = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned();
+        let masked = || {
+            let d = text("DESTINATION");
+            (d.chars().count() <= 64 && !d.chars().any(char::is_control)).then_some(d)
         };
-        let text = |k: &str| r.get(k).and_then(Value::as_str).map(str::to_owned);
-        match r.get("status").and_then(Value::as_str) {
-            Some("signed-in") => match text("access_token") {
-                Some(access_token) => AuthResult::SignedIn { access_token, expires_in_s: r.get("expires_in").and_then(Value::as_f64) },
-                None => AuthResult::Failed { detail: "signed-in answer without a token".into() },
-            },
-            Some("needs-confirm") => AuthResult::NeedsConfirm,
-            Some("needs-mfa") => AuthResult::NeedsMfa { session: text("session").unwrap_or_default() },
-            Some("needs-new-password") => AuthResult::NeedsNewPassword,
-            Some("reset-requested") => AuthResult::ResetRequested,
-            Some("done") => AuthResult::Done,
-            Some("hosted") => match text("redirect_url") {
-                Some(redirect_url) => AuthResult::Hosted { redirect_url },
-                None => AuthResult::Failed { detail: "hosted answer without an address".into() },
-            },
-            _ => AuthResult::Failed { detail: "unknown status".into() },
-        }
+        let word = text("CHALLENGE");
+        Some(match if word.is_empty() { "totp" } else { word.as_str() } {
+            "totp" => MfaKind::Totp,
+            "sms" => MfaKind::Sms { masked: masked()? },
+            "email" => MfaKind::Email { masked: masked()? },
+            "new-password" => MfaKind::NewPassword,
+            "choice" => {
+                let mut kinds: Vec<MfaChoice> = Vec::new();
+                for c in text("CHOICES").split(',').map(str::trim).filter(|c| !c.is_empty()) {
+                    let c = MfaChoice::from_wire(c)?;
+                    if !kinds.contains(&c) {
+                        kinds.push(c);
+                    }
+                }
+                if kinds.is_empty() {
+                    return None;
+                }
+                MfaKind::Choice(kinds)
+            }
+            "totp-setup" => {
+                let (secret, otpauth_uri) = (text("SECRET"), text("OTPAUTH-URI"));
+                let uri_ok = otpauth_uri.to_ascii_lowercase().starts_with("otpauth://totp/") && !otpauth_uri.chars().any(|c| c.is_control() || c == ' ');
+                let secret_ok = !secret.is_empty() && secret.chars().all(|c| c.is_ascii_alphanumeric() || c == '=');
+                if !(uri_ok && secret_ok) {
+                    return None;
+                }
+                MfaKind::TotpSetup { secret, otpauth_uri }
+            }
+            _ => return None,
+        })
     }
 }
 
@@ -880,6 +1286,10 @@ pub struct MockBackend {
     pub users: std::cell::RefCell<BTreeMap<String, MockUser>>,
     pub log: std::cell::RefCell<Vec<String>>,
     pub require_mfa: bool,
+    /// The challenge a sign-in gets when `require_mfa` is on.
+    pub mfa_kind: MfaKind,
+    /// `false`: the provider makes a new account usable at once (no confirmation step).
+    pub sign_up_needs_confirm: bool,
     pub captchas_seen: std::cell::RefCell<Vec<Option<String>>>,
 }
 
@@ -892,7 +1302,14 @@ pub struct MockUser {
 
 impl MockBackend {
     pub fn new() -> MockBackend {
-        MockBackend { users: Default::default(), log: Default::default(), require_mfa: false, captchas_seen: Default::default() }
+        MockBackend {
+            users: Default::default(),
+            log: Default::default(),
+            require_mfa: false,
+            mfa_kind: MfaKind::Totp,
+            sign_up_needs_confirm: true,
+            captchas_seen: Default::default(),
+        }
     }
 
     /// A syntactically valid, *unsigned* JWT with these claims (the machine does not verify; the backend does).
@@ -926,7 +1343,7 @@ impl AuthBackend for MockBackend {
                 self.captchas_seen.borrow_mut().push(captcha);
                 match self.users.borrow().get(&user) {
                     Some(u) if u.password == password && !u.confirmed => AuthResult::NeedsConfirm,
-                    Some(u) if u.password == password && self.require_mfa => AuthResult::NeedsMfa { session: "mfa-session".into() },
+                    Some(u) if u.password == password && self.require_mfa => AuthResult::NeedsMfa { session: "mfa-session".into(), kind: self.mfa_kind.clone() },
                     Some(u) if u.password == password => AuthResult::SignedIn {
                         access_token: MockBackend::token(&serde_json::json!({"sub": "u-1", "email": u.email, "preferred_username": user, "exp": 4102444800u64, "groups": ["a", "b"]})),
                         expires_in_s: Some(3600.0),
@@ -936,8 +1353,13 @@ impl AuthBackend for MockBackend {
             }
             BackendCall::SignUp { user, email, password, captcha } => {
                 self.captchas_seen.borrow_mut().push(captcha);
-                self.users.borrow_mut().insert(user, MockUser { password, confirmed: false, email });
-                AuthResult::NeedsConfirm
+                let confirmed = !self.sign_up_needs_confirm;
+                self.users.borrow_mut().insert(user, MockUser { password, confirmed, email });
+                if confirmed {
+                    AuthResult::Done
+                } else {
+                    AuthResult::NeedsConfirm
+                }
             }
             BackendCall::Confirm { user, code } => match self.users.borrow_mut().get_mut(&user) {
                 Some(u) if code == "123456" => {
@@ -961,7 +1383,24 @@ impl AuthBackend for MockBackend {
                 access_token: MockBackend::token(&serde_json::json!({"sub": "u-1", "preferred_username": "mfa-user", "exp": 4102444800u64})),
                 expires_in_s: Some(3600.0),
             },
-            BackendCall::Mfa { .. } => AuthResult::Failed { detail: "bad mfa".into() },
+            BackendCall::MfaSetup { code, .. } if code == "000000" => AuthResult::SignedIn {
+                access_token: MockBackend::token(&serde_json::json!({"sub": "u-1", "preferred_username": "enrolled", "exp": 4102444800u64})),
+                expires_in_s: Some(3600.0),
+            },
+            BackendCall::Mfa { .. } | BackendCall::MfaSetup { .. } => AuthResult::Failed { detail: "bad mfa".into() },
+            BackendCall::MfaChoose { choice, .. } => AuthResult::NeedsMfa {
+                session: "mfa-session-2".into(),
+                kind: match choice {
+                    MfaChoice::Totp => MfaKind::Totp,
+                    MfaChoice::Sms => MfaKind::Sms { masked: "+1•••23".into() },
+                    MfaChoice::Email => MfaKind::Email { masked: "a•••@example.com".into() },
+                },
+            },
+            BackendCall::NewPassword { new_password, .. } if new_password.len() >= 8 => AuthResult::SignedIn {
+                access_token: MockBackend::token(&serde_json::json!({"sub": "u-1", "preferred_username": "renewed", "exp": 4102444800u64})),
+                expires_in_s: Some(3600.0),
+            },
+            BackendCall::NewPassword { .. } => AuthResult::Failed { detail: "weak password".into() },
             BackendCall::Refresh => AuthResult::SignedIn {
                 access_token: MockBackend::token(&serde_json::json!({"sub": "u-1", "preferred_username": "refreshed", "exp": 4102444800u64})),
                 expires_in_s: Some(3600.0),
@@ -987,6 +1426,11 @@ pub fn redact(c: &BackendCall) -> BackendCall {
         }
         BackendCall::Reset { user, code, new_password } => BackendCall::Reset { user: user.clone(), code: hide(code), new_password: hide(new_password) },
         BackendCall::Mfa { session, code } => BackendCall::Mfa { session: hide(session), code: hide(code) },
+        BackendCall::MfaSetup { session, code } => BackendCall::MfaSetup { session: hide(session), code: hide(code) },
+        BackendCall::NewPassword { session, new_password } => BackendCall::NewPassword { session: hide(session), new_password: hide(new_password) },
+        BackendCall::MfaChoose { session, choice } => BackendCall::MfaChoose { session: hide(session), choice: *choice },
+        BackendCall::Confirm { user, code } => BackendCall::Confirm { user: user.clone(), code: hide(code) },
+        BackendCall::HostedFinish { code, state } => BackendCall::HostedFinish { code: hide(code), state: hide(state) },
         other => other.clone(),
     }
 }
@@ -1056,11 +1500,14 @@ mod tests {
         let b = MockBackend::new();
         let mut m = Machine::new(Config::default());
         let shown = run(&mut m, &b, Action::SignUp { user: "bia".into(), email: "bia@example.com".into(), password: "p4ss!word".into() });
-        assert!(shown.contains(&Op::Notify(AuthEvent::SignUpCompleted)));
+        // C8 (WASM-009 T7): this test pinned the event here AND after Confirm; the account is not
+        // usable yet, so it is raised once, after the confirmation below.
+        assert!(!shown.contains(&Op::Notify(AuthEvent::SignUpCompleted)), "{shown:?}");
         assert_eq!(m.screen, Screen::Confirm);
         let bad = run(&mut m, &b, Action::Confirm { user: "bia".into(), code: "000".into() });
         assert!(bad.iter().any(|o| matches!(o, Op::Message(_))));
-        run(&mut m, &b, Action::Confirm { user: "bia".into(), code: "123456".into() });
+        let done = run(&mut m, &b, Action::Confirm { user: "bia".into(), code: "123456".into() });
+        assert_eq!(done.iter().filter(|o| **o == Op::Notify(AuthEvent::SignUpCompleted)).count(), 1);
         assert_eq!(m.screen, Screen::SignIn);
         let shown = run(&mut m, &b, Action::SignIn { user: "bia".into(), password: "p4ss!word".into() });
         assert!(shown.contains(&Op::Notify(AuthEvent::SignedIn)));
@@ -1194,53 +1641,86 @@ mod tests {
         let mut m = Machine::new(Config::default());
         let call = BackendCall::SignIn { user: "ana".into(), password: "tmp".into(), captcha: None };
         m.busy = true;
-        let ops = m.on_result(&call, AuthResult::NeedsNewPassword, 0.0);
-        assert!(ops.is_empty());
-        assert_eq!(m.screen, Screen::Reset);
+        let ops = m.on_result(&call, AuthResult::NeedsNewPassword { session: "np".into() }, 0.0);
+        assert!(ops.is_empty(), "a new password is not a second factor: no onMfaRequired");
+        // D16 (WASM-009 T7): this test pinned `Screen::Reset`, which asks for a code this case does
+        // not have; the temporary password now has its own screen.
+        assert_eq!(m.screen, Screen::NewPassword);
+        assert_eq!(m.mfa_kind, Some(MfaKind::NewPassword));
+        // The two fields must agree before anything is sent.
+        let ops = m.act(Action::NewPassword { password: "Longer-pass1".into(), repeat: "Longer-pass2".into() });
+        assert_eq!(ops, vec![Op::Message(Texts::default().passwords_differ)]);
+        let ops = m.act(Action::NewPassword { password: "Longer-pass1".into(), repeat: "Longer-pass1".into() });
+        assert_eq!(ops, vec![Op::Backend(BackendCall::NewPassword { session: "np".into(), new_password: "Longer-pass1".into() })]);
+        let b = MockBackend::new();
+        let shown = drive_sync(&mut m, &b, ops, 0.0);
+        assert!(shown.contains(&Op::Notify(AuthEvent::SignedIn)) && m.session.is_signed_in());
+        assert_eq!(m.mfa_kind, None, "the challenge is over");
     }
 
+    /// T21: each call is one POST to its route with only the members a page sends; every outcome
+    /// of `AUTH-RESULT` decodes; a refusal carries the status, never the backend's text.
     #[test]
-    fn every_call_encodes_to_one_json_object_and_every_status_decodes() {
+    fn every_call_is_one_post_to_its_route_and_every_outcome_decodes() {
         let calls = [
-            BackendCall::SignIn { user: "u".into(), password: "p".into(), captcha: Some("c".into()) },
-            BackendCall::SignUp { user: "u".into(), email: "e".into(), password: "p".into(), captcha: None },
-            BackendCall::Confirm { user: "u".into(), code: "1".into() },
-            BackendCall::Forgot { user: "u".into(), captcha: None },
-            BackendCall::Reset { user: "u".into(), code: "1".into(), new_password: "n".into() },
-            BackendCall::Mfa { session: "s".into(), code: "1".into() },
-            BackendCall::Refresh,
-            BackendCall::SignOut,
-            BackendCall::HostedStart,
-            BackendCall::HostedFinish { code: "c".into(), state: "s".into() },
+            (BackendCall::SignIn { user: "u".into(), password: "p".into(), captcha: Some("c".into()) }, "sign-in", r#"{"CAPTCHA-TOKEN":"c","PASSWORD":"p","USERNAME":"u"}"#),
+            (BackendCall::SignUp { user: "u".into(), email: "e".into(), password: "p".into(), captcha: None }, "sign-up", r#"{"EMAIL":"e","PASSWORD":"p","USERNAME":"u"}"#),
+            (BackendCall::Confirm { user: "u".into(), code: "1".into() }, "confirm", r#"{"ONE-TIME-CODE":"1","USERNAME":"u"}"#),
+            (BackendCall::Forgot { user: "u".into(), captcha: None }, "forgot", r#"{"USERNAME":"u"}"#),
+            (BackendCall::Reset { user: "u".into(), code: "1".into(), new_password: "n".into() }, "reset", r#"{"ONE-TIME-CODE":"1","PASSWORD":"n","USERNAME":"u"}"#),
+            (BackendCall::Mfa { session: "s".into(), code: "1".into() }, "mfa", r#"{"ONE-TIME-CODE":"1","SESSION":"s"}"#),
+            (BackendCall::NewPassword { session: "s".into(), new_password: "n".into() }, "mfa", r#"{"PASSWORD":"n","SESSION":"s"}"#),
+            (BackendCall::MfaChoose { session: "s".into(), choice: MfaChoice::Email }, "mfa", r#"{"CHOICE":"email","SESSION":"s"}"#),
+            (BackendCall::MfaSetup { session: "s".into(), code: "1".into() }, "mfa-setup", r#"{"ONE-TIME-CODE":"1","SESSION":"s"}"#),
+            (BackendCall::Refresh, "refresh", "{}"),
+            (BackendCall::SignOut, "sign-out", "{}"),
+            (BackendCall::HostedFinish { code: "h".into(), state: "s".into() }, "hosted/finish", r#"{"HANDLE":"h"}"#),
         ];
-        let mut kinds = std::collections::BTreeSet::new();
-        for c in &calls {
-            let v: serde_json::Value = serde_json::from_slice(&wire::encode(c)).unwrap();
-            assert!(v.is_object());
-            kinds.insert(v["identity"].as_str().unwrap().to_owned());
+        for (call, route, body) in &calls {
+            let p = https::post(call).expect("a request");
+            assert_eq!((p.route, p.body.as_str()), (*route, *body), "{call:?}");
+            assert_eq!(p.url("https://api.example.test:8443/"), format!("https://api.example.test:8443/auth/{route}"));
         }
-        assert_eq!(kinds.len(), calls.len(), "one request kind per call: {kinds:?}");
+        assert_eq!(https::post(&BackendCall::HostedStart), None, "the hosted start is a navigation");
 
-        let ok = |s: &str| format!(r#"{{"id":1,"result":{s}}}"#).into_bytes();
-        assert_eq!(wire::decode(&ok(r#"{"status":"signed-in","access_token":"t","expires_in":60}"#)), AuthResult::SignedIn { access_token: "t".into(), expires_in_s: Some(60.0) });
-        assert_eq!(wire::decode(&ok(r#"{"status":"needs-confirm"}"#)), AuthResult::NeedsConfirm);
-        assert_eq!(wire::decode(&ok(r#"{"status":"needs-mfa","session":"s"}"#)), AuthResult::NeedsMfa { session: "s".into() });
-        assert_eq!(wire::decode(&ok(r#"{"status":"needs-new-password"}"#)), AuthResult::NeedsNewPassword);
-        assert_eq!(wire::decode(&ok(r#"{"status":"reset-requested"}"#)), AuthResult::ResetRequested);
-        assert_eq!(wire::decode(&ok(r#"{"status":"done"}"#)), AuthResult::Done);
-        assert_eq!(wire::decode(&ok(r#"{"status":"hosted","redirect_url":"https://idp/x"}"#)), AuthResult::Hosted { redirect_url: "https://idp/x".into() });
-        // Malformed or refused answers are failures with no text from the network in them.
-        for bad in [&b"not json"[..], br#"{"id":1}"#, br#"{"id":1,"result":{"status":"signed-in"}}"#, br#"{"id":1,"result":{"status":"?"}}"#] {
-            assert!(matches!(wire::decode(bad), AuthResult::Failed { .. }), "{}", String::from_utf8_lossy(bad));
+        let ok = |s: &str| https::decode(200, s.as_bytes());
+        assert_eq!(ok(r#"{"OUTCOME":"OK","ACCESS-TOKEN":"t","EXPIRES-IN":60,"REFRESH-TOKEN":""}"#), AuthResult::SignedIn { access_token: "t".into(), expires_in_s: Some(60.0) });
+        assert_eq!(ok(r#"{"OUTCOME":"OK","ACCESS-TOKEN":"t","EXPIRES-IN":0}"#), AuthResult::SignedIn { access_token: "t".into(), expires_in_s: None });
+        assert_eq!(ok(r#"{"OUTCOME":"CONFIRMATION-REQUIRED"}"#), AuthResult::NeedsConfirm);
+        assert_eq!(ok(r#"{"OUTCOME":"CHALLENGE","SESSION":"s","CHALLENGE":""}"#), AuthResult::NeedsMfa { session: "s".into(), kind: MfaKind::Totp });
+        assert_eq!(ok(r#"{"OUTCOME":"CHALLENGE","SESSION":"s","CHALLENGE":"new-password"}"#), AuthResult::NeedsNewPassword { session: "s".into() });
+        assert_eq!(ok(r#"{"OUTCOME":"AUTH-RESET-REQUESTED"}"#), AuthResult::ResetRequested);
+        assert_eq!(ok(r#"{"OUTCOME":"OK","ACCESS-TOKEN":""}"#), AuthResult::Done);
+        assert_eq!(ok(r#"{"OUTCOME":"AUTH-FAILED","OUTCOME-TEXT":"Nope, ana@example.com is unknown"}"#), AuthResult::Failed { detail: "auth-failed".into() }, "the outcome word, never its text (R6, R10)");
+        assert_eq!(ok(r#"{"OUTCOME":"RATE-LIMITED"}"#), AuthResult::Failed { detail: "rate-limited".into() });
+        for bad in ["not json", "{}", r#"{"OUTCOME":"?<script>"}"#, "[1]"] {
+            assert!(matches!(ok(bad), AuthResult::Failed { .. }), "{bad}");
         }
-        let f = wire::decode(br#"{"id":1,"error":{"class":"authentication","code":3,"message":"Nope, ana@example.com is unknown"}}"#);
-        assert_eq!(f, AuthResult::Failed { detail: "authentication/3".into() }, "the error's text is never carried (R6, R10)");
+        assert_eq!(https::decode(403, b"origin not allowed"), AuthResult::Failed { detail: "http/403".into() });
+        assert_eq!(https::decode(500, br#"{"error":"the provider is down at 10.0.0.7","code":1}"#), AuthResult::Failed { detail: "http/500".into() });
+    }
+
+    /// T21: the hosted flow leaves by a navigation to the backend and comes back with a handle the
+    /// page redeems only with the state it kept.
+    #[test]
+    fn the_hosted_flow_starts_on_the_backend_and_its_return_needs_the_kept_state() {
+        assert_eq!(https::base_of("wss://api.example.test:8443/ws").as_deref(), Some("https://api.example.test:8443"));
+        assert_eq!(https::base_of("ws://127.0.0.1:8080/ws").as_deref(), Some("http://127.0.0.1:8080"));
+        assert_eq!(https::base_of("ftp://x/"), None);
+        assert_eq!(https::base_of("wss:///ws"), None);
+        let url = https::hosted_start_url("https://api.example.test", "https://app.example.test/shop?x=1#top", "st-1");
+        assert_eq!(url, "https://api.example.test/auth/hosted/start?return=https%3A%2F%2Fapp.example.test%2Fshop%3Fx%3D1%23top&state=st-1");
+        assert!(redirect_allowed(&url));
+        assert!(https::state_matches(Some("Zq3-abc"), "Zq3-abc"));
+        for (kept, given) in [(None, "Zq3-abc"), (Some(""), ""), (Some("Zq3-abc"), "Zq3-abd"), (Some("Zq3-abc"), "Zq3-ab")] {
+            assert!(!https::state_matches(kept, given), "{kept:?} / {given}");
+        }
     }
 
     #[test]
     fn auth_ids_are_apart_from_the_modules() {
-        assert!(!wire::is_auth_id(1) && !wire::is_auth_id(0x7fff_ffff));
-        assert!(wire::is_auth_id(wire::ID_BASE) && wire::is_auth_id(wire::ID_BASE + 5));
+        assert!(!https::is_auth_id(1) && !https::is_auth_id(0x7fff_ffff));
+        assert!(https::is_auth_id(https::ID_BASE) && https::is_auth_id(https::ID_BASE + 5));
     }
 
     #[test]
@@ -1270,13 +1750,20 @@ mod tests {
         }
         let shown = format!("{:?}", AuthResult::SignedIn { access_token: "tok-abcdef".into(), expires_in_s: Some(1.0) });
         assert!(!shown.contains("tok-abcdef"), "{shown}");
-        let shown = format!("{:?}", AuthResult::NeedsMfa { session: "mfa-session-xyz".into() });
+        let shown = format!("{:?}", AuthResult::NeedsMfa { session: "mfa-session-xyz".into(), kind: MfaKind::Totp });
         assert!(!shown.contains("mfa-session-xyz"), "{shown}");
+        let setup = MfaKind::TotpSetup { secret: "JBSWY3DPEHPK3PXP".into(), otpauth_uri: "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP".into() };
+        let shown = format!("{:?}", AuthResult::NeedsMfa { session: "s".into(), kind: setup });
+        assert!(!shown.contains("JBSWY3DPEHPK3PXP"), "the enrolment key never reaches a log: {shown}");
+        let shown = format!("{:?}", BackendCall::NewPassword { session: "mfa-session-xyz".into(), new_password: "hunter2".into() });
+        assert!(secrets.iter().all(|s| !shown.contains(s)), "{shown}");
+        let shown = format!("{:?}", Action::NewPassword { password: "hunter2".into(), repeat: "hunter2".into() });
+        assert!(!shown.contains("hunter2"), "{shown}");
         // The machine, while a password waits for its reCAPTCHA token and while an MFA session is held.
         let mut m = Machine::new(Config { recaptcha_site_key: "k".into(), ..Config::default() });
         m.act(Action::SignIn { user: "ana".into(), password: "hunter2".into() });
         m.busy = false;
-        m.on_result(&BackendCall::SignIn { user: "ana".into(), password: String::new(), captcha: None }, AuthResult::NeedsMfa { session: "mfa-session-xyz".into() }, 0.0);
+        m.on_result(&BackendCall::SignIn { user: "ana".into(), password: String::new(), captcha: None }, AuthResult::NeedsMfa { session: "mfa-session-xyz".into(), kind: MfaKind::Totp }, 0.0);
         let shown = format!("{m:?}");
         assert!(secrets.iter().all(|s| !shown.contains(s)), "{shown}");
     }
@@ -1294,14 +1781,14 @@ mod tests {
     #[test]
     fn labels_and_configuration_come_from_properties_with_defaults() {
         let none = |_: &str| String::new();
-        let l = Labels::read(&none);
+        let l = Labels::read(&none, "en");
         assert_eq!((l.sign_in.as_str(), l.user.as_str(), l.password.as_str()), ("Sign in", "User name", "Password"));
         let pt = |p: &str| if p == "SignInCaption" { "Entrar".to_owned() } else { String::new() };
-        assert_eq!(Labels::read(&pt).sign_in, "Entrar");
-        assert_eq!(Labels::read(&pt).sign_up, "Create account", "the others keep their defaults");
+        assert_eq!(Labels::read(&pt, "en").sign_in, "Entrar");
+        assert_eq!(Labels::read(&pt, "en").sign_up, "Create account", "the others keep their defaults");
 
-        let c = config_from(&none, Flow::InApp, "");
-        assert!(c.sign_up && c.confirm && c.forgot && c.mfa && c.flow == Flow::InApp && c.recaptcha_site_key.is_empty());
+        let c = config_from(&none, Flow::InApp, "", "en");
+        assert!(c.sign_up && c.confirm && c.forgot && c.mfa && c.flow == Flow::InApp && c.recaptcha_site_key.is_empty() && !c.consent_ask);
         let props = |p: &str| match p {
             "Mode" => "Hosted".to_owned(),
             "ShowSignUp" => "0".to_owned(),
@@ -1309,9 +1796,223 @@ mod tests {
             "ErrorText" => "Falhou.".to_owned(),
             _ => String::new(),
         };
-        let c = config_from(&props, Flow::InApp, "page-key");
+        let c = config_from(&props, Flow::InApp, "page-key", "en");
         assert_eq!((c.flow, c.sign_up, c.forgot, c.recaptcha_site_key.as_str(), c.texts.generic_error.as_str()), (Flow::Hosted, false, true, "site", "Falhou."));
-        let c = config_from(&none, Flow::Hosted, "page-key");
+        let c = config_from(&none, Flow::Hosted, "page-key", "en");
         assert_eq!((c.flow, c.recaptcha_site_key.as_str()), (Flow::Hosted, "page-key"), "the page's settings fill what the control leaves open");
+        let ask = |p: &str| if p == "RecaptchaConsent" { "Ask".to_owned() } else { String::new() };
+        assert!(config_from(&ask, Flow::InApp, "", "en").consent_ask);
+    }
+
+    // ── T7: C8, D2, D16, D12 ────────────────────────────────────────────────
+
+    fn count(ops: &[Op], ev: AuthEvent) -> usize {
+        ops.iter().filter(|o| **o == Op::Notify(ev.clone())).count()
+    }
+
+    /// C8 — one `onSignUpCompleted` per sign-up, with a confirmation step and without one.
+    #[test]
+    fn sign_up_completed_is_raised_once_with_and_without_confirmation() {
+        let b = MockBackend::new();
+        let mut m = Machine::new(Config::default());
+        let mut all = run(&mut m, &b, Action::SignUp { user: "bia".into(), email: "b@x.y".into(), password: "p4ss!word".into() });
+        all.extend(run(&mut m, &b, Action::Confirm { user: "bia".into(), code: "123456".into() }));
+        all.extend(run(&mut m, &b, Action::SignIn { user: "bia".into(), password: "p4ss!word".into() }));
+        assert_eq!(count(&all, AuthEvent::SignUpCompleted), 1, "with confirmation: {all:?}");
+
+        let mut b = MockBackend::new();
+        b.sign_up_needs_confirm = false;
+        let mut m = Machine::new(Config::default());
+        let mut all = run(&mut m, &b, Action::SignUp { user: "caio".into(), email: "c@x.y".into(), password: "p4ss!word".into() });
+        assert_eq!(m.screen, Screen::SignIn, "no confirmation: straight back to Sign in");
+        all.extend(run(&mut m, &b, Action::SignIn { user: "caio".into(), password: "p4ss!word".into() }));
+        assert_eq!(count(&all, AuthEvent::SignUpCompleted), 1, "without confirmation: {all:?}");
+
+        // A provider that signs the new account straight in: completed, then signed in.
+        let mut m = Machine::new(Config::default());
+        m.busy = true;
+        let call = BackendCall::SignUp { user: "d".into(), email: "d@x.y".into(), password: "p".into(), captcha: None };
+        let ops = m.on_result(&call, AuthResult::SignedIn { access_token: MockBackend::token(&serde_json::json!({"sub": "d"})), expires_in_s: None }, 0.0);
+        assert_eq!(ops, vec![Op::Notify(AuthEvent::SignUpCompleted), Op::Notify(AuthEvent::SignedIn)]);
+    }
+
+    /// C8 — a sign-in to an account not yet confirmed goes to Confirm and raises nothing.
+    #[test]
+    fn a_sign_in_answered_needs_confirm_raises_no_event() {
+        let b = MockBackend::new();
+        b.users.borrow_mut().insert("eva".into(), MockUser { password: "p4ss!word".into(), confirmed: false, email: String::new() });
+        let mut m = Machine::new(Config::default());
+        let shown = run(&mut m, &b, Action::SignIn { user: "eva".into(), password: "p4ss!word".into() });
+        assert!(shown.iter().all(|o| !matches!(o, Op::Notify(_))), "{shown:?}");
+        assert_eq!(m.screen, Screen::Confirm);
+    }
+
+    /// D2/D16 — each kind leads to its screen; the MFA text names the masked destination.
+    #[test]
+    fn each_mfa_kind_leads_to_its_screen_and_names_the_destination() {
+        let l = Labels::read(&|_| String::new(), "en");
+        let setup = MfaKind::TotpSetup { secret: "JBSWY3DPEHPK3PXP".into(), otpauth_uri: "otpauth://totp/App:ana?secret=JBSWY3DPEHPK3PXP".into() };
+        let cases = [
+            (MfaKind::Totp, Screen::Mfa),
+            (MfaKind::Sms { masked: "+1•••23".into() }, Screen::Mfa),
+            (MfaKind::Email { masked: "a•••@example.com".into() }, Screen::Mfa),
+            (MfaKind::Choice(vec![MfaChoice::Sms, MfaChoice::Email]), Screen::MfaChoose),
+            (setup, Screen::MfaSetup),
+            (MfaKind::NewPassword, Screen::NewPassword),
+        ];
+        for (kind, screen) in cases {
+            let mut b = backend_with_user();
+            b.require_mfa = true;
+            b.mfa_kind = kind.clone();
+            let mut m = Machine::new(Config::default());
+            let shown = run(&mut m, &b, Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
+            assert_eq!(m.screen, screen, "{kind:?}");
+            assert_eq!(m.mfa_kind.as_ref(), Some(&kind));
+            let mfa_events = count(&shown, AuthEvent::MfaRequired);
+            assert_eq!(mfa_events, usize::from(kind != MfaKind::NewPassword), "{kind:?}: {shown:?}");
+            println!("{kind:?} -> {} ({})", screen.name(), l.mfa_text(&kind));
+        }
+        assert_eq!(l.mfa_text(&MfaKind::Sms { masked: "+1•••23".into() }), "Enter the code sent by text message to +1•••23.");
+        assert_eq!(l.mfa_text(&MfaKind::Email { masked: "a•••@example.com".into() }), "Enter the code sent by e-mail to a•••@example.com.");
+
+        // Choose → its code, one onMfaRequired in all; an unoffered kind is ignored.
+        let mut b = backend_with_user();
+        b.require_mfa = true;
+        b.mfa_kind = MfaKind::Choice(vec![MfaChoice::Sms, MfaChoice::Email]);
+        let mut m = Machine::new(Config::default());
+        let mut all = run(&mut m, &b, Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
+        assert!(m.act(Action::MfaChoose(MfaChoice::Totp)).is_empty(), "not offered");
+        all.extend(run(&mut m, &b, Action::MfaChoose(MfaChoice::Email)));
+        assert_eq!((m.screen, m.mfa_kind.clone()), (Screen::Mfa, Some(MfaKind::Email { masked: "a•••@example.com".into() })));
+        all.extend(run(&mut m, &b, Action::Mfa { code: "000000".into() }));
+        assert!(m.session.is_signed_in());
+        assert_eq!(count(&all, AuthEvent::MfaRequired), 1, "{all:?}");
+
+        // Set-up: the first code goes to the set-up call.
+        let mut b = backend_with_user();
+        b.require_mfa = true;
+        b.mfa_kind = MfaKind::TotpSetup { secret: "JBSWY3DPEHPK3PXP".into(), otpauth_uri: "otpauth://totp/A:a?secret=JBSWY3DPEHPK3PXP".into() };
+        let mut m = Machine::new(Config::default());
+        run(&mut m, &b, Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
+        let ops = m.act(Action::Mfa { code: "000000".into() });
+        assert!(matches!(ops.as_slice(), [Op::Backend(BackendCall::MfaSetup { .. })]), "{ops:?}");
+        drive_sync(&mut m, &b, ops, 0.0);
+        assert_eq!((m.user_name.as_str(), m.screen), ("enrolled", Screen::SignedIn), "signed in by the enrolment's first code");
+
+        // A challenge screen is never opened by `Show`, and leaving it abandons the challenge.
+        let mut m = Machine::new(Config::default());
+        m.act(Action::Show(Screen::Mfa));
+        assert_eq!(m.screen, Screen::SignIn);
+        m.busy = true;
+        m.on_result(&BackendCall::SignIn { user: "a".into(), password: "p".into(), captcha: None }, AuthResult::NeedsMfa { session: "s".into(), kind: MfaKind::Totp }, 0.0);
+        m.act(Action::Show(Screen::SignIn));
+        assert!(m.act(Action::Mfa { code: "1".into() }).is_empty(), "no session once abandoned");
+    }
+
+    /// `ShowMfa` off: the control cannot answer a second factor — a generic failure, never a hang.
+    #[test]
+    fn with_show_mfa_off_a_second_factor_fails_generically() {
+        let mut b = backend_with_user();
+        b.require_mfa = true;
+        let mut m = Machine::new(Config { mfa: false, ..Config::default() });
+        let shown = run(&mut m, &b, Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
+        assert_eq!(m.screen, Screen::SignIn);
+        assert!(shown.contains(&Op::Message(Texts::default().generic_error)));
+        assert!(shown.contains(&Op::Notify(AuthEvent::Error("mfa/not-offered".into()))));
+        // A new password is not a second factor: still answered.
+        b.mfa_kind = MfaKind::NewPassword;
+        run(&mut m, &b, Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
+        assert_eq!(m.screen, Screen::NewPassword);
+    }
+
+    /// D12 — the defaults follow the locale; a developer's value never does.
+    #[test]
+    fn a_locale_switch_changes_the_defaults_but_never_a_developer_label() {
+        let props = |p: &str| match p {
+            "PasswordLabel" => "Palavra-passe".to_owned(),
+            "ErrorText" => "Erro nosso.".to_owned(),
+            _ => String::new(),
+        };
+        let en = Labels::read(&props, "en");
+        let pt = Labels::read(&props, "pt-BR");
+        let ja = Labels::read(&props, "ja-JP");
+        assert_eq!((en.sign_in.as_str(), pt.sign_in.as_str(), ja.sign_in.as_str()), ("Sign in", "Entrar", "サインイン"));
+        assert_eq!((en.password.as_str(), pt.password.as_str(), ja.password.as_str()), ("Palavra-passe", "Palavra-passe", "Palavra-passe"));
+        assert_eq!(pt.mfa_text(&MfaKind::Sms { masked: "+55•••12".into() }), "Digite o código enviado por SMS para +55•••12.");
+        let (te, tp) = (Texts::read(&props, "en"), Texts::read(&props, "pt-BR"));
+        assert_eq!((te.sign_in_failed.as_str(), tp.sign_in_failed.as_str()), ("The user name or the password is not right.", "O nome de usuário ou a senha não estão corretos."));
+        assert_eq!((te.generic_error.as_str(), tp.generic_error.as_str()), ("Erro nosso.", "Erro nosso."));
+    }
+
+    /// D2 — the challenge kinds on the wire; what the network sends is checked before it is shown.
+    #[test]
+    fn challenge_kinds_decode_and_bad_ones_are_refused() {
+        let kind = |s: &str| match https::decode(200, s.as_bytes()) {
+            AuthResult::NeedsMfa { kind, .. } => Some(kind),
+            _ => None,
+        };
+        assert_eq!(kind(r#"{"OUTCOME":"CHALLENGE","SESSION":"s","CHALLENGE":"sms","DESTINATION":"+1•••23"}"#), Some(MfaKind::Sms { masked: "+1•••23".into() }));
+        assert_eq!(kind(r#"{"OUTCOME":"CHALLENGE","SESSION":"s","CHALLENGE":"email","DESTINATION":"a•••@x.y"}"#), Some(MfaKind::Email { masked: "a•••@x.y".into() }));
+        assert_eq!(kind(r#"{"OUTCOME":"CHALLENGE","SESSION":"s","CHALLENGE":"choice","CHOICES":"sms,totp,sms"}"#), Some(MfaKind::Choice(vec![MfaChoice::Sms, MfaChoice::Totp])));
+        assert_eq!(https::decode(200, br#"{"OUTCOME":"CHALLENGE","SESSION":"s","CHALLENGE":"new-password"}"#), AuthResult::NeedsNewPassword { session: "s".into() });
+        assert_eq!(
+            kind(r#"{"OUTCOME":"CHALLENGE","SESSION":"s","CHALLENGE":"totp-setup","SECRET":"JBSWY3DPEHPK3PXP","OTPAUTH-URI":"otpauth://totp/A:ana?secret=JBSWY3DPEHPK3PXP&issuer=A"}"#),
+            Some(MfaKind::TotpSetup { secret: "JBSWY3DPEHPK3PXP".into(), otpauth_uri: "otpauth://totp/A:ana?secret=JBSWY3DPEHPK3PXP&issuer=A".into() })
+        );
+        for bad in [
+            r#"{"OUTCOME":"CHALLENGE","CHALLENGE":"carrier-pigeon"}"#,
+            r#"{"OUTCOME":"CHALLENGE","CHALLENGE":"choice","CHOICES":""}"#,
+            r#"{"OUTCOME":"CHALLENGE","CHALLENGE":"choice","CHOICES":"fax"}"#,
+            r#"{"OUTCOME":"CHALLENGE","CHALLENGE":"totp-setup","SECRET":"K","OTPAUTH-URI":"javascript:alert(1)"}"#,
+            r#"{"OUTCOME":"CHALLENGE","CHALLENGE":"totp-setup","SECRET":"<b>","OTPAUTH-URI":"otpauth://totp/a"}"#,
+            r#"{"OUTCOME":"CHALLENGE","CHALLENGE":"sms","DESTINATION":"a\nb"}"#,
+        ] {
+            assert!(matches!(https::decode(200, bad.as_bytes()), AuthResult::Failed { .. }), "{bad}");
+        }
+    }
+
+    // ── T8: the consent hook (D10) ──────────────────────────────────────────
+
+    fn ask() -> Config {
+        Config { recaptcha_site_key: "site".into(), consent_ask: true, ..Config::default() }
+    }
+
+    #[test]
+    fn with_ask_nothing_of_recaptcha_happens_before_consent_and_grant_runs_the_action_once() {
+        let b = backend_with_user();
+        let mut m = Machine::new(ask());
+        let ops = m.act(Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
+        assert_eq!(ops, vec![Op::Notify(AuthEvent::ConsentRequired)], "no Op::Captcha before consent");
+        assert!(m.consent_pending());
+        assert!(m.act(Action::SignIn { user: "ana".into(), password: "s3cret!".into() }).is_empty(), "a second submit waits too");
+        let ops = m.act(Action::GrantConsent);
+        assert_eq!(ops, vec![Op::Captcha { action: "sign_in" }]);
+        let shown = drive_sync(&mut m, &b, ops, 0.0);
+        assert!(shown.contains(&Op::Notify(AuthEvent::SignedIn)));
+        assert_eq!(b.captchas_seen.borrow().len(), 1, "the held action ran once");
+        assert!(m.act(Action::GrantConsent).is_empty(), "nothing is held any more");
+        // Consent holds: the next protected action goes straight to reCAPTCHA.
+        run(&mut m, &b, Action::SignOut);
+        assert_eq!(m.act(Action::Forgot { user: "ana".into() }), vec![Op::Captcha { action: "forgot_password" }]);
+    }
+
+    #[test]
+    fn deny_fails_the_held_action_with_the_generic_message_and_consent_declined() {
+        let mut m = Machine::new(ask());
+        m.act(Action::SignUp { user: "u".into(), email: "e@x.y".into(), password: "p".into() });
+        let ops = m.act(Action::DenyConsent);
+        assert_eq!(ops, vec![Op::Message(Texts::default().generic_error), Op::Notify(AuthEvent::Error("consent/declined".into()))]);
+        assert!(!m.busy && !m.consent_pending());
+        // Asked again at the next protected action: a refusal is not remembered as consent.
+        assert_eq!(m.act(Action::SignIn { user: "u".into(), password: "p".into() }), vec![Op::Notify(AuthEvent::ConsentRequired)]);
+    }
+
+    #[test]
+    fn implied_and_no_recaptcha_behave_as_before() {
+        let mut m = Machine::new(Config { recaptcha_site_key: "site".into(), ..Config::default() });
+        assert_eq!(m.act(Action::SignIn { user: "a".into(), password: "p".into() }), vec![Op::Captcha { action: "sign_in" }]);
+        // `Ask` without a site key: nothing to consent to.
+        let mut m = Machine::new(Config { consent_ask: true, ..Config::default() });
+        assert!(matches!(m.act(Action::SignIn { user: "a".into(), password: "p".into() }).as_slice(), [Op::Backend(BackendCall::SignIn { .. })]));
     }
 }

@@ -31,7 +31,9 @@ fn exec_method_body() -> &'static str {
 
 #[test]
 fn every_class_c_control_has_a_row() {
-    let class_c: Vec<&str> = TABLE.iter().filter(|r| r.class == Class::C).map(|r| r.control).collect();
+    // The Authentication control is class C but has no catalogue row: its requests are the backend's
+    // `/auth/*` routes, never a `CALL … WITH WEBSOCKET` (WASM-009 T2, `web_class::uses_backend`).
+    let class_c: Vec<&str> = TABLE.iter().filter(|r| r.class == Class::C && r.control != "Authentication").map(|r| r.control).collect();
     assert_eq!(class_c.len(), 24, "8 service controls + DataGrid + FileDropZone, and the 16 AWS controls");
     let mut missing = Vec::new();
     for control in &class_c {

@@ -99,6 +99,14 @@ pub struct FormProperties {
     pub start_position: String,
     pub responsive: bool,
     pub control_style: String,
+    /// Only a signed-in user opens the form (WASM-009 R11, D11): the player shows the sign-in form
+    /// instead and opens this one after the sign-in. UX only: the backend's token check is the boundary.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requires_sign_in: bool,
+    /// This is the project's sign-in form (`[web] sign_in_form`), set by the Build on that one form.
+    /// Without one the player takes the first form holding an Authentication control (WASM-009 D11).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sign_in_form: bool,
 }
 
 /// A backdrop: the form's own background, a layer's, the shell MenuPane's.
@@ -397,6 +405,8 @@ pub fn describe(form: &Form) -> FormDescription {
             start_position: form.start_position.as_str().to_owned(),
             responsive: form.responsive,
             control_style: form.control_style.clone(),
+            requires_sign_in: form.requires_sign_in,
+            sign_in_form: false,
         },
         layers: form
             .layers
@@ -481,6 +491,7 @@ pub fn to_form(d: &FormDescription) -> Result<Form, DescriptionError> {
     f.start_position = FormStartPosition::from_str(&p.start_position);
     f.responsive = p.responsive;
     f.control_style = p.control_style.clone();
+    f.requires_sign_in = p.requires_sign_in;
     f.layers = d
         .layers
         .iter()

@@ -18,7 +18,7 @@
 //! fails when [`ControlType::ALL`] and this table disagree (WASM-004 AC1), so a control added to
 //! the model is classified or the build is red.
 //!
-//! The new controls of the series that the model does not carry yet — **Authentication**, **Canvas2D**, **Canvas3D** and the five E objects — reach the player as
+//! The new controls of the series that the model does not carry yet — **Canvas2D**, **Canvas3D** and the five E objects — reach the player as
 //! `ControlType::Custom` (the model's own way of holding a type it does not know) and are
 //! recognised here by name: [`player_kind_of`].
 //!
@@ -102,6 +102,7 @@ pub const TABLE: &[Row] = &[
     r("Maps", B, "tile <img> grid", "C for geocode and directions"),
     r("WebSearch", C, "no element", ""),
     r("Snackbar", A, "a stack of role=status notifications", ""),
+    r("Authentication", C, "a <form> of labelled fields, or one button to the provider's page", "WASM-009: the identity requests go to the backend's /auth/* routes; Web and Mobile projects only"),
     r("Viewer", B, "DOM nodes built from a parsed, allow-listed tree", "a document the user opens goes through an upload slot; Save As downloads; D for print and share"),
     r("AwsMcp", C, "no element", ""),
     r("AwsLambda", C, "no element", ""),
@@ -326,6 +327,13 @@ pub fn class_of(t: &ControlType) -> Class {
     TABLE.iter().find(|row| row.control == name).map(|row| row.class).unwrap_or(D)
 }
 
+/// Is this control for Web and Mobile projects only (WASM-009 R1)? The Authentication control
+/// signs users in through the backend's identity programs, which a desktop project does not have.
+/// The toolbox and Check read this one answer.
+pub fn web_and_mobile_only(t: &ControlType) -> bool {
+    matches!(t, ControlType::Authentication)
+}
+
 /// Can a Web or Mobile project use this control? Everything but class D (WASM-001 R14,
 /// WASM-004 R5).
 pub fn available_on_web(t: &ControlType) -> bool {
@@ -345,8 +353,11 @@ pub const DEFAULT_BACKEND_ROLES: &str = "authenticated";
 /// Does a control of type `t` do work on the backend on the web — class C, a class B control
 /// with class C operations (Maps geocode and directions), or one with an upload slot (the
 /// Viewer's open)? These carry [`BACKEND_CONFIG`] and [`BACKEND_ROLES`] on a web or mobile form.
+///
+/// Not the Authentication control: its configuration is the backend's `[identity]` section, one per
+/// application, and its programs are public (WASM-009 D4, D13).
 pub fn uses_backend(t: &ControlType) -> bool {
-    class_of(t) == C || exceptions_of(t).iter().any(|e| e.class == C) || has_upload_slot(t)
+    (*t != ControlType::Authentication && class_of(t) == C) || exceptions_of(t).iter().any(|e| e.class == C) || has_upload_slot(t)
 }
 
 /// Does the Build give a control of type `t` on a web form an upload slot on the backend
@@ -398,7 +409,6 @@ pub fn backend_roles(ctrl: &crate::model::Control) -> Vec<String> {
 /// Controls that exist only in the browser series and that the model carries as `Custom`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerKind {
-    Authentication,
     Canvas2D,
     Canvas3D,
     ImageBuffer,
@@ -409,7 +419,6 @@ pub enum PlayerKind {
 }
 
 pub const PLAYER_KINDS: &[(PlayerKind, &str)] = &[
-    (PlayerKind::Authentication, "Authentication"),
     (PlayerKind::Canvas2D, "Canvas2D"),
     (PlayerKind::Canvas3D, "Canvas3D"),
     (PlayerKind::ImageBuffer, "ImageBuffer"),
@@ -425,20 +434,20 @@ impl PlayerKind {
         PLAYER_KINDS.iter().find(|(k, _)| *k == self).map(|(_, n)| *n).unwrap()
     }
     /// The control's name in the series (what the KB, Check and the agents say). The Hyperlink, which
-    /// the player once carried here as `WebLink`, is a model type since WASM-006 T6.
+    /// the player once carried here as `WebLink`, is a model type since WASM-006 T6; the
+    /// Authentication control since WASM-009 T2.
     pub fn series_name(self) -> &'static str {
         self.name()
     }
     pub fn class(self) -> Class {
         match self {
-            PlayerKind::Authentication => C,
             PlayerKind::Canvas2D | PlayerKind::Canvas3D => B,
             _ => E,
         }
     }
     /// Does it have a place on the page?
     pub fn visual(self) -> bool {
-        matches!(self, PlayerKind::Authentication | PlayerKind::Canvas2D | PlayerKind::Canvas3D)
+        matches!(self, PlayerKind::Canvas2D | PlayerKind::Canvas3D)
     }
 }
 
@@ -513,16 +522,16 @@ mod tests {
         assert_eq!(table.len(), table_set.len(), "a control is listed twice");
         assert_eq!(model.difference(&table_set).collect::<Vec<_>>(), Vec::<&&str>::new(), "controls missing from the table");
         assert_eq!(table_set.difference(&model).collect::<Vec<_>>(), Vec::<&&str>::new(), "table rows the model does not have");
-        assert_eq!(TABLE.len(), 63, "the catalogue is 63 types; count it, do not trust this line");
+        assert_eq!(TABLE.len(), 64, "the catalogue is 64 types (Authentication since WASM-009 T2); count it, do not trust this line");
     }
 
     #[test]
     fn the_classes_have_the_sizes_the_spec_describes() {
         let n = |c: Class| TABLE.iter().filter(|r| r.class == c).count();
         println!("class A: {}  B: {}  C: {}  D: {}  E: {}", n(A), n(B), n(C), n(D), n(E));
-        assert_eq!(n(A) + n(B) + n(C) + n(D) + n(E), 63);
+        assert_eq!(n(A) + n(B) + n(C) + n(D) + n(E), 64);
         assert_eq!(n(B), 12, "7 charts, Knob, Gauge, Animator, Maps, Viewer");
-        assert_eq!(n(C), 8 + 16, "8 service controls (+ DataGrid, FileDropZone) and the 16 AWS controls");
+        assert_eq!(n(C), 8 + 16 + 1, "8 service controls (+ DataGrid, FileDropZone), the 16 AWS controls and Authentication");
     }
 
     #[test]
@@ -531,7 +540,10 @@ mod tests {
         assert_eq!(t, ControlType::Hyperlink, "the interim name is read as the model type");
         assert_eq!(player_kind_of(&t), None, "a model type, not a series kind");
         assert_eq!(class_of(&t), Class::A);
-        assert_eq!(class_of(&ControlType::from_str("Authentication")), Class::C);
+        assert_eq!(ControlType::from_str("Authentication"), ControlType::Authentication, "a model type since WASM-009 T2");
+        assert_eq!(player_kind_of(&ControlType::Authentication), None);
+        assert_eq!(class_of(&ControlType::Authentication), Class::C);
+        assert!(!uses_backend(&ControlType::Authentication), "its configuration is [identity], not a BackendConfig");
         assert_eq!(class_of(&ControlType::from_str("Canvas3D")), Class::B);
         assert_eq!(class_of(&ControlType::from_str("Physics2D")), Class::E);
         assert_eq!(class_of(&ControlType::from_str("acme:thing")), Class::D, "a plug-in control is not available");

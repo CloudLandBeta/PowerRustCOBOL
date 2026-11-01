@@ -67,6 +67,10 @@ rayon       = { version = "1", optional = true }
 # Reads the SVG the icon catalogue and the diagram renderer write, to build DOM nodes from an
 # allow-list of elements and attributes (view/svg.rs) - the player never inserts markup.
 quick-xml   = "0.36"
+# WASM-009 D16: the Authentication control's MFA set-up screen draws the `otpauth://` address as a QR
+# code made of DOM nodes (view/auth.rs). MIT OR Apache-2.0, rust-version 1.67.1, pure Rust; without
+# its default features (`image`, `svg`, `pic`) it depends on nothing.
+qrcode      = { version = "0.14", default-features = false }
 
 # Native only: the fingerprint of the player's source (src/fingerprint.rs, WASM-016 R12), which
 # build_player records and the freshness test checks. The browser build never links it.

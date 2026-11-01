@@ -94,7 +94,7 @@ pub fn main(bundle: &[u8], args: Vec<String>) -> i32 {
         println!("configuration ok: contract {} on {} ({} exported program(s))", backend.interface.contract, resolved.listen, backend.interface.programs.len());
         return 0;
     }
-    let handle = match crate::serve::start(resolved, backend, Options { sink: Some(Arc::new(StdoutSink)), fetcher: None }) {
+    let handle = match crate::serve::start(resolved, backend, Options { sink: Some(Arc::new(StdoutSink)), fetcher: None, identity_http: None }) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("error: {e}");

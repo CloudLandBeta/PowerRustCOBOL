@@ -200,12 +200,12 @@ fn element_of(cx: &ViewCtx, i: usize) -> VNode {
     let Kind::Control(t) = &c.kind else { return VNode::new("div").key("root") };
     if let Some(k) = player_kind(c) {
         return match k {
-            PlayerKind::Authentication => authentication(cx, i),
             PlayerKind::Canvas2D | PlayerKind::Canvas3D => canvas(cx, i, k),
             _ => hidden_object(cx, i),
         };
     }
     match t {
+        ControlType::Authentication => authentication(cx, i),
         ControlType::Button => button(cx, i),
         ControlType::Label => label(cx, i),
         ControlType::Hyperlink => hyperlink(cx, i),

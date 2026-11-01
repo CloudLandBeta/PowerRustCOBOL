@@ -425,7 +425,16 @@ fn a_new_backend_has_its_exports_and_a_development_deployment() {
         assert!(listen.parse::<std::net::SocketAddr>().unwrap().ip().is_loopback(), "{template}: {listen}");
         let keys: Vec<&String> = parsed.as_table().unwrap().keys().collect();
         assert_eq!(keys, ["server"], "{template}: only [server], no unsafe_* and no secret");
-        assert!(!config.contains("password") && !config.contains("secret ="), "{template}");
+        assert!(!config.contains("password"), "{template}");
+        // WASM-009 T18: the commented [identity] stub names its secrets as env: references only.
+        assert!(config.contains("# [identity]") && config.contains("# [identity.settings]") && config.contains("# [identity.recaptcha]"), "{template}: the stub");
+        for line in config.lines().filter(|l| (l.contains("secret") || l.contains("cookie_key")) && l.contains('=')) {
+            assert!(line.trim_start().starts_with('#') && line.contains("\"env:"), "{template}: a secret by value: {line}");
+        }
+        // Uncommented, the stub is a valid [identity] section.
+        let stub: String = config.lines().skip_while(|l| *l != "# [identity]").map(|l| format!("{}\n", l.trim_start_matches("# "))).collect();
+        let stub: toml::Value = toml::from_str(&stub).unwrap_or_else(|e| panic!("{template}: the stub uncommented: {e}"));
+        assert_eq!(stub["identity"]["provider"].as_str(), Some("cognito"));
 
         let view = cobolt_compiler::project_manifest_view(&folder.join("Shop.project.toml")).unwrap();
         assert_eq!(view.backend, ["backend/src/health.cbl"], "{template}: the settings files are not COBOL");

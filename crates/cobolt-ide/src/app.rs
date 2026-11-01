@@ -11242,14 +11242,27 @@ impl CoboltApp {
         form.draft.apply(proj, &mut self.llm);
         // The exported programs live in backend/exports.toml (WASM-003 D5).
         let project_dir = self.project_path.as_ref().and_then(|p| p.parent()).map(|d| d.to_path_buf());
-        if let Some(dir) = project_dir.filter(|_| form.exports_edited() && form.draft.has_backend && form.draft.kind.has_backend()) {
+        if let Some(dir) = project_dir.clone().filter(|_| form.exports_edited() && form.draft.has_backend && form.draft.kind.has_backend()) {
             let names = crate::panels::web_settings::parse_exports(&form.draft.exports_text);
             if let Err(e) = crate::panels::web_settings::write_exports(&dir, &names) {
                 let tr = self.lang.tr();
                 self.output.push_status(tr.pk_set_exports_write_failed.replacen("{}", &e, 1));
             }
         }
+        // The identity provider lives in backend/backend.toml (WASM-009 R9); a draft holding a
+        // secret by value is refused and stays unsaved.
+        let mut identity_unsaved = None;
+        if let Some(dir) = project_dir.filter(|_| form.identity_edited() && form.draft.has_backend && form.draft.kind.has_backend()) {
+            if let Err(e) = crate::panels::web_settings::write_identity(&dir, &form.draft.identity) {
+                let tr = self.lang.tr();
+                self.output.push_status(tr.pk_set_identity_write_failed.replacen("{}", &e, 1));
+                identity_unsaved = Some(form.baseline_identity().clone());
+            }
+        }
         form.mark_saved();
+        if let Some(previous) = identity_unsaved {
+            form.restore_identity_baseline(previous);
+        }
         self.persist_active_project_ai();
         // The background image or its opacity may have just changed: drop the
         // decoded texture and ask for a frame, so the window shows the saved

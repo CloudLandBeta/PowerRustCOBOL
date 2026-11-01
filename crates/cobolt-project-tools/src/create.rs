@@ -200,7 +200,22 @@ pub fn starter_backend_config(project_name: &str) -> String {
          \n\
          # Before a release, name the frontend's origins and the identity provider:\n\
          # [server]  allowed_origins = [\"https://app.example.com\"]\n\
-         # [auth]    issuer = [\"https://login.example.com\"], audiences = [\"api\"]\n"
+         # [auth]    issuer = [\"https://login.example.com\"], audiences = [\"api\"]\n\
+         \n\
+         # Sign-in for the Authentication control (the project's Identity settings write this).\n\
+         # With [identity], [auth] may stay empty: the issuer and its keys are the provider's.\n\
+         # Build writes the AUTH-* programs into backend/generated/identity/.\n\
+         # [identity]\n\
+         # provider = \"cognito\"                  # cognito | keycloak | entra | entra-external\n\
+         # cookie_key = \"env:PRC_COOKIE_KEY\"      # 32 bytes, base64 or 64 hex digits\n\
+         # [identity.settings]\n\
+         # region = \"eu-west-1\"\n\
+         # user_pool_id = \"eu-west-1_XXXXXXXXX\"\n\
+         # client_id = \"your-app-client-id\"\n\
+         # client_secret = \"env:PRC_CLIENT_SECRET\"\n\
+         # [identity.recaptcha]\n\
+         # site_key = \"your-public-site-key\"\n\
+         # secret = \"env:PRC_RECAPTCHA_SECRET\"\n"
     )
 }
 

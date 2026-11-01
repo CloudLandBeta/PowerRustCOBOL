@@ -94,7 +94,7 @@ impl DevServer {
         let tls = resolved.tls.is_some();
         let sink = MemorySink::new();
         let to: Arc<dyn LogSink> = if opts.echo { Arc::new(EchoSink(sink.clone())) } else { Arc::new(sink.clone()) };
-        let handle = crate::serve::start(resolved, backend, Options { sink: Some(to), fetcher: None }).map_err(|e| vec![e])?;
+        let handle = crate::serve::start(resolved, backend, Options { sink: Some(to), fetcher: None, identity_http: None }).map_err(|e| vec![e])?;
         let url = format!("{}://{}/ws", if tls { "wss" } else { "ws" }, handle.addr);
         Ok(DevServer { handle, sink, secret, url })
     }

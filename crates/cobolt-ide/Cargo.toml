@@ -50,6 +50,9 @@ cobolt-compiler = { path = "../cobolt-compiler" }
 # their moved-down code (generated paths, form validation, binding guardian).
 cobolt-project-tools = { path = "../cobolt-project-tools" }
 cobolt-mcp           = { path = "../cobolt-mcp" }
+# WASM-009 T19 — the Identity settings offer the providers, flows and settings the backend accepts.
+# The loader level only (already in the tree through cobolt-compiler): no server, no sockets.
+cobolt-server        = { path = "../cobolt-server", default-features = false, features = ["loader"] }
 
 # UI framework
 egui       = "0.36"

@@ -54,6 +54,8 @@ pub struct SettingsDraft {
     /// The programs `backend/exports.toml` lists, one per line (loaded by the
     /// caller, which knows the project's folder: `SettingsForm::load_backend_exports`).
     pub exports_text: String,
+    /// `backend/backend.toml`'s `[identity]` (WASM-009 T19), filled by the caller like the exports.
+    pub identity: crate::panels::web_settings::IdentityDraft,
     /// `[backend] state`: `per-call` or `per-connection` (WASM-003 Q2).
     pub backend_state: String,
     // ── License ──
@@ -162,6 +164,7 @@ impl SettingsDraft {
             mobile: p.mobile.clone(),
             has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
             exports_text: String::new(),
+            identity: Default::default(),
             backend_state: p.backend.clone().unwrap_or_default().state,
             license_model: p.project.license_model.clone(),
             // A project that names a license but carries no text (older projects,
@@ -498,6 +501,10 @@ pub struct SettingsForm {
     /// each kind of server — the hosted one, then the AWS Labs ones — as it finishes.
     aws_tests: std::collections::HashMap<String, std::sync::mpsc::Receiver<(Server, Report)>>,
     aws_results: std::collections::HashMap<String, Vec<(Server, Report)>>,
+    /// The project folder the Backend files were read from (WASM-009 T19: Test connection runs there).
+    project_dir: Option<std::path::PathBuf>,
+    /// The Identity section's Test connection: running, or its last lines.
+    identity_test: crate::panels::web_settings::IdentityTest,
 }
 
 /// What Test connection found, in the IDE's language (spec 078 R24).
@@ -564,6 +571,8 @@ impl SettingsForm {
             fx_preview_started: None,
             aws_tests: std::collections::HashMap::new(),
             aws_results: std::collections::HashMap::new(),
+            project_dir: None,
+            identity_test: Default::default(),
         }
     }
 
@@ -591,6 +600,26 @@ impl SettingsForm {
         let text = crate::panels::web_settings::read_exports_text(project_dir);
         self.draft.exports_text = text.clone();
         self.baseline.exports_text = text;
+        let identity = crate::panels::web_settings::read_identity(project_dir);
+        self.draft.identity = identity.clone();
+        self.baseline.identity = identity;
+        self.project_dir = Some(project_dir.to_path_buf());
+    }
+
+    /// The Identity section was edited since the last load or save: only then is `backend.toml`
+    /// written, as for the exports.
+    pub fn identity_edited(&self) -> bool {
+        self.draft.identity != self.baseline.identity
+    }
+
+    /// The identity provider as last saved.
+    pub fn baseline_identity(&self) -> &crate::panels::web_settings::IdentityDraft {
+        &self.baseline.identity
+    }
+
+    /// Put back the saved identity after a save that did not write it, so the page stays dirty.
+    pub fn restore_identity_baseline(&mut self, saved: crate::panels::web_settings::IdentityDraft) {
+        self.baseline.identity = saved;
     }
 
     /// The exports box was edited since the last load or save: only then is
@@ -907,6 +936,8 @@ impl SettingsForm {
                                 gap_after_resizer,
                                 property_indent,
                             },
+                            self.project_dir.as_deref(),
+                            &mut self.identity_test,
                         );
 
                         ui.add_space(8.0);
