@@ -459,3 +459,31 @@ fn open_form_invoke_null_handle_method_raises_runtime_error() {
     );
     println!("NULL-handle invoke → runtime error: {err}");
 }
+
+/// WASM-011 R8, R15: `SetUnsavedChanges` guards leaving a form in a browser; a desktop window has nothing to guard, so
+/// the verb is accepted and does nothing — the same program runs on both, in either spelling, with or without a host.
+#[test]
+fn set_unsaved_changes_is_accepted_and_does_nothing_on_the_desktop() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DEMO.
+       PROCEDURE DIVISION.
+           INVOKE ME "SetUnsavedChanges" USING 1.
+           INVOKE ME::"SetUnsavedChanges"(0).
+           INVOKE me::SetUnsavedChanges(1).
+           DISPLAY "AFTER".
+           STOP RUN.
+"#;
+    let (display, actions, run) = run_with_supervisor(src, None);
+    run.expect("clean run");
+    assert_eq!(display, vec!["AFTER".to_owned()], "the statement after it runs");
+    assert!(actions.is_empty(), "nothing reaches the window supervisor: {actions:?}");
+    // Single-form runtime (no supervisor): the same.
+    let program = parse(tokenize(src, SourceFormat::Free)).program.expect("a program");
+    let (_e, event_rx) = mpsc::channel();
+    let (state_tx, _s) = mpsc::channel();
+    let (display_tx, display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    interp.run().expect("clean run without a host");
+    assert_eq!(display_rx.try_iter().collect::<Vec<_>>(), vec!["AFTER".to_owned()]);
+}

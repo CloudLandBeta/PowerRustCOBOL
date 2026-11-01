@@ -302,6 +302,55 @@ pub fn analyze_with(program: &Program, opts: &AnalyzeOptions) -> SemanticResult 
     result
 }
 
+/// The 049 R17 load-path rule alone, over the whole unit (every contained program):
+/// an `OpenFormSync` / `OpenFormAsync` / `OpenStandAloneForm*` whose literal target
+/// is a form with FormFormat `Embedded`. The same rule the full analysis applies
+/// with [`AnalyzeOptions::form_formats`]; a Web Build, which checks its programs by
+/// its own steps, runs it so that a Web project and a Desktop one refuse the same
+/// call with the same message (WASM-011 R3).
+pub fn load_path_errors(
+    program: &Program,
+    form_formats: &std::collections::HashMap<String, FormLoadFormat>,
+) -> Vec<SemanticDiagnostic> {
+    use cobolt_ast::program::ProcedureBody;
+    use cobolt_ast::stmt::Stmt;
+    fn walk(program: &Program, formats: &std::collections::HashMap<String, FormLoadFormat>, out: &mut Vec<SemanticDiagnostic>) {
+        let mut visit = |stmt: &Stmt| {
+            if let Stmt::Invoke { method, args, .. } = stmt {
+                if let Some((message, span)) = resolver::open_form_target_error(method, args, formats) {
+                    out.push(SemanticDiagnostic { severity: Severity::Error, message, span });
+                }
+            }
+        };
+        match &program.procedure.body {
+            ProcedureBody::Sections(sections) => {
+                for sec in sections {
+                    for para in &sec.paragraphs {
+                        para.stmts.iter().for_each(|s| s.walk(&mut visit));
+                    }
+                }
+            }
+            ProcedureBody::Paragraphs(paras) => {
+                for para in paras {
+                    para.stmts.iter().for_each(|s| s.walk(&mut visit));
+                }
+            }
+        }
+        for decl in &program.procedure.declaratives {
+            decl.stmts.iter().for_each(|s| s.walk(&mut visit));
+            for para in &decl.paras {
+                para.stmts.iter().for_each(|s| s.walk(&mut visit));
+            }
+        }
+        for nested in &program.nested_programs {
+            walk(nested, formats, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(program, form_formats, &mut out);
+    out
+}
+
 /// [`analyze`], for a program CONTAINED in another, told which `GLOBAL` items
 /// its ancestors declare.
 ///

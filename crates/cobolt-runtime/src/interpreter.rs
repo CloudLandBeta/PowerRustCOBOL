@@ -2807,6 +2807,11 @@ impl Interpreter {
                 }
                 Ok(Some(none))
             }
+            // WASM-011 R8 — the form holds unsaved changes: in a browser, leaving it by
+            // Back, a menu or closing the tab asks first. A desktop window has no Back
+            // and no address, so the mark has nothing to guard here (R15: the desktop
+            // is unchanged); accepting it keeps one program right on both.
+            "SETUNSAVEDCHANGES" => Ok(Some(none)),
             _ => Ok(None),
         }
     }

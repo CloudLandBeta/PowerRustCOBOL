@@ -60,6 +60,14 @@ pub const MAX_PARAM_VALUE: usize = 512;
 /// "Error Handling" group, `cobolt_forms::model::FORM_EVENT_GROUPS`).
 pub const ON_BACKEND_UNREACHABLE: &str = "onBackendUnreachable";
 
+/// The form event raised on the main form when the page's address names no form the application has (WASM-011 R6);
+/// its argument is the name the address gave.
+pub const ON_ROUTE_NOT_FOUND: &str = "onRouteNotFound";
+
+/// The form event raised on the opener when the browser refused the window a standalone open asked for (WASM-011
+/// R10); its argument is the name of the form that did not open.
+pub const ON_POPUP_BLOCKED: &str = "onPopupBlocked";
+
 /// Why `name=value` is not an acceptable parameter, if it is not: a name is letters, digits, `-`, `_` and `.`
 /// and at most [`MAX_PARAM_NAME`] long; a value is at most [`MAX_PARAM_VALUE`] characters.
 fn param_problem(k: &str, v: &str) -> Option<String> {
@@ -441,6 +449,11 @@ pub struct Host {
     /// ([`Host::set_viewport`]); `None` until the page has measured it (a headless run never does).
     viewport: Option<(f64, f64)>,
     pane: Option<(f64, f64)>,
+    /// The instances whose program said they hold unsaved changes (`me::SetUnsavedChanges(1)`, WASM-011 R8).
+    unsaved: std::collections::BTreeSet<u32>,
+    /// The page was opened for a form the application does not have: `onRouteNotFound` is raised with this name once the
+    /// form the page starts with is open (WASM-011 R6).
+    not_found: Option<String>,
 }
 
 /// What a standalone window knows of the form that opened it in another window: a **replica** of that
@@ -500,6 +513,8 @@ impl Host {
             recovering: None,
             viewport: None,
             pane: None,
+            unsaved: std::collections::BTreeSet::new(),
+            not_found: None,
             started: false,
             aborted: false,
             reported_in_call: false,
@@ -679,6 +694,28 @@ impl Host {
     pub fn backend_unreachable(&mut self) -> bool {
         let Some(inst) = self.trees.values().filter(|t| t.opener.is_none()).map(|t| t.inst).min() else { return false };
         self.dom_event(inst, 0, ON_BACKEND_UNREACHABLE, Vec::new())
+    }
+
+    /// The address named `form`, which the application does not have (WASM-011 R6): `onRouteNotFound` is raised on the
+    /// form the page started with, as `onBackendUnreachable` is, with the name the address gave. The page has already
+    /// told the user and taken the address back. Answers whether it was queued (a handler is bound).
+    pub fn route_not_found(&mut self, form: &str) -> bool {
+        let Some(inst) = self.trees.values().filter(|t| t.opener.is_none()).map(|t| t.inst).min() else { return false };
+        self.dom_event(inst, 0, ON_ROUTE_NOT_FOUND, vec![form.to_owned()])
+    }
+
+    /// The page's address named `form`, which the application does not have, before any form was open (a standalone
+    /// page's `pr-form`): `onRouteNotFound` is raised on the first form once it is open.
+    pub fn not_found_at_start(&mut self, form: &str) {
+        self.not_found = Some(form.to_owned());
+    }
+
+    /// The browser refused the window that `opener`'s open of `form` asked for (WASM-011 R10): the waiting caller, if
+    /// any, is released with a failure, and `onPopupBlocked` is raised on the opener with the form's name.
+    pub fn popup_blocked(&mut self, handle: &str, opener: u32, form: usize) -> bool {
+        self.child_closed(handle);
+        let name = self.manifest.forms.get(form).map(|f| f.name.clone()).unwrap_or_default();
+        self.dom_event(opener, 0, ON_POPUP_BLOCKED, vec![name])
     }
 
     /// An intercepted click on a Hyperlink (WASM-006 D1): `Cancel` reset, `onClick` raised with the modifier
@@ -1081,6 +1118,10 @@ impl Host {
                 }
                 self.effects.push(Effect::Opened { inst: id, form, mode, handle });
                 self.after_status(Status::from_code(status), task, id, false, wait, desc, None);
+                // Queued behind the form's own start-up, which it waits for as any event of the instance does.
+                if let Some(name) = self.not_found.take() {
+                    self.route_not_found(&name);
+                }
             }
             (ModuleCall::OpenForm { .. }, CallResult::Trapped(msg)) => {
                 self.trapped(msg, desc);
@@ -1295,6 +1336,7 @@ impl Host {
         if self.trees.remove(&inst).is_some() {
             self.effects.push(Effect::Closed { inst });
         }
+        self.unsaved.remove(&inst);
         self.work.retain(|w| !matches!(w, Work::Event(e) if e.inst == inst));
         self.auth_calls.retain(|_, (i, _, _)| *i != inst);
         self.auth_captchas.retain(|_, (i, _)| *i != inst);
@@ -1335,6 +1377,18 @@ impl Host {
 
     /// The whole application is being unmounted: drop everything and say what the module must be
     /// told (WASM-017 R5). Returns the calls to make: cancel every task, close every instance.
+    /// A closing call answered `result` on a page that is going away for good (a standalone window closed, WASM-011
+    /// R12): a closing handler that suspended or yielded cannot be resumed — the page gets no other turn — so its task
+    /// is abandoned with `pr_cancel`. The calls themselves are [`Host::teardown`]'s.
+    pub fn abandon_on_hide(result: &CallResult) -> Option<ModuleCall> {
+        match result {
+            CallResult::Status { status, task } if matches!(Status::from_code(*status), Status::Suspended | Status::Yielded) => {
+                Some(ModuleCall::Cancel { task: *task })
+            }
+            _ => None,
+        }
+    }
+
     pub fn teardown(&mut self) -> Vec<ModuleCall> {
         let mut calls = Vec::new();
         for (task, t) in std::mem::take(&mut self.tasks) {
@@ -2004,6 +2058,49 @@ impl Host {
         }
     }
 
+    /// The form's `FormFormat` as its description says (spec 049 R1); `None` before the description is loaded.
+    pub fn form_format(&self, form: usize) -> Option<cobolt_forms::model::FormFormat> {
+        self.forms.get(form).and_then(|f| f.as_ref()).map(|f| f.form_format)
+    }
+
+    /// May `OpenFormSync` / `OpenFormAsync` open `form` (a dialog, a panel or a window of its own)? Not an
+    /// `Embedded` one (049 R17, WASM-011 R3).
+    pub fn may_open_standalone(&self, form: usize) -> Result<(), String> {
+        match self.form_format(form) {
+            Some(f) if !f.allows_standalone() => Err(format!(
+                "form `{}` has FormFormat Embedded: it is loaded from a sidebar menu, never opened as a window",
+                self.manifest.forms[form].name
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    /// An open of `form` the page refused (a menu item whose target's FormFormat forbids the path): reported as a
+    /// run-time error under the form's name, as the program's own refused open is.
+    pub fn refuse_open(&mut self, form: usize, message: &str) {
+        let name = self.manifest.forms.get(form).map(|f| f.name.clone());
+        self.report(RunError { code: err::HOST_REFUSED, message: message.to_owned(), form: name, event: None, unit: 0, line: 0 });
+    }
+
+    /// Does an instance hold unsaved changes — any of `among`, or any at all (WASM-011 R8)?
+    pub fn has_unsaved(&self, among: Option<&[u32]>) -> bool {
+        match among {
+            Some(insts) => insts.iter().any(|i| self.unsaved.contains(i)),
+            None => !self.unsaved.is_empty(),
+        }
+    }
+
+    /// May a menu load `form` into the shell's ContentPane? Not a `Standalone` one (049 R17, WASM-011 R3).
+    pub fn may_load_in_pane(&self, form: usize) -> Result<(), String> {
+        match self.form_format(form) {
+            Some(f) if !f.allows_embedded() => Err(format!(
+                "form `{}` has FormFormat Standalone: it opens as a window, never in the ContentPane",
+                self.manifest.forms[form].name
+            )),
+            _ => Ok(()),
+        }
+    }
+
     fn new_handle(&mut self) -> String {
         let h = format!("H{}", self.next_handle);
         self.next_handle += 1;
@@ -2027,6 +2124,11 @@ impl Host {
                     .form_by_name(id)
                     .map(|f| f.id as usize)
                     .ok_or_else(|| CmdError::Unknown(format!("{name}: the program has no form `{id}`")))?;
+                // FormFormat (spec 049 R17, WASM-011 R3): the Build refuses a literal `Embedded` target; a target
+                // held in a data item is only known here. A dialog or panel of an SPA is not a pane load.
+                if let Err(e) = self.may_open_standalone(form) {
+                    return Err(CmdError::Bad(format!("{name}: {e}")));
+                }
                 // The arguments after the form's name are its route parameters, `name=value` (WASM-011 R4).
                 let params = parse_params(&args[1..]).map_err(|e| CmdError::Bad(format!("{name}: {e}")))?;
                 let handle = self.new_handle();
@@ -2069,6 +2171,16 @@ impl Host {
                 Ok(Some(None))
             }
             "GETFORMSTATE" => Ok(Some(Some("Normal".into()))),
+            // The form holds changes the user has not saved (WASM-011 R8): leaving it by Back, a menu or closing the tab
+            // asks the user first. `1` marks it, `0` clears the mark; the mark goes with the instance.
+            "SETUNSAVEDCHANGES" => {
+                if crate::value::truthy(args.first().copied().unwrap_or("1")) {
+                    self.unsaved.insert(inst);
+                } else {
+                    self.unsaved.remove(&inst);
+                }
+                Ok(Some(None))
+            }
             // What this form was opened with (WASM-011 R4): one parameter by name (empty when absent), or all
             // of them as `name=value` lines. Read at `onLoad` already: the tree is made before the handler runs.
             "GETPARAM" => {
@@ -2658,6 +2770,8 @@ mod resize_tests;
 mod unreachable_tests;
 #[cfg(test)]
 mod numeric_tests;
+#[cfg(test)]
+mod nav_tests;
 #[cfg(test)]
 mod super_tests;
 

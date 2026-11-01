@@ -454,7 +454,8 @@ pub fn dialog_view(spec: &DialogSpec) -> VNode {
 
 /// The frame of a form shown as a modal dialog.
 pub fn modal_frame(title: &str, closable: bool, size: Option<(f64, f64)>) -> VNode {
-    let mut bar = VNode::new("div").key("titlebar").class("pr-titlebar").child(VNode::new("span").key("title").class("pr-title").text(title.to_owned()));
+    // The title takes the focus when the form is shown (WASM-011 R7): focusable by script, not by Tab.
+    let mut bar = VNode::new("div").key("titlebar").class("pr-titlebar").child(VNode::new("span").key("title").class("pr-title").attr("tabindex", "-1").text(title.to_owned()));
     if closable {
         bar = bar.child(VNode::new("button").key("close").attr("type", "button").attr("data-part", "close").attr("aria-label", "Close").text("\u{00D7}"));
     }
@@ -471,7 +472,7 @@ pub fn panel_frame(title: &str, size: Option<(f64, f64)>, offset: (f64, f64)) ->
         .key("titlebar")
         .class("pr-titlebar")
         .on("pointerdown")
-        .child(VNode::new("span").key("title").class("pr-title").text(title.to_owned()))
+        .child(VNode::new("span").key("title").class("pr-title").attr("tabindex", "-1").text(title.to_owned()))
         .child(VNode::new("button").key("close").attr("type", "button").attr("data-part", "close").attr("aria-label", "Close").text("\u{00D7}"));
     let mut body = VNode::new("div").key("body").class("pr-body");
     if let Some((w, h)) = size {
@@ -541,6 +542,12 @@ pub fn ended_view(language: &str) -> VNode {
         .child(VNode::new("p").key("title").class("pr-ended-title").text(t.title.to_owned()))
         .child(VNode::new("p").key("hint").class("pr-ended-hint").text(t.hint.to_owned()))
         .child(VNode::new("button").key("reload").attr("type", "button").attr("data-part", "reload").text(t.reload.to_owned()))
+}
+
+/// The one polite live region of the player (WASM-011 R7): each navigation writes the shown form's title into it, so a
+/// screen reader says where the user now is. Visually hidden (`.pr-live`); the title is the developer's own text.
+pub fn live_region() -> VNode {
+    VNode::new("div").key("live").class("pr-live").attr("role", "status").attr("aria-live", "polite").attr("aria-atomic", "true")
 }
 
 /// The badge that shows the backend connection is not up.
@@ -650,6 +657,21 @@ pub fn count_text(n: usize) -> String {
 mod tests {
     use super::super::{Empty, MenuStore};
     use super::*;
+
+    /// WASM-011 R7: a dialog's and a panel's title can take the focus (by script, never by Tab), and the player has one
+    /// polite live region to announce the form shown.
+    #[test]
+    fn the_frames_titles_take_the_focus_and_the_live_region_is_polite() {
+        for frame in [modal_frame("Customer", true, Some((320.0, 200.0))), panel_frame("Customer", None, (24.0, 24.0))] {
+            let t = frame.find(&|n| n.has_class("pr-title")).expect("a title");
+            assert_eq!(t.attr_of("tabindex"), Some("-1"));
+        }
+        let live = live_region();
+        assert_eq!(live.attr_of("role"), Some("status"));
+        assert_eq!(live.attr_of("aria-live"), Some("polite"));
+        assert_eq!(live.attr_of("aria-atomic"), Some("true"));
+        assert!(live.has_class("pr-live"));
+    }
 
     /// FX-4a: the page that stands in for a closed application speaks the browser's language — the six of the
     /// IDE, by the first subtag — and English otherwise, and always offers to start again.

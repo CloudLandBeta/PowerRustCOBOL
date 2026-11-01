@@ -265,6 +265,13 @@ pub const BASE_CSS: &str = r#"
 .pr-panelwin > .pr-titlebar { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; cursor: move; touch-action: none; user-select: none; }
 .pr-panelwin > .pr-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .pr-panelwin > .pr-body > .pr-form-root { position: absolute; inset: 0; }
+/* A phone's navigation stack (WASM-011 R13, Q5): a dialog or a panel is a screen of its own, the whole application's area. */
+.pr-panelwin.pr-screen { inset: 0; left: 0; top: 0; } .pr-panelwin.pr-screen > .pr-titlebar { cursor: default; }
+.pr-dialog.pr-screen { width: 100vw; height: 100vh; margin: 0; display: flex; flex-direction: column; }
+.pr-dialog.pr-screen > .pr-body { flex: 1 1 auto; min-height: 0; }
+.pr-title:focus { outline: none; } .pr-form-root:focus { outline: none; }
+/* What the player tells assistive technology on each navigation (WASM-011 R7): read, never seen. */
+.pr-live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .pr-toasts-host { position: absolute; left: 12px; bottom: 12px; z-index: 40; pointer-events: none; }
 .pr-snackbars { display: flex; flex-direction: column; gap: 8px; }
 .pr-snackbar { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 8px 12px; }

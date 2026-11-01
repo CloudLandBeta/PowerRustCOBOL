@@ -93,6 +93,20 @@ pub struct PlayerConfig {
     /// The host page's texts the developer translated (WASM-002 R15). The player reads the "connecting" modal's from them
     /// (`connecting`, `unreachable`, `reload`; WASM-016 R20–R21); without them it speaks the page's language.
     pub texts: std::collections::BTreeMap<String, String>,
+    /// Whose is the page's address (WASM-011 R5, Q7): `"own"` (or empty) — this application follows and writes the
+    /// hash route; `"none"` — it keeps its navigation in memory and leaves the address to the page. The Build writes
+    /// `"none"` for an application mounted into someone else's element unless the project asked for the address.
+    pub address: String,
+    /// A phone's navigation stack (WASM-011 R13, Q5): every form opened over another is a full screen, and Back pops it.
+    pub stack: bool,
+}
+
+impl PlayerConfig {
+    /// This application follows and writes the page's address: a single-page application that was not told to leave it
+    /// to the page. A standalone window's address is its own page's, which the player never rewrites.
+    pub fn owns_address(&self) -> bool {
+        !self.standalone && !self.address.trim().eq_ignore_ascii_case("none")
+    }
 }
 
 /// Something that happened outside the driver; the driver acts on it between calls.
@@ -129,6 +143,32 @@ struct JsLink {
 
 impl JsLink {
     async fn run(&self, call: &ModuleCall) -> CallResult {
+        let ret = match self.apply(call) {
+            Ok(v) => v,
+            Err(e) => return CallResult::Trapped(e),
+        };
+        let resolved = match JsFuture::from(Promise::resolve(&ret)).await {
+            Ok(v) => v,
+            Err(e) => return CallResult::Trapped(js_message(&e)),
+        };
+        Self::decode(call, resolved)
+    }
+
+    /// The call made and answered within this turn of the page, for a page that will not get another (`pagehide`,
+    /// WASM-011 R12): the module of the main thread answers at once; a module in a worker answers a promise, which is
+    /// left unawaited, and `None` says so.
+    fn run_now(&self, call: &ModuleCall) -> Option<CallResult> {
+        let ret = match self.apply(call) {
+            Ok(v) => v,
+            Err(e) => return Some(CallResult::Trapped(e)),
+        };
+        if ret.is_instance_of::<Promise>() {
+            return None;
+        }
+        Some(Self::decode(call, ret))
+    }
+
+    fn apply(&self, call: &ModuleCall) -> Result<JsValue, String> {
         let none = JsValue::NULL;
         let (kind, a, b, c, d, payload): (i32, i32, i32, i32, i32, JsValue) = match call {
             ModuleCall::OpenForm { form, opener } => (0, *form as i32, *opener, 0, 0, none),
@@ -145,14 +185,10 @@ impl JsLink {
         for v in [JsValue::from(kind), a.into(), b.into(), c.into(), d.into(), payload] {
             args.push(&v);
         }
-        let ret = match self.perform.apply(&self.this, &args) {
-            Ok(v) => v,
-            Err(e) => return CallResult::Trapped(js_message(&e)),
-        };
-        let resolved = match JsFuture::from(Promise::resolve(&ret)).await {
-            Ok(v) => v,
-            Err(e) => return CallResult::Trapped(js_message(&e)),
-        };
+        self.perform.apply(&self.this, &args).map_err(|e| js_message(&e))
+    }
+
+    fn decode(call: &ModuleCall, resolved: JsValue) -> CallResult {
         let Ok(arr) = resolved.dyn_into::<Int32Array>() else {
             return CallResult::Trapped("the loader's perform() did not answer an Int32Array".into());
         };
@@ -360,6 +396,34 @@ pub(crate) struct Inner {
 }
 
 impl Inner {
+    /// A standalone window that goes away runs its forms' closing handlers (WASM-011 R12), as far as the browser lets
+    /// a page run while it goes: the tasks still waiting are cancelled, each instance gets `pr_close_form` within the
+    /// `pagehide` turn, and a handler that suspends there is abandoned with `pr_cancel`. A page kept for the back/forward
+    /// cache (`persisted`) is left alone: it may come back. The opener sees the window closed (`Inbox::ChildClosed`).
+    fn close_on_pagehide(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        let on_hide = Closure::<dyn FnMut(web_sys::Event)>::new(move |ev: web_sys::Event| {
+            let Some(inner) = weak.upgrade() else { return };
+            let persisted = Reflect::get(&ev, &"persisted".into()).ok().and_then(|v| v.as_bool()).unwrap_or(false);
+            if persisted || inner.dead.get() {
+                return;
+            }
+            let Some(link) = inner.link.borrow().clone() else { return };
+            let calls = inner.host.borrow_mut().teardown();
+            inner.dead.set(true);
+            for call in &calls {
+                let after = link.run_now(call).and_then(|r| Host::abandon_on_hide(&r));
+                if let Some(cancel) = after {
+                    let _ = link.run_now(&cancel);
+                }
+            }
+        });
+        if let Some(w) = web_sys::window() {
+            let _ = w.add_event_listener_with_callback("pagehide", on_hide.as_ref().unchecked_ref());
+        }
+        self.superlink.borrow_mut().closing = Some(on_hide);
+    }
+
     /// Queue something for the driver and make sure it runs.
     pub(crate) fn push(&self, item: Inbox) {
         if self.dead.get() {
@@ -987,8 +1051,18 @@ impl Player {
             let sf = self.inner.cfg.start_form.trim();
             match h.manifest.form_by_name(sf).map(|f| f.id as usize) {
                 Some(id) if !sf.is_empty() => h.start_with(id, self.inner.cfg.start_params.clone()),
+                // A page opened for a form the application does not have (WASM-011 R6): the main form, the notice,
+                // and `onRouteNotFound` once the main form is there to hear it.
+                None if !sf.is_empty() => {
+                    h.start();
+                    h.not_found_at_start(sf);
+                    h.effects.push(Effect::Notice(crate::texts::route_not_found(&self.inner.cfg.locale, &self.inner.cfg.texts, sf)));
+                }
                 _ => h.start(),
             }
+        }
+        if self.inner.cfg.standalone {
+            self.inner.close_on_pagehide();
         }
         pump(&self.inner);
         Ok(())
@@ -1286,20 +1360,23 @@ impl Player {
 // ── panics (WASM-017 R15) ───────────────────────────────────────────────────
 
 thread_local! {
-    static PANIC_FN: RefCell<Option<Function>> = const { RefCell::new(None) };
+    /// One function per application mounted on the page (WASM-011 Q7). Two loaders of one bundle share one player
+    /// instance — `player.js` instantiates the module once per address and answers the same instance afterwards — so
+    /// a panic, which ends that instance, ends every application on it, and each must be told.
+    static PANIC_FNS: RefCell<Vec<Function>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Install the function the loader wants called when the player panics. The player is built with
 /// `panic = "abort"`, so a panic ends the instance; this is how the page learns why.
 #[wasm_bindgen]
 pub fn install_panic_hook(f: Function) {
-    PANIC_FN.with(|p| *p.borrow_mut() = Some(f));
+    PANIC_FNS.with(|p| p.borrow_mut().push(f));
     std::panic::set_hook(Box::new(|info| {
         let msg = info.to_string();
         web_sys::console::error_1(&format!("PowerRustCOBOL player panic: {msg}").into());
-        PANIC_FN.with(|p| {
-            if let Some(f) = p.borrow().as_ref() {
-                let _ = f.call1(&JsValue::UNDEFINED, &msg.into());
+        PANIC_FNS.with(|p| {
+            for f in p.borrow().iter() {
+                let _ = f.call1(&JsValue::UNDEFINED, &msg.as_str().into());
             }
         });
     }));

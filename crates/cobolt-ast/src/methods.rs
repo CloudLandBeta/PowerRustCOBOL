@@ -244,6 +244,8 @@ pub fn is_known_method(name: &str) -> bool {
             | "ASK" | "GET" | "POST" | "PUT" | "DELETE" | "CALL" | "SETHEADER"
             | "CLEARHEADERS" | "SETTIMEOUT" | "OPEN" | "EXECUTE" | "EXEC"
             | "QUERY" | "FETCH" | "FETCHALL"
+        // The form's unsaved-changes mark (WASM-011 R8): `me::SetUnsavedChanges(1)`.
+            | "SETUNSAVEDCHANGES"
         // Hyperlink (WASM-006 R12): `Open` is listed above; `OpenIn(target)` takes `Self`,
         // `NewTab`, `NewWindow`, `Parent` or `Top`.
             | "SETURL" | "GETURL" | "OPENIN"

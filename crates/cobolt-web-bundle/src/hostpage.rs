@@ -789,6 +789,10 @@ export async function mount(target, options = {}) {
       // The texts the developer translated: the player's "connecting" modal reads `connecting`, `unreachable` and `reload`
       // from them (WASM-016 R20-R21) and speaks the page's language without them.
       texts: config.texts || {},
+      // Whose the page's address is (WASM-011 R5, Q7): the Build's choice, which a page mounting two applications may
+      // override per mount; and a phone's navigation stack (R13).
+      address: options.address || (config.options && config.options.embed && config.options.embed.address) || '',
+      stack: !!(config.options && config.options.stack),
     };
     if ((pcfg.hosted_code || pcfg.hosted_state) && env.history && typeof env.history.replaceState === 'function' && env.location) {
       try {

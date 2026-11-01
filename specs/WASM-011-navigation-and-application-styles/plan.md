@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Plan — Navigation and application styles (WASM-011)
 
-- **Status:** revised 2026-10-22 against the spec as it now stands (operator decisions Q1–Q5 and Q7 of 2026-10-22, Q6 of 2026-10-20, R16 / AC11 added with the layers work of 2.0.26). **Built and measured:** R2, R4 (routes and parameters), R5 (hash), R9, R11 (replica form), R14, and R1's project setting. **Not built:** R3 on the web, R6, R7, R8, R10's event, R11's suspension, R12's lifecycle, R13, R16, same-window standalone (Q4), several applications on one page (Q7). The plan for those is below.
+- **Status:** implemented 2026-11-01 (2.0.127) except where named. **Built and tested:** R1 to the bundle, R2, R3 on the web (the Build's shared check and the player's run-time refusal, no manifest field: the description carries the format), R4/R5 with an SPA without a shell, one address owner per page (Q7), R6 (not found; the sign-in hook is WASM-009's gate), R7, R8, R10's event, R12's `pagehide` close, R13's `stack` flag, R16 (drawn by WASM-004). **Not built:** R11's suspension of `super::` (T17: the generator's suspend point, WASM-010 phase C), same-window standalone (T22: PQ1, PQ2 not answered). **Browser runs owed:** AC2–AC5, AC8, AC9, AC1's `pr_dbg_live` half, AC6's sign-in half, two applications on one page (§6). PQ1–PQ4 are still the operator's; the names in §8 are working assumptions. The plan's ABI rows "A10"/"A11" were taken by WASM-010 meanwhile; this spec's row is **A20**, and A10's manifest field was not needed.
 - **Spec:** ./spec.md   **Date:** 2026-10-22 (first version 2026-10-20)
 
 ## 0. What changed in this revision, and why
@@ -156,18 +156,27 @@ The loader already merges `config.texts` over `DEFAULT_TEXTS` for its own panels
 - **Headless Chrome (and Firefox for AC4), through the fixture bundles of `cobolt-web-bundle/examples/fixture_bundle.rs`:** AC1 (three SideMenu forms, address changes, Back, reload, `pr_dbg_live` before/after); AC2 (statement after `OpenFormSync` not run until close); AC3 (new tab seen by the browser, caller resumed at close); AC4 (timer-driven open with popups blocked → failure + notice + event); AC5 (fixture with `ON EXCEPTION`: write/read/call through `super::`, then the opener closed → the handler's `ON EXCEPTION` branch runs); AC6 (unknown route → notice, event, route replaced; the sign-in half when WASM-009 R11 lands); AC7 (axe-core-style check of focus on the title and the live region — run by the browser tooling, not a file in the repository); AC8 (Back and tab close prompt); AC9 with `stack: true` (and in the WASM-012 shell when it exists); AC11 when A9 is in the manifest; two applications on one page (only the owner writes the hash). Each run reports the browser version, the bundle and what was seen.
 - **Not runnable here yet, stated plainly:** the mobile shell (WASM-012), the sign-in outcome (WASM-009 R11), the IDE Build path (WASM-002's backend not linked).
 
+### 6.1 Runs recorded (2026-11-01)
+
+| Run | Browser | Bundle | Seen |
+|---|---|---|---|
+| `cobolt-web-bundle/tests/navigation_chrome.rs` | Chrome 156.0.8078.80, headless | the fixture program, plain, `Isolation::RequireCorp`, served by `devserver` | start: live region `main-form`, focus on the main form's root, address owned; `#/child-form` typed: opened over the main form (no shell), announced, its title focused; Back: closed, hash empty; `#/no-such-form`: only the main form, the English notice, the address taken back |
+| `cobolt-web-bundle/tests/page_layers.rs` | the same | the fixture's main form with two layers | the root clips; each layer inside it, a stacking context after the base, hidden and inert at start (R16) |
+
+Not run here, owed (T25): AC1 with three SideMenu forms and `pr_dbg_live`, AC2, AC3, AC4 (Chromium and Firefox), AC5, AC6's sign-in half, AC8, AC9, two applications on one page.
+
 ## 7. Steering compliance
 
-- [ ] i18n: the player's texts in six languages (§1.12); Tr keys ×6 for any new IDE choice.
+- [x] i18n: the player's texts in six languages (§1.12, `src/texts.rs`); no new IDE choice was added (T22 not started).
 - [x] Generated-code contract: routes and entry pages are generated from the form list by the bundle, never hand-edited; nothing here edits generated COBOL.
-- [ ] System KB: the web behaviour of `OpenFormSync`/`OpenFormAsync`, `super`, `SetUnsavedChanges` and the two events in the `cobolt-compiler` documentation tables, `assets/knowledge/chunked.data` rebuilt, the freshness test green.
-- [ ] Interpreter/binary parity: `SetUnsavedChanges` accepted by the interpreter and by the compiled binary's host.
+- [x] System KB: the web behaviour of `OpenFormSync`/`OpenFormAsync`, `super`, `SetUnsavedChanges` and the two events in the `cobolt-compiler` documentation tables, `assets/knowledge/chunked.data` rebuilt, the freshness test green.
+- [x] Interpreter/binary parity: `SetUnsavedChanges` accepted by the interpreter and by the compiled binary's host.
 - [x] Self-resizing windows: a standalone window gets no size from the player; the application never resizes its own window.
 - [x] PRIME DIRECTIVE: no new non-Rust source; `loader.js` (tracked) only forwards configuration; browser checks are run by tooling outside the tree.
 - [x] `README.md` and `docs/` untouched (2.x.x).
 - [x] User code is sacred: nothing rewrites a developer's form or COBOL.
-- [ ] Fix vs feature: **feature** on `features-2x`; each change bumps `z` with a `CHANGELOG.md` entry (no minor bump).
-- [ ] `WASM-ABI-v1.md` A10, A11, §12.1, §12.2 updated in the same commits as the code.
+- [x] Fix vs feature: **feature** on `features-2x`; one `z` bump (2.0.127) with one `CHANGELOG.md` entry (no minor bump).
+- [x] `WASM-ABI-v1.md` updated with the code: row **A20**, §12.1 (`SetUnsavedChanges`), §12.2 (the two events). A10 (a manifest field) was not needed; A11 (the suspended `super::` query) waits with T17.
 
 ## 8. Open questions (for the operator; the plan's working assumptions are in §1)
 

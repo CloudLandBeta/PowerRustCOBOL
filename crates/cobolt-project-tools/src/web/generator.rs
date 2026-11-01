@@ -262,6 +262,21 @@ impl GeneratorBackend {
             }
             forms.push(loaded);
         }
+        // FormFormat (049 R17, 051 R26; WASM-011 R3): the Desktop Build's own load-path rules on the same map — an open
+        // of an `Embedded` form named by a literal, and a menu item whose target's format forbids its path.
+        let stems: Vec<String> =
+            forms.iter().map(|f| Path::new(&f.rel).file_stem().and_then(|s| s.to_str()).unwrap_or(&f.rel).to_owned()).collect();
+        let map = cobolt_compiler::form_formats_map(stems.iter().map(String::as_str).zip(forms.iter().map(|f| &f.form)));
+        for (stem, f) in stems.iter().zip(&forms) {
+            for d in cobolt_semantic::load_path_errors(&f.program, &map) {
+                refused.push(diag(location_in(&f.rel, &f.lines, d.span.line), WebDiagnosticKind::Other, String::new(), d.message));
+            }
+            let path = req.project_dir.join(&f.rel);
+            let dir = path.parent().unwrap_or(&req.project_dir);
+            if let Some((file, message)) = cobolt_compiler::menu_load_path_problem(stem, dir, &f.form, &map) {
+                refused.push(diag(file, WebDiagnosticKind::Other, String::new(), message));
+            }
+        }
         if !refused.is_empty() {
             return Err(WebBuildError::Refused(refused));
         }
@@ -983,13 +998,11 @@ impl WebBuildBackend for GeneratorBackend {
                     })
             })
             .collect();
-        use cobolt_compiler::project_kind::{ApplicationStyle, Isolation};
+        use cobolt_compiler::project_kind::Isolation;
         let (backend_contract, backend_idempotent) = backend_contract(&req.project_dir);
         let options = BundleOptions {
-            style: match req.web.style {
-                ApplicationStyle::Spa => AppStyle::Spa,
-                ApplicationStyle::Standalone => AppStyle::Standalone,
-            },
+            // One mapping, shared with the test fixtures (WASM-011 R1).
+            style: AppStyle::from_name(req.web.style.as_str()).unwrap_or_default(),
             title: req.name.clone(),
             isolation: match req.web.isolation {
                 Isolation::Off => cobolt_web_bundle::Isolation::Off,

@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.143 — 2026-11-01 — WASM-011: a Web application's routes, its FormFormat check, the not-found and popup-blocked events, focus and announcement, unsaved changes
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.126.)*
+
+WASM-011 (navigation and application styles), following the agent decisions of 2026-11-01 recorded under each task. The details and the evidence are in `specs/WASM-011-navigation-and-application-styles/tasks.md`; the ABI row is A20 in `specs/WASM-ABI-v1.md`.
+
+* **`FormFormat` keeps its meaning on the web** (R3). The Web Build did not run the desktop's 049 R17 check; now both builds share it (`cobolt_semantic::load_path_errors`, `cobolt_compiler::menu_load_path_problem`), with the same messages. The player refuses a form named by a data item at run time, reading the format from the form's description: an `Embedded` form opened by `OpenFormSync` / `OpenFormAsync` fails into `ON EXCEPTION`, and a `Standalone` form loaded into the ContentPane is reported under the form.
+* **Routes** (R4, R5, Q7). An SPA without a SideMenu follows its address too: a typed or pasted `#/form` opens the form as a panel over the main form, and Back closes it. A modal or panel is part of the address.
+  * One application per page owns the address (`data-pr-address-owner`). An application mounted in another page's element leaves that page's address alone unless the Build or the mount says `address: "own"`.
+  * Two loaders share one player instance, so the panic hook is a list.
+* **An address that names no form** (R6). The main form stays, a notice says so, the address is taken back, and `onRouteNotFound` is raised on the main form with the name. A protected route goes through WASM-009's sign-in gate.
+* **A blocked popup** (R10) raises `onPopupBlocked` on the opener with the form's name, and the waiting caller is released.
+* **Focus and announcement** (R7). Every form that arrives takes the focus on its title, is announced through one polite live region, and its content is scrolled to the top.
+* **Unsaved changes** (R8). `INVOKE me::"SetUnsavedChanges"(1|0)` marks a form. While a form is marked, closing the tab asks the browser's question, and Back or a menu load asks Leave / Stay. The desktop accepts the verb and does nothing (interpreter and binary).
+* **A closing standalone tab** (R12) runs its forms' closing handlers within `pagehide`, and a handler that waits is abandoned. The opener sees the window closed.
+* **The phone's stack** (R13). `options.stack` makes panels and dialogs full-screen screens.
+* **The player's own texts** are in six languages, overridable by the page's `texts`.
+* **The style reaches the bundle** (R1) through the Web Build's backend, by one pinned mapping.
+* **System KB.** `form_layout_and_events.md` gains *Navigation in a Web application* and the two events, the event count is corrected to 61, and `chunked.data` is rebuilt.
+* **Still open:**
+  * T17: the `super::` suspension needs the generator's suspend point, WASM-010 phase C.
+  * T22: same-window standalone, gated on PQ1 and PQ2.
+  * T13's and T25's remaining browser runs (AC2–AC5, AC8, AC9, the `pr_dbg_live` half of AC1, AC6 with a provider, two applications on one page).
+  * PQ1–PQ4 remain the operator's; the names `onRouteNotFound`, `onPopupBlocked` and `SetUnsavedChanges` are working assumptions.
+
 ## 2.0.142 — 2026-11-01 — WASM-001 T17: a new Backend's authentication programs come from its `[identity]` section; the native-project step waits for WASM-012
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.125.)*

@@ -156,3 +156,38 @@ fn dynamic_targets_and_unknown_forms_are_not_checked() {
     assert!(errs.is_empty(), "unknown form is skipped: {errs:?}");
     println!("dynamic + unknown targets skipped (0 errors), 5/5 cases covered");
 }
+
+/// WASM-011 R3, AC10 — the rule a Web Build runs (`load_path_errors`) is the one the full analysis applies: the same
+/// call refused with the same message, in a handler (a contained program) as in the main one, and nothing else reported.
+#[test]
+fn the_web_builds_load_path_check_gives_the_desktop_error_word_for_word() {
+    let src = r#"    INVOKE ME::"OpenFormSync"("CRM-PANEL") RETURNING WS-H.
+    INVOKE ME "OpenFormAsync" USING "CUST-LOOKUP" "Normal" 0 0 100 100.
+    MOVE "CRM-PANEL" TO WS-H.
+    INVOKE ME::"OpenFormAsync"(WS-H)."#;
+    let desktop = errors_with_map(src);
+    let web: Vec<String> = cobolt_semantic::load_path_errors(&program_with(src), &forms_map()).into_iter().map(|d| d.message).collect();
+    assert_eq!(web.len(), 1, "one literal Embedded target; the dynamic one is the player's: {web:?}");
+    assert!(desktop.contains(&web[0]), "the desktop reports the same text: {desktop:?} / {web:?}");
+
+    // In a contained program (a form's event handler is one).
+    let nested = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. MAIN-FORM.
+PROCEDURE DIVISION.
+    STOP RUN.
+IDENTIFICATION DIVISION.
+PROGRAM-ID. BTN-GO--ONCLICK.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-H PIC X(8).
+PROCEDURE DIVISION.
+    INVOKE ME::\"OpenFormAsync\"(\"CRM-PANEL\") RETURNING WS-H.
+END PROGRAM BTN-GO--ONCLICK.
+END PROGRAM MAIN-FORM.
+";
+    let program = parse(tokenize(nested, SourceFormat::Free)).program.expect("parses");
+    let web = cobolt_semantic::load_path_errors(&program, &forms_map());
+    assert_eq!(web.len(), 1, "{web:?}");
+    assert!(web[0].message.contains("CRM-PANEL") && web[0].message.contains("(049 R17)"));
+}

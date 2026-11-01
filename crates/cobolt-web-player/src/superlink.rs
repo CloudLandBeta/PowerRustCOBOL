@@ -85,6 +85,8 @@ pub(crate) struct Links {
     child: Option<ChildLink>,
     /// The `pagehide` listener (kept here so the page can free it): a window that goes away tells the windows it opened.
     hide: Option<Closure<dyn FnMut()>>,
+    /// The `pagehide` listener of a standalone window: its forms' closing handlers run as it goes away (WASM-011 R12).
+    pub(crate) closing: Option<Closure<dyn FnMut(web_sys::Event)>>,
 }
 
 fn parse(ev: &MessageEvent) -> Option<serde_json::Value> {
@@ -99,6 +101,9 @@ impl Drop for Links {
     /// The player is going away: the page keeps no listener that would call into it, and no channel stays open.
     fn drop(&mut self) {
         if let (Some(f), Some(w)) = (&self.hide, web_sys::window()) {
+            let _ = w.remove_event_listener_with_callback("pagehide", f.as_ref().unchecked_ref());
+        }
+        if let (Some(f), Some(w)) = (&self.closing, web_sys::window()) {
             let _ = w.remove_event_listener_with_callback("pagehide", f.as_ref().unchecked_ref());
         }
         for l in &self.opened {

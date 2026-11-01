@@ -2322,55 +2322,8 @@ fn build_core(
     if let Some((parsed, map)) = &form_formats {
         for (stem, abs, form) in parsed {
             let cfrm_dir = abs.parent().unwrap_or(project_dir.as_path());
-            for ctrl in walk_controls(&form.controls) {
-                if !matches!(
-                    ctrl.control_type,
-                    cobolt_forms::ControlType::SideMenu | cobolt_forms::ControlType::MenuBar
-                ) {
-                    continue;
-                }
-                let yaml = cobolt_forms::menu::menu_yaml_path(cfrm_dir, &ctrl.id);
-                if !yaml.exists() {
-                    continue;
-                }
-                let Ok(def) = cobolt_forms::menu::load_menu(&yaml) else {
-                    continue;
-                };
-                let lookup = |name: &str| {
-                    map.get(&name.trim().to_ascii_uppercase()).map(|f| match f {
-                        cobolt_semantic::FormLoadFormat::Standalone => {
-                            cobolt_forms::model::FormFormat::Standalone
-                        }
-                        cobolt_semantic::FormLoadFormat::Embedded => {
-                            cobolt_forms::model::FormFormat::Embedded
-                        }
-                        cobolt_semantic::FormLoadFormat::Both => {
-                            cobolt_forms::model::FormFormat::Both
-                        }
-                    })
-                };
-                let violations = cobolt_forms::menu::validate_menu_targets(&def, &lookup);
-                if let Some(v) = violations.first() {
-                    // Each kind names the format the target HAS and the one
-                    // its action NEEDS (049 R17 / 051 R26).
-                    let message = match v.kind {
-                        cobolt_forms::menu::MenuTargetKind::Embed => format!(
-                            "menu item '{}' ({}) loads form '{}', whose FormFormat is \
-                             Standalone — a menu load requires Embedded or Both (049 R17).",
-                            v.item_id, v.item_label, v.form
-                        ),
-                        cobolt_forms::menu::MenuTargetKind::Standalone => format!(
-                            "menu item '{}' ({}) opens form '{}' standalone, but its \
-                             FormFormat is Embedded — a standalone open requires \
-                             Standalone or Both (051 R26).",
-                            v.item_id, v.item_label, v.form
-                        ),
-                    };
-                    return Err(CompilerError::Semantic {
-                        file: format!("{stem}.cfrm / {}", ctrl.id),
-                        message,
-                    });
-                }
+            if let Some((file, message)) = menu_load_path_problem(stem, cfrm_dir, form, map) {
+                return Err(CompilerError::Semantic { file, message });
             }
         }
     }
@@ -3709,7 +3662,7 @@ fn render_diagnostic(msg: &serde_json::Value, level: &str) -> String {
 /// UPPERCASE form id → format. Each form is keyed by its `.cfrm` file stem —
 /// what `OpenForm*` targets and menu `open-form:` actions name — and by the
 /// form's own name when it differs.
-fn form_formats_map<'a>(
+pub fn form_formats_map<'a>(
     forms: impl Iterator<Item = (&'a str, &'a cobolt_forms::Form)>,
 ) -> std::collections::HashMap<String, cobolt_semantic::FormLoadFormat> {
     let mut map = std::collections::HashMap::new();
@@ -3728,6 +3681,64 @@ fn form_formats_map<'a>(
         }
     }
     map
+}
+
+/// 049 R17 / 051 R26 — the first item of form `stem`'s menus (each SideMenu's and
+/// MenuBar's YAML beside the `.cfrm`) whose target's FormFormat forbids the path
+/// the item opens it by: `(where, message)`. The Desktop and the Web Build both
+/// refuse it (WASM-011 R3); `map` is [`form_formats_map`]'s.
+pub fn menu_load_path_problem(
+    stem: &str,
+    cfrm_dir: &std::path::Path,
+    form: &cobolt_forms::Form,
+    map: &std::collections::HashMap<String, cobolt_semantic::FormLoadFormat>,
+) -> Option<(String, String)> {
+    for ctrl in walk_controls(&form.controls) {
+        if !matches!(
+            ctrl.control_type,
+            cobolt_forms::ControlType::SideMenu | cobolt_forms::ControlType::MenuBar
+        ) {
+            continue;
+        }
+        let yaml = cobolt_forms::menu::menu_yaml_path(cfrm_dir, &ctrl.id);
+        if !yaml.exists() {
+            continue;
+        }
+        let Ok(def) = cobolt_forms::menu::load_menu(&yaml) else {
+            continue;
+        };
+        let lookup = |name: &str| {
+            map.get(&name.trim().to_ascii_uppercase()).map(|f| match f {
+                cobolt_semantic::FormLoadFormat::Standalone => {
+                    cobolt_forms::model::FormFormat::Standalone
+                }
+                cobolt_semantic::FormLoadFormat::Embedded => {
+                    cobolt_forms::model::FormFormat::Embedded
+                }
+                cobolt_semantic::FormLoadFormat::Both => cobolt_forms::model::FormFormat::Both,
+            })
+        };
+        let violations = cobolt_forms::menu::validate_menu_targets(&def, &lookup);
+        if let Some(v) = violations.first() {
+            // Each kind names the format the target HAS and the one
+            // its action NEEDS (049 R17 / 051 R26).
+            let message = match v.kind {
+                cobolt_forms::menu::MenuTargetKind::Embed => format!(
+                    "menu item '{}' ({}) loads form '{}', whose FormFormat is \
+                     Standalone — a menu load requires Embedded or Both (049 R17).",
+                    v.item_id, v.item_label, v.form
+                ),
+                cobolt_forms::menu::MenuTargetKind::Standalone => format!(
+                    "menu item '{}' ({}) opens form '{}' standalone, but its \
+                     FormFormat is Embedded — a standalone open requires \
+                     Standalone or Both (051 R26).",
+                    v.item_id, v.item_label, v.form
+                ),
+            };
+            return Some((format!("{stem}.cfrm / {}", ctrl.id), message));
+        }
+    }
+    None
 }
 
 /// Depth-first walk over a control list and every control's nested children.
@@ -6059,7 +6070,7 @@ Setting `X`/`Y` alone moves nothing unless `StartPosition` is also `"Custom"`.
 
 ## Form events — the complete catalogue
 
-A form supports **57** events, all `on`-prefixed, in these groups. Bind them the
+A form supports **61** events, all `on`-prefixed, in these groups. Bind them the
 way control events are bound.
 
 Eleven were **retired on 2026-09-06** and are no longer offered: `onPaint`,
@@ -6096,12 +6107,16 @@ nothing will ever call it.
 - **Drag & Drop** — `onDragEnter`, `onDragLeave`, `onDragOver`, `onDrop`
 - **Clipboard** — `onCut`, `onCopy`, `onPaste`
 - **System / OS** — `onSystemColorChanged`
-- **Error Handling** — `onUnhandledException`, `onBackendUnreachable`
+- **Error Handling** — `onUnhandledException`, `onBackendUnreachable`,
+  `onRouteNotFound`, `onPopupBlocked`
 
 `onBackendUnreachable` fires when the connection to the backend gave up after its
 three attempts (see *A lost connection* under *Calling the backend*), on the form the
 page started with — the main form of a single-page application. It is raised by the
 web player; the desktop form host does not raise it yet.
+
+`onRouteNotFound` and `onPopupBlocked` are web events too (see *Navigation in a Web
+application* below); a desktop form never receives them.
 
 `onCloseRejected` fires when a close attempt was refused because the form (or a
 synchronous child of it) is `Waiting`. `onFullScreenChanged` fires when the
@@ -6220,6 +6235,60 @@ opened it, on both paths — a menu load and `OpenFormSync` / `OpenFormAsync`.
 - Each opened form runs as its **own program with its own WORKING-STORAGE**.
   Forms never read each other's data items; they talk through published form
   properties, `super::X`, and windowHandler methods.
+
+## Navigation in a Web application
+
+A Web (or Mobile) project chooses its **application style** in its settings
+(`[web] style` in `cobolt.toml`, chosen at New Project and changeable before a
+Build): **`spa`** (the default) or **`standalone`**. The same COBOL runs in both;
+only what an opening verb shows differs.
+
+- **Single-page application (`spa`)** — one browser page. `OpenFormSync` shows
+  the form as a modal dialog and the caller waits until it is closed, as on the
+  desktop; `OpenFormAsync` shows it as a panel over the opener and the caller runs
+  on. A SideMenu item loads its form into the ContentPane.
+- **Standalone (`standalone`)** — every form is its own browser tab. `OpenFormSync`
+  and `OpenFormAsync` open a new tab; an `OpenFormSync` caller waits until that tab
+  is closed. A browser that blocks the new tab is a normal failure: the caller is
+  released, a notice tells the user to allow pop-ups, and **`onPopupBlocked`** is
+  raised on the opener's form with the name of the form that was not opened.
+
+**`FormFormat` keeps its meaning on the web.** The Web Build refuses, with the
+desktop's own messages, an `OpenFormSync` / `OpenFormAsync` of an `Embedded` form
+named by a literal and a menu item that loads a `Standalone` form. A form named by
+a data item is checked when it runs: the open fails, and the statement's
+`ON EXCEPTION` runs.
+
+**The address is a route.** A single-page application writes the form on top in
+the page's address as `#/form-name?name=value`, so Back closes it, Forward opens
+it again, and a bookmarked or pasted address opens the same form **with the same
+opening parameters** (`GetParam`, `GetParams`) — never the data it held, which is
+the program's to load again in `onLoad`. An address that names no form of the
+application leaves the main form shown, shows a notice, takes the address back,
+and raises **`onRouteNotFound`** on the main form with the name the address gave.
+An application mounted inside another page's element leaves that page's address
+alone.
+
+**Unsaved changes.** `INVOKE me::"SetUnsavedChanges"(1)` marks the form as holding
+work not yet saved, and `(0)` clears the mark (a form's mark also goes when it is
+destroyed). While any shown form is marked, closing the tab asks the browser's own
+question, and Back or a menu item that would leave the form asks *Leave* or
+*Stay* first. On the desktop the verb is accepted and does nothing.
+
+```cobol
+           INVOKE me::"SetUnsavedChanges"(1).
+           *> … the record is saved …
+           INVOKE me::"SetUnsavedChanges"(0).
+```
+
+**`super` across tabs (standalone).** A form opened in its own tab still reaches
+its opener through `super::`: a write and a procedure call travel to the opener's
+tab, and a read answers the opener's published properties. Both tabs must be the
+same site in the same browser profile. When the opener's tab is closed, a
+`super::` statement fails and its `ON EXCEPTION` runs — write one wherever the
+opener may be gone. When a standalone tab is closed, its forms' closing handlers
+run as far as the browser lets a closing page run; a handler
+that would wait for something is abandoned.
 "##;
     docs.push(("form_layout_and_events.md", layout.to_string()));
 

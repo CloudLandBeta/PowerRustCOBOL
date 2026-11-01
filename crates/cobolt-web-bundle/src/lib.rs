@@ -63,10 +63,29 @@ impl BudgetLine {
 /// The start of the budget warning, for a caller that shows it in another language.
 pub const OVER_BUDGET_PREFIX: &str = "the first download is";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppStyle {
+    /// One page; forms load into the shell's ContentPane or open as in-page dialogs and panels (WASM-011 R2).
+    #[default]
     Spa,
+    /// Each form is a page of its own.
     Standalone,
+}
+
+impl AppStyle {
+    /// The style as `cobolt.toml` spells it (`[web] style`, `cobolt_compiler::project_kind::ApplicationStyle::as_str`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AppStyle::Spa => "spa",
+            AppStyle::Standalone => "standalone",
+        }
+    }
+
+    /// The bundle's style for the project's `[web] style` / `[mobile] style` (WASM-011 R1): the one mapping the Build
+    /// and the test fixtures share. `None` for a name that is no style.
+    pub fn from_name(name: &str) -> Option<AppStyle> {
+        [AppStyle::Spa, AppStyle::Standalone].into_iter().find(|s| s.as_str().eq_ignore_ascii_case(name.trim()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,8 +200,16 @@ pub struct BundleOptions {
     /// holding an Authentication control.
     pub sign_in_form: Option<String>,
     /// Override the host page's texts (the developer translates them): `loading`, `unsupported`, …; the player's
-    /// "connecting" modal reads `connecting`, `unreachable` and `reload` (WASM-016 R20–R21).
+    /// "connecting" modal reads `connecting`, `unreachable` and `reload` (WASM-016 R20–R21), and its navigation
+    /// notices `popup_blocked`, `route_not_found` (`{form}` is the name), `leave_unsaved`, `leave` and `stay`
+    /// (WASM-011, `cobolt_web_player::texts::KEYS`).
     pub texts: BTreeMap<String, String>,
+    /// Does the application follow and write the page's address (WASM-011 R5, Q7)? `None`: when it is the page
+    /// ([`Embed::Window`]) yes, when it is mounted into someone else's element no — the host page's address is the
+    /// host page's. Written to `config.json` as `options.embed.address` (`"own"` / `"none"`).
+    pub own_address: Option<bool>,
+    /// A phone's navigation stack (WASM-011 R13, Q5): every form opened over another is a full screen. `options.stack`.
+    pub stack: bool,
     /// A release build refuses every `unsafe` setting (WASM-013 R11).
     pub release: bool,
     pub unsafe_plain_ws: bool,
@@ -242,6 +269,8 @@ impl Default for BundleOptions {
             known_secrets: secrets::KnownSecrets::default(),
             sign_in_form: None,
             texts: BTreeMap::new(),
+            own_address: None,
+            stack: false,
             release: true,
             unsafe_plain_ws: false,
             skip_secret_scan: false,
@@ -867,6 +896,14 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     let app_css_path = b.add_hashed("app.css", hostpage::app_css(o.backdrop.as_deref(), &font_path, &faces_css).into_bytes());
 
     // texts, options and the config the loader reads
+    // Whose the page's address is (WASM-011 R5, Q7): the page's own application's, not one mounted into another page.
+    let embed_cfg = {
+        let address = if o.own_address.unwrap_or(matches!(o.embed, Embed::Window)) { "own" } else { "none" };
+        match &o.embed {
+            Embed::Window => json!({"mode": "window", "address": address}),
+            Embed::Element { selector } => json!({"mode": "element", "selector": selector, "address": address}),
+        }
+    };
     let mut texts = serde_json::Map::new();
     for (k, v) in &o.texts {
         texts.insert(k.clone(), Value::String(v.clone()));
@@ -899,7 +936,8 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
             // What the player lets a stylesheet load from at run time (`css_is_safe`): the images' origins and the
             // fonts', the list the Build checked the sheets against (WASM-007 R13).
             "image_origins": csp_opts.extra_img.iter().chain(csp_opts.extra_font.iter().filter(|f| !csp_opts.extra_img.contains(f))).cloned().collect::<Vec<_>>(),
-            "embed": match &o.embed { Embed::Window => json!({"mode": "window"}), Embed::Element { selector } => json!({"mode": "element", "selector": selector}) },
+            "embed": embed_cfg,
+            "stack": o.stack,
         },
         "texts": Value::Object(texts),
         "versions": {"abi": cobolt_wasm_abi::ABI_VERSION, "description": DESCRIPTION_VERSION, "loader": LOADER_VERSION},

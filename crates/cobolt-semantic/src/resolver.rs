@@ -725,36 +725,11 @@ impl<'a> ResolveCtx<'a> {
     /// when the target is a literal and the project supplied its form map;
     /// a data-item target is dynamic and stays a runtime concern.
     fn check_open_form_target(&mut self, method: &str, args: &[Expr]) {
-        let m = method.trim().to_ascii_uppercase();
-        // 051 R26 — the SideMenu's OpenStandAloneForm* pair opens the same
-        // standalone path, so it obeys the same gate.
-        if !matches!(
-            m.as_str(),
-            "OPENFORMSYNC" | "OPENFORMASYNC" | "OPENSTANDALONEFORMSYNC" | "OPENSTANDALONEFORMASYNC"
-        ) {
-            return;
-        }
         let Some(formats) = self.form_formats else {
             return;
         };
-        let Some(Expr::Literal(Literal::String(id), span)) = args.first() else {
-            return;
-        };
-        let key = id.trim().to_ascii_uppercase();
-        if let Some(fmt) = formats.get(&key) {
-            if !fmt.allows_standalone() {
-                self.error(
-                    format!(
-                        "INVOKE {}: form '{}' has FormFormat Embedded — it is loaded \
-                         from a sidebar menu, never opened as a window. Set its \
-                         FormFormat to Standalone or Both to open it with {} (049 R17).",
-                        method.trim(),
-                        id.trim(),
-                        method.trim(),
-                    ),
-                    *span,
-                );
-            }
+        if let Some((message, span)) = open_form_target_error(method, args, formats) {
+            self.error(message, span);
         }
     }
 
@@ -1359,4 +1334,41 @@ pub(crate) fn closest_object<'a>(name: &str, known: impl Iterator<Item = &'a str
         .filter(|(d, k)| *d <= (k.len().max(name.len()) / 3).max(2))
         .min()
         .map(|(_, k)| k.to_string())
+}
+
+/// The 049 R17 load-path rule, once for every caller: the resolver's pass, and
+/// [`crate::load_path_errors`] that a Web Build runs (WASM-011 R3). `None` when
+/// the call is not an open, its target is not a literal, or the form allows it.
+pub(crate) fn open_form_target_error(
+    method: &str,
+    args: &[Expr],
+    formats: &std::collections::HashMap<String, crate::FormLoadFormat>,
+) -> Option<(String, cobolt_lexer::Span)> {
+    let m = method.trim().to_ascii_uppercase();
+    // 051 R26 — the SideMenu's OpenStandAloneForm* pair opens the same
+    // standalone path, so it obeys the same gate.
+    if !matches!(
+        m.as_str(),
+        "OPENFORMSYNC" | "OPENFORMASYNC" | "OPENSTANDALONEFORMSYNC" | "OPENSTANDALONEFORMASYNC"
+    ) {
+        return None;
+    }
+    let Some(Expr::Literal(Literal::String(id), span)) = args.first() else {
+        return None;
+    };
+    let fmt = formats.get(&id.trim().to_ascii_uppercase())?;
+    if fmt.allows_standalone() {
+        return None;
+    }
+    Some((
+        format!(
+            "INVOKE {}: form '{}' has FormFormat Embedded — it is loaded \
+             from a sidebar menu, never opened as a window. Set its \
+             FormFormat to Standalone or Both to open it with {} (049 R17).",
+            method.trim(),
+            id.trim(),
+            method.trim(),
+        ),
+        *span,
+    ))
 }

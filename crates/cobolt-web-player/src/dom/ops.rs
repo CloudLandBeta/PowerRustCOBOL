@@ -207,7 +207,7 @@ impl Shared {
                     // With `noopener` the browser answers null whether or not it opened the page: only a
                     // loosened link can tell that a pop-up blocker refused it.
                     if opened.is_none() && !rel_isolates(&plan.rel) {
-                        self.notice("The browser blocked the new window. Allow pop-ups for this site and try again.");
+                        self.notice(&crate::texts::text(&inner.cfg.locale, &inner.cfg.texts, "popup_blocked"));
                         return;
                     }
                 }
@@ -252,9 +252,13 @@ impl Shared {
             Some(win) => self.watch_window(handle.to_owned(), win, 0),
             None => {
                 // A popup blocker refused it (a call from a timer, or after a wait): tell the user how
-                // to allow it, and release the suspended caller with a failure, never leave it hanging.
-                self.notice("The browser blocked the new window. Allow pop-ups for this site and try again.");
-                inner.push(Inbox::ChildClosed(handle.to_owned()));
+                // to allow it, release the suspended caller with a failure, never leave it hanging, and
+                // raise `onPopupBlocked` on the opener (WASM-011 R10).
+                self.notice(&crate::texts::text(&inner.cfg.locale, &inner.cfg.texts, "popup_blocked"));
+                let handle = handle.to_owned();
+                inner.push(Inbox::Raw(Box::new(move |inner| {
+                    inner.host.borrow_mut().popup_blocked(&handle, opener, form);
+                })));
             }
         }
     }
@@ -433,7 +437,7 @@ impl Shared {
             Some(i) => {
                 inner.host.borrow_mut().open_form_with(i, opener, mode, params);
             }
-            None => self.notice(&format!("The application has no form named {form}.")),
+            None => self.notice(&crate::texts::route_not_found(&inner.cfg.locale, &inner.cfg.texts, form)),
         }
     }
 
@@ -449,8 +453,46 @@ impl Shared {
             interact::item_of(&cx, ctl, item).map(|i| interact::menu_target(&i)).unwrap_or(MenuTarget::None)
         };
         let shell_on = self.state.try_borrow().map(|s| s.shell).unwrap_or(false);
+        // FormFormat (049 R17, WASM-011 R3): the Build checks the menu's targets; a page built from an older menu is
+        // refused here, as a run-time error, rather than loading a form where it was never meant to be.
+        let refused = |form: &str, pane: bool| -> bool {
+            let Ok(mut host) = inner.host.try_borrow_mut() else { return false };
+            let Some(i) = host.manifest.form_by_name(form).map(|f| f.id as usize) else { return false };
+            let r = if pane { host.may_load_in_pane(i) } else { host.may_open_standalone(i) };
+            match r {
+                Ok(()) => false,
+                Err(e) => {
+                    host.refuse_open(i, &format!("the menu item `{item}`: {e}"));
+                    true
+                }
+            }
+        };
         match target {
             MenuTarget::Embed { form, preserve_previous } => {
+                if shell_on && refused(&form, true) {
+                    return;
+                }
+                // The forms this load takes off the page (spec 049 R25): the ContentPane's chain above the item's form,
+                // unless the item keeps them resident. One holding unsaved changes asks first (WASM-011 R8).
+                if shell_on && !preserve_previous {
+                    let leaving: Vec<u32> = self
+                        .state
+                        .try_borrow()
+                        .map(|st| {
+                            let at = st.chain.iter().position(|c| c.inst == inst).unwrap_or(0);
+                            st.chain[at + 1..].iter().map(|c| c.inst).collect()
+                        })
+                        .unwrap_or_default();
+                    let item = item.to_owned();
+                    let again = Box::new(move |sh: &Rc<Shared>| {
+                        if let Some(inner) = sh.inner.upgrade() {
+                            sh.resolve_menu_item(&inner, inst, ctl, &item);
+                        }
+                    });
+                    if !self.may_leave(inner, &leaving, false, again) {
+                        return;
+                    }
+                }
                 if let Ok(mut st) = self.state.try_borrow_mut() {
                     st.preserve_next = preserve_previous;
                 }
@@ -458,6 +500,9 @@ impl Shared {
                 self.open_named(inner, &form, Some(inst), mode, Vec::new());
             }
             MenuTarget::Standalone { form, sync } => {
+                if refused(&form, false) {
+                    return;
+                }
                 let mode = if inner.cfg.standalone {
                     OpenMode::Window
                 } else if sync {
@@ -592,8 +637,28 @@ impl Shared {
 
     // ── the address (WASM-011 R4) ───────────────────────────────────────────
 
-    /// The address names a form: show it (a deep link at start-up, the Back button later).
+    /// The navigation, bottom to top: the shell's chain (the main form, then the ContentPane's forms) or the main form
+    /// alone, then the dialogs and panels the program opened, in the order they opened. The address names the top.
+    pub(crate) fn nav_chain(&self) -> Vec<u32> {
+        let Ok(st) = self.state.try_borrow() else { return Vec::new() };
+        let mut out: Vec<u32> = st.chain.iter().map(|c| c.inst).collect();
+        for &i in &st.overlays {
+            if st.instances.contains_key(&i) && !out.contains(&i) {
+                out.push(i);
+            }
+        }
+        out
+    }
+
+    /// The address names a form: show it (a deep link at start-up, the Back button later). In an application with a
+    /// shell it loads into the ContentPane when its FormFormat allows it; otherwise, and in an application without a
+    /// shell, it opens as a panel over the main form, the shape `OpenFormAsync` gives it (R2), so every route the player
+    /// writes can be followed back. An address that names no form leaves the page as it was, says so, takes the bad
+    /// address back out of the history and raises `onRouteNotFound` on the main form (R6).
     pub(crate) fn follow_address(self: &Rc<Self>, inner: &Rc<Inner>) {
+        if !inner.cfg.owns_address() {
+            return;
+        }
         let hash = web_sys::window().and_then(|w| w.location().hash().ok()).unwrap_or_default();
         let route = AppRoute::parse(&hash);
         // An empty address is where the application started: the main form (Back past the first route).
@@ -601,34 +666,61 @@ impl Shared {
         if route.is_none() && !(hash.trim().is_empty() || hash.trim() == "#") {
             return;
         }
-        let (shell_on, in_chain, above): (bool, bool, Vec<u32>) = {
-            let Ok(st) = self.state.try_borrow() else { return };
-            match &route {
-                None => (st.shell, true, st.chain.iter().skip(1).rev().map(|c| c.inst).collect()),
-                Some(route) => {
-                    let at = st.chain.iter().position(|c| st.instances.get(&c.inst).is_some_and(|iv| iv.form.eq_ignore_ascii_case(&route.form)));
-                    // The form is already shown, but opened with other parameters than the address names: it is
-                    // opened again (the shown one is replaced), not left as it was.
-                    let same_params = |inst: u32| inner.host.try_borrow().ok().and_then(|h| h.trees.get(&inst).map(|t| t.params == route.params)).unwrap_or(true);
-                    match at {
-                        Some(a) if same_params(st.chain[a].inst) => (st.shell, true, st.chain[a + 1..].iter().rev().map(|c| c.inst).collect()),
-                        _ => (st.shell, false, Vec::new()),
-                    }
-                }
+        let chain = self.nav_chain();
+        let Some(&main) = chain.first() else { return };
+        let shell_on = self.state.try_borrow().map(|s| s.shell).unwrap_or(false);
+        let at = match &route {
+            None => Some(0),
+            Some(route) => {
+                let Ok(st) = self.state.try_borrow() else { return };
+                // The form is already shown, but opened with other parameters than the address names: it is opened
+                // again (the shown one is replaced), not left as it was.
+                let same_params = |inst: u32| inner.host.try_borrow().ok().and_then(|h| h.trees.get(&inst).map(|t| t.params == route.params)).unwrap_or(true);
+                chain.iter().position(|i| st.instances.get(i).is_some_and(|iv| iv.form.eq_ignore_ascii_case(&route.form)) && same_params(*i))
             }
         };
-        if !shell_on {
+        // What following the address takes off the page; a form there holding unsaved changes asks first (R8).
+        let leaving: Vec<u32> = match at {
+            Some(a) => chain[a + 1..].iter().rev().copied().collect(),
+            None => chain[1..].iter().rev().copied().collect(),
+        };
+        let back = Box::new(|_: &Rc<Shared>| {
+            if let Some(h) = web_sys::window().and_then(|w| w.history().ok()) {
+                let _ = h.back();
+            }
+        });
+        if !self.may_leave(inner, &leaving, true, back) {
             return;
         }
-        if in_chain {
-            for i in above {
-                inner.push(Inbox::CloseInstance(i));
+        match (at, &route) {
+            (Some(_), _) => {
+                for i in leaving {
+                    inner.push(Inbox::CloseInstance(i));
+                }
             }
-        } else if let Some(route) = &route {
-            let main = self.state.try_borrow().ok().and_then(|st| st.chain.first().map(|c| c.inst));
-            if let Some(main) = main {
-                self.open_named(inner, &route.form, Some(main), OpenMode::Embedded, route.params.clone());
+            (None, Some(route)) => {
+                let form = inner.host.try_borrow().ok().and_then(|h| h.manifest.form_by_name(&route.form).map(|f| f.id as usize));
+                let Some(form) = form else {
+                    self.notice(&crate::texts::route_not_found(&inner.cfg.locale, &inner.cfg.texts, &route.form));
+                    self.sync_address_with(true);
+                    let name = route.form.clone();
+                    inner.push(Inbox::Raw(Box::new(move |inner| {
+                        inner.host.borrow_mut().route_not_found(&name);
+                    })));
+                    return;
+                };
+                let pane = shell_on && inner.host.try_borrow().map(|h| h.may_load_in_pane(form).is_ok()).unwrap_or(false);
+                if !pane {
+                    // A panel goes over the main form: what was over it is taken away first, as a pane load replaces
+                    // the ContentPane's form.
+                    for i in leaving {
+                        inner.push(Inbox::CloseInstance(i));
+                    }
+                }
+                let mode = if pane { OpenMode::Embedded } else { OpenMode::Panel };
+                self.open_named(inner, &route.form, Some(main), mode, route.params.clone());
             }
+            (None, None) => {}
         }
     }
 
@@ -644,6 +736,81 @@ impl Shared {
                 }
             }
         }))
+    }
+
+    // ── unsaved changes (WASM-011 R8) ───────────────────────────────────────
+
+    /// Closing the tab or reloading while a form holds unsaved changes: the browser's own question (a page may not
+    /// word it, and asks it only after the user has interacted with the page).
+    pub(crate) fn watch_unload(self: &Rc<Self>) -> Option<h::Listener> {
+        let w = web_sys::window()?;
+        let weak = Rc::downgrade(self);
+        let target: web_sys::EventTarget = w.into();
+        Some(h::Listener::new(&target, "beforeunload", move |ev| {
+            let Some(sh) = weak.upgrade() else { return };
+            let Some(inner) = sh.inner.upgrade() else { return };
+            let marked = inner.host.try_borrow().map(|h| h.has_unsaved(None)).unwrap_or(false);
+            if marked {
+                ev.prevent_default();
+                let _ = Reflect::set(ev.as_ref(), &"returnValue".into(), &"".into());
+            }
+        }))
+    }
+
+    /// May the forms in `leaving` be taken off the page? Yes when none holds unsaved changes, or when the user already
+    /// said to leave. Otherwise the player asks, in the page's language, and answers no for now: Leave runs `then`, which
+    /// does the navigation again (`Back` again, the menu item again) and is let through this time; Stay leaves everything
+    /// as it is. For `Back` (`from_address`) the browser has already moved, and a `popstate` cannot be cancelled: the
+    /// address being left is put back first.
+    pub(crate) fn may_leave(self: &Rc<Self>, inner: &Rc<Inner>, leaving: &[u32], from_address: bool, then: Box<dyn FnOnce(&Rc<Shared>)>) -> bool {
+        if leaving.is_empty() {
+            return true;
+        }
+        if let Ok(mut st) = self.state.try_borrow_mut() {
+            if std::mem::take(&mut st.leave_confirmed) {
+                return true;
+            }
+        }
+        let marked = inner.host.try_borrow().map(|h| h.has_unsaved(Some(leaving))).unwrap_or(false);
+        if !marked {
+            return true;
+        }
+        if from_address {
+            self.sync_address_with(false);
+        }
+        let weak = Rc::downgrade(self);
+        self.ask_leave(inner, Box::new(move |leave| {
+            if !leave {
+                return;
+            }
+            let Some(sh) = weak.upgrade() else { return };
+            if let Ok(mut st) = sh.state.try_borrow_mut() {
+                st.leave_confirmed = true;
+            }
+            then(&sh);
+        }));
+        false
+    }
+
+    /// Ask "leave with unsaved changes?" in an in-page dialog; `answer(true)` when the user chose Leave.
+    pub(crate) fn ask_leave(self: &Rc<Self>, inner: &Rc<Inner>, answer: Box<dyn FnOnce(bool)>) {
+        let t = |k: &str| crate::texts::text(&inner.cfg.locale, &inner.cfg.texts, k);
+        let id = {
+            let Ok(mut st) = self.state.try_borrow_mut() else { return };
+            // The program's dialogs count up from 1; the player's own questions are numbered from the top down.
+            let id = u32::MAX - 0x1000 - st.next_leave_ask % 0x1000;
+            st.next_leave_ask += 1;
+            st.leave_asks.insert(id, answer);
+            id
+        };
+        self.show_dialog(DialogSpec {
+            id,
+            kind: crate::host::DialogKind::Confirm,
+            title: String::new(),
+            text: t("leave_unsaved"),
+            buttons: format!("{}|{}", t("leave"), t("stay")),
+            default: String::new(),
+        });
     }
 }
 

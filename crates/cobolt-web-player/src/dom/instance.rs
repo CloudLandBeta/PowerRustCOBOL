@@ -199,6 +199,11 @@ impl Shared {
         h::attr(&root, "data-pr-form", &built.form);
         h::attr(&root, "data-pr-inst", &inst.to_string());
         h::attr(&root, "aria-label", &built.title);
+        // The form's root takes the focus when it is shown in the page itself (WASM-011 R7): it is labelled with the
+        // title, focusable by script and never by Tab.
+        if matches!(mode, OpenMode::Root | OpenMode::Embedded) {
+            h::attr(&root, "tabindex", "-1");
+        }
         let base = h::el(doc, "div", &["pr-form"]);
         if built.responsive {
             h::attr(&base, "data-responsive", "");
@@ -367,11 +372,15 @@ impl Shared {
                 // A form window opens at its designed size, responsive or not, as the desktop's child window
                 // does (form-host `with_inner_size(child.size)`): a responsive form fills its frame, so a frame
                 // left to its contents had a body of no height — a title chip whose controls could not be reached.
-                let frame = shell::modal_frame(&built.title, true, Some(built.size));
+                // On a phone's stack (WASM-011 R13) it is a screen: the whole area, at no designed size.
+                let frame = shell::modal_frame(&built.title, true, (!inner.cfg.stack).then_some(built.size));
                 let d = self.dispatch(Route::Frame(inst));
                 let rec = nodes::create(doc, &frame, None, &d);
                 if let Some(body) = nodes::find_key(&rec, "body") {
                     h::append(&body, &root);
+                }
+                if inner.cfg.stack {
+                    let _ = rec.el.class_list().add_1("pr-screen");
                 }
                 h::append(&self.root, &rec.el);
                 let _ = Reflect::get(&rec.el, &"showModal".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()).map(|f| f.call0(&rec.el));
@@ -379,13 +388,17 @@ impl Shared {
             }
             OpenMode::Panel | OpenMode::Window => {
                 let n = self.state.try_borrow().map(|s| s.panels).unwrap_or(0);
-                let offset = (24.0 + (n % 8) as f64 * 28.0, 24.0 + (n % 8) as f64 * 28.0);
-                // At its designed size, as a modal window is (above).
-                let frame = shell::panel_frame(&built.title, Some(built.size), offset);
+                let stack = inner.cfg.stack;
+                let offset = if stack { (0.0, 0.0) } else { (24.0 + (n % 8) as f64 * 28.0, 24.0 + (n % 8) as f64 * 28.0) };
+                // At its designed size, as a modal window is (above); a screen of the phone's stack fills the area.
+                let frame = shell::panel_frame(&built.title, (!stack).then_some(built.size), offset);
                 let d = self.dispatch(Route::Frame(inst));
                 let rec = nodes::create(doc, &frame, None, &d);
                 if let Some(body) = nodes::find_key(&rec, "body") {
                     h::append(&body, &root);
+                }
+                if stack {
+                    let _ = rec.el.class_list().add_1("pr-screen");
                 }
                 h::append(&self.chrome.layer, &rec.el);
                 iv.frame = Some(rec);
@@ -394,8 +407,16 @@ impl Shared {
                 }
             }
         }
+        let overlay = matches!(mode, OpenMode::Modal | OpenMode::Panel) && !inner.cfg.standalone;
         if let Ok(mut st) = self.state.try_borrow_mut() {
             st.instances.insert(inst, iv);
+            if overlay {
+                st.overlays.push(inst);
+            }
+        }
+        if overlay {
+            // A dialog or panel of a single-page application is a place the address names (WASM-011 R4).
+            self.sync_address();
         }
         if mode == OpenMode::Embedded {
             // The chain was extended before the instance was recorded: show only the top form and put its
@@ -415,9 +436,13 @@ impl Shared {
             self.with_ui(inst, |ui| ui.sidebar_collapsed = Some(collapsed));
             self.update_rail(inner, inst, menu, collapsed);
             self.mark_dirty(inst, menu);
+        }
+        if mode == OpenMode::Root && inner.cfg.owns_address() {
+            // The address may name a form to show (a deep link, a reload; WASM-011 R4, Q1), with or without a shell.
             let sh = self.clone();
             inner.push(Inbox::Raw(Box::new(move |inner| sh.follow_address(inner))));
         }
+        self.arrive(inst, mode, &built.title);
         // The start-up handler may already have written to the new instance: draw those writes too.
         self.mark_dirty(inst, 0);
         // Its animations' triggers, and the ones that start with the form (P4).
@@ -434,8 +459,9 @@ impl Shared {
             st.files.retain(|(i, _), _| *i != inst);
             st.dirty.retain(|(i, _)| *i != inst);
             st.toasts.retain(|t| t.inst != inst);
-            let before = st.chain.len();
+            let before = st.chain.len() + st.overlays.len();
             st.chain.retain(|c| c.inst != inst);
+            st.overlays.retain(|i| *i != inst);
             if st.content_inst == Some(inst) {
                 st.content_inst = None;
             }
@@ -443,7 +469,7 @@ impl Shared {
             if removed.as_ref().is_some_and(|iv| !iv.inline.is_empty()) {
                 st.refresh_inline();
             }
-            (removed, st.chain.len() != before)
+            (removed, st.chain.len() + st.overlays.len() != before)
         };
         if let Some(iv) = iv {
             if matches!(iv.mode, OpenMode::Panel | OpenMode::Window) {
@@ -461,6 +487,7 @@ impl Shared {
         self.adopt();
         if shell_changed {
             self.sync_shell(inner);
+            self.sync_address();
         }
         // The last form of the page closed and none is being opened: the application has ended, as the desktop's does
         // when its main window closes. (The IDE's preview closes every form to take a new module in place: it opens
@@ -1000,16 +1027,24 @@ impl Shared {
     /// The address bar follows the form being shown (WASM-011 R4): a hash route, which works on any
     /// static host without server configuration and does not touch the host page's own path.
     pub(crate) fn sync_address(self: &Rc<Self>) {
+        self.sync_address_with(false);
+    }
+
+    /// As [`Shared::sync_address`]; `replace` rewrites the current history entry instead of adding one (an address
+    /// that named no form is taken back, so Back does not return to it — WASM-011 R6). Only the application that owns
+    /// the address writes it (R5, Q7); a standalone window's address is its own page's.
+    pub(crate) fn sync_address_with(self: &Rc<Self>, replace: bool) {
         let Some(inner) = self.inner.upgrade() else { return };
-        if inner.cfg.standalone {
+        if !inner.cfg.owns_address() {
             return;
         }
+        let chain = self.nav_chain();
         let (name, at_root, params) = {
             let Ok(st) = self.state.try_borrow() else { return };
-            let top = st.chain.last();
-            let name = top.and_then(|c| st.instances.get(&c.inst)).map(|iv| iv.form.clone());
-            let params = top.and_then(|c| inner.host.try_borrow().ok().and_then(|h| h.trees.get(&c.inst).map(|t| t.params.clone()))).unwrap_or_default();
-            (name, st.chain.len() <= 1, params)
+            let top = chain.last();
+            let name = top.and_then(|i| st.instances.get(i)).map(|iv| iv.form.clone());
+            let params = top.and_then(|i| inner.host.try_borrow().ok().and_then(|h| h.trees.get(i).map(|t| t.params.clone()))).unwrap_or_default();
+            (name, chain.len() <= 1, params)
         };
         let Some(name) = name else { return };
         // The main form is the page's own address (no route): Back from the first route lands on it, and
@@ -1017,7 +1052,7 @@ impl Shared {
         let hash = if at_root { String::new() } else { shell::Route { form: name.clone(), params }.to_hash() };
         if let Some(w) = web_sys::window() {
             let current = w.location().hash().unwrap_or_default();
-            let same = current == hash || (hash.is_empty() && shell::Route::parse(&current).is_none());
+            let same = current == hash || (hash.is_empty() && shell::Route::parse(&current).is_none() && !replace);
             if !same {
                 if let Ok(h) = w.history() {
                     let url = if hash.is_empty() {
@@ -1025,10 +1060,40 @@ impl Shared {
                     } else {
                         hash.clone()
                     };
-                    let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&url));
+                    let _ = if replace { h.replace_state_with_url(&JsValue::NULL, "", Some(&url)) } else { h.push_state_with_url(&JsValue::NULL, "", Some(&url)) };
                 }
             }
         }
+    }
+}
+
+impl Shared {
+    /// A form is shown (WASM-011 R7): the focus moves to its title — a dialog's or a panel's title bar, the form's own
+    /// root (labelled with the title) in the page — the title is written into the live region for assistive technology,
+    /// and the place it is shown in starts at the top. The title is the developer's own text: nothing new to translate.
+    pub(super) fn arrive(self: &Rc<Self>, inst: u32, mode: OpenMode, title: &str) {
+        let target = {
+            let Ok(st) = self.state.try_borrow() else { return };
+            let Some(iv) = st.instances.get(&inst) else { return };
+            match &iv.frame {
+                Some(f) => nodes::find_key(f, "title").unwrap_or_else(|| iv.root.clone()),
+                None => iv.root.clone(),
+            }
+        };
+        match mode {
+            OpenMode::Embedded => self.chrome.content.set_scroll_top(0),
+            OpenMode::Root => self.chrome.main.set_scroll_top(0),
+            _ => {}
+        }
+        if let Some(he) = target.dyn_ref::<web_sys::HtmlElement>() {
+            let opts = web_sys::FocusOptions::new();
+            opts.set_prevent_scroll(true);
+            let _ = he.focus_with_options(&opts);
+        }
+        // The same title twice in a row is not announced again by a screen reader: a no-break space tells the two apart.
+        let live = &self.chrome.live;
+        let text = if live.text_content().as_deref() == Some(title) { format!("{title}\u{00A0}") } else { title.to_owned() };
+        live.set_text_content(Some(&text));
     }
 }
 

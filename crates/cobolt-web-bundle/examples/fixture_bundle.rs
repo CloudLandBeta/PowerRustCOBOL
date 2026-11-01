@@ -98,6 +98,10 @@ fn main() {
                 gallery::gallery_cfrm(&standard, &gallery::Options { responsive })
             } else if f.name == main_name && shell_on {
                 gallery::shell_cfrm(&standard)
+            } else if shell_on {
+                // The side menu loads the other form into the ContentPane, and the program opens it as a dialog too:
+                // FormFormat Both, as the Build requires of a menu's target (049 R17, WASM-011 R3).
+                standard.replacen("<Form ", "<Form form-format=\"Both\" ", 1)
             } else {
                 standard
             };
@@ -126,7 +130,7 @@ fn main() {
         player: PlayerInput { plain: variant(&player, "plain"), threaded: variant(&player, "threaded"), parts: parts(&player), build_info: std::fs::read_to_string(player.join("player-build.json")).ok(), components: Vec::new() },
         options: BundleOptions {
             isolation,
-            style: if standalone { AppStyle::Standalone } else { AppStyle::Spa },
+            style: AppStyle::from_name(if standalone { "standalone" } else { "spa" }).unwrap_or_default(),
             backend_origins: backend.into_iter().collect(),
             recaptcha_site_key: recaptcha,
             auth_flow: if auth_flow.is_empty() { BundleOptions::default().auth_flow } else { auth_flow },

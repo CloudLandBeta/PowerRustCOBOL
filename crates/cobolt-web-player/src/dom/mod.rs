@@ -97,6 +97,8 @@ pub(crate) struct Chrome {
     pub toasts: Element,
     pub banner: Element,
     pub net: Element,
+    /// The polite live region that announces each navigation (WASM-011 R7).
+    pub live: Element,
 }
 
 struct DialogRec {
@@ -130,6 +132,14 @@ pub(crate) struct State {
     pub files: HashMap<(u32, usize), Vec<web_sys::File>>,
     pub dirty: BTreeSet<(u32, usize)>,
     pub panels: u32,
+    /// The dialogs and panels the program opened over the page, in the order they opened (WASM-011 R4): the top of the
+    /// navigation after the shell's chain, so the address names them and Back closes them.
+    pub overlays: Vec<u32>,
+    /// The player's own "leave with unsaved changes?" questions (WASM-011 R8): what each answer does.
+    pub leave_asks: HashMap<u32, Box<dyn FnOnce(bool)>>,
+    pub next_leave_ask: u32,
+    /// The user chose to leave: the next address change is followed without asking again.
+    pub leave_confirmed: bool,
 }
 
 impl State {
@@ -148,7 +158,7 @@ pub(crate) struct Shared {
     pub chrome: Chrome,
     pub state: RefCell<State>,
     me: RefCell<Weak<Shared>>,
-    nav: RefCell<Option<h::Listener>>,
+    nav: RefCell<Vec<h::Listener>>,
     /// What the page highlighted for each Viewer whose Find bar is open (`dom/find.rs`).
     find: RefCell<find::FindMap>,
     /// The Canvas 2D controls the page has drawn on (WASM-018).
@@ -176,7 +186,25 @@ pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface
     let layer = mk("pr-layer");
     let toasts = mk("pr-toasts-host");
     let net = mk("pr-net-host");
+    // The live region as `shell::live_region` describes it (its attributes are fixed: it is never patched).
+    let live = {
+        let v = shell::live_region();
+        let e = h::el(&doc, "div", &["pr-live"]);
+        for (k, val) in &v.attrs {
+            h::attr(&e, k, val);
+        }
+        let _ = root.append_child(&e);
+        e
+    };
     h::attr(&pane, "hidden", "");
+    // One application on the page follows the address (WASM-011 R5, Q7): a second that asks for it is refused here.
+    if inner.cfg.owns_address() && !claim_address() {
+        let _ = root.remove_child(&live);
+        for e in [&banner, &main, &pane, &layer, &toasts, &net] {
+            e.remove();
+        }
+        return Err("another application on this page already follows the address: mount this one with `address: \"none\"`".into());
+    }
     let base = scope.new_sheet();
     base.set(&crate::base_css::base_layer());
     let theme = scope.new_sheet();
@@ -206,22 +234,31 @@ pub(crate) fn create(inner: &Rc<Inner>, root: Element) -> Result<Box<dyn Surface
         files: HashMap::new(),
         dirty: BTreeSet::new(),
         panels: 0,
+        overlays: Vec::new(),
+        leave_asks: HashMap::new(),
+        next_leave_ask: 0,
+        leave_confirmed: false,
     };
     let sh = Rc::new(Shared {
         inner: Rc::downgrade(inner),
         doc,
         root,
         scope,
-        chrome: Chrome { main, pane, crumb, content, layer, toasts, banner, net },
+        chrome: Chrome { main, pane, crumb, content, layer, toasts, banner, net, live },
         state: RefCell::new(state),
         me: RefCell::new(Weak::new()),
-        nav: RefCell::new(None),
+        nav: RefCell::new(Vec::new()),
         find: RefCell::new(Default::default()),
         canvas: RefCell::new(Default::default()),
         motion: RefCell::new(Default::default()),
     });
     *sh.me.borrow_mut() = Rc::downgrade(&sh);
-    let nav = sh.watch_address();
+    // The address is followed only by its owner; the unsaved-changes guard of a closing tab is every application's.
+    let mut nav = Vec::new();
+    if inner.cfg.owns_address() {
+        nav.extend(sh.watch_address());
+    }
+    nav.extend(sh.watch_unload());
     *sh.nav.borrow_mut() = nav;
     sh.adopt();
     // The room the application's window has, before its first form opens: what that form's `me::Width`, `me::Height` and
@@ -412,7 +449,11 @@ impl Shared {
         };
         if let Some(result) = result {
             self.close_dialog(id);
-            inner.push(Inbox::DialogResult { id, result });
+            let ask = self.state.try_borrow_mut().ok().and_then(|mut st| st.leave_asks.remove(&id));
+            match ask {
+                Some(answer) => answer(result == crate::texts::text(&inner.cfg.locale, &inner.cfg.texts, "leave")),
+                None => inner.push(Inbox::DialogResult { id, result }),
+            }
         }
     }
 
@@ -1102,5 +1143,29 @@ impl Shared {
         }
         self.scope.adopt(&[]);
         h::clear(&self.root);
+        self.nav.borrow_mut().clear();
+        if self.inner.upgrade().is_some_and(|i| i.cfg.owns_address()) {
+            release_address();
+        }
+    }
+}
+
+/// The page-wide mark of the application that follows the address (WASM-011 Q7). On the document, not in the player's
+/// memory: two applications on one page may or may not share one player instance (the loader imports the player by its
+/// address, and a module is instantiated once per address), and the mark must hold either way.
+const ADDRESS_OWNER: &str = "data-pr-address-owner";
+
+fn claim_address() -> bool {
+    let Some(de) = h::document().document_element() else { return true };
+    if de.has_attribute(ADDRESS_OWNER) {
+        return false;
+    }
+    h::attr(&de, ADDRESS_OWNER, "");
+    true
+}
+
+fn release_address() {
+    if let Some(de) = h::document().document_element() {
+        let _ = de.remove_attribute(ADDRESS_OWNER);
     }
 }
