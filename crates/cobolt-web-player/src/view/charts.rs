@@ -20,7 +20,6 @@
 use cobolt_forms::chart::{nice_step, parse_chart_rows, value_range, Row};
 
 use super::{VNode, ViewCtx};
-use crate::css::class_names;
 use crate::value::{fmt_number, parse_color, parse_f64, truthy};
 use cobolt_forms::model::ControlType;
 
@@ -54,20 +53,8 @@ fn size(cx: &ViewCtx, i: usize) -> (f64, f64) {
 
 fn svg_root(cx: &ViewCtx, i: usize, class: &'static str) -> (VNode, f64, f64) {
     let (w, h) = size(cx, i);
-    let c = cx.tree.ctl(i);
-    let n = VNode::new("div")
-        .key("root")
-        .classes(class_names(c))
-        .attr("data-name", c.name.clone())
-        .attr("id", c.name.clone())
-        .attr("role", "img");
-    let mut n = n;
-    if !c.visible() {
-        n = n.flag("hidden", true);
-    }
-    for d in super::controls::bound_dom_events(c) {
-        n = n.on(d);
-    }
+    // The element every control starts from (its tooltip, layer, availability), drawn as a picture (WASM-004 T32).
+    let n = super::controls::root(cx, i, "div").attr("role", "img");
     let svg = sv("svg").key("svg").class(class).attr("viewBox", format!("0 0 {} {}", f(w), f(h))).attr("preserveAspectRatio", "xMidYMid meet");
     (n.child(svg), w, h)
 }
@@ -817,6 +804,20 @@ mod tests {
         assert!(d.starts_with("M0 0"));
         assert!(d.ends_with("20 0"));
         assert_eq!(d.matches('C').count(), 2);
+    }
+
+    /// WASM-004 T32 (R11) — a control drawn as a picture keeps what every control's element carries:
+    /// its tooltip as `title` and its availability, as the other controls do (`controls::root`).
+    #[test]
+    fn a_chart_a_knob_a_gauge_and_a_shape_carry_their_tooltip_and_their_availability() {
+        for kind in ["BarChart", "Knob", "Gauge", "Shape"] {
+            let (t, i) = crate::tree::testing::tree_with(kind, "C-1", &[("Tooltip", "a tip"), ("Enabled", "0")]);
+            let e = super::super::Empty::default();
+            let n = super::super::controls::view(&e.cx(&t), i);
+            println!("{kind}: {}", n.describe());
+            assert_eq!(n.attr_of("title"), Some("a tip"), "{kind}");
+            assert!(n.has_class("pr-disabled") && n.attr_of("aria-disabled") == Some("true"), "{kind}");
+        }
     }
 
     #[test]

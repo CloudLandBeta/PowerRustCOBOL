@@ -21,6 +21,9 @@ cobolt-forms = { path = "../cobolt-forms", default-features = false }
 serde        = { workspace = true }
 serde_json   = { workspace = true }
 sha2         = { workspace = true }
+# The family a project's font file under Assets/ declares (its `name` table), so that the face is bundled for
+# the forms that name it (WASM-004 Q5). The version fontdb already brings in, in the lock file.
+ttf-parser   = "0.25"
 
 [dev-dependencies]
 tempfile = "3"

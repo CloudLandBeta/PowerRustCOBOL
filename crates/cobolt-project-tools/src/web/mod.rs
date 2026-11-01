@@ -25,6 +25,7 @@
 //! that owns the system web view, and the launcher that falls back to the
 //! system browser. [`presets`] are the device sizes the Preview offers.
 
+pub mod classes;
 pub mod devbackend;
 pub mod devserver;
 pub mod generator;
@@ -259,6 +260,10 @@ pub enum WebDiagnosticKind {
     /// mobile form; the subject is `CONTROL.Property`, never the value
     /// (WASM-005 R14, AC9).
     SecretOnForm,
+    /// Refused: a class D control or operation, which needs the local machine
+    /// (WASM-004 R5, AC4); the subject is the construct, the alternative is
+    /// in [`WebDiagnostic::alternative`].
+    UnavailableOnWeb,
 }
 
 /// One refusal or warning of a web build: where, what kind, about what, and the
@@ -271,6 +276,9 @@ pub struct WebDiagnostic {
     /// The construct, layer, property or limit a translated message names.
     pub subject: String,
     pub message: String,
+    /// What to use instead, in English, from the web classification's row
+    /// (`cobolt_forms::web_class`); empty but for [`WebDiagnosticKind::UnavailableOnWeb`].
+    pub alternative: String,
 }
 
 impl std::fmt::Display for WebDiagnostic {

@@ -1404,8 +1404,9 @@ pub fn page_html(p: &Page<'_>) -> String {
 }
 
 /// `app.css`: the host page's own styling (WASM-002 R10/R11). `backdrop` is the colour
-/// behind a see-through form theme ([`crate::BundleOptions::backdrop`]).
-pub fn app_css(backdrop: Option<&str>, font_url: &str) -> String {
+/// behind a see-through form theme ([`crate::BundleOptions::backdrop`]); `faces` are the `@font-face`
+/// rules of the project's own fonts ([`crate::font_faces`]), declared here for the same reason as the stand-in's.
+pub fn app_css(backdrop: Option<&str>, font_url: &str, faces: &str) -> String {
     let behind = match backdrop {
         Some(c) => format!(
             "\n/* A see-through form theme shows what is behind the window. A page has no desktop behind it, so\n   the application sits on a stand-in for one, and the text before it is drawn light. */\n#pr-app {{ color: rgb(255, 255, 255); background: {c}; }}\n"
@@ -1417,6 +1418,7 @@ pub fn app_css(backdrop: Option<&str>, font_url: &str) -> String {
     let font = format!("@font-face {{ font-family: \"PR Ubuntu Light\"; src: url(\"{font_url}\") format(\"truetype\"); font-weight: 100 900; font-style: normal; font-display: block; }}\n");
     String::from(BANNER_CSS)
         + &font
+        + faces
         + r#"/* SPDX-License-Identifier: Apache-2.0 */
 /* Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors */
 

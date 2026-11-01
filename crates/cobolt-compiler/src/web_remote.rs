@@ -31,13 +31,24 @@ use cobolt_lexer::Span;
 /// order. A call on any other receiver, and a property read (no parentheses),
 /// is not one.
 pub fn class_c_call_sites(program: &Program, form: &Form) -> Vec<CallSite> {
+    call_sites(program, form, |c, _| cobolt_wire::controls::of_control(c.control_type.as_str()).next().is_some())
+}
+
+/// The member calls in `program` that a browser cannot make (WASM-004 R5): a
+/// method of one of `form`'s controls that the web classification lists as
+/// class D for that control's type (`cobolt_forms::web_class::unavailable_operation`
+/// — a Viewer's `Print` and `Share`), in source order.
+pub fn class_d_call_sites(program: &Program, form: &Form) -> Vec<CallSite> {
+    call_sites(program, form, |c, method| cobolt_forms::web_class::unavailable_operation(&c.control_type, method).is_some())
+}
+
+/// The member calls on those of `form`'s controls for which `keep(control, method)` holds.
+fn call_sites(program: &Program, form: &Form, keep: impl Fn(&Control, &str) -> bool) -> Vec<CallSite> {
     let mut controls = Vec::new();
     flatten(&form.controls, &mut controls);
-    let is_class_c = |name: &str| {
-        controls.iter().any(|c| {
-            c.id.eq_ignore_ascii_case(name.trim())
-                && cobolt_wire::controls::of_control(c.control_type.as_str()).next().is_some()
-        })
+    let wanted = |name: &str, method: &str| {
+        let method = method.trim().trim_matches('"').trim_matches('\'');
+        controls.iter().any(|c| c.id.eq_ignore_ascii_case(name.trim()) && keep(c, method))
     };
     let mut sites = Vec::new();
     let Ok(tree) = serde_json::to_value(program) else { return sites };
@@ -49,7 +60,7 @@ pub fn class_c_call_sites(program: &Program, form: &Form) -> Vec<CallSite> {
             "Member" => {
                 if let Ok(Expr::Member { recv, member, args, parens: true, span }) = serde_json::from_value::<Expr>(node.clone()) {
                     if let Expr::Identifier(root, _) = recv.as_ref() {
-                        if is_class_c(root) {
+                        if wanted(root, &member) {
                             sites.push(site(root, &member, &args, span.line, span.col));
                         }
                     }
@@ -57,7 +68,7 @@ pub fn class_c_call_sites(program: &Program, form: &Form) -> Vec<CallSite> {
             }
             "Invoke" => {
                 if let Ok(Stmt::Invoke { object, method, args, span, .. }) = serde_json::from_value::<Stmt>(node.clone()) {
-                    if is_class_c(&object) {
+                    if wanted(&object, &method) {
                         sites.push(site(&object, &method, &args, span.line, span.col));
                     }
                 }

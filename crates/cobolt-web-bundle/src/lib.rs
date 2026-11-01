@@ -296,6 +296,9 @@ pub struct BuildReport {
     /// allowed by `img-src`) and fonts (`@font-face`, allowed by `font-src`). Sorted, no repeats.
     pub stylesheet_img_sources: Vec<String>,
     pub stylesheet_font_sources: Vec<String>,
+    /// The bytes of the font files the bundle carries: the stand-in face and every font file under `Assets/`
+    /// (WASM-004 Q5), against [`BuildReport::total_bytes`].
+    pub font_bytes: u64,
 }
 
 impl BuildReport {
@@ -307,6 +310,7 @@ impl BuildReport {
             s.push_str(&format!("  {:>10}  {}\n", l.bytes, l.path));
         }
         s.push_str(&format!("  {:>10}  total\n", self.total_bytes));
+        s.push_str(&format!("  {:>10}  of it font files ({}%)\n", self.font_bytes, font_percent(self.font_bytes, self.total_bytes)));
         let over = if self.budget.over() { ", over" } else { "" };
         s.push_str(&format!("  {:>10}  first download (budget {} bytes{over})\n\n", self.budget.first_download_bytes, self.budget.budget_bytes));
         s.push_str("Content-Security-Policy\n");
@@ -760,6 +764,15 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         let p = b.add_hashed(&format!("assets/{}", a.path.trim_start_matches("Assets/").trim_start_matches('/')), a.bytes.clone());
         assets_cfg.insert(a.path.clone(), Value::String(p));
     }
+    // The project's own fonts, for the families its forms name (WASM-004 Q5); a family it does not supply is named.
+    let font_plan = font_faces(described.values().map(|(f, _)| f), &input.assets);
+    let faces_css: String = font_plan.faces.iter().map(|f| f.rule(assets_cfg[&f.asset].as_str().unwrap_or_default())).collect();
+    for (family, forms) in &font_plan.unbundled {
+        warnings.push(format!(
+            "{UNBUNDLED_FONT_PREFIX} `{family}` (form {}) is not bundled: no font file under Assets/ supplies it, and a font only the operating system provides is not shipped; the page letters it in the visitor's own copy, else in the stand-in face",
+            forms.join(", ")
+        ));
+    }
 
     // the player variants live in a content-addressed directory
     let mut player_cfg = serde_json::Map::new();
@@ -824,7 +837,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     // (the Ubuntu Font Licence asks for that). A shadow root cannot declare a font: the page's own stylesheet does.
     let font_path = b.add_hashed("fonts/Ubuntu-Light.ttf", STAND_IN_FONT.to_vec());
     b.add("fonts/UFL.txt".into(), STAND_IN_FONT_LICENCE.to_vec());
-    let app_css_path = b.add_hashed("app.css", hostpage::app_css(o.backdrop.as_deref(), &font_path).into_bytes());
+    let app_css_path = b.add_hashed("app.css", hostpage::app_css(o.backdrop.as_deref(), &font_path, &faces_css).into_bytes());
 
     // texts, options and the config the loader reads
     let mut texts = serde_json::Map::new();
@@ -993,6 +1006,14 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     let mut sizes: Vec<SizeLine> = b.files.iter().map(|f| SizeLine { path: f.path.clone(), bytes: f.bytes.len() as u64 }).collect();
     sizes.sort_by(|a, c| a.path.cmp(&c.path));
     let total_bytes = sizes.iter().map(|s| s.bytes).sum();
+    // Q5: over half of the application in font files is a warning, never a failure.
+    let font_bytes = STAND_IN_FONT.len() as u64 + input.assets.iter().filter(|a| font_format(&a.path).is_some()).map(|a| a.bytes.len() as u64).sum::<u64>();
+    if font_bytes * 2 > total_bytes {
+        warnings.push(format!(
+            "{FONT_SHARE_PREFIX} {font_bytes} bytes, {}% of the application's {total_bytes} bytes (more than half): consider the system fonts only, by naming no font of your own (the stand-in face stays)",
+            font_percent(font_bytes, total_bytes)
+        ));
+    }
     let isolation_headers: Vec<(String, String)> = headers.iter().filter(|(k, _)| k.starts_with("Cross-Origin")).cloned().collect();
     let report = BuildReport {
         sizes,
@@ -1006,6 +1027,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         notes,
         stylesheet_img_sources: sheet_img.into_iter().collect(),
         stylesheet_font_sources: sheet_font.into_iter().collect(),
+        font_bytes,
     };
     Ok(BundleOutput { files: b.files, report })
 }
@@ -1021,6 +1043,152 @@ pub fn origin_of(url: &str) -> Option<String> {
         return None;
     }
     Some(format!("{scheme}://{host}"))
+}
+
+// ── fonts (WASM-004 Q5: bundle the fonts; warn above half the application) ──
+
+/// The start of the warning when the font files are more than half of the bundle, for a caller that shows it
+/// in another language.
+pub const FONT_SHARE_PREFIX: &str = "the font files are";
+/// The start of the warning that names a family a form uses and the bundle does not carry.
+pub const UNBUNDLED_FONT_PREFIX: &str = "the font family";
+
+/// The font files a browser loads with `@font-face`, by extension, and the `format()` each is declared in.
+const FONT_FORMATS: [(&str, &str); 4] = [(".ttf", "truetype"), (".otf", "opentype"), (".woff2", "woff2"), (".woff", "woff")];
+
+fn font_format(path: &str) -> Option<&'static str> {
+    let p = path.to_ascii_lowercase();
+    FONT_FORMATS.iter().find(|(ext, _)| p.ends_with(ext)).map(|(_, f)| *f)
+}
+
+/// Whether the desktop letters `family` in its built-in face, the stand-in the bundle always carries:
+/// `cobolt_forms::fonts::is_builtin` (behind the `render` feature, which this crate does not build), the rule
+/// the player's `css::font_family` spells too.
+fn is_builtin_family(family: &str) -> bool {
+    let f = family.trim();
+    f.is_empty() || f.eq_ignore_ascii_case("Arial") || f.eq_ignore_ascii_case("Helvetica") || f.eq_ignore_ascii_case("sans-serif")
+}
+
+/// A family name as two spellings of it are compared: case, spaces, hyphens and underscores ignored.
+fn family_key(name: &str) -> String {
+    name.chars().filter(|c| !matches!(c, ' ' | '-' | '_')).flat_map(char::to_lowercase).collect()
+}
+
+/// One face the bundle declares for a family a form names (WASM-004 Q5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontFace {
+    /// The family as the form spells it: the name the player's `font-family` asks for.
+    pub family: String,
+    /// The file under `Assets/` that supplies it, as the project names it.
+    pub asset: String,
+    /// `truetype`, `opentype`, `woff2` or `woff`.
+    pub format: &'static str,
+    /// The face's weight from its `OS/2` table; `None` when the file is the family's only face (it then
+    /// serves every weight, as the stand-in does) or cannot be read (WOFF and WOFF2 are compressed).
+    pub weight: Option<u16>,
+    pub italic: bool,
+}
+
+impl FontFace {
+    /// The `@font-face` rule, with the file at `url` (its hashed name in the bundle).
+    pub fn rule(&self, url: &str) -> String {
+        let weight = self.weight.map_or_else(|| "100 900".to_owned(), |w| w.to_string());
+        let style = if self.italic { "italic" } else { "normal" };
+        format!(
+            "@font-face {{ font-family: \"{}\"; src: url(\"{url}\") format(\"{}\"); font-weight: {weight}; font-style: {style}; font-display: block; }}\n",
+            self.family, self.format
+        )
+    }
+}
+
+/// What the bundle does with the families its forms name: the faces it declares, and the families it does
+/// not carry, each with the forms that name it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FontPlan {
+    pub faces: Vec<FontFace>,
+    pub unbundled: Vec<(String, Vec<String>)>,
+}
+
+/// The names a font file answers to: the families its `name` table declares (the family and the typographic
+/// family), and its file name without the extension.
+fn names_of_font(path: &str, bytes: &[u8]) -> (Vec<String>, Option<u16>, bool) {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
+    let mut names = vec![family_key(stem)];
+    let (mut weight, mut italic) = (None, false);
+    if let Ok(face) = ttf_parser::Face::parse(bytes, 0) {
+        for n in face.names() {
+            if n.name_id == ttf_parser::name_id::FAMILY || n.name_id == ttf_parser::name_id::TYPOGRAPHIC_FAMILY {
+                if let Some(s) = n.to_string() {
+                    names.push(family_key(&s));
+                }
+            }
+        }
+        weight = Some(face.weight().to_number());
+        italic = face.is_italic();
+    }
+    names.sort();
+    names.dedup();
+    (names, weight, italic)
+}
+
+/// The fonts of a bundle (WASM-004 Q5, plan §1.6): every family a control names in `FontName` that is not the
+/// built-in one is looked for among the project's font files under `Assets/` — by the family the file declares,
+/// or by its file name — and each file that supplies it becomes a face. A family no file supplies is **not**
+/// copied from the developer's machine (an operating system's fonts are not ours to ship): it is listed, and the
+/// page letters it in the visitor's own copy, else in the stand-in face.
+pub fn font_faces<'a>(forms: impl IntoIterator<Item = &'a Form>, assets: &[AssetInput]) -> FontPlan {
+    fn walk(cs: &[cobolt_forms::model::Control], form: &str, out: &mut BTreeMap<String, (String, Vec<String>)>) {
+        for c in cs {
+            if let Some(cobolt_forms::model::PropValue::String(n)) = c.properties.get("FontName") {
+                let spelled = n.trim().replace('"', "");
+                if !is_builtin_family(&spelled) {
+                    let e = out.entry(family_key(&spelled)).or_insert_with(|| (spelled, Vec::new()));
+                    if !e.1.iter().any(|f| f == form) {
+                        e.1.push(form.to_owned());
+                    }
+                }
+            }
+            walk(&c.children, form, out);
+        }
+    }
+    let mut named: BTreeMap<String, (String, Vec<String>)> = BTreeMap::new();
+    for f in forms {
+        walk(&f.controls, &f.name, &mut named);
+    }
+    let mut files: Vec<(&AssetInput, &'static str, Vec<String>, Option<u16>, bool)> = assets
+        .iter()
+        .filter_map(|a| {
+            let format = font_format(&a.path)?;
+            let (names, weight, italic) = names_of_font(&a.path, &a.bytes);
+            Some((a, format, names, weight, italic))
+        })
+        .collect();
+    files.sort_by(|x, y| x.0.path.cmp(&y.0.path));
+    let mut plan = FontPlan::default();
+    for (key, (spelled, forms)) in named {
+        let supplying: Vec<_> = files.iter().filter(|f| f.2.contains(&key)).collect();
+        if supplying.is_empty() {
+            plan.unbundled.push((spelled, forms));
+            continue;
+        }
+        let only = supplying.len() == 1;
+        for (a, format, _, weight, italic) in supplying {
+            plan.faces.push(FontFace {
+                family: spelled.clone(),
+                asset: a.path.clone(),
+                format,
+                weight: if only { None } else { *weight },
+                italic: *italic && !only,
+            });
+        }
+    }
+    plan
+}
+
+/// `part` as a whole percentage of `whole`, rounded to the nearest.
+fn font_percent(part: u64, whole: u64) -> u64 {
+    (part * 100 + whole / 2).checked_div(whole).unwrap_or(0)
 }
 
 fn sha2_concat(files: &[&(String, Vec<u8>)]) -> String {

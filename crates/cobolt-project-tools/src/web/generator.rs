@@ -78,6 +78,7 @@ fn diag(
         kind,
         subject,
         message,
+        alternative: String::new(),
     }
 }
 
@@ -108,7 +109,7 @@ fn location(form: Option<&LoadedForm>, gen_line: u32) -> String {
         .unwrap_or_default()
 }
 
-fn location_in(rel: &str, lines: &[SourceLine], gen_line: u32) -> String {
+pub(super) fn location_in(rel: &str, lines: &[SourceLine], gen_line: u32) -> String {
     match lines.iter().find(|l| l.gen_line == gen_line) {
         Some(l) => format!("{rel} ({}):{}", l.site, l.line),
         None if gen_line > 0 => format!("{rel}:{gen_line}"),
@@ -185,6 +186,9 @@ impl GeneratorBackend {
             for e in cobolt_codegen::remote_controls::deferred_grid_bindings(&form) {
                 refused.push(diag(rel.clone(), WebDiagnosticKind::Other, String::new(), e));
             }
+            // WASM-004 R5 (AC4): a control or a ToolBar action that needs the local
+            // machine, at its line in the form file.
+            refused.extend(super::classes::unavailable_controls(req.kind, rel, &cfrm, &form));
             let (src, map) = cobolt_codegen::generate_with_map(&form);
             let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(
                 &src,
@@ -213,11 +217,14 @@ impl GeneratorBackend {
                 }
                 continue;
             }
+            // WASM-004 R5: a handler's call of a method a browser cannot make (a Viewer's Print), at its handler line.
+            let program = parsed.program.expect("checked above");
+            refused.extend(super::classes::unavailable_calls(req.kind, rel, &form, &program, &lines));
             let mut loaded = LoadedForm {
                 rel: rel.clone(),
                 form,
                 cfrm,
-                program: parsed.program.expect("checked above"),
+                program,
                 lines,
                 sites: Vec::new(),
                 indexed: Vec::new(),

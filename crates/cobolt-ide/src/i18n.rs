@@ -459,6 +459,14 @@ pub struct Tr {
     pub wasm_diag_backend_only: &'static str,
     /// WASM-005 R14, AC9 — `{}` is `CONTROL.Property`; the value is never said.
     pub wasm_diag_secret_on_form: &'static str,
+    /// WASM-004 R5, AC4 — the first `{}` is the construct (`PLG-1 (acme:gizmo)`, `VWR-1::Print`),
+    /// the second the alternative, in English, from the web classification.
+    pub wasm_diag_unavailable_on_web: &'static str,
+    /// WASM-004 R5 — under the toolbox of a Web or Mobile project.
+    pub toolbox_web_hidden_note: &'static str,
+    /// WASM-004 R6 — the start of an approximate property's tooltip on a web or mobile form; the
+    /// approximation (English, from the fidelity table) follows it.
+    pub prop_web_approximate: &'static str,
     pub wasm_diag_unsupported: &'static str,
     pub wasm_diag_unknown_layer: &'static str,
     pub wasm_diag_unknown_layer_property: &'static str,
@@ -3057,6 +3065,9 @@ const EN: Tr = Tr {
     pk_build_package_note: "The web bundle is built. The Android and iOS package step needs the mobile shell, which this program does not include yet.",
     wasm_diag_backend_only: "{} runs on the Backend, not in a browser: call a Backend program with CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_secret_on_form: "{} holds a connection string or a key on a web form, which any visitor could read: clear it, put the value in a [[configuration]] of backend/backend.toml and name that configuration in BackendConfig.",
+    wasm_diag_unavailable_on_web: "{} is not available in a browser or on a device: {}",
+    toolbox_web_hidden_note: "Controls a browser cannot run (plug-in controls) are not listed in a Web or Mobile project.",
+    prop_web_approximate: "Approximate in a browser:",
     wasm_diag_unsupported: "{} cannot run in a WebAssembly module; move it to the Backend.",
     wasm_diag_unknown_layer: "{} is not a layer of this form.",
     wasm_diag_unknown_layer_property: "A layer has no property {}. Its properties are Name (read only), Visible, Transparency, BackgroundColor, the gradient properties, BackgroundImage and BackgroundImageMode.",
@@ -5199,6 +5210,9 @@ const ES: Tr = Tr {
     pk_build_package_note: "El paquete web está compilado. El paso del paquete de Android e iOS necesita el contenedor móvil, que este programa aún no incluye.",
     wasm_diag_backend_only: "{} se ejecuta en el Backend, no en un navegador: llame a un programa del Backend con CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_secret_on_form: "{} guarda una cadena de conexión o una clave en un formulario web, que cualquier visitante podría leer: bórrela, ponga el valor en una [[configuration]] de backend/backend.toml y nombre esa configuración en BackendConfig.",
+    wasm_diag_unavailable_on_web: "{} no está disponible en un navegador ni en un dispositivo: {}",
+    toolbox_web_hidden_note: "Los controles que un navegador no puede ejecutar (controles de complemento) no se muestran en un proyecto Web o Móvil.",
+    prop_web_approximate: "Aproximado en un navegador:",
     wasm_diag_unsupported: "{} no puede ejecutarse en un módulo WebAssembly; muévalo al Backend.",
     wasm_diag_unknown_layer: "{} no es una capa de este formulario.",
     wasm_diag_unknown_layer_property: "Una capa no tiene la propiedad {}. Sus propiedades son Name (solo lectura), Visible, Transparency, BackgroundColor, las propiedades del degradado, BackgroundImage y BackgroundImageMode.",
@@ -7342,6 +7356,9 @@ const PT: Tr = Tr {
     pk_build_package_note: "O pacote web está compilado. A etapa do pacote Android e iOS precisa do contêiner móvel, que este programa ainda não inclui.",
     wasm_diag_backend_only: "{} é executado no Backend, não em um navegador: chame um programa do Backend com CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_secret_on_form: "{} guarda uma string de conexão ou uma chave em um formulário web, que qualquer visitante poderia ler: apague-a, coloque o valor em uma [[configuration]] de backend/backend.toml e informe o nome dessa configuração em BackendConfig.",
+    wasm_diag_unavailable_on_web: "{} não está disponível em um navegador nem em um dispositivo: {}",
+    toolbox_web_hidden_note: "Os controles que um navegador não consegue executar (controles de plug-in) não aparecem em um projeto Web ou Mobile.",
+    prop_web_approximate: "Aproximado em um navegador:",
     wasm_diag_unsupported: "{} não pode ser executado em um módulo WebAssembly; mova-o para o Backend.",
     wasm_diag_unknown_layer: "{} não é uma camada deste formulário.",
     wasm_diag_unknown_layer_property: "Uma camada não tem a propriedade {}. Suas propriedades são Name (somente leitura), Visible, Transparency, BackgroundColor, as propriedades do degradê, BackgroundImage e BackgroundImageMode.",
@@ -9485,6 +9502,9 @@ const JA: Tr = Tr {
     pk_build_package_note: "Web バンドルはビルドされました。Android と iOS のパッケージ手順にはモバイルシェルが必要ですが、このプログラムにはまだ含まれていません。",
     wasm_diag_backend_only: "{} はブラウザーではなく Backend で実行されます。CALL … WITH WEBSOCKET LINKAGE で Backend のプログラムを呼び出してください。",
     wasm_diag_secret_on_form: "{} が Web フォームに接続文字列またはキーを保持しています。これは訪問者の誰もが読み取れます。値を消去し、backend/backend.toml の [[configuration]] に移して、その構成名を BackendConfig に指定してください。",
+    wasm_diag_unavailable_on_web: "{} はブラウザーやデバイスでは使用できません: {}",
+    toolbox_web_hidden_note: "ブラウザーで実行できないコントロール（プラグイン コントロール）は、Web またはモバイル プロジェクトには表示されません。",
+    prop_web_approximate: "ブラウザーでは近似表示:",
     wasm_diag_unsupported: "{} は WebAssembly モジュールでは実行できません。Backend に移してください。",
     wasm_diag_unknown_layer: "{} はこのフォームのレイヤーではありません。",
     wasm_diag_unknown_layer_property: "レイヤーにはプロパティ {} がありません。レイヤーのプロパティは Name（読み取り専用）、Visible、Transparency、BackgroundColor、グラデーションのプロパティ、BackgroundImage、BackgroundImageMode です。",
@@ -11627,6 +11647,9 @@ const ZH: Tr = Tr {
     pk_build_package_note: "Web 包已构建。Android 和 iOS 安装包这一步需要移动外壳，此程序尚未包含。",
     wasm_diag_backend_only: "{} 在后端运行，而不是在浏览器中：请用 CALL … WITH WEBSOCKET LINKAGE 调用后端程序。",
     wasm_diag_secret_on_form: "{} 在 Web 窗体上保存了连接字符串或密钥，任何访问者都能读取：请清除它，把值放进 backend/backend.toml 的 [[configuration]]，并在 BackendConfig 中填写该配置的名称。",
+    wasm_diag_unavailable_on_web: "{} 在浏览器或设备上不可用：{}",
+    toolbox_web_hidden_note: "浏览器无法运行的控件（插件控件）不会在 Web 或移动项目中列出。",
+    prop_web_approximate: "在浏览器中为近似效果：",
     wasm_diag_unsupported: "{} 无法在 WebAssembly 模块中运行；请将其移到后端。",
     wasm_diag_unknown_layer: "{} 不是此窗体的图层。",
     wasm_diag_unknown_layer_property: "图层没有属性 {}。图层的属性有 Name（只读）、Visible、Transparency、BackgroundColor、渐变属性、BackgroundImage 和 BackgroundImageMode。",
@@ -13776,6 +13799,9 @@ const FR: Tr = Tr {
     pk_build_package_note: "Le paquet Web est compilé. L'étape du paquet Android et iOS nécessite la coque mobile, que ce programme n'inclut pas encore.",
     wasm_diag_backend_only: "{} s'exécute sur le Backend, pas dans un navigateur : appelez un programme du Backend avec CALL … WITH WEBSOCKET LINKAGE.",
     wasm_diag_secret_on_form: "{} contient une chaîne de connexion ou une clé dans un formulaire web, que tout visiteur pourrait lire : effacez-la, placez la valeur dans une [[configuration]] de backend/backend.toml et indiquez le nom de cette configuration dans BackendConfig.",
+    wasm_diag_unavailable_on_web: "{} n'est pas disponible dans un navigateur ni sur un appareil : {}",
+    toolbox_web_hidden_note: "Les contrôles qu'un navigateur ne peut pas exécuter (contrôles de plug-in) ne sont pas listés dans un projet Web ou Mobile.",
+    prop_web_approximate: "Approximatif dans un navigateur :",
     wasm_diag_unsupported: "{} ne peut pas s'exécuter dans un module WebAssembly ; déplacez-le vers le Backend.",
     wasm_diag_unknown_layer: "{} n'est pas un calque de ce formulaire.",
     wasm_diag_unknown_layer_property: "Un calque n'a pas de propriété {}. Ses propriétés sont Name (lecture seule), Visible, Transparency, BackgroundColor, les propriétés du dégradé, BackgroundImage et BackgroundImageMode.",
@@ -15952,6 +15978,30 @@ mod i18n_tests {
             "provider manager named in {} languages; \"Models Manager\" absent from all",
             Language::ALL.len()
         );
+    }
+
+    /// WASM-004 T30 — the toolbox note, the approximate tooltip's start and the Check message of a
+    /// class D construct, in every language: present, translated, with their placeholders.
+    #[test]
+    fn the_web_control_strings_are_in_every_language() {
+        let en = Language::English.tr();
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            for (name, s, holes) in [
+                ("toolbox_web_hidden_note", tr.toolbox_web_hidden_note, 0),
+                ("prop_web_approximate", tr.prop_web_approximate, 0),
+                ("wasm_diag_unavailable_on_web", tr.wasm_diag_unavailable_on_web, 2),
+            ] {
+                assert!(!s.trim().is_empty(), "{lang:?} {name} is empty");
+                assert_eq!(s.matches("{}").count(), holes, "{lang:?} {name}: {s}");
+                assert!(!s.to_lowercase().contains("cobolt"), "{lang:?} {name}");
+            }
+            if lang != Language::English {
+                assert_ne!(tr.toolbox_web_hidden_note, en.toolbox_web_hidden_note, "{lang:?} is not translated");
+                assert_ne!(tr.wasm_diag_unavailable_on_web, en.wasm_diag_unavailable_on_web, "{lang:?} is not translated");
+            }
+            println!("{lang:?}: {}", tr.wasm_diag_unavailable_on_web);
+        }
     }
 
     #[test]

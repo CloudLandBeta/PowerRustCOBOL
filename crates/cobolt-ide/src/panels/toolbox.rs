@@ -454,6 +454,12 @@ fn user_control_offered_to(kind: ProjectKind, def: &UserControlDef) -> bool {
     def.controls.iter().all(|c| offered_to(kind, &ControlType::from_str(&c.control_type)))
 }
 
+/// The line under the toolbox of a Web or Mobile project saying that what a
+/// browser cannot run is not listed (WASM-004 R5); none on a Desktop project.
+fn kind_note(kind: ProjectKind, tr: &Tr) -> Option<&'static str> {
+    (!kind.is_desktop()).then_some(tr.toolbox_web_hidden_note)
+}
+
 /// The toolbox entries a project of `kind` is offered, in catalogue order.
 fn tools_for(kind: ProjectKind) -> impl Iterator<Item = &'static ToolEntry> {
     TOOLS.iter().filter(move |e| offered_to(kind, &e.ct))
@@ -586,6 +592,10 @@ impl ToolboxPanel {
                             }
                         }
                         render_user_controls(ui, tr, user_controls, kind, &filter_lo, &mut action, locked);
+                        if let Some(note) = kind_note(kind, tr) {
+                            ui.add_space(4.0);
+                            ui.add(egui::Label::new(RichText::new(note).small().weak()).wrap());
+                        }
                     } else {
                         let filtered: Vec<&ToolEntry> = tools_for(kind)
                             .filter(|e| e.label.to_ascii_lowercase().contains(&filter_lo))
@@ -2549,6 +2559,20 @@ mod project_kind_tests {
             assert_eq!(list.len(), desktop.len() - class_d.len());
             assert_eq!(hidden, class_d, "exactly the class D controls are hidden");
         }
+    }
+
+    #[test]
+    fn toolbox_web_and_mobile_list_no_class_d_type_and_say_so_desktop_says_nothing() {
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            assert_eq!(kind_note(ProjectKind::Desktop, &tr), None, "{lang:?}");
+            for kind in [ProjectKind::Web, ProjectKind::Mobile] {
+                let note = kind_note(kind, &tr).unwrap_or_default();
+                assert!(!note.trim().is_empty(), "{lang:?} {kind:?}");
+                assert!(tools_for(kind).all(|e| cobolt_forms::web_class::available_on_web(&e.ct)), "{kind:?}: no class D type listed");
+            }
+        }
+        println!("en: {}", kind_note(ProjectKind::Web, &crate::i18n::Language::English.tr()).unwrap());
     }
 
     #[test]

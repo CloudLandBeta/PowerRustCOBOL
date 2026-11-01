@@ -2432,6 +2432,7 @@ dependencies = [
  "cobolt-wasm-abi",
  "cobolt-web-bundle",
  "dirs 5.0.1",
+ "egui",
  "flate2",
  "native-tls",
  "png 0.17.16",
@@ -2629,6 +2630,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "ttf-parser",
  "tungstenite 0.28.0",
  "wasm-encoder 0.244.0",
 ]

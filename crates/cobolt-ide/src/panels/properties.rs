@@ -4869,6 +4869,7 @@ impl PropertiesPanel {
             None => Default::default(),
         };
         CSS_MARKS.with(|m| *m.borrow_mut() = marks);
+        WEB_FORM.with(|w| *w.borrow_mut() = self.web_project.then(|| tr.prop_web_approximate.to_owned()));
         RESET_LABEL.with(|l| *l.borrow_mut() = tr.prop_reset_to_base.to_owned());
         ScrollArea::vertical()
             .id_salt("properties_scroll")
@@ -14022,6 +14023,11 @@ fn rows_rect(keys: &[&str]) -> Option<Rect> {
 /// [`property_row`] for property `key` (when the label is not simply the
 /// property's name): hovering the name explains the property.
 fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl FnOnce(&mut Ui)) {
+    // WASM-004 R6 (Q3): on a web or mobile form a property with no use in a browser is not drawn; its value is
+    // left as it is, so the form file keeps it.
+    if web_fidelity(&row_key(label, key)).is_some_and(|f| f.fidelity == cobolt_forms::web_class::Fidelity::NotOnWeb) {
+        return;
+    }
     match search_admits(label, key) {
         RowAdmission::Hidden => return,
         RowAdmission::FirstInSection(title) => {
@@ -14119,9 +14125,7 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
                 ui.disable();
             }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                let key = key
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| label.replace(' ', "").trim_end_matches(':').to_owned());
+                let key = row_key(label, key);
                 // 056 R65 — overridden for the viewed breakpoint: a marker, and
                 // the way back to the base design.
                 if OVERRIDDEN.with(|o| o.borrow().contains(&key.to_ascii_lowercase())) {
@@ -14139,11 +14143,22 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
                     ui.label(RichText::new("CSS").small().strong().color(crate::theme::active().accent)).on_hover_text(tip);
                 }
                 let r = ui.add(egui::Label::new(shown).wrap());
-                match prop_help_text(ui, &key) {
-                    Some(t) => {
+                let help = prop_help_text(ui, &key);
+                if help.is_none() {
+                    record_help_miss(label);
+                }
+                // WASM-004 R6 — approximate in a browser: still edited here, and its tooltip says how.
+                match (approximate_tip(&key), help) {
+                    (Some(approx), Some(t)) => {
+                        r.on_hover_text(format!("{approx}\n\n{t}"));
+                    }
+                    (Some(approx), None) => {
+                        r.on_hover_text(approx);
+                    }
+                    (None, Some(t)) => {
                         r.on_hover_text(t);
                     }
-                    None => record_help_miss(label),
+                    (None, None) => {}
                 }
             });
         },
@@ -14200,6 +14215,26 @@ thread_local! {
     static RESET_REQUEST: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
     /// WASM-007 R12 — per lower-case property key, the "overridden by CSS" text of its mark.
     static CSS_MARKS: std::cell::RefCell<std::collections::HashMap<String, String>> = std::cell::RefCell::new(Default::default());
+    /// WASM-004 R6 — while a web or mobile form is inspected, the start of an approximate property's tooltip;
+    /// `None` on a desktop form, where every row is drawn as before.
+    static WEB_FORM: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The property a row edits: its key, else its English label without spaces or a trailing colon.
+fn row_key(label: &str, key: Option<&str>) -> String {
+    key.map(str::to_owned).unwrap_or_else(|| label.replace(' ', "").trim_end_matches(':').to_owned())
+}
+
+/// The web fidelity row of `key` while a web or mobile form is inspected (`cobolt_forms::web_class::FIDELITY`).
+fn web_fidelity(key: &str) -> Option<&'static cobolt_forms::web_class::PropertyFidelity> {
+    WEB_FORM.with(|w| w.borrow().is_some()).then(|| cobolt_forms::web_class::fidelity_of(key)).flatten()
+}
+
+/// The tooltip line of a property the browser draws only approximately, on a web or mobile form.
+fn approximate_tip(key: &str) -> Option<String> {
+    let f = web_fidelity(key).filter(|f| f.fidelity == cobolt_forms::web_class::Fidelity::Approximate)?;
+    let prefix = WEB_FORM.with(|w| w.borrow().clone()).unwrap_or_default();
+    Some(format!("{prefix} {}", f.note))
 }
 
 thread_local! {
@@ -16796,6 +16831,114 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert!(saved.contains("instances=\"7\""), "saved: {saved}");
         println!("WASM-017 T4: Instances row in a Web project, absent in a Desktop one; out-of-range message shown; set 7 → dirty, saved instances=\"7\"");
+    }
+
+    /// WASM-004 T27 (R6) — on a web or mobile form a `NotOnWeb` row is not drawn (its value never
+    /// reaches an editor) and an `Approximate` row is drawn with the approximation in its tooltip;
+    /// on a desktop form both are drawn as before.
+    #[test]
+    fn properties_a_web_form_hides_what_a_browser_cannot_draw_and_marks_what_it_draws_approximately() {
+        use cobolt_forms::web_class::{Fidelity, FIDELITY};
+        let tr = &crate::i18n::Language::English.tr();
+        let not_on_web: Vec<&str> = FIDELITY.iter().filter(|f| f.fidelity == Fidelity::NotOnWeb).map(|f| f.property).collect();
+        let approximate: Vec<&str> = FIDELITY.iter().filter(|f| f.fidelity == Fidelity::Approximate).map(|f| f.property).collect();
+        println!("not on the web (hidden): {not_on_web:?}\napproximate (marked): {approximate:?}");
+        assert!(not_on_web.contains(&"OsBlur") && approximate.contains(&"RotateX"));
+        // The row itself: drawn or not, with a value editor that would see the value.
+        let drawn = |web: bool, key: &str| {
+            let ctx = egui::Context::default();
+            let mut editor_ran = false;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                WEB_FORM.with(|w| *w.borrow_mut() = web.then(|| tr.prop_web_approximate.to_owned()));
+                property_row_keyed(ui, key, Some(key), |_| editor_ran = true);
+            });
+            out.textures_delta.clear();
+            WEB_FORM.with(|w| *w.borrow_mut() = None);
+            editor_ran
+        };
+        for key in &not_on_web {
+            assert!(!drawn(true, key), "{key} is drawn on a web form");
+            assert!(drawn(false, key), "{key} is not drawn on a desktop form");
+        }
+        for key in &approximate {
+            assert!(drawn(true, key), "{key}: an approximate row stays editable");
+        }
+        WEB_FORM.with(|w| *w.borrow_mut() = Some(tr.prop_web_approximate.to_owned()));
+        let tip = approximate_tip("RotateX").expect("RotateX is marked");
+        assert!(approximate_tip("BackgroundColor").is_none(), "an exact row is not marked");
+        WEB_FORM.with(|w| *w.borrow_mut() = None);
+        assert!(approximate_tip("RotateX").is_none(), "a desktop form marks nothing");
+        println!("RotateX tooltip on a web form: {tip}");
+        assert!(tip.starts_with(tr.prop_web_approximate) && tip.contains("the desktop's camera"), "{tip}");
+
+        // The whole pane, a chart (it has the 3D tilt rows) on a web form: RotateX drawn, nothing set by drawing it.
+        let mut form = Form::new("F", "F", 800, 600);
+        form.controls.push(Control::new("CH-1", ControlType::BarChart, 0, 0));
+        for web in [true, false] {
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            panel.web_project = web;
+            let _ = take_row_log();
+            let mut action = None;
+            let mut out = ctx.run_ui(
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 9000.0))), ..Default::default() },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        action = Some(panel.show(ui, &form, form.find_control("CH-1"), &[], tr));
+                    });
+                },
+            );
+            out.textures_delta.clear();
+            let keys: Vec<String> = take_row_log().into_iter().filter_map(|e| if let RowLogEntry::Row { key, .. } = e { key } else { None }).collect();
+            assert!(keys.iter().any(|k| k == "RotateX"), "web {web}: RotateX drawn");
+            assert!(!keys.iter().any(|k| not_on_web.contains(&k.as_str())), "web {web}: {keys:?}");
+            assert!(action.unwrap().set_props.is_empty(), "drawing the pane changes no value");
+        }
+    }
+
+    /// WASM-004 AC5 — a desktop form carrying every property, the hidden and the approximate ones included,
+    /// saved and reloaded as a web form (`.wcfrm`) keeps every value, property by property.
+    #[test]
+    fn properties_ac5_a_desktop_form_saved_as_a_web_form_keeps_every_value() {
+        use cobolt_forms::web_class::FIDELITY;
+        let mut form = Form::new("ROUND", "Round", 800, 600);
+        for (i, ct) in ControlType::ALL.iter().enumerate() {
+            let mut c = Control::new(&format!("C-{i}"), ct.clone(), 0, (i * 30) as i32);
+            for (k, f) in FIDELITY.iter().enumerate() {
+                if !c.properties.contains_key(f.property) {
+                    c.properties.insert(f.property.to_owned(), PropValue::String(format!("v{k}")));
+                }
+            }
+            c.properties.insert("OsBlur".into(), PropValue::String(format!("blur-{i}")));
+            c.properties.insert("RotateX".into(), PropValue::Int(7 + i as i64 % 50));
+            form.controls.push(c);
+        }
+        let dir = std::env::temp_dir().join(format!("prc-ac5-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let desktop = dir.join("round.cfrm");
+        cobolt_forms::xml::save_form(&form, &desktop).unwrap();
+        let loaded = cobolt_forms::xml::load_form(&desktop).unwrap();
+        let web = dir.join("round.wcfrm");
+        cobolt_forms::xml::save_form(&loaded, &web).unwrap();
+        let back = cobolt_forms::xml::load_form(&web).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let text = |v: &PropValue| match v {
+            PropValue::String(s) => s.clone(),
+            PropValue::Int(n) => n.to_string(),
+            PropValue::Bool(b) => b.to_string(),
+        };
+        let (mut compared, mut differ) = (0usize, Vec::new());
+        for c in &form.controls {
+            let r = back.find_control(&c.id).unwrap_or_else(|| panic!("{} lost", c.id));
+            for (k, v) in &c.properties {
+                compared += 1;
+                if r.properties.get(k).map(text) != Some(text(v)) {
+                    differ.push(format!("{}.{k}: {:?} -> {:?}", c.id, v, r.properties.get(k)));
+                }
+            }
+        }
+        println!("AC5: {} controls, {compared} property values compared after .cfrm -> .wcfrm -> reload, {} differ", form.controls.len(), differ.len());
+        assert!(differ.is_empty(), "{differ:#?}");
     }
 
     /// WASM-005 T8 — a control that works through the backend shows `BackendConfig` and

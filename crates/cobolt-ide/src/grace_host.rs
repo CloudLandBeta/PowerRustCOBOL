@@ -3066,7 +3066,12 @@ fn resolve_task_form_context(project_dir: Option<&Path>, objective: &str) -> Opt
     let matched = task_form_match(objective, &candidates)?;
     let abs = dir.join(matched);
     let form = cobolt_forms::xml::load_form(&abs).ok()?;
-    Some(crate::agent::build_context(&form))
+    // A web or mobile form file names its kind (WASM-001 Q2): its context says what a browser cannot have.
+    let kind = abs
+        .extension()
+        .and_then(|e| cobolt_compiler::project_kind::ProjectKind::of_form_extension(&e.to_string_lossy()))
+        .unwrap_or(cobolt_compiler::project_kind::ProjectKind::Desktop);
+    Some(crate::agent::build_context_for(&form, kind))
 }
 
 /// The surface context as Grace should see it for PLANNING: identical to the

@@ -9057,6 +9057,46 @@ Every `WebSearch` control also gets a generated `<id>-SEARCH` paragraph (`PERFOR
 }
 
 /// Render the enriched Form Controls Reference (KB file 3).
+/// What a control is on a Web or Mobile project (WASM-004 R2, R12): its class, what it becomes in the
+/// browser and the operations that take another class — every word from `cobolt_forms::web_class`.
+fn web_class_line(ct: &cobolt_forms::ControlType) -> String {
+    use cobolt_forms::web_class::{class_of, exceptions_of, Class, Operation, TABLE};
+    let class = class_of(ct);
+    let (letter, meaning) = match class {
+        Class::A => ("A", "native HTML, with the behaviour of the model"),
+        Class::B => ("B", "redrawn in the browser (SVG, an image or a canvas) with the same data properties and methods"),
+        Class::C => ("C", "works through the backend with the same COBOL calls; a key or a connection stays in `backend/backend.toml`, named by `BackendConfig`"),
+        Class::D => ("D", "not available: Check refuses it on a Web or Mobile form"),
+        Class::E => ("E", "a client object that runs in the browser with no backend"),
+    };
+    let row = TABLE.iter().find(|r| r.control == ct.as_str());
+    let mut s = format!("**On the web and on mobile: class {letter}** — {meaning}");
+    if let Some(r) = row {
+        s.push_str(&format!("; it becomes {}", r.becomes));
+        if !r.note.is_empty() {
+            s.push_str(&format!(" ({})", r.note));
+        }
+    }
+    s.push('.');
+    let name = |op: Operation| match op {
+        Operation::Method(m) => format!("`{m}`"),
+        Operation::ToolbarVerb(v) => format!("the button action `{v}`"),
+        Operation::Property(p) => format!("`{p}`"),
+    };
+    for (c, label) in [(Class::D, "Not available in a browser (Check refuses it)"), (Class::C, "Through the backend"), (Class::A, "As native HTML")] {
+        let ops: Vec<String> = exceptions_of(ct)
+            .iter()
+            .filter(|e| e.class == c)
+            .map(|e| if e.alternative.is_empty() || c != Class::D { name(e.operation) } else { format!("{} — {}", name(e.operation), e.alternative) })
+            .collect();
+        if !ops.is_empty() {
+            s.push_str(&format!(" {label}: {}.", ops.join("; ")));
+        }
+    }
+    s.push_str("\n\n");
+    s
+}
+
 fn controls_reference_doc() -> String {
     // Every control the toolbox offers, from the model's own canonical list —
     // never a copy of it. The copy that used to live here had quietly lost the
@@ -9118,6 +9158,25 @@ fn controls_reference_doc() -> String {
             push_prop_line(&mut doc, name, "String", "(empty)", domain, desc);
         }
     }
+    // WASM-004 R2, R12: the classification every control section below repeats for itself.
+    let marked = |f: cobolt_forms::web_class::Fidelity| {
+        cobolt_forms::web_class::FIDELITY.iter().filter(|r| r.fidelity == f).map(|r| format!("`{}`", r.property)).collect::<Vec<_>>().join(", ")
+    };
+    doc.push_str(&format!(
+        "\n## Controls on the web (Web and Mobile projects)\n\n\
+         A Web or Mobile form uses the same controls as a desktop form, with the same property, event and \
+         method names. Each control below says its class on the web: **A** native HTML; **B** redrawn in the \
+         browser with the same data properties and methods; **C** works through the backend with the same \
+         COBOL calls; **D** not available — the toolbox does not offer it and Check refuses it at its line; \
+         **E** a client object in the browser. Plug-in controls are class D. Some operations take another \
+         class than their control (a Viewer's `Print` and `Share` are D, a Maps control's `Geocode` is C); the \
+         control's section lists them. The only web-only members are `CssClass` and `CssStyle` (above); no event \
+         or method exists on the web only. In the Properties panel of a web or mobile form a property the \
+         browser cannot draw ({}) is hidden, its value kept in the form file, and one it draws approximately \
+         ({}) says so in its tooltip.\n",
+        marked(cobolt_forms::web_class::Fidelity::NotOnWeb),
+        marked(cobolt_forms::web_class::Fidelity::Approximate),
+    ));
     doc.push_str("\n## Universal events (visual controls)\n\n");
     doc.push_str(
         "Most visual controls support this shared input/lifecycle set (each control section \
@@ -9559,6 +9618,7 @@ fn controls_reference_doc() -> String {
         let name = ct.as_str().to_owned();
         let (dw, dh) = ct.default_size();
         let events: Vec<&str> = ct.supported_events().to_vec();
+        let web_line = web_class_line(&ct);
         let ctrl = cobolt_forms::Control::new("_", ct, 0, 0);
 
         doc.push_str(&format!("## Control: {name}\n\n"));
@@ -9574,6 +9634,8 @@ fn controls_reference_doc() -> String {
             // while the control's own record ranked first.
             doc.push_str(&format!("**Content structure.** {structure}\n\n"));
         }
+        // WASM-004 R12: its class on the web, in the control's own record, from the one table.
+        doc.push_str(&web_line);
 
         // Properties — type-specific ones in full, universals by reference.
         doc.push_str("### Settable Properties\n");
@@ -13685,6 +13747,30 @@ generated = ["generated/inner-form1.cbl"]
         println!("System KB publishes {published} documents, all cross-referenced");
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    /// WASM-004 T29 (R12, AC8) — every control's section of the System KB states its class on the
+    /// web, and the operations of another class are listed where the table has them.
+    #[test]
+    fn controls_reference_states_every_controls_web_class() {
+        let doc = controls_reference_doc();
+        let mut counts = std::collections::BTreeMap::new();
+        for ct in cobolt_forms::ControlType::ALL.iter() {
+            let head = format!("## Control: {}\n", ct.as_str());
+            let at = doc.find(&head).unwrap_or_else(|| panic!("no section for {}", ct.as_str()));
+            let section = &doc[at + head.len()..];
+            let section = &section[..section.find("\n## ").unwrap_or(section.len())];
+            let class = cobolt_forms::web_class::class_of(ct);
+            let line = format!("**On the web and on mobile: class {class:?}**");
+            assert!(section.contains(&line), "{}: no `{line}`", ct.as_str());
+            *counts.entry(format!("{class:?}")).or_insert(0) += 1;
+        }
+        let viewer = &doc[doc.find("## Control: Viewer\n").unwrap()..];
+        assert!(viewer.contains("Not available in a browser (Check refuses it): `Print` — "), "Viewer's D operations");
+        let maps = &doc[doc.find("## Control: Maps\n").unwrap()..];
+        assert!(maps.contains("Through the backend: `Geocode`; `ReverseGeocode`"), "Maps' C operations");
+        assert!(doc.contains("## Controls on the web (Web and Mobile projects)") && doc.contains("browser cannot draw (`OsBlur`)"));
+        println!("System KB: {} controls, each with its web class: {counts:?}", cobolt_forms::ControlType::ALL.len());
     }
 
     #[test]

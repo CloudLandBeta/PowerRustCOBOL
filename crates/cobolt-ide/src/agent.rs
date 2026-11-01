@@ -2764,7 +2764,52 @@ use crate::project_model::{CoboltProject, ProjectFiles};
 /// Build the compact CONTEXT block appended to each agent request (R2): the form's
 /// control inventory (id, type, geometry, non-default properties), a per-type
 /// property/event legend, and existing procedure names. Kept terse to save tokens.
+/// What a Web or Mobile project's agent must know about the browser (WASM-004 R2, R5): the
+/// control types and operations the web classification makes class D, and the class C
+/// controls whose methods run on the backend — every line read from `cobolt_forms::web_class`.
+fn web_availability(kind: cobolt_compiler::project_kind::ProjectKind) -> String {
+    use cobolt_forms::web_class::{class_of, exceptions_of, Class, Operation, TABLE};
+    let mut out = format!("WEB CLASSIFICATION (this is a {} project: its forms run in a browser):\n", kind.as_str());
+    let unavailable: Vec<&str> = TABLE.iter().filter(|r| r.class == Class::D).map(|r| r.control).collect();
+    out.push_str(&format!(
+        "  NOT AVAILABLE (never deploy): plug-in controls{}{}\n",
+        if unavailable.is_empty() { "" } else { ", " },
+        unavailable.join(", ")
+    ));
+    for ct in ControlType::ALL.iter() {
+        let d: Vec<String> = exceptions_of(ct)
+            .iter()
+            .filter(|e| e.class == Class::D)
+            .map(|e| match e.operation {
+                Operation::ToolbarVerb(v) => format!("the button action `{v}` ({})", e.alternative),
+                op => format!("{} ({})", op.name(), e.alternative),
+            })
+            .collect();
+        if !d.is_empty() {
+            out.push_str(&format!("  {} — NOT AVAILABLE in a browser: {}\n", ct.as_str(), d.join("; ")));
+        }
+    }
+    let backend: Vec<&str> = ControlType::ALL.iter().filter(|t| class_of(t) == Class::C).map(|t| t.as_str()).collect();
+    out.push_str(&format!("  THROUGH THE BACKEND (same COBOL calls; the key or connection stays in backend/backend.toml): {}\n", backend.join(", ")));
+    for ct in ControlType::ALL.iter() {
+        let c: Vec<&str> = exceptions_of(ct).iter().filter(|e| e.class == Class::C).map(|e| e.operation.name()).collect();
+        if !c.is_empty() && class_of(ct) != Class::C {
+            out.push_str(&format!("  {} — these run through the backend: {}\n", ct.as_str(), c.join(", ")));
+        }
+    }
+    out.push('\n');
+    out
+}
+
 pub fn build_context(form: &Form) -> String {
+    build_context_for(form, cobolt_compiler::project_kind::ProjectKind::Desktop)
+}
+
+/// [`build_context`] for a form of a project of `kind`. A Web or Mobile form's context
+/// also says what a browser cannot have, from the web classification
+/// (`cobolt_forms::web_class`, WASM-004 R2, R12), so an agent never proposes it; a
+/// Desktop form's context is exactly [`build_context`]'s.
+pub fn build_context_for(form: &Form, kind: cobolt_compiler::project_kind::ProjectKind) -> String {
     let mut out = String::new();
     out.push_str("CONTEXT\n");
     out.push_str(&format!(
@@ -2816,6 +2861,9 @@ pub fn build_context(form: &Form) -> String {
 
     out.push_str("AVAILABLE CONTROL TYPES (use these for 'deploy_control'):\n");
     out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart, RadarChart\n\n");
+    if !kind.is_desktop() {
+        out.push_str(&web_availability(kind));
+    }
 
     // Layers (spec 091 R71). Always stated, even for a form with none, so an
     // agent knows the feature exists and does not fake a layer with a Panel.
@@ -3019,7 +3067,8 @@ pub fn build_context_with_project(
     project: Option<&CoboltProject>,
     project_root: Option<&Path>,
 ) -> String {
-    let mut out = build_context(form);
+    let kind = project.map(CoboltProject::kind).unwrap_or(cobolt_compiler::project_kind::ProjectKind::Desktop);
+    let mut out = build_context_for(form, kind);
     // The menus go inside the form's own inventory, before the per-type
     // legends, so the specialists' slice of it (`control_inventory_excerpt`)
     // carries them too.
@@ -4618,6 +4667,31 @@ mod tests {
         let set_prop = "```json\n{\"operations\":[\
             {\"op\":\"set_property\",\"control_id\":\"GHOST-1\",\"key\":\"Width\",\"value\":150}]}\n```";
         assert!(lint_change_set_submission("Form Designer Agent", set_prop).is_none());
+    }
+
+    /// WASM-004 T28 (R2, R12) — a Web or Mobile form's context lists no class D type and names
+    /// the class D operations of Viewer and ToolBar and the backend ones of Maps, all from the
+    /// web classification; a Desktop form's context is unchanged.
+    #[test]
+    fn agent_context_of_a_web_form_says_what_a_browser_cannot_have() {
+        use cobolt_compiler::project_kind::ProjectKind;
+        use cobolt_forms::web_class::{class_of, Class};
+        let form = form_with_label();
+        assert_eq!(build_context_for(&form, ProjectKind::Desktop), build_context(&form), "Desktop unchanged");
+        assert!(!build_context(&form).contains("WEB CLASSIFICATION"));
+        for kind in [ProjectKind::Web, ProjectKind::Mobile] {
+            let ctx = build_context_for(&form, kind);
+            let section: Vec<&str> = ctx.lines().skip_while(|l| !l.starts_with("WEB CLASSIFICATION")).take_while(|l| !l.is_empty()).collect();
+            println!("{}", section.join("\n"));
+            let listed = ctx.lines().skip_while(|l| !l.starts_with("AVAILABLE CONTROL TYPES")).nth(1).unwrap();
+            for t in listed.split(',').map(str::trim) {
+                assert_ne!(class_of(&ControlType::from_str(t)), Class::D, "{kind:?}: {t} is offered");
+            }
+            assert!(section.iter().any(|l| l.starts_with("  Viewer — NOT AVAILABLE in a browser: Print (") && l.contains("Share (")), "{section:?}");
+            assert!(section.iter().any(|l| l.starts_with("  ToolBar — NOT AVAILABLE") && ["run-app", "open-terminal", "print", "share"].iter().all(|v| l.contains(&format!("`{v}`")))));
+            assert!(section.iter().any(|l| l.starts_with("  Maps — these run through the backend: Geocode")));
+            assert!(section.iter().any(|l| l.contains("plug-in controls")));
+        }
     }
 
     #[test]

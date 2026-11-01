@@ -69,3 +69,8 @@ tempfile    = "3"
 tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 png         = "0.17"
 base64      = "0.22"
+# The desktop's half of the comparison harness (WASM-004 T33, tests/desktop_comparison_chrome.rs): the run form's
+# geometry and events (`render::render_form`) and its picture (`snapshot::render_form_image`), behind the model's
+# `render` feature; egui at the version cobolt-forms uses, already in the lock file.
+cobolt-forms = { path = "../cobolt-forms", features = ["render"] }
+egui         = "0.36"

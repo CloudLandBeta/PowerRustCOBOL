@@ -149,9 +149,11 @@ pub fn diagnostic_text(d: &WebDiagnostic, tr: &Tr) -> String {
         WebDiagnosticKind::InstancesOutOfRange => Some(tr.msg_instances_out_of_range),
         WebDiagnosticKind::MultiMemoryOnlyWithWebKit => Some(tr.pk_err_multi_memory_only_with_webkit),
         WebDiagnosticKind::SecretOnForm => Some(tr.wasm_diag_secret_on_form),
+        WebDiagnosticKind::UnavailableOnWeb => Some(tr.wasm_diag_unavailable_on_web),
     };
     let text = match template {
-        Some(t) => fill(t, &[&d.subject]),
+        // The second `{}`, where a template has one, is the alternative (WASM-004 R5).
+        Some(t) => fill(t, &[&d.subject, &d.alternative]),
         None => d.message.clone(),
     };
     if d.location.is_empty() {
@@ -1505,16 +1507,20 @@ mod tests {
             WebDiagnosticKind::InstancesOutOfRange,
             WebDiagnosticKind::MultiMemoryOnlyWithWebKit,
             WebDiagnosticKind::SecretOnForm,
+            WebDiagnosticKind::UnavailableOnWeb,
         ];
         let mut said = 0;
         for &lang in Language::ALL {
             let tr = lang.tr();
             for kind in kinds {
-                let d = WebDiagnostic { location: "webforms/a.cfrm:7".into(), kind, subject: "SUBJ-9".into(), message: "english".into() };
+                let d = WebDiagnostic { location: "webforms/a.cfrm:7".into(), kind, subject: "SUBJ-9".into(), message: "english".into(), alternative: "ALT-9".into() };
                 let text = diagnostic_text(&d, &tr);
                 assert!(text.starts_with("webforms/a.cfrm:7: "), "{lang:?} {kind:?}: {text}");
                 assert!(text.contains("SUBJ-9") && !text.contains("{}") && !text.contains("english"), "{lang:?} {kind:?}: {text}");
                 assert!(!text.to_lowercase().contains("cobolt"), "{lang:?} {kind:?}: {text}");
+                if kind == WebDiagnosticKind::UnavailableOnWeb {
+                    assert!(text.contains("ALT-9"), "{lang:?}: the alternative is said: {text}");
+                }
                 said += 1;
             }
             // Free text is said as it is.

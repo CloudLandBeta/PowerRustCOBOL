@@ -25,7 +25,6 @@ use cobolt_forms::chart::{self, parse_chart_rows, radar_layout, radar_point, val
 use cobolt_forms::model::ControlType;
 
 use super::{VNode, ViewCtx};
-use crate::css::class_names;
 use crate::metrics;
 use crate::value::{fmt_number, parse_color, parse_f64, truthy};
 
@@ -437,18 +436,8 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
         ControlType::DonutChart => "pr-donutchart",
         _ => "pr-radarchart",
     };
-    let mut root = VNode::new("div")
-        .key("root")
-        .classes(class_names(ctl))
-        .attr("data-name", name.clone())
-        .attr("id", name.clone())
-        .attr("role", "img");
-    if !ctl.visible() {
-        root = root.flag("hidden", true);
-    }
-    for d in super::controls::bound_dom_events(ctl) {
-        root = root.on(d);
-    }
+    // The element every control starts from (its tooltip, layer, availability), drawn as a picture (WASM-004 T32).
+    let mut root = super::controls::root(cx, i, "div").attr("role", "img");
 
     let (pl, pt, pr, pb) = fr.plot;
     let clip_plot = format!("pr-plot-{name}");
@@ -840,7 +829,6 @@ pub fn gauge(cx: &ViewCtx, i: usize) -> Option<VNode> {
     if threshold("WarningThreshold") && threshold("CriticalThreshold") {
         return None;
     }
-    let ctl = tree.ctl(i);
     let (w, h) = cx.box_size(i);
     let (w, h) = (w.max(8.0), h.max(8.0));
     let style = {
@@ -950,21 +938,7 @@ pub fn gauge(cx: &ViewCtx, i: usize) -> Option<VNode> {
         At::Top => ry.round() + metrics::ascent(font),
     };
     svg = svg.child(text(rx, baseline, "middle", font, &reading, text_colour));
-    let mut root = VNode::new("div")
-        .key("root")
-        .classes(class_names(ctl))
-        .attr("data-name", ctl.name.clone())
-        .attr("id", ctl.name.clone())
-        .attr("role", "meter")
-        .attr("aria-valuemin", f(min_v))
-        .attr("aria-valuemax", f(max_v))
-        .attr("aria-valuenow", f(val));
-    if !ctl.visible() {
-        root = root.flag("hidden", true);
-    }
-    for d in super::controls::bound_dom_events(ctl) {
-        root = root.on(d);
-    }
+    let root = super::controls::root(cx, i, "div").attr("role", "meter").attr("aria-valuemin", f(min_v)).attr("aria-valuemax", f(max_v)).attr("aria-valuenow", f(val));
     Some(root.child(svg))
 }
 
