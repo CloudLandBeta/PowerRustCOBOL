@@ -186,6 +186,45 @@ fn cancel_set_in_on_before_navigate_stops_the_navigation() {
     assert!(followed(&mut h).is_empty());
 }
 
+/// T19b (OQ1 decided (operator, 2026-10-31)): a same-tab link that leaves the application raises
+/// `onNavigated` after `onBeforeNavigate` and before the navigation, which waits for its handler; a
+/// `Cancel` set there does not stop it.
+#[test]
+fn a_same_tab_link_raises_on_navigated_before_it_leaves() {
+    let mut h = host(&EVENTS);
+    let c = ctl(&h);
+    let same = NavPlan {
+        target: crate::hyperlink::Target::SelfFrame,
+        ..the_plan()
+    };
+    h.link_click(1, c, same.clone(), Click::default());
+    let mut order = Vec::new();
+    let seen = run(&mut h, |h, name, _| {
+        order.push(format!("{name} (followed so far: {})", h.effects.len()));
+        if name == "onNavigated" {
+            h.ui_set(1, c, "Cancel", "1");
+        }
+    });
+    println!("{seen:?} {order:?}");
+    assert_eq!(
+        seen,
+        [
+            "onClick()",
+            "onBeforeNavigate(Self\thttps://example.com/)",
+            "onNavigated(https://example.com/)"
+        ]
+    );
+    assert!(
+        order.iter().all(|o| o.ends_with(": 0)")),
+        "nothing navigated while a handler ran: {order:?}"
+    );
+    assert_eq!(
+        followed(&mut h),
+        vec![same],
+        "then the navigation, Cancel in onNavigated ignored"
+    );
+}
+
 #[test]
 fn a_link_with_only_on_before_navigate_bound_still_walks_the_sequence() {
     let mut h = host(&["onBeforeNavigate"]);

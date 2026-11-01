@@ -155,8 +155,12 @@ pub fn intercepted(tree: &FormTree, ctl: usize) -> bool {
 pub enum Stage {
     /// `onClick` has run: raise `onBeforeNavigate` unless it cancelled.
     BeforeNavigate,
-    /// `onBeforeNavigate` has run: navigate unless it cancelled.
+    /// `onBeforeNavigate` has run: navigate unless it cancelled — after raising `onNavigated` first when
+    /// the navigation leaves the application (OQ1 decided, T19b).
     Follow,
+    /// `onNavigated` has run before a navigation that leaves the application: navigate. Its `Cancel` is
+    /// not read — the navigation was settled by `onBeforeNavigate`.
+    Leave,
 }
 
 /// An intercepted click waiting for the handlers before it.
@@ -209,6 +213,9 @@ pub fn start(
 
 /// The step after the handlers of `step` have run, `cancelled` being the `Cancel` they left.
 pub fn advance(step: LinkStep, cancelled: bool) -> Next {
+    if step.stage == Stage::Leave {
+        return Next::Follow(step.plan);
+    }
     if cancelled {
         return Next::Stop;
     }
@@ -224,7 +231,15 @@ pub fn advance(step: LinkStep, cancelled: bool) -> Next {
                 },
             }
         }
-        Stage::Follow => Next::Follow(step.plan),
+        Stage::Follow if leaves_application(&step.plan) => Next::Raise {
+            event: "onNavigated",
+            arg: step.plan.url.clone(),
+            then: LinkStep {
+                stage: Stage::Leave,
+                ..step
+            },
+        },
+        Stage::Follow | Stage::Leave => Next::Follow(step.plan),
     }
 }
 
@@ -233,10 +248,16 @@ pub fn cancelled(tree: &FormTree, ctl: usize) -> bool {
     turned_on(&tree.get(ctl, "Cancel"))
 }
 
-/// Does `onNavigated` follow this navigation (OQ1, working assumption)? Only where the application is
-/// still loaded afterwards: a fragment link and a new tab or window. A download is not a navigation.
+/// Does `onNavigated` follow this navigation? Where the application is still loaded afterwards: a
+/// fragment link and a new tab or window. A download is not a navigation.
 pub fn raises_navigated(np: &NavPlan) -> bool {
     np.download.is_none() && (fragment_of(&np.url).is_some() || np.opens_new())
+}
+
+/// Does this navigation leave the application (a same-context page load)? Then `onNavigated` is raised
+/// just before it, while the application is still loaded (OQ1 decided (operator, 2026-10-31), T19b).
+pub fn leaves_application(np: &NavPlan) -> bool {
+    np.download.is_none() && fragment_of(&np.url).is_none() && !np.opens_new()
 }
 
 #[cfg(test)]
@@ -382,11 +403,33 @@ mod tests {
         );
         let same = NavPlan {
             target: Target::SelfFrame,
-            ..np
+            ..np.clone()
         };
         assert!(
             !raises_navigated(&same),
             "a same-context navigation unloads the application (OQ1)"
+        );
+        assert!(!leaves_application(&np) && leaves_application(&same));
+        // OQ1 decided (T19b): a navigation that leaves raises onNavigated before it, and the
+        // Cancel its handler leaves is not read.
+        let step = LinkStep {
+            inst: 7,
+            ctl: 3,
+            stage: Stage::Follow,
+            plan: same.clone(),
+        };
+        let Next::Raise { event, arg, then } = advance(step, false) else {
+            panic!("onNavigated before leaving")
+        };
+        assert_eq!(
+            (event, arg.as_str()),
+            ("onNavigated", "https://example.com/")
+        );
+        assert_eq!(then.stage, Stage::Leave);
+        assert_eq!(
+            advance(then, true),
+            Next::Follow(same),
+            "Cancel in onNavigated has no effect"
         );
     }
 

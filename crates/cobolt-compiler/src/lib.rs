@@ -8047,7 +8047,7 @@ fn event_reference(name: &str) -> &'static str {
     match name {
         "onChange" => "value or text changed",
         "onBeforeNavigate" => "Hyperlink: about to navigate, after `onClick` — set `Cancel` to TRUE to stop it. In a browser the event's argument is `target⇥url`",
-        "onNavigated" => "Hyperlink: the navigation happened and the application is still here — a `#name` link, a new tab or window, or (desktop) the system browser took the address",
+        "onNavigated" => "Hyperlink: the navigation happened and the application is still here — a `#name` link, a new tab or window, or (desktop) the system browser took the address; on the web, raised just before a same-tab link leaves the application (Cancel is not read there)",
         "onTextChanged" => "text content changed",
         "onEnter" => "focus entered the box (alias of onGotFocus)",
         "onLeave" => "focus left the box (alias of onLostFocus)",
@@ -8835,7 +8835,7 @@ A link with no handler bound to `onClick`, `onBeforeNavigate` or `onNavigated` i
                SET LNK-1::Cancel TO TRUE\n\
            END-IF\n\
 ```\n\
-Do not wait in a link's handler (a dialog, a remote CALL) before a new tab: the browser then sees no click and may block the tab as a pop-up. `onNavigated` is raised only where the application is still loaded afterwards: a `#name` link, a new tab or window, or (desktop) the system browser taking the address. `VisitedColor` is the only `:visited` style a browser allows.",
+Do not wait in a link's handler (a dialog, a remote CALL) before a new tab: the browser then sees no click and may block the tab as a pop-up. `onNavigated` is raised after a `#name` link, a new tab or window, or (desktop) the system browser taking the address; on the web, a same-tab link that leaves the application raises it just before the page goes, after `onBeforeNavigate` — its handler runs to the end first, and Cancel set there no longer stops anything. `VisitedColor` is the only `:visited` style a browser allows.",
         "KnowledgeBase" => "\
 ### Usage (events carry their own values)\n\
 Every call that writes or searches answers at once with 1 (started) or 0 (see `LastError`); the result arrives as an event, and the properties you read in that event's branch are the values THAT event carried:\n\

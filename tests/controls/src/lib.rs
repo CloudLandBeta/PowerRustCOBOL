@@ -54,7 +54,14 @@ pub fn check_control(ct: ControlType, label: &str) -> Vec<PropResult> {
             .get_prop(name)
             .expect("property present at creation")
             .clone();
-        let newv = mutate(&cur);
+        // `Anchor` only holds an edge set: the loader replaces anything else
+        // with the type's default (`model.rs::seed_layout_props`), so probe it
+        // with a valid set that no control seeds.
+        let newv = if name.eq_ignore_ascii_case("Anchor") {
+            PropValue::String("Bottom,Right".to_owned())
+        } else {
+            mutate(&cur)
+        };
         let exp = newv.to_xml_string();
         expected.insert(name.clone(), exp.clone());
         ctrl.set_prop(name.clone(), newv);

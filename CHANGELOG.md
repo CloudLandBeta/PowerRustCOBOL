@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.134 — 2026-11-01 — WASM-006 T17, T18, T19b: the Hyperlink in Chrome, and `onNavigated` before a link leaves the application
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.117.)*
+
+WASM-006 (the Hyperlink control). The details and the evidence are in `specs/WASM-006-weblink-control/tasks.md`.
+
+* **`onNavigated` before leaving** (T19b; the operator's decision of 2026-10-31). On the web, a same-tab link that leaves the application now raises `onNavigated` just before the page goes, after `onBeforeNavigate`. Its handler runs to the end first. A `Cancel` set there stops nothing. The desktop is unchanged: there, a link opens the system browser and the application stays. ABI amendment A18 and the System KB say so (`assets/knowledge/chunked.data` regenerated).
+* **The Hyperlink measured in Chrome** (T18, `cobolt-web-bundle/tests/page_hyperlink.rs`, 4 tests).
+  * The anchor shows a pointer cursor. `hreflang`, `type`, `title` and `aria-label` are written, and `ping` never is.
+  * Each `Target` measured. ⌘-click and middle-click open a tab; Shift-click opens a window.
+  * A new tab has no `window.opener` unless `Rel` says so.
+  * `mailto:`, `tel:`, relative, fragment and `Download` links are written as `<a>` writes them.
+  * A `javascript:` address stays inert, also through `SetUrl`.
+  * `Cancel` stops the navigation.
+  * The keyboard reaches and follows the link. axe-core reports no critical issue on a Hyperlink.
+  * WebKit is not driven.
+* **The per-control property harness** (T17, `tests/controls`) probed `Anchor` with a value that is not an edge set, which the loader rightly replaces, so 34 controls failed for nothing. It now probes it with `Bottom,Right`: 36 of 38 controls pass, Hyperlink included. The two left are secrets that are never saved.
+* The prebuilt `assets/web-player/` was rebuilt.
+
 ## 2.0.133 — 2026-11-01 — WASM-004 T24–T35: fonts, the IDE half, layers end to end, the browser comparisons and the accessible name
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.116.)*

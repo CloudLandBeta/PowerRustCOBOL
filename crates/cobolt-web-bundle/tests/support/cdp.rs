@@ -92,9 +92,22 @@ impl Chrome {
         let answer = http(self.port, "PUT", "/json/new?about:blank")?;
         let v: Value = serde_json::from_str(&answer).map_err(|e| format!("/json/new answered no JSON ({e}): {answer}"))?;
         let ws_url = v["webSocketDebuggerUrl"].as_str().ok_or_else(|| format!("no webSocketDebuggerUrl in {v}"))?.to_owned();
+        self.attach(&ws_url)
+    }
+
+    /// The pages (tabs and windows) Chrome has open, as `/json/list` describes them (`id`, `url`,
+    /// `webSocketDebuggerUrl`): a page the browser opened itself — a link's new tab — is among them.
+    pub fn pages(&self) -> Result<Vec<Value>, String> {
+        let answer = http(self.port, "GET", "/json/list")?;
+        let v: Value = serde_json::from_str(&answer).map_err(|e| format!("/json/list answered no JSON ({e}): {answer}"))?;
+        Ok(v.as_array().cloned().unwrap_or_default().into_iter().filter(|p| p["type"] == "page").collect())
+    }
+
+    /// Talk to a page Chrome already has open, by its `webSocketDebuggerUrl`.
+    pub fn attach(&self, ws_url: &str) -> Result<Page, String> {
         let stream = TcpStream::connect(("127.0.0.1", self.port)).map_err(|e| e.to_string())?;
         stream.set_read_timeout(Some(Duration::from_secs(30))).map_err(|e| e.to_string())?;
-        let (ws, _) = tungstenite::client::client(ws_url.as_str(), stream).map_err(|e| format!("DevTools handshake: {e}"))?;
+        let (ws, _) = tungstenite::client::client(ws_url, stream).map_err(|e| format!("DevTools handshake: {e}"))?;
         let mut page = Page { ws, next: 1, console: Vec::new(), exceptions: Vec::new() };
         page.call("Runtime.enable", json!({}))?;
         page.call("Page.enable", json!({}))?;
