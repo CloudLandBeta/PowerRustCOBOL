@@ -38,7 +38,7 @@ use cobolt_forms::snapshot::{render_form_image, SnapshotOptions};
 use cobolt_forms::web_class::{class_of, Class};
 use cobolt_project_tools::web::devserver::{self, ServeOptions};
 use cobolt_project_tools::web::generator::GeneratorBackend;
-use cobolt_project_tools::web::{WebBuildBackend, WebBuildRequest};
+use cobolt_project_tools::web::{WebBuildBackend, WebBuildRequest, WebDiagnosticKind};
 use egui::{Pos2, Rect, Vec2};
 
 const MANIFEST: &str = "[project]\nname = \"Compare.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"web\"\n\n\
@@ -114,10 +114,47 @@ fn handler(id: &str, event: &str) -> String {
 }
 
 fn form() -> String {
+    form_of(CONTROLS, &[])
+}
+
+/// The names the keyboard test gives the reference form (WASM-004 T34), by each way a name is found: the control's
+/// own `AccessibleLabel`, its `Tooltip`, and — for `SLD-A` — the Label [`NAMED_LABEL`] put just before it in tab order.
+/// The Button, CheckBox and RadioButton keep their captions.
+const NAMES: &[(&str, &str, &str)] = &[
+    ("TXT-A", "AccessibleLabel", "Your name"),
+    ("SWT-A", "Tooltip", "Notifications"),
+    ("LST-A", "Tooltip", "Choose one"),
+    ("CMB-A", "AccessibleLabel", "Number"),
+    ("NUD-A", "Tooltip", "Quantity"),
+    ("CH-BAR", "Tooltip", "Sales by quarter"),
+    ("CH-PIE", "AccessibleLabel", "Share by part"),
+    ("GAU-B", "Tooltip", "Load"),
+    ("KNB-B", "AccessibleLabel", "Level"),
+    ("DG-C", "AccessibleLabel", "Orders"),
+];
+const NAMED_LABEL: Spec = ("LBL-SLD", "Label", 750, 90, 120, 24, &[("Caption", "Volume")]);
+
+/// The reference form with [`NAMES`] and [`NAMED_LABEL`] (inserted just before `SLD-A`).
+fn named_form() -> String {
+    let mut specs: Vec<Spec> = Vec::new();
+    for s in CONTROLS {
+        if s.0 == "SLD-A" {
+            specs.push(NAMED_LABEL);
+        }
+        specs.push(*s);
+    }
+    form_of(&specs, NAMES)
+}
+
+/// The form of `specs`, each control given the `extra` properties named for it.
+fn form_of(specs: &[Spec], extra: &[(&str, &str, &str)]) -> String {
     let mut xml = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Form name=\"main-form\" title=\"Compare\" width=\"{W}\" height=\"{H}\" index-base=\"1\" main-form=\"true\">\n");
-    for (id, ty, x, y, w, h, props) in CONTROLS {
+    for (id, ty, x, y, w, h, props) in specs {
         let t = ControlType::from_str(ty);
-        let body: String = props.iter().map(|(k, v)| format!("<Property name=\"{k}\">{v}</Property>")).collect();
+        let mut body: String = props.iter().map(|(k, v)| format!("<Property name=\"{k}\">{v}</Property>")).collect();
+        for (_, k, v) in extra.iter().filter(|e| e.0 == *id) {
+            body += &format!("<Property name=\"{k}\">{v}</Property>");
+        }
         let events: String = if class_of(&t) == Class::A { WANTED.iter().filter(|e| t.supported_events().contains(e)).map(|e| handler(id, e)).collect() } else { String::new() };
         xml += &format!("  <Control id=\"{id}\" type=\"{ty}\" x=\"{x}\" y=\"{y}\" w=\"{w}\" h=\"{h}\">{body}{events}</Control>\n");
     }
@@ -223,7 +260,7 @@ fn page_events(page: &mut cdp::Page, from: usize) -> Vec<(String, String)> {
 }
 
 /// The reference form built by the real Build into its own folder (`tag` names it) and served.
-fn build_and_serve(tag: &str, xml: &str) -> (std::path::PathBuf, devserver::ServerHandle) {
+fn build_and_serve(tag: &str, xml: &str) -> (std::path::PathBuf, devserver::ServerHandle, Vec<String>) {
     let dir = std::env::temp_dir().join(format!("prc-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("webforms")).unwrap();
@@ -232,7 +269,8 @@ fn build_and_serve(tag: &str, xml: &str) -> (std::path::PathBuf, devserver::Serv
     let req = WebBuildRequest::from_manifest(&dir.join("Compare.project.toml")).unwrap();
     let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
     let server = devserver::start(&report.bundle_dir, &ServeOptions { port: 0, isolation: req.web.isolation, live_reload: false }).unwrap();
-    (dir, server)
+    let unnamed = report.warnings.iter().filter(|w| w.kind == WebDiagnosticKind::NoAccessibleName).map(|w| w.subject.clone()).collect();
+    (dir, server, unnamed)
 }
 
 fn open(page: &mut cdp::Page, url: &str) {
@@ -251,7 +289,14 @@ fn the_reference_form_on_the_desktop_and_in_chrome() {
     };
     let xml = form();
     let parsed = cobolt_forms::load_form_from_str(&xml).unwrap_or_else(|e| panic!("{e}"));
-    let (dir, mut server) = build_and_serve("compare", &xml);
+    let (dir, mut server, unnamed) = build_and_serve("compare", &xml);
+    // WASM-004 T34: this form names nothing beyond the captions, and the Build says which controls a screen reader cannot name.
+    println!("unnamed (Build warnings): {unnamed:?}");
+    assert_eq!(
+        unnamed,
+        ["TXT-A (TextBox)", "SWT-A (Switch)", "LST-A (ListBox)", "CMB-A (ComboBox)", "NUD-A (NumericUpDown)", "SLD-A (Slider)", "KNB-B (Knob)", "DG-C (DataGrid)"]
+            .map(|c| format!("main-form ▸ {c}"))
+    );
     let chrome = cdp::Chrome::launch(&exe).unwrap_or_else(|e| panic!("{e}"));
     let mut page = chrome.new_page().unwrap_or_else(|e| panic!("{e}"));
     open(&mut page, &server.url());
@@ -369,7 +414,8 @@ fn the_reference_form_by_the_keyboard_alone_and_axe() {
         println!("SKIPPED: no Chrome was found (set CHROME to a Chrome or Chromium executable to run this test)");
         return;
     };
-    let (dir, mut server) = build_and_serve("keyboard", &form());
+    let (dir, mut server, unnamed) = build_and_serve("keyboard", &named_form());
+    assert!(unnamed.is_empty(), "every control the keyboard reaches is named: {unnamed:?}");
     let chrome = cdp::Chrome::launch(&exe).unwrap_or_else(|e| panic!("{e}"));
     let mut page = chrome.new_page().unwrap_or_else(|e| panic!("{e}"));
     open(&mut page, &server.url());
@@ -435,12 +481,13 @@ fn the_reference_form_by_the_keyboard_alone_and_axe() {
             page.eval(&format!("(() => {{ {src}\n; return typeof axe; }})()")).unwrap();
             let version = page.eval("axe.version").unwrap();
             let r = page
-                .eval("axe.run(document, { resultTypes: ['violations'] }).then(r => r.violations.map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length, help: v.help, targets: v.nodes.slice(0, 4).map(n => n.target.join(' ')) })))")
+                .eval("axe.run(document, { resultTypes: ['violations'] }).then(r => r.violations.map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length, help: v.help, targets: v.nodes.slice(0, 4).map(n => n.target.join(' ')), summary: v.nodes[0] ? v.nodes[0].failureSummary : '' })))")
                 .unwrap();
             let vs = r.as_array().cloned().unwrap_or_default();
             println!("axe-core {version}: {} violations", vs.len());
             for v in &vs {
                 println!("  [{}] {} ({} nodes): {} — {}", v["impact"].as_str().unwrap_or("?"), v["id"].as_str().unwrap_or("?"), v["nodes"], v["help"].as_str().unwrap_or(""), v["targets"]);
+                println!("      {}", v["summary"].as_str().unwrap_or("").replace('\n', " | "));
             }
             for v in vs.iter().filter(|v| v["impact"] == "critical") {
                 failures.push(format!("axe critical: {} ({} nodes)", v["id"], v["nodes"]));

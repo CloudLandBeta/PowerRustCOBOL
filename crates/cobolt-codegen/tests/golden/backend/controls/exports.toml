@@ -61,6 +61,7 @@ configuration = "CRM"
 "Busy" = "false"
 "TimeoutMs" = "30000"
 "Locked" = "false"
+"AccessibleLabel" = ""
 "Name" = "REST-1"
 
 [[export]]
@@ -116,6 +117,7 @@ configuration = "CRM"
 "Busy" = "false"
 "TimeoutMs" = "30000"
 "Locked" = "false"
+"AccessibleLabel" = ""
 "Name" = "REST-1"
 
 [[export]]
@@ -171,6 +173,7 @@ configuration = "CRM"
 "Busy" = "false"
 "TimeoutMs" = "30000"
 "Locked" = "false"
+"AccessibleLabel" = ""
 "Name" = "REST-1"
 
 [[export]]
@@ -228,6 +231,7 @@ configuration = "ASSISTANT"
 "MaximumToolRounds" = "8"
 "MaximumContinuations" = "4"
 "Locked" = "false"
+"AccessibleLabel" = ""
 "Name" = "AGENT-1"
 
 [[export]]
@@ -274,6 +278,7 @@ class = "SqlDatabase"
 "Busy" = "false"
 "TimeoutMs" = "0"
 "Locked" = "false"
+"AccessibleLabel" = ""
 "Name" = "DB-1"
 "SqlConnection" = "SALES"
 
@@ -324,4 +329,5 @@ class = "AwsDynamoDB"
 "IndexName" = ""
 "Limit" = "100"
 "Locked" = "false"
+"AccessibleLabel" = ""
 "Name" = "ORDERS-TABLE"

@@ -4768,13 +4768,21 @@ impl CoboltApp {
         let Ok(request) = cobolt_project_tools::web::WebBuildRequest::from_manifest(&manifest) else {
             return;
         };
-        let Err(cobolt_project_tools::web::WebBuildError::Refused(lines)) =
-            cobolt_project_tools::web::backend().check(&request)
-        else {
-            return;
-        };
         use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
         let tr = self.lang.tr();
+        let lines = match cobolt_project_tools::web::backend().check_with_warnings(&request) {
+            Err(cobolt_project_tools::web::WebBuildError::Refused(lines)) => lines,
+            // WASM-004 T34: a control a screen reader cannot name, as a warning.
+            Ok(warnings) => {
+                for d in &warnings {
+                    let text = crate::panels::web_preview::diagnostic_text(d, &tr);
+                    self.output
+                        .push_msg(&RunMsg::Diagnostic(DiagMsg::plain(DiagSeverity::Warning, text, 0, 0)));
+                }
+                return;
+            }
+            Err(_) => return,
+        };
         self.output.push_status(tr.web_check_not_portable.to_owned());
         for d in &lines {
             let text = crate::panels::web_preview::diagnostic_text(d, &tr);

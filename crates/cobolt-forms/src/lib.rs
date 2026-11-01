@@ -21,6 +21,8 @@
 //! </Form>
 //! ```
 
+/// WASM-004 T34 — where a control's accessible name comes from, the same answer on the desktop and in a browser.
+pub mod accessible;
 pub mod assets;
 pub mod aws_catalog;
 pub mod caption;

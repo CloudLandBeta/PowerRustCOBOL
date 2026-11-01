@@ -150,6 +150,7 @@ pub fn diagnostic_text(d: &WebDiagnostic, tr: &Tr) -> String {
         WebDiagnosticKind::MultiMemoryOnlyWithWebKit => Some(tr.pk_err_multi_memory_only_with_webkit),
         WebDiagnosticKind::SecretOnForm => Some(tr.wasm_diag_secret_on_form),
         WebDiagnosticKind::UnavailableOnWeb => Some(tr.wasm_diag_unavailable_on_web),
+        WebDiagnosticKind::NoAccessibleName => Some(tr.wasm_warn_no_accessible_name),
     };
     let text = match template {
         // The second `{}`, where a template has one, is the alternative (WASM-004 R5).
@@ -1508,6 +1509,7 @@ mod tests {
             WebDiagnosticKind::MultiMemoryOnlyWithWebKit,
             WebDiagnosticKind::SecretOnForm,
             WebDiagnosticKind::UnavailableOnWeb,
+            WebDiagnosticKind::NoAccessibleName,
         ];
         let mut said = 0;
         for &lang in Language::ALL {

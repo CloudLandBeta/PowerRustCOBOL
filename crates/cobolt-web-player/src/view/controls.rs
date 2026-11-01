@@ -133,7 +133,37 @@ pub fn display_items(cx: &ViewCtx, i: usize, items: &mut Vec<String>) {
 
 /// The element of the control `i`, children excluded (a container's children are mounted into its slots).
 pub fn view(cx: &ViewCtx, i: usize) -> VNode {
-    with_tab_order(cx, i, element_of(cx, i))
+    with_name(cx, i, with_tab_order(cx, i, element_of(cx, i)))
+}
+
+/// The control's **accessible name** (WASM-004 T34, R10; operator, 2026-10-31), as the desktop resolves it
+/// (`cobolt_forms::accessible`): its `AccessibleLabel` or its Tooltip as `aria-label`, the Label before it in
+/// tab order as `aria-labelledby` (so the name follows the Label's text). A caption the element shows is its
+/// native name: nothing is added. Written on the element that takes the focus, else on the control's root
+/// (a chart's `role=img`, a Gauge's `role=meter`).
+fn with_name(cx: &ViewCtx, i: usize, mut n: VNode) -> VNode {
+    use cobolt_forms::accessible::{name_source_with, name_text, NameSource};
+    let Some(t) = cx.tree.ctl(i).control_type() else { return n };
+    if t.is_non_visual() {
+        return n;
+    }
+    let get = |j: usize, k: &str| cx.tree.get(j, k);
+    let label = cx.tree.label_before.get(i).copied().flatten();
+    let source = name_source_with(t, i, label, &get);
+    let (key, value) = match source {
+        NameSource::Caption | NameSource::None => return n,
+        NameSource::Label(l) => ("aria-labelledby", cx.tree.ctl(l).name.clone()),
+        s => ("aria-label", name_text(s, i, &get).unwrap_or_default()),
+    };
+    let set = |e: &mut VNode| {
+        e.attrs.retain(|(k, _)| k != "aria-label" && k != "aria-labelledby");
+        e.attrs.push((key.into(), value.clone()));
+    };
+    match first_focusable_mut(&mut n) {
+        Some(f) => set(f),
+        None => set(&mut n),
+    }
+    n
 }
 
 /// The first element of `n` (itself included) the browser can focus: a native one, or one that carries a `tabindex`.
@@ -1336,6 +1366,40 @@ mod tests {
         let (t, i) = tree_with("ListBox", "S-1", &[("TabOrder", "5"), ("Enabled", "0")]);
         let n = view(&e.cx(&t), i);
         assert_eq!(n.find_tag("ul").unwrap().attr_of("tabindex"), Some("-1"), "a disabled control stays out of the order: {}", n.describe());
+    }
+
+    /// WASM-004 T34 (operator, 2026-10-31): the accessible name is the control's `AccessibleLabel`, else its caption,
+    /// else the Label before it in tab order (`aria-labelledby`), else its Tooltip — on the element that takes the
+    /// focus, or on the root of a control that takes none.
+    #[test]
+    fn the_accessible_name_is_the_own_label_the_caption_the_label_before_or_the_tooltip() {
+        let mut t = crate::tree::testing::tree_of(
+            r#"<Control id="LBL-NAME" type="Label" x="0" y="0" w="80" h="24"><Property name="Caption">Customer name</Property></Control>
+               <Control id="TXT-NAME" type="TextBox" x="90" y="0" w="160" h="28"></Control>
+               <Control id="NUD-QTY" type="NumericUpDown" x="0" y="40" w="120" h="28"><Property name="Tooltip">Quantity</Property></Control>
+               <Control id="SLD-VOL" type="Slider" x="0" y="80" w="200" h="36"><Property name="AccessibleLabel">Volume</Property><Property name="Tooltip">not this</Property></Control>
+               <Control id="BTN-OK" type="Button" x="0" y="120" w="100" h="32"><Property name="Caption">OK</Property></Control>
+               <Control id="SWT-1" type="Switch" x="0" y="160" w="80" h="32"></Control>
+               <Control id="CH-1" type="BarChart" x="300" y="0" w="200" h="150"><Property name="Tooltip">Sales by quarter</Property></Control>"#,
+        );
+        let e = Empty::default();
+        let named = |t: &crate::tree::FormTree, id: &str| {
+            let n = view(&e.cx(t), t.by_name(id).unwrap());
+            let f = n.find(&|x| x.attr_of("aria-label").is_some() || x.attr_of("aria-labelledby").is_some());
+            let got = f.map(|f| (f.tag, f.attr_of("aria-label").map(str::to_owned), f.attr_of("aria-labelledby").map(str::to_owned)));
+            println!("{id}: {got:?}");
+            got
+        };
+        assert_eq!(named(&t, "TXT-NAME"), Some(("input", None, Some("LBL-NAME".into()))), "the Label before it");
+        assert_eq!(named(&t, "NUD-QTY"), Some(("input", Some("Quantity".into()), None)), "its Tooltip");
+        assert_eq!(named(&t, "SLD-VOL"), Some(("input", Some("Volume".into()), None)), "its own AccessibleLabel, before the Tooltip");
+        assert_eq!(named(&t, "BTN-OK"), None, "a Button's caption is its native name");
+        assert_eq!(named(&t, "SWT-1"), None, "no name: Check warns about it");
+        assert_eq!(named(&t, "CH-1"), Some(("div", Some("Sales by quarter".into()), None)), "a chart takes no focus: on its role=img root");
+        // A program's write is announced on the next view.
+        let s = t.by_name("SWT-1").unwrap();
+        t.set(s, "AccessibleLabel", "Dark mode");
+        assert_eq!(named(&t, "SWT-1"), Some(("button", Some("Dark mode".into()), None)));
     }
 
     /// WASM-004 T22, R9 and Q9: on a coarse pointer an interactive control's hit area is 15 % larger — a transparent

@@ -3498,6 +3498,7 @@ fn render_form_inner(
                     &mut open_combos,
                 );
             }
+            label_accessible_node(ui, scope, input, controls, idx, &live, &ranks);
             // Spec 091 R19 — a control of a layer that has no mouse behaviour of
             // its own and paints something (a Label's text, a Panel, a picture)
             // still owns the pointer where it paints: what is below must not
@@ -4327,6 +4328,33 @@ fn tab_focus_id(scope: Option<egui::Id>, ctrl: &Control) -> egui::Id {
         base.with("datagrid-focus")
     } else {
         base
+    }
+}
+
+/// WASM-004 T34 — the accessible name of `controls[idx]` (drawn as `live`) on the AccessKit node of the
+/// widget that takes its focus, as `accessible::name_source` resolves it: its `AccessibleLabel`, its caption,
+/// the Label before it in tab order, or its Tooltip. Only
+/// the controls a screen reader must name (`accessible::needs_name`, every one of them focusable, so its
+/// node exists), and only while AccessKit is on: nothing is computed otherwise.
+fn label_accessible_node(
+    ui: &egui::Ui,
+    scope: Option<egui::Id>,
+    input: &RenderInput<'_>,
+    controls: &[Control],
+    idx: usize,
+    live: &Control,
+    ranks: &[usize],
+) {
+    use crate::accessible::{name_source, name_text, needs_name};
+    if !needs_name(&live.control_type) || ui.ctx().accesskit_node_builder(egui::accesskit_root_id(), |_| ()).is_none() {
+        return;
+    }
+    let refs: Vec<&Control> = controls.iter().collect();
+    let get = |i: usize, k: &str| if i == idx { sv(live, k) } else { sv(&input.state.live(&controls[i]), k) };
+    let rank = |i: usize| ranks.get(i).copied().unwrap_or(0);
+    // The caption too: a drawn Button's node has no name of its own.
+    if let Some(name) = name_text(name_source(&refs, idx, &rank, &get), idx, &get) {
+        ui.ctx().accesskit_node_builder(tab_focus_id(scope, live), |node| node.set_label(name));
     }
 }
 
@@ -26019,6 +26047,62 @@ mod tests {
             });
         }
         assert!(seen, "the Label's tooltip is painted");
+    }
+
+    /// WASM-004 T34 — a screen reader on the desktop hears the name `accessible.rs` resolves: the control's
+    /// `AccessibleLabel`, the Label before it in tab order, or its Tooltip, on the node of the widget that
+    /// takes its focus; a Button keeps its caption.
+    #[test]
+    fn a_screen_reader_hears_the_resolved_accessible_name_on_the_desktop() {
+        let controls = [
+            ctrlp("LBL-NAME", ControlType::Label, 10, 10, 100, 24, &[("Caption", "Customer name")]),
+            ctrlp("TXT-NAME", ControlType::TextBox, 120, 10, 160, 28, &[]),
+            ctrlp("NUD-QTY", ControlType::NumericUpDown, 10, 50, 120, 28, &[("Tooltip", "Quantity")]),
+            ctrlp("SLD-VOL", ControlType::Slider, 10, 90, 200, 36, &[("AccessibleLabel", "Volume"), ("Tooltip", "not this")]),
+            ctrlp("BTN-OK", ControlType::Button, 10, 140, 100, 32, &[("Caption", "OK")]),
+        ];
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        ctx.enable_accesskit();
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let mut labels: Map<String, (String, String)> = Map::new();
+        for i in 0..3 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+            input.time = Some(i as f64 * 0.1);
+            let st = MapState(&overrides);
+            let mut out = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &inp);
+                });
+            });
+            out.textures_delta.clear();
+            let update = out.platform_output.accesskit_update.take().expect("AccessKit is on");
+            for c in &controls {
+                let want = tab_focus_id(None, c).accesskit_id();
+                if let Some((_, node)) = update.nodes.iter().find(|(id, _)| *id == want) {
+                    labels.insert(c.id.clone(), (node.label().unwrap_or_default().to_owned(), format!("{:?}", node.role())));
+                }
+            }
+        }
+        for (id, (label, role)) in &labels {
+            println!("{id}: {label:?} ({role})");
+        }
+        let label = |id: &str| labels.get(id).map(|l| l.0.as_str()).unwrap_or("<no node>");
+        assert_eq!(label("TXT-NAME"), "Customer name", "the Label before it");
+        assert_eq!(label("NUD-QTY"), "Quantity", "its Tooltip");
+        assert_eq!(label("SLD-VOL"), "Volume", "its own AccessibleLabel");
+        assert_eq!(label("BTN-OK"), "OK", "a Button is named by its caption");
     }
 
     /// `BringToFront` / `SET ctl::ZOrder` at run time reorders the controls:

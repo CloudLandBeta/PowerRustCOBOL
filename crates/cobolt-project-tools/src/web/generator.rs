@@ -189,6 +189,8 @@ impl GeneratorBackend {
             // WASM-004 R5 (AC4): a control or a ToolBar action that needs the local
             // machine, at its line in the form file.
             refused.extend(super::classes::unavailable_controls(req.kind, rel, &cfrm, &form));
+            // WASM-004 T34: a control a screen reader cannot name is a warning, not a refusal.
+            warnings.extend(super::classes::unnamed_controls(req.kind, rel, &cfrm, &form));
             let (src, map) = cobolt_codegen::generate_with_map(&form);
             let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(
                 &src,
@@ -866,11 +868,17 @@ impl WebBuildBackend for GeneratorBackend {
     }
 
     fn check(&self, req: &WebBuildRequest) -> Result<(), WebBuildError> {
+        self.check_with_warnings(req).map(|_| ())
+    }
+
+    fn check_with_warnings(&self, req: &WebBuildRequest) -> Result<Vec<WebDiagnostic>, WebBuildError> {
         // The same steps as the Build up to the generator; the bytes are
         // discarded, nothing is written (WASM-002 R3: Check and Build agree).
-        let (forms, _) = self.compile(req, &mut Vec::new())?;
+        let mut warnings = Vec::new();
+        let (forms, _) = self.compile(req, &mut warnings)?;
         stylesheets(req, &forms)?;
-        backend_programs(req, &forms).map(|_| ())
+        backend_programs(req, &forms)?;
+        Ok(warnings)
     }
 
     fn build(&self, req: &WebBuildRequest) -> Result<BuildReport, WebBuildError> {

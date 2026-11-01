@@ -6896,6 +6896,13 @@ impl Control {
             );
         }
 
+        // WASM-004 T34 (operator, 2026-10-31) — the name a screen reader announces, on every control;
+        // empty means the caption, the Label before it in tab order, or the Tooltip (`accessible.rs`).
+        // Last, so that the Hyperlink keeps it where its own seeds put it.
+        props
+            .entry(crate::accessible::ACCESSIBLE_LABEL.into())
+            .or_insert_with(|| PropValue::String(String::new()));
+
         Self {
             id: id_str,
             control_type,

@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.133 — 2026-11-01 — WASM-004 T24–T35: fonts, the IDE half, layers end to end, the browser comparisons and the accessible name
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.116.)*
+
+WASM-004 (control reuse on the web), from T24 to T35. The details and the evidence are in `specs/WASM-004-control-reuse-on-the-web/tasks.md`. T11 stays with WASM-018, and T23 waits for its own spec (WASM-023).
+
+* **Fonts** (T24; `cobolt-web-bundle`). Every font family a form names that the project supplies under `Assets/` becomes an `@font-face`. A family that only the developer's OS has is not copied, and the Build warns about it. The Build also warns when font files take more than half of the application.
+* **The IDE half** (T25–T30).
+  * Check and Build refuse a class D control or operation at its line.
+  * The toolbox of a Web or Mobile project says that class D controls are hidden.
+  * On a web form, Properties hides what a browser cannot draw and marks what it draws approximately. Values are never removed (AC5).
+  * The agent kit and the System KB state each control's web class.
+  * Every string is in six languages.
+* **Layers end to end in Chrome** (T31). This covers stacking, start hidden, hit testing through translucent backdrops, Tab per layer, and a DataGrid at a rounded corner (AC9–AC13).
+* **Property round-trip of every class A and B control in Chrome** (T32). 37 controls, 316 checks, 5 documented differences.
+  * **Fixed:** a chart, a Knob, a Gauge and a Shape lost their `Tooltip`, their `Enabled` and their layer's hiding on the page.
+* **Desktop comparison harness** (T33). 14 controls: geometry is equal to the pixel, and 12 differences in colour and event order are listed per control. They are open parity items.
+* **The accessible name** (T34; the operator's decision of 2026-10-31).
+  * **Every control has an `AccessibleLabel`.** Empty means the name comes from the control's own caption, then the Label just before it in tab order, then its `Tooltip`. One rule (`cobolt_forms::accessible`) is shared by:
+    * the desktop renderer, which writes the name on the control's AccessKit node (a drawn Button had no name there before);
+    * the browser player (`aria-label`, or `aria-labelledby` to the Label);
+    * Check.
+  * **Check warns about unnamed controls.** On a Web or Mobile form, a control the keyboard reaches with no name gets a warning naming the form and the control, at its line. Check now lists the generator's warnings (`WebBuildBackend::check_with_warnings`).
+  * **Properties panel:** the property is shown under Advanced for every control, with help text in six languages, and documented in the System KB (`assets/knowledge/chunked.data` regenerated).
+  * **DataGrid:** the caption band (title and CSV button) is a `row` with one `gridcell`, and the row numbers count it.
+  * **Result:** the keyboard walk reaches and operates all 11 controls. axe-core 4.10.3 on the reference form reports **0 critical** issues (9 violations before, 2 now: the grid's scroller and an empty column header).
+* The prebuilt `assets/web-player/` was rebuilt.
+
 ## 2.0.132 — 2026-10-31 — WASM-007 T15–T30: CSS3 styling and the form stylesheet
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.115.)*

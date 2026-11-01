@@ -135,10 +135,13 @@ pub fn check_project<H: ProjectHost>(host: &H, root: &ProjectRoot) -> Result<Rep
     // linked checks the rest as before.
     if !view.kind.is_desktop() {
         if let Ok(req) = crate::web::WebBuildRequest::from_manifest(root.manifest()) {
-            if let Err(crate::web::WebBuildError::Refused(lines)) =
-                crate::web::backend().check(&req)
-            {
-                report.findings.extend(lines.iter().map(web_finding));
+            match crate::web::backend().check_with_warnings(&req) {
+                Err(crate::web::WebBuildError::Refused(lines)) => {
+                    report.findings.extend(lines.iter().map(|d| web_finding(d, Severity::Error)));
+                }
+                // WASM-004 T34: what Check warns about (a control a screen reader cannot name).
+                Ok(warnings) => report.findings.extend(warnings.iter().map(|d| web_finding(d, Severity::Warning))),
+                Err(_) => {}
             }
         }
     }
@@ -147,7 +150,7 @@ pub fn check_project<H: ProjectHost>(host: &H, root: &ProjectRoot) -> Result<Rep
 
 /// A refusal of the web build as a finding: `webforms/a.wcfrm (A ▸ BTN ▸ onClick):8`
 /// gives the file, the code site, the form and the line.
-fn web_finding(d: &crate::web::WebDiagnostic) -> Finding {
+fn web_finding(d: &crate::web::WebDiagnostic, severity: Severity) -> Finding {
     let (place, line) = match d.location.rsplit_once(':') {
         Some((p, n)) if n.parse::<u32>().is_ok() => (p, n.parse().unwrap_or(0)),
         _ => (d.location.as_str(), 0),
@@ -156,7 +159,7 @@ fn web_finding(d: &crate::web::WebDiagnostic) -> Finding {
         Some((f, s)) => (f, s.strip_suffix(')').map(str::to_owned)),
         None => (place, None),
     };
-    let mut f = Finding::at(file, Severity::Error, d.message.clone());
+    let mut f = Finding::at(file, severity, d.message.clone());
     f.line = line;
     f.form = site
         .as_deref()

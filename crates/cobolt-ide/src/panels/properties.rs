@@ -6363,6 +6363,11 @@ impl PropertiesPanel {
                 ));
             }
         });
+        // WASM-004 T34 — the name a screen reader announces, on every control (empty: the caption, the Label
+        // before it in tab order, or the Tooltip).
+        let key = cobolt_forms::accessible::ACCESSIBLE_LABEL;
+        let cur = ctrl.get_prop(key).map(|v| v.as_str().to_owned()).unwrap_or_default();
+        text_row_hint(ui, &mut self.hints, id, key, &cur, tr.lbl_accessible_label_lbl, "", action);
         combo_prop_row(
             ui,
             id,
@@ -8015,7 +8020,8 @@ impl PropertiesPanel {
                     UrlNote::Empty => {}
                 }
                 combo_row_inline(ui, id, "Target", ctrl, action, cobolt_forms::hyperlink::TARGETS);
-                for key in ["WindowFeatures", "Rel", "Download", "HrefLang", "MimeType", "AccessibleLabel"] {
+                // `AccessibleLabel` is every control's row now, under Advanced (WASM-004 T34).
+                for key in ["WindowFeatures", "Rel", "Download", "HrefLang", "MimeType"] {
                     let cur = ctrl.get_prop(key).map(|v| v.as_str().to_owned()).unwrap_or_default();
                     text_row_hint(ui, &mut self.hints, id, key, &cur, &format!("{key}:"), "", action);
                 }

@@ -6663,6 +6663,7 @@ const UNIVERSAL_PROPS: &[&str] = &[
     "Underline",
     "Strikethrough",
     "Tooltip",
+    "AccessibleLabel",
     "Cursor",
     "HoverDelayMs",
     "Locked",
@@ -6947,6 +6948,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "CssClass" => ("space-separated CSS class names, or empty", "Web and Mobile forms only. Classes added to the control's element after `pr-control` and its type class (`pr-button`, `pr-label`, …), so the project's and the form's stylesheets can select it (`.card { … }`); a name that is not a valid class name is dropped. The designer does not paint the CSS: a control a sheet styles carries a small `#` badge on the canvas."),
         "CssStyle" => ("a CSS declaration list, or empty", "Web and Mobile forms only (shown as \"Style (CSS)\"). Declarations for this control alone — `border-radius: 12px; letter-spacing: 1px` — applied after every stylesheet, as one rule `[data-pr-inst=\"n\"] #<control>` in no layer: it beats the properties, and a sheet rule of the same or lower specificity, but, unlike a real inline `style` attribute (which the page never uses), a more specific sheet rule or a sheet's `!important` rule still beats it. A declaration that does not parse, opens a rule, or loads from outside the bundle is dropped and reported (in the Properties panel under the field, and in the browser console). Nothing is written to the form while it is empty."),
         "Tooltip" => ("free text","Text shown in a small pop-up while the pointer rests on the control in the running form, after its HoverDelayMs (empty = no tooltip). Every visual control shows it."),
+        "AccessibleLabel" => ("free text, or empty", "The name a screen reader announces for the control, on the desktop (its accessibility node) and in a browser (`aria-label`). Empty: the control's own caption (a Button, CheckBox, RadioButton, Hyperlink, Label or GroupBox), else the Label just before it in tab order (in a browser, `aria-labelledby` to that Label), else its `Tooltip`. A control the keyboard reaches with none of these is named by a Web or Mobile Check as a warning, form and control."),
         "Cursor" => (
             "one of: `Default` | `Hand` | `Text` | `Wait` | `Crosshair` | `No` | `SizeAll` | `SizeNS` | `SizeWE`",
             "Mouse cursor shown while hovering the control.",

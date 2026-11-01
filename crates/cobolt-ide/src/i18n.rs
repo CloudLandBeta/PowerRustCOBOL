@@ -467,6 +467,10 @@ pub struct Tr {
     /// WASM-004 R6 — the start of an approximate property's tooltip on a web or mobile form; the
     /// approximation (English, from the fidelity table) follows it.
     pub prop_web_approximate: &'static str,
+    /// WASM-004 T34 — Check's warning on a web or mobile form; `{}` is `FORM ▸ CONTROL (Type)`.
+    pub wasm_warn_no_accessible_name: &'static str,
+    /// WASM-004 T34 — the Properties panel row of `AccessibleLabel`, every control.
+    pub lbl_accessible_label_lbl: &'static str,
     pub wasm_diag_unsupported: &'static str,
     pub wasm_diag_unknown_layer: &'static str,
     pub wasm_diag_unknown_layer_property: &'static str,
@@ -3068,6 +3072,8 @@ const EN: Tr = Tr {
     wasm_diag_unavailable_on_web: "{} is not available in a browser or on a device: {}",
     toolbox_web_hidden_note: "Controls a browser cannot run (plug-in controls) are not listed in a Web or Mobile project.",
     prop_web_approximate: "Approximate in a browser:",
+    wasm_warn_no_accessible_name: "{} has no accessible name: a screen reader cannot announce it. Set its AccessibleLabel, put a Label just before it in tab order, or give it a Tooltip",
+    lbl_accessible_label_lbl: "Accessible label:",
     wasm_diag_unsupported: "{} cannot run in a WebAssembly module; move it to the Backend.",
     wasm_diag_unknown_layer: "{} is not a layer of this form.",
     wasm_diag_unknown_layer_property: "A layer has no property {}. Its properties are Name (read only), Visible, Transparency, BackgroundColor, the gradient properties, BackgroundImage and BackgroundImageMode.",
@@ -5213,6 +5219,8 @@ const ES: Tr = Tr {
     wasm_diag_unavailable_on_web: "{} no está disponible en un navegador ni en un dispositivo: {}",
     toolbox_web_hidden_note: "Los controles que un navegador no puede ejecutar (controles de complemento) no se muestran en un proyecto Web o Móvil.",
     prop_web_approximate: "Aproximado en un navegador:",
+    wasm_warn_no_accessible_name: "{} no tiene nombre accesible: un lector de pantalla no puede anunciarlo. Defina su AccessibleLabel, ponga un Label justo antes de él en el orden de tabulación o dele un Tooltip",
+    lbl_accessible_label_lbl: "Etiqueta accesible:",
     wasm_diag_unsupported: "{} no puede ejecutarse en un módulo WebAssembly; muévalo al Backend.",
     wasm_diag_unknown_layer: "{} no es una capa de este formulario.",
     wasm_diag_unknown_layer_property: "Una capa no tiene la propiedad {}. Sus propiedades son Name (solo lectura), Visible, Transparency, BackgroundColor, las propiedades del degradado, BackgroundImage y BackgroundImageMode.",
@@ -7359,6 +7367,8 @@ const PT: Tr = Tr {
     wasm_diag_unavailable_on_web: "{} não está disponível em um navegador nem em um dispositivo: {}",
     toolbox_web_hidden_note: "Os controles que um navegador não consegue executar (controles de plug-in) não aparecem em um projeto Web ou Mobile.",
     prop_web_approximate: "Aproximado em um navegador:",
+    wasm_warn_no_accessible_name: "{} não tem nome acessível: um leitor de tela não consegue anunciá-lo. Defina o AccessibleLabel, coloque um Label logo antes dele na ordem de tabulação ou dê a ele um Tooltip",
+    lbl_accessible_label_lbl: "Rótulo acessível:",
     wasm_diag_unsupported: "{} não pode ser executado em um módulo WebAssembly; mova-o para o Backend.",
     wasm_diag_unknown_layer: "{} não é uma camada deste formulário.",
     wasm_diag_unknown_layer_property: "Uma camada não tem a propriedade {}. Suas propriedades são Name (somente leitura), Visible, Transparency, BackgroundColor, as propriedades do degradê, BackgroundImage e BackgroundImageMode.",
@@ -9505,6 +9515,8 @@ const JA: Tr = Tr {
     wasm_diag_unavailable_on_web: "{} はブラウザーやデバイスでは使用できません: {}",
     toolbox_web_hidden_note: "ブラウザーで実行できないコントロール（プラグイン コントロール）は、Web またはモバイル プロジェクトには表示されません。",
     prop_web_approximate: "ブラウザーでは近似表示:",
+    wasm_warn_no_accessible_name: "{} にはアクセシブル名がないため、スクリーン リーダーが読み上げられません。AccessibleLabel を設定するか、タブ順でその直前に Label を置くか、Tooltip を指定してください",
+    lbl_accessible_label_lbl: "アクセシブル ラベル:",
     wasm_diag_unsupported: "{} は WebAssembly モジュールでは実行できません。Backend に移してください。",
     wasm_diag_unknown_layer: "{} はこのフォームのレイヤーではありません。",
     wasm_diag_unknown_layer_property: "レイヤーにはプロパティ {} がありません。レイヤーのプロパティは Name（読み取り専用）、Visible、Transparency、BackgroundColor、グラデーションのプロパティ、BackgroundImage、BackgroundImageMode です。",
@@ -11650,6 +11662,8 @@ const ZH: Tr = Tr {
     wasm_diag_unavailable_on_web: "{} 在浏览器或设备上不可用：{}",
     toolbox_web_hidden_note: "浏览器无法运行的控件（插件控件）不会在 Web 或移动项目中列出。",
     prop_web_approximate: "在浏览器中为近似效果：",
+    wasm_warn_no_accessible_name: "{} 没有无障碍名称：屏幕阅读器无法朗读它。请设置其 AccessibleLabel，在 Tab 顺序中紧挨其前放一个 Label，或为其设置 Tooltip",
+    lbl_accessible_label_lbl: "无障碍标签：",
     wasm_diag_unsupported: "{} 无法在 WebAssembly 模块中运行；请将其移到后端。",
     wasm_diag_unknown_layer: "{} 不是此窗体的图层。",
     wasm_diag_unknown_layer_property: "图层没有属性 {}。图层的属性有 Name（只读）、Visible、Transparency、BackgroundColor、渐变属性、BackgroundImage 和 BackgroundImageMode。",
@@ -13802,6 +13816,8 @@ const FR: Tr = Tr {
     wasm_diag_unavailable_on_web: "{} n'est pas disponible dans un navigateur ni sur un appareil : {}",
     toolbox_web_hidden_note: "Les contrôles qu'un navigateur ne peut pas exécuter (contrôles de plug-in) ne sont pas listés dans un projet Web ou Mobile.",
     prop_web_approximate: "Approximatif dans un navigateur :",
+    wasm_warn_no_accessible_name: "{} n'a pas de nom accessible : un lecteur d'écran ne peut pas l'annoncer. Définissez son AccessibleLabel, placez un Label juste avant lui dans l'ordre de tabulation ou donnez-lui un Tooltip",
+    lbl_accessible_label_lbl: "Libellé accessible :",
     wasm_diag_unsupported: "{} ne peut pas s'exécuter dans un module WebAssembly ; déplacez-le vers le Backend.",
     wasm_diag_unknown_layer: "{} n'est pas un calque de ce formulaire.",
     wasm_diag_unknown_layer_property: "Un calque n'a pas de propriété {}. Ses propriétés sont Name (lecture seule), Visible, Transparency, BackgroundColor, les propriétés du dégradé, BackgroundImage et BackgroundImageMode.",
@@ -15991,6 +16007,8 @@ mod i18n_tests {
                 ("toolbox_web_hidden_note", tr.toolbox_web_hidden_note, 0),
                 ("prop_web_approximate", tr.prop_web_approximate, 0),
                 ("wasm_diag_unavailable_on_web", tr.wasm_diag_unavailable_on_web, 2),
+                ("wasm_warn_no_accessible_name", tr.wasm_warn_no_accessible_name, 1),
+                ("lbl_accessible_label_lbl", tr.lbl_accessible_label_lbl, 0),
             ] {
                 assert!(!s.trim().is_empty(), "{lang:?} {name} is empty");
                 assert_eq!(s.matches("{}").count(), holes, "{lang:?} {name}: {s}");
@@ -15999,6 +16017,8 @@ mod i18n_tests {
             if lang != Language::English {
                 assert_ne!(tr.toolbox_web_hidden_note, en.toolbox_web_hidden_note, "{lang:?} is not translated");
                 assert_ne!(tr.wasm_diag_unavailable_on_web, en.wasm_diag_unavailable_on_web, "{lang:?} is not translated");
+                assert_ne!(tr.wasm_warn_no_accessible_name, en.wasm_warn_no_accessible_name, "{lang:?} is not translated");
+                assert_ne!(tr.lbl_accessible_label_lbl, en.lbl_accessible_label_lbl, "{lang:?} is not translated");
             }
             println!("{lang:?}: {}", tr.wasm_diag_unavailable_on_web);
         }

@@ -665,6 +665,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "在运行中的窗体里，指针在控件上停留 HoverDelayMs 后，以小弹出框显示的文字；留空则不显示。",
         "Texte affiché dans une petite bulle quand le pointeur reste sur le contrôle dans le formulaire en exécution, après son HoverDelayMs ; vide pour aucune.",
     ] },
+    PropHelp { ty: "", prop: "AccessibleLabel", text: [
+        "The name a screen reader announces for the control, on the desktop and in a browser. Empty: the control's own caption, else the Label just before it in tab order, else its Tooltip; with none of them, a Web or Mobile Check warns.",
+        "El nombre que un lector de pantalla anuncia para el control, en el escritorio y en un navegador. Vacío: el propio Caption del control, si no el Label justo antes de él en el orden de tabulación, si no su Tooltip; sin ninguno, el Check de un proyecto Web o Móvil avisa.",
+        "O nome que um leitor de tela anuncia para o controle, no desktop e em um navegador. Vazio: o próprio Caption do controle, senão o Label logo antes dele na ordem de tabulação, senão o Tooltip; sem nenhum deles, o Check de um projeto Web ou Mobile avisa.",
+        "スクリーン リーダーがこのコントロールについて読み上げる名前（デスクトップでもブラウザーでも）。空欄なら、コントロール自身の Caption、なければタブ順で直前の Label、なければ Tooltip。どれもない場合、Web またはモバイル プロジェクトの Check が警告します。",
+        "屏幕阅读器为该控件读出的名称（桌面和浏览器中均适用）。为空时：使用控件自己的 Caption，否则使用 Tab 顺序中紧挨其前的 Label，否则使用其 Tooltip；都没有时，Web 或移动项目的 Check 会给出警告。",
+        "Le nom qu'un lecteur d'écran annonce pour le contrôle, sur le bureau et dans un navigateur. Vide : le Caption du contrôle, sinon le Label juste avant lui dans l'ordre de tabulation, sinon son Tooltip ; sans aucun d'eux, le Check d'un projet Web ou Mobile avertit.",
+    ] },
     PropHelp { ty: "", prop: "Transparency", text: [
         "How much of what lies behind shows through the control's face, 0 (opaque) to 100 (face not painted). It fades the background, frame and shadow; text and border stay legible. A CheckBox defaults to 100.",
         "Cuánto de lo que hay detrás se ve a través de la cara del control, de 0 (opaco) a 100 (cara sin pintar). Atenúa el fondo, el marco y la sombra; el texto y el borde siguen legibles. Un CheckBox tiene 100 por defecto.",

@@ -212,6 +212,9 @@ pub struct FormTree {
     pub ctls: Vec<Ctl>,
     /// The form's layers, in stack order, with this instance's state of each (empty for a form with none).
     pub layers: Vec<LayerState>,
+    /// By control: the Label just before it in tab order (`cobolt_forms::accessible::preceding_label`), whose
+    /// caption names it when it has no `AccessibleLabel` of its own (WASM-004 T34). Taken from the design.
+    pub label_before: Vec<Option<usize>>,
     abi_index: HashMap<u32, usize>,
     layer_abi: HashMap<u32, usize>,
     name_index: HashMap<String, usize>,
@@ -503,6 +506,13 @@ impl FormTree {
             }
         }
         let layer_abi = layers.iter().enumerate().filter_map(|(k, l)| l.abi_id.map(|a| (a, k))).collect();
+        // The control at `flat[k]` is `ctls[k + 1]`.
+        let refs: Vec<&Control> = flat.iter().map(|(c, _)| *c).collect();
+        let ranks: Vec<usize> = refs.iter().map(|c| form.layer_rank(form.layer_of(&c.id))).collect();
+        let mut label_before = vec![None; ctls.len()];
+        for k in 0..refs.len() {
+            label_before[k + 1] = cobolt_forms::accessible::preceding_label(&refs, k, &|j| ranks[j]).map(|l| l + 1);
+        }
         Ok(FormTree {
             inst,
             form_idx: entry.id as usize,
@@ -512,6 +522,7 @@ impl FormTree {
             design_size: (form.width, form.height),
             ctls,
             layers,
+            label_before,
             abi_index,
             layer_abi,
             name_index,

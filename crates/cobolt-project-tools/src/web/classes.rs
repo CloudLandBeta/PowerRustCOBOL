@@ -89,6 +89,36 @@ pub fn unavailable_controls(kind: ProjectKind, rel: &str, cfrm: &str, form: &For
     out
 }
 
+/// The controls of `form` a screen reader must name and cannot (WASM-004 T34, R10; operator, 2026-10-31):
+/// no `AccessibleLabel`, no caption of its own, no Label just before it in tab order and no Tooltip
+/// (`cobolt_forms::accessible`). One warning each, at its line in `cfrm`, naming the form and the control.
+/// None on a Desktop project's form.
+pub fn unnamed_controls(kind: ProjectKind, rel: &str, cfrm: &str, form: &Form) -> Vec<WebDiagnostic> {
+    use cobolt_forms::accessible::{designed, name_source, needs_name, NameSource};
+    if kind.is_desktop() {
+        return Vec::new();
+    }
+    let mut controls = Vec::new();
+    all_controls(&form.controls, &mut controls);
+    let ranks: Vec<usize> = controls.iter().map(|c| form.layer_rank(form.layer_of(&c.id))).collect();
+    let get = designed(&controls);
+    (0..controls.len())
+        .filter(|&i| needs_name(&controls[i].control_type))
+        .filter(|&i| name_source(&controls, i, &|j| ranks[j], &get) == NameSource::None)
+        .map(|i| {
+            let c = controls[i];
+            let subject = format!("{} ▸ {} ({})", form.name, c.id, c.control_type.as_str());
+            WebDiagnostic {
+                location: at(rel, control_line(cfrm, &c.id)),
+                kind: WebDiagnosticKind::NoAccessibleName,
+                message: format!("{subject} has no accessible name: a screen reader cannot announce it. Set its AccessibleLabel, put a Label just before it in tab order, or give it a Tooltip"),
+                subject,
+                alternative: String::new(),
+            }
+        })
+        .collect()
+}
+
 /// The handler calls of class D methods in `program` (`form`'s generated program),
 /// each at the developer's handler line through `lines`. None on a Desktop project's form.
 pub fn unavailable_calls(
@@ -173,6 +203,35 @@ mod tests {
         let got = findings("forms/prints.cfrm");
         println!("desktop form: {} findings", got.len());
         assert!(got.is_empty(), "{got:?}");
+    }
+
+    /// WASM-004 T34 (operator, 2026-10-31): a control with no AccessibleLabel, no caption, no Label just before it
+    /// in tab order and no Tooltip is a warning naming the form and the control, at its line; never on a desktop form.
+    #[test]
+    fn web_classes_a_control_a_screen_reader_cannot_name_is_a_warning_at_its_line() {
+        let cfrm = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="ORDER" title="Order" width="640" height="480">
+  <Control id="LBL-NAME" type="Label" x="10" y="10" w="80" h="24"><Property name="Caption">Name</Property></Control>
+  <Control id="TXT-NAME" type="TextBox" x="100" y="10" w="160" h="28"></Control>
+  <Control id="TXT-NOTE" type="TextBox" x="100" y="50" w="160" h="28"></Control>
+  <Control id="SLD-QTY" type="Slider" x="100" y="90" w="160" h="36"><Property name="Tooltip">Quantity</Property></Control>
+  <Control id="SWT-GIFT" type="Switch" x="100" y="130" w="80" h="32"><Property name="AccessibleLabel">Gift wrap</Property></Control>
+  <Control id="BTN-OK" type="Button" x="100" y="170" w="100" h="32"><Property name="Caption">OK</Property></Control>
+  <Control id="CH-1" type="BarChart" x="300" y="10" w="200" h="150"></Control>
+</Form>
+"#;
+        let form = cobolt_forms::xml::load_form_from_str(cfrm).unwrap();
+        let got = unnamed_controls(ProjectKind::Web, "webforms/order.wcfrm", cfrm, &form);
+        for d in &got {
+            println!("{d}");
+        }
+        assert_eq!(got.len(), 1, "only TXT-NOTE: {got:#?}");
+        assert_eq!(got[0].location, "webforms/order.wcfrm:5");
+        assert_eq!(got[0].kind, WebDiagnosticKind::NoAccessibleName);
+        assert_eq!(got[0].subject, "ORDER ▸ TXT-NOTE (TextBox)");
+        assert!(got[0].message.starts_with("ORDER ▸ TXT-NOTE (TextBox) has no accessible name"), "{}", got[0].message);
+        assert_eq!(unnamed_controls(ProjectKind::Mobile, "mobileforms/order.mcfrm", cfrm, &form).len(), 1, "a mobile form too");
+        assert!(unnamed_controls(ProjectKind::Desktop, "forms/order.cfrm", cfrm, &form).is_empty());
     }
 
     #[test]

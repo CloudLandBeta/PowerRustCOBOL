@@ -264,6 +264,9 @@ pub enum WebDiagnosticKind {
     /// (WASM-004 R5, AC4); the subject is the construct, the alternative is
     /// in [`WebDiagnostic::alternative`].
     UnavailableOnWeb,
+    /// Warning: a control a screen reader must name has no accessible name
+    /// (WASM-004 T34, R10); the subject is `FORM ▸ CONTROL (Type)`.
+    NoAccessibleName,
 }
 
 /// One refusal or warning of a web build: where, what kind, about what, and the
@@ -394,6 +397,13 @@ pub trait WebBuildBackend: Send + Sync {
     /// refusals, the generator.
     fn check(&self, _request: &WebBuildRequest) -> Result<(), WebBuildError> {
         Err(WebBuildError::NotYetLinked)
+    }
+
+    /// [`check`](Self::check), and the warnings it found when nothing is
+    /// refused (a control a screen reader cannot name, WASM-004 T34): Check
+    /// lists them as the Build's report does.
+    fn check_with_warnings(&self, request: &WebBuildRequest) -> Result<Vec<WebDiagnostic>, WebBuildError> {
+        self.check(request).map(|()| Vec::new())
     }
 
     /// Where the bundle for `request` is (or will be).

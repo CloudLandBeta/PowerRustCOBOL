@@ -480,6 +480,7 @@ impl Grid {
             .key("head")
             .class("pr-dg-head")
             .attr("role", "row")
+            .attr("aria-rowindex", self.lead_rows().to_string())
             .style("top", px(self.caption_h))
             .style("width", px(self.sheet_w))
             .style("height", px(self.header_h))
@@ -610,7 +611,26 @@ impl Grid {
                 )
                 .child(self.text("csvt", "CSV", size, whole(bx + badge_w / 2.0 - tw / 2.0), whole(by + badge_h / 2.0 - metrics::row_height(size) / 2.0) + metrics::baseline_nudge(size), ink).attr("data-part", "csv"));
         }
-        cap
+        // WASM-004 T34: a grid owns only rows (axe `aria-required-children`; it refuses `role=caption` there too), so the
+        // band is a row and its title and CSV button sit in one cell, the band's own box: nothing moves.
+        let kids = std::mem::take(&mut cap.children);
+        let cell = VNode::new("div")
+            .key("cell")
+            .attr("role", "gridcell")
+            .attr("aria-colspan", self.cols.len().max(1).to_string())
+            .style("position", "absolute")
+            .style("left", "0px")
+            .style("top", "0px")
+            .style("width", px(self.w))
+            .style("height", px(self.caption_h))
+            .children(kids);
+        cap.attr("role", "row").attr("aria-rowindex", "1").child(cell)
+    }
+
+    /// The rows an assistive technology counts before the first data row: the titles' band, and the caption band
+    /// when there is one (WASM-004 T34: it is a row too).
+    fn lead_rows(&self) -> usize {
+        1 + usize::from(self.caption_h > 0.0)
     }
 
     /// One row of the body, for the data row `orig` shown at place `pos`, `rh` tall, `top` below the sheet's top.
@@ -627,7 +647,7 @@ impl Grid {
             .style("height", px(rh))
             .style("width", px(self.sheet_w));
         if let Some(o) = orig {
-            row = row.attr("role", "row").attr("data-r", o.to_string()).attr("aria-rowindex", (pos + 2).to_string()).attr("aria-selected", if self.selected_row == Some(o) { "true" } else { "false" });
+            row = row.attr("role", "row").attr("data-r", o.to_string()).attr("aria-rowindex", (pos + self.lead_rows() + 1).to_string()).attr("aria-selected", if self.selected_row == Some(o) { "true" } else { "false" });
         } else {
             row = row.attr("aria-hidden", "true");
         }
@@ -759,7 +779,7 @@ impl Grid {
         let mut root = super::controls::root(cx, i, "div")
             .class("pr-dg")
             .attr("role", "grid")
-            .attr("aria-rowcount", (self.rows.len() + 1).to_string())
+            .attr("aria-rowcount", (self.rows.len() + self.lead_rows()).to_string())
             .attr("aria-colcount", self.cols.len().to_string())
             .attr("tabindex", "0")
             .style("--pr-dg-line", css_color(l.line))
@@ -986,6 +1006,48 @@ mod tests {
         assert_eq!(at(300.0, 3), Some(90.0), "above: it comes to the top");
         assert_eq!(at(0.0, 299), Some(8518.0), "the last row ends at 9000; the sheet scrolls to 8518 at most, so the bar still covers its foot");
         assert_eq!(at(0.0, 300), None, "no such row");
+    }
+
+    /// WASM-004 T34: a grid owns only rows (axe `aria-required-children`), so the caption band is a row whose one cell,
+    /// the band's own box, holds the title and the CSV button; the row count and the row numbers count it.
+    #[test]
+    fn the_caption_band_is_a_row_and_the_row_numbers_count_it() {
+        let rows = |n: &VNode| -> Vec<(String, String)> {
+            let mut out = Vec::new();
+            fn walk(n: &VNode, out: &mut Vec<(String, String)>) {
+                if n.attr_of("role") == Some("row") {
+                    out.push((n.key.clone(), n.attr_of("aria-rowindex").unwrap_or("-").to_owned()));
+                }
+                n.children.iter().for_each(|c| walk(c, out));
+            }
+            walk(n, &mut out);
+            out
+        };
+        let n = dados(|_, _| {});
+        let caption = n.find(&|x| x.has_class("pr-dg-caption")).unwrap();
+        assert_eq!(caption.attr_of("role"), Some("row"));
+        let cell = &caption.children[0];
+        assert_eq!((caption.children.len(), cell.attr_of("role"), cell.attr_of("aria-colspan")), (1, Some("gridcell"), Some("16")));
+        assert!(cell.find(&|x| x.attr_of("role") == Some("button") && x.attr_of("data-part") == Some("csv")).is_some(), "the CSV button is in the cell");
+        assert_eq!((style(cell, "width"), style(cell, "height")), (style(caption, "width"), style(caption, "height")), "the band's own box");
+        let r = rows(&n);
+        println!("with a caption: aria-rowcount {:?}, first rows {:?}", n.attr_of("aria-rowcount"), &r[..4]);
+        assert_eq!(n.attr_of("aria-rowcount"), Some("302"), "300 rows, the titles and the caption");
+        assert_eq!(r[..3].iter().map(|x| x.1.as_str()).collect::<Vec<_>>(), ["1", "2", "3"], "caption, titles, first data row: {r:?}");
+
+        let mut props = dados_props();
+        props.retain(|(k, _)| *k != "ShowCSVExportButton");
+        props.push(("ShowCSVExportButton", "0".into()));
+        let borrowed: Vec<(&str, &str)> = props.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let (t, i) = tree_with("DataGrid", "GRD-PLAIN", &borrowed);
+        let mut e = Empty::default();
+        e.ui.box_sizes.insert(i, (1086.0, 538.0));
+        let plain = data_grid(&e.cx(&t), i);
+        let r = rows(&plain);
+        println!("without: aria-rowcount {:?}, first rows {:?}", plain.attr_of("aria-rowcount"), &r[..3]);
+        assert!(plain.find(&|x| x.has_class("pr-dg-caption")).is_none());
+        assert_eq!(plain.attr_of("aria-rowcount"), Some("301"));
+        assert_eq!(r[..2].iter().map(|x| x.1.as_str()).collect::<Vec<_>>(), ["1", "2"], "titles, first data row: {r:?}");
     }
 
     #[test]
