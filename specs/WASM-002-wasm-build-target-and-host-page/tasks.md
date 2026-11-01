@@ -5,8 +5,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — WebAssembly build target and host page (WASM-002)
 
-- **Status:** in progress — T1–T15, T17, T18, T21, T22 done (2.0.37, 2026-10-23); **stopped at T19**: its Chrome half could not be run
-  in this session (see T19); T16's manual MCP check is owed; T20 and T25's remaining sweeps not run. T1–T9 done and measured on 2026-10-20 (the assembler, the loader and the page, the CSP, the secret scan,
+- **Status:** in progress — T1–T15, T17–T22 done (T19, T20 on 2026-11-01, 2.0.120); **stopped at T16**: its check through the
+  PowerRustCOBOL MCP tools could not be run in this session (the servers were not connected, `rcrun mcp` over a pipe was denied); T25
+  stays open on T16. T23 (WASM-012) and T24 (other browsers) are not this machine's. Earlier: T1–T15, T17, T18, T21, T22 done (2.0.37, 2026-10-23). T1–T9 done and measured on 2026-10-20 (the assembler, the loader and the page, the CSP, the secret scan,
   the size report, the dev server). This revision (2026-10-22) follows the plan revised the same day: the host page's code becomes
   Build-generated Rust output (plan C1, Q6), the 5 MB budget line (C4), the real `WebBuildBackend` with Check and Build (C6). Mobile
   (R2, AC7) stays WASM-012's.
@@ -181,6 +182,13 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
     2/2.
 
 - [ ] **T16 — Link the backend where the program starts** (R1; plan §1 layer 2)
+  - *2026-11-01 (2.0.120), still not checked:* the automated half is green — `cargo test -p cobolt-ide --bin cobolt-ide web_preview`
+    21 passed, 1 ignored; `cargo test -p cobolt-project-tools --test tools` 14 passed (`--test build` 0 passed, 1 ignored, as before).
+    The same tools `rcrun mcp` serves, called in-process by T19's test (`create_project` web, `open_project`, `check`, `build` with
+    `GeneratorBackend` linked), answer `"status": "built"`, `"engine": "cobolt-wasm"`. **Blocked here:** the check *through the MCP
+    tools* — the PowerRustCOBOL MCP servers failed to connect in this session, and driving the built `target/debug/rcrun mcp` over a
+    pipe was denied again. The 5 MB line shows only as a warning when over (an 11.1 MB bundle whose first download is under 5 MB showed
+    none), so the "size report including the budget line" half of the verification cannot appear on an under-budget build as planned.
   - *2026-10-23, the manual MCP check run outside the pipeline:* `rcrun mcp` (2.0.37) — `create_project` kind web → `check` 0 errors, 0
     warnings → `build` writes `dist/web` in 93 ms (page, `config.json`, `_headers`, both players, `program.wasm` + `program.single.wasm`, SBOM).
   - *2026-10-23:* the links exist (WASM-010 T19: `cobolt-ide/src/main.rs:102`, `cobolt-cli/src/main.rs:83`, `GeneratorBackend`).
@@ -216,7 +224,22 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
     process (no `cargo`, `rustc`, `wasm-bindgen`, `node`). The Mobile half (Tauri 2 CLI, Android SDK/NDK, Xcode, Rust; `rustup target add`
     offered after consent, the SDKs not) is WASM-012's.
 
-- [ ] **T19 — The Build's own bundle in node and Chrome** (AC1, AC2)
+- [x] **T19 — The Build's own bundle in node and Chrome** (AC1, AC2)
+  - *Done 2026-11-01 (2.0.120), Chrome 156.0.8078.80 headless:* `cobolt-project-tools/tests/hello_world_chrome.rs`
+    `the_web_templates_build_answers_a_click_and_embeds_in_a_div_in_chrome` 1/1. The project is the IDE's Web template made by the
+    agents' tools (`create_project` template `web`, `open_project`, `check` 0 errors, `build` → `"status": "built"`, `"engine":
+    "cobolt-wasm"`, `dist/web` 11,115,505 B in 30 parts, both module variants, no warning), served by `devserver::start`. **AC1:** with
+    the box empty a click on `BTN-GREET` shows "Type your name first."; with "Ada" typed (CDP `Input.insertText`) it shows "Hello, Ada"
+    — in the window page and in the `<div>` page (the 2.0.37 `"\u0001"` was closed by 2.0.39's `STRING … INTO` a property fix).
+    **AC2:** the Build's `index.html` with `pr-window` turned into `pr-embedded` (all `Embed::Element` changes in the page,
+    `cobolt-web-bundle/src/lib.rs` `body_class`/`app_class`) inside a 420×300 `#host-box` between host content: `#pr-app` 420×300 at the
+    box's content origin, `contain: layout paint`, the host colour rgb(250,240,230) left of, right of and below the box; the host
+    resizes the box to 640×420 → the app 640×420, `LBL-TITLE` (anchored left and right) 124 → 344 px; host `button {background: red
+    !important; font-size: 40px !important}` reaches the host button (rgb(255,0,0), 40px) and not the app's (rgb(58,62,71), 14px,
+    "PR Ubuntu Light"); a host `<p class="pr-surface">` keeps Georgia, rgb(10,20,30). The node half (below) still passes:
+    `node_the_builds_own_hello_world_answers_a_click` 2 scenarios under node v23.3.0. Not re-run: T8's yield and fixed-memory numbers.
+    rustfmt: the file follows the wide-line style of the sibling Chrome tests (`layers_chrome.rs` has 35 rustfmt differences); not
+    reformatted, since rustfmt would follow `#[path] mod cdp` into `cobolt-web-bundle/tests/support/cdp.rs`.
   - *2026-10-23, Chrome half run outside the pipeline* (Chromium 152.0.7977.167 in the desktop app's browser pane; the 2.0.37 Web template
     built through `rcrun mcp`, served by `cobolt-web-bundle --example serve --isolated`, `crossOriginIsolated` true):
     **AC2 passes** — mounted in a 420×300 `<div>` the app fills only that div, follows a resize to 640×420, nothing paints past it; a host
@@ -236,7 +259,13 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
     answers a button click under node and in Chrome (**AC1**); mounted into one `<div>` beside other content, it fills only that `<div>`,
     follows its resize, and a computed style asserted on each side shows no leak either way (**AC2**). Record the browser version used.
 
-- [ ] **T20 — Desktop builds as before** (R9, AC8; plan C3)
+- [x] **T20 — Desktop builds as before** (R9, AC8; plan C3)
+  - *Done 2026-11-01 (2.0.120):* `cargo test -p cobolt-compiler -p cobolt-cli --no-fail-fast` — 34 `test result` lines read, **294
+    passed, 0 failed, 11 ignored** (each ignored one says it builds real binaries or needs a live service); the four SDK failures below
+    were closed by 2.0.39/2.0.40 (decimal/numedit joined the SDK). Run on a target dir cloned from `features-2x-caption` after touching
+    every tracked `.rs`/`.toml`/`.lock` file, so every workspace crate was rebuilt from this worktree (a first run without the touch
+    linked the sibling's `cobolt-ast` and was discarded). No file of the desktop path was changed by this run (`git status`: version,
+    CHANGELOG, one new test file).
   - *2026-10-23, run outside the pipeline on `ddaa2d12` (2.0.37):* `cobolt-compiler` + `cobolt-cli` + `cobolt-web-bundle` — 297 passed,
     4 failed: the known `cobolt-compiler` SDK failures (`sdk_crate_set_is_closed_under_path_dependencies` and three `resolve_main_tests`;
     the SDK crate set lacks `cobolt-numedit`/`cobolt-decimal`, added at 2.0.13/2.0.16) — a fixes-2x item. Box stays open until it is fixed.
@@ -293,6 +322,12 @@ bundled-asset pattern: `<exe dir>/assets/<x>` if it is a directory, else `assets
   - Do: one entry above the previous `## [PowerRustCOBOL 2.0.x]` heading, dated, with *(Written on `features-2x`, after 2.0.N.)*, saying what
     changed (generated host page, budget line, the Web Build and Check). **No documentation task:** `README.md` and `docs/` are not touched on
     2.x.x; what 2.x.x says about itself stays in `specs/`. Update this file's boxes and the spec's AC boxes with evidence.
+  - *2026-11-01, partly (2.0.120):* `VERSION` 2.0.119 → **2.0.120** (once) and one CHANGELOG entry (T19, T20). Run, every `test
+    result` line read: `cobolt-project-tools --no-fail-fast` 20 binaries, **199 passed, 0 failed, 1 ignored** (`web_build` 25,
+    `hello_world_chrome` 1, `kinds` 9, `tools` 14, lib 121 …); `cobolt-compiler` + `cobolt-cli` 294 passed, 0 failed, 11 ignored (T20);
+    `cobolt-ide --bin cobolt-ide web_preview` 21 passed, 1 ignored. **Not run in this pass:** the full `cobolt-ide --bin cobolt-ide`
+    and `cobolt-web-bundle` sweeps (no file of either crate changed besides `version.rs`), and the MCP check (T16). Spec ACs ticked
+    with evidence: AC1, AC2 (T19), AC3, AC4b, AC5 (`web_build` 25/25 this run: `portable`, AC4b's import check, `secret`), AC8 (T20).
   - *2026-10-23, partly:* `VERSION` 2.0.36 → **2.0.37** (once) and the CHANGELOG entry written. Run: `cargo test -p cobolt-project-tools
     --no-fail-fast` — lib 101, build 0 (1 ignored), crates 3, exec_sql_check 2, form_design_rule 6, http 2, kinds 7, layout_rule 6, tools 13,
     web_build 15, all passed; `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast` — 1,872 passed, **5 failed**, 4 ignored: the five

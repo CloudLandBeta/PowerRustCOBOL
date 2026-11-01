@@ -1,5 +1,18 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.136 — 2026-11-01 — WASM-002 T19, T20: the Web template's own Build answers a click in Chrome and embeds in a `<div>`; Desktop builds as before
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.119.)*
+
+WASM-002 (the WebAssembly build target and the host page). The details and the evidence are in `specs/WASM-002-wasm-build-target-and-host-page/tasks.md`.
+
+* **AC1 and AC2 in Chrome on the Build's own bundle** (T19). A new test, `cobolt-project-tools/tests/hello_world_chrome.rs`, makes a project from the IDE's Web template with the agents' tools (`create_project`, `open_project`, `check`, `build`). The Build answers `built` with the engine `cobolt-wasm`. The bundle is served by the development server and driven in a headless Chrome (156.0.8078.80):
+  * With the box empty, a click on Greet shows "Type your name first.". With "Ada" typed, it shows "Hello, Ada". This holds both when the page is the application and when it is mounted in a `<div>`. The 2.0.37 run saw `"\u0001"` here; the 2.0.39 fix to `STRING … INTO` a property closed it.
+  * The application mounted in a 420×300 `<div>` of another page fills only that `<div>`. It follows the `<div>` when the page resizes it to 640×420, and the form re-lays out (its title grows from 124 to 344 px). The host page's own colour shows on every side of the `<div>`.
+  * The host's `button { background: red !important; font-size: 40px !important }` does not reach the application's button. The application's `.pr-surface` rules do not reach a host `<p class="pr-surface">`.
+* **Desktop unchanged** (T20, AC8). `cargo test -p cobolt-compiler -p cobolt-cli --no-fail-fast`: 294 passed, 0 failed, 11 ignored. The four SDK failures recorded at 2.0.37 were closed by 2.0.39.
+* **Still open:** T16's check through the PowerRustCOBOL MCP tools. The server was not connected and `rcrun mcp` could not be driven over a pipe in this session. The same tools, called in-process by the new test, answer `built` with `cobolt-wasm`. T8's yield and memory numbers have not been re-measured on the generated loader.
+
 ## 2.0.135 — 2026-11-01 — WASM-005 T18b: a `CALL … WITH WEBSOCKET LINKAGE` in flight waits while the connection is retried
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.118.)*

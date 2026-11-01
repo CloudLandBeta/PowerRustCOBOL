@@ -155,19 +155,19 @@ bundle layout serve both.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A hello-world Web project builds to a folder of static files that, served by any static server, shows its form and answers a
+- [x] **AC1** — A hello-world Web project builds to a folder of static files that, served by any static server, shows its form and answers a
   button click in a headless browser.
-- [ ] **AC2** — The same hello-world, mounted into one `<div>` of a test page next to other content, fills only that `<div>`, resizes with it,
+- [x] **AC2** — The same hello-world, mounted into one `<div>` of a test page next to other content, fills only that `<div>`, resizes with it,
   and neither page's CSS affects the other (a test asserts a computed style on each side).
-- [ ] **AC3** — A form using a construct outside the subset (for example an `OPEN` of a disk file) makes Check fail with the line, the
+- [x] **AC3** — A form using a construct outside the subset (for example an `OPEN` of a disk file) makes Check fail with the line, the
   construct and the alternative; no bundle is written.
 - [ ] **AC4** — A program in the subset, run on the desktop runtime and as the generated module (headless), prints identical output for a fixed set of
   programs; the conformance list and its numbers are WASM-010 R16 and AC7–AC8, which is what R4's "behave as" is measured against.
-- [ ] **AC4b** — The built bundle contains no interpreter, AST or runtime library, and the program module's import section lists only the host API (R16).
-- [ ] **AC5** — A key placed in a form's property (a deliberate test secret) stops Build with a message that names the file and pattern.
+- [x] **AC4b** — The built bundle contains no interpreter, AST or runtime library, and the program module's import section lists only the host API (R16).
+- [x] **AC5** — A key placed in a form's property (a deliberate test secret) stops Build with a message that names the file and pattern.
 - [ ] **AC6** — Missing-tool messages for each tool of R6 appear when that tool is absent (tested by hiding it from `PATH`).
 - [ ] **AC7** — The Mobile build produces an Android package and (on macOS) an iOS package from the same project; both start and show the form.
-- [ ] **AC8** — A Desktop project builds byte-for-byte as before (the existing compiler tests stay green).
+- [x] **AC8** — A Desktop project builds byte-for-byte as before (the existing compiler tests stay green).
 
 ## 6. Constraints & steering check
 
