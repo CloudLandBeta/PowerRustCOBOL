@@ -65,7 +65,7 @@ impl std::fmt::Display for SeqError {
 }
 
 /// Split one script line into words; a quoted word keeps its spaces.
-fn words(line: &str) -> Vec<String> {
+pub(crate) fn words(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut quote: Option<char> = None;
@@ -95,7 +95,7 @@ fn words(line: &str) -> Vec<String> {
 
 /// The entries of one script line: split at `;` and cut at `*>`, neither of
 /// which counts inside a quoted word.
-fn entries_of(line: &str) -> Vec<String> {
+pub(crate) fn entries_of(line: &str) -> Vec<String> {
     let mut out = vec![String::new()];
     let mut quote: Option<char> = None;
     let mut chars = line.chars().peekable();

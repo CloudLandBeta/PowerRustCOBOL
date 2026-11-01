@@ -231,3 +231,19 @@ COBOL::Layout("Clear", "PNL-FILTERS")
   `)` of ```` ```) ```` vanished. Fixed in `cobolt-lexer` (a fix, its own commit, 2.0.113).
 - **Not validated at `Create`:** the animation named by a `PLAY`; the interpreter does not hold the
   controls' animation definitions. An unknown name is a no-op on the page, as `PlayAnimation` already is.
+
+### 8.5 What S6 became (2026-11-01)
+
+- **No runtime write of the design.** The script lowers to **breakpoint overrides** (056 R59), the
+  mechanism the solver already uses for "a column when narrow": the lines before the first `WHEN` are
+  installed in every breakpoint, ahead of that breakpoint's own `WHEN` lines, so the narrower rule wins.
+  `Clear` takes exactly those overrides away. The interpreter reads and checks the script and hands the
+  form host one write of `_LayoutScript` on the form object; the host installs it (`cobolt_forms::
+  layout_script::install`). `rcrun run-form`, an embedded child form and the compiled binary share that path.
+- **Ownership reversed from §8.2.** A program's own write to a property wins over the script, as it wins
+  over any breakpoint (056 R64: a COBOL write, else the active breakpoint, else the design). So no warning
+  and no Check error are needed: nothing competes silently.
+- **`WHEN name`** is not checked against the form's table by the interpreter, which does not hold it; a name
+  the table lacks installs nothing. Caveat in the Guide.
+- **Needs `Responsive`** on the form (the golden rule already requires it); on a form that is not laid out,
+  the script is stored and does nothing.

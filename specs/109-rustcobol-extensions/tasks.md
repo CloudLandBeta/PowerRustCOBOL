@@ -163,11 +163,11 @@ finished module's execution pass (rule #9).
 
 ## S6 — Declarative layout
 
-- [ ] **T6.1 — Fix the grammar and Web lowering** (R32, Q7) — a short decision note appended to `plan.md`, against spec 056 R9, R10 and WASM-004 R8; operator reviews before T6.2.
-- [ ] **T6.2 — Persist rules and lower into `layout::solve`** — `cobolt-forms/src/{model.rs,layout/}`; cycle and conflict diagnostics with source spans.
+- [x] **T6.1 — Fix the grammar and Web lowering** (R32, Q7) — a short decision note appended to `plan.md`, against spec 056 R9, R10 and WASM-004 R8; operator reviews before T6.2.
+- [x] **T6.2 — Persist rules and lower into `layout::solve`** — `cobolt-forms/src/{model.rs,layout/}`; cycle and conflict diagnostics with source spans.
   - Verify: Compact/Medium/Expanded at 599/600 and 1023/1024, nesting, overrides, rounding, min/max, resize repetition; a window never resizes itself (AC17).
-- [ ] **T6.3 — Generator emission and Web lowering or refusal** — `cobolt-codegen`, `cobolt-web-player`.
-- [ ] **T6.4 — Slice close S6** (AC17)
+- [x] **T6.3 — Generator emission and Web lowering or refusal** — `cobolt-codegen`, `cobolt-web-player`.
+- [x] **T6.4 — Slice close S6** (AC17)
 
 ## S7 — Animation sequences
 

@@ -2621,6 +2621,21 @@ impl FormBody {
             self.settle_layout_switch();
             return true;
         }
+        // Spec 109 S6 — `COBOL::Layout`: the container's name, then one tab
+        // separated override per line. It installs breakpoint overrides and
+        // takes back what the same container installed before; an empty body
+        // is `Clear`. The design is not written.
+        if lower == "_layoutscript" {
+            let Some(spec) = self.responsive.as_mut().or(self.responsive_off.as_mut()) else { return true };
+            let (owner, lines) = value.split_once('\n').unwrap_or((value, ""));
+            let owner = owner.trim().to_ascii_uppercase();
+            let previous = spec.layout_scripts.remove(&owner).unwrap_or_default();
+            let installed = cobolt_forms::layout_script::install(&mut spec.breakpoints, &previous, lines);
+            if !installed.is_empty() {
+                spec.layout_scripts.insert(owner, installed);
+            }
+            return true;
+        }
         let bag_key = cobolt_forms::layout::defaults::form_defaults()
             .into_iter()
             .map(|(k, _)| k)
@@ -3912,6 +3927,10 @@ pub(crate) struct ResponsiveSpec {
     /// it. The form is laid out while it is on OR an obsolete scaling style is
     /// set (spec 081 R4) — see [`Self::lays_out`].
     pub(crate) switched_on: bool,
+    /// Spec 109 S6 — what each `COBOL::Layout("Apply", container, …)` installed
+    /// in the breakpoint table, by container, so the next `Apply` or `Clear` of
+    /// that container takes exactly those overrides away.
+    pub(crate) layout_scripts: std::collections::HashMap<String, Vec<(String, cobolt_forms::layout::breakpoints::Override)>>,
 }
 
 /// Spec 081 — an `ObsoleteScalingStyle` value a program may write: a whole
@@ -3941,6 +3960,7 @@ impl ResponsiveSpec {
             pinned_font_scale: None,
             limits: Default::default(),
             switched_on: form.responsive,
+            layout_scripts: Default::default(),
         }
     }
 
@@ -12827,6 +12847,50 @@ mod parity {
             .collect();
         assert_eq!(changes.len(), 3, "pin, unpin, new table: three changes of breakpoint");
         println!("056 T7.4: Breakpoint pin/unpin, FontScale 1.5/auto, Breakpoints replaced, LayoutMode Flex Column, Responsive off — each in its frame; 3 × onBreakpointChanged");
+    }
+
+    /// Spec 109 S6 (AC17, R32) — `COBOL::Layout("Apply", …)` reaches the layout as
+    /// breakpoint overrides, in the frame it arrives, and `Clear` takes exactly
+    /// those away. A panel designed as a flex row, in a 900 px window (Medium):
+    /// a script for every breakpoint makes it a column; a second owner's script
+    /// is left alone by the first one's `Clear`; the design is never written.
+    #[test]
+    fn a_layout_script_is_installed_and_cleared_as_breakpoint_overrides_109() {
+        let mut f = cobolt_forms::Form::new("LAY-FORM", "Layout", 800, 600);
+        f.responsive = true;
+        let mut pnl = cobolt_forms::Control::new("PNL", cobolt_forms::ControlType::Panel, 0, 0);
+        pnl.rect = cobolt_forms::model::Rect::new(0, 0, 400, 300);
+        pnl.set_prop("LayoutMode", cobolt_forms::PropValue::String("Flex".into()));
+        pnl.set_prop("FlexDirection", cobolt_forms::PropValue::String("Row".into()));
+        f.controls.push(pnl);
+        for id in ["A", "B"] {
+            let mut c = cobolt_forms::Control::new(id, cobolt_forms::ControlType::Button, 0, 0);
+            c.rect = cobolt_forms::model::Rect::new(0, 0, 100, 30);
+            c.parent = Some("PNL".into());
+            f.controls.push(c);
+        }
+        let (mut app, _f, pipes) = corpus_host(f, Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        let write = |app: &mut FormHost, value: &str| {
+            pipes._state_tx.send(StateUpdate::new("LAY-FORM", "_LayoutScript", value)).unwrap();
+            frame(app, &ctx, corpus_input(egui::vec2(900.0, 600.0)));
+            app.root.last_layout.clone().unwrap()
+        };
+        let l = write(&mut app, "OTHER\n");
+        let (a, b) = (l.rects["A"], l.rects["B"]);
+        assert_eq!((a.y, b.y), (a.y, a.y), "designed as a row");
+        assert!(b.x > a.x, "B beside A");
+        let l = write(&mut app, "PNL\n*\tPNL\tFlexDirection\tColumn");
+        let (a, b) = (l.rects["A"], l.rects["B"]);
+        assert_eq!((b.x, b.y), (a.x, a.y + a.h), "the script made a column: B under A");
+        let spec = app.root.responsive.as_ref().unwrap();
+        assert_eq!(spec.breakpoints.iter().filter(|b| !b.overrides.is_empty()).count(), 3, "installed in all three breakpoints");
+        let l = write(&mut app, "PNL\n");
+        assert!(l.rects["B"].x > l.rects["A"].x, "Clear: a row again");
+        let spec = app.root.responsive.as_ref().unwrap();
+        assert!(spec.breakpoints.iter().all(|b| b.overrides.is_empty()), "nothing left behind");
+        assert_eq!(app.root.controls[0].get_prop("FlexDirection").map(|v| v.as_str().to_owned()).as_deref(), Some("Row"), "the design was never written");
+        println!("109 S6: Apply → column in all 3 breakpoints, Clear → row, design untouched");
     }
 
     /// Spec 056 T7.5 (R48) — a hand-written `onResize` still composes with the

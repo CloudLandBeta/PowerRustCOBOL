@@ -234,6 +234,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("KEY-IS-SET", Support::BackendOnly(SECRETS)),
     c("KEY-REMOVE", Support::BackendOnly(SECRETS)),
     c("KEY-SET", Support::BackendOnly(SECRETS)),
+    c("LAYOUT", Support::Unsupported("the player has no command to install a layout script at run time yet (spec 109 S6, WASM-PARITY #47)")),
     c("MCP-SEARCH", Support::BackendOnly(SECRETS)),
     c("MODEL-COUNT", Support::BackendOnly(SECRETS)),
     c("MODEL-GET", Support::BackendOnly(SECRETS)),

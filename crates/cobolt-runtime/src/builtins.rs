@@ -72,6 +72,7 @@ pub const BUILTINS: &[Builtin] = &[
     b("KEY-IS-SET", "entry in, flag out", "Whether an API key is stored for a model entry: Y or N"),
     b("KEY-REMOVE", "entry in, [status out]", "Delete the stored API key of a model entry"),
     b("KEY-SET", "entry in, key in, [status out]", "Store the API key of a model entry (never read back)"),
+    b("LAYOUT", "action in, container in, [script in]", "Lay a container out from a script (MODE, GAP, PADDING, COLUMNS, ROWS, ORDER, ITEM, WHEN breakpoint) with one call: Apply (container, script) installs it as breakpoint overrides, Clear (container) takes it away"),
     b("MCP-SEARCH", "tool in, arguments-json in, result out", "Call an MCP tool with JSON arguments; returns its text"),
     b("MODEL-COUNT", "count out", "How many entries the application's model list has"),
     b("MODEL-GET", "index in, name out, [api out], [url out], [model out]", "One entry of the application's model list (1-based, by name)"),

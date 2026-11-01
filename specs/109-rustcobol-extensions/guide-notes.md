@@ -233,3 +233,53 @@ sequenceDiagram
 
 A ``` block can now be closed in the middle of a statement: ```` ```) ```` ends the block and the
 parenthesis closes the call. Before, everything after the fence on its line was dropped.
+
+## S6 — Layout from a script (2.0.115)
+
+**What it does.** A container can be re-arranged from your program with one call: how its
+children flow, the gaps, the columns, and what changes when the window gets narrow. You write
+the rules once as a small script instead of setting properties control by control.
+
+```cobol
+COBOL::Layout("Apply", "PNL-FILTERS", ```
+    MODE FLEX ROW WRAP
+    GAP 14
+    PADDING HORIZONTAL 24
+    ORDER LV-DROP BTN-GO
+    ITEM LV-DROP SPAN 2 MIN-WIDTH 160 MAX-WIDTH 480
+    WHEN Compact
+        MODE FLEX COLUMN
+        GAP 8
+```)
+
+COBOL::Layout("Clear", "PNL-FILTERS")
+```
+
+```mermaid
+flowchart LR
+    S[Script] --> O[Overrides on each breakpoint]
+    O --> L[The form's layout]
+    C[Clear] -. takes away .-> O
+```
+
+**Notes**
+- The lines before the first `WHEN` apply at every breakpoint. A `WHEN` section runs to the next
+  `WHEN` and applies only while that breakpoint is active, on top of the general lines.
+- The breakpoints are the form's own. By default: Compact below 600, Medium from 600, Expanded from 1024.
+- `MODE FLEX ROW|COLUMN [WRAP]`, `MODE GRID`, `MODE FLOW`; `GAP n` or `GAP row column`;
+  `PADDING n`, `PADDING HORIZONTAL n`, `PADDING VERTICAL n`; `COLUMNS 3` (three equal columns) or a list
+  such as `COLUMNS 200px 1fr`; `ROWS`; `ORDER` names the children in reading order;
+  `ITEM` sets `SPAN`, `ROW-SPAN`, `GROW`, `MIN-WIDTH`, `MAX-WIDTH`, `MIN-HEIGHT`, `MAX-HEIGHT`.
+- Entries can share a line with `;`, so a plain literal works in fixed format.
+- Applying a script to a container again replaces its earlier one. `Clear` removes it and the form
+  goes back to its design. The saved form is never changed.
+- A value your own program sets on a control still wins over the script, as it wins over any breakpoint.
+
+**Caveats**
+- `Create` checks the controls exist and names the line of a mistake. It cannot check a breakpoint name:
+  a `WHEN` for a name the form does not have does nothing.
+- The form must be responsive. On a form that is not, the script waits and does nothing.
+- There is no placement relative to a sibling (below, to the right of): use `ORDER` inside a flex, grid or flow container.
+- Not available in Web or Mobile projects yet: the build says so.
+
+📷 Screenshot needed: the same panel in Expanded and in Compact.

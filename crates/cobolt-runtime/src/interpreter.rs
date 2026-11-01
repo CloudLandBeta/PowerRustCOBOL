@@ -40,6 +40,7 @@ mod grid_edit;
 mod grid_unit;
 mod kb;
 mod remote_binding;
+mod layout_script;
 mod sequence;
 /// WASM-005 — `CALL … WITH WEBSOCKET LINKAGE`: groups out of the environment,
 /// through the JSON mapping, over the run's transport, and back.
@@ -11760,6 +11761,8 @@ impl Interpreter {
             }
             // Spec 109 S7 — COBOL::AnimationSequence(action, name [, script | item])
             "COBOL-ANIMATIONSEQUENCE" => self.animation_sequence_call(using, span)?,
+            // Spec 109 S6 — COBOL::Layout(action, container [, script])
+            "COBOL-LAYOUT" => self.layout_script_call(using, span)?,
             "COBOL-AUDIO-PAUSE" | "COBOL-AUDIO-RESUME" | "COBOL-AUDIO-STOP" => {
                 let status = match prog_name.as_str() {
                     "COBOL-AUDIO-PAUSE" => self.audio.pause(),
