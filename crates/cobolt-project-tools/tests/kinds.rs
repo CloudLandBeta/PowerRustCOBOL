@@ -399,6 +399,65 @@ fn check_warns_once_about_a_form_named_for_another_kind() {
     let _ = std::fs::remove_dir_all(base);
 }
 
+/// WASM-001 T17 (R6; WASM-003 R22): the authentication programs of a new
+/// Backend are WASM-009's generated `AUTH-*` programs. The scaffold carries the
+/// commented `[identity]` stub; while it stays commented no program exists, and
+/// once the developer turns it on the regenerate step every backend path runs
+/// writes them into `backend/generated/identity/` — never into `[files] backend`.
+/// With the `backend` option cleared there is no Backend at all.
+#[test]
+fn the_backend_scaffold_gains_the_authentication_programs_when_identity_is_turned_on() {
+    use cobolt_project_tools::create::{self, CreateRequest, BACKEND_CONFIG};
+    let base = scratch("backend-auth");
+    for template in ["web", "android-phone", "ipad"] {
+        let folder = base.join(template);
+        let started = Instant::now();
+        create::create_project_with(&folder, &CreateRequest::new("Shop").template(template)).unwrap();
+        let backend = folder.join("backend");
+        let generated = cobolt_codegen::identity::dir_of(&backend);
+        cobolt_compiler::backend_build::regenerate_identity(&backend).unwrap();
+        assert!(!generated.exists(), "{template}: no [identity] yet, so no authentication program");
+
+        // The developer turns the stub on, as the Identity settings page does.
+        let config = std::fs::read_to_string(backend.join("backend.toml")).unwrap();
+        let mut on = String::new();
+        let mut in_stub = false;
+        for line in config.lines() {
+            in_stub |= line == "# [identity]";
+            on.push_str(if in_stub { line.trim_start_matches("# ") } else { line });
+            on.push('\n');
+        }
+        std::fs::write(folder.join(BACKEND_CONFIG), &on).unwrap();
+        cobolt_compiler::backend_build::regenerate_identity(&backend).unwrap();
+        let mut written: Vec<String> = std::fs::read_dir(&generated).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        written.sort();
+        let mut wanted: Vec<String> = cobolt_codegen::identity::files().into_iter().map(|(name, _)| name).collect();
+        wanted.sort();
+        assert_eq!(written, wanted, "{template}");
+        let programs = written.iter().filter(|n| n.ends_with(".cbl")).count();
+        assert!(programs > 0, "{template}: no authentication program");
+        let view = cobolt_compiler::project_manifest_view(&folder.join("Shop.project.toml")).unwrap();
+        assert_eq!(view.backend, ["backend/src/health.cbl"], "{template}: generated programs stay out of the manifest");
+
+        // Turned off again, the generated programs go; the developer's files stay.
+        std::fs::write(folder.join(BACKEND_CONFIG), &config).unwrap();
+        cobolt_compiler::backend_build::regenerate_identity(&backend).unwrap();
+        assert!(!generated.exists() && backend.join("src/health.cbl").is_file(), "{template}");
+        println!("    {template:<14} stub off: 0 programs; stub on: {programs} programs + {} other files in backend/generated/identity; off again: 0; {:.1} ms", written.len() - programs, started.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    // The option cleared (Q5): no Backend, so nothing to authenticate against.
+    let folder = base.join("web-no-backend");
+    let mut request = CreateRequest::new("Shop").template("web");
+    request.options.insert("backend".into(), "false".into());
+    create::create_project_with(&folder, &request).unwrap();
+    assert!(!folder.join("backend").exists(), "backend off: no backend folder");
+    let view = cobolt_compiler::project_manifest_view(&folder.join("Shop.project.toml")).unwrap();
+    assert!(view.backend.is_empty());
+    println!("    web, backend off: no backend/ and no authentication program");
+    let _ = std::fs::remove_dir_all(base);
+}
+
 /// WASM-003 T2 (R1, R22; C5): a new Web or Mobile project's Backend has its
 /// list of exports — `HEALTH`, public — and a development deployment with no
 /// secret and no `unsafe_*`; neither is in `[files] backend`, and creating

@@ -3,7 +3,9 @@
 - **Status:** in progress — T1–T13 done (evidence kept below); revised 2026-10-22 against plan.md (revision of
   2026-10-22): T14 (toolbox by kind) is no longer blocked and is split into T14.1–T14.3; T15 (`.wcfrm` / `.mcfrm`, Q2
   decided 2026-10-20) is split into T15.1–T15.8; T16 (strings), T17 (R6 authentication programs, waits for WASM-009) and
-  T18 (finalize) are new.
+  T18 (finalize) are new. 2026-11-01 (2.0.126): T17 closed after WASM-009 landed; T19 stays open, owed to WASM-012 T25c
+  and Q7. Sweep: `cargo test -p cobolt-project-tools --no-fail-fast` — 20 `test result` lines, 212 passed, 1 ignored
+  (`tests/build.rs`), 0 failed; `cargo test -p cobolt-ide --bin cobolt-ide version` — 10 passed.
 - **Plan:** ./plan.md   **Date:** 2026-10-20, revised 2026-10-22
 
 Ordered, small, independently verifiable. T1–T13 were committed on the worktree branch
@@ -269,11 +271,36 @@ search `"cfrm"|\.cfrm"` over `crates/` (plan §5) and either convert or justify 
     Reopened and closed again 2026-10-22 with T15.7's rename half: `pk_rename_form_kind` and
     `pk_check_form_name_kind`, in the test's list through their `pk_` prefix.
 
-- [ ] **T17 — Authentication programs of the backend scaffold** (R6, second half; WASM-003 R22) — **waits for WASM-009**
+- [x] **T17 — Authentication programs of the backend scaffold** (R6, second half; WASM-003 R22) — **waits for WASM-009**
   (plan-only, `9af4dcc4`: "NOT implemented"). Hook fixed by plan §4: WASM-009's generator adds its files to `Plan.files`
   and `Plan.backend` inside `create::plan`, behind the same `backend` flag. Nothing is generated ahead of WASM-009.
   - Verify (when it lands): `cargo test -p cobolt-project-tools create` — a Web plan with `backend` on lists the
     authentication programs; with `backend` off, none.
+  - WASM-009 landed in 2.0.124 (`7d125f3f`) with a different hook than plan §4 foresaw, read in the code: the `AUTH-*`
+    programs are generated artefacts of `backend/backend.toml`'s `[identity]` section (WASM-009 D4) —
+    `cobolt_codegen::identity::{files, sync, dir_of}` write them into `backend/generated/identity/`, and
+    `cobolt_compiler::backend_build::regenerate_identity` (called by `build_backend`, `rcrun backend run|check|describe|release`
+    and the Web Build) writes them while the section is there and removes them once it is gone. The scaffold's part
+    (WASM-009 T18) is the commented `[identity]` / `[identity.settings]` / `[identity.recaptcha]` stub in
+    `create::starter_backend_config`, every secret an `env:` reference.
+  - Agent decision under the operator delegation of 2026-11-01: **`create::plan` does not list the authentication
+    programs; the scaffold's stub plus WASM-009's regenerate step is the R6/R22 hook.**
+    - Options weighed: (a) the plan's original hook — write the `AUTH-*` files into `Plan.files` and `Plan.backend` at
+      creation; (b) create the project with `[identity]` switched on so the first regenerate writes them; (c) keep
+      WASM-009's design and prove the chain end to end from a freshly created project.
+    - Reason for (c): (a) contradicts WASM-009 D4 — with `[identity]` commented, the next `regenerate_identity` removes
+      the files again, and listing generated programs in `[files] backend` would put generated artefacts in the manifest
+      as if they were the developer's code; (b) needs a provider and a `cookie_key` the developer has not chosen, so a new
+      project's backend would fail to start until they are set. (c) keeps one source of truth (the `[identity]`
+      section), generates nothing ahead of the developer's choice of provider, and keeps the manifest byte-identical
+      across the IDE and the tool (AC3 untouched).
+  - Done 2026-11-01: `tests/kinds.rs`
+    `the_backend_scaffold_gains_the_authentication_programs_when_identity_is_turned_on` — for `web`, `android-phone` and
+    `ipad`: a new project has no authentication program while the stub is commented; uncommented, `regenerate_identity`
+    writes exactly `cobolt_codegen::identity::files()` (printed: 13 programs + 2 other files); `[files] backend` stays
+    `["backend/src/health.cbl"]`; commented again, the generated files go and `backend/src/health.cbl` stays. With the
+    `backend` option cleared: no `backend/` folder and an empty `[files] backend`. Result:
+    `cargo test -p cobolt-project-tools --test kinds the_backend_scaffold` — 1 passed, 0 failed.
 
 - [x] **T18 — Finalize** (AC7)
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`. Never `README.md` or `docs/`.
@@ -312,6 +339,19 @@ search `"cfrm"|\.cfrm"` over `crates/` (plan §5) and either convert or justify 
     from the staged SDK). They are reported, not fixed here.
 
 - [ ] **T19 — D22: the native-project step in New Project and its manifest record** (R19; AC8; WASM-012 R16–R17) — added 2026-10-24 by the operator's ruling, after T18 had finalized the spec; a Finalize of its own closes it.
+  - **Owed to WASM-012 (stays open, checked 2026-11-01):** the step's action is WASM-012 R16's generator of the Android
+    Studio / Xcode project, and its re-creation from Project Settings is WASM-012 R17 — both WASM-012 **T25c**, unchecked;
+    `specs/WASM-012-mobile-shell-tauri-2/tasks.md` says *"No shell code exists yet"* and every task T1–T26 is open. Where
+    the native project lives (and so what the manifest records per platform) is WASM-012 **Q7**, still "to decide at
+    `/clarify`".
+  - Agent decision under the operator delegation of 2026-11-01: **nothing of T19 is built ahead of WASM-012.**
+    - Options weighed: (a) build the New Project step and a per-platform manifest record now, with the step's *Create*
+      doing nothing until WASM-012 lands; (b) build only the manifest record (always "not created"); (c) wait.
+    - Reason for (c): (a) would offer a step that cannot do what it says — a fake completion; (b) fixes a manifest shape
+      (field names, whether a path is recorded) before Q7 decides where the native project lives, and every Mobile
+      project created meanwhile would carry a record that may have to be migrated by `project_upgrade`. When WASM-012
+      T25c lands, T19 is: the cancellable step in `panels/new_project.rs` (Mobile templates only, `Tr` ×6), the record
+      written by `create::plan` so the IDE and `create_project` stay byte-identical (AC3), and AC8's test.
 
 ## Done criteria
 

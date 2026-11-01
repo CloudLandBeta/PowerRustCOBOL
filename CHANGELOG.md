@@ -1,5 +1,14 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.142 — 2026-11-01 — WASM-001 T17: a new Backend's authentication programs come from its `[identity]` section; the native-project step waits for WASM-012
+
+*(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.125.)*
+
+WASM-001 (project types, the New Project selector and the IDE entries). The details and the evidence are in `specs/WASM-001-project-types-and-ide-entries/tasks.md`.
+
+* **The authentication programs of the backend scaffold** (R6; WASM-003 R22). Now that WASM-009 has landed, T17 is closed on WASM-009's own design rather than the hook the plan foresaw: New Project does not write the `AUTH-*` programs itself. A new Web or Mobile project's `backend/backend.toml` carries the commented `[identity]` stub, and once the developer turns it on, every path that loads the backend regenerates the programs into `backend/generated/identity/`; they never enter `[files] backend`, and the manifest stays byte-identical between the IDE and `create_project`. A new test creates Web, Android and iPad projects and follows the chain: no program while the stub is commented, the 13 programs and their 2 companion files once it is on, none again once it is off, the developer's `health.cbl` untouched throughout; with the `backend` option cleared there is no Backend at all.
+* **Still open:** T19 (R19, AC8: the cancellable step that creates the Android Studio / Xcode project in New Project) waits for WASM-012 T25c and its Q7 (where the native project lives); nothing of it is built ahead of them. Q6 (whether the existing Recent pane is the operator's *Recent Projects*) is still to confirm.
+
 ## 2.0.141 — 2026-11-01 — WASM-002 T16: the Web Build's size report carries the 5 MB budget line on every build; checked through `rcrun mcp`
 
 *(Written on `features-2x`, in the `features-2x-wasm` worktree, after 2.0.124.)*
