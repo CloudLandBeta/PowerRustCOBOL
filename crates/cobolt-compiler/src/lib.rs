@@ -5213,6 +5213,7 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 
 | Method | Arguments, in order | What it does |
 |---|---|---|
+| `COBOL::"ANIMATIONSEQUENCE"` | action in, name in, [script in \| state out] | Timed SHOW / HIDE / PLAY entries run from one call: Create (name, script of `SHOW ctrl AFTER ms` lines), Start, Stop, Restart, Delete, and Status (name, item: Playing or Stopped) |
 | `COBOL::"APPEND-FILE"` | path in, text in, [status out] | Append a line of text to a file, creating it if missing |
 | `COBOL::"AUDIO-PAUSE"` | [status out] | Pause the sound that is playing; its position holds |
 | `COBOL::"AUDIO-PLAY"` | file in, [status out] | Play an MP3, OGG Vorbis, WAV or FLAC file, replacing any sound already playing |
@@ -5252,6 +5253,7 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"KEY-IS-SET"` | entry in, flag out | Whether an API key is stored for a model entry: Y or N |
 | `COBOL::"KEY-REMOVE"` | entry in, [status out] | Delete the stored API key of a model entry |
 | `COBOL::"KEY-SET"` | entry in, key in, [status out] | Store the API key of a model entry (never read back) |
+| `COBOL::"LAYOUT"` | action in, container in, [script in] | Lay a container out from a script (MODE, GAP, PADDING, COLUMNS, ROWS, ORDER, ITEM, WHEN breakpoint) with one call: Apply (container, script) installs it as breakpoint overrides, Clear (container) takes it away |
 | `COBOL::"MCP-SEARCH"` | tool in, arguments-json in, result out | Call an MCP tool with JSON arguments; returns its text |
 | `COBOL::"MODEL-LIST"` | provider in, endpoint in, key in, count out, status out, [entry in] | Ask a provider which models it offers |
 | `COBOL::"MODEL-LIST-GET"` | index in, model out | One model name (1-based) from the last MODEL-LIST |
@@ -5286,6 +5288,20 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"WS-PROGRESS"` | percent in, message in | On the backend, report the progress of a long-running call; it is a safe point where a cancel ends the call |
 | `COBOL::"WS-UPLOAD"` | slot in, path in, mime in, file-id out, status out | Send a local file into one of the backend's upload slots, in pieces; OK, NOFILE, REFUSED (see WS-LAST-ERROR), FAILED or NOBACKEND |
 | `COBOL::"WS-WARNING"` | message out | The most recent warning the backend attached to a call (a deprecated program, an older application); spaces when none |
+
+### Timed sequences and layout scripts — `ANIMATIONSEQUENCE`, `LAYOUT`
+Both take an **action word** first and a **script** as a string, so one call replaces a run of calls. They are written as methods of the `COBOL` object, `COBOL::AnimationSequence(...)` and `COBOL::Layout(...)`; the table above lists them under their built-in names `COBOL::"ANIMATIONSEQUENCE"` and `COBOL::"LAYOUT"`, which are the same calls. The script is data in a string, one entry per line or separated by `;` (so a plain literal works in fixed format), `*>` starts a comment, and in free format a block literal of three backticks on its own lines holds a multi-line script.
+
+```cobol
+           COBOL::AnimationSequence("Create", "INTRO", "SHOW C-KPI AFTER 0; SHOW C-BAR AFTER 50; PLAY C-RADAR 'fade-in' AFTER 100")
+           COBOL::AnimationSequence("Start", "INTRO")
+           COBOL::AnimationSequence("Status", "INTRO", WS-STATE)
+           COBOL::Layout("Apply", "PNL-FILTERS", "MODE FLEX ROW WRAP; GAP 14; WHEN Compact; MODE FLEX COLUMN")
+           COBOL::Layout("Clear", "PNL-FILTERS")
+```
+- **Sequences.** Actions `Create`, `Start`, `Stop`, `Restart`, `Delete`, `Status`. Entries are `SHOW ctrl [AFTER ms]`, `HIDE ctrl [AFTER ms]`, `PLAY ctrl "animation" [AFTER ms]`; `AFTER` counts whole milliseconds from the start of the sequence, never from the previous entry, and is 0 when left out. Entries due together fire in the order written, each once. `Status` answers `Playing` or `Stopped` into the item given last. A name that was never created is an error, `Status` included. Entries fire while the form waits for an event; a long handler delays them until it returns. Not available in a browser module yet.
+- **Layout scripts.** Actions `Apply` and `Clear`. Lines: `MODE FLEX [ROW|COLUMN] [WRAP]` (or `GRID`, `FLOW`), `GAP n [n]`, `PADDING n` / `PADDING HORIZONTAL n` / `PADDING VERTICAL n`, `COLUMNS n` or a track list, `ROWS`, `ORDER ctrl ctrl …`, `ITEM ctrl SPAN|ROW-SPAN|GROW|MIN-WIDTH|MAX-WIDTH|MIN-HEIGHT|MAX-HEIGHT n`, and `WHEN breakpoint` for the lines that follow, until the next `WHEN`. They become breakpoint overrides of the form's own layout; the saved form is never changed, a value your program sets itself still wins, and `Clear` takes exactly what `Apply` installed. The form must be responsive. Not available in a browser module yet.
+
 
 ### Pictures and binary downloads — `IMAGE-FIT`, `IMAGE-INFO`, `HTTP-DOWNLOAD`
 Each answers with ONE status word in its last argument; test the word, never a message. Give the status item room for 9 characters (`PIC X(12)`). A RELATIVE path — here and in `WRITE-FILE`, `APPEND-FILE`, `AUDIO-PLAY` and the file an AWS control uploads or saves — starts at the application's folder, exactly as a relative `ASSIGN` does: the project folder under Run Form, the application's own folder when built, wherever it was launched from. An absolute path is used as written.
