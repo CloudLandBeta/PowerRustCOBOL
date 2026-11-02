@@ -12,9 +12,9 @@
 //!   DISPLAYs from the start until the script has waited a second;
 //! * **browser** — the real Build, served, in a headless Chrome: what the page's console shows after the first paint.
 //!
-//! Only the START-UP is compared here: the headless script has no step that closes a window or restores it, so a vetoed close
-//! (`onCloseRejected`), an allowed one (`onClose`) and a restore (`onRestore`) cannot yet be raised on the desktop side. The
-//! test prints both lists and fails on a difference that is not in [`DOCUMENTED`].
+//! The start-up, then a click on a Button whose handler is `INVOKE ME::Close()`, on both sides: the whole event list and its order are
+//! compared. `onCloseRejected` (a veto needs the OS to ask to close a form that waits on a modal child) and `onRestore` (an OS
+//! window state) cannot arise on a page and are listed in [`DOCUMENTED`]. The test fails on any other difference.
 //!
 //! It needs `target/<profile>/rcrun` (build `cobolt-cli` first) and a Chrome (`CHROME`); without either it says it was skipped.
 
@@ -36,7 +36,10 @@ use serde_json::{json, Value};
 const EVENTS: &[&str] = &["onLoad", "onShow", "onActivate", "onActivated", "onShown", "onClose", "onCloseRejected", "onRestore"];
 
 /// The differences accepted at start-up, by event: (event, reason). Empty means the page matches the desktop.
-const DOCUMENTED: &[(&str, &str)] = &[];
+const DOCUMENTED: &[(&str, &str)] = &[
+    ("onRestore", "window states are not carried to the browser (WASM-016 Q4, 2026-10-22): the desktop raises it when the OS window leaves minimized or maximized"),
+    ("onCloseRejected", "a close is vetoed only when the OS asks to close a form that is waiting on a modal child; a page has no close request to veto"),
+];
 
 fn form_xml(attrs: &str) -> String {
     let events: String = EVENTS
@@ -49,7 +52,7 @@ fn form_xml(attrs: &str) -> String {
         })
         .collect();
     format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Form name=\"main-form\" title=\"Life\" width=\"400\" height=\"240\" main-form=\"true\" {attrs}>\n  <form-events>{events}</form-events>\n  <Control id=\"LBL-A\" type=\"Label\" x=\"20\" y=\"20\" w=\"200\" h=\"28\"><Property name=\"Caption\">Life</Property></Control>\n</Form>\n"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Form name=\"main-form\" title=\"Life\" width=\"400\" height=\"240\" main-form=\"true\" {attrs}>\n  <form-events>{events}</form-events>\n  <Control id=\"LBL-A\" type=\"Label\" x=\"20\" y=\"20\" w=\"200\" h=\"28\"><Property name=\"Caption\">Life</Property></Control>\n  <Control id=\"BTN-X\" type=\"Button\" x=\"20\" y=\"60\" w=\"120\" h=\"30\"><Property name=\"Caption\">Close</Property><Event name=\"onClick\" paragraph=\"BTN-X--ONCLICK\"><![CDATA[       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n           INVOKE ME::Close().\n]]></Event></Control>\n</Form>\n"
     )
 }
 
@@ -74,7 +77,7 @@ fn desktop(rcrun: PathBuf) -> Vec<String> {
     std::fs::write(project.join("forms/main-form.cfrm"), form_xml("")).unwrap();
     call("add_to_project", json!({"path": "forms/main-form.cfrm"}));
     call("regenerate", json!({"path": "forms/main-form.cfrm"}));
-    let out = call("run_form", json!({"path": "forms/main-form.cfrm", "time_limit_s": 30, "steps": [{"wait_ms": 1000}]}));
+    let out = call("run_form", json!({"path": "forms/main-form.cfrm", "time_limit_s": 30, "steps": [{"wait_ms": 1000}, {"event": {"control": "BTN-X", "name": "onClick"}}, {"wait_ms": 1000}]}));
     let _ = std::fs::remove_dir_all(&base);
     out["display"].as_array().into_iter().flatten().filter_map(Value::as_str).filter_map(|l| l.split_once("EV FORM ").map(|(_, e)| e.trim().to_owned())).collect()
 }
@@ -98,6 +101,11 @@ fn browser(exe: &std::path::Path) -> Vec<String> {
     page.wait_for("(() => { const r = document.getElementById('pr-app'); return !!(r && r.shadowRoot && r.shadowRoot.querySelector('[data-name=\"LBL-A\"]')); })()", 30)
         .unwrap_or_else(|e| panic!("the page did not start: {e}; console {:?}; exceptions {:?}", page.console, page.exceptions));
     page.eval("new Promise(r => setTimeout(() => r(true), 1000))").unwrap();
+    let start: Vec<String> = page.console.iter().filter_map(|l| l.split_once("EV FORM ").map(|(_, e)| e.trim().to_owned())).collect();
+    // The same click as the desktop script's: BTN-X closes the form through its handler.
+    page.click_at("(() => { const r = document.getElementById('pr-app').shadowRoot.querySelector('[data-name=\"BTN-X\"]').getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height}; })()").unwrap();
+    page.eval("new Promise(r => setTimeout(() => r(true), 1000))").unwrap();
+    println!("browser start-up: {start:?}");
     let seen = page.console.iter().filter_map(|l| l.split_once("EV FORM ").map(|(_, e)| e.trim().to_owned())).collect();
     server.stop();
     let _ = std::fs::remove_dir_all(&dir);
@@ -115,7 +123,7 @@ fn the_start_up_events_on_the_desktop_host_and_in_chrome() {
         return;
     };
     let (desk, web) = (desktop(rcrun), browser(&exe));
-    println!("desktop start-up: {desk:?}\nbrowser start-up: {web:?}");
+    println!("desktop, whole run: {desk:?}\nbrowser, whole run: {web:?}");
     let mut undocumented = Vec::new();
     for e in EVENTS {
         let (d, w) = (desk.iter().filter(|x| x == e).count(), web.iter().filter(|x| x == e).count());
@@ -125,8 +133,6 @@ fn the_start_up_events_on_the_desktop_host_and_in_chrome() {
             undocumented.push(format!("{e}: desktop {d}, browser {w}"));
         }
     }
-    if desk.iter().zip(&web).any(|(a, b)| a != b) && desk.len() == web.len() {
-        println!("order differs: desktop {desk:?} / browser {web:?}");
-    }
-    assert!(undocumented.is_empty(), "undocumented start-up differences: {undocumented:?}");
+    assert!(undocumented.is_empty(), "undocumented lifecycle differences: {undocumented:?}");
+    assert_eq!(desk, web, "the events come in the same order");
 }

@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.164 — 2026-11-02
+
+**WASM-016 T17, lifecycle half: close measured equal, restore and veto listed.** The lifecycle test now clicks a Button whose handler is `INVOKE ME::Close()` on the real desktop host and in Chrome and compares the whole event list and its order: `onLoad`, `onShow`, `onActivate`, `onClose`, equal on both. `onRestore` (raised from the OS window state, which Q4 does not carry to the browser) and `onCloseRejected` (a veto of the OS close request on a form waiting for a modal child; a page has no close request) are listed as by design in `specs/WASM-016-prebuilt-player/differences.md`. No player change was needed.
+
 ## 2.0.163 — 2026-11-02
 
 **Fix (WASM-016 T17, lifecycle half, first part): a form in the browser raises `onShow` and `onActivate`.** A new test (`lifecycle_comparison_chrome`) runs one form whose handlers DISPLAY every lifecycle event on the real desktop host and in Chrome. The desktop raises `onLoad`, `onShow` and `onActivate`, once each in that order; the page raised only `onLoad`, so a handler bound to `onShow` or `onActivate` never ran. The player now queues `onShow` and then `onActivate` behind the form's start-up when the form binds them. Measured equal. The vetoed close (`onCloseRejected`), the allowed close (`onClose`) and `onRestore` are not yet compared: the headless script has no step that closes or restores a window (listed in `specs/WASM-016-prebuilt-player/differences.md`). The shipped player was rebuilt.

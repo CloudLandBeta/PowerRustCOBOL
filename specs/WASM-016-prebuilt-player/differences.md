@@ -40,5 +40,7 @@ class A controls it touches (the test lists it per control). Geometry equal to t
 | Check | Desktop | Page | Status |
 |---|---|---|---|
 | Start-up | `onLoad`, `onShow`, `onActivate`, once each, in that order | `onLoad` only | **Fixed** (2.0.163): the player queues `onShow` then `onActivate` behind the form's start-up when the form binds them; measured equal |
-| `onClose` allowed, `onCloseRejected` vetoed, `onRestore` | not raisable | not raisable | **Open**: the headless script has no step that closes a window, vetoes a close or restores it. They need `close` and `restore` steps in `cobolt-form-host/src/headless.rs`, then the same test extended |
-| Rows 4, 6 (repeat) and 12 of the table above | to re-measure with the real host | | **Open**, with the previous line: the host's click on a control needs the same kind of step |
+| `onClose` (a Button whose handler is `INVOKE ME::Close()`) | once, after `onActivate` | once, after `onActivate` | **Equal** (2.0.164): the whole event list and its order |
+| `onRestore` | raised when the OS window leaves minimized or maximized | never | **Listed, by design** (Q4: window states are not carried to the browser) |
+| `onCloseRejected` | a form waiting on a modal child vetoes the OS close request | never | **Listed, by design**: a page has no close request to veto |
+| Rows 4, 6 (repeat) and 12 of the table above | to re-measure with the real host | | **Open**: the host's click on a control needs a headless step that clicks it |
