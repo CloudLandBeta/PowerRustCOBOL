@@ -32,7 +32,7 @@ impl Shared {
             Effect::Dialog { id, kind, text, title, buttons, default } => {
                 self.show_dialog(DialogSpec { id: *id, kind: *kind, title: title.clone(), text: text.clone(), buttons: buttons.clone(), default: default.clone() });
             }
-            Effect::OpenWindow { handle, form, sync, params, opener } => self.open_window(inner, handle, *form, *sync, params, *opener),
+            Effect::OpenWindow { handle, form, sync, params, opener, same } => self.open_window(inner, handle, *form, *sync, params, *opener, *same),
             Effect::Stopped => self.show_ended(),
             Effect::Title(t) => {
                 if inner.cfg.standalone || self.state.try_borrow().map(|s| s.chain.len() <= 1).unwrap_or(true) {
@@ -234,13 +234,25 @@ impl Shared {
 
     // ── a form in a window of its own (WASM-011 R9–R12) ─────────────────────
 
-    fn open_window(self: &Rc<Self>, inner: &Rc<Inner>, handle: &str, form: usize, _sync: bool, params: &[(String, String)], opener: u32) {
+    fn open_window(self: &Rc<Self>, inner: &Rc<Inner>, handle: &str, form: usize, _sync: bool, params: &[(String, String)], opener: u32, same: bool) {
         let name = inner.host.try_borrow().ok().map(|h| h.manifest.forms[form].name.clone()).unwrap_or_default();
         let base = if inner.cfg.app_url.trim().is_empty() {
             web_sys::window().and_then(|w| w.location().href().ok()).unwrap_or_default().split('#').next().unwrap_or("").split('?').next().unwrap_or("").to_owned()
         } else {
             inner.cfg.app_url.clone()
         };
+        if same {
+            // Same window (WASM-011 T22): this page is replaced by the form's own address. No opener and no
+            // `super::` channel, so Back reloads the opener from its own address and parameters.
+            let mut url = format!("{base}?pr-form={}", urlencode(&name));
+            for (k, v) in params {
+                url.push_str(&format!("&pr-param-{}={}", urlencode(k), urlencode(v)));
+            }
+            if let Some(w) = web_sys::window() {
+                let _ = w.location().assign(&url);
+            }
+            return;
+        }
         // The window gets a private channel to this one (WASM-011 R11): `super::` there is this form.
         let token = inner.super_open(opener);
         let mut url = format!("{base}?pr-form={}&pr-opener={}&pr-super={}", urlencode(&name), urlencode(handle), urlencode(&token));

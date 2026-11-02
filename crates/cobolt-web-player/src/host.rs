@@ -80,6 +80,21 @@ fn param_problem(k: &str, v: &str) -> Option<String> {
     None
 }
 
+/// The reserved parameter that chooses where one `OpenFormAsync` / `OpenFormSync` shows its form (WASM-011 T22).
+pub const WINDOW_PARAM: &str = "pr-window";
+
+/// Take the window choice out of `params`: `same` (this page is replaced), `new` or none (a window of its own, as
+/// before). Any other value is the program's mistake and is refused.
+fn take_window_choice(params: &mut Params) -> Result<bool, String> {
+    let Some(at) = params.iter().position(|(k, _)| k.eq_ignore_ascii_case(WINDOW_PARAM)) else { return Ok(false) };
+    let (_, v) = params.remove(at);
+    match v.trim().to_ascii_lowercase().as_str() {
+        "same" => Ok(true),
+        "new" | "" => Ok(false),
+        other => Err(format!("`{WINDOW_PARAM}` is `new` or `same`, not `{other}`")),
+    }
+}
+
 /// The parameters that come from outside the program (an address, a link someone typed): the acceptable
 /// ones, at most [`MAX_PARAMS`], the first of a repeated name. The program's own are checked by
 /// [`parse_params`] and refused loudly; these are the user's, so a bad one is left out.
@@ -226,7 +241,8 @@ pub enum Effect {
     /// An instance was destroyed: drop its DOM, listeners and timers.
     Closed { inst: u32 },
     /// A standalone open: open `url` in a tab/window of its own (WASM-011 R9/R10).
-    OpenWindow { handle: String, form: usize, sync: bool, params: Params, opener: u32 },
+    /// With `same` the form replaces this page instead (WASM-011 T22): no opener, no `super::`, nothing to wait for.
+    OpenWindow { handle: String, form: usize, sync: bool, params: Params, opener: u32, same: bool },
     /// `SET super::Prop = value` in a window that another window opened (WASM-011 R11): the opener applies it.
     SuperSet { prop: String, value: String },
     /// `CALL super::Method(args)` in such a window: the opener runs it.
@@ -2130,11 +2146,23 @@ impl Host {
                     return Err(CmdError::Bad(format!("{name}: {e}")));
                 }
                 // The arguments after the form's name are its route parameters, `name=value` (WASM-011 R4).
-                let params = parse_params(&args[1..]).map_err(|e| CmdError::Bad(format!("{name}: {e}")))?;
+                let mut params = parse_params(&args[1..]).map_err(|e| CmdError::Bad(format!("{name}: {e}")))?;
+                // `pr-window=same|new` is not a parameter of the form: it is the choice of this one opening
+                // (operator, 2026-11-02, PQ1). Only a standalone application has windows to choose between.
+                let same_window = take_window_choice(&mut params).map_err(|e| CmdError::Bad(format!("{name}: {e}")))?;
                 let handle = self.new_handle();
                 let standalone = self.opts.standalone;
+                // PQ2: in the same window the caller's page is gone, so `OpenFormSync` cannot wait and behaves
+                // as `OpenFormAsync`.
+                let same = standalone && same_window;
+                let sync = sync && !same;
                 if standalone {
-                    self.effects.push(Effect::OpenWindow { handle: handle.clone(), form, sync, params, opener: inst });
+                    if same {
+                        if let Some(h) = self.handles.get_mut(&handle) {
+                            h.closed = true;
+                        }
+                    }
+                    self.effects.push(Effect::OpenWindow { handle: handle.clone(), form, sync, params, opener: inst, same });
                 } else {
                     let mode = if sync { OpenMode::Modal } else { OpenMode::Panel };
                     self.work.push_back(Work::Open { form, opener: Some(inst), mode, handle: Some(handle.clone()), params });

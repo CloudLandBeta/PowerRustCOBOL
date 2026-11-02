@@ -6268,6 +6268,13 @@ only what an opening verb shows differs.
   is closed. A browser that blocks the new tab is a normal failure: the caller is
   released, a notice tells the user to allow pop-ups, and **`onPopupBlocked`** is
   raised on the opener's form with the name of the form that was not opened.
+  One opening can replace the page instead of opening a tab: pass the parameter
+  **`pr-window=same`** after the form's name (`pr-window=new` is the default). The
+  form then takes this page's place, Back returns to the page's own address, there
+  is no opener and `super::` fails into `ON EXCEPTION`. The caller's page is gone, so
+  an `OpenFormSync` with `pr-window=same` behaves as `OpenFormAsync` and waits for
+  nobody. `pr-window` is not a parameter of the form, and a single-page application,
+  which has no tabs, ignores it.
 
 **`FormFormat` keeps its meaning on the web.** The Web Build refuses, with the
 desktop's own messages, an `OpenFormSync` / `OpenFormAsync` of an `Embedded` form

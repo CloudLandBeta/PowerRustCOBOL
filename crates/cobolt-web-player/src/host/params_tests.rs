@@ -113,3 +113,59 @@ fn what_comes_from_an_address_is_the_users_so_a_bad_parameter_is_left_out_not_tr
     open_next(&mut h, 0);
     assert_eq!(h.trees[&0].params.len(), MAX_PARAMS);
 }
+
+// ── WASM-011 T22: the window of one opening is chosen by the opening (operator, 2026-11-02, PQ1/PQ2) ────────
+
+fn windows(h: &Host) -> Vec<(usize, bool, bool, Params, bool)> {
+    h.effects
+        .iter()
+        .filter_map(|e| if let Effect::OpenWindow { form, sync, same, params, handle, .. } = e { Some((*form, *sync, *same, params.clone(), h.handles[handle].closed)) } else { None })
+        .collect()
+}
+
+#[test]
+fn pr_window_same_replaces_this_page_and_is_not_a_parameter_of_the_form() {
+    let mut h = host(true);
+    h.create_tree(0, 0, None, Vec::new()).unwrap();
+    h.form_verb(0, "OpenFormAsync", &["child-form", "id=7", "pr-window=same"]).unwrap();
+    assert_eq!(windows(&h), vec![(1, false, true, vec![("id".to_owned(), "7".to_owned())], true)]);
+}
+
+#[test]
+fn open_form_sync_in_the_same_window_behaves_as_async_and_waits_for_nobody() {
+    let mut h = host(true);
+    h.create_tree(0, 0, None, Vec::new()).unwrap();
+    h.form_verb(0, "OpenFormSync", &["child-form", "pr-window=same"]).unwrap();
+    // The caller's page is about to go: no sync window, and no wait.
+    assert_eq!(windows(&h), vec![(1, false, true, Vec::new(), true)]);
+    assert!(h.inflight.as_ref().map_or(true, |f| f.wait.is_none()), "nothing for the caller to wait for");
+}
+
+#[test]
+fn pr_window_new_or_nothing_is_a_window_of_its_own_as_before() {
+    for args in [vec!["child-form", "pr-window=new"], vec!["child-form", "PR-Window=NEW"], vec!["child-form"]] {
+        let mut h = host(true);
+        h.create_tree(0, 0, None, Vec::new()).unwrap();
+        h.form_verb(0, "OpenFormAsync", &args).unwrap();
+        assert_eq!(windows(&h), vec![(1, false, false, Vec::new(), false)], "{args:?}");
+    }
+}
+
+#[test]
+fn another_value_is_the_programs_mistake_and_opens_nothing() {
+    let mut h = host(true);
+    h.create_tree(0, 0, None, Vec::new()).unwrap();
+    let e = h.form_verb(0, "OpenFormAsync", &["child-form", "pr-window=beside"]).unwrap_err();
+    assert!(matches!(e, CmdError::Bad(m) if m.contains("pr-window") && m.contains("beside")));
+    assert!(windows(&h).is_empty() && h.work.is_empty(), "no form was opened");
+}
+
+#[test]
+fn a_single_page_application_has_no_windows_to_choose_so_it_ignores_the_choice() {
+    let mut h = host(false);
+    h.create_tree(0, 0, None, Vec::new()).unwrap();
+    h.form_verb(0, "OpenFormAsync", &["child-form", "id=7", "pr-window=same"]).unwrap();
+    assert!(windows(&h).is_empty(), "no window effect in an SPA");
+    let opened: Vec<_> = h.work.iter().filter_map(|w| if let Work::Open { form, mode, params, .. } = w { Some((*form, *mode, params.clone())) } else { None }).collect();
+    assert_eq!(opened, vec![(1usize, OpenMode::Panel, vec![("id".to_owned(), "7".to_owned())])]);
+}

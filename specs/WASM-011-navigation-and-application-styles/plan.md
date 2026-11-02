@@ -185,3 +185,9 @@ Not run here, owed (T25): AC1 with three SideMenu forms and `pr_dbg_live`, AC2, 
 - **PQ3 (R6, R10):** the events' names and where they are raised. Working assumption: `onRouteNotFound` and `onPopupBlocked` on the main form (the opener's form for `onPopupBlocked`).
 - **PQ4 (R8):** how a form marks unsaved changes. Working assumption: the form verb `me::SetUnsavedChanges(1|0)`, a no-op on the desktop.
 - Spec items still open elsewhere: which forms require sign-in (WASM-009 Q4); the mobile shell (WASM-012).
+
+### 8.1 Decisions of the operator, 2026-11-02
+
+- **PQ1 — per-open choice, not a project option.** The reserved route parameter `pr-window=same|new` after the form's name chooses, for that one opening, a window of its own (`new`, the default) or the page itself (`same`). There is **no** `[web] standalone_window` option and no Settings control, so §1.8's first bullet is superseded: nothing is added to `cobolt.toml`, `project_kind.rs`, `web_settings.rs` or `i18n.rs`. The parameter rides on the existing `name=value` list (`host.rs` `take_window_choice`), so no ABI field changes (A21).
+- **PQ2 — `OpenFormSync` in the same window behaves as `OpenFormAsync`.** The caller's page is gone, so it waits for nobody; the Build does **not** report an error (the §1.8 working assumption is replaced).
+- **PQ3, PQ4 — confirmed as built** (`onRouteNotFound`, `onPopupBlocked`, `me::SetUnsavedChanges`).
