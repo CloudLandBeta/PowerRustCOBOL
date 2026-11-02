@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.162 — 2026-11-02
+
+**Feature: Grace can create a form.** Asked for "a form with a Button and a TextBox", Grace planned a Form Designer task to create the form, reported it approved and the workflow completed, yet no form existed: no change-set operation could create one, so the Designer's `deploy_control Form` was refused ("Unknown control type 'Form'.") and its corrected answer changed nothing. The change-set now has a `create_form` operation (`name`, optional `title`, `width`, `height`). It must be the first operation; the IDE writes the form into the project's forms folder (`forms/`, `webforms/` or `mobileforms/` by the project kind, with the web or mobile stylesheet), registers it in the project (the first form becomes the main form), opens it, and the operations after it edit that new form. An id that is not a COBOL word, a form that already exists or no open project is refused with its reason in the session log, and the rest of that change-set is not applied to some other open form. The Form Designer's contract tells the agents about the operation. The New Form dialog and Grace share one builder, so both give the same form.
+
 ## 2.0.161 — 2026-11-02
 
 **Fix: a TextBox caption set to italic is drawn italic.** The caption was drawn with `painter.text`, which carries no style, so `CaptionFontItalic` (the "Legenda em itálico" box of the Properties pane) changed nothing on the designer canvas or in the running form. The caption is now laid out as one text with the italic format, and its background band is measured from that same text. The web player already slanted it through CSS. New test `an_italic_caption_is_drawn_italic` (italic, italic and bold, upright). Player rebuilt (only its build record changed). *Written on features-2x.*

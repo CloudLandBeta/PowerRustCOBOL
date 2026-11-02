@@ -4094,6 +4094,8 @@ impl DesignerPanel {
                         new: pv,
                     });
                 }
+                // The IDE makes the form before this applies; nothing for the designer to do.
+                AgentOp::CreateForm { .. } => {}
                 AgentOp::SetFormStructure { block, code } => {
                     let old = crate::agent::form_structure_field(&mut self.form, block)
                         .map(|s| s.clone())

@@ -1827,6 +1827,10 @@ fn agent_op_line(op: &crate::agent::AgentOp, tr: &crate::i18n::Tr) -> (String, C
             format!("{} {control_id}.{event}", tr.agent_op_handler),
             Color32::from_rgb(200, 170, 110),
         ),
+        AgentOp::CreateForm { name, .. } => (
+            format!("{} {name}", tr.agent_op_create_form),
+            Color32::from_rgb(120, 200, 200),
+        ),
         AgentOp::CreateProcedure { name, .. } => (
             format!("{} {name}", tr.agent_op_procedure),
             Color32::from_rgb(190, 150, 210),
@@ -6547,39 +6551,61 @@ impl CoboltApp {
         }
         let mut notes: Vec<String> = Vec::new();
         let mut saved_path: Option<PathBuf> = None;
-        if let Some(st) = self.inspect.as_mut() {
-            for set in sets {
-                match set {
-                    Ok(cs) => {
-                        // A silently discarded handler is exactly how a
-                        // workflow reports success while the form gains no
-                        // events, so the full account goes into the session log
-                        // — what was applied AND what was not, with the
-                        // validator's reason for each refusal. The apply itself
-                        // records it; this only reads it back.
-                        let n = st.designer.apply_agent_change_set(&cs);
-                        let ledger = st.designer.last_change_outcome.clone();
-                        if !ledger.is_empty() {
-                            notes.push(ledger);
+        for set in sets {
+            let cs = match set {
+                Ok(cs) => cs,
+                Err(e) => {
+                    notes.push(format!("⚠ Grace's form output was not applicable: {e}"));
+                    continue;
+                }
+            };
+            // `create_form` is the IDE's own step: the form is written and opened first, and the operations after it
+            // edit it. A refused one stops its change-set, which would otherwise land on some other open form.
+            let mut created = 0usize;
+            let mut refused = false;
+            for op in &cs.operations {
+                if let crate::agent::AgentOp::CreateForm { name, title, width, height } = op {
+                    match self.create_form_for_grace(name, title.as_deref(), *width, *height) {
+                        Ok(p) => {
+                            created += 1;
+                            notes.push(format!("✎ created form {name}: {}", p.display()));
+                            saved_path = Some(p);
                         }
-                        if n > 0 {
-                            let _ = save_form(&st.designer.form, &st.path);
-                            st.designer.dirty = false;
-                            st.mtime = file_mtime(&st.path);
-                            saved_path = Some(st.path.clone());
-                            notes.push(format!("✎ applied {n} form change(s) from Grace."));
-                        } else {
-                            notes.push(
-                                "⚠ Grace's approved form change-set had no applicable operations; the form is unchanged.".into(),
-                            );
+                        Err(e) => {
+                            refused = true;
+                            notes.push(format!("⚠ Grace asked for the form {name}, but it was not created: {e}"));
                         }
                     }
-                    Err(e) => notes.push(format!("⚠ Grace's form output was not applicable: {e}")),
                 }
             }
-        } else {
-            notes
-                .push("⚠ Grace produced form changes but no form is open to apply them to.".into());
+            if refused {
+                continue;
+            }
+            let Some(st) = self.inspect.as_mut() else {
+                if created == 0 {
+                    notes.push("⚠ Grace produced form changes but no form is open to apply them to.".into());
+                }
+                continue;
+            };
+            // A silently discarded handler is exactly how a workflow reports success while the form gains no events, so
+            // the full account goes into the session log — what was applied AND what was not, with the validator's
+            // reason for each refusal. The apply itself records it; this only reads it back.
+            let n = st.designer.apply_agent_change_set(&cs);
+            let ledger = st.designer.last_change_outcome.clone();
+            if !ledger.is_empty() {
+                notes.push(ledger);
+            }
+            if n > 0 {
+                let _ = save_form(&st.designer.form, &st.path);
+                st.designer.dirty = false;
+                st.mtime = file_mtime(&st.path);
+                saved_path = Some(st.path.clone());
+                notes.push(format!("✎ applied {n} form change(s) from Grace."));
+            } else if created == 0 {
+                notes.push(
+                    "⚠ Grace's approved form change-set had no applicable operations; the form is unchanged.".into(),
+                );
+            }
         }
         if let Some(p) = saved_path {
             self.project.refresh_form(&p);
@@ -14874,16 +14900,49 @@ impl CoboltApp {
         if self.reject_duplicate_form_cobol_id(&form_name, None, "create form") {
             return;
         }
+        let form = self.build_new_form(&form_name, &self.new_form.title.clone(), w, h, self.new_form.template, self.new_form.modern, &self.new_form.form_theme.clone(), &self.new_form.theme.clone());
+        // The kind names the file (WASM-001 Q2): `.cfrm`, `.wcfrm` or `.mcfrm`.
+        let kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
+        let default_name = pasted_form_file_name(&form_name, kind);
+        let mut spec = crate::file_dialog::DialogSpec::save()
+            .filter("RustCOBOL Form", &[kind.form_extension()])
+            .file_name(default_name);
+        // Default into the folder whose [+] was clicked, or the project's forms
+        // folder (`forms/`, `webforms/` or `mobileforms/` by its kind) when the
+        // create came from the category header.
+        let forms_folder = kind.forms_folder();
+        if let Some(dir) = self.project_dir() {
+            let dest = dir.join(self.new_form.target_dir.as_deref().unwrap_or(forms_folder));
+            let _ = std::fs::create_dir_all(&dest);
+            spec = spec.directory(dest);
+        }
+        self.begin_file_dialog(FileRequest::NewForm(Box::new(form)), spec);
+    }
+
+    /// The new form the New Form dialog (or Grace) asks for: from a template or a modern blank, or a classic blank, dressed
+    /// for the project's theme and responsive setting. Nothing is written.
+    #[allow(clippy::too_many_arguments)]
+    fn build_new_form(
+        &self,
+        form_name: &str,
+        title: &str,
+        w: u32,
+        h: u32,
+        template: cobolt_forms::templates::FormTemplate,
+        modern_flag: bool,
+        form_theme: &str,
+        glass_style: &str,
+    ) -> Form {
+        let form_name = form_name.to_owned();
         // 079 — a template, or a modern blank form, comes from
         // `cobolt_forms::templates` with its captions in the IDE's language;
         // a classic blank form is `Form::new`, as before.
-        let template = self.new_form.template;
-        let modern = self.new_form.modern || template != cobolt_forms::templates::FormTemplate::Blank;
+        let modern = modern_flag || template != cobolt_forms::templates::FormTemplate::Blank;
         let mut form = if modern {
             let mut f = cobolt_forms::templates::build(
                 template,
                 &form_name,
-                &self.new_form.title,
+                title,
                 Some((w, h)),
                 &self.template_texts(),
             );
@@ -14893,7 +14952,7 @@ impl CoboltApp {
             }
             f
         } else {
-            Form::new(form_name.clone(), self.new_form.title.clone(), w, h)
+            Form::new(form_name.clone(), title.to_owned(), w, h)
         };
         // 056 R75 — a project whose new forms are responsive writes that INTO
         // the form, with the project's breakpoint table, so the form means the
@@ -14910,11 +14969,11 @@ impl CoboltApp {
         // 050 — the form theme the developer picked in the dialog. Empty means
         // "inherit the project default", which is what an empty `Form::theme`
         // already means, so nothing is written in that case.
-        let chosen_theme = self.new_form.form_theme.trim().to_owned();
+        let chosen_theme = form_theme.trim().to_owned();
         if !chosen_theme.is_empty() {
             form.theme = Some(chosen_theme.clone());
         }
-        let style = cobolt_forms::model::GlassStyle::from_str(&self.new_form.theme);
+        let style = cobolt_forms::model::GlassStyle::from_str(glass_style);
         // 050 R7 — a new form under a self-contained theme is not seeded with
         // glass defaults: they would be written into the `.cfrm` and then
         // ignored by the theme that is actually painting it. Gated on the theme
@@ -14941,38 +15000,37 @@ impl CoboltApp {
             form.glass_style = style;
             form.background_color = "00000000".into(); // transparent — matches IDE glass
         }
-
-        // The kind names the file (WASM-001 Q2): `.cfrm`, `.wcfrm` or `.mcfrm`.
-        let kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
-        let default_name = pasted_form_file_name(&form_name, kind);
-        let mut spec = crate::file_dialog::DialogSpec::save()
-            .filter("RustCOBOL Form", &[kind.form_extension()])
-            .file_name(default_name);
-        // Default into the folder whose [+] was clicked, or the project's forms
-        // folder (`forms/`, `webforms/` or `mobileforms/` by its kind) when the
-        // create came from the category header.
-        let forms_folder = kind.forms_folder();
-        if let Some(dir) = self.project_dir() {
-            let dest = dir.join(self.new_form.target_dir.as_deref().unwrap_or(forms_folder));
-            let _ = std::fs::create_dir_all(&dest);
-            spec = spec.directory(dest);
-        }
-        self.begin_file_dialog(FileRequest::NewForm(Box::new(form)), spec);
+        form
     }
 
     /// Save a freshly-created form to `path`, register it, and open its designer.
     fn save_new_form_to(&mut self, form: Form, path: PathBuf) {
-        if self.reject_duplicate_form_cobol_id(&form.name, Some(&path), "create form") {
+        if !self.register_new_form(&form, &path) {
             return;
         }
-        if let Err(e) = save_form(&form, &path) {
+        let mut dp = DesignerPanel::new(form);
+        dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
+        self.designers.push((path, dp));
+        self.new_form.open = false;
+        // Spec 037 R3 — the first form created in a project becomes the main
+        // form (and any later violation heals to the first in the list).
+        self.apply_main_form_invariant();
+    }
+
+    /// Write a new form to `path` and register it in the project, without opening a designer for it.
+    /// Returns false (after saying why in the status line) when nothing was written.
+    fn register_new_form(&mut self, form: &Form, path: &Path) -> bool {
+        if self.reject_duplicate_form_cobol_id(&form.name, Some(path), "create form") {
+            return false;
+        }
+        if let Err(e) = save_form(form, path) {
             self.output
                 .push_status(crate::ui_text::idef("Could not save new form: {}", &[&e]));
-            return;
+            return false;
         }
         // WASM-007 R4: a web or mobile form gets its stylesheet, generated from its theme, beside it.
-        if let Some(text) = self.new_form_stylesheet(&form) {
-            if let Err(e) = crate::project_fs::create_form_stylesheet(&path, &text) {
+        if let Some(text) = self.new_form_stylesheet(form) {
+            if let Err(e) = crate::project_fs::create_form_stylesheet(path, &text) {
                 self.output
                     .push_status(crate::ui_text::idef("Could not write the form's stylesheet: {}", &[&e]));
             }
@@ -14990,20 +15048,50 @@ impl CoboltApp {
             .and_then(|p| p.parent())
             .map(|p| p.to_owned());
         if let Some(dir) = proj_dir {
-            if let Some(rel) = relative_to(&path, &dir) {
+            if let Some(rel) = relative_to(path, &dir) {
                 if let Some(proj) = &mut self.cobolt_project {
                     proj.add_file(&rel);
                 }
                 self.do_save_project();
             }
         }
-        let mut dp = DesignerPanel::new(form);
-        dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
-        self.designers.push((path, dp));
-        self.new_form.open = false;
-        // Spec 037 R3 — the first form created in a project becomes the main
-        // form (and any later violation heals to the first in the list).
+        true
+    }
+
+    /// Create the form a Grace change-set asks for (`create_form`): written to the project's forms folder, registered in the
+    /// project, and opened in the inspector so the operations that follow edit it. Nothing is overwritten: an id or a file
+    /// that exists is refused with the reason.
+    fn create_form_for_grace(&mut self, name: &str, title: Option<&str>, width: Option<u32>, height: Option<u32>) -> Result<PathBuf, String> {
+        let Some(dir) = self.project_dir() else {
+            return Err("No project is open, so there is nowhere to create a form.".into());
+        };
+        let name = name.trim();
+        let kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
+        let path = dir.join(kind.forms_folder()).join(pasted_form_file_name(name, kind));
+        if path.exists() {
+            return Err(format!("{} already exists; a form is never overwritten.", path.display()));
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("Could not create {}: {e}", parent.display()))?;
+        }
+        let title = title.map(str::trim).filter(|t| !t.is_empty()).unwrap_or(name);
+        let form = self.build_new_form(
+            name,
+            title,
+            width.unwrap_or(640),
+            height.unwrap_or(480),
+            cobolt_forms::templates::FormTemplate::Blank,
+            true,
+            "",
+            "Classic",
+        );
+        if !self.register_new_form(&form, &path) {
+            return Err(format!("The form '{name}' could not be created (see the status line)."));
+        }
         self.apply_main_form_invariant();
+        self.open_inspect(path.clone(), None);
+        self.project.refresh_form(&path);
+        Ok(path)
     }
 
     /// The first text of a new form's stylesheet (WASM-007 R4): on a Web or Mobile project only (R14).

@@ -221,6 +221,7 @@ pub fn apply_for_probe(form: &mut Form, cs: &AgentChangeSet) {
                     *slot = crate::llm::normalize_comments(code);
                 }
             }
+            AgentOp::CreateForm { .. } => {} // made by the IDE before the probe
             AgentOp::Message { .. } => {}
         }
     }

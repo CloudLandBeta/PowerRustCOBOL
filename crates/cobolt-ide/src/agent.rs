@@ -53,6 +53,19 @@ pub enum AgentOp {
         #[serde(default, skip_serializing_if = "Option::is_none", alias = "Layer")]
         layer: Option<String>,
     },
+    /// Create a new form (window) in the project and open it: the operations after this one in
+    /// the same change-set edit THAT form. `name` is the form's COBOL id (letters, digits and
+    /// hyphens); `title`, `width` and `height` are optional.
+    CreateForm {
+        #[serde(alias = "form", alias = "form_name")]
+        name: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        width: Option<u32>,
+        #[serde(default)]
+        height: Option<u32>,
+    },
     /// Set one property (any key) on an existing control.
     SetProperty {
         control_id: String,
@@ -184,6 +197,7 @@ pub(crate) fn op_headline(op: &AgentOp) -> String {
         AgentOp::GenerateEventHandler { control_id, event, .. } => {
             format!("generate_event_handler {control_id}::{event}")
         }
+        AgentOp::CreateForm { name, .. } => format!("create_form {name}"),
         AgentOp::CreateProcedure { name, .. } => format!("create_procedure {name}"),
         AgentOp::SetFormStructure { block, .. } => format!("set_form_structure {block}"),
         AgentOp::SetMenuItems { control_id, items } => {
@@ -545,7 +559,22 @@ pub(crate) fn validate_planned(cs: &AgentChangeSet, form: &Form) -> (Vec<Option<
     let mut layers = LayerInv::from_form(form);
     let mut status = Vec::with_capacity(cs.operations.len());
     let mut deletions = Vec::with_capacity(cs.operations.len());
-    for op in &cs.operations {
+    for (index, op) in cs.operations.iter().enumerate() {
+        if let AgentOp::CreateForm { name, .. } = op {
+            // The operations after it edit the NEW form, so what they may name is a blank form's, not this one's.
+            let error = if index > 0 {
+                Some("create_form must be the first operation of the change-set.".to_string())
+            } else {
+                op_form_free_error(op)
+            };
+            if error.is_none() {
+                known.clear();
+                layers = LayerInv::from_form(&Form::new(name.trim().to_string(), name.trim().to_string(), 640, 480));
+            }
+            status.push(error);
+            deletions.push(Vec::new());
+            continue;
+        }
         status.push(validate_op(op, &mut known, &form.name, &mut layers));
         deletions.push(layers.doomed.take().unwrap_or_default());
     }
@@ -942,6 +971,18 @@ pub(crate) fn op_form_free_error(op: &AgentOp) -> Option<String> {
             }
             handler_body_shape_error(code)
         }
+        AgentOp::CreateForm { name, width, height, .. } => {
+            if !cobolt_forms::model::is_valid_control_id(name.trim()) {
+                return Some(format!(
+                    "'{name}' is not a form id: use letters, digits and hyphens, starting with a letter."
+                ));
+            }
+            match (width, height) {
+                (Some(w), _) if !(100..=4000).contains(w) => Some(format!("Width {w} is outside 100..4000.")),
+                (_, Some(h)) if !(100..=4000).contains(h) => Some(format!("Height {h} is outside 100..4000.")),
+                _ => None,
+            }
+        }
         AgentOp::CreateProcedure { name, code } => {
             if name.trim().is_empty() {
                 return Some("Procedure name is empty.".to_string());
@@ -1084,6 +1125,7 @@ fn op_ref(op: &AgentOp) -> String {
         AgentOp::GenerateEventHandler {
             control_id, event, ..
         } => format!("generate_event_handler {control_id}.{event}"),
+        AgentOp::CreateForm { name, .. } => format!("create_form {name}"),
         AgentOp::CreateProcedure { name, .. } => format!("create_procedure {name}"),
         AgentOp::SetFormStructure { block, .. } => format!("set_form_structure {block}"),
         AgentOp::SetMenuItems { control_id, .. } => format!("set_menu_items {control_id}"),
@@ -1461,6 +1503,7 @@ fn validate_op(
         AgentOp::CreateProcedure { name: _, code } => op_form_free_error(op)
             .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
             .or_else(|| unknown_layer_ref(code, inv)),
+        AgentOp::CreateForm { .. } => op_form_free_error(op),
         AgentOp::SetFormStructure { .. } => op_form_free_error(op),
         AgentOp::SetMenuItems { control_id, items } => {
             if let Some(error) = op_form_free_error(op) {
@@ -3392,6 +3435,36 @@ fn prop_display(v: &PropValue) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// `create_form` is how Grace makes a form: it parses, it is valid only as the FIRST operation, a bad id is refused,
+    /// and the operations after it are judged against the new (blank) form, not the one that was open.
+    #[test]
+    fn create_form_is_first_and_what_follows_belongs_to_the_new_form() {
+        let mut open = Form::new("OLD-FORM".to_string(), "Old".to_string(), 640, 480);
+        open.controls.push(cobolt_forms::Control::new("OLD-BTN", ControlType::Button, 10, 10));
+        let check = |json: &str| validate(&parse_change_set(json).expect("parses"), &open);
+
+        let ok = check(
+            r#"{"operations":[{"op":"create_form","name":"frmAgentDemo","title":"Demo"},
+                {"op":"deploy_control","control_type":"Button","id":"btnSend"}]}"#,
+        );
+        assert_eq!(ok, vec![None, None], "create then deploy: {ok:?}");
+
+        let late = check(
+            r#"{"operations":[{"op":"deploy_control","control_type":"Button","id":"B1"},{"op":"create_form","name":"F2"}]}"#,
+        );
+        assert!(late[1].as_deref().is_some_and(|e| e.contains("first")), "{late:?}");
+
+        let bad = check(r#"{"operations":[{"op":"create_form","name":"my form"}]}"#);
+        assert!(bad[0].as_deref().is_some_and(|e| e.contains("not a form id")), "{bad:?}");
+
+        let old_control = check(
+            r#"{"operations":[{"op":"create_form","name":"F3"},{"op":"set_property","control_id":"OLD-BTN","key":"Caption","value":"x"}]}"#,
+        );
+        assert_eq!(old_control[0], None);
+        assert!(old_control[1].is_some(), "OLD-BTN is on the form that was open, not on the new one: {old_control:?}");
+        println!("create_form: 4 cases (create+deploy, not first, bad id, old control after create) behave as ruled");
+    }
 
     /// A lone handler is the one this surface asked for, whatever the agent
     /// called the event — dropping it is a silent loss of real work.
