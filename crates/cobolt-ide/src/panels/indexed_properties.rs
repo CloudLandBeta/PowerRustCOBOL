@@ -123,11 +123,11 @@ impl PicTemplate {
 
 impl IndexedPropertiesPanel {
     pub fn show_file_labels(ui: &mut egui::Ui, tr: &Tr) {
-        label_row(ui, tr.lbl_idx_file_name);
-        label_row(ui, tr.dlg_assign_path);
-        label_row(ui, tr.dlg_access_mode);
-        label_row(ui, tr.dlg_record_format);
-        label_row(ui, tr.lbl_idx_finalized);
+        label_row_h(ui, tr.lbl_idx_file_name, PROP_ROW_H, Some(tr.tip_idx_file_name));
+        label_row_h(ui, tr.dlg_assign_path, PROP_ROW_H, Some(tr.tip_idx_assign));
+        label_row_h(ui, tr.dlg_access_mode, PROP_ROW_H, Some(tr.tip_idx_access));
+        label_row_h(ui, tr.dlg_record_format, PROP_ROW_H, Some(tr.tip_idx_format));
+        label_row_h(ui, tr.lbl_idx_finalized, PROP_ROW_H, Some(tr.tip_idx_finalized));
         label_row_h(ui, tr.lbl_definition_ai, comment_row_h(ui), Some(tip_for(DefinitionKind::File, tr)));
     }
 
@@ -309,21 +309,21 @@ fn definition_tip<'a>(def: &IndexedDefinition, field: &IndexedField, tr: &'a Tr)
 }
 
 fn leaf_labels(ui: &mut egui::Ui, tr: &Tr, tip: &str) {
-    label_row(ui, tr.lbl_field_name);
-    label_row(ui, tr.lbl_group_redefines);
-    label_row(ui, tr.lbl_field_pic);
-    label_row(ui, tr.lbl_field_length);
-    label_row(ui, tr.lbl_field_usage);
-    label_row(ui, tr.lbl_field_offset);
+    label_row_h(ui, tr.lbl_field_name, PROP_ROW_H, Some(tr.tip_idx_field_name));
+    label_row_h(ui, tr.lbl_group_redefines, PROP_ROW_H, Some(tr.tip_idx_redefines));
+    label_row_h(ui, tr.lbl_field_pic, PROP_ROW_H, Some(tr.tip_idx_pic));
+    label_row_h(ui, tr.lbl_field_length, PROP_ROW_H, Some(tr.tip_idx_length));
+    label_row_h(ui, tr.lbl_field_usage, PROP_ROW_H, Some(tr.tip_idx_usage));
+    label_row_h(ui, tr.lbl_field_offset, PROP_ROW_H, Some(tr.tip_idx_offset));
     label_row_h(ui, tr.lbl_definition_ai, comment_row_h(ui), Some(tip));
-    label_row(ui, tr.lbl_field_control);
+    label_row_h(ui, tr.lbl_field_control, PROP_ROW_H, Some(tr.tip_idx_control));
 }
 
 fn group_labels(ui: &mut egui::Ui, tr: &Tr, tip: &str) {
-    label_row(ui, tr.lbl_field_name);
-    label_row(ui, tr.lbl_group_occurs);
-    label_row(ui, tr.lbl_group_redefines);
-    label_row(ui, tr.lbl_group_synchronized);
+    label_row_h(ui, tr.lbl_field_name, PROP_ROW_H, Some(tr.tip_idx_field_name));
+    label_row_h(ui, tr.lbl_group_occurs, PROP_ROW_H, Some(tr.tip_idx_occurs));
+    label_row_h(ui, tr.lbl_group_redefines, PROP_ROW_H, Some(tr.tip_idx_redefines));
+    label_row_h(ui, tr.lbl_group_synchronized, PROP_ROW_H, Some(tr.tip_idx_synchronized));
     label_row_h(ui, tr.lbl_definition_ai, comment_row_h(ui), Some(tip));
 }
 
@@ -948,5 +948,50 @@ mod definition_tip_tests {
             assert_ne!(t.tip_def_ai_file, en.tip_def_ai_file, "{lang:?} still carries the English text");
         }
         println!("definition tooltips: {} languages x 4 kinds = {checked} texts, all distinct; label \"{}\"", crate::i18n::Language::ALL.len(), en.lbl_definition_ai);
+    }
+}
+
+#[cfg(test)]
+mod field_tooltip_tests {
+    /// Every label of the Indexed File Editor's properties pane explains itself: fourteen tooltips, each in
+    /// the six languages, distinct from one another, none left in English, the COBOL words kept as written.
+    #[test]
+    fn every_label_has_a_tooltip_in_every_language() {
+        let langs = crate::i18n::Language::ALL;
+        let tips = |t: &crate::i18n::Tr| {
+            [
+                ("file name", t.tip_idx_file_name, "SELECT"),
+                ("assign path", t.tip_idx_assign, "data/customers.idx"),
+                ("access mode", t.tip_idx_access, "Dynamic"),
+                ("record format", t.tip_idx_format, "Variable"),
+                ("finalized", t.tip_idx_finalized, ""),
+                ("field name", t.tip_idx_field_name, "CUST-ID"),
+                ("redefines", t.tip_idx_redefines, "REDEFINES"),
+                ("pic", t.tip_idx_pic, "S9(7)V99"),
+                ("length", t.tip_idx_length, "PICTURE"),
+                ("usage", t.tip_idx_usage, "COMP-3"),
+                ("offset", t.tip_idx_offset, ""),
+                ("control", t.tip_idx_control, "NumericUpDown"),
+                ("occurs", t.tip_idx_occurs, "OCCURS n TIMES"),
+                ("synchronized", t.tip_idx_synchronized, "SYNCHRONIZED"),
+            ]
+        };
+        let en = tips(&langs[0].tr());
+        let mut checked = 0;
+        for &lang in langs {
+            let t = tips(&lang.tr());
+            for (i, (name, text, word)) in t.iter().enumerate() {
+                assert!(text.len() > 40, "{lang:?} {name}: too short");
+                assert!(text.contains(word), "{lang:?} {name}: the COBOL word `{word}` was translated away");
+                for (other, b, _) in &t[i + 1..] {
+                    assert_ne!(text, b, "{lang:?}: {name} and {other} share one tooltip");
+                }
+                if lang != langs[0] {
+                    assert_ne!(*text, en[i].1, "{lang:?} {name} is still English");
+                }
+                checked += 1;
+            }
+        }
+        println!("indexed editor tooltips: {} labels x {} languages = {checked} texts", en.len(), langs.len());
     }
 }
