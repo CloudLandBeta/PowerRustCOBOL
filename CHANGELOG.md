@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.156 — 2026-11-02
+
+**WASM-003 T15b-1 and T15b-2: the sealed channel's cryptography is in `cobolt-wire`, behind a feature nothing but the backend and the player turn on.** The four RustCrypto crates (X25519, HKDF-SHA256, SHA-256, ChaCha20-Poly1305) were probed in a throwaway project first: they build for the host and for `wasm32-unknown-unknown`, no `ring`, `aws-lc*` or `openssl*`, highest MSRV 1.87. `cobolt_wire::seal` (feature `channel`, off by default; `server`, `client` and the player turn it on, the loader and the compiler do not) agrees the key from the two public keys and the two hello nonces, derives one key per direction, and seals every message as one ChaCha20-Poly1305 frame under an implicit counter nonce, so a tampered, replayed, reordered or truncated frame is refused. It draws no randomness itself, so it builds unchanged for the browser. Tested against the RFC 7748 and RFC 8439 vectors and the refusals; dependency guards keep the new crates out of the loader and the compiler. Nothing speaks protocol 2 yet: T15b-3 changes every speaker in one go.
+
 ## 2.0.155 — 2026-11-02
 
 **Specs: the two dependencies of WASM-003's sealed channel (T15b) are written.** WASM-014 T19b: R18's wording now follows the order decided in WASM-003 O10 (the frontend's X25519 key and a nonce in its `hello`, the backend's in the answer), and plan §2.1 gains M7, the `key`/`nonce` members of both `hello`s, required from protocol 2, with the refusals. WASM-013 T24b: plan §1.11 records the construction (X25519, HKDF-SHA256, ChaCha20-Poly1305), what the encryption protects against and what it does not (the unauthenticated agreement is left to TLS), the residual risks and the audit. Both ACs (WASM-014 AC11, WASM-013 AC12) stay open until the code of WASM-003 T15b lands. No code changed.

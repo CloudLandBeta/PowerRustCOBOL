@@ -31,6 +31,7 @@ server = [
     "dep:cobolt-runtime", "dep:jsonwebtoken", "dep:ureq",
     "dep:sha2", "dep:base64", "dep:getrandom", "dep:tracing-subscriber",
     "dep:chacha20poly1305", "dep:hmac",
+    "cobolt-wire/channel",
     "dep:leptos", "dep:leptos_axum", "dep:leptos_router", "dep:axum", "dep:hyper", "dep:hyper-util",
 ]
 
@@ -41,7 +42,7 @@ server = [
 # It links the runtime (with none of its optional bridges) for one reason: the
 # process-wide factory every interpreter asks for its transport
 # (`cobolt_runtime::interpreter::remote::set_default_transport_factory`).
-client = ["net", "dep:sha2", "dep:base64", "dep:getrandom", "dep:cobolt-runtime"]
+client = ["net", "dep:sha2", "dep:base64", "dep:getrandom", "dep:cobolt-runtime", "cobolt-wire/channel"]
 
 # The channel itself: tokio, the operating system's TLS, the WebSocket framing.
 net = ["dep:tokio", "dep:native-tls", "dep:tokio-native-tls", "dep:tokio-tungstenite", "dep:futures-util"]

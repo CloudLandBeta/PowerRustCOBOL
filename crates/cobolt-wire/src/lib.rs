@@ -34,6 +34,8 @@ pub mod node;
 pub mod number;
 pub mod proto;
 pub mod retry;
+#[cfg(feature = "channel")]
+pub mod seal;
 
 pub use call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallReply, CallRequest, DownloadRequest, DownloadResult, NoObserver, Transport, UploadRequest, UploadResult};
 pub use error::{CallError, ErrorClass};

@@ -22,6 +22,16 @@ cobolt-ast = { path = "../cobolt-ast" }
 serde      = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 
+# The sealed channel (WASM-003 T15b). Off by default: the interpreter, the analyser and the compiler never link it.
+sha2             = { workspace = true, optional = true }
+hkdf             = { workspace = true, optional = true }
+x25519-dalek     = { workspace = true, optional = true }
+chacha20poly1305 = { workspace = true, optional = true }
+zeroize          = { workspace = true, optional = true }
+
+[features]
+channel = ["dep:sha2", "dep:hkdf", "dep:x25519-dalek", "dep:chacha20poly1305", "dep:zeroize"]
+
 [dev-dependencies]
 cobolt-lexer  = { path = "../cobolt-lexer" }
 cobolt-parser = { path = "../cobolt-parser" }

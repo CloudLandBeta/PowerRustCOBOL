@@ -710,7 +710,7 @@ and the identity routes stay TLS-only) is the working assumption, **to confirm**
 *Gate update 2026-11-02: WASM-013 T24b and WASM-014 T19b are done (specs only: plan §1.11 and M7); O10 was decided 2026-10-31. The gate is met for the handshake text; the code is T15b-1…6.* *Gate checked 2026-10-31 — not met; the /implement run of that day stopped here.* WASM-013 T24b (`specs/WASM-013-security-architecture/tasks.md:490`)
 and WASM-014 T19b (`specs/WASM-014-backend-contract-and-evolution/tasks.md:464`) are both unchecked, and O10 is unconfirmed. T15b-1…6 not started.
 
-- [ ] **T15b-1 — The four crypto crates, probed and guarded first** (R24; tech steering; plan §5 R8)
+- [x] **T15b-1 — The four crypto crates, probed and guarded first** (R24; tech steering; plan §5 R8)
   - Files: root `Cargo.toml` (`[workspace.dependencies]`: `x25519-dalek` with `static_secrets` + `zeroize`, `hkdf`, `sha2`,
     `chacha20poly1305`), `crates/cobolt-wire/Cargo.toml` (feature `channel`, off by default, naming them and `zeroize`),
     `crates/cobolt-server/Cargo.toml` (`server` and `client` turn on `cobolt-wire/channel`; `loader` does not),
@@ -725,8 +725,9 @@ and WASM-014 T19b (`specs/WASM-014-backend-contract-and-evolution/tasks.md:464`)
     `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test dependency_guard --no-fail-fast` (closure sizes, the four names,
     highest MSRV printed); `cargo check -p cobolt-wire` and `cargo check -p cobolt-server --no-default-features --features loader` clean;
     `Cargo.lock` diff: no existing crate changes version.
+  - **Done 2026-11-02 (2.0.156).** Probe outside the repository (a throwaway project): `x25519-dalek` 2.0.1 (`static_secrets`, `zeroize`), `hkdf` 0.12, `sha2` 0.10 and `chacha20poly1305` 0.11 (the generation the server already used) build for the host and for `wasm32-unknown-unknown`; no `ring`, `aws-lc*` or `openssl*` in the tree; highest `rust-version` **1.87** (≤ 1.92). Wiring: workspace deps (`x25519-dalek`, `hkdf`, `zeroize`), `cobolt-wire` feature `channel` (off by default), turned on by `cobolt-server`'s `server` and `client` and by the player's dependency on `cobolt-wire`; the loader and the compiler do not link it. `Cargo.lock` gained `x25519-dalek` only; the player's lock gained the 24 packages of the four crates, none of an existing package changed version. Guards: `dependency_guards::the_sealed_channel_is_in_the_server_and_the_client_and_not_in_the_loader_or_the_compiler` (server 416 crates, client 263, loader 48, compiler 200) and `dependency_guard::the_browser_build_carries_the_sealed_channels_four_crates` (207 packages, 22 banned names absent; licences and MSRV test green on 215 packages).
 
-- [ ] **T15b-2 — `cobolt_wire::seal`** (R24; D7, D9)
+- [x] **T15b-2 — `cobolt_wire::seal`** (R24; D7, D9)
   - Files: `crates/cobolt-wire/src/seal.rs` (new, `#[cfg(feature = "channel")]`), `crates/cobolt-wire/src/lib.rs`.
   - Do: a key pair from 32 caller-given bytes (the module takes no randomness itself, so it builds unchanged for `wasm32`); the agreement
     (an all-zero shared secret refused); the transcript (protocol, both public keys, both nonces, fixed order); HKDF-SHA256 with salt
@@ -737,6 +738,7 @@ and WASM-014 T19b (`specs/WASM-014-backend-contract-and-evolution/tasks.md:464`)
     ChaCha20-Poly1305 vector through the wrappers; both sides derive the same two keys; two connections of the same key pairs derive different
     keys; tampered, replayed, reordered, truncated frames refused; a low-order peer key refused; a key pair from other bytes differs.
     `cargo test -p cobolt-wire --no-fail-fast` (without the feature) unchanged.
+  - **Done 2026-11-02 (2.0.156).** `crates/cobolt-wire/src/seal.rs` (feature `channel`): `KeyPair::from_bytes`, `establish(role, protocol, own, own_nonce, peer_key, peer_nonce)`, `Channel::seal` / `open`. `cargo test -p cobolt-wire --features channel` 39 passed (8 new); without the feature 31 passed, unchanged. The new tests: the RFC 7748 §6.1 X25519 vector (both public keys and the shared secret), the RFC 8439 §2.8.2 ChaCha20-Poly1305 vector (the first block and the tag, through the crate the channel uses), both sides deriving the same keys and talking both ways, two connections of the same key pairs deriving different keys (client nonce, server nonce, and the two directions), tampered / truncated / empty / reordered / replayed / foreign-connection frames refused with the counter unmoved by a refusal, an all-zero and a low-order peer key refused, other bytes making another key pair. `chacha20poly1305` has its `zeroize` feature on, so the cipher state wipes on drop with the derived keys and the secret.
 
 - [ ] **T15b-3 — Every speaker of the protocol goes to protocol 2, sealed, in one change** (R24, R11, R5; D8, D10; plan §5 R11, R9)
   - Files: `crates/cobolt-wire/src/proto.rs` (`Hello`, `ServerHello` gain `key`, `nonce`, base64, required from protocol 2 — as WASM-014 T19b

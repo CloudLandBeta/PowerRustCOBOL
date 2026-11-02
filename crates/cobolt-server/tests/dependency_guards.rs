@@ -127,3 +127,24 @@ fn the_ide_runs_the_backend_as_a_child_and_links_none_of_the_server() {
     println!("ide closure: {} crates; cobolt-server features {features:?}; server-only found: {:?}", ide.len(), present(&ide, &server_only));
     assert_eq!(features.into_iter().collect::<Vec<_>>(), ["loader"], "the IDE's cobolt-server is the loader alone");
 }
+
+#[test]
+fn the_sealed_channel_is_in_the_server_and_the_client_and_not_in_the_loader_or_the_compiler() {
+    // WASM-003 T15b-1: the four crates of X25519 + HKDF-SHA256 + ChaCha20-Poly1305 arrive with
+    // `cobolt-wire/channel`, which `server` and `client` turn on and `loader` does not.
+    // `chacha20poly1305` and `sha2` are also the server's older dependencies, so the loader and the compiler
+    // are held to the two this change brought: the key agreement and the key derivation.
+    let crates = ["x25519-dalek", "hkdf", "sha2", "chacha20poly1305"];
+    let server = closure(&["-p", "cobolt-server"]);
+    let client = closure(&["-p", "cobolt-server", "--no-default-features", "--features", "client"]);
+    assert_eq!(crates.iter().filter(|n| !server.contains(**n)).collect::<Vec<_>>(), Vec::<&&str>::new(), "the server");
+    assert_eq!(crates.iter().filter(|n| !client.contains(**n)).collect::<Vec<_>>(), Vec::<&&str>::new(), "the client");
+    let loader = closure(&["-p", "cobolt-server", "--no-default-features", "--features", "loader"]);
+    let compiler = closure(&["-p", "cobolt-compiler"]);
+    for new in ["x25519-dalek", "hkdf"] {
+        assert!(!loader.contains(new), "`{new}` reached the loader");
+        assert!(!compiler.contains(new), "`{new}` reached the compiler");
+    }
+    println!("sealed channel crates: in the server ({} crates) and the client ({}), not in the loader ({}) or the compiler ({})",
+        server.len(), client.len(), loader.len(), compiler.len());
+}

@@ -77,7 +77,11 @@ hmac        = "0.12"
 sha2        = "0.10"
 # WASM-009 D7 — the backend seals its refresh and hosted-flow cookies with XChaCha20-Poly1305 (RustCrypto,
 # pure Rust: passes `dependency_guards`' no-C-crypto rule). The nonce comes from `getrandom`, so not its default `getrandom`.
-chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "zeroize"] }
+# WASM-003 T15b: the sealed channel — X25519 + HKDF-SHA256 + ChaCha20-Poly1305 (RustCrypto, pure Rust, builds for wasm32).
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
+hkdf        = "0.12"
+zeroize     = "1"
 
 # Data structures
 indexmap    = { version = "2", features = ["serde"] }

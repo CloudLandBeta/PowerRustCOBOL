@@ -215,3 +215,14 @@ fn the_licence_and_msrv_rules_read_spdx_and_versions_as_written() {
     assert!(!licence_ok("GPL-3.0-only") && !licence_ok("") && !licence_ok("MIT AND GPL-2.0"));
     assert!(msrv_ok("1.88") && msrv_ok("1.92.0") && !msrv_ok("1.93") && !msrv_ok("2.0"));
 }
+
+#[test]
+fn the_browser_build_carries_the_sealed_channels_four_crates() {
+    // WASM-003 T15b-1: X25519, HKDF-SHA256, ChaCha20-Poly1305, pure Rust; the banned-names test above keeps
+    // every C-built crypto out of the same closure.
+    let wasm = closure("wasm32-unknown-unknown", &[]);
+    for must in ["x25519-dalek", "hkdf", "sha2", "chacha20poly1305"] {
+        assert!(wasm.contains(must), "`{must}` is missing from the browser closure");
+    }
+    println!("sealed channel crates present in the browser closure ({} packages)", wasm.len());
+}
