@@ -204,6 +204,16 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
     needs a routine), held equal to the interpreter by a differential test where the interpreter has the construct.
   - Verify: a `cobolt-wasm` test per case on both memory variants; then T11's script runs every cell on the fixture **and** the generated
     module, none marked fixture-only.
+  - **Findings 2026-11-02 (2.0.167), before any code; the operator ruled "match the desktop" for the event argument.** (1) *Event argument.* On the desktop an event
+    carries its payload as `FormEvent.value` and `Interpreter::bind_node_payload` splits it on TAB into the handler's data items `CONTROL-NODE`,
+    `CONTROL-NODE-INDEX`, `CONTROL-NODE-LEVEL`, `CONTROL-NODE-CHECKED` (and, for a drop, `CONTROL-TARGET-INDEX` / `CONTROL-TARGET-NODE`) just before the
+    handler runs, clearing all four for an event with no payload; the DataGrid row goes through `bind_row_content` into `DATAGRID-ROW-BUFFER`
+    (`cobolt-runtime/src/interpreter.rs` ~2986–3040; System KB "Event payloads"). The generated module's `pr_event(inst, ctrl, event, argc)` takes `argc` but never
+    reads it (`module.rs` ~1736), so no generated handler can see an argument. *To build:* at delivery the module splits argument 0 on TAB into those items
+    when the program declares them (and clears them when `argc` is 0), a routine in `cobolt-wasm-rt` (blob rebuilt) plus the slot addresses from `layout.rs`;
+    the scenario's ECHO becomes a TreeView `onNodeClick` handler reading `CONTROL-NODE`, sent `text⇥1⇥1⇥0`; a differential test against the interpreter on both
+    memory variants. (2) *The deliberate trap* and (3) *the raw answer* are not yet read; they are likely smaller. The work is deferred to the 2026-11-04 week cycle
+    with T17 of WASM-011; the order the operator set is T11a, T12, T13, and T11 last.
 
 - [ ] **T11 — The scenario project in COBOL, and the core cells on a generated module** (R1, R2, R5, R11, R12, R20; AC1, AC2, AC3,
   AC6, AC8, AC9, AC10; plan §1.6) — after WASM-010 T9, T10, T16, T17 and WASM-002 T13

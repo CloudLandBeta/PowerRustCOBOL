@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.167 — 2026-11-02
+
+**WASM-017 T11a: findings recorded; the work moves to the next week cycle.** Reading the generator for the three cells the hand-written fixture covers, the event argument turned out to have no counterpart in a generated module: the desktop binds an event's payload into the handler's data items (`CONTROL-NODE` and its siblings) before the handler runs, while `pr_event` ignores its `argc`. The operator ruled to match the desktop. `specs/WASM-017-module-architecture-and-js-boundary/tasks.md` now holds what the desktop does, what the module lacks and what to build, and the order: T11a, T12, T13, with T11 last. No code changed.
+
 ## 2.0.166 — 2026-11-02
 
 **WASM-017 T15: the revisit record for the Component Model and ES-module integration.** `specs/WASM-PROGRESS.md` gains the section that says what stays decided (the Component Model is not used in v1; plain imports and exports), the trigger to revisit (native support in Chrome, Firefox and Safari), the owner (the developer), the date of the last check (2026-10-23, T1; not re-read today) and T1's and T8's probe results (ES-module source imports on no engine; JS String Builtins from Chromium 130, Firefox 134, Safari 26.2; neither used). Documents only.
