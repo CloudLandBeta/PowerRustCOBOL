@@ -32,9 +32,13 @@ Measured after the fixes: 14 controls, **8 differences**, all listed: rows 5, 6 
 class A controls it touches (the test lists it per control). Geometry equal to the pixel on all 14 controls; colours max 0 (bar chart, knob) and 16
 (pie) levels.
 
-## Still to measure (T17 stays open)
+## The lifecycle (T17, second half; measured 2026-11-02, 2.0.163)
 
-- The window lifecycle and event order of specs 037 / 042 on `cobolt-form-host` (the real host, `headless::run_headless`, with the
-  interpreter and its DISPLAY channel) against the player in Chrome: `onShow` then `onActivate` once after the warm-up, a close vetoed
-  (`onCloseRejected`), an allowed close (`onClose` once), a restore (`onRestore` only). The player raises `onLoad` and `onClose`; whether
-  it raises the others is what the harness will say. Rows 4, 6 (repeat) and 12 move to this harness.
+`crates/cobolt-project-tools/tests/lifecycle_comparison_chrome.rs`: one form whose form-level handlers DISPLAY every lifecycle event, run on the real host
+(`rcrun run-form --headless`, through the `run_form` tool) and in Chrome (the real Build, served).
+
+| Check | Desktop | Page | Status |
+|---|---|---|---|
+| Start-up | `onLoad`, `onShow`, `onActivate`, once each, in that order | `onLoad` only | **Fixed** (2.0.163): the player queues `onShow` then `onActivate` behind the form's start-up when the form binds them; measured equal |
+| `onClose` allowed, `onCloseRejected` vetoed, `onRestore` | not raisable | not raisable | **Open**: the headless script has no step that closes a window, vetoes a close or restores it. They need `close` and `restore` steps in `cobolt-form-host/src/headless.rs`, then the same test extended |
+| Rows 4, 6 (repeat) and 12 of the table above | to re-measure with the real host | | **Open**, with the previous line: the host's click on a control needs the same kind of step |

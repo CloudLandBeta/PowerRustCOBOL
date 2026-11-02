@@ -1133,6 +1133,13 @@ impl Host {
                     }
                 }
                 self.effects.push(Effect::Opened { inst: id, form, mode, handle });
+                // As the desktop host does once the form is up: `onShow`, then `onActivate`, each once and only
+                // when the form binds it (WASM-016 T17).
+                for name in ["onShow", "onActivate"] {
+                    if let Some(event) = self.manifest.events.iter().position(|e| e.eq_ignore_ascii_case(name)) {
+                        self.enqueue(id, ctrl::FORM, event as u32, Vec::new());
+                    }
+                }
                 self.after_status(Status::from_code(status), task, id, false, wait, desc, None);
                 // Queued behind the form's own start-up, which it waits for as any event of the instance does.
                 if let Some(name) = self.not_found.take() {
