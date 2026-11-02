@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.165 — 2026-11-02
+
+**WASM-017 T14: the Build record's sizes are tested; WASM-011 T17 is deferred.** The player's `freshness` test now checks that the record lists, for the plain and the threaded variant at the ruled `opt-level s`, the size after each step (cargo, bindgen, `wasm-opt`, gzip) and that each step is smaller than the one before. The pins (`nightly-2026-10-22`, `-Os`, tool versions, `wasm_pack` not used) were already asserted. WASM-011 T17 (`super::` suspends the caller until the opener answers) is deferred by the operator to the week cycle that starts 2026-11-04; `tasks.md` says what a `super::` read and call do until then.
+
 ## 2.0.164 — 2026-11-02
 
 **WASM-016 T17, lifecycle half: close measured equal, restore and veto listed.** The lifecycle test now clicks a Button whose handler is `INVOKE ME::Close()` on the real desktop host and in Chrome and compares the whole event list and its order: `onLoad`, `onShow`, `onActivate`, `onClose`, equal on both. `onRestore` (raised from the OS window state, which Q4 does not carry to the browser) and `onCloseRejected` (a veto of the OS close request on a form waiting for a modal child; a page has no close request) are listed as by design in `specs/WASM-016-prebuilt-player/differences.md`. No player change was needed.

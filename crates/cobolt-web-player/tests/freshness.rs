@@ -152,3 +152,20 @@ fn every_archived_player_is_what_its_record_says() {
     }
     println!("archived players checked: {} {checked:?}", checked.len());
 }
+
+/// WASM-017 T14 (R16, R17, AC12): the record carries, for each variant, the size at every step of the build (cargo,
+/// after bindgen, after `wasm-opt`, gzipped) at the ruled opt level, and each step is smaller than the one before it.
+#[test]
+fn the_build_record_lists_each_variants_sizes_before_and_after_wasm_opt() {
+    let rec = record();
+    let m = rec["measurements"].as_array().expect("measurements");
+    let mut seen = Vec::new();
+    for v in ["plain", "threaded"] {
+        let row = m.iter().find(|r| r["variant"] == v && r["opt_level"] == "s").unwrap_or_else(|| panic!("no opt-level s measurement of {v}"));
+        let n = |k: &str| row[k].as_u64().unwrap_or_else(|| panic!("{v}: {k} missing"));
+        let (cargo, bindgen, opt, gzip) = (n("cargo_output_bytes"), n("after_bindgen_bytes"), n("after_wasm_opt_bytes"), n("gzip_bytes"));
+        assert!(cargo > bindgen && bindgen > opt && opt > gzip, "{v}: sizes must fall at each step: {cargo} {bindgen} {opt} {gzip}");
+        seen.push(format!("{v}: cargo {cargo} > bindgen {bindgen} > wasm-opt {opt} > gzip {gzip}"));
+    }
+    println!("Build record sizes (opt-level s): {seen:?}");
+}

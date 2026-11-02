@@ -247,7 +247,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
 
 ### Build, records, knowledge
 
-- [ ] **T14 — The Build report test** (R16, R17, AC12; plan D4) — after WASM-016 T18
+- [x] **T14 — The Build report test** (R16, R17, AC12; plan D4) — after WASM-016 T18 *(done 2026-11-02, 2.0.165: `freshness.rs` `the_build_record_lists_each_variants_sizes_before_and_after_wasm_opt`; the pins and tools were already asserted)*
   - Files: `crates/cobolt-web-player/tests/freshness.rs` (extend `the_build_record_names_the_tools_and_the_pinned_nightly`), the
     bundle's size report in `crates/cobolt-web-bundle/src/lib.rs` if it does not yet print the player's record.
   - Do: WASM-016 T18 makes the edits (`opt-level = "s"`, `wasm-opt -Os` per D4, `nightly-2026-10-22`); this task adds only the
