@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.166 — 2026-11-02
+
+**WASM-017 T15: the revisit record for the Component Model and ES-module integration.** `specs/WASM-PROGRESS.md` gains the section that says what stays decided (the Component Model is not used in v1; plain imports and exports), the trigger to revisit (native support in Chrome, Firefox and Safari), the owner (the developer), the date of the last check (2026-10-23, T1; not re-read today) and T1's and T8's probe results (ES-module source imports on no engine; JS String Builtins from Chromium 130, Firefox 134, Safari 26.2; neither used). Documents only.
+
 ## 2.0.165 — 2026-11-02
 
 **WASM-017 T14: the Build record's sizes are tested; WASM-011 T17 is deferred.** The player's `freshness` test now checks that the record lists, for the plain and the threaded variant at the ruled `opt-level s`, the size after each step (cargo, bindgen, `wasm-opt`, gzip) and that each step is smaller than the one before. The pins (`nightly-2026-10-22`, `-Os`, tool versions, `wasm_pack` not used) were already asserted. WASM-011 T17 (`super::` suspends the caller until the opener answers) is deferred by the operator to the week cycle that starts 2026-11-04; `tasks.md` says what a `super::` read and call do until then.

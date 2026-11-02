@@ -256,7 +256,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
   - Verify: `cargo test PLAYER --test freshness`: both variants' sizes before and after `wasm-opt`, `opt_level` `s`, `wasm_opt` `-Os`, pinned
     tool versions, `nightly-2026-10-22`, `wasm_pack` "not used"; the Build report prints them.
 
-- [ ] **T15 — The revisit record** (R6, Q7)
+- [x] **T15 — The revisit record** (R6, Q7) *(done 2026-11-02, 2.0.166: `WASM-PROGRESS.md`, "Revisit: Component Model and ES-module integration"; the last check is dated 2026-10-23, the day of T1, not re-read)*
   - Files: `specs/WASM-PROGRESS.md` (section "Revisit: Component Model and ES-module integration").
   - Do: the trigger (native support in Chrome, Firefox and Safari), the owner (the developer, Q7), the date of the last check and T1's
     and T8's probe results. Nothing in code: R6 is met by plain imports and exports (ABI v1 §3/§4).

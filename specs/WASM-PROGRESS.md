@@ -214,3 +214,34 @@ variant (the same fallback WebKit gets); to confirm.
 
 **Minimum versions T12 and T13 test against:** Chromium 121 (Chrome, Edge, Android WebView), **Firefox 125**, Safari 17.3, iOS 17.3. Nothing in `scan::baseline_features()` is missing from any of them; JS String Builtins and
 ES-module source imports are on none of the oldest versions, so the bundle uses neither.
+
+## Revisit: Component Model and ES-module integration (WASM-017 T15; R6, Q7; written 2026-11-02, version 2.0.166)
+
+**Decision in force (R6).** The Component Model is **not** used in v1: the operator kept it only if Chrome supported it, and that is not
+established. The host API stays plain imports and exports (ABI v1 §3 and §4); the loader instantiates by `fetch` and streaming
+instantiation. ES-module integration (importing a `.wasm` natively) is optional: probed, never required.
+
+**Trigger to revisit (Q7).** Native support of the Component Model and of ES-module source imports in **Chrome, Firefox and Safari**, all
+three. One engine is not enough: the player has to run on the whole matrix of "WASM-017 baseline and matrix" above.
+
+**Owner (Q7).** The developer. The check is theirs to make against Chrome's own status page, which the session that wrote T1 could not
+read; this record does not claim it was read.
+
+**Date of the last check: 2026-10-23** (T1), from [webassembly.org/features](https://webassembly.org/features/) (`features.json`, commit
+`3a8728d820`, 2026-10-21) and the vendors' release data. Nothing was re-read on 2026-11-02 when this record was written.
+
+**What the probes found** (T1's table, "ES-module source imports" and "JS String Builtins" columns):
+
+| Engine (oldest 2024+ release) | ES-module source imports | JS String Builtins |
+|---|---|---|
+| Chrome / Edge, Chromium 121 | no [WF] | no; from 130 (2024-10-15) |
+| Firefox 122 | no [WF] | no; from 134 (2025-01-07) |
+| Safari 17.3 and the iOS web view | no [WF] | no; from 26.2 (2025-12-12) |
+| Android WebView, Chromium 121 | no [WF] | no; from Chromium 130 |
+
+[WF] lists `esmIntegration` (phase 3) as supported by no browser. T8 put both probes into the generated loader (`WebAssembly.validate`
+of a module importing `wasm:js-string`, and `WebAssembly.Module`'s prototype chain for source-phase imports) and reports them in
+`choice.reasons`; **neither is used** (D2). The same T8 test proves no string conversion is on the call path.
+
+**What would change when the trigger is met.** Only the loader's choice (`hostpage.rs`): use a native import where the probe says it
+exists, keep `fetch` and streaming instantiation where it does not. The exports and imports the module has stay as they are.
