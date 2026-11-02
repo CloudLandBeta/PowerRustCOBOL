@@ -1212,6 +1212,8 @@ pub struct AnimationDef {
     /// When kind=Slide, the pixel offset from which the control enters.
     pub slide_dx: i32,
     pub slide_dy: i32,
+    /// What this animation is for, written for an AI agent ("Definition for AI").
+    pub definition: String,
 }
 
 /// The default name for the next animation added to a control that already has
@@ -1256,6 +1258,7 @@ impl AnimationDef {
             repeat_delay_ms: 0,
             slide_dx: 0,
             slide_dy: 0,
+            definition: String::new(),
         }
     }
 }
@@ -2553,6 +2556,9 @@ pub struct DataBindingDef {
     /// (spec 095), so reordering the lines would send an edit to the wrong record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_by: Option<BindingOrderBy>,
+    /// What this binding is for, written for an AI agent ("Definition for AI").
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub definition: String,
 }
 
 /// `order_by` of a binding: a source field and a direction.
@@ -2594,6 +2600,7 @@ impl DataBindingDef {
                 ..BindingSourceMetadata::default()
             },
             order_by: None,
+            definition: String::new(),
         }
     }
 
@@ -8492,6 +8499,8 @@ pub struct Layer {
     /// (R4, R6): `LAYER-NAME::Visible`.
     pub name: String,
     pub backdrop: MenuPaneBackground,
+    /// What this layer is for and when it is shown, written for an AI agent ("Definition for AI").
+    pub definition: String,
 }
 
 impl Layer {
@@ -8504,6 +8513,7 @@ impl Layer {
                 color: LAYER_TRANSPARENT_COLOR.into(),
                 ..MenuPaneBackground::default()
             },
+            definition: String::new(),
         }
     }
 }
@@ -9080,6 +9090,8 @@ pub struct Form {
     /// Spec 109 S5 (R29, R35): opt-in. When set, the generator leaves out the
     /// `WS-<ID>` storage group of a control that no authored code names.
     pub compact_storage: bool,
+    /// What this form is for, who uses it and how it is reached, written for an AI agent ("Definition for AI").
+    pub definition: String,
 
     // ── 037 Main form & window lifecycle ────────────────────────────────────
     /// Exactly one form per project holds this (spec 037 R1–R3); enforced by
@@ -9265,6 +9277,7 @@ impl Form {
             use_theme_background: false,
             glass_style: GlassStyle::default(),
             compact_storage: false,
+            definition: String::new(),
             main_form: false,
             taskbar_icon: String::new(),
             can_minimize: true,

@@ -21631,6 +21631,7 @@ mod anim_behavior_tests {
             repeat_delay_ms: 0,
             slide_dx: 0,
             slide_dy: 0,
+            definition: String::new(),
         }
     }
 

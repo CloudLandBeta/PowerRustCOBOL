@@ -157,6 +157,16 @@ fn push_backdrop_attrs(e: &mut BytesStart, mp: &crate::model::MenuPaneBackground
     }
 }
 
+/// Write a text attribute whose value may span lines: a newline is escaped as `&#10;`, because an XML
+/// parser turns a raw one into a space. Reading it back with `unescape_value` gives the lines again.
+fn push_text_attr(e: &mut BytesStart, key: &'static str, value: &str) {
+    let escaped = quick_xml::escape::escape(value).replace('\r', "&#13;").replace('\n', "&#10;");
+    e.push_attribute(quick_xml::events::attributes::Attribute {
+        key: quick_xml::name::QName(key.as_bytes()),
+        value: std::borrow::Cow::Owned(escaped.into_bytes()),
+    });
+}
+
 /// Parse a `<Layer name="…" …/>` element (spec 091 R39). The backdrop
 /// attributes are the shell MenuPane's, and an absent one keeps what a new layer
 /// has — fully transparent, so a hand-trimmed `<Layer name="X"/>` still loads and
@@ -168,6 +178,7 @@ fn parse_layer(e: &BytesStart) -> Result<crate::model::Layer, FormError> {
     Ok(crate::model::Layer {
         name,
         backdrop: parse_backdrop_attrs(e, base)?,
+        definition: get_attr(e, b"definition")?.unwrap_or_default(),
     })
 }
 
@@ -255,6 +266,7 @@ enum OwnedEvent {
         use_theme_background: bool,
         glass_style: crate::model::GlassStyle,
         compact_storage: bool,
+        definition: String,
         // 037 Main form & window lifecycle
         main_form: bool,
         taskbar_icon: String,
@@ -373,6 +385,7 @@ fn next_owned<R: std::io::BufRead>(
                     let glass_style = get_attr(e, b"glass-style")?
                         .map(|v| crate::model::GlassStyle::from_str(&v))
                         .unwrap_or_default();
+                    let definition = get_attr(e, b"definition")?.unwrap_or_default();
                     let compact_storage = get_attr(e, b"compact-storage")?
                         .map(|v| v == "true" || v == "1")
                         .unwrap_or(false);
@@ -485,6 +498,7 @@ fn next_owned<R: std::io::BufRead>(
                         use_theme_background,
                         glass_style,
                         compact_storage,
+                        definition,
                         main_form,
                         taskbar_icon,
                         can_minimize,
@@ -672,6 +686,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 use_theme_background,
                 glass_style,
                 compact_storage,
+                definition,
                 main_form,
                 taskbar_icon,
                 can_minimize,
@@ -714,6 +729,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.use_theme_background = use_theme_background;
                 f.glass_style = glass_style;
                 f.compact_storage = compact_storage;
+                f.definition = definition;
                 f.main_form = main_form;
                 f.taskbar_icon = taskbar_icon;
                 f.can_minimize = can_minimize;
@@ -1545,9 +1561,11 @@ fn parse_control<R: std::io::BufRead>(
                 let mut repeat_count = 3u32;
                 let mut slide_dx = 0i32;
                 let mut slide_dy = 0i32;
+                let mut definition = String::new();
                 for (key, val) in attrs {
                     match key.as_slice() {
                         b"name" => name = val,
+                        b"definition" => definition = val,
                         b"trigger" => trigger = val,
                         b"kind" => kind = val,
                         b"duration" => duration = val.parse().unwrap_or(400),
@@ -1578,6 +1596,7 @@ fn parse_control<R: std::io::BufRead>(
                     anim.repeat_delay_ms = repeat_delay;
                     anim.slide_dx = slide_dx;
                     anim.slide_dy = slide_dy;
+                    anim.definition = definition;
                     ctrl.animations.push(anim);
                 }
             }
@@ -1779,6 +1798,9 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         if form.glass_style != crate::model::GlassStyle::Classic {
             elem.push_attribute(("glass-style", form.glass_style.as_str()));
         }
+        if !form.definition.is_empty() {
+            push_text_attr(&mut elem, "definition", &form.definition);
+        }
         if form.compact_storage {
             elem.push_attribute(("compact-storage", "true"));
         }
@@ -1899,6 +1921,9 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
             let mut e = BytesStart::new("Layer");
             e.push_attribute(("name", layer.name.as_str()));
             push_backdrop_attrs(&mut e, &layer.backdrop);
+            if !layer.definition.is_empty() {
+                push_text_attr(&mut e, "definition", &layer.definition);
+            }
             w.write_event(Event::Empty(e))?;
         }
 
@@ -2165,6 +2190,9 @@ fn write_control<W: std::io::Write>(w: &mut Writer<W>, ctrl: &Control) -> Result
         }
         ae.push_attribute(("slide-dx", anim.slide_dx.to_string().as_str()));
         ae.push_attribute(("slide-dy", anim.slide_dy.to_string().as_str()));
+        if !anim.definition.is_empty() {
+            push_text_attr(&mut ae, "definition", &anim.definition);
+        }
         w.write_event(Event::Empty(ae))?;
     }
 
@@ -4093,5 +4121,49 @@ b</Property>
              SelectedIndex -1→0 and 1→2; index-base=\"1\" file read as written; \
              saved copy reloads unchanged"
         );
+    }
+}
+
+#[cfg(test)]
+mod definition_tests {
+    use super::*;
+    use crate::model::{AnimationDef, Control, ControlType, Form, PropValue};
+
+    const FORM_TEXT: &str = "Customer maintenance screen.\n  Used by the sales desk to register and change customers.\r\nReached from the main menu, item Customers.";
+
+    /// "Definition for AI": the text a developer writes for an agent survives the `.cfrm` — lines and
+    /// all — on the form, a layer, an animation, a binding and a control; and a form with none keeps
+    /// exactly the shape it had.
+    #[test]
+    fn a_definition_survives_the_form_file_on_every_element_that_carries_one() {
+        let mut form = Form::new("CUST-FORM", "Customers", 800, 600);
+        form.definition = FORM_TEXT.into();
+        let layer = form.add_layer().unwrap();
+        form.layers[0].definition = "Shown while a customer is being deleted.\nCovers the form with a dim backdrop.".into();
+        let mut button = Control::new("BTN-SAVE", ControlType::Button, 10, 10);
+        button.set_prop("Definition", PropValue::String("Saves the customer.\nEnabled only when the data is valid.".into()));
+        let mut anim = AnimationDef::new("intro");
+        anim.definition = "Slides the button in\nwhen the form opens.".into();
+        button.animations.push(anim);
+        form.controls.push(button);
+
+        let xml = form_to_string(&form).unwrap();
+        let loaded = load_form_from_str(&xml).unwrap();
+        let same = |a: &str, b: &str| assert_eq!(a.replace("\r\n", "\n"), b.replace("\r\n", "\n"));
+        same(&loaded.definition, &form.definition);
+        assert_eq!(loaded.layers[0].name, layer);
+        same(&loaded.layers[0].definition, &form.layers[0].definition);
+        let c = &loaded.controls[0];
+        same(c.get_prop("Definition").unwrap().as_str(), "Saves the customer.\nEnabled only when the data is valid.");
+        same(&c.animations[0].definition, "Slides the button in\nwhen the form opens.");
+    }
+
+    #[test]
+    fn a_form_with_no_definition_keeps_its_shape() {
+        let form = Form::new("PLAIN-FORM", "Plain", 640, 480);
+        let xml = form_to_string(&form).unwrap();
+        assert!(!xml.contains("definition"), "nothing is written for an empty definition:\n{xml}");
+        assert!(load_form_from_str(&xml).unwrap().definition.is_empty());
+        println!("definition for AI: round-trips on form, layer, animation and control; absent when empty");
     }
 }

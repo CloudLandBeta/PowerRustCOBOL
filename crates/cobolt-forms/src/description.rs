@@ -418,7 +418,8 @@ pub fn describe(form: &Form) -> FormDescription {
             .collect(),
         controls: form.controls.iter().map(control).collect(),
         form_events: events(&form.form_events),
-        data_bindings: form.data_bindings.clone(),
+        // A definition is for authors and agents; the description is what a browser is sent.
+        data_bindings: form.data_bindings.iter().cloned().map(|mut b| { b.definition.clear(); b }).collect(),
         animations: form.animations.iter().map(animation).collect(),
         layout: form.layout.clone(),
         breakpoints: form
@@ -498,6 +499,8 @@ pub fn to_form(d: &FormDescription) -> Result<Form, DescriptionError> {
         .map(|l| Layer {
             name: l.name.clone(),
             backdrop: menu_pane_background(&l.backdrop),
+            // A definition is for authors and agents; the description is what a browser is sent.
+            definition: String::new(),
         })
         .collect();
     f.controls = d.controls.iter().map(model_control).collect();
