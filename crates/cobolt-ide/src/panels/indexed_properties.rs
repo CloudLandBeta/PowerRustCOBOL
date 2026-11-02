@@ -103,10 +103,11 @@ fn comment_editor(ui: &mut egui::Ui, text: &mut String) -> bool {
 }
 
 fn label_row(ui: &mut egui::Ui, text: &str) {
-    label_row_h(ui, text, PROP_ROW_H);
+    label_row_h(ui, text, PROP_ROW_H, None);
 }
 
-fn label_row_h(ui: &mut egui::Ui, text: &str, h: f32) {
+/// `tip` is shown when the pointer rests on the label (wrapped, at most 380 pt wide).
+fn label_row_h(ui: &mut egui::Ui, text: &str, h: f32, tip: Option<&str>) {
     ui.allocate_ui_with_layout(
         egui::vec2(ui.available_width(), h),
         egui::Layout::left_to_right(egui::Align::TOP),
@@ -116,7 +117,13 @@ fn label_row_h(ui: &mut egui::Ui, text: &str, h: f32) {
             // and the value column (taller textboxes/combos) drift apart row-by-row.
             // Pinning every row to the same height keeps the two columns aligned.
             ui.set_min_height(h);
-            ui.label(label_with_colon(text));
+            let label = ui.label(label_with_colon(text));
+            if let Some(tip) = tip {
+                label.on_hover_ui(|ui| {
+                    ui.set_max_width(380.0);
+                    ui.label(tip);
+                });
+            }
         },
     );
 }
@@ -207,7 +214,7 @@ impl IndexedPropertiesPanel {
         label_row(ui, tr.dlg_access_mode);
         label_row(ui, tr.dlg_record_format);
         label_row(ui, tr.lbl_idx_finalized);
-        label_row_h(ui, tr.lbl_field_comments, comment_row_h(ui));
+        label_row_h(ui, tr.lbl_field_comments, comment_row_h(ui), Some(tip_for(DefinitionKind::File, tr)));
     }
 
     pub fn show_file_values(
@@ -286,13 +293,14 @@ impl IndexedPropertiesPanel {
     }
 
     pub fn show_field_labels(ui: &mut egui::Ui, def: &IndexedDefinition, field_id: &str, tr: &Tr) {
+        let tip = find_field(def, field_id).map_or(tr.tip_def_ai_field, |f| definition_tip(def, f, tr));
         let is_leaf = find_field(def, field_id)
             .map(|f| f.is_leaf())
             .unwrap_or(false);
         if is_leaf {
-            leaf_labels(ui, tr);
+            leaf_labels(ui, tr, tip);
         } else {
-            group_labels(ui, tr);
+            group_labels(ui, tr, tip);
         }
     }
 
@@ -340,23 +348,69 @@ impl IndexedPropertiesPanel {
     }
 }
 
-fn leaf_labels(ui: &mut egui::Ui, tr: &Tr) {
+/// What kind of thing the Comments row describes, which decides what its tooltip asks the developer to write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DefinitionKind {
+    File,
+    /// The `01` group: one record of the file.
+    Record,
+    /// A field the primary key or an alternate key is made of or named after.
+    Key,
+    /// Any other field, leaf or group item.
+    Field,
+}
+
+/// Whether `field` is part of the primary key or an alternate key (the same test the structure tree uses
+/// to colour a key field).
+fn is_key_field(def: &IndexedDefinition, field: &IndexedField) -> bool {
+    let named = |k: &cobolt_indexed::KeyDef| {
+        k.name.as_deref() == Some(field.name.as_str()) || k.parts.iter().any(|p| p.field_name == field.name)
+    };
+    named(&def.keys.primary) || def.keys.alternates.iter().any(named)
+}
+
+fn definition_kind(def: &IndexedDefinition, field: &IndexedField) -> DefinitionKind {
+    if is_key_field(def, field) {
+        DefinitionKind::Key
+    } else if field.is_group() && field.level == 1 {
+        DefinitionKind::Record
+    } else {
+        DefinitionKind::Field
+    }
+}
+
+/// The tooltip text of one kind, in the language of the IDE.
+fn tip_for(kind: DefinitionKind, tr: &Tr) -> &str {
+    match kind {
+        DefinitionKind::File => tr.tip_def_ai_file,
+        DefinitionKind::Record => tr.tip_def_ai_record,
+        DefinitionKind::Key => tr.tip_def_ai_key,
+        DefinitionKind::Field => tr.tip_def_ai_field,
+    }
+}
+
+/// The tooltip of the Comments label for the selected field, in the language of the IDE.
+fn definition_tip<'a>(def: &IndexedDefinition, field: &IndexedField, tr: &'a Tr) -> &'a str {
+    tip_for(definition_kind(def, field), tr)
+}
+
+fn leaf_labels(ui: &mut egui::Ui, tr: &Tr, tip: &str) {
     label_row(ui, tr.lbl_field_name);
     label_row(ui, tr.lbl_group_redefines);
     label_row(ui, tr.lbl_field_pic);
     label_row(ui, tr.lbl_field_length);
     label_row(ui, tr.lbl_field_usage);
     label_row(ui, tr.lbl_field_offset);
-    label_row_h(ui, tr.lbl_field_comments, comment_row_h(ui));
+    label_row_h(ui, tr.lbl_field_comments, comment_row_h(ui), Some(tip));
     label_row(ui, tr.lbl_field_control);
 }
 
-fn group_labels(ui: &mut egui::Ui, tr: &Tr) {
+fn group_labels(ui: &mut egui::Ui, tr: &Tr, tip: &str) {
     label_row(ui, tr.lbl_field_name);
     label_row(ui, tr.lbl_group_occurs);
     label_row(ui, tr.lbl_group_redefines);
     label_row(ui, tr.lbl_group_synchronized);
-    label_row_h(ui, tr.lbl_field_comments, comment_row_h(ui));
+    label_row_h(ui, tr.lbl_field_comments, comment_row_h(ui), Some(tip));
 }
 
 fn value_row(ui: &mut egui::Ui, h: f32, add: impl FnOnce(&mut egui::Ui)) {
@@ -964,5 +1018,96 @@ fn control_label(c: &ControlType) -> String {
         ControlType::ComboBox => "ComboBox".into(),
         ControlType::Label => "Label".into(),
         other => other.as_str().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod definition_tip_tests {
+    use super::*;
+    use cobolt_indexed::{KeyDef, KeyEncodingDef, KeyOrderingDef, KeyPartDef};
+
+    fn field(level: u8, name: &str, leaf: bool, children: Vec<IndexedField>) -> IndexedField {
+        IndexedField {
+            level,
+            name: name.into(),
+            pic: String::new(),
+            usage: FieldUsage::Display,
+            offset: leaf.then_some(0),
+            length: leaf.then_some(8),
+            comment: String::new(),
+            grid_control: None,
+            occurs: None,
+            redefines: None,
+            synchronized: false,
+            children,
+        }
+    }
+
+    fn part(name: &str) -> KeyPartDef {
+        KeyPartDef { field_name: name.into(), offset: 0, length: 8, encoding: KeyEncodingDef::Bytes }
+    }
+
+    fn sample() -> IndexedDefinition {
+        let mut def = IndexedDefinition::new("CUSTOMER-FILE", "data/customers.idx");
+        def.keys.primary = KeyDef { name: Some("CUST-ID".into()), parts: vec![part("CUST-ID")], duplicates_allowed: false, ordering: KeyOrderingDef::Ascending };
+        def.keys.alternates = vec![KeyDef { name: Some("TAX-KEY".into()), parts: vec![part("TAX-NO")], duplicates_allowed: false, ordering: KeyOrderingDef::Ascending }];
+        def.fields = vec![field(
+            1,
+            "CUSTOMER-RECORD",
+            false,
+            vec![
+                field(5, "CUST-ID", true, vec![]),
+                field(5, "TAX-NO", true, vec![]),
+                field(5, "DISCOUNT", true, vec![]),
+                field(5, "ADDRESS", false, vec![field(10, "STREET", true, vec![])]),
+            ],
+        )];
+        def
+    }
+
+    /// What the Comments tooltip asks for depends on what is selected: the file, its record, a key or
+    /// alternate key (the field the key is made of), and any other field.
+    #[test]
+    fn the_kind_follows_what_is_selected() {
+        let def = sample();
+        let kind = |name: &str| definition_kind(&def, find_field(&def, name).unwrap());
+        assert_eq!(kind("CUSTOMER-RECORD"), DefinitionKind::Record);
+        assert_eq!(kind("CUST-ID"), DefinitionKind::Key, "the primary key's field");
+        assert_eq!(kind("TAX-NO"), DefinitionKind::Key, "an alternate key's part");
+        assert_eq!(kind("DISCOUNT"), DefinitionKind::Field);
+        assert_eq!(kind("ADDRESS"), DefinitionKind::Field, "a group item below the record is a field");
+        assert_eq!(kind("STREET"), DefinitionKind::Field);
+    }
+
+    /// Four different tooltips in each of the six languages, none left in English, each with its own
+    /// good and bad example, and the code name MIN-AMOUNT kept as written where the field one uses it.
+    #[test]
+    fn every_language_has_four_distinct_tooltips_that_say_who_reads_them() {
+        let mut checked = 0;
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            let tips = [
+                tip_for(DefinitionKind::File, &tr),
+                tip_for(DefinitionKind::Record, &tr),
+                tip_for(DefinitionKind::Key, &tr),
+                tip_for(DefinitionKind::Field, &tr),
+            ];
+            for (i, a) in tips.iter().enumerate() {
+                assert!(a.len() > 150, "{lang:?} tip {i} is too short: {a}");
+                for b in &tips[i + 1..] {
+                    assert_ne!(a, b, "{lang:?}: two kinds share one tooltip");
+                }
+                checked += 1;
+            }
+            assert!(tips[3].contains("MIN-AMOUNT"), "{lang:?}: the field example keeps its code name");
+            assert!(!tr.lbl_field_comments.trim().is_empty());
+        }
+        let en = crate::i18n::Language::ALL[0].tr();
+        assert_eq!(en.lbl_field_comments, "Definition for AI");
+        for &lang in &crate::i18n::Language::ALL[1..] {
+            let t = lang.tr();
+            assert_ne!(t.tip_def_ai_file, en.tip_def_ai_file, "{lang:?} still carries the English text");
+        }
+        println!("definition tooltips: {} languages x 4 kinds = {checked} texts, all distinct; label \"{}\"", crate::i18n::Language::ALL.len(), en.lbl_field_comments);
     }
 }
