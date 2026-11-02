@@ -733,6 +733,8 @@ struct BindingEditorState {
     selected_source: Option<BindingEditorSourceKind>,
     binding_id: String,
     display_name: String,
+    /// "Definition for AI": what the binding brings to the control, for an agent reading the form.
+    definition: String,
     /// Spec 095: whether the binding may be written back to its source. Off for a
     /// new binding; a binding that already exists keeps the mode it was saved with.
     mode: BindingMode,
@@ -881,6 +883,7 @@ impl BindingEditorState {
             selected_source,
             binding_id,
             display_name: format!("{} -> {}", source_kind.id_fragment(), target_id),
+            definition: String::new(),
             mode: BindingMode::ReadOnly,
             indexed_files: indexed_files.to_vec(),
             cobol_tables,
@@ -990,6 +993,7 @@ impl BindingEditorState {
         if !binding.display_name.trim().is_empty() {
             s.display_name = binding.display_name.clone();
         }
+        s.definition = binding.definition.clone();
         match &binding.source {
             Src::IndexedFile {
                 definition_path,
@@ -1182,6 +1186,7 @@ impl BindingEditorState {
             target,
         )
         .with_mappings(mappings);
+        binding.definition = self.definition.clone();
         // Only a source the runtime can write back to may be writable.
         if source_kind.can_be_written() {
             binding.mode = self.mode.clone();
@@ -2633,6 +2638,17 @@ fn next_panel_binding_id(
         }
     }
     unreachable!("unbounded suffix search must return")
+}
+
+/// The binding editor's "Definition for AI": the same text area and tooltip as the Properties pane's rows.
+fn show_binding_definition(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr) {
+    ui.horizontal_top(|ui| {
+        ui.label(super::definition_box::label_with_colon(tr.lbl_definition_ai)).on_hover_ui(|ui| {
+            ui.set_max_width(380.0);
+            ui.label(tr.tip_def_ai_binding);
+        });
+        super::definition_box::comment_editor(ui, &mut editor.definition);
+    });
 }
 
 fn show_binding_source_selector(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr) {
@@ -7231,7 +7247,10 @@ impl PropertiesPanel {
                     .id_salt(format!("data_binding_settings_scroll_{}", ctrl.id))
                     .max_height(scroll_height)
                     .auto_shrink([false, false])
-                    .show(ui, |ui| match editor.selected_source {
+                    .show(ui, |ui| {
+                        show_binding_definition(ui, editor, tr);
+                        ui.add_space(10.0);
+                        match editor.selected_source {
                         Some(BindingEditorSourceKind::IndexedFile) => {
                             show_indexed_source_section(ui, editor);
                             ui.add_space(16.0);
@@ -7266,6 +7285,7 @@ impl PropertiesPanel {
                                 ui,
                                 crate::ui_text::tx("Select a binding source to configure settings."),
                             );
+                        }
                         }
                     });
                 anchors::mark(ui, AnchorId::BindingFields, body.inner_rect);
@@ -7505,6 +7525,12 @@ impl PropertiesPanel {
                         ));
                     }
                 });
+
+                let def_key = format!("{anim_id}-definition");
+                let def_buf = self.text_bufs.entry(def_key.clone()).or_insert_with(|| anim.definition.clone());
+                if let Some(text) = definition_row(ui, &def_key, def_buf, &anim.definition, tr.lbl_definition_ai, tr.tip_def_ai_animation) {
+                    action.set_props.push((id.to_owned(), format!("Anim{sel}_Definition"), PropValue::String(text)));
+                }
 
                 let cur_t = anim.trigger.as_str().to_owned();
                 property_row(ui, "Trigger", |ui| {
@@ -20973,5 +20999,27 @@ mod hyperlink_panel_tests {
         c.set_prop("Url", cobolt_forms::PropValue::String("javascript:alert(1)".into()));
         let _ = hyperlink_url_note(&c.get_prop("Url").unwrap().as_str().to_string(), &tr);
         assert_eq!(c.get_prop("Url").unwrap().as_str(), "javascript:alert(1)", "never rewritten");
+    }
+}
+
+#[cfg(test)]
+mod binding_definition_tests {
+    use super::*;
+
+    /// The binding editor keeps the "Definition for AI": it goes into the saved binding and comes back when
+    /// the binding is reopened.
+    #[test]
+    fn the_binding_editor_round_trips_the_definition() {
+        let mut form = Form::new("F", "F", 800, 600);
+        let grid = Control::new("GRID-1", ControlType::DataGrid, 0, 0);
+        form.controls.push(grid.clone());
+        let mut editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::CobolTable, &[]).expect("opens");
+        assert_eq!(editor.definition, "", "a new binding starts without one");
+        editor.definition = "Fills the customers grid, one row per customer.".to_owned();
+        let binding = editor.to_binding(&form).expect("a binding");
+        assert_eq!(binding.definition, "Fills the customers grid, one row per customer.");
+        let again = BindingEditorState::from_existing(&form, &grid, &binding, &[]).expect("reopens");
+        assert_eq!(again.definition, binding.definition);
+        println!("binding editor: the definition goes into the binding and comes back on reopen");
     }
 }

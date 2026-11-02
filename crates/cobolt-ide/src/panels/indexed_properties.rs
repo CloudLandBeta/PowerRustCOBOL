@@ -995,3 +995,31 @@ mod field_tooltip_tests {
         println!("indexed editor tooltips: {} labels x {} languages = {checked} texts", en.len(), langs.len());
     }
 }
+
+#[cfg(test)]
+mod definition_tip_extra_tests {
+    /// The three kinds the binding editor, the animation section and the SQL connection editor use: one
+    /// tooltip each, in the six languages, distinct and none left in English.
+    #[test]
+    fn binding_animation_and_sql_tips_exist_in_every_language() {
+        let langs = crate::i18n::Language::ALL;
+        let tips = |t: &crate::i18n::Tr| [t.tip_def_ai_binding, t.tip_def_ai_animation, t.tip_def_ai_sql];
+        let en = tips(&langs[0].tr());
+        let mut texts = 0;
+        for &lang in langs {
+            let t = tips(&lang.tr());
+            for (i, a) in t.iter().enumerate() {
+                assert!(a.len() > 60, "{lang:?} tip {i} too short");
+                assert!(a.contains("\\\"") || a.contains('「') || a.contains('“') || a.contains('«') || a.contains('"'), "{lang:?} tip {i} has no example");
+                for b in &t[i + 1..] {
+                    assert_ne!(a, b, "{lang:?}: two kinds share a tooltip");
+                }
+                if lang != langs[0] {
+                    assert_ne!(*a, en[i], "{lang:?} tip {i} is still English");
+                }
+                texts += 1;
+            }
+        }
+        println!("binding/animation/sql tooltips: {texts} texts ({} languages)", langs.len());
+    }
+}

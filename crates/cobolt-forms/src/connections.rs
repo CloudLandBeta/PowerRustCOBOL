@@ -616,6 +616,10 @@ pub struct SqlConnection {
     /// file is an error rather than a new empty database.
     #[serde(default, rename = "create-if-missing", skip_serializing_if = "is_false")]
     pub create_if_missing: bool,
+    /// What the connection holds and what it is for, written for an AI agent ("Definition for AI"). Never part
+    /// of the deployment file.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub definition: String,
 }
 
 impl SqlConnection {
@@ -630,6 +634,7 @@ impl SqlConnection {
             user: String::new(),
             default: false,
             create_if_missing: false,
+            definition: String::new(),
         }
     }
 }

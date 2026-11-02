@@ -167,12 +167,18 @@ fn describe_project(root: &ProjectRoot) -> Result<Value, String> {
             Err(_) => indexed.push(json!({ "path": rel, "error": "the definition cannot be loaded" })),
         }
     }
+    let sql: Vec<Value> = view
+        .sql_connections
+        .iter()
+        .map(|c| json!({ "name": c.name, "backend": c.backend, "default": c.default, "definition": c.definition }))
+        .collect();
     Ok(json!({
         "project": view.name,
         "kind": view.kind.as_str(),
         "min_definition_chars": MIN_DEFINITION_CHARS,
         "forms": forms,
         "indexed": indexed,
+        "sql_connections": sql,
         "hint": "describe with a 'path' shows one file in full; set_definition writes a definition",
     }))
 }
@@ -261,6 +267,9 @@ fn describe_indexed(rel: &str, def: &cobolt_indexed::IndexedDefinition) -> Value
 /// or `FORM::name`, a binding's id, a field's name). An empty `text` clears it. The caller holds the
 /// project's write lock.
 pub fn set_definition(root: &ProjectRoot, path: &str, element: &str, id: Option<&str>, text: &str) -> Result<Value, String> {
+    if element == "sql-connection" {
+        return set_sql_definition(root, id, text);
+    }
     let abs = root.resolve(path)?;
     if !abs.is_file() {
         return Err(format!("'{path}' does not exist"));
@@ -322,6 +331,29 @@ pub fn set_definition(root: &ProjectRoot, path: &str, element: &str, id: Option<
         return Ok(json!({ "path": path, "element": element, "id": id, "definition": text, "thin": is_thin(&text) }));
     }
     Err(format!("'{path}' is not a form or an indexed definition"))
+}
+
+/// A SQL connection's definition lives in the project file's `[[sql-connections]]`. The edit goes through
+/// `toml_edit`, so every other byte of the developer's project file is written back as it was.
+fn set_sql_definition(root: &ProjectRoot, id: Option<&str>, text: &str) -> Result<Value, String> {
+    use toml_edit::{value, DocumentMut};
+    let name = id.filter(|s| !s.trim().is_empty()).ok_or("set_definition of a sql-connection needs its 'id' (the connection name)")?;
+    let text = text.trim_end().to_owned();
+    let manifest = root.manifest();
+    let source = std::fs::read_to_string(manifest).map_err(|e| format!("the project file cannot be read ({e})"))?;
+    let mut doc: DocumentMut = source.parse().map_err(|e| format!("the project file cannot be parsed ({e})"))?;
+    let entry = doc
+        .get_mut("sql-connections")
+        .and_then(|i| i.as_array_of_tables_mut())
+        .and_then(|a| a.iter_mut().find(|t| t.get("name").and_then(|n| n.as_str()).is_some_and(|n| n.eq_ignore_ascii_case(name))))
+        .ok_or_else(|| format!("the project has no SQL connection '{name}'"))?;
+    if text.is_empty() {
+        entry.remove("definition");
+    } else {
+        entry["definition"] = value(text.clone());
+    }
+    std::fs::write(manifest, doc.to_string()).map_err(|e| format!("the project file cannot be written ({e})"))?;
+    Ok(json!({ "element": "sql-connection", "id": name, "definition": text, "thin": is_thin(&text) }))
 }
 
 fn find_field_mut<'a>(fields: &'a mut [cobolt_indexed::IndexedField], id: &str) -> Option<&'a mut cobolt_indexed::IndexedField> {

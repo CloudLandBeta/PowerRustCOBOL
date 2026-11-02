@@ -7607,6 +7607,7 @@ impl DesignerPanel {
                             let anim = &mut new[idx];
                             match field {
                                 "Name" => anim.name = value.as_str().to_owned(),
+                                "Definition" => anim.definition = value.as_str().to_owned(),
                                 "Trigger" => anim.trigger = AnimTrigger::from_str(value.as_str()),
                                 "Kind" => anim.kind = AnimKind::from_str(value.as_str()),
                                 "Duration" => anim.duration_ms = value.as_i64().max(1) as u64,

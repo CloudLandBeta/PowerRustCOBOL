@@ -1182,6 +1182,8 @@ pub struct ManifestView {
     pub backend_exports: Vec<String>,
     /// `[backend] state` as written; `per-call` when absent.
     pub backend_state: String,
+    /// `[[sql-connections]]`, in manifest order.
+    pub sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
 }
 
 impl ManifestView {
@@ -1207,6 +1209,8 @@ struct ViewManifest {
     mobile: Option<project_kind::MobileSettings>,
     #[serde(default)]
     backend: Option<project_kind::BackendSettings>,
+    #[serde(default, rename = "sql-connections")]
+    sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
 }
 
 #[derive(Deserialize)]
@@ -1247,6 +1251,7 @@ pub fn project_manifest_view(manifest_path: &Path) -> Result<ManifestView, Strin
         mobile: m.mobile,
         backend_exports,
         backend_state: m.backend.unwrap_or_default().state,
+        sql_connections: m.sql_connections,
     })
 }
 
@@ -1306,6 +1311,7 @@ pub fn starting_sql_connections_toml(
         .map(|c| {
             let mut c = c.clone();
             c.user.clear();
+            c.definition.clear();
             let sqlite = matches!(c.backend.trim().to_ascii_lowercase().as_str(), "" | "sqlite");
             if sqlite && !c.path.trim().is_empty() && Path::new(&c.path).is_relative() {
                 c.path = project_dir.join(&c.path).display().to_string();

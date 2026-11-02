@@ -171,8 +171,8 @@ impl<H: ProjectHost> ProjectTools<H> {
                 name: "set_definition".into(),
                 description: Some(
                     "Write the \"Definition for AI\" of one element, or clear it with an empty text. 'element' is one of \
-                     form, control, layer, animation, binding (in a form file) or indexed-file, indexed-field (in a \
-                     .cidx); 'id' names it (a control's id, a layer's name, an animation as CONTROL::name or \
+                     form, control, layer, animation, binding (in a form file), indexed-file, indexed-field (in a \
+                     .cidx) or sql-connection (the project file; its id is the connection name); 'id' names it (a control's id, a layer's name, an animation as CONTROL::name or \
                      FORM::name, a binding's id, a field's name; not needed for form or indexed-file). Write it as \
                      if talking to someone who does not know the application: what the element is for, in which \
                      unit or format, and when it applies. Good: \"This field contains the value of the discount \

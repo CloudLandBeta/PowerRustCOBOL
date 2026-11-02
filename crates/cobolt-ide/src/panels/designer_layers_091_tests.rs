@@ -3514,3 +3514,26 @@ mod form_eye {
         assert!(r.d.tabs.is_form_shown());
     }
 }
+
+#[cfg(test)]
+mod animation_definition_tests {
+    use super::*;
+
+    /// "Definition for AI" on an animation goes through the same property path as every other animation field,
+    /// is one undo step, and undo puts the old text back.
+    #[test]
+    fn an_animation_takes_a_definition_as_one_undo_step() {
+        let mut form = Form::new("F", "F", 800, 600);
+        let mut button = Control::new("BTN-1", ControlType::Button, 0, 0);
+        button.animations.push(cobolt_forms::model::AnimationDef::new("fly-in"));
+        form.controls.push(button);
+        let mut d = DesignerPanel::new(form);
+        let text = "Slides the button in from the left when the form opens, so the user sees where to start.";
+        d.set_property("BTN-1", "Anim0_Definition", cobolt_forms::PropValue::String(text.to_owned()));
+        assert_eq!(d.form.find_control("BTN-1").unwrap().animations[0].definition, text);
+        assert_eq!(d.undo_stack.len(), 1);
+        d.undo();
+        assert_eq!(d.form.find_control("BTN-1").unwrap().animations[0].definition, "");
+        println!("definition for AI on an animation: written by Anim0_Definition, one undo step, undo restores");
+    }
+}

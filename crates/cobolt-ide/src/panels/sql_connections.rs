@@ -194,6 +194,15 @@ impl SqlConnectionEditor {
             ui.label("");
             ui.checkbox(&mut self.draft.default, tr.sqlc_default);
             ui.end_row();
+
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.label(super::definition_box::label_with_colon(tr.lbl_definition_ai)).on_hover_ui(|ui| {
+                    ui.set_max_width(380.0);
+                    ui.label(tr.tip_def_ai_sql);
+                });
+            });
+            super::definition_box::comment_editor(ui, &mut self.draft.definition);
+            ui.end_row();
         });
         if !self.is_sqlite() {
             ui.label(RichText::new(tr.sqlc_credentials_note).small().italics());
@@ -368,5 +377,36 @@ mod tests {
         ed.draft.backend = "postgresql".into();
         ed.port_text = "99999".into();
         assert_eq!(ed.validated(&[], tr).unwrap_err(), tr.sqlc_err_port);
+    }
+}
+
+#[cfg(test)]
+mod definition_for_ai_tests {
+    use super::*;
+
+    /// A connection's "Definition for AI" survives the editor, is written to the project file as a plain
+    /// key, and never reaches the deployment file beside a built binary.
+    #[test]
+    fn the_definition_survives_the_editor_and_stays_out_of_the_deployment_file() {
+        let tr = &crate::i18n::Language::English.tr();
+        let mut sales = SqlConnection::new("SALES");
+        sales.path = "data/sales.db".into();
+        sales.definition = "The sales database: one row per invoice line, amounts in cents.".into();
+        let ed = SqlConnectionEditor::new(Some(&sales), String::new(), false, Path::new("."));
+        assert_eq!(ed.validated(&[], tr).unwrap().definition, sales.definition, "validation keeps it");
+
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct Manifest {
+            #[serde(rename = "sql-connections")]
+            list: Vec<SqlConnection>,
+        }
+        let text = toml::to_string(&Manifest { list: vec![sales.clone()] }).unwrap();
+        assert!(text.contains("definition = "), "written to the project file: {text}");
+        let back: Manifest = toml::from_str(&text).unwrap();
+        assert_eq!(back.list[0].definition, sales.definition);
+
+        let deployment = cobolt_compiler::starting_sql_connections_toml("Shop", Path::new("/p"), &[sales]).unwrap();
+        assert!(!deployment.contains("definition"), "never in the deployment file: {deployment}");
+        println!("sql connection definition: kept by the editor, round-trips in the project file, absent from the deployment file");
     }
 }

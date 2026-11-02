@@ -132,3 +132,31 @@ fn what_cannot_be_written_is_refused_with_a_reason() {
     assert!(err(json!({ "path": "forms/ABSENT.cfrm", "element": "form", "text": "x" })).contains("does not exist"));
     assert!(err(json!({ "path": "../outside.cfrm", "element": "form", "text": "x" })).len() > 3);
 }
+
+#[test]
+fn a_sql_connection_definition_is_written_into_the_project_file_and_nothing_else_moves() {
+    let dir = fixture("sql");
+    let manifest = dir.join("CheckDemo.project.toml");
+    let original = std::fs::read_to_string(&manifest).unwrap();
+    let with_sql = format!("# the developer's note\n{original}\n[[sql-connections]]\nname = \"SALES\"\npath = \"data/sales.db\"\ndefault = true\n");
+    std::fs::write(&manifest, &with_sql).unwrap();
+    let mut tools = ProjectTools::new(HeadlessHost::new(&dir, "test"));
+
+    let text = "The sales database: one row per invoice line, amounts in cents, read-only for reports.";
+    let r = call(&mut tools, "set_definition", json!({ "path": "CheckDemo.project.toml", "element": "sql-connection", "id": "sales", "text": text })).unwrap();
+    assert_eq!(r["thin"], false);
+    let written = std::fs::read_to_string(&manifest).unwrap();
+    assert!(written.starts_with("# the developer's note\n"), "the developer's comment stays");
+    assert!(written.contains(&format!("definition = \"{text}\"")));
+    assert_eq!(written.replace(&format!("definition = \"{text}\"\n"), ""), with_sql, "only the one key was added");
+
+    let overview = call(&mut tools, "describe", json!({})).unwrap();
+    assert_eq!(overview["sql_connections"][0]["name"], "SALES");
+    assert_eq!(overview["sql_connections"][0]["definition"], text);
+
+    call(&mut tools, "set_definition", json!({ "path": "CheckDemo.project.toml", "element": "sql-connection", "id": "SALES", "text": "" })).unwrap();
+    assert_eq!(std::fs::read_to_string(&manifest).unwrap(), with_sql, "an empty text clears it");
+    let e = call(&mut tools, "set_definition", json!({ "path": "CheckDemo.project.toml", "element": "sql-connection", "id": "NOPE", "text": "x" })).unwrap_err();
+    assert!(e.contains("no SQL connection 'NOPE'"));
+    println!("sql-connection definition: written, comment kept, described, cleared, unknown name refused");
+}
