@@ -66,7 +66,7 @@ pub mod code {
 }
 
 /// The wire protocol this player speaks (`cobolt_wire::contract::PROTOCOL`).
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 /// The contract a page that names none is taken to be built against (a new project's
 /// `backend/exports.toml` says `1.0.0`).
@@ -84,7 +84,10 @@ pub const PLAYER_ID_BASE: u32 = 0x8000_0000;
 /// A message transport. The browser implements it over a `WebSocket`.
 pub trait Socket {
     fn open(&mut self, url: &str);
+    /// A text message: only the `hello`, the one message that is not sealed.
     fn send(&mut self, text: &str);
+    /// A sealed frame (WASM-003 R24): every message after the `hello`s.
+    fn send_binary(&mut self, bytes: &[u8]);
     fn close(&mut self);
 }
 
@@ -136,6 +139,10 @@ pub struct Config {
     /// The programs the backend's interface declares `idempotent`: only these are repeated after a
     /// lost connection (WASM-014 R9).
     pub idempotent: Vec<String>,
+    /// Where the 32 bytes of a key pair and the 16 of a connection's nonce come from: `crypto.getRandomValues` in
+    /// the browser, never `Math.random` (WASM-003 R24). `None` means the owner gave none, and a connection
+    /// then cannot start: there is no plaintext mode.
+    pub entropy: Option<fn(&mut [u8]) -> bool>,
 }
 
 impl Default for Config {
@@ -149,6 +156,7 @@ impl Default for Config {
             contract: DEFAULT_CONTRACT.into(),
             client: format!("prc-wasm/{}", env!("CARGO_PKG_VERSION")),
             idempotent: Vec::new(),
+            entropy: None,
         }
     }
 }
@@ -235,6 +243,13 @@ pub struct Client<S: Socket> {
     out: Vec<Out>,
     /// Ask the owner to refresh the token (the server said it expired); it then calls [`Client::set_token`].
     pub refresh_requested: bool,
+    /// The key pair of the sealed channel, made when the first connection opened (WASM-003 R24, D8).
+    keys: Option<cobolt_wire::seal::KeyPair>,
+    /// This connection's own nonce, kept from the `hello` until the server's answers it.
+    own_nonce: [u8; cobolt_wire::seal::NONCE_LEN],
+    /// The halves of the channel, from the server's `hello` to the end of the connection.
+    tx: Option<cobolt_wire::seal::Sender>,
+    rx: Option<cobolt_wire::seal::Receiver>,
 }
 
 /// Is `url` an acceptable backend address for `cfg`?
@@ -297,6 +312,10 @@ impl<S: Socket> Client<S> {
             wanted: false,
             out: Vec::new(),
             refresh_requested: false,
+            keys: None,
+            own_nonce: [0; cobolt_wire::seal::NONCE_LEN],
+            tx: None,
+            rx: None,
         }
     }
 
@@ -355,7 +374,7 @@ impl<S: Socket> Client<S> {
         let waiting: Vec<u32> = self.inflight.iter().filter(|(_, f)| !f.sent && f.auth_repeated).map(|(id, _)| *id).collect();
         match self.token.clone() {
             Some(t) if self.state == LinkState::Ready => {
-                self.sock.send(&json!({"t": "auth", "token": t}).to_string());
+                self.send_msg(&json!({"t": "auth", "token": t}).to_string());
                 // Repeat what the server refused for an expired token, once, under the same key.
                 for id in waiting {
                     self.transmit(id);
@@ -529,7 +548,7 @@ impl<S: Socket> Client<S> {
         let msg = format!("{{\"t\":\"call\",\"id\":{id},\"key\":{key}{}{inner}}}", if inner.is_empty() { "" } else { "," });
         f.sent = true;
         f.ever_sent = true;
-        self.sock.send(&msg);
+        self.send_msg(&msg);
     }
 
     fn fail(&mut self, id: u32, class_: &str, code_: u32, message: &str, may_have_run: Option<bool>) {
@@ -542,9 +561,69 @@ impl<S: Socket> Client<S> {
 
     pub fn on_open(&mut self, now: u64) {
         self.clock = self.clock.max(now);
-        let hello = json!({"t": "hello", "protocol": PROTOCOL, "contract": self.cfg.contract, "client": self.cfg.client, "session": self.session});
+        self.tx = None;
+        self.rx = None;
+        // The key pair of the application, made once; the nonce of this connection, made now (R24, D8). Both
+        // come from the owner's entropy: without it there is no connection, and no plaintext mode.
+        let drawn = self.cfg.entropy.is_some_and(|entropy| {
+            if self.keys.is_none() {
+                let mut seed = [0u8; 32];
+                let ok = entropy(&mut seed);
+                if ok {
+                    self.keys = Some(cobolt_wire::seal::KeyPair::from_bytes(seed));
+                }
+                seed.fill(0);
+                if !ok {
+                    return false;
+                }
+            }
+            entropy(&mut self.own_nonce)
+        });
+        if !drawn {
+            self.out.push(Out::Warning("the sealed channel has no random source: the connection was not started".into()));
+            self.fail_all(class::TRANSPORT, code::CLOSED, "the connection has no random source");
+            self.wanted = false;
+            self.sock.close();
+            self.set_state(LinkState::Closed);
+            return;
+        };
+        let key = self.keys.as_ref().map(|k| cobolt_wire::seal::encode_b64(&k.public())).unwrap_or_default();
+        let hello = json!({"t": "hello", "protocol": PROTOCOL, "contract": self.cfg.contract, "client": self.cfg.client, "session": self.session, "key": key, "nonce": cobolt_wire::seal::encode_b64(&self.own_nonce)});
         self.set_state(LinkState::Greeting);
         self.sock.send(&hello.to_string());
+    }
+
+    /// A message to the backend: sealed, always. Before the channel is agreed nothing but the `hello` may leave.
+    fn send_msg(&mut self, text: &str) {
+        let Some(tx) = self.tx.as_mut() else { return };
+        match tx.seal(text) {
+            Ok(frame) => self.sock.send_binary(&frame),
+            Err(_) => self.sock.close(),
+        }
+    }
+
+    /// A text message from the socket: the server's `hello`, the one message that is not sealed. After it every
+    /// message is a sealed frame, so a text message is not from a backend that kept to the protocol.
+    pub fn on_text(&mut self, text: &str) {
+        if self.rx.is_some() {
+            self.out.push(Out::Warning("the backend sent an unsealed message after the key exchange; the connection was closed".into()));
+            self.sock.close();
+            return;
+        }
+        self.on_message(text);
+    }
+
+    /// A sealed frame from the socket: opened, then handled as the message it carries. One that does not open
+    /// ends the connection (it was tampered with, replayed or reordered).
+    pub fn on_binary(&mut self, bytes: &[u8]) {
+        let opened = self.rx.as_mut().map(|rx| rx.open(bytes));
+        match opened {
+            Some(Ok(text)) => self.on_message(&text),
+            _ => {
+                self.out.push(Out::Warning("a frame from the backend did not open; the connection was closed".into()));
+                self.sock.close();
+            }
+        }
     }
 
     fn flush_held(&mut self) {
@@ -601,13 +680,28 @@ impl<S: Socket> Client<S> {
         match v.get("t").and_then(Value::as_str).unwrap_or("") {
             "hello" => match s("accepted").as_str() {
                 "ok" | "warn" => {
+                    // The server's key and nonce close the exchange (R24): without them the connection cannot be sealed.
+                    let peer = cobolt_wire::seal::decode_b64::<{ cobolt_wire::seal::KEY_LEN }>(&s("key")).zip(cobolt_wire::seal::decode_b64::<{ cobolt_wire::seal::NONCE_LEN }>(&s("nonce")));
+                    let channel = match (peer, self.keys.as_ref()) {
+                        (Some((key, nonce)), Some(keys)) => cobolt_wire::seal::establish(cobolt_wire::seal::Role::Client, PROTOCOL, keys, &self.own_nonce, &key, &nonce).ok(),
+                        _ => None,
+                    };
+                    let Some(channel) = channel else {
+                        self.out.push(Out::Warning("the backend's answer carried no usable key; the connection was closed".into()));
+                        self.fail_all(class::TRANSPORT, code::CLOSED, "the key exchange failed");
+                        self.sock.close();
+                        return;
+                    };
+                    let (tx, rx) = channel.split();
+                    self.tx = Some(tx);
+                    self.rx = Some(rx);
                     if s("accepted") == "warn" {
                         self.out.push(Out::Warning(format!("backend: {}", s("message"))));
                     }
                     match self.token.clone() {
                         Some(t) => {
                             self.set_state(LinkState::Authenticating);
-                            self.sock.send(&json!({"t": "auth", "token": t}).to_string());
+                            self.send_msg(&json!({"t": "auth", "token": t}).to_string());
                         }
                         None => self.ready(),
                     }
@@ -689,6 +783,8 @@ impl<S: Socket> Client<S> {
 
     pub fn on_close(&mut self, now: u64) {
         self.clock = self.clock.max(now);
+        self.tx = None;
+        self.rx = None;
         match self.state {
             // The browser reports a failed attempt as `error` and then `close`: the second is a repeat.
             LinkState::Closed | LinkState::Retrying { .. } => {}
@@ -726,7 +822,7 @@ impl<S: Socket> Client<S> {
                 let (sent, ever) = self.inflight.get(&id).map(|f| (f.sent, f.ever_sent)).unwrap_or((false, false));
                 if sent && self.state == LinkState::Ready {
                     // Nobody awaits it any more: the backend may stop the work (R13).
-                    self.sock.send(&json!({"t": "cancel", "id": id}).to_string());
+                    self.send_msg(&json!({"t": "cancel", "id": id}).to_string());
                 }
                 let m = format!("the backend did not answer in time ({timeout} ms)");
                 self.fail(id, class::TRANSPORT, code::TIMEOUT, &m, Some(ever));
@@ -762,7 +858,7 @@ impl<S: Socket> Client<S> {
     pub fn cancel(&mut self, id: u32) {
         if let Some(f) = self.inflight.remove(&id) {
             if f.sent && self.state == LinkState::Ready {
-                self.sock.send(&json!({"t": "cancel", "id": id}).to_string());
+                self.send_msg(&json!({"t": "cancel", "id": id}).to_string());
             }
         }
     }
@@ -799,18 +895,49 @@ impl<S: Socket> Client<S> {
 mod tests {
     use super::*;
 
+    /// The server's key pair and nonce in these tests: fixed, so a test can read what the client sealed.
+    const SERVER_SEED: [u8; 32] = [5; 32];
+    const SERVER_NONCE: [u8; 16] = [6; 16];
+
+    fn test_entropy(buf: &mut [u8]) -> bool {
+        buf.fill(0x11);
+        true
+    }
+
     #[derive(Default)]
     struct Mock {
         opened: Vec<String>,
         sent: Vec<String>,
         closed: u32,
+        /// The server's halves of the channel, built when the client's `hello` goes by: `server_rx` opens what the
+        /// client seals (and `sent` receives it as text, as before); `server_tx` seals what a test sends back.
+        server_rx: Option<cobolt_wire::seal::Receiver>,
+        server_tx: Option<cobolt_wire::seal::Sender>,
+        binary_frames: usize,
+        plain_after_hello: usize,
     }
     impl Socket for Mock {
         fn open(&mut self, url: &str) {
             self.opened.push(url.to_owned());
         }
         fn send(&mut self, text: &str) {
+            if let Ok(v) = serde_json::from_str::<Value>(text) {
+                let peer = v["key"].as_str().and_then(cobolt_wire::seal::decode_b64::<32>).zip(v["nonce"].as_str().and_then(cobolt_wire::seal::decode_b64::<16>));
+                if let (Some("hello"), Some((key, nonce))) = (v["t"].as_str(), peer) {
+                    let keys = cobolt_wire::seal::KeyPair::from_bytes(SERVER_SEED);
+                    let (tx, rx) = cobolt_wire::seal::establish(cobolt_wire::seal::Role::Server, v["protocol"].as_u64().unwrap_or(0) as u32, &keys, &SERVER_NONCE, &key, &nonce).unwrap().split();
+                    self.server_rx = Some(rx);
+                    self.server_tx = Some(tx);
+                } else if v["t"] != "hello" {
+                    self.plain_after_hello += 1;
+                }
+            }
             self.sent.push(text.to_owned());
+        }
+        fn send_binary(&mut self, bytes: &[u8]) {
+            self.binary_frames += 1;
+            let text = self.server_rx.as_mut().expect("a frame before the hello").open(bytes).expect("the frame opens");
+            self.sent.push(text);
         }
         fn close(&mut self) {
             self.closed += 1;
@@ -818,10 +945,20 @@ mod tests {
     }
 
     const URL: &str = "wss://api.example.com/ws";
-    const HELLO_OK: &str = r#"{"t":"hello","protocol":1,"protocol_min":1,"contract":"1.0.0","accepted":"ok","message":"","server":"test","max_frame_bytes":1048576}"#;
+
+    /// The server's `hello`, accepted, with its key and nonce.
+    fn hello_ok() -> String {
+        hello_json("ok", "")
+    }
+
+    fn hello_json(accepted: &str, extra: &str) -> String {
+        let key = cobolt_wire::seal::encode_b64(&cobolt_wire::seal::KeyPair::from_bytes(SERVER_SEED).public());
+        let nonce = cobolt_wire::seal::encode_b64(&SERVER_NONCE);
+        format!(r#"{{"t":"hello","protocol":2,"protocol_min":2,"contract":"1.0.0","accepted":"{accepted}","message":"",{extra}"server":"test","max_frame_bytes":1048576,"key":"{key}","nonce":"{nonce}"}}"#)
+    }
 
     fn cfg() -> Config {
-        Config { origins: vec![URL.into(), "ws://localhost:8443/ws".into()], ..Config::default() }.with_backend("1.0.0", vec!["fund-totals".into()])
+        Config { origins: vec![URL.into(), "ws://localhost:8443/ws".into()], entropy: Some(test_entropy), ..Config::default() }.with_backend("1.0.0", vec!["fund-totals".into()])
     }
 
     fn client() -> Client<Mock> {
@@ -860,7 +997,7 @@ mod tests {
         let mut c = client();
         c.connect(URL, 0).unwrap();
         c.on_open(1);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         assert_eq!(c.state(), LinkState::Ready);
         c.socket().sent.clear();
         c
@@ -933,10 +1070,10 @@ mod tests {
         assert_eq!(c.state(), LinkState::Greeting);
         let s = sent_json(&c);
         assert_eq!(s.len(), 1, "only hello until the server answers it: {s:?}");
-        assert_eq!((s[0]["t"].as_str(), s[0]["protocol"].as_u64(), s[0]["contract"].as_str()), (Some("hello"), Some(1), Some("1.0.0")));
+        assert_eq!((s[0]["t"].as_str(), s[0]["protocol"].as_u64(), s[0]["contract"].as_str()), (Some("hello"), Some(2), Some("1.0.0")));
         assert!(s[0]["client"].as_str().unwrap().starts_with("prc-wasm/"));
         assert_eq!(s[0]["session"].as_str(), Some(c.session()));
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         assert_eq!(c.state(), LinkState::Authenticating);
         let s = sent_json(&c);
         assert_eq!((s.len(), s[1]["t"].as_str(), s[1]["token"].as_str()), (2, Some("auth"), Some("tok-123")), "auth after hello: {s:?}");
@@ -961,7 +1098,7 @@ mod tests {
         c.connect(URL, 0).unwrap();
         c.request(br#"{"program":"HEALTH","args":[],"returning":false}"#, 1);
         c.on_open(2);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         let order: Vec<String> = sent_json(&c).iter().map(|m| m["t"].as_str().unwrap().to_owned()).collect();
         assert_eq!(order, ["hello", "call"]);
         assert!(c.sock.sent.iter().all(|m| !m.contains("token")), "no development token is injected");
@@ -1023,7 +1160,7 @@ mod tests {
         c.on_close(5);
         assert!(answers(&mut c).is_empty(), "decided when an attempt succeeds, not at the break");
         c.on_open(6);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         row("connection lost in flight", &answers(&mut c)[0].1);
         // no answer in time
         let mut c = ready_client();
@@ -1098,7 +1235,7 @@ mod tests {
         c.set_token(Some("old".into()));
         c.connect(URL, 0).unwrap();
         c.on_open(1);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         c.on_message(r#"{"t":"auth-ok","sub":"u","expires_in":1}"#);
         let id = c.request(br#"{"program":"X"}"#, 2);
         let expired = format!(r#"{{"t":"error","id":{id},"class":"authentication","code":2002,"message":"token expired"}}"#);
@@ -1128,7 +1265,7 @@ mod tests {
         assert!(answers(&mut c).is_empty(), "both wait for the next connection");
         c.tick(1_000);
         c.on_open(1_001);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         let a = answers(&mut c);
         assert_eq!(a.len(), 1, "only the unsafe call is failed: {a:?}");
         assert_eq!((a[0].0, a[0].1["error"]["code"].as_u64(), a[0].1["error"]["may_have_run"].as_bool()), (unsafe_, Some(1001), Some(true)));
@@ -1139,7 +1276,7 @@ mod tests {
         // A second drop is final: it fails when the connection after it works.
         c.on_close(1_100);
         c.on_open(1_101);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         let a = answers(&mut c);
         assert_eq!((a[0].0, a[0].1["error"]["code"].as_u64(), a[0].1["error"]["may_have_run"].as_bool()), (safe, Some(1001), Some(true)));
         println!("safe FUND-TOTALS: repeated once under key {first_key}, a second drop fails it; unsafe FUND-SAVE: failed 1001 may_have_run=true");
@@ -1158,12 +1295,91 @@ mod tests {
         assert!(v.get("result").is_some(), "the player's own answer is not cut at 64 KiB");
     }
 
+
+    /// WASM-003 T15b-3: after the two `hello`s nothing leaves in plain text. The `hello` is the only text message;
+    /// the call goes as a sealed binary frame that only the server's key opens, and the sealed frame carries
+    /// neither the program name nor the payload.
+    #[test]
+    fn only_the_hello_leaves_as_text_and_every_other_message_is_sealed() {
+        let mut c = ready_client();
+        c.request(br#"{"program":"SECRET-PROGRAM","args":[{"mode":"value","json":{"N":"payload-value"}}],"returning":true}"#, 5);
+        assert_eq!(c.sock.binary_frames, 1, "the call is one sealed frame");
+        assert_eq!(c.sock.plain_after_hello, 0, "no plain text after the hello");
+        let hello: Value = serde_json::from_str(&c.sock.sent[0]).unwrap_or(Value::Null);
+        assert_ne!(hello["t"], "hello", "ready_client cleared the hello; the call is what remains");
+        println!("sealed channel in the player: 1 hello as text, {} sealed frame(s), {} plain message(s) after it", c.sock.binary_frames, c.sock.plain_after_hello);
+    }
+
+    #[test]
+    fn a_sealed_reply_is_opened_and_a_text_or_tampered_frame_after_the_handshake_closes_the_connection() {
+        let mut c = ready_client();
+        let id = c.request(br#"{"program":"P","args":[],"returning":true}"#, 5);
+        let mut server_tx = c.sock.server_tx.take().unwrap();
+        let sealed = server_tx.seal(&reply(id, r#"{"V":"ok"}"#)).unwrap();
+        c.on_binary(&sealed);
+        assert!(c.take_out().iter().any(|o| matches!(o, Out::Answer { id: i, .. } if *i == id)), "the sealed reply reached the module");
+        // A text message now is not from a backend that kept to the protocol.
+        let closed = c.sock.closed;
+        c.on_text(&reply(id, r#"{"V":"plain"}"#));
+        assert_eq!(c.sock.closed, closed + 1, "text after the exchange closes the connection");
+        // A frame that was tampered with does not open.
+        let mut bad = server_tx.seal(&reply(id, r#"{"V":"x"}"#)).unwrap();
+        bad[0] ^= 1;
+        c.on_binary(&bad);
+        assert_eq!(c.sock.closed, closed + 2, "a tampered frame closes the connection");
+    }
+
+    #[test]
+    fn without_a_random_source_there_is_no_connection_and_no_plaintext_mode() {
+        let mut cfg = cfg();
+        cfg.entropy = None;
+        let mut c = Client::new(cfg, Mock::default());
+        c.connect(URL, 0).unwrap();
+        c.on_open(1);
+        assert!(c.sock.sent.is_empty(), "nothing was sent, not even a hello");
+        assert_eq!(c.state(), LinkState::Closed);
+        assert!(c.take_out().iter().any(|o| matches!(o, Out::Warning(w) if w.contains("random source"))));
+        let mut failing = cfg_with_failing_entropy();
+        failing.connect(URL, 0).unwrap();
+        failing.on_open(1);
+        assert!(failing.sock.sent.is_empty() && failing.state() == LinkState::Closed, "a random source that fails is the same");
+    }
+
+    fn cfg_with_failing_entropy() -> Client<Mock> {
+        let mut cfg = cfg();
+        cfg.entropy = Some(|_| false);
+        Client::new(cfg, Mock::default())
+    }
+
+    #[test]
+    fn a_hello_answer_without_a_usable_key_fails_the_connection_as_transport() {
+        let mut c = client();
+        c.connect(URL, 0).unwrap();
+        c.on_open(1);
+        let id = c.request(br#"{"program":"P","args":[],"returning":true}"#, 2);
+        c.on_message(r#"{"t":"hello","protocol":2,"protocol_min":2,"contract":"1.0.0","accepted":"ok","message":"","server":"s","max_frame_bytes":1}"#);
+        let out = c.take_out();
+        assert!(out.iter().any(|o| matches!(o, Out::Answer { id: i, frame } if *i == id && String::from_utf8_lossy(frame).contains("\"class\":\"transport\""))), "{out:?}");
+        assert!(c.sock.closed >= 1);
+        assert_ne!(c.state(), LinkState::Ready);
+    }
+
+    /// The key source is `crypto.getRandomValues`, and `Math.random` is never a fallback for a key or a nonce.
+    #[test]
+    fn the_browser_key_source_is_get_random_values_and_never_math_random() {
+        let api = include_str!("api.rs");
+        let start = api.find("fn browser_entropy").expect("browser_entropy exists");
+        let body = &api[start..start + 400];
+        assert!(body.contains("get_random_values_with_u8_array"), "{body}");
+        assert!(!body.contains("Math::random") && !body.contains("Math.random"), "{body}");
+        assert!(api.contains("ncfg.entropy = Some(browser_entropy)"), "the connection is given that source");
+    }
     #[test]
     fn a_warning_hello_connects_and_json_pings_are_not_part_of_the_protocol() {
         let mut c = client();
         c.connect(URL, 0).unwrap();
         c.on_open(1);
-        c.on_message(r#"{"t":"hello","protocol":1,"protocol_min":1,"contract":"1.2.0","accepted":"warn","message":"update when convenient","update_to":"1.2.0","server":"s","max_frame_bytes":1}"#);
+        c.on_message(&hello_json("warn", r#""update_to":"1.2.0","#).replace(r#""message":"""#, r#""message":"update when convenient""#).replace("\"contract\":\"1.0.0\"", "\"contract\":\"1.2.0\""));
         assert_eq!(c.state(), LinkState::Ready);
         assert!(c.take_out().iter().any(|o| matches!(o, Out::Warning(w) if w.contains("update when convenient"))));
         let before = c.sock.sent.len();
@@ -1186,7 +1402,7 @@ mod tests {
         c.tick(10_003);
         assert_eq!(c.state(), LinkState::Connecting);
         c.on_open(10_004);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         let a = answers(&mut c);
         assert_eq!(a[0].0, in_flight);
         assert_eq!(a[0].1["error"]["class"], "transport");
@@ -1237,7 +1453,7 @@ mod tests {
         let next = c.request(br#"{"program":"FUND-LIST"}"#, t0 + 700_000);
         assert_eq!((c.state(), c.sock.opened.len()), (LinkState::Connecting, 5));
         c.on_open(t0 + 700_001);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         assert_eq!(flags(&c.take_out()), ["unreachable=false"]);
         assert!(sent_json(&c).iter().any(|m| m["t"] == "call" && m["id"] == next));
     }
@@ -1258,7 +1474,7 @@ mod tests {
         c.tick(11_000);
         assert_eq!(c.state(), LinkState::Connecting, "attempt 2");
         c.on_open(11_500);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         let out = c.take_out();
         let transitions = flags(&out);
         let failed: Vec<(u32, Value)> = out.iter().filter_map(|o| if let Out::Answer { id, frame } = o { Some((*id, serde_json::from_slice(frame).unwrap())) } else { None }).collect();
@@ -1340,7 +1556,7 @@ mod tests {
         c.set_token(Some("tok".into()));
         c.connect(URL, 0).unwrap();
         c.on_open(1);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         c.on_message(r#"{"t":"auth-ok","sub":"u","expires_in":300}"#);
         let first_session = c.session().to_owned();
         let sent_call = c.request(br#"{"program":"X"}"#, 2);
@@ -1355,7 +1571,7 @@ mod tests {
         c.connect(URL, 10).unwrap();
         c.request(br#"{"program":"Y"}"#, 11);
         c.on_open(12);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         let sent = sent_json(&c);
         assert_eq!(sent.iter().filter(|m| m["t"] == "auth").count(), 1, "only the first session's token was ever sent: {sent:?}");
         assert!(sent.iter().any(|m| m["t"] == "call" && m["program"] == "Y"));
@@ -1368,7 +1584,7 @@ mod tests {
         c.seed_session(0x1234_5678_9abc_def0);
         c.connect(URL, 0).unwrap();
         c.on_open(1);
-        c.on_message(HELLO_OK);
+        c.on_message(&hello_ok());
         c.on_close(2);
         c.tick(10_000);
         c.on_open(10_001);

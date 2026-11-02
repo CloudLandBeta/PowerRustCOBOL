@@ -740,7 +740,7 @@ and WASM-014 T19b (`specs/WASM-014-backend-contract-and-evolution/tasks.md:464`)
     `cargo test -p cobolt-wire --no-fail-fast` (without the feature) unchanged.
   - **Done 2026-11-02 (2.0.156).** `crates/cobolt-wire/src/seal.rs` (feature `channel`): `KeyPair::from_bytes`, `establish(role, protocol, own, own_nonce, peer_key, peer_nonce)`, `Channel::seal` / `open`. `cargo test -p cobolt-wire --features channel` 39 passed (8 new); without the feature 31 passed, unchanged. The new tests: the RFC 7748 §6.1 X25519 vector (both public keys and the shared secret), the RFC 8439 §2.8.2 ChaCha20-Poly1305 vector (the first block and the tag, through the crate the channel uses), both sides deriving the same keys and talking both ways, two connections of the same key pairs deriving different keys (client nonce, server nonce, and the two directions), tampered / truncated / empty / reordered / replayed / foreign-connection frames refused with the counter unmoved by a refusal, an all-zero and a low-order peer key refused, other bytes making another key pair. `chacha20poly1305` has its `zeroize` feature on, so the cipher state wipes on drop with the derived keys and the secret.
 
-- [ ] **T15b-3 — Every speaker of the protocol goes to protocol 2, sealed, in one change** (R24, R11, R5; D8, D10; plan §5 R11, R9)
+- [x] **T15b-3 — Every speaker of the protocol goes to protocol 2, sealed, in one change** (R24, R11, R5; D8, D10; plan §5 R11, R9)
   - Files: `crates/cobolt-wire/src/proto.rs` (`Hello`, `ServerHello` gain `key`, `nonce`, base64, required from protocol 2 — as WASM-014 T19b
     defines them), `crates/cobolt-wire/src/contract.rs` (`PROTOCOL`, `PROTOCOL_MIN` → 2); `crates/cobolt-server/src/serve.rs` (`Shared` holds
     the process's `StaticSecret` from `getrandom`, made at server start; `on_hello` agrees; `session` seals/opens every data message after the
@@ -762,7 +762,7 @@ and WASM-014 T19b (`specs/WASM-014-backend-contract-and-evolution/tasks.md:464`)
     `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --no-fail-fast` (incl. a test that the key source is
     `getRandomValues`, and `freshness`); `cargo test -p cobolt-web-bundle --test e2e_chrome --no-fail-fast` against the sealed mock.
 
-- [ ] **T15b-4 — The AC11 capture and the refusals, proven** (R24; AC11, AC6, AC7, AC8)
+- [x] **T15b-4 — The AC11 capture and the refusals, proven** (R24; AC11, AC6, AC7, AC8)
   - Files: `crates/cobolt-server/tests/loopback.rs` (tests only; a TLS-terminating recording proxy in the test).
   - Do / Verify: `cargo test -p cobolt-server --test loopback --no-fail-fast` —
     `the_channel_is_ciphertext_at_a_terminating_proxy` (only the two `hello`s are text; every later message binary; no recorded bytes contain
@@ -772,13 +772,16 @@ and WASM-014 T19b (`specs/WASM-014-backend-contract-and-evolution/tasks.md:464`)
     `the_frame_limit_is_the_plaintext_limit` (exactly `max_frame_bytes` passes, one more → 7000); `concurrent_callers_…` (AC7) sealed, its
     400-call time printed against the unsealed run; `the_log_has_neither_…` (AC8) extended: no key, shared secret or nonce in the log.
 
-- [ ] **T15b-5 — System KB: the encrypted channel** (System KB rule; plan §8)
+- [x] **T15b-5 — System KB: the encrypted channel** (System KB rule; plan §8)
   - Files: `crates/cobolt-compiler/src/lib.rs` (*Calling the backend*), `assets/knowledge/chunked.data` (regenerated).
   - Do: the channel is encrypted on top of TLS with keys made at each start; nothing to set or write; a frontend and a backend built on
     either side of this change refuse each other with a *version* error. `cargo run -p cobolt-ide --example build_chunked_kb`.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation`.
+  - **T15b-3 done 2026-11-02 (2.0.157).** Every speaker is on protocol 2 in one change: `proto.rs` (`Hello.key`/`nonce`, `ServerHello.key`/`nonce`, base64, empty and skipped when absent), `contract.rs` (`PROTOCOL` = `PROTOCOL_MIN` = 2), `seal.rs` (`Sender`/`Receiver` halves, `encode_b64`/`decode_b64`); `serve.rs` (the process key pair from `getrandom` in `Shared`; the writer task seals at a `SEAL_ON` Ping marker queued behind the server's `hello`, the reader opens binary frames and closes on a text message or a frame that does not open; socket caps + 16 so `max_frame_bytes` stays the plaintext limit); `client.rs` (a key pair and nonce per connection, sealed auth and calls); the player (`net.rs`: `Socket::send_binary`, `Config.entropy`, `on_text`/`on_binary`, every send after the `hello` sealed, no entropy → no connection; `api.rs`: `binaryType = "arraybuffer"`, `browser_entropy` over `crypto.getRandomValues`, no `Math.random`); `mock_backend.rs`, `tests/support` (`Raw::hello_at`, the wire capture) and the minimal client of `backend_build_wasm003.rs`; ABI row A22. Deviation from the task text: the Rust client and the player make their key pair per connection / at the first connection (not in `WsClient::new`), which only strengthens R17. Player sizes before → after: plain 3 740 513 → 3 784 427 bytes (+43.9 kB), threaded 3 565 371 → 3 601 590 (+36.2 kB); `freshness` 5/5. Tests: `cobolt-server` all suites green; `cobolt-compiler --test backend_build_wasm003` 3 passed (backend build 45 s cold, binary 58.4 MB), `compiled_app_calls_backend --ignored` 1 passed (19.4 s); `cobolt-cli --test backend_cli` 6 passed; player `--manifest-path` 385 + 25 + 7 + 2 + 5 + 1 + 3 passed (incl. the key-source test).
+  - **T15b-4 done 2026-11-02 (2.0.157).** The recording point is the client's WebSocket (what a TLS-terminating proxy reads): `Raw.wire`. `the_channel_is_ciphertext_at_a_terminating_proxy`: 8 messages, 2 text (the hellos) and 6 binary (3 sent), 862 bytes of ciphertext with no program name, payload, token or `"t":`; the backend key differs after a restart (fingerprints printed) and the 3 captured frames replayed in a new connection close it; one process keeps one backend key and a fresh nonce per connection. `a_connection_without_the_exchange_is_refused`: protocol 1 refused (no key in the refusal), no key / short key / low-order key → *transport* 1001 and closed, plain text after the exchange → closed, binary before the `hello` → closed. `the_frame_limit_is_the_plaintext_limit`: 4096 plaintext bytes pass (4112 on the wire), 4097 → 7000. AC7 sealed: 400 calls, 8 users, 0.15 s (2 706 calls/s), every answer its caller's. AC8: no key or nonce of either `hello` in the log.
+  - **T15b-5 done 2026-11-02 (2.0.157).** *Calling the backend* gains the bullet on the encrypted channel (nothing to set, protocol 1 and 2 refuse each other with a *version* error, what it protects against and the TLS limit); `chunked.data` regenerated (3 804 records) and `prebuilt_chunked_kb_matches_the_published_documentation` passes.
 
-- [ ] **T15b-6 — Evidence and Finalize for T15b** (AC11; all of T15b)
+- [x] **T15b-6 — Evidence and Finalize for T15b** (AC11; all of T15b)
   - Files: this file (an *Evidence (T15b)* table: AC11 row and the re-run AC1–AC10 rows on the sealed channel), `crates/cobolt-ide/src/version.rs`
     (bump `z` **once** → the next free `2.0.z`), `CHANGELOG.md` (one entry above the previous heading, dated, *Written on features-2x*, listing
     T15b-1…5, stating that a Web bundle and a backend built before and after it do not talk). No `README.md`/`docs/` change; no new `Tr` key
@@ -787,6 +790,35 @@ and WASM-014 T19b (`specs/WASM-014-backend-contract-and-evolution/tasks.md:464`)
     `cargo test -p cobolt-server`, `cargo test -p cobolt-compiler`, `cargo test -p cobolt-cli --test backend_cli`,
     `cargo test -p cobolt-web-bundle`, `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml`, `cargo test -p cobolt-ide --bin cobolt-ide`;
     `df -h .` before; the credential scan of the diff. State that Windows and Linux were not run (plan §5 R7) if they were not.
+
+### Evidence (T15b), 2026-11-02
+
+macOS (Darwin 24.5, aarch64), debug builds, real sockets on loopback; the numbers are what the tests printed. **Windows and Linux were not run.** `df` before the sweep: 23 GiB free.
+
+| AC | Proved by | Result |
+|---|---|---|
+| AC11 — the channel is ciphertext at a terminating proxy | `loopback::the_channel_is_ciphertext_at_a_terminating_proxy` | pass; 8 messages on the wire, 2 text (the hellos) and 6 binary; no program name, payload value, token, subject or `"t":` in 862 bytes of ciphertext; the backend key differs after a restart (fingerprints `a9773b34d0a2` then `6ed3b881c392`); the 3 captured frames replayed in a new connection close it |
+| AC11 — refusals | `loopback::a_connection_without_the_exchange_is_refused` | pass; protocol 1 refused (no key in the refusal), no / short / low-order key → *transport* 1001 and closed, plain text after the exchange → closed, binary before the `hello` → closed |
+| AC6 — frame limit | `loopback::the_frame_limit_is_the_plaintext_limit` | pass; 4096 plaintext bytes pass (4112 on the wire), 4097 → 7000 |
+| AC7 — concurrent callers, sealed | `loopback::concurrent_callers_…` | pass; 400 calls, 8 users × 25 rounds × 2 programs, 0.15 s (2 706 calls/s), every answer its caller's |
+| AC8 — the log | `loopback::the_log_has_neither_…` | pass; 6 records, 576 bytes: no token (whole or in part), no payload field, no key or nonce of either `hello` |
+| AC1–AC10 re-run on the sealed channel | the whole `cobolt-server` suite | pass; earlier assertions unchanged; only `the_versions_decide_at_the_hello` changed its table (protocol 2 is the window; protocol 1 refused) |
+| Parity (compiled binary) | `compiled_app_calls_backend` (`--ignored`), `backend_build_wasm003` | pass; the built app speaks protocol 2 (19.4 s); backend build 45 s cold, binary 58.4 MB |
+| Browser | `e2e_chrome` against the sealed mock, both placements | **30 passed, 0 failed** (the first run, with the mock still on protocol 1, failed 8: "the key exchange failed") |
+
+Sweep, `--no-fail-fast`, every `test result` line summed:
+
+| Crate | Passed | Failed | Ignored |
+|---|---|---|---|
+| cobolt-wire | 33 (42 with `--features channel`) | 0 | 0 |
+| cobolt-server | 147 | 0 | 0 |
+| cobolt-compiler | 247 | 0 | 5 |
+| cobolt-cli (`--test backend_cli`) | 6 | 0 | 0 |
+| cobolt-web-bundle | 90 | 0 | 0 |
+| cobolt-web-player (`--manifest-path`) | 428 (385 lib, 25, 7, 2, 5 `freshness`, 1, 3) | 0 | 0 |
+| cobolt-ide (`--bin cobolt-ide`) | 1949 | 4 | 5 |
+
+The four cobolt-ide failures are the known 2.x.x reds, not this change: `claude_validates_the_written_bundle`, `every_document_ships_in_every_language`, `compatible_and_reserved_collisions_still_refuse`, `live_resolver_verdicts`. (The sweep's fifth, `no_word_of_the_panes_windows_is_left_in_english_in_every_language`, was a real bug of 2.0.153, two "Definition for AI" text areas sharing widget ids in one frame; fixed in this change and passing.) The credential scan of the diff found nothing. `cargo fmt --check` was not made clean; nothing was reformatted.
 
 ## Coverage (acceptance criteria → tasks)
 

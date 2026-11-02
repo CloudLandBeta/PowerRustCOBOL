@@ -100,7 +100,7 @@ web-sys = { version = "0.3", features = [
     "HtmlAnchorElement", "HtmlProgressElement", "HtmlFormElement", "Node", "NodeList", "Text", "CssStyleDeclaration",
     "DomTokenList", "Event", "EventTarget", "MouseEvent", "KeyboardEvent", "FocusEvent", "InputEvent", "WheelEvent",
     "PointerEvent", "TouchEvent", "CustomEvent", "CustomEventInit", "Location", "History", "Navigator", "Url",
-    "UrlSearchParams", "Storage", "WebSocket", "MessageEvent", "CloseEvent", "ErrorEvent", "BroadcastChannel",
+    "UrlSearchParams", "Storage", "WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "ErrorEvent", "BroadcastChannel",
     "ResizeObserver", "ResizeObserverEntry", "ResizeObserverSize", "DomRect", "MediaQueryList", "Performance",
     "AddEventListenerOptions", "EventListenerOptions", "Blob", "BlobPropertyBag", "File", "FileList", "DataTransfer",
     "FileReader", "Crypto", "SvgElement", "SvgsvgElement", "ShadowRoot", "ShadowRootInit", "ShadowRootMode",

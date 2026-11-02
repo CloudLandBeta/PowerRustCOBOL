@@ -57,6 +57,19 @@ impl KeyPair {
     }
 }
 
+/// A key or a nonce as the `hello`s carry it: base64.
+pub fn encode_b64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// The `N` bytes a `hello` member holds, or `None` when it is not base64 of exactly `N` bytes.
+pub fn decode_b64<const N: usize>(text: &str) -> Option<[u8; N]> {
+    use base64::Engine;
+    let v = base64::engine::general_purpose::STANDARD.decode(text.trim()).ok()?;
+    v.try_into().ok()
+}
+
 fn refused(message: &str) -> CallError {
     CallError::transport(codes::CLOSED, message)
 }
@@ -96,7 +109,10 @@ pub fn establish(
         Role::Client => (&c2s, &s2c),
         Role::Server => (&s2c, &c2s),
     };
-    Ok(Channel { send: cipher(send), recv: cipher(recv), send_counter: 0, recv_counter: 0 })
+    Ok(Channel {
+        sender: Sender { cipher: cipher(send), counter: 0 },
+        receiver: Receiver { cipher: cipher(recv), counter: 0 },
+    })
 }
 
 fn cipher(key: &Zeroizing<[u8; 32]>) -> ChaCha20Poly1305 {
@@ -109,41 +125,68 @@ fn nonce(counter: u64) -> chacha20poly1305::Nonce {
     n.into()
 }
 
-/// An established channel: one cipher and one counter per direction.
-pub struct Channel {
-    send: ChaCha20Poly1305,
-    recv: ChaCha20Poly1305,
-    send_counter: u64,
-    recv_counter: u64,
+/// The sending half of a channel: one cipher and the counter of its direction.
+pub struct Sender {
+    cipher: ChaCha20Poly1305,
+    counter: u64,
 }
 
-impl Channel {
-    /// The frame for `text`: the ciphertext and its 16-byte tag. Panics never; a counter that would wrap is
-    /// refused (2^64 frames is far past any connection's life).
+/// The receiving half of a channel.
+pub struct Receiver {
+    cipher: ChaCha20Poly1305,
+    counter: u64,
+}
+
+impl Sender {
+    /// The frame for `text`: the ciphertext and its 16-byte tag. A counter that would wrap is refused (2^64
+    /// frames is far past any connection's life).
     pub fn seal(&mut self, text: &str) -> Result<Vec<u8>, CallError> {
-        if self.send_counter == u64::MAX {
+        if self.counter == u64::MAX {
             return Err(refused("the channel has carried its last frame"));
         }
         let frame = self
-            .send
-            .encrypt(&nonce(self.send_counter), text.as_bytes())
+            .cipher
+            .encrypt(&nonce(self.counter), text.as_bytes())
             .map_err(|_| refused("a frame could not be sealed"))?;
-        self.send_counter += 1;
+        self.counter += 1;
         Ok(frame)
     }
+}
 
+impl Receiver {
     /// The text of the next frame. A frame that does not open (tampered, replayed, reordered, truncated, from
     /// another connection) is refused, and the counter does not move.
     pub fn open(&mut self, frame: &[u8]) -> Result<String, CallError> {
-        if frame.len() < TAG_LEN || self.recv_counter == u64::MAX {
+        if frame.len() < TAG_LEN || self.counter == u64::MAX {
             return Err(refused("a frame did not open"));
         }
         let bytes = self
-            .recv
-            .decrypt(&nonce(self.recv_counter), frame)
+            .cipher
+            .decrypt(&nonce(self.counter), frame)
             .map_err(|_| refused("a frame did not open"))?;
-        self.recv_counter += 1;
+        self.counter += 1;
         String::from_utf8(bytes).map_err(|_| refused("a frame did not open"))
+    }
+}
+
+/// An established channel: both halves, for a side that reads and writes from one place.
+pub struct Channel {
+    sender: Sender,
+    receiver: Receiver,
+}
+
+impl Channel {
+    /// The two halves, so the task that writes and the task that reads each own theirs.
+    pub fn split(self) -> (Sender, Receiver) {
+        (self.sender, self.receiver)
+    }
+
+    pub fn seal(&mut self, text: &str) -> Result<Vec<u8>, CallError> {
+        self.sender.seal(text)
+    }
+
+    pub fn open(&mut self, frame: &[u8]) -> Result<String, CallError> {
+        self.receiver.open(frame)
     }
 }
 
@@ -255,6 +298,17 @@ mod tests {
         for key in [[0u8; 32], { let mut k = [0u8; 32]; k[0] = 1; k }] {
             assert!(establish(Role::Client, 2, &me, &[0; 16], &key, &[0; 16]).is_err());
         }
+    }
+
+    #[test]
+    fn the_halves_carry_the_same_frames_and_the_hello_members_round_trip() {
+        let (c, s) = pair();
+        let ((mut ctx, _crx), (_stx, mut srx)) = (c.split(), s.split());
+        assert_eq!(srx.open(&ctx.seal("split").unwrap()).unwrap(), "split");
+        let key = KeyPair::from_bytes([3; 32]).public();
+        assert_eq!(decode_b64::<32>(&encode_b64(&key)), Some(key));
+        assert_eq!(decode_b64::<16>(&encode_b64(&key)), None, "the wrong length is refused");
+        assert_eq!(decode_b64::<32>("not base64!"), None);
     }
 
     #[test]

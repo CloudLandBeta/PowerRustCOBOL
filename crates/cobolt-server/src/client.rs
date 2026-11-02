@@ -554,6 +554,9 @@ type Ws = tokio_tungstenite::WebSocketStream<Box<dyn Io>>;
 struct Conn {
     sink: SplitSink<Ws, Message>,
     stream: SplitStream<Ws>,
+    /// The halves of the sealed channel the `hello`s agreed (WASM-003 R24): every later message is one sealed frame.
+    sender: cobolt_wire::seal::Sender,
+    receiver: cobolt_wire::seal::Receiver,
 }
 
 fn authority(uri: &Uri) -> Result<(bool, String, u16), CallError> {
@@ -593,12 +596,16 @@ async fn tcp_tls(cfg: &ClientConfig, uri: &Uri) -> Result<Box<dyn Io>, CallError
     }
 }
 
-async fn next_text(ws: &mut Ws, within: Duration) -> Result<String, CallError> {
+async fn next_text(ws: &mut Ws, within: Duration, mut receiver: Option<&mut cobolt_wire::seal::Receiver>) -> Result<String, CallError> {
     loop {
         match tokio::time::timeout(within, ws.next()).await {
             Err(_) => return Err(CallError::transport(codes::TIMEOUT, "the backend did not answer").may_have_run(false)),
             Ok(None) | Ok(Some(Err(_))) | Ok(Some(Ok(Message::Close(_)))) => return Err(closed("the backend closed the connection").may_have_run(false)),
-            Ok(Some(Ok(Message::Text(t)))) => return Ok(t.as_str().to_string()),
+            Ok(Some(Ok(Message::Text(t)))) if receiver.is_none() => return Ok(t.as_str().to_string()),
+            Ok(Some(Ok(Message::Binary(b)))) => match receiver.as_deref_mut() {
+                Some(r) => return r.open(&b).map_err(|e| e.may_have_run(false)),
+                None => return Err(closed("the backend sent a frame before the key exchange").may_have_run(false)),
+            },
             Ok(Some(Ok(_))) => continue,
         }
     }
@@ -619,9 +626,23 @@ async fn open(cfg: &ClientConfig) -> Result<(Conn, ServerHello), CallError> {
         .map_err(|_| CallError::transport(codes::NO_CONNECTION, "the WebSocket handshake took too long").may_have_run(false))?
         .map_err(|e| CallError::transport(codes::NO_CONNECTION, format!("the backend refused the WebSocket: {e}")).may_have_run(false))?;
 
-    let hello = proto::Hello { t: "hello".into(), protocol: PROTOCOL, contract: cfg.contract.clone(), client: cfg.client_name.clone() };
+    // A key pair and a nonce for this connection, from the operating system (WASM-003 R24, D8).
+    let mut key_bytes = [0u8; 32];
+    let mut own_nonce = [0u8; cobolt_wire::seal::NONCE_LEN];
+    getrandom::fill(&mut key_bytes).map_err(|_| closed("no random source for the key exchange").may_have_run(false))?;
+    getrandom::fill(&mut own_nonce).map_err(|_| closed("no random source for the key exchange").may_have_run(false))?;
+    let keys = cobolt_wire::seal::KeyPair::from_bytes(key_bytes);
+    key_bytes.fill(0);
+    let hello = proto::Hello {
+        t: "hello".into(),
+        protocol: PROTOCOL,
+        contract: cfg.contract.clone(),
+        client: cfg.client_name.clone(),
+        key: cobolt_wire::seal::encode_b64(&keys.public()),
+        nonce: cobolt_wire::seal::encode_b64(&own_nonce),
+    };
     ws.send(Message::text(proto::to_text(&hello))).await.map_err(|e| closed(&e.to_string()).may_have_run(false))?;
-    let text = next_text(&mut ws, cfg.connect_timeout).await?;
+    let text = next_text(&mut ws, cfg.connect_timeout, None).await?;
     let server: ServerHello = match proto::parse_server(&text) {
         Ok(ServerFrame::Hello(h)) => h,
         Ok(ServerFrame::Error(e)) => return Err(e.into_error()),
@@ -639,13 +660,21 @@ async fn open(cfg: &ClientConfig) -> Result<(Conn, ServerHello), CallError> {
         e.detail = server.update_to.clone();
         return Err(e);
     }
+    // The backend's key and nonce are in its answer; without them the connection is a transport failure (R24).
+    let peer = cobolt_wire::seal::decode_b64::<{ cobolt_wire::seal::KEY_LEN }>(&server.key).zip(cobolt_wire::seal::decode_b64::<{ cobolt_wire::seal::NONCE_LEN }>(&server.nonce));
+    let Some((peer_key, peer_nonce)) = peer else {
+        return Err(closed("the backend's answer carried no usable key").may_have_run(false));
+    };
+    let channel = cobolt_wire::seal::establish(cobolt_wire::seal::Role::Client, PROTOCOL, &keys, &own_nonce, &peer_key, &peer_nonce).map_err(|e| e.may_have_run(false))?;
+    let (mut sender, mut receiver) = channel.split();
     if let Some(src) = &cfg.token {
         let mut token = src.token();
         // A token that has already expired is exchanged for a fresh one, once (WASM-003 R13).
         for attempt in 0..2 {
             let Some(t) = token.take() else { break };
-            ws.send(Message::text(proto::to_text(&proto::Auth { t: "auth".into(), token: t }))).await.map_err(|e| closed(&e.to_string()).may_have_run(false))?;
-            let text = next_text(&mut ws, cfg.connect_timeout).await?;
+            let frame = sender.seal(&proto::to_text(&proto::Auth { t: "auth".into(), token: t })).map_err(|e| e.may_have_run(false))?;
+            ws.send(Message::Binary(frame.into())).await.map_err(|e| closed(&e.to_string()).may_have_run(false))?;
+            let text = next_text(&mut ws, cfg.connect_timeout, Some(&mut receiver)).await?;
             match proto::parse_server(&text) {
                 Ok(ServerFrame::AuthOk(_)) => break,
                 Ok(ServerFrame::Error(e)) => {
@@ -664,7 +693,7 @@ async fn open(cfg: &ClientConfig) -> Result<(Conn, ServerHello), CallError> {
         }
     }
     let (sink, stream) = ws.split();
-    Ok((Conn { sink, stream }, server))
+    Ok((Conn { sink, stream, sender, receiver }, server))
 }
 
 // ── the actor ─────────────────────────────────────────────────────────────────
@@ -745,7 +774,13 @@ impl Actor {
                     Some(c) => self.on_cmd(c).await,
                 },
                 m = read(&mut self.conn) => match m {
-                    Some(Ok(Message::Text(t))) => self.on_text(t.as_str().to_string()).await,
+                    Some(Ok(Message::Binary(b))) => {
+                        let opened = self.conn.as_mut().map(|c| c.receiver.open(&b));
+                        match opened {
+                            Some(Ok(text)) => self.on_text(text).await,
+                            _ => self.on_disconnect().await,
+                        }
+                    }
                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => self.on_disconnect().await,
                     Some(Ok(_)) => {}
                 },
@@ -759,7 +794,10 @@ impl Actor {
 
     async fn send(&mut self, text: String) -> bool {
         match self.conn.as_mut() {
-            Some(c) => c.sink.send(Message::text(text)).await.is_ok(),
+            Some(c) => match c.sender.seal(&text) {
+                Ok(frame) => c.sink.send(Message::Binary(frame.into())).await.is_ok(),
+                Err(_) => false,
+            },
             None => false,
         }
     }

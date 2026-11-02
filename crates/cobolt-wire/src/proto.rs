@@ -37,6 +37,12 @@ pub struct Hello {
     /// Who it is, for logs (`prc-wasm/2.0.0`, `rcrun/2.0.0`).
     #[serde(default)]
     pub client: String,
+    /// The client's X25519 public key, base64 of 32 bytes; required from protocol 2 (WASM-014 R18, M7).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub key: String,
+    /// 16 random bytes, base64; required from protocol 2.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub nonce: String,
 }
 
 /// The bearer token of the connection (WASM-003 R9, R11). Sent as a message,
@@ -179,6 +185,11 @@ pub struct ServerHello {
     /// The limits the client should respect, so it can fail early.
     #[serde(default)]
     pub max_frame_bytes: u64,
+    /// The backend's X25519 public key and nonce (base64), present when the connection is accepted at protocol 2.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub key: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub nonce: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -421,7 +432,7 @@ mod tests {
 
     #[test]
     fn every_server_frame_is_read_back_as_the_kind_it_was_written() {
-        let hello = ServerHello { t: "hello".into(), protocol: 1, protocol_min: 1, contract: "1.2.0".into(), accepted: Accepted::Warn, message: "m".into(), update_to: Some("1.2.0".into()), server: "s".into(), max_frame_bytes: 1 << 20 };
+        let hello = ServerHello { t: "hello".into(), protocol: 1, protocol_min: 1, contract: "1.2.0".into(), accepted: Accepted::Warn, message: "m".into(), update_to: Some("1.2.0".into()), server: "s".into(), max_frame_bytes: 1 << 20, key: String::new(), nonce: String::new() };
         assert!(matches!(parse_server(&to_text(&hello)), Ok(ServerFrame::Hello(h)) if h.accepted == Accepted::Warn && h.update_to.as_deref() == Some("1.2.0")));
         assert!(matches!(parse_server(&to_text(&AuthOk { t: "auth-ok".into(), sub: "u".into(), expires_in: 5 })), Ok(ServerFrame::AuthOk(a)) if a.expires_in == 5));
         let reply = Reply { t: "reply".into(), id: 3, args: vec![Some(RawValue::from_string("{\"A\":1.50}".into()).unwrap()), None], returning: None, warnings: vec!["w".into()] };

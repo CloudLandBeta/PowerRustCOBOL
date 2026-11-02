@@ -107,6 +107,8 @@ pub(crate) struct Shared {
     pub files: Arc<FileStore>,
     /// The `/auth/*` routes, when `backend.toml` has an `[identity]` section (WASM-009 D5).
     pub auth: Option<Arc<crate::identity::routes::AuthRoutes>>,
+    /// The key pair of the sealed channel, made when this process started and never stored (WASM-003 R24, D8).
+    pub channel_key: cobolt_wire::seal::KeyPair,
 }
 
 /// A running server.
@@ -227,6 +229,7 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         idem: idem::Store::new(Duration::from_secs(cfg.limits.idempotency_ttl), cfg.limits.idempotency_max_entries),
         files: Arc::new(FileStore::new(&files_cfg)),
         auth,
+        channel_key: new_channel_key(),
     });
 
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(SocketAddr, Option<SocketAddr>), String>>();
@@ -507,8 +510,8 @@ async fn upgrade(State(c): State<ConnCtx>, mut req: Request) -> Response {
     let on_upgrade = hyper::upgrade::on(&mut req);
     let handshake = Duration::from_millis(shared.cfg.limits.handshake_timeout_ms);
     let cfg = WebSocketConfig::default()
-        .max_message_size(Some(shared.cfg.limits.max_frame_bytes))
-        .max_frame_size(Some(shared.cfg.limits.max_frame_bytes))
+        .max_message_size(Some(shared.cfg.limits.max_frame_bytes + cobolt_wire::seal::TAG_LEN))
+        .max_frame_size(Some(shared.cfg.limits.max_frame_bytes + cobolt_wire::seal::TAG_LEN))
         .read_buffer_size(16 * 1024);
     let (peer, conn_id) = (c.peer, c.conn_id);
     let running = tokio::spawn(async move {
@@ -675,6 +678,10 @@ struct Conn {
     served: Arc<watch::Sender<u64>>,
     /// `per-connection` mode: this connection's run units (WASM-003 Q2).
     state: Option<Arc<Mutex<exec::Session>>>,
+    /// The receiving half of the sealed channel, once the `hello`s agreed it; every later frame is opened with it.
+    receiver: Option<cobolt_wire::seal::Receiver>,
+    /// Where `on_hello` leaves the sending half for the writer task, which takes it at the `SEAL_ON` marker.
+    seal_slot: Arc<Mutex<Option<cobolt_wire::seal::Sender>>>,
 }
 
 /// A call or a subscription that is running: the two ways to stop it.
@@ -732,13 +739,27 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     let (tx, mut rx) = mpsc::channel::<Message>(shared.cfg.limits.event_queue.max(64));
     let ping = Duration::from_secs(shared.cfg.limits.ping_interval.max(1));
     let idle = Duration::from_secs(shared.cfg.limits.idle_timeout.max(2));
+    // The sending half of the sealed channel reaches the writer through this slot, at the `SEAL_ON` marker (a
+    // Ping no peer can send): everything queued before the marker goes out as text (the server's `hello`),
+    // everything after it as a sealed binary frame.
+    let seal_slot: Arc<Mutex<Option<cobolt_wire::seal::Sender>>> = Arc::new(Mutex::new(None));
+    let writer_slot = seal_slot.clone();
     let writer = tokio::spawn(async move {
         let mut tick = tokio::time::interval(ping);
         tick.tick().await;
+        let mut sealer: Option<cobolt_wire::seal::Sender> = None;
         loop {
             tokio::select! {
                 m = rx.recv() => match m {
                     Some(Message::Close(c)) => { let _ = sink.send(Message::Close(c)).await; break; }
+                    Some(Message::Ping(p)) if p.as_ref() == SEAL_ON => { sealer = writer_slot.lock().ok().and_then(|mut s| s.take()); }
+                    Some(Message::Text(t)) if sealer.is_some() => {
+                        let frame = match sealer.as_mut().map(|s| s.seal(t.as_str())) {
+                            Some(Ok(f)) => f,
+                            _ => break,
+                        };
+                        if sink.send(Message::Binary(frame.into())).await.is_err() { break; }
+                    }
                     Some(m) => { if sink.send(m).await.is_err() { break; } }
                     None => break,
                 },
@@ -763,6 +784,8 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         next_ticket: 0,
         served: Arc::new(served_tx),
         state: (shared.backend.state == StateMode::PerConnection).then(|| Arc::new(Mutex::new(exec::Session::new()))),
+        receiver: None,
+        seal_slot: seal_slot.clone(),
     };
 
     let hello_deadline = Instant::now() + Duration::from_millis(shared.cfg.limits.handshake_timeout_ms);
@@ -792,12 +815,18 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         };
         match msg {
             Message::Text(t) => {
-                if !on_text(&shared, &mut conn, &tx, t.as_str()).await {
+                // After the `hello`s the channel is sealed: a text message is a peer that skipped it (R24).
+                if conn.receiver.is_some() || !on_text(&shared, &mut conn, &tx, t.as_str()).await {
                     break;
                 }
             }
-            Message::Binary(_) => {
-                send_error(&tx, None, &CallError::new(ErrorClass::Validation, codes::BAD_MESSAGE, "binary frames are not part of the protocol")).await;
+            Message::Binary(b) => {
+                // A sealed frame opens to what used to be a text message; one that does not open ends the connection.
+                let Some(rx) = conn.receiver.as_mut() else { break };
+                let Ok(plain) = rx.open(&b) else { break };
+                if !on_text(&shared, &mut conn, &tx, &plain).await {
+                    break;
+                }
             }
             Message::Close(_) => break,
             _ => {} // ping/pong are answered by the library; any frame counts as life
@@ -1039,7 +1068,32 @@ pub fn negotiate(server_contract: &str, client_protocol: u32, client_contract: &
 }
 
 async fn on_hello(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Message>, h: proto::Hello) -> bool {
+    use cobolt_wire::seal::{self, KEY_LEN, NONCE_LEN};
     let (accepted, message, update_to) = negotiate(&shared.backend.interface.contract, h.protocol, &h.contract);
+    // The exchange (R24): the client's key and nonce must be there and usable before anything is answered, or the
+    // connection is a *transport* failure and closes. A refusal for the version carries no key.
+    let mut peer = None;
+    if accepted != Accepted::Refused {
+        peer = seal::decode_b64::<KEY_LEN>(&h.key).zip(seal::decode_b64::<NONCE_LEN>(&h.nonce));
+        if peer.is_none() {
+            send_error(tx, None, &CallError::transport(codes::CLOSED, "the key exchange failed")).await;
+            let mut r = LogRecord::new("refused");
+            r.connection = Some(conn.id);
+            r.outcome = Some("transport".into());
+            shared.sink.emit(&r);
+            return false;
+        }
+    }
+    let mut own_nonce = [0u8; NONCE_LEN];
+    let _ = getrandom::fill(&mut own_nonce);
+    let sealed = match peer {
+        Some((key, nonce)) => seal::establish(seal::Role::Server, h.protocol, &shared.channel_key, &own_nonce, &key, &nonce).ok(),
+        None => None,
+    };
+    if accepted != Accepted::Refused && sealed.is_none() {
+        send_error(tx, None, &CallError::transport(codes::CLOSED, "the key exchange failed")).await;
+        return false;
+    }
     let reply = ServerHello {
         t: "hello".into(),
         protocol: PROTOCOL,
@@ -1050,6 +1104,8 @@ async fn on_hello(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messa
         update_to,
         server: shared.cfg.name.clone(),
         max_frame_bytes: shared.cfg.limits.max_frame_bytes as u64,
+        key: if sealed.is_some() { seal::encode_b64(&shared.channel_key.public()) } else { String::new() },
+        nonce: if sealed.is_some() { seal::encode_b64(&own_nonce) } else { String::new() },
     };
     let _ = tx.send(Message::text(proto::to_text(&reply))).await;
     if accepted == Accepted::Refused {
@@ -1058,6 +1114,14 @@ async fn on_hello(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messa
         r.outcome = Some("version".into());
         shared.sink.emit(&r);
         return false;
+    }
+    if let Some(channel) = sealed {
+        let (sender, receiver) = channel.split();
+        conn.receiver = Some(receiver);
+        if let Ok(mut slot) = conn.seal_slot.lock() {
+            *slot = Some(sender);
+        }
+        let _ = tx.send(Message::Ping(SEAL_ON.to_vec().into())).await;
     }
     conn.hello = Some(Hello { client_interface: shared.backend.interface_for(&h.contract).cloned(), contract: h.contract });
     true
@@ -1594,4 +1658,17 @@ async fn on_subscribe(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<M
             }
         }
     });
+}
+
+/// The marker the handshake queues behind the server's `hello`: a Ping payload no client can send (a
+/// peer's Ping is answered by the library, never queued here).
+const SEAL_ON: &[u8] = b"prc-seal-on";
+
+/// The sealed channel's key pair, from the operating system's random source (WASM-003 R24).
+fn new_channel_key() -> cobolt_wire::seal::KeyPair {
+    let mut b = [0u8; 32];
+    getrandom::fill(&mut b).expect("the operating system's random source");
+    let k = cobolt_wire::seal::KeyPair::from_bytes(b);
+    b.fill(0);
+    k
 }

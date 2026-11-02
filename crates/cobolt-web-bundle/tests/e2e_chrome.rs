@@ -113,27 +113,51 @@ impl Backend {
                 let (d, log) = (d.clone(), log.clone());
                 std::thread::spawn(move || {
                     let Ok(mut ws) = tungstenite::accept(stream) else { return };
+                    // The sealed channel (WASM-003 R24): agreed at the two `hello`s, then one binary frame per message.
+                    let mut tx: Option<cobolt_wire::seal::Sender> = None;
+                    let mut rx: Option<cobolt_wire::seal::Receiver> = None;
                     while let Ok(msg) = ws.read() {
-                        let tungstenite::Message::Text(text) = msg else { continue };
-                        let Ok(v) = serde_json::from_str::<serde_json::Value>(text.as_str()) else { continue };
+                        let text = match msg {
+                            tungstenite::Message::Text(t) if rx.is_none() => t.as_str().to_owned(),
+                            tungstenite::Message::Binary(b) => match rx.as_mut().and_then(|r| r.open(&b).ok()) {
+                                Some(t) => t,
+                                None => break,
+                            },
+                            tungstenite::Message::Close(_) => break,
+                            _ => continue,
+                        };
+                        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
                         if v["t"] == "hello" {
-                            let hello = serde_json::json!({"t": "hello", "protocol": 1, "protocol_min": 1, "contract": v["contract"], "accepted": "ok", "message": "", "server": "e2e", "max_frame_bytes": 1 << 20});
+                            use cobolt_wire::seal::{decode_b64, encode_b64, establish, KeyPair, Role, KEY_LEN, NONCE_LEN};
+                            let peer = v["key"].as_str().and_then(decode_b64::<KEY_LEN>).zip(v["nonce"].as_str().and_then(decode_b64::<NONCE_LEN>));
+                            let Some((peer_key, peer_nonce)) = peer else { break };
+                            let (mut seed, mut nonce) = ([0u8; 32], [0u8; NONCE_LEN]);
+                            let _ = getrandom::fill(&mut seed);
+                            let _ = getrandom::fill(&mut nonce);
+                            let keys = KeyPair::from_bytes(seed);
+                            let Ok(channel) = establish(Role::Server, 2, &keys, &nonce, &peer_key, &peer_nonce) else { break };
+                            let hello = serde_json::json!({"t": "hello", "protocol": 2, "protocol_min": 2, "contract": v["contract"], "accepted": "ok", "message": "", "server": "e2e", "max_frame_bytes": 1 << 20, "key": encode_b64(&keys.public()), "nonce": encode_b64(&nonce)});
                             if ws.send(tungstenite::Message::text(hello.to_string())).is_err() {
                                 break;
                             }
+                            let (t, r) = channel.split();
+                            tx = Some(t);
+                            rx = Some(r);
                             continue;
                         }
                         if v["t"] != "call" {
                             continue;
                         }
-                        log.lock().unwrap().push(text.to_string());
+                        log.lock().unwrap().push(text.clone());
                         let wait = d.load(Ordering::SeqCst);
                         if wait == u64::MAX {
                             continue;
                         }
                         std::thread::sleep(Duration::from_millis(wait));
                         let id = v["id"].as_u64().unwrap_or(0);
-                        if ws.send(tungstenite::Message::text(serde_json::json!({"t": "reply", "id": id, "args": [], "returning": "pong"}).to_string())).is_err() {
+                        let answer = serde_json::json!({"t": "reply", "id": id, "args": [], "returning": "pong"}).to_string();
+                        let Some(frame) = tx.as_mut().and_then(|t| t.seal(&answer).ok()) else { break };
+                        if ws.send(tungstenite::Message::Binary(frame.into())).is_err() {
                             break;
                         }
                     }

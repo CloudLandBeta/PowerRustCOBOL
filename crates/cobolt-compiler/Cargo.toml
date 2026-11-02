@@ -43,6 +43,8 @@ tracing   = { workspace = true }
 # IDE does — download + unpack. The SHIPPED compiler stays network-free;
 # builds use the project-local `crates/` only.
 [dev-dependencies]
+# WASM-003 T15b-3: the minimal client of the built binary speaks the sealed channel (dev only: the compiler links none of it).
+cobolt-wire = { path = "../cobolt-wire", features = ["channel"] }
 # WASM-014: the parity test serves a backend in-process and runs a built binary against it.
 cobolt-server = { path = "../cobolt-server" }
 # WASM-010 T22: the browser-subset section must name every built-in of the runtime.

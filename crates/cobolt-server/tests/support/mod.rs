@@ -310,7 +310,11 @@ pub type Ws = tokio_tungstenite::WebSocketStream<tokio_native_tls::TlsStream<tok
 
 pub struct Raw {
     pub ws: Ws,
-}
+    /// The sealed channel, once `hello` has agreed it (WASM-003 R24): every later message is one sealed frame.
+    pub sender: Option<cobolt_wire::seal::Sender>,
+    pub receiver: Option<cobolt_wire::seal::Receiver>,
+    /// Every WebSocket message in either direction, as a TLS-terminating proxy would read it: `(sent, text, bytes)`.
+    pub wire: Vec<(bool, bool, Vec<u8>)>,}
 
 impl Raw {
     /// Connect with an Origin header (None: send none).
@@ -327,14 +331,30 @@ impl Raw {
             req.headers_mut().insert("Origin", o.parse().unwrap());
         }
         let (ws, _) = tokio_tungstenite::client_async(req, tls).await.map_err(|e| format!("ws: {e}"))?;
-        Ok(Raw { ws })
+        Ok(Raw { ws, sender: None, receiver: None, wire: Vec::new() })
     }
 
     pub async fn send(&mut self, v: Value) {
-        self.ws.send(Message::text(v.to_string())).await.expect("send");
+        self.send_text(&v.to_string()).await;
     }
 
+    /// A message: sealed once the channel is agreed, plain text before it.
     pub async fn send_text(&mut self, text: &str) {
+        match self.sender.as_mut() {
+            Some(s) => {
+                let frame = s.seal(text).expect("seal");
+                self.wire.push((true, false, frame.clone()));
+                self.ws.send(Message::Binary(frame.into())).await.expect("send");
+            }
+            None => {
+                self.wire.push((true, true, text.as_bytes().to_vec()));
+                self.ws.send(Message::text(text.to_string())).await.expect("send");
+            }
+        }
+    }
+
+    /// A text message with no sealing, whatever the state: what a peer that skipped the exchange would send.
+    pub async fn send_plain(&mut self, text: &str) {
         self.ws.send(Message::text(text.to_string())).await.expect("send");
     }
 
@@ -342,7 +362,15 @@ impl Raw {
     pub async fn next(&mut self) -> Option<Value> {
         loop {
             match tokio::time::timeout(std::time::Duration::from_secs(10), self.ws.next()).await {
-                Ok(Some(Ok(Message::Text(t)))) => return serde_json::from_str(t.as_str()).ok(),
+                Ok(Some(Ok(Message::Text(t)))) => {
+                    self.wire.push((false, true, t.as_str().as_bytes().to_vec()));
+                    return serde_json::from_str(t.as_str()).ok();
+                }
+                Ok(Some(Ok(Message::Binary(b)))) => {
+                    self.wire.push((false, false, b.to_vec()));
+                    let plain = self.receiver.as_mut()?.open(&b).ok()?;
+                    return serde_json::from_str(&plain).ok();
+                }
                 Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Ok(Some(Err(_))) | Err(_) => return None,
                 Ok(Some(Ok(_))) => continue,
             }
@@ -350,8 +378,24 @@ impl Raw {
     }
 
     pub async fn hello(&mut self, contract: &str) -> Value {
-        self.send(json!({"t": "hello", "protocol": 1, "contract": contract, "client": "test"})).await;
-        self.next().await.expect("hello reply")
+        self.hello_at(cobolt_wire::contract::PROTOCOL, contract).await
+    }
+
+    /// The `hello` exchange at `protocol`, with a fresh key pair and nonce; when the backend accepts, the channel is
+    /// agreed and every later message is sealed. The reply is the backend's `hello` as JSON.
+    pub async fn hello_at(&mut self, protocol: u32, contract: &str) -> Value {
+        use cobolt_wire::seal::{decode_b64, encode_b64, establish, KeyPair, Role, KEY_LEN, NONCE_LEN};
+        let keys = KeyPair::from_bytes(rand_bytes::<32>());
+        let nonce = rand_bytes::<NONCE_LEN>();
+        self.send(json!({"t": "hello", "protocol": protocol, "contract": contract, "client": "test", "key": encode_b64(&keys.public()), "nonce": encode_b64(&nonce)})).await;
+        let reply = self.next().await.expect("hello reply");
+        let peer = reply["key"].as_str().and_then(decode_b64::<KEY_LEN>).zip(reply["nonce"].as_str().and_then(decode_b64::<NONCE_LEN>));
+        if let (Some((key, peer_nonce)), Some("ok" | "warn")) = (peer, reply["accepted"].as_str()) {
+            let (s, r) = establish(Role::Client, protocol, &keys, &nonce, &key, &peer_nonce).expect("establish").split();
+            self.sender = Some(s);
+            self.receiver = Some(r);
+        }
+        reply
     }
 
     pub async fn auth(&mut self, token: &str) -> Value {
@@ -531,4 +575,11 @@ pub fn https_get(addr: std::net::SocketAddr, cert_pem: &str, path: &str, range_f
     let head = String::from_utf8_lossy(&raw[..split]).into_owned();
     let status = head.split(' ').nth(1)?.parse().ok()?;
     Some((status, raw[split + 4..].to_vec()))
+}
+
+/// `N` random bytes for a test key or nonce.
+pub fn rand_bytes<const N: usize>() -> [u8; N] {
+    let mut b = [0u8; N];
+    getrandom::fill(&mut b).expect("random");
+    b
 }

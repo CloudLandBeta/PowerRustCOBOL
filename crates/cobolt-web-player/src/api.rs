@@ -126,6 +126,8 @@ pub(crate) enum Inbox {
 pub(crate) enum NetEvent {
     Open,
     Message(String),
+    /// A sealed frame (WASM-003 R24): every message after the `hello`s.
+    Frame(Vec<u8>),
     Close,
     Error,
     Tick,
@@ -305,10 +307,15 @@ impl Socket for WsSocket {
         };
         let on_open = mk(self.inner.clone(), |_| NetEvent::Open);
         let on_msg = mk(self.inner.clone(), |ev| {
-            NetEvent::Message(Reflect::get(&ev, &"data".into()).ok().and_then(|d| d.as_string()).unwrap_or_default())
+            let data = Reflect::get(&ev, &"data".into()).unwrap_or(JsValue::UNDEFINED);
+            match data.dyn_ref::<js_sys::ArrayBuffer>() {
+                Some(buf) => NetEvent::Frame(js_sys::Uint8Array::new(buf).to_vec()),
+                None => NetEvent::Message(data.as_string().unwrap_or_default()),
+            }
         });
         let on_close = mk(self.inner.clone(), |_| NetEvent::Close);
         let on_err = mk(self.inner.clone(), |_| NetEvent::Error);
+        ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
         ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
         ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
         ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
@@ -323,9 +330,23 @@ impl Socket for WsSocket {
         }
     }
 
+    fn send_binary(&mut self, bytes: &[u8]) {
+        if let Some(ws) = &self.ws {
+            let _ = ws.send_with_u8_array(bytes);
+        }
+    }
+
     fn close(&mut self) {
         self.detach();
     }
+}
+
+/// The 32 bytes of a key and the 16 of a nonce: the browser's cryptographic generator, `crypto.getRandomValues`,
+/// and nothing else. `Math.random` is never a fallback (WASM-003 R24): a page without it gets no connection.
+fn browser_entropy(buf: &mut [u8]) -> bool {
+    web_sys::window()
+        .and_then(|w| w.crypto().ok())
+        .is_some_and(|c| c.get_random_values_with_u8_array(buf).is_ok())
 }
 
 // ── the instance ────────────────────────────────────────────────────────────
@@ -496,7 +517,8 @@ impl Inner {
             let Some(c) = guard.as_mut() else { return };
             match ev {
                 NetEvent::Open => c.on_open(now),
-                NetEvent::Message(t) => c.on_message(&t),
+                NetEvent::Message(t) => c.on_text(&t),
+                NetEvent::Frame(b) => c.on_binary(&b),
                 NetEvent::Close => c.on_close(now),
                 NetEvent::Error => c.on_error(now),
                 NetEvent::Tick => c.tick(now),
@@ -987,6 +1009,8 @@ impl Player {
                 inner.cfg.max_frame,
             )
             .with_backend(&inner.cfg.backend_contract, inner.cfg.backend_idempotent.clone());
+            let mut ncfg = ncfg;
+            ncfg.entropy = Some(browser_entropy);
             let sock = WsSocket { inner: Rc::downgrade(&inner), ws: None, handlers: Vec::new() };
             let mut client = Client::new(ncfg, sock);
             // The session id is held in memory only (WASM-014 Q5): unpredictable, never stored.

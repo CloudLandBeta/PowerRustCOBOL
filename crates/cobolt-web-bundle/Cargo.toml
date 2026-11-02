@@ -31,6 +31,9 @@ tempfile = "3"
 wasm-encoder = "0.244"
 # The mock backend of the tests: a WebSocket server in a few lines. Already in the lock file.
 tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+# The mock speaks the sealed channel (WASM-003 T15b-3): the same crate the backend and the player use.
+cobolt-wire = { path = "../cobolt-wire", features = ["channel"] }
+getrandom = "0.4"
 # The browser test samples the colours a screenshot shows (WASM-016 AC13). Both already in the lock file.
 png = "0.17"
 base64 = "0.22"

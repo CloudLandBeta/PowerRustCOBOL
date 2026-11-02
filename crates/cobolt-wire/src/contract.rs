@@ -29,10 +29,10 @@ pub const PROJECT_PATH: &str = "backend/contract/interface.json";
 pub const FORMAT_VERSION: u32 = 1;
 
 /// The wire protocol this build speaks (WASM-014 R3).
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 /// The oldest wire protocol this build still serves.
-pub const PROTOCOL_MIN: u32 = 1;
+pub const PROTOCOL_MIN: u32 = 2;
 
 /// Which way a parameter's value travels. A callee does not declare how it was
 /// called (`BY VALUE` / `BY REFERENCE` is the caller's choice), so the

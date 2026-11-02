@@ -14,6 +14,7 @@ mod support;
 #[path = "support/idp_mock.rs"]
 mod idp_mock;
 
+use futures_util::SinkExt;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -498,8 +499,20 @@ async fn the_log_has_neither_the_token_nor_a_field_the_program_was_given() {
         assert!(!log.contains(piece), "a part of the token is in the log");
     }
     assert!(!log.contains("hunter2"), "a field of the payload is in the log");
+    // R24: no key, nonce or anything derived from them is in the log either — both hellos' members, whole.
+    let mut exchanged = 0;
+    for (_, text, bytes) in c.wire.iter().take(2).filter(|(_, text, _)| *text) {
+        assert!(*text);
+        let v: Value = serde_json::from_slice(bytes).unwrap();
+        for member in ["key", "nonce"] {
+            let value = v[member].as_str().unwrap_or_else(|| panic!("a hello without `{member}`: {v}"));
+            assert!(!log.contains(value), "the {member} of a hello is in the log");
+            exchanged += 1;
+        }
+    }
+    assert_eq!(exchanged, 4, "both hellos carry a key and a nonce");
     assert!(log.contains("\"call\"") && log.contains("user-8") && log.contains("GET-CUSTOMER") && log.contains("duration_ms"), "the log still says who did what: {log}");
-    println!("\n  log: {} records, {} bytes, no token (whole or in part) and no payload field", rig.sink.records().len(), log.len());
+    println!("\n  log: {} records, {} bytes, no token (whole or in part), no payload field, no key or nonce of the exchange", rig.sink.records().len(), log.len());
     rig.server.stop();
 }
 
@@ -611,19 +624,19 @@ async fn the_identity_routes_log_no_token_password_code_or_cookie() {
 async fn the_versions_decide_at_the_hello() {
     let rig = new_rig("ver", "");
     for (client, protocol, accepted, needle) in [
-        ("1.2.0", 1, "ok", ""),
-        ("1.2.7", 1, "ok", ""),
-        ("1.0.0", 1, "warn", "compatible"),
-        ("1.3.0", 1, "refused", "update the backend"),
-        ("0.9.0", 1, "refused", "update the application"),
-        ("2.0.0", 1, "refused", "update the backend"),
+        ("1.2.0", 2, "ok", ""),
+        ("1.2.7", 2, "ok", ""),
+        ("1.0.0", 2, "warn", "compatible"),
+        ("1.3.0", 2, "refused", "update the backend"),
+        ("0.9.0", 2, "refused", "update the application"),
+        ("2.0.0", 2, "refused", "update the backend"),
         ("1.2.0", 0, "refused", "update the application"),
         ("1.2.0", 9, "refused", "update the backend"),
-        ("one.two", 1, "refused", "major.minor.patch"),
+        ("one.two", 2, "refused", "major.minor.patch"),
+        ("1.2.0", 1, "refused", "update the application"),
     ] {
         let mut c = Raw::connect(&rig, Some(ORIGIN)).await.unwrap();
-        c.send(json!({"t": "hello", "protocol": protocol, "contract": client, "client": "t"})).await;
-        let h = c.next().await.unwrap();
+        let h = c.hello_at(protocol, client).await;
         assert_eq!(h["t"], "hello", "a refusal is still a hello, never a decoding error: {h}");
         assert_eq!(h["accepted"], accepted, "{client}/{protocol}: {h}");
         assert!(h["message"].as_str().unwrap().contains(needle), "{client}/{protocol}: {h}");
@@ -1199,4 +1212,123 @@ fn a_websocket_call_in_flight_waits_through_the_retries() {
     assert_eq!(attempts.len(), 3, "three attempts: {attempts:?}");
     println!("  gone for good: attempts at {attempts:?} ms, ON EXCEPTION after {:.0} ms (cycle {} ms): sent {sent:?}; queued {queued:?}", gave_up.as_secs_f64() * 1000.0, policy.cycle_ms());
     rig.server.stop();
+}
+
+// ── the sealed channel (WASM-003 R24; AC11, AC6, AC7, AC8) ────────────────────
+
+/// A short, readable fingerprint of a public key, for the report.
+fn fingerprint(b64: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(b64.as_bytes()).iter().take(6).map(|b| format!("{b:02x}")).collect()
+}
+
+fn contains(haystack: &[u8], needle: &str) -> bool {
+    !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle.as_bytes())
+}
+
+/// AC11: what a TLS-terminating proxy reads is the two `hello`s as text and ciphertext for everything else, and a
+/// capture of one start of the backend opens nothing at the next.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_channel_is_ciphertext_at_a_terminating_proxy() {
+    let rig = new_rig("ac11", "");
+    let token = good_token(&rig, "u-ac11", json!({}));
+    let mut c = Raw::connect(&rig, Some(ORIGIN)).await.unwrap();
+    let h = c.hello("1.2.0").await;
+    let first_server_key = h["key"].as_str().unwrap().to_owned();
+    assert_eq!(c.auth(&token).await["t"], "auth-ok");
+    let r = c.call(1, "GET-CUSTOMER", &[("ref", REQ)], true).await;
+    assert_eq!(r["t"], "reply", "{r}");
+    let r = c.call(2, "PING", &[], true).await;
+    assert_eq!(r["t"], "reply", "{r}");
+
+    let texts: Vec<_> = c.wire.iter().filter(|(_, text, _)| *text).collect();
+    assert_eq!(texts.len(), 2, "only the two hellos are text");
+    assert!(texts.iter().all(|(_, _, b)| contains(b, "\"hello\"")));
+    let sealed: Vec<_> = c.wire.iter().filter(|(_, text, _)| !*text).collect();
+    assert_eq!(sealed.len(), 6, "auth, two calls and their three answers");
+    let all: Vec<u8> = sealed.iter().flat_map(|(_, _, b)| b.iter().copied()).collect();
+    for secret in ["GET-CUSTOMER", "PING", "hunter2", "4250", token.as_str(), "\"t\":", "auth", "call", "reply", "u-ac11"] {
+        assert!(!contains(&all, secret), "`{secret}` is readable in the capture");
+    }
+    let sent = sealed.iter().filter(|(s, _, _)| *s).count();
+    let first_capture: Vec<Vec<u8>> = sealed.iter().filter(|(s, _, _)| *s).map(|(_, _, b)| b.clone()).collect();
+    rig.server.stop();
+
+    // A restart of the backend: other keys, and the old capture opens nothing.
+    let rig2 = new_rig("ac11b", "");
+    let token2 = good_token(&rig2, "u-ac11", json!({}));
+    let mut c2 = Raw::connect(&rig2, Some(ORIGIN)).await.unwrap();
+    let h2 = c2.hello("1.2.0").await;
+    let second_server_key = h2["key"].as_str().unwrap().to_owned();
+    assert_ne!(first_server_key, second_server_key, "a restart gives the backend another key pair");
+    assert_eq!(c2.auth(&token2).await["t"], "auth-ok");
+    for frame in &first_capture {
+        c2.ws.send(tokio_tungstenite::tungstenite::Message::Binary(frame.clone().into())).await.unwrap();
+    }
+    assert!(c2.next().await.is_none(), "the first capture's frames are refused and the connection closes");
+    // Two connections of the same backend also differ: the client's key and the nonces change the keys.
+    let mut c3 = Raw::connect(&rig2, Some(ORIGIN)).await.unwrap();
+    let h3 = c3.hello("1.2.0").await;
+    assert_eq!(h3["key"], h2["key"], "one process, one backend key pair");
+    assert_ne!(h3["nonce"], h2["nonce"], "a fresh nonce per connection");
+    rig2.server.stop();
+    println!(
+        "\n  AC11: {} messages on the wire: 2 text (the hellos), {} binary ({} sent); no program name, payload, token or `\"t\":` in {} bytes of ciphertext; backend key {} then {} after a restart; {} replayed frames refused",
+        c.wire.len(), sealed.len(), sent, all.len(), fingerprint(&first_server_key), fingerprint(&second_server_key), first_capture.len()
+    );
+}
+
+/// AC6/R24: a connection that skips the exchange is refused, in each of the ways it can skip it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_without_the_exchange_is_refused() {
+    let rig = new_rig("ac11c", "");
+    // Protocol 1: refused with the version words, and closed.
+    let mut c = Raw::connect(&rig, Some(ORIGIN)).await.unwrap();
+    let h = c.hello_at(1, "1.2.0").await;
+    assert_eq!(h["accepted"], "refused", "{h}");
+    assert!(h.get("key").is_none(), "a refusal carries no key");
+    assert!(c.next().await.is_none());
+    // Protocol 2 without a key or a nonce: a transport failure, and closed.
+    let mut c = Raw::connect(&rig, Some(ORIGIN)).await.unwrap();
+    c.send(json!({"t": "hello", "protocol": 2, "contract": "1.2.0", "client": "t"})).await;
+    let e = c.next().await.unwrap();
+    assert_eq!((class(&e).as_str(), code(&e)), ("transport", 1001), "{e}");
+    assert!(c.next().await.is_none());
+    // A key that is not 32 bytes of base64, or a low-order one: the same.
+    for key in ["AAAA", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="] {
+        let mut c = Raw::connect(&rig, Some(ORIGIN)).await.unwrap();
+        c.send(json!({"t": "hello", "protocol": 2, "contract": "1.2.0", "client": "t", "key": key, "nonce": "AAAAAAAAAAAAAAAAAAAAAA=="})).await;
+        let e = c.next().await.unwrap();
+        assert_eq!(class(&e), "transport", "{e}");
+        assert!(c.next().await.is_none());
+    }
+    // A text message after the exchange: closed. (A binary one before it: closed.)
+    let token = good_token(&rig, "u", json!({}));
+    let mut c = Raw::connect(&rig, Some(ORIGIN)).await.unwrap();
+    assert_eq!(c.hello("1.2.0").await["accepted"], "ok");
+    c.send_plain(&json!({"t": "auth", "token": token}).to_string()).await;
+    assert!(c.next().await.is_none(), "a plain message after the exchange ends the connection");
+    let mut c = Raw::connect(&rig, Some(ORIGIN)).await.unwrap();
+    c.ws.send(tokio_tungstenite::tungstenite::Message::Binary(vec![1u8; 40].into())).await.unwrap();
+    assert!(c.next().await.is_none(), "a binary frame before the hello ends the connection");
+    rig.server.stop();
+    println!("\n  refusals: protocol 1 → refused; no key / short key / low-order key → transport 1001 and closed; plain text after the exchange → closed; binary before the hello → closed");
+}
+
+/// R24 with AC6: `max_frame_bytes` stays the limit of the plaintext, though a frame is 16 bytes longer.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_frame_limit_is_the_plaintext_limit() {
+    let rig = new_rig("ac11d", "[limits]\nmax_frame_bytes = 4096\n");
+    let token = good_token(&rig, "u", json!({}));
+    let call = r#"{"t":"call","id":1,"program":"PING","args":[],"returning":true}"#;
+    let mut c = ready(&rig, &token).await;
+    c.send_text(&format!("{call}{}", " ".repeat(4096 - call.len()))).await;
+    let r = c.next().await.unwrap();
+    assert_eq!(r["t"], "reply", "exactly max_frame_bytes of plaintext passes: {r}");
+    let mut c = ready(&rig, &token).await;
+    c.send_text(&format!("{call}{}", " ".repeat(4097 - call.len()))).await;
+    let r = c.next().await.unwrap();
+    assert_eq!((class(&r).as_str(), code(&r)), ("limit", 7000), "one byte more is refused: {r}");
+    rig.server.stop();
+    println!("\n  frame limit: 4096 plaintext bytes pass (4112 on the wire), 4097 refused with 7000");
 }

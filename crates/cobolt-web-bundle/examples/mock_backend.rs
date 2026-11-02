@@ -337,20 +337,45 @@ pub fn serve(listener: TcpListener, ttl: u64, first_ttl: Option<u64>) {
             }
             let Ok(mut ws) = accept(stream) else { return };
             let mut who: Option<String> = None;
+            // The sealed channel (WASM-003 R24): agreed at the two `hello`s, then every message is one binary frame.
+            let mut tx: Option<cobolt_wire::seal::Sender> = None;
+            let mut rx: Option<cobolt_wire::seal::Receiver> = None;
             say("connection opened".into());
             while let Ok(msg) = ws.read() {
-                let Message::Text(text) = msg else {
-                    if matches!(msg, Message::Close(_)) {
-                        break;
-                    }
-                    continue;
+                let text = match msg {
+                    Message::Text(t) if rx.is_none() => t.as_str().to_owned(),
+                    Message::Binary(b) => match rx.as_mut().and_then(|r| r.open(&b).ok()) {
+                        Some(t) => t,
+                        None => break,
+                    },
+                    Message::Close(_) => break,
+                    _ => continue,
                 };
-                let Ok(v) = serde_json::from_str::<Value>(text.as_str()) else { continue };
+                let send = |ws: &mut tungstenite::WebSocket<_>, tx: &mut Option<cobolt_wire::seal::Sender>, text: String| match tx.as_mut() {
+                    Some(t) => {
+                        let _ = t.seal(&text).map(|f| ws.send(Message::Binary(f.into())));
+                    }
+                    None => {
+                        let _ = ws.send(Message::text(text));
+                    }
+                };
+                let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
                 match v.get("t").and_then(Value::as_str) {
                     Some("hello") => {
+                        use cobolt_wire::seal::{decode_b64, encode_b64, establish, KeyPair, Role, KEY_LEN, NONCE_LEN};
                         let contract = v.get("contract").cloned().unwrap_or(Value::Null);
-                        let hello = json!({"t": "hello", "protocol": 1, "protocol_min": 1, "contract": contract, "accepted": "ok", "message": "", "server": "mock", "max_frame_bytes": 1 << 20});
+                        let peer = v.get("key").and_then(Value::as_str).and_then(decode_b64::<KEY_LEN>).zip(v.get("nonce").and_then(Value::as_str).and_then(decode_b64::<NONCE_LEN>));
+                        let Some((peer_key, peer_nonce)) = peer else { break };
+                        let (mut seed, mut nonce) = ([0u8; 32], [0u8; NONCE_LEN]);
+                        let _ = getrandom::fill(&mut seed);
+                        let _ = getrandom::fill(&mut nonce);
+                        let keys = KeyPair::from_bytes(seed);
+                        let Ok(channel) = establish(Role::Server, 2, &keys, &nonce, &peer_key, &peer_nonce) else { break };
+                        let hello = json!({"t": "hello", "protocol": 2, "protocol_min": 2, "contract": contract, "accepted": "ok", "message": "", "server": "mock", "max_frame_bytes": 1 << 20, "key": encode_b64(&keys.public()), "nonce": encode_b64(&nonce)});
                         let _ = ws.send(Message::text(hello.to_string()));
+                        let (t, r) = channel.split();
+                        tx = Some(t);
+                        rx = Some(r);
                     }
                     Some("auth") => {
                         let t = v.get("token").and_then(Value::as_str).unwrap_or("");
@@ -365,12 +390,12 @@ pub fn serve(listener: TcpListener, ttl: u64, first_ttl: Option<u64>) {
                         } else {
                             json!({"t": "error", "class": "authentication", "code": 2001, "message": "token refused"})
                         };
-                        let _ = ws.send(Message::text(answer.to_string()));
+                        send(&mut ws, &mut tx, answer.to_string());
                     }
                     Some("call") => {
                         let id = v.get("id").and_then(Value::as_u64).unwrap_or(0);
                         say(format!("call: a program request{}", if who.is_some() { " (signed in)" } else { "" }));
-                        let _ = ws.send(Message::text(ok(id, json!("pong"))));
+                        send(&mut ws, &mut tx, ok(id, json!("pong")));
                     }
                     _ => {}
                 }

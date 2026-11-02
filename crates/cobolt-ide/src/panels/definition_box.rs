@@ -82,6 +82,7 @@ pub(crate) fn comment_editor_out(ui: &mut egui::Ui, text: &mut String, id: Optio
     let mut changed = false;
     let mut lost_focus = false;
     let out = egui::ScrollArea::vertical()
+        .id_salt(("comment-scroll", id))
         .max_width(width)
         .max_height(size.y)
         .min_scrolled_height(size.y)
@@ -102,7 +103,7 @@ pub(crate) fn comment_editor_out(ui: &mut egui::Ui, text: &mut String, id: Optio
     // The grip: a small square over the box's bottom-right corner.
     let corner = out.inner_rect.right_bottom();
     let grip = egui::Rect::from_min_size(corner - egui::vec2(14.0, 14.0), egui::vec2(14.0, 14.0));
-    let resp = ui.interact(grip, comment_box_id().with("grip"), egui::Sense::drag());
+    let resp = ui.interact(grip, id.unwrap_or_else(|| ui.id()).with("comment-grip"), egui::Sense::drag());
     if resp.hovered() || resp.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
     }

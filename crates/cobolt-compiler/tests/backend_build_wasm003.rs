@@ -83,7 +83,13 @@ MAIN.
 
 /// A minimal WebSocket client over plain loopback `ws://`: the handshake, then
 /// masked text frames out and unmasked text frames in (enough for hello and a call).
-struct Ws(TcpStream);
+struct Ws {
+    stream: TcpStream,
+    /// The sealed channel agreed at the two `hello`s (WASM-003 R24): every later message is one binary frame.
+    tx: Option<cobolt_wire::seal::Sender>,
+    rx: Option<cobolt_wire::seal::Receiver>,
+    keys: cobolt_wire::seal::KeyPair,
+}
 
 impl Ws {
     fn connect(port: u16) -> Option<Ws> {
@@ -96,12 +102,38 @@ impl Ws {
             s.read_exact(&mut b).ok()?;
             head.push(b[0]);
         }
-        String::from_utf8_lossy(&head).starts_with("HTTP/1.1 101").then_some(Ws(s))
+        String::from_utf8_lossy(&head).starts_with("HTTP/1.1 101").then_some(Ws { stream: s, tx: None, rx: None, keys: cobolt_wire::seal::KeyPair::from_bytes([3; 32]) })
     }
 
+    /// The `hello` of protocol 2 with this client's key and nonce; the backend's answer agrees the channel.
+    fn hello(&mut self, contract: &str) -> serde_json::Value {
+        use cobolt_wire::seal::{decode_b64, encode_b64, establish, Role};
+        let nonce = [4u8; 16];
+        let hello = format!(r#"{{"t":"hello","protocol":2,"contract":"{contract}","client":"test","key":"{}","nonce":"{}"}}"#, encode_b64(&self.keys.public()), encode_b64(&nonce));
+        self.send_frame(0x81, hello.as_bytes());
+        let (_, body) = self.recv_frame();
+        let reply: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        if reply["accepted"] == "ok" {
+            let key = decode_b64::<32>(reply["key"].as_str().unwrap()).expect("the backend's key");
+            let peer_nonce = decode_b64::<16>(reply["nonce"].as_str().unwrap()).expect("the backend's nonce");
+            let (t, r) = establish(Role::Client, 2, &self.keys, &nonce, &key, &peer_nonce).unwrap().split();
+            self.tx = Some(t);
+            self.rx = Some(r);
+        }
+        reply
+    }
+
+    /// A message: one sealed binary frame once the channel is agreed.
     fn send(&mut self, text: &str) {
-        let p = text.as_bytes();
-        let mut f = vec![0x81u8];
+        let sealed = self.tx.as_mut().map(|t| t.seal(text).unwrap());
+        match sealed {
+            Some(frame) => self.send_frame(0x82, &frame),
+            None => self.send_frame(0x81, text.as_bytes()),
+        }
+    }
+
+    fn send_frame(&mut self, opcode: u8, p: &[u8]) {
+        let mut f = vec![opcode];
         match p.len() {
             n if n < 126 => f.push(0x80 | n as u8),
             n => {
@@ -112,27 +144,36 @@ impl Ws {
         let mask = [7u8, 13, 29, 41];
         f.extend_from_slice(&mask);
         f.extend(p.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
-        self.0.write_all(&f).unwrap();
+        self.stream.write_all(&f).unwrap();
     }
 
     fn recv(&mut self) -> serde_json::Value {
+        let (_, body) = self.recv_frame();
+        let plain = match self.rx.as_mut() {
+            Some(rx) => rx.open(&body).expect("the frame opens").into_bytes(),
+            None => body,
+        };
+        serde_json::from_slice(&plain).unwrap()
+    }
+
+    fn recv_frame(&mut self) -> (u8, Vec<u8>) {
         loop {
             let mut h = [0u8; 2];
-            self.0.read_exact(&mut h).unwrap();
+            self.stream.read_exact(&mut h).unwrap();
             let mut len = (h[1] & 0x7f) as usize;
             if len == 126 {
                 let mut l = [0u8; 2];
-                self.0.read_exact(&mut l).unwrap();
+                self.stream.read_exact(&mut l).unwrap();
                 len = u16::from_be_bytes(l) as usize;
             } else if len == 127 {
                 let mut l = [0u8; 8];
-                self.0.read_exact(&mut l).unwrap();
+                self.stream.read_exact(&mut l).unwrap();
                 len = u64::from_be_bytes(l) as usize;
             }
             let mut body = vec![0u8; len];
-            self.0.read_exact(&mut body).unwrap();
-            if h[0] & 0x0f == 1 {
-                return serde_json::from_slice(&body).unwrap();
+            self.stream.read_exact(&mut body).unwrap();
+            if matches!(h[0] & 0x0f, 1 | 2) {
+                return (h[0] & 0x0f, body);
             }
         }
     }
@@ -269,8 +310,7 @@ fn the_built_backend_is_a_binary_that_checks_describes_and_answers_its_health_pr
     // without a token both are "no token", so names cannot be enumerated (with a token
     // both are not-found 5000: loopback::an_exported_program_answers_and_nothing_else_does).
     let mut ws = Ws::connect(listen).expect("the WebSocket upgrade on the built binary");
-    ws.send(r#"{"t":"hello","protocol":1,"contract":"1.0.0","client":"test"}"#);
-    assert_eq!(ws.recv()["accepted"], "ok");
+    assert_eq!(ws.hello("1.0.0")["accepted"], "ok");
     ws.send(r#"{"t":"call","id":1,"program":"PING","args":[],"returning":true}"#);
     let pong = ws.recv();
     assert_eq!(pong["returning"]["REPLY"], "pong", "{pong}");

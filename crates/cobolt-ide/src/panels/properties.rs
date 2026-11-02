@@ -2647,7 +2647,8 @@ fn show_binding_definition(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr
             ui.set_max_width(380.0);
             ui.label(tr.tip_def_ai_binding);
         });
-        super::definition_box::comment_editor(ui, &mut editor.definition);
+        let id = egui::Id::new(("binding-definition", editor.target_control_id.clone()));
+        super::definition_box::comment_editor_out(ui, &mut editor.definition, Some(id));
     });
 }
 
