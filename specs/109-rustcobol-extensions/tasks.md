@@ -195,7 +195,7 @@ finished module's execution pass (rule #9).
 - [ ] **T-IDE — Editor support and source maps** (R24)
   - Files: `cobolt-ide/src/panels/editor.rs`, `beautify.rs`, `cobolt-dap`, `i18n.rs`, `ui_text_data.rs`.
   - Verify: highlight, completion, hover, diagnostics with spans; stepping into a function or interpolation stops at the original site; source map rebuilt after a line change; `cargo test -p cobolt-ide --bin cobolt-ide i18n` (no empty translation) (AC21).
-- [ ] **T-GEN — Generator goldens** (R20–R22)
+- [x] **T-GEN — Generator goldens** (R20–R22)
   - Files: `cobolt-codegen/tests`, `UPDATE_GOLDEN=1` only after reading the diff.
   - Verify: goldens hold the high-level syntax, no legacy expansion, banner kept, authored code verbatim, regeneration identical, zero new diagnostics (AC9); PowerAnalytics workloads compared original vs updated (AC10).
 - [ ] **T-KB — System KB per slice** (R27) — `cobolt-compiler` doc tables, `cargo run -p cobolt-ide --example build_chunked_kb`; `prebuilt_chunked_kb_matches_the_published_documentation` green (AC14).

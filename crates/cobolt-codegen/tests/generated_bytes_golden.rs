@@ -113,6 +113,31 @@ fn corpus() -> Vec<(&'static str, Form)> {
         forms.push(("toolbar-buttons", form));
     }
 
+    // 6. Spec 109 S5 (T-GEN): a form that opted into compact storage — controls whose
+    //    groups nothing names are not written, a chart's helper paragraphs and the
+    //    animation dispatch are left out, a procedure that PERFORMs one keeps it, and
+    //    the developer's handler, the banner and the event loop stay exactly as they were.
+    {
+        use cobolt_forms::model::{AnimTrigger, AnimationDef};
+        let mut form = Form::new("COMPACT-FORM", "Compact", 800, 600);
+        let mut chart = Control::new("CH-BAR", ControlType::BarChart, 10, 10);
+        let mut anim = AnimationDef::new("pulse");
+        anim.trigger = AnimTrigger::OnClick;
+        chart.animations.push(anim);
+        let mut btn = Control::new("BTN-OK", ControlType::Button, 10, 200);
+        let mut ev = EventBinding::for_control("BTN-OK", "onClick");
+        ev.code = "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           DISPLAY \"OK PRESSED\".".to_string();
+        btn.events.push(ev);
+        form.controls = vec![chart, btn, Control::new("TXT-NAME", ControlType::TextBox, 120, 10)];
+        form.user_procedures = vec![UserProcedure {
+            name: "REFRESH-ALL".into(),
+            code: "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           PERFORM CH-BAR-REFRESH."
+                .into(),
+        }];
+        form.compact_storage = true;
+        forms.push(("compact-storage", form));
+    }
+
     forms
 }
 
@@ -163,7 +188,7 @@ fn generated_bytes_do_not_move() {
     }
     if !update {
         println!("  {files} files compared, {bytes} bytes total — all identical");
-        assert_eq!(files, 7, "the whole corpus must be compared");
+        assert_eq!(files, 8, "the whole corpus must be compared");
     }
 }
 
@@ -203,6 +228,6 @@ fn user_line_ranges_do_not_move() {
         println!("  {name:<24} {:>2} ranges identical", ranges.len());
     }
     if !update {
-        assert_eq!(files, 7, "the whole corpus must be compared");
+        assert_eq!(files, 8, "the whole corpus must be compared");
     }
 }
