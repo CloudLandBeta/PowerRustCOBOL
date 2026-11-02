@@ -2802,9 +2802,6 @@ fn paint_textbox_caption(painter: &egui::Painter, origin: Pos2, ctrl: &Control, 
     let fade = |c: Color32| {
         Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (f32::from(c.a()) * alpha_mul.clamp(0.0, 1.0)) as u8)
     };
-    if let Some(bg) = &l.back_color {
-        painter.rect_filled(rect, 0.0, fade(parse_color(bg)));
-    }
     // A disabled box wears the theme's disabled ink whatever the caption was set to.
     let ink = if ctrl.enabled {
         parse_color(&l.fore_color)
@@ -2819,6 +2816,14 @@ fn paint_textbox_caption(painter: &egui::Painter, origin: Pos2, ctrl: &Control, 
         None
     }
     .unwrap_or_else(|| crate::fonts::font_id(painter.ctx(), &l.font.name, size));
+    if let Some(bg) = &l.back_color {
+        // The band follows the text that is really drawn: `textmetrics` measures the built-in regular face, and a bold
+        // caption is drawn in the system's own, wider, bold face, which the band used to stop short of (operator, 2026-11-02:
+        // the red did not reach the last letter). No padding: the band is the text's own rectangle, as spec 110 §5 has it.
+        let drawn = painter.layout_no_wrap(l.text.clone(), font_id.clone(), ink).size();
+        let band = Rect::from_min_size(min, Vec2::new(rect.width().max(drawn.x), rect.height().max(drawn.y)));
+        painter.rect_filled(band, 0.0, fade(parse_color(bg)));
+    }
     painter.text(min, egui::Align2::LEFT_TOP, &l.text, font_id, ink);
     let base = rect.max.y - 1.0;
     if l.font.underline {

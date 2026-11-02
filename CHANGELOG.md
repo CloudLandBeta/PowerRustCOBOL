@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.159 — 2026-11-02
+
+**Fix: a TextBox caption's background band reaches the last character.** The band (`CaptionBackColor`) was sized from the width table of the built-in regular face, while a bold caption is drawn in the system's own, wider, bold face, so the colour stopped before the last letter. The band now takes the width of the text that is drawn. No padding was added: the band is the text's own rectangle, as spec 110 §5 has it, and the box's geometry is unchanged. New test `textbox_caption_band` (plain 14 pt, bold 14, 28 and 40 pt). *Written on features-2x.*
+
 ## 2.0.158 — 2026-11-02
 
 **Specs: WASM-003 T15a-5 is closed.** It waited for WASM-016 T29b, which was finished in 2.0.114: the `e2e_chrome` scenarios *backend lost* (the page is blocked, then the modal goes and the form is as it was) and *backend down for good* (the *unreachable* event runs, Reload starts again) already measure what the task asked for, and the file's last full run is 30 passed, 0 failed. WASM-003's tasks.md evidence table and AC12 in spec.md are updated; no code changed. *Written on features-2x.*
