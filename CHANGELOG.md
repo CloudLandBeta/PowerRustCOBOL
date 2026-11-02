@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.154 — 2026-11-02
+
+**Fix: the shipped web player is rebuilt from the merged source.** After the 2.x branches were consolidated, `the_shipped_player_was_built_from_the_source_that_is_here` was red; `build_player` was run again (plain and threaded builds, `player-build.json`) and all five freshness tests pass.
+
 ## 2.0.153 — 2026-11-02
 
 **Feature (Definition for AI, 4 of 4): data bindings, animations and SQL connections carry it too, in the IDE and over MCP.** The data binding editor has a "Definition for AI" text area at the top of its body (5 lines by 60 columns, resizable), kept with the binding; the animation section of the Properties pane has the same row after the animation's name, one undo step like every other animation field; the SQL connection editor has it below "Default connection". A SQL connection lives in the project file, so `SqlConnection` gained a `definition` key written under its `[[sql-connections]]` entry (empty ones are not written) and never copied into the `sql-connections.toml` a build leaves beside the binary. Each of the three has its own tooltip in the six IDE languages, with a good and a bad example. For an external agent, `describe` lists the project's `sql_connections` with their definitions and `set_definition` takes `element: "sql-connection"` (the `id` is the connection name; the text goes into the project file through `toml_edit`, so every comment and key of the developer's file stays as it was; an empty text clears it). Common Code programs and the project itself have none on purpose. Tests: the MCP round trip (comment kept, only one key added, cleared, unknown name refused), the editor and the deployment file, the animation's undo step, the binding's reopen, and 18 tooltip texts.
