@@ -614,6 +614,17 @@ pub fn rules() -> Vec<Rule> {
              `CALL \"PROCEDURE-NAME\"`.",
         ),
         r(
+            "definitions-for-ai",
+            "Read what the developer wrote about each element before you change it, and keep it true. \
+             `describe` returns the project, a form or an indexed file with the \"Definition for AI\" of every \
+             element, written as if to someone who does not know the application. When you create or change a \
+             form, control, layer, animation, data binding, indexed file or field, write its definition with \
+             `set_definition` the same way: what it is for, in which unit or format, when it applies. Good: \
+             \"This field contains the value of the discount applied to the goods when purchases are over the \
+             percentual defined in the field MIN-AMOUNT\". Bad: \"Discount\". `check` warns about an element \
+             with none, or one under 20 characters.",
+        ),
+        r(
             "english-identifiers",
             "COBOL identifiers and source stay in English — data items, paragraphs, programs, \
              control ids, comments — whatever language the developer writes to you in. Only the \

@@ -38,7 +38,7 @@ pub struct Finding {
 }
 
 impl Finding {
-    fn at(file: &str, severity: Severity, message: impl Into<String>) -> Self {
+    pub(crate) fn at(file: &str, severity: Severity, message: impl Into<String>) -> Self {
         Self {
             file: file.to_owned(),
             line: 0,
@@ -252,6 +252,10 @@ fn check_form(
                 site: None,
             },
         });
+    }
+    // "Definition for AI": one warning for the elements that say nothing, or too little, about themselves.
+    if let Some(f) = crate::tools::definitions::missing_finding(&form, rel) {
+        report.findings.push(f);
     }
     // The data-binding gate the IDE's Check/Build applies.
     let gate = validate_binding_action_in(&form, BindingActionGate::CheckProject, root.dir());

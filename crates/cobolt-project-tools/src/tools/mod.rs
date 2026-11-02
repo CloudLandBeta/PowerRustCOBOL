@@ -23,6 +23,7 @@ use crate::root::ProjectRoot;
 
 pub mod build;
 pub mod check;
+pub mod definitions;
 pub mod crates;
 pub mod kb;
 pub mod list;
@@ -142,6 +143,52 @@ impl<H: ProjectHost> ProjectTools<H> {
                 input_schema: json!({
                     "type": "object",
                     "properties": { "path": path_arg("Optional project-relative form (.cfrm, .wcfrm or .mcfrm), .cidx or COBOL source; omit for the whole project.") },
+                    "additionalProperties": false
+                }),
+                annotations: None,
+            },
+            Tool {
+                name: "describe".into(),
+                description: Some(
+                    "Describe the project, or one form (.cfrm, .wcfrm, .mcfrm) or indexed file (.cidx), with the \
+                     \"Definition for AI\" of every element: the form, its layers, each control (visual or not, its \
+                     parent and layer, its events and animations), animations and data bindings; for an indexed \
+                     file, the file and each field (and whether it is part of a key). A definition is what the \
+                     developer wrote about the element as if to someone who does not know the application. Read \
+                     the definitions before changing anything, and keep them true when you change it. Without a \
+                     'path' you get the overview: every form and indexed file and how many elements have no \
+                     definition. Read-only."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": { "path": path_arg("Optional project-relative form (.cfrm, .wcfrm or .mcfrm) or .cidx; omit for the project overview.") },
+                    "additionalProperties": false
+                }),
+                annotations: None,
+            },
+            Tool {
+                name: "set_definition".into(),
+                description: Some(
+                    "Write the \"Definition for AI\" of one element, or clear it with an empty text. 'element' is one of \
+                     form, control, layer, animation, binding (in a form file) or indexed-file, indexed-field (in a \
+                     .cidx); 'id' names it (a control's id, a layer's name, an animation as CONTROL::name or \
+                     FORM::name, a binding's id, a field's name; not needed for form or indexed-file). Write it as \
+                     if talking to someone who does not know the application: what the element is for, in which \
+                     unit or format, and when it applies. Good: \"This field contains the value of the discount \
+                     applied to the goods when purchases are over the percentual defined in the field MIN-AMOUNT\". \
+                     Bad: \"Discount\". Check warns about an element with none, or one under 20 characters."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": path_arg("Project-relative form (.cfrm, .wcfrm or .mcfrm) or .cidx."),
+                        "element": json!({ "type": "string", "enum": ["form", "control", "layer", "animation", "binding", "indexed-file", "indexed-field"], "description": "What the definition belongs to." }),
+                        "id": path_arg("The element's name; see above."),
+                        "text": json!({ "type": "string", "description": "The definition; empty clears it." })
+                    },
+                    "required": ["path", "element", "text"],
                     "additionalProperties": false
                 }),
                 annotations: None,
@@ -595,6 +642,14 @@ impl<H: ProjectHost> ProjectTools<H> {
         let shared = Arc::clone(shared);
         match name {
             "list_files" => list::run(&root),
+            "describe" => definitions::describe(&root, opt_str(args, "path").as_deref()),
+            "set_definition" => {
+                let path = opt_str(args, "path").ok_or("set_definition needs a 'path'")?;
+                let element = opt_str(args, "element").ok_or("set_definition needs an 'element'")?;
+                let text = args.get("text").and_then(Value::as_str).ok_or("set_definition needs a 'text' (empty clears it)")?;
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                definitions::set_definition(&root, &path, &element, opt_str(args, "id").as_deref(), text)
+            }
             "check" => check::run(&self.host, &root, opt_str(args, "path").as_deref()),
             "regenerate" => {
                 let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());

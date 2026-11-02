@@ -20,7 +20,7 @@ exists on the web and what does not. This spec specifies that equipment; without
 
 ### What exists today (checked 2026-10-19, `main` at 1.91.217)
 
-- **The MCP tool set** (`cobolt-project-tools/src/tools/mod.rs`) has fifteen tools: `open_project`, `check`, `regenerate`, `validate`, `build`, `render_form`, `run_form`, `list_files`, `kb_lookup`, `kb_search`, `create_project`, `add_crate`, `remove_crate`, `add_to_project`, `add_powerchat`. Two servers
+- **The MCP tool set** (`cobolt-project-tools/src/tools/mod.rs`) has seventeen tools (`describe` and `set_definition` added 2026-11-02, Definition for AI): `open_project`, `check`, `regenerate`, `validate`, `build`, `render_form`, `run_form`, `list_files`, `kb_lookup`, `kb_search`, `create_project`, `add_crate`, `remove_crate`, `add_to_project`, `add_powerchat`. Two servers
   carry them: the one the IDE serves on `127.0.0.1` with an access token, and `rcrun mcp` over stdio when the IDE is closed. `render_form` returns a picture of a form as Run Form draws it; `run_form` runs a form off screen through a script (type, click, wait, read a property) and returns what it displayed,
   any run-time error and a picture. Both rely on the egui headless rasteriser (`--headless`, `cobolt-form-host/src/headless.rs`).
 - **The plugin's rules for agents** are `APPLICATION_RULES`, **12** entries (`cobolt-project-tools/src/content.rs:254`) — and the plugin carries skills for creating forms, adding controls, shells and navigation, SQL, common procedures, assets, layout and themes, and gap reports.

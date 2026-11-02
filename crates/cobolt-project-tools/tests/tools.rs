@@ -311,7 +311,7 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
         .collect();
     assert_eq!(
         names,
-        ["list_files", "check", "regenerate", "add_to_project", "add_crate", "remove_crate", "build", "validate", "kb_lookup", "render_form", "run_form", "add_powerchat", "create_project", "open_project", "kb_search"]
+        ["list_files", "check", "describe", "set_definition", "regenerate", "add_to_project", "add_crate", "remove_crate", "build", "validate", "kb_lookup", "render_form", "run_form", "add_powerchat", "create_project", "open_project", "kb_search"]
     );
     let (check_text, is_err) = text_of(&replies[2]);
     assert!(!is_err);
@@ -347,7 +347,7 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
             refused += 1;
         }
     }
-    assert_eq!((refused, knowledge), (11, 2));
+    assert_eq!((refused, knowledge), (13, 2));
     println!("serve: no project → {refused} project tools answered \"no project open\", {knowledge} knowledge tools answered");
 }
 
