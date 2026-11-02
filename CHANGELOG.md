@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.161 — 2026-11-02
+
+**Fix: a TextBox caption set to italic is drawn italic.** The caption was drawn with `painter.text`, which carries no style, so `CaptionFontItalic` (the "Legenda em itálico" box of the Properties pane) changed nothing on the designer canvas or in the running form. The caption is now laid out as one text with the italic format, and its background band is measured from that same text. The web player already slanted it through CSS. New test `an_italic_caption_is_drawn_italic` (italic, italic and bold, upright). Player rebuilt (only its build record changed). *Written on features-2x.*
+
 ## 2.0.160 — 2026-11-02
 
 **Fix (WASM-016 T17, first part): four differences between the page and the desktop are gone, and the rest are listed with their reasons.** An uncoloured chart now has the desktop's navy face on the page (a bar chart reads equal, a pie within 16 levels); the Knob is drawn with the painter's proportions and colours (equal, 0 levels); a CheckBox and a RadioButton raise `onMouseDown` / `onMouseUp` on a press and release over their caption. The comparison (`desktop_comparison_chrome`) reads a pie in the middle of its slices and a knob on its ring, where a pixel's error no longer changes the answer, and finds 8 differences instead of 12, all in the new `specs/WASM-016-prebuilt-player/differences.md` with the operator's rulings. The lifecycle comparison with the real host is still open (T17 stays unchecked). Player rebuilt. *Written on features-2x.*

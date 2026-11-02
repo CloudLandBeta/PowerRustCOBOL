@@ -53,3 +53,35 @@ fn a_caption_band_covers_every_character_and_adds_no_padding() {
     }
     println!("TextBox caption band: {cases} cases (plain 14, bold 14, 28, 40 pt), least band past the last letter {worst:.2} px, no padding");
 }
+
+fn italics_of(s: &Shape, found: &mut Option<bool>) {
+    match s {
+        Shape::Vec(v) => v.iter().for_each(|s| italics_of(s, found)),
+        Shape::Text(t) if t.galley.text().contains("Generated") => *found = Some(t.galley.job.sections[0].format.italics),
+        _ => {}
+    }
+}
+
+/// `CaptionFontItalic` reaches the canvas: the caption is drawn italic when it is set, upright when it is not (it was drawn
+/// with `painter.text`, which carries no style, so the box in the Properties pane changed nothing).
+#[test]
+fn an_italic_caption_is_drawn_italic() {
+    for (italic, bold) in [(true, false), (true, true), (false, false)] {
+        let mut c = Control::new("TXT-NOTES", ControlType::TextBox, 20, 60);
+        c.rect = MRect::new(20, 60, 400, 120);
+        c.set_prop("CaptionText", PropValue::String("Generated notes".into()));
+        c.set_prop("CaptionFontItalic", PropValue::Bool(italic));
+        c.set_prop("CaptionFontBold", PropValue::Bool(bold));
+        let ctx = egui::Context::default();
+        ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
+        let mut out = ctx.run_ui(input, |ui| draw_control(ui.painter(), pos2(0.0, 0.0), &c, false, true, 1.0, 1.0, None));
+        out.textures_delta.clear();
+        let mut found = None;
+        for s in &out.shapes {
+            italics_of(&s.shape, &mut found);
+        }
+        assert_eq!(found, Some(italic), "CaptionFontItalic {italic}, bold {bold}");
+    }
+}

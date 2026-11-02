@@ -2816,15 +2816,26 @@ fn paint_textbox_caption(painter: &egui::Painter, origin: Pos2, ctrl: &Control, 
         None
     }
     .unwrap_or_else(|| crate::fonts::font_id(painter.ctx(), &l.font.name, size));
+    // The caption as one galley: the font's Italic is a format of the text (egui slants the glyphs), which `painter.text` could
+    // not carry, so `CaptionFontItalic` changed nothing on the canvas (operator, 2026-11-02).
+    let galley = painter.layout_job({
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            &l.text,
+            0.0,
+            egui::text::TextFormat { font_id: font_id.clone(), color: ink, italics: l.font.italic, ..Default::default() },
+        );
+        job
+    });
     if let Some(bg) = &l.back_color {
         // The band follows the text that is really drawn: `textmetrics` measures the built-in regular face, and a bold
         // caption is drawn in the system's own, wider, bold face, which the band used to stop short of (operator, 2026-11-02:
         // the red did not reach the last letter). No padding: the band is the text's own rectangle, as spec 110 §5 has it.
-        let drawn = painter.layout_no_wrap(l.text.clone(), font_id.clone(), ink).size();
+        let drawn = galley.size();
         let band = Rect::from_min_size(min, Vec2::new(rect.width().max(drawn.x), rect.height().max(drawn.y)));
         painter.rect_filled(band, 0.0, fade(parse_color(bg)));
     }
-    painter.text(min, egui::Align2::LEFT_TOP, &l.text, font_id, ink);
+    painter.galley(min, galley, ink);
     let base = rect.max.y - 1.0;
     if l.font.underline {
         painter.hline(rect.x_range(), base, Stroke::new(1.0, ink));
