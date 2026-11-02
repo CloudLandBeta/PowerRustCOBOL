@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.158 — 2026-11-02
+
+**Specs: WASM-003 T15a-5 is closed.** It waited for WASM-016 T29b, which was finished in 2.0.114: the `e2e_chrome` scenarios *backend lost* (the page is blocked, then the modal goes and the form is as it was) and *backend down for good* (the *unreachable* event runs, Reload starts again) already measure what the task asked for, and the file's last full run is 30 passed, 0 failed. WASM-003's tasks.md evidence table and AC12 in spec.md are updated; no code changed. *Written on features-2x.*
+
 ## 2.0.157 — 2026-11-02
 
 **WASM-003 T15b: the channel between a Web frontend and its backend is encrypted on top of TLS (wire protocol 2).** When a connection opens, both sides make an X25519 key pair (the backend when it starts, the application when it opens), swap the public keys and a nonce in the two `hello`s, agree one ChaCha20-Poly1305 key per direction (HKDF-SHA256) and carry every later message as one sealed binary frame, so a proxy that ends TLS, or a recording of an earlier start, reads and replays nothing. There is nothing to set; no key is stored, logged or placed in a build. The browser's keys come from `crypto.getRandomValues` and never from `Math.random`; with no random source there is no connection and no plaintext mode. Protocol 1 is refused with a *version* error, so **a Web bundle and a backend built before and after this change do not talk: rebuild both**. `max_frame_bytes` stays the limit of the plaintext. Done in one change across `cobolt-wire`, the backend, the Rust client, the player (rebuilt, +44 kB), the mock backends and the minimal client of the build test; ABI row A22; System KB regenerated. Also fixes a bug of 2.0.153: the "Definition for AI" text area drew with fixed widget ids, so two of them in one frame (the binding editor over the Properties pane) clashed. Evidence in WASM-003's `tasks.md` (AC11 and AC1–AC10 re-run, Chrome 30/0). Written on features-2x.

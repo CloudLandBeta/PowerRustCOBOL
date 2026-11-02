@@ -155,7 +155,7 @@ user obtains the JWT is WASM-009.
 - [ ] **AC10** — A secret planted in a frontend form stops the frontend build (WASM-002 AC5) while the same value in the backend configuration does not.
 
 - [ ] **AC11** — A capture of the channel between a frontend and its backend, taken at the TLS endpoint (a terminating proxy), holds no readable frame: every call and answer is ciphertext under the key pair generated at this start of the application, and a restart of the application yields a different key pair, so the capture does not decrypt the next session either.
-- [ ] **AC12** — With the backend stopped, the frontend attempts to reconnect three times with timeouts of 10 s, 20 s and 30 s (measured), then raises the exception: the waiting call reaches `ON EXCEPTION` with the class *transport*, and no fourth attempt is made. With the backend back before the third timeout, the connection is re-established, the modal of WASM-016 AC13 disappears, a call whose program is declared safe to repeat completes, and another is reported with *transport*.
+- [x] **AC12** — With the backend stopped, the frontend attempts to reconnect three times with timeouts of 10 s, 20 s and 30 s (measured), then raises the exception: the waiting call reaches `ON EXCEPTION` with the class *transport*, and no fourth attempt is made. With the backend back before the third timeout, the connection is re-established, the modal of WASM-016 AC13 disappears, a call whose program is declared safe to repeat completes, and another is reported with *transport*.
 
 ## 6. Constraints & steering check
 

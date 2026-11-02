@@ -621,10 +621,14 @@ starts a new cycle; **O9** the Rust client runs the same policy and exposes the 
   - Verify: `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test freshness --no-fail-fast` (3 pass);
     `cargo test -p cobolt-web-bundle --no-fail-fast`.
 
-- [ ] **T15a-5 — The blocked state reaches the page in the browser** (R26; AC12 browser half) — *runs with or after WASM-016 T29b*
-  - *State (2026-10-31):* **open — WASM-016 T29b is not done** (`specs/WASM-016-…/tasks.md:423`, unchecked). What exists is in place
-    for it: `Player::stats()` `blocked`/`unreachable`. The updated `e2e_chrome` *backend lost* scenario already saw `blocked: true` in
-    Chrome. `mock_backend.rs` was not changed: the e2e test's own backend already stops and restarts on one port.
+- [x] **T15a-5 — The blocked state reaches the page in the browser** (R26; AC12 browser half) — *runs with or after WASM-016 T29b*
+  - *Result (2026-11-02, 2.0.158):* **done — WASM-016 T29b was finished in 2.0.114** (`specs/WASM-016-…/tasks.md:424`, checked), so
+    the two halves this task waited for are measured there, in the same `e2e_chrome` file, against a backend the test stops and restarts
+    on one port (`mock_backend.rs` needed no change). *Backend lost:* the player reports `blocked: true` in 601 frames, each with the
+    modal up, and at the reconnection `blocked` is false, the modal is gone and TXT-IN is as it was. *Backend down for good:* attempts at
+    0.00 / 10.02 / 30.01 s, give-up at 60.01 s, `onBackendUnreachable` runs on the main form, and Reload starts the application again.
+    Last full run of the file, 2026-11-02 (2.0.157): 30 passed, 0 failed (15 scenarios × window and `<div>`). No code changed for this box.
+  - *State before (2026-10-31):* open while T29b was not done. `Player::stats()` `blocked`/`unreachable` already existed.
   - Files: `crates/cobolt-web-bundle/examples/mock_backend.rs` (a way for the test to stop and restart it), `crates/cobolt-web-bundle/tests/e2e_chrome.rs`.
   - Do: against `mock_backend` stopped and restarted, assert the page sees *blocked* on/off and, when it stays down, the *unreachable* event
     (WASM-016 R21). The modal's look is WASM-016 AC13–AC14, not this task's. **If T29b is not done when T15a runs**, this task stays open, and
@@ -645,7 +649,7 @@ starts a new cycle; **O9** the Rust client runs the same policy and exposes the 
     `idempotent` are repeated. No new `COBOL::"…"` built-in. `cargo run -p cobolt-ide --example build_chunked_kb` in the same change.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation`; record count and byte size printed.
 
-- [x] **T15a-7 — Evidence and Finalize for T15a** (AC12; all of T15a) — see *Evidence (T15a)* below; T15a-5 stays open (WASM-016 T29b)
+- [x] **T15a-7 — Evidence and Finalize for T15a** (AC12; all of T15a) — see *Evidence (T15a)* below; T15a-5 was closed later (2.0.158)
   - Files: this file (an *Evidence (T15a)* table: AC12 row, the test, the measured windows), `crates/cobolt-ide/src/version.rs` (bump `z`
     **once**: `2.0.102` today → the next free `2.0.z` at the time), `CHANGELOG.md` (one entry **above** the previous heading,
     `## [PowerRustCOBOL 2.0.z] — <date>`, *Written on features-2x*, listing T15a-1…6). **No documentation task:** `README.md` and `docs/`
@@ -669,7 +673,7 @@ not run.**
 | AC12 — three timed attempts, then the exception (Rust client, spec values) | `loopback::the_retry_windows_are_10_20_30_seconds` | pass; attempts at 0.00 / 10.01 / 30.01 s after the break, windows **10.00 / 20.00 / 30.00 s**, given up at 60.01 s, the waiting call `TRANSPORT` 1001 (its 60 s call timeout did not fire), no fourth connection |
 | AC12 — back before the third: safe call completes, the other `transport` | `loopback::a_broken_connection_is_retried_by_the_policy_then_given_up` (1.5/3/4.5 s policy) | pass; reconnected at 1505 ms, SAFE-READ repeated, UNSAFE-WRITE 1001 `may_have_run: true`; stopped for good: connections at 2 / 1504 / 4508 ms, sent 1001, queued 1000, `unreachable` |
 | AC12 — the player, simulated clock | `net::tests::a_break_is_retried_at_10_20_30_seconds_then_given_up`, `success_in_attempt_2_…`, `a_failed_first_connection_…` | pass; attempts opened at 0 / 10 000 / 30 000 ms, `blocked=true, blocked=false, unreachable=true`, no 1002 during the cycle |
-| AC12 — the browser half | `e2e_chrome` *backend lost* scenario (updated, see below) | **partial, T15a-5 open.** In Chrome the player reported `blocked: true` while it retried, the lost call reached `ON EXCEPTION` with 1001 `may_have_run: true` when attempt 2 reconnected, and a later call answered `pong`. *Not shown:* the modal disappearing and the *unreachable* event (WASM-016 AC13/R21) — they wait for WASM-016 T29b |
+| AC12 — the browser half | `e2e_chrome` *backend lost* scenario (updated, see below) | **pass (T15a-5 closed 2026-11-02).** In Chrome the player reported `blocked: true` while it retried, the lost call reached `ON EXCEPTION` with 1001 `may_have_run: true` when attempt 2 reconnected, and a later call answered `pong`. The modal going away and the *unreachable* event are measured by WASM-016 T29b (2.0.114; AC13 and AC14, `e2e_chrome` 30 passed, 0 failed on 2026-11-02) |
 | Parity (compiled binary) | `compiled_app_calls_backend` (`--ignored`) | pass; built in 20.0 s; it links this client |
 
 **`e2e_chrome` changed with the rule.** Its *backend lost (AC5)* scenario waited 20 s for the in-flight call to fail **before**
