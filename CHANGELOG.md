@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.168 — 2026-11-02
+
+**Spec 109: the COBOL result-block tests for S1, S2 and S3, and the task list brought up to date.** Three self-checking programs, each ending in one result block with the cases run, per-phase timing and throughput (rule #7): `tests/cobol/collections/test-collections.cbl` (Map, Filter, SortByDescending, Take, Join, Sum, Max and `PERFORM VARYING … THROUGH`; 10 of 10, ~18,000 chains/sec), `tests/cobol/format/test-format.cbl` (number, currency, compact, currency-short and percent in pt-BR, en-US and fr-FR, names ignoring case; 11 of 11, ~60,000 calls/sec) and `tests/cobol/functions/test-functions.cbl` (`FUNCTION-ID` by value, nested, recursive and inside a condition; 8 of 8). The format programs compare against the no-break space the formatter writes between a symbol and its number, as CLDR does. `specs/109-rustcobol-extensions/tasks.md` ticks the tasks that landed with 2.0.104–2.0.124 and had been left unchecked; the slice closes, T-IDE, T-KB, T-DOC and T-FIN stay open.
+
 ## 2.0.167 — 2026-11-02
 
 **WASM-017 T11a: findings recorded; the work moves to the next week cycle.** Reading the generator for the three cells the hand-written fixture covers, the event argument turned out to have no counterpart in a generated module: the desktop binds an event's payload into the handler's data items (`CONTROL-NODE` and its siblings) before the handler runs, while `pr_event` ignores its `argc`. The operator ruled to match the desktop. `specs/WASM-017-module-architecture-and-js-boundary/tasks.md` now holds what the desktop does, what the module lacks and what to build, and the order: T11a, T12, T13, with T11 last. No code changed.

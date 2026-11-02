@@ -35,17 +35,17 @@ finished module's execution pass (rule #9).
 
 ## S3 — Collections and `PERFORM … THROUGH`
 
-- [ ] **T3.1 — Lexer: `=>` token** (R12)
+- [x] **T3.1 — Lexer: `=>` token** (R12)
   - Files: `crates/cobolt-lexer/src/token.rs`, tests.
   - Verify: `cargo test -p cobolt-lexer`; `=>` lexes, `<>`/`>=`/`=` unchanged.
 
-- [ ] **T3.2 — Collection value in the interpreter** (R11, R13, R14)
+- [x] **T3.2 — Collection value in the interpreter** (R11, R13, R14)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (value type), `crates/cobolt-ast/src/value_methods.rs`.
   - Do: ordered collection value; OCCURS fixed and ODO extents; table assignment with
     compatibility and capacity checks, overflow diagnosed, unused occurrences initialised.
   - Verify: `cargo test -p cobolt-runtime`; new cases for AC5 extents and overflow.
 
-- [ ] **T3.3 — Methods `Join Map Filter Sum Max SortByDescending Take`** (R11, R12, R15, R37)
+- [x] **T3.3 — Methods `Join Map Filter Sum Max SortByDescending Take`** (R11, R12, R15, R37)
   - Files: `crates/cobolt-ast/src/methods.rs` (`is_known_method`), `interpreter.rs`, `crates/cobolt-parser/src/expr.rs` (lambda `ITEM => expr`).
   - Do: one canonical spelling each; pure-call lambda check (Q3), a failing element
     fails the expression naming its position; stable non-mutating sort; `Sum` of empty
@@ -54,12 +54,12 @@ finished module's execution pass (rule #9).
     test `every_dispatched_control_method_is_spellable_inline` goes red when any listed
     method is removed (AC22).
 
-- [ ] **T3.4 — `Split` as collection only in collection context** (R38)
+- [x] **T3.4 — `Split` as collection only in collection context** (R38)
   - Files: `interpreter.rs`, `methods.rs`.
   - Verify: existing `Split(",")(2)` and unsubscripted-`Split` tests stay green; new
     cases for receiver-of-method, THROUGH source, declared-table assignment (AC5).
 
-- [ ] **T3.5 — `PERFORM VARYING element THROUGH collection`** (R16)
+- [x] **T3.5 — `PERFORM VARYING element THROUGH collection`** (R16)
   - Files: `crates/cobolt-ast/src/stmt.rs` (`PerformTarget` variant), `crates/cobolt-parser/src/stmt.rs`, `interpreter.rs`, `crates/cobolt-semantic`.
   - Do: snapshot at loop start; element is the occurrence (OCCURS), the live control
     (control collection) or a copy (computed); exists only inside the loop (Q4); nesting
@@ -67,7 +67,7 @@ finished module's execution pass (rule #9).
   - Verify: tests for nested loops, early exit, evaluation count; the three old PERFORM
     forms unchanged (AC6).
 
-- [ ] **T3.6 — COBOL test with result block** (rule #7)
+- [x] **T3.6 — COBOL test with result block** (rule #7)
   - Files: `tests/cobol/collections/*.cbl`.
   - Verify: ONE result block (name, cases, phase ms, throughput, tally); run via `rcrun`.
 
@@ -75,7 +75,7 @@ finished module's execution pass (rule #9).
 
 ## S2 — Interpolation, `Format`, `FORMAT`/`LOCALE`
 
-- [ ] **T2.1 — Shared formatter crate** (R9, R23)
+- [x] **T2.1 — Shared formatter crate** (R9, R23)
   - Files: new crate under `crates/` (name fixed here), workspace `Cargo.toml`; consumers `cobolt-runtime`, `cobolt-wasm-rt`.
   - Do: number, currency, compact, currency-short, percent (ratio, Q2); locales
     pt-BR, en-US, fr-FR with pinned data and version; explicit currency or project default.
@@ -86,64 +86,64 @@ finished module's execution pass (rule #9).
   - Files: `crates/cobolt-ide/src/project_model.rs` (beside `[project] locale`), Settings `Tr` ×6.
   - Verify: manifest round-trips; absent default plus bare `currency-short` is a diagnostic.
 
-- [ ] **T2.3 — `F"…"` lexing and parsing** (R4, R5)
+- [x] **T2.3 — `F"…"` lexing and parsing** (R4, R5)
   - Files: `cobolt-lexer/src/token.rs`, `cobolt-parser/src/expr.rs`, `cobolt-ast/src/expr.rs`.
   - Do: embedded expressions, single `:` option vs `::` member, `{{`/`}}`, nested
     string rule, spans for unmatched braces and bad expressions.
   - Verify: parser tests incl. `{WS-A::Trim():number}`; malformed strings name the expression (AC2).
 
-- [ ] **T2.4 — `FORMAT [IS]` / `LOCALE [IS]` data clauses** (R6–R8, R28)
+- [x] **T2.4 — `FORMAT [IS]` / `LOCALE [IS]` data clauses** (R6–R8, R28)
   - Files: `cobolt-parser/src/data.rs` (the clause no longer reaches the skip-with-warning path), `cobolt-ast/src/data.rs`, `cobolt-semantic`.
   - Do: recognised by position only; literal or alphanumeric-item locale, qualified
     allowed, trailing spaces ignored, case-insensitive; invalid → error.
   - Verify: a fixture declaring `01 FORMAT PIC X.` and `01 LOCALE PIC X.` compiles and
     runs unchanged; DateTimePicker/Viewer `Format` property unchanged (AC3).
 
-- [ ] **T2.5 — Runtime: `::Format()`, interpolation, DISPLAY/STRING** (R5, R6, R10)
+- [x] **T2.5 — Runtime: `::Format()`, interpolation, DISPLAY/STRING** (R5, R6, R10)
   - Files: `interpreter.rs`, `builtins.rs`, `methods.rs` (`Format` listed, R37).
   - Do: apply in DISPLAY, STRING, interpolation, `Format()` only; locale re-read on
     every operation; MOVE, groups, file/SQL I/O, REDEFINES never format; one evaluation, left to right.
   - Verify: counter test for evaluation order; two displays with a changed locale; stored values byte-identical (AC2–AC4).
 
-- [ ] **T2.6 — COBOL test with result block** — `tests/cobol/format/*.cbl`, rule #7.
+- [x] **T2.6 — COBOL test with result block** — `tests/cobol/format/*.cbl`, rule #7.
 
 - [ ] **T2.7 — Slice close S2** — standing verification + NIST census (new token `F"`, clause words); WASM: formatter shared source, `rt.wasm` rebuilt (`cargo run -p cobolt-wasm --example build_rt`), differential cases; KB, `Tr`, `z`, CHANGELOG, guide notes. (AC2, AC3, AC4, AC12)
 
 ## S1 — `FUNCTION-ID`
 
-- [ ] **T1.1 — Lexer and parser: function units** (R1)
+- [x] **T1.1 — Lexer and parser: function units** (R1)
   - Files: `cobolt-lexer/src/keywords.rs`, `cobolt-parser/src/parser.rs`, `cobolt-ast/src/program.rs`.
   - Do: `FUNCTION-ID … END FUNCTION`, LINKAGE, `USING BY VALUE|REFERENCE`, `RETURNING`, `GOBACK`.
   - Verify: `cargo test -p cobolt-parser`; standalone and project units parse.
 
-- [ ] **T1.2 — REPOSITORY registration and project-wide visibility** (R2, Q5)
+- [x] **T1.2 — REPOSITORY registration and project-wide visibility** (R2, Q5)
   - Files: `cobolt-codegen/src/lib.rs` (REPOSITORY parse/write-back), `cobolt-compiler`, `cobolt-cli`, `cobolt-semantic`.
   - Do: units from `src/*.cbl` visible project-wide; a name equal to an intrinsic is refused naming both.
   - Verify: arity/category diagnostics; clash diagnostic test.
 
-- [ ] **T1.3 — Runtime: call, activation isolation, return** (R2, R3)
+- [x] **T1.3 — Runtime: call, activation isolation, return** (R2, R3)
   - Files: `interpreter.rs` (`Expr::FunctionCall` reaches user functions).
   - Verify: numeric/text returns, nested calls, recursion, one evaluation per argument, sign/scale/length preserved, no global mailbox (AC1).
 
-- [ ] **T1.4 — WebAssembly build-time refusal** (R23)
+- [x] **T1.4 — WebAssembly build-time refusal** (R23)
   - Files: `crates/cobolt-wasm`, `specs/WASM-PARITY.md` (row 4 reference).
   - Verify: a Web project using a user function fails the build naming the construct.
 
-- [ ] **T1.5 — COBOL test with result block** — `tests/cobol/functions/*.cbl`, rule #7.
+- [x] **T1.5 — COBOL test with result block** — `tests/cobol/functions/*.cbl`, rule #7.
 - [ ] **T1.6 — Slice close S1** (AC1, AC12)
 
 ## S4 — `Descendants`, `Controls`, `SetProperties`
 
-- [ ] **T4.1 — Shared parent-membership walk** (R17, R19)
+- [x] **T4.1 — Shared parent-membership walk** (R17, R19)
   - Files: `cobolt-forms` (new shared fn), callers `cobolt-ide/src/panels/designer.rs` (`cascade_ids_for`) and the renderer.
   - Verify: designer delete/copy and render tests unchanged; `engine_reference_form_parity_static_vs_faces` green.
 
-- [ ] **T4.2 — `Descendants()` and `Controls(id…)`** (R17, R37)
+- [x] **T4.2 — `Descendants()` and `Controls(id…)`** (R17, R37)
   - Files: `methods.rs`, `interpreter.rs`, `cobolt-form-host`.
   - Do: root excluded, hidden included, nonvisual excluded, preorder by sibling order, references to live controls; argument order kept; missing/duplicate IDs rejected.
   - Verify: tests incl. an overlapping non-child excluded (AC7).
 
-- [ ] **T4.3 — `SetProperties("Name" value …)`** (R18, Q11)
+- [x] **T4.3 — `SetProperties("Name" value …)`** (R18, Q11)
   - Files: `methods.rs`, `interpreter.rs`.
   - Do: values evaluated once; validate all, then write; no partial write.
   - Verify: duplicate/missing IDs, bad property, bad type → zero writes; bound notifications fire (AC8).
@@ -152,10 +152,10 @@ finished module's execution pass (rule #9).
 
 ## S8 — Direct result binding
 
-- [ ] **T8.1 — Binding model extension** (R34, R35)
+- [x] **T8.1 — Binding model extension** (R34, R35)
   - Files: `cobolt-forms/src/model.rs` (`DataBindingDef`, `serde(default)`).
   - Verify: old `.cfrm` load and save unchanged.
-- [ ] **T8.2 — Populate/refresh from the PartiQL result set** (R26, R34)
+- [x] **T8.2 — Populate/refresh from the PartiQL result set** (R26, R34)
   - Files: `cobolt-codegen` (`COBOL-DATA-BINDINGS-POPULATE`), `cobolt-runtime`.
   - Do: consume 108's result contracts (R19–R21, R31–R35); no mixed old/new rows; parameters evaluated once; paging reused.
   - Verify: grid/chart/list/repeating-group comparisons, nulls, decimals, empty, failures (AC19). Spec 108's folder unchanged (AC13).
