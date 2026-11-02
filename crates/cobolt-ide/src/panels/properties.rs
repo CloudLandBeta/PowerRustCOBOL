@@ -6363,6 +6363,16 @@ impl PropertiesPanel {
                 ));
             }
         });
+        // "Definition for AI": what this control is for, written for an AI agent (a property of the control).
+        {
+            let cur = ctrl.get_prop("Definition").map(|v| v.as_str().to_owned()).unwrap_or_default();
+            let tip = if ctrl.control_type.is_non_visual() { tr.tip_def_ai_nonvisual } else { tr.tip_def_ai_control };
+            let salt = format!("{id}-Definition");
+            let buf = self.text_bufs.entry(salt.clone()).or_insert_with(|| cur.clone());
+            if let Some(text) = definition_row(ui, &salt, buf, &cur, tr.lbl_definition_ai, tip) {
+                action.set_props.push((id.to_owned(), "Definition".into(), PropValue::String(text)));
+            }
+        }
         // WASM-004 T34 — the name a screen reader announces, on every control (empty: the caption, the Label
         // before it in tab order, or the Tooltip).
         let key = cobolt_forms::accessible::ACCESSIBLE_LABEL;
@@ -12549,6 +12559,15 @@ impl PropertiesPanel {
             }
         });
 
+        // "Definition for AI": what this layer is for and when it is shown.
+        {
+            let salt = format!("layer-{}-Definition", layer.name);
+            let buf = self.form_bufs.entry(salt.clone()).or_insert_with(|| layer.definition.clone());
+            if let Some(text) = definition_row(ui, &salt, buf, &layer.definition, tr.lbl_definition_ai, tr.tip_def_ai_layer) {
+                action.layer_props.push(("Definition".into(), text));
+            }
+        }
+
         section_header(ui, tr.sec_appearance);
         property_row_keyed(ui, tr.lbl_back_color, Some("BackgroundColor"), |ui| {
             let mut color = hex_to_color32(&b.color);
@@ -12679,6 +12698,14 @@ impl PropertiesPanel {
                 property_row_keyed(ui, tr.lbl_size, Some("Size"), |ui| {
                     ui.label(format!("{} × {}", form.width, form.height));
                 });
+
+                // "Definition for AI": what this form is for, written for an AI agent.
+                {
+                    let buf = self.form_bufs.entry("form-Definition".to_owned()).or_insert_with(|| form.definition.clone());
+                    if let Some(text) = definition_row(ui, "form-Definition", buf, &form.definition, tr.lbl_definition_ai, tr.tip_def_ai_form) {
+                        action.form_props.push(("Definition".into(), text));
+                    }
+                }
 
                 // ── Layout (spec 056) ─────────────────────────────────────────────────
                 self.show_form_layout(ui, form, action, tr);
@@ -14102,6 +14129,8 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
     let label_lines = label_width.div_ceil(approx_chars_per_line).clamp(1, 3);
     let content_height =
         base_height.max(ui.text_style_height(&egui::TextStyle::Body) * label_lines as f32 + 10.0);
+    // A row taller than one line (the Definition for AI text area) keeps its content whole.
+    let content_height = TALL_ROW.with(|t| t.get()).map_or(content_height, |h| content_height.max(h));
     let row_height = content_height + 2.0 * V_PAD;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(full, row_height), Sense::hover());
     if let Some(key) = key.filter(|_| crate::panels::task_wizard::anchors::is_open()) {
@@ -14182,7 +14211,8 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
                     ui.label(RichText::new("CSS").small().strong().color(crate::theme::active().accent)).on_hover_text(tip);
                 }
                 let r = ui.add(egui::Label::new(shown).wrap());
-                let help = prop_help_text(ui, &key);
+                // A row may carry its own tooltip (the Definition for AI rows: it depends on what is selected).
+                let help = ROW_TIP.with(|t| t.get()).or_else(|| prop_help_text(ui, &key));
                 if help.is_none() {
                     record_help_miss(label);
                 }
@@ -14213,6 +14243,34 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
             });
         },
     );
+}
+
+/// A property row taller than one line, with its own tooltip on the label: `content_h` is the height of what
+/// the value cell holds. Used by the Definition for AI rows, whose text area is 5 lines high.
+fn property_row_tall(ui: &mut Ui, label: &str, tip: &'static str, content_h: f32, value: impl FnOnce(&mut Ui)) {
+    TALL_ROW.with(|t| t.set(Some(content_h)));
+    ROW_TIP.with(|t| t.set(Some(tip)));
+    property_row_keyed(ui, label, None, value);
+    TALL_ROW.with(|t| t.set(None));
+    ROW_TIP.with(|t| t.set(None));
+}
+
+/// The Definition for AI row of a form, layer or control: the text area, kept in `buf` while it is edited.
+/// Returns the text to commit — once, when the area loses the focus with something new in it.
+fn definition_row(ui: &mut Ui, salt: &str, buf: &mut String, current: &str, label: &str, tip: &'static str) -> Option<String> {
+    let wid = egui::Id::new(("definition-for-ai", salt));
+    if buf.as_str() != current && !ui.memory(|m| m.has_focus(wid)) {
+        *buf = current.to_owned();
+    }
+    let height = super::definition_box::comment_box_size(ui).y;
+    let mut committed = None;
+    property_row_tall(ui, label, tip, height, |ui| {
+        let out = super::definition_box::comment_editor_out(ui, buf, Some(wid));
+        if out.lost_focus && buf.as_str() != current {
+            committed = Some(buf.clone());
+        }
+    });
+    committed
 }
 
 /// The pane's text is this many points smaller than the IDE's.
@@ -14257,6 +14315,9 @@ thread_local! {
     /// WASM-004 R6 — while a web or mobile form is inspected, the start of an approximate property's tooltip;
     /// `None` on a desktop form, where every row is drawn as before.
     static WEB_FORM: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    /// The row being drawn is taller than one line: its content height. And its own tooltip, if it has one.
+    static TALL_ROW: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
+    static ROW_TIP: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
 }
 
 /// The property a row edits: its key, else its English label without spaces or a trailing colon.

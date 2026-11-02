@@ -1469,6 +1469,33 @@ mod layer_props {
         assert_eq!(backdrop(&d, "Layer-1").color, LAYER_TRANSPARENT_COLOR);
     }
 
+    /// "Definition for AI" on a layer and on the form: each is one undo step, a text it already has is none,
+    /// and undo puts the old text back.
+    #[test]
+    fn a_layer_and_the_form_take_a_definition_as_one_undo_step_each() {
+        let mut d = DesignerPanel::new(form_with_layers(1));
+        d.set_layer_definition("Layer-1", "Shown while a customer is being deleted.\nIt dims the form.");
+        assert_eq!(d.undo_stack.len(), 1);
+        assert_eq!(d.form.layers[0].definition, "Shown while a customer is being deleted.\nIt dims the form.");
+        d.set_layer_definition("Layer-1", "Shown while a customer is being deleted.\nIt dims the form.");
+        assert_eq!(d.undo_stack.len(), 1, "the same text is no step");
+        d.set_layer_definition("Layer-9", "x");
+        assert_eq!(d.undo_stack.len(), 1, "an unknown layer is refused");
+
+        d.set_form_prop("Definition", "Customer maintenance screen.".to_owned());
+        assert_eq!(d.undo_stack.len(), 2);
+        assert_eq!(d.form.definition, "Customer maintenance screen.");
+        assert!(d.dirty);
+        d.set_form_prop("definition", "Customer maintenance screen.".to_owned());
+        assert_eq!(d.undo_stack.len(), 2, "the same text is no step, whatever the case of the key");
+
+        d.undo();
+        assert_eq!(d.form.definition, "");
+        d.undo();
+        assert_eq!(d.form.layers[0].definition, "");
+        println!("definition for AI in the designer: layer and form take it as one undo step each; undo restores");
+    }
+
     /// AC8, R32 — every backdrop property takes the value written, as one undo step.
     #[test]
     fn each_backdrop_property_is_one_undo_step() {

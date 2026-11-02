@@ -7797,6 +7797,14 @@ impl DesignerPanel {
     }
 
     pub fn set_form_prop(&mut self, key: &str, value: String) {
+        // "Definition for AI": the form's own text, one undo step like any form property.
+        if key.trim().eq_ignore_ascii_case("Definition") {
+            let old = self.form.definition.clone();
+            if old != value {
+                self.apply(Cmd::SetFormProp { key: "Definition".to_owned(), old, new: value });
+            }
+            return;
+        }
         let Some(canonical) = canonical_form_prop_key(key) else {
             return;
         };
@@ -8470,6 +8478,10 @@ impl DesignerPanel {
     /// the undo machinery drive. Case-insensitive like the public setter.
     fn set_form_prop_direct(&mut self, key: &str, value: String) {
         match canonical_form_prop_key(key).unwrap_or(key) {
+            "Definition" => {
+                self.form.definition = value;
+                self.dirty = true;
+            }
             "Title" => {
                 self.form.title = value;
                 self.dirty = true;
@@ -15723,6 +15735,20 @@ impl DesignerPanel {
     /// R32), by the names of [`cobolt_forms::model::LAYER_PROPS`]. One undo step; a
     /// value the layer already has makes none. `Name` is a rename and `Visible` is
     /// not a designed property (R35): neither is written here.
+    /// A layer's "Definition for AI": one undo step, like any change to the layers.
+    pub(crate) fn set_layer_definition(&mut self, layer: &str, text: &str) {
+        let Some(i) = self.form.layer_index(layer) else {
+            return;
+        };
+        if self.form.layers[i].definition == text {
+            return;
+        }
+        let before = self.form.layers.clone();
+        let mut after = before.clone();
+        after[i].definition = text.to_owned();
+        self.apply(Cmd::SetLayers { before, after });
+    }
+
     pub(crate) fn set_layer_prop(&mut self, layer: &str, key: &str, value: &str) {
         let Some(i) = self.form.layer_index(layer) else {
             return;

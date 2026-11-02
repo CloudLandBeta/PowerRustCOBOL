@@ -36,6 +36,7 @@ pub mod indexed_field_control;
 pub mod indexed_grid;
 pub mod import_keys_modal;
 pub mod indexed_new_dialog;
+pub mod definition_box;
 pub mod indexed_properties;
 pub mod layer_tabs;
 pub(crate) mod layout_grid_edit;

@@ -20654,7 +20654,11 @@ impl CoboltApp {
                 // A rename above may have changed the layer's name; the tab follows it.
                 let layer = d.tabs.active_layer().map(str::to_owned).unwrap_or(layer);
                 for (key, value) in std::mem::take(&mut inspector_action.layer_props) {
-                    d.set_layer_prop(&layer, &key, &value);
+                    if key == "Definition" {
+                        d.set_layer_definition(&layer, &value);
+                    } else {
+                        d.set_layer_prop(&layer, &key, &value);
+                    }
                 }
             }
         }
