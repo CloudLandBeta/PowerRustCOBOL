@@ -264,17 +264,20 @@ fn write_field(out: &mut String, field: &IndexedField, indent: usize) {
 /// from the generated `.cbl` — the one artefact the developer actually reads.
 /// Two renderers of one record that disagreed.
 fn write_field_comment(out: &mut String, field: &IndexedField) {
-    if !field.comment.trim().is_empty() {
-        out.push_str(&format!(" *> {}", field.comment.trim()));
+    // The comment may span lines (the editor's text area): on this line it is one, so a second line
+    // is never read as code.
+    let one = cobolt_indexed::comment_on_one_line(&field.comment);
+    if !one.is_empty() {
+        out.push_str(&format!(" *> {one}"));
     }
 }
 
-/// The file's stated purpose, as a comment line above its `FD`.
+/// The file's stated purpose, as comment lines above its `FD` — one `*>` line for each line the developer wrote.
 ///
 /// Emitted by both FD writers so the two stay in step.
 fn write_file_purpose(out: &mut String, def: &IndexedDefinition) {
-    if !def.comment.trim().is_empty() {
-        out.push_str(&format!("      *> {}\n", def.comment.trim()));
+    for line in def.comment.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        out.push_str(&format!("      *> {line}\n"));
     }
 }
 
@@ -469,6 +472,27 @@ mod tests {
         let mut def = sample();
         def.fields[0].children[0].comment = "   ".into();
         assert!(generate_indexed(&def).contains("PIC 9(8).\n"));
+    }
+
+    /// The Indexed File Editor's comment is a text area: a comment of several lines must not leak a
+    /// second line into the program as code. The field's rides on its own line, joined; the file's
+    /// purpose is one `*>` line for each line written.
+    #[test]
+    fn a_multi_line_comment_never_becomes_code() {
+        let mut def = sample();
+        def.comment = "Customer master\n  kept by sales\n\nsee 4.2".into();
+        def.fields[0].children[0].comment = "Key of the\r\ncustomer".into();
+        let out = generate_indexed(&def);
+        for line in out.lines() {
+            let t = line.trim();
+            assert!(
+                !(t == "kept by sales" || t == "see 4.2" || t == "customer"),
+                "a comment line escaped as code: {line:?}\n{out}"
+            );
+        }
+        assert!(out.contains("*> Customer master\n"), "{out}");
+        assert!(out.contains("*> kept by sales\n") && out.contains("*> see 4.2\n"), "{out}");
+        assert!(out.contains(" *> Key of the customer\n"), "{out}");
     }
 
     #[test]

@@ -66,7 +66,7 @@ pub fn record_to_text(def: &IndexedDefinition) -> String {
         }
         line.push_str(".");
         if !f.comment.is_empty() {
-            line.push_str(&format!(" *> {}", f.comment));
+            line.push_str(&format!(" *> {}", crate::model::comment_on_one_line(&f.comment)));
         }
         lines.push(line);
     }

@@ -17,6 +17,7 @@ pub mod xml;
 
 pub use control_defaults::{apply_default_controls, default_control_for_field};
 pub use model::{
+    comment_on_one_line,
     AccessMode, FieldUsage, IndexedDefinition, IndexedField, KeyDef, KeyEncodingDef,
     KeyOrderingDef, KeyPartDef, KeySchema, RecordFormatDef, StorageMode,
 };

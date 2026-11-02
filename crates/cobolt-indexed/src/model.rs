@@ -355,3 +355,22 @@ impl IndexedDefinition {
         off
     }
 }
+
+/// A comment written in the Indexed File Editor's text area may span lines. Anywhere it has to ride on ONE
+/// line of COBOL — the trailing `*>` of a field, the raw-text view — its lines are joined with a single
+/// space, so a second line can never be read as code. The stored comment is not changed.
+pub fn comment_on_one_line(comment: &str) -> String {
+    comment.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod comment_tests {
+    use super::comment_on_one_line;
+
+    #[test]
+    fn lines_are_joined_with_one_space_and_blank_lines_go() {
+        assert_eq!(comment_on_one_line("Customer master\r\n  kept by sales \n\n(see 4.2)"), "Customer master kept by sales (see 4.2)");
+        assert_eq!(comment_on_one_line("one line"), "one line");
+        assert_eq!(comment_on_one_line(" \n "), "");
+    }
+}

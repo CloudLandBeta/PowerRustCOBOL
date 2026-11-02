@@ -11,7 +11,13 @@ use cobolt_indexed::{AccessMode, FieldUsage, IndexedDefinition, IndexedField, Re
 
 use crate::i18n::Tr;
 
-const COMMENT_MAX_LEN: usize = 128;
+/// The comment is a text area now (5 lines by 60 columns to begin with), so it can hold more than the
+/// single line it used to.
+const COMMENT_MAX_LEN: usize = 500;
+const COMMENT_COLS: f32 = 60.0;
+const COMMENT_ROWS: f32 = 5.0;
+/// Room around the text inside the box and below it, in points.
+const COMMENT_PAD: f32 = 10.0;
 const NAME_MAX_CHARS: usize = 30;
 const PROP_ROW_H: f32 = 30.0;
 
@@ -20,8 +26,87 @@ fn label_with_colon(text: &str) -> String {
     format!("{t}:")
 }
 
+/// The box's size when the user has not dragged it: 60 columns by 5 lines of the body font.
+fn comment_box_default(ui: &egui::Ui) -> egui::Vec2 {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let (cw, rh) = ui.fonts_mut(|f| (f.glyph_width(&font, '0'), f.row_height(&font)));
+    egui::vec2(COMMENT_COLS * cw + COMMENT_PAD, COMMENT_ROWS * rh + COMMENT_PAD)
+}
+
+/// A size the user dragged the box to, kept between a third of the default and a few times it, so a
+/// slip of the mouse can neither hide the box nor swallow the pane.
+fn clamp_comment_box(size: egui::Vec2, default: egui::Vec2) -> egui::Vec2 {
+    egui::vec2(
+        size.x.clamp(default.x * 0.33, default.x * 2.5),
+        size.y.clamp(default.y * 0.4, default.y * 6.0),
+    )
+}
+
+fn comment_box_id() -> egui::Id {
+    egui::Id::new("indexed-comment-box-size")
+}
+
+/// The comment box's current size. One size for the file, record and field editors, kept for the session.
+fn comment_box_size(ui: &egui::Ui) -> egui::Vec2 {
+    let default = comment_box_default(ui);
+    let stored = ui.ctx().data(|d| d.get_temp::<egui::Vec2>(comment_box_id()));
+    clamp_comment_box(stored.unwrap_or(default), default)
+}
+
+/// The height of the Comments row in BOTH columns: the box plus a little air. The label column and the
+/// value column are laid out apart, so each reads this to stay level.
+fn comment_row_h(ui: &egui::Ui) -> f32 {
+    comment_box_size(ui).y + COMMENT_PAD
+}
+
+/// The text area: 5 lines by 60 columns until the user drags its bottom-right corner, which resizes it
+/// (and the Comments row with it). Longer text scrolls inside. Returns whether the text changed.
+fn comment_editor(ui: &mut egui::Ui, text: &mut String) -> bool {
+    let default = comment_box_default(ui);
+    let size = comment_box_size(ui);
+    let row_h = ui.fonts_mut(|f| f.row_height(&egui::TextStyle::Body.resolve(ui.style())));
+    let rows = (((size.y - COMMENT_PAD) / row_h).floor() as usize).max(1);
+    let width = size.x.min(ui.available_width());
+    let mut changed = false;
+    let out = egui::ScrollArea::vertical()
+        .max_width(width)
+        .max_height(size.y)
+        .min_scrolled_height(size.y)
+        .auto_shrink([true, false])
+        .show(ui, |ui| {
+            changed = ui
+                .add(
+                    egui::TextEdit::multiline(text)
+                        .desired_width(width - COMMENT_PAD)
+                        .desired_rows(rows)
+                        .char_limit(COMMENT_MAX_LEN)
+                        .lock_focus(true),
+                )
+                .changed();
+        });
+    // The grip: a small square over the box's bottom-right corner.
+    let corner = out.inner_rect.right_bottom();
+    let grip = egui::Rect::from_min_size(corner - egui::vec2(14.0, 14.0), egui::vec2(14.0, 14.0));
+    let resp = ui.interact(grip, comment_box_id().with("grip"), egui::Sense::drag());
+    if resp.hovered() || resp.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+    }
+    if resp.dragged() {
+        let new = clamp_comment_box(size + resp.drag_delta(), default);
+        ui.ctx().data_mut(|d| d.insert_temp(comment_box_id(), new));
+    }
+    let ink = ui.visuals().weak_text_color();
+    for k in [4.0_f32, 8.0, 12.0] {
+        ui.painter().line_segment([corner - egui::vec2(k, 2.0), corner - egui::vec2(2.0, k)], egui::Stroke::new(1.0, ink));
+    }
+    changed
+}
+
 fn label_row(ui: &mut egui::Ui, text: &str) {
-    let h = PROP_ROW_H;
+    label_row_h(ui, text, PROP_ROW_H);
+}
+
+fn label_row_h(ui: &mut egui::Ui, text: &str, h: f32) {
     ui.allocate_ui_with_layout(
         egui::vec2(ui.available_width(), h),
         egui::Layout::left_to_right(egui::Align::TOP),
@@ -122,7 +207,7 @@ impl IndexedPropertiesPanel {
         label_row(ui, tr.dlg_access_mode);
         label_row(ui, tr.dlg_record_format);
         label_row(ui, tr.lbl_idx_finalized);
-        label_row(ui, tr.lbl_field_comments);
+        label_row_h(ui, tr.lbl_field_comments, comment_row_h(ui));
     }
 
     pub fn show_file_values(
@@ -187,15 +272,8 @@ impl IndexedPropertiesPanel {
                 changed = true;
             }
         });
-        value_row(ui, PROP_ROW_H, |ui| {
-            if ui
-                .add(
-                    egui::TextEdit::singleline(&mut def.comment)
-                        .desired_width(name_w)
-                        .char_limit(COMMENT_MAX_LEN),
-                )
-                .changed()
-            {
+        value_row(ui, comment_row_h(ui), |ui| {
+            if comment_editor(ui, &mut def.comment) {
                 changed = true;
             }
         });
@@ -269,7 +347,7 @@ fn leaf_labels(ui: &mut egui::Ui, tr: &Tr) {
     label_row(ui, tr.lbl_field_length);
     label_row(ui, tr.lbl_field_usage);
     label_row(ui, tr.lbl_field_offset);
-    label_row(ui, tr.lbl_field_comments);
+    label_row_h(ui, tr.lbl_field_comments, comment_row_h(ui));
     label_row(ui, tr.lbl_field_control);
 }
 
@@ -278,7 +356,7 @@ fn group_labels(ui: &mut egui::Ui, tr: &Tr) {
     label_row(ui, tr.lbl_group_occurs);
     label_row(ui, tr.lbl_group_redefines);
     label_row(ui, tr.lbl_group_synchronized);
-    label_row(ui, tr.lbl_field_comments);
+    label_row_h(ui, tr.lbl_field_comments, comment_row_h(ui));
 }
 
 fn value_row(ui: &mut egui::Ui, h: f32, add: impl FnOnce(&mut egui::Ui)) {
@@ -491,16 +569,9 @@ fn show_leaf_values(
         ui.monospace(format!("{:05}", field.offset.unwrap_or(0)));
     });
 
-    value_row(ui, PROP_ROW_H, |ui| {
+    value_row(ui, comment_row_h(ui), |ui| {
         truncate_comment(field);
-        if ui
-            .add(
-                egui::TextEdit::singleline(&mut field.comment)
-                    .desired_width(name_w)
-                    .char_limit(COMMENT_MAX_LEN),
-            )
-            .changed()
-        {
+        if comment_editor(ui, &mut field.comment) {
             truncate_comment(field);
             changed = true;
         }
@@ -632,16 +703,9 @@ fn show_group_values(
         });
     });
 
-    value_row(ui, PROP_ROW_H, |ui| {
+    value_row(ui, comment_row_h(ui), |ui| {
         truncate_comment(field);
-        if ui
-            .add(
-                egui::TextEdit::singleline(&mut field.comment)
-                    .desired_width(name_w)
-                    .char_limit(COMMENT_MAX_LEN),
-            )
-            .changed()
-        {
+        if comment_editor(ui, &mut field.comment) {
             truncate_comment(field);
             changed = true;
         }
@@ -715,8 +779,82 @@ fn usage_all() -> [FieldUsage; 8] {
 }
 
 fn truncate_comment(field: &mut IndexedField) {
-    if field.comment.len() > COMMENT_MAX_LEN {
-        field.comment.truncate(COMMENT_MAX_LEN);
+    truncate_text(&mut field.comment);
+}
+
+/// By characters, not bytes: a byte cut could land inside an accented letter and panic.
+fn truncate_text(text: &mut String) {
+    if text.chars().count() > COMMENT_MAX_LEN {
+        *text = text.chars().take(COMMENT_MAX_LEN).collect();
+    }
+}
+
+#[cfg(test)]
+mod comment_box_tests {
+    use super::*;
+
+    fn frame(f: impl FnOnce(&mut egui::Ui)) {
+        let ctx = egui::Context::default();
+        let mut f = Some(f);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            if let Some(f) = f.take() {
+                f(ui);
+            }
+        });
+        out.textures_delta.clear();
+    }
+
+    #[test]
+    fn the_box_starts_at_60_columns_by_5_lines_of_the_body_font_and_the_row_is_as_tall() {
+        frame(|ui| {
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let (cw, rh) = ui.fonts_mut(|f| (f.glyph_width(&font, '0'), f.row_height(&font)));
+            let d = comment_box_default(ui);
+            assert_eq!(d, egui::vec2(60.0 * cw + COMMENT_PAD, 5.0 * rh + COMMENT_PAD));
+            assert_eq!(comment_box_size(ui), d, "nothing dragged yet: the default");
+            assert_eq!(comment_row_h(ui), d.y + COMMENT_PAD, "label and value rows read the same height");
+            println!("indexed comment box: default {:.0} x {:.0} pt ({} columns x {} lines), row {:.0} pt", d.x, d.y, COMMENT_COLS, COMMENT_ROWS, comment_row_h(ui));
+        });
+    }
+
+    #[test]
+    fn a_dragged_size_is_kept_for_the_session_and_bounded() {
+        frame(|ui| {
+            let d = comment_box_default(ui);
+            ui.ctx().data_mut(|m| m.insert_temp(comment_box_id(), d * 1.5));
+            assert_eq!(comment_box_size(ui), d * 1.5, "a size inside the bounds is kept");
+            assert_eq!(comment_row_h(ui), d.y * 1.5 + COMMENT_PAD, "and the row follows it");
+            for (asked, want) in [
+                (egui::vec2(1.0, 1.0), egui::vec2(d.x * 0.33, d.y * 0.4)),
+                (egui::vec2(1.0e6, 1.0e6), egui::vec2(d.x * 2.5, d.y * 6.0)),
+            ] {
+                ui.ctx().data_mut(|m| m.insert_temp(comment_box_id(), asked));
+                assert_eq!(comment_box_size(ui), want, "{asked:?} is bounded");
+            }
+        });
+    }
+
+    #[test]
+    fn the_editor_draws_in_the_row_it_was_given_and_lets_text_of_many_lines_in() {
+        frame(|ui| {
+            let mut text = "line one\nline two\nline three".to_owned();
+            let before = ui.cursor().min.y;
+            let changed = comment_editor(ui, &mut text);
+            let used = ui.min_rect().max.y - before;
+            assert!(!changed, "drawing it changes nothing");
+            assert_eq!(text, "line one\nline two\nline three");
+            assert!(used >= comment_box_size(ui).y - 1.0, "the box takes its height: {used}");
+        });
+    }
+
+    #[test]
+    fn truncation_is_by_characters_so_an_accented_letter_at_the_edge_cannot_panic() {
+        let mut s = "é".repeat(COMMENT_MAX_LEN + 40);
+        truncate_text(&mut s);
+        assert_eq!(s.chars().count(), COMMENT_MAX_LEN);
+        s = "short".into();
+        truncate_text(&mut s);
+        assert_eq!(s, "short");
     }
 }
 

@@ -512,6 +512,18 @@ mod tests {
         assert_eq!(loaded.fields[0].children[0].pic, "9(8)");
     }
 
+    /// The Indexed File Editor's comment is a text area: its lines survive the `.cidx` unchanged, for the
+    /// file and for a field.
+    #[test]
+    fn a_multi_line_comment_round_trips() {
+        let mut def = sample_def();
+        def.comment = "Customer master\n  kept by sales\r\n\nsee 4.2".into();
+        def.fields[0].children[0].comment = "Key of the\ncustomer".into();
+        let loaded = load_indexed_from_str(&save_indexed_to_string(&def).unwrap()).unwrap();
+        assert_eq!(loaded.comment.replace("\r\n", "\n"), def.comment.replace("\r\n", "\n"));
+        assert_eq!(loaded.fields[0].children[0].comment.replace("\r\n", "\n"), "Key of the\ncustomer");
+    }
+
     #[test]
     fn round_trip_variable() {
         let mut def = sample_def();
