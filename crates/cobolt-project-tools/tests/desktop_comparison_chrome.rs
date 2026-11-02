@@ -69,18 +69,13 @@ const WANTED: &[&str] = &[
 /// desktop half, which is `render_form` without the host — nothing feeds a value back between frames).
 const FOCUS: &str = "the page raises onGotFocus on the click (and the previous control's onLostFocus); headless render_form reports none for it";
 const DOCUMENTED: &[(&str, &str, &str)] = &[
-    ("CH-BAR", "colour", "no chart face on the page under the seeded BackgroundColor (white, the desktop's navy [15,20,45]) — the T13b finding"),
-    ("CH-PIE", "colour", "no chart face on the page (T13b finding), and the first slice's colour differs ([94,254,156] desktop, [244,152,113] page)"),
-    ("KNB-B", "colour", "the dial's face and ink differ (desktop greys [66,66,66]/[40,40,40], page [43,46,53] with a blue [78,140,255] centre)"),
     ("BTN-A", "events", FOCUS),
     ("TXT-A", "events", "a typed key: the desktop raises onChange/onTextChanged before onKeyDown, the page after onKeyPress (the browser's order)"),
-    ("CHK-A", "events", "the page raises no onMouseDown/onMouseUp on a CheckBox (its <label>); the desktop's list repeats TXT-A onLostFocus"),
-    ("RAD-A", "events", "the page raises no onMouseDown/onMouseUp on a RadioButton (its <label>)"),
-    ("SWT-A", "events", "focus as BTN-A; the page raises onCheckedChanged before onClick, the desktop after"),
-    ("LST-A", "events", "focus as BTN-A; the desktop raises the selection change on the press, the page on the press and after onMouseUp"),
+    ("CHK-A", "events", "the desktop's list repeats TXT-A onLostFocus (headless render_form, no host); the mouse events now match"),    ("SWT-A", "events", "focus as BTN-A; the page raises onCheckedChanged before onClick, the desktop after"),
+    ("LST-A", "events", "focus as BTN-A; the page selects on the click, after onMouseUp, where the desktop selects on the press; each raises the selection change twice in the script (the click, then the Down arrow), so nothing is duplicated"),
     ("CMB-A", "events", "focus as BTN-A; the page raises a second onMouseUp after onClick (the <select> picker)"),
     ("NUD-A", "events", "focus as BTN-A; the desktop raises onKeyPress for the Down arrow, the page (a non-character key) does not"),
-    ("SLD-A", "events", "focus as BTN-A; the page's range input moves on the press and on the Down arrow (onChange/onValueChanged), the desktop's does not"),
+    ("SLD-A", "events", "focus as BTN-A; the page's range input moves on the press and on the Down arrow (onChange/onValueChanged), the desktop's headless render_form does not: to re-measure with the real host (T17 lifecycle harness)"),
 ];
 
 /// `(id, type, x, y, w, h, properties)`.
@@ -334,10 +329,18 @@ fn the_reference_form_on_the_desktop_and_in_chrome() {
         if class_of(&ControlType::from_str(ty)) != Class::B {
             continue;
         }
-        let points = [(0.5, 0.5), (0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)];
+        // The fractions of the box where the colours are read. A pie's slices meet at its centre and a knob's rim is one pixel
+        // wide, so there a point a pixel off reads another colour: the pie is read in the middle of each of its three slices
+        // (30, 50 and 20 % from the top, clockwise, 30 px from the centre of the plot, left of the legend) and the knob on its
+        // rim's ring and at its middle.
+        let points: &[(f64, f64)] = match *ty {
+            "PieChart" => &[(0.451, 0.412), (0.311, 0.643), (0.277, 0.378)],
+            "Knob" => &[(0.5, 0.5), (0.3, 0.226), (0.7, 0.226), (0.3, 0.626), (0.7, 0.626)],
+            _ => &[(0.5, 0.5), (0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)],
+        };
         let mut worst = 0;
         let mut line = Vec::new();
-        for (fx, fy) in points {
+        for &(fx, fy) in points {
             let (px, py) = ((*x as f64 + *w as f64 * fx) as usize, (*y as f64 + *h as f64 * fy) as usize);
             let d = desk_at(px, py);
             let c = page.capture(sx + px as f64, sy + py as f64, 1.0, 1.0).unwrap().2[0];

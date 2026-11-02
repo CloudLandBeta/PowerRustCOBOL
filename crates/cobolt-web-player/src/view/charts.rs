@@ -542,6 +542,26 @@ pub fn accent(name: &str) -> String {
     }
 }
 
+/// The colour a Knob's `Accent` names, as `paint::knob_accent` has it: a `#RRGGBB`/`#RRGGBBAA` colour or one of six presets; any
+/// other text is the blue.
+fn knob_accent(name: &str) -> String {
+    let name = name.trim();
+    if name.starts_with('#') {
+        if let Some(c) = color_attr(name) {
+            return c;
+        }
+    }
+    match name {
+        "Green" => "#2e7d32",
+        "Red" => "#c62828",
+        "Purple" => "#6a1b9a",
+        "Amber" => "#f57c00",
+        "Sky" => "#0288d1",
+        _ => "#0078d7",
+    }
+    .into()
+}
+
 /// The angle (radians, clockwise from the top) of `value` on a dial spanning ±135 degrees.
 pub fn dial_angle(value: f64, min: f64, max: f64) -> f64 {
     let span = (max - min).max(f64::EPSILON);
@@ -551,39 +571,77 @@ pub fn dial_angle(value: f64, min: f64, max: f64) -> f64 {
 
 pub fn knob(cx: &ViewCtx, i: usize) -> VNode {
     let (mut root, w, h) = svg_root(cx, i, "pr-knob");
+    // The dial as `paint::draw_knob` paints it: the same proportions of the arc's radius, the same colours (the theme's card and
+    // border as the universal default), the same room kept under the dial for the value and the label.
     let (min, max) = (parse_f64(&cx.tree.get(i, "Minimum")).unwrap_or(0.0), parse_f64(&cx.tree.get(i, "Maximum")).unwrap_or(100.0));
     let v = parse_f64(&cx.tree.get(i, "Value")).unwrap_or(0.0).clamp(min.min(max), max.max(min));
-    let r = (w.min(h) / 2.0 - 6.0).max(8.0);
-    let (cx_, cy) = (w / 2.0, h / 2.0);
-    let color = if cx.tree.get(i, "Accent").is_empty() { accent("Blue") } else { accent(&cx.tree.get(i, "Accent")) };
-    let face = color_attr(&cx.tree.get(i, "FaceColor")).unwrap_or_else(|| "#2b2e35".into());
-    let rim = color_attr(&cx.tree.get(i, "RimColor")).unwrap_or_else(|| "#565b66".into());
-    let track = color_attr(&cx.tree.get(i, "TrackColor")).unwrap_or_else(|| "#444a55".into());
+    let color = knob_accent(&cx.tree.get(i, "Accent"));
+    // A part the developer chose, a clear colour included (it is not painted); empty means the default.
+    let chosen = |prop: &str| parse_color(cx.tree.get(i, prop).trim());
+    let face_rgba = chosen("FaceColor").unwrap_or([40, 40, 40, 255]);
+    let rim_rgba = chosen("RimColor").unwrap_or([140, 140, 140, 255]);
+    let track_rgba = chosen("TrackColor").unwrap_or([140, 140, 140, 255]);
+    let css = |c: [u8; 4]| color_attr(&format!("#{:02x}{:02x}{:02x}{:02x}", c[0], c[1], c[2], c[3])).unwrap_or_default();
+    let (face, rim, track) = (css(face_rgba), css(rim_rgba), css(track_rgba));
+    // `lighten(face, 0.12)`; nothing for a clear face.
+    let rim_fill = if face_rgba[3] == 0 {
+        "none".to_owned()
+    } else {
+        let mix = |c: u8| (c as f64 + (255.0 - c as f64) * 0.12).round() as u8;
+        css([mix(face_rgba[0]), mix(face_rgba[1]), mix(face_rgba[2]), face_rgba[3]])
+    };
+    let show_value = {
+        let s = cx.tree.get(i, "ShowValue");
+        s.trim().is_empty() || truthy(&s)
+    };
+    let label = cx.tree.get(i, "Label");
+    let label = label.trim();
+    let thumb_style = cx.tree.get(i, "IndicatorStyle").eq_ignore_ascii_case("Thumb");
+    let fsize = parse_f64(&cx.tree.get(i, "FontSize")).filter(|s| *s > 0.0).unwrap_or(11.0).clamp(4.0, 200.0);
+    let line_h = fsize * 1.3;
+    let reserved = if show_value { line_h + 4.0 } else { 0.0 } + if label.is_empty() { 0.0 } else { line_h + 2.0 };
+    let reach = if thumb_style { 0.147 * 0.85 } else { 0.147 * 0.5 };
+    // `knob_layout_with`
+    let dial_h = (h - reserved).max(8.0);
+    let r = ((w.min(dial_h) * 0.5 - 1.5) / (1.0 + reach)).max(6.0);
+    let (cx_, cy) = (w / 2.0, dial_h * 0.5);
+    let value_y = cy + r + 4.0;
+    let arc_stroke = (r * 0.147).max(1.5);
+    let (rim_r, face_r, inner_r) = (r * 0.794, r * 0.647, r * 0.529);
+    let (ind_inner, ind_outer, ind_w) = (r * 0.353, r * 0.706, (r * 0.071).max(1.2));
     let a_start = (-135.0f64).to_radians();
-    let a_val = dial_angle(v, min, max);
     let a_end = 135.0f64.to_radians();
-    let arc = |a0: f64, a1: f64, rr: f64| arc_path_stroke(cx_, cy, rr, a0, a1);
-    push_svg(&mut root, sv("circle").attr("cx", f(cx_)).attr("cy", f(cy)).attr("r", f(r)).attr("fill", face).attr("stroke", rim).attr("stroke-width", "2"));
-    push_svg(&mut root, sv("path").attr("d", arc(a_start, a_end, r * 0.82)).attr("fill", "none").attr("stroke", track).attr("stroke-width", "4").attr("stroke-linecap", "round"));
+    let a_val = dial_angle(v, min, max);
+    let arc = |a0: f64, a1: f64| arc_path_stroke(cx_, cy, r, a0, a1);
+    let stroked = |d: String, colour: &str| sv("path").attr("d", d).attr("fill", "none").attr("stroke", colour.to_owned()).attr("stroke-width", f(arc_stroke));
+    push_svg(&mut root, stroked(arc(a_start, a_end), &track));
     let bipolar = truthy(&cx.tree.get(i, "Bipolar"));
     let (b0, b1) = if bipolar { (0.0, a_val).into_sorted() } else { (a_start, a_val) };
     if (b1 - b0).abs() > 1e-3 {
-        push_svg(&mut root, sv("path").attr("d", arc(b0, b1, r * 0.82)).attr("fill", "none").attr("stroke", color.clone()).attr("stroke-width", "4").attr("stroke-linecap", "round").class("pr-knob-arc"));
+        push_svg(&mut root, stroked(arc(b0, b1), &color).class("pr-knob-arc"));
     }
-    let thumb_style = cx.tree.get(i, "IndicatorStyle").eq_ignore_ascii_case("Thumb");
-    let (px, py) = (cx_ + r * 0.82 * a_val.sin(), cy - r * 0.82 * a_val.cos());
+    push_svg(&mut root, sv("circle").attr("cx", f(cx_)).attr("cy", f(cy)).attr("r", f(rim_r)).attr("fill", rim_fill).attr("stroke", rim.clone()).attr("stroke-width", "1"));
+    push_svg(&mut root, sv("circle").attr("cx", f(cx_)).attr("cy", f(cy)).attr("r", f(face_r)).attr("fill", face));
+    if inner_r > 2.0 {
+        push_svg(&mut root, sv("circle").attr("cx", f(cx_)).attr("cy", f(cy)).attr("r", f(inner_r)).attr("fill", "none").attr("stroke", rim).attr("stroke-width", "1"));
+    }
     if thumb_style {
-        push_svg(&mut root, sv("circle").attr("cx", f(px)).attr("cy", f(py)).attr("r", "6").attr("fill", color.clone()).class("pr-knob-thumb"));
+        let (px, py) = (cx_ + r * a_val.sin(), cy - r * a_val.cos());
+        push_svg(&mut root, sv("circle").attr("cx", f(px)).attr("cy", f(py)).attr("r", f(arc_stroke * 0.85)).attr("fill", "#ffffff").attr("stroke", color.clone()).attr("stroke-width", "1").class("pr-knob-thumb"));
     } else {
-        let (qx, qy) = (cx_ + r * 0.55 * a_val.sin(), cy - r * 0.55 * a_val.cos());
-        push_svg(&mut root, sv("line").attr("x1", f(cx_)).attr("y1", f(cy)).attr("x2", f(qx)).attr("y2", f(qy)).attr("stroke", color).attr("stroke-width", "3").attr("stroke-linecap", "round").class("pr-knob-pointer"));
+        let (x0, y0) = (cx_ + ind_inner * a_val.sin(), cy - ind_inner * a_val.cos());
+        let (x1, y1) = (cx_ + ind_outer * a_val.sin(), cy - ind_outer * a_val.cos());
+        push_svg(&mut root, sv("line").attr("x1", f(x0)).attr("y1", f(y0)).attr("x2", f(x1)).attr("y2", f(y1)).attr("stroke", color).attr("stroke-width", f(ind_w)).class("pr-knob-pointer"));
     }
-    if truthy(&cx.tree.get(i, "ShowValue")) {
-        push_svg(&mut root, text_node(cx_, cy + r * 0.55, "middle", (r * 0.28).max(9.0), &fmt_tick(v as f32)).class("pr-knob-value"));
+    // The text hangs from `value_y` on the desktop; an SVG text sits on its baseline.
+    let step_fractional = parse_f64(&cx.tree.get(i, "Step")).is_some_and(|s| s.fract().abs() > f64::EPSILON);
+    let shown = if step_fractional { format!("{v:.2}") } else { format!("{v:.0}") };
+    if show_value {
+        push_svg(&mut root, text_node(cx_, value_y + fsize * 0.85, "middle", fsize, &shown).class("pr-knob-value"));
     }
-    let label = cx.tree.get(i, "Label");
     if !label.is_empty() {
-        push_svg(&mut root, text_node(cx_, h - 2.0, "middle", 10.0, &label));
+        let y = if show_value { value_y + line_h + 2.0 } else { value_y };
+        push_svg(&mut root, text_node(cx_, y + fsize * 0.85, "middle", fsize, label));
     }
     root = root
         .attr("role", "slider")

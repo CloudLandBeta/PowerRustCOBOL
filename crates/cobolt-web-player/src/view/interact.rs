@@ -260,7 +260,12 @@ pub fn on_event(cx: &ViewCtx, ctl: usize, p: &Payload) -> Vec<Act> {
             _ => false,
         };
     // The expand icon of a card takes its own click: it is not a click on the card, nor on anything that holds the card (spec 090 R3).
-    if p.key == generic_key(c) && !own_click && !p.expander {
+    // A CheckBox's or RadioButton's press and release land on its label (the caption as much as the box), which the input never
+    // hears; they are the control's own mouse events on the desktop, where the whole control is one surface.
+    let label_press = p.key == "root"
+        && matches!(c.control_type(), Some(ControlType::CheckBox | ControlType::RadioButton))
+        && matches!(p.kind.as_str(), "mousedown" | "mouseup" | "pointerdown" | "pointerup");
+    if (p.key == generic_key(c) || label_press) && !own_click && !p.expander {
         acts.extend(generic(c, p));
     }
     acts
@@ -1502,6 +1507,20 @@ mod tests {
         let c = t.by_name("CHK-1").unwrap();
         t.set(c, "Checked", "1");
         assert!(!names(&run(&t, c, &e, Payload::new("click", "input"))).iter().any(|n| n.starts_with("Checked=")));
+    }
+
+    /// WASM-016 T17, ruling 2026-11-02: a press and a release on a CheckBox's or RadioButton's label are the control's own
+    /// `onMouseDown` / `onMouseUp`, as on the desktop; the label's click is still reported once, by the input.
+    #[test]
+    fn a_press_on_a_checkbox_or_radio_label_raises_the_mouse_events() {
+        let t = tree();
+        let e = Empty::default();
+        for name in ["CHK-1", "RAD-A"] {
+            let c = t.by_name(name).unwrap();
+            assert!(names(&run(&t, c, &e, Payload::new("mousedown", "root"))).contains(&"onMouseDown".to_owned()), "{name}");
+            assert!(names(&run(&t, c, &e, Payload::new("mouseup", "root"))).contains(&"onMouseUp".to_owned()), "{name}");
+            assert!(!names(&run(&t, c, &e, Payload::new("click", "root"))).contains(&"onClick".to_owned()), "{name}: the click is the input's");
+        }
     }
 
     #[test]

@@ -400,7 +400,7 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
     AC2: every class A and B control drawn from its description with each property set to a distinct value and read back from the DOM.
     Manual (plan §6): Chrome on 127.0.0.1, the variant choice, the Rayon DataGrid sort, parts on first use; the operator looks at the reference
     form beside the desktop.
-  - **BLOCKED (2.0.42): its dependency is not built.** The harness compares the player with `cobolt-form-host` on the WASM-004 R11
+  - **Unblocked 2026-11-02 (2.0.160): WASM-004 T32 and T33 are done; the controls half is measured, the lifecycle half is open** (see `differences.md`: twelve differences ruled on, four fixed, 8 listed). *Was:* **BLOCKED (2.0.42): its dependency is not built.** The harness compares the player with `cobolt-form-host` on the WASM-004 R11
     reference form, and that form and its tooling are WASM-004's open tasks **T32** (property round-trip for every class A and B
     control) and **T33** (the desktop comparison harness: per-control geometry, sampled colours and event logs from a headless
     `cobolt-forms --features render` run). Writing a second reference form here would be the parallel harness the plan forbids

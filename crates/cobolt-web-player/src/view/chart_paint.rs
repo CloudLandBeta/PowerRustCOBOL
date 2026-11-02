@@ -425,7 +425,9 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
     let name = ctl.name.clone();
 
     // The face: the colour `chart` paints its marks over, which also inks the captions and the slices' rims.
-    let face = parse_color(&c.s("BackgroundColor")).filter(|f| f[3] > 0).unwrap_or([15, 20, 45, 255]);
+    // `paint::user_background_color`: the seed every control carries is not a colour the developer chose, so an uncoloured chart
+    // keeps the default face rather than painting the seed.
+    let face = user_background(cx, i).unwrap_or([15, 20, 45, 255]);
     let face_a = ((255.0_f64) * (1.0 - c.num("Transparency").unwrap_or(0.0).clamp(0.0, 100.0) / 100.0)).round() as u8;
     let bg: Rgba = [face[0], face[1], face[2], face_a];
 

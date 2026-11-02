@@ -273,6 +273,11 @@ pub fn background(ctl: &Ctl) -> Option<(&'static str, String)> {
     // "Still on the default means the developer has not chosen" (the renderer-wide convention of
     // `model::DEFAULT_BACKGROUND_COLOR`): the theme's own face stays. A form's colour is always a choice.
     if matches!(ctl.kind, Kind::Control(_)) && is_default(c, cobolt_forms::model::DEFAULT_BACKGROUND_COLOR) {
+        // A chart paints its own face, the navy `paint::draw_chart_preview` keeps for one nobody coloured, unless the
+        // developer hid the background (WASM-016 T17, the chart face of WASM-004 T13b).
+        if is_chart(ctl) && !ctl.flag("hidebackground") {
+            return Some(("background-color", css_color(faded([15, 20, 45, 255], transparency))));
+        }
         return None;
     }
     Some(("background-color", css_color(faded(c, transparency))))

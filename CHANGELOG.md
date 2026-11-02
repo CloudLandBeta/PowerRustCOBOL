@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.160 — 2026-11-02
+
+**Fix (WASM-016 T17, first part): four differences between the page and the desktop are gone, and the rest are listed with their reasons.** An uncoloured chart now has the desktop's navy face on the page (a bar chart reads equal, a pie within 16 levels); the Knob is drawn with the painter's proportions and colours (equal, 0 levels); a CheckBox and a RadioButton raise `onMouseDown` / `onMouseUp` on a press and release over their caption. The comparison (`desktop_comparison_chrome`) reads a pie in the middle of its slices and a knob on its ring, where a pixel's error no longer changes the answer, and finds 8 differences instead of 12, all in the new `specs/WASM-016-prebuilt-player/differences.md` with the operator's rulings. The lifecycle comparison with the real host is still open (T17 stays unchecked). Player rebuilt. *Written on features-2x.*
+
 ## 2.0.159 — 2026-11-02
 
 **Fix: a TextBox caption's background band reaches the last character.** The band (`CaptionBackColor`) was sized from the width table of the built-in regular face, while a bold caption is drawn in the system's own, wider, bold face, so the colour stopped before the last letter. The band now takes the width of the text that is drawn. No padding was added: the band is the text's own rectangle, as spec 110 §5 has it, and the box's geometry is unchanged. New test `textbox_caption_band` (plain 14 pt, bold 14, 28 and 40 pt). *Written on features-2x.*
