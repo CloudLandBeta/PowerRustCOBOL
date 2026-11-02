@@ -7568,6 +7568,7 @@ A few properties whose effect depends on the control:
 | CheckBox, RadioButton | `CheckAlignment` | `Right` puts the box or circle after the caption. |
 | CheckBox, RadioButton | `CheckSpacing` | Points between the box (or circle) and the caption, 0–64; 6 unless you set it. |
 | RadioButton | `CheckBoxColor` | The circle's fill in both states. A contrasting dot marks the selected radio. |
+| PictureBox | `ImagePath` | The picture file. The control shows the file's CURRENT content: if a program writes a new picture to the same path (a slide viewer re-rendering `slide.png`) and assigns `ImagePath` again, the next repaint shows the new picture, and a file that cannot be read at that moment leaves the picture already on show. No new file name per picture is needed. |
 | PictureBox | `SizeMode` | `Normal`: the image's own size, shrunk only when it does not fit. `Zoom`: the largest that fits. `Stretch`: fills the box. `CenterImage`: centred. `AutoSize`: the control takes the image's size. |
 | PictureBox | `ImageAlignment` | Where the image sits when it does not fill the box (`Normal`, `Zoom`): `TopLeft` … `BottomRight`. |
 | Shape | `FillStyle` | `Solid`, `None`, or `Hatched`: diagonal lines in `FillColor` over a transparent face. |

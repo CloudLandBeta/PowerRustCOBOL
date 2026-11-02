@@ -8137,19 +8137,55 @@ fn decode_svg_bytes_at_size(bytes: &[u8], width: u32, height: u32) -> Option<egu
     })
 }
 
+/// What a PictureBox remembers about one path: the decoded texture and which
+/// file it came from (modification time and length).
+#[derive(Clone)]
+struct PictureBoxImage {
+    tex: egui::TextureHandle,
+    seen: (Option<std::time::SystemTime>, u64),
+}
+
+/// A path's file identity for the PictureBox cache. It is read on every call,
+/// because a program that writes a picture and then assigns `ImagePath` expects
+/// the very next paint to show it; one `stat` per paint is the price.
+fn picturebox_file_identity(path: &str) -> Option<(Option<std::time::SystemTime>, u64)> {
+    let meta = std::fs::metadata(crate::assets::resolve(path)).ok()?;
+    meta.is_file().then(|| (meta.modified().ok(), meta.len()))
+}
+
 /// Load (and cache in egui memory) a PictureBox image texture, so it isn't
 /// re-read from disk and re-uploaded every frame.
+///
+/// The cache holds ONE texture per path and is keyed by the file behind it as
+/// well: a file rewritten under the same path (a program that renders a picture
+/// to `slide.png` over and over) is decoded again at the next paint, and the
+/// texture it replaces is dropped. A file that cannot be read or decoded at that
+/// moment leaves the picture already on show where it is.
 pub fn picturebox_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
     if path.trim().is_empty() {
         return None;
     }
     let id = egui::Id::new(("pb_img", path));
-    if let Some(h) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
-        return Some(h);
+    let cached = ctx.memory(|m| m.data.get_temp::<PictureBoxImage>(id));
+    let Some(seen) = picturebox_file_identity(path) else {
+        // No file behind the path (or one caught mid-replacement): keep what is
+        // on show; a load would fail the same way.
+        return cached.map(|c| c.tex);
+    };
+    if let Some(c) = &cached {
+        if c.seen == seen {
+            return Some(c.tex.clone());
+        }
     }
-    let h = load_image_texture(ctx, path)?;
-    ctx.memory_mut(|m| m.data.insert_temp(id, h.clone()));
-    Some(h)
+    match load_image_texture(ctx, path) {
+        Some(tex) => {
+            ctx.memory_mut(|m| {
+                m.data.insert_temp(id, PictureBoxImage { tex: tex.clone(), seen });
+            });
+            Some(tex)
+        }
+        None => cached.map(|c| c.tex),
+    }
 }
 
 fn picturebox_svg_native_size(path: &str) -> Option<Vec2> {
@@ -21085,6 +21121,45 @@ mod theme_render_tests {
         assert!(
             image.pixels.iter().any(|p| p.a() > 200),
             "scaled svg should render visible pixels at the requested size"
+        );
+    }
+
+    /// A program that renders a picture to ONE path over and over (a slide
+    /// viewer writing `slide.png`) must see each new picture at the next paint.
+    #[test]
+    fn picturebox_shows_the_current_content_of_a_rewritten_file() {
+        fn write_png(path: &std::path::Path, w: u32, h: u32, rgba: [u8; 4]) {
+            let img = image::RgbaImage::from_pixel(w, h, image::Rgba(rgba));
+            img.save(path).expect("write png");
+        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("slide.png");
+        let p = path.to_str().expect("utf8 path");
+        let ctx = egui::Context::default();
+
+        write_png(&path, 4, 3, [255, 0, 0, 255]);
+        let first = picturebox_texture(&ctx, p).expect("first picture");
+        assert_eq!(first.size(), [4, 3]);
+        let again = picturebox_texture(&ctx, p).expect("same picture");
+        assert_eq!(again.id(), first.id(), "an unchanged file keeps its texture");
+
+        write_png(&path, 8, 6, [0, 0, 255, 255]);
+        let second = picturebox_texture(&ctx, p).expect("rewritten picture");
+        assert_eq!(second.size(), [8, 6], "the rewritten file is decoded again");
+        assert_ne!(second.id(), first.id());
+
+        // A rewrite that keeps the dimensions is seen too (the modification
+        // time moves), not only a change of size.
+        write_png(&path, 8, 6, [0, 255, 0, 255]);
+        let third = picturebox_texture(&ctx, p).expect("third picture");
+        assert_eq!(third.size(), [8, 6]);
+
+        // A file that vanishes leaves the picture on show.
+        std::fs::remove_file(&path).expect("remove");
+        let kept = picturebox_texture(&ctx, p).expect("kept picture");
+        assert_eq!(kept.id(), third.id());
+        println!(
+            "PictureBox cache: unchanged file -> same texture; 3 rewrites -> 3 decodes; vanished file -> picture kept (4/4 cases)"
         );
     }
 

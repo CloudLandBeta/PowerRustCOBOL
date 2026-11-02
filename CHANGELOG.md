@@ -18,6 +18,10 @@
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
 
+## 1.91.232 — 2026-11-02 — Fix: a PictureBox shows the current content of its `ImagePath` file
+
+The PictureBox kept the decoded picture in a cache keyed by the PATH alone, for as long as the form ran. A program that wrote a new picture to the same path (a slide viewer re-rendering `slide.png`) and assigned `ImagePath` again kept seeing the first picture, and the only way round it, a new file name per picture, leaked one texture per picture. The cache now remembers which file it decoded (modification time and length), holds one texture per path, and decodes again at the next repaint when the file behind the path has changed, dropping the texture it replaces; a file that cannot be read at that moment leaves the picture already on show. Cost: one `stat` per PictureBox per repaint. Test: `picturebox_shows_the_current_content_of_a_rewritten_file`. Developer's Guide: `ImagePath` row added to the property table. *(Ported from 2.0.125 on the WebAssembly line.)*
+
 ## 1.91.231 — 2026-10-30 — Fix: the designer's animation preview plays what the form designed
 
 The Form Designer's animation preview did nothing for most forms, for two reasons:
