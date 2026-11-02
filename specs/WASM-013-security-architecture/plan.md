@@ -234,6 +234,41 @@ plan's.
   When unset, nothing is written and the Build prints a note (not a warning). Applies to the **developer's application**; the product
   repository's own `SECURITY` file is not covered by the answer (open point O3).
 
+### 1.11 The channel's encryption (R17, AC12; WASM-INDEX D21; WASM-003 R24)
+
+**Construction (operator, 2026-10-30).** Both sides make a fresh **X25519** key pair at start — the backend when its process starts, each
+frontend when the application opens — and the two `hello`s carry the public keys and a 16-byte nonce each (WASM-014 R18, M7). The shared
+secret goes through **HKDF-SHA256**, salted with `SHA-256(transcript)` (protocol, both keys, both nonces, fixed order), into two
+32-byte keys, one per direction (`info` `prc-channel/1 c2s` and `s2c`). Every message after the `hello`s is one binary frame sealed with
+**ChaCha20-Poly1305**, the nonce being an implicit per-direction 64-bit counter, so a replayed, reordered, dropped or truncated frame
+fails to open. The crates are RustCrypto's `x25519-dalek`, `hkdf`, `sha2` and `chacha20poly1305` (WASM-003 plan §2.7): pure Rust, no
+C, built for `wasm32`. The module takes no randomness of its own: the owner hands it 32 bytes (`getrandom` on the server,
+`crypto.getRandomValues` in the browser, never `Math.random`). No private key is persisted, logged, serialised or put in a build, a
+bundle or `interface.json`; R8 applies to any key that ever is.
+
+**What it protects against** (each is a row of the threat model, boundary *browser ⇄ backend*, with its test in WASM-003 T15b-4):
+
+| Threat | Why the channel stops it |
+|---|---|
+| A TLS endpoint or terminating proxy reads the frames | after the `hello`s every frame is ciphertext under keys the proxy never held |
+| A captured session replayed against a later start | new key pairs at each start; the old frames fail to open under the new keys |
+| A frame injected, replayed or reordered by a party that holds the TLS session | the AEAD tag and the counter nonce refuse it |
+| The call, its payload, the token or the program name appears in a capture | only the two `hello`s are text; the program name, payload and token are inside the sealed frames |
+
+**What it does not protect against.** An attacker **inside the browser** (the page's own script holds the key) and a **compromised
+backend** (it holds the other key). **An active rewrite of the handshake:** the agreement is ephemeral–ephemeral and unauthenticated,
+since the backend's key is not known in advance, so a party that rewrites the `hello`s can stand in the middle — **TLS's server
+authentication alone stops that**, which is why the channel is *on top of* TLS and never instead of it, and why a plain `ws://` start
+stays loopback-only (WASM-003 R5). The scope is the WebSocket; `/health`, `/dl/<token>` and the identity routes stay TLS-only
+(WASM-003 O5, a working assumption). The channel adds no confidentiality about message sizes and timing.
+
+**Residual risks accepted:** traffic analysis (sizes, timing, counts); the unauthenticated agreement above; a client build that
+holds a weak random source (the key source is tested, WASM-003 T15b-3).
+
+**Audit (AC12).** WASM-003 T15b-1 probes the four crates outside the repository first (one RustCrypto generation, MSRV ≤ 1.92, no
+`ring`/`aws-lc*`/`openssl*`, builds for `wasm32`) and the dependency guards keep them out of the loader and the compiler. A restart of
+either side gives different public keys and the first capture's frames are refused in a new connection (WASM-003 T15b-4).
+
 ## 2. Affected crates / files
 
 - `specs/WASM-013-security-architecture/threat-model.md` — **new** (R1).

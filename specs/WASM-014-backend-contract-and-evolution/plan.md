@@ -57,6 +57,14 @@ error list and codes, projection for older clients, ordering, cancel-as-request,
 - **New (M6):** the frontend's contract version is recorded in the program module's manifest (`prmanifest`, ABI §10: a `contract` member,
   taken from the `backend/contract/interface.json` that Build writes, `cobolt-server/src/backend.rs` module doc) and sent by the player in
   its `hello`.
+- **New (M7, D21, T19b):** protocol **2** adds the key exchange to the two `hello`s, both members **base64 of 32 bytes** and **required** from
+  protocol 2: `Hello.key` (the frontend's X25519 public key, made when the application opens) and `Hello.nonce` (16 random bytes), and
+  `ServerHello.key` / `ServerHello.nonce` (the backend's, made when its process starts). Nothing else in either frame changes, and the
+  frames inside the sealed channel are the frames of this section. A refusal `hello` (R3) carries no `key` and is the **only** reply that
+  may follow a protocol-1 `hello`: protocol 1 → `6002`. A `hello` of protocol 2 without a usable `key`/`nonce`, or a key that yields an
+  all-zero shared secret, is refused with class *transport* and the socket closed (R18). `contract::PROTOCOL`/`PROTOCOL_MIN` become `2`
+  in WASM-003 T15b-3, in the same change as every speaker. The exchange is part of the contract version (R16): a change to these members is
+  a protocol change with the R3 window.
 
 ### 2.2 Compatibility checking (R4, R5) — built, one rule added
 

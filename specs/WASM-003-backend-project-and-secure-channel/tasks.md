@@ -707,7 +707,7 @@ the plan proposes the keys in the client's `hello` and the server's answer (D8),
 If WASM-014 decides the other order, T15b-3's handshake follows WASM-014, not D8. **O5** (scope: the WebSocket only; `/health`, `/dl/<token>`
 and the identity routes stay TLS-only) is the working assumption, **to confirm**.
 
-*Gate checked 2026-10-31 — not met; the /implement run of that day stopped here.* WASM-013 T24b (`specs/WASM-013-security-architecture/tasks.md:490`)
+*Gate update 2026-11-02: WASM-013 T24b and WASM-014 T19b are done (specs only: plan §1.11 and M7); O10 was decided 2026-10-31. The gate is met for the handshake text; the code is T15b-1…6.* *Gate checked 2026-10-31 — not met; the /implement run of that day stopped here.* WASM-013 T24b (`specs/WASM-013-security-architecture/tasks.md:490`)
 and WASM-014 T19b (`specs/WASM-014-backend-contract-and-evolution/tasks.md:464`) are both unchecked, and O10 is unconfirmed. T15b-1…6 not started.
 
 - [ ] **T15b-1 — The four crypto crates, probed and guarded first** (R24; tech steering; plan §5 R8)

@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.155 — 2026-11-02
+
+**Specs: the two dependencies of WASM-003's sealed channel (T15b) are written.** WASM-014 T19b: R18's wording now follows the order decided in WASM-003 O10 (the frontend's X25519 key and a nonce in its `hello`, the backend's in the answer), and plan §2.1 gains M7, the `key`/`nonce` members of both `hello`s, required from protocol 2, with the refusals. WASM-013 T24b: plan §1.11 records the construction (X25519, HKDF-SHA256, ChaCha20-Poly1305), what the encryption protects against and what it does not (the unauthenticated agreement is left to TLS), the residual risks and the audit. Both ACs (WASM-014 AC11, WASM-013 AC12) stay open until the code of WASM-003 T15b lands. No code changed.
+
 ## 2.0.154 — 2026-11-02
 
 **Fix: the shipped web player is rebuilt from the merged source.** After the 2.x branches were consolidated, `the_shipped_player_was_built_from_the_source_that_is_here` was red; `build_player` was run again (plain and threaded builds, `player-build.json`) and all five freshness tests pass.
