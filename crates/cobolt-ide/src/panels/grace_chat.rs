@@ -89,6 +89,8 @@ pub struct GraceChatPanel {
     error_modal: Option<String>,
     history_font_size: f32,
     rescan_documentation: bool,
+    /// The last finished run, waiting for the app to apply its approved form change-sets (`take_finished_record`).
+    finished_record: Option<cobolt_agents::grace::WorkflowRecord>,
     /// Agent questions not yet shown — surfaced one balloon at a time.
     pending_questions: std::collections::VecDeque<String>,
     /// The question currently awaiting the developer's answer.
@@ -145,6 +147,7 @@ impl Default for GraceChatPanel {
             error_modal: None,
             history_font_size: 14.0,
             rescan_documentation: false,
+            finished_record: None,
             pending_questions: std::collections::VecDeque::new(),
             current_question: None,
             collected_answers: Vec::new(),
@@ -216,6 +219,7 @@ impl GraceChatPanel {
         self.status = None;
         self.error_modal = None;
         self.rescan_documentation = false;
+        self.finished_record = None;
         self.pending_questions.clear();
         self.current_question = None;
         self.collected_answers.clear();
@@ -229,6 +233,17 @@ impl GraceChatPanel {
 
     /// Show the next queued agent question as its own red balloon — one
     /// question at a time; the next appears only after this one is answered.
+    /// The finished run whose approved form change-sets the app has yet to apply; handed over once.
+    pub fn take_finished_record(&mut self) -> Option<cobolt_agents::grace::WorkflowRecord> {
+        self.finished_record.take()
+    }
+
+    /// Say what applying a run did (forms created, changes applied or refused) as one assistant turn.
+    pub fn push_note(&mut self, note: String) {
+        self.history.push(ChatTurn::assistant(note));
+        let _ = self.persist();
+    }
+
     fn ask_next_question(&mut self) {
         if let Some(question) = self.pending_questions.pop_front() {
             self.history.push(ChatTurn::question(&question));
@@ -294,6 +309,9 @@ impl GraceChatPanel {
             self.rescan_documentation = true;
             match result {
                 Ok((record, _)) => {
+                    // The run's approved form change-sets are applied by the app (`take_finished_record`): this panel only
+                    // reports the run, so without the hand-over a created form existed in the chat and nowhere else.
+                    self.finished_record = Some(record.clone());
                     // Offer the developer's star row for every specialist
                     // that actually RAN in this workflow: blocked agents
                     // never ran, and Grace's own direct answers are not
@@ -1071,6 +1089,18 @@ impl GraceChatPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The project-wide chat used to print a finished run's summary and drop the run, so the form Grace "created" never
+    /// reached the disk (reported live, `agent-demo-form`). The run now waits for the app, once.
+    #[test]
+    fn a_finished_run_is_handed_to_the_app_exactly_once() {
+        let mut panel = GraceChatPanel::new();
+        assert!(panel.take_finished_record().is_none(), "nothing finished yet");
+        panel.finished_record = Some(cobolt_agents::grace::WorkflowRecord::default());
+        assert!(panel.take_finished_record().is_some(), "the app receives the run");
+        assert!(panel.take_finished_record().is_none(), "and only once, or the form would be created twice");
+        println!("grace chat hand-over: 3 cases (empty, first take, second take) behave as ruled");
+    }
 
     /// Observability output is for the developer's eyes, never for Grace's
     /// memory of what was said.

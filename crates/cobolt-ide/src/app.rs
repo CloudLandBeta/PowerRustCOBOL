@@ -6543,11 +6543,20 @@ impl CoboltApp {
             None => return, // still running
         };
         self.grace_applied = true;
+        let notes = self.apply_grace_record(&record);
+        if let Some(sess) = self.grace_session.as_mut() {
+            sess.log.extend(notes);
+        }
+    }
 
+    /// Apply a finished run's approved Form-Designer change-sets (`create_form` first, then the edits to that form) and
+    /// return what happened, one note per line, for whichever chat shows it. Shared by the form-inspector chat and the
+    /// project-wide chat: the second used to drop the run after printing its summary, so nothing was ever created.
+    fn apply_grace_record(&mut self, record: &cobolt_agents::grace::WorkflowRecord) -> Vec<String> {
         let sets =
-            crate::grace_host::approved_form_change_sets(&record, crate::agents_db::FORM_DESIGNER);
+            crate::grace_host::approved_form_change_sets(record, crate::agents_db::FORM_DESIGNER);
         if sets.is_empty() {
-            return;
+            return Vec::new();
         }
         let mut notes: Vec<String> = Vec::new();
         let mut saved_path: Option<PathBuf> = None;
@@ -6610,9 +6619,7 @@ impl CoboltApp {
         if let Some(p) = saved_path {
             self.project.refresh_form(&p);
         }
-        if let Some(sess) = self.grace_session.as_mut() {
-            sess.log.extend(notes);
-        }
+        notes
     }
 
     /// The project's root directory (where `cobolt.toml` lives), if a project is open.
@@ -17212,6 +17219,12 @@ impl eframe::App for CoboltApp {
                     .show(root_ui, &root, &self.llm, &tr, &surface);
                 if action.rescan_documentation {
                     self.sync_project_documentation_membership(&root);
+                }
+                if let Some(record) = self.grace_chat.take_finished_record() {
+                    let notes = self.apply_grace_record(&record);
+                    if !notes.is_empty() {
+                        self.grace_chat.push_note(notes.join("\n"));
+                    }
                 }
                 if action.close {
                     self.show_grace_chat = false;
