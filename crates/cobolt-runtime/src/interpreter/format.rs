@@ -59,7 +59,7 @@ impl Interpreter {
     ) -> Result<String, RuntimeError> {
         let tag = self.locale_tag(locale, span)?;
         let (name, currency) = split_format(spec);
-        let currency = currency.or_else(|| self.env.format_default_currency()).map(str::to_string);
+        let currency = currency.map(str::to_string).or_else(|| self.env.format_default_currency());
         let Some(n) = value.as_exact() else {
             return Err(general(format!("FORMAT '{spec}' needs a numeric item, not a floating-point one")));
         };

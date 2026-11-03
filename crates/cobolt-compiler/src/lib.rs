@@ -820,6 +820,9 @@ struct ProjectMeta {
     /// `[project] locale` — the default locale of FORMAT (spec 109).
     #[serde(default)]
     locale: String,
+    /// `[project] currency` — the default currency code of FORMAT (spec 109 T2.2).
+    #[serde(default)]
+    currency: String,
 }
 
 /// Where a build installs the deliverable when the project does not choose.
@@ -894,6 +897,17 @@ const FOCUS_RING_ENABLED_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_ENABLED:
 /// `generate_main_rs` writes it — empty, the runtime's own default.
 /// `build_core` replaces it with the project's `[ide] indexed_engine`.
 const LOCALE_DEFAULT_LINE: &str = "const PROJECT_LOCALE: &str = \"\";";
+
+/// The default-currency constant every generated `main.rs` carries, empty until baked.
+const CURRENCY_DEFAULT_LINE: &str = "const PROJECT_CURRENCY: &str = \"\";";
+
+/// Put the project's default currency into a generated `main.rs`.
+fn bake_currency(main_rs: String, currency: &str) -> String {
+    main_rs.replace(
+        CURRENCY_DEFAULT_LINE,
+        &format!("const PROJECT_CURRENCY: &str = \"{}\";", currency.trim().escape_default()),
+    )
+}
 
 /// Put the project's default locale into a generated `main.rs`.
 fn bake_locale(main_rs: String, locale: &str) -> String {
@@ -1145,6 +1159,16 @@ pub fn project_locale(manifest_path: &Path) -> String {
         .ok()
         .and_then(|text| toml::from_str::<CoboltProject>(&text).ok())
         .map(|p| p.project.locale.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// `[project] currency` of a manifest — the default currency code FORMAT uses when a
+/// format names none (spec 109 T2.2) — or empty when it names none or cannot be read.
+pub fn project_currency(manifest_path: &Path) -> String {
+    std::fs::read_to_string(manifest_path)
+        .ok()
+        .and_then(|text| toml::from_str::<CoboltProject>(&text).ok())
+        .map(|p| p.project.currency.trim().to_ascii_uppercase())
         .unwrap_or_default()
 }
 
@@ -1969,6 +1993,7 @@ pub fn build_single_file(
             destination_folder: String::new(),
             kind: ProjectKind::Desktop,
             locale: String::new(),
+            currency: String::new(),
         },
         files: ProjectFiles::default(),
         forms: FormsConfig::default(),
@@ -3023,6 +3048,7 @@ fn build_core(
     );
     let main_rs = bake_indexed_engine(main_rs, &proj.ide.indexed_engine);
     let main_rs = bake_locale(main_rs, &proj.project.locale);
+    let main_rs = bake_currency(main_rs, &proj.project.currency);
     let main_rs = bake_link_schemes(main_rs, &proj.links.schemes);
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
@@ -4523,6 +4549,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     cobolt_form_host::seeding::publish_aws_connections(project_connections.aws.clone());
     cobolt_runtime::mcp_tool::publish_file_memory_limit(PROJECT_FILE_MEMORY_LIMIT_MB * 1024 * 1024);
     cobolt_runtime::publish_format_locale(PROJECT_LOCALE);
+    cobolt_runtime::publish_format_currency(PROJECT_CURRENCY);
     cobolt_form_host::seeding::publish_link_schemes(PROJECT_LINK_SCHEMES.iter().map(|s| s.to_string()).collect());
     let (maps_api_key, search_api_key) = cobolt_form_host::seeding::resolve_api_keys();
     let seed = cobolt_form_host::seeding::build_object_seed(
@@ -4844,6 +4871,7 @@ static PROGRAM_AST: &[u8] = include_bytes!("../assets/program.bin");
 /// baked in because a shipped binary has no manifest to read it from.
 {indexed_engine_line}
 {locale_line}
+{currency_line}
 
 /// The engine this application creates NEW indexed files with: the project's
 /// choice, else `COBOL_INDEXED_ENGINE` on the machine that runs it, else the
@@ -4952,6 +4980,7 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         ast_mismatch_help = AST_MISMATCH_HELP,
         indexed_engine_line = INDEXED_ENGINE_DEFAULT_LINE,
         locale_line = LOCALE_DEFAULT_LINE,
+        currency_line = CURRENCY_DEFAULT_LINE,
     )
 }
 
@@ -5325,7 +5354,7 @@ Both take an **action word** first and a **script** as a string, so one call rep
            ME::Controls("BTN-1" "BTN-2")::SetProperties("BackgroundColor" "#FFFFFF" "ForegroundColor" "#1B2A4E")
 ```
 - **User functions.** A unit `FUNCTION-ID. NAME.` … `PROCEDURE DIVISION USING BY VALUE ARG RETURNING RES.` … `END FUNCTION NAME.` is called inside an expression as `FUNCTION NAME(args)`. Arguments are copies (the caller's items never change); a function may call others and itself, each call with its own arguments and result (use LOCAL-STORAGE for working items). The argument count is checked at build. A function cannot have an intrinsic function's name. Functions in Common Code (`src/`) are visible to every form. In a program file the program unit comes first and the function units follow it.
-- **Formatting.** `FORMAT [IS] "name" [LOCALE [IS] "tag" | item]` on a numeric item shows it formatted in `DISPLAY`, `STRING`, an interpolated string and `Format()`; it is stored and compared as the number. Formats: `number`, `currency` (`"currency BRL"`: the currency is part of the text), `compact` (`1,2 mi`), `currency-short`, `percent` (the value is a ratio). Locales: `pt-BR`, `en-US`, `fr-FR`; names and tags ignore case. The symbol gap is a no-break space. `{expr:format}` uses a single `:` (`::` is the member operator); `{{` and `}}` print a brace. An item without `LOCALE` uses the project's `[project] locale`, else `en-US`. Rounding is half away from zero.
+- **Formatting.** `FORMAT [IS] "name" [LOCALE [IS] "tag" | item]` on a numeric item shows it formatted in `DISPLAY`, `STRING`, an interpolated string and `Format()`; it is stored and compared as the number. Formats: `number`, `currency` (`"currency BRL"`: the currency is part of the text), `compact` (`1,2 mi`), `currency-short`, `percent` (the value is a ratio). Locales: `pt-BR`, `en-US`, `fr-FR`; names and tags ignore case. The symbol gap is a no-break space. `{expr:format}` uses a single `:` (`::` is the member operator); `{{` and `}}` print a brace. An item without `LOCALE` uses the project's `[project] locale`, else `en-US`. A format that names no currency (`"currency"`, `"currency-short"`) uses the project's `[project] currency` (an ISO code such as `BRL`, set in the project settings of a Web or Mobile project or in the manifest); with none set it stops with a message naming the missing currency. Rounding is half away from zero.
 - **Collections.** `Split` hands a list to the next method. `Map`, `Filter`, `SortByDescending`, `Take` answer a list; `Join`, `Sum`, `Max` answer one value. `ITEM => expr` is an expression (a value, or a test for `Filter`); it cannot assign or do I/O. `Sum` of an empty list is 0; `Max` of an empty list stops the run. A list is not a COBOL value: end the chain with `Join`, `Sum` or `Max`, or walk it with `PERFORM VARYING element THROUGH collection` (a list or an OCCURS table; the element is a copy). The pieces of a `Split` of a fixed-width field keep trailing blanks: `Map(ITEM => ITEM::Trim())` first.
 - **Control collections.** `PNL::Descendants()` answers the controls under a container by real parent membership (the whole subtree, hidden controls included, the container excluded). `ME::Controls("ID" …)` names controls explicitly (an unknown or repeated id stops with an error). `SetProperties("Name" value …)` writes name/value pairs to every control of the collection, all or none.
 - **View options of a read-only binding.** A DataGrid binding can carry `order_by` (field and direction; numbers sort as numbers, equal values keep source order) and a per-column `format` (`"number"`, `"currency BRL"`, `"percent"`), applied after the order. A writable binding refuses both.
@@ -11165,6 +11194,20 @@ function_prefix = "sales-"
         println!("[project] locale: read pt-BR, missing -> empty; baked into main.rs");
     }
 
+    #[test]
+    fn project_currency_is_read_and_baked() {
+        let dir = std::env::temp_dir().join(format!("prc-currency-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let m = dir.join("P.project.toml");
+        std::fs::write(&m, "[project]\nname = \"P\"\nversion = \"1.0.0\"\nmain = \"M\"\ncurrency = \"brl\"\n").unwrap();
+        assert_eq!(project_currency(&m), "BRL");
+        assert_eq!(project_currency(&dir.join("missing.toml")), "");
+        let _ = std::fs::remove_dir_all(&dir);
+        let baked = bake_currency(format!("x\n{CURRENCY_DEFAULT_LINE}\n"), "BRL");
+        assert!(baked.contains("const PROJECT_CURRENCY: &str = \"BRL\";"));
+        println!("[project] currency: read brl -> BRL, missing -> empty; baked into main.rs");
+    }
+
     fn proj(main: &str, sources: Vec<&str>, generated: Vec<&str>) -> CoboltProject {
         CoboltProject {
             project: ProjectMeta {
@@ -11174,6 +11217,7 @@ function_prefix = "sales-"
                 destination_folder: String::new(),
                 kind: ProjectKind::Desktop,
                 locale: String::new(),
+                currency: String::new(),
             },
             files: ProjectFiles {
                 sources: sources.into_iter().map(String::from).collect(),

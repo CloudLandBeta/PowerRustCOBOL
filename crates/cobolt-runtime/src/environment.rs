@@ -131,6 +131,16 @@ pub fn publish_format_locale(locale: &str) {
     }
 }
 
+/// The project's `[project] currency`, published once by the host like the locale.
+static PROCESS_FORMAT_CURRENCY: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Publish the application's default currency code for FORMAT (spec 109 T2.2). Empty clears it.
+pub fn publish_format_currency(code: &str) {
+    if let Ok(mut g) = PROCESS_FORMAT_CURRENCY.lock() {
+        *g = code.trim().to_ascii_uppercase();
+    }
+}
+
 /// The data store for a running COBOL program.
 ///
 /// Data items are addressed by their COBOL name (uppercase, hyphens preserved).
@@ -1202,9 +1212,16 @@ impl CobolEnvironment {
         }
     }
 
-    /// The default currency code, or `None` when the project names none.
-    pub fn format_default_currency(&self) -> Option<&str> {
-        (!self.format_currency.is_empty()).then_some(self.format_currency.as_str())
+    /// The default currency code: this environment's, else the one the host published for the
+    /// process (the project's `[project] currency`), or `None` when the project names none.
+    pub fn format_default_currency(&self) -> Option<String> {
+        if !self.format_currency.is_empty() {
+            return Some(self.format_currency.clone());
+        }
+        match PROCESS_FORMAT_CURRENCY.lock() {
+            Ok(g) if !g.is_empty() => Some(g.clone()),
+            _ => None,
+        }
     }
 
     /// Take a canonical storage key out of the store, answering what it held. The

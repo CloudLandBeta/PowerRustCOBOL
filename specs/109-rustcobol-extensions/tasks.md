@@ -82,7 +82,7 @@ finished module's execution pass (rule #9).
   - Verify: `cargo test -p <crate>`; fixed expected outputs for signs, zero, rounding
     boundaries, compact thresholds (AC4); `Cargo.lock` diff only the new workspace member (AC12).
 
-- [ ] **T2.2 — Project default currency** (R8, Q2b)
+- [x] **T2.2 — Project default currency** (R8, Q2b)
   - Files: `crates/cobolt-ide/src/project_model.rs` (beside `[project] locale`), Settings `Tr` ×6.
   - Verify: manifest round-trips; absent default plus bare `currency-short` is a diagnostic.
 

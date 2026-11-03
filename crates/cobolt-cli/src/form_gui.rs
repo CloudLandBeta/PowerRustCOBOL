@@ -252,6 +252,7 @@ pub fn cmd_run_form(args: &[String]) {
             cobolt_form_host::seeding::publish_link_schemes(cobolt_compiler::project_link_schemes(m));
             crate::install_project_sql_catalog(m);
             cobolt_runtime::publish_format_locale(&cobolt_compiler::project_locale(m));
+            cobolt_runtime::publish_format_currency(&cobolt_compiler::project_currency(m));
         }
         let anchor = manifest
             .and_then(|m| m.parent().map(|p| p.to_path_buf()))

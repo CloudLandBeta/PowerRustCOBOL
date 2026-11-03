@@ -70,7 +70,7 @@ as the number it is.
 **Notes**
 - `{expr:format}`: the format follows a single `:`; `::` is the member operator.
   `{{` and `}}` print a brace.
-- The currency is part of the format text: `"currency BRL"`. A project may name a default.
+- The currency is part of the format text: `"currency BRL"`. A project may name a default (`currency = "BRL"` under `[project]`, or the Default currency box in the project settings); a format that names none then uses it, and with no default it stops with a message that says so.
 - Rounding is half away from zero; a negative value shows a leading minus.
 
 **Caveats**

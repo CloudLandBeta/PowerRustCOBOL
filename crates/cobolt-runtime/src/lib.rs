@@ -125,7 +125,7 @@ pub use debugger::{
     DebugEvent, DebugQuery, DebugUserScope, DebugWire, RemoteDebugCmd, RemoteDebugMsg, ScopeInfo,
     SpecialValue, UserScope, VarInfo, VarSnapshot, DEBUG_SESSION_ENV,
 };
-pub use environment::{new_external_store, publish_format_locale, CobolEnvironment, ExternalStore};
+pub use environment::{new_external_store, publish_format_currency, publish_format_locale, CobolEnvironment, ExternalStore};
 pub use error::RuntimeError;
 pub use http_runtime::HttpClient;
 pub use indexed::{

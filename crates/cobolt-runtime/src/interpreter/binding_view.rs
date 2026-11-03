@@ -74,7 +74,7 @@ impl Interpreter {
         }
 
         let locale = self.env.format_default_locale();
-        let currency = self.env.format_default_currency().map(str::to_owned);
+        let currency = self.env.format_default_currency();
         for line in formats.lines() {
             let Some((field, spec)) = line.split_once('=') else { continue };
             let Some(at) = column(field) else { continue };

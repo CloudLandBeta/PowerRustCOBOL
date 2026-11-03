@@ -178,6 +178,7 @@ impl SettingsDraft {
     pub fn apply_kind(&self, p: &mut CoboltProject) {
         p.project.description = self.description.clone();
         p.project.locale = self.locale.clone();
+        p.project.currency = self.currency.trim().to_ascii_uppercase();
         let accepted_url = |url: &str, kept: &str| -> String {
             if backend_url_problem(url).is_none() {
                 url.trim().to_owned()
@@ -826,6 +827,10 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
                 ui.selectable_value(&mut draft.locale, tag.to_owned(), crate::panels::new_project::locale_label(tag));
             }
         });
+    });
+
+    row(ui, lay, tr.pk_f_currency, |ui| {
+        ui.add(egui::TextEdit::singleline(&mut draft.currency).desired_width(80.0).char_limit(3));
     });
 
     // The application style is the project's, Web or Mobile.

@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.174 — 2026-11-03
+
+**Spec 109 (T2.2): the project's default currency.** `currency = "BRL"` under `[project]` (written in lower case it is read as `BRL`) is now the currency of a format that names none: `Format("currency")`, `Format("currency-short")` and `{value:currency}` use it, a binding column's `"currency"` too. A currency named in the format (`"currency USD"`) still wins, and with no default a bare `currency` stops with a message that names the missing currency. The value reaches every host the way the locale does — the IDE's runner, `rcrun run-form`, and a built application, which carries it baked into its `main.rs` — and the project settings of a Web or Mobile project gain a "Default currency" box, with its label in all six languages, beside the locale picker. A desktop project sets it in the manifest, as it does the locale. The System KB text and `chunked.data` are updated.
+
 ## 2.0.173 — 2026-11-03
 
 **Fix: the Claude Code plugin bundle passes the `claude` plugin validator again.** The installed `claude` (2.1.308) now runs the plugin directory's checks on `claude plugin validate`, and the bundle the IDE writes failed them: no README, no license, no icon, and no statement of where the data goes. The bundle now carries a `README.md` (what the plugin does, the three setup steps, and a "Where your data goes" section saying it talks only to the IDE on 127.0.0.1 and to `rcrun`), `"license": "Apache-2.0"` in `plugin.json`, and a small `.claude-plugin/icon.svg`. `claude_validates_the_written_bundle` passes on both the marketplace and the plugin folder. The icon is a plain bracket mark in the IDE's cyan, to be replaced by the mascot art when it is wanted.

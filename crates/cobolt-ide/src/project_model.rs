@@ -725,6 +725,9 @@ pub struct ProjectMeta {
     /// Empty when none was chosen.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub locale: String,
+    /// The default currency code of FORMAT, such as `BRL` (spec 109 T2.2). Empty when none was chosen.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub currency: String,
 }
 
 /// Where a build installs the deliverable when the project does not say.
@@ -906,6 +909,7 @@ impl CoboltProject {
                 kind: ProjectKind::Desktop,
                 description: String::new(),
                 locale: String::new(),
+                currency: String::new(),
             },
             files: ProjectFiles::default(),
             runtime: RuntimeConfig::default(),
@@ -2898,6 +2902,7 @@ mod project_kind_tests {
         web.project.kind = ProjectKind::Web;
         web.project.description = "A shop".into();
         web.project.locale = "pt-BR".into();
+        web.project.currency = "BRL".into();
         {
             let s = web.web_settings_mut();
             s.style = ApplicationStyle::Standalone;
@@ -2917,6 +2922,7 @@ mod project_kind_tests {
         assert_eq!(back.backend, web.backend);
         assert_eq!(back.files.backend, web.files.backend);
         assert_eq!((back.project.description.as_str(), back.project.locale.as_str()), ("A shop", "pt-BR"));
+        assert_eq!(back.project.currency, "BRL", "[project] currency round-trips");
 
         let mut mob = CoboltProject::new("M.project", "");
         mob.project.kind = ProjectKind::Mobile;

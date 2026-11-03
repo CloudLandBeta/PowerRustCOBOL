@@ -45,6 +45,8 @@ pub struct SettingsDraft {
     pub description: String,
     /// The default locale, such as `pt-BR`.
     pub locale: String,
+    /// The default currency code, such as `BRL` (spec 109 T2.2).
+    pub currency: String,
     /// `[web]`, edited for a Web project.
     pub web: cobolt_compiler::project_kind::WebSettings,
     /// `[mobile]`, edited for a Mobile project.
@@ -160,6 +162,7 @@ impl SettingsDraft {
             kind: p.kind(),
             description: p.project.description.clone(),
             locale: p.project.locale.clone(),
+            currency: p.project.currency.clone(),
             web: p.web_settings(),
             mobile: p.mobile.clone(),
             has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
