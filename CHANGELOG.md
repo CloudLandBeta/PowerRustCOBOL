@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.178 — 2026-11-03
+
+**Fix: Grace's AgentObject demo form now carries working code, and a new form always lands under its own forms folder.** The COBOL Event Handler Script Agent had no reference for the AgentObject, so it invented `GetResult()` and `MOVE ... TO AGENT::SetModel()`, the change-set validator refused those handlers, and the demo was left with a button that asked nothing and no reply or error handling. A built-in skill, `agent-object.md`, is now seeded for both the Event Handler and the Form Designer agents: `Ask` is asynchronous (never use its value), the button's `onClick` calls `Ask`, the AgentObject's `onResponse` reads `LastReply`, its `onError` reads `LastError`, `SetModel`/`SetPrompt` take their value in the parentheses, and a ComboBox has no `Text` property. `create_form` also strips a leading `webforms` or `mobileforms` segment (as it already did `forms`), so a new form goes to the root of its kind's folder unless the developer names a sub-folder.
+
 ## 2.0.177 — 2026-11-03
 
 **Fix: a form Grace creates goes into the folder the developer named, and appears in the project tree at once.** `create_form` had no folder, so "create a form in the Common folder" wrote `forms/agent-demo-form.cfrm` at the root of the tree instead of `forms/Common/`. It now takes an optional `folder` (`"Common"`, `"Menus & Bars"`), and a path written into the name (`forms/Common/agent-demo-form`, which the model does) is split into folder and id; a folder that escapes the forms folder (`..`) is refused. The project-wide chat also asks for a new frame after applying a run, because the tree is drawn before the form exists and a finished run requests none.

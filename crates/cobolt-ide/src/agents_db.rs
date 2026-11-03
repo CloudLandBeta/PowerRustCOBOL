@@ -1657,13 +1657,22 @@ impl AgentsDb {
     /// skills existed. User-edited skill files are preserved: content is written
     /// only when the file is absent or empty.
     pub fn ensure_form_designer_skills(&mut self) -> bool {
-        let Some(agent) = self.by_name(FORM_DESIGNER) else {
+        self.seed_builtin_skills(FORM_DESIGNER, crate::llm::form_designer_builtin_skills())
+    }
+
+    /// The COBOL Event Handler Script Agent's built-in skills (the AgentObject usage), seeded the same way.
+    pub fn ensure_event_handler_skills(&mut self) -> bool {
+        self.seed_builtin_skills(EVENT_HANDLER, crate::llm::event_handler_builtin_skills())
+    }
+
+    fn seed_builtin_skills(&mut self, agent_name: &str, skills: Vec<(&'static str, &'static str)>) -> bool {
+        let Some(agent) = self.by_name(agent_name) else {
             return false;
         };
         let name = agent.name.clone();
         let skills_dir = self.dir(&name).join("skills");
         let mut changed = false;
-        for (file, content) in crate::llm::form_designer_builtin_skills() {
+        for (file, content) in skills {
             let path = skills_dir.join(file);
             let missing = std::fs::read_to_string(&path)
                 .map(|c| c.trim().is_empty())
@@ -2369,6 +2378,9 @@ impl AgentsDb {
             changed += 1;
         }
         if self.ensure_event_handler(llm) {
+            changed += 1;
+        }
+        if self.ensure_event_handler_skills() {
             changed += 1;
         }
         if self.ensure_version_control(llm) {
@@ -4694,6 +4706,12 @@ mod tests {
         assert!(caps.contains("Container controls move as a whole"));
         assert!(caps.contains("--- SKILL (overlap-free-control-moves.md) ---"));
         assert!(caps.contains("Overlap-free control moves"));
+
+        // The AgentObject usage skill reaches both specialists, so a demo form gets all three handlers.
+        let handler_caps = db.load_agent_capabilities(EVENT_HANDLER);
+        assert!(handler_caps.contains("--- SKILL (agent-object.md) ---"));
+        assert!(handler_caps.contains("onResponse") && handler_caps.contains("LastError"));
+        assert!(db.load_agent_capabilities(FORM_DESIGNER).contains("--- SKILL (agent-object.md) ---"));
 
         // Idempotent: a second pass registers nothing new and does not duplicate.
         db.ensure_form_designer_skills();

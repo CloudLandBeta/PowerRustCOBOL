@@ -2198,6 +2198,7 @@ pub const RUSTCOBOL_SKILL_FILE: &str = "rustcobol-extensions.md";
 pub const FORM_DESIGNER_SKILL_FILE: &str = "form-designer.md";
 pub const EVENT_HANDLER_SKILL_FILE: &str = "event-handler.md";
 pub const MAPS_SKILL_FILE: &str = "maps.md";
+pub const AGENT_OBJECT_SKILL_FILE: &str = "agent-object.md";
 
 const FORM_DESIGNER_STEERING: &str = r#"# Form Designer Agent Steering
 
@@ -2279,6 +2280,65 @@ Do not use `CALL` for a control's properties or methods — those are reached wi
 /// methods answer on an event rather than returning, and that a distance is
 /// two numbers and a string rather than one string. Every agent that got this
 /// wrong got it wrong the same way, so the recipe is written down once here.
+pub const AGENT_OBJECT_SKILL: &str = r##"# AgentObject Skill — asking a model from COBOL
+
+A form that "uses the AgentObject" is not finished with the control on it: the button that asks, the handler that
+receives the answer and the handler that receives the failure must all hold COBOL. A demo with an empty handler
+demonstrates nothing.
+
+## The three handlers (write ALL THREE)
+
+`Ask` is **asynchronous**. It returns an empty string at once; the answer arrives later in the AgentObject's own
+`onResponse` event, the failure in its `onError` event. So:
+
+| Where | What the COBOL does |
+|-------|---------------------|
+| The Button's `onClick` | Optionally `SET AGENT-1::AgentModel`/`SetPrompt(...)`; show a "waiting" caption; call `AGENT-1::Ask(TXT-QUESTION::Text)` as a STATEMENT |
+| The AgentObject's `onResponse` | `SET TXT-REPLY::Text TO AGENT-1::LastReply` (`Result` holds the same text); show "answered" |
+| The AgentObject's `onError` | `SET LBL-STATE::Caption TO AGENT-1::LastError` (also arrives as the handler's `ERROR-DESC` parameter) |
+
+```cobol
+      *> onClick of BTN-ASK
+           SET LBL-STATE::Caption TO "asking..."
+           SET BTN-ASK::Enabled TO false
+           AGENT-1::Ask(TXT-QUESTION::Text)
+
+      *> onResponse of AGENT-1
+           SET TXT-REPLY::Text TO AGENT-1::LastReply
+           SET LBL-STATE::Caption TO "answered"
+           SET BTN-ASK::Enabled TO true
+
+      *> onError of AGENT-1
+           SET LBL-STATE::Caption TO AGENT-1::LastError
+           SET BTN-ASK::Enabled TO true
+```
+
+The event of a non-visual control is bound on THAT control: `generate_event_handler` with the AgentObject's id and
+`onResponse` / `onError`, not on the button.
+
+## What does not exist — never write it
+
+- `MOVE AGENT-1::Ask(...) TO X` or any use of Ask's value: it is empty. The reply is read in `onResponse`.
+- `GetResult()`, `GetReply()`, `GetError()`, `Response`, `Reply`: there are none. Properties are `LastReply`, `Result`,
+  `PartialReply`, `LastError`, `Busy`.
+- `MOVE x TO AGENT-1::SetModel()`: `SetModel` and `SetPrompt` are methods taking the value in the parentheses:
+  `AGENT-1::SetModel("model-name")`, `AGENT-1::SetPrompt(TXT-SYSTEM::Text)`.
+
+## Properties and methods
+
+- Configuration (design time or `SET`): `AgentModel`, `AgentAPI`, `AgentURL`, `AgentAPIKey`, `SystemPrompt`,
+  `TimeoutSeconds`, `StreamReply` (partial text in `PartialReply`, event `onPartialReply`), `ResponseDataItem`.
+- State: `Busy` is true while a question is in flight; do not Ask again while it is.
+- Never put a real API key in COBOL or in a property the demo ships: the developer sets `AgentAPIKey` in Settings.
+
+## Controls the demo needs
+
+A TextBox for the question and one for the reply (MultiLine, read-only), a Label for the state, a Button to ask.
+A ComboBox has NO `Text` property: do not `SET CMB-1::Text`. To let the developer pick a model, read the item with the
+ComboBox's own selection properties, or simply use a TextBox holding the model name and pass it to `SetModel`.
+`set_menu_items` fills only a SideMenu or a MenuBar; never use it for a ComboBox.
+"##;
+
 const MAPS_SKILL: &str = r##"# Maps Skill — building a real map solution
 
 ## The one thing to get right first
@@ -2687,6 +2747,8 @@ pub fn ensure_project_agentic_files(project_dir: &Path) -> Result<(), String> {
     // properties, the event-handler writes the async/onComplete half. Getting
     // either wrong produces a map that looks built and does nothing.
     write_or_refresh(&form_skills.join(MAPS_SKILL_FILE), MAPS_SKILL, &[])?;
+    // The designer places the AgentObject and the controls around it; the event-handler writes the three handlers.
+    write_or_refresh(&form_skills.join(AGENT_OBJECT_SKILL_FILE), AGENT_OBJECT_SKILL, &[])?;
 
     let event_dir = project_agent_dir(project_dir, EVENT_HANDLER_AGENT_DIR);
     let event_skills = event_dir.join(SKILLS_DIR);
@@ -2710,6 +2772,7 @@ pub fn ensure_project_agentic_files(project_dir: &Path) -> Result<(), String> {
         LEGACY_EVENT_HANDLER_SKILLS,
     )?;
     write_or_refresh(&event_skills.join(MAPS_SKILL_FILE), MAPS_SKILL, &[])?;
+    write_or_refresh(&event_skills.join(AGENT_OBJECT_SKILL_FILE), AGENT_OBJECT_SKILL, &[])?;
     Ok(())
 }
 
@@ -3449,7 +3512,7 @@ pub fn form_target(name: &str, folder: Option<&str>) -> Result<(String, String),
     }
     let joined = format!("{}/{}", folder.unwrap_or("").trim().replace('\\', "/"), name_dir);
     let mut segments: Vec<&str> = joined.split('/').map(str::trim).filter(|s| !s.is_empty()).collect();
-    if segments.first().is_some_and(|s| s.eq_ignore_ascii_case("forms")) {
+    if segments.first().is_some_and(|s| ["forms", "webforms", "mobileforms"].iter().any(|k| s.eq_ignore_ascii_case(k))) {
         segments.remove(0);
     }
     for s in &segments {
@@ -3471,6 +3534,8 @@ mod tests {
         assert_eq!(ok("agent-demo-form", Some("Common")), ("Common".into(), "agent-demo-form".into()));
         assert_eq!(ok("forms/Common/agent-demo-form", None), ("Common".into(), "agent-demo-form".into()));
         assert_eq!(ok("agent-demo-form", Some("forms/Menus & Bars")), ("Menus & Bars".into(), "agent-demo-form".into()));
+        assert_eq!(ok("webforms/Common/x-form", None), ("Common".into(), "x-form".into()));
+        assert_eq!(ok("x-form", Some("mobileforms")), ("".into(), "x-form".into()));
         assert!(form_target("agent-demo-form", Some("../x")).is_err(), "no escaping the forms folder");
         assert!(form_target("1bad", None).is_err(), "the id rule still holds");
         println!("create_form target: 6 cases (bare, folder, path name, nested folder, escape, bad id) behave as ruled");

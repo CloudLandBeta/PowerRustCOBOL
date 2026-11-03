@@ -2485,7 +2485,14 @@ pub fn form_designer_builtin_skills() -> Vec<(&'static str, &'static str)> {
         ),
         ("overlap-free-control-moves.md", OVERLAP_FREE_MOVE_SKILL),
         ("grid-aligned-placement.md", GRID_ALIGNED_PLACEMENT_SKILL),
+        (crate::agent::AGENT_OBJECT_SKILL_FILE, crate::agent::AGENT_OBJECT_SKILL),
     ]
+}
+
+/// Built-in skill docs for the COBOL Event Handler Script Agent, seeded like the designer's. The handler agent
+/// writes the COBOL of a control's events, so the real API of a control it has never seen in its prompt must reach it.
+pub fn event_handler_builtin_skills() -> Vec<(&'static str, &'static str)> {
+    vec![(crate::agent::AGENT_OBJECT_SKILL_FILE, crate::agent::AGENT_OBJECT_SKILL)]
 }
 
 pub const CONTAINER_MOVE_SKILL: &str = r#"# Container controls move as a whole
