@@ -269,3 +269,25 @@ Isolated → threaded + Worker, not isolated → plain + main thread: the existi
 
 **Not measured:** a Rayon DataGrid sort reporting more than one worker — the player exposes no count of the workers a sort used, and adding one
 means rebuilding the threaded player (nightly `build-std`). Firefox, Safari, iOS and Android web views: not installed.
+
+## WASM-017 T13 — embedding, isolation headers, cross-origin resources (measured 2026-11-03, version 2.0.186)
+
+Engine that ran: Google Chrome (headless, the installed one), through `tests/support/cdp.rs`. Command:
+`cargo test -p cobolt-web-bundle --test isolation_chrome -- --nocapture` → `test result: ok. 3 passed`.
+
+| Cell | Result |
+|---|---|
+| Embedded in a host page without isolation headers (AC14) | `isolated=false, plain/main`; the host page's own text intact |
+| Embedded in an isolated host page (AC14) | `isolated=true, threaded/worker` |
+| Host without headers + service-worker shim (AC15) | isolated, `threaded/worker`, 65 ms from the start of the navigation (after two shim defects were fixed) |
+| `_headers`, nginx, `.htaccess` × off / require-corp / credentialless | 9 of 9 carry exactly the headers of `security_headers` |
+| Cross-origin image / tile, page `credentialless` | no header: loaded; CORP cross-origin: loaded; CORS: loaded; CORS mode without ACAO: refused (CORS message) |
+| Cross-origin image / tile, page `require-corp` | no header: refused (`ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep`); CORP cross-origin: loaded; CORS: loaded |
+| Cross-origin font (CORS mode), both settings | with ACAO: loaded; without: refused ("blocked by CORS policy"); CORP alone: refused |
+
+**Not run — commands for the engines not installed** (each cell is the same bundle served by the development server; none is claimed):
+`cargo run -p cobolt-web-bundle --example serve -- <dist/web> --isolated` (isolated) and without `--isolated` (plain), then open
+`http://127.0.0.1:8080/` in Firefox, in Safari (macOS), in Safari on an iOS device or simulator, and in an Android WebView/Chrome, and read
+`PowerRustCOBOL.mount(document.getElementById('pr-app')).then(a => a.choice)` and `self.crossOriginIsolated` in the console. The Mobile kind's
+plain-player rule was not exercised (no Mobile project builds here). The `focus_comparison_chrome` test of `cobolt-project-tools` fails in this
+environment (the desktop side records no events); it touches none of this change and was not run against the base.

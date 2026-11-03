@@ -248,7 +248,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
     identical across the 8 cells; every frame gap under the deadline (max gap printed); the ledger lists each cell with where it ran.
   - **Partly done 2026-11-03 (2.0.185) — box left open.** The threaded player runs under node (real Rayon pool through a `worker_threads` `Worker`): 8 cells per module, `end-to-end scenarios: 28 passed, 0 failed` (3 runs), the loop is 10 000 000 iterations on the generated module, every gap under 16 + 6.9 ms, pool size 1/1/3/8/8 for 1/2/4/9/32 cores, ledger in `specs/WASM-PROGRESS.md`. **Open:** "a Rayon DataGrid sort reports > 1 worker" — the player has no export that counts the workers a sort used; it needs a player rebuild.
 
-- [ ] **T13 — Browser cells: embedding, isolation headers, cross-origin resources** (R19c/d, AC14, AC15) — Chrome only here
+- [x] **T13 — Browser cells: embedding, isolation headers, cross-origin resources** (R19c/d, AC14, AC15) — Chrome only here
   - Files: `crates/cobolt-web-bundle/src/csp.rs` tests (headers per documented host from `security_headers`), the browser runner of
     WASM-015, `specs/WASM-PROGRESS.md`.
   - Do: **AC14** the application embedded (WASM-002 R11) in a non-isolated host page → plain player, works; in an isolated host page →
@@ -257,6 +257,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
     diagnostic otherwise. Mobile: plain player, main thread (Q5 working assumption).
   - Verify: `cargo test -p cobolt-web-bundle --no-fail-fast` (headers); the Chrome runs recorded with their commands. Firefox, Safari
     (macOS, iOS) and the Android WebView are **not installed**: their cells are listed with the command to run them, none claimed.
+  - **Done 2026-11-03 (2.0.186), Chrome only.** `cargo test -p cobolt-web-bundle --test isolation_chrome -- --nocapture` → 3 passed; `cargo test -p cobolt-web-bundle --no-fail-fast` → every `test result` ok (27 unit, 1 e2e_chrome, 1 e2e_node, 3 isolation_chrome …). **AC14**: embedded in a non-isolated host page → `plain/main`, the host page's own text intact; in an isolated one → `threaded/worker`. **AC15**: headers of `_headers`, `hosting/nginx.conf`, `hosting/.htaccess` line by line for off / require-corp / credentialless (9 checks); the shim isolates a header-less host (it found two defects, fixed here — see CHANGELOG 2.0.186); 16 cross-origin cases (image and font, tile = image) under both settings with the browser's diagnostic for each refusal. **Not run:** Firefox, Safari, iOS and Android web views (not installed — commands in `specs/WASM-PROGRESS.md`); the Mobile kind's plain-player rule (no Mobile project exists to build here).
 
 ### Build, records, knowledge
 

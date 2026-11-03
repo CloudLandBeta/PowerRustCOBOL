@@ -749,6 +749,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         has(&f.controls)
     });
     let mut csp_opts = o.csp.clone();
+    csp_opts.shim = o.service_worker_shim;
     // The notice of a page opened from disk (`notice`): one inline script, allowed by its hash and never
     // by 'unsafe-inline', so that the policy stays default-deny.
     let notice_source = notice::script_source();

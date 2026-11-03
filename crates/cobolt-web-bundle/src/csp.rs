@@ -36,6 +36,9 @@ pub struct CspOptions {
     pub report_only: bool,
     /// Where violations are reported (header only).
     pub report_uri: Option<String>,
+    /// The isolation shim is on: its registration script makes the worker's URL through a second Trusted Types
+    /// policy (`pr-coi`), which the page runs before the loader has made the `default` one.
+    pub shim: bool,
 }
 
 impl CspOptions {
@@ -86,7 +89,7 @@ pub fn build(opts: &CspOptions, backends: &[String], embed: &Embed) -> Policy {
     ];
     if opts.trusted_types {
         meta.push(("require-trusted-types-for".into(), "'script'".into()));
-        meta.push(("trusted-types".into(), "default".into()));
+        meta.push(("trusted-types".into(), if opts.shim { "default pr-coi" } else { "default" }.into()));
     }
     let mut header_only: Vec<(String, String)> = Vec::new();
     match embed {

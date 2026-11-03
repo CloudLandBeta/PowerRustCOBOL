@@ -108,7 +108,7 @@ impl Chrome {
         let stream = TcpStream::connect(("127.0.0.1", self.port)).map_err(|e| e.to_string())?;
         stream.set_read_timeout(Some(Duration::from_secs(30))).map_err(|e| e.to_string())?;
         let (ws, _) = tungstenite::client::client(ws_url, stream).map_err(|e| format!("DevTools handshake: {e}"))?;
-        let mut page = Page { ws, next: 1, console: Vec::new(), exceptions: Vec::new() };
+        let mut page = Page { ws, next: 1, console: Vec::new(), exceptions: Vec::new(), browser_log: Vec::new() };
         page.call("Runtime.enable", json!({}))?;
         page.call("Page.enable", json!({}))?;
         Ok(page)
@@ -147,6 +147,8 @@ pub struct Page {
     pub console: Vec<String>,
     /// Uncaught exceptions the page reported.
     pub exceptions: Vec<String>,
+    /// What the browser itself reported (`Log.entryAdded`, `Network.loadingFailed`): a blocked cross-origin resource is named here.
+    pub browser_log: Vec<String>,
 }
 
 impl Drop for Page {
@@ -173,6 +175,14 @@ impl Page {
                 Some("Runtime.exceptionThrown") => {
                     let d = &v["params"]["exceptionDetails"];
                     self.exceptions.push(d["exception"]["description"].as_str().or(d["text"].as_str()).unwrap_or("?").to_owned());
+                }
+                Some("Log.entryAdded") => {
+                    let e = &v["params"]["entry"];
+                    self.browser_log.push(format!("{}: {} {}", e["level"].as_str().unwrap_or("?"), e["text"].as_str().unwrap_or(""), e["url"].as_str().unwrap_or("")));
+                }
+                Some("Network.loadingFailed") => {
+                    let p = &v["params"];
+                    self.browser_log.push(format!("network: {} blocked={}", p["errorText"].as_str().unwrap_or("?"), p["blockedReason"].as_str().unwrap_or("-")));
                 }
                 _ => {}
             }

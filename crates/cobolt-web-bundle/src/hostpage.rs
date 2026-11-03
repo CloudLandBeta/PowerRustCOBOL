@@ -1288,8 +1288,31 @@ pub fn coi_register_js() -> String {
   }
   var src = document.currentScript && document.currentScript.dataset && document.currentScript.dataset.worker;
   if (!src) return;
-  navigator.serviceWorker.register(src).then(function (reg) {
-    if (reg.active && !navigator.serviceWorker.controller && !tried) {
+  // The page enforces Trusted Types and this script runs before the loader has made its `default` policy: a
+  // policy of its own (named in the page's `trusted-types`, only when the shim is on) makes the worker's URL,
+  // and it makes it for this origin only.
+  var url = src;
+  if (self.trustedTypes && typeof self.trustedTypes.createPolicy === 'function') {
+    try {
+      url = self.trustedTypes
+        .createPolicy('pr-coi', {
+          createScriptURL: function (u) {
+            var abs = new URL(u, location.href);
+            if (abs.origin !== location.origin) throw new TypeError('the isolation worker must come from this origin');
+            return abs.href;
+          },
+        })
+        .createScriptURL(src);
+    } catch (_) {
+      url = src; // Trusted Types are not enforced here, or the policy exists already
+    }
+  }
+  // `register` answers while the worker is still installing: wait until it is active, then reload once (a page
+  // is isolated by the headers of the response that made it, and the worker has not made this one).
+  navigator.serviceWorker.register(url).then(function () {
+    return navigator.serviceWorker.ready;
+  }).then(function () {
+    if (!tried) {
       try {
         sessionStorage.setItem(KEY, '1');
       } catch (_) {
