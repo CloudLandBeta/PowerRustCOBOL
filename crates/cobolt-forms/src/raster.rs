@@ -197,7 +197,20 @@ pub fn render_frame(
 /// Run one egui frame at `time` and take its texture uploads, without filling
 /// any pixel: the warm-up frames before the one that is pictured.
 pub fn advance_frame(ctx: &egui::Context, rasterizer: &mut Rasterizer, size: egui::Vec2, time: f64, ui: impl FnMut(&mut egui::Ui)) {
+    advance_frame_with(ctx, rasterizer, size, time, Vec::new(), ui);
+}
+
+/// [`advance_frame`] with the input `events` (a pointer move, a press) the frame receives.
+pub fn advance_frame_with(
+    ctx: &egui::Context,
+    rasterizer: &mut Rasterizer,
+    size: egui::Vec2,
+    time: f64,
+    events: Vec<egui::Event>,
+    ui: impl FnMut(&mut egui::Ui),
+) {
     let mut input = egui::RawInput::default();
+    input.events = events;
     input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size));
     input.time = Some(time);
     let mut full = ctx.run_ui(input, ui);

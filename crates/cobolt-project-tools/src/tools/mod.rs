@@ -367,7 +367,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                 description: Some(
                     "Run a form off screen, with its real program, through a script of steps — \
                      {\"set\": {control, property, value}} as if typed, {\"event\": {control, name}} \
-                     as if clicked, {\"wait_ms\": n}, {\"read\": {control, property}}, \
+                     as if clicked, {\"click\": {control}} for a real pointer click on the control (a desktop form), {\"wait_ms\": n}, {\"read\": {control, property}}, \
                      {\"dump\": true} for every control's live properties at that point, and in an \
                      application shell {\"open_form\": name} to load a form into the ContentPane \
                      (set, event and read then act on it) — and answer \

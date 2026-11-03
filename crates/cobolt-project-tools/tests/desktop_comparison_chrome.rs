@@ -67,7 +67,7 @@ const WANTED: &[&str] = &[
 /// The differences found (R4), by (control, what), each with what differs. Found by this harness at 2.0.117 and
 /// open: none is by design yet; each is a parity item for the player (or, for an event list, for the harness's
 /// desktop half, which is `render_form` without the host — nothing feeds a value back between frames).
-const FOCUS: &str = "the page raises onGotFocus on the click (and the previous control's onLostFocus); headless render_form reports none for it";
+const FOCUS: &str = "the page raises onGotFocus on the click (and the previous control's onLostFocus); headless render_form reports none for it; measured with the real host (focus_comparison_chrome, 2.0.176): the desktop Button takes no focus from the mouse, so it stays a listed difference";
 const DOCUMENTED: &[(&str, &str, &str)] = &[
     ("BTN-A", "events", FOCUS),
     ("TXT-A", "events", "a typed key: the desktop raises onChange/onTextChanged before onKeyDown, the page after onKeyPress (the browser's order)"),
@@ -75,7 +75,7 @@ const DOCUMENTED: &[(&str, &str, &str)] = &[
     ("LST-A", "events", "focus as BTN-A; the page selects on the click, after onMouseUp, where the desktop selects on the press; each raises the selection change twice in the script (the click, then the Down arrow), so nothing is duplicated"),
     ("CMB-A", "events", "focus as BTN-A; the page raises a second onMouseUp after onClick (the <select> picker)"),
     ("NUD-A", "events", "focus as BTN-A; the desktop raises onKeyPress for the Down arrow, the page (a non-character key) does not"),
-    ("SLD-A", "events", "focus as BTN-A; the page's range input moves on the press and on the Down arrow (onChange/onValueChanged), the desktop's headless render_form does not: to re-measure with the real host (T17 lifecycle harness)"),
+    ("SLD-A", "events", "focus as BTN-A; the page's range input moves on the press and on the Down arrow (onChange/onValueChanged), the desktop's does not; re-measured with the real host (focus_comparison_chrome, 2.0.176): a click raises the mouse events on both, the change only on the page"),
 ];
 
 /// `(id, type, x, y, w, h, properties)`.

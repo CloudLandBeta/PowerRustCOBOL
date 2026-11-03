@@ -20,6 +20,7 @@
 //! | `{"set": {"control": "TXT-NAME", "property": "Text", "value": "Ann"}}` | as if typed |
 //! | `{"event": {"control": "BTN-OK", "name": "onClick"}}` | as if clicked |
 //! | `{"event": {…}, "wait": false}` | clicked, without waiting for the handler (a click while another handler is busy) |
+//! | `{"click": {"control": "BTN-OK"}}` | a real pointer click on the control's centre (move, press, release): focus and mouse events fire |
 //! | `{"wait_ms": 300}` | lets timers and animations run |
 //! | `{"read": {"control": "LBL-TOTAL", "property": "Caption"}}` | the live value |
 //! | `{"dump": true}` | every control's live state at that point, in the step's `state` (`{"BTN-OK": {"visible": true, "enabled": true, "props": {…}}, …}`): the designed properties and what the program wrote (a property the program wrote is spelled as COBOL spells it, `CAPTION`, and replaces the designed `Caption`) |
@@ -130,6 +131,11 @@ pub fn run_headless(
         let t = started.elapsed().as_secs_f64();
         cobolt_forms::raster::advance_frame(&ctx, raster, size, t, |ui| host.frame(ui));
     };
+    // One frame that receives the pointer `events`.
+    let frame_with = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer, events: Vec<egui::Event>| {
+        let t = started.elapsed().as_secs_f64();
+        cobolt_forms::raster::advance_frame_with(&ctx, raster, size, t, events, |ui| host.frame(ui));
+    };
     // Run frames for `ms` of real time (the host's clocks are real ones).
     let run_for = |host: &mut Driven, raster: &mut cobolt_forms::raster::Rasterizer, ms: u64| {
         let until = (Instant::now() + Duration::from_millis(ms)).min(deadline);
@@ -190,6 +196,24 @@ pub fn run_headless(
             } else {
                 timed_out = !settle(&mut host, &mut raster);
                 steps.push(json!({"step": i, "done": !timed_out, "event": format!("{c}.{n}")}));
+            }
+        } else if let Some(cl) = step.get("click") {
+            // A real pointer click on the control's centre: the host sees the
+            // move, the press and the release, so focus and mouse events fire
+            // as they do under an operator's mouse.
+            let c = field(cl, "control");
+            let rect = host.host().last_control_rects().get(&c).copied();
+            match rect {
+                None => steps.push(json!({"step": i, "done": false, "why": format!("{c} was not drawn on the form")})),
+                Some(r) => {
+                    let at = r.center();
+                    let button = egui::PointerButton::Primary;
+                    let mods = egui::Modifiers::NONE;
+                    frame_with(&mut host, &mut raster, vec![egui::Event::PointerMoved(at), egui::Event::PointerButton { pos: at, button, pressed: true, modifiers: mods }]);
+                    frame_with(&mut host, &mut raster, vec![egui::Event::PointerButton { pos: at, button, pressed: false, modifiers: mods }]);
+                    timed_out = !settle(&mut host, &mut raster);
+                    steps.push(json!({"step": i, "done": !timed_out, "click": c}));
+                }
             }
         } else if let Some(ms) = step.get("wait_ms").and_then(Value::as_u64) {
             run_for(&mut host, &mut raster, ms.min(30_000));

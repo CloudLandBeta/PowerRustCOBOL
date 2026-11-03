@@ -391,7 +391,7 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
       script offers the change to `app.update` first). The bundle suite stays green (`e2e_node` 14 scenarios, `no_string_execution`
       3/3 over the new loader text).
 
-- [ ] **T17 — Equality with the desktop form host by measurement** (R6, R14; Q4; AC2, AC9)
+- [x] **T17 — Equality with the desktop form host by measurement** (R6, R14; Q4; AC2, AC9)
   - Files: `specs/WASM-016-prebuilt-player/differences.md` (new: the expected differences — entrance and exit effects, window states, window
     positions, per the operator's 2026-10-22 answer to Q4; a verb that asks for one is accepted and does nothing), the R14 harness (a test that runs
     the WASM-004 R11 reference form and the spec 037/042 lifecycle and event-order scripts on `cobolt-form-host` and, under node, on the player).
@@ -400,6 +400,7 @@ changes any of them ends with `cargo run PLAYER --example build_player -- --out 
     AC2: every class A and B control drawn from its description with each property set to a distinct value and read back from the DOM.
     Manual (plan §6): Chrome on 127.0.0.1, the variant choice, the Rayon DataGrid sort, parts on first use; the operator looks at the reference
     form beside the desktop.
+  - **Rows 4, 6 (repeat), 12 measured with the real host (2026-11-03, 2.0.176):** the headless script gained `{"click": {"control": id}}`, a real pointer move, press and release on the control's centre (`headless.rs`; test `headless_pointer_click.rs`); `focus_comparison_chrome.rs` compares 2 Buttons and a Slider on both sides: mouse events equal, the focus events (Button) and the slider change are real, listed differences.
   - **Lifecycle start-up measured 2026-11-02 (2.0.163):** `onShow` / `onActivate` were missing on the page and are fixed; close, veto and restore still wait for `close` / `restore` steps in the headless script (`differences.md`).
   - **Unblocked 2026-11-02 (2.0.160): WASM-004 T32 and T33 are done; the controls half is measured, the lifecycle half is open** (see `differences.md`: twelve differences ruled on, four fixed, 8 listed). *Was:* **BLOCKED (2.0.42): its dependency is not built.** The harness compares the player with `cobolt-form-host` on the WASM-004 R11
     reference form, and that form and its tooling are WASM-004's open tasks **T32** (property round-trip for every class A and B

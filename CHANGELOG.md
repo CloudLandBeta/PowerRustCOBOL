@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.182 — 2026-11-03
+
+**WASM-016 T17: the real host is clicked, and rows 4, 6 and 12 are measured.** The headless script (`rcrun run-form --headless`, the `run_form` tool) has a new step, `{"click": {"control": "BTN-OK"}}`: a real pointer move, press and release on the control's centre, so the host sees the click as it sees an operator's mouse (the `event` step only raises `onClick`). With it `focus_comparison_chrome.rs` compares two Buttons and a Slider on the desktop host and in Chrome: the mouse events (`onMouseDown`, `onMouseUp`, `onClick`) are equal; a browser focuses a clicked Button and moves a range input to the clicked point, so the page raises `onGotFocus`, `onLostFocus`, `onChange` and `onValueChanged` where the desktop host raises none. These are not harness artefacts, and stay listed in `differences.md`. Test `headless_pointer_click.rs`: two real clicks reach their buttons in order, an absent control is reported.
+
 ## 2.0.181 — 2026-11-03
 
 **Fix: a running form no longer shows its non-visual controls' tray cards during the window effect.** Run Form with an entrance effect (the Matrix rain, for one) pictures the form to animate it, and that picture drew every visible control, including the AgentObject, Timer and other non-visual ones, whose tray card is a designer affordance and was already left out of the live form. The robot card of an AgentObject sat in the corner of the form for as long as the effect played. The effect's picture now leaves non-visual controls out, as the running form does. Covered by `an_effect_picture_leaves_out_the_non_visual_cards`, which failed (11 shapes over an AgentObject) before the change.
