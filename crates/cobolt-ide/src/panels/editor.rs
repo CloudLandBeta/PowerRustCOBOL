@@ -369,6 +369,29 @@ const DATA_ITEM_METHOD_DOCS: &[Method] = &[
     ("Format", "Format(name, locale) — the number shown as text, e.g. \"currency BRL\""),
 ];
 
+/// The type IntelliSense gives what follows `Split(…)` or a list method: a list (spec 109 §5.3).
+pub(crate) const COLLECTION_TYPE: &str = "Collection";
+/// The type of what follows `Descendants()` or `Controls(…)`: a group of controls (§5.4).
+pub(crate) const CONTROL_COLLECTION_TYPE: &str = "ControlCollection";
+
+/// The methods of a list, for the popup; a test keeps the names equal to the language's
+/// [`cobolt_ast::methods::COLLECTION_METHODS`].
+const COLLECTION_METHOD_DOCS: &[Method] = &[
+    ("Map", "Map(ITEM => expr) — a list of the expression for each piece"),
+    ("Filter", "Filter(ITEM => test) — the pieces for which the test holds"),
+    ("SortByDescending", "SortByDescending(ITEM => key) — the pieces, largest key first"),
+    ("Take", "Take(n) — the first n pieces"),
+    ("Join", "Join(sep) — the pieces as one text, with sep between them"),
+    ("Sum", "Sum() — the pieces added up as numbers"),
+    ("Max", "Max() — the largest piece, as a number"),
+];
+
+/// What a group of controls offers: write the same properties to all of them.
+const CONTROL_COLLECTION_DOCS: &[Method] = &[(
+    "SetProperties",
+    "SetProperties(\"Name\" value …) — set the same properties on every control of a collection",
+)];
+
 /// The completion entry for a receiver: the form's own control of that id, or —
 /// for a name no control has — one built from the type detection decided on. A
 /// data item carries its one property.
@@ -393,6 +416,12 @@ fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
     // The `COBOL` object: the built-in CALLs, from the runtime's own table.
     if ctrl_type == COBOL_OBJECT_TYPE {
         return cobol_object_methods().to_vec();
+    }
+    if ctrl_type == COLLECTION_TYPE {
+        return COLLECTION_METHOD_DOCS.to_vec();
+    }
+    if ctrl_type == CONTROL_COLLECTION_TYPE {
+        return vec![CONTROL_COLLECTION_DOCS[0]];
     }
     // A data item: its value methods, and nothing of a control's.
     if ctrl_type == DATA_ITEM_TYPE {
@@ -4945,16 +4974,69 @@ fn detect_invoke_context_with(
         // which is how it looks when the bar is always the second reference on
         // its line and the Knob before it is the first.
         if !member_is_finished(mprefix) {
-            let ctrl_type = controls
-                .iter()
-                .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
-                .map(|c| c.ctrl_type.clone())
-                .unwrap_or_else(|| receiver_type_fallback(&ctrl_tok, value_items));
+            // The tail of the chain decides first: after `Split(…)`, `Map(…)` … what follows is a
+            // link of a collection chain (spec 109), whatever the root is.
+            let ctrl_type = collection_tail_type(chain_expr).map(str::to_owned).unwrap_or_else(|| {
+                controls
+                    .iter()
+                    .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
+                    .map(|c| c.ctrl_type.clone())
+                    .unwrap_or_else(|| receiver_type_fallback(&ctrl_tok, value_items))
+            });
             return Some((ctrl_tok, ctrl_type, mprefix.into()));
         }
     }
 
     None
+}
+
+/// What a chain ending in a collection-making call offers next (spec 109 §5.3, §5.4): the
+/// list methods after `Split(sep)` or a list method, `SetProperties` after `Descendants()` or
+/// `Controls(…)`. `None` when the last link is anything else, or is subscripted (`Split(",")(2)`).
+fn collection_tail_type(chain_expr: &str) -> Option<&'static str> {
+    let mut depth = 0usize;
+    let mut last = 0usize;
+    let bytes = chain_expr.as_bytes();
+    for (i, b) in bytes.iter().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            b':' if depth == 0 && i > 0 && bytes[i - 1] == b':' => last = i + 1,
+            _ => {}
+        }
+    }
+    let link = &chain_expr[last..];
+    let open = link.find('(')?;
+    if !link.ends_with(')') || link[open..].matches('(').count() != link[open..].matches(')').count() {
+        return None;
+    }
+    // A second group — a subscript — makes it a piece, not a list.
+    let mut groups = 0;
+    let mut d = 0;
+    for c in link[open..].chars() {
+        match c {
+            '(' => {
+                if d == 0 {
+                    groups += 1;
+                }
+                d += 1;
+            }
+            ')' => d -= 1,
+            _ => {}
+        }
+    }
+    if groups != 1 {
+        return None;
+    }
+    let name = &link[..open];
+    let is = |n: &str| name.eq_ignore_ascii_case(n);
+    if is("Split") || cobolt_ast::methods::COLLECTION_METHODS.iter().any(|m| is(m) && !matches!(*m, "Join" | "Sum" | "Max")) {
+        Some(COLLECTION_TYPE)
+    } else if is("Descendants") || is("Controls") {
+        Some(CONTROL_COLLECTION_TYPE)
+    } else {
+        None
+    }
 }
 
 /// The type of a receiver no form declares: the `COBOL` object is known in
@@ -5880,10 +5962,10 @@ fn cobol_highlight_line(
     }
 }
 
-/// Whether `word` is a literal prefix glued to the quote that follows it:
-/// `X`, `N`, `NX`, `U` or `UX` (spec 077 added the last four).
+/// Whether `word` is a literal prefix glued to the quote that follows it: `X`, `N`, `NX`, `U`, `UX`
+/// or `F` (the interpolated string of spec 109 S2).
 fn is_literal_prefix(word: &str) -> bool {
-    ["X", "N", "NX", "U", "UX"].iter().any(|p| word.eq_ignore_ascii_case(p))
+    ["X", "N", "NX", "U", "UX", "F"].iter().any(|p| word.eq_ignore_ascii_case(p))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6936,6 +7018,39 @@ END-EVALUATE
     }
 
     #[test]
+    fn a_list_chain_offers_the_list_methods_and_a_subscripted_piece_does_not() {
+        let names = |line: &str| -> Option<(String, Vec<String>)> {
+            let (ty, got) = offered(line, &[])?;
+            let mut n: Vec<String> = got.into_iter().map(|(l, _)| l).collect();
+            n.sort();
+            Some((ty, n))
+        };
+        let mut want: Vec<String> = cobolt_ast::methods::COLLECTION_METHODS.iter().map(|s| s.to_string()).collect();
+        want.sort();
+        for line in [
+            "           DISPLAY WS-TEXT::Split(\",\")::",
+            "           DISPLAY WS-TEXT::Split(\",\")::Map(ITEM => ITEM::Trim())::",
+            "           DISPLAY WS-TEXT::Split(\",\")::Filter(ITEM <> \" \")::Take(2)::",
+        ] {
+            let (ty, got) = names(line).unwrap_or_else(|| panic!("{line}"));
+            assert_eq!(ty, COLLECTION_TYPE, "{line}");
+            assert_eq!(got, want, "{line}");
+        }
+        // The popup lists exactly the language's list methods (the test above is the other half).
+        // A piece (`Split(",")(2)`) is text again: the data item's methods.
+        let (ty, _) = names("           DISPLAY WS-TEXT::Split(\",\")(2)::").unwrap();
+        assert_eq!(ty, DATA_ITEM_TYPE);
+        // A reduction answers a value, not a list.
+        let (ty, _) = names("           DISPLAY WS-TEXT::Split(\",\")::Join(\"/\")::").unwrap();
+        assert_ne!(ty, COLLECTION_TYPE);
+        // `Descendants()` and `Controls(…)` offer SetProperties.
+        let (ty, got) = names("           PNL-A::Descendants()::").unwrap();
+        assert_eq!((ty.as_str(), got.as_slice()), (CONTROL_COLLECTION_TYPE, ["SetProperties".to_string()].as_slice()));
+        let (ty, _) = names("           ME::Controls(\"A\" \"B\")::").unwrap();
+        assert_eq!(ty, CONTROL_COLLECTION_TYPE);
+    }
+
+    #[test]
     fn the_value_methods_filter_by_prefix_and_follow_a_chain() {
         let (_, got) = offered("           MOVE WS-TEXT::up", &[]).unwrap();
         let labels: Vec<&str> = got.iter().map(|(l, _)| l.as_str()).collect();
@@ -7661,6 +7776,17 @@ mod national_editor_tests {
         assert_ne!(colour_at(&highlight_cobol(plain), plain, "SUM"), th.ed_keyword);
     }
 
+    /// Spec 109 S2: `F"…"` is one literal, prefix included, and a data item called `F` keeps its own colour.
+    #[test]
+    fn an_interpolated_string_is_drawn_whole() {
+        let th = crate::theme::active();
+        let text = "           DISPLAY F\"Margin: {WS-RATIO:percent}\"\n";
+        let job = highlight_cobol(text);
+        assert_eq!(colour_at(&job, text, "F\"Margin"), th.ed_string, "the F starts in the string colour");
+        let plain = "           MOVE F TO WS-G\n";
+        assert_ne!(colour_at(&highlight_cobol(plain), plain, "F TO"), th.ed_string);
+    }
+
     /// AC15: IntelliSense offers the clauses and the new functions.
     #[test]
     fn intellisense_offers_the_national_words() {
@@ -7722,6 +7848,11 @@ mod completion_text_tests {
         let mut out = BTreeSet::new();
         for ct in cobolt_forms::ControlType::ALL {
             for (_, d) in methods_for_type(ct.as_str()) {
+                out.insert(d.to_owned());
+            }
+        }
+        for t in [COLLECTION_TYPE, CONTROL_COLLECTION_TYPE] {
+            for (_, d) in methods_for_type(t) {
                 out.insert(d.to_owned());
             }
         }

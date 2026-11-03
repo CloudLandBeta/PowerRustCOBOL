@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.171 — 2026-11-02
+
+**Spec 109 (T-IDE, second part): completion after a list chain, and `F"…"` drawn whole.** After `WS-NAMES::Split(",")::` or any list method (`Map(…)`, `Filter(…)`, `SortByDescending(…)`, `Take(n)`) the popup now offers the list methods — `Map`, `Filter`, `SortByDescending`, `Take`, `Join`, `Sum`, `Max` — each with its form and a description in all six languages; after `Descendants()` or `Controls(…)` it offers `SetProperties`. A subscripted piece, `Split(",")(2)`, is text again and offers the data item's methods. The editor also draws an interpolated string `F"Margin: {WS-RATIO:percent}"` as one literal: the `F` used to be drawn as a word apart from its quote. Still open in T-IDE: the debugger's source map for a step into a function or an interpolation. (The editor has no hover on source words, so there is none to extend.)
+
 ## 2.0.170 — 2026-11-02
 
 **Spec 109 (T-IDE, first part): the completion popup offers `Format`, `Descendants` and `SetProperties`.** Typing `::` after a numeric data item now lists `Format` (with its `Format(name, locale)` hint) beside `Trim`, `Upper`, `Lower`, `Replace`, `Len` and `Split`; after a control it lists `Descendants` and `SetProperties`. Each description exists in all six languages. Still open in T-IDE: the collection methods (`Map`, `Filter`, `Join` …) after a `Split(…)` chain, `Controls(…)` on `ME`, highlighting of `F"…"`, `=>` and `THROUGH`, hover, and the debugger's source map for a step into a function.
