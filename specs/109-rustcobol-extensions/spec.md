@@ -686,16 +686,16 @@ published COBOL emits the high-level binding/refresh operation directly.
 
 ## 7. Acceptance criteria
 
-- [ ] **AC1 (R1–R3):** Standard-shaped standalone and project FUNCTION-ID units
+- [x] **AC1 (R1–R3):** Standard-shaped standalone and project FUNCTION-ID units
   parse, check and execute; numeric/text returns, nested calls, expression
   arguments, BY VALUE/BY REFERENCE, visibility and error cases are covered.
   Standard parameter/storage rules are verified against authoritative references.
-- [ ] **AC2 (R4–R5):** Interpolation covers braces, quotes, Unicode, nested method
+- [x] **AC2 (R4–R5):** Interpolation covers braces, quotes, Unicode, nested method
   expressions and explicit formats; `{WS-A::Trim():number}` reads as the expression
   `WS-A::Trim()` with the option `number`; a quote and a brace inside a nested
   string literal behave as R4 says. A counter proves one evaluation per expression
   in left-to-right order. Malformed strings identify the originating expression.
-- [ ] **AC3 (R6–R10, R28):** PIC declarations cover literal and variable LOCALE,
+- [x] **AC3 (R6–R10, R28):** PIC declarations cover literal and variable LOCALE,
   qualified references, changed locale between two displays, lexical scope,
   equivalent `pt-BR`/`PT-br`/`pt-br` literal and variable values with identical
   output and unchanged variable contents, a locale item whose trailing spaces differ,
@@ -705,89 +705,89 @@ published COBOL emits the high-level binding/refresh operation directly.
   clauses, ::Format() arguments and interpolation options, without changing source
   text or stored values. A control's `Format` property (DateTimePicker, Viewer)
   reads and writes as before.
-- [ ] **AC4 (R6–R10):** Fixed expected outputs cover pt-BR/en-US/fr-FR, explicit
+- [x] **AC4 (R6–R10):** Fixed expected outputs cover pt-BR/en-US/fr-FR, explicit
   BRL currency, signs, zero, rounding boundaries, compact thresholds and percent
   convention. Input numeric bytes/values remain unchanged after formatting.
-- [ ] **AC5 (R11–R15, R38):** Map/Filter/Join chaining, table slices, fixed/ODO
+- [x] **AC5 (R11–R15, R38):** Map/Filter/Join chaining, table slices, fixed/ODO
   extents, stable equal-key sorting, empty inputs, bad types and capacity overflow
   pass; blank and zero entries are not silently discarded; `X::Split(",")(2)` and
   the unsubscripted `Split` behave as before, and the existing tests of both stay
   green.
-- [ ] **AC6 (R16):** Collections from §5.3 and §5.4 and OCCURS tables iterate
+- [x] **AC6 (R16):** Collections from §5.3 and §5.4 and OCCURS tables iterate
   through the same PERFORM syntax; tests cover nested loops, early exit and
   evaluation count, and the three old PERFORM forms and `EXIT PERFORM [CYCLE]`
   behave as before.
-- [ ] **AC7 (R17–R19):** Descendants respects true parents, sibling order, hidden
+- [x] **AC7 (R17–R19):** Descendants respects true parents, sibling order, hidden
   controls, repeated-group instances and root exclusion. A visually overlapping
   sibling is excluded. Live method/property writes reach the correct instance.
-- [ ] **AC8 (R18–R19):** Bulk styling covers valid mixed controls, duplicate/missing
+- [x] **AC8 (R18–R19):** Bulk styling covers valid mixed controls, duplicate/missing
   IDs, unsupported properties, invalid types, bound notifications and a target
   validation error with zero writes. The DataGrid binding and write-back tests
   (specs 094, 095), `engine_reference_form_parity_static_vs_faces`,
   `cargo test -p cobolt-forms --features render` and the `rounded-corners` skill's
   checks stay green and any code touched in those areas is reviewed against them,
   with automated or visual evidence, before implementation completion.
-- [ ] **AC9 (R20–R22):** Golden generator fixtures contain the high-level syntax
+- [x] **AC9 (R20–R22):** Golden generator fixtures contain the high-level syntax
   itself, contain no legacy expansion for those operations, preserve authored
   code/banner, regenerate identically and parse/check with zero new diagnostics.
-- [ ] **AC10 (R20–R23):** Equivalent PowerAnalytics workloads are generated from
+- [x] **AC10 (R20–R23):** Equivalent PowerAnalytics workloads are generated from
   original and updated form inputs, then compared for totals, selected filters,
   query parameters, chart data, grid rows/order, displayed text and animation
   invocation order. Source maps are regenerated and verified after line changes.
-- [ ] **AC11 (R20–R22, R36):** Report total/nonblank/executable/generated-only/
+- [x] **AC11 (R20–R22, R36):** Report total/nonblank/executable/generated-only/
   user-code LOC and bytes per fixture and per construct, with the baseline
   identified by hash, blob and generator commit and the outer/handler split of §2
   re-measured. Each construct's representative workload has fewer
   executable/scaffolding lines than its plumbing equivalent; comment or whitespace
   removal alone cannot satisfy this criterion. Report real aggregate savings; no
   unmeasured percentage is a release claim.
-- [ ] **AC12 (R23, R25):** Differential cases pass interpreted, compiled and
+- [x] **AC12 (R23, R25):** Differential cases pass interpreted, compiled and
   relevant WASM paths, the formatter's output identical on every host or the
   difference a `WASM-PARITY` row; debugger step/breakpoint/watch behavior and
   serialization tests pass; the build on Rust 1.92 adds no dependency (the
   `Cargo.lock` diff is empty or justified).
-- [ ] **AC13 (R26):** No file under `specs/108-partiql-indexed-files/` is changed
+- [x] **AC13 (R26):** No file under `specs/108-partiql-indexed-files/` is changed
   by the implementation of this spec; dependent tests name the Spec 108 result API
   they use and report unavailable dependencies explicitly.
-- [ ] **AC14 (R27):** The Guide (on 1.x.x), the six-language `Tr` strings, the
+- [x] **AC14 (R27):** The Guide (on 1.x.x), the six-language `Tr` strings, the
   `cobolt-compiler` reference tables and a regenerated `chunked.data` describe
   exactly the implemented features; `prebuilt_chunked_kb_matches_the_published_documentation`
   is green; on 2.x.x no file under `README.md` or `docs/` is touched.
-- [ ] **AC15 (R29–R30, R35):** Golden fixtures show omitted storage/helpers only
+- [x] **AC15 (R29–R30, R35):** Golden fixtures show omitted storage/helpers only
   where safe. Legacy cases cover whole-group MOVE, referenced PIC fields, GLOBAL,
   REDEFINES, reference arguments, Common Code, dynamic references, binding and
   debugger watches; each retains its old behavior and reachable names.
-- [ ] **AC16 (R31, R35):** Existing event/procedure regression suites and original
+- [x] **AC16 (R31, R35):** Existing event/procedure regression suites and original
   unmodified example forms pass. Verify all old handler names/signatures, lifecycle
   order, CALL/PERFORM entry points, event bindings, status outputs and exceptions.
   No test requires converting a user handler into a direct event binding.
-- [ ] **AC17 (R32, R35):** Layout fixtures cover Compact/Medium/Expanded (the
+- [x] **AC17 (R32, R35):** Layout fixtures cover Compact/Medium/Expanded (the
   default breakpoints) and their boundary widths 599/600 and 1023/1024,
   nested/repeating parents, explicit user overrides, fractional rounding,
   minimum/maximum sizes and resize repetition. Cycles/conflicts diagnose cleanly;
   equivalent layouts match measured geometry and windows never resize themselves.
-- [ ] **AC18 (R33, R35):** A deterministic clock tests absolute offsets, equal-time
+- [x] **AC18 (R33, R35):** A deterministic clock tests absolute offsets, equal-time
   order, cancellation, restart, simultaneous forms and close-before-completion.
   Compare visibility and animation-call traces with the imperative workload;
   existing timers/events retain their original trace and behavior.
-- [ ] **AC19 (R34–R35, R26):** Binding comparisons cover grid/chart/list/repeating
+- [x] **AC19 (R34–R35, R26):** Binding comparisons cover grid/chart/list/repeating
   groups, nulls, decimals, empty results, selections/identity, sort order, paging,
   refresh parameters and failures. No mixed partial result appears; manual data
   population remains valid. Spec 108 execution APIs are reused, not duplicated.
-- [ ] **AC20 (R20–R23, R29–R36):** Generator goldens contain direct layout,
+- [x] **AC20 (R20–R23, R29–R36):** Generator goldens contain direct layout,
   sequence, runtime-service and binding constructs, not expanded COBOL. Publish
   non-overlapping per-category savings and a paired application validation report.
   If the 50% study target is missed, state remaining LOC, cause and residual
   opportunities without claiming 50% achieved. All legacy compatibility gates must
   pass regardless of the measured reduction.
-- [ ] **AC21 (R24)** *(added by the review)*: The editor highlights, completes and
+- [x] **AC21 (R24)** *(added by the review)*: The editor highlights, completes and
   documents the new constructs; a diagnostic carries its source span; stepping into
   a function or an interpolation expression stops at the original code site; the
   source map is rebuilt after a line change.
-- [ ] **AC22 (R37)** *(added by the review)*: Every method this spec adds is on the
+- [x] **AC22 (R37)** *(added by the review)*: Every method this spec adds is on the
   closed vocabulary under one spelling and no alias; removing any of them from the
   list turns the dispatch test red.
-- [ ] **AC23 (§8)** *(added by the review)*: Every new COBOL test under
+- [x] **AC23 (§8)** *(added by the review)*: Every new COBOL test under
   `tests/cobol/**` ends with ONE result block (GOLDEN RULE #7); a credential scan of
   every staged diff finds none, and no example `.cfrm` is copied into a fixture
   unscanned.

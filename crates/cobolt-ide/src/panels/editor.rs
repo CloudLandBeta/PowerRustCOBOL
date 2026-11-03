@@ -1287,6 +1287,9 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
 /// form properties and the window-method surface, from the crates that own
 /// them — never a copy.
 pub fn form_receiver_known_control(id: &str) -> KnownControl {
+    // `ME::Controls("A" "B")` names controls of THIS form (spec 109 S4): the interpreter answers it, not
+    // the window supervisor, so it is not on `FORM_METHODS`. `super` is another form's window and has none.
+    let own = (id == "me").then(|| "Controls".to_string());
     KnownControl {
         id: id.to_string(),
         ctrl_type: "Form".to_string(),
@@ -1297,6 +1300,7 @@ pub fn form_receiver_known_control(id: &str) -> KnownControl {
         extra_methods: cobolt_runtime::form_host::FORM_METHODS
             .iter()
             .map(|(m, _)| (*m).to_string())
+            .chain(own)
             .collect(),
     }
 }
@@ -7015,6 +7019,14 @@ END-EVALUATE
         assert!(got.iter().any(|(l, d)| l == "Len" && d == "property"), "{got:?}");
         assert!(!got.iter().any(|(l, _)| l == "Length"), "the older spelling is not offered as a property either: {got:?}");
         println!("  WS-TEXT:: offers {} value methods + the Len property: {names:?}", names.len());
+    }
+
+    /// Spec 109 S4: `ME::` offers `Controls` (the interpreter answers it); `super::` does not.
+    #[test]
+    fn me_offers_controls_and_super_does_not() {
+        let has = |id: &str| member_completions(&form_receiver_known_control(id), "Contr").iter().any(|i| i.label == "Controls");
+        assert!(has("me"));
+        assert!(!has("super"));
     }
 
     #[test]

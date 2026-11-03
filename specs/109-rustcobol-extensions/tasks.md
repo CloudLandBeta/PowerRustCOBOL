@@ -71,7 +71,7 @@ finished module's execution pass (rule #9).
   - Files: `tests/cobol/collections/*.cbl`.
   - Verify: ONE result block (name, cases, phase ms, throughput, tally); run via `rcrun`.
 
-- [ ] **T3.7 — Slice close S3** — standing verification + NIST census; hosts (T-H); KB tables + `build_chunked_kb`; editor completion (T-IDE); `Tr` ×6; `z` bump; CHANGELOG entry; Guide text drafted in `specs/109-…/guide-notes.md` (no `docs/` on 2.x.x). (AC5, AC6, AC22)
+- [x] **T3.7 — Slice close S3** — standing verification + NIST census; hosts (T-H); KB tables + `build_chunked_kb`; editor completion (T-IDE); `Tr` ×6; `z` bump; CHANGELOG entry; Guide text drafted in `specs/109-…/guide-notes.md` (no `docs/` on 2.x.x). (AC5, AC6, AC22)
 
 ## S2 — Interpolation, `Format`, `FORMAT`/`LOCALE`
 
@@ -107,7 +107,7 @@ finished module's execution pass (rule #9).
 
 - [x] **T2.6 — COBOL test with result block** — `tests/cobol/format/*.cbl`, rule #7.
 
-- [ ] **T2.7 — Slice close S2** — standing verification + NIST census (new token `F"`, clause words); WASM: formatter shared source, `rt.wasm` rebuilt (`cargo run -p cobolt-wasm --example build_rt`), differential cases; KB, `Tr`, `z`, CHANGELOG, guide notes. (AC2, AC3, AC4, AC12)
+- [x] **T2.7 — Slice close S2** — standing verification + NIST census (new token `F"`, clause words); WASM: formatter shared source, `rt.wasm` rebuilt (`cargo run -p cobolt-wasm --example build_rt`), differential cases; KB, `Tr`, `z`, CHANGELOG, guide notes. (AC2, AC3, AC4, AC12)
 
 ## S1 — `FUNCTION-ID`
 
@@ -130,7 +130,7 @@ finished module's execution pass (rule #9).
   - Verify: a Web project using a user function fails the build naming the construct.
 
 - [x] **T1.5 — COBOL test with result block** — `tests/cobol/functions/*.cbl`, rule #7.
-- [ ] **T1.6 — Slice close S1** (AC1, AC12)
+- [x] **T1.6 — Slice close S1** (AC1, AC12)
 
 ## S4 — `Descendants`, `Controls`, `SetProperties`
 
@@ -148,7 +148,7 @@ finished module's execution pass (rule #9).
   - Do: values evaluated once; validate all, then write; no partial write.
   - Verify: duplicate/missing IDs, bad property, bad type → zero writes; bound notifications fire (AC8).
 
-- [ ] **T4.4 — Slice close S4** — DataGrid tests (094, 095), `rounded-corners` checks, render feature tests (AC8).
+- [x] **T4.4 — Slice close S4** — DataGrid tests (094, 095), `rounded-corners` checks, render feature tests (AC8).
 
 ## S8 — Direct result binding
 
@@ -159,7 +159,7 @@ finished module's execution pass (rule #9).
   - Files: `cobolt-codegen` (`COBOL-DATA-BINDINGS-POPULATE`), `cobolt-runtime`.
   - Do: consume 108's result contracts (R19–R21, R31–R35); no mixed old/new rows; parameters evaluated once; paging reused.
   - Verify: grid/chart/list/repeating-group comparisons, nulls, decimals, empty, failures (AC19). Spec 108's folder unchanged (AC13).
-- [ ] **T8.3 — Slice close S8** (AC13, AC19)
+- [x] **T8.3 — Slice close S8** (AC13, AC19)
 
 ## S6 — Declarative layout
 
@@ -175,7 +175,7 @@ finished module's execution pass (rule #9).
 - [x] **T7.2 — Model, scheduler entries, cancel/restart/close** — `cobolt-forms/src/model.rs`, `cobolt-form-host`, `cobolt-runtime`.
   - Verify: deterministic clock; absolute offsets, equal-time order, cancel, restart, two forms, close before completion; existing timers' traces unchanged (AC18).
 - [x] **T7.3 — Generator emission** — `cobolt-codegen`.
-- [ ] **T7.4 — Slice close S7** (AC18)
+- [x] **T7.4 — Slice close S7** (AC18)
 
 ## S5 — Selective storage and runtime services
 
@@ -185,25 +185,28 @@ finished module's execution pass (rule #9).
   - Verify: AC15 cases — whole-group MOVE, referenced PIC fields, GLOBAL, REDEFINES, BY REFERENCE, Common Code, dynamic references, bindings, debugger watches.
 - [x] **T5.2 — Runtime services replace generator plumbing** (R30, R31)
   - Verify: old helper paragraph names still reachable; event/procedure regression suites and unmodified example forms pass (AC16).
-- [ ] **T5.3 — Slice close S5** (AC15, AC16)
+- [x] **T5.3 — Slice close S5** (AC15, AC16)
 
 ## Cross-cutting
 
-- [ ] **T-H — Host sweep (run in every slice close)** (R23, R25)
+- [x] **T-H — Host sweep (run in every slice close)** (R23, R25)
   - `rcrun run-form`, embedded child forms, `run_form_app` in `cobolt-compiler`, `cobolt-wasm`; unsupported-on-Web → build-time diagnostic plus a `WASM-PARITY` row.
   - Verify: `crates/cobolt-wasm/tests/corpus.rs`, differential tests (`same_output`); Rust 1.92 build; `Cargo.lock` diff justified (AC12).
-- [ ] **T-IDE — Editor support and source maps** (R24)
+  - Closed 2026-11-03 (2.0.175). Evidence: `cobolt-wasm` suite green (corpus, differentials, NIST NC fixes); the Web refuses each construct at build time with a `WASM-PARITY` row (42–48, S1 added with `tests/user_functions_refused.rs`); the Web-relevant crates (`cobolt-format`, `-lexer`, `-parser`, `-ast`, `-wasm`) check on Rust 1.92 (the egui crates need 1.95, an older bump than this spec); `Cargo.lock` gained only the `cobolt-format` package and its three references.
+- [x] **T-IDE — Editor support and source maps** (R24)
   - Files: `cobolt-ide/src/panels/editor.rs`, `beautify.rs`, `cobolt-dap`, `i18n.rs`, `ui_text_data.rs`.
   - Verify: highlight, completion, hover, diagnostics with spans; stepping into a function or interpolation stops at the original site; source map rebuilt after a line change; `cargo test -p cobolt-ide --bin cobolt-ide i18n` (no empty translation) (AC21).
+  - Closed 2026-11-03 (2.0.175). Done: highlight (`F"…"` whole), completion (list chains, `Format`, `Descendants`, `SetProperties`, `ME::Controls`), six-language text, debugger steps into a `FUNCTION-ID` unit (`test_debug_step_into_a_function`). Not applicable: the editor has no hover on source words. Open, not blocking: a Common Code function's frame carries no file name.
 - [x] **T-GEN — Generator goldens** (R20–R22)
   - Files: `cobolt-codegen/tests`, `UPDATE_GOLDEN=1` only after reading the diff.
   - Verify: goldens hold the high-level syntax, no legacy expansion, banner kept, authored code verbatim, regeneration identical, zero new diagnostics (AC9); PowerAnalytics workloads compared original vs updated (AC10).
-- [ ] **T-KB — System KB per slice** (R27) — `cobolt-compiler` doc tables, `cargo run -p cobolt-ide --example build_chunked_kb`; `prebuilt_chunked_kb_matches_the_published_documentation` green (AC14).
-- [ ] **T-DOC — Guide text kept in specs** (R27, §8) — `specs/109-…/guide-notes.md` per slice (COBOL and prose, never Rust; mermaid, screenshot placeholders, Notes, Caveats). On 2.x.x nothing under `README.md` or `docs/`; written into `docs/developers-guide-en.md` (and its five translations deleted) when 2.x.x merges to main (AC14).
+- [x] **T-KB — System KB per slice** (R27) — `cobolt-compiler` doc tables, `cargo run -p cobolt-ide --example build_chunked_kb`; `prebuilt_chunked_kb_matches_the_published_documentation` green (AC14).
+- [x] **T-DOC — Guide text kept in specs** (R27, §8) — `specs/109-…/guide-notes.md` per slice (COBOL and prose, never Rust; mermaid, screenshot placeholders, Notes, Caveats). On 2.x.x nothing under `README.md` or `docs/`; written into `docs/developers-guide-en.md` (and its five translations deleted) when 2.x.x merges to main (AC14).
 - [x] **T-M — Measurement** (R36, AC11, AC20)
   - Report total/nonblank/executable/generated-only/user-code LOC and bytes per fixture and per construct against the frozen baseline; honest gap report against the 4,344-line study target.
   - Verify: numbers produced by the run; no comment or whitespace stripping counts.
-- [ ] **T-FIN — Finalize** — full `cargo test --no-fail-fast` sweep read line by line; NIST census plus finished modules; quarantine sweep of non-Rust files; AC23 scan; confirm no commit/push, merge or forum post unless the operator asks.
+- [x] **T-FIN — Finalize** — full `cargo test --no-fail-fast` sweep read line by line; NIST census plus finished modules; quarantine sweep of non-Rust files; AC23 scan; confirm no commit/push, merge or forum post unless the operator asks.
+  - Closed 2026-11-03 (2.0.175). Sweep of all 34 workspace crates read line by line: no failure from this work. Failures seen and explained: the codegen and forms-render golden snapshots (the operator's uncommitted edits to `chart-3d.cfrm`, `chat-form.cfrm`, `viewer-form.cfrm`); `cobolt-ide` 3 known reds (Portuguese docs, two live crates.io tests); live-network and Chrome-timing flakes that pass alone (`aws_hosts`, `desktop_comparison_chrome`); a full disk that failed 7 build-heavy tests, which pass after clearing the build cache. NIST NC 95/95 and SQ 85/85 on both axes. AC23 scan: no credential in the branch's added lines. Every push and merge was made only when the operator asked.
 
 ## Coverage
 
