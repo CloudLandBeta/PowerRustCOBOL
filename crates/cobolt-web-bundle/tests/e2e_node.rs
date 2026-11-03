@@ -85,5 +85,5 @@ fn the_loader_the_player_and_the_program_run_together_under_node() {
     assert_eq!(panic["events"], 1, "the forced panic ran on the test bundle: {panic}");
     // Four (variant x mode) cores plus the probing, choosing, isolation, baseline, integrity, ABI and loading scenarios,
     // the parts, the hosted sign-in return and the forced panic (WASM-017 T9).
-    assert!(passed >= 19, "only {passed} scenarios ran");
+    assert!(passed >= 28, "only {passed} scenarios ran");
 }

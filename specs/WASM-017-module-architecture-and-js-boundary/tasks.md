@@ -246,6 +246,7 @@ workspace). A task that changes the player's sources ends with `cargo run PLAYER
     half. Workers = `max(1, min(8, hardwareConcurrency − 1))` (Q2, decided). The fixture's `maxGap < 50` stays.
   - Verify: isolated → threaded + Worker and a Rayon DataGrid sort reports > 1 worker; not isolated → plain + main thread; results
     identical across the 8 cells; every frame gap under the deadline (max gap printed); the ledger lists each cell with where it ran.
+  - **Partly done 2026-11-03 (2.0.185) — box left open.** The threaded player runs under node (real Rayon pool through a `worker_threads` `Worker`): 8 cells per module, `end-to-end scenarios: 28 passed, 0 failed` (3 runs), the loop is 10 000 000 iterations on the generated module, every gap under 16 + 6.9 ms, pool size 1/1/3/8/8 for 1/2/4/9/32 cores, ledger in `specs/WASM-PROGRESS.md`. **Open:** "a Rayon DataGrid sort reports > 1 worker" — the player has no export that counts the workers a sort used; it needs a player rebuild.
 
 - [ ] **T13 — Browser cells: embedding, isolation headers, cross-origin resources** (R19c/d, AC14, AC15) — Chrome only here
   - Files: `crates/cobolt-web-bundle/src/csp.rs` tests (headers per documented host from `security_headers`), the browser runner of

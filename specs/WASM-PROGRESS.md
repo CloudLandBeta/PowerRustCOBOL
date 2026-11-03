@@ -245,3 +245,27 @@ of a module importing `wasm:js-string`, and `WebAssembly.Module`'s prototype cha
 
 **What would change when the trigger is met.** Only the loader's choice (`hostpage.rs`): use a native import where the probe says it
 exists, keep `fetch` and streaming instantiation where it does not. The exports and imports the module has stay as they are.
+
+## WASM-017 T12 — the player axis and the long loop (measured 2026-11-03, version 2.0.185)
+
+Where each cell ran: node 22-class runtime on this Mac, the real loader and the real player, `Worker` over `worker_threads`. Command:
+`cargo test -p cobolt-web-bundle --test e2e_node -- --nocapture` → `end-to-end scenarios: 28 passed, 0 failed`, three runs in a row (one
+earlier run of the same code had 1 failure whose message was not captured; not explained).
+
+| Cell (generated module) | Player | Module | Ran where | Rayon workers | 10 000 000-iteration loop | Longest main-thread gap |
+|---|---|---|---|---|---|---|
+| multi / main | plain | multi-memory | node, main thread | 0 | ~6 s, 1 499 yields | 5–11 ms |
+| multi / Worker | plain | multi-memory | node, Worker | 0 | ~6 s, 0 (worker) | 1.7–2.1 ms |
+| single / main | plain | single-memory | node, main thread | 0 | ~6 s, 1 499 yields | 5–9 ms |
+| single / Worker | plain | single-memory | node, Worker | 0 | ~6 s, 0 (worker) | 1.7–3.2 ms |
+| multi / main | threaded | multi-memory | node, main thread | 3 | ~6 s | 3–11 ms |
+| multi / Worker | threaded | multi-memory | node, Worker | 3 | ~6 s | 1.3–3 ms |
+| single / main | threaded | single-memory | node, main thread | 3 | ~6 s | 3–11 ms |
+| single / Worker | threaded | single-memory | node, Worker | 3 | ~6 s | 1.3–3 ms |
+
+Deadline asserted: 16 ms + `YIELD_BUDGET_MS` (6.9 ms) = 22.9 ms. Pool size read from the pool: 1, 2, 4, 9, 32 cores → 1, 1, 3, 8, 8 workers.
+Isolated → threaded + Worker, not isolated → plain + main thread: the existing `choose` scenario. The fixture module stays at 3 000 000 iterations
+(its spin is one instruction; its generator constant also feeds goldens), `maxGap < 50` kept.
+
+**Not measured:** a Rayon DataGrid sort reporting more than one worker — the player exposes no count of the workers a sort used, and adding one
+means rebuilding the threaded player (nightly `build-std`). Firefox, Safari, iOS and Android web views: not installed.

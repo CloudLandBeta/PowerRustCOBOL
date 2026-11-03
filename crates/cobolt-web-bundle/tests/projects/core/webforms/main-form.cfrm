@@ -504,7 +504,7 @@ Node 2</Property>
        01 WS-I PIC 9(8) VALUE 0.
        PROCEDURE DIVISION.
            MOVE "spinning" TO LBL-OUT::Caption
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 3000000
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 10000000
                CONTINUE
            END-PERFORM
            MOVE "spun" TO LBL-OUT::Caption.

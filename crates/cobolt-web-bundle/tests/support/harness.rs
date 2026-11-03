@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { Worker as NodeWorker } from 'node:worker_threads';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 
 let dir = process.argv[2];
 const shimPath = process.argv[3];
@@ -52,7 +52,7 @@ async function scenario(name, fn) {
     results[name] = { pass: true };
     if (detail !== undefined) metrics[name] = detail;
   } catch (e) {
-    results[name] = { pass: false, error: String(e && e.stack ? e.stack : e) };
+    results[name] = { pass: false, error: String(e && e.stack ? e.stack : e) + (e && e.detail ? " | detail: " + e.detail : "") };
   }
 }
 
@@ -83,6 +83,33 @@ class WebWorkerLike {
   }
 }
 WebWorkerLike.live = new Set();
+
+// The global `Worker` the threaded player's Rayon glue (wasm-bindgen-rayon) spawns its pool with: a browser Worker takes a URL and
+// speaks `addEventListener`; the pool's helper script is the one under `snippets/`, addressed by a file URL here.
+class PoolWorker {
+  constructor(url) {
+    this.w = new NodeWorker(shimPath, { workerData: { script: fileURLToPath(url) } });
+    this.handlers = new Map();
+    PoolWorker.spawned++;
+  }
+  addEventListener(type, fn) {
+    if (type !== 'message') return;
+    const h = (data) => fn({ data });
+    this.handlers.set(fn, h);
+    this.w.on('message', h);
+  }
+  removeEventListener(type, fn) {
+    const h = this.handlers.get(fn);
+    if (h) this.w.off('message', h);
+  }
+  postMessage(m, t) {
+    this.w.postMessage(m, t);
+  }
+  terminate() {
+    this.w.terminate();
+  }
+}
+PoolWorker.spawned = 0;
 
 function makeEnv(o = {}) {
   const hits = o.hits || [];
@@ -120,7 +147,7 @@ function makeEnv(o = {}) {
     Atomics,
     Worker: o.noWorker ? undefined : WebWorkerLike,
     crossOriginIsolated: !!o.isolated,
-    navigator: { hardwareConcurrency: 4, language: 'en' },
+    navigator: { hardwareConcurrency: o.cores || 4, language: 'en' },
     performance,
     setTimeout,
     location: { href: BASE + 'index.html' + (o.search || ''), search: o.search || '', origin: 'http://pr.test' },
@@ -128,7 +155,14 @@ function makeEnv(o = {}) {
   };
 }
 
-const importPlayer = (u) => import(pathToFileURL(path.join(dir, new URL(u).pathname.slice(1))).href);
+// The largest slice measured with budget_blocks 20 000 (WASM-002 T8), until the operator answers Q2's first half.
+const YIELD_BUDGET_MS = 6.9;
+let importCount = 0;
+// A threaded player builds Rayon's global pool once per module instance, so each scenario imports its own copy.
+const importPlayer = (u) => {
+  const href = pathToFileURL(path.join(dir, new URL(u).pathname.slice(1))).href;
+  return import(/threaded-/.test(href) ? `${href}?run=${++importCount}` : href);
+};
 
 async function boot(o = {}) {
   const env = makeEnv(o.env || {});
@@ -160,6 +194,7 @@ const FIXTURE = {
   echo: (app, sent) => app.player.dispatch(0, 'BTN-ECHO', 'onClick', [sent]),
   remoteAnswer: () => new TextEncoder().encode('pong ação 日本'),
   yields: 30,
+  spins: 3000000,
   trapCheck: (errs) => errs.some((e) => e.code === -10),
   errCheck: (errs) => errs.some((e) => e.code === 1001 && e.message === 'subscript out of range'),
 };
@@ -171,28 +206,52 @@ const GENERATED = generatedDir && {
   echo: (app, sent) => app.player.dispatch(0, 'TRV-ECHO', 'onNodeClick', [sent + '\t1\t1\t0']),
   remoteAnswer: (p) => new TextEncoder().encode(JSON.stringify({ id: p.id, result: { args: [{ 'PONG-TEXT': 'pong ação 日本' }] } })),
   yields: 0,
+  spins: 10000000,
   instances: 4,
   // a COBOL run-time error ends the run with the ERROR command first (code 1000 + the routine's number)
   trapCheck: (errs) => errs.some((e) => e.code === 1100 || e.code === -10),
   errCheck: (errs) => errs.some((e) => e.code === 1100),
 };
 
-async function core(program, mode, src = FIXTURE) {
+async function core(program, mode, src = FIXTURE, player = 'plain') {
   dir = src.dir;
   config = src.config;
+  const savedWorker = globalThis.Worker;
+  // The threaded player starts its Rayon pool with the page's global `Worker`.
+  const hadSelf = 'self' in globalThis;
+  let addedListen = false;
+  if (player === 'threaded') {
+    globalThis.Worker = PoolWorker;
+    if (!hadSelf) globalThis.self = globalThis;
+    // In a page `self` is the window, which can listen; the pool's helper script listens on it too.
+    if (!globalThis.addEventListener) {
+      globalThis.addEventListener = () => {};
+      globalThis.removeEventListener = () => {};
+      addedListen = true;
+    }
+  }
   try {
-    return await coreBody(program, mode, src);
+    return await coreBody(program, mode, src, player);
   } finally {
+    globalThis.Worker = savedWorker;
+    if (!hadSelf) delete globalThis.self;
+    if (addedListen) { delete globalThis.addEventListener; delete globalThis.removeEventListener; }
     dir = fixtureDir;
     config = fixtureConfig;
   }
 }
 
-async function coreBody(program, mode, src) {
+async function coreBody(program, mode, src, player) {
   const out = {};
   const hits = [];
   const workersBefore = WebWorkerLike.live.size;
-  const app = await boot({ overrides: { program, mode, player: 'plain' }, env: { isolated: mode === 'worker', hits } });
+  const poolBefore = PoolWorker.spawned;
+  const app = await boot({ overrides: { program, mode, player }, env: { isolated: mode === 'worker' || player === 'threaded', hits } });
+  eq(app.choice.player, player, 'player variant chosen');
+  // Workers = max(1, min(8, hardwareConcurrency - 1)) (WASM-017 Q2, decided); the page here reports 4 cores.
+  out.pool_workers = PoolWorker.spawned - poolBefore;
+  eq(out.pool_workers, player === 'threaded' ? 3 : 0, 'the Rayon pool size: the plain player starts none, the threaded one 3 on 4 cores');
+  out.ran = { player, program, execution: mode === 'worker' ? 'Worker' : 'main thread' };
   eq(app.choice.program, program, 'program variant chosen');
   eq(app.choice.mode, mode, 'execution mode chosen');
   eq(app.info.variant & 1, program === 'multi' ? 1 : 0, 'pr_variant bit 0');
@@ -261,9 +320,12 @@ async function coreBody(program, mode, src) {
   await ticker;
   eq(caption(app), 'spun', 'the loop finished');
   const y1 = stats(app);
-  out.yield = { iterations: 3000000, resumes: y1.yields - y0.yields, longest_main_thread_gap_ms: Math.round(maxGap * 100) / 100, loop_ms: Math.round(loopMs) };
+  out.yield = { iterations: src.spins, resumes: y1.yields - y0.yields, longest_main_thread_gap_ms: Math.round(maxGap * 100) / 100, loop_ms: Math.round(loopMs) };
   if (mode === 'main' && src.yields) eq(y1.yields - y0.yields, src.yields, 'the main-thread host saw each yield');
   check(maxGap < 50, `the main thread was never blocked for ${maxGap} ms`);
+  // the frame deadline: one 16 ms frame plus the slice the module may run (YIELD_BUDGET_MS, WASM-017 Q2 first half)
+  check(maxGap < 16 + YIELD_BUDGET_MS, `every gap is under the deadline: ${maxGap} ms against ${16 + YIELD_BUDGET_MS} ms`);
+  out.yield.deadline_ms = 16 + YIELD_BUDGET_MS;
 
   // a trap is reported and the application goes on
   await click(app, 'BTN-TRAP');
@@ -357,6 +419,36 @@ for (const program of ['multi', 'single']) {
   for (const mode of ['main', 'worker']) {
     await scenario(`core ${program}/${mode}`, () => core(program, mode));
     if (GENERATED) await scenario(`core ${program}/${mode} (generated)`, () => core(program, mode, GENERATED));
+    if (GENERATED && process.env.PRC_THREADED !== 'off') await scenario(`core ${program}/${mode} threaded (generated)`, () => core(program, mode, GENERATED, 'threaded'));
+  }
+}
+
+// The Rayon pool: Workers = max(1, min(8, hardwareConcurrency - 1)) (Q2, decided), with the Worker count read from the pool itself.
+if (GENERATED && process.env.PRC_THREADED !== 'off') {
+  for (const [cores, want] of [[1, 1], [2, 1], [4, 3], [9, 8], [32, 8]]) {
+    await scenario(`pool size: ${cores} cores start ${want} Rayon workers`, async () => {
+      dir = GENERATED.dir;
+      config = GENERATED.config;
+      const savedWorker = globalThis.Worker;
+      const hadSelf = 'self' in globalThis;
+      globalThis.Worker = PoolWorker;
+      if (!hadSelf) globalThis.self = globalThis;
+      const hadListen = !!globalThis.addEventListener;
+      if (!hadListen) { globalThis.addEventListener = () => {}; globalThis.removeEventListener = () => {}; }
+      const before = PoolWorker.spawned;
+      try {
+        const app = await boot({ overrides: { program: 'multi', mode: 'main', player: 'threaded' }, env: { isolated: true, cores } });
+        eq(PoolWorker.spawned - before, want, `${cores} cores`);
+        await app.unmount();
+        return { cores, workers: PoolWorker.spawned - before };
+      } finally {
+        globalThis.Worker = savedWorker;
+        if (!hadSelf) delete globalThis.self;
+        if (!hadListen) { delete globalThis.addEventListener; delete globalThis.removeEventListener; }
+        dir = fixtureDir;
+        config = fixtureConfig;
+      }
+    });
   }
 }
 
@@ -576,6 +668,18 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 globalThis.self = globalThis;
 globalThis.postMessage = (m, t) => parentPort.postMessage(m, t);
+// The pool's helper script waits for its first message with `self.addEventListener` and takes it off again.
+const listeners = new Map();
+globalThis.addEventListener = (type, fn) => {
+  if (type !== 'message') return;
+  const h = (data) => fn({ data });
+  listeners.set(fn, h);
+  parentPort.on('message', h);
+};
+globalThis.removeEventListener = (type, fn) => {
+  const h = listeners.get(fn);
+  if (h) parentPort.off('message', h);
+};
 // A browser Worker queues what arrives before its script has run; do the same, or the first
 // message (the module handed over for instantiation) would be lost in the import below.
 const early = [];
@@ -584,5 +688,8 @@ parentPort.on('message', (data) => {
   else early.push(data);
 });
 await import(pathToFileURL(workerData.script).href);
-for (const data of early.splice(0)) globalThis.onmessage({ data });
+for (const data of early.splice(0)) {
+  if (typeof globalThis.onmessage === 'function') globalThis.onmessage({ data });
+  for (const fn of [...listeners.keys()]) fn({ data });
+}
 "####;
