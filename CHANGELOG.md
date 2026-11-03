@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.172 — 2026-11-03
+
+**Spec 109 (T-IDE, third part): stepping into a user-defined function is proved, not assumed.** A new test, `test_debug_step_into_a_function`, runs a program that calls `FUNCTION DOUBLE-AMOUNT(WS-PRICE)` under the debugger: a step into the call line stops on the function's own body lines, the stack shows the function as a Call frame above the caller's frame (which still points at the call line), the argument reads back by value (21.50), and stepping on returns to the caller. No runtime change was needed: a function runs through the same call path as `CALL`, so its frame and lines were already reported. An interpolated string or a `=>` expression sits inside one statement, so a step crosses it as one line. Not covered: a function kept in another file (Common Code) is shown with the function's name but the frame carries no file name, which the debugger window would need to open that file.
+
 ## 2.0.171 — 2026-11-02
 
 **Spec 109 (T-IDE, second part): completion after a list chain, and `F"…"` drawn whole.** After `WS-NAMES::Split(",")::` or any list method (`Map(…)`, `Filter(…)`, `SortByDescending(…)`, `Take(n)`) the popup now offers the list methods — `Map`, `Filter`, `SortByDescending`, `Take`, `Join`, `Sum`, `Max` — each with its form and a description in all six languages; after `Descendants()` or `Controls(…)` it offers `SetProperties`. A subscripted piece, `Split(",")(2)`, is text again and offers the data item's methods. The editor also draws an interpolated string `F"Margin: {WS-RATIO:percent}"` as one literal: the `F` used to be drawn as a word apart from its quote. Still open in T-IDE: the debugger's source map for a step into a function or an interpolation. (The editor has no hover on source words, so there is none to extend.)
