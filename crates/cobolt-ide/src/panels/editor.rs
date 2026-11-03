@@ -308,6 +308,8 @@ const UNIVERSAL_VISUAL: &[Method] = &[
     ("StopAnimation", "Stop a running animation"),
     ("SetProperty", "Set any property by name"),
     ("GetProperty", "Get any property by name"),
+    ("Descendants", "The controls inside this container, at any depth — walk them with PERFORM VARYING … THROUGH"),
+    ("SetProperties", "SetProperties(\"Name\" value …) — set the same properties on every control of a collection"),
 ];
 
 /// The type IntelliSense gives the `COBOL` object — the receiver of the
@@ -364,6 +366,7 @@ const DATA_ITEM_METHOD_DOCS: &[Method] = &[
     ("Replace", "Replace(from, to) — every occurrence of from becomes to"),
     ("Len", "The field's declared length, as a number"),
     ("Split", "Split(sep) — the first piece; Split(sep)(n) — the n-th piece"),
+    ("Format", "Format(name, locale) — the number shown as text, e.g. \"currency BRL\""),
 ];
 
 /// The completion entry for a receiver: the form's own control of that id, or —
@@ -6917,6 +6920,7 @@ END-EVALUATE
         names.sort_unstable();
         names.dedup();
         let mut want: Vec<&str> = cobolt_ast::methods::CANONICAL_DATA_ITEM_METHODS.to_vec();
+        want.push("Format"); // spec 109 S2: a method of a data item, off the value-method list
         want.sort_unstable();
         assert_eq!(names, want, "exactly the language's canonical value methods (Len is both a method and a property)");
         for older in ["UpperCase", "ToUpperCase", "LowerCase", "ToLowerCase", "Length"] {
@@ -6999,6 +7003,8 @@ END-EVALUATE
     fn the_popup_table_lists_exactly_the_languages_value_methods() {
         let mut docs: Vec<&str> = DATA_ITEM_METHOD_DOCS.iter().map(|(n, _)| *n).collect();
         let mut lang: Vec<&str> = cobolt_ast::methods::CANONICAL_DATA_ITEM_METHODS.to_vec();
+        // `Format` is a method of a data item too (spec 109 S2), kept off the value-method list.
+        lang.push("Format");
         docs.sort_unstable();
         lang.sort_unstable();
         assert_eq!(docs, lang, "a method the language has but the popup lacks (or the reverse) is the bug this guards");
@@ -7009,7 +7015,7 @@ END-EVALUATE
         }
         // …and each is one the analyser accepts.
         for (n, d) in DATA_ITEM_METHOD_DOCS {
-            assert!(cobolt_ast::methods::is_data_item_method(n), "{n}");
+            assert!(cobolt_ast::methods::is_data_item_method(n) || cobolt_ast::methods::is_format_method(n), "{n}");
             assert!(!d.is_empty(), "{n} needs a description");
         }
     }

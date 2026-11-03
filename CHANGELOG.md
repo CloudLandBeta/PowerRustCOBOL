@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.170 — 2026-11-02
+
+**Spec 109 (T-IDE, first part): the completion popup offers `Format`, `Descendants` and `SetProperties`.** Typing `::` after a numeric data item now lists `Format` (with its `Format(name, locale)` hint) beside `Trim`, `Upper`, `Lower`, `Replace`, `Len` and `Split`; after a control it lists `Descendants` and `SetProperties`. Each description exists in all six languages. Still open in T-IDE: the collection methods (`Map`, `Filter`, `Join` …) after a `Split(…)` chain, `Controls(…)` on `ME`, highlighting of `F"…"`, `=>` and `THROUGH`, hover, and the debugger's source map for a step into a function.
+
 ## 2.0.169 — 2026-11-02
 
 **Spec 109 (T-KB): the System KB documents user functions, formatting, collections, control collections and binding view options.** `FUNCTION-ID` calls, the `FORMAT IS` / `LOCALE IS` clauses and `Format()`, `{expr:format}` interpolation, `Map` / `Filter` / `SortByDescending` / `Take` / `Join` / `Sum` / `Max`, `PERFORM VARYING … THROUGH`, `Descendants()`, `Controls()` / `SetProperties()` and the read-only binding's `order_by` and column `format` had shipped (2.0.104–2.0.110) without an entry in the `cobolt-compiler` reference that Grace reads. One section, "Functions, formatting and collections", now carries them with their Web and Mobile refusals, and `assets/knowledge/chunked.data` is rebuilt (3,813 records, 8 documents); `prebuilt_chunked_kb_matches_the_published_documentation` stays green.
