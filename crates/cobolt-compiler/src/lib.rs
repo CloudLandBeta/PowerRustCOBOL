@@ -5309,6 +5309,28 @@ Both take an **action word** first and a **script** as a string, so one call rep
 - **Layout scripts.** Actions `Apply` and `Clear`. Lines: `MODE FLEX [ROW|COLUMN] [WRAP]` (or `GRID`, `FLOW`), `GAP n [n]`, `PADDING n` / `PADDING HORIZONTAL n` / `PADDING VERTICAL n`, `COLUMNS n` or a track list, `ROWS`, `ORDER ctrl ctrl …`, `ITEM ctrl SPAN|ROW-SPAN|GROW|MIN-WIDTH|MAX-WIDTH|MIN-HEIGHT|MAX-HEIGHT n`, and `WHEN breakpoint` for the lines that follow, until the next `WHEN`. They become breakpoint overrides of the form's own layout; the saved form is never changed, a value your program sets itself still wins, and `Clear` takes exactly what `Apply` installed. The form must be responsive. Not available in a browser module yet.
 
 
+### Functions, formatting and collections — `FUNCTION-ID`, `FORMAT IS`, `Format()`, `Map`/`Filter`, `Descendants()`
+```cobol
+           COMPUTE WS-TOTAL = FUNCTION DOUBLE-AMOUNT(WS-PRICE) + FUNCTION DOUBLE-AMOUNT(5)
+           DISPLAY WS-ASSETS                                  *> item declared FORMAT IS "currency BRL" LOCALE IS WS-LOCALE
+           DISPLAY WS-RATIO::Format("percent", "pt-BR")       *> 42,5%
+           DISPLAY F"Margin: {WS-RATIO:percent}"              *> Margin: 42.5%
+           DISPLAY WS-NAMES::Split(",")::Map(ITEM => ITEM::Trim())::Filter(ITEM <> " ")::Join("/")
+           PERFORM VARYING NAME THROUGH WS-NAMES::Split(",")::Map(ITEM => ITEM::Trim())
+               DISPLAY NAME
+           END-PERFORM
+           PERFORM VARYING CTL THROUGH PNL-KPI::Descendants()
+               CTL::SetProperty("Visible" "1")
+           END-PERFORM
+           ME::Controls("BTN-1" "BTN-2")::SetProperties("BackgroundColor" "#FFFFFF" "ForegroundColor" "#1B2A4E")
+```
+- **User functions.** A unit `FUNCTION-ID. NAME.` … `PROCEDURE DIVISION USING BY VALUE ARG RETURNING RES.` … `END FUNCTION NAME.` is called inside an expression as `FUNCTION NAME(args)`. Arguments are copies (the caller's items never change); a function may call others and itself, each call with its own arguments and result (use LOCAL-STORAGE for working items). The argument count is checked at build. A function cannot have an intrinsic function's name. Functions in Common Code (`src/`) are visible to every form. In a program file the program unit comes first and the function units follow it.
+- **Formatting.** `FORMAT [IS] "name" [LOCALE [IS] "tag" | item]` on a numeric item shows it formatted in `DISPLAY`, `STRING`, an interpolated string and `Format()`; it is stored and compared as the number. Formats: `number`, `currency` (`"currency BRL"`: the currency is part of the text), `compact` (`1,2 mi`), `currency-short`, `percent` (the value is a ratio). Locales: `pt-BR`, `en-US`, `fr-FR`; names and tags ignore case. The symbol gap is a no-break space. `{expr:format}` uses a single `:` (`::` is the member operator); `{{` and `}}` print a brace. An item without `LOCALE` uses the project's `[project] locale`, else `en-US`. Rounding is half away from zero.
+- **Collections.** `Split` hands a list to the next method. `Map`, `Filter`, `SortByDescending`, `Take` answer a list; `Join`, `Sum`, `Max` answer one value. `ITEM => expr` is an expression (a value, or a test for `Filter`); it cannot assign or do I/O. `Sum` of an empty list is 0; `Max` of an empty list stops the run. A list is not a COBOL value: end the chain with `Join`, `Sum` or `Max`, or walk it with `PERFORM VARYING element THROUGH collection` (a list or an OCCURS table; the element is a copy). The pieces of a `Split` of a fixed-width field keep trailing blanks: `Map(ITEM => ITEM::Trim())` first.
+- **Control collections.** `PNL::Descendants()` answers the controls under a container by real parent membership (the whole subtree, hidden controls included, the container excluded). `ME::Controls("ID" …)` names controls explicitly (an unknown or repeated id stops with an error). `SetProperties("Name" value …)` writes name/value pairs to every control of the collection, all or none.
+- **View options of a read-only binding.** A DataGrid binding can carry `order_by` (field and direction; numbers sort as numbers, equal values keep source order) and a per-column `format` (`"number"`, `"currency BRL"`, `"percent"`), applied after the order. A writable binding refuses both.
+- **Web and Mobile.** The build refuses `FUNCTION` calls, `FORMAT` clauses, `THROUGH` and control collections there; the player does not yet apply view options.
+
 ### Pictures and binary downloads — `IMAGE-FIT`, `IMAGE-INFO`, `HTTP-DOWNLOAD`
 Each answers with ONE status word in its last argument; test the word, never a message. Give the status item room for 9 characters (`PIC X(12)`). A RELATIVE path — here and in `WRITE-FILE`, `APPEND-FILE`, `AUDIO-PLAY` and the file an AWS control uploads or saves — starts at the application's folder, exactly as a relative `ASSIGN` does: the project folder under Run Form, the application's own folder when built, wherever it was launched from. An absolute path is used as written.
 
