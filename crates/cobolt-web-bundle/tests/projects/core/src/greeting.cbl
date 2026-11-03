@@ -1,0 +1,9 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GREETING.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 L-TEXT PIC X(64).
+       PROCEDURE DIVISION USING L-TEXT.
+           MOVE "Olá, mundo! 日本語 😀" TO L-TEXT
+           GOBACK.
+       END PROGRAM GREETING.

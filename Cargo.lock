@@ -2641,6 +2641,7 @@ version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "cobolt-forms",
+ "cobolt-project-tools",
  "cobolt-wasm-abi",
  "cobolt-wire",
  "egui",

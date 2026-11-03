@@ -18,7 +18,7 @@ import crypto from 'node:crypto';
 import { Worker as NodeWorker } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 
-const dir = process.argv[2];
+let dir = process.argv[2];
 const shimPath = process.argv[3];
 const BASE = 'http://pr.test/';
 const results = {};
@@ -26,7 +26,11 @@ const metrics = {};
 const files = fs.readdirSync(dir);
 const loaderFile = files.find((f) => /^loader\.[0-9a-f]{8}\.js$/.test(f));
 const { mount, probe, choose, LoadError, defaultTexts } = await import(pathToFileURL(path.join(dir, loaderFile)).href);
-const config = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
+let config = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
+const fixtureDir = dir;
+const fixtureConfig = config;
+// The bundle the product's own Web Build wrote for the scenario project (WASM-017 T11), when the test built one.
+const generatedDir = process.argv[5] || null;
 const MIME = { wasm: 'application/wasm', js: 'text/javascript', json: 'application/json', css: 'text/css', cfrm: 'application/xml' };
 
 function check(cond, msg) {
@@ -147,11 +151,48 @@ const GREETING = 'Olá, mundo! 日本語 😀';
 
 let growthProven = false;
 
-async function core(program, mode) {
+// What differs between the fixture (hand-assembled instructions) and the module the generator writes from the
+// scenario project: how the same observable is raised and how it is read back. Everything else in the script is shared.
+const FIXTURE = {
+  label: 'fixture',
+  get dir() { return fixtureDir; },
+  get config() { return fixtureConfig; },
+  echo: (app, sent) => app.player.dispatch(0, 'BTN-ECHO', 'onClick', [sent]),
+  remoteAnswer: () => new TextEncoder().encode('pong ação 日本'),
+  yields: 30,
+  trapCheck: (errs) => errs.some((e) => e.code === -10),
+  errCheck: (errs) => errs.some((e) => e.code === 1001 && e.message === 'subscript out of range'),
+};
+const GENERATED = generatedDir && {
+  label: 'generated',
+  dir: generatedDir,
+  config: JSON.parse(fs.readFileSync(path.join(generatedDir, 'config.json'), 'utf8')),
+  // the tree's node click carries the node as its payload: text, index, level, checked (TAB-separated)
+  echo: (app, sent) => app.player.dispatch(0, 'TRV-ECHO', 'onNodeClick', [sent + '\t1\t1\t0']),
+  remoteAnswer: (p) => new TextEncoder().encode(JSON.stringify({ id: p.id, result: { args: [{ 'PONG-TEXT': 'pong ação 日本' }] } })),
+  yields: 0,
+  instances: 4,
+  // a COBOL run-time error ends the run with the ERROR command first (code 1000 + the routine's number)
+  trapCheck: (errs) => errs.some((e) => e.code === 1100 || e.code === -10),
+  errCheck: (errs) => errs.some((e) => e.code === 1100),
+};
+
+async function core(program, mode, src = FIXTURE) {
+  dir = src.dir;
+  config = src.config;
+  try {
+    return await coreBody(program, mode, src);
+  } finally {
+    dir = fixtureDir;
+    config = fixtureConfig;
+  }
+}
+
+async function coreBody(program, mode, src) {
   const out = {};
   const hits = [];
   const workersBefore = WebWorkerLike.live.size;
-  const app = await boot({ overrides: { program, mode }, env: { isolated: mode === 'worker', hits } });
+  const app = await boot({ overrides: { program, mode, player: 'plain' }, env: { isolated: mode === 'worker', hits } });
   eq(app.choice.program, program, 'program variant chosen');
   eq(app.choice.mode, mode, 'execution mode chosen');
   eq(app.info.variant & 1, program === 'multi' ? 1 : 0, 'pr_variant bit 0');
@@ -160,6 +201,7 @@ async function core(program, mode) {
   eq(hits.filter((h) => /^program(\.single)?\.[0-9a-f]{8}\.wasm$/.test(h)).length, 1, 'program fetched once');
   eq(hits.filter((h) => h.endsWith('player_bg.wasm')).length, 1, 'player wasm fetched once');
   out.fetches = hits.length;
+  out.fetched = hits.map((h) => h.replace(/\.[0-9a-f]{8}\./, '.<hash>.'));
 
   eq(caption(app), 'loaded', 'the main form opened and its onLoad wrote the caption');
 
@@ -170,9 +212,9 @@ async function core(program, mode) {
 
   // UTF-8 in (event argument) and out again
   const sent = 'Ação 日本語 😀 — ñ';
-  app.player.dispatch(0, 'BTN-ECHO', 'onClick', [sent]);
+  const echoBound = src.echo(app, sent);
   await app.settled();
-  eq(caption(app), sent, 'UTF-8 argument round trip');
+  eq(caption(app), sent, `UTF-8 argument round trip (handler bound: ${echoBound}; errors: ${app.player.errors()}; display: ${app.player.display_log()})`);
 
   // a query, and a read that reflects the handler's own earlier write
   app.player.type_into(0, 'TXT-IN', 'Text', 'digitado ação 日本');
@@ -195,7 +237,7 @@ async function core(program, mode) {
   eq(pending.length, 1, 'one request in the outbox');
   check(pending[0].frame.includes('PING'), 'the frame is the module\'s');
   eq(caption(app), 'calling', 'suspended with the caption written before the call');
-  app.player.deliver_remote(pending[0].id, new TextEncoder().encode('pong ação 日本'));
+  app.player.deliver_remote(pending[0].id, src.remoteAnswer(pending[0]));
   await app.settled();
   eq(caption(app), 'pong ação 日本', 'the answer frame reached the module byte for byte');
 
@@ -220,21 +262,23 @@ async function core(program, mode) {
   eq(caption(app), 'spun', 'the loop finished');
   const y1 = stats(app);
   out.yield = { iterations: 3000000, resumes: y1.yields - y0.yields, longest_main_thread_gap_ms: Math.round(maxGap * 100) / 100, loop_ms: Math.round(loopMs) };
-  if (mode === 'main') eq(y1.yields - y0.yields, 30, 'the main-thread host saw each yield');
+  if (mode === 'main' && src.yields) eq(y1.yields - y0.yields, src.yields, 'the main-thread host saw each yield');
   check(maxGap < 50, `the main thread was never blocked for ${maxGap} ms`);
 
   // a trap is reported and the application goes on
   await click(app, 'BTN-TRAP');
   let errs = JSON.parse(app.player.errors());
-  check(errs.some((e) => e.code === -10), 'the trap was reported: ' + JSON.stringify(errs));
+  check(src.trapCheck(errs), 'the trap was reported: ' + JSON.stringify(errs));
   await click(app, 'BTN-GO');
   eq(caption(app), GREETING, 'the application answers after a trap');
   await click(app, 'BTN-ERR');
   errs = JSON.parse(app.player.errors());
-  check(errs.some((e) => e.code === 1001 && e.message === 'subscript out of range'), 'the COBOL error was reported with its number');
+  check(src.errCheck(errs), 'the COBOL error was reported with its number: ' + JSON.stringify(errs));
 
   // disposal: open and close a form 100 times
   const live0 = await app.link.debugLive();
+  const exD = app.link.exports();
+  const region0 = exD && typeof exD.pr_dbg_region_used === 'function' ? exD.pr_dbg_region_used() : null;
   const inst0 = stats(app).instances;
   for (let i = 0; i < 100; i++) {
     app.player.open_form('child-form');
@@ -248,6 +292,30 @@ async function core(program, mode) {
   eq(stats(app).instances, inst0, 'host instances back to baseline');
   eq(await app.link.debugLive(), live0, 'the module\'s live instances back to baseline');
   out.disposal = { cycles: 100, live_before: live0, live_after: await app.link.debugLive() };
+  if (region0 !== null) {
+    eq(exD.pr_dbg_region_used(), region0, 'the module\'s region in use is back to baseline after 100 open/close cycles');
+    out.disposal.region_used = region0;
+  }
+  if (src.instances) {
+    // AC2: the form allows `Instances` at once, and the next open is refused with -3 and the form's name
+    const opened = [];
+    for (let i = 0; i < src.instances; i++) {
+      app.player.open_form('child-form');
+      await app.settled();
+      opened.push(Math.max(...Object.keys(snap(app)).map(Number)));
+    }
+    const seen = JSON.parse(app.player.errors()).length;
+    app.player.open_form('child-form');
+    await app.settled();
+    const refused = JSON.parse(app.player.errors()).slice(seen);
+    check(refused.some((e) => e.code === -3 && /child-form/i.test(JSON.stringify(e))), 'the one-too-many open is refused with -3 and the form name: ' + JSON.stringify(refused));
+    for (const i of opened) {
+      app.player.close_instance(i);
+      await app.settled();
+    }
+    eq(await app.link.debugLive(), live0, 'the instances are back to baseline after the refusal');
+    out.exhaustion = { allowed: src.instances, refused_code: refused[0].code };
+  }
 
   // fixed memory: the data memory and the arena never changed size
   const ex = app.link.exports();
@@ -288,6 +356,7 @@ async function core(program, mode) {
 for (const program of ['multi', 'single']) {
   for (const mode of ['main', 'worker']) {
     await scenario(`core ${program}/${mode}`, () => core(program, mode));
+    if (GENERATED) await scenario(`core ${program}/${mode} (generated)`, () => core(program, mode, GENERATED));
   }
 }
 

@@ -1,0 +1,12 @@
+[project]
+name = "Core.project"
+version = "1.0.0"
+main = "webforms/main-form.cfrm"
+kind = "web"
+
+[files]
+forms = ["webforms/main-form.cfrm", "webforms/child-form.cfrm", "webforms/canvas-form.cfrm"]
+sources = ["src/greeting.cbl"]
+
+[web]
+multi_memory = true

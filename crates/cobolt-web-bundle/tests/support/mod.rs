@@ -154,3 +154,23 @@ pub fn write_bundle(out: &BundleOutput, dir: &Path) {
         std::fs::write(p, &f.bytes).unwrap();
     }
 }
+
+/// A copy of the scenario project (`tests/projects/core/`) in a fresh folder of the system's temporary
+/// directory, tagged `tag` (the Web Build writes `dist/web` beside the manifest, never into the repository).
+pub fn scenario_project(tag: &str) -> PathBuf {
+    fn copy(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap().flatten() {
+            let (src, dst) = (e.path(), to.join(e.file_name()));
+            if src.is_dir() {
+                copy(&src, &dst);
+            } else {
+                std::fs::copy(&src, &dst).unwrap();
+            }
+        }
+    }
+    let dst = std::env::temp_dir().join(format!("prc-core-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dst);
+    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/core"), &dst);
+    dst
+}

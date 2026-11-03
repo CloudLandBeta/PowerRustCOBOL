@@ -14,6 +14,8 @@ mod support;
 
 use std::process::Command;
 
+use cobolt_project_tools::web::generator::GeneratorBackend;
+use cobolt_project_tools::web::{WebBuildBackend, WebBuildRequest};
 use cobolt_web_bundle::{BundleOptions, Isolation, PlayerInput};
 use support::harness::{HARNESS, WORKER_SHIM};
 
@@ -39,7 +41,25 @@ fn the_loader_the_player_and_the_program_run_together_under_node() {
     std::fs::write(&shim, WORKER_SHIM).unwrap();
     std::fs::write(&crafted, support::surprise_module()).unwrap();
 
-    let run = Command::new("node").arg(&harness).arg(dir.path()).arg(&shim).arg(&crafted).output().expect("node runs");
+    // The scenario project (WASM-017 T11), built by the product's own Web Build: its bundle is served to the same script.
+    let project = support::scenario_project("e2e");
+    let req = WebBuildRequest::from_manifest(&project.join("Core.project.toml")).unwrap();
+    let built = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("the scenario project does not build: {e}"));
+    let mut modules = 0;
+    for entry in std::fs::read_dir(&built.bundle_dir).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("program") && name.ends_with(".wasm") {
+            // AC6: no import beyond ABI v1, no forbidden instruction, in either memory variant.
+            let bytes = std::fs::read(entry.path()).unwrap();
+            let problems = cobolt_wasm_abi::scan::bundle_problems(&bytes, name.contains(".single."));
+            assert!(problems.is_empty(), "{name}: {problems:#?}");
+            println!("scenario module {name}: {} bytes, bundle_problems empty", bytes.len());
+            modules += 1;
+        }
+    }
+    assert_eq!(modules, 2, "one module per memory variant");
+
+    let run = Command::new("node").arg(&harness).arg(dir.path()).arg(&shim).arg(&crafted).arg(&built.bundle_dir).output().expect("node runs");
     let stdout = String::from_utf8_lossy(&run.stdout);
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(run.status.success(), "node exited with {}:\n{stderr}\n{stdout}", run.status);
@@ -65,5 +85,5 @@ fn the_loader_the_player_and_the_program_run_together_under_node() {
     assert_eq!(panic["events"], 1, "the forced panic ran on the test bundle: {panic}");
     // Four (variant x mode) cores plus the probing, choosing, isolation, baseline, integrity, ABI and loading scenarios,
     // the parts, the hosted sign-in return and the forced panic (WASM-017 T9).
-    assert!(passed >= 15, "only {passed} scenarios ran");
+    assert!(passed >= 19, "only {passed} scenarios ran");
 }
