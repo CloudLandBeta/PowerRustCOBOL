@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.181 — 2026-11-03
+
+**Fix: a running form no longer shows its non-visual controls' tray cards during the window effect.** Run Form with an entrance effect (the Matrix rain, for one) pictures the form to animate it, and that picture drew every visible control, including the AgentObject, Timer and other non-visual ones, whose tray card is a designer affordance and was already left out of the live form. The robot card of an AgentObject sat in the corner of the form for as long as the effect played. The effect's picture now leaves non-visual controls out, as the running form does. Covered by `an_effect_picture_leaves_out_the_non_visual_cards`, which failed (11 shapes over an AgentObject) before the change.
+
 ## 2.0.180 — 2026-11-03
 
 **Fix: the AgentObject's `AgentEndpoint` help now says when to use it.** The inspector (all six languages) and the System KB said what the property replaces but not that it is optional: leave it empty unless the request must go somewhere other than the provider's usual path (a proxy, a gateway, a compatible service). They now also say that when it is set it always wins over the path built from `AgentAPI`, even if `AgentURL` points elsewhere, which is why a filled Endpoint silently ignores a local URL. No behaviour changed.

@@ -5881,6 +5881,9 @@ impl FormHost {
         for c in controls
             .iter()
             .filter(|c| c.visible)
+            .filter(|c| !c.control_type.is_non_visual())
+            // A non-visual control's tray card is a designer affordance; the running form never paints it,
+            // and the effect's picture must not either (the AgentObject's robot showed under the Matrix rain).
             .filter(|c| !(hide_load_animated && cobolt_forms::anim::has_load_animation(c)))
         {
             let mut scaled = c.clone();
@@ -13506,5 +13509,51 @@ mod toggle_write_tests {
         host.root.apply_interpreter_update(StateUpdate::new("Rad-Boleto", "Checked", "1"), false);
         assert_eq!(stored(&host, "Rad-Boleto", "Selected").as_deref(), Some("1"));
         assert!(painted_on(&host, "Rad-Boleto"));
+    }
+    /// The window effect's picture of the form (the Matrix rain's, a fade's) holds the controls the running form
+    /// shows: a non-visual control's tray card is not one of them. A Button painted at the same place proves
+    /// the painter was not simply silent.
+    #[test]
+    fn an_effect_picture_leaves_out_the_non_visual_cards() {
+        use cobolt_forms::{Control, ControlType};
+        let shapes_over = |ct: ControlType| -> usize {
+            let mut c = Control::new("C-1", ct, 40, 40);
+            c.rect = cobolt_forms::model::Rect::new(40, 40, 56, 56);
+            let controls = vec![c];
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(300.0, 200.0)));
+            let mut out = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(ui, |ui| {
+                    let rect = ui.max_rect();
+                    FormHost::paint_face(ui.painter(), rect, rect, &controls, &cobolt_forms::render::Backdrop::default(), true);
+                });
+            });
+            out.textures_delta.clear();
+            let own = egui::Rect::from_min_size(egui::pos2(40.0, 40.0), egui::vec2(56.0, 56.0));
+            fn walk(s: &egui::Shape, own: egui::Rect, n: &mut usize) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, own, n)),
+                    other => {
+                        let r = other.visual_bounding_rect();
+                        if r.is_finite() && r.is_positive() && r.intersects(own) && r.width() < 200.0 {
+                            *n += 1;
+                        }
+                    }
+                }
+            }
+            let mut n = 0;
+            for cs in &out.shapes {
+                walk(&cs.shape, own, &mut n);
+            }
+            n
+        };
+        let agent = shapes_over(ControlType::AgentObject);
+        let timer = shapes_over(ControlType::Timer);
+        let button = shapes_over(ControlType::Button);
+        println!("effect picture, shapes over a 56x56 control: AgentObject {agent}, Timer {timer}, Button {button}");
+        assert_eq!(agent, 0, "the AgentObject's tray card is not painted in the effect picture");
+        assert_eq!(timer, 0, "nor is a Timer's");
+        assert!(button > 0, "a visual control still is");
     }
 }
