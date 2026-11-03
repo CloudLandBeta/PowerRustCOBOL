@@ -527,7 +527,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         }
     }
     if project {
-        for r in ["rt_set_instance", "rt_deliver", "rt_cancel_run", "rt_move"] {
+        for r in ["rt_set_instance", "rt_deliver", "rt_cancel_run", "rt_move", "rt_event_args"] {
             roots.insert(r);
         }
     }
@@ -1146,6 +1146,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             frame_cap: opts.arena.frame.min(cobolt_wasm_rt::state::FRAME_SIZE),
             frame_in: arena_base + opts.arena.batch + opts.arena.answer + opts.arena.frame,
             arena_mem: if opts.multi_memory { 1 } else { 0 },
+            answer_at: arena_base + opts.arena.batch,
+            ws_answer: rt_ws + cobolt_wasm_rt::state::WS_ANSWER,
         };
         let fx = emit_project_fns(&ctx, n_imports, &mut defs, &mut types);
         Some((fx, ft_rows))
@@ -1393,6 +1395,10 @@ struct ProjectFns<'a> {
     frame_cap: u32,
     frame_in: u32,
     arena_mem: u32,
+    /// The arena answer region, and the rt workspace's answer area it is copied to when an event
+    /// brings an argument (WASM-017 T11a).
+    answer_at: u32,
+    ws_answer: u32,
 }
 
 struct FormFns {
@@ -1776,6 +1782,18 @@ fn emit_project_fns(c: &ProjectFns<'_>, n_imports: u32, defs: &mut Vec<Def>, typ
             I::I32Const(c.ev_tbl as i32),
             I::I32Add,
             I::LocalSet(9),
+            // The argument sits at the start of the arena's answer region (another
+            // memory in the multi-memory variant): bring the first bytes to the
+            // routines' workspace, where `rt_event_args` keeps argument 0.
+            I::LocalGet(3),
+            I::If(BlockType::Empty),
+            I::I32Const(c.ws_answer as i32),
+            I::I32Const(c.answer_at as i32),
+            I::I32Const(cobolt_wasm_rt::state::EV_ARG_MAX as i32 + 5),
+            I::MemoryCopy { src_mem: c.arena_mem, dst_mem: 0 },
+            I::End,
+            I::LocalGet(3),
+            I::Call(rt("rt_event_args")),
             I::LocalGet(6),
             I::LocalGet(5),
             ld(28),
@@ -1996,6 +2014,8 @@ fn emit_project_fns(c: &ProjectFns<'_>, n_imports: u32, defs: &mut Vec<Def>, typ
             I::I32Const(c.quit_ev_addr as i32),
             I::I32Const(4),
             I::Call(rt("rt_deliver")),
+            I::I32Const(0),
+            I::Call(rt("rt_event_args")),
             I::I32Const(0),
             I::GlobalSet(G_EVENT),
             I::LocalGet(0),

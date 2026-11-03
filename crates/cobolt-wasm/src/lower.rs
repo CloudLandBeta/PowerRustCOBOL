@@ -296,6 +296,8 @@ pub struct Lower<'a, 'b> {
     pub(crate) programs: Vec<&'a Program>,
     /// Per callee unit: the hidden area its LINKAGE `RETURNING` record is bound to.
     pub(crate) returning_store: HashMap<usize, u32>,
+    /// Storage of a handler's event payload record, one per callee (WASM-017 T11a).
+    pub(crate) payload_store: HashMap<usize, u32>,
 }
 
 /// The program units of a source: `prog`, then everything nested in it or
@@ -451,6 +453,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             uses_heap: false,
             programs: order.iter().map(|(p, _)| *p).collect(),
             returning_store: HashMap::new(),
+            payload_store: HashMap::new(),
         };
 
         // Phase A, every unit: find the paragraphs and make their blocks, so a

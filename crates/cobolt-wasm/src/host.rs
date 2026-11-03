@@ -666,6 +666,12 @@ impl FormHost {
         self.store.data().props.get(&(inst, ctrl, name)).cloned()
     }
 
+    /// What the page holds for a property, as a user typing would leave it: the
+    /// next read of it answers `text` (any bytes that are valid UTF-8, JSON or not).
+    pub fn set_property(&mut self, inst: u32, ctrl: u32, name: u32, text: &str) {
+        self.store.data_mut().props.insert((inst, ctrl, name), text.to_string());
+    }
+
     /// The batches the module flushed, byte for byte (with
     /// [`HostOptions::record_batches`]).
     pub fn batches(&self) -> Vec<Vec<u8>> {

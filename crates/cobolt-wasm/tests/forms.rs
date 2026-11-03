@@ -638,3 +638,177 @@ fn string_into_a_property_writes_the_property() {
     }
     eprintln!("STRING INTO a property: the Web template's greeting reads \"Hello, Ada\" in both variants");
 }
+
+/// A tree form whose `onNodeClick` handler is generated as the desktop's code
+/// generator writes it: the payload record in the handler's LINKAGE SECTION and
+/// `PROCEDURE DIVISION USING` it, called by the dispatcher with nothing.
+fn tree_form(drop_target: bool) -> String {
+    let target = if drop_target {
+        "    05 CONTROL-TARGET-INDEX PIC S9(4) COMP-5.\n    05 CONTROL-TARGET-NODE PIC X(64).\n"
+    } else {
+        ""
+    };
+    format!(
+        "IDENTIFICATION DIVISION.\nPROGRAM-ID. TREE-FORM.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+         01 COBOL-QUIT PIC 9 VALUE 0.\n01 COBOL-EVENT-ID PIC X(64) VALUE SPACES.\n\
+         01 COBOL-CONTROL-ID PIC X(64) VALUE SPACES.\n01 FORM-NAME PIC X(64) VALUE 'TREE-FORM'.\n\
+         PROCEDURE DIVISION.\nCOBOL-MAIN.\n    COBOL::\"INIT-FORM\" ( FORM-NAME )\n    PERFORM COBOL-EVENT-LOOP\n    STOP RUN.\n\
+         COBOL-EVENT-LOOP.\n    PERFORM UNTIL COBOL-QUIT = 1\n        COBOL::\"WAIT-EVENT\" ( COBOL-EVENT-ID COBOL-CONTROL-ID )\n\
+         \x20       EVALUATE COBOL-CONTROL-ID\n            WHEN \"TRV-1\"\n                EVALUATE COBOL-EVENT-ID\n\
+         \x20                   WHEN \"onNodeClick\"\n                        CALL \"TRV-1--ONNODECLICK\"\n\
+         \x20               END-EVALUATE\n            WHEN \"BTN-1\"\n                EVALUATE COBOL-EVENT-ID\n\
+         \x20                   WHEN \"onClick\"\n                        CALL \"BTN-1--ONCLICK\"\n                END-EVALUATE\n\
+         \x20       END-EVALUATE\n    END-PERFORM.\n\
+         IDENTIFICATION DIVISION.\nPROGRAM-ID. TRV-1--ONNODECLICK IS COMMON.\nDATA DIVISION.\nLINKAGE SECTION.\n\
+         01 CONTROL-NODE-DATA.\n    05 CONTROL-NODE PIC X(32).\n    05 CONTROL-NODE-INDEX PIC S9(4) COMP-5.\n\
+         \x20   05 CONTROL-NODE-LEVEL PIC S9(4) COMP-5.\n    05 CONTROL-NODE-CHECKED PIC 9.\n{target}\
+         PROCEDURE DIVISION USING CONTROL-NODE-DATA.\n    MOVE CONTROL-NODE TO LBL-OUT::Caption\n\
+         \x20   DISPLAY \"NODE[\" CONTROL-NODE \"] INDEX \" CONTROL-NODE-INDEX \" LEVEL \" CONTROL-NODE-LEVEL \" CHECKED \" CONTROL-NODE-CHECKED\n\
+         {drop}    GOBACK.\nEND PROGRAM TRV-1--ONNODECLICK.\n\
+         IDENTIFICATION DIVISION.\nPROGRAM-ID. BTN-1--ONCLICK IS COMMON.\nPROCEDURE DIVISION.\n    DISPLAY \"PLAIN CLICK\"\n    GOBACK.\n\
+         END PROGRAM BTN-1--ONCLICK.\nEND PROGRAM TREE-FORM.\n",
+        drop = if drop_target { "    DISPLAY \"TARGET[\" CONTROL-TARGET-NODE \"] INDEX \" CONTROL-TARGET-INDEX\n" } else { "" }
+    )
+}
+
+/// WASM-017 T11a (1): a handler reads its event's argument. The desktop splits
+/// the payload on TAB into `CONTROL-NODE`, `-INDEX`, `-LEVEL`, `-CHECKED` (and a
+/// drop's `CONTROL-TARGET-INDEX` / `-NODE`) just before the handler runs; the
+/// module does the same at the call of the handler, from argument 0 of
+/// `pr_event`, and clears them for an event with no payload.
+#[test]
+fn a_handler_reads_its_event_argument() {
+    for drop_target in [false, true] {
+        let src = tree_form(drop_target);
+        let p = Project::new()
+            .form("TREE-FORM", true, 1, &[("TRV-1", "TreeView"), ("LBL-OUT", "Label"), ("BTN-1", "Button")], &src)
+            .bind("TRV-1", "onNodeClick")
+            .bind("BTN-1", "onClick");
+        for multi in [true, false] {
+            let c = p.compile(multi);
+            let m = manifest_of(&c);
+            let node_click = m.event_index("onNodeClick").unwrap() as i32;
+            let click = m.event_index("onClick").unwrap() as i32;
+            let id = |n: &str| m.forms[0].controls.iter().find(|c| c.name == n).unwrap().id as i32;
+            let (tree, button, label) = (id("TRV-1"), id("BTN-1"), id("LBL-OUT"));
+            let caption = name_id(&m, "Caption");
+            let mut host = FormHost::new(&c.wasm).unwrap();
+            let (inst, status) = host.open_form(0, -1);
+            assert_eq!((inst, status), (0, 0), "{:?}", host.outcome());
+            let lines = |host: &mut FormHost| common::wasm_lines(&host.outcome());
+            // The whole group: text, index, level, checked.
+            assert_eq!(host.event(inst, tree, node_click, &["Olá ação\t3\t2\t1"]), 0, "{:?}", host.outcome());
+            assert_eq!(host.property(0, label as u32, caption).as_deref(), Some("Olá ação"), "multi={multi}");
+            let l = lines(&mut host);
+            assert!(l.last().unwrap().contains("INDEX") && l.iter().any(|x| x.contains("Olá ação")), "multi={multi}: {l:?}");
+            // Index 0 is "no node": the text is cleared whatever it says.
+            host.event(inst, tree, node_click, &["ghost\t0\t0\t0"]);
+            assert_eq!(host.property(0, label as u32, caption).as_deref(), Some(""), "index 0 clears the text");
+            // A value that is not the whole group clears all four rather than half-filling.
+            host.event(inst, tree, node_click, &["lonely"]);
+            assert_eq!(host.property(0, label as u32, caption).as_deref(), Some(""), "a partial payload is no payload");
+            // An event with no argument clears them.
+            host.event(inst, tree, node_click, &["stale\t9\t9\t1"]);
+            host.event(inst, tree, node_click, &[]);
+            assert_eq!(host.property(0, label as u32, caption).as_deref(), Some(""), "no argument clears");
+            // A drop carries a second node, bound only when present.
+            host.event(inst, tree, node_click, &["dragged\t4\t1\t0\t7\tdropped on"]);
+            let all = host.outcome().output.clone();
+            if drop_target {
+                assert!(all.contains("TARGET[dropped on ") && all.contains("INDEX 0007"), "multi={multi}: {all}");
+            }
+            // Another event of the same form is not disturbed.
+            assert_eq!(host.event(inst, button, click, &[]), 0);
+            assert!(host.outcome().output.contains("PLAIN CLICK"));
+            assert!(host.outcome().errors.is_empty() && host.outcome().trapped.is_none(), "{:?}", host.outcome());
+            eprintln!("event argument (multi={multi}, drop pair declared={drop_target}): whole group, index 0, partial, none, drop target — all as the desktop binds them");
+        }
+    }
+}
+
+/// WASM-017 T11a (2): a trap raised on purpose. The shared script's `BTN-TRAP`
+/// writes a caption and then traps; `BTN-ERR` raises a numbered COBOL error. A
+/// generated module has no `unreachable` statement to write, so the construct is
+/// the run-time error itself: a subscript past the table. What the page sees is
+/// what it sees from the fixture — the caption written before the error reaches
+/// it, an `ERROR` carrying the line, the form and the event arrives, the run ends
+/// with status -10 (a trap, after the report) and the next event is answered.
+#[test]
+fn a_deliberate_trap_is_reported_with_its_line_and_the_form_goes_on() {
+    let src = form_source(
+        "TRAP-FORM",
+        "01 WS-TABLE GLOBAL.\n    05 WS-CELL PIC 9 OCCURS 3 TIMES.\n01 WS-I PIC 9(4) VALUE 0 GLOBAL.\n",
+        &[
+            ("BTN-TRAP", "onClick", "    MOVE \"trapping\" TO LBL-OUT::Caption\n    MOVE 9 TO WS-I\n    MOVE 1 TO WS-CELL (WS-I)\n    MOVE \"not reached\" TO LBL-OUT::Caption\n"),
+            ("BTN-GO", "onClick", "    MOVE \"answering\" TO LBL-OUT::Caption\n"),
+        ],
+    );
+    let line = src.lines().position(|l| l.contains("MOVE 1 TO WS-CELL")).unwrap() as u32 + 1;
+    let p = Project::new().form("TRAP-FORM", true, 1, &[("BTN-TRAP", "Button"), ("BTN-GO", "Button"), ("LBL-OUT", "Label")], &src);
+    let mut cases = 0;
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let m = manifest_of(&c);
+        let click = m.event_index("onClick").unwrap() as i32;
+        let caption = name_id(&m, "Caption");
+        let id = |n: &str| m.forms[0].controls.iter().find(|c| c.name == n).unwrap().id;
+        let (trap, go, out) = (id("BTN-TRAP") as i32, id("BTN-GO") as i32, id("LBL-OUT"));
+        let mut host = FormHost::new(&c.wasm).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        assert_eq!(host.event(inst, trap, click, &[]), -10, "multi={multi}: a trap ends the run with status -10");
+        assert_eq!(host.property(0, out, caption).as_deref(), Some("trapping"), "multi={multi}: what was written before the error reached the page");
+        let o = host.outcome();
+        assert_eq!(o.error_positions.len(), 1, "{o:?}");
+        let (code, _unit, l, form, event) = o.error_positions[0];
+        assert_eq!((code, l, form, event), (1100, line, 0, click as u32), "multi={multi}: the subscript error, its line, the form and the event");
+        assert_eq!(host.event(inst, go, click, &[]), 0, "multi={multi}: the form answers after the trap: {:?}", host.outcome());
+        assert_eq!(host.property(0, out, caption).as_deref(), Some("answering"));
+        cases += 1;
+        eprintln!("deliberate trap (multi={multi}): status -10, error {code} at line {l} (the text is the player's, by code), the next click answered");
+    }
+    assert_eq!(cases, 2);
+}
+
+/// WASM-017 T11a (3): an answer that is not JSON is text. A property read leaves
+/// whatever the host answered — here a string with quotes, braces, a newline and
+/// multi-byte characters, which would not decode as JSON — in the item that
+/// receives it, byte for byte, and a read after the handler's own write sees that
+/// write (the shared script's `BTN-RAW`).
+#[test]
+fn a_raw_answer_is_taken_as_text_and_a_read_sees_the_earlier_write() {
+    let raw = "{not json \"quoted\" ação 日本 😀";
+    let src = form_source(
+        "RAW-FORM",
+        "01 WS-ANSWER PIC X(64) GLOBAL.\n",
+        &[(
+            "BTN-RAW",
+            "onClick",
+            "    MOVE \"written first\" TO TXT-IN::Text\n    MOVE TXT-IN::Text TO LBL-OUT::Caption\n",
+        ), (
+            "BTN-QUERY",
+            "onClick",
+            "    MOVE TXT-IN::Text TO WS-ANSWER\n    MOVE WS-ANSWER TO LBL-OUT::Caption\n",
+        )],
+    );
+    let p = Project::new().form("RAW-FORM", true, 1, &[("BTN-RAW", "Button"), ("BTN-QUERY", "Button"), ("TXT-IN", "TextBox"), ("LBL-OUT", "Label")], &src);
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let m = manifest_of(&c);
+        let click = m.event_index("onClick").unwrap() as i32;
+        let caption = name_id(&m, "Caption");
+        let id = |n: &str| m.forms[0].controls.iter().find(|c| c.name == n).unwrap().id;
+        let (rawb, query, out) = (id("BTN-RAW") as i32, id("BTN-QUERY") as i32, id("LBL-OUT"));
+        let mut host = FormHost::new(&c.wasm).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        // The page holds a text no JSON parser would take; the module reads it as text.
+        host.set_property(0, id("TXT-IN"), name_id(&m, "Text"), raw);
+        assert_eq!(host.event(inst, query, click, &[]), 0, "{:?}", host.outcome());
+        assert_eq!(host.property(0, out, caption).as_deref(), Some(raw), "multi={multi}: the raw answer, byte for byte");
+        // Write, then read in one handler: the read reflects the write.
+        assert_eq!(host.event(inst, rawb, click, &[]), 0, "{:?}", host.outcome());
+        assert_eq!(host.property(0, out, caption).as_deref(), Some("written first"), "multi={multi}");
+        let o = host.outcome();
+        assert!(o.trapped.is_none() && o.errors.is_empty(), "{o:?}");
+        eprintln!("raw answer (multi={multi}): {} bytes of non-JSON text round-tripped; read-after-write saw \"written first\"", raw.len());
+    }
+}

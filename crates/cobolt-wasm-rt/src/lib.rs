@@ -591,6 +591,18 @@ pub extern "C" fn rt_park(base: u32, slot: u32, a: u32, b: u32) {
     cmd::park(base, slot, a, b);
 }
 
+/// `pr_event`: keep the event's first argument for the handler (WASM-017 T11a).
+#[no_mangle]
+pub extern "C" fn rt_event_args(argc: u32) {
+    cmd::event_args(argc);
+}
+
+/// A handler's payload items filled from the kept argument (see `cmd::bind_payload`).
+#[no_mangle]
+pub extern "C" fn rt_bind_payload(base: u32, spec: u32) {
+    cmd::bind_payload(base, spec);
+}
+
 /// Deliver an event: write its control and event names to the parked items.
 #[no_mangle]
 pub extern "C" fn rt_deliver(base: u32, slot: u32, ctrl_text: u32, ctrl_len: u32, ev_text: u32, ev_len: u32) {

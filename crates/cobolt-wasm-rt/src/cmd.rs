@@ -22,7 +22,7 @@ use crate::disp;
 use crate::host;
 use crate::mem;
 use crate::opd::*;
-use crate::state::{err, st, ANSWER_SIZE, CTEMP_SIZE, NCTEMP, PATH_SIZE, WS_ANSWER, WS_CTEMP, WS_PATH};
+use crate::state::{err, st, ANSWER_SIZE, CTEMP_SIZE, EV_ARG_MAX, NCTEMP, PATH_SIZE, WS_ANSWER, WS_CTEMP, WS_EV_ARG, WS_PATH};
 use crate::val::Val;
 
 pub const CMD_SET: u8 = 0x01;
@@ -294,6 +294,94 @@ fn too_large_answer(n: u32) -> ! {
 pub fn park(base: u32, slot: u32, a: u32, b: u32) {
     mem::wr_u32(base + slot, a);
     mem::wr_u32(base + slot + 4, b);
+}
+
+/// `pr_event`: keep argument 0 (WASM-017 T11a), which sits at the start of the
+/// answer region as a varint length and its bytes, until the handler is called —
+/// a property read in between would overwrite the region. `argc == 0` leaves the
+/// "no argument" mark; an argument longer than [`EV_ARG_MAX`] is cut.
+pub fn event_args(argc: u32) {
+    let at = st().ws + WS_EV_ARG;
+    if argc == 0 {
+        mem::wr_u32(at, u32::MAX);
+        return;
+    }
+    let src = st().ws + WS_ANSWER;
+    let (mut len, mut shift, mut i) = (0u32, 0u32, 0u32);
+    while i < 5 {
+        let b = mem::bytes(src + i, 1)[0];
+        i += 1;
+        len |= ((b & 0x7f) as u32) << shift;
+        shift += 7;
+        if b & 0x80 == 0 {
+            break;
+        }
+    }
+    let n = len.min(EV_ARG_MAX);
+    mem::copy(src + i, at + 4, n);
+    mem::wr_u32(at, n);
+}
+
+/// The payload items a handler may declare, in the order `spec` lists them:
+/// `CONTROL-NODE`, `-INDEX`, `-LEVEL`, `-CHECKED`, then `CONTROL-TARGET-INDEX`
+/// and `CONTROL-TARGET-NODE` (a drop's second node).
+const PAYLOAD_ITEMS: u32 = 6;
+
+/// Fill a handler's payload items from the event argument, the way the desktop's
+/// `bind_node_payload` does: the argument is split on TAB into text, index,
+/// level and checked flag; a value that is not the whole group (or a call with no
+/// argument) sets text to spaces and the three numbers to 0; the drop's target
+/// pair is bound only when present. `spec` holds the operand records of the six
+/// items (0 for one the handler does not declare).
+pub fn bind_payload(base: u32, spec: u32) {
+    let at = st().ws + WS_EV_ARG;
+    let n = mem::rd_u32(at);
+    let all: &[u8] = if n == u32::MAX { &[] } else { mem::bytes(at + 4, n) };
+    let mut parts: [&[u8]; 6] = [&[]; 6];
+    let mut count = 0usize;
+    for p in all.split(|&b| b == b'\t') {
+        if count < 6 {
+            parts[count] = p;
+            count += 1;
+        }
+    }
+    let zero: &[u8] = b"0";
+    let whole = count >= 4;
+    let (index, level, checked) = if whole { (parts[1], parts[2], parts[3]) } else { (zero, zero, zero) };
+    let node: &[u8] = if index == zero { &[] } else { parts[0] };
+    let target_index = if count >= 6 { Some(parts[4]) } else { None };
+    let target_node: &[u8] = match target_index {
+        Some(t) if trim_ascii(t) == zero => &[],
+        _ => parts[5],
+    };
+    let values: [Option<&[u8]>; PAYLOAD_ITEMS as usize] = [Some(node), Some(index), Some(level), Some(checked), target_index, target_index.map(|_| target_node)];
+    for (k, v) in values.iter().enumerate() {
+        let opd = mem::rd_u32(spec + 4 * k as u32);
+        let Some(v) = v else { continue };
+        if opd == 0 {
+            continue;
+        }
+        let d = locate_full(base, &parse(opd));
+        // A text moved the way a MOVE of an alphanumeric sender is: left-justified
+        // and space-padded into text, read as the number it spells into a number.
+        // The bytes are copied to scratch so the sender has an address.
+        let (sa, _) = crate::mv::scratch();
+        let m = (v.len() as u32).min(crate::state::SCRATCH_SIZE);
+        mem::bytes_mut(sa, m).copy_from_slice(&v[..m as usize]);
+        let src = Loc { addr: sa, len: m, fd: crate::fd::Fd { kind: crate::fd::K_ALNUM, flags: 0, digits: 0, scale: 0, len: m, aux: 0 } };
+        crate::mv::move_to_loc(&crate::mv::Sender::Bytes(src, false), &d);
+    }
+}
+
+fn trim_ascii(s: &[u8]) -> &[u8] {
+    let (mut a, mut b) = (0, s.len());
+    while a < b && s[a] == b' ' {
+        a += 1;
+    }
+    while b > a && s[b - 1] == b' ' {
+        b -= 1;
+    }
+    &s[a..b]
 }
 
 /// Write the event's control name and event name into the items that

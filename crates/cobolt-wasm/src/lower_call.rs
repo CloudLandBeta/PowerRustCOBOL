@@ -139,6 +139,13 @@ impl Lower<'_, '_> {
         let params = self.units[c].params.clone();
         for (i, p) in params.iter().enumerate() {
             let Some(arg) = using.get(i) else {
+                // A handler's event payload (`CONTROL-NODE-DATA`): the form's
+                // dispatcher calls the handler with nothing, and the desktop fills
+                // the payload items by name before it runs — so does the module.
+                if let Some(fields) = self.payload_fields(p.item) {
+                    self.bind_payload(c, p.slot, p.item, p.size, &fields, line)?;
+                    continue;
+                }
                 // Omitted: the slot is empty, and using the record is an error.
                 self.base();
                 self.i32c(0);
@@ -230,6 +237,55 @@ impl Lower<'_, '_> {
             }
         }
         let _ = line;
+        Ok(())
+    }
+
+    /// The items under (or at) `root` that an event's payload fills, in the order
+    /// `rt_bind_payload` takes them: `CONTROL-NODE`, `CONTROL-NODE-INDEX`,
+    /// `CONTROL-NODE-LEVEL`, `CONTROL-NODE-CHECKED`, `CONTROL-TARGET-INDEX`,
+    /// `CONTROL-TARGET-NODE`; `None` when the record holds none of them.
+    fn payload_fields(&self, root: usize) -> Option<[Option<usize>; 6]> {
+        const NAMES: [&str; 6] =
+            ["CONTROL-NODE", "CONTROL-NODE-INDEX", "CONTROL-NODE-LEVEL", "CONTROL-NODE-CHECKED", "CONTROL-TARGET-INDEX", "CONTROL-TARGET-NODE"];
+        let mut out = [None; 6];
+        let mut stack = vec![root];
+        while let Some(i) = stack.pop() {
+            if let Some(n) = self.layout.items[i].name.as_deref() {
+                if let Some(k) = NAMES.iter().position(|w| n.eq_ignore_ascii_case(w)) {
+                    out[k] = Some(i);
+                }
+            }
+            stack.extend(self.layout.items[i].children.iter().copied());
+        }
+        out.iter().any(Option::is_some).then_some(out)
+    }
+
+    /// Give the callee's payload record storage of its own (one area per callee),
+    /// point its LINKAGE slot at it and fill the items from the event's argument.
+    fn bind_payload(&mut self, c: usize, slot: u32, _root: usize, size: u32, fields: &[Option<usize>; 6], line: u32) -> GenResult<()> {
+        let off = match self.payload_store.get(&c) {
+            Some(&o) => o,
+            None => {
+                let o = self.layout.alloc_hidden(size.max(1));
+                self.payload_store.insert(c, o);
+                o
+            }
+        };
+        self.base();
+        self.base();
+        self.i32c(off as i32);
+        self.raw(I::I32Add);
+        self.raw(I::I32Store(wasm_encoder::MemArg { offset: slot as u64, align: 2, memory_index: 0 }));
+        let mut words = [0u32; 6];
+        for (k, f) in fields.iter().enumerate() {
+            if let Some(i) = f {
+                words[k] = self.item_operand(*i, &[], None, line)?;
+            }
+        }
+        let spec = self.pool.spec(&words);
+        self.base();
+        self.i32c(spec as i32);
+        self.call_rt("rt_bind_payload");
         Ok(())
     }
 

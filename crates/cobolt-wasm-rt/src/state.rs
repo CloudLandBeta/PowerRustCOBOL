@@ -89,8 +89,14 @@ pub const LAST_ERR_SIZE: u32 = 4 + LAST_ERR_CLASS + 4 + 4 + LAST_ERR_MESSAGE;
 /// 0 leaves the text to the host.
 pub const WS_ERR_TEXT: u32 = WS_LAST_ERR + LAST_ERR_SIZE;
 pub const ERR_TEXT_MAX: u32 = 252;
+/// The event argument `pr_event` was given (WASM-017 T11a): `u32` length
+/// (`u32::MAX` when the event came with no argument), then the bytes of argument
+/// 0. A handler's payload items are filled from it just before the handler runs
+/// (`crate::cmd::bind_payload`), as the desktop fills them from `FormEvent.value`.
+pub const WS_EV_ARG: u32 = WS_ERR_TEXT + 4 + ERR_TEXT_MAX;
+pub const EV_ARG_MAX: u32 = 4096;
 /// Total workspace size the generator must reserve.
-pub const WS_SIZE: u32 = WS_ERR_TEXT + 4 + ERR_TEXT_MAX;
+pub const WS_SIZE: u32 = WS_EV_ARG + 4 + EV_ARG_MAX;
 
 /// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
 /// owns the message text, so the IDE and the page can translate it.
