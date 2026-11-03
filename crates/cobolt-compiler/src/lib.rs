@@ -7570,7 +7570,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "secret string or empty",
             "API key when the provider needs one. STORED ON YOUR MACHINE, never in the form: what you type in the designer goes to the local credential file and the running form is handed it at start-up, so the `.cfrm` you commit carries an empty value however the key was entered. Prefer binding the control to a Model Provider instead — one place to enter the key, one place to rotate it.",
         ),
-        "AgentEndpoint" => ("full URL, a path starting with `/`, or empty", "Overrides the provider's default endpoint. A full URL is used as it stands; a path (`/v1/chat/completions`) is joined onto `AgentURL`'s scheme and host."),
+        "AgentEndpoint" => ("full URL, a path starting with `/`, or empty", "Optional; leave empty unless the request must go somewhere other than the provider's usual path (a proxy, a gateway, a compatible service). When set it always wins over the path built from `AgentAPI`, even if `AgentURL` points elsewhere. Overrides the provider's default endpoint. A full URL is used as it stands; a path (`/v1/chat/completions`) is joined onto `AgentURL`'s scheme and host."),
         "SystemPrompt" => ("free text", "System prompt sent with every request."),
         "Temperature" => ("0-100 (maps to 0.0-1.0)", "Sampling temperature."),
         "MaximumTokens" => ("integer > 0", "Response token limit."),

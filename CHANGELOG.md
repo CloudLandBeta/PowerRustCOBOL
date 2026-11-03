@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.180 — 2026-11-03
+
+**Fix: the AgentObject's `AgentEndpoint` help now says when to use it.** The inspector (all six languages) and the System KB said what the property replaces but not that it is optional: leave it empty unless the request must go somewhere other than the provider's usual path (a proxy, a gateway, a compatible service). They now also say that when it is set it always wins over the path built from `AgentAPI`, even if `AgentURL` points elsewhere, which is why a filled Endpoint silently ignores a local URL. No behaviour changed.
+
 ## 2.0.179 — 2026-11-03
 
 **Fix: Grace's AgentObject demo now handles the model's answer and error, so the form shows the result when processing ends.** The 2.0.178 skill worked, but Grace's plan still handed the Event Handler agent a task for the button's `onClick` alone ("recover the answer with `GetResult()`"), so no `onResponse` or `onError` handler was written. The planning contract now requires, for an AgentObject, a task asking for all three handlers (`onClick` calls `Ask`, `onResponse` reads `LastReply`, `onError` reads `LastError`) and forbids `GetResult()`-style wording; the `agent-object.md` skill says to write all three even when the task names only the button. A project that already holds the first revision of the skill gets the new one.
