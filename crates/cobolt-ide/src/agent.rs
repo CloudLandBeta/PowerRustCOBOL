@@ -2313,6 +2313,10 @@ demonstrates nothing.
            SET BTN-ASK::Enabled TO true
 ```
 
+Write all three even when the task names only the button, or tells you to "recover the answer" or call `GetResult()`:
+that wording is wrong, the three handlers are the task. Submit them in ONE change set (the `onClick`, then `onResponse` and
+`onError` on the AgentObject), so the form shows the answer when processing ends.
+
 The event of a non-visual control is bound on THAT control: `generate_event_handler` with the AgentObject's id and
 `onResponse` / `onError`, not on the button.
 

@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.179 — 2026-11-03
+
+**Fix: Grace's AgentObject demo now handles the model's answer and error, so the form shows the result when processing ends.** The 2.0.178 skill worked, but Grace's plan still handed the Event Handler agent a task for the button's `onClick` alone ("recover the answer with `GetResult()`"), so no `onResponse` or `onError` handler was written. The planning contract now requires, for an AgentObject, a task asking for all three handlers (`onClick` calls `Ask`, `onResponse` reads `LastReply`, `onError` reads `LastError`) and forbids `GetResult()`-style wording; the `agent-object.md` skill says to write all three even when the task names only the button. A project that already holds the first revision of the skill gets the new one.
+
 ## 2.0.178 — 2026-11-03
 
 **Fix: Grace's AgentObject demo form now carries working code, and a new form always lands under its own forms folder.** The COBOL Event Handler Script Agent had no reference for the AgentObject, so it invented `GetResult()` and `MOVE ... TO AGENT::SetModel()`, the change-set validator refused those handlers, and the demo was left with a button that asked nothing and no reply or error handling. A built-in skill, `agent-object.md`, is now seeded for both the Event Handler and the Form Designer agents: `Ask` is asynchronous (never use its value), the button's `onClick` calls `Ask`, the AgentObject's `onResponse` reads `LastReply`, its `onError` reads `LastError`, `SetModel`/`SetPrompt` take their value in the parentheses, and a ComboBox has no `Text` property. `create_form` also strips a leading `webforms` or `mobileforms` segment (as it already did `forms`), so a new form goes to the root of its kind's folder unless the developer names a sub-folder.

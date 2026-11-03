@@ -1674,8 +1674,12 @@ impl AgentsDb {
         let mut changed = false;
         for (file, content) in skills {
             let path = skills_dir.join(file);
+            // Empty or absent is seeded; so is the first revision of the AgentObject skill (it lacked "all three").
             let missing = std::fs::read_to_string(&path)
-                .map(|c| c.trim().is_empty())
+                .map(|c| {
+                    c.trim().is_empty()
+                        || (c.starts_with("# AgentObject Skill") && !c.contains("Write all three even when"))
+                })
                 .unwrap_or(true);
             if missing {
                 let _ = std::fs::create_dir_all(&skills_dir);
