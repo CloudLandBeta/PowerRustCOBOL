@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.173 — 2026-11-03
+
+**Fix: the Claude Code plugin bundle passes the `claude` plugin validator again.** The installed `claude` (2.1.308) now runs the plugin directory's checks on `claude plugin validate`, and the bundle the IDE writes failed them: no README, no license, no icon, and no statement of where the data goes. The bundle now carries a `README.md` (what the plugin does, the three setup steps, and a "Where your data goes" section saying it talks only to the IDE on 127.0.0.1 and to `rcrun`), `"license": "Apache-2.0"` in `plugin.json`, and a small `.claude-plugin/icon.svg`. `claude_validates_the_written_bundle` passes on both the marketplace and the plugin folder. The icon is a plain bracket mark in the IDE's cyan, to be replaced by the mascot art when it is wanted.
+
 ## 2.0.172 — 2026-11-03
 
 **Spec 109 (T-IDE, third part): stepping into a user-defined function is proved, not assumed.** A new test, `test_debug_step_into_a_function`, runs a program that calls `FUNCTION DOUBLE-AMOUNT(WS-PRICE)` under the debugger: a step into the call line stops on the function's own body lines, the stack shows the function as a Call frame above the caller's frame (which still points at the call line), the argument reads back by value (21.50), and stepping on returns to the caller. No runtime change was needed: a function runs through the same call path as `CALL`, so its frame and lines were already reported. An interpolated string or a `=>` expression sits inside one statement, so a step crosses it as one line. Not covered: a function kept in another file (Common Code) is shown with the function's name but the frame carries no file name, which the debugger window would need to open that file.

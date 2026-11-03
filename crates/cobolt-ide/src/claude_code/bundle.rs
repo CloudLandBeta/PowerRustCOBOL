@@ -89,6 +89,38 @@ const WHERE_THE_RULES_ARE: &str = "The standing rules come with the PowerRustCOB
      instructions); the reference is the `powerrustcobol://reference/` resources, and `kb_lookup` / \
      `kb_search` find a name or a subject in it.";
 
+/// The plugin's icon: a rounded square with a code bracket pair, in the IDE's cyan on a dark ground.
+const ICON_SVG: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 128 128\" width=\"128\" height=\"128\">\
+<rect width=\"128\" height=\"128\" rx=\"24\" fill=\"#1b2030\"/>\
+<path d=\"M52 36 L28 64 L52 92\" fill=\"none\" stroke=\"#70f3fc\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\
+<path d=\"M76 36 L100 64 L76 92\" fill=\"none\" stroke=\"#70f3fc\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\
+</svg>\n";
+
+/// The plugin's README: what it is, what it needs, and where its data goes. The plugin directory's
+/// review reads it, and its first line stands in as the listing summary.
+fn readme_file(version: &str) -> String {
+    format!(
+        "PowerRustCOBOL AI plugin for Claude Code: build COBOL desktop applications with the IDE's own tools and knowledge.\n\
+         \n\
+         # PowerRustCOBOL AI\n\
+         \n\
+         Version {version}. This plugin gives Claude Code the same tools the PowerRustCOBOL AI IDE uses: open a project, check it, \
+         regenerate a form, build, render a form, run a form, and look names up in the product's reference. It also carries a few \
+         skills (create a form, add a control, check and fix, write Common Code) and a reviewer agent.\n\
+         \n\
+         ## Setup\n\
+         \n\
+         1. Install PowerRustCOBOL AI and open it.\n\
+         2. Choose Configure Claude Code in the IDE; it writes this plugin and generates the access token.\n\
+         3. Give Claude Code the port and token when it asks (the port defaults to 5720).\n\
+         \n\
+         ## Where your data goes\n\
+         \n\
+         The plugin talks only to the IDE on this machine (127.0.0.1) and to `rcrun`, the command-line tool installed with it. \
+         It sends nothing to a PowerRustCOBOL server. The access token stays on this machine and is never part of the plugin files.\n"
+    )
+}
+
 fn skill_file(c: &KitContent, s: &Skill) -> String {
     let mut out = format!(
         "---\nname: {}\ndescription: {}\n---\n\n# {}\n\n{}\n\n## Steps\n\n",
@@ -156,6 +188,7 @@ pub fn files(version: &str, rcrun: &RcrunLocation) -> Vec<BundleFile> {
                 "version": version,
                 "description": description,
                 "author": { "name": "PowerRustCOBOL" },
+                "license": "Apache-2.0",
                 "userConfig": {
                     "port": {
                         "type": "number",
@@ -190,6 +223,8 @@ pub fn files(version: &str, rcrun: &RcrunLocation) -> Vec<BundleFile> {
             })),
         },
     ];
+    out.push(BundleFile { rel: format!("{PLUGIN}/README.md"), text: readme_file(version) });
+    out.push(BundleFile { rel: format!("{PLUGIN}/.claude-plugin/icon.svg"), text: ICON_SVG.into() });
     for skill in &c.skills {
         out.push(BundleFile { rel: format!("{PLUGIN}/skills/{}/SKILL.md", skill.name), text: skill_file(&c, skill) });
     }
