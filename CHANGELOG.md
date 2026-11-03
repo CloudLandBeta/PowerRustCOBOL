@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.177 — 2026-11-03
+
+**Fix: a form Grace creates goes into the folder the developer named, and appears in the project tree at once.** `create_form` had no folder, so "create a form in the Common folder" wrote `forms/agent-demo-form.cfrm` at the root of the tree instead of `forms/Common/`. It now takes an optional `folder` (`"Common"`, `"Menus & Bars"`), and a path written into the name (`forms/Common/agent-demo-form`, which the model does) is split into folder and id; a folder that escapes the forms folder (`..`) is refused. The project-wide chat also asks for a new frame after applying a run, because the tree is drawn before the form exists and a finished run requests none.
+
 ## 2.0.176 — 2026-11-03
 
 **Fix: the project-wide Grace chat now applies what its agents built.** A request such as "create a form that shows how to use the AgentObject control" ran to "Workflow completed" and printed "Added AgentObject…", but no form existed afterwards: the project chat reported the finished run and dropped it, and only the form-inspector chat applied approved `create_form` / `deploy_control` / `generate_event_handler` operations. The panel now hands the finished run to the app, which applies it through the same path as the inspector chat and posts what was created, applied or refused as a chat message. Known and not changed here: `create_form` still writes to `forms/` (no sub-folder such as `Common`), and a Grace task can still be "approved" without review when its Pedantic reviewer has no model.

@@ -65,6 +65,10 @@ pub enum AgentOp {
         width: Option<u32>,
         #[serde(default)]
         height: Option<u32>,
+        /// The forms sub-folder the form goes in (`"Common"`, `"Menus & Bars"`), relative to the project's forms folder.
+        /// Empty or absent: the forms folder itself.
+        #[serde(default, skip_serializing_if = "Option::is_none", alias = "path", alias = "directory")]
+        folder: Option<String>,
     },
     /// Set one property (any key) on an existing control.
     SetProperty {
@@ -971,11 +975,9 @@ pub(crate) fn op_form_free_error(op: &AgentOp) -> Option<String> {
             }
             handler_body_shape_error(code)
         }
-        AgentOp::CreateForm { name, width, height, .. } => {
-            if !cobolt_forms::model::is_valid_control_id(name.trim()) {
-                return Some(format!(
-                    "'{name}' is not a form id: use letters, digits and hyphens, starting with a letter."
-                ));
+        AgentOp::CreateForm { name, width, height, folder, .. } => {
+            if let Err(e) = form_target(name, folder.as_deref()) {
+                return Some(e);
             }
             match (width, height) {
                 (Some(w), _) if !(100..=4000).contains(w) => Some(format!("Width {w} is outside 100..4000.")),
@@ -3433,8 +3435,46 @@ fn prop_display(v: &PropValue) -> String {
     }
 }
 
+/// Where a `create_form` puts the form: the sub-folder (relative to the project's forms folder, `""` for the folder itself)
+/// and the form id. The model often writes the whole path as the name (`forms/Common/agent-demo-form`), so a name with
+/// `/` is split at its last one and a leading `forms/` is dropped; an explicit `folder` is joined in front of it.
+pub fn form_target(name: &str, folder: Option<&str>) -> Result<(String, String), String> {
+    let name = name.trim().replace('\\', "/");
+    let (name_dir, id) = match name.rfind('/') {
+        Some(i) => (&name[..i], &name[i + 1..]),
+        None => ("", name.as_str()),
+    };
+    if !cobolt_forms::model::is_valid_control_id(id) {
+        return Err(format!("'{id}' is not a form id: use letters, digits and hyphens, starting with a letter."));
+    }
+    let joined = format!("{}/{}", folder.unwrap_or("").trim().replace('\\', "/"), name_dir);
+    let mut segments: Vec<&str> = joined.split('/').map(str::trim).filter(|s| !s.is_empty()).collect();
+    if segments.first().is_some_and(|s| s.eq_ignore_ascii_case("forms")) {
+        segments.remove(0);
+    }
+    for s in &segments {
+        if *s == "." || *s == ".." || !s.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '&')) {
+            return Err(format!("'{s}' is not a valid forms folder name: use letters, digits, spaces, hyphens and underscores."));
+        }
+    }
+    Ok((segments.join("/"), id.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// `create_form` takes a sub-folder (`Common`), alone or written into the name the way the model does it.
+    #[test]
+    fn create_form_target_splits_folder_and_id() {
+        let ok = |n: &str, f: Option<&str>| form_target(n, f).unwrap();
+        assert_eq!(ok("agent-demo-form", None), ("".into(), "agent-demo-form".into()));
+        assert_eq!(ok("agent-demo-form", Some("Common")), ("Common".into(), "agent-demo-form".into()));
+        assert_eq!(ok("forms/Common/agent-demo-form", None), ("Common".into(), "agent-demo-form".into()));
+        assert_eq!(ok("agent-demo-form", Some("forms/Menus & Bars")), ("Menus & Bars".into(), "agent-demo-form".into()));
+        assert!(form_target("agent-demo-form", Some("../x")).is_err(), "no escaping the forms folder");
+        assert!(form_target("1bad", None).is_err(), "the id rule still holds");
+        println!("create_form target: 6 cases (bare, folder, path name, nested folder, escape, bad id) behave as ruled");
+    }
 
     /// `create_form` is how Grace makes a form: it parses, it is valid only as the FIRST operation, a bad id is refused,
     /// and the operations after it are judged against the new (blank) form, not the one that was open.

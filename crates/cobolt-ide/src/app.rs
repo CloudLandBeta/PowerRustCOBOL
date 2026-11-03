@@ -6573,8 +6573,8 @@ impl CoboltApp {
             let mut created = 0usize;
             let mut refused = false;
             for op in &cs.operations {
-                if let crate::agent::AgentOp::CreateForm { name, title, width, height } = op {
-                    match self.create_form_for_grace(name, title.as_deref(), *width, *height) {
+                if let crate::agent::AgentOp::CreateForm { name, title, width, height, folder } = op {
+                    match self.create_form_for_grace(name, folder.as_deref(), title.as_deref(), *width, *height) {
                         Ok(p) => {
                             created += 1;
                             notes.push(format!("✎ created form {name}: {}", p.display()));
@@ -15065,16 +15065,21 @@ impl CoboltApp {
         true
     }
 
-    /// Create the form a Grace change-set asks for (`create_form`): written to the project's forms folder, registered in the
+    /// Create the form a Grace change-set asks for (`create_form`): written to the project's forms folder (or its `folder`), registered in the
     /// project, and opened in the inspector so the operations that follow edit it. Nothing is overwritten: an id or a file
     /// that exists is refused with the reason.
-    fn create_form_for_grace(&mut self, name: &str, title: Option<&str>, width: Option<u32>, height: Option<u32>) -> Result<PathBuf, String> {
+    fn create_form_for_grace(&mut self, name: &str, folder: Option<&str>, title: Option<&str>, width: Option<u32>, height: Option<u32>) -> Result<PathBuf, String> {
         let Some(dir) = self.project_dir() else {
             return Err("No project is open, so there is nowhere to create a form.".into());
         };
-        let name = name.trim();
+        let (sub, name) = crate::agent::form_target(name, folder)?;
+        let name = name.as_str();
         let kind = self.cobolt_project.as_ref().map(|p| p.kind()).unwrap_or_default();
-        let path = dir.join(kind.forms_folder()).join(pasted_form_file_name(name, kind));
+        let mut base = dir.join(kind.forms_folder());
+        if !sub.is_empty() {
+            base = base.join(&sub);
+        }
+        let path = base.join(pasted_form_file_name(name, kind));
         if path.exists() {
             return Err(format!("{} already exists; a form is never overwritten.", path.display()));
         }
@@ -17225,6 +17230,9 @@ impl eframe::App for CoboltApp {
                     if !notes.is_empty() {
                         self.grace_chat.push_note(notes.join("\n"));
                     }
+                    // The project tree was drawn earlier in this frame, before the form existed, and the finished
+                    // session asks for no further frame: without this the new form shows only after the next input.
+                    root_ui.ctx().request_repaint();
                 }
                 if action.close {
                     self.show_grace_chat = false;
