@@ -39,6 +39,8 @@ mod grid_dropdown;
 mod grid_edit;
 mod grid_unit;
 mod kb;
+#[cfg(feature = "graphics")]
+mod graphics;
 mod remote_binding;
 mod layout_script;
 mod sequence;
@@ -1798,6 +1800,9 @@ pub struct Interpreter {
     /// and documents its list methods read, and the running operation's cancel
     /// flag. Keyed by the control id, upper-cased.
     kb_states: HashMap<String, kb::KbControlState>,
+    /// WASM-018 T17 - the graphics objects of this form (made on first use).
+    #[cfg(feature = "graphics")]
+    graphics: Option<graphics::GraphicsState>,
     /// Spec 068 — the values each queued KnowledgeBase event carries, applied
     /// when that event is dispatched. Keyed by the form's spelling, upper-cased.
     kb_payloads: HashMap<String, std::collections::VecDeque<kb::KbPayload>>,
@@ -2290,6 +2295,8 @@ impl Interpreter {
             async_pending: HashMap::new(),
             async_generations: HashMap::new(),
             kb_states: HashMap::new(),
+            #[cfg(feature = "graphics")]
+            graphics: None,
             kb_payloads: HashMap::new(),
             aws_payloads: HashMap::new(),
             partiql: HashMap::new(),
@@ -4713,6 +4720,9 @@ impl Interpreter {
         self.hand_over_open_reports();
         // Spec 108 R8 — a file an `IndexedFile` control opened is closed with the run.
         self.partiql_close_owned();
+        // WASM-018 R2 - the form is over: every graphics object it made goes with it.
+        #[cfg(feature = "graphics")]
+        self.release_graphics();
         self.flush_external();
         result
     }
@@ -16586,6 +16596,14 @@ impl Interpreter {
         // something else on other controls.
         if self.is_aws(obj) {
             if let Some(answer) = self.aws_method(obj, &m, args) {
+                return val(answer);
+            }
+        }
+        // WASM-018 R2 - routed by class first: `Clear`, `Fill`, `Stroke` and `Rect` mean something
+        // else on other controls.
+        #[cfg(feature = "graphics")]
+        if self.graphics_kind(obj).is_some() {
+            if let Some(answer) = self.graphics_method(obj, method, args) {
                 return val(answer);
             }
         }

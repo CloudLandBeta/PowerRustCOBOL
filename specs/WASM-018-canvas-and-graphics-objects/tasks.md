@@ -186,6 +186,12 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     seven kinds, gets a handle with `RETURNING`, calls one method each; closing the form releases them (**count
     before/after reported**); 10,000 shapes then `Present` execute one list (reported count of executions = 1);
     `ToImage` after drawing returns the drawn pixels; an oversized canvas is refused with a readable error.
+  - Evidence, first part (2026-11-04, 2.0.195): `crates/cobolt-runtime/src/interpreter/graphics.rs` (feature `graphics`), routed by class
+    in `exec_method`, released at the end of `run()`. Tests: seven kinds made and released (7 live, 7 released, 0 after); 10,000
+    `FillRect` then `Present` = 1 execution (665 ms recording, 63 ms present); `GetPixel` returns the drawn colour; oversized canvas
+    refused naming the limit; `CreateWorld` handle taken by the next call. `cargo test -p cobolt-runtime --lib`: 552 passed.
+    **Still open in T17:** project limits from settings (defaults used), `AutoPresent` at the end of `onFrame`, a COBOL-source test
+    with `RETURNING`, `ToImage` returning pixels, and the full `cargo test -p cobolt-runtime --no-fail-fast` sweep (disk full).
 
 - [ ] **T18 — Form-host adapter: Canvas2D and Canvas3D on the desktop** (R16; AC13 desktop, AC4/AC5 natively)
   - Files: `crates/cobolt-form-host/src/{lib,host}.rs`; `crates/cobolt-forms/src/render.rs` (run-form path)

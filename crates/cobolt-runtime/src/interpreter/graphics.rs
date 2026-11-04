@@ -1,0 +1,262 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! Canvas2D, Canvas3D and the five graphics objects in the interpreter (WASM-018 T17, R2/R6/R7/R15/R16).
+//!
+//! One [`cobolt_graphics::Registry`] per running application. A control or object on the form owns one
+//! handle, made the first time a method is called on it (a canvas takes its size from the control's
+//! `Width` and `Height`, and `PixelRatio`). Methods are routed **by the object's class**, before the
+//! general dispatch, straight to [`Registry::invoke`]: the drawing methods record into the canvas's
+//! display list and the library executes it in one call on `Present`, `Flush` and the reads
+//! (`ToImage`, `GetPixel`, `MeasureText`, `IsPointInPath`). A handle a method makes (a series, a node,
+//! a body) comes back as a whole number. A refused call leaves the objects as they were and writes the
+//! reason to the control's `LastError`.
+
+use std::collections::HashMap;
+
+use cobolt_graphics::{Limits, ObjectKind, Registry, Value};
+
+use super::Interpreter;
+use crate::value::CobolValue;
+
+/// The owner every object of this interpreter carries: one interpreter is one form instance.
+const OWNER: u32 = 1;
+
+/// What the interpreter keeps for the graphics objects of one running form.
+pub(crate) struct GraphicsState {
+    pub registry: Registry,
+    /// Control id (upper-cased) -> its handle.
+    pub handles: HashMap<String, cobolt_graphics::handles::Handle>,
+}
+
+impl GraphicsState {
+    pub(crate) fn new() -> GraphicsState {
+        GraphicsState { registry: Registry::new(Limits::default()), handles: HashMap::new() }
+    }
+}
+
+/// A COBOL argument as the library's value: a number stays a number, anything else is text.
+fn to_value(v: &CobolValue) -> Value {
+    let text = v.as_display_string();
+    let t = text.trim();
+    if v.is_numeric() || t.parse::<f64>().is_ok() {
+        if let Ok(n) = t.parse::<i64>() {
+            return Value::Int(n);
+        }
+        if let Ok(f) = t.parse::<f64>() {
+            return Value::Num(f);
+        }
+    }
+    Value::Text(text)
+}
+
+/// The library's answer as the text a COBOL program receives.
+fn to_text(v: &Value) -> String {
+    match v {
+        Value::Nothing | Value::Bytes(_) => String::new(),
+        Value::Int(n) => n.to_string(),
+        Value::Num(f) => {
+            if f.fract() == 0.0 && f.abs() < 1e15 {
+                format!("{}", *f as i64)
+            } else {
+                f.to_string()
+            }
+        }
+        Value::Text(s) => s.clone(),
+        Value::Floats(xs) => xs.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(" "),
+        Value::Ints(xs) => xs.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(" "),
+    }
+}
+
+impl Interpreter {
+    /// The graphics kind of a control or object, by its class.
+    pub(crate) fn graphics_kind(&self, obj: &str) -> Option<ObjectKind> {
+        self.object_class(obj.trim()).and_then(|c| ObjectKind::from_name(&c))
+    }
+
+    /// The handle of `obj`, made on first use.
+    fn graphics_handle(&mut self, obj: &str, kind: ObjectKind) -> Result<cobolt_graphics::handles::Handle, String> {
+        let key = obj.trim().to_ascii_uppercase();
+        if let Some(h) = self.graphics.as_ref().and_then(|g| g.handles.get(&key)) {
+            return Ok(*h);
+        }
+        let num = |me: &Self, p: &str, default: i64| me.obj_get(obj, p).trim().parse::<i64>().ok().filter(|n| *n > 0).unwrap_or(default);
+        let args: Vec<Value> = match kind {
+            ObjectKind::Canvas2D => {
+                let ratio = self.obj_get(obj, "PixelRatio").trim().parse::<f64>().ok().filter(|r| *r > 0.0).unwrap_or(1.0);
+                vec![Value::Int(num(self, "Width", 320)), Value::Int(num(self, "Height", 240)), Value::Num(ratio)]
+            }
+            ObjectKind::Canvas3D => vec![Value::Int(num(self, "Width", 320)), Value::Int(num(self, "Height", 240))],
+            _ => Vec::new(),
+        };
+        let state = self.graphics.get_or_insert_with(GraphicsState::new);
+        let h = state.registry.create(kind, OWNER, &args).map_err(|e| e.to_string())?;
+        state.handles.insert(key, h);
+        Ok(h)
+    }
+
+    /// Run `m` on a graphics control. `None` when the class is not one of the seven.
+    pub(crate) fn graphics_method(&mut self, obj: &str, m: &str, args: &[CobolValue]) -> Option<String> {
+        let kind = self.graphics_kind(obj)?;
+        let values: Vec<Value> = args.iter().map(to_value).collect();
+        let outcome = self.graphics_handle(obj, kind).and_then(|h| {
+            let state = self.graphics.as_mut().expect("made with the handle");
+            state.registry.invoke(h, m, &values).map_err(|e| e.to_string())
+        });
+        match outcome {
+            Ok(v) => {
+                self.obj_set(obj, "LastError", String::new());
+                Some(to_text(&v))
+            }
+            Err(why) => {
+                self.obj_set(obj, "LastError", format!("{m} refused: {why}"));
+                Some(String::new())
+            }
+        }
+    }
+
+    /// The form closed: release every object it made. Returns how many.
+    pub(crate) fn release_graphics(&mut self) -> usize {
+        match self.graphics.as_mut() {
+            Some(g) => {
+                g.handles.clear();
+                g.registry.release_owner(OWNER)
+            }
+            None => 0,
+        }
+    }
+
+    /// Live graphics objects (for tests and the limits report).
+    pub fn graphics_object_count(&self) -> usize {
+        self.graphics.as_ref().map_or(0, |g| g.registry.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobolt_lexer::{tokenize, SourceFormat};
+    use cobolt_parser::parse;
+    use std::time::Instant;
+
+    fn interp(objects: &[(&str, &str, &[(&str, &str)])]) -> Interpreter {
+        let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. GFX-T17.\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n";
+        let parsed = parse(tokenize(src, SourceFormat::Free));
+        let mut i = Interpreter::new(parsed.program.expect("program should parse"));
+        i.seed_objects(objects.iter().map(|(id, class, props)| {
+            (id.to_string(), class.to_string(), props.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>())
+        }));
+        i
+    }
+
+    fn call(i: &mut Interpreter, obj: &str, m: &str, args: &[&str]) -> String {
+        let a: Vec<CobolValue> = args.iter().map(|s| CobolValue::from_str(s, s.len())).collect();
+        i.exec_method(obj, &m.to_ascii_uppercase(), &a).as_display_string().trim().to_string()
+    }
+
+    /// Every one of the seven kinds is created on first use, answers a method, and goes with the form.
+    #[test]
+    fn each_of_the_seven_kinds_is_made_called_and_released_with_the_form() {
+        let kinds: [(&str, &str, &str, &[&str]); 7] = [
+            ("CANVAS-1", "Canvas2D", "FillRect", &["1", "1", "4", "4"]),
+            ("IMAGE-1", "ImageBuffer", "GetWidth", &[]),
+            ("PLOT-1", "Plot", "GetSeriesCount", &[]),
+            ("PHYS2-1", "Physics2D", "GetWorldCount", &[]),
+            ("PHYS3-1", "Physics3D", "GetWorldCount", &[]),
+            ("SCENE-1", "Scene3D", "GetNodeCount", &[]),
+            ("CANVAS3-1", "Canvas3D", "GetBackend", &[]),
+        ];
+        let objs: Vec<(&str, &str, &[(&str, &str)])> = kinds.iter().map(|(id, c, _, _)| (*id, *c, &[("Width", "64"), ("Height", "48")][..])).collect();
+        let mut i = interp(&objs);
+        let before = i.graphics_object_count();
+        let mut made = 0;
+        for (id, class, m, args) in kinds {
+            let _ = call(&mut i, id, m, args);
+            let err = i.obj_get(id, "LastError");
+            // Canvas3D may have no graphics adapter on this machine: that is a refusal with a reason, not a crash.
+            println!("{class}: {m} -> LastError {err:?}");
+            if class != "Canvas3D" {
+                assert_eq!(err, "", "{class}.{m}");
+            }
+            if i.graphics_object_count() > made {
+                made += 1;
+            }
+        }
+        let live = i.graphics_object_count();
+        let released = i.release_graphics();
+        let after = i.graphics_object_count();
+        println!("T17: objects before {before}, live after the calls {live}, released with the form {released}, after {after}");
+        assert_eq!(before, 0);
+        assert!(live >= 6, "at least the six that need no adapter were made, got {live}");
+        assert_eq!(released, live);
+        assert_eq!(after, 0);
+    }
+
+    /// 10,000 shapes then one `Present`: the library ran the list once.
+    #[test]
+    fn ten_thousand_shapes_then_present_execute_one_list() {
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "200"), ("Height", "100")])]);
+        let t = Instant::now();
+        for n in 0..10_000 {
+            let x = (n % 190).to_string();
+            let y = (n % 90).to_string();
+            call(&mut i, "CANVAS-1", "FillRect", &[&x, &y, "4", "4"]);
+        }
+        let recorded = t.elapsed();
+        let h = *i.graphics.as_ref().unwrap().handles.get("CANVAS-1").unwrap();
+        let pending = i.graphics.as_mut().unwrap().registry.with_canvas2d(h, |c, _| Ok(c.pending_commands())).unwrap();
+        let calls_before = i.graphics.as_mut().unwrap().registry.with_canvas2d(h, |c, _| Ok(c.host_calls())).unwrap();
+        let t = Instant::now();
+        call(&mut i, "CANVAS-1", "Present", &[]);
+        let present = t.elapsed();
+        let calls_after = i.graphics.as_mut().unwrap().registry.with_canvas2d(h, |c, _| Ok(c.host_calls())).unwrap();
+        println!(
+            "T17: 10000 FillRect recorded in {:.1} ms ({} pending), Present {:.1} ms, executions {}",
+            recorded.as_secs_f64() * 1e3,
+            pending,
+            present.as_secs_f64() * 1e3,
+            calls_after - calls_before
+        );
+        assert!(pending >= 10_000);
+        assert_eq!(calls_after - calls_before, 1, "one list, one execution");
+        assert_eq!(i.obj_get("CANVAS-1", "LastError"), "");
+    }
+
+    /// The drawn pixels come back: `GetPixel` after `Present`.
+    #[test]
+    fn get_pixel_returns_what_was_drawn() {
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "100"), ("Height", "50")])]);
+        call(&mut i, "CANVAS-1", "SetFillColor", &["#2060C0"]);
+        call(&mut i, "CANVAS-1", "FillRect", &["10", "10", "40", "20"]);
+        let p = call(&mut i, "CANVAS-1", "GetPixel", &["20", "20"]);
+        println!("T17: GetPixel(20 20) = {p} (expected {})", 0x2060C0FFu32);
+        assert_eq!(p, 0x2060C0FFu32.to_string());
+        assert_eq!(i.obj_get("CANVAS-1", "LastError"), "");
+    }
+
+    /// A canvas past the limit is refused with a readable reason, and nothing is made.
+    #[test]
+    fn an_oversized_canvas_is_refused_with_a_readable_error() {
+        let mut i = interp(&[("BIG-1", "Canvas2D", &[("Width", "100000"), ("Height", "100000")])]);
+        call(&mut i, "BIG-1", "FillRect", &["0", "0", "1", "1"]);
+        let err = i.obj_get("BIG-1", "LastError");
+        println!("T17: oversized canvas -> {err:?}, live objects {}", i.graphics_object_count());
+        assert!(err.contains("refused") && err.len() > 20, "{err}");
+        assert_eq!(i.graphics_object_count(), 0);
+    }
+
+    /// A thing an object makes is a whole-number handle that the object's other methods take.
+    #[test]
+    fn a_made_thing_comes_back_as_a_handle_the_next_call_takes() {
+        let mut i = interp(&[("PHYS2-1", "Physics2D", &[])]);
+        let world = call(&mut i, "PHYS2-1", "CreateWorld", &["0", "-9.81"]);
+        let bodies = call(&mut i, "PHYS2-1", "GetBodyCount", &[&world]);
+        println!("T17: CreateWorld -> handle {world}, GetBodyCount({world}) = {bodies}");
+        assert!(world.parse::<i64>().is_ok(), "{world}");
+        assert_eq!(bodies, "0");
+        assert_eq!(i.obj_get("PHYS2-1", "LastError"), "");
+    }
+}
