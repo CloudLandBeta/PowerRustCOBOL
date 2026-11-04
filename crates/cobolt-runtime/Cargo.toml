@@ -16,7 +16,7 @@ repository.workspace   = true
 [features]
 # Everything the interpreter has always had. Nothing in this workspace turns it
 # off — `rcrun`, the IDE and every test keep the full surface.
-default = ["sql", "http", "maps", "kb", "smb", "pdf", "office", "aws", "images", "audio"]
+default = ["sql", "http", "maps", "kb", "smb", "pdf", "office", "aws", "images", "audio", "graphics"]
 
 # The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
 # PostgreSQL and MySQL.
@@ -119,6 +119,12 @@ images = ["dep:image"]
 # the compiler turns it on only for a program that calls one of the verbs.
 audio = ["dep:rodio"]
 
+# WASM-018 - Canvas2D, Canvas3D and the ImageBuffer, Plot, Scene3D, Physics2D and Physics3D
+# objects (`cobolt-graphics`): a drawing surface, a 3D view on `wgpu`, a physics engine
+# (rapier), a text shaper. Pure Rust, no C toolchain, but the heaviest thing the runtime can
+# link - so the compiler turns it on only for a form that holds one of the seven.
+graphics = ["dep:cobolt-graphics"]
+
 [dependencies]
 # Free memory, for the fit test of a registered file (spec 075 R18); the
 # host name, for the key store's cipher key (spec 076 R10).
@@ -153,6 +159,7 @@ cobolt-indexed  = { path = "../cobolt-indexed" }
 # here: two tables of the same rule is how the IntelliSense/knowledge-base
 # drift got in, and a drop zone's rules are worth less to duplicate still.
 cobolt-forms    = { path = "../cobolt-forms" }
+cobolt-graphics = { path = "../cobolt-graphics", optional = true }
 # spec 065 — the MCP protocol. serde-only and transport-free, so linking it
 # adds no network stack to an application that serves a tool.
 cobolt-mcp      = { path = "../cobolt-mcp" }

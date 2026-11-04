@@ -157,12 +157,22 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     `cargo test -p cobolt-ast -p cobolt-parser --no-fail-fast`: every `test result` line ok, 0 failed. Not run: the
     semantic, runtime and generator suites that also read `is_known_method` (T17 and T24 run theirs).
 
-- [ ] **T16 — Runtime feature `graphics` and the compiler's feature scan** (R16, parity)
+- [x] **T16 — Runtime feature `graphics` and the compiler's feature scan** (R16, parity)
   - Files: `crates/cobolt-runtime/Cargo.toml` (`[features]`, beside `images`/`audio`),
     `crates/cobolt-compiler/src/runtime_features.rs` (`RuntimeFeatures`, `scan_forms`, `scan_program`)
   - Verify: `cargo test -p cobolt-compiler runtime_features --no-fail-fast` green with tests: a form with any of the
     seven types selects `graphics`, a program without them does not (no wgpu/rapier linked);
     `cargo check -p cobolt-runtime --no-default-features` and `--features graphics` both green.
+  - Evidence (2026-11-03, 2.0.192): feature `graphics = ["dep:cobolt-graphics"]` in `cobolt-runtime` (in `default`, so `rcrun` and
+    the IDE keep the full surface) and forwarded by `cobolt-form-host`; `RuntimeFeatures.graphics` set by `scan_forms` for any of
+    the seven control names (also inside a container; also the `unknown:<name>` spelling an older build reads), by
+    `scan_control_class`, by an `EXEC RUST` block naming `cobolt_graphics`, and by a computed `CALL` (everything on); never part
+    of `shared_platform`. New test `a_form_with_a_graphics_control_links_the_graphics_engine_and_one_without_does_not` prints
+    `graphics selected by 7 of 7 control names; 0 by a Button form`. `cargo test -p cobolt-compiler --no-fail-fast`: lib 225
+    passed, 0 failed, 1 ignored, and every other `test result` ok. `cargo check -p cobolt-runtime --no-default-features` and
+    `--no-default-features --features graphics` finish; `cargo tree -p cobolt-runtime --no-default-features` lists 0 wgpu/rapier
+    lines. Found on the way: the redistributable SDK (`SDK_CRATES`, 19 -> 21) must now ship `cobolt-graphics` and
+    `cobolt-graphics-wire`, or the closure guard and the generated-binary resolve test fail (they did, before the fix).
 
 - [ ] **T17 — Interpreter bindings and display-list recording** (R2, R6, R7, R16; AC2, AC9 in the interpreter)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (and a `graphics` module beside it)

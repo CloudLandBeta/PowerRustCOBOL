@@ -2861,6 +2861,9 @@ fn build_core(
     if !features.audio {
         log("   no AUDIO verb reached — building without sound (no ALSA needed on Linux)");
     }
+    if !features.graphics {
+        log("   no Canvas, Plot, Scene3D, ImageBuffer or Physics object — building without the graphics engine");
+    }
     // Spec 068 — the built-in semantic model only on request, and only for an
     // application that has a Knowledge Base to use it.
     let features = runtime_features::RuntimeFeatures {
@@ -3797,7 +3800,7 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 19] = [
+pub const SDK_CRATES: [&str; 21] = [
     "cobolt-ast",
     "cobolt-codegen",
     // Decimal arithmetic, shared by the interpreter and the WebAssembly
@@ -3806,6 +3809,10 @@ pub const SDK_CRATES: [&str; 19] = [
     // spec 074 — document import. `cobolt-kb` depends on it.
     "cobolt-docs",
     "cobolt-form-host",
+    // WASM-018 — Canvas2D/3D and the graphics objects. `cobolt-runtime` depends on it
+    // (feature `graphics`), and it on `cobolt-graphics-wire`, so the closure guard requires both.
+    "cobolt-graphics",
+    "cobolt-graphics-wire",
     // spec 109 — locale-aware number formatting (`FORMAT` / `LOCALE`), shared by the
     // interpreter and the WebAssembly routines. `cobolt-runtime` and
     // `cobolt-semantic` depend on it, so the closure guard requires it here.

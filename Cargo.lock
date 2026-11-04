@@ -2486,6 +2486,7 @@ dependencies = [
  "cobolt-decimal",
  "cobolt-format",
  "cobolt-forms",
+ "cobolt-graphics",
  "cobolt-indexed",
  "cobolt-kb",
  "cobolt-lexer",

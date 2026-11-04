@@ -145,6 +145,21 @@ pub struct RuntimeFeatures {
     /// runtime, so it is not in [`Self::as_toml_features`]; a program without a
     /// remote call links no socket code for it.
     pub remote: bool,
+    /// WASM-018 - Canvas2D, Canvas3D, ImageBuffer, Plot, Scene3D, Physics2D and Physics3D
+    /// (`cobolt-graphics`: the rasteriser, the text shaper, `wgpu`, rapier). Pure Rust, but the
+    /// heaviest part of the runtime, so only a form that holds one of the seven links it. It is
+    /// never part of [`Self::shared_platform`]'s fixed set.
+    pub graphics: bool,
+}
+
+/// The seven graphics controls and objects (WASM-018 R1), as the form file names them.
+const GRAPHICS_CONTROLS: &[&str] = &["Canvas2D", "Canvas3D", "ImageBuffer", "Plot", "Scene3D", "Physics2D", "Physics3D"];
+
+/// Whether a control's type name is one of the seven. A form read by a build that predates the
+/// seven types carries them as `unknown:<name>` plug-in controls; both spellings count.
+fn is_graphics_control_name(name: &str) -> bool {
+    let bare = name.strip_prefix("unknown:").unwrap_or(name);
+    GRAPHICS_CONTROLS.contains(&bare)
 }
 
 impl RuntimeFeatures {
@@ -163,6 +178,7 @@ impl RuntimeFeatures {
             images: true,
             audio: true,
             remote: true,
+            graphics: true,
         }
     }
 
@@ -181,6 +197,7 @@ impl RuntimeFeatures {
             images: self.images || other.images,
             audio: self.audio || other.audio,
             remote: self.remote || other.remote,
+            graphics: self.graphics || other.graphics,
         }
     }
 
@@ -253,6 +270,9 @@ impl RuntimeFeatures {
         if self.audio {
             names.push("\"audio\"");
         }
+        if self.graphics {
+            names.push("\"graphics\"");
+        }
         names.join(", ")
     }
 }
@@ -296,6 +316,9 @@ pub fn scan_forms<'a>(forms: impl IntoIterator<Item = &'a cobolt_forms::Form>) -
             if ctrl.control_type.as_str().starts_with("Aws") {
                 found.aws = true;
             }
+            if is_graphics_control_name(ctrl.control_type.as_str()) {
+                found.graphics = true;
+            }
         }
     }
     found
@@ -315,6 +338,7 @@ pub fn scan_control_class(class: &str) -> RuntimeFeatures {
             found.http = true;
             found.maps = true;
         }
+        c if is_graphics_control_name(c) => found.graphics = true,
         "KnowledgeBase" => {
             found.http = true;
             found.kb = true;
@@ -419,6 +443,7 @@ fn scan_rust(source: &str) -> RuntimeFeatures {
         images: source.contains("image_runtime"),
         audio: source.contains("audio_runtime"),
         remote: source.contains("cobolt_server"),
+        graphics: source.contains("cobolt_graphics"),
     }
 }
 
@@ -682,7 +707,7 @@ mod tests {
         assert!(!all.kb_semantic, "the built-in model is never part of \"everything\"");
         assert_eq!(
             all.as_toml_features(),
-            "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\", \"audio\""
+            "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\", \"audio\", \"graphics\""
         );
     }
 
@@ -815,6 +840,36 @@ mod tests {
         form
     }
 
+    /// WASM-018 T16 - the seven graphics controls select `graphics`, and a form without one does not
+    /// (no wgpu, no rapier). Written by the names a form file carries them under, so it holds
+    /// before and after the seven become `ControlType` variants.
+    #[test]
+    fn a_form_with_a_graphics_control_links_the_graphics_engine_and_one_without_does_not() {
+        let mut selected = 0;
+        for name in ["Canvas2D", "Canvas3D", "ImageBuffer", "Plot", "Scene3D", "Physics2D", "Physics3D"] {
+            let f = scan_forms([&form_with(cobolt_forms::ControlType::from_str(name))]);
+            assert!(f.graphics, "{name}: {f:?}");
+            assert!(f.as_toml_features().contains("\"graphics\""), "{name}");
+            selected += 1;
+            // …also inside a container.
+            let mut outer = cobolt_forms::Form::new("F", "F", 800, 600);
+            let mut panel = control("P-1", cobolt_forms::ControlType::Panel);
+            panel.children = vec![control("C-1", cobolt_forms::ControlType::from_str(name))];
+            outer.controls = vec![panel];
+            assert!(scan_forms([&outer]).graphics, "{name} in a Panel");
+        }
+        let plain = scan_forms([&form_with(cobolt_forms::ControlType::Button)]);
+        assert!(!plain.graphics && !plain.as_toml_features().contains("graphics"), "{plain:?}");
+        // A plug-in control that merely has a similar name is not one of the seven.
+        assert!(!scan_forms([&form_with(cobolt_forms::ControlType::from_str("acme:Canvas2D"))]).graphics);
+        // Not part of the shared platform set: a form without one still builds without it.
+        assert!(!plain.shared_platform(true).graphics);
+        // A program without forms does not select it either, and a computed CALL (can't be ruled out) does.
+        assert!(!scan(&prog("    DISPLAY \"hello\".\n    STOP RUN.")).graphics);
+        assert!(scan(&prog("    CALL WS-VERB.\n    STOP RUN.")).graphics);
+        println!("graphics selected by {selected} of 7 control names; 0 by a Button form");
+    }
+
     /// The manifest must both cut the defaults and state what it wants. Naming
     /// features while leaving `default-features` alone would union `sql` back
     /// in and change nothing — the failure would be invisible, because the
@@ -837,7 +892,7 @@ mod tests {
 
         let full = crate::base_dependency_block(dir, false, RuntimeFeatures::all());
         assert!(
-            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\", \"audio\"]"),
+            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\", \"audio\", \"graphics\"]"),
             "a program that reaches everything asks for everything:\n{full}"
         );
 

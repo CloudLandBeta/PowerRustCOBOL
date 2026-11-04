@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.192 — 2026-11-03
+
+**WASM-018 T16: the runtime has a `graphics` feature and the compiler links it only for a form that holds a Canvas or another of the seven graphics objects.** *(Written on features-2x-wasm018, after 2.0.191.)* A compiled application without such a control is built without the graphics engine (no `wgpu`, no physics engine). The redistributable SDK now ships `cobolt-graphics` and `cobolt-graphics-wire`. `cargo test -p cobolt-compiler --no-fail-fast` is green (225 in the library) and the runtime checks with and without the feature.
+
 ## 2.0.191 — 2026-11-03
 
 **WASM-018 T15: every method of the seven graphics objects is a known method, so `CANVAS-1::FillRect(10 10 50 20)` is a call and not a subscript.** *(Written on features-2x-wasm018, after 2.0.190.)* `is_known_method` gains 244 names (313 methods across Canvas2D, Canvas3D, ImageBuffer, Plot, Scene3D, Physics2D and Physics3D). A new test walks the graphics registry and fails on any name missing from the list; before the change it reported 299 of 313 missing, after it 0.
