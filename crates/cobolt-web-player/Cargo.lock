@@ -341,10 +341,15 @@ name = "cobolt-graphics"
 version = "0.2.0"
 dependencies = [
  "bytemuck",
+ "cobolt-graphics-wire",
  "kurbo",
  "thiserror 2.0.21",
  "tiny-skia",
 ]
+
+[[package]]
+name = "cobolt-graphics-wire"
+version = "0.2.0"
 
 [[package]]
 name = "cobolt-lexer"

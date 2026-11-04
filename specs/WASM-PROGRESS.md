@@ -290,3 +290,20 @@ Engine that ran: Google Chrome (headless, the installed one), through `tests/sup
 `PowerRustCOBOL.mount(document.getElementById('pr-app')).then(a => a.choice)` and `self.crossOriginIsolated` in the console. The Mobile kind's
 plain-player rule was not exercised (no Mobile project builds here). The `focus_comparison_chrome` test of `cobolt-project-tools` fails in this
 environment (the desktop side records no events); it touches none of this change and was not run against the base.
+
+## WASM-017 T17 — finalization sweep (measured 2026-11-04, version 2.0.193)
+
+Built with `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0` (the disk filled twice with full debug builds). Every `test result` line was read.
+
+| Command | Result |
+|---|---|
+| `cargo test -p cobolt-forms -p cobolt-wasm -p cobolt-wasm-abi -p cobolt-compiler -p cobolt-project-tools -p cobolt-web-bundle --no-fail-fast` | 2 508 passed, 0 failed, 8 ignored |
+| `cargo test -p cobolt-forms --features render --no-fail-fast` | 1 823 passed, 0 failed, 2 ignored |
+| `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast` | 1 952 passed, 8 failed, 5 ignored — 3 known unrelated reds + 5 that need `target/debug/rcrun` (absent; not re-run) |
+| `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --no-fail-fast` | first run: `the_shipped_player_was_built_from_the_source_that_is_here` FAILED (stale since 2.0.188); after `build_player`: all green |
+| `cargo test -p cobolt-web-bundle --no-fail-fast` (after the rebuild) | all `ok` |
+| `cargo test PLAYER --no-fail-fast` as written | not run (builds every workspace test binary; out of disk twice) |
+| `cargo fmt --check` | not clean; diffs only in files this series never touched |
+| `git diff --stat -- README.md docs/` | empty |
+
+**Blocked or not measured, with the exact reason:** the five `rcrun`-dependent `cobolt-ide` tests (no `rcrun` binary in this worktree; building it costs disk); Firefox, Safari (macOS, iOS) and the Android WebView (not installed — commands under "WASM-017 T13"); plan §6 manual check (operator, through the MCP tools); `git push` of `2.x.x` (SSH to github.com:22 times out, HTTPS has no stored credential).
