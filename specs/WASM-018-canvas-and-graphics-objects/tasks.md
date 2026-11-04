@@ -174,7 +174,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     lines. Found on the way: the redistributable SDK (`SDK_CRATES`, 19 -> 21) must now ship `cobolt-graphics` and
     `cobolt-graphics-wire`, or the closure guard and the generated-binary resolve test fail (they did, before the fix).
 
-- [ ] **T17 — Interpreter bindings and display-list recording** (R2, R6, R7, R16; AC2, AC9 in the interpreter)
+- [x] **T17 — Interpreter bindings and display-list recording** (R2, R6, R7, R16; AC2, AC9 in the interpreter)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (and a `graphics` module beside it)
   - Do: one `Registry` per running application; each object owned by its form instance; `release_owner`
     (`registry.rs:376`) when the form closes; dispatch by name through `Registry::invoke` (`registry.rs:418`);
@@ -192,6 +192,12 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     refused naming the limit; `CreateWorld` handle taken by the next call. `cargo test -p cobolt-runtime --lib`: 552 passed.
     **Still open in T17:** project limits from settings (defaults used), `AutoPresent` at the end of `onFrame`, a COBOL-source test
     with `RETURNING`, `ToImage` returning pixels, and the full `cargo test -p cobolt-runtime --no-fail-fast` sweep (disk full).
+  - Evidence, closed (2026-11-04, 2.0.196): `AutoPresent` True = 1 execution at the end of `onFrame`, False = 0; project limit
+    `max_canvas_width=200` refuses a 300-pixel canvas naming the setting (`Limits::from_settings`, `publish_graphics_limits`);
+    `ToImage` returns the drawn pixels; `tests/test_graphics_objects.rs` parses COBOL source (`MOVE CANVAS-1::GetPixel(20 20) TO
+    WS-PIXEL` = 543211775, `MOVE PHYS-1::CreateWorld(0 -9.81) TO WS-WORLD`, 0 objects live after the run). Sweep:
+    `cargo test -p cobolt-runtime --no-fail-fast` lib 555 passed, 199 integration files all `0 failed` (1,088 passed, 26 ignored);
+    `cobolt-graphics --lib` 195 passed. **Left for T21/T23:** the manifest key and the Settings control that call `publish_graphics_limits`.
 
 - [ ] **T18 — Form-host adapter: Canvas2D and Canvas3D on the desktop** (R16; AC13 desktop, AC4/AC5 natively)
   - Files: `crates/cobolt-form-host/src/{lib,host}.rs`; `crates/cobolt-forms/src/render.rs` (run-form path)

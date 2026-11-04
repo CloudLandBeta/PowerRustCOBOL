@@ -25,16 +25,36 @@ use crate::value::CobolValue;
 /// The owner every object of this interpreter carries: one interpreter is one form instance.
 const OWNER: u32 = 1;
 
+static PROJECT_LIMITS: std::sync::OnceLock<Limits> = std::sync::OnceLock::new();
+
+/// Publish the project's graphics limits (R15), once per process; a later call cannot replace them.
+/// A host that read the project's settings calls this before the first form runs
+/// (`Limits::from_settings`); a process that never does keeps `Limits::default()`.
+pub fn publish_graphics_limits(limits: Limits) {
+    let _ = PROJECT_LIMITS.set(limits);
+}
+
+/// The limits every graphics registry of this process starts with.
+pub fn project_limits() -> Limits {
+    PROJECT_LIMITS.get().cloned().unwrap_or_default()
+}
+
 /// What the interpreter keeps for the graphics objects of one running form.
 pub(crate) struct GraphicsState {
     pub registry: Registry,
     /// Control id (upper-cased) -> its handle.
     pub handles: HashMap<String, cobolt_graphics::handles::Handle>,
+    /// The canvas whose `onFrame` handler is running; `AutoPresent` presents it when the handler returns.
+    pub frame_canvas: Option<String>,
 }
 
 impl GraphicsState {
+    pub(crate) fn with_limits(limits: Limits) -> GraphicsState {
+        GraphicsState { registry: Registry::new(limits), handles: HashMap::new(), frame_canvas: None }
+    }
+
     pub(crate) fn new() -> GraphicsState {
-        GraphicsState { registry: Registry::new(Limits::default()), handles: HashMap::new() }
+        GraphicsState { registry: Registry::new(project_limits()), handles: HashMap::new(), frame_canvas: None }
     }
 }
 
@@ -115,6 +135,25 @@ impl Interpreter {
                 self.obj_set(obj, "LastError", format!("{m} refused: {why}"));
                 Some(String::new())
             }
+        }
+    }
+
+    /// An event left the queue for a handler: remember a canvas's `onFrame`.
+    pub(crate) fn graphics_note_event(&mut self, ctrl: &str, event: &str) {
+        if event.eq_ignore_ascii_case("onFrame") && matches!(self.graphics_kind(ctrl), Some(ObjectKind::Canvas2D | ObjectKind::Canvas3D)) {
+            let state = self.graphics.get_or_insert_with(GraphicsState::new);
+            state.frame_canvas = Some(ctrl.trim().to_string());
+        }
+    }
+
+    /// The handler of the last event has returned: a canvas whose `onFrame` it was, with `AutoPresent` on
+    /// (the default), shows what the handler drew (R6).
+    pub(crate) fn graphics_end_of_frame(&mut self) {
+        let Some(ctrl) = self.graphics.as_mut().and_then(|g| g.frame_canvas.take()) else { return };
+        let auto = self.obj_get(&ctrl, "AutoPresent");
+        let off = matches!(auto.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off");
+        if !off {
+            let _ = self.graphics_method(&ctrl, "Present", &[]);
         }
     }
 
@@ -258,5 +297,53 @@ mod tests {
         assert!(world.parse::<i64>().is_ok(), "{world}");
         assert_eq!(bodies, "0");
         assert_eq!(i.obj_get("PHYS2-1", "LastError"), "");
+    }
+
+    /// R6: with `AutoPresent` on (the default) the end of an `onFrame` handler presents the canvas; off, it does not.
+    #[test]
+    fn auto_present_runs_the_list_when_the_frame_handler_returns() {
+        for (auto, expect) in [("True", 1u64), ("False", 0u64)] {
+            let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "50"), ("Height", "50"), ("AutoPresent", auto)])]);
+            i.graphics_note_event("CANVAS-1", "onFrame");
+            call(&mut i, "CANVAS-1", "FillRect", &["0", "0", "10", "10"]);
+            let h = *i.graphics.as_ref().unwrap().handles.get("CANVAS-1").unwrap();
+            let before = i.graphics.as_mut().unwrap().registry.with_canvas2d(h, |c, _| Ok(c.host_calls())).unwrap();
+            i.graphics_end_of_frame();
+            let after = i.graphics.as_mut().unwrap().registry.with_canvas2d(h, |c, _| Ok(c.host_calls())).unwrap();
+            println!("T17: AutoPresent={auto}: executions at the end of onFrame {}", after - before);
+            assert_eq!(after - before, expect);
+        }
+        // an event that is not a canvas's onFrame presents nothing
+        let mut i = interp(&[("BTN-1", "Button", &[])]);
+        i.graphics_note_event("BTN-1", "onFrame");
+        assert!(i.graphics.is_none());
+    }
+
+    /// R15: the registry starts with the project's limits.
+    #[test]
+    fn the_projects_limits_apply_to_the_registry() {
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "300"), ("Height", "100")])]);
+        i.graphics = Some(GraphicsState::with_limits(Limits::from_settings(&[("max_canvas_width".into(), 200)]).unwrap()));
+        call(&mut i, "CANVAS-1", "FillRect", &["0", "0", "1", "1"]);
+        let err = i.obj_get("CANVAS-1", "LastError");
+        println!("T17: project limit max_canvas_width=200 -> {err:?}");
+        assert!(err.contains("max_canvas_width") && err.contains("200"), "{err}");
+        assert_eq!(i.graphics_object_count(), 0);
+    }
+
+    /// `ToImage` after drawing: the handle's pixels are the drawn ones.
+    #[test]
+    fn to_image_after_drawing_returns_the_drawn_pixels() {
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "40"), ("Height", "40")])]);
+        call(&mut i, "CANVAS-1", "SetFillColor", &["#FF0000"]);
+        call(&mut i, "CANVAS-1", "FillRect", &["0", "0", "20", "40"]);
+        let img: u32 = call(&mut i, "CANVAS-1", "ToImage", &[]).parse().expect("a handle");
+        assert_eq!(i.obj_get("CANVAS-1", "LastError"), "");
+        let g = i.graphics.as_mut().unwrap();
+        let inside = g.registry.invoke(img, "GetPixel", &[5.into(), 5.into()]).unwrap();
+        let outside = g.registry.invoke(img, "GetPixel", &[30.into(), 5.into()]).unwrap();
+        println!("T17: ToImage handle {img}: pixel (5 5) = {inside:?}, (30 5) = {outside:?}");
+        assert_eq!(inside, Value::Int(0xFF0000FFu32 as i64));
+        assert_eq!(outside, Value::Int(0));
     }
 }

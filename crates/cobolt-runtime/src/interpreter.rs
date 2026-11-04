@@ -40,7 +40,7 @@ mod grid_edit;
 mod grid_unit;
 mod kb;
 #[cfg(feature = "graphics")]
-mod graphics;
+pub mod graphics;
 mod remote_binding;
 mod layout_script;
 mod sequence;
@@ -11587,6 +11587,9 @@ impl Interpreter {
                 self.settle_grid_edits();
                 // WASM-006: a Hyperlink click whose handler has just returned takes its next step.
                 self.advance_link_steps();
+                // WASM-018 R6 - the `onFrame` handler has returned: present what it drew (AutoPresent).
+                #[cfg(feature = "graphics")]
+                self.graphics_end_of_frame();
                 if self.event_rx.is_some() {
                     // Wait for the next thing to present: a real UI event, an
                     // async completion (spec 032), or channel disconnect. While
@@ -11622,6 +11625,8 @@ impl Interpreter {
                             // Spec 094: a cell edited in a writable bound grid is
                             // kept pending before its handler runs.
                             self.note_grid_edit(&ev.ctrl_id, &ev.event_id);
+                            #[cfg(feature = "graphics")]
+                            self.graphics_note_event(&ev.ctrl_id, &ev.event_id);
                             // WASM-006 R5, R6: a Hyperlink's click resets `Cancel` before its handler.
                             if ev.event_id.eq_ignore_ascii_case("onClick") && self.is_hyperlink(&ev.ctrl_id) {
                                 self.start_link_click(&ev.ctrl_id);

@@ -215,6 +215,66 @@ impl Limits {
     }
 }
 
+impl Limits {
+    /// The names a project may set, in the order of the fields.
+    pub const SETTINGS: &'static [&'static str] = &[
+        "max_canvas_width",
+        "max_canvas_height",
+        "max_canvas_pixels",
+        "max_image_pixels",
+        "max_encoded_bytes",
+        "max_model_bytes",
+        "max_texture_size",
+        "max_nodes",
+        "max_triangles",
+        "max_bodies",
+        "max_display_list_bytes",
+        "max_display_list_commands",
+        "max_save_depth",
+        "max_path_points",
+        "max_text_bytes",
+        "max_font_bytes",
+        "max_series_points",
+        "max_total_bytes",
+    ];
+
+    /// These limits with one project setting changed (R15: "set by the project"). The name is the one an error
+    /// message tells a developer to raise; an unknown name or a value that does not fit is refused, not ignored.
+    pub fn with_setting(&self, name: &str, value: u64) -> Result<Limits> {
+        let mut l = self.clone();
+        let small = |v: u64| u32::try_from(v).map_err(|_| GraphicsError::invalid(format!("{name} = {value} does not fit: the largest is {}", u32::MAX)));
+        match name.trim().to_ascii_lowercase().as_str() {
+            "max_canvas_width" => l.max_canvas_width = small(value)?,
+            "max_canvas_height" => l.max_canvas_height = small(value)?,
+            "max_canvas_pixels" => l.max_canvas_pixels = value,
+            "max_image_pixels" => l.max_image_pixels = value,
+            "max_encoded_bytes" => l.max_encoded_bytes = value,
+            "max_model_bytes" => l.max_model_bytes = value,
+            "max_texture_size" => l.max_texture_size = small(value)?,
+            "max_nodes" => l.max_nodes = small(value)?,
+            "max_triangles" => l.max_triangles = value,
+            "max_bodies" => l.max_bodies = small(value)?,
+            "max_display_list_bytes" => l.max_display_list_bytes = value,
+            "max_display_list_commands" => l.max_display_list_commands = value,
+            "max_save_depth" => l.max_save_depth = small(value)?,
+            "max_path_points" => l.max_path_points = small(value)?,
+            "max_text_bytes" => l.max_text_bytes = small(value)?,
+            "max_font_bytes" => l.max_font_bytes = value,
+            "max_series_points" => l.max_series_points = value,
+            "max_total_bytes" => l.max_total_bytes = value,
+            other => {
+                return Err(GraphicsError::invalid(format!("`{other}` is not a graphics limit; the settings are: {}", Limits::SETTINGS.join(", "))));
+            }
+        }
+        Ok(l)
+    }
+
+    /// The defaults with every `(name, value)` of a project applied, in order.
+    pub fn from_settings(settings: &[(String, u64)]) -> Result<Limits> {
+        settings.iter().try_fold(Limits::default(), |l, (k, v)| l.with_setting(k, *v))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +309,21 @@ mod tests {
         let l = Limits::default();
         assert!(l.check_canvas(0, 5, 1.0).is_err());
         assert!(l.check_image(5, 0).is_err());
+    }
+
+    #[test]
+    fn a_project_setting_changes_one_limit_and_a_bad_one_is_refused() {
+        let l = Limits::from_settings(&[("max_canvas_width".into(), 16384), ("MAX_BODIES".into(), 50)]).unwrap();
+        assert_eq!(l.max_canvas_width, 16384);
+        assert_eq!(l.max_bodies, 50);
+        assert_eq!(l.max_nodes, Limits::default().max_nodes);
+        let e = Limits::default().with_setting("max_canvas_wdith", 1).unwrap_err().to_string();
+        assert!(e.contains("max_canvas_width"), "the message lists the real names: {e}");
+        assert!(Limits::default().with_setting("max_nodes", u64::MAX).is_err());
+        // every name the settings list accepts
+        for n in Limits::SETTINGS {
+            Limits::default().with_setting(n, 7).unwrap();
+        }
+        println!("limits: {} settings, all accepted; unknown and oversized values refused", Limits::SETTINGS.len());
     }
 }
