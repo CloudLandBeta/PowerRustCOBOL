@@ -1995,7 +1995,7 @@ impl FormBody {
         let backlog = self.pending.load(Ordering::Relaxed) >= Self::TICK_COALESCE_BACKLOG;
         for ev in events {
             // User events (clicks, edits, focus, quit) are never dropped.
-            if ev.event.eq_ignore_ascii_case("onTick") && backlog {
+            if (ev.event.eq_ignore_ascii_case("onTick") || ev.event.eq_ignore_ascii_case("onFrame")) && backlog {
                 continue;
             }
             // Instanced repeating-group members are drawn with the id

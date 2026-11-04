@@ -5285,7 +5285,7 @@ impl UiEvent {
         }
     }
     /// Any event carrying a payload (node text, tab index, cell coordinatesâ¦).
-    fn with_value(id: &str, event: &str, value: &str) -> Self {
+    pub(crate) fn with_value(id: &str, event: &str, value: &str) -> Self {
         UiEvent {
             ctrl_id: id.to_owned(),
             event: event.to_owned(),
@@ -8193,6 +8193,11 @@ fn render_interactive(
             quad,
         );
         control_geometry_events(ui, screen, ctrl_id, id, out, &bound);
+        // WASM-018 T19: a canvas is focusable, raises pointer/wheel/key/touch events, keeps its pollable
+        // state and paces `onFrame`.
+        if matches!(ct, CT::Canvas2D | CT::Canvas3D) {
+            crate::canvas_input::run(ui, screen, ctrl, ctrl_id, enabled, out);
+        }
         // The control's `Cursor`, while the pointer is over it — on EVERY
         // visual control, not just the Button: a clickable picture (a flag
         // that switches the language) looked inert because its `Hand` was
@@ -23169,6 +23174,95 @@ mod tests {
         ]
     }
 
+
+    /// WASM-018 T19 (R13): each event a canvas can raise reaches its bound handler, and a canvas with no
+    /// handlers raises none; the pollable state (`PointerX/Y`, the held keys) is kept either way.
+    #[test]
+    fn a_canvas_raises_input_events_for_bound_handlers_only() {
+        let all = [
+            "onPointerEnter",
+            "onPointerDown",
+            "onPointerMove",
+            "onPointerUp",
+            "onPointerLeave",
+            "onWheel",
+            "onKeyDown",
+            "onKeyUp",
+            "onTouchStart",
+            "onTouchMove",
+            "onTouchEnd",
+        ];
+        let bound = ctrlp_events("CV-1", ControlType::Canvas2D, 0, 0, 200, 100, &[("AccessibleLabel", "Game board")], &all);
+        let unbound = ctrlp("CV-2", ControlType::Canvas2D, 0, 0, 200, 100, &[]);
+        let key = |k: egui::Key, pressed: bool| Event::Key {
+            key: k,
+            physical_key: Some(k),
+            pressed,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        let touch = |phase: egui::TouchPhase| Event::Touch {
+            device_id: egui::TouchDeviceId(0),
+            id: egui::TouchId(1),
+            phase,
+            pos: pos2(60.0, 40.0),
+            force: None,
+        };
+        let inside = pos2(60.0, 40.0);
+        let frames = || -> Vec<(f64, Vec<Event>)> {
+            vec![
+                (0.0, vec![]),
+                (0.1, vec![Event::PointerMoved(pos2(300.0, 250.0))]),
+                (0.2, vec![Event::PointerMoved(inside)]),
+                (0.3, vec![Event::PointerMoved(pos2(62.0, 42.0))]),
+                (0.4, vec![press(pos2(62.0, 42.0))]),
+                (0.5, vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, 1.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::default() }]),
+                (0.6, vec![key(egui::Key::ArrowLeft, true)]),
+                (0.7, vec![key(egui::Key::ArrowLeft, false)]),
+                (0.8, vec![release(pos2(62.0, 42.0))]),
+                (0.9, vec![touch(egui::TouchPhase::Start)]),
+                (1.0, vec![touch(egui::TouchPhase::Move)]),
+                (1.1, vec![touch(egui::TouchPhase::End)]),
+                (1.2, vec![Event::PointerMoved(pos2(300.0, 250.0))]),
+            ]
+        };
+        let started = std::time::Instant::now();
+        let (got, _) = drive_timed(&[bound.clone()], frames());
+        let mut seen: Vec<&str> = got.iter().filter(|e| e.ctrl_id == "CV-1").map(|e| e.event.as_str()).collect();
+        seen.sort();
+        seen.dedup();
+        let missing: Vec<&&str> = all.iter().filter(|e| !seen.contains(*e)).collect();
+        let (quiet, _) = drive_timed(&[unbound], frames());
+        let from_unbound = quiet.iter().filter(|e| e.ctrl_id == "CV-2" && all.contains(&e.event.as_str())).count();
+        println!("T19: a bound canvas raised {} of {} input event kinds (missing {:?}); an unbound canvas raised {} ({} ms)", seen.len(), all.len(), missing, from_unbound, started.elapsed().as_millis());
+        assert!(missing.is_empty(), "never raised: {missing:?}");
+        assert_eq!(from_unbound, 0, "only bound handlers are run");
+    }
+
+    /// WASM-018 T19 (R14): `onFrame` follows `TargetFps` with the elapsed time written to `ElapsedMs`; a fixed
+    /// step gives exactly `1000 / TargetFps`; no `TargetFps`, no frames.
+    #[test]
+    fn a_canvas_with_a_target_rate_raises_on_frame_with_the_elapsed_time() {
+        let run = |props: &[(&str, &str)]| {
+            let cv = ctrlp_events("CV-1", ControlType::Canvas2D, 0, 0, 100, 100, props, &["onFrame"]);
+            // a 100 Hz display for two seconds
+            let frames: Vec<(f64, Vec<Event>)> = (0..=200).map(|i| (i as f64 * 0.01, vec![])).collect();
+            let (ev, state) = drive_timed(&[cv], frames);
+            let n = ev.iter().filter(|e| e.event == "onFrame").count();
+            let deltas: Vec<f64> = ev.iter().filter(|e| e.event == "onFrame").filter_map(|e| e.value.as_deref()?.parse().ok()).collect();
+            let elapsed = state.get("CV-1").and_then(|m| m.get("ElapsedMs")).cloned();
+            (n, deltas, elapsed)
+        };
+        let (n30, d30, el) = run(&[("TargetFps", "20")]);
+        let (nf, df, _) = run(&[("TargetFps", "40"), ("FixedStep", "True")]);
+        let (n0, _, _) = run(&[("TargetFps", "0")]);
+        println!("T19: TargetFps 20 over 2 s on a 100 Hz display: {n30} frames (mean {:.1} ms, ElapsedMs last {el:?}); fixed step 40: {nf} steps, deltas {:?}..; TargetFps 0: {n0}", d30.iter().sum::<f64>() / d30.len().max(1) as f64, &df[..df.len().min(3)]);
+        assert!((38..=41).contains(&n30), "{n30}");
+        assert!(el.is_some(), "ElapsedMs is written before the event");
+        assert!((78..=81).contains(&nf), "{nf}");
+        assert!(df.iter().all(|d| (*d - 25.0).abs() < 1e-6), "{df:?}");
+        assert_eq!(n0, 0);
+    }
     /// A `FormState` over a per-control live-override map (id â key â value),
     /// exactly how the run/compiled callers will drive the engine.
     struct MapState<'a>(&'a RefCell<Map<String, Map<String, String>>>);

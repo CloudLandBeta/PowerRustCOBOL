@@ -225,7 +225,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     189 passed, `cargo check --workspace --all-targets` ok. **Open (operator):** Run Form, `rcrun run-form`, a child form and
     a compiled binary on screen; the software-Vulkan run is T29; the translated no-adapter placeholder is T22.
 
-- [ ] **T19 — Desktop input and frame pacing** (R13, R14; AC12 on the desktop)
+- [x] **T19 — Desktop input and frame pacing** (code and tests done; gamepad is T27, the operator's check by hand is open) (R13, R14; AC12 on the desktop)
   - Files: `crates/cobolt-form-host/src/host.rs`
   - Do: `onPointerDown/Move/Up/Enter/Leave`, `onWheel`, `onKeyDown/Up` (match modifiers exactly),
     `onTouchStart/Move/End`, `onResize`, `onFrame` with elapsed ms — only for bound handlers; pollable state
@@ -235,6 +235,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
   - Verify: `cargo test -p cobolt-form-host --no-fail-fast` with new tests: `onFrame` rate within a stated tolerance
     (reported), fixed-step deltas exact, hidden = no frames, each event kind reaches a bound handler and none
     reaches an unbound one.
+  - Evidence (2026-11-04, 2.0.199): `cobolt-forms/src/canvas_input.rs` (`FrameClock`, `run`), called from `render_interactive` for both canvases, so every host that renders a form gets it; `IsKeyDown` in `interpreter/graphics.rs`; seeds `FixedStep`, `PointerX`, `PointerY`. 30 fps on 144 Hz, 10 s: 299 frames (29.90/s); fixed step 60 fps: every delta 16.6667 ms; all 11 input event kinds reach a bound canvas, none an unbound one. Not done: battery cap, gamepad (T27), hands-on check.
 
 - [ ] **T20 — Designer placeholder** (R17; AC13 Designer)
   - Files: `crates/cobolt-forms/src/paint.rs` (designer path)

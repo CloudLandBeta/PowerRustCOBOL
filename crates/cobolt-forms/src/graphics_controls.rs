@@ -66,6 +66,9 @@ pub const CANVAS2D_SEEDS: &[(&str, &str)] = &[
     ("TargetFps", "0"),
     ("AutoPresent", "True"),
     ("AccessibleLabel", ""),
+    ("FixedStep", "False"),
+    ("PointerX", "0"),
+    ("PointerY", "0"),
 ];
 
 /// What `Control::new` seeds on a Canvas3D: the canvas properties and `ClearColor`, `Msaa`.
@@ -76,6 +79,9 @@ pub const CANVAS3D_SEEDS: &[(&str, &str)] = &[
     ("TargetFps", "0"),
     ("AutoPresent", "True"),
     ("AccessibleLabel", ""),
+    ("FixedStep", "False"),
+    ("PointerX", "0"),
+    ("PointerY", "0"),
     ("ClearColor", "#000000FF"),
     ("Msaa", "4"),
 ];

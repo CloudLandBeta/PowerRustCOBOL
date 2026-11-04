@@ -127,6 +127,12 @@ impl Interpreter {
     /// Run `m` on a graphics control. `None` when the class is not one of the seven.
     pub(crate) fn graphics_method(&mut self, obj: &str, m: &str, args: &[CobolValue]) -> Option<String> {
         let kind = self.graphics_kind(obj)?;
+        if matches!(kind, ObjectKind::Canvas2D | ObjectKind::Canvas3D) && m.eq_ignore_ascii_case("IsKeyDown") {
+            // Pollable input state (T19): the host keeps the held keys in `_Keys`.
+            let name = args.first().map(|a| a.as_display_string()).unwrap_or_default();
+            let held = self.obj_get(obj, "_Keys");
+            return Some(if held.split(',').any(|k| !name.trim().is_empty() && k.trim().eq_ignore_ascii_case(name.trim())) { "1" } else { "0" }.to_string());
+        }
         let told = if kind == ObjectKind::Canvas3D { self.graphics_sync_gpu() } else { Vec::new() };
         let values: Vec<Value> = args.iter().map(to_value).collect();
         let outcome = self.graphics_handle(obj, kind).and_then(|h| {
