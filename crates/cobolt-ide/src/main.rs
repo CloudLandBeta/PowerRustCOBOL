@@ -161,6 +161,7 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([800.0, 500.0])
             .with_transparent(true) // let desktop wallpaper bleed through
             .with_icon(load_icon()),
+        renderer: RENDERER,
         wgpu_options,
         ..Default::default()
     };
@@ -197,6 +198,10 @@ fn main() -> eframe::Result<()> {
     crash::mark_clean_exit();
     result
 }
+
+/// The renderer, explicit (WASM-018 T13): Canvas3D shares eframe's `wgpu` device, which only this
+/// renderer has. The form host keeps its own copy; `wgpu_backend_rule_matches_the_ide` pins them equal.
+const RENDERER: eframe::Renderer = eframe::Renderer::Wgpu;
 
 /// The graphics APIs wgpu may choose from.
 ///
@@ -355,6 +360,15 @@ mod backend_tests {
             cobolt_form_host::preferred_backends(),
             "the IDE and the form host must choose the same wgpu backends"
         );
+    }
+
+    /// The IDE and every form-host window ask for the same, explicit renderer: the `wgpu` one.
+    #[test]
+    fn the_renderer_is_explicit_and_the_same_in_the_ide_and_the_form_host() {
+        assert_eq!(super::RENDERER, cobolt_form_host::RENDERER);
+        assert_eq!(super::RENDERER, eframe::Renderer::Wgpu);
+        let opts = cobolt_form_host::native_options(eframe::egui::ViewportBuilder::default());
+        assert_eq!(opts.renderer, eframe::Renderer::Wgpu);
     }
 
     /// Windows must not be offered Vulkan.

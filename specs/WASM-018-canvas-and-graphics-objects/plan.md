@@ -415,8 +415,9 @@ Manual/visual: the operator judges the look (Designer placeholder, Run Form, bro
 3. **Q8 (audio): answered, to confirm — still open.** Verified in §1.7: desktop-only, file-based.
    Working assumption: no audio in WASM-018. The operator closes it.
 4. **New, for the spec at `/clarify`:** (a) §1 and R16 cite "Q7" for the renderer, which is Q4;
-   (b) "both glow and wgpu are compiled in" is contradicted by `cobolt-ide/src/main.rs:196-200` (to be
-   confirmed with `cargo tree -i egui_glow`); (c) R1's `Backend` list lacks `OpenGL`, which the
+   (b) "both glow and wgpu are compiled in" is contradicted by `cobolt-ide/src/main.rs:196-200` — **confirmed
+   2026-11-03 (T13):** `cargo tree -i egui_glow -p cobolt-ide` and `-p cobolt-form-host` both answer "nothing to print":
+   `egui_glow` is not built; only the wgpu renderer is compiled in, and T13 only makes the choice explicit; (c) R1's `Backend` list lacks `OpenGL`, which the
    Windows rule can produce; (d) R5's table names `rustybuzz`, `unicode-linebreak` and `plotters`'
    `ab_glyph` text, which this plan replaced with reasons (§4).
 5. **ABI A10** is a proposal in this plan; it becomes normative only when written into

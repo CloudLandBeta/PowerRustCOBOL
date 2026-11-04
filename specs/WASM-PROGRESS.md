@@ -44,7 +44,7 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 | WASM-015 | Testing, agent tooling, knowledge | ✔ | | | | |
 | WASM-016 | Prebuilt player | ✔ | | | | |
 | WASM-017 | Module architecture, memory, threads, boundary | ✔ | | | | |
-| WASM-018 | Canvas 2D/3D and graphics objects | ✔ | ✔ | ✔ | I — part 1 (T1–T10) done; part 2: T11 (2.0.188), T12 (2.0.189) done | T11: `cargo test -p cobolt-graphics-wire -p cobolt-graphics --no-fail-fast` all green; 61 commands encode to the bytes recorded before the move. T12: shared device renders the golden; oversized texture refused naming the limit. Next: T13 (explicit `Renderer::Wgpu`). Branch `features-2x-wasm018`. |
+| WASM-018 | Canvas 2D/3D and graphics objects | ✔ | ✔ | ✔ | I — part 1 (T1–T10) done; part 2: T11 (2.0.188), T12 (2.0.189), T13 (2.0.190) done | T11: `cargo test -p cobolt-graphics-wire -p cobolt-graphics --no-fail-fast` all green; 61 commands encode to the bytes recorded before the move. T12: shared device renders the golden; oversized texture refused naming the limit. T13: renderer explicit, egui_glow not built. Next: T14 (seven `ControlType` variants). Branch `features-2x-wasm018`. |
 
 ## Done elsewhere
 

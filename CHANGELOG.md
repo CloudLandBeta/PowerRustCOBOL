@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.190 — 2026-11-03
+
+**WASM-018 T13: the IDE and every form-host window ask for the `wgpu` renderer explicitly.** *(Written on features-2x-wasm018, after 2.0.189.)* Nothing changes on screen — only `wgpu` was compiled in — but Canvas3D shares eframe's device, which exists only under that renderer, so the choice is no longer left to a default. A test pins the IDE and the form host to the same renderer; `cargo tree -i egui_glow` finds nothing in either, which corrects the spec's claim that both renderers are built.
+
 ## 2.0.189 — 2026-11-03
 
 **WASM-018 T12: Canvas3D can run on a graphics device the host opened (`Gpu::from_shared`), and it never asks the device for more than it creates.** *(Written on features-2x-wasm018, after 2.0.188.)* The egui host's `wgpu` render state can now be handed to the crate; the project's texture limit is held to the device's `max_texture_dimension_2d` when a canvas connects, and a shadow map, a picture or a texture past the device's limit is refused with a message that names it. `cargo test -p cobolt-graphics --no-fail-fast` is green on Metal (`scene3d_gpu` 18 tests, the reference scene also rendered through a shared device) and the crate checks for `wasm32-unknown-unknown`.

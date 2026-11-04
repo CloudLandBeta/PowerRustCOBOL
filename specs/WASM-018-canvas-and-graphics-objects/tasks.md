@@ -112,7 +112,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     runs where the limit is lower, e.g. the software adapter of T29). A shared device installs no loss callback
     (`is_lost` stays false: the host watches, T18).
 
-- [ ] **T13 — Explicit `Renderer::Wgpu` in the IDE and every form-host window** (Q4 decided, R16)
+- [x] **T13 — Explicit `Renderer::Wgpu` in the IDE and every form-host window** (code and tests done; the operator's launch check is open) (Q4 decided, R16)
   - Files: `crates/cobolt-ide/src/main.rs` (`NativeOptions` at 144-161), `crates/cobolt-form-host/src/lib.rs`
     (`native_options` at 132)
   - Do: set `renderer: eframe::Renderer::Wgpu` in both; extend the pin `wgpu_backend_rule_matches_the_ide`
@@ -122,6 +122,14 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide wgpu_backend_rule_matches_the_ide` and
     `cargo test -p cobolt-form-host --no-fail-fast` green; the IDE launches (operator's check of the running build,
     version string confirmed).
+  - Evidence (2026-11-03, 2.0.190): `RENDERER` constants in `cobolt-ide/src/main.rs` and `cobolt-form-host/src/lib.rs`
+    (`pub const RENDERER`, applied by `native_options`); new test `the_renderer_is_explicit_and_the_same_in_the_ide_and_the_form_host`
+    ok together with `wgpu_backend_rule_matches_the_ide` and `windows_never_reaches_for_vulkan`.
+    `cargo test -p cobolt-form-host --no-fail-fast`: 187 + 1 + 1 + 1 + 21 + 0 passed, 0 failed. `cargo tree -i egui_glow` for
+    `cobolt-ide` and `cobolt-form-host`: "nothing to print" (recorded in plan §7 item 4(b)). Not verified: the filter `backend`
+    also ran 5 unrelated IDE tests (`backend_run`, `web_preview`) that FAIL here because `target/debug/rcrun` was not built in
+    this worktree ("run `cargo build -p cobolt-cli --bin rcrun` first") — environmental, not caused by this change; the full
+    `cargo test -p cobolt-ide --bin cobolt-ide` run is left for T21/T33. The running IDE launch is the operator's check.
 
 - [ ] **T14 — Seven `ControlType` variants and their `.cfrm` round trip** (R1, R2)
   - Files: `crates/cobolt-forms/src/model.rs` (`ControlType`, `ALL`, default sizes), `src/xml.rs`;

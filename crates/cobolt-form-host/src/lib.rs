@@ -124,6 +124,10 @@ pub fn wait_for_root(finished: &std::sync::atomic::AtomicBool, limit: std::time:
     true
 }
 
+/// The renderer every window of this crate asks for. Explicit (WASM-018 T12/T13): Canvas3D shares
+/// eframe's `wgpu` device through `Frame::wgpu_render_state()`, which exists only under this renderer.
+pub const RENDERER: eframe::Renderer = eframe::Renderer::Wgpu;
+
 /// [`eframe::NativeOptions`] with this crate's backend rule applied.
 ///
 /// Every window this crate opens goes through here, so a host that forgets is
@@ -136,6 +140,7 @@ pub fn native_options(viewport: eframe::egui::ViewportBuilder) -> eframe::Native
     }
     eframe::NativeOptions {
         viewport,
+        renderer: RENDERER,
         wgpu_options,
         ..Default::default()
     }
