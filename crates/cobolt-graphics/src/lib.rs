@@ -493,3 +493,6 @@ pub use limits::Limits;
 pub use pixels::PixelBuffer;
 pub use registry::{MethodInfo, ObjectKind, Owner, Registry};
 pub use value::Value;
+/// The `wgpu` this crate draws with, so a host that shares its device names the same types.
+#[cfg(feature = "scene3d")]
+pub use wgpu;

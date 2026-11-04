@@ -3537,7 +3537,7 @@ fn render_form_inner(
                     .map(|t| t.id())
             } else if matches!(face.control_type, ControlType::Canvas2D | ControlType::Canvas3D) {
                 // WASM-018: the picture the host made from the canvas's last Present.
-                crate::paint::canvas_texture(ui.ctx(), &face.id).map(|t| t.id())
+                crate::paint::canvas_texture(ui.ctx(), &face.id)
             } else {
                 None
             };
@@ -5031,7 +5031,7 @@ pub fn render_faces_with(
                 .map(|t| t.id())
         } else if matches!(face.control_type, ControlType::Canvas2D | ControlType::Canvas3D) {
             // WASM-018: the picture the host made from the canvas's last Present.
-            crate::paint::canvas_texture(painter.ctx(), &face.id).map(|t| t.id())
+            crate::paint::canvas_texture(painter.ctx(), &face.id)
         } else {
             None
         };

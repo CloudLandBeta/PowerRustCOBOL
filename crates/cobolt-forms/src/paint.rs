@@ -18443,8 +18443,18 @@ pub fn canvas_texture_key(canvas_id: &str) -> egui::Id {
 }
 
 /// The texture the host made for a canvas from its last `Present`, when there is one.
-pub fn canvas_texture(ctx: &egui::Context, canvas_id: &str) -> Option<egui::TextureHandle> {
-    ctx.data(|d| d.get_temp::<egui::TextureHandle>(canvas_texture_key(canvas_id)))
+pub fn canvas_texture(ctx: &egui::Context, canvas_id: &str) -> Option<egui::TextureId> {
+    ctx.data(|d| {
+        d.get_temp::<egui::TextureHandle>(canvas_texture_key(canvas_id))
+            .map(|t| t.id())
+            .or_else(|| d.get_temp::<egui::TextureId>(canvas_native_texture_key(canvas_id)))
+    })
+}
+
+/// Where the host leaves a Canvas3D's picture: the id of a native `wgpu` texture it registered with egui (the
+/// renderer's own target, shared, never copied).
+pub fn canvas_native_texture_key(canvas_id: &str) -> egui::Id {
+    egui::Id::new(("wasm018-canvas3d-native-texture", canvas_id.trim().to_ascii_uppercase()))
 }
 
 /// A Canvas2D or Canvas3D (WASM-018): its background, then its picture; with no picture yet (the Designer, or a

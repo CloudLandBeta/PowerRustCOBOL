@@ -36,6 +36,9 @@ pub mod agent_runtime;
 /// WASM-018 T18 — Canvas2D pictures from the interpreter to the form host.
 #[cfg(feature = "graphics")]
 pub mod canvas_frames;
+/// WASM-018 T18 — the window's wgpu device, and Canvas3D render targets, shared with the form host.
+#[cfg(feature = "graphics")]
+pub mod gpu_share;
 /// Spec 072 — AgentObject tool calling: the pure half.
 pub mod agent_tools;
 /// The built-in CALLs — the `COBOL` object's methods (`COBOL::"NAME"( … )`).

@@ -50,15 +50,17 @@ pub(crate) struct GraphicsState {
     pub instance: u64,
     /// Pictures published so far (the generation of the next one).
     pub frames: u64,
+    /// The generation of the window's device the registry uses (0: none yet).
+    pub gpu_gen: u64,
 }
 
 impl GraphicsState {
     pub(crate) fn with_limits(limits: Limits) -> GraphicsState {
-        GraphicsState { registry: Registry::new(limits), handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0 }
+        GraphicsState { registry: Registry::new(limits), handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0, gpu_gen: 0 }
     }
 
     pub(crate) fn new() -> GraphicsState {
-        GraphicsState { registry: Registry::new(project_limits()), handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0 }
+        GraphicsState { registry: Registry::new(project_limits()), handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0, gpu_gen: 0 }
     }
 }
 
@@ -125,6 +127,7 @@ impl Interpreter {
     /// Run `m` on a graphics control. `None` when the class is not one of the seven.
     pub(crate) fn graphics_method(&mut self, obj: &str, m: &str, args: &[CobolValue]) -> Option<String> {
         let kind = self.graphics_kind(obj)?;
+        let told = if kind == ObjectKind::Canvas3D { self.graphics_sync_gpu() } else { Vec::new() };
         let values: Vec<Value> = args.iter().map(to_value).collect();
         let outcome = self.graphics_handle(obj, kind).and_then(|h| {
             let state = self.graphics.as_mut().expect("made with the handle");
@@ -132,8 +135,10 @@ impl Interpreter {
         });
         match outcome {
             Ok(v) => {
-                self.graphics_publish_frame(obj, kind);
-                self.obj_set(obj, "LastError", String::new());
+                self.graphics_publish_frame(obj, kind, m);
+                if !told.iter().any(|n| n.eq_ignore_ascii_case(obj.trim())) {
+                    self.obj_set(obj, "LastError", String::new());
+                }
                 Some(to_text(&v))
             }
             Err(why) => {
@@ -145,7 +150,13 @@ impl Interpreter {
 
     /// A Canvas2D that has just been presented hands its picture to the host (R16): one slot per canvas,
     /// and a `_CanvasFrame` update that names it.
-    fn graphics_publish_frame(&mut self, obj: &str, kind: ObjectKind) {
+    fn graphics_publish_frame(&mut self, obj: &str, kind: ObjectKind, method: &str) {
+        if kind == ObjectKind::Canvas3D {
+            if method.eq_ignore_ascii_case("Render") {
+                self.graphics_publish_3d(obj);
+            }
+            return;
+        }
         if kind != ObjectKind::Canvas2D {
             return;
         }
@@ -175,6 +186,64 @@ impl Interpreter {
         }
     }
 
+    /// Canvas3D draws on the window's own device (R16). When the host published one - or a new one, because
+    /// the window's device was replaced - the registry takes it, and a Canvas3D that already had a renderer
+    /// is connected again on the new device, with the reason in its `LastError`.
+    fn graphics_sync_gpu(&mut self) -> Vec<String> {
+        let Some((generation, gpu)) = crate::gpu_share::current_gpu() else { return Vec::new() };
+        let state = self.graphics.get_or_insert_with(GraphicsState::new);
+        if state.gpu_gen == generation {
+            return Vec::new();
+        }
+        let replaced = state.gpu_gen != 0;
+        state.gpu_gen = generation;
+        state.registry.set_gpu(gpu);
+        if !replaced {
+            return Vec::new();
+        }
+        let views: Vec<(String, cobolt_graphics::handles::Handle)> = state
+            .handles
+            .iter()
+            .filter(|(_, h)| state.registry.kind_of(**h).ok() == Some(ObjectKind::Canvas3D))
+            .map(|(n, h)| (n.clone(), *h))
+            .collect();
+        let mut told = Vec::new();
+        for (name, h) in views {
+            if let Some(state) = self.graphics.as_mut() {
+                let _ = state.registry.invoke(h, "Connect", &[]);
+            }
+            self.obj_set(&name, "LastError", "the graphics device was replaced: the 3D view was connected to the new one".to_string());
+            told.push(name);
+        }
+        told
+    }
+
+    /// A Canvas3D that has just rendered hands its render target to the host: the texture itself is shared
+    /// (nothing is copied or read back), with a `_Canvas3DFrame` update that names it. A message the canvas
+    /// raised (no adapter, a lost device) goes to `LastError`.
+    fn graphics_publish_3d(&mut self, obj: &str) {
+        let key = obj.trim().to_ascii_uppercase();
+        let Some(state) = self.graphics.as_mut() else { return };
+        let Some(h) = state.handles.get(&key).copied() else { return };
+        let seen = state
+            .registry
+            .with_canvas3d(h, |c, _| Ok((c.renderer().and_then(|r| r.color_texture().cloned()), c.size(), c.take_event())))
+            .ok();
+        let Some((texture, (width, height), event)) = seen else { return };
+        if let Some(message) = event {
+            self.obj_set(obj, "LastError", message);
+        }
+        let Some(texture) = texture else { return };
+        let state = self.graphics.as_mut().expect("checked above");
+        state.frames += 1;
+        let (instance, generation) = (state.instance, state.frames);
+        crate::gpu_share::publish_frame(instance, obj, crate::gpu_share::Canvas3dFrame { texture, width, height, generation });
+        let spelled = self.form_spelling(obj);
+        if let Some(tx) = &self.state_tx {
+            let _ = tx.send(crate::StateUpdate::new(spelled, crate::gpu_share::FRAME_PROP, format!("{instance}:{generation}")));
+        }
+    }
+
     /// An event left the queue for a handler: remember a canvas's `onFrame`.
     pub(crate) fn graphics_note_event(&mut self, ctrl: &str, event: &str) {
         if event.eq_ignore_ascii_case("onFrame") && matches!(self.graphics_kind(ctrl), Some(ObjectKind::Canvas2D | ObjectKind::Canvas3D)) {
@@ -187,6 +256,9 @@ impl Interpreter {
     /// (the default), shows what the handler drew (R6).
     pub(crate) fn graphics_end_of_frame(&mut self) {
         let Some(ctrl) = self.graphics.as_mut().and_then(|g| g.frame_canvas.take()) else { return };
+        if self.graphics_kind(&ctrl) == Some(ObjectKind::Canvas3D) {
+            return; // a 3D view draws when the program says Render
+        }
         let auto = self.obj_get(&ctrl, "AutoPresent");
         let off = matches!(auto.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off");
         if !off {
@@ -200,6 +272,7 @@ impl Interpreter {
             Some(g) => {
                 g.handles.clear();
                 crate::canvas_frames::forget(g.instance);
+                crate::gpu_share::forget_frames(g.instance);
                 g.registry.release_owner(OWNER)
             }
             None => 0,
@@ -404,5 +477,47 @@ mod tests {
         assert_eq!(&f.rgba_premultiplied[..4], &[255, 0, 0, 255]);
         i.release_graphics();
         assert!(crate::canvas_frames::take("canvas-1", &ups[0].value).is_none(), "the form's end frees the slot");
+    }
+
+    /// R16 (Canvas3D): a Canvas3D draws on the device the window published; a `Render` shares its target with
+    /// the host (one `_Canvas3DFrame` update, no read-back); a device published again (the window's was
+    /// replaced) is picked up, the view is connected to it and says so in `LastError`. SKIPS without an adapter.
+    #[test]
+    fn a_canvas3d_draws_on_the_published_device_and_follows_a_replaced_one() {
+        let Ok(first) = cobolt_graphics::scene3d::Gpu::new() else {
+            assert!(std::env::var("GRAPHICS_REQUIRE_GPU").map(|v| v != "1").unwrap_or(true), "GRAPHICS_REQUIRE_GPU=1 but there is no graphics adapter");
+            eprintln!("SKIPPED (no graphics adapter)");
+            return;
+        };
+        let started = Instant::now();
+        let mut i = interp(&[("VIEW-1", "Canvas3D", &[("Width", "64"), ("Height", "48")]), ("SCENE-1", "Scene3D", &[])]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        i.state_tx = Some(tx);
+        crate::gpu_share::publish_gpu(first.clone());
+        let ball = call(&mut i, "SCENE-1", "AddSphere", &["1.5"]);
+        call(&mut i, "SCENE-1", "SetAmbient", &["1", "1", "1", "1"]);
+        let scene = i.graphics.as_ref().unwrap().handles["SCENE-1"];
+        call(&mut i, "VIEW-1", "SetScene", &[&scene.to_string()]);
+        let backend = call(&mut i, "VIEW-1", "Connect", &[]);
+        let draws = call(&mut i, "VIEW-1", "Render", &[]);
+        let frames: Vec<_> = rx.try_iter().filter(|u| u.prop == crate::gpu_share::FRAME_PROP).collect();
+        let err_after_render = i.obj_get("VIEW-1", "LastError");
+        println!("T18 Canvas3D: sphere node {ball}, backend {backend}, Render drew {draws} call(s), {} frame update(s), LastError {err_after_render:?}", frames.len());
+        assert_ne!(backend, "None");
+        assert_eq!(frames.len(), 1, "one Render, one update");
+        let frame = crate::gpu_share::take_frame("view-1", &frames[0].value).expect("the shared target");
+        assert_eq!((frame.width, frame.height), (64, 48));
+        assert!(err_after_render.is_empty(), "{err_after_render}");
+
+        // The window's device is replaced: the next call connects the view to the new one and reports it.
+        crate::gpu_share::publish_gpu(first);
+        call(&mut i, "VIEW-1", "GetBackend", &[]);
+        let err = i.obj_get("VIEW-1", "LastError");
+        println!("T18 Canvas3D: after a replaced device LastError = {err:?}; {} ms", started.elapsed().as_millis());
+        assert!(err.contains("replaced"), "{err}");
+        assert_eq!(call(&mut i, "VIEW-1", "GetBackend", &[]), backend);
+        i.release_graphics();
+        assert!(crate::gpu_share::take_frame("view-1", &frames[0].value).is_none());
+        crate::gpu_share::withdraw_gpu();
     }
 }

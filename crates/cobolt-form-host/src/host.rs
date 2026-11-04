@@ -3307,7 +3307,7 @@ impl FormBody {
             let own_window = (vp != egui::ViewportId::ROOT).then_some(vp);
             self.apply_form_window_update(ctx, &u, own_window);
             #[cfg(feature = "graphics")]
-            if crate::canvas::apply_canvas_frame(ctx, &u) {
+            if crate::canvas::apply_canvas_frame(ctx, &u) || crate::canvas::apply_canvas3d_frame(ctx, &u) {
                 continue;
             }
             // A child form rides the same diagnostics switch the root does; the
@@ -5975,6 +5975,8 @@ impl eframe::App for FormHost {
     // reactive refocus in `update_children`, which this path relies on.
     fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         sync_os_blur(frame, self.wants_os_blur());
+        #[cfg(feature = "graphics")]
+        crate::canvas::share_window_device(root_ui.ctx(), frame);
         self.ui_impl(root_ui);
     }
 }
@@ -6867,7 +6869,7 @@ impl FormHost {
         let mut drained = 0usize;
         while let Ok(u) = self.root.state_rx.try_recv() {
             #[cfg(feature = "graphics")]
-            if crate::canvas::apply_canvas_frame(ctx, &u) {
+            if crate::canvas::apply_canvas_frame(ctx, &u) || crate::canvas::apply_canvas3d_frame(ctx, &u) {
                 continue;
             }
             // The program wrote the rail's own `Collapsed` — directly, or through

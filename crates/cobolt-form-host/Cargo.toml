@@ -61,5 +61,7 @@ pollster = "0.3"
 pretty_assertions = { workspace = true }
 # Spec 058 R5.1's own tests write real documents and time a real decode.
 tempfile = "3"
+# T18: the Canvas3D test draws on a device it hands the host as the window's.
+cobolt-graphics = { path = "../cobolt-graphics" }
 cobolt-lexer  = { path = "../cobolt-lexer" }
 cobolt-parser = { path = "../cobolt-parser" }

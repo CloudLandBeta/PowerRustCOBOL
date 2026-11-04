@@ -199,7 +199,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     `cargo test -p cobolt-runtime --no-fail-fast` lib 555 passed, 199 integration files all `0 failed` (1,088 passed, 26 ignored);
     `cobolt-graphics --lib` 195 passed. **Left for T21/T23:** the manifest key and the Settings control that call `publish_graphics_limits`.
 
-- [ ] **T18 — Form-host adapter: Canvas2D and Canvas3D on the desktop** (R16; AC13 desktop, AC4/AC5 natively)
+- [x] **T18 — Form-host adapter: Canvas2D and Canvas3D on the desktop** (code and tests done; the operator's check of the four hosts is open) (R16; AC13 desktop, AC4/AC5 natively)
   - Files: `crates/cobolt-form-host/src/{lib,host}.rs`; `crates/cobolt-forms/src/render.rs` (run-form path)
   - Do: Canvas2D — on `Present`, `Surface::write_rgba` into one `TextureHandle` per canvas (`set`, never re-created).
     Canvas3D — `Gpu::from_shared` from `eframe::Frame::wgpu_render_state()`; render into its own target registered
@@ -213,9 +213,17 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     `cobolt-form-host/src/canvas.rs` (one `TextureHandle` per canvas, `set` in place, same texture id after a second Present),
     `paint::draw_canvas_surface` (picture or placeholder) fed from both `pic_tex` sites in `render.rs`. Corner harnesses needed
     `self_clipping_type` to exclude both canvases. `cobolt-forms` 97 result lines 0 failed, `cobolt-form-host` 212 passed,
-    `cobolt-runtime --lib` 557 passed, `cargo check --workspace --all-targets` ok. **Still open in T18:** Canvas3D from
-    `Frame::wgpu_render_state()` (`Gpu::from_shared`, `register_native_texture`, lost-device recreate), the GPU test, and the
-    operator's check of the four hosts.
+    `cobolt-runtime --lib` 557 passed, `cargo check --workspace --all-targets` ok.
+  - Evidence, Canvas3D half (2026-11-04, 2.0.198): `cobolt-runtime/src/gpu_share.rs` (the window's device, render-target slots,
+    `_Canvas3DFrame`), `cobolt-form-host/src/canvas.rs` (`share_window_device` from `Frame::wgpu_render_state()` in both
+    `ui` entry points; `register_target` = `register_native_texture` once, same id afterwards),
+    `interpreter/graphics.rs` (`graphics_sync_gpu` follows a replaced device and reconnects, `graphics_publish_3d`),
+    `paint::canvas_texture` answers a `TextureId` for either canvas. GPU tests on Apple M3 Pro / Metal: form-host
+    `a_canvas3d_draws_on_the_window_device_and_egui_shows_its_target` (same egui texture after a second Render, sphere pixel
+    red, background black) and runtime `a_canvas3d_draws_on_the_published_device_and_follows_a_replaced_one` (one Render =
+    one frame update; replaced device reported in `LastError`). `cobolt-runtime --lib` 558 passed, `cobolt-form-host --lib`
+    189 passed, `cargo check --workspace --all-targets` ok. **Open (operator):** Run Form, `rcrun run-form`, a child form and
+    a compiled binary on screen; the software-Vulkan run is T29; the translated no-adapter placeholder is T22.
 
 - [ ] **T19 — Desktop input and frame pacing** (R13, R14; AC12 on the desktop)
   - Files: `crates/cobolt-form-host/src/host.rs`
