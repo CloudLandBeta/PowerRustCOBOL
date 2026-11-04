@@ -20,6 +20,8 @@ serde        = { workspace = true }
 indexmap     = { workspace = true }
 
 [dev-dependencies]
+# WASM-018 T15: the closed method vocabulary is checked against the graphics registry (dev only: the AST crate gains no runtime dependency).
+cobolt-graphics = { path = "../cobolt-graphics" }
 pretty_assertions = { workspace = true }
 # Spec 087 T5: the new SQL nodes survive the binary's serialization.
 bincode = { workspace = true }

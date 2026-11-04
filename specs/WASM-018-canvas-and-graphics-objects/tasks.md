@@ -145,12 +145,17 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     `cargo test -p cobolt-codegen --no-fail-fast` green and its snapshots unchanged (plan §8: codegen emits nothing
     new beyond the control declarations; banner and regenerate contract untouched).
 
-- [ ] **T15 — Closed method vocabulary** (R1, spec §6)
+- [x] **T15 — Closed method vocabulary** (R1, spec §6)
   - Files: `crates/cobolt-ast/src/methods.rs` (`is_known_method` at 85); a test in `cobolt-ast` or a crate that may
     depend on `cobolt-graphics` (dev-dependency only; the AST crate gains no runtime dependency)
   - Do: add every name in `Registry::methods(kind)` (`crates/cobolt-graphics/src/registry.rs:527`) for the seven kinds.
   - Verify: the new test walks the registry rows and fails on a missing name; it **reports the count** (313 today,
     plan §1.1); `cargo test -p cobolt-ast -p cobolt-parser --no-fail-fast` green.
+  - Evidence (2026-11-03, 2.0.191): `crates/cobolt-ast/tests/test_graphics_methods.rs` walks `Registry::methods` for every
+    available kind. Before the change it failed with 299 of 313 methods missing; after adding 244 distinct names to
+    `is_known_method` it prints `graphics methods checked: 313 on 7 object kinds, 0 missing`.
+    `cargo test -p cobolt-ast -p cobolt-parser --no-fail-fast`: every `test result` line ok, 0 failed. Not run: the
+    semantic, runtime and generator suites that also read `is_known_method` (T17 and T24 run theirs).
 
 - [ ] **T16 — Runtime feature `graphics` and the compiler's feature scan** (R16, parity)
   - Files: `crates/cobolt-runtime/Cargo.toml` (`[features]`, beside `images`/`audio`),

@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.191 — 2026-11-03
+
+**WASM-018 T15: every method of the seven graphics objects is a known method, so `CANVAS-1::FillRect(10 10 50 20)` is a call and not a subscript.** *(Written on features-2x-wasm018, after 2.0.190.)* `is_known_method` gains 244 names (313 methods across Canvas2D, Canvas3D, ImageBuffer, Plot, Scene3D, Physics2D and Physics3D). A new test walks the graphics registry and fails on any name missing from the list; before the change it reported 299 of 313 missing, after it 0.
+
 ## 2.0.190 — 2026-11-03
 
 **WASM-018 T13: the IDE and every form-host window ask for the `wgpu` renderer explicitly.** *(Written on features-2x-wasm018, after 2.0.189.)* Nothing changes on screen — only `wgpu` was compiled in — but Canvas3D shares eframe's device, which exists only under that renderer, so the choice is no longer left to a default. A test pins the IDE and the form host to the same renderer; `cargo tree -i egui_glow` finds nothing in either, which corrects the spec's claim that both renderers are built.
