@@ -48,6 +48,45 @@ pub fn filter_rows(rows: &[Vec<String>], col: usize, needle: &str) -> Vec<Vec<St
     }
 }
 
+/// What a sort of `rows` synthetic rows did, as the DataGrid's `SORT` does it (WASM-017 T12): how many threads ran its comparisons.
+/// On the plain player that is the calling thread alone; on the threaded one, the workers of Rayon's pool that took part.
+pub struct SortReport {
+    pub rows: usize,
+    /// Threads the pool has (1 on the plain player).
+    pub pool: usize,
+    /// Distinct threads that compared two rows.
+    pub threads_used: usize,
+    pub sorted: bool,
+}
+
+pub fn sort_report(rows: usize) -> SortReport {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    let seen = AtomicU64::new(0);
+    let mut data: Vec<Vec<String>> = (0..rows).map(|i| vec![format!("k{:05}", (i * 7919) % 10007), i.to_string()]).collect();
+    let by_text = cell_cmp(0);
+    let cmp = |l: &Vec<String>, r: &Vec<String>| {
+        #[cfg(feature = "rayon")]
+        let me = rayon::current_thread_index().map_or(63, |i| i.min(62));
+        #[cfg(not(feature = "rayon"))]
+        let me = 0;
+        seen.fetch_or(1u64 << me, Relaxed);
+        by_text(l, r)
+    };
+    #[cfg(feature = "rayon")]
+    let pool = {
+        use rayon::prelude::*;
+        data.par_sort_by(cmp);
+        rayon::current_num_threads()
+    };
+    #[cfg(not(feature = "rayon"))]
+    let pool = {
+        data.sort_by(cmp);
+        1
+    };
+    let sorted = data.windows(2).all(|w| w[0][0] <= w[1][0]);
+    SortReport { rows, pool, threads_used: seen.load(Relaxed).count_ones() as usize, sorted }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

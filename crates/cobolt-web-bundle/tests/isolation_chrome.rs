@@ -124,12 +124,27 @@ fn embedded(chrome: &Chrome, isolation: Isolation) -> Outcome {
     p.eval(HELPERS)?;
     p.wait_for("__pr.handle().then(a => Object.keys(JSON.parse(a.player.snapshot())).length > 0)", 40)?;
     let (c, iso) = choice(&mut p)?;
+    let mut sort = String::new();
+    if iso {
+        // the player the page chose, started once more here so that its Rayon sort can be called: 50 000 rows
+        let r = p.eval(
+            "PowerRustCOBOL.mount(document.getElementById('pr-app')).then(async a => { const pv = a.config.player[a.choice.player]; \
+             const m = await import(new URL(pv.js, location.href).href + '?probe'); \
+             await m.default({ module_or_path: new URL(pv.wasm, location.href).href }); \
+             await m.initThreadPool(Math.max(1, Math.min(8, navigator.hardwareConcurrency - 1))); \
+             return m.sort_workers(50000); })",
+        );
+        sort = match r {
+            Ok(v) => format!(", sort {}", v.as_str().unwrap_or("?")),
+            Err(e) => format!(", sort FAILED: {e}"),
+        };
+    }
     let host_text = p.eval("document.getElementById('before').textContent + ' | ' + document.getElementById('after').textContent")?;
     server.stop();
     if !host_text.as_str().unwrap_or("").contains("host page's own text") {
         return Err("the host page's own content is gone".into());
     }
-    Ok(format!("isolated={iso}, {c}"))
+    Ok(format!("isolated={iso}, {c}{sort}"))
 }
 
 fn shim(chrome: &Chrome) -> Outcome {

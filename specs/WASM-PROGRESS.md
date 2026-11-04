@@ -267,8 +267,7 @@ Deadline asserted: 16 ms + `YIELD_BUDGET_MS` (6.9 ms) = 22.9 ms. Pool size read 
 Isolated → threaded + Worker, not isolated → plain + main thread: the existing `choose` scenario. The fixture module stays at 3 000 000 iterations
 (its spin is one instruction; its generator constant also feeds goldens), `maxGap < 50` kept.
 
-**Not measured:** a Rayon DataGrid sort reporting more than one worker — the player exposes no count of the workers a sort used, and adding one
-means rebuilding the threaded player (nightly `build-std`). Firefox, Safari, iOS and Android web views: not installed.
+**Rayon sort (added in 2.0.187, player rebuilt):** 50 000 rows through `sort_workers` — plain 1 thread; threaded under node, pool 3, 4 threads used in each of the four threaded cells; threaded in Chrome, pool 8, 9 threads used. Firefox, Safari, iOS and Android web views: not installed.
 
 ## WASM-017 T13 — embedding, isolation headers, cross-origin resources (measured 2026-11-03, version 2.0.186)
 

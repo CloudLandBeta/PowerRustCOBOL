@@ -1415,6 +1415,14 @@ pub fn force_panic_for_test() {
     panic!("forced panic (test)");
 }
 
+/// Sorts `rows` synthetic rows the way a DataGrid's `SORT` does and says how many threads compared them (WASM-017 T12):
+/// `{"rows","pool","threads_used","sorted","threaded"}`. On the plain player `pool` and `threads_used` are 1.
+#[wasm_bindgen]
+pub fn sort_workers(rows: u32) -> String {
+    let r = crate::par::sort_report(rows as usize);
+    serde_json::json!({ "rows": r.rows, "pool": r.pool, "threads_used": r.threads_used, "sorted": r.sorted, "threaded": cfg!(feature = "threaded") }).to_string()
+}
+
 /// The player's version triple (WASM-016 R11): the ABI, the form-description format, the player.
 #[wasm_bindgen]
 pub fn versions() -> String {

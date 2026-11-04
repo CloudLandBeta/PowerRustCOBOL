@@ -158,10 +158,14 @@ function makeEnv(o = {}) {
 // The largest slice measured with budget_blocks 20 000 (WASM-002 T8), until the operator answers Q2's first half.
 const YIELD_BUDGET_MS = 6.9;
 let importCount = 0;
+let lastPlayerModule = null;
 // A threaded player builds Rayon's global pool once per module instance, so each scenario imports its own copy.
 const importPlayer = (u) => {
   const href = pathToFileURL(path.join(dir, new URL(u).pathname.slice(1))).href;
-  return import(/threaded-/.test(href) ? `${href}?run=${++importCount}` : href);
+  return import(/threaded-/.test(href) ? `${href}?run=${++importCount}` : href).then((m) => {
+    if (/\/player\.js/.test(href)) lastPlayerModule = m;
+    return m;
+  });
 };
 
 async function boot(o = {}) {
@@ -251,6 +255,16 @@ async function coreBody(program, mode, src, player) {
   // Workers = max(1, min(8, hardwareConcurrency - 1)) (WASM-017 Q2, decided); the page here reports 4 cores.
   out.pool_workers = PoolWorker.spawned - poolBefore;
   eq(out.pool_workers, player === 'threaded' ? 3 : 0, 'the Rayon pool size: the plain player starts none, the threaded one 3 on 4 cores');
+  // A DataGrid sort on 50 000 rows: how many threads compared rows (WASM-017 T12: "a Rayon sort reports > 1 worker").
+  const sw = JSON.parse(lastPlayerModule.sort_workers(50000));
+  out.sort = sw;
+  check(sw.sorted, 'the sort left the rows in order');
+  if (player === 'threaded') {
+    eq(sw.pool, 3, 'the pool the sort used');
+    check(sw.threaded && sw.threads_used > 1, `the Rayon sort used more than one thread: ${sw.threads_used}`);
+  } else {
+    eq(sw.threads_used, 1, 'the plain player sorts on one thread');
+  }
   out.ran = { player, program, execution: mode === 'worker' ? 'Worker' : 'main thread' };
   eq(app.choice.program, program, 'program variant chosen');
   eq(app.choice.mode, mode, 'execution mode chosen');
