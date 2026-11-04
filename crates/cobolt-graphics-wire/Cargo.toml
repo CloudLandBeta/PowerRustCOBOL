@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-graphics-wire"
+description = "WASM-018 T11 - display-list version 1 on the wire: the PRGD header, the command table and the encoder, no_std and without alloc, shared by the interpreter, the generated module and the player"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+# No dependencies, on purpose: the generated WebAssembly module links this crate.
+[dependencies]

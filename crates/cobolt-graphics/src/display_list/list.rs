@@ -10,12 +10,7 @@ use super::ops::{Command, Reader};
 use crate::error::{GraphicsError, Result};
 use crate::limits::Limits;
 
-/// The four magic bytes of every list.
-pub const MAGIC: [u8; 4] = *b"PRGD";
-/// The encoding version this build reads and writes.
-pub const VERSION: u16 = 1;
-/// Bytes before the payload.
-pub const HEADER_LEN: usize = 16;
+pub use cobolt_graphics_wire::{HEADER_LEN, MAGIC, VERSION};
 
 /// A validated header plus the payload it describes. Cheap to copy; borrows the
 /// bytes.

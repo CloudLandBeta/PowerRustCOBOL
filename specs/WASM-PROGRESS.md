@@ -44,7 +44,7 @@ Legend: **S** specified · **P** planned (plan.md) · **T** tasked (tasks.md) ·
 | WASM-015 | Testing, agent tooling, knowledge | ✔ | | | | |
 | WASM-016 | Prebuilt player | ✔ | | | | |
 | WASM-017 | Module architecture, memory, threads, boundary | ✔ | | | | |
-| WASM-018 | Canvas 2D/3D and graphics objects | ✔ | | | | |
+| WASM-018 | Canvas 2D/3D and graphics objects | ✔ | ✔ | ✔ | I — part 1 (T1–T10) done; part 2: T11 done (2.0.188) | T11: `cargo test -p cobolt-graphics-wire -p cobolt-graphics --no-fail-fast` all green; 61 commands encode to the bytes recorded before the move. Next: T12 (`Gpu::from_shared`). Branch `features-2x-wasm018`. |
 
 ## Done elsewhere
 

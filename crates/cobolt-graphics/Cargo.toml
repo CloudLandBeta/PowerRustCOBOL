@@ -46,6 +46,7 @@ scene3d-core = ["imagebuf", "dep:glam", "dep:gltf", "dep:parry3d"]
 
 [dependencies]
 thiserror = { workspace = true }
+cobolt-graphics-wire = { path = "../cobolt-graphics-wire" }
 bytemuck  = { version = "1", features = ["derive"] }
 
 # 2D rasteriser and geometry (R5). tiny-skia 0.12 (not the 0.11.4 resvg pins):

@@ -2258,6 +2258,7 @@ name = "cobolt-graphics"
 version = "0.2.0"
 dependencies = [
  "bytemuck",
+ "cobolt-graphics-wire",
  "epaint_default_fonts",
  "fast_image_resize",
  "fontdb",
@@ -2284,6 +2285,10 @@ dependencies = [
  "unicode-bidi",
  "wgpu",
 ]
+
+[[package]]
+name = "cobolt-graphics-wire"
+version = "0.2.0"
 
 [[package]]
 name = "cobolt-ide"

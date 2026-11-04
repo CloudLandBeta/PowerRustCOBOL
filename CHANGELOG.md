@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.188 — 2026-11-03
+
+**WASM-018 T11: the display-list command table moved into `cobolt-graphics-wire`, a `no_std` crate without dependencies; every command still encodes to the same bytes.** *(Written on features-2x-wasm018, after 2.0.187.)* The table (61 commands), the `PRGD` header, the one-byte enums and the operand writers are written once in the new crate, which also has its own no-alloc encoder (`encode::fill_rect(&mut Writer, ...)`) for the generated module; `cobolt-graphics` expands the same table for its `Command` enum, decoder and builder and keeps the executor. Proof: the bytes of all 61 commands were recorded on the old code (`tests/golden/display-list-v1-commands.txt`) and both encoders reproduce them; `cargo test -p cobolt-graphics-wire -p cobolt-graphics --no-fail-fast` is green and the wire crate checks for `wasm32-unknown-unknown`.
+
 ## 2.0.187 — 2026-11-03
 
 **WASM-017 T12 closed: the player reports how many threads a Rayon sort used, and both variants were rebuilt.** *(Written on features-2x-wasm017.)* The player gains one export, `sort_workers(rows)`: it sorts that many synthetic rows with the code of the DataGrid's `SORT` (`par_sort_by`) and answers `{rows, pool, threads_used, sorted, threaded}` — `threads_used` counts the distinct threads that compared two rows. `assets/web-player/` (plain, threaded, the three parts) was rebuilt with `build_player` and `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test freshness` is green. Measured, 50 000 rows: the plain player uses 1 thread; the threaded player under node with 4 cores (pool 3) used 4 threads in all four threaded cells; in Chrome (pool 8) it used 9. The node end-to-end test now asserts it in every cell.

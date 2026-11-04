@@ -6,16 +6,20 @@
 
 //! The command table: **the** single definition of display-list version 1.
 //!
-//! One `commands!` invocation (at the bottom) lists every command with its
-//! opcode, its name, the Rust builder method name and its operands. From that
-//! one list the macro generates the [`Command`] enum, the encoder, the decoder,
-//! the builder methods and the [`COMMANDS`] description table that the
-//! generator, the documentation and the tests read. Nothing about the wire
-//! format is written anywhere else, so the encoder, the decoder and the
-//! executor cannot drift apart.
+//! The table itself is written once, in `cobolt-graphics-wire`
+//! (`with_command_table!`), with the operand encodings. Here it is expanded a
+//! second time to generate the [`Command`] enum, the decoder, the encoder
+//! (which calls the wire crate's operand writers) and the builder methods; the
+//! wire crate expands it to [`COMMANDS`] and its own no-alloc encoder. Nothing
+//! about the wire format is written anywhere else, so the encoder, the decoder
+//! and the executor cannot drift apart.
 
 use crate::color::Rgba;
 use crate::error::{GraphicsError, Result};
+use cobolt_graphics_wire as wire;
+use wire::{FloatSeq, PointSeq, Sink, StopSeq};
+
+pub use wire::{CommandInfo, COMMANDS};
 
 // ---------------------------------------------------------------------------
 // Reading
@@ -80,13 +84,23 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Append helpers (kept next to the reader so the pairing is obvious).
+/// A growable buffer as the wire crate's byte sink (it never runs out of room).
+pub(crate) struct VecSink<'a>(pub(crate) &'a mut Vec<u8>);
+
+impl Sink for VecSink<'_> {
+    fn put(&mut self, bytes: &[u8]) -> std::result::Result<(), wire::Full> {
+        self.0.extend_from_slice(bytes);
+        Ok(())
+    }
+}
+
+/// Append helpers: the wire crate writes, the buffer grows.
 pub(crate) fn put_u32(out: &mut Vec<u8>, v: u32) {
-    out.extend_from_slice(&v.to_le_bytes());
+    let _ = wire::put_u32(&mut VecSink(out), v);
 }
 
 pub(crate) fn put_f32(out: &mut Vec<u8>, v: f32) {
-    out.extend_from_slice(&v.to_bits().to_le_bytes());
+    let _ = wire::put_f32(&mut VecSink(out), v);
 }
 
 fn le_f32(b: &[u8]) -> f32 {
@@ -250,6 +264,34 @@ impl PartialEq for Stops<'_> {
     }
 }
 
+impl PointSeq for Points<'_> {
+    fn len(&self) -> usize {
+        Points::len(self)
+    }
+    fn get(&self, i: usize) -> (f32, f32) {
+        Points::get(self, i)
+    }
+}
+
+impl FloatSeq for Floats<'_> {
+    fn len(&self) -> usize {
+        Floats::len(self)
+    }
+    fn get(&self, i: usize) -> f32 {
+        Floats::get(self, i)
+    }
+}
+
+impl StopSeq for Stops<'_> {
+    fn len(&self) -> usize {
+        Stops::len(self)
+    }
+    fn get(&self, i: usize) -> (f32, u32) {
+        let (o, c) = Stops::get(self, i);
+        (o, c.to_u32())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Operand kinds
 // ---------------------------------------------------------------------------
@@ -291,7 +333,7 @@ macro_rules! scalar_kind {
     };
 }
 
-scalar_kind!(U8, "u8", u8, |o: &mut Vec<u8>, v: u8| o.push(v), |r: &mut Reader<'_>| r.u8());
+scalar_kind!(U8, "u8", u8, |o: &mut Vec<u8>, v: u8| { let _ = wire::put_u8(&mut VecSink(o), v); }, |r: &mut Reader<'_>| r.u8());
 scalar_kind!(U32, "u32", u32, put_u32, |r: &mut Reader<'_>| r.u32());
 scalar_kind!(F32, "f32", f32, put_f32, |r: &mut Reader<'_>| r.f32());
 
@@ -305,7 +347,7 @@ impl OperandKind for Color {
         a
     }
     fn encode(v: &Self::Value<'_>, out: &mut Vec<u8>) {
-        put_u32(out, v.to_u32())
+        let _ = wire::put_u32(&mut VecSink(out), v.to_u32());
     }
     fn decode<'a>(r: &mut Reader<'a>) -> Result<Self::Value<'a>> {
         Ok(Rgba::from_u32(r.u32()?))
@@ -322,8 +364,7 @@ impl OperandKind for Str {
         a
     }
     fn encode(v: &Self::Value<'_>, out: &mut Vec<u8>) {
-        put_u32(out, v.len() as u32);
-        out.extend_from_slice(v.as_bytes());
+        let _ = wire::put_str(&mut VecSink(out), v);
     }
     fn decode<'a>(r: &mut Reader<'a>) -> Result<Self::Value<'a>> {
         let n = r.u32()? as usize;
@@ -342,11 +383,7 @@ impl OperandKind for PointsK {
         Points::Pairs(a)
     }
     fn encode(v: &Self::Value<'_>, out: &mut Vec<u8>) {
-        put_u32(out, v.len() as u32);
-        for (x, y) in v.iter() {
-            put_f32(out, x);
-            put_f32(out, y);
-        }
+        let _ = wire::put_points(&mut VecSink(out), v);
     }
     fn decode<'a>(r: &mut Reader<'a>) -> Result<Self::Value<'a>> {
         let n = r.u32()? as usize;
@@ -365,10 +402,7 @@ impl OperandKind for FloatsK {
         Floats::Values(a)
     }
     fn encode(v: &Self::Value<'_>, out: &mut Vec<u8>) {
-        put_u32(out, v.len() as u32);
-        for x in v.iter() {
-            put_f32(out, x);
-        }
+        let _ = wire::put_floats(&mut VecSink(out), v);
     }
     fn decode<'a>(r: &mut Reader<'a>) -> Result<Self::Value<'a>> {
         let n = r.u32()? as usize;
@@ -387,11 +421,7 @@ impl OperandKind for StopsK {
         Stops::Values(a)
     }
     fn encode(v: &Self::Value<'_>, out: &mut Vec<u8>) {
-        put_u32(out, v.len() as u32);
-        for (o, c) in v.iter() {
-            put_f32(out, o);
-            put_u32(out, c.to_u32());
-        }
+        let _ = wire::put_stops(&mut VecSink(out), v);
     }
     fn decode<'a>(r: &mut Reader<'a>) -> Result<Self::Value<'a>> {
         let n = r.u32()? as usize;
@@ -403,21 +433,6 @@ impl OperandKind for StopsK {
 // ---------------------------------------------------------------------------
 // The table
 // ---------------------------------------------------------------------------
-
-/// One row of the command table, for tools that need it as data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CommandInfo {
-    /// The opcode byte.
-    pub opcode: u8,
-    /// The command name, as in the COBOL method (`FillRect`).
-    pub name: &'static str,
-    /// The builder method name (`fill_rect`).
-    pub method: &'static str,
-    /// The operands in wire order: `(name, kind)`.
-    pub operands: &'static [(&'static str, &'static str)],
-    /// What it does, in one line.
-    pub doc: &'static str,
-}
 
 macro_rules! commands {
     (
@@ -467,17 +482,6 @@ macro_rules! commands {
             }
         }
 
-        /// Every command of version 1, in opcode order.
-        pub const COMMANDS: &[CommandInfo] = &[
-            $( CommandInfo {
-                opcode: $op,
-                name: stringify!($name),
-                method: stringify!($snake),
-                operands: &[ $( (stringify!($f), <$t as OperandKind>::KIND) ),* ],
-                doc: concat!($($doc),*),
-            } ),*
-        ];
-
         impl super::DisplayListBuilder {
             $(
                 #[doc = concat!("Record `", stringify!($name), "` (opcode ", stringify!($op), ").")]
@@ -492,145 +496,7 @@ macro_rules! commands {
     };
 }
 
-commands! {
-    // ---- state -----------------------------------------------------------
-    /// Push the graphics state (transform, styles, clip, text settings).
-    0x01 Save save {}
-    /// Pop the graphics state.
-    0x02 Restore restore {}
-    /// Back to the default state: empties the stack, the clip and the path (pixels stay).
-    0x03 Reset reset {}
-    /// Fill the whole canvas with a colour, ignoring transform, clip and blend mode.
-    0x04 Clear clear { color: Color }
-    /// A frame boundary: the host may show the picture now.
-    0x05 Present present {}
-    /// Image resampling quality: 0 off, 1 low, 2 high.
-    0x06 SetSmoothing set_smoothing { quality: U8 }
-
-    // ---- paths -----------------------------------------------------------
-    /// Start a new empty path.
-    0x10 BeginPath begin_path {}
-    /// Start a sub-path.
-    0x11 MoveTo move_to { x: F32, y: F32 }
-    /// A line to the point.
-    0x12 LineTo line_to { x: F32, y: F32 }
-    /// A quadratic curve.
-    0x13 QuadTo quad_to { cx: F32, cy: F32, x: F32, y: F32 }
-    /// A cubic curve.
-    0x14 CubicTo cubic_to { c1x: F32, c1y: F32, c2x: F32, c2y: F32, x: F32, y: F32 }
-    /// A rounded corner between two lines (HTML `arcTo`).
-    0x15 ArcTo arc_to { x1: F32, y1: F32, x2: F32, y2: F32, radius: F32 }
-    /// A circular arc; angles in radians, `ccw` 1 for counter-clockwise.
-    0x16 Arc arc { x: F32, y: F32, radius: F32, start: F32, end: F32, ccw: U8 }
-    /// An elliptical arc, rotated by `rotation` radians.
-    0x17 Ellipse ellipse { x: F32, y: F32, rx: F32, ry: F32, rotation: F32, start: F32, end: F32, ccw: U8 }
-    /// A closed rectangle sub-path.
-    0x18 Rect rect { x: F32, y: F32, w: F32, h: F32 }
-    /// A closed rounded rectangle; the four radii are top-left, top-right, bottom-right, bottom-left.
-    0x19 RoundRect round_rect { x: F32, y: F32, w: F32, h: F32, tl: F32, tr: F32, br: F32, bl: F32 }
-    /// Close the current sub-path.
-    0x1A ClosePath close_path {}
-    /// Fill the current path with the fill style; `rule` 0 non-zero, 1 even-odd.
-    0x1B Fill fill { rule: U8 }
-    /// Stroke the current path with the stroke style.
-    0x1C Stroke stroke {}
-    /// Intersect the clip with the current path.
-    0x1D Clip clip { rule: U8 }
-
-    // ---- shapes ----------------------------------------------------------
-    /// Fill a rectangle (does not touch the current path).
-    0x20 FillRect fill_rect { x: F32, y: F32, w: F32, h: F32 }
-    /// Stroke a rectangle.
-    0x21 StrokeRect stroke_rect { x: F32, y: F32, w: F32, h: F32 }
-    /// Make a rectangle transparent.
-    0x22 ClearRect clear_rect { x: F32, y: F32, w: F32, h: F32 }
-    /// Stroke a line.
-    0x23 DrawLine draw_line { x1: F32, y1: F32, x2: F32, y2: F32 }
-    /// A circle; `mode` bit 0 fills, bit 1 strokes.
-    0x24 DrawCircle draw_circle { x: F32, y: F32, radius: F32, mode: U8 }
-    /// A polygon or polyline; `mode` bit 0 fills, bit 1 strokes, bit 2 closes.
-    0x25 DrawPolygon draw_polygon { points: PointsK, mode: U8 }
-
-    // ---- style -----------------------------------------------------------
-    /// Fill with a solid colour.
-    0x30 SetFillColor set_fill_color { color: Color }
-    /// Stroke with a solid colour.
-    0x31 SetStrokeColor set_stroke_color { color: Color }
-    /// Stroke width.
-    0x32 SetLineWidth set_line_width { width: F32 }
-    /// 0 butt, 1 round, 2 square.
-    0x33 SetLineCap set_line_cap { cap: U8 }
-    /// 0 miter, 1 round, 2 bevel.
-    0x34 SetLineJoin set_line_join { join: U8 }
-    /// Miter limit.
-    0x35 SetMiterLimit set_miter_limit { limit: F32 }
-    /// Dash pattern (empty for solid) and its offset.
-    0x36 SetDash set_dash { intervals: FloatsK, offset: F32 }
-    /// Global alpha, 0 to 1.
-    0x37 SetAlpha set_alpha { alpha: F32 }
-    /// Compositing operation (see `BlendMode`).
-    0x38 SetBlendMode set_blend_mode { mode: U8 }
-    /// A linear gradient as fill (target 0) or stroke (target 1) style.
-    0x39 SetLinearGradient set_linear_gradient { target: U8, x0: F32, y0: F32, x1: F32, y1: F32, stops: StopsK }
-    /// A radial gradient between two circles.
-    0x3A SetRadialGradient set_radial_gradient { target: U8, x0: F32, y0: F32, r0: F32, x1: F32, y1: F32, r1: F32, stops: StopsK }
-    /// A conic (sweep) gradient starting at `angle` radians.
-    0x3B SetConicGradient set_conic_gradient { target: U8, x: F32, y: F32, angle: F32, stops: StopsK }
-    /// An image pattern; `repeat` 0 repeat, 1 repeat-x, 2 repeat-y, 3 no-repeat.
-    0x3C SetPattern set_pattern { target: U8, image: U32, repeat: U8 }
-    /// Shadow colour, blur, and offset (alpha 0 turns it off).
-    0x3D SetShadow set_shadow { color: Color, blur: F32, dx: F32, dy: F32 }
-
-    // ---- transforms ------------------------------------------------------
-    /// Move the origin.
-    0x50 Translate translate { x: F32, y: F32 }
-    /// Rotate by radians.
-    0x51 Rotate rotate { angle: F32 }
-    /// Scale.
-    0x52 Scale scale { x: F32, y: F32 }
-    /// Multiply the transform by a matrix.
-    0x53 Transform transform { a: F32, b: F32, c: F32, d: F32, e: F32, f: F32 }
-    /// Replace the transform by a matrix.
-    0x54 SetTransform set_transform { a: F32, b: F32, c: F32, d: F32, e: F32, f: F32 }
-    /// Back to the identity transform.
-    0x55 ResetTransform reset_transform {}
-
-    // ---- text ------------------------------------------------------------
-    /// The font, as a CSS font shorthand ("italic 700 16px Arial, sans-serif").
-    0x60 SetFont set_font { css: Str }
-    /// 0 start, 1 end, 2 left, 3 right, 4 center.
-    0x61 SetTextAlign set_text_align { align: U8 }
-    /// 0 alphabetic, 1 top, 2 hanging, 3 middle, 4 ideographic, 5 bottom.
-    0x62 SetTextBaseline set_text_baseline { baseline: U8 }
-    /// 0 auto, 1 left-to-right, 2 right-to-left.
-    0x63 SetTextDirection set_text_direction { direction: U8 }
-    /// One line of text; `max_width` 0 means no limit; `mode` bit 0 fills, bit 1 strokes.
-    0x64 DrawText draw_text { text: Str, x: F32, y: F32, max_width: F32, mode: U8 }
-    /// Text wrapped to `width` with `line_height` between lines.
-    0x65 DrawTextBox draw_text_box { text: Str, x: F32, y: F32, width: F32, line_height: F32, mode: U8 }
-
-    // ---- images ----------------------------------------------------------
-    /// An image at its natural size.
-    0x70 DrawImage draw_image { image: U32, x: F32, y: F32 }
-    /// An image scaled into a rectangle.
-    0x71 DrawImageScaled draw_image_scaled { image: U32, x: F32, y: F32, w: F32, h: F32 }
-    /// A source rectangle of an image into a destination rectangle.
-    0x72 DrawImageRegion draw_image_region { image: U32, sx: F32, sy: F32, sw: F32, sh: F32, dx: F32, dy: F32, dw: F32, dh: F32 }
-    /// One frame of a sprite sheet (frames are laid out left to right, top to bottom).
-    0x73 DrawSprite draw_sprite { image: U32, frame: U32, frame_w: F32, frame_h: F32, dx: F32, dy: F32, dw: F32, dh: F32 }
-
-    // ---- read-back -------------------------------------------------------
-    /// Read the pixel under a canvas point into result `slot`.
-    0x80 ReadPixel read_pixel { slot: U32, x: F32, y: F32 }
-    /// Copy a canvas rectangle into an image delivered as result `slot`.
-    0x81 Capture capture { slot: U32, x: F32, y: F32, w: F32, h: F32 }
-    /// Whether a canvas point is inside the current path (result `slot`).
-    0x82 HitPath hit_path { slot: U32, x: F32, y: F32, rule: U8 }
-    /// Whether a canvas point is on the stroke of the current path (result `slot`).
-    0x83 HitStroke hit_stroke { slot: U32, x: F32, y: F32 }
-    /// Measure a text with the current font (result `slot`).
-    0x84 MeasureText measure_text { slot: U32, text: Str }
-}
+wire::with_command_table!(commands);
 
 #[cfg(test)]
 mod tests {

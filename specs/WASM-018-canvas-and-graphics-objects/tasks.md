@@ -71,7 +71,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
 
 ## Part 2 — the crate's host-facing changes, the desktop host, the runtime (not started)
 
-- [ ] **T11 — Move the command table into `cobolt-graphics-wire`** (R6, spec §6 "generated from one definition")
+- [x] **T11 — Move the command table into `cobolt-graphics-wire`** (R6, spec §6 "generated from one definition")
   - Files: new `crates/cobolt-graphics-wire/` (`no_std`, no `alloc`: opcodes, argument kinds, encoder into
     `&mut [u8]`, `PRGD` v1 header); `crates/cobolt-graphics/src/display_list/` re-exports it and keeps decoder,
     builder and executor; root `Cargo.toml` member line; `Cargo.lock`.
@@ -80,6 +80,17 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     command in `COMMANDS` encodes to the same bytes as before and **reports the count of commands checked**;
     `cargo check -p cobolt-graphics-wire --target wasm32-unknown-unknown` green; the dependency guard
     (`--test dependency_guard`) still green.
+  - Evidence (2026-11-03, macOS, 2.0.188 on `features-2x-wasm018`): the bytes of all 61 commands were recorded
+    first, on the untouched code (`tests/wire_bytes.rs` → `tests/golden/display-list-v1-commands.txt`); after the move
+    `cargo test -p cobolt-graphics-wire -p cobolt-graphics --no-fail-fast` — every `test result` line `ok`
+    (wire 6 passed; graphics lib 194, api 15, canvas 24, dependency_guard 4, display_list_robustness 5, imagebuf 6,
+    lifecycle 2, physics 13, plot 13, scene3d 13, scene3d_gpu 16, text 17, text_system_fonts 5, wire_bytes 1; 0 failed).
+    Both encoders reproduce the file: the wire crate's own no-alloc one (`cobolt-graphics-wire: 61 commands encode to
+    the recorded bytes`) and `Command::encode` in `cobolt-graphics` (`wire_bytes: 61 commands checked`).
+    `cargo check -p cobolt-graphics-wire --target wasm32-unknown-unknown` green. How it is built: the table is written
+    once, in `with_command_table!` (wire crate); both crates expand it; `consts` (the one-byte enums) moved to the wire
+    crate and is re-exported; header constants and `write_header` live there; the operands' byte forms are the wire
+    crate's `put_*`. `no_std`, no dependencies. Not measured: the generated module does not link the crate yet (T24).
 
 - [ ] **T12 — `Gpu::from_shared` and the device-limit clamp** (R9, R15; Q4 decided)
   - Files: `crates/cobolt-graphics/src/scene3d/gpu.rs` (`Gpu::new`/`new_async` at 123/128 stay for tests and tools),

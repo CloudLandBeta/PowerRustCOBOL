@@ -129,12 +129,12 @@
 
 mod builder;
 mod dynamic;
-pub mod consts;
 mod list;
 pub mod ops;
 
 pub use builder::DisplayListBuilder;
 pub use dynamic::is_recordable;
+pub use cobolt_graphics_wire::consts;
 pub use consts::*;
 pub use list::{Commands, DisplayList, HEADER_LEN, MAGIC, VERSION};
 pub use ops::{Command, CommandInfo, Floats, Points, Reader, Stops, COMMANDS};

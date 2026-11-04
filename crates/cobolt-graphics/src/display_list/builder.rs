@@ -10,8 +10,8 @@
 //! are generated from the command table in [`ops`](super::ops); this file holds
 //! only the bookkeeping: the header, the counters and the limits.
 
-use super::list::{HEADER_LEN, MAGIC, VERSION};
-use super::ops::Command;
+use super::list::HEADER_LEN;
+use super::ops::{Command, VecSink};
 use crate::error::{GraphicsError, Result};
 use crate::limits::Limits;
 
@@ -115,11 +115,7 @@ impl DisplayListBuilder {
             return Err(e);
         }
         let mut out = Vec::with_capacity(HEADER_LEN + self.payload.len());
-        out.extend_from_slice(&MAGIC);
-        out.extend_from_slice(&VERSION.to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes());
-        out.extend_from_slice(&self.commands.to_le_bytes());
-        out.extend_from_slice(&(self.payload.len() as u32).to_le_bytes());
+        let _ = cobolt_graphics_wire::write_header(&mut VecSink(&mut out), self.commands, self.payload.len() as u32);
         out.extend_from_slice(&self.payload);
         self.discard();
         Ok(out)

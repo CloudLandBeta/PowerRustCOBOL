@@ -144,8 +144,8 @@ impl BlendMode {
 
     /// From the HTML name (case-insensitive); `None` if unknown.
     pub fn from_css_name(name: &str) -> Option<Self> {
-        let n = name.trim().to_ascii_lowercase();
-        Self::ALL.iter().copied().find(|m| m.css_name() == n)
+        let n = name.trim();
+        Self::ALL.iter().copied().find(|m| m.css_name().eq_ignore_ascii_case(n))
     }
 }
 
@@ -250,9 +250,10 @@ mod tests {
 
     #[test]
     fn blend_names_are_unique() {
-        let mut names: Vec<_> = BlendMode::ALL.iter().map(|m| m.css_name()).collect();
-        names.sort();
-        names.dedup();
-        assert_eq!(names.len(), BlendMode::ALL.len());
+        for (i, a) in BlendMode::ALL.iter().enumerate() {
+            for b in &BlendMode::ALL[i + 1..] {
+                assert_ne!(a.css_name(), b.css_name());
+            }
+        }
     }
 }
