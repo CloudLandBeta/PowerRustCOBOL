@@ -132,21 +132,6 @@ impl Gpu {
             .await
             .map_err(|e| GraphicsError::NoAdapter(format!("{e}")))?;
         let info = adapter.get_info();
-        let backend = match (info.device_type, info.backend) {
-            (wgpu::DeviceType::Cpu, _) => Backend::Software,
-            (_, wgpu::Backend::Vulkan) => Backend::Vulkan,
-            (_, wgpu::Backend::Metal) => Backend::Metal,
-            (_, wgpu::Backend::Dx12) => Backend::Dx12,
-            (_, wgpu::Backend::Gl) => {
-                if cfg!(target_arch = "wasm32") {
-                    Backend::WebGl2
-                } else {
-                    Backend::OpenGl
-                }
-            }
-            (_, wgpu::Backend::BrowserWebGpu) => Backend::WebGpu,
-            (_, _) => Backend::None,
-        };
         let limits = adapter.limits();
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor { label: Some("cobolt-graphics"), required_limits: limits.clone(), ..Default::default() })
@@ -170,14 +155,49 @@ impl Gpu {
                 }
             });
         }
-        Ok(Gpu {
+        Ok(Gpu::assemble(device, queue, &info, errors, lost))
+    }
+
+    /// Use a device and queue the host already opened (the egui host's `wgpu` render state, WASM-018 T12).
+    ///
+    /// The host owns the device, so this installs **no** error or device-loss callback on it (that would
+    /// replace the host's own): [`Gpu::is_lost`] stays `false` and the host watches for the loss itself,
+    /// then makes a new [`Gpu`] and canvas. Nothing here reads the device back or blocks.
+    pub fn from_shared(device: wgpu::Device, queue: wgpu::Queue, adapter_info: &wgpu::AdapterInfo) -> Gpu {
+        Gpu::assemble(device, queue, adapter_info, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(None)))
+    }
+
+    fn assemble(device: wgpu::Device, queue: wgpu::Queue, info: &wgpu::AdapterInfo, errors: Arc<Mutex<Vec<String>>>, lost: Arc<Mutex<Option<String>>>) -> Gpu {
+        let backend = match (info.device_type, info.backend) {
+            (wgpu::DeviceType::Cpu, _) => Backend::Software,
+            (_, wgpu::Backend::Vulkan) => Backend::Vulkan,
+            (_, wgpu::Backend::Metal) => Backend::Metal,
+            (_, wgpu::Backend::Dx12) => Backend::Dx12,
+            (_, wgpu::Backend::Gl) => {
+                if cfg!(target_arch = "wasm32") {
+                    Backend::WebGl2
+                } else {
+                    Backend::OpenGl
+                }
+            }
+            (_, wgpu::Backend::BrowserWebGpu) => Backend::WebGpu,
+            (_, _) => Backend::None,
+        };
+        let uniform_align = device.limits().min_uniform_buffer_offset_alignment.max(64) as u64;
+        Gpu {
             device,
             queue,
             info: GpuInfo { backend, adapter: info.name.clone(), driver: format!("{} {}", info.driver, info.driver_info).trim().to_string() },
             errors,
             lost,
-            uniform_align: limits.min_uniform_buffer_offset_alignment.max(64) as u64,
-        })
+            uniform_align,
+        }
+    }
+
+    /// The largest texture edge this device creates (`max_texture_dimension_2d`): what a texture, a
+    /// shadow map and the picture must stay within.
+    pub fn max_texture_dimension(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
     }
 
     /// What it is.
@@ -432,12 +452,22 @@ fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
+/// Refuse `requested` past what the device creates; the message names the device's limit.
+fn device_limit(what: &'static str, requested: u64, limit: u64) -> Result<()> {
+    if requested > limit {
+        Err(GraphicsError::Gpu(format!("{what}: {requested} requested, but this graphics device creates textures up to {limit} texels on a side (its max_texture_dimension_2d)")))
+    } else {
+        Ok(())
+    }
+}
+
 impl Renderer {
     /// A renderer on this device.
     pub fn new(gpu: Gpu, config: RendererConfig) -> Result<Renderer> {
         if !(256..=8192).contains(&config.shadow_map_size) {
             return Err(GraphicsError::invalid("a shadow map is from 256 to 8192 texels on a side"));
         }
+        device_limit("shadow map size", config.shadow_map_size as u64, gpu.max_texture_dimension() as u64)?;
         let d = &gpu.device;
         let shader = d.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("pbr"), source: wgpu::ShaderSource::Wgsl(PBR_SHADER.into()) });
         let shadow_shader = d.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("shadow"), source: wgpu::ShaderSource::Wgsl(SHADOW_SHADER.into()) });
@@ -877,6 +907,16 @@ impl Renderer {
         }
         if !matches!(msaa, 1 | 4) {
             return Err(GraphicsError::invalid("Msaa is 1 (off) or 4"));
+        }
+        let device_edge = self.gpu.max_texture_dimension() as u64;
+        for (what, edge) in [("picture width", width), ("picture height", height)] {
+            device_limit(what, edge as u64, device_edge)?;
+        }
+        for d in &frame.draws {
+            let m = &d.material;
+            for t in [&m.base_color_texture, &m.metallic_roughness_texture, &m.emissive_texture, &m.normal_texture].into_iter().flatten() {
+                device_limit("texture edge", t.width().max(t.height()) as u64, device_edge)?;
+            }
         }
         if self.gpu.is_lost() {
             return Err(GraphicsError::Gpu("the graphics device was lost; make a new Canvas3D".into()));

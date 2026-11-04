@@ -98,6 +98,12 @@ fn over(what: &'static str, requested: u64, limit: u64, setting: &'static str) -
 }
 
 impl Limits {
+    /// These limits with the texture edge held to what the graphics device creates
+    /// (`max_texture_dimension_2d`): a project may ask for more than the machine has.
+    pub fn clamped_to_device(&self, max_texture_dimension_2d: u32) -> Limits {
+        Limits { max_texture_size: self.max_texture_size.min(max_texture_dimension_2d), ..self.clone() }
+    }
+
     /// A canvas of `width` x `height` logical pixels at `pixel_ratio`.
     pub fn check_canvas(&self, width: u32, height: u32, pixel_ratio: f32) -> Result<()> {
         if width == 0 || height == 0 {

@@ -22,7 +22,7 @@
 
 mod common;
 
-use cobolt_graphics::scene3d::{AlphaMode, Backend, Canvas3D, Scene3D, TextureSlot};
+use cobolt_graphics::scene3d::{AlphaMode, Backend, Canvas3D, Gpu, Scene3D, TextureSlot};
 use cobolt_graphics::{Limits, PixelBuffer, Rgba};
 use common::{assert_golden, glb, Tolerance};
 use std::sync::Arc;
@@ -478,7 +478,62 @@ fn a_lost_device_is_an_error_and_an_event_never_a_crash() {
 
 #[test]
 fn the_reference_scene_matches_its_golden_image() {
-    let Some(mut c) = canvas(320, 240) else { return };
+    let Some(c) = canvas(320, 240) else { return };
+    reference_scene_matches_golden(c);
+}
+
+/// The host opens the device itself (as eframe's wgpu render state does); the crate borrows it.
+#[test]
+fn a_gpu_built_from_a_shared_device_renders_the_reference_scene() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+        if std::env::var("GRAPHICS_REQUIRE_GPU").map(|v| v == "1").unwrap_or(false) {
+            panic!("GRAPHICS_REQUIRE_GPU=1 but there is no graphics adapter");
+        }
+        eprintln!("SKIPPED (no graphics adapter)");
+        return;
+    };
+    let info = adapter.get_info();
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let gpu = Gpu::from_shared(device, queue, &info);
+    assert_eq!(gpu.info().adapter, info.name);
+    let mut c = Canvas3D::new(320, 240, Limits::default()).unwrap();
+    let backend = c.connect_with(gpu);
+    assert_ne!(backend, Backend::None, "{:?}", c.status());
+    eprintln!("shared device: {} on {}", info.name, backend.name());
+    reference_scene_matches_golden(c);
+}
+
+/// A project may allow bigger textures than the machine creates: the canvas holds its limit to the
+/// device's, and a texture past the device's refuses with a message that names the device limit.
+#[test]
+fn a_texture_larger_than_the_device_limit_is_refused_naming_the_limit() {
+    let Some(mut c) = canvas(64, 64) else { return };
+    let device_max = c.renderer().unwrap().gpu().max_texture_dimension();
+    let project = Limits { max_texture_size: u32::MAX, ..Limits::default() };
+    assert_eq!(c.limits().clone().max_texture_size.min(device_max), c.limits().max_texture_size, "the canvas's own limit never exceeds the device's");
+    let mut s = Scene3D::new(project);
+    let cam = camera(&mut s, [0.0, 0.0, 4.0], [0.0, 0.0, 0.0], 40.0);
+    c.set_camera(Some(cam));
+    let board = s.add_plane(2.0, 2.0).unwrap();
+    let m = s.material_of(board).unwrap();
+    let wide = device_max + 1;
+    let tex = Arc::new(PixelBuffer::from_rgba(wide, 1, vec![255; wide as usize * 4]).unwrap());
+    s.set_texture(m, TextureSlot::BaseColor, Some(tex)).unwrap();
+    let e = c.render(&mut s).unwrap_err().to_string();
+    eprintln!("device max {device_max}: {e}");
+    assert!(e.contains("texture edge") && e.contains("max_texture_dimension_2d") && e.contains(&device_max.to_string()), "{e}");
+    // A shadow map past the device's limit refuses at connect, readably.
+    let mut c2 = Canvas3D::new(64, 64, Limits::default()).unwrap();
+    c2.set_shadow_map_size(8192).unwrap();
+    let gpu = c.renderer().unwrap().gpu().clone();
+    if device_max < 8192 {
+        assert_eq!(c2.connect_with(gpu), Backend::None);
+        assert!(c2.status().unwrap().contains("shadow map size"), "{:?}", c2.status());
+    }
+}
+
+fn reference_scene_matches_golden(mut c: Canvas3D) {
     let mut s = Scene3D::new(Limits::default());
     let cam = camera(&mut s, [4.0, 3.5, 6.5], [0.0, 0.8, 0.0], 45.0);
     c.set_camera(Some(cam));

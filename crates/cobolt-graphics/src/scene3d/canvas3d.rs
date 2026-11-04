@@ -56,6 +56,11 @@ impl Canvas3D {
         Ok(Canvas3D { width, height, msaa: 4, camera: None, scene: None, limits, config: RendererConfig::default(), renderer: None, status: None, events: Vec::new(), last_frame: None })
     }
 
+    /// The limits in force (after connecting, held to the device's).
+    pub fn limits(&self) -> &Limits {
+        &self.limits
+    }
+
     /// Use shadow maps of this edge (256 to 8192 texels). Takes effect at the next connect.
     pub fn set_shadow_map_size(&mut self, texels: u32) -> Result<()> {
         if !(256..=8192).contains(&texels) {
@@ -77,6 +82,8 @@ impl Canvas3D {
 
     /// Use a graphics device the host opened (shared by several canvases, or made asynchronously in the browser).
     pub fn connect_with(&mut self, gpu: Gpu) -> Backend {
+        // The project's texture limit never exceeds what this device creates (T12).
+        self.limits = self.limits.clamped_to_device(gpu.max_texture_dimension());
         match Renderer::new(gpu, self.config) {
             Ok(r) => {
                 let b = r.gpu().info().backend;

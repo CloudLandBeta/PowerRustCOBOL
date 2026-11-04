@@ -92,7 +92,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     crate and is re-exported; header constants and `write_header` live there; the operands' byte forms are the wire
     crate's `put_*`. `no_std`, no dependencies. Not measured: the generated module does not link the crate yet (T24).
 
-- [ ] **T12 — `Gpu::from_shared` and the device-limit clamp** (R9, R15; Q4 decided)
+- [x] **T12 — `Gpu::from_shared` and the device-limit clamp** (R9, R15; Q4 decided)
   - Files: `crates/cobolt-graphics/src/scene3d/gpu.rs` (`Gpu::new`/`new_async` at 123/128 stay for tests and tools),
     `src/limits.rs`; `tests/scene3d_gpu.rs`
   - Do: `Gpu::from_shared(device, queue, adapter_info)`; at Canvas3D creation clamp `Limits::max_texture_size` and
@@ -100,6 +100,17 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
   - Verify: `cargo test -p cobolt-graphics --test scene3d_gpu --no-fail-fast` green on Metal locally (loud `SKIPPED`
     where no adapter); new tests: a `Gpu` built from a shared device renders the reference scene; a texture
     larger than the device limit is refused with a message naming the limit.
+  - Evidence (2026-11-03, macOS Apple M3 Pro, Metal, 2.0.189): `cargo test -p cobolt-graphics --no-fail-fast` — every
+    `test result` ok; `scene3d_gpu` 18 passed (was 16): `a_gpu_built_from_a_shared_device_renders_the_reference_scene`
+    (device opened by the test, `Gpu::from_shared`, matches the golden; prints `shared device: Apple M3 Pro on Metal`) and
+    `a_texture_larger_than_the_device_limit_is_refused_naming_the_limit` (device max 16384; a 16385-texel texture is refused:
+    "texture edge: 16385 requested, but this graphics device creates textures up to 16384 texels on a side (its
+    max_texture_dimension_2d)"). `Canvas3D::connect_with` holds `Limits::max_texture_size` to the device's
+    (`Limits::clamped_to_device`); `Renderer::new` refuses a shadow map, `render` a picture or texture, past it.
+    `cargo check -p cobolt-graphics --target wasm32-unknown-unknown` green. Not measured: the shadow-map refusal branch
+    (needs a device whose limit is under 8192; this Metal device allows 16384, so that assertion is skipped here and
+    runs where the limit is lower, e.g. the software adapter of T29). A shared device installs no loss callback
+    (`is_lost` stays false: the host watches, T18).
 
 - [ ] **T13 — Explicit `Renderer::Wgpu` in the IDE and every form-host window** (Q4 decided, R16)
   - Files: `crates/cobolt-ide/src/main.rs` (`NativeOptions` at 144-161), `crates/cobolt-form-host/src/lib.rs`

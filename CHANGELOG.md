@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.189 — 2026-11-03
+
+**WASM-018 T12: Canvas3D can run on a graphics device the host opened (`Gpu::from_shared`), and it never asks the device for more than it creates.** *(Written on features-2x-wasm018, after 2.0.188.)* The egui host's `wgpu` render state can now be handed to the crate; the project's texture limit is held to the device's `max_texture_dimension_2d` when a canvas connects, and a shadow map, a picture or a texture past the device's limit is refused with a message that names it. `cargo test -p cobolt-graphics --no-fail-fast` is green on Metal (`scene3d_gpu` 18 tests, the reference scene also rendered through a shared device) and the crate checks for `wasm32-unknown-unknown`.
+
 ## 2.0.188 — 2026-11-03
 
 **WASM-018 T11: the display-list command table moved into `cobolt-graphics-wire`, a `no_std` crate without dependencies; every command still encodes to the same bytes.** *(Written on features-2x-wasm018, after 2.0.187.)* The table (61 commands), the `PRGD` header, the one-byte enums and the operand writers are written once in the new crate, which also has its own no-alloc encoder (`encode::fill_rect(&mut Writer, ...)`) for the generated module; `cobolt-graphics` expands the same table for its `Command` enum, decoder and builder and keeps the executor. Proof: the bytes of all 61 commands were recorded on the old code (`tests/golden/display-list-v1-commands.txt`) and both encoders reproduce them; `cargo test -p cobolt-graphics-wire -p cobolt-graphics --no-fail-fast` is green and the wire crate checks for `wasm32-unknown-unknown`.
