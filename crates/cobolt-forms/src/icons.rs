@@ -1039,6 +1039,13 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "control-aws-textract",
             "control-aws-e-c2",
             "control-aws-cognito",
+            "control-canvas2-d",
+            "control-canvas3-d",
+            "control-image-buffer",
+            "control-plot",
+            "control-scene3-d",
+            "control-physics2-d",
+            "control-physics3-d",
             "control-custom",
         ],
     ),
@@ -7497,6 +7504,57 @@ fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
             c(10.4, 13.4, 3.6),
             p(&[(13.0, 16.0), (16.6, 19.6)]),
             p(&[(5.6, 6.4), (9.0, 6.4)]),
+        ],
+        // WASM-018: the graphics controls. A canvas frame with a brush stroke.
+        "control-canvas2-d" => vec![
+            rr(2.5, 4.5, 19.0, 15.0, 2.0),
+            path(vec![L(5.5, 16.0), Q(9.0, 6.5, 12.0, 12.0), Q(15.0, 17.0, 18.5, 8.0)]),
+            d(7.0, 8.0, 1.2),
+        ],
+        // A canvas frame holding a cube.
+        "control-canvas3-d" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 2.0),
+            p(&[(8.0, 9.0), (14.0, 9.0), (14.0, 15.0), (8.0, 15.0), (8.0, 9.0)]),
+            p(&[(8.0, 9.0), (10.5, 6.8), (16.5, 6.8), (14.0, 9.0)]),
+            p(&[(14.0, 15.0), (16.5, 12.8), (16.5, 6.8)]),
+        ],
+        // A pixel grid.
+        "control-image-buffer" => vec![
+            rr(3.0, 3.0, 18.0, 18.0, 1.5),
+            p(&[(9.0, 3.0), (9.0, 21.0)]),
+            p(&[(15.0, 3.0), (15.0, 21.0)]),
+            p(&[(3.0, 9.0), (21.0, 9.0)]),
+            p(&[(3.0, 15.0), (21.0, 15.0)]),
+            rrf(9.0, 9.0, 6.0, 6.0, 0.4),
+        ],
+        // Axes and a curve.
+        "control-plot" => vec![
+            p(&[(3.5, 3.5), (3.5, 20.5), (20.5, 20.5)]),
+            path(vec![L(5.5, 17.0), Q(9.0, 4.0, 12.0, 12.0), Q(15.0, 19.0, 19.5, 7.0)]),
+            d(12.0, 12.0, 1.2),
+        ],
+        // A scene: a cube and a light.
+        "control-scene3-d" => vec![
+            p(&[(5.0, 10.0), (11.0, 10.0), (11.0, 16.0), (5.0, 16.0), (5.0, 10.0)]),
+            p(&[(5.0, 10.0), (7.5, 7.8), (13.5, 7.8), (11.0, 10.0)]),
+            p(&[(11.0, 16.0), (13.5, 13.8), (13.5, 7.8)]),
+            c(18.0, 5.5, 1.8),
+            p(&[(18.0, 8.0), (18.0, 9.0)]),
+        ],
+        // Two bodies in a collision, on a floor.
+        "control-physics2-d" => vec![
+            p(&[(2.5, 20.0), (21.5, 20.0)]),
+            c(8.0, 15.0, 3.2),
+            rr(13.0, 13.0, 6.0, 6.0, 0.8),
+            p(&[(8.0, 6.0), (8.0, 9.5)]),
+            p(&[(6.4, 8.2), (8.0, 9.8), (9.6, 8.2)]),
+        ],
+        // The same in a box: a world in three dimensions.
+        "control-physics3-d" => vec![
+            p(&[(4.0, 9.0), (14.0, 9.0), (14.0, 20.0), (4.0, 20.0), (4.0, 9.0)]),
+            p(&[(4.0, 9.0), (8.0, 5.0), (18.0, 5.0), (14.0, 9.0)]),
+            p(&[(14.0, 20.0), (18.0, 16.0), (18.0, 5.0)]),
+            c(9.0, 14.5, 2.2),
         ],
         // A plugin-provided control: the catalogue frame with a socket cut out
         // of it, the shape a third party fills in.

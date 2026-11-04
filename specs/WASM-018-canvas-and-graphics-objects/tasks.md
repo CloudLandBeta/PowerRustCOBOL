@@ -131,7 +131,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     this worktree ("run `cargo build -p cobolt-cli --bin rcrun` first") — environmental, not caused by this change; the full
     `cargo test -p cobolt-ide --bin cobolt-ide` run is left for T21/T33. The running IDE launch is the operator's check.
 
-- [ ] **T14 — Seven `ControlType` variants and their `.cfrm` round trip** (R1, R2)
+- [x] **T14 — Seven `ControlType` variants and their `.cfrm` round trip** (R1, R2)
   - Files: `crates/cobolt-forms/src/model.rs` (`ControlType`, `ALL`, default sizes), `src/xml.rs`;
     `crates/cobolt-web-player/src/kinds.rs` (name-based `PlayerKind::Canvas2D/Canvas3D` now matches the real
     variants; the table test at `kinds.rs:241` forces the classification)

@@ -1696,6 +1696,7 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         ControlType::Hyperlink => &["Cancel"],
         // WASM-009 — who is signed in, written by the player; never a token (R6).
         ControlType::Authentication => crate::authentication::RUNTIME_PROPS,
+        ControlType::Canvas3D => crate::graphics_controls::CANVAS3D_RUNTIME_PROPS,
         _ => &[],
     }
 }
@@ -2923,6 +2924,14 @@ pub enum ControlType {
     /// (sign-in, account creation and confirmation, password recovery, MFA), through the
     /// backend's identity programs. Web and Mobile projects only.
     Authentication,
+    // WASM-018 - the graphics controls (visual) and objects (non-visual); `crate::graphics_controls`.
+    Canvas2D,
+    Canvas3D,
+    ImageBuffer,
+    Plot,
+    Scene3D,
+    Physics2D,
+    Physics3D,
     // Plugin-provided
     Custom {
         plugin_id: String,
@@ -3065,6 +3074,13 @@ impl ControlType {
         ControlType::AwsTextract,
         ControlType::AwsEC2,
         ControlType::AwsCognito,
+        ControlType::Canvas2D,
+        ControlType::Canvas3D,
+        ControlType::ImageBuffer,
+        ControlType::Plot,
+        ControlType::Scene3D,
+        ControlType::Physics2D,
+        ControlType::Physics3D,
     ];
 
     pub fn as_str(&self) -> &str {
@@ -3133,6 +3149,13 @@ impl ControlType {
             ControlType::AwsEC2 => "AwsEC2",
             ControlType::AwsCognito => "AwsCognito",
             ControlType::Authentication => "Authentication",
+            ControlType::Canvas2D => "Canvas2D",
+            ControlType::Canvas3D => "Canvas3D",
+            ControlType::ImageBuffer => "ImageBuffer",
+            ControlType::Plot => "Plot",
+            ControlType::Scene3D => "Scene3D",
+            ControlType::Physics2D => "Physics2D",
+            ControlType::Physics3D => "Physics3D",
             ControlType::Custom {
                 plugin_id,
                 control_id,
@@ -3210,6 +3233,14 @@ impl ControlType {
             // A form saved before WASM-009 T2 carried the control as a plug-in of no plug-in
             // (`type="unknown:Authentication"`): it loads as the real type and is saved as one.
             "Authentication" | "unknown:Authentication" => ControlType::Authentication,
+            // WASM-018 - a form saved by a build that predates these types carried them as `unknown:<name>`.
+            "Canvas2D" | "unknown:Canvas2D" => ControlType::Canvas2D,
+            "Canvas3D" | "unknown:Canvas3D" => ControlType::Canvas3D,
+            "ImageBuffer" | "unknown:ImageBuffer" => ControlType::ImageBuffer,
+            "Plot" | "unknown:Plot" => ControlType::Plot,
+            "Scene3D" | "unknown:Scene3D" => ControlType::Scene3D,
+            "Physics2D" | "unknown:Physics2D" => ControlType::Physics2D,
+            "Physics3D" | "unknown:Physics3D" => ControlType::Physics3D,
             other => {
                 if let Some((p, c)) = other.split_once(':') {
                     ControlType::Custom {
@@ -3290,6 +3321,13 @@ impl ControlType {
             crate::aws_pattern!() => (56, 56),
             // The Sign in screen: a title, two labelled fields, the button and two links.
             ControlType::Authentication => (320, 320),
+            // WASM-018: a drawing surface, and the non-visual objects' tray card (56 x 56, like the AWS ones).
+            ControlType::Canvas2D | ControlType::Canvas3D => (320, 240),
+            ControlType::ImageBuffer
+            | ControlType::Plot
+            | ControlType::Scene3D
+            | ControlType::Physics2D
+            | ControlType::Physics3D => (56, 56),
             ControlType::Custom { .. } => (100, 30),
         }
     }
@@ -3326,6 +3364,7 @@ impl ControlType {
             ControlType::WebSearch => "onResultsReceived",
             ControlType::Snackbar => "onButtonClick",
             ControlType::Authentication => "onSignedIn",
+            ControlType::Canvas2D | ControlType::Canvas3D => "onFrame",
             t @ crate::aws_pattern!() => crate::aws_catalog::get(t).map_or("onComplete", |c| c.events[0]),
             // Gauge is read-only (no interactive primary event, R10); the
             // catch-all below applies but is functionally inert since
@@ -4263,6 +4302,13 @@ impl ControlType {
                 "onLoad",
             ],
             ControlType::Authentication => crate::authentication::EVENTS,
+            ControlType::Canvas2D => crate::graphics_controls::CANVAS_EVENTS,
+            ControlType::Canvas3D => crate::graphics_controls::CANVAS3D_EVENTS,
+            ControlType::ImageBuffer
+            | ControlType::Plot
+            | ControlType::Scene3D
+            | ControlType::Physics2D
+            | ControlType::Physics3D => crate::graphics_controls::OBJECT_EVENTS,
             ControlType::Custom { .. } => &["onClick"],
         }
     }
@@ -4279,6 +4325,11 @@ impl ControlType {
                 | ControlType::IndexedFile
                 | ControlType::WebSearch
                 | ControlType::Snackbar
+                | ControlType::ImageBuffer
+                | ControlType::Plot
+                | ControlType::Scene3D
+                | ControlType::Physics2D
+                | ControlType::Physics3D
         ) || self.is_aws()
     }
 
@@ -5541,6 +5592,22 @@ impl Control {
                 }
                 for k in crate::authentication::TEXT_PROPS {
                     props.insert((*k).into(), PropValue::String(String::new()));
+                }
+            }
+            // WASM-018 R1 - the canvases' properties; Width and Height are the control's own geometry.
+            ControlType::Canvas2D | ControlType::Canvas3D => {
+                let seeds = if control_type == ControlType::Canvas3D {
+                    crate::graphics_controls::CANVAS3D_SEEDS
+                } else {
+                    crate::graphics_controls::CANVAS2D_SEEDS
+                };
+                for (k, v) in seeds {
+                    // A whole number is held as an Int - the type a `.cfrm` load gives it back.
+                    let value = match v.parse::<i64>() {
+                        Ok(n) => PropValue::Int(n),
+                        Err(_) => PropValue::String((*v).into()),
+                    };
+                    props.insert((*k).into(), value);
                 }
             }
             ControlType::CheckBox | ControlType::RadioButton => {

@@ -18,9 +18,9 @@
 //! fails when [`ControlType::ALL`] and this table disagree (WASM-004 AC1), so a control added to
 //! the model is classified or the build is red.
 //!
-//! The new controls of the series that the model does not carry yet — **Canvas2D**, **Canvas3D** and the five E objects — reach the player as
-//! `ControlType::Custom` (the model's own way of holding a type it does not know) and are
-//! recognised here by name: [`player_kind_of`].
+//! The graphics controls of the series — **Canvas2D**, **Canvas3D** and the five E objects — are model
+//! types since WASM-018 T14; [`player_kind_of`] maps them to a [`PlayerKind`], and still recognises a
+//! `ControlType::Custom` that holds one of those names (a form saved by an older reader).
 //!
 //! It lives in this crate (WASM-001 T14, plan D-T14a) because the IDE's toolbox, the browser
 //! player and the later Check must read *one* table, and `cobolt-forms` is the only crate all of
@@ -120,6 +120,13 @@ pub const TABLE: &[Row] = &[
     r("AwsTextract", C, "no element", ""),
     r("AwsEC2", C, "no element", ""),
     r("AwsCognito", C, "no element", "a desktop/backend control: the Authentication control replaces it in a browser"),
+    r("Canvas2D", B, "<canvas> drawn by the player from the display list", "WASM-018"),
+    r("Canvas3D", B, "<canvas> drawn by WebGPU/WebGL2 from the display list", "WASM-018"),
+    r("ImageBuffer", E, "no element; pixels in the player", "WASM-018"),
+    r("Plot", E, "no element; a display list for a canvas", "WASM-018"),
+    r("Scene3D", E, "no element; a scene for a Canvas3D", "WASM-018"),
+    r("Physics2D", E, "no element; a world stepped in the player", "WASM-018"),
+    r("Physics3D", E, "no element; a world stepped in the player", "WASM-018"),
 ];
 
 /// How faithfully the browser reproduces an appearance property (WASM-004 R6, WASM-007 R1).
@@ -454,6 +461,14 @@ impl PlayerKind {
 /// The player-level kind of a `Custom` control the model holds under one of those names.
 pub fn player_kind_of(t: &ControlType) -> Option<PlayerKind> {
     match t {
+        // WASM-018 T14 - the seven are model types now.
+        ControlType::Canvas2D => Some(PlayerKind::Canvas2D),
+        ControlType::Canvas3D => Some(PlayerKind::Canvas3D),
+        ControlType::ImageBuffer => Some(PlayerKind::ImageBuffer),
+        ControlType::Plot => Some(PlayerKind::Plot),
+        ControlType::Scene3D => Some(PlayerKind::Scene3D),
+        ControlType::Physics2D => Some(PlayerKind::Physics2D),
+        ControlType::Physics3D => Some(PlayerKind::Physics3D),
         ControlType::Custom { control_id, .. } => PLAYER_KINDS
             .iter()
             .find(|(k, n)| n.eq_ignore_ascii_case(control_id) || k.series_name().eq_ignore_ascii_case(control_id))
@@ -522,15 +537,16 @@ mod tests {
         assert_eq!(table.len(), table_set.len(), "a control is listed twice");
         assert_eq!(model.difference(&table_set).collect::<Vec<_>>(), Vec::<&&str>::new(), "controls missing from the table");
         assert_eq!(table_set.difference(&model).collect::<Vec<_>>(), Vec::<&&str>::new(), "table rows the model does not have");
-        assert_eq!(TABLE.len(), 64, "the catalogue is 64 types (Authentication since WASM-009 T2); count it, do not trust this line");
+        assert_eq!(TABLE.len(), 71, "the catalogue is 71 types (Authentication since WASM-009 T2, the seven graphics controls since WASM-018 T14); count it, do not trust this line");
     }
 
     #[test]
     fn the_classes_have_the_sizes_the_spec_describes() {
         let n = |c: Class| TABLE.iter().filter(|r| r.class == c).count();
         println!("class A: {}  B: {}  C: {}  D: {}  E: {}", n(A), n(B), n(C), n(D), n(E));
-        assert_eq!(n(A) + n(B) + n(C) + n(D) + n(E), 64);
-        assert_eq!(n(B), 12, "7 charts, Knob, Gauge, Animator, Maps, Viewer");
+        assert_eq!(n(A) + n(B) + n(C) + n(D) + n(E), 71);
+        assert_eq!(n(B), 14, "7 charts, Knob, Gauge, Animator, Maps, Viewer, Canvas2D, Canvas3D");
+        assert_eq!(n(E), 5, "ImageBuffer, Plot, Scene3D, Physics2D, Physics3D");
         assert_eq!(n(C), 8 + 16 + 1, "8 service controls (+ DataGrid, FileDropZone), the 16 AWS controls and Authentication");
     }
 
@@ -557,7 +573,7 @@ mod tests {
         assert_eq!(names.len(), set.len(), "a series name is listed twice");
         for (k, _) in PLAYER_KINDS {
             assert_eq!(player_kind_of(&ControlType::from_str(k.series_name())), Some(*k), "{}", k.series_name());
-            assert!(!ControlType::ALL.iter().any(|t| t.as_str().eq_ignore_ascii_case(k.series_name())), "{} is a model type now: move its row to TABLE", k.series_name());
+            assert!(TABLE.iter().any(|r| r.control == k.series_name()), "{} is a model type: it has a TABLE row", k.series_name());
         }
         assert_eq!(player_kind_of(&ControlType::from_str("Hyperlink")), None, "a model type since WASM-006 T6");
     }

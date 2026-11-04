@@ -2372,6 +2372,45 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// WASM-018 T14: the seven graphics controls are model types. A form holding them saves, loads
+    /// and saves to the same bytes, each load is the model type (not `Custom`), and every seeded
+    /// property and the event bindings survive.
+    #[test]
+    fn the_graphics_controls_round_trip_through_a_cfrm() {
+        let mut form = sample_form();
+        for (i, n) in crate::graphics_controls::NAMES.iter().enumerate() {
+            let t = ControlType::from_str(n);
+            let mut c = Control::new(&format!("G{i}"), t, 10 * i as i32, 10);
+            if matches!(c.control_type, ControlType::Canvas2D | ControlType::Canvas3D) {
+                c.events.push(EventBinding {
+                    event: "onFrame".into(),
+                    paragraph: format!("G{i}--ONFRAME"),
+                    code: "       PROCEDURE DIVISION.\n           CONTINUE.\n".into(),
+                });
+            }
+            form.controls.push(c);
+        }
+        let first = form_to_string(&form).expect("save");
+        let loaded = load_form_from_str(&first).expect("load");
+        // (the sample form's own handlers are normalised on the first load, so stability is
+        // asserted from the second save on)
+        let second = form_to_string(&loaded).expect("save again");
+        let third = form_to_string(&load_form_from_str(&second).expect("load again")).expect("save a third time");
+        assert_eq!(second, third, "load -> save is stable");
+        let mut seeded = 0;
+        for (i, n) in crate::graphics_controls::NAMES.iter().enumerate() {
+            let a = form.find_control(&format!("G{i}")).expect("original");
+            let b = loaded.find_control(&format!("G{i}")).expect("loaded");
+            assert_eq!(b.control_type.as_str(), *n, "loads as the model type");
+            assert!(!matches!(b.control_type, ControlType::Custom { .. }), "{n} is not Custom");
+            assert_eq!(a.properties, b.properties, "{n}: every property survives");
+            assert_eq!(a.events.len(), b.events.len(), "{n}: events survive");
+            seeded += b.properties.len();
+        }
+        assert!(seeded > 0);
+        println!("T14: 7 graphics controls, {seeded} properties, stable load-save");
+    }
+
     /// Spec 109 S8: the order and a display format round-trip through the `.cfrm`, and a
     /// binding saved before they existed loads with neither.
     #[test]

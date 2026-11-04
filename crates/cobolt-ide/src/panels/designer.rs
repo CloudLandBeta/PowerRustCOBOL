@@ -17807,6 +17807,13 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::AwsLambda => "AwsLambda",
         // `Auth-1`, uppercased `AUTH-1`: the name the KB and the spec's examples use.
         CT::Authentication => "Auth",
+        CT::Canvas2D => "Canvas2D",
+        CT::Canvas3D => "Canvas3D",
+        CT::ImageBuffer => "ImageBuffer",
+        CT::Plot => "Plot",
+        CT::Scene3D => "Scene3D",
+        CT::Physics2D => "Physics2D",
+        CT::Physics3D => "Physics3D",
         CT::Custom { .. } => "Control",
     }
 }

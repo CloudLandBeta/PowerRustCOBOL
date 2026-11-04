@@ -77,6 +77,7 @@ pub mod theme_pack;
 pub mod hyperlink;
 /// The Authentication control's vocabulary (WASM-009): events, seeds, texts, methods.
 pub mod authentication;
+pub mod graphics_controls;
 /// The Authentication control's default texts in six languages (WASM-009 D12).
 pub mod auth_texts;
 /// WASM-004's class of every control for the web — the one table the toolbox and the player read.

@@ -63,7 +63,7 @@ mod tests {
         assert_eq!(t, ControlType::Hyperlink, "the interim name is the model's type (WASM-006 T6)");
         assert_eq!(player_kind_of(&t), None);
         assert_eq!(class_of(&t), Class::A);
-        assert_eq!(TABLE.len(), 64, "the catalogue, Hyperlink and Authentication included");
+        assert_eq!(TABLE.len(), 71, "the catalogue, Hyperlink, Authentication and the seven graphics controls included");
         assert_eq!(ControlType::from_str("Authentication"), ControlType::Authentication, "a model type since WASM-009 T2");
         assert_eq!(ControlType::from_str("unknown:Authentication"), ControlType::Authentication, "the spelling an older save wrote");
         assert_eq!(player_kind_of(&ControlType::Authentication), None);
