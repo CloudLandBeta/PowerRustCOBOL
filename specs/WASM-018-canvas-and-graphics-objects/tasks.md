@@ -237,7 +237,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     reaches an unbound one.
   - Evidence (2026-11-04, 2.0.199): `cobolt-forms/src/canvas_input.rs` (`FrameClock`, `run`), called from `render_interactive` for both canvases, so every host that renders a form gets it; `IsKeyDown` in `interpreter/graphics.rs`; seeds `FixedStep`, `PointerX`, `PointerY`. 30 fps on 144 Hz, 10 s: 299 frames (29.90/s); fixed step 60 fps: every delta 16.6667 ms; all 11 input event kinds reach a bound canvas, none an unbound one. Not done: battery cap, gamepad (T27), hands-on check.
 
-- [ ] **T20 — Designer placeholder** (R17; AC13 Designer)
+- [x] **T20 — Designer placeholder** (code and tests done; the operator judges the look) (R17; AC13 Designer)
   - Files: `crates/cobolt-forms/src/paint.rs` (designer path)
   - Do: a labelled placeholder with the control's name, size and (Canvas3D) backend; the run form path (T18)
     draws the live picture. If the placeholder changes how a control border, radius or clip is drawn, run the GUI
@@ -245,6 +245,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
   - Verify: `cargo test -p cobolt-forms --features render --no-fail-fast` green with a test that loads a fixture
     `.cfrm` with both canvases and asserts the painted label text and position; the operator judges the look
     (MCP `render_form`).
+  - Evidence (2026-11-04, 2.0.200): `paint::canvas_placeholder_lines` + dashed outline in `draw_canvas_surface`; `paint::set_designer_backend` fed once from the IDE's wgpu device (`app.rs`); test `a_canvas_shows_a_labelled_placeholder_in_the_designer` (saves and reloads a `.cfrm`, asserts the lines, their centring and order, and that a picture removes them). `cobolt-forms --features render` 98 result lines, 1832 passed, 0 failed. The outline is dashed but still a square rect: no corner path touched, so the Border Validation Agent was not run.
 
 - [ ] **T21 — Toolbox, icons, Properties-panel sections, `tests/controls/`** (R1)
   - Files: `crates/cobolt-ide/src/` (toolbox and Properties panel), the icon catalogue, `tests/controls/` (one test

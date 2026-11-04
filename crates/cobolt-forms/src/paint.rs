@@ -18485,20 +18485,48 @@ fn draw_canvas_surface(
         return;
     }
     let ink = a8(Color32::from_gray(130));
-    painter.rect_stroke(rect, 0.0, Stroke::new(1.0, ink), egui::StrokeKind::Inside);
-    painter.text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        format!(
-            "{}  {}  {} x {}",
-            ctrl.id,
-            ctrl.control_type.as_str(),
-            rect.width().round() as i64,
-            rect.height().round() as i64
-        ),
-        egui::FontId::proportional(12.0),
-        ink,
-    );
+    // a dashed outline, so it reads as "not the picture"
+    let outline = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom(), rect.left_top()];
+    painter.extend(egui::Shape::dashed_line(&outline, Stroke::new(1.0, ink), 4.0, 3.0));
+    let lines = canvas_placeholder_lines(ctrl);
+    let line_h = 15.0;
+    let top = rect.center().y - line_h * (lines.len() as f32 - 1.0) / 2.0;
+    for (i, line) in lines.iter().enumerate() {
+        painter.text(
+            Pos2::new(rect.center().x, top + line_h * i as f32),
+            egui::Align2::CENTER_CENTER,
+            line,
+            egui::FontId::proportional(12.0),
+            ink,
+        );
+    }
+}
+
+static DESIGNER_BACKEND: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// The graphics backend this machine's window draws with (`Metal`, `Vulkan`, `Dx12`, `OpenGL`, `Software`),
+/// which the Form Designer shows on a Canvas3D placeholder. The IDE sets it once, from its own wgpu device.
+pub fn set_designer_backend(name: &str) {
+    if let Ok(mut b) = DESIGNER_BACKEND.lock() {
+        *b = name.trim().to_string();
+    }
+}
+
+/// The lines of a canvas placeholder (WASM-018 R17): the control's name and kind, its designed size and, for a
+/// Canvas3D, the backend (its own `Backend` once it has connected, else this machine's, else `None`). Identifiers
+/// and numbers only, so nothing here needs translating.
+pub fn canvas_placeholder_lines(ctrl: &Control) -> Vec<String> {
+    let mut lines = vec![
+        format!("{}  {}", ctrl.id, ctrl.control_type.as_str()),
+        format!("{} x {}", ctrl.rect.w, ctrl.rect.h),
+    ];
+    if ctrl.control_type == crate::ControlType::Canvas3D {
+        let own = ctrl.get_prop("Backend").map(|v| v.as_str().trim().to_string()).unwrap_or_default();
+        let machine = DESIGNER_BACKEND.lock().map(|b| b.clone()).unwrap_or_default();
+        let backend = [own, machine].into_iter().find(|b| !b.is_empty()).unwrap_or_else(|| "None".into());
+        lines.push(format!("Backend: {backend}"));
+    }
+    lines
 }
 
 fn draw_authentication_screen(

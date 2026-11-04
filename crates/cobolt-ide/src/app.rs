@@ -16232,6 +16232,23 @@ impl eframe::App for CoboltApp {
     }
 
     fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // WASM-018 T20: the Form Designer's Canvas3D placeholder names the backend this window draws with.
+        static DESIGNER_BACKEND: std::sync::Once = std::sync::Once::new();
+        if let Some(rs) = frame.wgpu_render_state() {
+            DESIGNER_BACKEND.call_once(|| {
+                let info = rs.adapter.get_info();
+                let name = match (info.device_type, info.backend) {
+                    (eframe::wgpu::DeviceType::Cpu, _) => "Software",
+                    (_, eframe::wgpu::Backend::Metal) => "Metal",
+                    (_, eframe::wgpu::Backend::Vulkan) => "Vulkan",
+                    (_, eframe::wgpu::Backend::Dx12) => "Dx12",
+                    (_, eframe::wgpu::Backend::Gl) => "OpenGL",
+                    (_, eframe::wgpu::Backend::BrowserWebGpu) => "WebGPU",
+                    _ => "None",
+                };
+                cobolt_forms::paint::set_designer_backend(name);
+            });
+        }
         // A see-through theme (Spatial) asks the operating system to blur the
         // desktop under the window; the window is created transparent, so the
         // blur is all that is missing. macOS honours it; elsewhere winit
