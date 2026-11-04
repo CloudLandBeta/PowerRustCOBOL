@@ -3306,6 +3306,10 @@ impl FormBody {
             let vp = ctx.viewport_id();
             let own_window = (vp != egui::ViewportId::ROOT).then_some(vp);
             self.apply_form_window_update(ctx, &u, own_window);
+            #[cfg(feature = "graphics")]
+            if crate::canvas::apply_canvas_frame(ctx, &u) {
+                continue;
+            }
             // A child form rides the same diagnostics switch the root does; the
             // host reads it once at start-up, a body reads it here.
             self.apply_interpreter_update(u, crate::diagnostics::frame_diagnostics_enabled());
@@ -6862,6 +6866,10 @@ impl FormHost {
         // repeating-group member writes to the drawn card-instance id.
         let mut drained = 0usize;
         while let Ok(u) = self.root.state_rx.try_recv() {
+            #[cfg(feature = "graphics")]
+            if crate::canvas::apply_canvas_frame(ctx, &u) {
+                continue;
+            }
             // The program wrote the rail's own `Collapsed` — directly, or through
             // `Collapse()` / `Open()` on it. The SHELL holds the pane's state, and the
             // designed `Collapsed` is only where the application opens, so the write

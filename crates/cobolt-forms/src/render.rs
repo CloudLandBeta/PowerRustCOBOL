@@ -1283,6 +1283,9 @@ pub fn self_clipping_type(ct: &ControlType) -> bool {
     //                  chrome is what changed the measurement, and the harness
     //                  is what said so — T31's job, answered where the paint
     //                  that earned it landed rather than guessed at in advance.
+    //   Canvas2D, Canvas3D — measured 2026-11-04 (WASM-018 T18, 2.0.197): the picture a `Present`
+    //                  made and the placeholder before one are square rects that reach the
+    //                  control's own corners, so the notch mask covers them.
     !matches!(
         ct,
         ControlType::DataGrid
@@ -1291,6 +1294,8 @@ pub fn self_clipping_type(ct: &ControlType) -> bool {
             | ControlType::TabControl
             | ControlType::ToolBar
             | ControlType::Viewer
+            | ControlType::Canvas2D
+            | ControlType::Canvas3D
             | ControlType::Custom { .. }
     )
 }
@@ -3530,6 +3535,9 @@ fn render_form_inner(
             let pic_tex = if matches!(face.control_type, ControlType::PictureBox) {
                 crate::paint::picturebox_texture(ui.ctx(), sv(&face, "ImagePath").trim())
                     .map(|t| t.id())
+            } else if matches!(face.control_type, ControlType::Canvas2D | ControlType::Canvas3D) {
+                // WASM-018: the picture the host made from the canvas's last Present.
+                crate::paint::canvas_texture(ui.ctx(), &face.id).map(|t| t.id())
             } else {
                 None
             };
@@ -5021,6 +5029,9 @@ pub fn render_faces_with(
         let pic_tex = if matches!(face.control_type, ControlType::PictureBox) {
             crate::paint::picturebox_texture(painter.ctx(), sv(&face, "ImagePath").trim())
                 .map(|t| t.id())
+        } else if matches!(face.control_type, ControlType::Canvas2D | ControlType::Canvas3D) {
+            // WASM-018: the picture the host made from the canvas's last Present.
+            crate::paint::canvas_texture(painter.ctx(), &face.id).map(|t| t.id())
         } else {
             None
         };

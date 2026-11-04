@@ -3,6 +3,9 @@
 //
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
+// WASM-018: the interpreter holds the graphics registry, whose wgpu types make the Send/Sync proof for
+// `tokio::spawn` deeper than the default limit when the workspace's features are unified.
+#![recursion_limit = "256"]
 
 //! `cobolt-server` — the backend and the client that calls it
 //! (WASM-003, WASM-014, WASM-009).

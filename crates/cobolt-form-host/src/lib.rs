@@ -33,6 +33,9 @@
 //! | compiled glue | `cobolt_windows` replay ([`HostHooks::per_frame`]), compiled-block registration, headless fallback |
 //! | both glues | theme-pack *source* (disk discovery vs embedded art) and interpreter-thread spawn |
 
+/// WASM-018 T18 — Canvas2D textures from `Present`.
+#[cfg(feature = "graphics")]
+pub(crate) mod canvas;
 pub mod debug_link;
 pub mod diagnostics;
 pub mod file_dialog;

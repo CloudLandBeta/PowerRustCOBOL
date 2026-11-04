@@ -209,6 +209,13 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     --no-fail-fast` green; a GPU test (lavapipe in CI, T29) creates Canvas3D from a `RenderState`, renders, reports
     `Backend`; the operator checks Run Form, `rcrun run-form`, a child form and a compiled binary (MCP `run_form`,
     never UI automation).
+  - Evidence, Canvas2D half (2026-11-04, 2.0.197): `cobolt-runtime/src/canvas_frames.rs` (slot per canvas, `_CanvasFrame` update),
+    `cobolt-form-host/src/canvas.rs` (one `TextureHandle` per canvas, `set` in place, same texture id after a second Present),
+    `paint::draw_canvas_surface` (picture or placeholder) fed from both `pic_tex` sites in `render.rs`. Corner harnesses needed
+    `self_clipping_type` to exclude both canvases. `cobolt-forms` 97 result lines 0 failed, `cobolt-form-host` 212 passed,
+    `cobolt-runtime --lib` 557 passed, `cargo check --workspace --all-targets` ok. **Still open in T18:** Canvas3D from
+    `Frame::wgpu_render_state()` (`Gpu::from_shared`, `register_native_texture`, lost-device recreate), the GPU test, and the
+    operator's check of the four hosts.
 
 - [ ] **T19 — Desktop input and frame pacing** (R13, R14; AC12 on the desktop)
   - Files: `crates/cobolt-form-host/src/host.rs`

@@ -6025,6 +6025,20 @@ fn draw_control_body(
             }
             return;
         }
+        // WASM-018 R16/R17 - a canvas shows its picture (the texture the host made from the last `Present`),
+        // or, before there is one and in the Designer, a placeholder: name, kind, size.
+        CT::Canvas2D | CT::Canvas3D => {
+            draw_canvas_surface(painter, rect, ctrl, pic_tex, face_alpha);
+            if selected {
+                painter.rect_stroke(
+                    rect,
+                    corner,
+                    Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                    egui::StrokeKind::Middle,
+                );
+            }
+            return;
+        }
         // WASM-009 — the Sign in screen, or the hosted flow's one button, in the Designer's
         // language; the developer's own texts win (`auth_texts`).
         CT::Authentication => {
@@ -18422,6 +18436,61 @@ fn authentication_locale(ctx: &egui::Context) -> String {
 /// WASM-009 — the Authentication control's face: the Sign in screen (a title, the user name and
 /// password fields, the button, the two links the developer kept), or, with `Mode = Hosted`, the
 /// one button that goes to the provider's page. Inside the common frame, which the caller drew.
+/// Where a canvas's picture lives: the host stores one `egui::TextureHandle` per canvas in the context's
+/// temporary data under this key, and the two painters (the run form and the faces) read it back.
+pub fn canvas_texture_key(canvas_id: &str) -> egui::Id {
+    egui::Id::new(("wasm018-canvas-texture", canvas_id.trim().to_ascii_uppercase()))
+}
+
+/// The texture the host made for a canvas from its last `Present`, when there is one.
+pub fn canvas_texture(ctx: &egui::Context, canvas_id: &str) -> Option<egui::TextureHandle> {
+    ctx.data(|d| d.get_temp::<egui::TextureHandle>(canvas_texture_key(canvas_id)))
+}
+
+/// A Canvas2D or Canvas3D (WASM-018): its background, then its picture; with no picture yet (the Designer, or a
+/// form that has not presented) a dashed frame with the control's name, kind and size - identifiers and
+/// numbers only, so nothing here needs translating.
+fn draw_canvas_surface(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    ctrl: &Control,
+    tex: Option<egui::TextureId>,
+    alpha: f32,
+) {
+    let a8 = |c: Color32| c.gamma_multiply(alpha.clamp(0.0, 1.0));
+    let bg = ctrl
+        .get_prop("BackgroundColor")
+        .and_then(|v| parse_hex(v.as_str()))
+        .unwrap_or(Color32::TRANSPARENT);
+    if bg.a() > 0 {
+        painter.rect_filled(rect, 0.0, a8(bg));
+    }
+    if let Some(t) = tex {
+        painter.image(
+            t,
+            rect,
+            egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            a8(Color32::WHITE),
+        );
+        return;
+    }
+    let ink = a8(Color32::from_gray(130));
+    painter.rect_stroke(rect, 0.0, Stroke::new(1.0, ink), egui::StrokeKind::Inside);
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        format!(
+            "{}  {}  {} x {}",
+            ctrl.id,
+            ctrl.control_type.as_str(),
+            rect.width().round() as i64,
+            rect.height().round() as i64
+        ),
+        egui::FontId::proportional(12.0),
+        ink,
+    );
+}
+
 fn draw_authentication_screen(
     painter: &egui::Painter,
     rect: egui::Rect,

@@ -46,15 +46,19 @@ pub(crate) struct GraphicsState {
     pub handles: HashMap<String, cobolt_graphics::handles::Handle>,
     /// The canvas whose `onFrame` handler is running; `AutoPresent` presents it when the handler returns.
     pub frame_canvas: Option<String>,
+    /// This form's slot number in `canvas_frames`.
+    pub instance: u64,
+    /// Pictures published so far (the generation of the next one).
+    pub frames: u64,
 }
 
 impl GraphicsState {
     pub(crate) fn with_limits(limits: Limits) -> GraphicsState {
-        GraphicsState { registry: Registry::new(limits), handles: HashMap::new(), frame_canvas: None }
+        GraphicsState { registry: Registry::new(limits), handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0 }
     }
 
     pub(crate) fn new() -> GraphicsState {
-        GraphicsState { registry: Registry::new(project_limits()), handles: HashMap::new(), frame_canvas: None }
+        GraphicsState { registry: Registry::new(project_limits()), handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0 }
     }
 }
 
@@ -128,6 +132,7 @@ impl Interpreter {
         });
         match outcome {
             Ok(v) => {
+                self.graphics_publish_frame(obj, kind);
                 self.obj_set(obj, "LastError", String::new());
                 Some(to_text(&v))
             }
@@ -135,6 +140,38 @@ impl Interpreter {
                 self.obj_set(obj, "LastError", format!("{m} refused: {why}"));
                 Some(String::new())
             }
+        }
+    }
+
+    /// A Canvas2D that has just been presented hands its picture to the host (R16): one slot per canvas,
+    /// and a `_CanvasFrame` update that names it.
+    fn graphics_publish_frame(&mut self, obj: &str, kind: ObjectKind) {
+        if kind != ObjectKind::Canvas2D {
+            return;
+        }
+        let key = obj.trim().to_ascii_uppercase();
+        let Some(state) = self.graphics.as_mut() else { return };
+        let Some(h) = state.handles.get(&key).copied() else { return };
+        let picture = state
+            .registry
+            .with_canvas2d(h, |c, _| {
+                if !c.take_presented() {
+                    return Ok(None);
+                }
+                let (w, hgt) = c.device_size();
+                let mut px = vec![0u8; (w as usize) * (hgt as usize) * 4];
+                c.write_rgba_premultiplied(&mut px);
+                Ok(Some((w, hgt, px)))
+            })
+            .ok()
+            .flatten();
+        let Some((width, height, rgba_premultiplied)) = picture else { return };
+        state.frames += 1;
+        let (instance, generation) = (state.instance, state.frames);
+        crate::canvas_frames::publish(instance, obj, crate::canvas_frames::CanvasFrame { width, height, rgba_premultiplied, generation });
+        let spelled = self.form_spelling(obj);
+        if let Some(tx) = &self.state_tx {
+            let _ = tx.send(crate::StateUpdate::new(spelled, crate::canvas_frames::FRAME_PROP, crate::canvas_frames::token(instance, generation)));
         }
     }
 
@@ -162,6 +199,7 @@ impl Interpreter {
         match self.graphics.as_mut() {
             Some(g) => {
                 g.handles.clear();
+                crate::canvas_frames::forget(g.instance);
                 g.registry.release_owner(OWNER)
             }
             None => 0,
@@ -345,5 +383,26 @@ mod tests {
         println!("T17: ToImage handle {img}: pixel (5 5) = {inside:?}, (30 5) = {outside:?}");
         assert_eq!(inside, Value::Int(0xFF0000FFu32 as i64));
         assert_eq!(outside, Value::Int(0));
+    }
+
+    /// R16: a `Present` leaves the picture for the host and sends one `_CanvasFrame` update; a drawing method alone sends none.
+    #[test]
+    fn a_present_publishes_the_picture_and_tells_the_host() {
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "20"), ("Height", "10")])]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        i.state_tx = Some(tx);
+        call(&mut i, "CANVAS-1", "SetFillColor", &["#FF0000"]);
+        call(&mut i, "CANVAS-1", "FillRect", &["0", "0", "20", "10"]);
+        let before: Vec<_> = rx.try_iter().filter(|u| u.prop == crate::canvas_frames::FRAME_PROP).collect();
+        call(&mut i, "CANVAS-1", "Present", &[]);
+        let ups: Vec<_> = rx.try_iter().filter(|u| u.prop == crate::canvas_frames::FRAME_PROP).collect();
+        println!("T18: updates before Present {}, after {}", before.len(), ups.len());
+        assert_eq!((before.len(), ups.len()), (0, 1));
+        let f = crate::canvas_frames::take("canvas-1", &ups[0].value).expect("the picture");
+        println!("T18: published {}x{} picture, first pixel {:?}", f.width, f.height, &f.rgba_premultiplied[..4]);
+        assert_eq!((f.width, f.height), (20, 10));
+        assert_eq!(&f.rgba_premultiplied[..4], &[255, 0, 0, 255]);
+        i.release_graphics();
+        assert!(crate::canvas_frames::take("canvas-1", &ups[0].value).is_none(), "the form's end frees the slot");
     }
 }
