@@ -207,6 +207,11 @@ pub const GFX_REGION: u32 = 512 * 1024;
 /// Copy the staged display list into the arena's graphics region: the routines left its address and
 /// byte count in two words of their workspace, and the count is 0 when no `DRAW` is waiting.
 fn gfx_copy(f: &mut Function, arena_mem: u32, gfx_at: u32, meta: u64) {
+    // The first word of the region is cleared first, so a batch without a list leaves no stale `PRGD` for the
+    // host's glue to offer; a waiting list is copied over it.
+    f.instruction(&I::I32Const(gfx_at as i32));
+    f.instruction(&I::I32Const(0));
+    f.instruction(&I::I32Store(MemArg { offset: 0, align: 2, memory_index: arena_mem }));
     f.instruction(&I::I32Const(gfx_at as i32));
     f.instruction(&I::I32Const(0));
     f.instruction(&I::I32Load(mem0(meta, 2)));

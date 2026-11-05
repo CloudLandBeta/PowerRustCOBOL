@@ -129,6 +129,11 @@ impl Surface2D {
         self.reg.invoke(self.handle, method, &values).map(|v| show(&v)).map_err(|e| e.to_string())
     }
 
+    fn draw_list_inner(&mut self, list: &[u8]) -> Result<u32, String> {
+        let n = self.reg.draw_list(self.handle, list).map_err(|e| e.to_string())?;
+        Ok(n.min(u32::MAX as u64) as u32)
+    }
+
     fn take_presented_inner(&mut self) -> bool {
         self.call_inner("TakePresented", &[]).map(|v| v == "1").unwrap_or(false)
     }
@@ -160,6 +165,12 @@ impl Surface2D {
     pub fn call(&mut self, method: &str, args_json: &str) -> Result<String, JsError> {
         let args: Vec<String> = parse_args(args_json).map_err(|e| JsError::new(&e))?;
         self.call_inner(method, &args).map_err(|e| JsError::new(&e))
+    }
+
+    /// Execute one display list the program's module encoded (ABI A23, a `DRAW`), after what this canvas had
+    /// recorded; the answer is how many commands ran. A damaged list changes nothing and says why.
+    pub fn draw_list(&mut self, list: &[u8]) -> Result<u32, JsError> {
+        self.draw_list_inner(list).map_err(|e| JsError::new(&e))
     }
 
     /// Whether a `Present` has run since the last call of this: the page repaints when it has.
@@ -256,6 +267,24 @@ mod tests {
         assert!(parse_args("[1]").is_err());
         assert!(parse_args("{}").is_err());
         assert!(parse_args(r#"["open"#).is_err());
+    }
+
+    #[test]
+    fn a_list_from_the_module_is_drawn_after_the_recorded_calls_and_get_pixel_answers_what_was_drawn() {
+        let mut s = Surface2D::create(20, 10, 1.0).expect("a canvas");
+        // A call recorded first, then a list the module encoded (a DRAW): both draw, in that order.
+        s.call_inner("SetFillColor", &["#0000FF".to_owned()]).unwrap();
+        s.call_inner("FillRect", &["0".into(), "0".into(), "20".into(), "10".into()]).unwrap();
+        let mut b = DisplayListBuilder::new();
+        b.set_fill_color(Rgba::new(255, 0, 0, 255));
+        b.fill_rect(0.0, 0.0, 10.0, 10.0);
+        b.present();
+        let list = b.take().expect("a list");
+        assert_eq!(s.draw_list_inner(&list), Ok(3), "the list's three commands ran");
+        assert!(s.take_presented_inner(), "the list's Present is told");
+        assert_eq!(s.call_inner("GetPixel", &["2".into(), "2".into()]).unwrap(), "4278190335", "red, 0xFF0000FF, inside the list's rectangle");
+        assert_eq!(s.call_inner("GetPixel", &["15".into(), "5".into()]).unwrap(), "65535", "blue 0x0000FFFF from the earlier call");
+        assert!(s.draw_list_inner(b"nope").is_err(), "a damaged list is refused with the reason");
     }
 
     #[test]

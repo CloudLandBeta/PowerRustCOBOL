@@ -370,6 +370,10 @@ pub(crate) trait Surface {
     fn ui_op(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, op: UiOp);
     /// A user's act the host cannot perform by itself: resolve a menu item, show a notice, open a window.
     fn act(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, act: Act);
+    /// A read-back of the Canvas2D `ctl` (`GetPixel`, `ToImage` ...), answered by the Canvas part (WASM-018 T25).
+    fn canvas_read(&self, _inner: &Rc<Inner>, _inst: u32, _ctl: usize, _method: &str, _args: &[String]) -> crate::host::CanvasRead {
+        crate::host::CanvasRead::NotLoaded
+    }
 }
 
 /// What the page needs besides the forms: stylesheets, the asset table, the locale. Kept here so
@@ -921,6 +925,19 @@ async fn drive(inner: &Rc<Inner>, link: &Rc<JsLink>) {
     }
 }
 
+/// Let the host ask the Canvas part for the answer of a read-back (ABI A23, WASM-018 T25). The hook holds the player weakly.
+fn install_canvas_read(inner: &Rc<Inner>) {
+    let weak = Rc::downgrade(inner);
+    inner.host.borrow_mut().canvas_read = Some(Rc::new(move |inst, ctl, method, args| {
+        let Some(inner) = weak.upgrade() else { return crate::host::CanvasRead::NotLoaded };
+        let sf = inner.surface.borrow();
+        match sf.as_ref() {
+            Some(sf) => sf.canvas_read(&inner, inst, ctl, method, args),
+            None => crate::host::CanvasRead::NotLoaded,
+        }
+    }));
+}
+
 /// The ABI host for the program whose manifest is `manifest_json`, set up as the page's configuration says.
 fn make_host(cfg: &PlayerConfig, manifest_json: &str) -> Result<Host, JsError> {
     let manifest = Manifest::parse(manifest_json).map_err(|e| JsError::new(&e.to_string()))?;
@@ -1050,6 +1067,7 @@ impl Player {
         let el: web_sys::Element = root.dyn_into().map_err(|_| JsError::new("mount() needs a DOM element"))?;
         let surface = crate::dom::create(&self.inner, el).map_err(|e| JsError::new(&e))?;
         *self.inner.surface.borrow_mut() = Some(surface);
+        install_canvas_read(&self.inner);
         // The sheets the loader set before the page existed (a form's, the project's, a theme file — WASM-007
         // R4) had no surface to go to: apply them now.
         self.inner.styles_changed();
@@ -1094,13 +1112,23 @@ impl Player {
 
     // ── the module's imports ────────────────────────────────────────────────
 
-    pub fn flush(&self, bytes: &[u8]) {
-        self.inner.host.borrow_mut().flush(bytes);
+    /// `gfx` is the display list the module left in the graphics region for this batch (ABI A23): given when the
+    /// region starts with a list, which a `DRAW` of the batch then names.
+    pub fn flush(&self, bytes: &[u8], gfx: Option<js_sys::Uint8Array>) {
+        let mut h = self.inner.host.borrow_mut();
+        if let Some(g) = gfx {
+            h.set_gfx(g.to_vec());
+        }
+        h.flush(bytes);
     }
 
     /// The answer of the query that ends the batch, or `undefined` with [`Player::last_error`] set.
-    pub fn query(&self, bytes: &[u8]) -> Option<Vec<u8>> {
-        self.inner.host.borrow_mut().query(bytes).ok()
+    pub fn query(&self, bytes: &[u8], gfx: Option<js_sys::Uint8Array>) -> Option<Vec<u8>> {
+        let mut h = self.inner.host.borrow_mut();
+        if let Some(g) = gfx {
+            h.set_gfx(g.to_vec());
+        }
+        h.query(bytes).ok()
     }
 
     pub fn last_error(&self) -> i32 {
@@ -1332,6 +1360,7 @@ impl Player {
             // The instances leave the page (teardown reported each one closed).
             inner.process_effects();
             *inner.host.borrow_mut() = fresh;
+            install_canvas_read(&inner);
             *inner.link.borrow_mut() = None;
             inner.inbox.borrow_mut().clear();
             inner.driving.set(false);

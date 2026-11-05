@@ -28,13 +28,26 @@ use crate::api::Inner;
 /// start-up cannot fill the page's memory while the part is being fetched.
 const MAX_PENDING: usize = 200_000;
 
+/// Something a canvas has been asked to do, kept in the order made until the part can run it.
+pub(crate) enum Item {
+    /// A drawing method by name with its arguments as texts (the first is the method).
+    Call(Vec<String>),
+    /// A display list the module encoded (ABI A23, a `DRAW`).
+    List(Vec<u8>),
+}
+
+/// The most bytes of display lists kept for a canvas whose part has not loaded yet.
+const MAX_PENDING_BYTES: usize = 64 * 1024 * 1024;
+
 /// What the page holds for one canvas.
 #[derive(Default)]
 pub(crate) struct CanvasRec {
     /// The part's `Surface2D` object, once the part has loaded.
     obj: Option<JsValue>,
     /// Calls made, in order, not yet run.
-    pending: VecDeque<Vec<String>>,
+    pending: VecDeque<Item>,
+    /// The bytes of the lists in `pending`.
+    pending_bytes: usize,
     loading: bool,
     /// The part could not load or build the surface: the reason, shown once, and the calls are dropped.
     failed: Option<String>,
@@ -63,10 +76,45 @@ impl Shared {
                 return;
             }
             if rec.pending.len() < MAX_PENDING {
-                rec.pending.push_back(args.to_vec());
+                rec.pending.push_back(Item::Call(args.to_vec()));
             }
         }
         self.canvas_pump(inner, inst, ctl);
+    }
+
+    /// A display list for the canvas: `args[0]` names it in the form's tree (ABI A23).
+    pub(crate) fn canvas_draw(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, args: &[String]) {
+        let Some(seq) = args.first().and_then(|s| s.parse::<u64>().ok()) else { return };
+        let list = inner.host.try_borrow_mut().ok().and_then(|mut h| h.trees.get_mut(&inst).and_then(|t| t.take_gfx(seq)));
+        let Some(list) = list else { return };
+        {
+            let mut map = self.canvas.borrow_mut();
+            let rec = map.entry((inst, ctl)).or_default();
+            if rec.failed.is_some() {
+                return;
+            }
+            if rec.pending.len() < MAX_PENDING && rec.pending_bytes + list.len() <= MAX_PENDING_BYTES {
+                rec.pending_bytes += list.len();
+                rec.pending.push_back(Item::List(list));
+            }
+        }
+        self.canvas_pump(inner, inst, ctl);
+    }
+
+    /// Answer a read-back of the canvas (`GetPixel`, `MeasureText`, `ToImage` ...) with the picture the part holds:
+    /// what was drawn before it is run first, so the answer is of the picture at this point of the program. Before the
+    /// part has loaded there is nothing to answer from.
+    pub(crate) fn canvas_read(self: &Rc<Self>, _inner: &Rc<Inner>, inst: u32, ctl: usize, method_name: &str, args: &[String]) -> crate::host::CanvasRead {
+        use crate::host::CanvasRead;
+        let obj = self.canvas.borrow().get(&(inst, ctl)).and_then(|r| r.obj.clone());
+        let Some(obj) = obj else { return CanvasRead::NotLoaded };
+        self.canvas_run(inst, ctl);
+        let Some(call) = method(&obj, "call") else { return CanvasRead::Refused("the canvas part has no call".into()) };
+        let json = serde_json::to_string(args).unwrap_or_else(|_| "[]".into());
+        match call.call2(&obj, &method_name.into(), &json.as_str().into()) {
+            Ok(v) => CanvasRead::Answer(v.as_string().unwrap_or_default()),
+            Err(e) => CanvasRead::Refused(message(&e)),
+        }
     }
 
     /// Make sure the part is loading, or run what is waiting if it has loaded.
@@ -134,14 +182,28 @@ impl Shared {
             let mut map = self.canvas.borrow_mut();
             let Some(rec) = map.get_mut(&key) else { return };
             let Some(obj) = rec.obj.clone() else { return };
+            rec.pending_bytes = 0;
             (obj, std::mem::take(&mut rec.pending))
         };
         let Some(call) = method(&obj, "call") else { return };
-        for c in calls {
-            let args = serde_json::to_string(&c[1..]).unwrap_or_else(|_| "[]".into());
-            if let Err(e) = call.call2(&obj, &c[0].as_str().into(), &args.as_str().into()) {
-                // A refused call is the program's mistake, said once and not fatal: the rest still draws.
-                web_sys::console::warn_1(&format!("[pr] Canvas2D {}: {}", c[0], message(&e)).into());
+        let draw = method(&obj, "draw_list");
+        for item in calls {
+            match item {
+                Item::Call(c) => {
+                    let args = serde_json::to_string(&c[1..]).unwrap_or_else(|_| "[]".into());
+                    if let Err(e) = call.call2(&obj, &c[0].as_str().into(), &args.as_str().into()) {
+                        // A refused call is the program's mistake, said once and not fatal: the rest still draws.
+                        web_sys::console::warn_1(&format!("[pr] Canvas2D {}: {}", c[0], message(&e)).into());
+                    }
+                }
+                Item::List(bytes) => {
+                    if let Some(draw) = &draw {
+                        let view = js_sys::Uint8Array::from(bytes.as_slice());
+                        if let Err(e) = draw.call1(&obj, &view) {
+                            web_sys::console::warn_1(&format!("[pr] Canvas2D display list: {}", message(&e)).into());
+                        }
+                    }
+                }
             }
         }
         let presented = method(&obj, "take_presented").and_then(|f| f.call0(&obj).ok()).and_then(|v| v.as_bool()).unwrap_or(false);

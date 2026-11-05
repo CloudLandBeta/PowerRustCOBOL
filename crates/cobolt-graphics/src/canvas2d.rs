@@ -134,6 +134,18 @@ impl Canvas2D {
 
     fn run(&mut self, res: &dyn Resources) -> Result<Outcome> {
         let bytes = self.list.take()?;
+        self.run_bytes(&bytes, res)
+    }
+
+    /// Draw an already-encoded display list (ABI A23: a list the program's module encoded) after what was
+    /// recorded here, in order. The answer is the number of commands that ran.
+    pub fn execute_list(&mut self, res: &dyn Resources, bytes: &[u8]) -> Result<FlushReport> {
+        self.flush(res)?;
+        let out = self.run_bytes(bytes, res)?;
+        Ok(FlushReport { commands: out.commands_executed, presented: out.presented, diagnostics: out.diagnostics })
+    }
+
+    fn run_bytes(&mut self, bytes: &[u8], res: &dyn Resources) -> Result<Outcome> {
         self.host_calls += 1;
         let out = self.surface.execute(&bytes, res)?;
         if out.presented {

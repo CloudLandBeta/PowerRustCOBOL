@@ -212,9 +212,11 @@ fn build_part(crate_dir: &Path, target_dir: &Path, out: &Path, name: &str, packa
     let bg = vdir.join(format!("{name}_bg.wasm"));
     let bindgen = size(&bg);
     let opt = vdir.join(format!("{name}_bg.opt.wasm"));
+    // The canvas part carries the text engine and the image codecs, whose code uses 128-bit vector instructions: the
+    // optimiser must be told they are allowed (every browser the player supports runs them).
     run(
         Command::new("wasm-opt")
-            .args(["-Os", "--enable-bulk-memory", "--enable-sign-ext", "--enable-mutable-globals", "--enable-nontrapping-float-to-int", "--enable-reference-types", "--enable-multivalue"])
+            .args(["-Os", "--enable-bulk-memory", "--enable-sign-ext", "--enable-mutable-globals", "--enable-nontrapping-float-to-int", "--enable-reference-types", "--enable-multivalue", "--enable-simd"])
             .arg(&bg)
             .arg("-o")
             .arg(&opt),

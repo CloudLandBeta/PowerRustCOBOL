@@ -287,13 +287,23 @@ function createMainLink(env, module, manifest, bridge) {
   // A view is taken at EACH use, from the memory object, and dropped at once (WASM-017 R10): the
   // buffer of a memory is replaced when it grows, and a view over the old one is dead.
   const view = (off, len) => new Uint8Array(ex.arena.buffer, base + off, len);
+  // The display list the module left in the graphics region for this batch (ABI A23), or undefined: the module
+  // clears the first word of the region whenever a batch has no list, so a stale list is never offered.
+  const gfxOff = L.batch_size + L.answer_size + 2 * L.frame_size;
+  const gfxList = () => {
+    if (!L.gfx_size) return undefined;
+    const head = view(gfxOff, 16);
+    if (head[0] !== 0x50 || head[1] !== 0x52 || head[2] !== 0x47 || head[3] !== 0x44) return undefined;
+    const n = 16 + new DataView(head.buffer, head.byteOffset, 16).getUint32(12, true);
+    return view(gfxOff, Math.min(n, L.gfx_size));
+  };
   const imports = {
     pr: {
       flush(len) {
-        bridge.player.flush(view(batchOff, len));
+        bridge.player.flush(view(batchOff, len), gfxList());
       },
       query(len) {
-        const answer = bridge.player.query(view(batchOff, len));
+        const answer = bridge.player.query(view(batchOff, len), gfxList());
         if (answer === undefined || answer === null) return bridge.player.last_error();
         view(answerOff, answer.length).set(answer);
         return answer.length;
@@ -434,10 +444,10 @@ function createWorkerLink(env, module, manifest, bridge, workerUrl, policy) {
         readyReject(new LoadError(m.message, 'abi'));
         break;
       case 'flush':
-        bridge.player.flush(m.bytes);
+        bridge.player.flush(m.bytes, m.gfx);
         break;
       case 'query': {
-        const answer = bridge.player.query(m.bytes);
+        const answer = bridge.player.query(m.bytes, m.gfx);
         if (answer === undefined || answer === null) reply(bridge.player.last_error());
         else reply(answer.length, answer);
         break;
@@ -1028,6 +1038,16 @@ function copyOut(off, len) {
   return view(off, len).slice();
 }
 
+// The display list the module left for this batch (ABI A23), copied, or undefined (see createMainLink).
+function copyGfx() {
+  if (!L.gfx_size) return undefined;
+  const off = L.batch_size + L.answer_size + 2 * L.frame_size;
+  const head = view(off, 16);
+  if (head[0] !== 0x50 || head[1] !== 0x52 || head[2] !== 0x47 || head[3] !== 0x44) return undefined;
+  const n = 16 + new DataView(head.buffer, head.byteOffset, 16).getUint32(12, true);
+  return view(off, Math.min(n, L.gfx_size)).slice();
+}
+
 function waitForReply() {
   // The main thread writes the length (or a negative code) at header[1], then sets header[0] to 1.
   Atomics.wait(header, 0, 0);
@@ -1044,12 +1064,14 @@ function makeImports() {
     pr: {
       flush(len) {
         const bytes = copyOut(batchOff, len);
-        post({ type: 'flush', bytes }, [bytes.buffer]);
+        const gfx = copyGfx();
+        post({ type: 'flush', bytes, gfx }, gfx ? [bytes.buffer, gfx.buffer] : [bytes.buffer]);
       },
       query(len) {
         const bytes = copyOut(batchOff, len);
+        const gfx = copyGfx();
         Atomics.store(header, 0, 0);
-        post({ type: 'query', bytes }, [bytes.buffer]);
+        post({ type: 'query', bytes, gfx }, gfx ? [bytes.buffer, gfx.buffer] : [bytes.buffer]);
         const code = waitForReply();
         if (code < 0) return code;
         view(answerOff, code).set(data.subarray(0, code));

@@ -271,11 +271,40 @@ pub fn on_event(cx: &ViewCtx, ctl: usize, p: &Payload) -> Vec<Act> {
     acts
 }
 
+/// The input events of a canvas (WASM-018 R13, ABI A23 §12.2): the pointer as `x y`, the point in the canvas's own pixels
+/// rounded and separated by a space, and a key as its name, which are the argument texts the desktop host raises
+/// (`cobolt-forms` `canvas_input.rs`). A handler reads the same text on every host.
+fn canvas_act(name: &'static str, args: Vec<String>) -> Act {
+    Act::Event { name, args }
+}
+
+fn canvas_events(c: &Ctl, p: &Payload) -> Vec<Act> {
+    if p.key != "canvas" || !c.enabled() {
+        return Vec::new();
+    }
+    let point = format!("{} {}", p.x.round() as i64, p.y.round() as i64);
+    let name = match p.kind.as_str() {
+        "pointerdown" => "onPointerDown",
+        "pointermove" => "onPointerMove",
+        "pointerup" => "onPointerUp",
+        "pointerenter" => "onPointerEnter",
+        "pointerleave" => "onPointerLeave",
+        "keydown" => return vec![canvas_act("onKeyDown", vec![p.key_name.clone()])],
+        "keyup" => return vec![canvas_act("onKeyUp", vec![p.key_name.clone()])],
+        _ => return Vec::new(),
+    };
+    let args = if matches!(p.kind.as_str(), "pointerleave") { Vec::new() } else { vec![point] };
+    vec![canvas_act(name, args)]
+}
+
 fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
     let tree = cx.tree;
     let c = tree.ctl(i);
     if crate::kinds::is_authentication(c) {
         return authentication(cx, i, p);
+    }
+    if matches!(crate::kinds::player_kind(c), Some(crate::kinds::PlayerKind::Canvas2D | crate::kinds::PlayerKind::Canvas3D)) {
+        return canvas_events(c, p);
     }
     if crate::kinds::player_kind(c).is_some() {
         return Vec::new();
@@ -1368,6 +1397,25 @@ mod tests {
                 other => format!("{other:?}"),
             })
             .collect()
+    }
+
+    #[test]
+    fn a_canvas_raises_the_pointer_and_key_events_with_the_argument_texts_of_amendment_a23() {
+        let (t, i) = tree_with("Canvas2D", "CNV-A", &[]);
+        let e = Empty::default();
+        let mut down = Payload::new("pointerdown", "canvas");
+        down.x = 12.4;
+        down.y = 7.6;
+        assert_eq!(names(&run(&t, i, &e, down)), ["onPointerDown(12 8)"], "the point in the canvas's pixels, rounded, space-separated");
+        let mut mv = Payload::new("pointermove", "canvas");
+        mv.x = 0.0;
+        mv.y = 99.5;
+        assert_eq!(names(&run(&t, i, &e, mv)), ["onPointerMove(0 100)"]);
+        assert_eq!(names(&run(&t, i, &e, Payload::new("pointerleave", "canvas"))), ["onPointerLeave"], "a pointer that left has no position");
+        let mut key = Payload::new("keydown", "canvas");
+        key.key_name = "ArrowLeft".into();
+        assert_eq!(names(&run(&t, i, &e, key)), ["onKeyDown(ArrowLeft)"]);
+        println!("Canvas2D: pointerdown 12.4,7.6 -> onPointerDown(12 8); pointermove -> onPointerMove(0 100); pointerleave -> none; ArrowLeft -> onKeyDown(ArrowLeft)");
     }
 
     #[test]

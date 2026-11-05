@@ -307,6 +307,8 @@ enum GridOp {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Stats {
     pub flushes: u64,
+    /// Display lists handed to the Canvas part (ABI A23 `DRAW`).
+    pub draws: u64,
     pub queries: u64,
     pub remotes: u64,
     pub aborts: u64,
@@ -397,9 +399,26 @@ struct InFlight {
     event_desc: Option<(String, String)>,
 }
 
+/// What the Canvas part answered to a read-back of a Canvas2D.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CanvasRead {
+    /// The answer, as text.
+    Answer(String),
+    /// The part refused the call, or could not run: the reason.
+    Refused(String),
+    /// The part has not loaded yet: nothing can be answered now.
+    NotLoaded,
+}
+
 /// The ABI host.
 pub struct Host {
     pub manifest: Rc<Manifest>,
+    /// The display list a `flush` brought with it, read from the graphics region by the page (ABI A23); the batch's
+    /// `DRAW` names a part of it. Taken by the first `DRAW` that uses it.
+    gfx: Option<Vec<u8>>,
+    /// Answers a read-back of a Canvas2D (`GetPixel`, `ToImage`, `MeasureText` ...) with the picture the Canvas part
+    /// holds; set by the page. `None` in a host with no page (the tests of the host alone).
+    pub canvas_read: Option<Rc<dyn Fn(u32, usize, &str, &[String]) -> CanvasRead>>,
     layout: ArenaLayout,
     forms: Vec<Option<Rc<Form>>>,
     pub trees: BTreeMap<u32, FormTree>,
@@ -493,6 +512,8 @@ impl Host {
         let n = manifest.forms.len();
         Host {
             manifest: Rc::new(manifest),
+            gfx: None,
+            canvas_read: None,
             layout,
             forms: vec![None; n],
             trees: BTreeMap::new(),
@@ -1438,6 +1459,31 @@ impl Host {
         self.stats.flushes += 1;
         self.stats.bytes_in += bytes.len() as u64;
         self.apply_batch(bytes, false);
+        self.gfx = None;
+    }
+
+    /// The display list of this flush (ABI A23), from the graphics region: set by the page before `flush` or `query`
+    /// when the module sent one.
+    pub fn set_gfx(&mut self, list: Vec<u8>) {
+        self.gfx = Some(list);
+    }
+
+    fn cmd_draw(&mut self, inst: u32, ctrl: u32, offset: u32, len: u32) -> Result<(), CmdError> {
+        let Some(tree) = self.trees.get_mut(&inst) else {
+            return Err(CmdError::Unknown(format!("DRAW names instance {inst}, which is not open")));
+        };
+        let Some(idx) = tree.by_abi(ctrl) else {
+            return Err(CmdError::Unknown(format!("DRAW names control {ctrl}, which the form does not have")));
+        };
+        let (o, l) = (offset as usize, len as usize);
+        let list = self.gfx.as_ref().and_then(|g| g.get(o..o.checked_add(l)?));
+        let Some(list) = list else {
+            return Err(CmdError::Bad(format!("DRAW names {len} bytes at {offset} of the graphics region, which this flush did not bring")));
+        };
+        let list = list.to_vec();
+        self.stats.draws += 1;
+        self.trees.get_mut(&inst).expect("checked").draw(idx, list);
+        Ok(())
     }
 
     /// `query(len)`: apply the commands, evaluate the final query, return its answer text as bytes.
@@ -1445,6 +1491,7 @@ impl Host {
         self.stats.queries += 1;
         self.stats.bytes_in += bytes.len() as u64;
         let answer = self.apply_batch(bytes, true);
+        self.gfx = None;
         match answer {
             Some(Ok(text)) => {
                 if text.len() > self.layout.answer_size as usize {
@@ -1529,9 +1576,13 @@ impl Host {
                         self.report_cmd_error(e);
                     }
                 }
-                // ABI A23: the canvas part draws the list (WASM-018 T25). Until then the command is
-                // read and not applied, so a module with a Canvas2D loads and runs.
-                Command::Draw { .. } => {}
+                // ABI A23: the list is in the graphics region, which the page read for this flush; the canvas part
+                // draws it, in order with the control's other commands.
+                Command::Draw { inst, ctrl, offset, len } => {
+                    if let Err(e) = self.cmd_draw(inst, ctrl, offset, len) {
+                        self.report_cmd_error(e);
+                    }
+                }
                 Command::Display(t) => self.effects.push(Effect::Display(t.to_owned())),
                 Command::Log { level, text } => {
                     if level <= self.opts.debug_level {
@@ -1759,6 +1810,11 @@ impl Host {
                 });
             }
         }
+        if let Some(r) = self.canvas_readback(inst, idx, method, args) {
+            return r.map_err(|e| match e {
+                CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
+            });
+        }
         let r = {
             let tree = self.trees.get_mut(&inst).expect("checked");
             methods::call(tree, idx, method, args)
@@ -1770,6 +1826,21 @@ impl Host {
             }
             Err(e) => Err(e.to_string()),
         }
+    }
+
+    /// A read-back of a Canvas2D is answered by the Canvas part, with the picture it holds (WASM-018 T25); `None`
+    /// when the call is not one, or when no page asked to answer them.
+    fn canvas_readback(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Option<Result<Option<String>, CmdError>> {
+        if !methods::is_canvas_readback(&self.trees[&inst].ctls[idx], name) {
+            return None;
+        }
+        let read = self.canvas_read.clone()?;
+        let texts: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+        Some(match read(inst, idx, name, &texts) {
+            CanvasRead::Answer(a) => Ok(Some(a)),
+            CanvasRead::Refused(why) => Err(CmdError::Refused(why)),
+            CanvasRead::NotLoaded => Err(CmdError::Refused(format!("{name} reads the picture back, and the Canvas part has not finished loading: call it once the form has been shown (for example from the first onFrame)"))),
+        })
     }
 
     fn cmd_call(&mut self, path: &Path<'_>) -> Result<Option<String>, CmdError> {
@@ -1808,6 +1879,9 @@ impl Host {
             if let Some(r) = self.grid_method(inst, idx, name) {
                 return r;
             }
+        }
+        if let Some(r) = self.canvas_readback(inst, idx, name, args) {
+            return r;
         }
         let r = {
             let tree = self.trees.get_mut(&inst).unwrap();
@@ -2790,6 +2864,8 @@ impl Host {
     }
 }
 
+#[cfg(test)]
+mod canvas_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]

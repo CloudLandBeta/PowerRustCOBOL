@@ -1022,6 +1022,10 @@ impl Surface for Dom {
     fn act(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, act: Act) {
         self.sh.act(inner, inst, ctl, act);
     }
+
+    fn canvas_read(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, method: &str, args: &[String]) -> crate::host::CanvasRead {
+        self.sh.canvas_read(inner, inst, ctl, method, args)
+    }
 }
 
 /// What a render pass learned about one instance.

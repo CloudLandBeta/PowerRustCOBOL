@@ -164,6 +164,29 @@ export class Surface2D {
         return ret >>> 0;
     }
     /**
+     * Execute one display list the program's module encoded (ABI A23, a `DRAW`), after what this canvas had
+     * recorded; the answer is how many commands ran. A damaged list changes nothing and says why.
+     * @param {Uint8Array} list
+     * @returns {number}
+     */
+    draw_list(list) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(list, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.surface2d_draw_list(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * A canvas of `width` x `height` logical pixels at `pixel_ratio`.
      * @param {number} width
      * @param {number} height

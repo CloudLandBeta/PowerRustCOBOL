@@ -304,6 +304,7 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
   - Verify: `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --no-fail-fast` green with: `GetPixel`
     after drawing answers the drawn colour; a read-back during part load suspends and resumes; `DrawText` and
     `DrawImage` draw in the part. Part size before/after reported.
+  - **Status 2026-11-05 (2.0.206): partly done, not ticked.** Done: `DRAW` drawn by the Canvas part; read-backs answered by it once loaded; text + imagebuf in the part (655,286 → 3,173,219 bytes after wasm-opt); pointer and key events with the A23 texts. Open: a read-back before the part has loaded is refused with a sentence, not suspended (needs a generator change); `onFrame`, `onWheel`, touch events; a real `DrawText`/`DrawImage` check in a browser (needs fonts, T27).
 
 - [ ] **T26 — Player parts for plot, scene3d, physics (and ImageBuffer by measurement)** (R16, R18; AC5, AC14 part)
   - Files: `crates/cobolt-web-player/parts/*`, `examples/build_player.rs`, the Build report (`BuildReport`/`PartSize`,

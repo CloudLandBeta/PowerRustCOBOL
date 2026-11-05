@@ -228,6 +228,11 @@ pub struct FormTree {
     /// contents of an expanded card is taken from (spec 090, [`crate::zoom`]). Set by the page; a card that is not expanded has none.
     pub card_boxes: BTreeMap<usize, (f64, f64)>,
     changes: Vec<Change>,
+    /// Display lists a module sent for a Canvas2D (ABI A23), by sequence number, until the page has drawn them. The
+    /// change queue carries only the `canvas-draw` command that names the list, so drawing keeps its order with the
+    /// other commands of the control.
+    gfx: HashMap<u64, Vec<u8>>,
+    gfx_seq: u64,
     /// Properties a running program has written, by control: a breakpoint never overrides one (spec 056 R64).
     written: std::collections::HashSet<(usize, String)>,
     /// The Viewers' conversations, by control.
@@ -531,6 +536,8 @@ impl FormTree {
             font_factor: 1.0,
             card_boxes: BTreeMap::new(),
             changes: Vec::new(),
+            gfx: HashMap::new(),
+            gfx_seq: 0,
             written: std::collections::HashSet::new(),
             conversations: BTreeMap::new(),
             auths: BTreeMap::new(),
@@ -716,6 +723,19 @@ impl FormTree {
                 self.set_from_ui(ctl, k, &v);
             }
         }
+    }
+
+    /// A display list for the Canvas2D `ctl` (ABI A23): the page draws it, in order with the control's other commands.
+    pub fn draw(&mut self, ctl: usize, list: Vec<u8>) {
+        self.gfx_seq += 1;
+        let seq = self.gfx_seq;
+        self.gfx.insert(seq, list);
+        self.command(ctl, "canvas-draw", vec![seq.to_string()]);
+    }
+
+    /// The list `canvas-draw` named `seq`, once (the page takes it to draw it).
+    pub fn take_gfx(&mut self, seq: u64) -> Option<Vec<u8>> {
+        self.gfx.remove(&seq)
     }
 
     /// Record a command for the renderer (focus, select-all, a timer start, …).

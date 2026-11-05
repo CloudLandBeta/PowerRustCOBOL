@@ -730,6 +730,7 @@ impl Shared {
     fn run_command(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, name: &str, args: &[String]) {
         match name {
             "canvas-call" => self.canvas_call(inner, inst, ctl, args),
+            "canvas-draw" => self.canvas_draw(inner, inst, ctl, args),
             "focus" | "setfocus" => {
                 if let Some(el) = self.control_element(inst, ctl) {
                     let inner_focusable = el.query_selector("input,textarea,select,button,[tabindex]").ok().flatten();

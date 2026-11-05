@@ -472,6 +472,15 @@ impl Registry {
         })
     }
 
+    /// Draw an encoded display list on a Canvas2D, after what it recorded (ABI A23); the answer is how many
+    /// commands ran. Images and text refer to the objects of this registry, as in any drawing method.
+    pub fn draw_list(&mut self, handle: Handle, bytes: &[u8]) -> Result<u64> {
+        self.with_canvas2d(handle, |c, r| {
+            let res = r.resources();
+            Ok(c.execute_list(&res, bytes)?.commands)
+        })
+    }
+
     /// Use an ImageBuffer.
     #[cfg(feature = "imagebuf")]
     pub fn with_image<R>(&mut self, handle: Handle, f: impl FnOnce(&mut ImageBuffer, &mut Registry) -> Result<R>) -> Result<R> {

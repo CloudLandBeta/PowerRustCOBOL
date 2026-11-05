@@ -624,6 +624,16 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
 /// own) and paints the picture when `Present` runs. A method that *reads* the picture back (`GetPixel`,
 /// `MeasureText`, `IsPointInPath`, `ToImage`, `Capture`, ...) needs an answer now, which the browser cannot give
 /// while the part may still be loading, so it is refused with that reason rather than answered wrongly.
+/// Does `method` of the control read the picture back (so it needs the Canvas part's answer)? Not the three that the
+/// control answers from its own properties.
+pub(crate) fn is_canvas_readback(ctl: &crate::tree::Ctl, method: &str) -> bool {
+    if crate::kinds::player_kind(ctl) != Some(crate::kinds::PlayerKind::Canvas2D) {
+        return false;
+    }
+    let m = method.trim().to_ascii_uppercase();
+    !matches!(m.as_str(), "GETWIDTH" | "GETHEIGHT" | "GETPIXELRATIO") && (m.starts_with("GET") || m.starts_with("IS") || m.starts_with("MEASURE") || matches!(m.as_str(), "PENDINGCOMMANDS" | "HOSTCALLS" | "TAKEPRESENTED" | "TOIMAGE" | "CAPTURE"))
+}
+
 fn canvas_method(tree: &mut FormTree, ctl: usize, method: &str, m: &str, args: &[&str]) -> Result<Outcome, MethodError> {
     let mut out = Outcome::default();
     match m {
