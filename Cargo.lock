@@ -2610,6 +2610,7 @@ dependencies = [
  "cobolt-codegen",
  "cobolt-decimal",
  "cobolt-forms",
+ "cobolt-graphics",
  "cobolt-graphics-wire",
  "cobolt-lexer",
  "cobolt-parser",

@@ -62,5 +62,7 @@ wasmparser      = { version = "0.244", features = ["validate", "features"] }
 cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-runtime  = { path = "../cobolt-runtime" }
+# WASM-018 T24 (AC13): the interpreter's Canvas2D records the list the module's bytes are compared with.
+cobolt-graphics = { path = "../cobolt-graphics" }
 # A form generated the way the Build generates it, and its source map (R14).
 cobolt-codegen  = { path = "../cobolt-codegen" }

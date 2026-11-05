@@ -133,3 +133,54 @@ fn a_module_without_a_canvas_never_emits_draw() {
     assert!(o.draws.is_empty() && o.errors.is_empty(), "{o:?}");
     eprintln!("no canvas: gfx_size 0, {} DRAW commands, {} sets", o.draws.len(), o.sets.len());
 }
+
+/// AC13: the list a generated module writes for a program is, byte for byte, the list the
+/// interpreter's Canvas2D records for the same calls (the colour as text and as a number, decimals,
+/// negative numbers, text, the 8-bit modes).
+#[test]
+fn the_module_and_the_interpreter_write_the_same_list() {
+    use cobolt_graphics::canvas2d::Canvas2D;
+    use cobolt_graphics::value::Value;
+    use cobolt_graphics::Limits;
+
+    let calls: Vec<(&str, Vec<Value>, &str)> = vec![
+        ("Save", vec![], ""),
+        ("SetFillColor", vec![Value::Text("#FF8000".into())], "\"#FF8000\""),
+        ("SetStrokeColor", vec![Value::Int(4278190335)], "4278190335"),
+        ("SetLineWidth", vec![Value::Num(2.5)], "2.5"),
+        ("FillRect", vec![Value::Num(12.5), Value::Int(-7), Value::Int(100), Value::Num(33.25)], "12.5 -7 100 33.25"),
+        ("DrawCircle", vec![Value::Int(50), Value::Int(60), Value::Num(12.75), Value::Int(1)], "50 60 12.75 1"),
+        ("BeginPath", vec![], ""),
+        ("MoveTo", vec![Value::Num(0.1), Value::Num(0.2)], "0.1 0.2"),
+        ("LineTo", vec![Value::Int(30), Value::Num(-4.125)], "30 -4.125"),
+        ("Arc", vec![Value::Int(40), Value::Int(40), Value::Int(15), Value::Num(0.0), Value::Num(1.5707), Value::Int(0)], "40 40 15 0 1.5707 0"),
+        ("Fill", vec![Value::Int(0)], "0"),
+        ("SetFont", vec![Value::Text("bold 14px sans-serif".into())], "\"bold 14px sans-serif\""),
+        ("DrawText", vec![Value::Text("Hello".into()), Value::Int(10), Value::Int(20), Value::Int(0), Value::Int(0)], "\"Hello\" 10 20 0 0"),
+        ("Restore", vec![], ""),
+        ("Present", vec![], ""),
+    ];
+
+    let mut canvas = Canvas2D::new(320, 240, 1.0, Limits::default()).unwrap();
+    for (name, values, _) in &calls {
+        canvas.record(name, values).unwrap_or_else(|e| panic!("the interpreter refused {name}: {e}"));
+    }
+    let interpreter = canvas.list().take().unwrap();
+
+    let body: String = calls
+        .iter()
+        .map(|(n, _, a)| if a.is_empty() { format!("    CNV-1::{n}()\n") } else { format!("    CNV-1::{n}( {a} )\n") })
+        .collect();
+    let (c, m) = compile(&[("GO", "Button"), ("CNV-1", "Canvas2D")], "", &body);
+    let mut host = FormHost::new(&c.wasm).unwrap();
+    let (inst, _) = host.open_form(0, -1);
+    let click = m.event_index("onClick").unwrap() as i32;
+    assert_eq!(host.event(inst, 3, click, &[]), 0, "{:?}", host.outcome());
+    let o = host.outcome();
+    assert!(o.errors.is_empty() && o.calls.is_empty(), "everything was encoded in the module: {} host calls, {:?}", o.calls.len(), o.errors);
+    assert_eq!(o.draws.len(), 1);
+    let module = &o.draws[0].2;
+    assert_eq!(module.len(), interpreter.len(), "interpreter {} bytes, module {} bytes", interpreter.len(), module.len());
+    assert!(*module == interpreter, "the lists differ");
+    eprintln!("AC13: {} calls -> interpreter {} bytes, module {} bytes, identical", calls.len(), interpreter.len(), module.len());
+}
