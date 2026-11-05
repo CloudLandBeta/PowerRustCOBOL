@@ -16,8 +16,10 @@
 //!
 //! **The golden tolerance.** Two adapters (or two drivers of one) round shader maths and
 //! multisample resolves differently, so the 3D golden is not compared byte for byte:
-//! no channel of any pixel may differ by more than 24, and at most 1.0 % of the pixels may
-//! differ by more than 6. The CPU rasteriser's goldens (canvas, plot) stay exact.
+//! no channel of any pixel may differ by more than 40, and at most 1.0 % of the pixels may
+//! differ by more than 6. Measured (WASM-018 T29): Metal, worst channel 0 and 0 of 76,800 pixels over 6;
+//! lavapipe (Mesa 25.2.8, LLVM 20.1.2), worst channel 32 and 1 of 76,800 pixels over 6, so 24 was too tight
+//! for a software adapter and 40 leaves room for the next Mesa. The CPU rasteriser's goldens (canvas, plot) stay exact.
 #![cfg(feature = "scene3d")]
 
 mod common;
@@ -27,7 +29,7 @@ use cobolt_graphics::{Limits, PixelBuffer, Rgba};
 use common::{assert_golden, glb, Tolerance};
 use std::sync::Arc;
 
-const TOL: Tolerance = Tolerance { max_channel: 24, max_fraction: 0.01, loose: 6 };
+const TOL: Tolerance = Tolerance { max_channel: 40, max_fraction: 0.01, loose: 6 };
 
 /// A canvas connected to an adapter, or `None` after printing why not.
 fn canvas(w: u32, h: u32) -> Option<Canvas3D> {

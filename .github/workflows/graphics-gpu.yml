@@ -65,6 +65,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Canvas3D adapter tests (no skipping)
+        # `shell: bash` runs with `-eo pipefail`: without it the `| tee` below hides a failing `cargo test` and the job goes green.
+        shell: bash
         env:
           GRAPHICS_REPORT_TOLERANCE: "1"
         run: |
@@ -74,7 +76,10 @@ jobs:
           ! grep -i "SKIPPED" scene3d.log
 
       - name: The golden tolerance measured on this adapter
+        if: always()
+        shell: bash
         run: |
+          echo "::notice title=Failures::$(grep -E '^test .* FAILED|panicked at' scene3d.log | tr '\n' ';' | cut -c1-900)"
           grep "GOLDEN-TOLERANCE" scene3d.log || true
           # The job summary can be read without signing in to GitHub (the log cannot): the adapter, the backend and the tolerance go there.
           {

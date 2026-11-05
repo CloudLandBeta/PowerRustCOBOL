@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.222 — 2026-11-05
+
+**WASM-018 T29: the lavapipe job can now go red, and it showed two tests failing on lavapipe.** *(Written on features-2x-wasm-pending, after 2.0.221.)* The green run of 2.0.220/2.0.221 was not honest: its annotations read `test result: FAILED. 16 passed; 2 failed`, because the step piped `cargo test` into `tee` and GitHub's default shell has no `pipefail`, so the failure vanished. The step now runs under `shell: bash` (which has it), and the reporting step runs even after a failure and names the failing tests. **Measured on lavapipe (Mesa 25.2.8, LLVM 20.1.2):** the 3D golden's worst channel is 32 (the old limit was 24), with 1 of 76,800 pixels over 6; on Metal it is 0 and 0. The limit is now 40, with both numbers written where it is defined. The second failing test is named by the next run.
+
 ## 2.0.221 — 2026-11-05
 
 **WASM-018 T29: the lavapipe run is green (run 42111370290), and its numbers are published as annotations.** *(Written on features-2x-wasm-pending, after 2.0.220.)* The repaired workflow ran green in 1 min 30 s. A signed-out visitor sees neither the log nor the job summary, but does see annotations, so the job now also prints the adapter, the backend, the golden tolerance and the test results as one `::notice` line each.
