@@ -29,6 +29,7 @@ pub fn flush() {
         s.batch_len = 0;
         // SAFETY: the glue function reads `len` staged bytes.
         unsafe { host::flush(s.ws + WS_BATCH, len) };
+        crate::gfx::delivered();
     }
 }
 
@@ -296,6 +297,17 @@ pub fn lossy(addr: u32, len: u32) -> (u32, u32) {
 /// [`flush`], after a line a `NO ADVANCING` left open: the task is giving the
 /// host control, and what it displayed must reach the console.
 pub fn flush_all() {
+    crate::gfx::send();
+    flush_batch();
+}
+
+/// A task yields: its batch goes, but a display list still being built stays staged (it is sent by a
+/// `Present`, a read-back or the end of the handler), so a long drawing loop is one `DRAW`.
+pub fn flush_yield() {
+    flush_batch();
+}
+
+fn flush_batch() {
     if st().disp_len > 0 {
         end_line();
     }

@@ -96,7 +96,10 @@ pub const ERR_TEXT_MAX: u32 = 252;
 pub const WS_EV_ARG: u32 = WS_ERR_TEXT + 4 + ERR_TEXT_MAX;
 pub const EV_ARG_MAX: u32 = 4096;
 /// Total workspace size the generator must reserve.
-pub const WS_SIZE: u32 = WS_EV_ARG + 4 + EV_ARG_MAX;
+/// The staging area of the Canvas2D display list (ABI A23): its address and the bytes of it the glue
+/// must copy with the next batch. The generated glue reads these two words.
+pub const WS_GFX_META: u32 = WS_EV_ARG + 4 + EV_ARG_MAX;
+pub const WS_SIZE: u32 = WS_GFX_META + 8;
 
 /// Run-time error codes carried by the `ERROR` command (ABI v1 §5). The host
 /// owns the message text, so the IDE and the page can translate it.
@@ -170,11 +173,19 @@ pub struct State {
     pub json_path_len: u32,
     /// Bytes of the `DISPLAY` line at `WS_DISP`.
     pub disp_len: u32,
+    /// The Canvas2D display list being staged (ABI A23): where, how much room, the bytes after the
+    /// header, the commands, and the canvas they belong to.
+    pub gfx_at: u32,
+    pub gfx_cap: u32,
+    pub gfx_len: u32,
+    pub gfx_cmds: u32,
+    pub gfx_ctrl: u32,
+    pub gfx_inst: u32,
 }
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0 }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0, gfx_at: 0, gfx_cap: 0, gfx_len: 0, gfx_cmds: 0, gfx_ctrl: u32::MAX, gfx_inst: 0 }
     }
 }
 

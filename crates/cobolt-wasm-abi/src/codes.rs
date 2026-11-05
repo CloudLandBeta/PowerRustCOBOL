@@ -29,6 +29,8 @@ pub mod op {
     pub const SET_NAMED: u8 = 0x06;
     /// Queue an event of a control, as the control would raise it (A14).
     pub const RAISE: u8 = 0x07;
+    /// Draw a canvas's display list, which the module left in the arena's graphics region (A23).
+    pub const DRAW: u8 = 0x08;
     /// First and last opcode of the queries.
     pub const QUERY_FIRST: u8 = 0x10;
     pub const QUERY_LAST: u8 = 0x1F;

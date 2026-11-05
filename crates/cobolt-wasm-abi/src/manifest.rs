@@ -38,12 +38,21 @@ pub struct Limits {
     /// time (WASM-010 R3, ABI A5). `0` when the producer does not say.
     #[serde(default)]
     pub tasks: u32,
+    /// Bytes of the arena's graphics region (ABI A23), which follows frame-in and holds the display
+    /// list a `DRAW` names. `0` (the default, and absent from the manifest) when the module has no
+    /// Canvas2D: such a module has no such region and never emits `DRAW`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub gfx_size: u32,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
 }
 
 impl Default for Limits {
     /// The defaults of §2: a 1 MiB arena, 64 KiB batch and answer, 384 KiB frames.
     fn default() -> Self {
-        Limits { arena_size: 1 << 20, batch_size: 64 * 1024, answer_size: 64 * 1024, frame_size: 384 * 1024, budget_blocks: 20_000, data_pages: 17, tasks: 0 }
+        Limits { arena_size: 1 << 20, batch_size: 64 * 1024, answer_size: 64 * 1024, frame_size: 384 * 1024, budget_blocks: 20_000, data_pages: 17, tasks: 0, gfx_size: 0 }
     }
 }
 

@@ -19,6 +19,8 @@ cobolt-ast      = { path = "../cobolt-ast" }
 # The generator shares the byte layouts (field descriptors, operand records)
 # with the routines it links in: one definition, in the routines' crate.
 cobolt-wasm-rt  = { path = "../cobolt-wasm-rt" }
+# The display-list command table: the generator names a Canvas2D drawing method's opcode from it (WASM-018 T24).
+cobolt-graphics-wire = { path = "../cobolt-graphics-wire" }
 cobolt-decimal  = { path = "../cobolt-decimal" }
 # The group <-> JSON mapping's layout rules (WASM-005 R5): the generator
 # describes a group to the routines from the same `Item` the interpreter and

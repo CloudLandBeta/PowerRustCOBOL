@@ -2610,6 +2610,7 @@ dependencies = [
  "cobolt-codegen",
  "cobolt-decimal",
  "cobolt-forms",
+ "cobolt-graphics-wire",
  "cobolt-lexer",
  "cobolt-parser",
  "cobolt-runtime",
@@ -2640,6 +2641,7 @@ name = "cobolt-wasm-rt"
 version = "0.2.0"
 dependencies = [
  "cobolt-decimal",
+ "cobolt-graphics-wire",
  "cobolt-numedit",
  "libm",
 ]

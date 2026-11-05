@@ -63,6 +63,8 @@ pub struct Outcome {
     pub named_sets: Vec<(u32, u32, String, String)>,
     /// The `RAISE` commands (A14): `(instance, control, event, argument)`.
     pub raised: Vec<(u32, u32, String, String)>,
+    /// The `DRAW` commands (A23): `(instance, control, the display list read from the graphics region)`.
+    pub draws: Vec<(u32, u32, Vec<u8>)>,
 }
 
 struct State {
@@ -73,6 +75,8 @@ struct State {
     answer_at: u32,
     answer_size: u32,
     frame_out_at: u32,
+    /// Where the graphics region starts in the arena (A23); 0 when the module has none.
+    gfx_at: u32,
     out: Rc<RefCell<Outcome>>,
     conformance: Option<Conformance>,
     files: HashMap<u32, OpenFile>,
@@ -153,6 +157,30 @@ fn prop_key(inst: u32, ctrl: u32, segs: &[u32]) -> Option<(u32, u32, u32)> {
     }
 }
 
+/// Where the graphics region starts in the arena: after frame-in (ABI A23); 0 when there is none.
+fn gfx_start(l: &cobolt_wasm_abi::manifest::Limits) -> u32 {
+    if l.gfx_size == 0 {
+        0
+    } else {
+        l.batch_size + l.answer_size + 2 * l.frame_size
+    }
+}
+
+/// Read, now, the display list every `DRAW` of the batch names out of the graphics region: the next
+/// list overwrites it.
+fn collect_draws(caller: &Caller<'_, State>, batch: &[u8]) {
+    let Ok(cmds) = decode_batch(batch) else { return };
+    let st = caller.data();
+    for c in cmds {
+        if let Command::Draw { inst, ctrl, offset, len } = c {
+            let mem = st.arena.expect("arena");
+            let mut buf = vec![0u8; len as usize];
+            mem.read(caller, st.arena_base as usize + st.gfx_at as usize + offset as usize, &mut buf).expect("read the graphics region");
+            st.out.borrow_mut().draws.push((inst, ctrl, buf));
+        }
+    }
+}
+
 fn read_batch(caller: &Caller<'_, State>, len: u32) -> Vec<u8> {
     let st = caller.data();
     let mem = st.arena.expect("arena");
@@ -187,13 +215,14 @@ pub fn run_conformance(wasm: &[u8], conf: Conformance) -> Result<Outcome, String
     run_with(wasm, Some(conf), false).map(|(o, _)| o)
 }
 
-fn new_state(out: Rc<RefCell<Outcome>>, conformance: Option<Conformance>, (batch_size, answer_size): (u32, u32)) -> State {
+fn new_state(out: Rc<RefCell<Outcome>>, conformance: Option<Conformance>, (batch_size, answer_size, gfx_at): (u32, u32, u32)) -> State {
     State {
         arena: None,
         arena_base: 0,
         answer_at: batch_size,
         answer_size,
         frame_out_at: batch_size + answer_size,
+        gfx_at,
         out,
         conformance,
         files: HashMap::new(),
@@ -215,6 +244,7 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
     linker
         .func_wrap("pr", "flush", |mut caller: Caller<'_, State>, len: i32| {
             let batch = read_batch(&caller, len as u32);
+            collect_draws(&caller, &batch);
             let out = caller.data().out.clone();
             {
                 let mut o = out.borrow_mut();
@@ -374,6 +404,7 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
             .func_wrap("pr", "query", |mut caller: Caller<'_, State>, len: i32| -> i32 {
                 let batch = read_batch(&caller, len as u32);
                 let Ok(cmds) = decode_batch(&batch) else { return -2 };
+                collect_draws(&caller, &batch);
                 let Some(query) = cmds.last().filter(|q| q.is_query()).cloned() else { return -2 };
                 // The commands before the query are applied first (§6).
                 let mut r = cobolt_wasm_abi::batch::BatchReader::new(&batch);
@@ -439,7 +470,7 @@ fn run_with(wasm: &[u8], conformance: Option<Conformance>, keep_memory: bool) ->
     // The regions as the module's manifest lays them out (§10).
     let limits = cobolt_wasm_abi::scan::scan_module(wasm)
         .and_then(|s| s.embedded_manifest())
-        .map(|m| (m.limits.batch_size, m.limits.answer_size))
+        .map(|m| (m.limits.batch_size, m.limits.answer_size, gfx_start(&m.limits)))
         .map_err(|e| format!("no manifest: {e}"))?;
     let mut store = Store::new(&engine, new_state(out.clone(), conformance, limits));
     let linker = linker(&engine, &[])?;
@@ -521,7 +552,7 @@ impl FormHost {
         let engine = engine()?;
         let module = Module::new(&engine, wasm).map_err(|e| format!("invalid module: {e}"))?;
         let out = Rc::new(RefCell::new(Outcome::default()));
-        let mut state = new_state(out.clone(), None, (manifest.limits.batch_size, manifest.limits.answer_size));
+        let mut state = new_state(out.clone(), None, (manifest.limits.batch_size, manifest.limits.answer_size, gfx_start(&manifest.limits)));
         state.now_ms = opts.now_ms;
         if opts.record_batches {
             state.batches = Some(Vec::new());

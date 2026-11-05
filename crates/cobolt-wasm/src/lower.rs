@@ -119,6 +119,8 @@ pub struct FormCtx {
     pub layers: HashMap<String, u32>,
     /// The layers' names as written, in stack order.
     pub layer_names: Vec<String>,
+    /// Control ids of the form's Canvas2D controls (their drawing methods become a display list, ABI A23).
+    pub canvases: std::collections::HashSet<u32>,
     /// The form's name, for diagnostics.
     pub name: String,
 }

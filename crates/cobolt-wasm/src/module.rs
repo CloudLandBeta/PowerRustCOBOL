@@ -34,11 +34,13 @@ pub struct Arena {
     pub batch: u32,
     pub answer: u32,
     pub frame: u32,
+    /// The graphics region (ABI A23), after frame-in: 0 for a module without a Canvas2D.
+    pub gfx: u32,
 }
 
 impl Arena {
     pub fn total(&self) -> u32 {
-        self.batch + self.answer + 2 * self.frame
+        self.batch + self.answer + 2 * self.frame + self.gfx
     }
 }
 
@@ -46,7 +48,7 @@ impl Default for Arena {
     fn default() -> Self {
         // The batch and answer regions are the routines' own staging sizes,
         // so a module carries every SET and reads every answer they can hold.
-        Arena { batch: cobolt_wasm_rt::state::BATCH_SIZE, answer: cobolt_wasm_rt::state::ANSWER_SIZE, frame: 64 * 1024 }
+        Arena { batch: cobolt_wasm_rt::state::BATCH_SIZE, answer: cobolt_wasm_rt::state::ANSWER_SIZE, frame: 64 * 1024, gfx: 0 }
     }
 }
 
@@ -199,6 +201,20 @@ fn mem0(offset: u64, align: u32) -> MemArg {
     MemArg { offset, align, memory_index: 0 }
 }
 
+/// The graphics region's size when a module has a Canvas2D (ABI A23): about 30,000 `FillRect`s of list.
+pub const GFX_REGION: u32 = 512 * 1024;
+
+/// Copy the staged display list into the arena's graphics region: the routines left its address and
+/// byte count in two words of their workspace, and the count is 0 when no `DRAW` is waiting.
+fn gfx_copy(f: &mut Function, arena_mem: u32, gfx_at: u32, meta: u64) {
+    f.instruction(&I::I32Const(gfx_at as i32));
+    f.instruction(&I::I32Const(0));
+    f.instruction(&I::I32Load(mem0(meta, 2)));
+    f.instruction(&I::I32Const(0));
+    f.instruction(&I::I32Load(mem0(meta + 4, 2)));
+    f.instruction(&I::MemoryCopy { src_mem: 0, dst_mem: arena_mem });
+}
+
 enum Body {
     Rt(u32),
     Encoded(Function),
@@ -303,11 +319,20 @@ struct Built {
 }
 
 fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenResult<Compiled> {
+    // A module with a Canvas2D gets the arena's graphics region (ABI A23); one without has none.
+    let has_canvas = project && forms.iter().any(|f| f.controls.iter().any(|(_, k)| k == "Canvas2D"));
+    let mut owned = opts.clone();
+    if has_canvas && owned.arena.gfx == 0 {
+        owned.arena.gfx = GFX_REGION;
+    }
+    let opts = &owned;
     let blob = Blob::load(RT_WASM).map_err(|e| GenError::new(0, e.to_string()))?;
 
     // ── memory map ───────────────────────────────────────────────────────
     let rt_ws = align(blob.data_end, 16);
-    let after_ws = align(rt_ws + WS_SIZE, 16);
+    // The display list is staged in memory 0 after the routines' workspace, then copied into the arena.
+    let gfx_stage = align(rt_ws + WS_SIZE, 16);
+    let after_ws = align(gfx_stage + opts.arena.gfx, 16);
     let arena_total = opts.arena.total();
     let (arena_base, consts_base) = if opts.multi_memory {
         (0, after_ws)
@@ -337,7 +362,8 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             }
             let first_layer = 3 + spec.controls.len() as u32;
             let layers = spec.layers.iter().enumerate().map(|(k, n)| (n.to_ascii_uppercase(), first_layer + k as u32)).collect();
-            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), name: spec.name.clone() })
+            let canvases = spec.controls.iter().enumerate().filter(|(_, (_, k))| k == "Canvas2D").map(|(i, _)| 3 + i as u32).collect();
+            Some(FormCtx { controls, layers, layer_names: spec.layers.clone(), canvases, name: spec.name.clone() })
         } else {
             None
         };
@@ -519,6 +545,10 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     let mut roots: BTreeSet<&'static str> = BTreeSet::new();
     roots.insert("rt_init");
     roots.insert("rt_flush");
+    if opts.arena.gfx > 0 {
+        roots.insert("rt_gfx_init");
+        roots.insert("rt_flush_yield");
+    }
     if uses_heap {
         roots.insert("rt_heap_init");
         if project {
@@ -738,6 +768,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
     // ── glue bodies ──────────────────────────────────────────────────────
     let arena_mem = if opts.multi_memory { 1 } else { 0 };
     let arena_at = arena_base;
+    let gfx_at = arena_base + opts.arena.batch + opts.arena.answer + 2 * opts.arena.frame;
     {
         // glue.flush(addr, len): copy to the arena batch, call pr.flush(len)
         let mut f = Function::new([]);
@@ -745,6 +776,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         f.instruction(&I::LocalGet(0));
         f.instruction(&I::LocalGet(1));
         f.instruction(&I::MemoryCopy { src_mem: 0, dst_mem: arena_mem });
+        if opts.arena.gfx > 0 {
+            gfx_copy(&mut f, arena_mem, gfx_at, (rt_ws + cobolt_wasm_rt::state::WS_GFX_META) as u64);
+        }
         f.instruction(&I::LocalGet(1));
         f.instruction(&I::Call(imp_flush));
         f.instruction(&I::End);
@@ -768,6 +802,9 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         // goes to the arena batch; the host leaves the answer text in the
         // arena answer region; min(n, cap) bytes are copied back to `ans`.
         let mut f = Function::new([(1, ValType::I32)]);
+        if opts.arena.gfx > 0 {
+            gfx_copy(&mut f, arena_mem, gfx_at, (rt_ws + cobolt_wasm_rt::state::WS_GFX_META) as u64);
+        }
         emit(
             &mut f,
             &[
@@ -1065,6 +1102,11 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
         let mut f = Function::new([]);
         f.instruction(&I::I32Const(rt_ws as i32));
         f.instruction(&I::Call(rt_index_by_name["rt_init"]));
+        if opts.arena.gfx > 0 {
+            f.instruction(&I::I32Const(gfx_stage as i32));
+            f.instruction(&I::I32Const(opts.arena.gfx as i32));
+            f.instruction(&I::Call(rt_index_by_name["rt_gfx_init"]));
+        }
         if uses_heap {
             f.instruction(&I::I32Const(heap_base as i32));
             f.instruction(&I::I32Const(heap_size as i32));
@@ -1141,6 +1183,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             rt: &rt_index_by_name,
             ty_i32_ret,
             uses_heap,
+            gfx: opts.arena.gfx > 0,
             frame_in_len_at: rt_ws + cobolt_wasm_rt::state::WS_FRAME_IN_LEN,
             frame_at: rt_ws + cobolt_wasm_rt::state::WS_FRAME,
             frame_cap: opts.arena.frame.min(cobolt_wasm_rt::state::FRAME_SIZE),
@@ -1388,6 +1431,8 @@ struct ProjectFns<'a> {
     ty_i32_ret: u32,
     /// The module has a file heap: a released instance gives its blocks back.
     uses_heap: bool,
+    /// The module has a Canvas2D: a yielding task keeps its display list (ABI A23).
+    gfx: bool,
     /// Where `pr_resume` leaves a remote answer for the routines (ABI §4):
     /// its length word and its bytes in memory 0, how many fit, and frame-in.
     frame_in_len_at: u32,
@@ -1627,7 +1672,7 @@ fn emit_project_fns(c: &ProjectFns<'_>, n_imports: u32, defs: &mut Vec<Def>, typ
                 I::I32Const(4),
                 I::I32Or,
                 stw(28),
-                I::Call(rt("rt_flush")),
+                I::Call(rt(if status == 2 && c.gfx { "rt_flush_yield" } else { "rt_flush" })),
                 I::I32Const(status),
                 I::LocalSet(7),
                 I::Br(1),
@@ -2122,6 +2167,7 @@ fn build_manifest(m: &ManifestInput<'_, '_>) -> cobolt_wasm_abi::manifest::Manif
             budget_blocks: m.opts.budget.max(0) as u32,
             data_pages: m.data_pages,
             tasks: m.total_instances,
+            gfx_size: m.opts.arena.gfx,
         },
         names: m.names.to_vec(),
         events: m.events.to_vec(),

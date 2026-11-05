@@ -165,6 +165,10 @@ pub enum Command<'a> {
     /// (`COBOL::"RAISE-EVENT"`): delivered after the running task, in order, and
     /// only when a handler is bound to it.
     Raise { inst: u32, ctrl: u32, event: &'a str, arg: &'a str },
+    /// `DRAW` (A23): `varint inst, varint ctrl, varint offset, varint len` — the display list of
+    /// canvas `ctrl` is the `len` bytes at `offset` of the arena's graphics region, written by the
+    /// module before this batch was handed over and valid until the host returns.
+    Draw { inst: u32, ctrl: u32, offset: u32, len: u32 },
 }
 
 impl Command<'_> {
@@ -183,6 +187,7 @@ impl Command<'_> {
             Command::Count(_) => op::COUNT,
             Command::SetNamed { .. } => op::SET_NAMED,
             Command::Raise { .. } => op::RAISE,
+            Command::Draw { .. } => op::DRAW,
         }
     }
 }
@@ -275,6 +280,12 @@ impl<'a> BatchReader<'a> {
                 let ctrl = read_varint(buf, pos)?;
                 let event = read_text(buf, pos)?;
                 Command::Raise { inst, ctrl, event, arg: read_text(buf, pos)? }
+            }
+            op::DRAW => {
+                let inst = read_varint(buf, pos)?;
+                let ctrl = read_varint(buf, pos)?;
+                let offset = read_varint(buf, pos)?;
+                Command::Draw { inst, ctrl, offset, len: read_varint(buf, pos)? }
             }
             other => return Err(DecodeError::UnknownOp { op: other, at }),
         };
@@ -431,6 +442,15 @@ impl BatchWriter {
         write_text(&mut self.buf, arg);
         self
     }
+    /// `DRAW` (A23): canvas `ctrl`'s display list is `len` bytes at `offset` of the graphics region.
+    pub fn draw(&mut self, inst: u32, ctrl: u32, offset: u32, len: u32) -> &mut Self {
+        self.buf.push(op::DRAW);
+        write_varint(&mut self.buf, inst);
+        write_varint(&mut self.buf, ctrl);
+        write_varint(&mut self.buf, offset);
+        write_varint(&mut self.buf, len);
+        self
+    }
 }
 
 // ── event arguments (§7) ────────────────────────────────────────────────────
@@ -563,6 +583,19 @@ mod tests {
         assert_eq!(cmds[1], Command::Raise { inst: 1, ctrl: 4, event: "onError", arg: "" });
         assert!(!cmds[0].is_query() && !cmds[1].is_query());
         assert_eq!((cmds[0].opcode(), cmds[1].opcode()), (op::SET_NAMED, op::RAISE));
+    }
+
+    #[test]
+    fn a_draw_has_the_bytes_amendment_a23_describes() {
+        // DRAW inst=1 ctrl=5 offset=300 (0xAC 0x02) len=170000 (0x90 0xB0 0x0A)
+        let mut w = BatchWriter::new();
+        w.draw(1, 5, 300, 170_000);
+        assert_eq!(w.as_bytes(), [0x08, 0x01, 0x05, 0xAC, 0x02, 0x90, 0xB0, 0x0A]);
+        let cmds = decode_batch(w.as_bytes()).unwrap();
+        assert_eq!(cmds, vec![Command::Draw { inst: 1, ctrl: 5, offset: 300, len: 170_000 }]);
+        assert!(!cmds[0].is_query());
+        assert_eq!(cmds[0].opcode(), op::DRAW);
+        println!("DRAW: {} bytes name a list of 170000 bytes", w.as_bytes().len());
     }
 
     #[test]

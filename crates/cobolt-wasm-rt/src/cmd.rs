@@ -154,6 +154,7 @@ fn path_bytes() -> &'static [u8] {
 
 /// `SET path value`.
 pub fn set(base: u32, value_opd: u32) {
+    crate::gfx::before_path();
     let mut num = [0u8; 64];
     let (a, l) = text_of(base, &parse(value_opd), &mut num);
     let text = mem::bytes(a, l);
@@ -225,6 +226,7 @@ pub fn raise(base: u32, ctrl: u32, event: u32, arg: u32) {
 
 /// `CALL path` (the result, if any, is discarded).
 pub fn call() {
+    crate::gfx::before_path();
     let total = 1 + st().path_len as usize;
     if (st().batch_len as usize) + total > crate::state::BATCH_SIZE as usize {
         disp::flush();
@@ -237,6 +239,7 @@ pub fn call() {
 /// and the query go to the host together, and the answer text is left in
 /// character temporary `k`, which `dynamic` marks as a property read.
 pub fn query(op: u32, k: u32, dynamic: u32) {
+    crate::gfx::before_path();
     if k as usize >= NCTEMP {
         crate::fail(err::BAD_OPERAND);
     }
@@ -254,6 +257,7 @@ pub fn query(op: u32, k: u32, dynamic: u32) {
     // text at `ans` (at most `ANSWER_SIZE` bytes); it returns the answer's
     // whole length, which may be more than it copied.
     let n = unsafe { host::query(s.ws + crate::state::WS_BATCH, len, ans, ANSWER_SIZE) };
+    crate::gfx::delivered();
     // The host refuses an answer longer than the arena's answer region (ABI
     // v1 §9 `-5`); one longer than this module's room would be copied short.
     // Either is an error the page shows: a statement never reads part of a

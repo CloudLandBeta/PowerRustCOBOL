@@ -279,6 +279,12 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
 ## Part 3 — generated module, player, fonts, CI, sample (not started)
 
 - [ ] **T24 — ABI amendment A10 and the generator's display list** (R6, R16; AC2, AC13 parity)
+  - **First part done (2.0.204), AC13 open.** The amendment is **A23** with opcode **`0x08`** (A10 and `0x06` were taken),
+    and `DRAW` names `offset`/`len` in a new arena region (`limits.gfx_size`) rather than carrying the bytes: 10,000
+    `FillRect` are ~170 KB, the batch is 68 KiB (decided with the operator). AC2: 10,002 commands, 1 flush, 1 `DRAW`,
+    0 host calls, 170,022 bytes, equal to the shared encoder. No canvas: no `DRAW`. NIST NC 95/95, 4612 PASS, 0 FAIL.
+    `cobolt-wasm`/`-rt`/`-abi` suites green. **Open:** the test that the interpreter's list bytes (T17) equal the
+    module's for the same program (AC13), and the interpreter-vs-module error text for a refused argument.
   - Files: `specs/WASM-ABI-v1.md` (A10: batch command `0x06 DRAW` = `path`, `varint len`, list bytes; read-backs as
     `CALLR` after the pending `DRAW`; §12.2 rows for the canvas events' argument texts), `crates/cobolt-wasm-abi`,
     `crates/cobolt-wasm`, `crates/cobolt-wasm-rt` (links `cobolt-graphics-wire`'s encoder; the list lives in the arena)

@@ -221,6 +221,20 @@ impl Lower<'_, '_> {
         Ok((k, opd))
     }
 
+    /// The display-list opcode of `ctrl::Method(args)` when `ctrl` is a Canvas2D and the method is one
+    /// of the commands the routines encode (every operand a number, colour or text; the count right).
+    /// Anything else stays a host call, which answers it as it always has.
+    fn canvas_command(&self, ctrl: u32, segs: &[Seg<'_>]) -> Option<u8> {
+        let f = self.form.as_ref()?;
+        if !f.canvases.contains(&ctrl) || segs.len() != 1 {
+            return None;
+        }
+        let s = &segs[0];
+        let info = cobolt_graphics_wire::COMMANDS.iter().find(|c| c.opcode < 0x80 && c.name.eq_ignore_ascii_case(s.name))?;
+        let scalar = info.operands.iter().all(|(_, k)| matches!(*k, "u8" | "u32" | "f32" | "rgba" | "str"));
+        (scalar && s.args.len() == info.operands.len()).then_some(info.opcode)
+    }
+
     /// `Ctrl::Method(args)` as a statement: the call, its result discarded.
     pub(crate) fn member_call(&mut self, e: &Expr, line: u32) -> GenResult<()> {
         let Some((root, segs)) = Self::chain(e) else {
@@ -234,6 +248,13 @@ impl Lower<'_, '_> {
             return Ok(());
         };
         self.check_layer_rules(root, ctrl, &segs, false, line)?;
+        // A Canvas2D drawing method is one command of a display list, not a host call (ABI A23).
+        if let Some(op) = self.canvas_command(ctrl, &segs) {
+            self.build_path(ctrl, &segs)?;
+            self.i32c(op as i32);
+            self.call_rt("rt_gfx_cmd");
+            return Ok(());
+        }
         self.build_path(ctrl, &segs)?;
         self.call_rt("rt_cmd_call");
         if let Some(last) = segs.last() {

@@ -48,6 +48,7 @@ pub mod codec;
 pub mod disp;
 pub mod edited;
 pub mod fd;
+pub mod gfx;
 pub mod file;
 pub mod float;
 pub mod func;
@@ -560,10 +561,28 @@ pub extern "C" fn rt_cmd_set(base: u32, value: u32) {
     cmd::set(base, value);
 }
 
+/// A task yields: flush its batch, leaving a display list that is still being built.
+#[no_mangle]
+pub extern "C" fn rt_flush_yield() {
+    disp::flush_yield();
+}
+
 /// `CALL path`.
 #[no_mangle]
 pub extern "C" fn rt_cmd_call() {
     cmd::call();
+}
+
+/// Give the routines the Canvas2D staging area (ABI A23), only for a module that has a canvas.
+#[no_mangle]
+pub extern "C" fn rt_gfx_init(at: u32, cap: u32) {
+    gfx::init(at, cap);
+}
+
+/// A Canvas2D drawing method: command `op` of the display list, its arguments in the path buffer.
+#[no_mangle]
+pub extern "C" fn rt_gfx_cmd(op: u32) {
+    gfx::cmd(op);
 }
 
 /// `SET_NAMED ctrl name value` (A14): a property named at run time.

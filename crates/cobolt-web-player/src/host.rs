@@ -1529,6 +1529,9 @@ impl Host {
                         self.report_cmd_error(e);
                     }
                 }
+                // ABI A23: the canvas part draws the list (WASM-018 T25). Until then the command is
+                // read and not applied, so a module with a Canvas2D loads and runs.
+                Command::Draw { .. } => {}
                 Command::Display(t) => self.effects.push(Effect::Display(t.to_owned())),
                 Command::Log { level, text } => {
                     if level <= self.opts.debug_level {
