@@ -426,7 +426,10 @@ impl Registry {
         }
         // Every object answers its own handle, so a program can hand it to another object's method (a Canvas3D's
         // `SetScene`, a Plot's `RenderToCanvas`): no other way names a control's object in COBOL.
-        if method.eq_ignore_ascii_case("GetHandle") && args.is_empty() {
+        if method.eq_ignore_ascii_case("GetHandle") {
+            if !args.is_empty() {
+                return Err(GraphicsError::ArgumentCount { method: format!("{}.GetHandle", kind.name()), expected: 0, got: args.len() });
+            }
             return Ok(Value::Int(handle as i64));
         }
         let mut obj = self.objects.get_mut(handle)?.obj.take().ok_or_else(|| GraphicsError::invalid(format!("that {} is busy: one of its own methods used its handle", kind.name())))?;

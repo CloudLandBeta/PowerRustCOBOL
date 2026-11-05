@@ -372,6 +372,11 @@ impl Interpreter {
     pub fn graphics_object_count(&self) -> usize {
         self.graphics.as_ref().map_or(0, |g| g.registry.len())
     }
+
+    /// The bytes the registry's objects hold (for tests and the limits report).
+    pub fn graphics_memory_bytes(&self) -> u64 {
+        self.graphics.as_ref().map_or(0, |g| g.registry.memory_bytes())
+    }
 }
 
 #[cfg(test)]
@@ -503,6 +508,70 @@ mod tests {
         assert!(live >= 6, "at least the six that need no adapter were made, got {live}");
         assert_eq!(released, live);
         assert_eq!(after, 0);
+    }
+
+    /// WASM-018 T31 (AC9) on the desktop host: a form that draws, makes an image, a chart and a physics world, opened and closed a
+    /// hundred times, leaves no object and no registry byte behind, and the count does not creep.
+    #[test]
+    fn a_hundred_forms_through_the_interpreter_leave_no_object_and_no_byte() {
+        let objs: [(&str, &str, &[(&str, &str)]); 4] = [
+            ("CANVAS-1", "Canvas2D", &[("Width", "320"), ("Height", "240")][..]),
+            ("IMAGE-1", "ImageBuffer", &[][..]),
+            ("PLOT-1", "Plot", &[][..]),
+            ("PHYS-1", "Physics2D", &[][..]),
+        ];
+        let t0 = Instant::now();
+        let (mut peak_bytes, mut peak_objects) = (0u64, 0usize);
+        for cycle in 0..100 {
+            let mut i = interp(&objs);
+            call(&mut i, "CANVAS-1", "SetFillColor", &["#336699"]);
+            call(&mut i, "CANVAS-1", "FillRect", &["0", "0", "320", "240"]);
+            call(&mut i, "CANVAS-1", "Present", &[]);
+            call(&mut i, "IMAGE-1", "Create", &["200", "150", "#FF8800"]);
+            call(&mut i, "IMAGE-1", "BlurGaussian", &["2"]);
+            let series = call(&mut i, "PLOT-1", "AddSeries", &["line", "s"]);
+            for x in 0..50 {
+                call(&mut i, "PLOT-1", "AddPoint", &[&series, &x.to_string(), &(x * x).to_string()]);
+            }
+            call(&mut i, "PHYS-1", "CreateWorld", &["0", "10"]);
+            for id in ["CANVAS-1", "IMAGE-1", "PLOT-1", "PHYS-1"] {
+                assert_eq!(i.obj_get(id, "LastError"), "", "cycle {cycle}: {id}");
+            }
+            peak_objects = peak_objects.max(i.graphics_object_count());
+            peak_bytes = peak_bytes.max(i.graphics_memory_bytes());
+            assert!(i.release_graphics() >= 4, "cycle {cycle}");
+            assert_eq!(i.graphics_object_count(), 0, "cycle {cycle}");
+            assert_eq!(i.graphics_memory_bytes(), 0, "cycle {cycle}: the registry's accounting is back to zero");
+        }
+        println!(
+            "T31 desktop (interpreter): 100 forms opened and closed in {:.0} ms; at most {peak_objects} objects and {} KB held at once; 0 objects and 0 bytes after every close",
+            t0.elapsed().as_secs_f64() * 1000.0,
+            peak_bytes / 1024
+        );
+    }
+
+    /// WASM-018 T31 (AC10) on the desktop host: an image past the limit, and bytes that are no image or no model, are each refused
+    /// with a sentence in `LastError`, and the program carries on.
+    #[test]
+    fn oversized_and_corrupt_inputs_are_refused_through_cobol_with_a_sentence() {
+        let mut i = interp(&[("IMAGE-1", "ImageBuffer", &[][..]), ("SCENE-1", "Scene3D", &[][..]), ("CANVAS-1", "Canvas2D", &[("Width", "64"), ("Height", "48")][..])]);
+        let cases: [(&str, &str, &[&str]); 4] = [
+            ("IMAGE-1", "Create", &["100000", "100000"]),
+            ("IMAGE-1", "LoadFromBytes", &["this is not an image"]),
+            ("SCENE-1", "LoadModelFromBytes", &["this is not a model"]),
+            ("SCENE-1", "LoadModel", &["no-such-model.glb"]),
+        ];
+        let mut said = Vec::new();
+        for (id, method, args) in cases {
+            call(&mut i, id, method, args);
+            let err = i.obj_get(id, "LastError");
+            assert!(err.len() > 15 && !err.contains("panicked"), "{id}.{method}: {err:?}");
+            said.push(format!("{id}.{method}: {err}"));
+        }
+        // Still alive: the canvas draws after all four refusals.
+        call(&mut i, "CANVAS-1", "FillRect", &["0", "0", "4", "4"]);
+        assert_eq!(i.obj_get("CANVAS-1", "LastError"), "");
+        println!("T31 desktop (interpreter): {} refusals, each a sentence: {}", said.len(), said.join(" | "));
     }
 
     /// 10,000 shapes then one `Present`: the library ran the list once.

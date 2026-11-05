@@ -106,7 +106,7 @@
 //! `Flush` or a read-back, in one call.
 //!
 //! <!-- methods:begin -->
-//! ### Canvas2D (75 methods)
+//! ### Canvas2D (76 methods)
 //!
 //! | Method | Parameters | Returns | What it does |
 //! |---|---|---|---|
@@ -185,8 +185,9 @@
 //! | `DrawImageScaled` | image: int, x: num, y: num, w: num, h: num | - | An image scaled into a rectangle. |
 //! | `DrawImageRegion` | image: int, sx: num, sy: num, sw: num, sh: num, dx: num, dy: num, dw: num, dh: num | - | A source rectangle of an image into a destination rectangle. |
 //! | `DrawSprite` | image: int, frame: int, frame_w: num, frame_h: num, dx: num, dy: num, dw: num, dh: num | - | One frame of a sprite sheet (frames are laid out left to right, top to bottom). |
+//! | `GetHandle` | - | handle | This object's own handle: the whole number another object's method takes to refer to it (SetScene, RenderToCanvas, ...). |
 //!
-//! ### Canvas3D (17 methods)
+//! ### Canvas3D (18 methods)
 //!
 //! | Method | Parameters | Returns | What it does |
 //! |---|---|---|---|
@@ -207,8 +208,9 @@
 //! | `Screenshot` | - | handle | The last picture as a new ImageBuffer. |
 //! | `Pick` | x: num, y: num | numbers | The node under a pixel: node (0 when none), instance, distance, point x y z, normal x y z. |
 //! | `GetStats` | - | numbers | What the last frame held and drew: mesh nodes, instances, instances drawn, instances culled, triangles drawn, lights, shadow maps, skinned meshes, draw calls, shadow draw calls. |
+//! | `GetHandle` | - | handle | This object's own handle: the whole number another object's method takes to refer to it (SetScene, RenderToCanvas, ...). |
 //!
-//! ### ImageBuffer (32 methods)
+//! ### ImageBuffer (33 methods)
 //!
 //! | Method | Parameters | Returns | What it does |
 //! |---|---|---|---|
@@ -244,8 +246,9 @@
 //! | `Dilate` | radius: int | - | Grow bright areas (maximum over a square window). |
 //! | `Erode` | radius: int | - | Shrink bright areas (minimum over a square window). |
 //! | `Histogram` | channel: int | ints | 256 counts for a channel: 0 red, 1 green, 2 blue, 3 alpha, 4 luma. |
+//! | `GetHandle` | - | handle | This object's own handle: the whole number another object's method takes to refer to it (SetScene, RenderToCanvas, ...). |
 //!
-//! ### Plot (36 methods)
+//! ### Plot (37 methods)
 //!
 //! | Method | Parameters | Returns | What it does |
 //! |---|---|---|---|
@@ -285,8 +288,9 @@
 //! | `Render` | width: int, height: int | handle | Draw the chart into a new ImageBuffer. |
 //! | `RenderToCanvas` | canvas: handle, x: num, y: num, width: int, height: int | - | Record the chart into a Canvas2D as vector commands, with its corner at (x, y). |
 //! | `ToSvg` | width: int, height: int | text | The chart as SVG text. |
+//! | `GetHandle` | - | handle | This object's own handle: the whole number another object's method takes to refer to it (SetScene, RenderToCanvas, ...). |
 //!
-//! ### Scene3D (71 methods)
+//! ### Scene3D (72 methods)
 //!
 //! | Method | Parameters | Returns | What it does |
 //! |---|---|---|---|
@@ -361,8 +365,9 @@
 //! | `GetNodeCount` | - | int | How many nodes. |
 //! | `GetTriangleCount` | - | int | How many triangles the meshes hold (instances not counted). |
 //! | `GetBounds` | - | numbers | valid (0 for an empty scene), then min x y z and max x y z of everything drawn. |
+//! | `GetHandle` | - | handle | This object's own handle: the whole number another object's method takes to refer to it (SetScene, RenderToCanvas, ...). |
 //!
-//! ### Physics2D (40 methods)
+//! ### Physics2D (41 methods)
 //!
 //! | Method | Parameters | Returns | What it does |
 //! |---|---|---|---|
@@ -406,8 +411,9 @@
 //! | `GetJointCount` | world: handle | int | Joints in a world. |
 //! | `GetWorldCount` | - | int | Worlds in this object. |
 //! | `GetStateFingerprint` | world: handle | int | A number that is the same for two runs that ended in exactly the same state (positions, angles, velocities, to the bit). |
+//! | `GetHandle` | - | handle | This object's own handle: the whole number another object's method takes to refer to it (SetScene, RenderToCanvas, ...). |
 //!
-//! ### Physics3D (42 methods)
+//! ### Physics3D (43 methods)
 //!
 //! | Method | Parameters | Returns | What it does |
 //! |---|---|---|---|
@@ -453,6 +459,7 @@
 //! | `GetJointCount` | world: handle | int | Joints in a world. |
 //! | `GetWorldCount` | - | int | Worlds in this object. |
 //! | `GetStateFingerprint` | world: handle | int | A number that is the same for two runs that ended in exactly the same state (positions, rotations, velocities, to the bit). |
+//! | `GetHandle` | - | handle | This object's own handle: the whole number another object's method takes to refer to it (SetScene, RenderToCanvas, ...). |
 //!
 //! <!-- methods:end -->
 //!
