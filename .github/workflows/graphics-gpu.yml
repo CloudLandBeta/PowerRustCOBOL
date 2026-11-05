@@ -1,4 +1,13 @@
-# SPDX-License-Identifier: Apache-2.0
+        run: |
+          grep "GOLDEN-TOLERANCE" scene3d.log || true
+          # The job summary is readable without signing in (the log is not): the adapter, the backend and the tolerance go there.
+          {
+            echo "### Canvas3D on lavapipe"
+            echo "Adapter:"; grep -i "llvmpipe\|lavapipe" vulkaninfo.txt | head -3
+            echo "Backend:"; grep "Canvas3D backend" scene3d.log | head -3
+            echo "Golden tolerance:"; grep "GOLDEN-TOLERANCE" scene3d.log || echo "(none printed)"
+            echo "Tests:"; grep "test result" scene3d.log
+          } >> "$GITHUB_STEP_SUMMARY"# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 #
 # Licensed under the Apache License, Version 2.0.
@@ -74,7 +83,16 @@ jobs:
           ! grep -i "SKIPPED" scene3d.log
 
       - name: The golden tolerance measured on this adapter
-        run: grep "GOLDEN-TOLERANCE" scene3d.log || true
+        run: |
+          grep "GOLDEN-TOLERANCE" scene3d.log || true
+          # The job summary can be read without signing in to GitHub (the log cannot): the adapter, the backend and the tolerance go there.
+          {
+            echo "### Canvas3D on lavapipe"
+            echo "Adapter:"; grep -i "llvmpipe\|lavapipe" vulkaninfo.txt | head -3
+            echo "Backend:"; grep "Canvas3D backend" scene3d.log | head -3
+            echo "Golden tolerance:"; grep "GOLDEN-TOLERANCE" scene3d.log || echo "(none printed)"
+            echo "Tests:"; grep "test result" scene3d.log
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: always()

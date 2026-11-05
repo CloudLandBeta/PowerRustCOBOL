@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.219 — 2026-11-05
+
+**WASM-018 T29: the lavapipe job ran green; its numbers now go where anyone can read them.** *(Written on features-2x-wasm-pending, after 2.0.218.)* The "Graphics on a software Vulkan" job ran on GitHub for the first time (run 42110551530, push of 2.0.218): Mesa lavapipe was found, the Canvas3D adapter tests ran with no test skipped and the backend asserted `Software`, and the job succeeded in 2 min 40 s. GitHub shows a job's log only to a signed-in person, so the job now also writes the adapter, the backend, the golden tolerance and the test results to its **job summary**, which is readable without signing in. Also: `cobolt-wasm-abi`'s `write_fixtures` example now declares the `fixture` feature it needs, so a plain `cargo test -p cobolt-wasm-abi` builds.
+
 ## 2.0.218 — 2026-11-05
 
 **WASM-014 T7: one recorded conversation, checked on both sides.** *(Written on features-2x-wasm-pending, after 2.0.217.)* `specs/WASM-014-…/vectors/wire.v1.json` holds a conversation recorded from a real backend (a refused hello, a warned hello, a session with `auth`, a call that works, one call for each error class, and `bye`). The backend test compares a fresh run with the file, the wire test parses every frame, and the player replays the backend's half and checks what its client sends and answers. **Fix found on the way:** the browser player named its session with 64 bits and the backend accepts only 128 (32 hex characters), so a hello from the player would have been refused; it now sends 128 bits. The shipped player is rebuilt.

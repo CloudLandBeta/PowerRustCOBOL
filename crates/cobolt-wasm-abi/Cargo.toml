@@ -29,3 +29,8 @@ wasm-encoder = { version = "0.244", optional = true }
 default = []
 scan    = ["dep:wasmparser"]
 fixture = ["dep:wasm-encoder", "scan"]
+
+# The fixtures writer needs the `fixture` feature; without this entry a plain `cargo test -p cobolt-wasm-abi` fails to build it.
+[[example]]
+name = "write_fixtures"
+required-features = ["fixture"]
