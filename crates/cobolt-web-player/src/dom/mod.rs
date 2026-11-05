@@ -29,6 +29,7 @@ mod h;
 mod instance;
 mod motion;
 mod ops;
+pub(crate) use ops::fetch_bytes;
 mod payload;
 mod reactive;
 mod sheets;

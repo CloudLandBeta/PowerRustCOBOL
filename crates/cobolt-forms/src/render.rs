@@ -23239,6 +23239,32 @@ mod tests {
         assert_eq!(from_unbound, 0, "only bound handlers are run");
     }
 
+    /// WASM-018 T28 (R13, AC12 gamepad), the desktop side: the pads a host feeds reach a bound canvas as `onGamepadButton` and
+    /// `onGamepadAxis` with the argument text every host raises, the pollable snapshot is kept in `_Pads`, and a canvas with
+    /// no handler raises nothing. (A pad that goes away is `gamepad::diff`'s unit test; the browser's side is the player's
+    /// `gamepad_events` test.)
+    #[test]
+    fn a_pad_the_host_feeds_reaches_a_bound_canvas_as_gamepad_events() {
+        static PADS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _one_at_a_time = PADS.lock().unwrap_or_else(|e| e.into_inner());
+        let bound = ctrlp_events("CV-1", ControlType::Canvas2D, 0, 0, 200, 100, &[], &["onGamepadButton", "onGamepadAxis"]);
+        let unbound = ctrlp("CV-2", ControlType::Canvas2D, 0, 0, 200, 100, &[]);
+        let frames: Vec<(f64, Vec<Event>)> = (0..3).map(|i| (i as f64 * 0.05, vec![])).collect();
+
+        crate::gamepad::feed(vec![crate::gamepad::Pad { index: 0, axes: vec![0.5, -1.0], buttons: vec![true, false] }]);
+        let started = std::time::Instant::now();
+        let (got, state) = drive_timed(&[bound, unbound], frames);
+        crate::gamepad::feed(Vec::new());
+        let mine: Vec<(String, String)> = got.iter().filter(|e| e.ctrl_id == "CV-1").map(|e| (e.event.clone(), e.value.clone().unwrap_or_default())).collect();
+        let others = got.iter().filter(|e| e.ctrl_id == "CV-2" && e.event.starts_with("onGamepad")).count();
+        let snapshot = state.get("CV-1").and_then(|m| m.get("_Pads")).cloned().unwrap_or_default();
+        println!("T28 desktop: a fed pad raised {mine:?} on the bound canvas and {others} on the unbound one; _Pads = {snapshot:?} ({} ms)", started.elapsed().as_millis());
+        assert_eq!(mine.iter().filter(|(e, _)| e == "onGamepadButton").collect::<Vec<_>>(), [&("onGamepadButton".to_string(), "0 0 1".to_string())], "{mine:?}");
+        assert!(mine.contains(&("onGamepadAxis".into(), "0 0 0.500".into())) && mine.contains(&("onGamepadAxis".into(), "0 1 -1.000".into())), "{mine:?}");
+        assert_eq!(others, 0, "only bound handlers are run");
+        assert_eq!(snapshot, "0|0.500,-1.000|10");
+    }
+
     /// WASM-018 T19 (R14): `onFrame` follows `TargetFps` with the elapsed time written to `ElapsedMs`; a fixed
     /// step gives exactly `1000 / TargetFps`; no `TargetFps`, no frames.
     #[test]

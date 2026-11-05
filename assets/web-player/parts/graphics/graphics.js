@@ -13,6 +13,30 @@ export class Graphics {
         wasm.__wbg_graphics_free(ptr, 0);
     }
     /**
+     * Register the faces of a font file (TTF, OTF, TTC) the project ships (WASM-018 T27, Q7): the text of every canvas and
+     * plot of this registry is lettered with them, the same files the desktop registers. The answer is how many faces
+     * the file added; a file that is not a font says so.
+     * @param {Uint8Array} bytes
+     * @returns {number}
+     */
+    add_font(bytes) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.graphics_add_font(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Call `method` of control `ctl` with `args_json` (a JSON array of texts); the answer is the method's
      * answer as text, or the reason it was refused.
      * @param {number} ctl

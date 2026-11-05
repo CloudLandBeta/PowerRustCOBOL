@@ -267,6 +267,26 @@ impl Drop for Timeout {
     }
 }
 
+/// The browser's gamepads as `navigator.getGamepads()` reports them (the "standard" mapping, whatever the pad): the index, the
+/// axes and which buttons are pressed. A slot with no pad is skipped; a browser with no Gamepad API has none.
+fn read_gamepads() -> Vec<cobolt_forms::gamepad::Pad> {
+    let mut out = Vec::new();
+    let Some(nav) = web_sys::window().map(|w| w.navigator()) else { return out };
+    let Some(list) = Reflect::get(&nav, &"getGamepads".into()).ok().and_then(|f| f.dyn_into::<Function>().ok()).and_then(|f| f.call0(&nav).ok()) else { return out };
+    for pad in Array::from(&list).iter() {
+        if pad.is_null() || pad.is_undefined() {
+            continue;
+        }
+        let index = Reflect::get(&pad, &"index".into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
+        let axes = Reflect::get(&pad, &"axes".into()).map(|a| Array::from(&a).iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect()).unwrap_or_default();
+        let buttons = Reflect::get(&pad, &"buttons".into())
+            .map(|b| Array::from(&b).iter().map(|v| Reflect::get(&v, &"pressed".into()).ok().and_then(|p| p.as_bool()).unwrap_or(false)).collect())
+            .unwrap_or_default();
+        out.push(cobolt_forms::gamepad::Pad { index, axes, buttons });
+    }
+    out
+}
+
 // ── the socket ──────────────────────────────────────────────────────────────
 
 /// A `WebSocket` as the connection's [`Socket`]. Its four handlers push into the inbox.
@@ -419,6 +439,12 @@ pub(crate) struct Inner {
     /// browser has none (the Canvas3D then says so).
     pub(crate) gpu_device: RefCell<Option<JsValue>>,
     gpu_tried: Cell<bool>,
+    /// The project's font files (WASM-018 T27, Q7), fetched once when the first graphics part loads and handed to every
+    /// registry that part makes; `None` until then.
+    pub(crate) fonts: RefCell<Option<Rc<Vec<Vec<u8>>>>>,
+    /// The gamepads the page saw at its last look, and the timer of the next one (WASM-018 T28): the page looks only while a
+    /// canvas has a gamepad handler bound.
+    gamepad: RefCell<(Vec<cobolt_forms::gamepad::Pad>, Option<Timeout>)>,
     /// reCAPTCHA: the time limits and the script's load listeners of the tokens being obtained.
     pub(crate) captcha: RefCell<crate::dom::captcha::Pending>,
     /// The authorisation code the hosted flow came back with, until a control takes it.
@@ -619,7 +645,33 @@ impl Inner {
         if name == "graphics3d" && !self.gpu_tried.replace(true) {
             self.open_gpu().await;
         }
+        self.load_fonts().await;
         Ok(())
+    }
+
+    /// Fetch the project's font files (the `Assets/` fonts, and the ones the Build found for the families the project names),
+    /// once: a text drawn by a canvas or a plot is lettered with them, as on the desktop. A file that cannot be fetched is
+    /// reported on the console and the others still load.
+    async fn load_fonts(&self) {
+        if self.fonts.borrow().is_some() {
+            return;
+        }
+        let urls: Vec<(String, String)> = self
+            .styles
+            .borrow()
+            .assets
+            .iter()
+            .filter(|(k, _)| [".ttf", ".otf", ".ttc"].iter().any(|e| k.ends_with(e)))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let mut files = Vec::new();
+        for (name, url) in urls {
+            match crate::dom::fetch_bytes(&url).await {
+                Ok(b) => files.push(b),
+                Err(e) => web_sys::console::warn_1(&format!("[pr] the font {name} could not be fetched: {e}").into()),
+            }
+        }
+        *self.fonts.borrow_mut() = Some(Rc::new(files));
     }
 
     /// Open the graphics device with the 3D part's `open_gpu`. A browser with no adapter is not an error of the page:
@@ -892,7 +944,46 @@ impl Inner {
         }
     }
 
+    /// Start or stop looking at the browser's gamepads (WASM-018 T28): one look every frame (16 ms) while some open canvas has
+    /// `onGamepadButton` or `onGamepadAxis` bound, none otherwise. Each change becomes the events the desktop raises
+    /// (`cobolt_forms::gamepad::diff`), queued like any other event.
+    fn sync_gamepad(self: &Rc<Self>) {
+        let wants = self.host.borrow().wants_gamepad();
+        let mut g = self.gamepad.borrow_mut();
+        if !wants {
+            g.0.clear();
+            g.1 = None;
+            return;
+        }
+        if g.1.is_some() {
+            return;
+        }
+        let weak = self.weak.borrow().clone();
+        g.1 = Some(Timeout::new(16, move || {
+            if let Some(inner) = weak.upgrade() {
+                inner.poll_gamepads();
+            }
+        }));
+    }
+
+    fn poll_gamepads(self: &Rc<Self>) {
+        let next = read_gamepads();
+        let events = {
+            let mut g = self.gamepad.borrow_mut();
+            g.1 = None;
+            let prev = std::mem::replace(&mut g.0, next.clone());
+            cobolt_forms::gamepad::diff(&prev, &next)
+        };
+        if !events.is_empty() {
+            self.push(Inbox::Raw(Box::new(move |inner| {
+                inner.host.borrow_mut().gamepad_events(&events);
+            })));
+        }
+        self.sync_gamepad();
+    }
+
     fn after_call(self: &Rc<Self>) {
+        self.sync_gamepad();
         self.take_hosted_return();
         // What a step leaves can start another (an Authentication answer that raises an event, a
         // refused call answered at once): go round until nothing is left, never forever.
@@ -1061,6 +1152,8 @@ impl Player {
             parts: RefCell::new(HashMap::new()),
             gpu_device: RefCell::new(None),
             gpu_tried: Cell::new(false),
+            fonts: RefCell::new(None),
+            gamepad: RefCell::new((Vec::new(), None)),
             captcha: RefCell::new(Default::default()),
             hosted_return: RefCell::new(hosted_return),
             superlink: RefCell::new(Default::default()),
@@ -1439,6 +1532,8 @@ impl Player {
             }
             *inner.net.borrow_mut() = None;
             *inner.net_timer.borrow_mut() = None;
+            // The look at the gamepads stops with the page (WASM-018 T28).
+            *inner.gamepad.borrow_mut() = (Vec::new(), None);
             // The graphics device the 3D part opened for the page goes with it (WASM-018 T26).
             if let Some(dev) = inner.gpu_device.borrow_mut().take() {
                 if let Ok(free) = Reflect::get(&dev, &"free".into()).and_then(|f| f.dyn_into::<Function>()) {
@@ -1446,6 +1541,7 @@ impl Player {
                 }
             }
             inner.parts.borrow_mut().clear();
+            inner.fonts.borrow_mut().take();
             inner.timers.borrow_mut().clear();
             inner.inbox.borrow_mut().clear();
             let link = inner.link.borrow().clone();

@@ -245,6 +245,9 @@ pub struct BundleOptions {
 
 /// The stand-in face the desktop's painter letters "Arial" in (egui's built-in proportional font), shipped with
 /// every Web bundle so that a form reads the same on both surfaces (`assets/web-fonts`).
+/// The asset-table key the stand-in face is listed under for the player's graphics parts.
+pub const STAND_IN_ASSET_KEY: &str = "0-stand-in/ubuntu-light.ttf";
+
 const STAND_IN_FONT: &[u8] = include_bytes!("../../../assets/web-fonts/Ubuntu-Light.ttf");
 /// Its licence, which travels with it.
 const STAND_IN_FONT_LICENCE: &[u8] = include_bytes!("../../../assets/web-fonts/UFL.txt");
@@ -894,6 +897,9 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     // (the Ubuntu Font Licence asks for that). A shadow root cannot declare a font: the page's own stylesheet does.
     let font_path = b.add_hashed("fonts/Ubuntu-Light.ttf", STAND_IN_FONT.to_vec());
     b.add("fonts/UFL.txt".into(), STAND_IN_FONT_LICENCE.to_vec());
+    // The same face is the first font of every graphics registry the player makes (WASM-018 T27): the desktop registers it
+    // first too, so a generic or unknown family is lettered alike on every host. The key sorts before every project path.
+    assets_cfg.insert(STAND_IN_ASSET_KEY.to_owned(), Value::String(font_path.clone()));
     let app_css_path = b.add_hashed("app.css", hostpage::app_css(o.backdrop.as_deref(), &font_path, &faces_css).into_bytes());
 
     // texts, options and the config the loader reads

@@ -33,6 +33,8 @@ pub const CANVAS_EVENTS: &[&str] = &[
     "onTouchStart",
     "onTouchMove",
     "onTouchEnd",
+    "onGamepadButton",
+    "onGamepadAxis",
     "onResize",
 ];
 
@@ -50,6 +52,8 @@ pub const CANVAS3D_EVENTS: &[&str] = &[
     "onTouchStart",
     "onTouchMove",
     "onTouchEnd",
+    "onGamepadButton",
+    "onGamepadAxis",
     "onResize",
     "onError",
 ];

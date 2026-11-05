@@ -8501,6 +8501,8 @@ fn graphics_method_lines(control: &str) -> Vec<String> {
     // Answered by the interpreter from the keys the host reports, not by a registry row.
     if matches!(kind, ObjectKind::Canvas2D | ObjectKind::Canvas3D) {
         lines.push("`IsKeyDown(key: String)` → Number — 1 while that key is held down, else 0; read at any time, whatever handlers are bound.".to_string());
+        lines.push("`GamepadAxis(axis: Number, [pad: Number])` → Number — the value of an axis of a gamepad, -1 to 1 (pad 0 when none is named); 0 when there is no such pad or axis. Read at any time, whatever handlers are bound; the axes and buttons are those of the browser's \"standard\" mapping.".to_string());
+        lines.push("`GamepadButton(button: Number, [pad: Number])` → Number — 1 while that button of the gamepad is pressed, else 0; read at any time. `onGamepadButton` (argument `pad button 1|0`) and `onGamepadAxis` (argument `pad axis value`) are raised when a handler is bound.".to_string());
     }
     lines
 }
@@ -8514,7 +8516,7 @@ A web developer finds the same drawing model with these differences:\n\n\
 | `ctx.fillRect(x, y, w, h)` | `CNV-1::FillRect(x y w h)` — the same names, called as inline methods |\n\
 | `requestAnimationFrame` | set `TargetFps` and bind `onFrame`; `FixedStep` gives an exact step |\n\
 | drawing shows at once | with `AutoPresent` the drawing shows at the end of the handler; otherwise call `Present` |\n\
-| events on the element | `onPointerDown`, `onPointerMove`, `onPointerUp`, `onWheel`, `onKeyDown`, `onKeyUp`, raised only when a handler is bound; `PointerX`, `PointerY` and `IsKeyDown(key)` can be read at any time |\n\
+| events on the element | `onPointerDown`, `onPointerMove`, `onPointerUp`, `onWheel`, `onKeyDown`, `onKeyUp`, `onGamepadButton`, `onGamepadAxis`, raised only when a handler is bound; `PointerX`, `PointerY`, `IsKeyDown(key)`, `GamepadAxis(axis)` and `GamepadButton(button)` can be read at any time |\n\
 | CSS pixels and `devicePixelRatio` | `PixelRatio` scales the surface; `Width` and `Height` stay in form pixels |\n\
 | an exception on a wrong call | the call sets `LastError` and the drawing goes on |\n\
 | `getContext(\"webgl2\")` | a separate control, Canvas3D, showing a Scene3D |\n\n\

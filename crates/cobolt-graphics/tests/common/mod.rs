@@ -64,6 +64,10 @@ pub fn assert_golden(name: &str, got: &PixelBuffer, tol: Tolerance) {
     }
     let total = (want.width() * want.height()) as usize;
     let fraction = loose_px as f64 / total as f64;
+    // What this adapter measured against the golden, for the tolerance record (WASM-018 T29): `GRAPHICS_REPORT_TOLERANCE=1`.
+    if std::env::var("GRAPHICS_REPORT_TOLERANCE").map(|v| v == "1").unwrap_or(false) {
+        eprintln!("GOLDEN-TOLERANCE {name}: worst channel {worst} (allowed {}), {loose_px} of {total} pixels over {} ({:.5} of the picture, allowed {})", tol.max_channel, tol.loose, fraction, tol.max_fraction);
+    }
     assert!(worst <= tol.max_channel, "golden {name}: a channel differs by {worst}, the most allowed is {}", tol.max_channel);
     assert!(
         fraction <= tol.max_fraction,

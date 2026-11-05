@@ -215,6 +215,8 @@ pub struct BuildReport {
     /// build — not only as a warning when over — so its growth is visible;
     /// `None` when the backend does not measure it.
     pub budget: Option<BudgetLine>,
+    /// The font files the bundle carries, each with where it came from and its licence (WASM-018 T27, Q7).
+    pub fonts: Vec<crate::fonts::ShippedFont>,
 }
 
 impl BuildReport {
@@ -231,6 +233,15 @@ impl BuildReport {
             "duration_ms": self.duration_ms,
             "connect_src": self.connect_src,
             "player": self.player.iter().map(|p| serde_json::json!({"name": p.name, "bytes": p.bytes})).collect::<Vec<_>>(),
+            "fonts": self.fonts.iter().map(|f| serde_json::json!({
+                "family": f.family,
+                "path": f.path,
+                "bytes": f.size,
+                "origin": f.origin,
+                "embedding": f.licence.as_ref().map(|l| l.embedding),
+                "fs_type": f.licence.as_ref().and_then(|l| l.fs_type),
+                "licence": f.licence.as_ref().map(|l| l.text.as_str()),
+            })).collect::<Vec<_>>(),
             "budget": self.budget.map(|b| serde_json::json!({
                 "first_download_bytes": b.first_download_bytes,
                 "budget_bytes": b.budget_bytes,

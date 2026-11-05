@@ -211,6 +211,20 @@ pub(crate) fn run(ui: &mut Ui, screen: Rect, ctrl: &Control, ctrl_id: egui::Id, 
         out.prop_updates.push((id.to_string(), "_Keys".into(), held.join(",")));
     }
 
+    // Gamepads (T28): whatever the host's source reports, whether or not the canvas has the keyboard. The pads the canvas last
+    // saw are kept with it; `GamepadAxis` and `GamepadButton` read the `_Pads` snapshot, and a bound handler is raised for
+    // each change, with the argument text every host raises (`gamepad::PadEvent::argument`).
+    let pads_mem = ctrl_id.with("canvas-pads");
+    let seen: Vec<crate::gamepad::Pad> = ui.ctx().memory(|m| m.data.get_temp::<Vec<crate::gamepad::Pad>>(pads_mem)).unwrap_or_default();
+    let now = crate::gamepad::current();
+    if now != seen {
+        for e in crate::gamepad::diff(&seen, &now) {
+            raise(e.name(), e.argument());
+        }
+        out.prop_updates.push((id.to_string(), "_Pads".into(), crate::gamepad::snapshot(&now)));
+        ui.ctx().memory_mut(|m| m.data.insert_temp(pads_mem, now));
+    }
+
     // onFrame at TargetFps, with the elapsed time.
     let fps = num(ctrl, "TargetFps");
     let clock_mem = ctrl_id.with("canvas-clock");

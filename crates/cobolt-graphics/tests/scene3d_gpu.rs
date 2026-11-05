@@ -101,6 +101,10 @@ fn the_backend_is_reported() {
     eprintln!("Canvas3D backend: {} - {}", b.name(), c.adapter_description().unwrap());
     assert_ne!(b, Backend::None);
     assert!(["WebGPU", "WebGL2", "Vulkan", "Metal", "Dx12", "OpenGL", "Software"].contains(&b.name()));
+    // CI on lavapipe names the adapter it must find (WASM-018 T29, AC5): a software Vulkan reports `Software`.
+    if let Ok(want) = std::env::var("GRAPHICS_EXPECT_BACKEND") {
+        assert_eq!(b.name(), want, "the adapter found is not the one this run is for: {}", c.adapter_description().unwrap());
+    }
     assert!(c.status().is_none());
 }
 

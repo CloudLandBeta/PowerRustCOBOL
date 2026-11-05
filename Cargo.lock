@@ -2445,6 +2445,7 @@ dependencies = [
  "cobolt-compiler",
  "cobolt-format",
  "cobolt-forms",
+ "cobolt-graphics",
  "cobolt-indexed",
  "cobolt-kb",
  "cobolt-lexer",
@@ -2458,6 +2459,7 @@ dependencies = [
  "dirs 5.0.1",
  "egui",
  "flate2",
+ "fontdb",
  "native-tls",
  "png 0.17.16",
  "semver 1.0.28",
@@ -2467,6 +2469,7 @@ dependencies = [
  "tempfile",
  "toml 0.8.23",
  "toml_edit 0.22.27",
+ "ttf-parser",
  "tungstenite 0.28.0",
  "ureq",
 ]

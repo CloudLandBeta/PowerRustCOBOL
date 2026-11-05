@@ -108,6 +108,15 @@ impl Shared {
         let gpu = inner.gpu_device.borrow().clone();
         match build_graphics(&module, gpu.as_ref()) {
             Ok(g) => {
+                // The project's fonts: every text this registry draws is lettered with them.
+                let fonts = inner.fonts.borrow().clone();
+                if let (Some(fonts), Some(add)) = (fonts, method(&g, "add_font")) {
+                    for bytes in fonts.iter() {
+                        if let Err(e) = add.call1(&g, &js_sys::Uint8Array::from(bytes.as_slice())) {
+                            web_sys::console::warn_1(&format!("[pr] a project font was refused: {}", message(&e)).into());
+                        }
+                    }
+                }
                 self.canvas.borrow_mut().objs.insert(inst, g.clone());
                 Some(g)
             }

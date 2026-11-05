@@ -56,11 +56,82 @@ pub(crate) struct GraphicsState {
 
 impl GraphicsState {
     pub(crate) fn with_limits(limits: Limits) -> GraphicsState {
-        GraphicsState { registry: Registry::new(limits), handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0, gpu_gen: 0 }
+        let mut registry = Registry::new(limits);
+        register_fonts(&mut registry);
+        GraphicsState { registry, handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0, gpu_gen: 0 }
     }
 
     pub(crate) fn new() -> GraphicsState {
-        GraphicsState { registry: Registry::new(project_limits()), handles: HashMap::new(), frame_canvas: None, instance: crate::canvas_frames::next_instance(), frames: 0, gpu_gen: 0 }
+        Self::with_limits(project_limits())
+    }
+}
+
+/// The face every host letters a text with when no project font answers (the web bundle carries the same file as
+/// `fonts/Ubuntu-Light.ttf`; its licence, the Ubuntu Font Licence, travels with it): registered first, so a generic family
+/// or an unknown one resolves to it on the desktop exactly as it does in the browser (WASM-018 T27, AC1, AC3).
+pub const STAND_IN_FONT: &[u8] = include_bytes!("../../../../assets/web-fonts/Ubuntu-Light.ttf");
+
+type FontFiles = Vec<(String, std::sync::Arc<Vec<u8>>)>;
+
+static PUBLISHED_FONTS: std::sync::Mutex<FontFiles> = std::sync::Mutex::new(Vec::new());
+
+/// Publish the font files a host found for the families the project names beyond its own `Assets/` ones, as
+/// `(Assets/fonts/<file>, bytes)` (`cobolt_project_tools::fonts::project_font_files`). The next registry this process makes
+/// registers them; replacing the list (another project opened in the IDE) is allowed.
+pub fn publish_project_fonts(files: Vec<(String, Vec<u8>)>) {
+    if let Ok(mut f) = PUBLISHED_FONTS.lock() {
+        *f = files.into_iter().map(|(p, b)| (p, std::sync::Arc::new(b))).collect();
+    }
+}
+
+/// The font files under `<project>/Assets` (`.ttf`, `.otf`, `.ttc`), by path, read once per project folder.
+fn asset_fonts() -> FontFiles {
+    static CACHE: std::sync::Mutex<Option<(std::path::PathBuf, FontFiles)>> = std::sync::Mutex::new(None);
+    let Some(base) = cobolt_forms::assets::current_base() else { return Vec::new() };
+    let Ok(mut cache) = CACHE.lock() else { return Vec::new() };
+    if let Some((b, files)) = cache.as_ref() {
+        if *b == base {
+            return files.clone();
+        }
+    }
+    fn walk(root: &std::path::Path, dir: &std::path::Path, depth: u32, out: &mut FontFiles) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if depth < 5 {
+                    walk(root, &p, depth + 1, out);
+                }
+            } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| ["ttf", "otf", "ttc"].iter().any(|f| x.eq_ignore_ascii_case(f))) {
+                if let (Ok(bytes), Ok(rel)) = (std::fs::read(&p), p.strip_prefix(root)) {
+                    out.push((rel.to_string_lossy().replace('\\', "/"), std::sync::Arc::new(bytes)));
+                }
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&base, &base.join("Assets"), 0, &mut files);
+    *cache = Some((base, files.clone()));
+    files
+}
+
+/// Give a registry the fonts every host gives: the stand-in face, then the project's files in path order (its own
+/// `Assets/` fonts and the ones published for the families it names). A host that registers the same files in the same
+/// order draws the same picture.
+fn register_fonts(registry: &mut Registry) {
+    let fonts = registry.fonts();
+    let _ = fonts.add_font_data(STAND_IN_FONT.to_vec());
+    let mut files = asset_fonts();
+    if let Ok(p) = PUBLISHED_FONTS.lock() {
+        for (path, bytes) in p.iter() {
+            if !files.iter().any(|(q, _)| q.eq_ignore_ascii_case(path)) {
+                files.push((path.clone(), bytes.clone()));
+            }
+        }
+    }
+    files.sort_by_key(|(p, _)| p.to_ascii_lowercase());
+    for (_, bytes) in files {
+        let _ = fonts.add_font_data(bytes.as_ref().clone());
     }
 }
 
@@ -127,6 +198,18 @@ impl Interpreter {
     /// Run `m` on a graphics control. `None` when the class is not one of the seven.
     pub(crate) fn graphics_method(&mut self, obj: &str, m: &str, args: &[CobolValue]) -> Option<String> {
         let kind = self.graphics_kind(obj)?;
+        if matches!(kind, ObjectKind::Canvas2D | ObjectKind::Canvas3D) && (m.eq_ignore_ascii_case("GamepadAxis") || m.eq_ignore_ascii_case("GamepadButton")) {
+            // Pollable gamepad state (T28): `GamepadAxis(axis [pad])` in -1..1, `GamepadButton(button [pad])` 1 or 0; the host keeps
+            // the pads in `_Pads` (`cobolt_forms::gamepad::snapshot`). A pad or an input that is not there answers 0.
+            let number = |i: usize| args.get(i).and_then(|a| a.as_display_string().trim().parse::<u32>().ok()).unwrap_or(0);
+            let (input, pad) = (number(0), number(1));
+            let pads = self.obj_get(obj, "_Pads");
+            return Some(if m.eq_ignore_ascii_case("GamepadAxis") {
+                format!("{:.3}", cobolt_forms::gamepad::axis_of(&pads, pad, input))
+            } else {
+                cobolt_forms::gamepad::button_of(&pads, pad, input).to_string()
+            });
+        }
         if matches!(kind, ObjectKind::Canvas2D | ObjectKind::Canvas3D) && m.eq_ignore_ascii_case("IsKeyDown") {
             // Pollable input state (T19): the host keeps the held keys in `_Keys`.
             let name = args.first().map(|a| a.as_display_string()).unwrap_or_default();
@@ -311,6 +394,43 @@ mod tests {
     fn call(i: &mut Interpreter, obj: &str, m: &str, args: &[&str]) -> String {
         let a: Vec<CobolValue> = args.iter().map(|s| CobolValue::from_str(s, s.len())).collect();
         i.exec_method(obj, &m.to_ascii_uppercase(), &a).as_display_string().trim().to_string()
+    }
+
+    /// WASM-018 T27: a canvas letters a text with no `LoadFont` call: the stand-in face and the project's fonts are
+    /// registered with the registry, in the order every host uses, and a font a host published is registered too.
+    #[test]
+    fn a_registry_starts_with_the_stand_in_face_and_the_projects_fonts_in_path_order() {
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "80"), ("Height", "24")][..])]);
+        assert_eq!(call(&mut i, "CANVAS-1", "SetFont", &["16px sans-serif"]), "");
+        let width = call(&mut i, "CANVAS-1", "MeasureText", &["Hi"]);
+        assert_eq!(i.obj_get("CANVAS-1", "LastError"), "", "no 'no font is registered': {width}");
+        assert!(!width.is_empty());
+
+        let mut r = Registry::new(Limits::default());
+        register_fonts(&mut r);
+        let alone = r.fonts().face_count();
+        assert!(alone >= 1, "the stand-in face is there");
+        assert_eq!(r.fonts().families().first().map(String::as_str), Some("Ubuntu"));
+        publish_project_fonts(vec![("Assets/fonts/Second.ttf".into(), STAND_IN_FONT.to_vec()), ("Assets/fonts/First.ttf".into(), STAND_IN_FONT.to_vec())]);
+        let mut r = Registry::new(Limits::default());
+        register_fonts(&mut r);
+        assert!(r.fonts().face_count() >= alone, "the published files are registered after the stand-in");
+        publish_project_fonts(Vec::new());
+        println!("T27 desktop: stand-in registered ({alone} face(s)); MeasureText with no LoadFont → {width}");
+    }
+
+    /// `GamepadAxis` and `GamepadButton` read the pads the host keeps in `_Pads`; a pad or an input that is not there answers 0 (T28).
+    #[test]
+    fn the_gamepad_methods_read_the_pads_the_host_keeps() {
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "80"), ("Height", "24")][..])]);
+        assert_eq!(call(&mut i, "CANVAS-1", "GamepadAxis", &["0"]), "0.000", "no pad yet");
+        i.obj_set("CANVAS-1", "_Pads", "0|0.500,-1.000|10".to_string());
+        assert_eq!(call(&mut i, "CANVAS-1", "GamepadAxis", &["0"]), "0.500");
+        assert_eq!(call(&mut i, "CANVAS-1", "GamepadAxis", &["1", "0"]), "-1.000");
+        assert_eq!(call(&mut i, "CANVAS-1", "GamepadButton", &["0"]), "1");
+        assert_eq!(call(&mut i, "CANVAS-1", "GamepadButton", &["1"]), "0");
+        assert_eq!(call(&mut i, "CANVAS-1", "GamepadButton", &["0", "3"]), "0", "a pad that is not there");
+        println!("T28 desktop: GamepadAxis/GamepadButton answer from _Pads, 0 for what is missing");
     }
 
     /// Every one of the seven kinds is created on first use, answers a method, and goes with the form.

@@ -731,6 +731,39 @@ impl Host {
         true
     }
 
+    /// Does any open canvas have a handler bound to a gamepad event? The page polls the browser's pads only while one does.
+    pub fn wants_gamepad(&self) -> bool {
+        self.trees.values().any(|t| {
+            t.ctls.iter().any(|c| matches!(crate::kinds::player_kind(c), Some(crate::kinds::PlayerKind::Canvas2D | crate::kinds::PlayerKind::Canvas3D)) && (c.has_handler("onGamepadButton") || c.has_handler("onGamepadAxis")))
+        })
+    }
+
+    /// The pads changed (WASM-018 T28, R13): each event of [`cobolt_forms::gamepad::diff`] is raised on every canvas that has
+    /// a handler bound to it, with the argument text the desktop raises. Answers how many events were queued.
+    pub fn gamepad_events(&mut self, events: &[cobolt_forms::gamepad::PadEvent]) -> usize {
+        let canvases: Vec<(u32, usize)> = self
+            .trees
+            .iter()
+            .flat_map(|(inst, t)| {
+                t.ctls
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| matches!(crate::kinds::player_kind(c), Some(crate::kinds::PlayerKind::Canvas2D | crate::kinds::PlayerKind::Canvas3D)))
+                    .map(|(i, _)| (*inst, i))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let mut queued = 0;
+        for e in events {
+            for &(inst, ctl) in &canvases {
+                if self.dom_event(inst, ctl, e.name(), vec![e.argument()]) {
+                    queued += 1;
+                }
+            }
+        }
+        queued
+    }
+
     /// The connection gave up: three attempts failed (WASM-003 R25, WASM-016 R21). `onBackendUnreachable` is raised on the
     /// form the page started with — the oldest open instance no other instance opened, the main form of a single-page
     /// application — when a handler is bound to it. Answers whether it was queued.

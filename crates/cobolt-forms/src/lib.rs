@@ -27,6 +27,7 @@ pub mod assets;
 pub mod aws_catalog;
 #[cfg(feature = "render")]
 pub mod canvas_input;
+pub mod gamepad;
 pub mod caption;
 pub mod chart;
 pub mod code_site;

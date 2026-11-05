@@ -205,6 +205,18 @@ not the spec's design: AC2 counts **one** host call for ten thousand shapes, and
   embedding permission (OpenType `OS/2.fsType`) and its name-table licence string, lists them in the
   Build report, and refuses a font whose `fsType` forbids embedding. This is a consequence of the
   decision, recorded as risk §5, not a reversal of it.
+- **As built (T27, 2.0.209).** Collection and resolution are `cobolt-project-tools/src/fonts.rs`
+  (`references`, `plan`, `SystemFonts`, `project_font_files`); the Web Build (`generator.rs` `project_fonts`) refuses an
+  unresolvable family or a font that forbids embedding and lists every font in the Build report (`fonts`). A file ships as
+  `Assets/fonts/<file>` in the bundle's asset table; the stand-in face (the file the page already carries) is listed
+  first under `0-stand-in/ubuntu-light.ttf`. The player fetches those files once when the first graphics part loads and
+  calls the part's `Graphics.add_font` for each registry. The desktop registers **the same list in the same order** on every
+  graphics registry: the stand-in face (`STAND_IN_FONT` in `cobolt-runtime`), then the files under `<project>/Assets` and
+  the ones `rcrun run-form` publishes (`publish_project_fonts`), sorted by path; before this a desktop canvas drew no text
+  until the program called `LoadFont`. A generic or unknown family resolves to the first registered font, the stand-in,
+  on both. **Gap:** a compiled desktop binary finds the project's own `Assets/` fonts but not the machine's fonts a Web
+  build would ship (the compiler cannot depend on `cobolt-project-tools`; copying them into a desktop build's `Assets/`
+  needs the Binary Compiler to call it).
 
 ### 1.6 3D in CI (R9, AC4, AC5; Q5 decided: software Vulkan, no fallback)
 
@@ -328,9 +340,16 @@ Crate versions are those resolved in `Cargo.lock` (§6 list).
   re-creates the renderer from the new render state.
 - **Font licences (Q7).** Shipping a system font may be forbidden; the Build reads `fsType` and refuses
   (§1.5). A CJK system font is large (tens of MB); the Build report shows it.
-- **`gilrs` and R4.** Its Linux backend may link a system library (udev); this is **not verified** here.
-  The dependency guard decides; if it fails, Linux gamepad input is reported as a gap rather than the
-  guard being relaxed.
+- **`gilrs` and R4 — verified 2026-11-05, refused.** `gilrs` → `gilrs-core` 0.6.6, which on Linux and the BSDs depends on
+  `libudev-sys` 0.1.4, whose build script finds the system library `libudev` with `pkg-config` (crates.io metadata).
+  The guard refuses exactly that (`gilrs_is_refused_by_the_dependency_guard` in `tests/dependency_guard.rs`, on the
+  facts as data), and cargo resolves the Linux dependency for every target, so `gilrs` is not added on any platform; the
+  guard is not relaxed. **The gap, recorded (T28):** the desktop has no operating-system gamepad source. What is built
+  is the part every host shares (`cobolt_forms::gamepad`: the pad model, `diff` into `onGamepadButton` /
+  `onGamepadAxis`, the pollable `GamepadAxis` / `GamepadButton`), the desktop canvas reading it
+  (`cobolt_forms::gamepad::feed` is the entry a source calls) and the browser's Gamepad API in the player. A desktop
+  source needs a crate that reads devices without a system library (or opens `libudev` at run time), and wants a
+  decision of its own.
 - **Moving the command table** risks a byte change: the part-1 equivalence and re-encoding tests run
   before and after the move.
 - **Panics in `gltf`/`parry`** under `panic = "abort"`: pre-validation first, the guard is a net.
@@ -423,6 +442,11 @@ already carry.
 
 Measured in headless Chrome with WebGPU: the 3D part opens the device, a Scene3D with a box and a Canvas3D render it in one draw
 call, and the 64x48 picture is copied back whole (3,072 pixels, the box differing from the background).
+
+Golden tolerance, Metal (measured 2026-11-05, `GRAPHICS_REPORT_TOLERANCE=1`, Apple M3 Pro): `scene3d-reference` differs from its golden by a
+worst channel of 0 (allowed 24) and 0 of 76,800 pixels over 6 (allowed 0.01 of the picture). The lavapipe figure is printed by the
+`graphics-gpu.yml` job as a `GOLDEN-TOLERANCE` line and uploaded with `scene3d.log`; **it has not been measured yet** (the job has not run on
+GitHub), so the allowed tolerance stays at the value above until that run gives a number.
 
 Manual/visual: the operator judges the look (Designer placeholder, Run Form, browser) with the MCP
 `render_form`/`run_form` tools; no UI automation of the operator's window.

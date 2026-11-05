@@ -827,7 +827,7 @@ impl Shared {
 }
 
 /// `fetch(url)` of a file of the bundle, as text.
-async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
     let w = web_sys::window().ok_or("no window")?;
     let resp = wasm_bindgen_futures::JsFuture::from(w.fetch_with_str(url)).await.map_err(|e| format!("{e:?}"))?;
     if !Reflect::get(&resp, &"ok".into()).ok().and_then(|v| v.as_bool()).unwrap_or(false) {

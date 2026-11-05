@@ -58,6 +58,11 @@ native-tls = "0.2"
 tar        = "0.4"
 flate2     = { workspace = true }
 semver     = "1"
+# The fonts a project references (WASM-018 T27): the machine's fonts as the desktop painter queries them, each
+# file's embedding permission, and the CSS font shorthand parser of the graphics library.
+fontdb     = "0.23"
+ttf-parser = "0.25"
+cobolt-graphics = { path = "../cobolt-graphics", default-features = false, features = ["text"] }
 
 [dev-dependencies]
 # The web build's tests read each program module's import section (WASM-002 AC4b).

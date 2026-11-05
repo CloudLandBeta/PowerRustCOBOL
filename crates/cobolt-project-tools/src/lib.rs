@@ -32,6 +32,7 @@ pub mod create;
 /// The External Crates registry client and actions (spec 044), shared by the
 /// IDE's Project's Crates dialog and the `add_crate` / `remove_crate` tools.
 pub mod external_crates;
+pub mod fonts;
 pub mod gen_paths;
 pub mod host;
 pub mod http;

@@ -124,6 +124,10 @@ impl Graphics {
         self.objs.get(&ctl).map(|o| (o.handle, o.kind)).ok_or_else(|| format!("control {ctl} has no graphics object yet"))
     }
 
+    fn add_font_inner(&mut self, bytes: &[u8]) -> Result<u32, String> {
+        self.reg.fonts().add_font_data(bytes.to_vec()).map(|faces| faces.len() as u32).map_err(|e| e.to_string())
+    }
+
     fn make_inner(&mut self, ctl: u32, kind: &str, width: u32, height: u32, ratio: f32) -> Result<u32, String> {
         if let Some(o) = self.objs.get(&ctl) {
             return Ok(o.handle);
@@ -177,6 +181,13 @@ impl Graphics {
     /// The kinds this part carries, as a comma list (the player checks it against the form's controls).
     pub fn kinds(&self) -> String {
         ObjectKind::available().iter().map(|k| k.name()).collect::<Vec<_>>().join(",")
+    }
+
+    /// Register the faces of a font file (TTF, OTF, TTC) the project ships (WASM-018 T27, Q7): the text of every canvas and
+    /// plot of this registry is lettered with them, the same files the desktop registers. The answer is how many faces
+    /// the file added; a file that is not a font says so.
+    pub fn add_font(&mut self, bytes: &[u8]) -> Result<u32, JsError> {
+        self.add_font_inner(bytes).map_err(|e| JsError::new(&e))
     }
 
     /// Make the object of control `ctl` (idempotent); the answer is its handle. A canvas takes its size from
@@ -351,6 +362,26 @@ mod tests {
         assert!(g.call_inner(7, "FillRect", &["1".into()]).is_err(), "too few arguments are refused with a sentence");
         g.call_inner(7, "SetFillColor", &["4278190335".into()]).expect("0xFF0000FF as a number");
         assert!(g.call_inner(8, "Present", &[]).is_err(), "a control with no object is refused");
+    }
+
+    #[test]
+    fn a_shipped_font_letters_the_text_of_a_canvas_and_a_text_with_no_font_says_so() {
+        let font = include_bytes!("../../../assets/web-fonts/Ubuntu-Light.ttf");
+        let mut g = Graphics::new();
+        g.make_inner(1, "Canvas2D", 80, 24, 1.0).unwrap();
+        g.call_inner(1, "SetFillColor", &["#FFFFFF".into()]).unwrap();
+        g.call_inner(1, "SetFont", &["16px Ubuntu".into()]).unwrap();
+        g.call_inner(1, "DrawText", &["Hi".into(), "2".into(), "18".into(), "0".into(), "1".into()]).unwrap();
+        let _ = g.call_inner(1, "Present", &[]);
+        let diag = g.call_inner(1, "GetDiagnostics", &[]).unwrap();
+        assert!(diag.contains("font"), "no font is registered yet: {diag}");
+        assert!(g.add_font_inner(b"not a font").is_err(), "a file that is no font is refused");
+        let faces = g.add_font_inner(font).expect("the project's font");
+        assert!(faces >= 1);
+        g.call_inner(1, "DrawText", &["Hi".into(), "2".into(), "18".into(), "0".into(), "1".into()]).unwrap();
+        g.call_inner(1, "Present", &[]).unwrap();
+        let lit = g.rgba(1).chunks(4).filter(|p| p[3] != 0).count();
+        assert!(lit > 20, "the text was drawn with the shipped font: {lit} pixels");
     }
 
     #[test]

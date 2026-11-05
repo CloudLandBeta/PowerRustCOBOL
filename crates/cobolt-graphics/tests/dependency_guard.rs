@@ -347,3 +347,28 @@ fn adding_a_denied_package_to_a_real_cargo_project_makes_the_guard_fail() {
     assert!(bad[0].contains("font-kit") && bad[0].contains("deny list"), "{}", bad[0]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// WASM-018 T28 (plan §5, risk "`gilrs` and R4"): `gilrs`, the desktop gamepad crate the plan named, depends on `gilrs-core`, which
+/// on Linux (and the BSDs) depends on `libudev-sys`, whose build script finds the system library `libudev` with `pkg-config`. The
+/// tree below is that fact (crates.io, `gilrs-core` 0.6.6 and `libudev-sys` 0.1.4, 2026-11-05) as data; the guard refuses it, so
+/// `gilrs` is not added and the guard is not relaxed. A desktop gamepad source needs a crate that reads devices without a system
+/// library (or a `libudev` opened at run time, which no maintained crate does today); until then the desktop is fed by whatever a
+/// host reports through `cobolt_forms::gamepad::feed` and Linux gamepad input is a recorded gap.
+#[test]
+fn gilrs_is_refused_by_the_dependency_guard() {
+    let pkg = |name: &str, version: &str, license: &str| Pkg { name: name.into(), version: version.into(), license: license.into(), features: BTreeSet::new() };
+    let tree = vec![
+        pkg("gilrs", "0.11.0", "Apache-2.0/MIT"),
+        pkg("gilrs-core", "0.6.6", "Apache-2.0/MIT"),
+        pkg("libudev-sys", "0.1.4", "MIT"),
+        pkg("pkg-config", "0.3.32", "MIT OR Apache-2.0"),
+    ];
+    let mut meta = BTreeMap::new();
+    meta.insert(("libudev-sys".to_string(), "0.1.4".to_string()), MetaPkg { has_build_script: true, build_deps: ["pkg-config".to_string()].into(), rust_version: None });
+    meta.insert(("gilrs-core".to_string(), "0.6.6".to_string()), MetaPkg { has_build_script: false, build_deps: BTreeSet::new(), rust_version: Some("1.80.0".into()) });
+    let bad = violations(&tree, &meta);
+    assert_eq!(bad.len(), 1, "{bad:?}");
+    assert!(bad[0].contains("libudev-sys") && bad[0].contains("pkg-config") && bad[0].contains("system library"), "{}", bad[0]);
+    // Without the Linux backend (the same crates on macOS or Windows) the tree is clean: the refusal is the Linux dependency.
+    assert!(violations(&tree[..2], &meta).is_empty());
+}

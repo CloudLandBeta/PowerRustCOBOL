@@ -154,3 +154,45 @@ fn the_part_a_form_needs_comes_from_the_kinds_its_controls_use() {
     assert_eq!(h.graphics_part(0), Some("graphics"), "a Canvas2D with a Plot needs the part that has plots");
     assert_eq!(h.graphics_part(9), None, "no such form");
 }
+
+/// WASM-018 T28 (R13, AC12 gamepad), the browser's side: the page reads the pads, `gamepad::diff` makes the events and the host
+/// raises each on every canvas with a handler bound to it, with the argument text the desktop raises; a canvas with no handler
+/// gets nothing, and the page polls the pads only while some canvas has one.
+#[test]
+fn a_gamepad_event_reaches_a_canvas_with_a_bound_handler_and_no_other() {
+    use cobolt_forms::gamepad::{diff, Pad};
+    use cobolt_wasm_abi::manifest::HandlerEntry;
+    let mut m = manifest();
+    m.events = vec!["onLoad".into(), "onGamepadButton".into(), "onGamepadAxis".into()];
+    let started = std::time::Instant::now();
+
+    // No handler bound: the page does not poll, and an event is queued nowhere.
+    let mut h = Host::new(m.clone(), HostOptions::default());
+    h.add_description(&to_json(&describe(&load_form_from_str(FORM).unwrap()))).unwrap();
+    h.create_tree_as(0, 0, None, Vec::new(), OpenMode::Root).unwrap();
+    let pads = |axes: &[f32], buttons: &[bool]| vec![Pad { index: 0, axes: axes.to_vec(), buttons: buttons.to_vec() }];
+    let events = diff(&[], &pads(&[0.5], &[true, false]));
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert!(!h.wants_gamepad());
+    assert_eq!(h.gamepad_events(&events), 0, "no handler bound, nothing raised");
+
+    // The canvas CNV-A (control 3) binds both: it is polled, and each event is queued with its argument text.
+    m.forms[0].handlers = vec![HandlerEntry { ctrl: 3, event: 1, entry: 0 }, HandlerEntry { ctrl: 3, event: 2, entry: 0 }];
+    let mut h = Host::new(m, HostOptions::default());
+    h.add_description(&to_json(&describe(&load_form_from_str(FORM).unwrap()))).unwrap();
+    h.create_tree_as(0, 0, None, Vec::new(), OpenMode::Root).unwrap();
+    assert!(h.wants_gamepad(), "a canvas with a bound gamepad handler asks the page to poll");
+    let before = h.work.len();
+    assert_eq!(h.gamepad_events(&events), 2);
+    let queued: Vec<(u32, u32, Vec<String>)> = h
+        .work
+        .iter()
+        .skip(before)
+        .filter_map(|w| match w {
+            Work::Event(e) => Some((e.ctrl, e.event, e.args.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(queued, [(3, 1, vec!["0 0 1".to_owned()]), (3, 2, vec!["0 0 0.500".to_owned()])], "the Plot PLT-A is not a canvas and gets none");
+    println!("T28 browser: a pad with one button down and one axis at 0.5 queued onGamepadButton(0 0 1) and onGamepadAxis(0 0 0.500) on the bound canvas only ({} us)", started.elapsed().as_micros());
+}

@@ -994,7 +994,7 @@ impl WebBuildBackend for GeneratorBackend {
                 }
             }
         }
-        let assets = req
+        let mut assets: Vec<AssetInput> = req
             .assets
             .iter()
             .filter_map(|rel| {
@@ -1006,6 +1006,11 @@ impl WebBuildBackend for GeneratorBackend {
                     })
             })
             .collect();
+        // WASM-018 T27 (Q7): every font the project references ships with the bundle.
+        let font_outcome = project_fonts(req, &forms, &assets, &mut warnings)?;
+        for (path, bytes) in &font_outcome.files {
+            assets.push(AssetInput { path: path.clone(), bytes: bytes.clone() });
+        }
         use cobolt_compiler::project_kind::Isolation;
         let (backend_contract, backend_idempotent) = backend_contract(&req.project_dir);
         let options = BundleOptions {
@@ -1089,8 +1094,56 @@ impl WebBuildBackend for GeneratorBackend {
             connect_src: connect_src(&bundle.report.csp_meta),
             player: player_sizes(&player),
             budget: Some(bundle.report.budget),
+            fonts: font_outcome.shipped,
         })
     }
+}
+
+/// The families the project's forms and programs name, decided against the project's `Assets/` and this machine's
+/// fonts ([`crate::fonts::plan`]): a family nothing supplies, or a font that forbids embedding, refuses the build
+/// naming the family and where it is used; a `SetFont` whose argument is not a literal is a warning (the program
+/// may ship the file under `Assets/`). The project's COBOL is read, never written.
+fn project_fonts(
+    req: &WebBuildRequest,
+    forms: &[LoadedForm],
+    assets: &[AssetInput],
+    warnings: &mut Vec<WebDiagnostic>,
+) -> Result<crate::fonts::FontOutcome, WebBuildError> {
+    use crate::fonts::{plan, references, SystemFonts};
+    let mut texts: Vec<(String, String)> = forms.iter().map(|f| (f.rel.clone(), f.cfrm.clone())).collect();
+    for rel in &req.sources {
+        if let Ok(t) = std::fs::read_to_string(req.project_dir.join(rel)) {
+            texts.push((rel.replace('\\', "/"), t));
+        }
+    }
+    let refs = references(forms.iter().map(|f| (f.rel.as_str(), &f.form)), &texts);
+    let needs = refs.needs;
+    for (rel, line) in refs.non_literal {
+        warnings.push(diag(
+            format!("{rel}:{line}"),
+            WebDiagnosticKind::Other,
+            "SetFont".into(),
+            "SetFont names its font in a data item, so the Build cannot know which font file the program needs: put the font file under Assets/ and it ships".into(),
+        ));
+    }
+    let files: Vec<(String, Vec<u8>)> = assets.iter().map(|a| (a.path.clone(), a.bytes.clone())).collect();
+    let outcome = if needs.is_empty() && !files.iter().any(|(p, _)| is_font_path(p)) {
+        crate::fonts::FontOutcome::default()
+    } else {
+        plan(&needs, &files, &SystemFonts::load(), true)
+    };
+    warnings.extend(outcome.warnings.iter().map(|w| diag(String::new(), WebDiagnosticKind::Other, "font".into(), w.clone())));
+    if !outcome.errors.is_empty() {
+        return Err(WebBuildError::Refused(
+            outcome.errors.iter().map(|e| diag(String::new(), WebDiagnosticKind::Other, "font".into(), e.clone())).collect(),
+        ));
+    }
+    Ok(outcome)
+}
+
+fn is_font_path(p: &str) -> bool {
+    let p = p.to_ascii_lowercase();
+    [".ttf", ".otf", ".ttc", ".woff", ".woff2"].iter().any(|e| p.ends_with(e))
 }
 
 #[cfg(test)]

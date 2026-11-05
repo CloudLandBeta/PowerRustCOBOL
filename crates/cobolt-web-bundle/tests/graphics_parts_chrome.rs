@@ -44,6 +44,23 @@ try {
   R.canvasObjects = c.object_count();
   c.free();
 
+  // fonts (WASM-018 T27): no text is drawn until the page hands the part a font file; then the text is lettered with it.
+  const t = new canvas.Graphics();
+  t.make(9, 'Canvas2D', 80, 24, 1);
+  call(t, 9, 'SetFillColor', ['#FFFFFF']);
+  call(t, 9, 'SetFont', ['16px Ubuntu']);
+  R.textWithoutFont = refused(() => call(t, 9, 'MeasureText', ['Hi']));
+  const font = new Uint8Array(await (await fetch('./Ubuntu-Light.ttf')).arrayBuffer());
+  R.facesAdded = t.add_font(font);
+  R.notAFont = refused(() => t.add_font(new Uint8Array([1, 2, 3, 4])));
+  call(t, 9, 'DrawText', ['Hi', 2, 18, 0, 1]);
+  call(t, 9, 'Present');
+  const tp = t.rgba(9);
+  let inked = 0;
+  for (let i = 3; i < tp.length; i += 4) if (tp[i]) inked++;
+  R.inkedPixels = inked;
+  t.free();
+
   // graphics: plots and 2D physics in the same registry as the canvases.
   const graphics = await load('graphics');
   const g = new graphics.Graphics();
@@ -113,6 +130,7 @@ fn run_page() -> Option<serde_json::Value> {
             std::fs::copy(parts.join(name).join(&f), to.join(&f)).unwrap_or_else(|e| panic!("{name}/{f}: {e}"));
         }
     }
+    std::fs::copy(support::repo_root().join("assets/web-fonts/Ubuntu-Light.ttf"), dir.path().join("Ubuntu-Light.ttf")).unwrap();
     let server = serve(dir.path(), "127.0.0.1:0", ServeOptions::default()).unwrap();
     let chrome = Chrome::launch(&exe).unwrap_or_else(|e| panic!("{e}"));
     let mut page = chrome.new_page().unwrap_or_else(|e| panic!("{e}"));
@@ -133,6 +151,11 @@ fn the_three_parts_load_carry_their_kinds_and_answer_the_librarys_methods_in_a_r
     assert_eq!(r["pixel"], "4278190335", "GetPixel answers the red the part drew (0xFF0000FF)");
     assert_eq!(r["handle"], "1", "a Canvas2D answers its own handle");
     assert!(r["canvasRefusesPlot"].as_str().unwrap_or("").contains("does not carry"), "{}", r["canvasRefusesPlot"]);
+    // fonts
+    assert!(r["textWithoutFont"].as_str().unwrap_or("").contains("font"), "a text with no font registered says so: {}", r["textWithoutFont"]);
+    assert!(r["facesAdded"].as_u64().unwrap_or(0) >= 1, "the shipped font registered: {}", r["facesAdded"]);
+    assert!(!r["notAFont"].as_str().unwrap_or("").is_empty(), "a file that is no font is refused with a sentence");
+    assert!(r["inkedPixels"].as_u64().unwrap_or(0) > 20, "the text was lettered with the shipped font: {} pixels", r["inkedPixels"]);
     // graphics
     assert!(kinds("graphicsKinds").contains("Plot") && kinds("graphicsKinds").contains("Physics2D"), "{}", kinds("graphicsKinds"));
     assert!(!kinds("graphicsKinds").contains("Scene3D"), "the graphics part carries no 3D: {}", kinds("graphicsKinds"));
@@ -157,9 +180,11 @@ fn the_three_parts_load_carry_their_kinds_and_answer_the_librarys_methods_in_a_r
         format!("backend {}, {} draw call(s), {} lit pixels of {}, {} distinct colours", r["backend"], r["draws"], r["picLit"], 64 * 48, r["picDistinct"])
     };
     println!(
-        "T26 parts in Chrome: canvas [{}] GetPixel {} · graphics [{}] 1 series, SVG {} bytes · graphics3d [{}] {three_d} · {} ms",
+        "T26/T27 parts in Chrome: canvas [{}] GetPixel {} · font: {} face(s), {} inked pixels · graphics [{}] 1 series, SVG {} bytes · graphics3d [{}] {three_d} · {} ms",
         kinds("canvasKinds"),
         r["pixel"],
+        r["facesAdded"],
+        r["inkedPixels"],
         kinds("graphicsKinds"),
         r["svg"].as_str().map_or(0, str::len),
         kinds("kinds3d"),

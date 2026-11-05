@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# Canvas3D on a software Vulkan, with no fallback (WASM-018 T29, Q5, AC4, AC5).
+#
+# The 3D renderer draws on wgpu. A CI machine has no GPU, so this job installs Mesa's
+# lavapipe (a CPU implementation of Vulkan) and runs the adapter tests on it. Two settings
+# make a missing adapter a RED job instead of a quiet pass:
+#
+#   GRAPHICS_REQUIRE_GPU=1   the tests panic when no adapter is found (crates/cobolt-graphics/
+#                            tests/scene3d_gpu.rs turns the loud "SKIPPED" line into a failure);
+#   WGPU_BACKEND=vulkan      wgpu may use nothing but Vulkan, so a machine where lavapipe is
+#                            not installed or not found cannot fall back to another backend.
+#
+# The run reports the adapter it found (`Backend` must read Software on lavapipe) and the
+# golden-image difference it measured (the tolerance of the 3D golden, tests/common). Run on
+# demand from the Actions tab, and on every push or pull request that touches the graphics crate.
+
+name: Graphics on a software Vulkan
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "crates/cobolt-graphics/**"
+      - "crates/cobolt-graphics-wire/**"
+      - ".github/workflows/graphics-gpu.yml"
+  pull_request:
+    paths:
+      - "crates/cobolt-graphics/**"
+      - "crates/cobolt-graphics-wire/**"
+      - ".github/workflows/graphics-gpu.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  GRAPHICS_REQUIRE_GPU: "1"
+  GRAPHICS_EXPECT_BACKEND: Software
+  WGPU_BACKEND: vulkan
+
+jobs:
+  scene3d-on-lavapipe:
+    name: Scene3D and Canvas3D on lavapipe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Mesa's software Vulkan (lavapipe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 vulkan-tools
+          # The ICD file names the software driver; a missing one is a failure here, not later.
+          ls /usr/share/vulkan/icd.d/ | grep -i lvp
+          vulkaninfo --summary | tee vulkaninfo.txt
+          grep -i "llvmpipe\|lavapipe" vulkaninfo.txt
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Canvas3D adapter tests (no skipping)
+        env:
+          GRAPHICS_REPORT_TOLERANCE: "1"
+        run: |
+          cargo test -p cobolt-graphics --test scene3d_gpu --no-fail-fast -- --nocapture --test-threads=1 2>&1 | tee scene3d.log
+          # The adapter must be the software one (GRAPHICS_EXPECT_BACKEND makes the test assert it), and nothing may have been skipped.
+          grep "Canvas3D backend: Software" scene3d.log
+          ! grep -i "SKIPPED" scene3d.log
+
+      - name: The golden tolerance measured on this adapter
+        run: grep "GOLDEN-TOLERANCE" scene3d.log || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scene3d-lavapipe-log
+          path: |
+            scene3d.log
+            vulkaninfo.txt

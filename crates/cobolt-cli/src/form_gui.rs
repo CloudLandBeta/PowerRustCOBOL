@@ -250,6 +250,10 @@ pub fn cmd_run_form(args: &[String]) {
             );
             // `[links] schemes` (WASM-006 R7), for every Hyperlink of this process.
             cobolt_form_host::seeding::publish_link_schemes(cobolt_compiler::project_link_schemes(m));
+            // WASM-018 T27: the fonts the project's forms and programs name that this machine has, registered with
+            // every graphics registry, the same files a Web build ships (the project's own `Assets/` fonts follow the
+            // anchor set below).
+            cobolt_runtime::interpreter::graphics::publish_project_fonts(cobolt_project_tools::fonts::project_font_files(m));
             crate::install_project_sql_catalog(m);
             cobolt_runtime::publish_format_locale(&cobolt_compiler::project_locale(m));
             cobolt_runtime::publish_format_currency(&cobolt_compiler::project_currency(m));
