@@ -27,7 +27,7 @@ license     = "Apache-2.0"
 publish     = false
 
 [workspace]
-members = [".", "parts/mermaid", "parts/canvas", "parts/pdf"]
+members = [".", "parts/mermaid", "parts/canvas", "parts/graphics", "parts/graphics3d", "parts/pdf"]
 
 # The Mermaid renderer reads `std::time::Instant::now()` unconditionally, which panics on
 # `wasm32-unknown-unknown`: every diagram trapped in the browser. The copy under vendor/ differs from

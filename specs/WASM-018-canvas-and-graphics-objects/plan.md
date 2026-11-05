@@ -394,7 +394,8 @@ Crates (resolved): `bytemuck` 1.25.0, `fast_image_resize` 6.1.0, `fontdb` 0.23.0
 | vocabulary | `cobolt-ast` | every `Registry::methods` name is known; reports the count (313 today) |
 | display-list parity (AC13) | `cobolt-wasm` | the same program's list bytes from the interpreter and from the module (on `wasmi`) are equal; reports byte counts |
 | one host call (AC2) | `cobolt-wasm` | 10,000 shapes then `Present` = 1 `flush` with 1 `DRAW`; reports calls and bytes |
-| read-back on the web | `cobolt-web-player` | `GetPixel` after drawing answers the drawn colour; while the part loads, the task suspends and resumes |
+| read-back on the web | `cobolt-web-player` | `GetPixel` after drawing answers the drawn colour. **Changed (2026-11-05, 2.0.207):** no suspension; the player loads the part before the form opens, so the answer never waits |
+| player parts in a browser (T26) | `cobolt-web-bundle` (Chrome) | the three parts load, carry exactly their kinds, answer the library's methods; the 3D part opens the browser's device and copies a rendered picture back |
 | fonts (Q7) | `cobolt-project-tools` | a project referencing a family in a `.cfrm`, a `SetFont` literal and an `Assets/` file ships exactly those three; an unresolvable family fails a Web build; a `fsType`-restricted font is refused |
 | `.cfrm` round trip | `cobolt-forms` | each new type and every R1 property survive save/load |
 | controls | `tests/controls/` | one test per control |
@@ -403,6 +404,25 @@ Crates (resolved): `bytemuck` 1.25.0, `fast_image_resize` 6.1.0, `fontdb` 0.23.0
 | frames and input (AC12) | `cobolt-form-host`, player | `onFrame` rate within a stated tolerance; fixed step exact; hidden = paused; each input event reaches a bound handler |
 | lifecycle (AC9) | form host, player | 100 open/close cycles with a canvas, an image and a scene: memory at baseline (`pr_dbg_live`/region use on the web) |
 | KB freshness | `cobolt-ide` | `prebuilt_chunked_kb_matches_the_published_documentation` green after regeneration |
+
+### 6.3 The player's graphics parts, measured (2026-11-05, 2.0.208, `opt-level s`, wasm-opt `-Os --enable-simd`)
+
+One source (`parts/graphics.rs`), three builds, because a form's objects share **one `Registry` per form instance** (a handle one
+object makes is the next object's argument) and a registry cannot span two WebAssembly modules. The three are supersets; the player
+loads the smallest that has every kind the form uses (`web_class::graphics_part_of`), so a form with only a Canvas2D never fetches
+the 3D part, and a project ships only the parts its forms need (`trim_graphics_parts`). ImageBuffer rides with the canvas part: a
+part of its own would put a picture and the canvas that shows it in different registries, for 355 KB of text-and-codec code both
+already carry.
+
+| Part | Kinds | After wasm-opt | gzip |
+|---|---|---:|---:|
+| `canvas` | Canvas2D, ImageBuffer | 3,181,615 | 1,250,703 |
+| `graphics` | + Plot, Physics2D, Physics3D | 5,965,881 | 2,373,435 |
+| `graphics3d` | + Scene3D, Canvas3D | 8,461,694 | 3,346,348 |
+| (`mermaid`, `pdf`, for reference) | | 2,218,950 · 216,664 | 798,985 · 100,624 |
+
+Measured in headless Chrome with WebGPU: the 3D part opens the device, a Scene3D with a box and a Canvas3D render it in one draw
+call, and the 64x48 picture is copied back whole (3,072 pixels, the box differing from the background).
 
 Manual/visual: the operator judges the look (Designer placeholder, Run Form, browser) with the MCP
 `render_form`/`run_form` tools; no UI automation of the operator's window.

@@ -401,7 +401,7 @@ struct InFlight {
 
 /// What the Canvas part answered to a read-back of a Canvas2D.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CanvasRead {
+pub enum GfxAnswer {
     /// The answer, as text.
     Answer(String),
     /// The part refused the call, or could not run: the reason.
@@ -418,7 +418,7 @@ pub struct Host {
     gfx: Option<Vec<u8>>,
     /// Answers a read-back of a Canvas2D (`GetPixel`, `ToImage`, `MeasureText` ...) with the picture the Canvas part
     /// holds; set by the page. `None` in a host with no page (the tests of the host alone).
-    pub canvas_read: Option<Rc<dyn Fn(u32, usize, (f64, f64), &str, &[String]) -> CanvasRead>>,
+    pub gfx_sync: Option<Rc<dyn Fn(u32, usize, &str, (f64, f64), &str, &[String]) -> GfxAnswer>>,
     layout: ArenaLayout,
     forms: Vec<Option<Rc<Form>>>,
     pub trees: BTreeMap<u32, FormTree>,
@@ -513,7 +513,7 @@ impl Host {
         Host {
             manifest: Rc::new(manifest),
             gfx: None,
-            canvas_read: None,
+            gfx_sync: None,
             layout,
             forms: vec![None; n],
             trees: BTreeMap::new(),
@@ -585,6 +585,12 @@ impl Host {
     }
 
     // ── RequiresSignIn (WASM-009 R11, D11) ──────────────────────────────────
+
+    /// The part of the player that holds the graphics objects of form `form`: the smallest of `canvas`, `graphics` and
+    /// `graphics3d` that has every kind its controls use (WASM-018 T26), or `None` for a form with no graphics object.
+    pub fn graphics_part(&self, form: usize) -> Option<&'static str> {
+        cobolt_forms::web_class::graphics_part_of(&self.forms.get(form)?.as_ref()?.controls)
+    }
 
     /// The sign-in form: the one the Build named, else the first form holding an Authentication control.
     pub fn sign_in_form(&self) -> Option<usize> {
@@ -1810,7 +1816,7 @@ impl Host {
                 });
             }
         }
-        if let Some(r) = self.canvas_readback(inst, idx, method, args) {
+        if let Some(r) = self.gfx_sync_call(inst, idx, method, args) {
             return r.map_err(|e| match e {
                 CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
             });
@@ -1830,18 +1836,29 @@ impl Host {
 
     /// A read-back of a Canvas2D is answered by the Canvas part, with the picture it holds (WASM-018 T25); `None`
     /// when the call is not one, or when no page asked to answer them.
-    fn canvas_readback(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Option<Result<Option<String>, CmdError>> {
-        if !methods::is_canvas_readback(&self.trees[&inst].ctls[idx], name) {
+    fn gfx_sync_call(&mut self, inst: u32, idx: usize, name: &str, args: &[&str]) -> Option<Result<Option<String>, CmdError>> {
+        if !methods::is_gfx_sync_call(&self.trees[&inst].ctls[idx], name) {
             return None;
         }
-        let read = self.canvas_read.clone()?;
+        let read = self.gfx_sync.clone()?;
         let texts: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
         let tree = &self.trees[&inst];
+        let kind = crate::kinds::player_kind(&tree.ctls[idx]).map(|k| k.name()).unwrap_or("Canvas2D");
         let size = (tree.get(idx, "Width").trim().parse::<f64>().unwrap_or(300.0), tree.get(idx, "Height").trim().parse::<f64>().unwrap_or(150.0));
-        Some(match read(inst, idx, size, name, &texts) {
-            CanvasRead::Answer(a) => Ok(Some(a)),
-            CanvasRead::Refused(why) => Err(CmdError::Refused(why)),
-            CanvasRead::NotLoaded => Err(CmdError::Refused(format!("{name} reads the picture back, and the Canvas part is not available yet (it loads when the form opens): call it once the form has been shown (for example from the first onFrame)"))),
+        Some(match read(inst, idx, kind, size, name, &texts) {
+            // The interpreter's rule (cobolt-runtime `graphics_method`): an answer clears `LastError`; a refusal leaves the
+            // objects as they were, writes the reason there and answers nothing, so a program reads it like on the desktop.
+            GfxAnswer::Answer(a) => {
+                if !self.trees[&inst].get(idx, "LastError").is_empty() {
+                    let _ = self.trees.get_mut(&inst).expect("checked").set(idx, "LastError", "");
+                }
+                Ok(Some(a))
+            }
+            GfxAnswer::Refused(why) => {
+                let _ = self.trees.get_mut(&inst).expect("checked").set(idx, "LastError", &format!("{name} refused: {why}"));
+                Ok(Some(String::new()))
+            }
+            GfxAnswer::NotLoaded => Err(CmdError::Refused(format!("{name} needs the graphics part of the player, which is not available (it loads when the form opens)"))),
         })
     }
 
@@ -1882,7 +1899,7 @@ impl Host {
                 return r;
             }
         }
-        if let Some(r) = self.canvas_readback(inst, idx, name, args) {
+        if let Some(r) = self.gfx_sync_call(inst, idx, name, args) {
             return r;
         }
         let r = {
@@ -2867,7 +2884,8 @@ impl Host {
 }
 
 #[cfg(test)]
-mod canvas_tests;
+mod graphics_tests;
+
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]

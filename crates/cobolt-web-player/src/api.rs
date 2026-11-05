@@ -30,7 +30,7 @@
 //! borrowed while the module runs and calls back into it.
 
 use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
 use js_sys::{Array, Function, Int32Array, Promise, Reflect, Uint8Array};
@@ -371,8 +371,8 @@ pub(crate) trait Surface {
     /// A user's act the host cannot perform by itself: resolve a menu item, show a notice, open a window.
     fn act(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, act: Act);
     /// A read-back of the Canvas2D `ctl` (`GetPixel`, `ToImage` ...), answered by the Canvas part (WASM-018 T25).
-    fn canvas_read(&self, _inner: &Rc<Inner>, _inst: u32, _ctl: usize, _size: (f64, f64), _method: &str, _args: &[String]) -> crate::host::CanvasRead {
-        crate::host::CanvasRead::NotLoaded
+    fn gfx_sync(&self, _inner: &Rc<Inner>, _inst: u32, _ctl: usize, _kind: &str, _size: (f64, f64), _method: &str, _args: &[String]) -> crate::host::GfxAnswer {
+        crate::host::GfxAnswer::NotLoaded
     }
 }
 
@@ -414,8 +414,11 @@ pub(crate) struct Inner {
     auth_timer: RefCell<Option<Timeout>>,
     /// The Canvas part's module, once the page has loaded it (see `preload_canvas_part`): a read-back of a canvas is
     /// answered at once from it, however early in the program it is asked.
-    pub(crate) canvas_part: RefCell<Option<JsValue>>,
-    canvas_part_tried: Cell<bool>,
+    pub(crate) parts: RefCell<HashMap<String, JsValue>>,
+    /// The page's graphics device (a `GpuDevice` of the 3D part), opened once when the first 3D form opens; `None` when the
+    /// browser has none (the Canvas3D then says so).
+    pub(crate) gpu_device: RefCell<Option<JsValue>>,
+    gpu_tried: Cell<bool>,
     /// reCAPTCHA: the time limits and the script's load listeners of the tokens being obtained.
     pub(crate) captcha: RefCell<crate::dom::captcha::Pending>,
     /// The authorisation code the hosted flow came back with, until a control takes it.
@@ -606,19 +609,39 @@ impl Inner {
         self.drain_net();
     }
 
-    /// A program with a Canvas2D (its manifest has a graphics region, ABI A23) may read a canvas back at once; the
-    /// Canvas part is therefore loaded before the first call into the module, once, so the answer never waits for a
-    /// download. A page that cannot load parts goes on: a read-back is then refused with a sentence.
-    async fn preload_canvas_part(&self) {
-        if self.canvas_part_tried.replace(true) {
-            return;
+    /// Load the graphics part `name` (once): the module is kept for the registries of every form instance that uses
+    /// it, and the 3D part also opens the page's graphics device (WebGPU, else WebGL2).
+    pub(crate) async fn load_part(&self, name: &str) -> Result<(), String> {
+        if !self.parts.borrow().contains_key(name) {
+            let m = self.part_module(name).await?;
+            self.parts.borrow_mut().insert(name.to_owned(), m);
         }
-        if self.host.borrow().manifest.limits.gfx_size == 0 {
-            return;
+        if name == "graphics3d" && !self.gpu_tried.replace(true) {
+            self.open_gpu().await;
         }
-        if let Ok(m) = self.part_module("canvas").await {
-            *self.canvas_part.borrow_mut() = Some(m);
+        Ok(())
+    }
+
+    /// Open the graphics device with the 3D part's `open_gpu`. A browser with no adapter is not an error of the page:
+    /// the device stays absent and a Canvas3D says so when it renders (WASM-018 AC5).
+    async fn open_gpu(&self) {
+        let Some(module) = self.parts.borrow().get("graphics3d").cloned() else { return };
+        let Some(open) = Reflect::get(&module, &"open_gpu".into()).ok().and_then(|f| f.dyn_into::<Function>().ok()) else { return };
+        match open.call0(&JsValue::UNDEFINED) {
+            Ok(p) => match JsFuture::from(Promise::resolve(&p)).await {
+                Ok(dev) => *self.gpu_device.borrow_mut() = Some(dev),
+                Err(e) => web_sys::console::warn_1(&format!("[pr] no graphics device: {}", js_message(&e)).into()),
+            },
+            Err(e) => web_sys::console::warn_1(&format!("[pr] no graphics device: {}", js_message(&e)).into()),
         }
+    }
+
+    /// Before the module opens form `form`, load the part its graphics objects need (WASM-018 T26): the program may read a
+    /// canvas or call a Plot in its first handler, and the answer must not wait for a download. A form with no graphics
+    /// object loads nothing; a page that cannot load parts goes on, and the first call says so.
+    async fn preload_graphics(&self, form: usize) {
+        let Some(part) = self.host.borrow().graphics_part(form) else { return };
+        let _ = self.load_part(part).await;
     }
 
     /// Call `func` of the part `part` (a module of its own the loader fetches the first time it is asked
@@ -916,7 +939,9 @@ async fn drive(inner: &Rc<Inner>, link: &Rc<JsLink>) {
         let call = inner.host.borrow_mut().next_call();
         match call {
             Some(call) => {
-                inner.preload_canvas_part().await;
+                if let ModuleCall::OpenForm { form, .. } = &call {
+                    inner.preload_graphics(*form as usize).await;
+                }
                 let result = link.run(&call).await;
                 if inner.dead.get() {
                     return;
@@ -946,14 +971,14 @@ async fn drive(inner: &Rc<Inner>, link: &Rc<JsLink>) {
 }
 
 /// Let the host ask the Canvas part for the answer of a read-back (ABI A23, WASM-018 T25). The hook holds the player weakly.
-fn install_canvas_read(inner: &Rc<Inner>) {
+fn install_gfx_sync(inner: &Rc<Inner>) {
     let weak = Rc::downgrade(inner);
-    inner.host.borrow_mut().canvas_read = Some(Rc::new(move |inst, ctl, size, method, args| {
-        let Some(inner) = weak.upgrade() else { return crate::host::CanvasRead::NotLoaded };
+    inner.host.borrow_mut().gfx_sync = Some(Rc::new(move |inst, ctl, kind, size, method, args| {
+        let Some(inner) = weak.upgrade() else { return crate::host::GfxAnswer::NotLoaded };
         let sf = inner.surface.borrow();
         match sf.as_ref() {
-            Some(sf) => sf.canvas_read(&inner, inst, ctl, size, method, args),
-            None => crate::host::CanvasRead::NotLoaded,
+            Some(sf) => sf.gfx_sync(&inner, inst, ctl, kind, size, method, args),
+            None => crate::host::GfxAnswer::NotLoaded,
         }
     }));
 }
@@ -1033,8 +1058,9 @@ impl Player {
             weak: RefCell::new(std::rc::Weak::new()),
             auth_epoch_seen: Cell::new(0),
             auth_timer: RefCell::new(None),
-            canvas_part: RefCell::new(None),
-            canvas_part_tried: Cell::new(false),
+            parts: RefCell::new(HashMap::new()),
+            gpu_device: RefCell::new(None),
+            gpu_tried: Cell::new(false),
             captcha: RefCell::new(Default::default()),
             hosted_return: RefCell::new(hosted_return),
             superlink: RefCell::new(Default::default()),
@@ -1089,7 +1115,7 @@ impl Player {
         let el: web_sys::Element = root.dyn_into().map_err(|_| JsError::new("mount() needs a DOM element"))?;
         let surface = crate::dom::create(&self.inner, el).map_err(|e| JsError::new(&e))?;
         *self.inner.surface.borrow_mut() = Some(surface);
-        install_canvas_read(&self.inner);
+        install_gfx_sync(&self.inner);
         // The sheets the loader set before the page existed (a form's, the project's, a theme file — WASM-007
         // R4) had no surface to go to: apply them now.
         self.inner.styles_changed();
@@ -1382,7 +1408,7 @@ impl Player {
             // The instances leave the page (teardown reported each one closed).
             inner.process_effects();
             *inner.host.borrow_mut() = fresh;
-            install_canvas_read(&inner);
+            install_gfx_sync(&inner);
             *inner.link.borrow_mut() = None;
             inner.inbox.borrow_mut().clear();
             inner.driving.set(false);
@@ -1413,6 +1439,13 @@ impl Player {
             }
             *inner.net.borrow_mut() = None;
             *inner.net_timer.borrow_mut() = None;
+            // The graphics device the 3D part opened for the page goes with it (WASM-018 T26).
+            if let Some(dev) = inner.gpu_device.borrow_mut().take() {
+                if let Ok(free) = Reflect::get(&dev, &"free".into()).and_then(|f| f.dyn_into::<Function>()) {
+                    let _ = free.call0(&dev);
+                }
+            }
+            inner.parts.borrow_mut().clear();
             inner.timers.borrow_mut().clear();
             inner.inbox.borrow_mut().clear();
             let link = inner.link.borrow().clone();

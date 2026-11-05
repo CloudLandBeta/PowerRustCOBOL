@@ -26,3 +26,6 @@ crate-type = ["cdylib", "rlib"]
 # parts of their own, WASM-018 R18).
 cobolt-graphics = { path = "../../../cobolt-graphics", default-features = false, features = ["text", "imagebuf"] }
 wasm-bindgen = "=0.2.129"
+
+[features]
+scene3d = []

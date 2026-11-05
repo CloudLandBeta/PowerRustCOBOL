@@ -22,7 +22,7 @@
 //!   and queues what the user did into the driver's inbox instead of acting at once.
 
 mod attrs;
-mod canvas;
+mod graphics;
 pub(crate) mod captcha;
 mod find;
 mod h;
@@ -162,7 +162,7 @@ pub(crate) struct Shared {
     /// What the page highlighted for each Viewer whose Find bar is open (`dom/find.rs`).
     find: RefCell<find::FindMap>,
     /// The Canvas 2D controls the page has drawn on (WASM-018).
-    canvas: RefCell<canvas::CanvasMap>,
+    canvas: RefCell<graphics::Gfx>,
     /// What moves on the page: the controls' animations and the charts' motion (`dom/motion.rs`).
     pub(crate) motion: RefCell<motion::MotionState>,
 }
@@ -1023,8 +1023,8 @@ impl Surface for Dom {
         self.sh.act(inner, inst, ctl, act);
     }
 
-    fn canvas_read(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, size: (f64, f64), method: &str, args: &[String]) -> crate::host::CanvasRead {
-        self.sh.canvas_read(inner, inst, ctl, size, method, args)
+    fn gfx_sync(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, kind: &str, size: (f64, f64), method: &str, args: &[String]) -> crate::host::GfxAnswer {
+        self.sh.gfx_sync(inner, inst, ctl, kind, size, method, args)
     }
 }
 

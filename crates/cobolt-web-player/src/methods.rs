@@ -141,8 +141,14 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
     }
 
     // Canvas 2D (WASM-018): the drawing vocabulary is the graphics crate's, run by the Canvas part.
-    if crate::kinds::player_kind(&tree.ctls[ctl]) == Some(crate::kinds::PlayerKind::Canvas2D) && !matches!(m.as_str(), "SHOW" | "HIDE" | "ENABLE" | "DISABLE" | "SETFOCUS" | "FOCUS") {
-        return canvas_method(tree, ctl, method, &m, args);
+    if let Some(k) = crate::kinds::player_kind(&tree.ctls[ctl]) {
+        if !matches!(m.as_str(), "SHOW" | "HIDE" | "ENABLE" | "DISABLE" | "SETFOCUS" | "FOCUS") {
+            if k == crate::kinds::PlayerKind::Canvas2D {
+                return canvas_method(tree, ctl, method, &m, args);
+            }
+            // The other six answer at once from the part (`is_gfx_sync_call`); a host that has none says so.
+            return Err(MethodError::Unsupported(format!("{method} on a {} needs the graphics part of the player, which this host does not have", k.name())));
+        }
     }
 
     match m.as_str() {
@@ -619,21 +625,25 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
     Ok(out)
 }
 
-/// A method of a Canvas2D. A drawing method is **recorded for the page**, which runs it in the order it was
-/// called when the Canvas part has loaded (a form with a canvas loads it at once; the part is a module of its
-/// own) and paints the picture when `Present` runs. A method that *reads* the picture back (`GetPixel`,
-/// `MeasureText`, `IsPointInPath`, `ToImage`, `Capture`, ...) needs an answer now, which the browser cannot give
-/// while the part may still be loading, so it is refused with that reason rather than answered wrongly.
-/// Does `method` of the control read the picture back (so it needs the Canvas part's answer)? Not the three that the
-/// control answers from its own properties.
-pub(crate) fn is_canvas_readback(ctl: &crate::tree::Ctl, method: &str) -> bool {
-    if crate::kinds::player_kind(ctl) != Some(crate::kinds::PlayerKind::Canvas2D) {
-        return false;
-    }
+/// Does `method` of the control need the graphics part's answer at once (WASM-018 T25/T26)? On a Canvas2D that is a
+/// read-back of the picture (`GetPixel`, `MeasureText`, `ToImage`, ...; not the three the control answers from its own
+/// properties); on every other graphics object (ImageBuffer, Plot, Scene3D, Physics2D/3D, Canvas3D) it is every method,
+/// since each answers something (a handle, a count) the program reads next. The page answers them from the part
+/// (`Host::gfx_sync`), which is loaded before the form opens.
+pub(crate) fn is_gfx_sync_call(ctl: &crate::tree::Ctl, method: &str) -> bool {
+    use crate::kinds::PlayerKind as K;
     let m = method.trim().to_ascii_uppercase();
-    !matches!(m.as_str(), "GETWIDTH" | "GETHEIGHT" | "GETPIXELRATIO") && (m.starts_with("GET") || m.starts_with("IS") || m.starts_with("MEASURE") || matches!(m.as_str(), "PENDINGCOMMANDS" | "HOSTCALLS" | "TAKEPRESENTED" | "TOIMAGE" | "CAPTURE"))
+    match crate::kinds::player_kind(ctl) {
+        None => false,
+        Some(K::Canvas2D) => !matches!(m.as_str(), "GETWIDTH" | "GETHEIGHT" | "GETPIXELRATIO") && (m.starts_with("GET") || m.starts_with("IS") || m.starts_with("MEASURE") || matches!(m.as_str(), "PENDINGCOMMANDS" | "HOSTCALLS" | "TAKEPRESENTED" | "TOIMAGE" | "CAPTURE")),
+        Some(_) => !matches!(m.as_str(), "SHOW" | "HIDE" | "ENABLE" | "DISABLE" | "SETFOCUS" | "FOCUS") && !m.starts_with("GET-") && !m.starts_with("SET-"),
+    }
 }
 
+/// A method of a Canvas2D. A drawing method is **recorded for the page**, which runs it in the order it was
+/// called when the Canvas part has loaded (a form with a canvas loads it before it opens; the part is a module of
+/// its own) and paints the picture when `Present` runs. The reads of the picture go to the part at once
+/// (`is_gfx_sync_call`); a host with no part to ask refuses them with that reason.
 fn canvas_method(tree: &mut FormTree, ctl: usize, method: &str, m: &str, args: &[&str]) -> Result<Outcome, MethodError> {
     let mut out = Outcome::default();
     match m {

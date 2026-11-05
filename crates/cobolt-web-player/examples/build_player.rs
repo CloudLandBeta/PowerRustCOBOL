@@ -185,7 +185,7 @@ fn build_variant(crate_dir: &Path, target_dir: &Path, out: &Path, variant: &str,
 
 /// The parts loaded on demand (WASM-016 R13): `(name, package)`. Each is a WebAssembly module of its
 /// own, built with the stable toolchain once and shared by both player variants.
-const PARTS: &[(&str, &str)] = &[("mermaid", "cobolt-web-part-mermaid"), ("canvas", "cobolt-web-part-canvas"), ("pdf", "cobolt-web-part-pdf")];
+const PARTS: &[(&str, &str)] = &[("mermaid", "cobolt-web-part-mermaid"), ("canvas", "cobolt-web-part-canvas"), ("graphics", "cobolt-web-part-graphics"), ("graphics3d", "cobolt-web-part-graphics3d"), ("pdf", "cobolt-web-part-pdf")];
 
 fn build_part(crate_dir: &Path, target_dir: &Path, out: &Path, name: &str, package: &str, opt_level: &str) -> Built {
     let tdir = target_dir.join("parts");

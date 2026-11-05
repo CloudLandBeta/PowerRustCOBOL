@@ -18,6 +18,7 @@ use std::cell::RefCell;
 const FORM: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <Form name="main-form" title="Canvas" width="640" height="480">
   <Control id="CNV-A" type="Canvas2D" x="10" y="10" w="200" h="100"></Control>
+  <Control id="PLT-A" type="Plot" x="10" y="120" w="200" h="100"></Control>
 </Form>"##;
 
 fn manifest() -> Manifest {
@@ -36,7 +37,7 @@ fn manifest() -> Manifest {
             main: true,
             instances: 1,
             region_size: 64,
-            controls: vec![ControlEntry { id: 3, name: "CNV-A".into(), kind: "Canvas2D".into() }],
+            controls: vec![ControlEntry { id: 3, name: "CNV-A".into(), kind: "Canvas2D".into() }, ControlEntry { id: 4, name: "PLT-A".into(), kind: "Plot".into() }],
             handlers: vec![],
             layers: vec![],
         }],
@@ -108,13 +109,13 @@ fn a_read_back_is_answered_by_the_canvas_part_and_refused_with_the_reason_before
     let log = seen.clone();
     let loaded = Rc::new(std::cell::Cell::new(false));
     let flag = loaded.clone();
-    h.canvas_read = Some(Rc::new(move |_inst, _ctl, _size, method, args| {
+    h.gfx_sync = Some(Rc::new(move |_inst, _ctl, _kind, _size, method, args| {
         log.borrow_mut().push((method.to_owned(), args.to_vec()));
-        if flag.get() { CanvasRead::Answer("4278190335".into()) } else { CanvasRead::NotLoaded }
+        if flag.get() { GfxAnswer::Answer("4278190335".into()) } else { GfxAnswer::NotLoaded }
     }));
     let before = h.invoke(0, "CNV-A", "GetPixel", &["2", "2"]);
     let why = before.expect_err("the part has not loaded");
-    assert!(why.contains("GetPixel") && why.contains("is not available yet"), "{why}");
+    assert!(why.contains("GetPixel") && why.contains("needs the graphics part"), "{why}");
     loaded.set(true);
     assert_eq!(h.invoke(0, "CNV-A", "GetPixel", &["2", "2"]), Ok(Some("4278190335".into())));
     assert_eq!(seen.borrow().last().unwrap(), &("GetPixel".to_owned(), vec!["2".to_owned(), "2".to_owned()]));
@@ -123,4 +124,33 @@ fn a_read_back_is_answered_by_the_canvas_part_and_refused_with_the_reason_before
     assert_eq!(h.invoke(0, "CNV-A", "GetWidth", &[]), Ok(Some("200".into())));
     assert_eq!(seen.borrow().len(), n);
     println!("GetPixel before the part loads: refused with the reason; after: answered 4278190335; GetWidth never asks the part");
+}
+
+#[test]
+fn every_method_of_the_other_graphics_objects_goes_to_the_part_and_a_refusal_is_the_controls_last_error() {
+    let mut h = host();
+    let seen: Rc<RefCell<Vec<(String, String)>>> = Rc::default();
+    let log = seen.clone();
+    h.gfx_sync = Some(Rc::new(move |_inst, _ctl, kind, _size, method, _args| {
+        log.borrow_mut().push((kind.to_owned(), method.to_owned()));
+        if method == "AddSeries" { GfxAnswer::Answer("7".into()) } else { GfxAnswer::Refused("no such thing".into()) }
+    }));
+    assert_eq!(h.invoke(0, "PLT-A", "AddSeries", &["sales"]), Ok(Some("7".into())), "a handle comes back as text");
+    assert_eq!(seen.borrow()[0], ("Plot".to_owned(), "AddSeries".to_owned()), "the part is told the kind");
+    assert_eq!(h.invoke(0, "PLT-A", "Frobnicate", &[]), Ok(Some(String::new())), "a refusal answers nothing, as on the desktop");
+    let last = h.trees[&0].get(2, "LastError");
+    assert!(last.contains("Frobnicate refused") && last.contains("no such thing"), "{last}");
+    assert_eq!(h.invoke(0, "PLT-A", "AddSeries", &["x"]), Ok(Some("7".into())));
+    assert!(h.trees[&0].get(2, "LastError").is_empty(), "an answer clears it");
+    let n = seen.borrow().len();
+    h.invoke(0, "PLT-A", "Hide", &[]).expect("a universal verb");
+    assert_eq!(seen.borrow().len(), n, "Hide never reaches the part");
+    println!("Plot: AddSeries answered 7; a refusal wrote LastError and answered nothing; an answer cleared it; Hide stayed in the player");
+}
+
+#[test]
+fn the_part_a_form_needs_comes_from_the_kinds_its_controls_use() {
+    let h = host();
+    assert_eq!(h.graphics_part(0), Some("graphics"), "a Canvas2D with a Plot needs the part that has plots");
+    assert_eq!(h.graphics_part(9), None, "no such form");
 }

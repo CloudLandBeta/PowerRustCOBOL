@@ -96,29 +96,28 @@ fn disposed(ty: &str) -> Result<String, String> {
                 .then(|| "the loader's unmount() frees it".to_owned())
                 .ok_or_else(|| "the loader's unmount() does not call player.free()".into())
         }
-        "Surface2D" => {
+        "Graphics" => {
             let dom = read("src/dom/mod.rs");
-            let canvas = read("src/dom/canvas.rs");
+            let gfx = read("src/dom/graphics.rs");
             let unmount = body_of(&dom, "fn unmount(self: &Rc<Self>)");
-            let all = body_of(&canvas, "pub(crate) fn clear_all_canvases");
-            let close = body_of(&canvas, "pub(crate) fn clear_canvas(");
-            (unmount.contains("clear_all_canvases")
-                && all.contains("\"free\"")
-                && close.contains("\"free\""))
-            .then(|| "freed by clear_canvas() when its instance closes and by unmount()".to_owned())
-            .ok_or_else(|| "no free() from the player's unmount()".into())
+            let all = body_of(&gfx, "pub(crate) fn clear_all_canvases");
+            let close = body_of(&gfx, "pub(crate) fn clear_canvas(");
+            (unmount.contains("clear_all_canvases") && all.contains("free(&g)") && close.contains("free(&g)") && gfx.contains("fn free(g: &JsValue)") && gfx.contains("\"free\""))
+                .then(|| "freed by clear_canvas() when its instance closes and by unmount()".to_owned())
+                .ok_or_else(|| "no free() from the player's unmount()".into())
         }
-        "Canvas" => {
-            let mut files = Vec::new();
-            rust_files(&crate_dir().join("src"), &mut files);
-            let made = files.iter().any(|f| {
-                std::fs::read_to_string(f)
-                    .unwrap()
-                    .contains("&\"Canvas\".into()")
-            });
-            (!made)
-                .then(|| "page-owned: the player never makes one".to_owned())
-                .ok_or_else(|| "the player makes a Canvas it does not free".into())
+        "GpuDevice" => {
+            let api = read("src/api.rs");
+            let unmount = body_of(&api, "pub fn unmount(&self) -> Promise");
+            (unmount.contains("gpu_device") && unmount.contains("\"free\""))
+                .then(|| "unmount() frees the page's device".to_owned())
+                .ok_or_else(|| "unmount() does not free the graphics device".into())
+        }
+        "Picture3D" => {
+            let gfx = read("src/dom/graphics.rs");
+            (gfx.contains("\"finish\"") && gfx.contains("JsFuture::from"))
+                .then(|| "the player awaits finish(), which consumes it".to_owned())
+                .ok_or_else(|| "the player does not finish a Picture3D".into())
         }
         other => Err(format!(
             "{other} is listed but this test knows no disposal path for it"
@@ -139,6 +138,8 @@ fn every_exposed_type_is_listed_and_disposed_017() {
             files.push(lib);
         }
     }
+    // The three graphics parts compile one shared source (`include!`).
+    files.push(crate_dir().join("parts/graphics.rs"));
     let mut found = Vec::new();
     for f in &files {
         for t in exposed_types(&std::fs::read_to_string(f).unwrap()) {

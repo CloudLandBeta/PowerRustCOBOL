@@ -606,3 +606,31 @@ fn random_calls_with_hostile_values_never_panic() {
     }
     assert!(ok > 500 && refused > 500, "the fuzz exercised both outcomes ({ok} / {refused})");
 }
+
+/// Every object answers `GetHandle` with its own handle (the way a program names a control's object to another
+/// object), and the listing of every kind says so.
+#[test]
+fn every_object_answers_its_own_handle_and_the_listing_names_the_method() {
+    let mut r = Registry::new(small());
+    let mut told = Vec::new();
+    for kind in ObjectKind::available() {
+        let args: Vec<Value> = match kind {
+            ObjectKind::Canvas2D | ObjectKind::Canvas3D => vec![Value::Int(16), Value::Int(16)],
+            _ => Vec::new(),
+        };
+        let h = r.create(kind, 1, &args).expect("an object of every kind");
+        assert_eq!(r.invoke(h, "GetHandle", &[]).unwrap(), Value::Int(h as i64), "{} answers its own handle", kind.name());
+        assert_eq!(r.invoke(h, "gethandle", &[]).unwrap(), Value::Int(h as i64), "in any case");
+        assert!(Registry::methods(kind).iter().any(|m| m.name == "GetHandle" && m.returns == "handle"), "{} lists it", kind.name());
+        told.push(format!("{}={h}", kind.name()));
+    }
+    eprintln!("GetHandle: {}", told.join(", "));
+    // The point of it: a Canvas3D takes the Scene3D's handle from the Scene3D itself.
+    let scene = r.create(ObjectKind::Scene3D, 1, &[]).unwrap();
+    let view = r.create(ObjectKind::Canvas3D, 1, &[Value::Int(8), Value::Int(8)]).unwrap();
+    let h = match r.invoke(scene, "GetHandle", &[]).unwrap() {
+        Value::Int(n) => n,
+        other => panic!("{other:?}"),
+    };
+    r.invoke(view, "SetScene", &[Value::Int(h)]).expect("the handle the scene gave names it");
+}

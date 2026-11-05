@@ -699,6 +699,14 @@ fn load_player(dir: &Path) -> PlayerInput {
     }
 }
 
+/// Ship only the graphics parts some form needs (WASM-018 T26): the three are large (3, 6 and 8 MB) and a project with no
+/// graphics object, or only a Canvas2D, has no use for the others. Each form needs the heaviest part any of its controls
+/// asks for (`web_class::graphics_part_of`); the parts that are not graphics (`mermaid`, `pdf`) are not touched.
+fn trim_graphics_parts<'a>(player: &mut PlayerInput, forms: impl Iterator<Item = &'a [Control]>) {
+    let needed: std::collections::HashSet<&str> = forms.filter_map(cobolt_forms::web_class::graphics_part_of).collect();
+    player.parts.retain(|p| !cobolt_forms::web_class::GRAPHICS_PARTS.contains(&p.name.as_str()) || needed.contains(p.name.as_str()));
+}
+
 /// Write `files` into `out` so that the folder is replaced in one step: a new
 /// folder beside it, renamed over the old one (which is removed after). A
 /// failure leaves the previous bundle as it was.
@@ -1052,7 +1060,11 @@ impl WebBuildBackend for GeneratorBackend {
             stylesheet: sheets.app.take(),
             menus,
             assets,
-            player: load_player(&player),
+            player: {
+                let mut p = load_player(&player);
+                trim_graphics_parts(&mut p, forms.iter().map(|f| f.form.controls.as_slice()));
+                p
+            },
             options,
         };
         let bundle = cobolt_web_bundle::assemble_bundle(&input)
@@ -1084,6 +1096,33 @@ impl WebBuildBackend for GeneratorBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn loaded(kinds: &[&str]) -> Vec<Control> {
+        kinds.iter().enumerate().map(|(i, k)| Control::new(format!("C-{i}"), cobolt_forms::model::ControlType::from_str(k), 0, 0)).collect()
+    }
+
+    fn player() -> PlayerInput {
+        let part = |n: &str| PlayerPartInput { name: n.into(), files: Vec::new(), entry_js: format!("{n}.js"), entry_wasm: format!("{n}_bg.wasm") };
+        PlayerInput { parts: ["canvas", "graphics", "graphics3d", "mermaid", "pdf"].iter().map(|n| part(n)).collect(), ..Default::default() }
+    }
+
+    fn names(p: &PlayerInput) -> Vec<&str> {
+        p.parts.iter().map(|x| x.name.as_str()).collect()
+    }
+
+    #[test]
+    fn a_project_ships_only_the_graphics_parts_its_forms_need() {
+        let mut p = player();
+        trim_graphics_parts(&mut p, [loaded(&["Button"])].iter().map(|c| c.as_slice()));
+        assert_eq!(names(&p), ["mermaid", "pdf"], "no graphics object: none of the three, the others untouched");
+        let mut p = player();
+        trim_graphics_parts(&mut p, [loaded(&["Canvas2D"])].iter().map(|c| c.as_slice()));
+        assert_eq!(names(&p), ["canvas", "mermaid", "pdf"]);
+        let mut p = player();
+        trim_graphics_parts(&mut p, [loaded(&["Canvas2D"]), loaded(&["Scene3D", "Canvas3D"])].iter().map(|c| c.as_slice()));
+        assert_eq!(names(&p), ["canvas", "graphics3d", "mermaid", "pdf"], "each form gets its own part; a form without 3D still fetches the light one");
+        println!("parts shipped: none for a form without graphics; canvas for a Canvas2D; canvas + graphics3d for a project with both");
+    }
 
     /// WASM-009 D14 (AC6): the backend's identity secrets, known by value, are found in a form and in a
     /// copybook, each named by file, line and setting and never shown; the same project with the values

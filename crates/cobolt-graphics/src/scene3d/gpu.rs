@@ -1200,8 +1200,15 @@ impl Renderer {
 
     /// The picture as straight-alpha RGBA bytes, for hosts that cannot block (the browser).
     pub async fn read_pixels_async(&self) -> Result<PixelBuffer> {
+        self.begin_read()?.finish().await
+    }
+
+    /// Start reading the picture back and answer a handle that owns everything the read needs, so a host
+    /// can keep it across a turn of the event loop without borrowing the renderer (the browser's part does:
+    /// the next handler may call the registry while the copy completes).
+    pub fn begin_read(&self) -> Result<PendingRead> {
         let (buffer, w, h, bpr) = self.copy_out()?;
-        let slot: Arc<Mutex<(Option<std::result::Result<(), wgpu::BufferAsyncError>>, Option<std::task::Waker>)>> = Arc::new(Mutex::new((None, None)));
+        let slot: ReadSlot = Arc::new(Mutex::new((None, None)));
         let s2 = slot.clone();
         buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             if let Ok(mut g) = s2.lock() {
@@ -1211,26 +1218,7 @@ impl Renderer {
                 }
             }
         });
-        // On native targets the device must be polled for the callback to run; in the browser the event loop does it.
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let _ = self.gpu.device.poll(wgpu::PollType::wait_indefinitely());
-        }
-        let result = std::future::poll_fn(|cx| {
-            let mut g = slot.lock().expect("the read-back state is not poisoned");
-            match g.0.take() {
-                Some(r) => std::task::Poll::Ready(r),
-                None => {
-                    g.1 = Some(cx.waker().clone());
-                    std::task::Poll::Pending
-                }
-            }
-        })
-        .await;
-        result.map_err(|e| GraphicsError::Gpu(format!("the picture could not be read back: {e}")))?;
-        let px = Self::unpack(&buffer.slice(..).get_mapped_range().map_err(|e| GraphicsError::Gpu(format!("{e}")))?, w, h, bpr)?;
-        buffer.unmap();
-        Ok(px)
+        Ok(PendingRead { buffer, w, h, bpr, slot, device: self.gpu.device.clone() })
     }
 
     fn copy_out(&self) -> Result<(wgpu::Buffer, u32, u32, u32)> {
@@ -1264,6 +1252,48 @@ impl Renderer {
             }
         }
         PixelBuffer::from_rgba(w, h, out)
+    }
+}
+
+/// The state a read-back shares with the callback that wgpu runs when the buffer is mapped.
+type ReadSlot = Arc<Mutex<(Option<std::result::Result<(), wgpu::BufferAsyncError>>, Option<std::task::Waker>)>>;
+
+/// A read-back of the picture in progress (see [`Renderer::begin_read`]).
+pub struct PendingRead {
+    buffer: wgpu::Buffer,
+    w: u32,
+    h: u32,
+    bpr: u32,
+    slot: ReadSlot,
+    device: wgpu::Device,
+}
+
+impl PendingRead {
+    /// Wait for the copy and answer the picture as straight-alpha RGBA.
+    pub async fn finish(self) -> Result<PixelBuffer> {
+        // On native targets the device must be polled for the callback to run; in the browser the event loop does it.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = &self.device;
+        let slot = self.slot.clone();
+        let result = std::future::poll_fn(|cx| {
+            let mut g = slot.lock().expect("the read-back state is not poisoned");
+            match g.0.take() {
+                Some(r) => std::task::Poll::Ready(r),
+                None => {
+                    g.1 = Some(cx.waker().clone());
+                    std::task::Poll::Pending
+                }
+            }
+        })
+        .await;
+        result.map_err(|e| GraphicsError::Gpu(format!("the picture could not be read back: {e}")))?;
+        let px = Renderer::unpack(&self.buffer.slice(..).get_mapped_range().map_err(|e| GraphicsError::Gpu(format!("{e}")))?, self.w, self.h, self.bpr)?;
+        self.buffer.unmap();
+        Ok(px)
     }
 }
 

@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# A PART of the player (WASM-016 R13, WASM-018 R18): the Canvas 2D rasteriser, a WebAssembly module of
+# its own that the player loads the first time a canvas has something to draw. A form with no canvas
+# never fetches it. Member of the player's own Cargo workspace; built by `examples/build_player.rs`.
+
+[package]
+name        = "cobolt-web-part-graphics3d"
+description = "The player's 3D graphics part: everything in the graphics part plus Scene3D, Canvas3D and Physics3D"
+version     = "2.0.0"
+edition     = "2021"
+rust-version = "1.92"
+license     = "Apache-2.0"
+publish     = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The rasteriser is `cobolt-graphics`' own: one implementation for the interpreter, the egui host and
+# the browser. The canvas with its text engine and images (DrawText, DrawImage); no plots, physics or 3D (those are
+# parts of their own, WASM-018 R18).
+cobolt-graphics = { path = "../../../cobolt-graphics", default-features = false, features = ["text", "imagebuf", "plot", "physics", "scene3d"] }
+wasm-bindgen = "=0.2.129"
+# The device and the picture copy are asynchronous (`async` exports).
+wasm-bindgen-futures = "0.4"
+
+[features]
+# The shared source gates the device and picture exports on this; this part is the one that has it.
+default = ["scene3d"]
+scene3d = []

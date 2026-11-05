@@ -1,134 +1,35 @@
 /**
- * One Canvas 2D surface.
+ * The objects of one form instance, in one registry.
  */
-export class Canvas {
+export class Graphics {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
-        CanvasFinalization.unregister(this);
+        GraphicsFinalization.unregister(this);
         return ptr;
     }
     free() {
         const ptr = this.__destroy_into_raw();
-        wasm.__wbg_canvas_free(ptr, 0);
+        wasm.__wbg_graphics_free(ptr, 0);
     }
     /**
-     * The picture's height in device pixels.
-     * @returns {number}
-     */
-    device_height() {
-        const ret = wasm.canvas_device_height(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * The picture's width in device pixels.
-     * @returns {number}
-     */
-    device_width() {
-        const ret = wasm.canvas_device_width(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * Execute one display list. A damaged list changes nothing and says why. The answer is how many
-     * commands ran.
-     * @param {Uint8Array} list
-     * @returns {number}
-     */
-    draw(list) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArray8ToWasm0(list, wasm.__wbindgen_export);
-            const len0 = WASM_VECTOR_LEN;
-            wasm.canvas_draw(retptr, this.__wbg_ptr, ptr0, len0);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            if (r2) {
-                throw takeObject(r1);
-            }
-            return r0 >>> 0;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * A transparent canvas of `width` x `height` logical pixels at `pixel_ratio` device pixels each;
-     * refused when it exceeds the crate's limits.
-     * @param {number} width
-     * @param {number} height
-     * @param {number} pixel_ratio
-     */
-    constructor(width, height, pixel_ratio) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.canvas_new(retptr, width, height, pixel_ratio);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            if (r2) {
-                throw takeObject(r1);
-            }
-            this.__wbg_ptr = r0;
-            CanvasFinalization.register(this, this.__wbg_ptr, this);
-            return this;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * The picture as straight-alpha RGBA, `device_width * device_height * 4` bytes.
-     * @returns {Uint8Array}
-     */
-    rgba() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.canvas_rgba(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export2(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-}
-if (Symbol.dispose) Canvas.prototype[Symbol.dispose] = Canvas.prototype.free;
-
-/**
- * One **Canvas2D object** as a COBOL program uses it (WASM-018 R7): methods called by name with their
- * arguments as text, the way the player receives them from the program. It is the crate's own `Registry`
- * with one `Canvas2D` in it, so every method of the documented vocabulary (`FillRect`, `SetFillColor`,
- * `DrawText`, `Present`, ...) means exactly what it means on the desktop.
- */
-export class Surface2D {
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        Surface2DFinalization.unregister(this);
-        return ptr;
-    }
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_surface2d_free(ptr, 0);
-    }
-    /**
-     * Call method `method` with `args_json` (a JSON array of texts); the answer is the method's answer as text,
-     * or the reason it was refused.
+     * Call `method` of control `ctl` with `args_json` (a JSON array of texts); the answer is the method's
+     * answer as text, or the reason it was refused.
+     * @param {number} ctl
      * @param {string} method
      * @param {string} args_json
      * @returns {string}
      */
-    call(method, args_json) {
+    call(ctl, method, args_json) {
         let deferred4_0;
         let deferred4_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(method, wasm.__wbindgen_export, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(method, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passStringToWasm0(args_json, wasm.__wbindgen_export, wasm.__wbindgen_export3);
+            const ptr1 = passStringToWasm0(args_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len1 = WASM_VECTOR_LEN;
-            wasm.surface2d_call(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1);
+            wasm.graphics_call(retptr, this.__wbg_ptr, ctl, ptr0, len0, ptr1, len1);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -144,37 +45,40 @@ export class Surface2D {
             return getStringFromWasm0(ptr3, len3);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export2(deferred4_0, deferred4_1, 1);
+            wasm.__wbindgen_export3(deferred4_0, deferred4_1, 1);
         }
     }
     /**
      * The picture's height in device pixels.
+     * @param {number} ctl
      * @returns {number}
      */
-    device_height() {
-        const ret = wasm.surface2d_device_height(this.__wbg_ptr);
+    device_height(ctl) {
+        const ret = wasm.graphics_device_height(this.__wbg_ptr, ctl);
         return ret >>> 0;
     }
     /**
      * The picture's width in device pixels.
+     * @param {number} ctl
      * @returns {number}
      */
-    device_width() {
-        const ret = wasm.surface2d_device_width(this.__wbg_ptr);
+    device_width(ctl) {
+        const ret = wasm.graphics_device_width(this.__wbg_ptr, ctl);
         return ret >>> 0;
     }
     /**
-     * Execute one display list the program's module encoded (ABI A23, a `DRAW`), after what this canvas had
-     * recorded; the answer is how many commands ran. A damaged list changes nothing and says why.
+     * Execute one display list the program's module encoded (ABI A23, a `DRAW`) on the Canvas2D `ctl`, after what
+     * it had recorded; the answer is how many commands ran. A damaged list changes nothing and says why.
+     * @param {number} ctl
      * @param {Uint8Array} list
      * @returns {number}
      */
-    draw_list(list) {
+    draw_list(ctl, list) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passArray8ToWasm0(list, wasm.__wbindgen_export);
             const len0 = WASM_VECTOR_LEN;
-            wasm.surface2d_draw_list(retptr, this.__wbg_ptr, ptr0, len0);
+            wasm.graphics_draw_list(retptr, this.__wbg_ptr, ctl, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -187,55 +91,105 @@ export class Surface2D {
         }
     }
     /**
-     * A canvas of `width` x `height` logical pixels at `pixel_ratio`.
+     * The kinds this part carries, as a comma list (the player checks it against the form's controls).
+     * @returns {string}
+     */
+    kinds() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.graphics_kinds(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Make the object of control `ctl` (idempotent); the answer is its handle. A canvas takes its size from
+     * `width` x `height` logical pixels and `pixel_ratio`; the other kinds ignore them.
+     * @param {number} ctl
+     * @param {string} kind
      * @param {number} width
      * @param {number} height
      * @param {number} pixel_ratio
+     * @returns {number}
      */
-    constructor(width, height, pixel_ratio) {
+    make(ctl, kind, width, height, pixel_ratio) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.surface2d_new(retptr, width, height, pixel_ratio);
+            const ptr0 = passStringToWasm0(kind, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.graphics_make(retptr, this.__wbg_ptr, ctl, ptr0, len0, width, height, pixel_ratio);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
             if (r2) {
                 throw takeObject(r1);
             }
-            this.__wbg_ptr = r0;
-            Surface2DFinalization.register(this, this.__wbg_ptr, this);
-            return this;
+            return r0 >>> 0;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
     }
     /**
-     * The picture as straight-alpha RGBA.
+     * A registry with the library's default limits.
+     */
+    constructor() {
+        const ret = wasm.graphics_new();
+        this.__wbg_ptr = ret;
+        GraphicsFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * How many objects the registry holds (tests and the limits report).
+     * @returns {number}
+     */
+    object_count() {
+        const ret = wasm.graphics_object_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Release control `ctl`'s object (and what it made that nothing else holds).
+     * @param {number} ctl
+     */
+    release(ctl) {
+        wasm.graphics_release(this.__wbg_ptr, ctl);
+    }
+    /**
+     * The picture of the Canvas2D `ctl` as straight-alpha RGBA.
+     * @param {number} ctl
      * @returns {Uint8Array}
      */
-    rgba() {
+    rgba(ctl) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.surface2d_rgba(retptr, this.__wbg_ptr);
+            wasm.graphics_rgba(retptr, this.__wbg_ptr, ctl);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export2(r0, r1 * 1, 1);
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
     }
     /**
-     * Whether a `Present` has run since the last call of this: the page repaints when it has.
+     * Whether a `Present` has run on the Canvas2D `ctl` since the last call of this.
+     * @param {number} ctl
      * @returns {boolean}
      */
-    take_presented() {
-        const ret = wasm.surface2d_take_presented(this.__wbg_ptr);
+    take_presented(ctl) {
+        const ret = wasm.graphics_take_presented(this.__wbg_ptr, ctl);
         return ret !== 0;
     }
 }
-if (Symbol.dispose) Surface2D.prototype[Symbol.dispose] = Surface2D.prototype.free;
+if (Symbol.dispose) Graphics.prototype[Symbol.dispose] = Graphics.prototype.free;
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -253,12 +207,9 @@ function __wbg_get_imports() {
     };
 }
 
-const CanvasFinalization = (typeof FinalizationRegistry === 'undefined')
+const GraphicsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_canvas_free(ptr, 1));
-const Surface2DFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_surface2d_free(ptr, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_graphics_free(ptr, 1));
 
 function addHeapObject(obj) {
     if (heap_next === heap.length) heap.push(heap.length + 1);

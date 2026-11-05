@@ -452,6 +452,15 @@ impl PlayerKind {
             _ => E,
         }
     }
+    /// The part of the player that carries this kind (WASM-018 T26): the smallest of `canvas`, `graphics` and `graphics3d`
+    /// that has it. A form needs the heaviest part any of its controls needs, since one form's objects share one registry.
+    pub fn part(self) -> &'static str {
+        match self {
+            PlayerKind::Canvas2D | PlayerKind::ImageBuffer => "canvas",
+            PlayerKind::Plot | PlayerKind::Physics2D | PlayerKind::Physics3D => "graphics",
+            PlayerKind::Scene3D | PlayerKind::Canvas3D => "graphics3d",
+        }
+    }
     /// Does it have a place on the page?
     pub fn visual(self) -> bool {
         matches!(self, PlayerKind::Canvas2D | PlayerKind::Canvas3D)
@@ -692,5 +701,53 @@ mod tests {
         let unavailable: Vec<&str> = ControlType::ALL.iter().filter(|t| !available_on_web(t)).map(|t| t.as_str()).collect();
         println!("built-in controls not available on the web: {} {:?}", unavailable.len(), unavailable);
         assert!(unavailable.is_empty(), "no built-in control is class D today (plan D-T14b)");
+    }
+}
+
+/// The graphics parts, lightest first.
+pub const GRAPHICS_PARTS: [&str; 3] = ["canvas", "graphics", "graphics3d"];
+
+/// The part of the player a form with `controls` needs for its graphics objects, or `None` when it has none: the heaviest
+/// part any control (at any depth) asks for.
+pub fn graphics_part_of(controls: &[crate::model::Control]) -> Option<&'static str> {
+    fn walk(cs: &[crate::model::Control], best: &mut Option<usize>) {
+        for c in cs {
+            if let Some(k) = player_kind_of(&c.control_type) {
+                let rank = GRAPHICS_PARTS.iter().position(|p| *p == k.part()).unwrap_or(0);
+                if best.map_or(true, |b| rank > b) {
+                    *best = Some(rank);
+                }
+            }
+            walk(&c.children, best);
+        }
+    }
+    let mut best = None;
+    walk(controls, &mut best);
+    best.map(|r| GRAPHICS_PARTS[r])
+}
+
+#[cfg(test)]
+mod graphics_part_tests {
+    use super::*;
+    use crate::model::{Control, ControlType};
+
+    fn controls(kinds: &[&str]) -> Vec<Control> {
+        kinds.iter().enumerate().map(|(i, k)| Control::new(format!("C-{i}"), ControlType::from_str(k), 0, 0)).collect()
+    }
+
+    #[test]
+    fn a_form_needs_the_heaviest_part_any_of_its_controls_asks_for() {
+        let part = |ks: &[&str]| graphics_part_of(&controls(ks));
+        assert_eq!(part(&["Canvas2D"]), Some("canvas"));
+        assert_eq!(part(&["Canvas2D", "ImageBuffer"]), Some("canvas"));
+        assert_eq!(part(&["Physics2D"]), Some("graphics"));
+        assert_eq!(part(&["Plot", "Scene3D"]), Some("graphics3d"));
+        assert_eq!(part(&["Physics3D"]), Some("graphics"), "bodies need no GPU");
+        assert_eq!(part(&["Physics3D", "Scene3D"]), Some("graphics3d"), "bodies bound to nodes live with the scene");
+        assert_eq!(part(&["Canvas3D"]), Some("graphics3d"));
+        assert_eq!(part(&["Button", "Label"]), None, "a form with no graphics object fetches nothing");
+        let mut nested = controls(&["Panel"]);
+        nested[0].children = controls(&["Canvas3D"]);
+        assert_eq!(graphics_part_of(&nested), Some("graphics3d"), "a control inside a panel counts");
     }
 }

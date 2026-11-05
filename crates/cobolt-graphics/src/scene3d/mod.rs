@@ -66,4 +66,4 @@ pub use scene::{AlphaMode, Background, BoundsBox, Camera, Content, Fog, FogMode,
 #[cfg(feature = "scene3d")]
 pub use canvas3d::Canvas3D;
 #[cfg(feature = "scene3d")]
-pub use gpu::{Backend, Gpu, GpuInfo, RenderStats, Renderer, RendererConfig};
+pub use gpu::{Backend, Gpu, GpuInfo, PendingRead, RenderStats, Renderer, RendererConfig};

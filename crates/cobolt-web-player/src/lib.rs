@@ -43,8 +43,9 @@ pub mod fingerprint;
 /// WASM-018 adds its graphics handles to this list.
 pub const EXPOSED: &[(&str, &str)] = &[
     ("Player", "the loader's unmount() calls player.free() after player.unmount()"),
-    ("Surface2D", "made by the player for each Canvas2D control; freed when its instance closes and by unmount()"),
-    ("Canvas", "made only by page code through partModule('canvas'), which frees it; the player never makes one"),
+    ("Graphics", "made by the player once per form instance that has a graphics object; freed when its instance closes and by unmount()"),
+    ("GpuDevice", "opened once by the player when the first 3D form opens (the 3D part's open_gpu); freed by unmount()"),
+    ("Picture3D", "made by the player for each Render of a Canvas3D; consumed by finish(), which the player awaits, so nothing outlives the copy"),
 ];
 
 #[cfg(target_arch = "wasm32")]

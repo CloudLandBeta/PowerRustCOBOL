@@ -424,6 +424,11 @@ impl Registry {
             self.release(handle)?;
             return Ok(Value::Nothing);
         }
+        // Every object answers its own handle, so a program can hand it to another object's method (a Canvas3D's
+        // `SetScene`, a Plot's `RenderToCanvas`): no other way names a control's object in COBOL.
+        if method.eq_ignore_ascii_case("GetHandle") && args.is_empty() {
+            return Ok(Value::Int(handle as i64));
+        }
         let mut obj = self.objects.get_mut(handle)?.obj.take().ok_or_else(|| GraphicsError::invalid(format!("that {} is busy: one of its own methods used its handle", kind.name())))?;
         let saved = self.current.replace((handle, owner));
         let result = obj.call(self, method, args);
@@ -534,6 +539,14 @@ impl Registry {
 
     /// The methods of one kind, for documentation and tooling.
     pub fn methods(kind: ObjectKind) -> Vec<MethodInfo> {
+        let mut v = Self::kind_methods(kind);
+        if !v.is_empty() || kind == ObjectKind::Canvas2D {
+            v.push(MethodInfo { object: kind, name: "GetHandle".into(), params: Vec::new(), returns: "handle", doc: "This object's own handle: the whole number another object's method takes to refer to it (SetScene, RenderToCanvas, ...).".into() });
+        }
+        v
+    }
+
+    fn kind_methods(kind: ObjectKind) -> Vec<MethodInfo> {
         match kind {
             ObjectKind::Canvas2D => api::canvas2d::infos(),
             #[cfg(feature = "imagebuf")]
