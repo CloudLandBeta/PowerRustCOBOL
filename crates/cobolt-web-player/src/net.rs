@@ -280,15 +280,19 @@ pub fn error_frame(id: u32, class: &str, code: u32, message: &str, may_have_run:
     json!({"id": id, "error": e}).to_string().into_bytes()
 }
 
-/// A 64-bit session id as 16 hex digits, from a seed (xorshift; the browser seeds it from
-/// `Math.random` and the clock).
+/// A 128-bit session id as 32 lowercase hex digits (what the backend's `hello` accepts, WASM-014 R10), from a seed: two
+/// xorshift draws (the browser seeds it from `Math.random` and the clock).
 fn session_from(seed: &mut u64) -> String {
-    let mut x = *seed | 1;
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    *seed = x;
-    format!("{x:016x}")
+    let mut draw = || {
+        let mut x = *seed | 1;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *seed = x;
+        x
+    };
+    let (hi, lo) = (draw(), draw());
+    format!("{hi:016x}{lo:016x}")
 }
 
 impl<S: Socket> Client<S> {
@@ -1057,6 +1061,71 @@ mod tests {
         assert!(origin_allowed(&cfg(), "ws://localhost:8443/ws").is_ok(), "loopback needs no setting");
     }
 
+    /// WASM-014 T7: the conversation recorded from a real backend (`vectors/wire.v1.json`), its backend half replayed into the
+    /// client: what the client sends has the transcript's shape, and every frame the backend sent reaches the module as the
+    /// answer the transcript's scenario names.
+    #[test]
+    fn the_recorded_conversation_is_understood_by_the_client() {
+        let doc: Value = serde_json::from_str(include_str!("../../../specs/WASM-014-backend-contract-and-evolution/vectors/wire.v1.json")).unwrap();
+        let frames = doc["frames"].as_array().unwrap();
+        let of = |scenario: &str, dir: &str| frames.iter().find(|f| f["scenario"] == scenario && f["dir"] == dir).map(|f| f["frame"].clone()).unwrap_or_else(|| panic!("{scenario} {dir}"));
+        let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>();
+        let mut checked = 0;
+
+        let mut c = client();
+        c.set_token(Some("tok-123".into()));
+        c.connect(URL, 0).unwrap();
+        let scenarios = ["call-ok", "error-validation", "error-not-found", "error-authorisation", "error-application"];
+        let ids: Vec<u32> = scenarios.iter().map(|_| c.request(br#"{"program":"FUND-TOTALS","args":[],"returning":true}"#, 1)).collect();
+        c.on_open(2);
+        let hello = sent_json(&c).remove(0);
+        assert_eq!(keys(&hello), keys(&of("session", "c2s")), "the hello has the members the transcript's has");
+        assert_eq!(hello["session"].as_str().map(str::len), Some(32), "a 128-bit session id");
+        checked += 1;
+        // The backend's hello, with this test's key and nonce in place of the transcript's stand-ins.
+        let real: Value = serde_json::from_str(&hello_ok()).unwrap();
+        let mut server_hello = of("session", "s2c");
+        server_hello["key"] = real["key"].clone();
+        server_hello["nonce"] = real["nonce"].clone();
+        c.on_message(&server_hello.to_string());
+        checked += 1;
+        assert!(sent_json(&c).iter().any(|m| m["t"] == "auth" && keys(m) == keys(&of("auth", "c2s"))), "the auth has the transcript's members");
+        checked += 1;
+        c.on_message(&of("auth", "s2c").to_string());
+        checked += 1;
+        assert_eq!(c.state(), LinkState::Ready);
+        for (scenario, id) in scenarios.iter().zip(&ids) {
+            let mut f = of(scenario, "s2c");
+            f["id"] = json!(id);
+            c.on_message(&f.to_string());
+            checked += 1;
+        }
+        let got = answers(&mut c);
+        assert_eq!(got.len(), scenarios.len(), "one answer for each call: {got:?}");
+        for (scenario, (_, answer)) in scenarios.iter().zip(&got) {
+            let want = of(scenario, "s2c");
+            let text = answer.to_string();
+            if want["t"] == "error" {
+                assert!(answer["error"]["code"] == want["code"] && answer["error"]["class"] == want["class"], "{scenario}: {text}");
+            } else {
+                assert!(answer.get("error").is_none(), "{scenario}: {text}");
+            }
+        }
+        // The refused and the warn hello: the client reads both.
+        for scenario in ["hello-refused", "hello-warn"] {
+            let mut c2 = client();
+            c2.connect(URL, 0).unwrap();
+            c2.on_open(1);
+            let mut h = of(scenario, "s2c");
+            h["key"] = real["key"].clone();
+            h["nonce"] = real["nonce"].clone();
+            c2.on_message(&h.to_string());
+            checked += 1;
+            println!("{scenario}: the client's link is {:?}", c2.state());
+        }
+        println!("transcript replayed into the player: {checked} frames checked");
+    }
+
     /// WASM-014 T6: hello, then the server's hello, then auth (with a token), then auth-ok, then the call.
     #[test]
     fn hello_then_auth_then_call_in_that_order() {
@@ -1591,7 +1660,7 @@ mod tests {
         let hellos: Vec<String> = sent_json(&c).iter().filter(|m| m["t"] == "hello").map(|m| m["session"].as_str().unwrap().to_owned()).collect();
         assert_eq!(hellos.len(), 2);
         assert_eq!(hellos[0], hellos[1], "the same session on a reconnect");
-        assert_eq!(hellos[0].len(), 16);
+        assert_eq!(hellos[0].len(), 32);
         // And the connection's code never touches browser storage. The one value the player keeps
         // there is the hosted flow's random state (WASM-009 D5), in `auth_fetch.rs`, in this tab's
         // `sessionStorage` and under its one key: checked below.

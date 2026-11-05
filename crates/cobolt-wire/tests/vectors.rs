@@ -185,3 +185,28 @@ fn the_reference_implementation_passes_every_golden_vector() {
     );
     assert!(failures.is_empty(), "{} vector failures:\n{}", failures.len(), failures.join("\n"));
 }
+
+#[test]
+fn wire_transcript_frames_parse() {
+    // WASM-014 T7: the conversation recorded from a real backend parses on both sides.
+    let text = include_str!("../../../specs/WASM-014-backend-contract-and-evolution/vectors/wire.v1.json");
+    let v: Value = serde_json::from_str(text).expect("the transcript is JSON");
+    let frames = v["frames"].as_array().expect("frames");
+    let (mut c2s, mut s2c) = (0, 0);
+    for f in frames {
+        let body = f["frame"].to_string();
+        match f["dir"].as_str().unwrap() {
+            "c2s" => {
+                // The recorded hello carries stand-ins for the key and nonce; its shape is what is checked.
+                cobolt_wire::proto::parse_client(&body).unwrap_or_else(|e| panic!("{}: {body}: {e:?}", f["scenario"]));
+                c2s += 1;
+            }
+            _ => {
+                cobolt_wire::proto::parse_server(&body).unwrap_or_else(|e| panic!("{}: {body}: {e}", f["scenario"]));
+                s2c += 1;
+            }
+        }
+    }
+    println!("transcript: {c2s} client frames and {s2c} backend frames parse");
+    assert!(c2s >= 8 && s2c >= 8);
+}

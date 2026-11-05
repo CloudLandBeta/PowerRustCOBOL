@@ -271,6 +271,7 @@ as completed.
       the same session on a reconnect.
 
 - [ ] **T7 — One transcript, both sides** (R2, R3, R7; AC1, AC4, AC10 halves; Δ4)
+  - **Status 2026-11-05 (2.0.218): built, one check owed.** `vectors/wire.v1.json` (19 frames) recorded from a real rig; the rig test, the wire test (10 client + 9 backend frames) and the player replay (11 frames) pass; one edited frame turned the rig test red and was reverted. Found on the way: the player sent a 64-bit session id, which the backend refuses; it now sends 128 bits (32 hex). Owed: the test that lists every code the player emits next to `cobolt_wire::error::codes`.
   - Files:
     - new `specs/WASM-014-backend-contract-and-evolution/vectors/wire.v1.json` (data, language-neutral, like WASM-005's vectors) and
       `vectors/README.md`;

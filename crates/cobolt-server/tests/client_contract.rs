@@ -822,3 +822,99 @@ fn bye_frees_the_sessions_entries() {
     assert_eq!(w.runs(), 2);
     w.rig.server.stop();
 }
+
+// ── WASM-014 T7: one transcript, both sides ─────────────────────────────────
+
+/// What varies from run to run is replaced by a word, so two runs of the same conversation give the same text.
+fn normalise(v: &mut serde_json::Value) {
+    use serde_json::Value;
+    if let Value::Object(m) = v {
+        for k in ["key", "nonce"] {
+            if let Some(Value::String(s)) = m.get_mut(k) {
+                if !s.is_empty() {
+                    *s = format!("<base64 {}>", if k == "key" { "key" } else { "nonce" });
+                }
+            }
+        }
+        if m.get("t").and_then(|t| t.as_str()) == Some("auth") {
+            m.insert("token".into(), Value::String("<token>".into()));
+        }
+        if m.get("t").and_then(|t| t.as_str()) == Some("auth-ok") {
+            m.insert("expires_in".into(), Value::from(0));
+        }
+    }
+}
+
+fn transcript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../specs/WASM-014-backend-contract-and-evolution/vectors/wire.v1.json")
+}
+
+#[test]
+fn wire_transcript_matches_the_rig() {
+    use cobolt_wire::seal::{decode_b64, encode_b64, establish, KeyPair, Role, KEY_LEN, NONCE_LEN};
+    let w = world("wire-transcript", "");
+    let token = w.rig.issuer.access("user-1", AUDIENCE, 3600, json!({}));
+    let frames: Vec<serde_json::Value> = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        let mut log: Vec<serde_json::Value> = Vec::new();
+        let mut note = |scenario: &str, dir: &str, mut frame: serde_json::Value| {
+            normalise(&mut frame);
+            log.push(json!({"scenario": scenario, "dir": dir, "frame": frame}));
+        };
+        // Three hellos: ok, warn (client built for an older minor), refused (a newer minor than the backend).
+        for (scenario, contract) in [("hello-refused", "1.3.0"), ("hello-warn", "1.0.0")] {
+            let mut c = Raw::connect(&w.rig, Some(ORIGIN)).await.expect("connect");
+            let r = c.hello(contract).await;
+            note(scenario, "c2s", json!({"t": "hello", "protocol": 2, "contract": contract, "client": "test", "key": "k", "nonce": "n"}));
+            note(scenario, "s2c", r);
+        }
+        let mut c = Raw::connect(&w.rig, Some(ORIGIN)).await.expect("connect");
+        let keys = KeyPair::from_bytes(rand_bytes::<32>());
+        let nonce = rand_bytes::<NONCE_LEN>();
+        let hello = json!({"t": "hello", "protocol": 2, "contract": "1.2.0", "client": "test", "key": encode_b64(&keys.public()), "nonce": encode_b64(&nonce), "session": SESSION_A});
+        c.send(hello.clone()).await;
+        note("session", "c2s", hello);
+        let reply = c.next().await.expect("hello reply");
+        let peer = reply["key"].as_str().and_then(decode_b64::<KEY_LEN>).zip(reply["nonce"].as_str().and_then(decode_b64::<NONCE_LEN>)).expect("key and nonce");
+        let (s, r) = establish(Role::Client, 2, &keys, &nonce, &peer.0, &peer.1).expect("establish").split();
+        c.sender = Some(s);
+        c.receiver = Some(r);
+        note("session", "s2c", reply);
+        let auth = json!({"t": "auth", "token": token});
+        c.send(auth.clone()).await;
+        note("auth", "c2s", auth);
+        let ok = c.next().await.expect("auth-ok");
+        note("auth", "s2c", ok);
+        let mut id = 0u64;
+        for (scenario, program, arg) in [
+            ("call-ok", "PING", None),
+            ("error-validation", "SAFE-ADD", Some("{\"TAG\":\"a\",\"DONE\":0,\"EXTRA\":1}")),
+            ("error-not-found", "NO-SUCH", Some("{}")),
+            ("error-authorisation", "ADMIN-ONLY", Some("{\"MSG\":\"\"}")),
+            ("error-application", "REJECT", Some("{\"AMOUNT\":1}")),
+        ] {
+            id += 1;
+            let args: Vec<(&str, &str)> = arg.map(|a| ("ref", a)).into_iter().collect();
+            let wants = program == "PING";
+            let args_json: Vec<serde_json::Value> = args.iter().map(|(m, j)| json!({"mode": m, "json": serde_json::from_str::<serde_json::Value>(j).unwrap()})).collect();
+            note(scenario, "c2s", json!({"t": "call", "id": id, "program": program, "args": args_json, "returning": wants}));
+            let reply = c.call(id, program, &args, wants).await;
+            note(scenario, "s2c", reply);
+        }
+        c.send(json!({"t": "bye"})).await;
+        note("bye", "c2s", json!({"t": "bye"}));
+        log
+    });
+    w.rig.server.stop();
+    let produced = json!({
+        "version": 1,
+        "description": "One conversation between a client and a backend (WASM-014 T7). Recorded from a real rig by `wire_transcript_matches_the_rig`; the key, the nonce and the token are replaced by a word. After the hello the real frames are sealed; this file holds them opened.",
+        "frames": frames,
+    });
+    let path = transcript_path();
+    if std::env::var("UPDATE_VECTORS").is_ok() {
+        std::fs::write(&path, serde_json::to_string_pretty(&produced).unwrap() + "\n").unwrap();
+    }
+    let on_disk: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).expect("vectors/wire.v1.json (run with UPDATE_VECTORS=1 to write it)")).unwrap();
+    println!("transcript: {} frames checked against {}", frames.len(), path.display());
+    assert_eq!(produced, on_disk, "the rig and vectors/wire.v1.json disagree; if the change is intended, run with UPDATE_VECTORS=1");
+}

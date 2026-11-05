@@ -1,0 +1,256 @@
+{
+  "description": "One conversation between a client and a backend (WASM-014 T7). Recorded from a real rig by `wire_transcript_matches_the_rig`; the key, the nonce and the token are replaced by a word. After the hello the real frames are sealed; this file holds them opened.",
+  "frames": [
+    {
+      "dir": "c2s",
+      "frame": {
+        "client": "test",
+        "contract": "1.3.0",
+        "key": "<base64 key>",
+        "nonce": "<base64 nonce>",
+        "protocol": 2,
+        "t": "hello"
+      },
+      "scenario": "hello-refused"
+    },
+    {
+      "dir": "s2c",
+      "frame": {
+        "accepted": "refused",
+        "contract": "1.2.0",
+        "max_frame_bytes": 1048576,
+        "message": "this application (contract 1.3.0) uses features the backend (contract 1.2.0) does not have yet: update the backend",
+        "protocol": 2,
+        "protocol_min": 2,
+        "server": "test-backend",
+        "t": "hello"
+      },
+      "scenario": "hello-refused"
+    },
+    {
+      "dir": "c2s",
+      "frame": {
+        "client": "test",
+        "contract": "1.0.0",
+        "key": "<base64 key>",
+        "nonce": "<base64 nonce>",
+        "protocol": 2,
+        "t": "hello"
+      },
+      "scenario": "hello-warn"
+    },
+    {
+      "dir": "s2c",
+      "frame": {
+        "accepted": "warn",
+        "contract": "1.2.0",
+        "key": "<base64 key>",
+        "max_frame_bytes": 1048576,
+        "message": "this application was built for contract 1.0.0; the backend is at 1.2.0. They are compatible; update the application when convenient",
+        "nonce": "<base64 nonce>",
+        "protocol": 2,
+        "protocol_min": 2,
+        "server": "test-backend",
+        "t": "hello",
+        "update_to": "1.2.0"
+      },
+      "scenario": "hello-warn"
+    },
+    {
+      "dir": "c2s",
+      "frame": {
+        "client": "test",
+        "contract": "1.2.0",
+        "key": "<base64 key>",
+        "nonce": "<base64 nonce>",
+        "protocol": 2,
+        "session": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "t": "hello"
+      },
+      "scenario": "session"
+    },
+    {
+      "dir": "s2c",
+      "frame": {
+        "accepted": "ok",
+        "contract": "1.2.0",
+        "key": "<base64 key>",
+        "max_frame_bytes": 1048576,
+        "message": "",
+        "nonce": "<base64 nonce>",
+        "protocol": 2,
+        "protocol_min": 2,
+        "server": "test-backend",
+        "session": "new",
+        "t": "hello"
+      },
+      "scenario": "session"
+    },
+    {
+      "dir": "c2s",
+      "frame": {
+        "t": "auth",
+        "token": "<token>"
+      },
+      "scenario": "auth"
+    },
+    {
+      "dir": "s2c",
+      "frame": {
+        "expires_in": 0,
+        "sub": "user-1",
+        "t": "auth-ok"
+      },
+      "scenario": "auth"
+    },
+    {
+      "dir": "c2s",
+      "frame": {
+        "args": [],
+        "id": 1,
+        "program": "PING",
+        "returning": true,
+        "t": "call"
+      },
+      "scenario": "call-ok"
+    },
+    {
+      "dir": "s2c",
+      "frame": {
+        "args": [],
+        "id": 1,
+        "returning": {
+          "REPLY": "pong"
+        },
+        "t": "reply"
+      },
+      "scenario": "call-ok"
+    },
+    {
+      "dir": "c2s",
+      "frame": {
+        "args": [
+          {
+            "json": {
+              "DONE": 0,
+              "EXTRA": 1,
+              "TAG": "a"
+            },
+            "mode": "ref"
+          }
+        ],
+        "id": 2,
+        "program": "SAFE-ADD",
+        "returning": false,
+        "t": "call"
+      },
+      "scenario": "error-validation"
+    },
+    {
+      "dir": "s2c",
+      "frame": {
+        "class": "validation",
+        "code": 4000,
+        "detail": "LK-A.EXTRA",
+        "id": 2,
+        "message": "unknown-key at LK-A.EXTRA: LK-A has no member named \"EXTRA\"",
+        "t": "error"
+      },
+      "scenario": "error-validation"
+    },
+    {
+      "dir": "c2s",
+      "frame": {
+        "args": [
+          {
+            "json": {},
+            "mode": "ref"
+          }
+        ],
+        "id": 3,
+        "program": "NO-SUCH",
+        "returning": false,
+        "t": "call"
+      },
+      "scenario": "error-not-found"
+    },
+    {
+      "dir": "s2c",
+      "frame": {
+        "class": "not-found",
+        "code": 5000,
+        "id": 3,
+        "message": "no such program",
+        "t": "error"
+      },
+      "scenario": "error-not-found"
+    },
+    {
+      "dir": "c2s",
+      "frame": {
+        "args": [
+          {
+            "json": {
+              "MSG": ""
+            },
+            "mode": "ref"
+          }
+        ],
+        "id": 4,
+        "program": "ADMIN-ONLY",
+        "returning": false,
+        "t": "call"
+      },
+      "scenario": "error-authorisation"
+    },
+    {
+      "dir": "s2c",
+      "frame": {
+        "class": "authorisation",
+        "code": 3000,
+        "id": 4,
+        "message": "the caller's roles do not allow this program",
+        "t": "error"
+      },
+      "scenario": "error-authorisation"
+    },
+    {
+      "dir": "c2s",
+      "frame": {
+        "args": [
+          {
+            "json": {
+              "AMOUNT": 1
+            },
+            "mode": "ref"
+          }
+        ],
+        "id": 5,
+        "program": "REJECT",
+        "returning": false,
+        "t": "call"
+      },
+      "scenario": "error-application"
+    },
+    {
+      "dir": "s2c",
+      "frame": {
+        "class": "application",
+        "code": 4201,
+        "detail": "{\"retry\":false}",
+        "id": 5,
+        "message": "card declined",
+        "t": "error"
+      },
+      "scenario": "error-application"
+    },
+    {
+      "dir": "c2s",
+      "frame": {
+        "t": "bye"
+      },
+      "scenario": "bye"
+    }
+  ],
+  "version": 1
+}

@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.218 — 2026-11-05
+
+**WASM-014 T7: one recorded conversation, checked on both sides.** *(Written on features-2x-wasm-pending, after 2.0.217.)* `specs/WASM-014-…/vectors/wire.v1.json` holds a conversation recorded from a real backend (a refused hello, a warned hello, a session with `auth`, a call that works, one call for each error class, and `bye`). The backend test compares a fresh run with the file, the wire test parses every frame, and the player replays the backend's half and checks what its client sends and answers. **Fix found on the way:** the browser player named its session with 64 bits and the backend accepts only 128 (32 hex characters), so a hello from the player would have been refused; it now sends 128 bits. The shipped player is rebuilt.
+
 ## 2.0.217 — 2026-11-05
 
 **WASM-014 T2–T5: the backend contract speaks sessions.** *(Written on features-2x-wasm-pending, after 2.0.216.)* A client now names a session (32 hex characters, kept in memory only) in every `hello`; the backend answers `new` or `continued`, keeps idempotency answers per `(caller, session, key)`, and frees them on `bye`, on the idle time (`session_idle_seconds`, default 900) or on the optional cap. A repeat with the same key after a reconnect is replayed and the program does not run again; another session with the same key runs. `backend.toml` gains `[contract]` (`idempotency_store = "memory" | "server"`, `session_idle_seconds`, `idempotency_path`): `server` also writes the answers to a redb file before replying, so a restart of the backend keeps them; a project without the section starts as before. Measured: after a restart `server` replayed (1 run), `memory` answered `new` and ran again (2 runs). The `negotiate` table (T1) is now a test.
