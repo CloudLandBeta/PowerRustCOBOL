@@ -1235,13 +1235,17 @@ impl Player {
         });
         *inner.weak.borrow_mut() = Rc::downgrade(&inner);
         if !inner.cfg.backend_origins.is_empty() {
+            let (contract, idempotent) = {
+                let h = inner.host.borrow();
+                net::backend_from_manifest(&h.manifest, &inner.cfg.backend_contract, &inner.cfg.backend_idempotent)
+            };
             let ncfg = net::Config::from_page(
                 inner.cfg.backend_origins.clone(),
                 inner.cfg.unsafe_plain_ws,
                 inner.cfg.call_timeout_ms,
                 inner.cfg.max_frame,
             )
-            .with_backend(&inner.cfg.backend_contract, inner.cfg.backend_idempotent.clone());
+            .with_backend(&contract, idempotent);
             let mut ncfg = ncfg;
             ncfg.entropy = Some(browser_entropy);
             let sock = WsSocket { inner: Rc::downgrade(&inner), ws: None, handlers: Vec::new() };

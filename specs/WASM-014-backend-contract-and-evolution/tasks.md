@@ -287,7 +287,7 @@ as completed.
 
 ## M6 — the frontend knows its contract (plan §2.1, §2.7)
 
-- [ ] **T8 — The contract and the interface in the module's manifest** (R1; AC1)
+- [x] **T8 — The contract and the interface in the module's manifest** (R1; AC1)
   - Files:
     - `crates/cobolt-wasm-abi/src/manifest.rs`: `Manifest.contract: Option<String>` and `Manifest.remote: Vec<RemoteSig {name, idempotent,
       long_running, stream, independent}>`, both `#[serde(default)]`, so an older manifest loads;

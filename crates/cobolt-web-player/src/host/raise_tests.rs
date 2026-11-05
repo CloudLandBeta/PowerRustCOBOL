@@ -24,6 +24,8 @@ fn host() -> Host {
     .expect("the form loads");
     let events: Vec<String> = ["onClick", "onComplete", "onError"].iter().map(|s| s.to_string()).collect();
     let manifest = Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "shop".into(),

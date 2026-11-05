@@ -133,6 +133,30 @@ pub struct Manifest {
     pub imports: Vec<String>,
     #[serde(default)]
     pub sizes: Sizes,
+    /// The backend contract version this application was built against (`backend/contract/interface.json`),
+    /// which the player names in its `hello` (WASM-014 R1). Absent: the project had no interface file when it was
+    /// built, and the player says `0.0.0`, which a backend refuses with a message to rebuild.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<String>,
+    /// The backend's exported programs and how each may be called (WASM-014 R9): the player repeats only the
+    /// `idempotent` ones after a lost connection. Empty when there is no interface file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remote: Vec<RemoteSig>,
+}
+
+/// One exported backend program, as the module's manifest records it (ABI v1 §10).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteSig {
+    /// The program's name, upper case.
+    pub name: String,
+    #[serde(default)]
+    pub idempotent: bool,
+    #[serde(default)]
+    pub long_running: bool,
+    #[serde(default)]
+    pub stream: bool,
+    #[serde(default)]
+    pub independent: bool,
 }
 
 /// Why a manifest cannot be used. The text is meant for the person who built
@@ -340,6 +364,8 @@ mod tests {
             builtins: vec![],
             imports: vec!["flush".into(), "query".into()],
             sizes: Sizes::default(),
+            contract: None,
+            remote: Vec::new(),
         }
     }
 
@@ -429,5 +455,27 @@ mod tests {
         assert!(m.validate().unwrap_err().to_string().contains("unknown control id 99"));
 
         assert!(matches!(Manifest::parse("{"), Err(ManifestError::Json(_))));
+    }
+
+    /// WASM-014 T8: a manifest written before the backend members still loads, and one with them round-trips.
+    #[test]
+    fn the_backend_contract_members_are_optional_and_round_trip() {
+        // An older manifest: neither member is there.
+        let old = serde_json::to_string(&sample()).unwrap();
+        assert!(!old.contains("\"contract\"") && !old.contains("\"remote\""), "absent members are not written: {old}");
+        let m = Manifest::parse(&old).expect("an older manifest loads");
+        assert_eq!((m.contract.clone(), m.remote.len()), (None, 0));
+        // With them.
+        let mut m = sample();
+        m.contract = Some("1.2.0".into());
+        m.remote = vec![
+            RemoteSig { name: "SAFE-ADD".into(), idempotent: true, ..Default::default() },
+            RemoteSig { name: "LONG".into(), long_running: true, ..Default::default() },
+            RemoteSig { name: "TICKER".into(), stream: true, independent: true, ..Default::default() },
+        ];
+        let text = serde_json::to_string(&m).unwrap();
+        let back = Manifest::parse(&text).expect("loads");
+        assert_eq!(back, m);
+        println!("manifest with contract {:?} and {} remote programs round-trips ({} bytes)", back.contract, back.remote.len(), text.len());
     }
 }

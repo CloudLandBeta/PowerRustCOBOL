@@ -28,6 +28,8 @@ const FORM: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 
 fn manifest() -> Manifest {
     Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "room".into(),

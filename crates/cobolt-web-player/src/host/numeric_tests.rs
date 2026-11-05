@@ -42,6 +42,8 @@ fn host() -> Host {
         .map(|(k, n)| ControlEntry { id: 3 + k as u32, name: (*n).into(), kind: "NumericUpDown".into() })
         .collect();
     let manifest = Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "t".into(),

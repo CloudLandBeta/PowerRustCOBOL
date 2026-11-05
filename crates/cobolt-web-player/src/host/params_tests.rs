@@ -29,6 +29,8 @@ fn host(standalone: bool) -> Host {
         builtins: vec![],
         imports: vec![],
         sizes: Default::default(),
+        contract: None,
+        remote: Vec::new(),
     };
     let mut h = Host::new(manifest, HostOptions { standalone, ..HostOptions::default() });
     for name in ["main-form", "child-form"] {

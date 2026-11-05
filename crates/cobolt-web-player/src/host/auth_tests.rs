@@ -28,6 +28,8 @@ fn host(bound: &[&str], props: &str) -> Host {
     let events: Vec<String> = EVENTS.iter().map(|s| s.to_string()).collect();
     let handlers = bound.iter().enumerate().map(|(n, e)| HandlerEntry { ctrl: 3, event: events.iter().position(|x| x == e).unwrap() as u32, entry: n as u32 }).collect();
     let manifest = Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "demo".into(),
@@ -391,6 +393,8 @@ fn protected_app(named: bool) -> Host {
         layers: vec![],
     };
     let manifest = Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "demo".into(),

@@ -35,6 +35,8 @@ fn host(bound: &[&str]) -> Host {
         })
         .collect();
     let manifest = Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "demo".into(),

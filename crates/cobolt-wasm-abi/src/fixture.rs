@@ -1495,6 +1495,8 @@ pub fn build(spec: &FixtureSpec) -> Fixture {
         builtins: Vec::new(),
         imports: crate::codes::PRODUCTION_IMPORTS.iter().map(|s| (*s).to_owned()).collect(),
         sizes: Default::default(),
+        contract: None,
+        remote: Vec::new(),
     };
     manifest.validate().expect("the fixture's own manifest is valid");
     let manifest_json = serde_json::to_string(&manifest).unwrap();

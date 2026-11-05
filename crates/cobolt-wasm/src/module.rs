@@ -77,11 +77,15 @@ pub struct Options {
     /// file; there is no record limit (Q-new-1): when it is full a WRITE ends
     /// with FILE STATUS 89.
     pub file_heap: u32,
+    /// The backend contract version the project was built against, for the manifest (WASM-014 R1); `None` when there is no interface file.
+    pub contract: Option<String>,
+    /// The backend's exported programs and how each may be called, for the manifest (WASM-014 R9).
+    pub remote: Vec<cobolt_wasm_abi::manifest::RemoteSig>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP }
+        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP, contract: None, remote: Vec::new() }
     }
 }
 
@@ -2180,5 +2184,7 @@ fn build_manifest(m: &ManifestInput<'_, '_>) -> cobolt_wasm_abi::manifest::Manif
         builtins: m.builtins.clone(),
         imports: m.imports.clone(),
         sizes: Sizes { module: 0, rt_functions: m.rt_functions as u64, rt_bytes: m.rt_bytes as u64 },
+        contract: m.opts.contract.clone(),
+        remote: m.opts.remote.clone(),
     }
 }

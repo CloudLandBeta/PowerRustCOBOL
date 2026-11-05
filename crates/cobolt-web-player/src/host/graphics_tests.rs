@@ -44,6 +44,8 @@ fn manifest() -> Manifest {
         builtins: vec![],
         imports: vec![],
         sizes: Default::default(),
+        contract: None,
+        remote: Vec::new(),
     }
 }
 

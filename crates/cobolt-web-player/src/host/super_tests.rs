@@ -16,6 +16,8 @@ use cobolt_wasm_abi::manifest::{FormEntry, Limits, VariantInfo};
 
 fn host() -> Host {
     let manifest = Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "demo".into(),

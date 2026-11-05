@@ -895,6 +895,14 @@ impl<S: Socket> Client<S> {
     }
 }
 
+/// The contract the program was built against and the programs that may be repeated, from the module's manifest (WASM-014 T8);
+/// a manifest that names neither (an older build) leaves the page's configuration in force.
+pub fn backend_from_manifest(m: &cobolt_wasm_abi::manifest::Manifest, page_contract: &str, page_idempotent: &[String]) -> (String, Vec<String>) {
+    let contract = m.contract.clone().unwrap_or_else(|| page_contract.to_owned());
+    let idempotent = if m.remote.is_empty() { page_idempotent.to_vec() } else { m.remote.iter().filter(|r| r.idempotent).map(|r| r.name.clone()).collect() };
+    (contract, idempotent)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1746,5 +1754,22 @@ mod tests {
         let st = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cobolt-wasm-rt/src/state.rs")).unwrap();
         assert!(st.contains("pub const FRAME_SIZE: u32 = 64 * 1024;"), "cobolt-wasm-rt changed its FRAME_SIZE: update MODULE_ANSWER_LIMIT");
         assert_eq!(MODULE_ANSWER_LIMIT, 65_536);
+    }
+
+    #[test]
+    fn the_module_names_the_contract_and_the_repeatable_programs() {
+        use cobolt_wasm_abi::fixture::{build, standard_spec};
+        use cobolt_wasm_abi::manifest::RemoteSig;
+        let mut m = build(&standard_spec(false)).manifest;
+        // An older build names nothing: the page's configuration stays in force.
+        assert_eq!(backend_from_manifest(&m, "1.0.0", &["a".into()]), ("1.0.0".into(), vec!["a".to_string()]));
+        m.contract = Some("2.3.0".into());
+        m.remote = vec![
+            RemoteSig { name: "fund-totals".into(), idempotent: true, ..Default::default() },
+            RemoteSig { name: "post-order".into(), ..Default::default() },
+        ];
+        let (c, i) = backend_from_manifest(&m, "1.0.0", &["a".into()]);
+        println!("manifest says contract {c}, repeatable {i:?}");
+        assert_eq!((c.as_str(), i), ("2.3.0", vec!["fund-totals".to_string()]));
     }
 }

@@ -36,6 +36,8 @@ fn host(bound: bool) -> Host {
     };
     let main_handlers = if bound { vec![HandlerEntry { ctrl: ctrl::FORM, event: 1, entry: 0 }] } else { vec![] };
     let manifest = Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "shop".into(),

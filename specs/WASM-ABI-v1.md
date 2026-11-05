@@ -149,6 +149,19 @@ The module is built with `--conformance` (WASM-PLAN P6). It additionally imports
 }
 ```
 
+Two optional members describe the backend the program was built against (WASM-014 T8); a manifest without them is still valid and the player then uses the page's configuration:
+
+```json
+{
+  "contract": "1.2.0",
+  "remote": [
+    { "name": "fund-totals", "idempotent": true, "long_running": false, "stream": false, "independent": false }
+  ]
+}
+```
+
+`contract` is the `contract.version` of `backend/contract/interface.json` at build time (else `backend/exports.toml`); the player sends it in `hello` and the server answers whether it still serves that contract. `remote` lists the remote programs of that interface with their flags; the player repeats a call after a reconnect only for the entries marked `idempotent`.
+
 A custom section **`prlines`** maps a line id to `(unit name, source line, column)`; the generator stores the id of the statement about to run in the exported-for-diagnostics global `$line` before every statement that can raise a run-time error. The standard `name` section names every function (`form.paragraph.block`).
 
 ## 11. What a host must do (checklist for the player and the loader)

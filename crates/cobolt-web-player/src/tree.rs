@@ -1070,6 +1070,8 @@ two</Property></Control>
             controls.push(ControlEntry { id: 3 + i as u32, name: c.id.clone(), kind: c.control_type.as_str().to_owned() });
         }
         let manifest = Manifest {
+        contract: None,
+        remote: Vec::new(),
             abi: 1,
             generator: "test".into(),
             project: "demo".into(),

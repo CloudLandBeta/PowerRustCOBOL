@@ -60,6 +60,8 @@ fn manifest(layers: bool) -> Manifest {
         vec![]
     };
     Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "layers".into(),

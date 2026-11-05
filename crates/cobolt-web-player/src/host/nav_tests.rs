@@ -27,6 +27,8 @@ fn queued(h: &Host) -> Vec<(u32, u32, Vec<String>)> {
 fn host_with(standalone: bool, with_formats: bool) -> Host {
     let forms = [("main-form", "Standalone"), ("embedded-form", "Embedded"), ("standalone-form", "Standalone"), ("both-form", "Both")];
     let manifest = Manifest {
+        contract: None,
+        remote: Vec::new(),
         abi: 1,
         generator: "test".into(),
         project: "demo".into(),

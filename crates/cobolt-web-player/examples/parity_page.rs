@@ -394,6 +394,8 @@ fn main() {
         builtins: vec![],
         imports: vec![],
         sizes: Default::default(),
+        contract: None,
+        remote: Vec::new(),
     };
     let mut tree = FormTree::build(&form, &manifest.forms[0], &manifest, 0, None).expect("the form pairs with an empty manifest");
     if let Some(p) = &a.state {

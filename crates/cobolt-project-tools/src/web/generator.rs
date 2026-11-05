@@ -316,9 +316,13 @@ impl GeneratorBackend {
         // WASM-017 R8, D3: the project's payload limit is the arena's frame;
         // the batch and answer regions stay as ABI v1 §2 sizes them.
         let defaults = cobolt_wasm::Options::default();
+        // WASM-014 T8: what the manifest says about the backend the application was built against.
+        let (contract, remote) = backend_remote(&req.project_dir);
         let opts = cobolt_wasm::Options {
             name: req.name.clone(),
             arena: cobolt_wasm::module::Arena { frame: req.web.max_payload_bytes, ..defaults.arena },
+            contract,
+            remote,
             ..defaults
         };
         let modules = cobolt_wasm::compile_web_project(
@@ -775,28 +779,62 @@ fn backend_origin(url: &str) -> Option<String> {
     Some(format!("{}://{host}", scheme.to_ascii_lowercase()))
 }
 
-/// The project Backend's contract version and the programs it declares `idempotent` (WASM-014 R2,
-/// R9), from `backend/exports.toml` and the Build's `backend/generated/exports.toml`: the player names
-/// the contract in its `hello` and repeats only those programs after a lost connection. Nothing when
-/// the project has no Backend.
-fn backend_contract(project_dir: &Path) -> (Option<String>, Vec<String>) {
+/// The backend's contract version and its exported programs, for the module's manifest (WASM-014 R1, R9) and for the
+/// page: from the interface description the Backend's build wrote (`backend/contract/interface.json`) when there is
+/// one, else from `backend/exports.toml` and the Build's `backend/generated/exports.toml` (a project whose Backend has
+/// not been built yet). Nothing when the project has no Backend.
+fn backend_remote(project_dir: &Path) -> (Option<String>, Vec<cobolt_wasm_abi::manifest::RemoteSig>) {
     use cobolt_codegen::remote_controls::{EXPORTS_FILE, GENERATED_DIR};
-    let (mut contract, mut idempotent) = (None, Vec::new());
+    use cobolt_wasm_abi::manifest::RemoteSig;
     let backend = project_dir.join("backend");
+    let flag = |v: &serde_json::Value, k: &str| v.get(k).and_then(|b| b.as_bool()) == Some(true);
+    if let Some(v) = std::fs::read_to_string(backend.join("contract").join("interface.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) {
+        if let Some(contract) = v.get("contract").and_then(|c| c.as_str()) {
+            let sigs = v
+                .get("programs")
+                .and_then(|p| p.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|p| {
+                    Some(RemoteSig {
+                        name: p.get("name")?.as_str()?.trim().to_ascii_uppercase(),
+                        idempotent: flag(p, "idempotent"),
+                        long_running: flag(p, "long_running"),
+                        stream: flag(p, "stream"),
+                        independent: flag(p, "independent"),
+                    })
+                })
+                .collect();
+            return (Some(contract.trim().to_owned()), sigs);
+        }
+    }
+    let (mut contract, mut sigs) = (None, Vec::new());
     for path in [backend.join(EXPORTS_FILE), backend.join(GENERATED_DIR).join(EXPORTS_FILE)] {
         let Some(v) = std::fs::read_to_string(&path).ok().and_then(|t| t.parse::<toml::Value>().ok()) else { continue };
         if contract.is_none() {
             contract = v.get("contract").and_then(|c| c.get("version")).and_then(|x| x.as_str()).map(|s| s.trim().to_owned());
         }
+        let toml_flag = |e: &toml::Value, k: &str| e.get(k).and_then(|b| b.as_bool()) == Some(true);
         for e in v.get("export").and_then(|e| e.as_array()).into_iter().flatten() {
-            if e.get("idempotent").and_then(|b| b.as_bool()) == Some(true) {
-                if let Some(p) = e.get("program").and_then(|p| p.as_str()) {
-                    idempotent.push(p.trim().to_ascii_uppercase());
-                }
+            if let Some(p) = e.get("program").and_then(|p| p.as_str()) {
+                sigs.push(RemoteSig {
+                    name: p.trim().to_ascii_uppercase(),
+                    idempotent: toml_flag(e, "idempotent"),
+                    long_running: toml_flag(e, "long_running"),
+                    stream: toml_flag(e, "stream"),
+                    independent: toml_flag(e, "independent"),
+                });
             }
         }
     }
-    (contract, idempotent)
+    (contract, sigs)
+}
+
+/// The Backend's contract version and the programs it declares `idempotent`, the form the page's configuration
+/// carries (WASM-014 R2, R9); derived from [`backend_remote`], so the page and the manifest cannot disagree.
+fn backend_contract(project_dir: &Path) -> (Option<String>, Vec<String>) {
+    let (contract, sigs) = backend_remote(project_dir);
+    (contract, sigs.into_iter().filter(|s| s.idempotent).map(|s| s.name).collect())
 }
 
 /// The `connect-src` directive of a policy, as written (`connect-src 'self' wss://…`).
