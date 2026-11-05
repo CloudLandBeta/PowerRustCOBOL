@@ -148,3 +148,22 @@ fn the_sealed_channel_is_in_the_server_and_the_client_and_not_in_the_loader_or_t
     println!("sealed channel crates: in the server ({} crates) and the client ({}), not in the loader ({}) or the compiler ({})",
         server.len(), client.len(), loader.len(), compiler.len());
 }
+
+#[test]
+fn the_backend_links_exactly_one_redb_4() {
+    // WASM-014 T4: the idempotency store of `server` mode writes with redb. The runtime already pins `=4.3.0`; the server pins the
+    // same, so the backend's build holds ONE redb 4. (The runtime also keeps redb 2.6 for the v2 -> v3 file upgrade; it is a
+    // different major, not a second copy of the store's engine.)
+    let cargo = option_env!("CARGO").unwrap_or("cargo");
+    let out = Command::new(cargo)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["tree", "--offline", "-e", "normal", "--prefix", "none", "-p", "cobolt-server"])
+        .output()
+        .expect("cargo tree runs");
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    let versions: BTreeSet<String> = text.lines().filter_map(|l| l.strip_prefix("redb v")).map(|l| l.split(' ').next().unwrap_or("").to_owned()).collect();
+    println!("redb versions in the backend's closure: {versions:?}");
+    let fours: Vec<_> = versions.iter().filter(|v| v.starts_with("4.")).collect();
+    assert_eq!(fours.len(), 1, "exactly one redb 4 in the backend: {versions:?}");
+}

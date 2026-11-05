@@ -43,6 +43,18 @@ pub struct Hello {
     /// 16 random bytes, base64; required from protocol 2.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub nonce: String,
+    /// The session this connection belongs to: 32 lowercase hex characters the client made at start-up and keeps in memory only.
+    /// Calls repeated with the same key in the same session are replayed, across reconnects (WASM-014 R10, Q5). Absent: the
+    /// connection is the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
+/// The orderly end of a session: the backend frees what it kept for it (WASM-014 R10).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bye {
+    #[serde(default)]
+    pub t: String,
 }
 
 /// The bearer token of the connection (WASM-003 R9, R11). Sent as a message,
@@ -190,6 +202,18 @@ pub struct ServerHello {
     pub key: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub nonce: String,
+    /// Whether the session the client named is one this backend holds: `new` (it holds nothing for it: a first connection, or a
+    /// restart with the memory store) or `continued`. Absent when the client named none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionState>,
+}
+
+/// What the backend holds for the session a client named (WASM-014 R10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionState {
+    New,
+    Continued,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -343,6 +367,12 @@ pub enum ClientFrame {
     PutChunk(PutChunk),
     PutEnd(PutEnd),
     GetFile(GetFile),
+    Bye(Bye),
+}
+
+/// Whether `s` is a session id: 32 lowercase hexadecimal characters.
+pub fn is_session_id(s: &str) -> bool {
+    s.len() == 32 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Parse one client frame. The `t` field is read first, then the whole message
@@ -362,6 +392,11 @@ pub fn parse_client(text: &str) -> Result<ClientFrame, CallError> {
         "hello" => {
             let mut h: Hello = serde_json::from_str(text).map_err(|e| bad(format!("a hello does not fit: {e}")))?;
             h.t = "hello".into();
+            if let Some(s) = &h.session {
+                if !is_session_id(s) {
+                    return Err(bad("a hello's session must be 32 lowercase hexadecimal characters".into()));
+                }
+            }
             Ok(ClientFrame::Hello(h))
         }
         "auth" => kind!(Auth, Auth),
@@ -373,6 +408,7 @@ pub fn parse_client(text: &str) -> Result<ClientFrame, CallError> {
         "put-chunk" => kind!(PutChunk, PutChunk),
         "put-end" => kind!(PutEnd, PutEnd),
         "get-file" => kind!(GetFile, GetFile),
+        "bye" => kind!(Bye, Bye),
         other => Err(bad(format!("unknown message kind \"{other}\""))),
     }
 }
@@ -432,7 +468,7 @@ mod tests {
 
     #[test]
     fn every_server_frame_is_read_back_as_the_kind_it_was_written() {
-        let hello = ServerHello { t: "hello".into(), protocol: 1, protocol_min: 1, contract: "1.2.0".into(), accepted: Accepted::Warn, message: "m".into(), update_to: Some("1.2.0".into()), server: "s".into(), max_frame_bytes: 1 << 20, key: String::new(), nonce: String::new() };
+        let hello = ServerHello { t: "hello".into(), protocol: 1, protocol_min: 1, contract: "1.2.0".into(), accepted: Accepted::Warn, message: "m".into(), update_to: Some("1.2.0".into()), server: "s".into(), max_frame_bytes: 1 << 20, key: String::new(), nonce: String::new(), session: Some(SessionState::Continued) };
         assert!(matches!(parse_server(&to_text(&hello)), Ok(ServerFrame::Hello(h)) if h.accepted == Accepted::Warn && h.update_to.as_deref() == Some("1.2.0")));
         assert!(matches!(parse_server(&to_text(&AuthOk { t: "auth-ok".into(), sub: "u".into(), expires_in: 5 })), Ok(ServerFrame::AuthOk(a)) if a.expires_in == 5));
         let reply = Reply { t: "reply".into(), id: 3, args: vec![Some(RawValue::from_string("{\"A\":1.50}".into()).unwrap()), None], returning: None, warnings: vec!["w".into()] };
@@ -457,6 +493,44 @@ mod tests {
         assert!(matches!(parse_server(&to_text(&SubEnd { t: "sub-end".into(), sub: 2 })), Ok(ServerFrame::SubEnd(s)) if s.sub == 2));
         assert!(matches!(parse_server(&to_text(&PutReady { t: "put-ready".into(), id: 1, upload: "u".into(), have: 10 })), Ok(ServerFrame::PutReady(p)) if p.have == 10));
         assert!(matches!(parse_server(&to_text(&FileUrl { t: "file-url".into(), id: 1, path: "/dl/x".into(), expires_in: 60, size: 5, sha256: "00".into() })), Ok(ServerFrame::FileUrl(f)) if f.path == "/dl/x"));
+    }
+
+
+    /// WASM-014 T2: the session members of `hello`, the answer's `session`, and `bye`.
+    #[test]
+    fn session_hello_bye_and_their_refusals() {
+        let sid = "0123456789abcdef0123456789abcdef";
+        let hello = |session: &str| format!("{{\"t\":\"hello\",\"protocol\":2,\"contract\":\"1.0.0\",\"client\":\"c\",\"key\":\"k\",\"nonce\":\"n\"{session}}}");
+        let mut rows = Vec::new();
+        // (name, frame, accepted?)
+        rows.push(("no session (older client)", hello(""), true));
+        rows.push(("a 32-hex session", hello(&format!(",\"session\":\"{sid}\"")), true));
+        rows.push(("too short", hello(",\"session\":\"abc\""), false));
+        rows.push(("upper-case hex", hello(&format!(",\"session\":\"{}\"", sid.to_uppercase().replace('0', "A"))), false));
+        rows.push(("not hex", hello(&format!(",\"session\":\"{}\"", "z".repeat(32))), false));
+        rows.push(("bye", "{\"t\":\"bye\"}".to_string(), true));
+        for (name, frame, ok) in &rows {
+            let got = parse_client(frame);
+            println!("{name:<28} {}", if got.is_ok() { "accepted" } else { "refused" });
+            assert_eq!(got.is_ok(), *ok, "{name}");
+            if let Err(e) = got {
+                assert_eq!(e.code, crate::error::codes::BAD_MESSAGE, "{name}");
+            }
+        }
+        match parse_client(&rows[1].1) {
+            Ok(ClientFrame::Hello(h)) => assert_eq!(h.session.as_deref(), Some(sid)),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(parse_client("{\"t\":\"bye\"}"), Ok(ClientFrame::Bye(_))));
+        // The backend's answer says what it holds; an older backend's answer (no member) still reads.
+        for (state, word) in [(SessionState::New, "new"), (SessionState::Continued, "continued")] {
+            let h = ServerHello { t: "hello".into(), protocol: 2, protocol_min: 2, contract: "1.0.0".into(), accepted: Accepted::Ok, message: String::new(), update_to: None, server: "s".into(), max_frame_bytes: 1, key: String::new(), nonce: String::new(), session: Some(state) };
+            let text = to_text(&h);
+            assert!(text.contains(&format!("\"session\":\"{word}\"")), "{text}");
+            assert!(matches!(parse_server(&text), Ok(ServerFrame::Hello(r)) if r.session == Some(state)));
+        }
+        let old = "{\"t\":\"hello\",\"protocol\":2,\"protocol_min\":2,\"contract\":\"1.0.0\",\"accepted\":\"ok\",\"message\":\"\",\"server\":\"s\",\"max_frame_bytes\":1}";
+        assert!(matches!(parse_server(old), Ok(ServerFrame::Hello(r)) if r.session.is_none()));
     }
 
     #[test]

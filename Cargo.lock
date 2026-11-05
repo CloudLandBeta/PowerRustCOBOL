@@ -2577,6 +2577,7 @@ dependencies = [
  "p256",
  "rand_core 0.6.4",
  "rcgen",
+ "redb 4.3.0",
  "rsa",
  "serde",
  "serde_json",

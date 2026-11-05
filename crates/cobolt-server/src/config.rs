@@ -161,6 +161,35 @@ pub struct LimitsSection {
     pub idempotency_max_entries: Option<usize>,
 }
 
+/// Where the idempotency results and the sessions are kept (WASM-014 T3, Q5): never in the frontend.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IdempotencyStore {
+    /// In the backend's memory: a restart of the backend forgets them.
+    #[default]
+    Memory,
+    /// Also in a file the backend writes before it answers: a restart keeps them.
+    Server,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ContractSection {
+    /// `memory` (the default) or `server`.
+    pub idempotency_store: IdempotencyStore,
+    /// A session left untouched this long ends, with what it holds, seconds. Default 900.
+    pub session_idle_seconds: Option<u64>,
+    /// Where `server` mode keeps its file. Default `data/contract/idempotency.redb`.
+    pub idempotency_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContractResolved {
+    pub store: IdempotencyStore,
+    pub session_idle: u64,
+    pub path: PathBuf,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct FilesSection {
@@ -438,6 +467,8 @@ pub struct ServerConfig {
     pub auth: AuthSection,
     pub limits: LimitsSection,
     pub files: FilesSection,
+    /// How the idempotency store and the sessions are kept (WASM-014 T3).
+    pub contract: ContractSection,
     pub identity: Option<IdentitySection>,
     /// The named configurations of web forms' controls (WASM-005 T11).
     #[serde(rename = "configuration")]
@@ -632,6 +663,7 @@ pub struct Resolved {
     pub auth: ResolvedAuth,
     pub limits: Limits,
     pub files: FilesResolved,
+    pub contract: ContractResolved,
     pub identity: Option<ResolvedIdentity>,
     /// `[auth]` is to be filled from the provider's metadata at start ([`Resolved::discover`]): the
     /// configuration has `[identity]` and no `[auth] issuer` (WASM-009 D3, C7).
@@ -891,6 +923,12 @@ impl ServerConfig {
             download_ttl: self.files.download_ttl_seconds.unwrap_or(60),
         };
 
+        let contract = ContractResolved {
+            store: self.contract.idempotency_store,
+            session_idle: self.contract.session_idle_seconds.unwrap_or(900),
+            path: abs(self.contract.idempotency_path.as_deref().unwrap_or(Path::new("data/contract/idempotency.redb"))),
+        };
+
         let dev_token_secret = match &self.unsafe_dev_token_secret {
             Some(spec) => match resolve_secret(spec.expose()) {
                 Ok(s) if s.len() >= 16 => Some(Secret::new(s)),
@@ -948,6 +986,7 @@ impl ServerConfig {
             },
             limits,
             files,
+            contract,
             identity,
             auth_from_identity,
             discovery: None,

@@ -114,6 +114,9 @@ pub struct ClientConfig {
     /// How a broken connection is tried again (WASM-003 R25). The defaults are the
     /// only values an application uses; tests pass a shorter one.
     pub retry: cobolt_wire::retry::Policy,
+    /// The session this client names in every `hello` (WASM-014 R9): 32 lowercase hex characters kept in memory only, so a
+    /// reconnect continues the session and a new client starts another.
+    pub session: String,
 }
 
 impl ClientConfig {
@@ -130,6 +133,7 @@ impl ClientConfig {
             call_timeout: Duration::from_secs(60),
             max_payload: None,
             retry: cobolt_wire::retry::Policy::default(),
+            session: random_hex(16),
         }
     }
 }
@@ -198,6 +202,8 @@ enum Cmd {
     Unsubscribe { id: u64 },
     Hello { reply: std_mpsc::Sender<Result<ServerHello, CallError>> },
     Disconnect,
+    /// Orderly end: say `bye` so the backend frees the session, then close.
+    Bye,
 }
 
 // ── the handle ────────────────────────────────────────────────────────────────
@@ -269,6 +275,11 @@ impl WsClient {
         let (tx, rx) = std_mpsc::channel();
         self.shared.tx.send(Cmd::Hello { reply: tx }).map_err(|_| closed("the client has stopped"))?;
         rx.recv_timeout(self.shared.cfg.connect_timeout + Duration::from_secs(5)).map_err(|_| CallError::transport(codes::TIMEOUT, "no answer to hello").may_have_run(false))?
+    }
+
+    /// End the session for good (sign-out, the application closing): the backend frees what it kept for it (WASM-014 R9).
+    pub fn end_session(&self) {
+        let _ = self.shared.tx.send(Cmd::Bye);
     }
 
     /// Drop the connection (the next use connects again).
@@ -640,6 +651,7 @@ async fn open(cfg: &ClientConfig) -> Result<(Conn, ServerHello), CallError> {
         client: cfg.client_name.clone(),
         key: cobolt_wire::seal::encode_b64(&keys.public()),
         nonce: cobolt_wire::seal::encode_b64(&own_nonce),
+        session: Some(cfg.session.clone()),
     };
     ws.send(Message::text(proto::to_text(&hello))).await.map_err(|e| closed(&e.to_string()).may_have_run(false))?;
     let text = next_text(&mut ws, cfg.connect_timeout, None).await?;
@@ -883,7 +895,7 @@ impl Actor {
                 Cmd::Hello { reply } => {
                     let _ = reply.send(Err(unreachable_error()));
                 }
-                Cmd::Cancel { .. } | Cmd::Unsubscribe { .. } | Cmd::Disconnect => {}
+                Cmd::Cancel { .. } | Cmd::Unsubscribe { .. } | Cmd::Disconnect | Cmd::Bye => {}
             }
         }
     }
@@ -893,6 +905,15 @@ impl Actor {
             Cmd::Hello { reply } => {
                 let r = self.ensure().await.and_then(|_| self.hello.clone().ok_or_else(|| closed("no hello")));
                 let _ = reply.send(r);
+            }
+            Cmd::Bye => {
+                if self.conn.is_some() {
+                    self.send(proto::to_text(&proto::Bye { t: "bye".into() })).await;
+                }
+                if let Some(mut c) = self.conn.take() {
+                    let _ = c.sink.send(Message::Close(None)).await;
+                }
+                self.fail_all(closed("the session was ended by the application").may_have_run(true), false);
             }
             Cmd::Disconnect => {
                 if let Some(mut c) = self.conn.take() {

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 //
 // Licensed under the Apache License, Version 2.0.
-// See the LICENSE file in the project root for full license information.
+// See the LICENSE fifilter(|l| l.contains('=') && !l.trim().starts_with("auth.") && !l.trim().starts_with("contract."))e in the project root for full license information.
 
 //! The contract end to end (WASM-014 AC1-AC10): the Rust client against a real
 //! backend over a real TLS loopback, with a proxy that can cut the connection at
@@ -134,6 +134,8 @@ fn sources(dir_for_files: &str) -> Vec<(String, String)> {
 struct World {
     rig: Rig,
     files: std::path::PathBuf,
+    /// The configuration the rig was started with (a restart starts the same one).
+    cfg: String,
 }
 
 fn world(name: &str, extra: &str) -> World {
@@ -164,8 +166,10 @@ fn world_with(name: &str, extra: &str, setup: &dyn Fn(&std::path::Path)) -> Worl
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
     // Lines written `auth.key = value` belong to `[auth]` and go ahead of `[limits]`.
+    // Lines written `contract.key = value` belong to `[contract]`.
+    let contract_lines: String = extra.lines().filter_map(|l| l.trim().strip_prefix("contract.")).map(|l| format!("{l}\n")).collect();
     let auth_lines: String = extra.lines().filter_map(|l| l.trim().strip_prefix("auth.")).map(|l| format!("{l}\n")).collect();
-    for line in extra.lines().filter(|l| l.contains('=') && !l.trim().starts_with("auth.")) {
+    for line in extra.lines().filter(|l| l.contains('=') && !l.trim().starts_with("auth.") && !l.trim().starts_with("contract.")) {
         let (k, v) = line.split_once('=').unwrap();
         let (k, v) = (k.trim().to_string(), v.trim().to_string());
         match limits.iter_mut().find(|(name, _)| *name == k) {
@@ -175,10 +179,28 @@ fn world_with(name: &str, extra: &str, setup: &dyn Fn(&std::path::Path)) -> Worl
     }
     let limits_text: String = limits.iter().map(|(k, v)| format!("{k} = {v}\n")).collect();
     let cfg = format!(
-        "{auth_lines}[limits]\n{limits_text}[files]\ndir = \"{}\"\nmax_upload_bytes = 20000000\ndownload_ttl_seconds = 2\n[[files.slots]]\nname = \"docs\"\nmime = [\"text/plain\", \"application/pdf\", \"image/*\"]\n",
-        files.join("store").display()
+        "{auth_lines}[limits]\n{limits_text}[files]\ndir = \"{}\"\nmax_upload_bytes = 20000000\ndownload_ttl_seconds = 2\n[[files.slots]]\nname = \"docs\"\nmime = [\"text/plain\", \"application/pdf\", \"image/*\"]\n{}",
+        files.join("store").display(),
+        if contract_lines.is_empty() { String::new() } else { format!("[contract]\n{contract_lines}") }
     );
-    World { rig: rig(dir, &cfg), files }
+    World { rig: rig(dir, &cfg), files, cfg }
+}
+
+/// A client of `rig` (the rig of a restarted backend is another one), in the session `session` when one is named.
+fn client_on(rig: &Rig, addr: std::net::SocketAddr, contract: &str, token: Option<String>, session: Option<&str>) -> WsClient {
+    let mut cfg = ClientConfig::new(format!("wss://localhost:{}/ws", addr.port()), contract);
+    if let Some(s) = session {
+        cfg.session = s.to_string();
+    }
+    cfg.extra_root_pem = Some(rig.cert.cert_pem.clone().into_bytes());
+    cfg.origin = Some(ORIGIN.to_string());
+    cfg.interface = Some(rig.interface());
+    cfg.call_timeout = Duration::from_secs(20);
+    cfg.retry = cobolt_wire::retry::Policy { first_ms: 2_000, step_ms: 2_000, attempts: 3 };
+    if let Some(t) = token {
+        cfg.token = Some(Arc::new(StaticToken(t)));
+    }
+    WsClient::new(cfg)
 }
 
 impl World {
@@ -708,5 +730,95 @@ fn ac9_a_program_offers_a_file_and_the_download_address_is_short_lived_and_the_d
     assert_eq!(https_get(w.rig.server.addr, &w.rig.cert.cert_pem, &path, None).expect("answer").0, 404, "expired");
     assert_eq!(https_get(w.rig.server.addr, &w.rig.cert.cert_pem, &format!("/dl/{}", "0".repeat(64)), None).expect("answer").0, 404, "never existed: the same answer");
     assert_eq!(https_get(w.rig.server.addr, &w.rig.cert.cert_pem, "/dl/../../etc/passwd", None).expect("answer").0, 404);
+    w.rig.server.stop();
+}
+
+// ── WASM-014 T5: sessions ────────────────────────────────────────────────────
+
+const SESSION_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const SESSION_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+fn charge(key: &str) -> CallRequest {
+    let mut r = req("CHARGE", "{\"TAG\":\"charge\",\"DONE\":0}");
+    r.idempotency_key = Some(key.to_string());
+    r
+}
+
+#[test]
+fn ac6_a_repeat_after_reconnect_in_the_same_session_is_replayed_not_run() {
+    let w = world("ac6s1", "");
+    let mut t = w.client("1.2.0");
+    let first = t.call(&charge("session-key-0001")).expect("runs");
+    assert_eq!((done_of(&first), w.runs()), (1, 1));
+    // The connection is dropped and made again: the same client, so the same session.
+    t.disconnect();
+    let again = t.call(&charge("session-key-0001")).expect("replayed");
+    assert_eq!(done_of(&again), 1);
+    println!("run count after the first call: 1; after the reconnect and the repeat: {}", w.runs());
+    assert_eq!(w.runs(), 1, "the program did not run again");
+    w.rig.server.stop();
+}
+
+#[test]
+fn ac6_a_new_session_does_not_see_another_sessions_answers() {
+    let w = world("ac6s2", "");
+    let mut a = w.client("1.2.0");
+    let mut b = w.client("1.2.0");
+    a.call(&charge("session-key-0002")).expect("a runs");
+    b.call(&charge("session-key-0002")).expect("b runs: its own session");
+    println!("same key, two sessions: the program ran {} times", w.runs());
+    assert_eq!(w.runs(), 2);
+    a.call(&charge("session-key-0002")).expect("a is replayed");
+    assert_eq!(w.runs(), 2, "a's repeat did not run");
+    w.rig.server.stop();
+}
+
+#[test]
+fn ac6_server_store_survives_a_backend_restart_and_memory_store_answers_new() {
+    let mut report = Vec::new();
+    for (mode, survives) in [("server", true), ("memory", false)] {
+        let w = world(&format!("ac6s3{mode}"), &format!("contract.idempotency_store = \"{mode}\""));
+        let mut first = client_on(&w.rig, w.rig.server.addr, "1.2.0", Some(w.rig.issuer.access("user-1", AUDIENCE, 3600, json!({}))), Some(SESSION_A));
+        let h1 = first.hello().expect("hello");
+        first.call(&charge("session-key-0003")).expect("runs");
+        assert_eq!(w.runs(), 1);
+        let World { rig: old, files, cfg } = w;
+        let dir = old.dir.clone();
+        old.server.stop();
+        // The backend starts again over the same project; the frontend (the same session id) reconnects.
+        let fresh = rig(dir, &cfg);
+        let mut second = client_on(&fresh, fresh.server.addr, "1.2.0", Some(fresh.issuer.access("user-1", AUDIENCE, 3600, json!({}))), Some(SESSION_A));
+        let h2 = second.hello().expect("hello after restart");
+        let r = second.call(&charge("session-key-0003")).expect("answers");
+        let runs = std::fs::read_to_string(files.join("runs.txt")).map(|s| s.lines().filter(|l| !l.trim().is_empty()).count()).unwrap_or(0);
+        report.push(format!("{mode:<7} first hello {:?}  after restart {:?}  runs {runs}", h1.session, h2.session));
+        assert_eq!(done_of(&r), 1);
+        if survives {
+            assert_eq!(h2.session, Some(cobolt_wire::proto::SessionState::Continued), "the file kept the session");
+            assert_eq!(runs, 1, "the stored answer was replayed");
+        } else {
+            assert_eq!(h2.session, Some(cobolt_wire::proto::SessionState::New), "memory forgot the session");
+            assert_eq!(runs, 2, "memory forgot the answer, so the program ran again");
+        }
+        fresh.server.stop();
+    }
+    println!("{}", report.join("\n"));
+}
+
+#[test]
+fn bye_frees_the_sessions_entries() {
+    let w = world("ac6s4", "");
+    let mut a = client_on(&w.rig, w.rig.server.addr, "1.2.0", Some(w.rig.issuer.access("user-1", AUDIENCE, 3600, json!({}))), Some(SESSION_B));
+    a.call(&charge("session-key-0004")).expect("runs");
+    assert_eq!(w.runs(), 1);
+    a.end_session();
+    // The same session id again: the backend no longer knows it, so the same key runs again.
+    std::thread::sleep(Duration::from_millis(400));
+    let mut b = client_on(&w.rig, w.rig.server.addr, "1.2.0", Some(w.rig.issuer.access("user-1", AUDIENCE, 3600, json!({}))), Some(SESSION_B));
+    let h = b.hello().expect("hello");
+    assert_eq!(h.session, Some(cobolt_wire::proto::SessionState::New), "bye ended the session");
+    b.call(&charge("session-key-0004")).expect("runs again");
+    println!("runs after bye and the same key: {}", w.runs());
+    assert_eq!(w.runs(), 2);
     w.rig.server.stop();
 }

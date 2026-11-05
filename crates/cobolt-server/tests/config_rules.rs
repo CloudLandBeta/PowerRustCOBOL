@@ -375,3 +375,29 @@ fn discovery_takes_the_issuer_and_the_keys_from_the_provider_metadata() {
     assert!(r.discovery.is_none());
 }
 
+
+#[test]
+fn an_existing_backend_toml_without_contract_still_starts() {
+    // WASM-014 T3: a project written before sessions has no `[contract]`; it starts, with the answers kept in memory.
+    let r = resolve(GOOD, RunMode::Release).expect("good");
+    assert_eq!(r.contract.store, cobolt_server::config::IdempotencyStore::Memory);
+    assert_eq!(r.contract.session_idle, 900);
+    assert!(r.contract.path.ends_with("data/contract/idempotency.redb"), "{:?}", r.contract.path);
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+}
+
+#[test]
+fn contract_section_reads_both_store_modes_and_refuses_an_unknown_key() {
+    let server = format!("{GOOD}\n[contract]\nidempotency_store = \"server\"\nsession_idle_seconds = 60\nidempotency_path = \"/var/lib/app/idem.redb\"\n");
+    let r = resolve(&server, RunMode::Release).expect("server mode");
+    assert_eq!(r.contract.store, cobolt_server::config::IdempotencyStore::Server);
+    assert_eq!((r.contract.session_idle, r.contract.path.to_str()), (60, Some("/var/lib/app/idem.redb")));
+    let memory = format!("{GOOD}\n[contract]\nidempotency_store = \"memory\"\n");
+    assert_eq!(resolve(&memory, RunMode::Release).expect("memory mode").contract.store, cobolt_server::config::IdempotencyStore::Memory);
+    // A misspelt key or value stops the start, as every other section does.
+    for bad in ["idempotency_stor = \"server\"", "idempotency_store = \"browser\"", "session_idle = 5"] {
+        let text = format!("{GOOD}\n[contract]\n{bad}\n");
+        assert!(ServerConfig::from_toml(&text).is_err(), "`{bad}` must be refused");
+    }
+    println!("[contract]: memory and server read; 3 misspellings refused");
+}

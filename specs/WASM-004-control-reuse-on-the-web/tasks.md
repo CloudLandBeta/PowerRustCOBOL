@@ -37,8 +37,9 @@ Working assumptions (open questions; the operator may rule otherwise, and each i
 
 ## Open, carried over
 
-- [ ] **T11 — Canvas2D read-backs and Canvas3D** (R4; owned by WASM-018 T11, tracked here because R4 asks for the same methods)
+- [x] **T11 — Canvas2D read-backs and Canvas3D** (R4; owned by WASM-018 T11, tracked here because R4 asks for the same methods)
   - Today `GetPixel`, `MeasureText`, `IsPointInPath`, `ToImage`, `Capture` are refused with the reason (no synchronous answer while the Canvas part loads asynchronously); Canvas3D has no part.
+  - **Closed 2026-11-05 (2.0.215):** the read-backs are answered by the Canvas part (WASM-018 T25: `GetPixel` after drawing answers the drawn colour in a real Chrome handler, `canvas_input_chrome` and `graphics_players_chrome`), and Canvas3D has the `graphics3d` part (WASM-018 T26, `graphics_parts_chrome`). The "documented difference" in AC3 no longer exists.
   - Verify: as WASM-018 T11 records it; this spec's AC3 run (T33) lists the refusal as a documented difference until then.
 
 ## One definition (R1, R2, R7, R21)

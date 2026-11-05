@@ -164,7 +164,7 @@ as completed.
 
 ## M5 — one wire, and sessions (plan §2.4, §2.8)
 
-- [ ] **T2 — `hello.session`, `ServerHello.session`, the `bye` frame** (R1, R2, R10, R16; Q5)
+- [x] **T2 — `hello.session`, `ServerHello.session`, the `bye` frame** (R1, R2, R10, R16; Q5)
   - Files:
     - `crates/cobolt-wire/src/proto.rs`:
       - `Hello.session: Option<String>` (`#[serde(default)]`; 32 lowercase hex);
@@ -176,7 +176,7 @@ as completed.
   - Verify: `cargo test -p cobolt-wire --no-fail-fast` green, plus a test that a `hello` without `session` parses and one with `"session":"x"`
     is `BAD_MESSAGE`.
 
-- [ ] **T3 — The `[contract]` section of `backend.toml`** (R10; Q5, OQ2, Δ2)
+- [x] **T3 — The `[contract]` section of `backend.toml`** (R10; Q5, OQ2, Δ2)
   - Files: `crates/cobolt-server/src/config.rs` (a `ContractSection`, `deny_unknown_fields, default`, holding `idempotency_store = "memory" |
     "server"` (default `memory`, OQ2), `session_idle_seconds` (default 900) and `idempotency_path` (default `data/contract/idempotency.redb`,
     resolved like `files.dir`); `limits.idempotency_ttl_seconds` becomes an optional cap with no default (`:505`)), and
@@ -187,7 +187,7 @@ as completed.
     - `an_existing_backend_toml_without_contract_still_starts`, with the fixture copied from today's scaffold;
     - `contract_section_reads_both_store_modes_and_refuses_an_unknown_key`.
 
-- [ ] **T4 — The session store: keyed per session, two back ends** (R10; Q5)
+- [x] **T4 — The session store: keyed per session, two back ends** (R10; Q5)
   - Files:
     - `crates/cobolt-server/src/idem.rs`:
       - the key becomes `(caller, session, key)`;
@@ -208,7 +208,8 @@ as completed.
     - `idle_session_expires_after_the_configured_seconds`, with a fake clock;
     - `redb_store_survives_reopen_and_memory_store_does_not`.
 
-- [ ] **T5 — The server and the Rust client speak sessions** (R2, R9, R10; Q2/OQ1, Q5)
+- [x] **T5 — The server and the Rust client speak sessions** (R2, R9, R10; Q2/OQ1, Q5)
+  - **Done 2026-11-05 (2.0.217), T2–T5 together.** `negotiate` table test (T1) also in; T1's baseline count line is still owed. Session = the id the client names (32 hex), else the connection; `Bye` frees its entries; the file store is redb 4.3.0 (the one pin the runtime already has; the guard prints `{2.6.3, 4.3.0}`, 2.6 being the runtime's v2 upgrade shim). `session` is not tied to the caller at `hello` (the caller is known only after `auth`), so `continued` means the store knows the id; entries stay keyed by caller too. Measured: 17 client_contract, 19 config_rules, 7 dependency_guards, 32 wire tests pass; after a restart `server` answers `continued` and does not re-run, `memory` answers `new` and re-runs.
   - Files:
     - `crates/cobolt-server/src/serve.rs`:
       - `on_hello` `:813` reads `session` and answers `ServerHello.session`;

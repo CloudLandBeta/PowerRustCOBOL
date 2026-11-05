@@ -212,6 +212,18 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         Some(Arc::new(Jwks::new(uri, cfg.auth.jwks_ttl, cfg.auth.jwks_min_refresh, fetcher.clone())))
     };
     let validator = Arc::new(TokenValidator::new(cfg.auth.clone(), jwks.clone(), cfg.dev_token_secret.as_ref().map(|s| s.expose().to_owned())));
+    let idem = idem::Store::with_options(
+        idem::Options {
+            ttl: Some(Duration::from_secs(cfg.limits.idempotency_ttl)),
+            max: cfg.limits.idempotency_max_entries,
+            idle: Duration::from_secs(cfg.contract.session_idle),
+            backing: match cfg.contract.store {
+                crate::config::IdempotencyStore::Memory => idem::Backing::Memory,
+                crate::config::IdempotencyStore::Server => idem::Backing::File(cfg.contract.path.clone()),
+            },
+        },
+        Arc::new(Instant::now),
+    )?;
     let (stop_tx, stop_rx) = watch::channel(false);
     let shared = Arc::new(Shared {
         user_limiter: KeyedLimiter::new(cfg.limits.user_rate.0, cfg.limits.user_rate.1),
@@ -226,7 +238,7 @@ pub fn start(cfg: Resolved, backend: Backend, options: Options) -> Result<Server
         tls,
         jwks,
         shutdown: stop_rx,
-        idem: idem::Store::new(Duration::from_secs(cfg.limits.idempotency_ttl), cfg.limits.idempotency_max_entries),
+        idem,
         files: Arc::new(FileStore::new(&files_cfg)),
         auth,
         channel_key: new_channel_key(),
@@ -725,6 +737,8 @@ struct Hello {
     contract: String,
     /// The interface the client was built against, for projecting answers.
     client_interface: Option<InterfaceDescription>,
+    /// The session the client named, if it named one (WASM-014 R9).
+    session: Option<String>,
 }
 
 async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
@@ -861,6 +875,18 @@ async fn on_text(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
     };
     match frame {
         ClientFrame::Hello(h) => on_hello(shared, conn, tx, h).await,
+        ClientFrame::Bye(_) => {
+            // The client is leaving for good: its session and what it kept go now.
+            if let Some(s) = conn.hello.as_ref().and_then(|h| h.session.clone()) {
+                let caller = conn.claims.as_ref().map(|c| c.sub.clone()).unwrap_or_else(|| format!("ip:{}", conn.peer.ip()));
+                let freed = shared.idem.end_session(&caller, &s);
+                let mut r = LogRecord::new("bye");
+                r.connection = Some(conn.id);
+                r.note = Some(format!("session ended; {freed} stored answers freed"));
+                shared.sink.emit(&r);
+            }
+            false
+        }
         ClientFrame::Auth(a) => {
             if conn.hello.is_none() {
                 send_error(tx, None, &CallError::new(ErrorClass::Validation, codes::BAD_MESSAGE, "send hello first")).await;
@@ -1094,6 +1120,11 @@ async fn on_hello(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messa
         send_error(tx, None, &CallError::transport(codes::CLOSED, "the key exchange failed")).await;
         return false;
     }
+    // A named session is new, or one the store still holds (WASM-014 R9): the client may repeat its keys.
+    let session = match &h.session {
+        Some(s) if accepted != Accepted::Refused => Some(if shared.idem.open_session(s) { proto::SessionState::Continued } else { proto::SessionState::New }),
+        _ => None,
+    };
     let reply = ServerHello {
         t: "hello".into(),
         protocol: PROTOCOL,
@@ -1106,6 +1137,7 @@ async fn on_hello(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messa
         max_frame_bytes: shared.cfg.limits.max_frame_bytes as u64,
         key: if sealed.is_some() { seal::encode_b64(&shared.channel_key.public()) } else { String::new() },
         nonce: if sealed.is_some() { seal::encode_b64(&own_nonce) } else { String::new() },
+        session,
     };
     let _ = tx.send(Message::text(proto::to_text(&reply))).await;
     if accepted == Accepted::Refused {
@@ -1123,7 +1155,7 @@ async fn on_hello(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messa
         }
         let _ = tx.send(Message::Ping(SEAL_ON.to_vec().into())).await;
     }
-    conn.hello = Some(Hello { client_interface: shared.backend.interface_for(&h.contract).cloned(), contract: h.contract });
+    conn.hello = Some(Hello { client_interface: shared.backend.interface_for(&h.contract).cloned(), session: h.session.clone(), contract: h.contract });
     true
 }
 
@@ -1196,6 +1228,8 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
     };
 
     let key = subject.clone().unwrap_or_else(|| format!("ip:{}", conn.peer.ip()));
+    // The session this call belongs to: the one the client named, or this connection.
+    let idem_session = conn.hello.as_ref().and_then(|h| h.session.clone()).unwrap_or_else(|| format!("c{}", conn.id));
     if !shared.user_limiter.take(&key) {
         refuse!(CallError::new(ErrorClass::Limit, codes::RATE_LIMITED, "too many calls from this user; slow down"), subject.as_deref(), Some(&name));
     }
@@ -1245,7 +1279,7 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
     if let Some(k) = &idem_key {
         let give_up = Instant::now() + Duration::from_millis(timeout_ms);
         loop {
-            match shared.idem.begin(&key, k, &fingerprint) {
+            match shared.idem.begin(&key, &idem_session, k, &fingerprint) {
                 idem::Begin::Fresh => break,
                 idem::Begin::Replay(outcome) => {
                     shared.stats.replays.fetch_add(1, Ordering::SeqCst);
@@ -1393,7 +1427,7 @@ async fn on_call(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
                 Err(e) if e.class == ErrorClass::Application && e.code != codes::CANCELLED => Some(idem::Outcome::Failure(e.clone())),
                 Err(_) => None,
             };
-            shared.idem.finish(&key, k, &fingerprint, keep);
+            shared.idem.finish(&key, &idem_session, k, &fingerprint, keep);
         }
 
         let mut rec = LogRecord::new("call");
@@ -1671,4 +1705,38 @@ fn new_channel_key() -> cobolt_wire::seal::KeyPair {
     let k = cobolt_wire::seal::KeyPair::from_bytes(b);
     b.fill(0);
     k
+}
+
+#[cfg(test)]
+mod negotiate_tests {
+    use super::*;
+
+    /// WASM-014 T1 (R1–R3): every outcome of the version negotiation, with the message a person reads.
+    #[test]
+    fn negotiate_table() {
+        let (lo, hi) = (PROTOCOL_MIN, PROTOCOL);
+        // (client protocol, client contract, server contract, outcome, the message must contain, update_to)
+        let rows: Vec<(u32, &str, &str, Accepted, &str, Option<&str>)> = vec![
+            (hi, "1.2.0", "1.2.0", Accepted::Ok, "", None),
+            (hi, "1.0.0", "1.2.0", Accepted::Warn, "compatible", Some("1.2.0")),
+            (hi, "1.2.0", "1.2.5", Accepted::Ok, "", None),
+            (hi, "1.3.0", "1.2.0", Accepted::Refused, "update the backend", None),
+            (hi, "2.0.0", "1.2.0", Accepted::Refused, "update the backend", None),
+            (hi, "1.9.0", "2.0.0", Accepted::Refused, "update the application", Some("2.0.0")),
+            (hi, "one.two", "1.2.0", Accepted::Refused, "major.minor.patch", None),
+            (lo.saturating_sub(1), "1.2.0", "1.2.0", Accepted::Refused, "update the application", Some("1.2.0")),
+            (hi + 1, "1.2.0", "1.2.0", Accepted::Refused, "update the backend", None),
+        ];
+        println!("{:<8} {:<8} {:<8} {:<8} message", "protocol", "client", "server", "outcome");
+        for (p, client, server, want, needle, update) in rows {
+            let (got, message, update_to) = negotiate(server, p, client);
+            println!("{p:<8} {client:<8} {server:<8} {got:<8?} {message}");
+            assert_eq!(got, want, "protocol {p}, client {client}, server {server}");
+            assert!(message.contains(needle), "the message `{message}` should say `{needle}`");
+            assert_eq!(update_to.as_deref(), update, "update_to for protocol {p}, client {client}, server {server}");
+            if got != Accepted::Ok {
+                assert!(message.len() > 20 && message.chars().next().is_some_and(|c| c.is_alphabetic()), "a person can read `{message}`");
+            }
+        }
+    }
 }
