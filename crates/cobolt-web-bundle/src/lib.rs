@@ -892,6 +892,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     // the loader and the worker
     let loader_path = b.add_hashed("loader.js", hostpage::loader_js().into_bytes());
     let worker_path = b.add_hashed("worker.js", hostpage::worker_js().into_bytes());
+    let gfx_worker_path = b.add_hashed("gfx-worker.js", hostpage::gfx_worker_js().into_bytes());
     let app_js_path = b.add_hashed("app.js", hostpage::app_js(&loader_path).into_bytes());
     // The face the desktop draws "Arial" in, so the two surfaces letter the same text the same way, and its licence beside it
     // (the Ubuntu Font Licence asks for that). A shadow root cannot declare a font: the page's own stylesheet does.
@@ -927,6 +928,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         "manifest": {"url": manifest_path, "integrity": b.sri_of(&manifest_path)},
         "player": Value::Object(player_cfg),
         "worker": {"url": worker_path, "integrity": b.sri_of(&worker_path)},
+        "gfx_worker": {"url": gfx_worker_path, "integrity": b.sri_of(&gfx_worker_path)},
         "forms": forms_cfg,
         "menus": menus_cfg,
         "assets": Value::Object(assets_cfg),

@@ -408,6 +408,28 @@ pub enum GfxAnswer {
     Refused(String),
     /// The part has not loaded yet: nothing can be answered now.
     NotLoaded,
+    /// The call runs somewhere else (a worker, WASM-018 T30); the page answers later with `Host::finish_deferred`.
+    Deferred,
+}
+
+/// A heavy graphics call is running off the page's thread: what the host was doing waits here, in order, until it is answered.
+struct Stall {
+    inst: u32,
+    idx: usize,
+    name: String,
+    /// The call is the batch's final query: its answer is the module's.
+    is_query: bool,
+    /// What follows the call in its batch.
+    rest: Vec<u8>,
+    want_query: bool,
+    gfx: Option<Vec<u8>>,
+}
+
+/// A batch that arrived while a call was away; it runs, in order, once the call is answered.
+struct Held {
+    bytes: Vec<u8>,
+    want_query: bool,
+    gfx: Option<Vec<u8>>,
 }
 
 /// The ABI host.
@@ -438,6 +460,15 @@ pub struct Host {
     /// The application object's own properties (`DialogResult`, `Locale`, …).
     app: HashMap<String, String>,
     last_error: i32,
+    /// The call that has gone to a worker, with the rest of its batch (WASM-018 T30).
+    stall: Option<Stall>,
+    /// The batches that arrived while it was away.
+    held: VecDeque<Held>,
+    /// The call a command has just handed to a worker, before the batch is parked.
+    pending_call: Option<(u32, usize, String)>,
+    /// A `query` was answered `deferred`: its answer is `final_answer` once it exists.
+    query_waiting: bool,
+    final_answer: Option<Result<Vec<u8>, i32>>,
     /// The signed-in session (WASM-009): the access token lives here, in memory only.
     pub auth: crate::auth::Session,
     /// The project's extra link schemes (WASM-006 R7), copied into every form instance.
@@ -533,6 +564,11 @@ impl Host {
             stopped: false,
             app: HashMap::new(),
             last_error: 0,
+            stall: None,
+            held: VecDeque::new(),
+            pending_call: None,
+            query_waiting: false,
+            final_answer: None,
             auth: crate::auth::Session::default(),
             policy: crate::hyperlink::Policy::default(),
             platform: crate::hyperlink::Platform::Other,
@@ -1548,6 +1584,10 @@ impl Host {
     pub fn flush(&mut self, bytes: &[u8]) {
         self.stats.flushes += 1;
         self.stats.bytes_in += bytes.len() as u64;
+        if self.stall.is_some() {
+            self.held.push_back(Held { bytes: bytes.to_vec(), want_query: false, gfx: self.gfx.take() });
+            return;
+        }
         self.apply_batch(bytes, false);
         self.gfx = None;
     }
@@ -1580,8 +1620,22 @@ impl Host {
     pub fn query(&mut self, bytes: &[u8]) -> Result<Vec<u8>, i32> {
         self.stats.queries += 1;
         self.stats.bytes_in += bytes.len() as u64;
+        if self.stall.is_some() {
+            self.held.push_back(Held { bytes: bytes.to_vec(), want_query: true, gfx: self.gfx.take() });
+            self.query_waiting = true;
+            return Err(err::BAD_ARGUMENT);
+        }
         let answer = self.apply_batch(bytes, true);
         self.gfx = None;
+        if self.stall.is_some() {
+            self.query_waiting = true;
+            return Err(err::BAD_ARGUMENT);
+        }
+        self.shape_answer(answer)
+    }
+
+    /// The answer of a query as the bytes the module reads, or the code of the error.
+    fn shape_answer(&mut self, answer: Option<Result<String, i32>>) -> Result<Vec<u8>, i32> {
         match answer {
             Some(Ok(text)) => {
                 if text.len() > self.layout.answer_size as usize {
@@ -1598,6 +1652,66 @@ impl Host {
             None => {
                 self.last_error = err::BAD_ARGUMENT;
                 Err(err::BAD_ARGUMENT)
+            }
+        }
+    }
+
+    /// Whether the last `query` was parked (its call is running in a worker): its answer comes from [`Host::take_final_answer`].
+    pub fn query_waiting(&self) -> bool {
+        self.query_waiting
+    }
+
+    /// The answer of the parked query, once it exists.
+    pub fn take_final_answer(&mut self) -> Option<Result<Vec<u8>, i32>> {
+        let a = self.final_answer.take();
+        if a.is_some() {
+            self.query_waiting = false;
+        }
+        a
+    }
+
+    /// The call that went to a worker is answered: finish it as the in-place call would have, run the rest of its batch and the
+    /// batches that waited, in order (WASM-018 T30). A later call may go away too, and the order holds.
+    pub fn finish_deferred(&mut self, answer: GfxAnswer) {
+        let Some(st) = self.stall.take() else { return };
+        let text = match answer {
+            GfxAnswer::Answer(a) => {
+                if self.trees.get(&st.inst).is_some_and(|t| !t.get(st.idx, "LastError").is_empty()) {
+                    let _ = self.trees.get_mut(&st.inst).map(|t| t.set(st.idx, "LastError", ""));
+                }
+                a
+            }
+            GfxAnswer::Refused(why) => {
+                if let Some(t) = self.trees.get_mut(&st.inst) {
+                    let _ = t.set(st.idx, "LastError", &format!("{} refused: {why}", st.name));
+                }
+                String::new()
+            }
+            GfxAnswer::NotLoaded | GfxAnswer::Deferred => String::new(),
+        };
+        if st.is_query {
+            self.final_answer = Some(self.shape_answer(Some(Ok(text))));
+        } else {
+            self.gfx = st.gfx;
+            let r = self.apply_batch(&st.rest, st.want_query);
+            self.gfx = None;
+            if self.stall.is_some() {
+                return;
+            }
+            if st.want_query {
+                self.final_answer = Some(self.shape_answer(r));
+            }
+        }
+        while self.stall.is_none() {
+            let Some(h) = self.held.pop_front() else { break };
+            self.gfx = h.gfx;
+            let r = self.apply_batch(&h.bytes, h.want_query);
+            self.gfx = None;
+            if self.stall.is_some() {
+                return;
+            }
+            if h.want_query {
+                self.final_answer = Some(self.shape_answer(r));
             }
         }
     }
@@ -1642,6 +1756,7 @@ impl Host {
                 }
             };
             self.stats.commands += 1;
+            let is_q = matches!(&cmd, Command::Get(_) | Command::CallR(_) | Command::Count(_));
             match cmd {
                 Command::Set { path, value } => {
                     self.stats.sets += 1;
@@ -1710,6 +1825,12 @@ impl Host {
                     }
                 }
             }
+            // A call went to a worker: the rest of this batch waits for its answer (WASM-018 T30).
+            if let Some((inst, idx, name)) = self.pending_call.take() {
+                let rest = bytes[reader.position()..].to_vec();
+                self.stall = Some(Stall { inst, idx, name, is_query: is_q, rest, want_query, gfx: self.gfx.take() });
+                return Some(Err(err::BAD_ARGUMENT));
+            }
         }
         if want_query && answer.is_none() {
             return Some(Err(err::BAD_ARGUMENT));
@@ -1726,6 +1847,7 @@ impl Host {
             CmdError::Unknown(m) => (err::UNKNOWN_TARGET, m),
             CmdError::Refused(m) => (err::HOST_REFUSED, m),
             CmdError::Bad(m) => (err::BAD_ARGUMENT, m),
+            CmdError::Deferred => return,
         };
         let form = self.inflight.as_ref().and_then(|f| f.event_desc.clone());
         self.report(RunError { code, message, form: form.as_ref().map(|d| d.0.clone()), event: form.map(|d| d.1), unit: 0, line: 0 });
@@ -1890,6 +2012,7 @@ impl Host {
         if crate::kinds::is_authentication(&self.trees[&inst].ctls[idx]) {
             return self.auth_method(inst, idx, method, args).map_err(|e| match e {
                 CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
+                CmdError::Deferred => String::new(),
             });
         }
         // A grid the backend serves: its binding methods are the host's (WASM-005 T16).
@@ -1897,12 +2020,14 @@ impl Host {
             if let Some(r) = self.grid_method(inst, idx, method) {
                 return r.map_err(|e| match e {
                     CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
+                CmdError::Deferred => String::new(),
                 });
             }
         }
         if let Some(r) = self.gfx_sync_call(inst, idx, method, args) {
             return r.map_err(|e| match e {
                 CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
+                CmdError::Deferred => String::new(),
             });
         }
         let r = {
@@ -1943,6 +2068,10 @@ impl Host {
             GfxAnswer::Refused(why) => {
                 let _ = self.trees.get_mut(&inst).expect("checked").set(idx, "LastError", &format!("{name} refused: {why}"));
                 Ok(Some(String::new()))
+            }
+            GfxAnswer::Deferred => {
+                self.pending_call = Some((inst, idx, name.to_owned()));
+                Err(CmdError::Deferred)
             }
             GfxAnswer::NotLoaded => Err(CmdError::Refused(format!("{name} needs the graphics part of the player, which is not available (it loads when the form opens)"))),
         })
@@ -2045,6 +2174,7 @@ impl Host {
         }
         self.call_ctl(inst, 0, name, args).map(|_| ()).map_err(|e| match e {
             CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
+                CmdError::Deferred => String::new(),
         })
     }
 
@@ -2119,6 +2249,7 @@ impl Host {
             CmdError::Unknown(_) => err::UNKNOWN_TARGET,
             CmdError::Refused(_) => err::HOST_REFUSED,
             CmdError::Bad(_) => err::BAD_ARGUMENT,
+            CmdError::Deferred => return 0,
         };
         self.report_cmd_error(e);
         code
@@ -3018,4 +3149,6 @@ pub enum CmdError {
     Unknown(String),
     Refused(String),
     Bad(String),
+    /// The call went to a worker; nothing is wrong (WASM-018 T30).
+    Deferred,
 }

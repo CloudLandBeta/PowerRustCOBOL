@@ -649,3 +649,65 @@ fn a_list_argument_may_be_written_as_text_because_cobol_has_no_list_type() {
     r.invoke(image, "Convolve", &[Value::Text("0 0 0 0 1 0 0 0 0".into()), Value::Int(1)]).unwrap();
     println!("text lists: a 3x2 heatmap grid and a 3x3 kernel written as text; a word that is no number is refused by name");
 }
+
+/// WASM-018 T30: a method the host may run on a copy of the pixels somewhere else gives the same bytes there as in place. Every
+/// method of `OFFLOADABLE` is run on an image in one registry and on an exported copy of it in another; the pixels (or, for a method
+/// that only reads, the answer) must be identical, and the table is the list of what may travel.
+#[test]
+fn an_offloadable_method_gives_the_same_bytes_on_a_copy_of_the_pixels() {
+    fn here_source(seed: &[u8]) -> Vec<u8> {
+        seed.to_vec()
+    }
+    use cobolt_graphics::imagebuf::{offload_mode, ImageBuffer, OFFLOADABLE, OFFLOAD_MIN_PIXELS};
+    use cobolt_graphics::PixelBuffer;
+    assert_eq!(offload_mode("BlurGaussian", OFFLOAD_MIN_PIXELS), Some(true));
+    assert_eq!(offload_mode("blurgaussian", OFFLOAD_MIN_PIXELS - 1), None, "a small image stays where it is");
+    assert_eq!(offload_mode("GetPixel", u64::MAX), None, "a method that is not on the list stays");
+    assert_eq!(offload_mode("Histogram", OFFLOAD_MIN_PIXELS), Some(false));
+    for (name, _) in OFFLOADABLE {
+        assert!(Registry::methods(ObjectKind::ImageBuffer).iter().any(|m| m.name == *name), "{name} is a method of ImageBuffer");
+    }
+    let args = |name: &str| -> Vec<Value> {
+        match name {
+            "BlurGaussian" => vec![Value::Num(2.0)],
+            "BlurBox" => vec![Value::Int(2)],
+            "Sharpen" => vec![Value::Num(0.8)],
+            "Convolve" => vec![Value::Floats(vec![0.0, -1.0, 0.0, -1.0, 5.0, -1.0, 0.0, -1.0, 0.0]), Value::Num(1.0)],
+            "Dilate" | "Erode" => vec![Value::Int(1)],
+            "Resize" => vec![Value::Int(37), Value::Int(29)],
+            "Rotate" => vec![Value::Num(33.0)],
+            "Histogram" => vec![Value::Int(4)],
+            "Encode" => vec![Value::Text("PNG".into())],
+            _ => Vec::new(),
+        }
+    };
+    let (w, h) = (97u32, 61u32);
+    let seed: Vec<u8> = (0..w * h * 4).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    let mut rows = Vec::new();
+    for (name, changes) in OFFLOADABLE {
+        let make = |bytes: Vec<u8>| {
+            let mut r = reg();
+            let img = r.create(ObjectKind::ImageBuffer, 1, &[]).unwrap();
+            r.with_image(img, |im, _| {
+                *im = ImageBuffer::from_pixels(PixelBuffer::from_rgba(w, h, bytes).unwrap());
+                Ok(())
+            })
+            .unwrap();
+            (r, img)
+        };
+        let (mut here, a) = make(seed.clone());
+        let answer_here = here.invoke(a, name, &args(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let px_here = here.with_image(a, |im, _| Ok((im.width(), im.height(), im.pixels().as_bytes().to_vec()))).unwrap();
+        // the copy: the pixels exported from the first image, imported into a registry of its own
+        let copy = here_source(&seed);
+        let (mut there, b) = make(copy);
+        let answer_there = there.invoke(b, name, &args(name)).unwrap();
+        let px_there = there.with_image(b, |im, _| Ok((im.width(), im.height(), im.pixels().as_bytes().to_vec()))).unwrap();
+        assert_eq!(format!("{answer_here:?}"), format!("{answer_there:?}"), "{name}: the answer");
+        if *changes {
+            assert_eq!(px_here, px_there, "{name}: the pixels");
+        }
+        rows.push(format!("{name} ({})", if *changes { "changes the image" } else { "reads only" }));
+    }
+    println!("offloadable methods, each run on the image and on a copy of its pixels with the same bytes: {}", rows.join(", "));
+}

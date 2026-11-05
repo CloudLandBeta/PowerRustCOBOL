@@ -448,8 +448,16 @@ function createWorkerLink(env, module, manifest, bridge, workerUrl, policy) {
         break;
       case 'query': {
         const answer = bridge.player.query(m.bytes, m.gfx);
-        if (answer === undefined || answer === null) reply(bridge.player.last_error());
-        else reply(answer.length, answer);
+        if (answer === undefined || answer === null) {
+          // A call that runs in the graphics worker (WASM-018 T30): the program stays blocked, the main thread stays free, and the
+          // answer is written when the worker has given it.
+          if (typeof bridge.player.answer_pending === 'function' && bridge.player.answer_pending()) {
+            bridge.player.await_answer().then(
+              (bytes) => reply(bytes.length, bytes),
+              (code) => reply(typeof code === 'number' ? code : bridge.player.last_error()),
+            );
+          } else reply(bridge.player.last_error());
+        } else reply(answer.length, answer);
         break;
       }
       case 'remote':
@@ -728,6 +736,54 @@ export async function mount(target, options = {}) {
       parts.set(name, loading);
       return loading;
     };
+    // A long method of a large ImageBuffer runs in a worker of its own (WASM-018 T30), but only on a page that runs the program in a
+    // worker: there the program waits on the main thread's answer anyway, so the main thread can answer later and stay free in the
+    // meantime. The worker takes a copy of the pixels with the part's compiled module and sends the result back; with the program on
+    // the page's own thread nothing can wait, so the call runs in place.
+    const gfxModules = new Map();
+    const gfxPending = new Map();
+    let gfxWorker = null;
+    let gfxNext = 1;
+    const compiledPart = (name) => {
+      if (gfxModules.has(name)) return gfxModules.get(name);
+      const pt = config.player && config.player.parts && config.player.parts[name];
+      const compiling = (async () => {
+        if (!pt) throw new Error(`this application does not include the ${name} part`);
+        const wr = await fetchChecked(env, url(pt.wasm), pt.wasm_integrity, `The ${name} part`);
+        return WebAssembly.compile(await wr.arrayBuffer());
+      })();
+      compiling.catch(() => gfxModules.delete(name));
+      gfxModules.set(name, compiling);
+      return compiling;
+    };
+    const offload = async (name, method, argsJson, width, height, rgba, wantPixels) => {
+      const pt = config.player.parts[name];
+      const module = await compiledPart(name);
+      if (!gfxWorker) {
+        const wurl = url(config.gfx_worker.url);
+        gfxWorker = new env.Worker(policy ? policy.createScriptURL(wurl) : wurl, { type: 'module' });
+        gfxWorker.onmessage = (ev) => {
+          const m = ev.data;
+          const p = gfxPending.get(m.id);
+          if (!p) return;
+          gfxPending.delete(m.id);
+          if (m.error !== undefined) p.reject(new Error(m.error));
+          else p.resolve(m);
+        };
+        gfxWorker.onerror = (e) => {
+          for (const p of gfxPending.values()) p.reject(new Error(`The graphics worker failed (${e && e.message ? e.message : 'error'}).`));
+          gfxPending.clear();
+        };
+      }
+      return new Promise((resolve, reject) => {
+        const id = gfxNext++;
+        gfxPending.set(id, { resolve, reject });
+        gfxWorker.postMessage({ id, jsUrl: new URL(url(pt.js), import.meta.url).href, module, method, argsJson, width, height, rgba, wantPixels }, [rgba.buffer]);
+      });
+    };
+    const attachOffload = (lk) => {
+      if (choice.mode === 'worker' && config.gfx_worker && typeof env.Worker === 'function') lk.offload = offload;
+    };
     // `part(name, fn, arg)`: call `fn` of the part with one text argument; the answer is text.
     const callPart = async (name, fn, arg) => {
       const mod = await loadPart(name);
@@ -858,6 +914,7 @@ export async function mount(target, options = {}) {
     if (config.assets && typeof player.set_assets === 'function') player.set_assets(JSON.stringify(config.assets));
     link.part = callPart;
     link.partModule = loadPart;
+    attachOffload(link);
     player.attach(link);
     if (!headless) {
       const root = el(doc, 'div', 'pr-root');
@@ -955,6 +1012,7 @@ export async function mount(target, options = {}) {
             link = nextLink;
             link.part = callPart;
             link.partModule = loadPart;
+            attachOffload(link);
             chosenManifestText = nextManifest;
           }
           for (const d of descriptions) player.add_form(d);
@@ -978,6 +1036,10 @@ export async function mount(target, options = {}) {
             player.free();
           } catch (_) {
             /* already freed */
+          }
+          if (gfxWorker) {
+            gfxWorker.terminate();
+            gfxWorker = null;
           }
           link.dispose();
           bridge.player = null;
@@ -1516,4 +1578,60 @@ body.pr-window #pr-app,
 #pr-file-notice h2 { margin: 0 0 .5rem; font-size: 1.15rem; }
 #pr-file-notice pre { overflow: auto; margin: .5rem 0; padding: .5rem .75rem; background: rgba(128, 128, 128, .15); }
 "# + &behind
+}
+
+/// The graphics worker (WASM-018 T30): runs one long method of a large ImageBuffer on a copy of the pixels, so the page's main thread
+/// is free while it runs. It holds no state between jobs: each job builds a registry with one image, runs the method and sends back
+/// the answer (and the pixels, when the method changes them).
+pub fn gfx_worker_js() -> String {
+    String::from(BANNER_JS)
+        + r#"// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// The graphics worker (WASM-018 T30): one long method of a large ImageBuffer, run on a copy of the pixels so that the page's main
+// thread stays free. A job is { id, jsUrl, module, method, argsJson, width, height, rgba, wantPixels }: `jsUrl` is the part's glue,
+// `module` its compiled WebAssembly (the page compiled it once). The answer is { id, answer } plus { width, height, rgba } when the
+// method changes the image, or { id, error }.
+
+'use strict';
+
+const parts = new Map();
+
+function load(jsUrl, module) {
+  if (!parts.has(jsUrl)) {
+    const loading = (async () => {
+      const m = await import(jsUrl);
+      await m.default({ module_or_path: module });
+      return m;
+    })();
+    loading.catch(() => parts.delete(jsUrl));
+    parts.set(jsUrl, loading);
+  }
+  return parts.get(jsUrl);
+}
+
+self.onmessage = async (ev) => {
+  const m = ev.data;
+  try {
+    const part = await load(m.jsUrl, m.module);
+    const g = new part.Graphics();
+    try {
+      g.make(1, 'ImageBuffer', 0, 0, 1);
+      g.image_import(1, m.width, m.height, m.rgba);
+      const answer = g.call(1, m.method, m.argsJson);
+      if (m.wantPixels) {
+        const size = g.image_size(1);
+        const rgba = g.image_export(1);
+        self.postMessage({ id: m.id, answer, width: size[0], height: size[1], rgba }, [rgba.buffer]);
+      } else {
+        self.postMessage({ id: m.id, answer });
+      }
+    } finally {
+      g.free();
+    }
+  } catch (e) {
+    self.postMessage({ id: m.id, error: String((e && e.message) || e) });
+  }
+};
+"#
 }

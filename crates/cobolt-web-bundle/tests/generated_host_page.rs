@@ -73,9 +73,9 @@ fn every_page_script_and_stylesheet_starts_with_the_banner() {
         checked.push(f.path.clone());
     }
     println!("banner on {} files: {checked:?}", checked.len());
-    // loader, worker, app, the shim and its registration, app.css, index.html and one page per form.
+    // loader, worker, the graphics worker, app, the shim and its registration, app.css, index.html and one page per form.
     let forms = out.config()["forms"].as_array().unwrap().len();
-    assert_eq!(checked.len(), 6 + 1 + forms, "{checked:?}");
+    assert_eq!(checked.len(), 7 + 1 + forms, "{checked:?}");
 
     let loader = out
         .files
@@ -202,7 +202,7 @@ fn no_view_is_kept_and_no_string_is_built_on_the_call_path_017() {
             for _ in line.matches(".buffer").filter(|_| true) {
                 found += 1;
                 let per_use = line.contains("=> new Uint8Array(");
-                let transfer = line.contains("[copy.buffer]") || line.contains("[bytes.buffer]");
+                let transfer = line.contains("[copy.buffer]") || line.contains("[bytes.buffer]") || line.contains("[rgba.buffer]");
                 if !(per_use || transfer) {
                     stored.push(format!("{name}:{}: {}", i + 1, line.trim()));
                 }

@@ -29,7 +29,7 @@ fn manifest() -> Manifest {
         project: "canvas".into(),
         variant: VariantInfo { multi_memory: true, conformance: false },
         limits,
-        names: vec!["FillRect".into(), "GetPixel".into(), "SetFillColor".into()],
+        names: vec!["FillRect".into(), "GetPixel".into(), "SetFillColor".into(), "AddSeries".into()],
         events: vec!["onLoad".into()],
         forms: vec![FormEntry {
             id: 0,
@@ -288,4 +288,63 @@ fn on_frame_is_paced_by_the_desktops_clock_and_a_hidden_page_raises_none() {
         steps.len(),
         started.elapsed().as_micros()
     );
+}
+
+/// WASM-018 T30: a call the page sends to a worker parks its batch; what the module sends meanwhile waits behind it, and when the
+/// worker answers everything runs in the order it was sent, the parked query answered last.
+#[test]
+fn a_call_that_goes_to_a_worker_parks_its_batch_and_everything_after_it_runs_in_order_when_it_is_answered() {
+    let mut h = host();
+    let away = Rc::new(std::cell::Cell::new(0u32));
+    let count = away.clone();
+    h.gfx_sync = Some(Rc::new(move |_inst, _ctl, _part, _kind, _size, method, _args, _q| {
+        if method == "AddSeries" {
+            count.set(count.get() + 1);
+            GfxAnswer::Deferred
+        } else {
+            GfxAnswer::Answer("5".into())
+        }
+    }));
+    let plot = PathSpec::call(0, 4, 3, &["sales"]);
+    let shown = |h: &Host| h.effects.iter().filter_map(|e| if let Effect::Display(t) = e { Some(t.clone()) } else { None }).collect::<Vec<_>>();
+
+    // a flush: Display a, the call that goes away, Display b (which must wait)
+    let mut w = BatchWriter::new();
+    w.display("a").call(&plot).display("b");
+    h.flush(w.as_bytes());
+    assert_eq!(shown(&h), ["a"], "what follows the call waits for its answer");
+    assert!(!h.query_waiting());
+    // another flush while it is away: held
+    let mut w = BatchWriter::new();
+    w.display("c");
+    h.flush(w.as_bytes());
+    assert_eq!(shown(&h), ["a"]);
+    // a query while it is away: parked too
+    let mut w = BatchWriter::new();
+    w.display("d").call_result(&PathSpec::call(0, 4, 1, &["2", "2"]));
+    assert!(h.query(w.as_bytes()).is_err());
+    assert!(h.query_waiting(), "the module is told to wait");
+    assert_eq!(shown(&h), ["a"]);
+    assert_eq!(away.get(), 1);
+
+    h.finish_deferred(GfxAnswer::Answer("7".into()));
+    assert_eq!(shown(&h), ["a", "b", "c", "d"], "the rest of the batch, then the batches that waited, in order");
+    assert_eq!(h.take_final_answer(), Some(Ok(b"5".to_vec())), "the parked query is answered after all of them");
+    assert!(!h.query_waiting());
+
+    // a query that is itself the call that goes away: its answer is the worker's
+    let mut w = BatchWriter::new();
+    w.call_result(&plot);
+    assert!(h.query(w.as_bytes()).is_err());
+    assert!(h.query_waiting());
+    h.finish_deferred(GfxAnswer::Answer("9".into()));
+    assert_eq!(h.take_final_answer(), Some(Ok(b"9".to_vec())));
+    // and a refusal is the control's LastError, answering nothing
+    let mut w = BatchWriter::new();
+    w.call_result(&plot);
+    let _ = h.query(w.as_bytes());
+    h.finish_deferred(GfxAnswer::Refused("too big".into()));
+    assert_eq!(h.take_final_answer(), Some(Ok(Vec::new())));
+    assert!(h.trees[&0].get(2, "LastError").contains("AddSeries refused: too big"));
+    println!("worker call: batch parked after the call (a), two later batches held (c, d); answered -> a b c d in order, parked query answered 5; a query that is the away call answered 9; a refusal wrote LastError");
 }

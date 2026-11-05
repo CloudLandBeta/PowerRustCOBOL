@@ -115,6 +115,64 @@ export class Graphics {
         }
     }
     /**
+     * The pixels of the ImageBuffer of control `ctl` as straight RGBA8, a copy.
+     * @param {number} ctl
+     * @returns {Uint8Array}
+     */
+    image_export(ctl) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.graphics_image_export(retptr, this.__wbg_ptr, ctl);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Replace the pixels of the ImageBuffer of control `ctl` with `width` x `height` RGBA8 bytes (the length is checked).
+     * @param {number} ctl
+     * @param {number} width
+     * @param {number} height
+     * @param {Uint8Array} data
+     */
+    image_import(ctl, width, height, data) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.graphics_image_import(retptr, this.__wbg_ptr, ctl, width, height, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * The width and height of the ImageBuffer of control `ctl` (empty when it has none).
+     * @param {number} ctl
+     * @returns {Uint32Array}
+     */
+    image_size(ctl) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.graphics_image_size(retptr, this.__wbg_ptr, ctl);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU32FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 4, 4);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * The kinds this part carries, as a comma list (the player checks it against the form's controls).
      * @returns {string}
      */
@@ -177,6 +235,20 @@ export class Graphics {
     object_count() {
         const ret = wasm.graphics_object_count(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * Whether `method` of the ImageBuffer of control `ctl` may be run on a copy of its pixels elsewhere (a worker, WASM-018 T30):
+     * `1` when it changes the image, `0` when it only reads it, `-1` when it must run here (another kind, a small image, a method
+     * that uses other objects).
+     * @param {number} ctl
+     * @param {string} method
+     * @returns {number}
+     */
+    offload_mode(ctl, method) {
+        const ptr0 = passStringToWasm0(method, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.graphics_offload_mode(this.__wbg_ptr, ctl, ptr0, len0);
+        return ret;
     }
     /**
      * Release control `ctl`'s object (and what it made that nothing else holds).
@@ -250,6 +322,11 @@ function dropObject(idx) {
     heap_next = idx;
 }
 
+function getArrayU32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
@@ -265,6 +342,14 @@ function getDataViewMemory0() {
 
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
 }
 
 let cachedUint8ArrayMemory0 = null;
@@ -367,6 +452,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedDataViewMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     return wasm;
 }

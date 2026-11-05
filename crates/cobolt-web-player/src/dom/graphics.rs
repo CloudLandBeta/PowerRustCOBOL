@@ -198,6 +198,11 @@ impl Shared {
             return GfxAnswer::Refused(why);
         }
         self.canvas_run_all(inner, inst);
+        if kind == "ImageBuffer" {
+            if let Some(deferred) = self.try_offload(inner, ctl, part, &g, method_name, args) {
+                return deferred;
+            }
+        }
         let Some(call) = method(&g, "call") else { return GfxAnswer::Refused("the graphics part has no call".into()) };
         let json = serde_json::to_string(args).unwrap_or_else(|_| "[]".into());
         let answer = match call.call3(&g, &(ctl as u32).into(), &method_name.into(), &json.as_str().into()) {
@@ -209,6 +214,49 @@ impl Shared {
         }
         self.paint_presented(inst, &g);
         answer
+    }
+
+    /// A long method of a large image runs on a copy of its pixels in a worker (WASM-018 T30), when the page runs the program in a
+    /// worker: the page stays free, and the host parks the program's batch until the worker answers. `None` runs the call here.
+    fn try_offload(self: &Rc<Self>, inner: &Rc<Inner>, ctl: usize, part: &str, g: &JsValue, method_name: &str, args: &[String]) -> Option<crate::host::GfxAnswer> {
+        use crate::host::GfxAnswer;
+        let (this, offload) = inner.offload_fn()?;
+        let id: JsValue = (ctl as u32).into();
+        let mode = method(g, "offload_mode")?.call2(g, &id, &method_name.into()).ok()?.as_f64()? as i32;
+        if mode < 0 {
+            return None;
+        }
+        let size = js_sys::Uint32Array::new(&method(g, "image_size")?.call1(g, &id).ok()?).to_vec();
+        let [width, height] = size[..] else { return None };
+        let rgba = method(g, "image_export")?.call1(g, &id).ok()?;
+        let json = serde_json::to_string(args).ok()?;
+        let call = Array::new();
+        for v in [part.into(), method_name.into(), json.as_str().into(), width.into(), height.into(), rgba, (mode == 1).into()] {
+            call.push(&v);
+        }
+        let promise = offload.apply(&this, &call).ok()?;
+        let (inner, g) = (inner.clone(), g.clone());
+        wasm_bindgen_futures::spawn_local(async move {
+            let answer = match wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&promise)).await {
+                Ok(v) => {
+                    let text = Reflect::get(&v, &"answer".into()).ok().and_then(|a| a.as_string()).unwrap_or_default();
+                    if mode == 1 {
+                        let dim = |k: &str| Reflect::get(&v, &k.into()).ok().and_then(|n| n.as_f64()).unwrap_or(0.0) as u32;
+                        let pixels = Reflect::get(&v, &"rgba".into()).unwrap_or(JsValue::UNDEFINED);
+                        match method(&g, "image_import").map(|f| f.call4(&g, &id, &dim("width").into(), &dim("height").into(), &pixels)) {
+                            Some(Ok(_)) => GfxAnswer::Answer(text),
+                            Some(Err(e)) => GfxAnswer::Refused(message(&e)),
+                            None => GfxAnswer::Refused("the graphics part cannot take pixels back".into()),
+                        }
+                    } else {
+                        GfxAnswer::Answer(text)
+                    }
+                }
+                Err(e) => GfxAnswer::Refused(message(&e)),
+            };
+            inner.finish_offload(answer);
+        });
+        Some(GfxAnswer::Deferred)
     }
 
     /// `Graphics.make` for the control, once.

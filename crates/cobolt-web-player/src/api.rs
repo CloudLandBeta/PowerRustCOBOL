@@ -141,6 +141,9 @@ struct JsLink {
     part: Option<Function>,
     /// `partModule(name)`: the part's module itself, for a part whose exports are objects (optional).
     part_module: Option<Function>,
+    /// `offload(part, method, argsJson, width, height, rgba, wantPixels)`: run a long ImageBuffer method on a copy of the pixels in a
+    /// worker; resolves to `{answer, width, height, rgba}` (WASM-018 T30). Only a page that runs the program in a worker has it.
+    offload: Option<Function>,
 }
 
 impl JsLink {
@@ -439,6 +442,8 @@ pub(crate) struct Inner {
     /// browser has none (the Canvas3D then says so).
     pub(crate) gpu_device: RefCell<Option<JsValue>>,
     gpu_tried: Cell<bool>,
+    /// The resolvers of the promise the loader waits on for a query the host parked (WASM-018 T30).
+    answer_waiter: RefCell<Option<(Function, Function)>>,
     /// The project's font files (WASM-018 T27, Q7), fetched once when the first graphics part loads and handed to every
     /// registry that part makes; `None` until then.
     pub(crate) fonts: RefCell<Option<Rc<Vec<Vec<u8>>>>>,
@@ -636,6 +641,36 @@ impl Inner {
             c.set_token(token);
         }
         self.drain_net();
+    }
+
+    /// The loader's `offload` function and its `this`, when the page runs the program in a worker and can run a long image method in another (WASM-018 T30).
+    pub(crate) fn offload_fn(&self) -> Option<(JsValue, Function)> {
+        let link = self.link.borrow().clone()?;
+        link.offload.clone().map(|f| (link.this.clone(), f))
+    }
+
+    /// A call the page sent to a worker has its answer: let the host finish it and run what waited, answer the parked query, show the effects.
+    pub(crate) fn finish_offload(self: &Rc<Self>, answer: crate::host::GfxAnswer) {
+        self.host.borrow_mut().finish_deferred(answer);
+        self.deliver_answer();
+        pump(self);
+    }
+
+    /// Hand the parked query's answer to the loader's promise, when both exist.
+    pub(crate) fn deliver_answer(&self) {
+        if self.answer_waiter.borrow().is_none() {
+            return;
+        }
+        let Some(r) = self.host.borrow_mut().take_final_answer() else { return };
+        let Some((resolve, reject)) = self.answer_waiter.borrow_mut().take() else { return };
+        match r {
+            Ok(bytes) => {
+                let _ = resolve.call1(&JsValue::UNDEFINED, &Uint8Array::from(bytes.as_slice()));
+            }
+            Err(code) => {
+                let _ = reject.call1(&JsValue::UNDEFINED, &JsValue::from(code));
+            }
+        }
     }
 
     /// Load the graphics part `name` (once): the module is kept for the registries of every form instance that uses
@@ -1190,6 +1225,7 @@ impl Player {
             parts: RefCell::new(HashMap::new()),
             gpu_device: RefCell::new(None),
             gpu_tried: Cell::new(false),
+            answer_waiter: RefCell::new(None),
             fonts: RefCell::new(None),
             gamepad: RefCell::new((Vec::new(), None)),
             frames: RefCell::new(None),
@@ -1235,7 +1271,8 @@ impl Player {
             .ok_or_else(|| JsError::new("the link has no perform() function"))?;
         let part = Reflect::get(&link, &"part".into()).ok().and_then(|f| f.dyn_into::<Function>().ok());
         let part_module = Reflect::get(&link, &"partModule".into()).ok().and_then(|f| f.dyn_into::<Function>().ok());
-        *self.inner.link.borrow_mut() = Some(Rc::new(JsLink { this: link, perform, part, part_module }));
+        let offload = Reflect::get(&link, &"offload".into()).ok().and_then(|f| f.dyn_into::<Function>().ok());
+        *self.inner.link.borrow_mut() = Some(Rc::new(JsLink { this: link, perform, part, part_module , offload }));
         Ok(())
     }
 
@@ -1309,6 +1346,21 @@ impl Player {
             h.set_gfx(g.to_vec());
         }
         h.query(bytes).ok()
+    }
+
+    /// Whether the last `query` was parked because its call runs in a worker (WASM-018 T30): the loader then waits for
+    /// [`Player::await_answer`] instead of answering the module at once.
+    pub fn answer_pending(&self) -> bool {
+        self.inner.host.borrow().query_waiting()
+    }
+
+    /// A promise of the parked query's answer: the bytes, or rejected with the code of the error.
+    pub fn await_answer(&self) -> Promise {
+        let inner = self.inner.clone();
+        Promise::new(&mut move |resolve, reject| {
+            *inner.answer_waiter.borrow_mut() = Some((resolve, reject));
+            inner.deliver_answer();
+        })
     }
 
     pub fn last_error(&self) -> i32 {

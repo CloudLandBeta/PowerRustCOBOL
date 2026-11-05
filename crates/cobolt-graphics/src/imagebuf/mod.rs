@@ -63,6 +63,24 @@ use crate::limits::Limits;
 use crate::pixels::PixelBuffer;
 use crate::resources::AssetHost;
 
+/// Methods of an ImageBuffer that run long on a large image and touch nothing but that image and their own arguments, so a host
+/// may run them on a copy of the pixels somewhere else (a worker, WASM-018 T30) and get the same bytes back. The flag says whether
+/// the method changes the pixels (they must come back) or only reads them (only the answer does).
+pub const OFFLOADABLE: &[(&str, bool)] =
+    &[("BlurGaussian", true), ("BlurBox", true), ("Sharpen", true), ("EdgeDetect", true), ("Convolve", true), ("Dilate", true), ("Erode", true), ("Resize", true), ("Rotate", true), ("Histogram", false), ("Encode", false)];
+
+/// An image smaller than this many pixels is not worth the copy: its methods run where the object lives.
+pub const OFFLOAD_MIN_PIXELS: u64 = 1_000_000;
+
+/// Whether `method` of an image of `pixels` pixels may be run elsewhere: `Some(true)` when it changes the image, `Some(false)` when it
+/// only reads it, `None` when it must run here.
+pub fn offload_mode(method: &str, pixels: u64) -> Option<bool> {
+    if pixels < OFFLOAD_MIN_PIXELS {
+        return None;
+    }
+    OFFLOADABLE.iter().find(|(n, _)| n.eq_ignore_ascii_case(method.trim())).map(|(_, changes)| *changes)
+}
+
 /// Pixels with the operations of the COBOL `ImageBuffer` object.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImageBuffer {

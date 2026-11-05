@@ -248,6 +248,45 @@ impl Graphics {
         }
     }
 
+    /// Whether `method` of the ImageBuffer of control `ctl` may be run on a copy of its pixels elsewhere (a worker, WASM-018 T30):
+    /// `1` when it changes the image, `0` when it only reads it, `-1` when it must run here (another kind, a small image, a method
+    /// that uses other objects).
+    pub fn offload_mode(&mut self, ctl: u32, method: &str) -> i32 {
+        let Ok((handle, ObjectKind::ImageBuffer)) = self.obj(ctl) else { return -1 };
+        let pixels = self.reg.with_image(handle, |im, _| Ok(im.width() as u64 * im.height() as u64)).unwrap_or(0);
+        match cobolt_graphics::imagebuf::offload_mode(method, pixels) {
+            Some(true) => 1,
+            Some(false) => 0,
+            None => -1,
+        }
+    }
+
+    /// The width and height of the ImageBuffer of control `ctl` (empty when it has none).
+    pub fn image_size(&mut self, ctl: u32) -> Vec<u32> {
+        let Ok((handle, ObjectKind::ImageBuffer)) = self.obj(ctl) else { return Vec::new() };
+        self.reg.with_image(handle, |im, _| Ok(vec![im.width(), im.height()])).unwrap_or_default()
+    }
+
+    /// The pixels of the ImageBuffer of control `ctl` as straight RGBA8, a copy.
+    pub fn image_export(&mut self, ctl: u32) -> Vec<u8> {
+        let Ok((handle, ObjectKind::ImageBuffer)) = self.obj(ctl) else { return Vec::new() };
+        self.reg.with_image(handle, |im, _| Ok(im.pixels().as_bytes().to_vec())).unwrap_or_default()
+    }
+
+    /// Replace the pixels of the ImageBuffer of control `ctl` with `width` x `height` RGBA8 bytes (the length is checked).
+    pub fn image_import(&mut self, ctl: u32, width: u32, height: u32, data: Vec<u8>) -> Result<(), JsError> {
+        let (handle, kind) = self.obj(ctl).map_err(|e| JsError::new(&e))?;
+        if kind != ObjectKind::ImageBuffer {
+            return Err(JsError::new("this control is not an ImageBuffer"));
+        }
+        let px = cobolt_graphics::PixelBuffer::from_rgba(width, height, data).map_err(|e| JsError::new(&e.to_string()))?;
+        self.reg.with_image(handle, |im, _| {
+            *im = cobolt_graphics::imagebuf::ImageBuffer::from_pixels(px);
+            Ok(())
+        })
+        .map_err(|e| JsError::new(&e.to_string()))
+    }
+
     /// How many objects the registry holds (tests and the limits report).
     pub fn object_count(&self) -> u32 {
         self.reg.len() as u32

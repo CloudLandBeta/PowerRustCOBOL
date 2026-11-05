@@ -53,7 +53,7 @@ fn category(path: &str) -> &'static str {
         "server configuration (hosting examples)"
     } else if matches!(name, "index.html") || name.starts_with("app.") || name.starts_with("loader.") || name == "config.json" || name.ends_with(".html") {
         "host page"
-    } else if matches!(name, "worker.js" | "sbom.cdx.json" | "_headers" | "headers.txt" | "coi-register.js" | "coi-serviceworker.js") || name.starts_with("worker.") {
+    } else if matches!(name, "worker.js" | "sbom.cdx.json" | "_headers" | "headers.txt" | "coi-register.js" | "coi-serviceworker.js") || name.starts_with("worker.") || name.starts_with("gfx-worker.") {
         "host page"
     } else {
         "other"
