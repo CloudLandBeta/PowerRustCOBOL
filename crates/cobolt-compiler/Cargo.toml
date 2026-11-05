@@ -22,6 +22,8 @@ cobolt-wire     = { path = "../cobolt-wire" }
 # WASM-003 — only the loader (read and pack a backend project): no sockets, no TLS.
 cobolt-server   = { path = "../cobolt-server", default-features = false, features = ["loader"] }
 cobolt-forms    = { path = "../cobolt-forms" }
+# WASM-018 T23: the System KB lists the graphics methods from the same `Method` rows the interpreter dispatches.
+cobolt-graphics = { path = "../cobolt-graphics" }
 # A build regenerates the forms' generated COBOL first, as the IDE does.
 cobolt-codegen  = { path = "../cobolt-codegen" }
 # The System KB's "What runs in a browser module" is written from the WebAssembly

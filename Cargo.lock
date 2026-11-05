@@ -2144,6 +2144,7 @@ dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
  "cobolt-forms",
+ "cobolt-graphics",
  "cobolt-lexer",
  "cobolt-parser",
  "cobolt-runtime",

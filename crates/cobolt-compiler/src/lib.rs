@@ -8471,9 +8471,54 @@ fn control_purpose(name: &str) -> &'static str {
         "AwsCognito" => "Non-visual: signs an application's own users up, in and out of a Cognito user pool. The tokens stay inside the runtime: COBOL sees `SignedIn` and `UserName`, never a token. Signing up and confirming need `AllowWrite`.",
         "Authentication" => "Signs the application's end users in, up and out on a Web or Mobile form, recovers a password and answers a second factor — on its own screens (in-app) or with one button to the identity provider's page (hosted). It works through the backend's `/auth/*` routes, never to the provider from the page; the provider (Cognito, Keycloak, Entra, Entra External ID) is set once, in the backend's `[identity]` settings. Tokens stay in the player: COBOL sees `State`, `UserName`, `Email` and `GetClaim`, never a token.",
         "AwsGlue" => "Non-visual: starts AWS Glue jobs and crawlers, follows a job run's state, and reads a Data Catalog table's columns as rows. Starting anything needs `AllowWrite`.",
+        // WASM-018 — the seven graphics types.
+        "Canvas2D" => "A 2D drawing surface. The program draws with methods and the surface keeps the picture; it works the same in the IDE, `rcrun`, a compiled binary and the browser. `AutoPresent` shows the drawing at the end of every handler; with `TargetFps` set, `onFrame` is raised at that rate with the elapsed milliseconds.",
+        "Canvas3D" => "A 3D view of a `Scene3D`, drawn on the GPU (`Render`). It shows only when the program calls `Render`; there is no AutoPresent. `Backend` (read-only) says what draws it. On a machine with no usable adapter it shows a message and `LastError` says why — the rest of the form keeps working.",
+        "ImageBuffer" => "Non-visual: pixels to load, change and save. It has no window; a Canvas2D draws it.",
+        "Plot" => "Non-visual: a chart drawn from numbers into an ImageBuffer or onto a Canvas2D.",
+        "Scene3D" => "Non-visual: a 3D scene — nodes, meshes, glTF models, materials, lights, cameras, picking — that a Canvas3D shows.",
+        "Physics2D" => "Non-visual: a 2D physics world of bodies, shapes, joints and contacts, stepped by the program (`Step`) with a fixed time step, so the same inputs give the same results.",
+        "Physics3D" => "Non-visual: a 3D physics world of bodies, shapes, joints and contacts, stepped by the program (`Step`) with a fixed time step.",
         _ => "",
     }
 }
+
+/// The graphics methods of one control type, written from the same `Method` rows the interpreter
+/// dispatches (`cobolt_graphics::Registry::methods`), so a method cannot be listed and missing, or
+/// working and unlisted (WASM-018 T23).
+fn graphics_method_lines(control: &str) -> Vec<String> {
+    use cobolt_graphics::{ObjectKind, Registry};
+    let Some(kind) = ObjectKind::from_name(control) else {
+        return Vec::new();
+    };
+    let mut lines: Vec<String> = Registry::methods(kind)
+        .iter()
+        .map(|m| {
+            let answer = if m.returns == "-" { String::new() } else { format!(" → {}", m.returns) };
+            format!("`{}`{} — {}", m.signature(), answer, m.doc)
+        })
+        .collect();
+    // Answered by the interpreter from the keys the host reports, not by a registry row.
+    if matches!(kind, ObjectKind::Canvas2D | ObjectKind::Canvas3D) {
+        lines.push("`IsKeyDown(key: String)` → Number — 1 while that key is held down, else 0; read at any time, whatever handlers are bound.".to_string());
+    }
+    lines
+}
+
+/// How a Canvas2D differs from the HTML `<canvas>` 2D context a web developer knows (WASM-018 §6).
+const CANVAS_VS_HTML: &str = "\
+### Canvas2D compared with the HTML canvas\n\n\
+A web developer finds the same drawing model with these differences:\n\n\
+| HTML canvas | Canvas2D |\n\
+|---|---|\n\
+| `ctx.fillRect(x, y, w, h)` | `CNV-1::FillRect(x y w h)` — the same names, called as inline methods |\n\
+| `requestAnimationFrame` | set `TargetFps` and bind `onFrame`; `FixedStep` gives an exact step |\n\
+| drawing shows at once | with `AutoPresent` the drawing shows at the end of the handler; otherwise call `Present` |\n\
+| events on the element | `onPointerDown`, `onPointerMove`, `onPointerUp`, `onWheel`, `onKeyDown`, `onKeyUp`, raised only when a handler is bound; `PointerX`, `PointerY` and `IsKeyDown(key)` can be read at any time |\n\
+| CSS pixels and `devicePixelRatio` | `PixelRatio` scales the surface; `Width` and `Height` stay in form pixels |\n\
+| an exception on a wrong call | the call sets `LastError` and the drawing goes on |\n\
+| `getContext(\"webgl2\")` | a separate control, Canvas3D, showing a Scene3D |\n\n\
+Canvas2D draws the same pixels on every host: the browser does not use the HTML canvas to draw it.\n\n";
 
 /// `(signature, description)` pairs for the inline methods that apply to one
 /// control type (beyond the universal set documented in the shared section).
@@ -9992,7 +10037,17 @@ fn controls_reference_doc() -> String {
                 doc.push_str(&format!("- `{sig}` — {desc}\n"));
             }
         }
+        let gfx = graphics_method_lines(&name);
+        if !gfx.is_empty() {
+            doc.push_str(&format!("Methods of the {name} object ({} in all):\n\n", gfx.len()));
+            for line in gfx {
+                doc.push_str(&format!("- {line}\n"));
+            }
+        }
         doc.push('\n');
+        if name == "Canvas2D" {
+            doc.push_str(CANVAS_VS_HTML);
+        }
 
         let notes = control_usage_notes(&name);
         if !notes.is_empty() {
@@ -14020,6 +14075,48 @@ generated = ["generated/inner-form1.cbl"]
         println!("System KB publishes {published} documents, all cross-referenced");
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    /// WASM-018 T23 — the System KB documents the seven graphics types: every method the registry
+    /// dispatches, every property the designer seeds, every event, and the HTML-canvas table, whose
+    /// method names are real ones.
+    #[test]
+    fn the_system_kb_documents_the_seven_graphics_types() {
+        let doc = controls_reference_doc();
+        let methods = cobolt_graphics::Registry::all_methods();
+        assert!(methods.len() >= 300, "the registry lists {} methods", methods.len());
+        let (mut missing, mut total) = (Vec::new(), 0usize);
+        for kind in cobolt_graphics::ObjectKind::available() {
+            let name = kind.name();
+            let head = format!("## Control: {name}\n");
+            let start = doc.find(&head).unwrap_or_else(|| panic!("no section for {name}"));
+            let end = doc[start + head.len()..].find("\n## Control: ").map_or(doc.len(), |e| start + head.len() + e);
+            let section = &doc[start..end];
+            assert!(section.contains(" Default size "), "{name} has no purpose line");
+            for m in cobolt_graphics::Registry::methods(kind) {
+                total += 1;
+                if !section.contains(&format!("`{}`", m.signature())) {
+                    missing.push(format!("{name}::{}", m.name));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "undocumented methods: {missing:?}");
+        let canvas = doc.find("## Control: Canvas2D\n").unwrap();
+        let canvas = &doc[canvas..canvas + doc[canvas..].find("\n## Control: ").unwrap()];
+        for p in ["PixelRatio", "Smoothing", "TargetFps", "FixedStep", "AutoPresent", "PointerX", "PointerY"] {
+            assert!(canvas.contains(&format!("`{p}`")), "Canvas2D property {p} is not documented");
+        }
+        for e in cobolt_forms::graphics_controls::CANVAS_EVENTS {
+            assert!(canvas.contains(&format!("`{e}`")), "Canvas2D event {e} is not documented");
+        }
+        assert!(doc.contains("### Canvas2D compared with the HTML canvas"));
+        let names: std::collections::HashSet<String> =
+            cobolt_graphics::Registry::methods(cobolt_graphics::ObjectKind::Canvas2D).iter().map(|m| m.name.clone()).collect();
+        for needed in ["FillRect", "Present"] {
+            assert!(names.contains(needed), "the HTML-canvas table names {needed}, which Canvas2D does not have");
+        }
+        assert!(canvas.contains("`IsKeyDown(key: String)`"));
+        println!("System KB graphics: 7 types, {total} methods documented, 0 missing");
     }
 
     /// WASM-004 T29 (R12, AC8) — every control's section of the System KB states its class on the

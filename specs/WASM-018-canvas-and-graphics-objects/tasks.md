@@ -262,13 +262,19 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     checked in all six languages for width growth.
   - Evidence (2026-11-04, 2.0.202): 12 `Tr` fields in six languages, test `the_graphics_texts_are_in_all_six_languages_with_their_slots` (72 texts, slots intact); Toolbox hints wired; `no adapter` shown under the Canvas3D placeholder (`paint::set_designer_no_adapter_text`). 117 Properties, help and Toolbox tests pass. Not done: a pixel check of the Properties frames per language (the new rows are short, option lists and labels are unchanged English identifiers); the other three messages are not shown by any surface yet.
 
-- [ ] **T23 — System KB** (R1, spec §6, steering System KB rule)
+- [x] **T23 — System KB** (R1, spec §6, steering System KB rule)
   - Files: the `cobolt-compiler` documentation tables (Rust constants: two controls, five objects, every property,
     event and method, generated from the same `Method` rows as the rustdoc tables, plus the HTML-canvas difference
     table); `assets/knowledge/chunked.data` regenerated with `cargo run -p cobolt-ide --example build_chunked_kb`
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation`
     (`crates/cobolt-ide/src/grace_host.rs:4780`) green after regeneration; `cargo test -p cobolt-compiler
     --no-fail-fast` green; `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test freshness` green.
+  - **Done (2.0.203):** `form_designer_controls.md` has a purpose line for each of the seven types and 313 methods from
+    `Registry::methods` (plus `IsKeyDown` on both canvases) and the Canvas2D-vs-HTML-canvas table; test
+    `the_system_kb_documents_the_seven_graphics_types` (7 types, 313 methods, 0 missing). `chunked.data` regenerated
+    (4196 records); `prebuilt_chunked_kb_matches_the_published_documentation` ok; `cobolt-compiler` 226 passed, 0 failed;
+    `freshness` 6 passed after rebuilding `assets/web-player` (it had been red since T18–T22 changed `cobolt-forms` and
+    `cobolt-graphics`).
 
 ## Part 3 — generated module, player, fonts, CI, sample (not started)
 
