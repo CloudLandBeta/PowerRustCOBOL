@@ -343,7 +343,7 @@ as completed.
     - `scaffold_writes_ws_status_once_and_never_overwrites`;
     - the scaffolded backend still passes `rcrun backend check`.
 
-- [ ] **T12 — The server answers a non-zero status like `WS-FAIL`** (R7, R8; AC5)
+- [x] **T12 — The server answers a non-zero status like `WS-FAIL`** (R7, R8; AC5)
   - Files: `crates/cobolt-server/src/serve.rs` (after a normal return of a program with `status`: a code `1`–`7999` gives `application`, that
     code, the message, the detail and the caller's `BY REFERENCE` groups unchanged; a code outside that range gives `server 9001`, logged;
     `0` is success), `crates/cobolt-server/tests/client_contract.rs`.

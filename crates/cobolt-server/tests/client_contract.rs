@@ -39,6 +39,18 @@ program = "CHARGE"
 program = "REJECT"
 
 [[export]]
+program = "REJECT-S"
+status = "WS-STATUS"
+
+[[export]]
+program = "STATUS-BAD"
+status = "WS-STATUS"
+
+[[export]]
+program = "STATUS-OK"
+status = "WS-STATUS"
+
+[[export]]
 program = "CRASH"
 
 [[export]]
@@ -99,6 +111,12 @@ fn sources(dir_for_files: &str) -> Vec<(String, String)> {
         "reject.cbl".into(),
         "IDENTIFICATION DIVISION.\nPROGRAM-ID. REJECT.\nDATA DIVISION.\nLINKAGE SECTION.\n01 LK-A.\n    05 AMOUNT PIC 9(4).\nPROCEDURE DIVISION USING LK-A.\nMAIN.\n    MOVE 9999 TO AMOUNT\n    COBOL::\"WS-FAIL\" ( 4201 \"card declined\" '{\"retry\":false}' )\n    MOVE 1 TO AMOUNT\n    GOBACK.\n".into(),
     ));
+    for (file, id, code, extra) in [("reject-s.cbl", "REJECT-S", 4201, "MOVE \"card declined\" TO WS-STATUS-MESSAGE\n    MOVE \x27{\"retry\":false}\x27 TO WS-STATUS-DETAIL\n"), ("status-bad.cbl", "STATUS-BAD", 8500, "MOVE \"out of range\" TO WS-STATUS-MESSAGE\n"), ("status-ok.cbl", "STATUS-OK", 0, "")] {
+        v.push((
+            file.into(),
+            format!("IDENTIFICATION DIVISION.\nPROGRAM-ID. {id}.\nDATA DIVISION.\nLINKAGE SECTION.\n01 LK-A.\n    05 AMOUNT PIC 9(4).\n01 LK-R.\n    05 REF PIC X(4).\n    05 WS-STATUS.\n        10 WS-STATUS-CODE PIC 9(4).\n        10 WS-STATUS-MESSAGE PIC X(200).\n        10 WS-STATUS-DETAIL PIC X(1000).\nPROCEDURE DIVISION USING LK-A RETURNING LK-R.\nMAIN.\n    MOVE 9999 TO AMOUNT\n    MOVE \"R1\" TO REF\n    MOVE {code} TO WS-STATUS-CODE\n    {extra}    GOBACK.\n"),
+        ));
+    }
     v.push((
         "crash.cbl".into(),
         "IDENTIFICATION DIVISION.\nPROGRAM-ID. CRASH.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-X PIC 9 VALUE 0.\nLINKAGE SECTION.\n01 LK-A.\n    05 N PIC 9(2).\nPROCEDURE DIVISION USING LK-A.\nMAIN.\n    COBOL::\"WS-FAIL\" ( 9001 \"x\" )\n    GOBACK.\n".into(),
@@ -929,4 +947,34 @@ fn wire_transcript_matches_the_rig() {
     let on_disk: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).expect("vectors/wire.v1.json (run with UPDATE_VECTORS=1 to write it)")).unwrap();
     println!("transcript: {} frames checked against {}", frames.len(), path.display());
     assert_eq!(produced, on_disk, "the rig and vectors/wire.v1.json disagree; if the change is intended, run with UPDATE_VECTORS=1");
+}
+
+// ── AC5: the second way to report a business failure (WASM-014 T12) ──────────
+
+#[test]
+fn ac5_a_declared_status_group_arrives_in_on_exception_like_ws_fail() {
+    let w = world("ac5s", "");
+    let mut c = w.client("1.2.0");
+    let via_fail = c.call(&req("REJECT", "{\"AMOUNT\":1}")).unwrap_err();
+    let via_status = c.call(&req("REJECT-S", "{\"AMOUNT\":1}")).unwrap_err();
+    println!("WS-FAIL:   {via_fail:?}");
+    println!("WS-STATUS: {via_status:?}");
+    assert_eq!((via_status.class, via_status.code, &via_status.message, &via_status.detail), (via_fail.class, via_fail.code, &via_fail.message, &via_fail.detail));
+    // The caller's group was not sent back: a failure carries no parameters.
+    assert_eq!(via_status.may_have_run, via_fail.may_have_run);
+    w.rig.server.stop();
+}
+
+#[test]
+fn ac5_a_status_code_out_of_range_is_a_server_fault() {
+    let w = world("ac5r", "");
+    let mut c = w.client("1.2.0");
+    let e = c.call(&req("STATUS-BAD", "{\"AMOUNT\":1}")).unwrap_err();
+    println!("code 8500: {e:?}");
+    assert_class(&e, ErrorClass::Server, codes::PROGRAM_FAULT);
+    assert!(!e.message.contains("8500") || !e.message.contains("out of range"), "the program's text is not the caller's: {}", e.message);
+    // Code 0 is success: the answer arrives.
+    let ok = c.call(&req("STATUS-OK", "{\"AMOUNT\":1}")).expect("status 0 is success");
+    assert_eq!(serde_json::from_str::<serde_json::Value>(ok.args[0].as_ref().unwrap()).unwrap()["AMOUNT"], 9999);
+    w.rig.server.stop();
 }

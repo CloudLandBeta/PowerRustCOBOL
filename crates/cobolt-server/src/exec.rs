@@ -171,6 +171,42 @@ fn cancelled() -> CallError {
     CallError::new(ErrorClass::Application, codes::CANCELLED, "the call was cancelled")
 }
 
+/// Read the declared status group of a program's RETURNING record (WASM-014 R8). A code of `0` is success (`None`); 1 to 7999 is the
+/// program's own failure, answered exactly as `COBOL::"WS-FAIL"` would (class `application`, that code, the message and the detail);
+/// any other code is the program's fault, logged, and the caller is told only `server 9001`.
+fn status_failure(interp: &mut Interpreter, sig: &cobolt_wire::contract::ProgramSig, group: &str, returning: &str) -> Result<Option<CallError>, CallError> {
+    use cobolt_wire::layout::Kind;
+    // The members are found by position in the declared layout (the shape was checked when the backend loaded).
+    let names: Vec<String> = match sig.returning.as_ref().map(|r| &r.layout.kind) {
+        Some(Kind::Group { children }) => match children.iter().find(|c| c.name.eq_ignore_ascii_case(group)).map(|g| &g.kind) {
+            Some(Kind::Group { children }) => children.iter().map(|c| c.name.clone()).collect(),
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    };
+    let [code_name, message_name, detail_name] = names.as_slice() else { return Ok(None) };
+    let json: serde_json::Value = serde_json::from_str(&interp.group_to_json(returning)?).map_err(|_| CallError::new(ErrorClass::Server, codes::PROGRAM_FAULT, "the program's answer could not be read"))?;
+    let Some(g) = json.as_object().and_then(|o| o.iter().find(|(k, _)| k.eq_ignore_ascii_case(group))).map(|(_, v)| v) else { return Ok(None) };
+    let field = |n: &str| g.as_object().and_then(|o| o.iter().find(|(k, _)| k.eq_ignore_ascii_case(n))).map(|(_, v)| v);
+    let code = match field(code_name) {
+        Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(-1),
+        Some(serde_json::Value::String(s)) => s.trim().parse().unwrap_or(-1),
+        _ => 0,
+    };
+    if code == 0 {
+        return Ok(None);
+    }
+    let text = |n: &str| field(n).and_then(serde_json::Value::as_str).map(|s| s.trim_end().to_string()).unwrap_or_default();
+    if !(1..=7999).contains(&code) {
+        tracing::error!(target: "exec", program = %sig.name, "the status code {code} is outside 1 to 7999");
+        return Err(CallError::new(ErrorClass::Server, codes::PROGRAM_FAULT, "the program reported a status code outside the range it may use"));
+    }
+    let mut e = CallError::new(ErrorClass::Application, code as u32, text(message_name));
+    let detail = text(detail_name);
+    e.detail = (!detail.is_empty()).then_some(detail);
+    Ok(Some(e))
+}
+
 /// One interpreter and the ends of its channels, alive as long as it is.
 struct Unit {
     interp: Interpreter,
@@ -348,6 +384,12 @@ fn run_call(unit: &mut Unit, prog: &ExportedProgram, args: &[String], opts: Exec
         return Err(cancelled());
     }
     *sound = true;
+    // The second way to report a business failure (WASM-014 R8): the declared status group of the RETURNING record.
+    if let (Some(group), Some(r)) = (prog.sig.status.as_deref(), prog.returning.as_deref()) {
+        if let Some(e) = status_failure(interp, &prog.sig, group, r)? {
+            return Err(e);
+        }
+    }
 
     // 3. Read the parameters back out.
     let mut out = ExecResult { display, ..ExecResult::default() };
