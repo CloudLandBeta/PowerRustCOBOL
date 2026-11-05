@@ -61,6 +61,17 @@ try {
   R.inkedPixels = inked;
   t.free();
 
+  // DrawImage (WASM-018 T25): an ImageBuffer of the same registry drawn onto a canvas, then read back.
+  const d = new canvas.Graphics();
+  d.make(1, 'Canvas2D', 40, 30, 1);
+  d.make(2, 'ImageBuffer', 0, 0, 1);
+  call(d, 2, 'Create', [10, 10, '#00FF00']);
+  call(d, 1, 'DrawImage', [call(d, 2, 'GetHandle'), 5, 5]);
+  call(d, 1, 'Present');
+  R.imageInside = call(d, 1, 'GetPixel', [8, 8]);
+  R.imageOutside = call(d, 1, 'GetPixel', [30, 25]);
+  d.free();
+
   // graphics: plots and 2D physics in the same registry as the canvases.
   const graphics = await load('graphics');
   const g = new graphics.Graphics();
@@ -156,6 +167,9 @@ fn the_three_parts_load_carry_their_kinds_and_answer_the_librarys_methods_in_a_r
     assert!(r["facesAdded"].as_u64().unwrap_or(0) >= 1, "the shipped font registered: {}", r["facesAdded"]);
     assert!(!r["notAFont"].as_str().unwrap_or("").is_empty(), "a file that is no font is refused with a sentence");
     assert!(r["inkedPixels"].as_u64().unwrap_or(0) > 20, "the text was lettered with the shipped font: {} pixels", r["inkedPixels"]);
+    // DrawImage: the green image is where it was put and nowhere else
+    assert_eq!(r["imageInside"].as_str(), Some("16711935"), "DrawImage drew the image at (5,5): {}", r["imageInside"]);
+    assert_eq!(r["imageOutside"].as_str(), Some("0"), "and left the rest transparent: {}", r["imageOutside"]);
     // graphics
     assert!(kinds("graphicsKinds").contains("Plot") && kinds("graphicsKinds").contains("Physics2D"), "{}", kinds("graphicsKinds"));
     assert!(!kinds("graphicsKinds").contains("Scene3D"), "the graphics part carries no 3D: {}", kinds("graphicsKinds"));
@@ -180,9 +194,10 @@ fn the_three_parts_load_carry_their_kinds_and_answer_the_librarys_methods_in_a_r
         format!("backend {}, {} draw call(s), {} lit pixels of {}, {} distinct colours", r["backend"], r["draws"], r["picLit"], 64 * 48, r["picDistinct"])
     };
     println!(
-        "T26/T27 parts in Chrome: canvas [{}] GetPixel {} · font: {} face(s), {} inked pixels · graphics [{}] 1 series, SVG {} bytes · graphics3d [{}] {three_d} · {} ms",
+        "T26/T27 parts in Chrome: canvas [{}] GetPixel {} · DrawImage {} · font: {} face(s), {} inked pixels · graphics [{}] 1 series, SVG {} bytes · graphics3d [{}] {three_d} · {} ms",
         kinds("canvasKinds"),
         r["pixel"],
+        r["imageInside"],
         r["facesAdded"],
         r["inkedPixels"],
         kinds("graphicsKinds"),

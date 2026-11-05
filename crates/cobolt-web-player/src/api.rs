@@ -391,7 +391,7 @@ pub(crate) trait Surface {
     /// A user's act the host cannot perform by itself: resolve a menu item, show a notice, open a window.
     fn act(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, act: Act);
     /// A read-back of the Canvas2D `ctl` (`GetPixel`, `ToImage` ...), answered by the Canvas part (WASM-018 T25).
-    fn gfx_sync(&self, _inner: &Rc<Inner>, _inst: u32, _ctl: usize, _kind: &str, _size: (f64, f64), _method: &str, _args: &[String]) -> crate::host::GfxAnswer {
+    fn gfx_sync(&self, _inner: &Rc<Inner>, _inst: u32, _ctl: usize, _part: &str, _kind: &str, _size: (f64, f64), _method: &str, _args: &[String], _queued: Vec<(usize, crate::tree::GfxItem)>) -> crate::host::GfxAnswer {
         crate::host::GfxAnswer::NotLoaded
     }
 }
@@ -956,6 +956,7 @@ impl Inner {
         if !wants {
             g.0.clear();
             g.1 = None;
+            cobolt_forms::gamepad::feed(Vec::new());
             return;
         }
         if g.1.is_some() {
@@ -975,6 +976,8 @@ impl Inner {
             let mut g = self.gamepad.borrow_mut();
             g.1 = None;
             let prev = std::mem::replace(&mut g.0, next.clone());
+            // What `GamepadAxis` and `GamepadButton` answer from: the pads as the page last saw them.
+            cobolt_forms::gamepad::feed(next.clone());
             cobolt_forms::gamepad::diff(&prev, &next)
         };
         if !events.is_empty() {
@@ -1099,11 +1102,11 @@ async fn drive(inner: &Rc<Inner>, link: &Rc<JsLink>) {
 /// Let the host ask the Canvas part for the answer of a read-back (ABI A23, WASM-018 T25). The hook holds the player weakly.
 fn install_gfx_sync(inner: &Rc<Inner>) {
     let weak = Rc::downgrade(inner);
-    inner.host.borrow_mut().gfx_sync = Some(Rc::new(move |inst, ctl, kind, size, method, args| {
+    inner.host.borrow_mut().gfx_sync = Some(Rc::new(move |inst, ctl, part, kind, size, method, args, queued| {
         let Some(inner) = weak.upgrade() else { return crate::host::GfxAnswer::NotLoaded };
         let sf = inner.surface.borrow();
         match sf.as_ref() {
-            Some(sf) => sf.gfx_sync(&inner, inst, ctl, kind, size, method, args),
+            Some(sf) => sf.gfx_sync(&inner, inst, ctl, part, kind, size, method, args, queued),
             None => crate::host::GfxAnswer::NotLoaded,
         }
     }));

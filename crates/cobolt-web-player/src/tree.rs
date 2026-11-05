@@ -193,6 +193,13 @@ pub enum Change {
     Command { ctl: usize, name: String, args: Vec<String> },
 }
 
+/// Drawing queued for a canvas: a method by name with its arguments (the first is the method), or an encoded display list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GfxItem {
+    Call(Vec<String>),
+    List(Vec<u8>),
+}
+
 /// An observer event a write raised, for the host to queue if a handler is bound.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventReq {
@@ -736,6 +743,26 @@ impl FormTree {
     /// The list `canvas-draw` named `seq`, once (the page takes it to draw it).
     pub fn take_gfx(&mut self, seq: u64) -> Option<Vec<u8>> {
         self.gfx.remove(&seq)
+    }
+
+    /// Take the drawing the instance has queued for its canvases (`canvas-call`, and the display lists of `canvas-draw`), in order,
+    /// leaving every other change where it is. A read-back of a picture runs it first, so the answer is of what was drawn before it.
+    pub fn drain_canvas_commands(&mut self) -> Vec<(usize, GfxItem)> {
+        let mut out = Vec::new();
+        let mut kept = Vec::with_capacity(self.changes.len());
+        for ch in std::mem::take(&mut self.changes) {
+            match ch {
+                Change::Command { ctl, ref name, ref args } if name == "canvas-call" && !args.is_empty() => out.push((ctl, GfxItem::Call(args.clone()))),
+                Change::Command { ctl, ref name, ref args } if name == "canvas-draw" => {
+                    if let Some(list) = args.first().and_then(|s| s.parse::<u64>().ok()).and_then(|seq| self.gfx.remove(&seq)) {
+                        out.push((ctl, GfxItem::List(list)));
+                    }
+                }
+                other => kept.push(other),
+            }
+        }
+        self.changes = kept;
+        out
     }
 
     /// Record a command for the renderer (focus, select-all, a timer start, …).

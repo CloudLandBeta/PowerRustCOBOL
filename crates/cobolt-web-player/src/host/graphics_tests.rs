@@ -109,7 +109,7 @@ fn a_read_back_is_answered_by_the_canvas_part_and_refused_with_the_reason_before
     let log = seen.clone();
     let loaded = Rc::new(std::cell::Cell::new(false));
     let flag = loaded.clone();
-    h.gfx_sync = Some(Rc::new(move |_inst, _ctl, _kind, _size, method, args| {
+    h.gfx_sync = Some(Rc::new(move |_inst, _ctl, _part, _kind, _size, method, args, _q| {
         log.borrow_mut().push((method.to_owned(), args.to_vec()));
         if flag.get() { GfxAnswer::Answer("4278190335".into()) } else { GfxAnswer::NotLoaded }
     }));
@@ -127,11 +127,34 @@ fn a_read_back_is_answered_by_the_canvas_part_and_refused_with_the_reason_before
 }
 
 #[test]
+fn a_read_back_is_handed_the_drawing_queued_before_it_in_order() {
+    let mut h = host();
+    let seen: Rc<RefCell<Vec<Vec<String>>>> = Rc::default();
+    let log = seen.clone();
+    h.gfx_sync = Some(Rc::new(move |_inst, _ctl, _part, _kind, _size, _method, _args, q| {
+        for (_c, item) in q {
+            if let crate::tree::GfxItem::Call(a) = item {
+                log.borrow_mut().push(a);
+            }
+        }
+        GfxAnswer::Answer("0".into())
+    }));
+    h.invoke(0, "CNV-A", "SetFillColor", &["#FF0000"]).unwrap();
+    h.invoke(0, "CNV-A", "FillRect", &["0", "0", "10", "10"]).unwrap();
+    h.invoke(0, "CNV-A", "GetPixel", &["2", "2"]).unwrap();
+    let first: Vec<String> = seen.borrow().iter().map(|a| a[0].clone()).collect();
+    assert_eq!(first, ["SetFillColor", "FillRect"], "the read gets what was drawn before it, in order");
+    h.invoke(0, "CNV-A", "GetPixel", &["3", "3"]).unwrap();
+    assert_eq!(seen.borrow().len(), 2, "and nothing twice");
+    println!("GetPixel after SetFillColor + FillRect: the part was handed [SetFillColor, FillRect] first, once");
+}
+
+#[test]
 fn every_method_of_the_other_graphics_objects_goes_to_the_part_and_a_refusal_is_the_controls_last_error() {
     let mut h = host();
     let seen: Rc<RefCell<Vec<(String, String)>>> = Rc::default();
     let log = seen.clone();
-    h.gfx_sync = Some(Rc::new(move |_inst, _ctl, kind, _size, method, _args| {
+    h.gfx_sync = Some(Rc::new(move |_inst, _ctl, _part, kind, _size, method, _args, _q| {
         log.borrow_mut().push((kind.to_owned(), method.to_owned()));
         if method == "AddSeries" { GfxAnswer::Answer("7".into()) } else { GfxAnswer::Refused("no such thing".into()) }
     }));
@@ -166,14 +189,15 @@ fn a_gamepad_event_reaches_a_canvas_with_a_bound_handler_and_no_other() {
     m.events = vec!["onLoad".into(), "onGamepadButton".into(), "onGamepadAxis".into()];
     let started = std::time::Instant::now();
 
-    // No handler bound: the page does not poll, and an event is queued nowhere.
+    // No handler bound: an event is queued nowhere. (The page looks at the pads whenever a canvas is open, for `GamepadAxis` and
+    // `GamepadButton`, which are readable at any time.)
     let mut h = Host::new(m.clone(), HostOptions::default());
     h.add_description(&to_json(&describe(&load_form_from_str(FORM).unwrap()))).unwrap();
     h.create_tree_as(0, 0, None, Vec::new(), OpenMode::Root).unwrap();
     let pads = |axes: &[f32], buttons: &[bool]| vec![Pad { index: 0, axes: axes.to_vec(), buttons: buttons.to_vec() }];
     let events = diff(&[], &pads(&[0.5], &[true, false]));
     assert_eq!(events.len(), 2, "{events:?}");
-    assert!(!h.wants_gamepad());
+    assert!(h.wants_gamepad(), "a canvas is open: the pads are read for the polled methods");
     assert_eq!(h.gamepad_events(&events), 0, "no handler bound, nothing raised");
 
     // The canvas CNV-A (control 3) binds both: it is polled, and each event is queued with its argument text.
@@ -181,7 +205,7 @@ fn a_gamepad_event_reaches_a_canvas_with_a_bound_handler_and_no_other() {
     let mut h = Host::new(m, HostOptions::default());
     h.add_description(&to_json(&describe(&load_form_from_str(FORM).unwrap()))).unwrap();
     h.create_tree_as(0, 0, None, Vec::new(), OpenMode::Root).unwrap();
-    assert!(h.wants_gamepad(), "a canvas with a bound gamepad handler asks the page to poll");
+    assert!(h.wants_gamepad(), "a canvas with a bound gamepad handler asks the page to look");
     let before = h.work.len();
     assert_eq!(h.gamepad_events(&events), 2);
     let queued: Vec<(u32, u32, Vec<String>)> = h

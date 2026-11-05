@@ -96,15 +96,19 @@ fn free(g: &JsValue) {
 
 impl Shared {
     /// The part's object for instance `inst`, made now from the part the page preloaded; `None` before it has loaded.
-    fn graphics_of(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32) -> Option<JsValue> {
+    fn graphics_of(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, known_part: Option<&str>) -> Option<JsValue> {
         if let Some(g) = self.canvas.borrow().objs.get(&inst) {
             return Some(g.clone());
         }
-        let part = {
-            let host = inner.host.try_borrow().ok()?;
-            host.graphics_part(host.trees.get(&inst)?.form_idx)?
+        let part: String = match known_part {
+            // A call the host is making holds the host borrowed: it names the part itself.
+            Some(p) => p.to_owned(),
+            None => {
+                let host = inner.host.try_borrow().ok()?;
+                host.graphics_part(host.trees.get(&inst)?.form_idx)?.to_owned()
+            }
         };
-        let module = inner.parts.borrow().get(part).cloned()?;
+        let module = inner.parts.borrow().get(part.as_str()).cloned()?;
         let gpu = inner.gpu_device.borrow().clone();
         match build_graphics(&module, gpu.as_ref()) {
             Ok(g) => {
@@ -166,9 +170,27 @@ impl Shared {
 
     /// Answer a method of a graphics object at once (ABI A23, WASM-018 T25/T26): the part makes the object on first use,
     /// the pending drawing of the instance runs first, and what the call drew is painted afterwards.
-    pub(crate) fn gfx_sync(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, kind: &str, size: (f64, f64), method_name: &str, args: &[String]) -> crate::host::GfxAnswer {
+    pub(crate) fn gfx_sync(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, part: &str, kind: &str, size: (f64, f64), method_name: &str, args: &[String], queued: Vec<(usize, crate::tree::GfxItem)>) -> crate::host::GfxAnswer {
         use crate::host::GfxAnswer;
-        let Some(g) = self.graphics_of(inner, inst) else { return GfxAnswer::NotLoaded };
+        // What the program drew before this read is still in the tree: it goes ahead of the read, in order.
+        {
+            let mut map = self.canvas.borrow_mut();
+            for (c, item) in queued {
+                let rec = map.canvases.entry((inst, c)).or_default();
+                if rec.failed.is_some() {
+                    continue;
+                }
+                match item {
+                    crate::tree::GfxItem::Call(a) if rec.pending.len() < MAX_PENDING => rec.pending.push_back(Item::Call(a)),
+                    crate::tree::GfxItem::List(l) if rec.pending.len() < MAX_PENDING && rec.pending_bytes + l.len() <= MAX_PENDING_BYTES => {
+                        rec.pending_bytes += l.len();
+                        rec.pending.push_back(Item::List(l));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let Some(g) = self.graphics_of(inner, inst, Some(part)) else { return GfxAnswer::NotLoaded };
         if kind == "Canvas2D" {
             self.canvas.borrow_mut().canvases.entry((inst, ctl)).or_default();
         }
@@ -203,7 +225,7 @@ impl Shared {
 
     /// Make sure the part is loading (a page whose loader did not preload it), or run what is waiting if it has loaded.
     fn canvas_pump(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize) {
-        if self.graphics_of(inner, inst).is_some() {
+        if self.graphics_of(inner, inst, None).is_some() {
             self.canvas_run(inner, inst, ctl);
             return;
         }
@@ -251,7 +273,7 @@ impl Shared {
 
     /// Run the waiting items of one canvas in order, then paint when a `Present` ran.
     fn canvas_run(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize) {
-        let Some(g) = self.graphics_of(inner, inst) else { return };
+        let Some(g) = self.graphics_of(inner, inst, None) else { return };
         let size = inner
             .host
             .try_borrow()

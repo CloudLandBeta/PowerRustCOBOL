@@ -418,7 +418,7 @@ pub struct Host {
     gfx: Option<Vec<u8>>,
     /// Answers a read-back of a Canvas2D (`GetPixel`, `ToImage`, `MeasureText` ...) with the picture the Canvas part
     /// holds; set by the page. `None` in a host with no page (the tests of the host alone).
-    pub gfx_sync: Option<Rc<dyn Fn(u32, usize, &str, (f64, f64), &str, &[String]) -> GfxAnswer>>,
+    pub gfx_sync: Option<Rc<dyn Fn(u32, usize, &str, &str, (f64, f64), &str, &[String], Vec<(usize, crate::tree::GfxItem)>) -> GfxAnswer>>,
     layout: ArenaLayout,
     forms: Vec<Option<Rc<Form>>>,
     pub trees: BTreeMap<u32, FormTree>,
@@ -734,11 +734,10 @@ impl Host {
         true
     }
 
-    /// Does any open canvas have a handler bound to a gamepad event? The page polls the browser's pads only while one does.
+    /// Is any canvas open? The page looks at the browser's pads while one is: a handler bound to `onGamepadButton` or `onGamepadAxis`
+    /// needs the changes, and `GamepadAxis` / `GamepadButton` are readable at any time, bound or not (as on the desktop).
     pub fn wants_gamepad(&self) -> bool {
-        self.trees.values().any(|t| {
-            t.ctls.iter().any(|c| matches!(crate::kinds::player_kind(c), Some(crate::kinds::PlayerKind::Canvas2D | crate::kinds::PlayerKind::Canvas3D)) && (c.has_handler("onGamepadButton") || c.has_handler("onGamepadAxis")))
-        })
+        self.trees.values().any(|t| t.ctls.iter().any(|c| matches!(crate::kinds::player_kind(c), Some(crate::kinds::PlayerKind::Canvas2D | crate::kinds::PlayerKind::Canvas3D))))
     }
 
     /// The pads changed (WASM-018 T28, R13): each event of [`cobolt_forms::gamepad::diff`] is raised on every canvas that has
@@ -1930,7 +1929,9 @@ impl Host {
         let tree = &self.trees[&inst];
         let kind = crate::kinds::player_kind(&tree.ctls[idx]).map(|k| k.name()).unwrap_or("Canvas2D");
         let size = (tree.get(idx, "Width").trim().parse::<f64>().unwrap_or(300.0), tree.get(idx, "Height").trim().parse::<f64>().unwrap_or(150.0));
-        Some(match read(inst, idx, kind, size, name, &texts) {
+        let part = self.graphics_part(tree.form_idx).unwrap_or("canvas");
+        let queued = self.trees.get_mut(&inst).map(|t| t.drain_canvas_commands()).unwrap_or_default();
+        Some(match read(inst, idx, part, kind, size, name, &texts, queued) {
             // The interpreter's rule (cobolt-runtime `graphics_method`): an answer clears `LastError`; a refusal leaves the
             // objects as they were, writes the reason there and answers nothing, so a program reads it like on the desktop.
             GfxAnswer::Answer(a) => {

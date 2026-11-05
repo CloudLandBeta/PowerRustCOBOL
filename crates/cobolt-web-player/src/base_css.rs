@@ -240,7 +240,7 @@ pub const BASE_CSS: &str = r#"
 .pr-viewer .pr-message.pr-agent { margin: 4px auto 4px 0; max-width: 80%; padding: 6px 10px; }
 .pr-filedropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; }
 .pr-filedropzone .pr-files { margin: 4px 0 0; padding: 0 1em; list-style: none; }
-.pr-canvas2d canvas, .pr-canvas3d canvas { width: 100%; height: 100%; display: block; }
+.pr-canvas2d canvas, .pr-canvas3d canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 
 .pr-authentication, .pr-auth { display: flex; flex-direction: column; gap: 8px; padding: 12px; overflow: auto; }
 .pr-auth label { display: flex; flex-direction: column; gap: 2px; } .pr-auth input { font: inherit; padding: 4px 6px; }

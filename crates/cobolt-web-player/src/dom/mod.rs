@@ -1024,8 +1024,8 @@ impl Surface for Dom {
         self.sh.act(inner, inst, ctl, act);
     }
 
-    fn gfx_sync(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, kind: &str, size: (f64, f64), method: &str, args: &[String]) -> crate::host::GfxAnswer {
-        self.sh.gfx_sync(inner, inst, ctl, kind, size, method, args)
+    fn gfx_sync(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, part: &str, kind: &str, size: (f64, f64), method: &str, args: &[String], queued: Vec<(usize, crate::tree::GfxItem)>) -> crate::host::GfxAnswer {
+        self.sh.gfx_sync(inner, inst, ctl, part, kind, size, method, args, queued)
     }
 }
 

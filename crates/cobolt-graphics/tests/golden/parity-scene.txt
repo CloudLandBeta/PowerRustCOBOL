@@ -21,4 +21,7 @@ DrawText|Hola, señor|6|94|0|1
 DrawText|Bonjour, français|6|108|0|1
 DrawText|こんにちは|90|64|0|1
 DrawText|你好，世界|90|80|0|1
+DrawTextBox|The quick brown fox jumps over the lazy dog and keeps running|76|2|82|10|1
+DrawTextBox|Olá, o rato roeu a roupa do rei de Roma, e a rainha ficou furiosa|76|36|82|10|1
+DrawTextBox|El veloz murciélago hindú comía feliz cardillo y kiwi, señor|2|112|156|8|1
 Present

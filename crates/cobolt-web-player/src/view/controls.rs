@@ -1119,7 +1119,7 @@ pub fn canvas(cx: &ViewCtx, i: usize, k: PlayerKind) -> VNode {
     let w = num(cx, i, "Width", 300.0).max(1.0);
     let h = num(cx, i, "Height", 150.0).max(1.0);
     root(cx, i, "div").class(tag_class).child(
-        VNode::new("canvas").key("canvas").prop_num("width", w).prop_num("height", h).attr("tabindex", "0").on("pointerdown").on("pointermove").on("pointerup").on("pointerenter").on("pointerleave").on("keydown").on("keyup"),
+        VNode::new("canvas").key("canvas").prop_num("width", w).prop_num("height", h).attr("tabindex", "0").on("pointerdown").on("pointermove").on("pointerup").on("pointerenter").on("pointerleave").on("wheel").on("touchstart").on("touchmove").on("touchend").on("touchcancel").on("keydown").on("keyup").on("focusout"),
     )
 }
 

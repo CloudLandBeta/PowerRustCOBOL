@@ -140,6 +140,11 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
         return Ok(out);
     }
 
+    // The polled input state of a canvas (WASM-018 R13): the held keys the page keeps, the pads the page last saw. No part is asked.
+    if let Some(a) = polled_input(tree, ctl, &m, args) {
+        return answer(a);
+    }
+
     // Canvas 2D (WASM-018): the drawing vocabulary is the graphics crate's, run by the Canvas part.
     if let Some(k) = crate::kinds::player_kind(&tree.ctls[ctl]) {
         if !matches!(m.as_str(), "SHOW" | "HIDE" | "ENABLE" | "DISABLE" | "SETFOCUS" | "FOCUS") {
@@ -625,6 +630,30 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
     Ok(out)
 }
 
+/// The methods a canvas answers from the input state the page keeps (`IsKeyDown`, `GamepadAxis`, `GamepadButton`).
+fn is_polled_input(m: &str) -> bool {
+    matches!(m, "ISKEYDOWN" | "GAMEPADAXIS" | "GAMEPADBUTTON")
+}
+
+/// The answer of a polled-input method of a canvas, or `None` when `m` is not one or the control is not a canvas. The text a
+/// handler reads is the desktop's: `1` or `0` for a key or a button, the axis with three decimals.
+fn polled_input(tree: &FormTree, ctl: usize, m: &str, args: &[&str]) -> Option<String> {
+    use crate::kinds::PlayerKind as K;
+    if !is_polled_input(m) || !matches!(crate::kinds::player_kind(&tree.ctls[ctl]), Some(K::Canvas2D | K::Canvas3D)) {
+        return None;
+    }
+    let number = |i: usize| args.get(i).and_then(|a| a.trim().parse::<u32>().ok()).unwrap_or(0);
+    Some(match m {
+        "ISKEYDOWN" => {
+            let name = args.first().map(|a| a.trim()).unwrap_or("");
+            let held = tree.get(ctl, "_Keys");
+            u8::from(!name.is_empty() && held.split(',').any(|k| k.trim().eq_ignore_ascii_case(name))).to_string()
+        }
+        "GAMEPADAXIS" => format!("{:.3}", cobolt_forms::gamepad::axis_of(&cobolt_forms::gamepad::snapshot(&cobolt_forms::gamepad::current()), number(1), number(0))),
+        _ => cobolt_forms::gamepad::button_of(&cobolt_forms::gamepad::snapshot(&cobolt_forms::gamepad::current()), number(1), number(0)).to_string(),
+    })
+}
+
 /// Does `method` of the control need the graphics part's answer at once (WASM-018 T25/T26)? On a Canvas2D that is a
 /// read-back of the picture (`GetPixel`, `MeasureText`, `ToImage`, ...; not the three the control answers from its own
 /// properties); on every other graphics object (ImageBuffer, Plot, Scene3D, Physics2D/3D, Canvas3D) it is every method,
@@ -633,6 +662,9 @@ pub fn call(tree: &mut FormTree, ctl: usize, method: &str, args: &[&str]) -> Res
 pub(crate) fn is_gfx_sync_call(ctl: &crate::tree::Ctl, method: &str) -> bool {
     use crate::kinds::PlayerKind as K;
     let m = method.trim().to_ascii_uppercase();
+    if is_polled_input(&m) {
+        return false;
+    }
     match crate::kinds::player_kind(ctl) {
         None => false,
         Some(K::Canvas2D) => !matches!(m.as_str(), "GETWIDTH" | "GETHEIGHT" | "GETPIXELRATIO") && (m.starts_with("GET") || m.starts_with("IS") || m.starts_with("MEASURE") || matches!(m.as_str(), "PENDINGCOMMANDS" | "HOSTCALLS" | "TAKEPRESENTED" | "TOIMAGE" | "CAPTURE")),

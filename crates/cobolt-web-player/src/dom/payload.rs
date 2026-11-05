@@ -121,11 +121,35 @@ pub fn from_event(kind: &str, key: &str, ev: &Event, root: &Element) -> Payload 
     p.alt = flag(evj, "altKey");
     p.meta = flag(evj, "metaKey");
     p.delta = num(evj, "deltaY");
+    p.delta_x = num(evj, "deltaX");
+    p.repeat = flag(evj, "repeat");
     let rect = root.get_bounding_client_rect();
     p.w = rect.width();
     p.h = rect.height();
-    p.x = num(evj, "clientX") - rect.left();
-    p.y = num(evj, "clientY") - rect.top();
+    // A touch event has no `clientX`: the point is the first touch of the event (`touches`, or `changedTouches` for the one that
+    // just ended).
+    let touch = {
+        let first = |list: JsValue| if list.is_object() && num(&list, "length") > 0.0 { Reflect::get(&list, &0u32.into()).ok() } else { None };
+        first(get(evj, "touches")).or_else(|| first(get(evj, "changedTouches")))
+    };
+    let (cx, cy) = match &touch {
+        Some(t) => (num(t, "clientX"), num(t, "clientY")),
+        None => (num(evj, "clientX"), num(evj, "clientY")),
+    };
+    p.x = cx - rect.left();
+    p.y = cy - rect.top();
+    // On a canvas the point is in the canvas's own pixels: measured from the canvas element (the control's box has a border), and
+    // scaled by what the surface has per CSS pixel (a canvas of 200 pixels shown 198 wide).
+    if key == "canvas" {
+        if let Some(c) = &current {
+            let r = c.get_bounding_client_rect();
+            let cj: &JsValue = c.as_ref();
+            let (pw, ph) = (num(cj, "width"), num(cj, "height"));
+            let (sx, sy) = (if r.width() > 0.0 && pw > 0.0 { pw / r.width() } else { 1.0 }, if r.height() > 0.0 && ph > 0.0 { ph / r.height() } else { 1.0 });
+            p.x = (cx - r.left()) * sx;
+            p.y = (cy - r.top()) * sy;
+        }
+    }
     if let Some(c) = &current {
         let cj: &JsValue = c.as_ref();
         p.scroll_top = num(cj, "scrollTop");

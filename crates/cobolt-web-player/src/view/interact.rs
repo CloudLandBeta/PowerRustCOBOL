@@ -72,6 +72,10 @@ pub struct Payload {
     pub w: f64,
     pub h: f64,
     pub delta: f64,
+    /// `WheelEvent.deltaX`.
+    pub delta_x: f64,
+    /// `KeyboardEvent.repeat`: the key is being held down, not pressed again.
+    pub repeat: bool,
     pub scroll_top: f64,
     pub scroll_left: f64,
     pub client_height: f64,
@@ -283,18 +287,81 @@ fn canvas_events(c: &Ctl, p: &Payload) -> Vec<Act> {
         return Vec::new();
     }
     let point = format!("{} {}", p.x.round() as i64, p.y.round() as i64);
-    let name = match p.kind.as_str() {
-        "pointerdown" => "onPointerDown",
-        "pointermove" => "onPointerMove",
-        "pointerup" => "onPointerUp",
-        "pointerenter" => "onPointerEnter",
-        "pointerleave" => "onPointerLeave",
-        "keydown" => return vec![canvas_act("onKeyDown", vec![p.key_name.clone()])],
-        "keyup" => return vec![canvas_act("onKeyUp", vec![p.key_name.clone()])],
-        _ => return Vec::new(),
+    // The pointer's place is state a handler can read at any time, bound or not (`PointerX`, `PointerY`).
+    let place = |out: &mut Vec<Act>| {
+        out.push(Act::Quiet { prop: "PointerX".into(), value: (p.x.round() as i64).to_string() });
+        out.push(Act::Quiet { prop: "PointerY".into(), value: (p.y.round() as i64).to_string() });
     };
-    let args = if matches!(p.kind.as_str(), "pointerleave") { Vec::new() } else { vec![point] };
-    vec![canvas_act(name, args)]
+    let mut out = Vec::new();
+    match p.kind.as_str() {
+        "pointerdown" | "pointermove" | "pointerenter" | "pointerup" => {
+            place(&mut out);
+            let name = match p.kind.as_str() {
+                "pointerdown" => "onPointerDown",
+                "pointermove" => "onPointerMove",
+                "pointerenter" => "onPointerEnter",
+                _ => "onPointerUp",
+            };
+            out.push(canvas_act(name, vec![point]));
+        }
+        "pointerleave" => out.push(canvas_act("onPointerLeave", Vec::new())),
+        // The wheel's step as `dx dy`, the text the desktop raises; a bound handler keeps the page from scrolling under it.
+        "wheel" => {
+            out.push(canvas_act("onWheel", vec![format!("{} {}", fmt_number(p.delta_x), fmt_number(p.delta))]));
+            if c.has_handler("onWheel") {
+                out.push(Act::Prevent);
+            }
+        }
+        // Touches: the point of the first finger, as the pointer's text.
+        "touchstart" | "touchmove" | "touchend" | "touchcancel" => {
+            let name = match p.kind.as_str() {
+                "touchstart" => "onTouchStart",
+                "touchmove" => "onTouchMove",
+                _ => "onTouchEnd",
+            };
+            if p.kind != "touchend" && p.kind != "touchcancel" {
+                place(&mut out);
+            }
+            out.push(canvas_act(name, vec![point]));
+            if c.has_handler(name) {
+                out.push(Act::Prevent);
+            }
+        }
+        // The held keys are state a handler can poll (`IsKeyDown`), kept as the desktop keeps them: a comma list on `_Keys`. A key
+        // held down repeats in the browser; the desktop raises it once, so does the page.
+        "keydown" => {
+            let mut held = held_keys(c);
+            if !held.iter().any(|k| k.eq_ignore_ascii_case(&p.key_name)) {
+                held.push(p.key_name.clone());
+                out.push(Act::Quiet { prop: "_Keys".into(), value: held.join(",") });
+            }
+            if !p.repeat {
+                out.push(canvas_act("onKeyDown", vec![p.key_name.clone()]));
+            }
+            // A game's keys are the game's: the arrows and the space bar do not scroll the page.
+            if p.key_name.starts_with("Arrow") || matches!(p.key_name.as_str(), " " | "PageUp" | "PageDown" | "Home" | "End") {
+                out.push(Act::Prevent);
+            }
+        }
+        "keyup" => {
+            let held: Vec<String> = held_keys(c).into_iter().filter(|k| !k.eq_ignore_ascii_case(&p.key_name)).collect();
+            out.push(Act::Quiet { prop: "_Keys".into(), value: held.join(",") });
+            out.push(canvas_act("onKeyUp", vec![p.key_name.clone()]));
+        }
+        // The canvas lost the keyboard: nothing is held any more.
+        "focusout" => {
+            if !held_keys(c).is_empty() {
+                out.push(Act::Quiet { prop: "_Keys".into(), value: String::new() });
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// The keys the canvas has been told are held.
+fn held_keys(c: &Ctl) -> Vec<String> {
+    c.props.get("_keys").map(|v| v.split(',').filter(|k| !k.is_empty()).map(str::to_owned).collect()).unwrap_or_default()
 }
 
 fn behaviour(cx: &ViewCtx, i: usize, p: &Payload) -> Vec<Act> {
@@ -1406,16 +1473,63 @@ mod tests {
         let mut down = Payload::new("pointerdown", "canvas");
         down.x = 12.4;
         down.y = 7.6;
-        assert_eq!(names(&run(&t, i, &e, down)), ["onPointerDown(12 8)"], "the point in the canvas's pixels, rounded, space-separated");
+        assert_eq!(names(&run(&t, i, &e, down)), ["PointerX=12", "PointerY=8", "onPointerDown(12 8)"], "the point in the canvas's pixels, rounded, space-separated; PointerX and PointerY follow it");
         let mut mv = Payload::new("pointermove", "canvas");
         mv.x = 0.0;
         mv.y = 99.5;
-        assert_eq!(names(&run(&t, i, &e, mv)), ["onPointerMove(0 100)"]);
+        assert_eq!(names(&run(&t, i, &e, mv)), ["PointerX=0", "PointerY=100", "onPointerMove(0 100)"]);
         assert_eq!(names(&run(&t, i, &e, Payload::new("pointerleave", "canvas"))), ["onPointerLeave"], "a pointer that left has no position");
         let mut key = Payload::new("keydown", "canvas");
         key.key_name = "ArrowLeft".into();
-        assert_eq!(names(&run(&t, i, &e, key)), ["onKeyDown(ArrowLeft)"]);
-        println!("Canvas2D: pointerdown 12.4,7.6 -> onPointerDown(12 8); pointermove -> onPointerMove(0 100); pointerleave -> none; ArrowLeft -> onKeyDown(ArrowLeft)");
+        assert_eq!(names(&run(&t, i, &e, key)), ["_Keys=ArrowLeft", "onKeyDown(ArrowLeft)", "prevent"], "the key is held, raised once, and the page does not scroll");
+        println!("Canvas2D: pointerdown 12.4,7.6 -> onPointerDown(12 8) + PointerX/Y; pointermove -> onPointerMove(0 100); pointerleave -> none; ArrowLeft -> _Keys + onKeyDown(ArrowLeft)");
+    }
+
+    /// WASM-018 T25/T30 (R13, AC12): wheel, touch, a held key and a lost focus on a canvas, with the texts the desktop raises.
+    #[test]
+    fn a_canvas_raises_wheel_and_touch_events_and_keeps_the_held_keys() {
+        let (mut t, i) = tree_with("Canvas2D", "CNV-A", &[]);
+        let e = Empty::default();
+        let mut wheel = Payload::new("wheel", "canvas");
+        wheel.delta_x = 0.0;
+        wheel.delta = 120.0;
+        assert_eq!(names(&run(&t, i, &e, wheel.clone())), ["onWheel(0 120)"], "no handler bound: the page keeps its scroll");
+        let mut touch = Payload::new("touchstart", "canvas");
+        touch.x = 30.2;
+        touch.y = 40.7;
+        assert_eq!(names(&run(&t, i, &e, touch)), ["PointerX=30", "PointerY=41", "onTouchStart(30 41)"]);
+        let mut end = Payload::new("touchend", "canvas");
+        end.x = 30.0;
+        end.y = 41.0;
+        assert_eq!(names(&run(&t, i, &e, end)), ["onTouchEnd(30 41)"]);
+
+        // The held keys: down once, a browser's repeat raises nothing more, up removes it, a lost focus clears all.
+        let key = |kind: &str, k: &str, repeat: bool| {
+            let mut p = Payload::new(kind, "canvas");
+            p.key_name = k.into();
+            p.repeat = repeat;
+            p
+        };
+        let _ = t.set(i, "_Keys", "ArrowLeft");
+        assert_eq!(names(&run(&t, i, &e, key("keydown", "ArrowLeft", true))), ["prevent"], "a repeat is not a new press and holds nothing new");
+        assert_eq!(names(&run(&t, i, &e, key("keydown", "a", false))), ["_Keys=ArrowLeft,a", "onKeyDown(a)"]);
+        assert_eq!(names(&run(&t, i, &e, key("keyup", "ArrowLeft", false))), ["_Keys=", "onKeyUp(ArrowLeft)"], "only that key is released");
+        let _ = t.set(i, "_Keys", "a,b");
+        assert_eq!(names(&run(&t, i, &e, Payload::new("focusout", "canvas"))), ["_Keys="]);
+        println!("Canvas2D: wheel -> onWheel(dx dy); touch -> onTouchStart/End(x y) + PointerX/Y; held keys on _Keys, repeats ignored, focusout clears");
+    }
+
+    #[test]
+    fn a_canvas_answers_the_polled_input_methods_from_the_state_the_page_keeps() {
+        let (mut t, i) = tree_with("Canvas2D", "CNV-A", &[]);
+        let _ = t.set(i, "_Keys", "ArrowLeft,Space");
+        let ask = |t: &mut FormTree, m: &str, a: &[&str]| crate::methods::call(t, i, m, a).unwrap().value.unwrap_or_default();
+        assert_eq!((ask(&mut t, "IsKeyDown", &["arrowleft"]), ask(&mut t, "IsKeyDown", &["ArrowRight"])), ("1".to_owned(), "0".to_owned()));
+        cobolt_forms::gamepad::feed(vec![cobolt_forms::gamepad::Pad { index: 0, axes: vec![0.5, -1.0], buttons: vec![true, false] }]);
+        assert_eq!(ask(&mut t, "GamepadAxis", &["1"]), "-1.000");
+        assert_eq!((ask(&mut t, "GamepadButton", &["0"]), ask(&mut t, "GamepadButton", &["1"]), ask(&mut t, "GamepadButton", &["0", "3"])), ("1".to_owned(), "0".to_owned(), "0".to_owned()));
+        cobolt_forms::gamepad::feed(Vec::new());
+        println!("Canvas2D: IsKeyDown reads _Keys without case, GamepadAxis(1) = -1.000, buttons 1/0, an absent pad answers 0");
     }
 
     #[test]
