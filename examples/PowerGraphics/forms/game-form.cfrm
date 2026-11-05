@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="GAME-FORM" definition="The main window of the PowerGraphics example: a small physics game drawn on a canvas, with buttons that open the chart gallery, the image lab and the 3D viewer." title="PowerGraphics - Game" width="640" height="400" background="#1B1F27FF" grid-size="8" snap-to-grid="true" target="Custom" main-form="true" index-base="1">
+  <working-storage><![CDATA[       01 WS-WORLD                               GLOBAL    PIC 9(10).
+       01 WS-GROUND                              GLOBAL    PIC 9(10).
+       01 WS-IMG                                 GLOBAL    PIC 9(10).
+       01 WS-BALLS                               GLOBAL.
+           05 WS-BALL                            PIC 9(10)    OCCURS 5.
+       01 WS-I                                   GLOBAL    PIC 9.
+       01 WS-POS                                 GLOBAL    PIC X(64).
+       01 WS-PX                                  GLOBAL    PIC X(24).
+       01 WS-PY                                  GLOBAL    PIC X(24).
+       01 WS-X                                   GLOBAL    PIC S9(5)V9(3).
+       01 WS-Y                                   GLOBAL    PIC S9(5)V9(3).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="GAME-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> The sprite: a 32 x 32 yellow square the player's ball wears.
+           IMG-SPRITE::Create( 32 32 "#FFCC00" )
+           SET     WS-IMG                        TO    IMG-SPRITE::GetHandle()
+
+           *> The world: gravity pulls down 40 units a second squared; it steps in 1/60 s.
+           SET     WS-WORLD                      TO    PHY-1::CreateWorld( 0 40 )
+           PHY-1::SetFixedStep( WS-WORLD 0.016667 )
+
+           *> The floor: a static body across the bottom of the canvas.
+           SET     WS-GROUND                     TO    PHY-1::AddBody( WS-WORLD 0 240 310 )
+           PHY-1::AddBox( WS-WORLD WS-GROUND 240 10 )
+
+           *> Five balls dropped in a row; the first is the player's.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 5
+               COMPUTE WS-X = 40 + WS-I * 80
+               SET     WS-BALL(WS-I)             TO    PHY-1::AddBody( WS-WORLD 1 WS-X 60 )
+               PHY-1::AddBall( WS-WORLD WS-BALL(WS-I) 16 1 0.3 0.7 )
+           END-PERFORM
+]]></Event>
+  </form-events>
+  <Control id="CNV-GAME" type="Canvas2D" x="10" y="10" w="480" h="320" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 480 by 320 drawing surface of the game. It raises onFrame sixty times a second; the handler steps the physics world and redraws every ball.</Property>
+    <Property name="TargetFps">60</Property>
+    <Property name="FixedStep">True</Property>
+    <Property name="AccessibleLabel">Physics game: arrow keys push the yellow ball</Property>
+    <Event name="onFrame" paragraph="CNV-GAME--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           *> Input: the arrow keys push the player's ball.
+           IF      CNV-GAME::IsKeyDown( "ArrowLeft" ) = 1
+               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), -3, 0 )
+           END-IF
+           IF      CNV-GAME::IsKeyDown( "ArrowRight" ) = 1
+               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), 3, 0 )
+           END-IF
+           IF      CNV-GAME::IsKeyDown( "ArrowUp" ) = 1
+               PHY-1::ApplyImpulse( WS-WORLD, WS-BALL(1), 0, -6 )
+           END-IF
+
+           PHY-1::Step( WS-WORLD 0.016667 )
+
+           *> Draw: the sky, the floor, the four balls, then the player's sprite.
+           CNV-GAME::Clear( "#101820" )
+           CNV-GAME::SetFillColor( "#335577" )
+           CNV-GAME::FillRect( 0 300 480 20 )
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 5
+               SET     WS-POS                    TO    PHY-1::GetPosition( WS-WORLD WS-BALL(WS-I) )
+               UNSTRING WS-POS DELIMITED BY SPACE INTO WS-PX WS-PY
+               COMPUTE WS-X = FUNCTION NUMVAL( WS-PX )
+               COMPUTE WS-Y = FUNCTION NUMVAL( WS-PY )
+               IF      WS-I = 1
+                   COMPUTE WS-X = WS-X - 16
+                   COMPUTE WS-Y = WS-Y - 16
+                   CNV-GAME::DrawImage( WS-IMG WS-X WS-Y )
+               ELSE
+                   CNV-GAME::BeginPath()
+                   CNV-GAME::Arc( WS-X WS-Y 16 0 6.2831853 0 )
+                   CNV-GAME::SetFillColor( "#E05555" )
+                   CNV-GAME::Fill( 0 )
+               END-IF
+           END-PERFORM
+           CNV-GAME::SetFont( "14px Ubuntu" )
+           CNV-GAME::SetFillColor( "#FFFFFF" )
+           CNV-GAME::DrawText( "Arrow keys push the yellow sprite" 10 24 0 1 )
+           CNV-GAME::Present()
+]]></Event>
+  </Control>
+  <Control id="PHY-1" type="Physics2D" x="500" y="340" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The two-dimensional physics engine that moves the five balls under gravity and keeps them on the floor.</Property>
+  </Control>
+  <Control id="IMG-SPRITE" type="ImageBuffer" x="570" y="340" w="60" h="24" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">An in-memory 32 by 32 yellow picture that the game draws as the player ball sprite.</Property>
+  </Control>
+  <Control id="BTN-CHARTS" type="Button" x="500" y="10" w="130" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Opens the chart gallery window, which shows every kind of plot.</Property>
+    <Property name="Caption">Chart gallery</Property>
+    <Event name="onClick" paragraph="BTN-CHARTS--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::OpenFormSync("CHARTS-FORM")
+]]></Event>
+  </Control>
+  <Control id="BTN-IMAGES" type="Button" x="500" y="52" w="130" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Opens the image lab window, which applies filters to a picture.</Property>
+    <Property name="Caption">Image lab</Property>
+    <Event name="onClick" paragraph="BTN-IMAGES--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::OpenFormSync("IMAGELAB-FORM")
+]]></Event>
+  </Control>
+  <Control id="BTN-VIEWER" type="Button" x="500" y="94" w="130" h="32" tab-order="5" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Opens the 3D viewer window, which shows a lit rotating model.</Property>
+    <Property name="Caption">3D viewer</Property>
+    <Event name="onClick" paragraph="BTN-VIEWER--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::OpenFormSync("VIEWER3D-FORM")
+]]></Event>
+  </Control>
+  <Control id="LBL-HELP" type="Label" x="10" y="340" w="480" h="24" tab-order="6" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">A line of help text telling the player to click the canvas and use the arrow keys.</Property>
+    <Property name="Caption">Click the canvas, then use the arrow keys.</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+</Form>

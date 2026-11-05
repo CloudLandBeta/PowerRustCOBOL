@@ -424,8 +424,23 @@ impl<'a> Args<'a> {
                 }
             }
             Value::Ints(v) => Ok(Cow::Owned(v.iter().map(|x| *x as f64).collect())),
+            // A COBOL program has no list type: it writes the numbers in a text item, separated by spaces or commas.
+            Value::Text(s) => self.list_in_text(i, s).map(Cow::Owned),
+            Value::Int(n) => Ok(Cow::Owned(vec![*n as f64])),
+            Value::Num(n) if n.is_finite() => Ok(Cow::Owned(vec![*n])),
             other => Err(self.bad(i, format!("needs a list of numbers, not {}", other.kind()))),
         }
+    }
+
+    /// The numbers of a text such as `"1 2.5, -3"` (spaces and commas separate them); a word that is no number is refused by name.
+    fn list_in_text(&self, i: usize, s: &str) -> Result<Vec<f64>> {
+        s.split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|w| !w.is_empty())
+            .map(|w| match w.parse::<f64>() {
+                Ok(x) if x.is_finite() => Ok(x),
+                _ => Err(self.bad(i, format!("\"{w}\" is not a number (a list is numbers separated by spaces or commas)"))),
+            })
+            .collect()
     }
 
     /// A list of numbers as `f32`.
@@ -438,6 +453,15 @@ impl<'a> Args<'a> {
         match self.present(i)? {
             Value::Ints(v) => Ok(Cow::Borrowed(v)),
             Value::Floats(v) if v.iter().all(|x| x.fract() == 0.0 && x.abs() < 9.0e15) => Ok(Cow::Owned(v.iter().map(|x| *x as i64).collect())),
+            Value::Int(n) => Ok(Cow::Owned(vec![*n])),
+            Value::Text(s) => {
+                let xs = self.list_in_text(i, s)?;
+                if xs.iter().all(|x| x.fract() == 0.0 && x.abs() < 9.0e15) {
+                    Ok(Cow::Owned(xs.iter().map(|x| *x as i64).collect()))
+                } else {
+                    Err(self.bad(i, "needs a list of whole numbers"))
+                }
+            }
             other => Err(self.bad(i, format!("needs a list of whole numbers, not {}", other.kind()))),
         }
     }

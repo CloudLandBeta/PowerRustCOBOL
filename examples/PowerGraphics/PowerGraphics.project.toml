@@ -1,0 +1,32 @@
+user-controls = []
+crates = []
+
+[project]
+name = "PowerGraphics.project"
+structure = 1
+version = "1.0.0"
+main = "src/main.cbl"
+copyright = ""
+license_model = ""
+license_text = ""
+destination_folder = "dist"
+built_with_version = "2.0.213"
+
+[files]
+sources = [
+    "src/main.cbl",
+]
+forms = [
+    "forms/game-form.cfrm",
+    "forms/charts-form.cfrm",
+    "forms/imagelab-form.cfrm",
+    "forms/viewer3d-form.cfrm",
+]
+assets = ["Assets/fonts/Ubuntu-Light.ttf", "Assets/fonts/UFL.txt"]
+documentation = []
+generated = ["generated/game-form.cbl"]
+indexed = []
+
+[forms]
+main-form = "GAME-FORM"
+main-form-seal = "7c5c577994a39459acf10a24dc896c5ecf80c54389c4d7056453c326d9dd4080"

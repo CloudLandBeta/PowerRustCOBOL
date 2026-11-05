@@ -7,9 +7,9 @@
       "sha256": "689da18859a1c74f3186145272ec53e9b9fa7d3a009cac9e227adbdfaceb6e6e"
     },
     {
-      "bytes": 3182518,
+      "bytes": 3184744,
       "path": "parts/canvas/canvas_bg.wasm",
-      "sha256": "25e4daa9b28c8a809f448e48148ae51748a8694718918d2e19cf678dd86a83f2"
+      "sha256": "5e4ebc0a14ae8d0e474e652dc3916eb1c23f137d3f847560b17cfedf2e814cad"
     },
     {
       "bytes": 21806,
@@ -17,19 +17,19 @@
       "sha256": "3e899c336d87a3a85621a0b9730b800460077722d72a38c691d2c836593f63f3"
     },
     {
-      "bytes": 5966757,
+      "bytes": 5968982,
       "path": "parts/graphics/graphics_bg.wasm",
-      "sha256": "74f26a13108c41a5d61597974f61f25093c295033fdfcda48d596cbf1b1d2ae9"
+      "sha256": "2f30da21270a3291a55913869a04b7fc1b65472bed7fe180dc8519cc89b4ecee"
     },
     {
       "bytes": 140459,
       "path": "parts/graphics3d/graphics3d.js",
-      "sha256": "1f95727da046632ff3e093df21635308971fe481991d75217e14c6e8f06cb671"
+      "sha256": "ae8c1abc25b166d5aede53330686529981c52ba534b0f040c9961c24e097225e"
     },
     {
-      "bytes": 8462565,
+      "bytes": 8464795,
       "path": "parts/graphics3d/graphics3d_bg.wasm",
-      "sha256": "f504ba75ec8b50e09a200169d1afd9669ee7507ee51afb72d8818a3cd4d8842a"
+      "sha256": "aa59cea64424e3c75c191765c161b5d8b137b69f30395bb1b1678fb8dfe3df67"
     },
     {
       "bytes": 7985,
@@ -116,29 +116,29 @@
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 3449828,
-      "after_wasm_opt_bytes": 3182518,
-      "cargo_output_bytes": 3607941,
+      "after_bindgen_bytes": 3452157,
+      "after_wasm_opt_bytes": 3184744,
+      "cargo_output_bytes": 3610445,
       "glue_js_bytes": 15740,
-      "gzip_bytes": 1250769,
+      "gzip_bytes": 1252376,
       "name": "canvas",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 6565693,
-      "after_wasm_opt_bytes": 5966757,
-      "cargo_output_bytes": 7464662,
+      "after_bindgen_bytes": 6568032,
+      "after_wasm_opt_bytes": 5968982,
+      "cargo_output_bytes": 7467174,
       "glue_js_bytes": 21806,
-      "gzip_bytes": 2373881,
+      "gzip_bytes": 2374420,
       "name": "graphics",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 9320062,
-      "after_wasm_opt_bytes": 8462565,
-      "cargo_output_bytes": 10970755,
+      "after_bindgen_bytes": 9322559,
+      "after_wasm_opt_bytes": 8464795,
+      "cargo_output_bytes": 10973203,
       "glue_js_bytes": 140459,
-      "gzip_bytes": 3346597,
+      "gzip_bytes": 3347242,
       "name": "graphics3d",
       "opt_level": "s"
     },
@@ -160,7 +160,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "383473e85ba2701af37d174313fdfbbcef8c675b627cbf301f83a77c9dc2e2fb",
+  "source_hash": "da17be710059e34e45655ac722689dbc61ae400f792b40e9ee2e319d71fbab4e",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

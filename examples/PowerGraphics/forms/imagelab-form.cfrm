@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="IMAGELAB-FORM" title="PowerGraphics - Image lab" definition="The image lab of the PowerGraphics example: a picture held in memory is changed by filters (grey, invert, blur, sharpen, edges) and drawn on a canvas after each one." width="640" height="400" background="#1B1F27FF" grid-size="8" snap-to-grid="true" target="Custom" index-base="1">
+  <form-events>
+    <Event name="onLoad" paragraph="IMAGELAB-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> A blue picture with an orange block laid over it.
+           IMG-A::Create( 320 240 "#3366AA" )
+           IMG-B::Create( 120 80 "#FFAA00" )
+           IMG-A::Composite( IMG-B::GetHandle() 100 80 )
+           IMG-A::DrawOnto( CNV-LAB::GetHandle() 0 0 )
+           CNV-LAB::Present()
+]]></Event>
+  </form-events>
+  <Control id="CNV-LAB" type="Canvas2D" x="10" y="10" w="320" h="240" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The drawing surface that shows the picture after each filter.</Property>
+    <Property name="AccessibleLabel">The picture being filtered</Property>
+  </Control>
+  <Control id="IMG-A" type="ImageBuffer" x="340" y="330" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The picture the filters change: 320 by 240 pixels, held in memory.</Property>
+  </Control>
+  <Control id="IMG-B" type="ImageBuffer" x="410" y="330" w="60" h="24" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The orange block that is laid over the picture when the form opens.</Property>
+  </Control>
+  <Control id="BTN-GRAY" type="Button" x="500" y="10" w="130" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Turns the picture to shades of grey.</Property>
+    <Property name="Caption">Grayscale</Property>
+    <Event name="onClick" paragraph="BTN-GRAY--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           IMG-A::Grayscale()
+           IMG-A::DrawOnto( CNV-LAB::GetHandle() 0 0 )
+           CNV-LAB::Present()
+           SET     LBL-INFO::Caption             TO    "Grayscale"
+]]></Event>
+  </Control>
+  <Control id="BTN-INV" type="Button" x="500" y="52" w="130" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Swaps every colour of the picture for its opposite.</Property>
+    <Property name="Caption">Invert</Property>
+    <Event name="onClick" paragraph="BTN-INV--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           IMG-A::Invert()
+           IMG-A::DrawOnto( CNV-LAB::GetHandle() 0 0 )
+           CNV-LAB::Present()
+           SET     LBL-INFO::Caption             TO    "Invert"
+]]></Event>
+  </Control>
+  <Control id="BTN-BLUR" type="Button" x="500" y="94" w="130" h="32" tab-order="5" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Softens the picture with a Gaussian blur of radius three.</Property>
+    <Property name="Caption">Blur</Property>
+    <Event name="onClick" paragraph="BTN-BLUR--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           IMG-A::BlurGaussian( 3 )
+           IMG-A::DrawOnto( CNV-LAB::GetHandle() 0 0 )
+           CNV-LAB::Present()
+           SET     LBL-INFO::Caption             TO    "Gaussian blur"
+]]></Event>
+  </Control>
+  <Control id="BTN-SHARP" type="Button" x="500" y="136" w="130" h="32" tab-order="6" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Makes the edges of the picture crisper.</Property>
+    <Property name="Caption">Sharpen</Property>
+    <Event name="onClick" paragraph="BTN-SHARP--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           IMG-A::Sharpen( 1 )
+           IMG-A::DrawOnto( CNV-LAB::GetHandle() 0 0 )
+           CNV-LAB::Present()
+           SET     LBL-INFO::Caption             TO    "Sharpen"
+]]></Event>
+  </Control>
+  <Control id="BTN-EDGE" type="Button" x="500" y="178" w="130" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Replaces the picture by its outlines.</Property>
+    <Property name="Caption">Edges</Property>
+    <Event name="onClick" paragraph="BTN-EDGE--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           IMG-A::EdgeDetect()
+           IMG-A::DrawOnto( CNV-LAB::GetHandle() 0 0 )
+           CNV-LAB::Present()
+           SET     LBL-INFO::Caption             TO    "Edge detection"
+]]></Event>
+  </Control>
+  <Control id="BTN-BACK" type="Button" x="500" y="220" w="130" h="32" tab-order="8" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Closes the image lab and returns to the game window.</Property>
+    <Property name="Caption">Close</Property>
+    <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+  <Control id="LBL-INFO" type="Label" x="10" y="330" w="320" h="24" tab-order="9" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The name of the filter that was applied last.</Property>
+    <Property name="Caption">Press a filter.</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+</Form>

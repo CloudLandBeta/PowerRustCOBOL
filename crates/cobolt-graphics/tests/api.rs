@@ -634,3 +634,18 @@ fn every_object_answers_its_own_handle_and_the_listing_names_the_method() {
     };
     r.invoke(view, "SetScene", &[Value::Int(h)]).expect("the handle the scene gave names it");
 }
+
+#[test]
+fn a_list_argument_may_be_written_as_text_because_cobol_has_no_list_type() {
+    let mut r = reg();
+    let plot = r.create(ObjectKind::Plot, 1, &[]).unwrap();
+    let heat = int(r.invoke(plot, "AddSeries", &[Value::Text("HEATMAP".into()), Value::Text("h".into())]).unwrap());
+    r.invoke(plot, "SetSeriesGrid", &[Value::Int(heat), Value::Int(3), Value::Int(2), Value::Text("1 2 3, 4 5 6".into())]).unwrap();
+    assert_eq!(int(r.invoke(plot, "GetSeriesPoints", &[Value::Int(heat)]).unwrap()), 6);
+    let e = r.invoke(plot, "SetSeriesGrid", &[Value::Int(heat), Value::Int(3), Value::Int(2), Value::Text("1 2 x 4 5 6".into())]).unwrap_err();
+    assert!(e.to_string().contains("\"x\" is not a number"), "{e}");
+    let image = r.create(ObjectKind::ImageBuffer, 1, &[]).unwrap();
+    r.invoke(image, "Create", &[Value::Int(8), Value::Int(8), Value::Text("#808080".into())]).unwrap();
+    r.invoke(image, "Convolve", &[Value::Text("0 0 0 0 1 0 0 0 0".into()), Value::Int(1)]).unwrap();
+    println!("text lists: a 3x2 heatmap grid and a 3x3 kernel written as text; a word that is no number is refused by name");
+}

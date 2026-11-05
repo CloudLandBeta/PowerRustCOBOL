@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="VIEWER3D-FORM" title="PowerGraphics - 3D viewer" definition="The 3D viewer of the PowerGraphics example: a lit scene with a turning cube, a sphere and a floor, drawn by a 3D canvas thirty times a second." width="640" height="400" background="#1B1F27FF" grid-size="8" snap-to-grid="true" target="Custom" index-base="1">
+  <working-storage><![CDATA[       01 WS-BOX                                 GLOBAL    PIC 9(10).
+       01 WS-BALL                                GLOBAL    PIC 9(10).
+       01 WS-FLOOR                               GLOBAL    PIC 9(10).
+       01 WS-LIGHT                               GLOBAL    PIC 9(10).
+       01 WS-CAM                                 GLOBAL    PIC 9(10).
+       01 WS-ANGLE                               GLOBAL    PIC 9(3)  VALUE 0.
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="VIEWER3D-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           *> The scene: a cube and a sphere standing on a floor, one light from above and a camera that looks at them.
+           SCN-1::SetBackgroundGradient( "#203050" "#080C14" )
+           SCN-1::SetAmbient( 1 1 1 0.3 )
+           SET     WS-FLOOR                      TO    SCN-1::AddPlane( 8 8 )
+           SET     WS-BOX                        TO    SCN-1::AddBox( 1 1 1 )
+           SCN-1::SetPosition( WS-BOX, -1, 0.5, 0 )
+           SCN-1::SetColor( WS-BOX "#E05555" )
+           SET     WS-BALL                       TO    SCN-1::AddSphere( 0.6 )
+           SCN-1::SetPosition( WS-BALL 1.2 0.6 0 )
+           SCN-1::SetColor( WS-BALL "#55C0E0" )
+           SET     WS-LIGHT                      TO    SCN-1::AddDirectionalLight( 1 1 1 1.2 )
+           SCN-1::SetRotation( WS-LIGHT, -50, 30, 0 )
+           SET     WS-CAM                        TO    SCN-1::AddCamera( 50 0.1 100 )
+           SCN-1::SetPosition( WS-CAM 0 2.5 6 )
+           SCN-1::LookAt( WS-CAM 0 0.5 0 )
+           CNV-3D::SetScene( SCN-1::GetHandle() )
+           CNV-3D::SetCamera( WS-CAM )
+           CNV-3D::Render()
+]]></Event>
+  </form-events>
+  <Control id="CNV-3D" type="Canvas3D" x="10" y="10" w="480" h="320" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 3D drawing surface. It raises onFrame thirty times a second; the handler turns the cube a little and draws the scene again.</Property>
+    <Property name="TargetFps">30</Property>
+    <Property name="AccessibleLabel">A red cube turning beside a blue sphere</Property>
+    <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
+           ADD     3                             TO    WS-ANGLE
+           IF      WS-ANGLE > 359
+               MOVE 0                            TO    WS-ANGLE
+           END-IF
+           SCN-1::SetRotation( WS-BOX, 0, WS-ANGLE, 0 )
+           CNV-3D::Render()
+]]></Event>
+  </Control>
+  <Control id="SCN-1" type="Scene3D" x="500" y="340" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The 3D scene: the cube, the sphere, the floor, the light and the camera that the canvas draws.</Property>
+  </Control>
+  <Control id="BTN-BACK" type="Button" x="500" y="10" w="130" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Closes the 3D viewer and returns to the game window.</Property>
+    <Property name="Caption">Close</Property>
+    <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+  <Control id="LBL-INFO" type="Label" x="10" y="340" w="480" h="24" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">A line that says what the viewer shows.</Property>
+    <Property name="Caption">A cube turning beside a sphere, lit from above.</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+</Form>

@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="CHARTS-FORM" title="PowerGraphics - Chart gallery" definition="The chart gallery of the PowerGraphics example: each press of Next kind draws one more kind of chart, as an HTML canvas picture, as a small rendered picture and as SVG text; Big table draws a hundred thousand values passed from a COBOL table in one call." width="640" height="400" background="#1B1F27FF" grid-size="8" snap-to-grid="true" target="Custom" index-base="1">
+  <working-storage><![CDATA[       01 WS-KIND                                GLOBAL    PIC 99    VALUE 0.
+       01 WS-NAME                                GLOBAL    PIC X(12).
+       01 WS-SER                                 GLOBAL    PIC 9(10).
+       01 WS-CNV                                 GLOBAL    PIC 9(10).
+       01 WS-THUMB                               GLOBAL    PIC 9(10).
+       01 WS-I                                   GLOBAL    PIC 9(6).
+       01 WS-X                                   GLOBAL    PIC S9(5)V99.
+       01 WS-Y                                   GLOBAL    PIC S9(5)V99.
+       01 WS-SVG                                 GLOBAL    PIC X(60000).
+       01 WS-BIG                                 GLOBAL.
+           05 WS-ROW                             OCCURS 100000.
+               10 WS-RX                          PIC 9(6).
+               10 WS-RY                          PIC 9(6).
+]]></working-storage>
+  <form-events>
+    <Event name="onLoad" paragraph="CHARTS-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
+           SET     WS-CNV                        TO    CNV-CHART::GetHandle()
+]]></Event>
+  </form-events>
+  <Control id="CNV-CHART" type="Canvas2D" x="10" y="10" w="480" h="300" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The drawing surface of the gallery. The chart is drawn on its left part and a small rendered copy of the same chart on its right.</Property>
+    <Property name="AccessibleLabel">The chart of the selected kind</Property>
+  </Control>
+  <Control id="PLT-1" type="Plot" x="500" y="330" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The chart object: it holds the series, draws them on the canvas, renders a picture of them and writes them as SVG text.</Property>
+  </Control>
+  <Control id="BTN-NEXT" type="Button" x="500" y="10" w="130" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Draws the next kind of chart: line, bar, scatter, area, pie, histogram, candlestick, heatmap, polar, error bars, surface and 3D scatter, then back to line.</Property>
+    <Property name="Caption">Next kind</Property>
+    <Event name="onClick" paragraph="BTN-NEXT--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           ADD     1                             TO    WS-KIND
+           IF      WS-KIND > 12
+               MOVE 1                            TO    WS-KIND
+           END-IF
+           EVALUATE WS-KIND
+               WHEN 1  MOVE "LINE"               TO    WS-NAME
+               WHEN 2  MOVE "BAR"                TO    WS-NAME
+               WHEN 3  MOVE "SCATTER"            TO    WS-NAME
+               WHEN 4  MOVE "AREA"               TO    WS-NAME
+               WHEN 5  MOVE "PIE"                TO    WS-NAME
+               WHEN 6  MOVE "HISTOGRAM"          TO    WS-NAME
+               WHEN 7  MOVE "CANDLESTICK"        TO    WS-NAME
+               WHEN 8  MOVE "HEATMAP"            TO    WS-NAME
+               WHEN 9  MOVE "POLAR"              TO    WS-NAME
+               WHEN 10 MOVE "ERRORBARS"          TO    WS-NAME
+               WHEN 11 MOVE "SURFACE3D"          TO    WS-NAME
+               WHEN 12 MOVE "SCATTER3D"          TO    WS-NAME
+           END-EVALUATE
+
+           *> A new chart: the old series goes, a series of the chosen kind takes its place.
+           IF      WS-SER > 0
+               PLT-1::RemoveSeries( WS-SER )
+           END-IF
+           PLT-1::SetTitle( WS-NAME::Trim() )
+           PLT-1::SetXLabel( "x" )
+           PLT-1::SetYLabel( "y" )
+           PLT-1::ShowGrid( 1 )
+           SET     WS-SER                        TO    PLT-1::AddSeries( WS-NAME::Trim() "data" )
+
+           EVALUATE WS-KIND
+               WHEN 1
+                   PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 40
+                       COMPUTE WS-X = WS-I / 4
+                       COMPUTE WS-Y = FUNCTION SIN( WS-X )
+                       PLT-1::AddPoint( WS-SER WS-X WS-Y )
+                   END-PERFORM
+               WHEN 2
+                   PLT-1::AddValue( WS-SER "Jan" 12 )
+                   PLT-1::AddValue( WS-SER "Feb" 19 )
+                   PLT-1::AddValue( WS-SER "Mar" 7 )
+                   PLT-1::AddValue( WS-SER "Apr" 15 )
+                   PLT-1::AddValue( WS-SER "May" 22 )
+               WHEN 3
+                   PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 30
+                       COMPUTE WS-Y = FUNCTION MOD( WS-I * 7 13 )
+                       PLT-1::AddPoint( WS-SER WS-I WS-Y )
+                   END-PERFORM
+               WHEN 4
+                   PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 20
+                       COMPUTE WS-Y = WS-I * WS-I / 10
+                       PLT-1::AddPoint( WS-SER WS-I WS-Y )
+                   END-PERFORM
+               WHEN 5
+                   PLT-1::AddValue( WS-SER "Rent" 40 )
+                   PLT-1::AddValue( WS-SER "Food" 25 )
+                   PLT-1::AddValue( WS-SER "Travel" 20 )
+                   PLT-1::AddValue( WS-SER "Other" 15 )
+               WHEN 6
+                   PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 40
+                       COMPUTE WS-Y = FUNCTION MOD( WS-I * WS-I 17 )
+                       PLT-1::AddValue( WS-SER "" WS-Y )
+                   END-PERFORM
+               WHEN 7
+                   PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 8
+                       COMPUTE WS-Y = 10 + WS-I
+                       PLT-1::AddCandle( WS-SER WS-I WS-Y, WS-Y + 3, WS-Y - 2, WS-Y + 1 )
+                   END-PERFORM
+               WHEN 8
+                   PLT-1::SetSeriesGrid( WS-SER 3 3 "1 2 3 4 5 6 7 8 9" )
+               WHEN 9
+                   PERFORM VARYING WS-I FROM 0 BY 15 UNTIL WS-I > 360
+                       COMPUTE WS-Y = 1 + WS-I / 90
+                       PLT-1::AddPoint( WS-SER WS-I WS-Y )
+                   END-PERFORM
+               WHEN 10
+                   PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 8
+                       COMPUTE WS-Y = WS-I * 2
+                       PLT-1::AddErrorPoint( WS-SER WS-I WS-Y 1 )
+                   END-PERFORM
+               WHEN 11
+                   PLT-1::SetSeriesSurface( WS-SER 0 2 0 2 3 3 "0 1 0 1 2 1 0 1 0" )
+               WHEN 12
+                   PERFORM VARYING WS-I FROM 0 BY 1 UNTIL WS-I > 30
+                       COMPUTE WS-Y = FUNCTION MOD( WS-I * 5 11 )
+                       PLT-1::AddPoint3( WS-SER WS-I WS-Y, WS-I / 3 )
+                   END-PERFORM
+           END-EVALUATE
+
+           *> Three pictures of the one chart: on the canvas, as a rendered image, as SVG text.
+           CNV-CHART::Clear( "#101820" )
+           PLT-1::RenderToCanvas( WS-CNV 0 0 320 300 )
+           SET     WS-THUMB                      TO    PLT-1::Render( 150 100 )
+           CNV-CHART::DrawImage( WS-THUMB 330 10 )
+           CNV-CHART::Present()
+           SET     WS-SVG                        TO    PLT-1::ToSvg( 480 300 )
+           SET     LBL-INFO::Caption             TO    WS-NAME::Trim()
+]]></Event>
+  </Control>
+  <Control id="BTN-BIG" type="Button" x="500" y="52" w="130" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Fills a COBOL table of a hundred thousand rows and hands it to a scatter series in one call, then draws it.</Property>
+    <Property name="Caption">Big table</Property>
+    <Event name="onClick" paragraph="BTN-BIG--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           IF      WS-SER > 0
+               PLT-1::RemoveSeries( WS-SER )
+           END-IF
+           PLT-1::SetTitle( "100,000 values" )
+           SET     WS-SER                        TO    PLT-1::AddSeries( "SCATTER" "table" )
+
+           *> The table: a hundred thousand rows of two six-digit numbers.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 100000
+               MOVE    WS-I                      TO    WS-RX(WS-I)
+               COMPUTE WS-RY(WS-I) = FUNCTION MOD( WS-I * 7919 10007 )
+           END-PERFORM
+
+           *> One call reads the whole table: its rows, their width and what each column holds.
+           PLT-1::SetSeriesFromTable( WS-SER WS-BIG 100000 12 "0:zoned(6,0); 6:zoned(6,0)" )
+           CNV-CHART::Clear( "#101820" )
+           PLT-1::RenderToCanvas( WS-CNV 0 0 480 300 )
+           CNV-CHART::Present()
+           SET     LBL-INFO::Caption             TO    "100,000 values"
+]]></Event>
+  </Control>
+  <Control id="BTN-BACK" type="Button" x="500" y="94" w="130" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">Closes the chart gallery and returns to the game window.</Property>
+    <Property name="Caption">Close</Property>
+    <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
+           INVOKE    ME::Close()
+]]></Event>
+  </Control>
+  <Control id="LBL-INFO" type="Label" x="10" y="330" w="480" h="24" tab-order="5" z-order="0" visible="true" enabled="true">
+    <Property name="Definition">The name of the chart kind on show, or the size of the big table.</Property>
+    <Property name="Caption">Press Next kind.</Property>
+    <Property name="ForegroundColor">#C8D0DC</Property>
+  </Control>
+</Form>
