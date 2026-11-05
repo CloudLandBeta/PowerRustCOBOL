@@ -319,7 +319,7 @@ as completed.
 
 ## M7 — the second way to report an application failure (plan §2.3, D-Status, Q1 decided)
 
-- [ ] **T10 — `status` in the signature; rule `status-changed`** (R4, R5, R8; AC2)
+- [x] **T10 — `status` in the signature; rule `status-changed`** (R4, R5, R8; AC2)
   - Files:
     - `crates/cobolt-wire/src/contract.rs`: `ProgramSig.status: Option<String>`, `skip_serializing_if` none, so existing `interface.json`
       files are byte-identical;

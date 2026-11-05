@@ -95,6 +95,10 @@ pub struct ProgramSig {
     /// A stream the backend publishes on (WASM-014 R14).
     #[serde(default, skip_serializing_if = "is_false")]
     pub stream: bool,
+    /// The group inside `RETURNING` that reports an application failure (`WS-STATUS`: code, message, detail), by name
+    /// (WASM-014 R8). `None` for a program that reports none, so an existing `interface.json` is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deprecated: Option<Deprecation>,
 }
@@ -115,6 +119,7 @@ impl ProgramSig {
             independent: false,
             long_running: false,
             stream: false,
+            status: None,
             deprecated: None,
         }
     }

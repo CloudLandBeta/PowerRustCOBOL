@@ -33,6 +33,7 @@
 //! | remove an exported program, change its parameters (count, order), its `RETURNING`, its roles or `public` | **breaking** |
 //! | an idempotent program no longer safe to repeat | **breaking** |
 //! | deprecate a program | compatible (a warning to the callers) |
+//! | add a status group / remove, rename or reshape one | a note / **breaking** (`status-changed`) |
 //!
 //! Raising the **major** version of the contract is the deliberate way through.
 
@@ -123,6 +124,7 @@ fn compare_program(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<String>, n
     if o.long_running != n.long_running || o.stream != n.stream {
         breaking.push(format!("{name}: its kind (long-running / stream) changed (rule: kind-changed)"));
     }
+    compare_status(o, n, breaking, notes);
     if n.deprecated.is_some() && o.deprecated.is_none() {
         notes.push(format!("{name}: it is now deprecated"));
     }
@@ -137,6 +139,29 @@ fn compare_program(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<String>, n
         (Some(op), Some(np)) => compare_param(name, "RETURNING", op, np, breaking),
         (Some(_), None) => breaking.push(format!("{name}: it no longer returns anything (rule: returning-removed)")),
         (None, Some(_)) => notes.push(format!("{name}: it now returns a group (callers that ignore it are unaffected)")),
+        (None, None) => {}
+    }
+}
+
+/// The status group of a program is part of what a client was promised (WASM-014 R8): removing, renaming or reshaping it breaks
+/// whoever reads it; adding one is a note.
+fn compare_status(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<String>, notes: &mut Vec<String>) {
+    let name = &o.name;
+    let group = |p: &ProgramSig, s: &str| -> Option<crate::layout::Item> {
+        match p.returning.as_ref().map(|r| &r.layout.kind) {
+            Some(crate::layout::Kind::Group { children }) => children.iter().find(|c| c.name.eq_ignore_ascii_case(s)).cloned(),
+            _ => None,
+        }
+    };
+    match (&o.status, &n.status) {
+        (None, Some(s)) => notes.push(format!("{name}: it now reports failures in the status group {s}")),
+        (Some(s), None) => breaking.push(format!("{name}: the status group {s} is no longer declared (rule: status-changed)")),
+        (Some(a), Some(b)) if !a.eq_ignore_ascii_case(b) => breaking.push(format!("{name}: its status group was renamed from {a} to {b} (rule: status-changed)")),
+        (Some(a), Some(_)) => {
+            if group(o, a) != group(n, a) {
+                breaking.push(format!("{name}: the layout of its status group {a} changed (rule: status-changed)"));
+            }
+        }
         (None, None) => {}
     }
 }
@@ -272,5 +297,46 @@ mod tests {
         assert_eq!(check_against_released(&new, &[]).against, "(none)");
         let old = iface("2.0.0", vec![]);
         assert!(!check_against_released(&new, &[old]).breaking.is_empty());
+    }
+
+    fn with_status(version: &str, status: Option<&str>, status_members: Vec<Item>) -> InterfaceDescription {
+        let mut st = group(status_members);
+        st.name = "WS-STATUS".into();
+        let mut ret = group(vec![alpha("A", 4), st]);
+        ret.name = "RESULT".into();
+        let mut d = InterfaceDescription::new(version);
+        let mut p = ProgramSig::new("PAY");
+        p.returning = Some(param(Direction::Out, ret));
+        p.status = status.map(str::to_string);
+        d.programs.push(p);
+        d
+    }
+
+    #[test]
+    fn adding_a_status_group_is_compatible() {
+        let old = with_status("1.0.0", None, vec![num("CODE", 4, 0)]);
+        let new = with_status("1.1.0", Some("WS-STATUS"), vec![num("CODE", 4, 0)]);
+        let r = check_against_released(&new, &[old]);
+        println!("adding a status group: breaking {:?}, notes {:?}", r.breaking, r.notes);
+        assert!(r.breaking.is_empty(), "{r:?}");
+        assert!(r.notes.iter().any(|n| n.contains("status group WS-STATUS")), "{r:?}");
+    }
+
+    #[test]
+    fn removing_or_reshaping_a_status_group_breaks_with_status_changed() {
+        let old = with_status("1.0.0", Some("WS-STATUS"), vec![num("CODE", 4, 0)]);
+        for (what, new) in [
+            ("removed", with_status("1.1.0", None, vec![num("CODE", 4, 0)])),
+            ("reshaped", with_status("1.1.0", Some("WS-STATUS"), vec![num("CODE", 5, 0)])),
+        ] {
+            let r = check_against_released(&new, &[old.clone()]);
+            let line = r.breaking.iter().find(|b| b.contains("status-changed"));
+            println!("{what}: {}", line.map(String::as_str).unwrap_or("(none)"));
+            assert!(line.is_some(), "{what}: {r:?}");
+        }
+        let mut renamed = with_status("1.1.0", Some("WS-OTHER"), vec![num("CODE", 4, 0)]);
+        renamed.programs[0].status = Some("WS-OTHER".into());
+        let r = check_against_released(&renamed, &[old]);
+        assert!(r.breaking.iter().any(|b| b.contains("renamed") && b.contains("status-changed")), "{r:?}");
     }
 }
