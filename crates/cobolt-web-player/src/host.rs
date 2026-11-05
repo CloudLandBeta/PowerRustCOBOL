@@ -418,7 +418,7 @@ pub struct Host {
     gfx: Option<Vec<u8>>,
     /// Answers a read-back of a Canvas2D (`GetPixel`, `ToImage`, `MeasureText` ...) with the picture the Canvas part
     /// holds; set by the page. `None` in a host with no page (the tests of the host alone).
-    pub canvas_read: Option<Rc<dyn Fn(u32, usize, &str, &[String]) -> CanvasRead>>,
+    pub canvas_read: Option<Rc<dyn Fn(u32, usize, (f64, f64), &str, &[String]) -> CanvasRead>>,
     layout: ArenaLayout,
     forms: Vec<Option<Rc<Form>>>,
     pub trees: BTreeMap<u32, FormTree>,
@@ -1836,10 +1836,12 @@ impl Host {
         }
         let read = self.canvas_read.clone()?;
         let texts: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
-        Some(match read(inst, idx, name, &texts) {
+        let tree = &self.trees[&inst];
+        let size = (tree.get(idx, "Width").trim().parse::<f64>().unwrap_or(300.0), tree.get(idx, "Height").trim().parse::<f64>().unwrap_or(150.0));
+        Some(match read(inst, idx, size, name, &texts) {
             CanvasRead::Answer(a) => Ok(Some(a)),
             CanvasRead::Refused(why) => Err(CmdError::Refused(why)),
-            CanvasRead::NotLoaded => Err(CmdError::Refused(format!("{name} reads the picture back, and the Canvas part has not finished loading: call it once the form has been shown (for example from the first onFrame)"))),
+            CanvasRead::NotLoaded => Err(CmdError::Refused(format!("{name} reads the picture back, and the Canvas part is not available yet (it loads when the form opens): call it once the form has been shown (for example from the first onFrame)"))),
         })
     }
 

@@ -1023,8 +1023,8 @@ impl Surface for Dom {
         self.sh.act(inner, inst, ctl, act);
     }
 
-    fn canvas_read(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, method: &str, args: &[String]) -> crate::host::CanvasRead {
-        self.sh.canvas_read(inner, inst, ctl, method, args)
+    fn canvas_read(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, size: (f64, f64), method: &str, args: &[String]) -> crate::host::CanvasRead {
+        self.sh.canvas_read(inner, inst, ctl, size, method, args)
     }
 }
 

@@ -108,13 +108,13 @@ fn a_read_back_is_answered_by_the_canvas_part_and_refused_with_the_reason_before
     let log = seen.clone();
     let loaded = Rc::new(std::cell::Cell::new(false));
     let flag = loaded.clone();
-    h.canvas_read = Some(Rc::new(move |_inst, _ctl, method, args| {
+    h.canvas_read = Some(Rc::new(move |_inst, _ctl, _size, method, args| {
         log.borrow_mut().push((method.to_owned(), args.to_vec()));
         if flag.get() { CanvasRead::Answer("4278190335".into()) } else { CanvasRead::NotLoaded }
     }));
     let before = h.invoke(0, "CNV-A", "GetPixel", &["2", "2"]);
     let why = before.expect_err("the part has not loaded");
-    assert!(why.contains("GetPixel") && why.contains("has not finished loading"), "{why}");
+    assert!(why.contains("GetPixel") && why.contains("is not available yet"), "{why}");
     loaded.set(true);
     assert_eq!(h.invoke(0, "CNV-A", "GetPixel", &["2", "2"]), Ok(Some("4278190335".into())));
     assert_eq!(seen.borrow().last().unwrap(), &("GetPixel".to_owned(), vec!["2".to_owned(), "2".to_owned()]));

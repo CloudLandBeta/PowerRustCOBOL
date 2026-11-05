@@ -294,7 +294,7 @@ function createMainLink(env, module, manifest, bridge) {
     if (!L.gfx_size) return undefined;
     const head = view(gfxOff, 16);
     if (head[0] !== 0x50 || head[1] !== 0x52 || head[2] !== 0x47 || head[3] !== 0x44) return undefined;
-    const n = 16 + new DataView(head.buffer, head.byteOffset, 16).getUint32(12, true);
+    const n = 16 + (head[12] | (head[13] << 8) | (head[14] << 16) | (head[15] << 24)) >>> 0;
     return view(gfxOff, Math.min(n, L.gfx_size));
   };
   const imports = {
@@ -1044,7 +1044,7 @@ function copyGfx() {
   const off = L.batch_size + L.answer_size + 2 * L.frame_size;
   const head = view(off, 16);
   if (head[0] !== 0x50 || head[1] !== 0x52 || head[2] !== 0x47 || head[3] !== 0x44) return undefined;
-  const n = 16 + new DataView(head.buffer, head.byteOffset, 16).getUint32(12, true);
+  const n = 16 + (head[12] | (head[13] << 8) | (head[14] << 16) | (head[15] << 24)) >>> 0;
   return view(off, Math.min(n, L.gfx_size)).slice();
 }
 

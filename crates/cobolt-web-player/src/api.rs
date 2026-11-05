@@ -371,7 +371,7 @@ pub(crate) trait Surface {
     /// A user's act the host cannot perform by itself: resolve a menu item, show a notice, open a window.
     fn act(&self, inner: &Rc<Inner>, inst: u32, ctl: usize, act: Act);
     /// A read-back of the Canvas2D `ctl` (`GetPixel`, `ToImage` ...), answered by the Canvas part (WASM-018 T25).
-    fn canvas_read(&self, _inner: &Rc<Inner>, _inst: u32, _ctl: usize, _method: &str, _args: &[String]) -> crate::host::CanvasRead {
+    fn canvas_read(&self, _inner: &Rc<Inner>, _inst: u32, _ctl: usize, _size: (f64, f64), _method: &str, _args: &[String]) -> crate::host::CanvasRead {
         crate::host::CanvasRead::NotLoaded
     }
 }
@@ -412,6 +412,10 @@ pub(crate) struct Inner {
     auth_epoch_seen: Cell<u64>,
     /// Wakes the Authentication machine shortly before its token expires.
     auth_timer: RefCell<Option<Timeout>>,
+    /// The Canvas part's module, once the page has loaded it (see `preload_canvas_part`): a read-back of a canvas is
+    /// answered at once from it, however early in the program it is asked.
+    pub(crate) canvas_part: RefCell<Option<JsValue>>,
+    canvas_part_tried: Cell<bool>,
     /// reCAPTCHA: the time limits and the script's load listeners of the tokens being obtained.
     pub(crate) captcha: RefCell<crate::dom::captcha::Pending>,
     /// The authorisation code the hosted flow came back with, until a control takes it.
@@ -600,6 +604,21 @@ impl Inner {
             c.set_token(token);
         }
         self.drain_net();
+    }
+
+    /// A program with a Canvas2D (its manifest has a graphics region, ABI A23) may read a canvas back at once; the
+    /// Canvas part is therefore loaded before the first call into the module, once, so the answer never waits for a
+    /// download. A page that cannot load parts goes on: a read-back is then refused with a sentence.
+    async fn preload_canvas_part(&self) {
+        if self.canvas_part_tried.replace(true) {
+            return;
+        }
+        if self.host.borrow().manifest.limits.gfx_size == 0 {
+            return;
+        }
+        if let Ok(m) = self.part_module("canvas").await {
+            *self.canvas_part.borrow_mut() = Some(m);
+        }
     }
 
     /// Call `func` of the part `part` (a module of its own the loader fetches the first time it is asked
@@ -897,6 +916,7 @@ async fn drive(inner: &Rc<Inner>, link: &Rc<JsLink>) {
         let call = inner.host.borrow_mut().next_call();
         match call {
             Some(call) => {
+                inner.preload_canvas_part().await;
                 let result = link.run(&call).await;
                 if inner.dead.get() {
                     return;
@@ -928,11 +948,11 @@ async fn drive(inner: &Rc<Inner>, link: &Rc<JsLink>) {
 /// Let the host ask the Canvas part for the answer of a read-back (ABI A23, WASM-018 T25). The hook holds the player weakly.
 fn install_canvas_read(inner: &Rc<Inner>) {
     let weak = Rc::downgrade(inner);
-    inner.host.borrow_mut().canvas_read = Some(Rc::new(move |inst, ctl, method, args| {
+    inner.host.borrow_mut().canvas_read = Some(Rc::new(move |inst, ctl, size, method, args| {
         let Some(inner) = weak.upgrade() else { return crate::host::CanvasRead::NotLoaded };
         let sf = inner.surface.borrow();
         match sf.as_ref() {
-            Some(sf) => sf.canvas_read(&inner, inst, ctl, method, args),
+            Some(sf) => sf.canvas_read(&inner, inst, ctl, size, method, args),
             None => crate::host::CanvasRead::NotLoaded,
         }
     }));
@@ -1013,6 +1033,8 @@ impl Player {
             weak: RefCell::new(std::rc::Weak::new()),
             auth_epoch_seen: Cell::new(0),
             auth_timer: RefCell::new(None),
+            canvas_part: RefCell::new(None),
+            canvas_part_tried: Cell::new(false),
             captcha: RefCell::new(Default::default()),
             hosted_return: RefCell::new(hosted_return),
             superlink: RefCell::new(Default::default()),

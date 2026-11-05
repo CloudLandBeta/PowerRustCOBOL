@@ -59,6 +59,13 @@ fn message(e: &JsValue) -> String {
     e.as_string().or_else(|| Reflect::get(e, &"message".into()).ok().and_then(|m| m.as_string())).unwrap_or_else(|| format!("{e:?}"))
 }
 
+/// A `Surface2D` of `w` x `h` logical pixels from the loaded Canvas part.
+fn build_surface(module: &JsValue, w: f64, h: f64) -> Result<JsValue, String> {
+    let class = Reflect::get(module, &"Surface2D".into()).ok().and_then(|c| c.dyn_into::<Function>().ok()).ok_or("the canvas part has no Surface2D")?;
+    let args = Array::of3(&w.max(1.0).into(), &h.max(1.0).into(), &1.0.into());
+    Reflect::construct(&class, &args).map_err(|e| message(&e))
+}
+
 fn method(obj: &JsValue, name: &str) -> Option<Function> {
     Reflect::get(obj, &name.into()).ok().and_then(|f| f.dyn_into::<Function>().ok())
 }
@@ -104,10 +111,24 @@ impl Shared {
     /// Answer a read-back of the canvas (`GetPixel`, `MeasureText`, `ToImage` ...) with the picture the part holds:
     /// what was drawn before it is run first, so the answer is of the picture at this point of the program. Before the
     /// part has loaded there is nothing to answer from.
-    pub(crate) fn canvas_read(self: &Rc<Self>, _inner: &Rc<Inner>, inst: u32, ctl: usize, method_name: &str, args: &[String]) -> crate::host::CanvasRead {
+    pub(crate) fn canvas_read(self: &Rc<Self>, inner: &Rc<Inner>, inst: u32, ctl: usize, size: (f64, f64), method_name: &str, args: &[String]) -> crate::host::CanvasRead {
         use crate::host::CanvasRead;
         let obj = self.canvas.borrow().get(&(inst, ctl)).and_then(|r| r.obj.clone());
-        let Some(obj) = obj else { return CanvasRead::NotLoaded };
+        // The part is loaded when the application opens (`preload_canvas_part`), so a canvas that has not been drawn
+        // on yet is made here, from it, and answers at once.
+        let obj = match obj {
+            Some(o) => o,
+            None => {
+                let Some(module) = inner.canvas_part.borrow().clone() else { return CanvasRead::NotLoaded };
+                match build_surface(&module, size.0, size.1) {
+                    Ok(o) => {
+                        self.canvas.borrow_mut().entry((inst, ctl)).or_default().obj = Some(o.clone());
+                        o
+                    }
+                    Err(e) => return CanvasRead::Refused(e),
+                }
+            }
+        };
         self.canvas_run(inst, ctl);
         let Some(call) = method(&obj, "call") else { return CanvasRead::Refused("the canvas part has no call".into()) };
         let json = serde_json::to_string(args).unwrap_or_else(|_| "[]".into());
@@ -133,6 +154,7 @@ impl Shared {
             }
             rec.loading = true;
         }
+        let preloaded = inner.canvas_part.borrow().clone();
         let (w, h) = inner
             .host
             .try_borrow()
@@ -143,10 +165,11 @@ impl Shared {
         let inner = inner.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let built: Result<JsValue, String> = async {
-                let module = inner.part_module("canvas").await?;
-                let class = Reflect::get(&module, &"Surface2D".into()).ok().and_then(|c| c.dyn_into::<Function>().ok()).ok_or("the canvas part has no Surface2D")?;
-                let args = Array::of3(&w.max(1.0).into(), &h.max(1.0).into(), &1.0.into());
-                Reflect::construct(&class, &args).map_err(|e| message(&e))
+                let module = match preloaded {
+                    Some(m) => m,
+                    None => inner.part_module("canvas").await?,
+                };
+                build_surface(&module, w, h)
             }
             .await;
             let Some(sh) = weak.upgrade() else { return };
