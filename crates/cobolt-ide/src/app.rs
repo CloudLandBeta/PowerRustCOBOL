@@ -16233,6 +16233,7 @@ impl eframe::App for CoboltApp {
 
     fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         // WASM-018 T20: the Form Designer's Canvas3D placeholder names the backend this window draws with.
+        cobolt_forms::paint::set_designer_no_adapter_text(crate::i18n::current_tr(root_ui.ctx()).canvas_no_adapter);
         static DESIGNER_BACKEND: std::sync::Once = std::sync::Once::new();
         if let Some(rs) = frame.wgpu_render_state() {
             DESIGNER_BACKEND.call_once(|| {

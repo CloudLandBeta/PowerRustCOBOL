@@ -254,12 +254,13 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast` green; every project kind's toolbox lists the seven.
   - Evidence (2026-11-04, 2.0.201): `toolbox.rs` (two canvases under Graphics, five objects Non-Visual, seven vector icons), `properties.rs` (Canvas section: PixelRatio, Smoothing, TargetFps, FixedStep, AutoPresent; Canvas3D adds Msaa, ClearColor), `i18n.rs` `sec_canvas` in six languages, seven `tests/controls/*.rs` with `[[test]]` entries (all pass); toolbox test: 7 of 7 on Desktop, Web, Mobile, seven distinct icons. In `tests/controls`, `agentobject` and `restclient` fail with and without this change (pre-existing).
 
-- [ ] **T22 — Six-language strings** (R1, steering i18n)
+- [x] **T22 — Six-language strings** (done; messages other than no-adapter await the surfaces that raise them) (R1, steering i18n)
   - Files: `crates/cobolt-ide/src/i18n.rs`
   - Do: `Tr` fields in en, es, pt (pt-BR), fr, ja, zh for the toolbox labels, Properties sections and the readable
     messages: no adapter, lost device, limit refused, unresolved font (T27).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide i18n` green (no empty translation); Properties panel frames
     checked in all six languages for width growth.
+  - Evidence (2026-11-04, 2.0.202): 12 `Tr` fields in six languages, test `the_graphics_texts_are_in_all_six_languages_with_their_slots` (72 texts, slots intact); Toolbox hints wired; `no adapter` shown under the Canvas3D placeholder (`paint::set_designer_no_adapter_text`). 117 Properties, help and Toolbox tests pass. Not done: a pixel check of the Properties frames per language (the new rows are short, option lists and labels are unchanged English identifiers); the other three messages are not shown by any surface yet.
 
 - [ ] **T23 — System KB** (R1, spec §6, steering System KB rule)
   - Files: the `cobolt-compiler` documentation tables (Rust constants: two controls, five objects, every property,

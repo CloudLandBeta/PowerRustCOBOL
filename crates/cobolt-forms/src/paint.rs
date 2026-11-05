@@ -18503,6 +18503,17 @@ fn draw_canvas_surface(
 }
 
 static DESIGNER_BACKEND: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+static DESIGNER_NO_ADAPTER: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// The readable "no graphics adapter" sentence, in the IDE's language, which a Canvas3D placeholder shows
+/// when the machine has no backend. The IDE sets it every frame so a language change follows.
+pub fn set_designer_no_adapter_text(text: &str) {
+    if let Ok(mut t) = DESIGNER_NO_ADAPTER.lock() {
+        if *t != text {
+            *t = text.to_string();
+        }
+    }
+}
 
 /// The graphics backend this machine's window draws with (`Metal`, `Vulkan`, `Dx12`, `OpenGL`, `Software`),
 /// which the Form Designer shows on a Canvas3D placeholder. The IDE sets it once, from its own wgpu device.
@@ -18525,6 +18536,11 @@ pub fn canvas_placeholder_lines(ctrl: &Control) -> Vec<String> {
         let machine = DESIGNER_BACKEND.lock().map(|b| b.clone()).unwrap_or_default();
         let backend = [own, machine].into_iter().find(|b| !b.is_empty()).unwrap_or_else(|| "None".into());
         lines.push(format!("Backend: {backend}"));
+        if backend == "None" {
+            if let Some(why) = DESIGNER_NO_ADAPTER.lock().ok().map(|t| t.clone()).filter(|t| !t.is_empty()) {
+                lines.push(why);
+            }
+        }
     }
     lines
 }

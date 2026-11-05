@@ -1970,6 +1970,17 @@ pub struct Tr {
     /// WASM-006 — the Hyperlink's section of the Properties panel.
     pub sec_link: &'static str,
     pub sec_canvas: &'static str,
+    pub toolbox_canvas2d_tip: &'static str,
+    pub toolbox_canvas3d_tip: &'static str,
+    pub toolbox_imagebuffer_tip: &'static str,
+    pub toolbox_plot_tip: &'static str,
+    pub toolbox_scene3d_tip: &'static str,
+    pub toolbox_physics2d_tip: &'static str,
+    pub toolbox_physics3d_tip: &'static str,
+    pub canvas_no_adapter: &'static str,
+    pub canvas_device_lost: &'static str,
+    pub canvas_limit_refused: &'static str,
+    pub canvas_font_unresolved: &'static str,
     /// WASM-006 R7, R14 — under the Url field: the address is refused, followed by why.
     pub hyperlink_url_refused: &'static str,
     /// WASM-006 Q6 — under the Url field: the address as the URL parser reads it.
@@ -4376,6 +4387,17 @@ const EN: Tr = Tr {
     sec_basic:              "📋 Basic properties",
     sec_link: "🔗 Link",
     sec_canvas: "🖼 Canvas",
+    toolbox_canvas2d_tip: "Canvas2D — a drawing surface: lines, shapes, text and images, shown when the program calls Present",
+    toolbox_canvas3d_tip: "Canvas3D — a 3D view of a Scene3D, drawn on the graphics card",
+    toolbox_imagebuffer_tip: "ImageBuffer — a picture held in memory: load, filter, resize and save images",
+    toolbox_plot_tip: "Plot — line, bar, scatter and other charts drawn from numbers",
+    toolbox_scene3d_tip: "Scene3D — the things a Canvas3D shows: meshes, lights, cameras and models",
+    toolbox_physics2d_tip: "Physics2D — a 2D physics world: bodies, gravity and collisions",
+    toolbox_physics3d_tip: "Physics3D — a 3D physics world: bodies, gravity and collisions",
+    canvas_no_adapter: "3D cannot be drawn on this machine: no usable graphics adapter was found.",
+    canvas_device_lost: "The graphics device was lost; the 3D view was connected to a new one.",
+    canvas_limit_refused: "{what} is over its limit of {limit}. Raise it in the project's graphics settings.",
+    canvas_font_unresolved: "The font \"{font}\" was not found; the default font is used instead.",
     hyperlink_url_refused: "Refused — this address will not be followed:",
     hyperlink_url_opens: "Opens:",
     toolbox_hyperlink_tip: "Hyperlink — link text that opens an address: a web page, an e-mail, a phone number, a download",
@@ -6585,6 +6607,17 @@ const ES: Tr = Tr {
     sec_basic:              "📋 Propiedades básicas",
     sec_link: "🔗 Enlace",
     sec_canvas: "🖼 Lienzo",
+    toolbox_canvas2d_tip: "Canvas2D: una superficie de dibujo: líneas, formas, texto e imágenes, que se muestran cuando el programa llama a Present",
+    toolbox_canvas3d_tip: "Canvas3D: una vista 3D de una Scene3D, dibujada en la tarjeta gráfica",
+    toolbox_imagebuffer_tip: "ImageBuffer: una imagen en memoria: cargar, filtrar, redimensionar y guardar imágenes",
+    toolbox_plot_tip: "Plot: gráficos de líneas, barras, dispersión y otros, dibujados a partir de números",
+    toolbox_scene3d_tip: "Scene3D: lo que muestra un Canvas3D: mallas, luces, cámaras y modelos",
+    toolbox_physics2d_tip: "Physics2D: un mundo físico 2D: cuerpos, gravedad y colisiones",
+    toolbox_physics3d_tip: "Physics3D: un mundo físico 3D: cuerpos, gravedad y colisiones",
+    canvas_no_adapter: "No se puede dibujar en 3D en esta máquina: no se encontró ningún adaptador gráfico utilizable.",
+    canvas_device_lost: "Se perdió el dispositivo gráfico; la vista 3D se conectó a uno nuevo.",
+    canvas_limit_refused: "{what} supera su límite de {limit}. Auméntelo en la configuración de gráficos del proyecto.",
+    canvas_font_unresolved: "No se encontró la fuente \"{font}\"; se usa la fuente predeterminada.",
     hyperlink_url_refused: "Rechazada: esta dirección no se seguirá:",
     hyperlink_url_opens: "Abre:",
     toolbox_hyperlink_tip: "Hyperlink: texto de enlace que abre una dirección: una página web, un correo, un teléfono, una descarga",
@@ -8794,6 +8827,17 @@ const PT: Tr = Tr {
     sec_basic:              "📋 Propriedades básicas",
     sec_link: "🔗 Hiperlink",
     sec_canvas: "🖼 Tela de desenho",
+    toolbox_canvas2d_tip: "Canvas2D: uma superfície de desenho: linhas, formas, texto e imagens, exibidos quando o programa chama Present",
+    toolbox_canvas3d_tip: "Canvas3D: uma vista 3D de uma Scene3D, desenhada na placa gráfica",
+    toolbox_imagebuffer_tip: "ImageBuffer: uma imagem na memória: carregar, filtrar, redimensionar e salvar imagens",
+    toolbox_plot_tip: "Plot: gráficos de linhas, barras, dispersão e outros, desenhados a partir de números",
+    toolbox_scene3d_tip: "Scene3D: o que um Canvas3D mostra: malhas, luzes, câmeras e modelos",
+    toolbox_physics2d_tip: "Physics2D: um mundo físico 2D: corpos, gravidade e colisões",
+    toolbox_physics3d_tip: "Physics3D: um mundo físico 3D: corpos, gravidade e colisões",
+    canvas_no_adapter: "Não é possível desenhar em 3D nesta máquina: nenhum adaptador gráfico utilizável foi encontrado.",
+    canvas_device_lost: "O dispositivo gráfico foi perdido; a vista 3D foi conectada a um novo.",
+    canvas_limit_refused: "{what} passa do limite de {limit}. Aumente-o nas configurações gráficas do projeto.",
+    canvas_font_unresolved: "A fonte \"{font}\" não foi encontrada; a fonte padrão é usada no lugar.",
     hyperlink_url_refused: "Recusado: este endereço não será seguido:",
     hyperlink_url_opens: "Abre:",
     toolbox_hyperlink_tip: "Hyperlink: texto de link que abre um endereço: uma página web, um e-mail, um telefone, um download",
@@ -11002,6 +11046,17 @@ const JA: Tr = Tr {
     sec_basic:              "📋 基本プロパティ",
     sec_link: "🔗 リンク",
     sec_canvas: "🖼 キャンバス",
+    toolbox_canvas2d_tip: "Canvas2D — 描画面：線、図形、文字、画像を描き、プログラムが Present を呼ぶと表示されます",
+    toolbox_canvas3d_tip: "Canvas3D — Scene3D の 3D ビュー。グラフィックスカードで描画します",
+    toolbox_imagebuffer_tip: "ImageBuffer — メモリ上の画像：読み込み、フィルター、リサイズ、保存",
+    toolbox_plot_tip: "Plot — 数値から描く折れ線、棒、散布図などのグラフ",
+    toolbox_scene3d_tip: "Scene3D — Canvas3D が映すもの：メッシュ、ライト、カメラ、モデル",
+    toolbox_physics2d_tip: "Physics2D — 2D の物理世界：物体、重力、衝突",
+    toolbox_physics3d_tip: "Physics3D — 3D の物理世界：物体、重力、衝突",
+    canvas_no_adapter: "このマシンでは 3D を描画できません。使えるグラフィックスアダプターが見つかりませんでした。",
+    canvas_device_lost: "グラフィックスデバイスが失われたため、3D ビューを新しいデバイスに接続しました。",
+    canvas_limit_refused: "{what} が上限 {limit} を超えています。プロジェクトのグラフィックス設定で上限を引き上げてください。",
+    canvas_font_unresolved: "フォント「{font}」が見つかりません。代わりに既定のフォントを使います。",
     hyperlink_url_refused: "拒否されました。このアドレスは開かれません：",
     hyperlink_url_opens: "開く先：",
     toolbox_hyperlink_tip: "Hyperlink — アドレスを開くリンク文字列（Web ページ、メール、電話番号、ダウンロード）",
@@ -13216,6 +13271,17 @@ const ZH: Tr = Tr {
     sec_basic:              "📋 基本属性",
     sec_link: "🔗 链接",
     sec_canvas: "🖼 画布",
+    toolbox_canvas2d_tip: "Canvas2D — 绘图表面：线条、形状、文字和图像，在程序调用 Present 时显示",
+    toolbox_canvas3d_tip: "Canvas3D — Scene3D 的 3D 视图，由显卡绘制",
+    toolbox_imagebuffer_tip: "ImageBuffer — 内存中的图像：加载、滤镜、缩放和保存图像",
+    toolbox_plot_tip: "Plot — 由数字绘制的折线图、柱状图、散点图等图表",
+    toolbox_scene3d_tip: "Scene3D — Canvas3D 所显示的内容：网格、灯光、相机和模型",
+    toolbox_physics2d_tip: "Physics2D — 2D 物理世界：物体、重力和碰撞",
+    toolbox_physics3d_tip: "Physics3D — 3D 物理世界：物体、重力和碰撞",
+    canvas_no_adapter: "此机器无法绘制 3D：没有找到可用的图形适配器。",
+    canvas_device_lost: "图形设备已丢失；3D 视图已连接到新的设备。",
+    canvas_limit_refused: "{what} 超出了 {limit} 的上限。请在项目的图形设置中调高。",
+    canvas_font_unresolved: "找不到字体“{font}”；改用默认字体。",
     hyperlink_url_refused: "已拒绝：不会打开此地址：",
     hyperlink_url_opens: "打开：",
     toolbox_hyperlink_tip: "Hyperlink — 打开地址的链接文字：网页、电子邮件、电话号码或下载",
@@ -15426,6 +15492,17 @@ const FR: Tr = Tr {
     sec_basic:              "📋 Propriétés de base",
     sec_link: "🔗 Lien",
     sec_canvas: "🖼 Canevas",
+    toolbox_canvas2d_tip: "Canvas2D : une surface de dessin : lignes, formes, texte et images, affichés quand le programme appelle Present",
+    toolbox_canvas3d_tip: "Canvas3D : une vue 3D d'une Scene3D, dessinée sur la carte graphique",
+    toolbox_imagebuffer_tip: "ImageBuffer : une image en mémoire : charger, filtrer, redimensionner et enregistrer des images",
+    toolbox_plot_tip: "Plot : graphiques en lignes, barres, nuages de points et autres, tracés à partir de nombres",
+    toolbox_scene3d_tip: "Scene3D : ce qu'un Canvas3D montre : maillages, lumières, caméras et modèles",
+    toolbox_physics2d_tip: "Physics2D : un monde physique 2D : corps, gravité et collisions",
+    toolbox_physics3d_tip: "Physics3D : un monde physique 3D : corps, gravité et collisions",
+    canvas_no_adapter: "La 3D ne peut pas être dessinée sur cette machine : aucun adaptateur graphique utilisable n'a été trouvé.",
+    canvas_device_lost: "Le périphérique graphique a été perdu ; la vue 3D a été reliée à un nouveau.",
+    canvas_limit_refused: "{what} dépasse sa limite de {limit}. Augmentez-la dans les paramètres graphiques du projet.",
+    canvas_font_unresolved: "La police « {font} » est introuvable ; la police par défaut est utilisée.",
     hyperlink_url_refused: "Refusée : cette adresse ne sera pas suivie :",
     hyperlink_url_opens: "Ouvre :",
     toolbox_hyperlink_tip: "Hyperlink — texte de lien qui ouvre une adresse : une page web, un e-mail, un numéro de téléphone, un téléchargement",
@@ -16200,6 +16277,49 @@ const FR: Tr = Tr {
 mod i18n_tests {
     use super::*;
 
+    /// WASM-018 T22: the graphics texts exist in all six languages - none empty, each translated (not the
+    /// English copied), and the messages keep their `{what}`, `{limit}` and `{font}` slots.
+    #[test]
+    fn the_graphics_texts_are_in_all_six_languages_with_their_slots() {
+        let get = |t: &Tr| {
+            [
+                ("sec_canvas", t.sec_canvas),
+                ("toolbox_canvas2d_tip", t.toolbox_canvas2d_tip),
+                ("toolbox_canvas3d_tip", t.toolbox_canvas3d_tip),
+                ("toolbox_imagebuffer_tip", t.toolbox_imagebuffer_tip),
+                ("toolbox_plot_tip", t.toolbox_plot_tip),
+                ("toolbox_scene3d_tip", t.toolbox_scene3d_tip),
+                ("toolbox_physics2d_tip", t.toolbox_physics2d_tip),
+                ("toolbox_physics3d_tip", t.toolbox_physics3d_tip),
+                ("canvas_no_adapter", t.canvas_no_adapter),
+                ("canvas_device_lost", t.canvas_device_lost),
+                ("canvas_limit_refused", t.canvas_limit_refused),
+                ("canvas_font_unresolved", t.canvas_font_unresolved),
+            ]
+        };
+        let english = get(&Language::English.tr());
+        let mut checked = 0;
+        for &lang in Language::ALL {
+            let texts = get(&lang.tr());
+            for (i, (key, text)) in texts.iter().enumerate() {
+                assert!(!text.trim().is_empty(), "{key} is empty in {lang:?}");
+                if lang != Language::English && !key.starts_with("toolbox_") && *key != "sec_canvas" {
+                    assert_ne!(*text, english[i].1, "{key} is English in {lang:?}");
+                }
+                let slots: &[&str] = match *key {
+                    "canvas_limit_refused" => &["{what}", "{limit}"],
+                    "canvas_font_unresolved" => &["{font}"],
+                    _ => &[],
+                };
+                for s in slots {
+                    assert!(text.contains(s), "{key} in {lang:?} lost its {s}");
+                }
+                checked += 1;
+            }
+        }
+        println!("T22: {checked} graphics texts checked ({} keys x {} languages), slots intact", english.len(), Language::ALL.len());
+    }
+
     /// A representative spread of common UI strings (across menus, panels, labels).
     fn sample(t: &Tr) -> Vec<&'static str> {
         vec![
@@ -16886,6 +17006,17 @@ mod layer_strings_091 {
                 ("toolbox_visual_disabled_hint", t.toolbox_visual_disabled_hint),
                 ("sec_link", t.sec_link),
                 ("sec_canvas", t.sec_canvas),
+                ("toolbox_canvas2d_tip", t.toolbox_canvas2d_tip),
+                ("toolbox_canvas3d_tip", t.toolbox_canvas3d_tip),
+                ("toolbox_imagebuffer_tip", t.toolbox_imagebuffer_tip),
+                ("toolbox_plot_tip", t.toolbox_plot_tip),
+                ("toolbox_scene3d_tip", t.toolbox_scene3d_tip),
+                ("toolbox_physics2d_tip", t.toolbox_physics2d_tip),
+                ("toolbox_physics3d_tip", t.toolbox_physics3d_tip),
+                ("canvas_no_adapter", t.canvas_no_adapter),
+                ("canvas_device_lost", t.canvas_device_lost),
+                ("canvas_limit_refused", t.canvas_limit_refused),
+                ("canvas_font_unresolved", t.canvas_font_unresolved),
                 ("hyperlink_url_refused", t.hyperlink_url_refused),
                 ("hyperlink_url_opens", t.hyperlink_url_opens),
                 ("toolbox_hyperlink_tip", t.toolbox_hyperlink_tip),

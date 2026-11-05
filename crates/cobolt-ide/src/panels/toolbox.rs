@@ -1014,6 +1014,13 @@ fn icon_btn(
                     ControlType::Animator => "PlayGIF/WebP/APNG files",
                     ControlType::Hyperlink => crate::i18n::current_tr(ui.ctx()).toolbox_hyperlink_tip,
                     ControlType::Authentication => crate::i18n::current_tr(ui.ctx()).toolbox_authentication_tip,
+                    ControlType::Canvas2D => crate::i18n::current_tr(ui.ctx()).toolbox_canvas2d_tip,
+                    ControlType::Canvas3D => crate::i18n::current_tr(ui.ctx()).toolbox_canvas3d_tip,
+                    ControlType::ImageBuffer => crate::i18n::current_tr(ui.ctx()).toolbox_imagebuffer_tip,
+                    ControlType::Plot => crate::i18n::current_tr(ui.ctx()).toolbox_plot_tip,
+                    ControlType::Scene3D => crate::i18n::current_tr(ui.ctx()).toolbox_scene3d_tip,
+                    ControlType::Physics2D => crate::i18n::current_tr(ui.ctx()).toolbox_physics2d_tip,
+                    ControlType::Physics3D => crate::i18n::current_tr(ui.ctx()).toolbox_physics3d_tip,
                     _ => entry.label,
                 };
                 resp.on_hover_text(tooltip);

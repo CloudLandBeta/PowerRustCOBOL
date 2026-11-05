@@ -72,6 +72,13 @@ fn both_canvases_are_labelled_placeholders_with_name_size_and_backend() {
     assert!(ys[0] < ys[1] && ys[1] < ys[2], "name, then size, then backend: {ys:?}");
     assert!(ys[1] > three.rect.y as f32 && ys[1] < (three.rect.y + three.rect.h) as f32, "inside the control: {ys:?}");
 
+    // no backend on this machine: the placeholder says so, readably, in the IDE's language
+    set_designer_backend("");
+    cobolt_forms::paint::set_designer_no_adapter_text("3D cannot be drawn on this machine: no usable graphics adapter was found.");
+    let none = texts(three, None);
+    assert!(said(&none, "Backend: None") && said(&none, "3D cannot be drawn on this machine: no usable graphics adapter was found."), "{none:?}");
+    println!("T22: Canvas3D without a backend painted {:?}", none.iter().map(|t| t.0.as_str()).collect::<Vec<_>>());
+
     // a picture replaces the placeholder
     let shown = texts(two, Some(egui::TextureId::User(1)));
     assert!(shown.is_empty(), "with a picture there is no placeholder text: {shown:?}");
