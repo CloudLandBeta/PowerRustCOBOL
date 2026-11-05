@@ -8063,6 +8063,22 @@ impl PropertiesPanel {
                 ui.add_space(4.0);
             }
 
+            // ── Canvas2D / Canvas3D (WASM-018) ───────────────────────────────
+            ControlType::Canvas2D | ControlType::Canvas3D if phase == TypeSection::Basic => {
+                section_header(ui, tr.sec_canvas);
+                let text_of = |k: &str| ctrl.get_prop(k).map(|v| v.as_str().to_owned()).unwrap_or_default();
+                text_row_hint(ui, &mut self.hints, id, "PixelRatio", &text_of("PixelRatio"), "PixelRatio:", "1", action);
+                combo_row_inline(ui, id, "Smoothing", ctrl, action, cobolt_forms::graphics_controls::SMOOTHING);
+                int_row_inline(ui, id, "TargetFps", "TargetFps", ctrl, action, 0..=240);
+                bool_row_inline(ui, id, "FixedStep", "FixedStep", ctrl, action);
+                bool_row_inline(ui, id, "AutoPresent", "AutoPresent", ctrl, action);
+                if ctrl.control_type == ControlType::Canvas3D {
+                    combo_row_inline(ui, id, "Msaa", ctrl, action, &["1", "4"]);
+                    color_prop_row_default(ui, id, "ClearColor", "ClearColor", ctrl, action, "#000000FF");
+                }
+                ui.add_space(4.0);
+            }
+
             // ── Hyperlink (WASM-006) ─────────────────────────────────────────
             ControlType::Hyperlink if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_link);

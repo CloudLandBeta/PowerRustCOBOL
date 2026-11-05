@@ -247,11 +247,12 @@ Evidence for T1–T9 (plan §6.1, run 2026-10-20 on macOS, Apple M3 Pro): `cargo
     (MCP `render_form`).
   - Evidence (2026-11-04, 2.0.200): `paint::canvas_placeholder_lines` + dashed outline in `draw_canvas_surface`; `paint::set_designer_backend` fed once from the IDE's wgpu device (`app.rs`); test `a_canvas_shows_a_labelled_placeholder_in_the_designer` (saves and reloads a `.cfrm`, asserts the lines, their centring and order, and that a picture removes them). `cobolt-forms --features render` 98 result lines, 1832 passed, 0 failed. The outline is dashed but still a square rect: no corner path touched, so the Border Validation Agent was not run.
 
-- [ ] **T21 — Toolbox, icons, Properties-panel sections, `tests/controls/`** (R1)
+- [x] **T21 — Toolbox, icons, Properties-panel sections, `tests/controls/`** (code and tests done; the operator looks at the Toolbox and Properties) (R1)
   - Files: `crates/cobolt-ide/src/` (toolbox and Properties panel), the icon catalogue, `tests/controls/` (one test
     file per new type plus its `[[test]]` entry in `tests/controls/Cargo.toml`)
   - Verify: `cargo test --manifest-path tests/controls/Cargo.toml --no-fail-fast` green (seven new tests reported);
     `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast` green; every project kind's toolbox lists the seven.
+  - Evidence (2026-11-04, 2.0.201): `toolbox.rs` (two canvases under Graphics, five objects Non-Visual, seven vector icons), `properties.rs` (Canvas section: PixelRatio, Smoothing, TargetFps, FixedStep, AutoPresent; Canvas3D adds Msaa, ClearColor), `i18n.rs` `sec_canvas` in six languages, seven `tests/controls/*.rs` with `[[test]]` entries (all pass); toolbox test: 7 of 7 on Desktop, Web, Mobile, seven distinct icons. In `tests/controls`, `agentobject` and `restclient` fail with and without this change (pre-existing).
 
 - [ ] **T22 — Six-language strings** (R1, steering i18n)
   - Files: `crates/cobolt-ide/src/i18n.rs`

@@ -174,3 +174,31 @@ path = "toolbar.rs"
 [[test]]
 name = "treeview"
 path = "treeview.rs"
+
+[[test]]
+name = "canvas2d"
+path = "canvas2d.rs"
+
+[[test]]
+name = "canvas3d"
+path = "canvas3d.rs"
+
+[[test]]
+name = "imagebuffer"
+path = "imagebuffer.rs"
+
+[[test]]
+name = "plot"
+path = "plot.rs"
+
+[[test]]
+name = "scene3d"
+path = "scene3d.rs"
+
+[[test]]
+name = "physics2d"
+path = "physics2d.rs"
+
+[[test]]
+name = "physics3d"
+path = "physics3d.rs"

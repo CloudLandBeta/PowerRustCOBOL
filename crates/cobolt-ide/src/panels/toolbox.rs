@@ -174,6 +174,17 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::Shape,
         category: "Graphics",
     },
+    // ── WASM-018: a drawing surface, a 3D view ─────────────────────────────────
+    ToolEntry {
+        label: "Canvas2D",
+        ct: ControlType::Canvas2D,
+        category: "Graphics",
+    },
+    ToolEntry {
+        label: "Canvas3D",
+        ct: ControlType::Canvas3D,
+        category: "Graphics",
+    },
     // ── Menus & Bars ───────────────────────────────────────────────────────────
     ToolEntry {
         label: "MenuBar",
@@ -199,6 +210,32 @@ const TOOLS: &[ToolEntry] = &[
         category: "Menu",
     },
     // ── Non-visual ─────────────────────────────────────────────────────────────
+    // WASM-018 graphics objects (no face of their own)
+    ToolEntry {
+        label: "ImageBuffer",
+        ct: ControlType::ImageBuffer,
+        category: "NonVisual",
+    },
+    ToolEntry {
+        label: "Plot",
+        ct: ControlType::Plot,
+        category: "NonVisual",
+    },
+    ToolEntry {
+        label: "Scene3D",
+        ct: ControlType::Scene3D,
+        category: "NonVisual",
+    },
+    ToolEntry {
+        label: "Physics2D",
+        ct: ControlType::Physics2D,
+        category: "NonVisual",
+    },
+    ToolEntry {
+        label: "Physics3D",
+        ct: ControlType::Physics3D,
+        category: "NonVisual",
+    },
     ToolEntry {
         label: "Timer",
         ct: ControlType::Timer,
@@ -2033,6 +2070,61 @@ pub(crate) fn paint_control_icon(
             cobolt_forms::paint::nv_icon_snackbar(painter, c, r * 0.9, s);
         }
 
+        // ── WASM-018 ───────────────────────────────────────────────────────────
+        // A drawing surface: a frame with a pencil stroke across it.
+        ControlType::Canvas2D => {
+            let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 1.9));
+            painter.rect_stroke(b, 1.5, s, egui::StrokeKind::Middle);
+            painter.add(egui::Shape::line(
+                vec![
+                    Pos2::new(b.min.x + r * 0.3, b.max.y - r * 0.35),
+                    Pos2::new(c.x - r * 0.3, c.y - r * 0.2),
+                    Pos2::new(c.x + r * 0.2, c.y + r * 0.3),
+                    Pos2::new(b.max.x - r * 0.3, b.min.y + r * 0.35),
+                ],
+                s,
+            ));
+        }
+        // A 3D view: a cube.
+        ControlType::Canvas3D | ControlType::Scene3D => {
+            let d = r * 0.55;
+            let f = egui::Rect::from_center_size(Pos2::new(c.x - d * 0.4, c.y + d * 0.4), Vec2::splat(r * 1.4));
+            let o = Vec2::new(d, -d);
+            painter.rect_stroke(f, 0.0, s, egui::StrokeKind::Middle);
+            painter.rect_stroke(f.translate(o), 0.0, if ct == ControlType::Scene3D { th } else { s }, egui::StrokeKind::Middle);
+            for p in [f.left_top(), f.right_top(), f.right_bottom()] {
+                painter.line_segment([p, p + o], s);
+            }
+        }
+        // A picture held in memory: a frame with a hill and a sun.
+        ControlType::ImageBuffer => {
+            let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.4, r * 1.8));
+            painter.rect_stroke(b, 1.5, s, egui::StrokeKind::Middle);
+            painter.circle_stroke(Pos2::new(b.max.x - r * 0.55, b.min.y + r * 0.5), r * 0.2, th);
+            painter.add(egui::Shape::line(
+                vec![Pos2::new(b.min.x, b.max.y), Pos2::new(c.x - r * 0.2, c.y), Pos2::new(c.x + r * 0.3, c.y + r * 0.45), Pos2::new(b.max.x, c.y - r * 0.1)],
+                th,
+            ));
+        }
+        // A chart: axes and a rising line.
+        ControlType::Plot => {
+            let o = Pos2::new(c.x - r * 1.1, c.y + r * 0.9);
+            painter.line_segment([o, Pos2::new(o.x, c.y - r * 0.95)], s);
+            painter.line_segment([o, Pos2::new(c.x + r * 1.15, o.y)], s);
+            painter.add(egui::Shape::line(
+                vec![Pos2::new(o.x + r * 0.2, o.y - r * 0.3), Pos2::new(c.x - r * 0.4, c.y), Pos2::new(c.x + r * 0.2, c.y + r * 0.25), Pos2::new(c.x + r * 0.95, c.y - r * 0.7)],
+                th,
+            ));
+        }
+        // Physics: a ball resting on a ramp (2D) or a ball over a box (3D).
+        ControlType::Physics2D | ControlType::Physics3D => {
+            painter.add(egui::Shape::line(vec![Pos2::new(c.x - r * 1.1, c.y + r * 0.2), Pos2::new(c.x + r * 0.9, c.y + r * 0.9)], s));
+            painter.circle_stroke(Pos2::new(c.x - r * 0.1, c.y - r * 0.2), r * 0.45, s);
+            if ct == ControlType::Physics3D {
+                painter.rect_stroke(egui::Rect::from_center_size(Pos2::new(c.x + r * 0.7, c.y - r * 0.55), Vec2::splat(r * 0.6)), 0.0, th, egui::StrokeKind::Middle);
+            }
+        }
+
         _ => {
             painter.rect_stroke(
                 egui::Rect::from_center_size(c, Vec2::new(r * 2.0, r * 1.6)),
@@ -2105,6 +2197,45 @@ mod snackbar_icon_tests {
             "the snackbar icon is still the {}-shape fallback box",
             toolbox.len()
         );
+    }
+
+    /// WASM-018 T21 (R1): the seven are in every project kind's toolbox, in the right place (the two
+    /// canvases under Graphics, the five objects non-visual), and each has an icon of its own - not the
+    /// fallback box, and no two the same.
+    #[test]
+    fn the_seven_graphics_types_are_offered_everywhere_with_icons_of_their_own() {
+        let seven = [
+            ControlType::Canvas2D,
+            ControlType::Canvas3D,
+            ControlType::ImageBuffer,
+            ControlType::Plot,
+            ControlType::Scene3D,
+            ControlType::Physics2D,
+            ControlType::Physics3D,
+        ];
+        for kind in ProjectKind::ALL {
+            let listed = tools_for(kind).filter(|e| seven.contains(&e.ct)).count();
+            println!("T21: {kind:?} toolbox lists {listed} of the seven");
+            assert_eq!(listed, 7, "{kind:?}");
+        }
+        assert_eq!(category_of(ControlType::Canvas2D), "Graphics");
+        assert_eq!(category_of(ControlType::Canvas3D), "Graphics");
+        for ct in &seven[2..] {
+            assert_eq!(category_of(ct.clone()), "NonVisual", "{ct:?}");
+        }
+        let color = Color32::from_rgb(200, 205, 215);
+        let icons: Vec<(String, Vec<String>)> = seven
+            .iter()
+            .map(|ct| (format!("{ct:?}"), shapes(|p, rect| paint_control_icon(p, rect, ct.clone(), color))))
+            .collect();
+        let fallback = shapes(|p, rect| paint_control_icon(p, rect, ControlType::Custom { plugin_id: "x".into(), control_id: "x".into() }, color));
+        for (i, (name, shape)) in icons.iter().enumerate() {
+            assert_ne!(*shape, fallback, "{name} still has the fallback box");
+            for (other, o) in &icons[i + 1..] {
+                assert_ne!(shape, o, "{name} and {other} share an icon");
+            }
+        }
+        println!("T21: seven icons, none the fallback, none alike");
     }
 
     /// Spec 078 A5 — the AWS tiles too: the toolbox paints the same SVG tile
