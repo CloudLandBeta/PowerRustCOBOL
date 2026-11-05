@@ -94,7 +94,12 @@ pub fn check_control(ct: ControlType, label: &str) -> Vec<PropResult> {
         .expect("loaded form has the control");
 
     for name in &names {
-        let exp = expected.get(name).cloned().unwrap_or_default();
+        // A credential is never written to a `.cfrm` (`connections::CREDENTIAL_PROPS`, since 1.65.90): it reloads empty.
+        let exp = if cobolt_forms::connections::CREDENTIAL_PROPS.iter().any(|c| c.eq_ignore_ascii_case(name)) {
+            String::new()
+        } else {
+            expected.get(name).cloned().unwrap_or_default()
+        };
         let got = lctrl
             .get_prop(name)
             .map(|v| v.to_xml_string())

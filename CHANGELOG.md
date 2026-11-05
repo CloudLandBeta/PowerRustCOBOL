@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.223 — 2026-11-05
+
+**WASM-018 closed: T29 (lavapipe green, tolerances recorded) and T33 (the sweep).** *(Written on features-2x-wasm-pending, after 2.0.222.)* The lavapipe job passes on GitHub (18 tests, nothing skipped, backend `Software`; run of c0ce3e32), and the golden tolerance measured there (worst channel 32; Metal 0) is in plan §6. The finalizing sweep read every `test result`: graphics-wire, graphics, ast, parser, wasm-abi, wasm-rt, wasm, codegen, project-tools, form-host, compiler, runtime (201 suites, 1,652 tests), forms with `render` (1,837), the player (442 + freshness) and `tests/controls` (43) all pass; `cobolt-ide` has 1,959 passed and 3 failed, all three the known unrelated ones (a translation check and two live crates.io tests). Fixed on the way: the controls harness expected credentials to survive a save and reload (they never have since 1.65.90); the shipped player is rebuilt (its freshness check had gone stale after the `cobolt-wasm-abi` manifest edit). Plan §9 is rewritten with what is met and what is not (the threaded player is still not faster than the plain one).
+
 ## 2.0.222 — 2026-11-05
 
 **WASM-018 T29: the lavapipe job can now go red, and it showed two tests failing on lavapipe.** *(Written on features-2x-wasm-pending, after 2.0.221.)* The green run of 2.0.220/2.0.221 was not honest: its annotations read `test result: FAILED. 16 passed; 2 failed`, because the step piped `cargo test` into `tee` and GitHub's default shell has no `pipefail`, so the failure vanished. The step now runs under `shell: bash` (which has it), and the reporting step runs even after a failure and names the failing tests. **Measured on lavapipe (Mesa 25.2.8, LLVM 20.1.2):** the 3D golden's worst channel is 32 (the old limit was 24), with 1 of 76,800 pixels over 6; on Metal it is 0 and 0. The limit is now 40, with both numbers written where it is defined. The second failing test is named by the next run.
