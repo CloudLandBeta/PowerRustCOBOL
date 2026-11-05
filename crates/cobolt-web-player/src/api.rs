@@ -593,6 +593,12 @@ impl Inner {
                     }
                 }
                 Out::Warning(w) => web_sys::console::warn_1(&w.into()),
+                Out::BackendVersion { state, message, update_to } => {
+                    self.host.borrow_mut().backend_version(&state, &message, &update_to);
+                }
+                Out::BackendWarning { program, message } => {
+                    self.host.borrow_mut().backend_warning(&program, &message);
+                }
                 Out::Blocked(b) => {
                     modal_changed |= self.net_blocked.replace(b) != b;
                 }

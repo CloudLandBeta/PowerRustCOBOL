@@ -4563,6 +4563,13 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
             // attempts (WASM-003 R25). Raised by the web player on the form the
             // page started with; the desktop host does not raise it yet.
             "onBackendUnreachable",
+            // WASM-014 R2 — the backend's `hello` was not ok: the application is older than the backend
+            // (`warn`, still served) or too old/new to be served (`refused`). Raised on the main form;
+            // `COBOL::"WS-VERSION" ( state message update-to )` reads what the backend said.
+            "onBackendVersion",
+            // WASM-014 R6 — a call's reply carried a warning (a deprecated program). Raised on the main
+            // form; `COBOL::"WS-WARNING" ( message program )` reads it.
+            "onBackendWarning",
             // WASM-011 R6 — the address named no form the application has (a
             // bookmark, a pasted link); raised on the main form with the address's
             // form name. Web only: a desktop window has no address.
@@ -12969,6 +12976,9 @@ mod tests {
             "onFullScreenChanged",
             // WASM-016 R21.
             "onBackendUnreachable",
+            // WASM-014 R2, R6.
+            "onBackendVersion",
+            "onBackendWarning",
             // WASM-011 R6, R10.
             "onRouteNotFound",
             "onPopupBlocked",
@@ -12977,8 +12987,8 @@ mod tests {
         }
         assert_eq!(
             all.len(),
-            61,
-            "expected 61 form events — 68 less the ELEVEN retired on 2026-09-06, plus 056's onBreakpointChanged, WASM-016's onBackendUnreachable and WASM-011's onRouteNotFound and onPopupBlocked"
+            63,
+            "expected 63 form events — 68 less the ELEVEN retired on 2026-09-06, plus 056's onBreakpointChanged, WASM-016's onBackendUnreachable, WASM-014's onBackendVersion and onBackendWarning and WASM-011's onRouteNotFound and onPopupBlocked"
         );
     }
 

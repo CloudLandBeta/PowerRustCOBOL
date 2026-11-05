@@ -59,6 +59,10 @@ pub const MAX_PARAM_VALUE: usize = 512;
 /// The form event the player raises when the connection to the backend gave up (WASM-016 R21; the form catalogue's
 /// "Error Handling" group, `cobolt_forms::model::FORM_EVENT_GROUPS`).
 pub const ON_BACKEND_UNREACHABLE: &str = "onBackendUnreachable";
+/// The backend's `hello` was not ok (WASM-014 R2, T9).
+pub const ON_BACKEND_VERSION: &str = "onBackendVersion";
+/// A call's reply carried a warning (WASM-014 R6, T9).
+pub const ON_BACKEND_WARNING: &str = "onBackendWarning";
 
 /// The form event raised on the main form when the page's address names no form the application has (WASM-011 R6);
 /// its argument is the name the address gave.
@@ -857,6 +861,20 @@ impl Host {
     pub fn backend_unreachable(&mut self) -> bool {
         let Some(inst) = self.trees.values().filter(|t| t.opener.is_none()).map(|t| t.inst).min() else { return false };
         self.dom_event(inst, 0, ON_BACKEND_UNREACHABLE, Vec::new())
+    }
+
+    /// The backend's `hello` was not ok (WASM-014 R2): `onBackendVersion` is raised on the main form - the form the page started
+    /// with - with `state` (`warn` or `refused`), the backend's message and the contract to update to, when a handler is bound.
+    pub fn backend_version(&mut self, state: &str, message: &str, update_to: &str) -> bool {
+        let Some(inst) = self.trees.values().filter(|t| t.opener.is_none()).map(|t| t.inst).min() else { return false };
+        self.dom_event(inst, 0, ON_BACKEND_VERSION, vec![state.to_owned(), message.to_owned(), update_to.to_owned()])
+    }
+
+    /// A call's reply carried a warning (WASM-014 R6): `onBackendWarning` is raised on the main form with the program's name and
+    /// the text, when a handler is bound.
+    pub fn backend_warning(&mut self, program: &str, message: &str) -> bool {
+        let Some(inst) = self.trees.values().filter(|t| t.opener.is_none()).map(|t| t.inst).min() else { return false };
+        self.dom_event(inst, 0, ON_BACKEND_WARNING, vec![program.to_owned(), message.to_owned()])
     }
 
     /// The address named `form`, which the application does not have (WASM-011 R6): `onRouteNotFound` is raised on the
@@ -3119,6 +3137,8 @@ mod raise_tests;
 mod resize_tests;
 #[cfg(test)]
 mod unreachable_tests;
+#[cfg(test)]
+mod backend_version_tests;
 #[cfg(test)]
 mod numeric_tests;
 #[cfg(test)]

@@ -79,7 +79,10 @@ pub struct AppFailure {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteEvent {
     Progress { percent: u8, message: String },
-    Warning(String),
+    /// A call's reply carried a warning (a deprecated program, an older application).
+    Warning { program: String, message: String },
+    /// The backend's hello was not ok (WASM-014 R2): `state` is `warn` or `refused`.
+    Version { state: String, message: String, update_to: String },
 }
 
 type DefaultTransport = Box<dyn Fn() -> Option<Box<dyn Transport>> + Send + Sync>;
@@ -93,6 +96,26 @@ pub fn set_default_transport_factory(f: impl Fn() -> Option<Box<dyn Transport>> 
     DEFAULT_TRANSPORT.set(Box::new(f)).is_ok()
 }
 
+/// Where the application's MAIN form hears of the backend's version and warnings (WASM-014 T9), for every
+/// interpreter of the process: the root form's, the child forms', the compiled binary's. Registered once by the
+/// host that runs the main form; the events are `onBackendVersion` and `onBackendWarning`.
+static MAIN_FORM_EVENTS: std::sync::Mutex<Option<(std::sync::mpsc::Sender<crate::FormEvent>, String)>> = std::sync::Mutex::new(None);
+
+/// Register (or replace) where the main form named `form` is sent the backend events.
+pub fn set_main_form_events(tx: std::sync::mpsc::Sender<crate::FormEvent>, form: &str) {
+    if let Ok(mut g) = MAIN_FORM_EVENTS.lock() {
+        *g = Some((tx, form.to_string()));
+    }
+}
+
+fn send_to_main_form(event: &str, value: String) {
+    if let Ok(g) = MAIN_FORM_EVENTS.lock() {
+        if let Some((tx, form)) = g.as_ref() {
+            let _ = tx.send(crate::FormEvent::new(form.clone(), event).with_value(value));
+        }
+    }
+}
+
 type EventSink = Box<dyn FnMut(RemoteEvent) + Send>;
 
 /// The run's remote-call state.
@@ -104,6 +127,10 @@ pub struct RemoteState {
     pub(crate) last_error: Option<CallError>,
     /// Warnings the backend attached to the last successful call.
     pub(crate) warnings: Vec<String>,
+    /// The program whose reply carried the latest warning (set when `onBackendWarning` reaches this form).
+    pub(crate) warning_program: String,
+    /// The latest hello that was not ok, as `onBackendVersion` delivered it: state, message, update-to.
+    pub(crate) version: Option<(String, String, String)>,
     /// The caller's claims, on the backend (`COBOL::"WS-CLAIM"`); read-only to
     /// the program.
     pub(crate) claims: HashMap<String, String>,
@@ -125,6 +152,8 @@ pub struct RemoteState {
 
 /// Feeds a transport's reports to the host and to the interpreter's own state.
 struct Observer<'a> {
+    /// The program being called (empty for a file transfer).
+    program: &'a str,
     events: &'a mut Option<EventSink>,
     warnings: &'a mut Vec<String>,
     cancel: &'a Arc<AtomicBool>,
@@ -140,8 +169,16 @@ impl CallObserver for Observer<'_> {
     fn warning(&mut self, message: &str) {
         self.warnings.push(message.to_string());
         if let Some(f) = self.events.as_mut() {
-            f(RemoteEvent::Warning(message.to_string()));
+            f(RemoteEvent::Warning { program: self.program.to_string(), message: message.to_string() });
         }
+        send_to_main_form("onBackendWarning", format!("{}\t{}", self.program, message));
+    }
+
+    fn backend_version(&mut self, state: &str, message: &str, update_to: &str) {
+        if let Some(f) = self.events.as_mut() {
+            f(RemoteEvent::Version { state: state.to_string(), message: message.to_string(), update_to: update_to.to_string() });
+        }
+        send_to_main_form("onBackendVersion", format!("{state}\t{message}\t{update_to}"));
     }
 
     fn cancel_requested(&mut self) -> bool {
@@ -411,7 +448,8 @@ impl Interpreter {
             )
             .may_have_run(false));
         };
-        let mut observer = Observer { events, warnings, cancel };
+        let program = request.program.clone();
+        let mut observer = Observer { program: &program, events, warnings, cancel };
         let outcome = transport.call_observed(request, &mut observer);
         let reply = match outcome {
             Ok(r) => r,
@@ -682,12 +720,39 @@ impl Interpreter {
 
     // ── the frontend's side ──────────────────────────────────────────────────
 
-    /// `COBOL::"WS-WARNING"( message )`: the most recent warning the backend attached.
+    /// `COBOL::"WS-WARNING"( message [program] )`: the most recent warning the backend attached, and the program whose reply carried it.
     pub(super) fn builtin_ws_warning(&mut self, using: &[CallArg]) {
         let w = self.remote.warnings.last().cloned().unwrap_or_default();
         if let Some(a) = using.first() {
             let n = self.expr_to_name(call_arg_expr(a));
             self.env.set_str(&n, &w);
+        }
+        if let Some(a) = using.get(1) {
+            let n = self.expr_to_name(call_arg_expr(a));
+            let p = self.remote.warning_program.clone();
+            self.env.set_str(&n, &p);
+        }
+    }
+
+    /// `COBOL::"WS-VERSION"( state message update-to )`: what the backend said about this application's version in the latest
+    /// `hello` that was not ok - `warn` or `refused`, its message, and the contract to update to; spaces when it said nothing.
+    pub(super) fn builtin_ws_version(&mut self, using: &[CallArg]) {
+        let (s, m, u) = self.remote.version.clone().unwrap_or_default();
+        for (a, v) in using.iter().zip([s, m, u]) {
+            let n = self.expr_to_name(call_arg_expr(a));
+            self.env.set_str(&n, &v);
+        }
+    }
+
+    /// The backend events reach the main form as ordinary form events; keep what they carry where `WS-WARNING` and `WS-VERSION` read it.
+    pub(super) fn note_backend_event(&mut self, event: &str, value: &str) {
+        if event.eq_ignore_ascii_case("onBackendWarning") {
+            let (program, message) = value.split_once('\t').unwrap_or(("", value));
+            self.remote.warning_program = program.to_string();
+            self.remote.warnings = vec![message.to_string()];
+        } else if event.eq_ignore_ascii_case("onBackendVersion") {
+            let mut p = value.splitn(3, '\t').map(str::to_string);
+            self.remote.version = Some((p.next().unwrap_or_default(), p.next().unwrap_or_default(), p.next().unwrap_or_default()));
         }
     }
 
@@ -723,7 +788,7 @@ impl Interpreter {
             match transport.as_mut() {
                 None => (String::new(), "NOBACKEND"),
                 Some(t) => {
-                    let mut observer = Observer { events, warnings, cancel };
+                    let mut observer = Observer { program: "", events, warnings, cancel };
                     let r = t.upload(&UploadRequest { slot, path: p, name, mime }, &mut observer);
                     match r {
                         Ok(done) => (done.file, "OK"),
@@ -759,7 +824,7 @@ impl Interpreter {
                 return Ok(());
             }
             Some(t) => {
-                let mut observer = Observer { events, warnings, cancel };
+                let mut observer = Observer { program: "", events, warnings, cancel };
                 t.download(&DownloadRequest { file, dest }, &mut observer).map(|_| ())
             }
         };

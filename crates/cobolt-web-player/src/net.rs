@@ -106,6 +106,10 @@ pub enum Out {
     /// The policy gave up: the backend could not be reached (`true`, WASM-016 R21); `false` once a
     /// later connection works.
     Unreachable(bool),
+    /// The backend's `hello` was not ok (WASM-014 R2): `onBackendVersion` on the main form. `state` is `warn` or `refused`.
+    BackendVersion { state: String, message: String, update_to: String },
+    /// A call's reply carried a warning (WASM-014 R6): `onBackendWarning` on the main form, with the program's name.
+    BackendWarning { program: String, message: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -701,6 +705,7 @@ impl<S: Socket> Client<S> {
                     self.rx = Some(rx);
                     if s("accepted") == "warn" {
                         self.out.push(Out::Warning(format!("backend: {}", s("message"))));
+                        self.out.push(Out::BackendVersion { state: "warn".into(), message: s("message"), update_to: s("update_to") });
                     }
                     match self.token.clone() {
                         Some(t) => {
@@ -717,6 +722,7 @@ impl<S: Socket> Client<S> {
                     let c = if too_old { code::CLIENT_TOO_OLD } else { code::CLIENT_TOO_NEW };
                     let m = s("message");
                     self.out.push(Out::Warning(format!("backend refused the connection: {m}")));
+                    self.out.push(Out::BackendVersion { state: "refused".into(), message: m.clone(), update_to: s("update_to") });
                     self.fail_all(class::VERSION, c, &m);
                     self.wanted = false;
                     let now = self.clock;
@@ -735,6 +741,9 @@ impl<S: Socket> Client<S> {
                 let Some(f) = self.inflight.remove(&id) else { return };
                 // ABI A12: `result` is the body of `proto::Reply`; the module reads its `args` and `returning`.
                 let frame = format!("{{\"id\":{id},\"result\":{}}}", text.trim());
+                for w in v.get("warnings").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+                    self.out.push(Out::BackendWarning { program: f.program.clone(), message: w.to_owned() });
+                }
                 if id < PLAYER_ID_BASE && frame.len() > MODULE_ANSWER_LIMIT {
                     let m = format!("answer too large (limit 64 KiB): the answer of {} is {} bytes", if f.program.is_empty() { "the call" } else { &f.program }, frame.len());
                     self.out.push(Out::Answer { id, frame: error_frame(id, class::LIMIT, code::FRAME_TOO_LARGE, &m, None) });
@@ -1754,6 +1763,34 @@ mod tests {
         let st = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cobolt-wasm-rt/src/state.rs")).unwrap();
         assert!(st.contains("pub const FRAME_SIZE: u32 = 64 * 1024;"), "cobolt-wasm-rt changed its FRAME_SIZE: update MODULE_ANSWER_LIMIT");
         assert_eq!(MODULE_ANSWER_LIMIT, 65_536);
+    }
+
+    /// WASM-014 T9: a `warn` hello and a warning on a reply are reported for the application's main form.
+    #[test]
+    fn a_warn_hello_and_a_reply_warning_are_reported_to_the_application() {
+        let mut c = client();
+        c.connect(URL, 0).unwrap();
+        let id = c.request(br#"{"program":"FUND-TOTALS","args":[],"returning":true}"#, 1);
+        c.on_open(2);
+        c.on_message(&hello_json("warn", r#""message":"update the application","update_to":"1.2.0","#));
+        c.on_message(&format!(r#"{{"t":"reply","id":{id},"args":[],"returning":1,"warnings":["FUND-TOTALS is deprecated: use FUND-TOTALS-V2"]}}"#));
+        let out = c.take_out();
+        let reported: Vec<&Out> = out.iter().filter(|o| matches!(o, Out::BackendVersion { .. } | Out::BackendWarning { .. })).collect();
+        println!("reported for the main form: {reported:?}");
+        assert_eq!(reported[0], &Out::BackendVersion { state: "warn".into(), message: "update the application".into(), update_to: "1.2.0".into() });
+        assert_eq!(reported[1], &Out::BackendWarning { program: "FUND-TOTALS".into(), message: "FUND-TOTALS is deprecated: use FUND-TOTALS-V2".into() });
+        assert_eq!(reported.len(), 2);
+    }
+
+    /// WASM-014 T9: a refused hello is reported too, with the contract to update to.
+    #[test]
+    fn a_refused_hello_is_reported_with_the_update_to_contract() {
+        let mut c = client();
+        c.connect(URL, 0).unwrap();
+        c.on_open(1);
+        c.on_message(&hello_json("refused", r#""message":"this application is too old","update_to":"2.0.0","#));
+        let out = c.take_out();
+        assert!(out.contains(&Out::BackendVersion { state: "refused".into(), message: "this application is too old".into(), update_to: "2.0.0".into() }), "{out:?}");
     }
 
     #[test]

@@ -255,5 +255,6 @@ Every argument is `text` (§7). The player raises exactly these; an event not li
 | `onButtonClick` (Snackbar) | the button's id |
 | `onSignedIn` · `onSignedOut` · `onSignUpCompleted` · `onPasswordResetRequested` · `onMfaRequired` · `onConsentRequired` (Authentication) | none |
 | `onRouteNotFound` (form, A20) | the form name the address gave, which the application does not have; raised on the main form (the first form, in a standalone page) |
-| `onPopupBlocked` (form, A20) | the name of the form whose window the browser refused; raised on the opener's form |
+| `onBackendVersion` (form, WASM-014 T9) | `state⇥message⇥update-to`: `state` is `warn` (the backend serves an older application and says so) or `refused` (every later call fails `version 600x` until the application is updated); `update-to` is the contract to update to, empty when the backend named none. Raised on the main form after each `hello` that is not `ok` |
+| `onBackendWarning` (form, WASM-014 T9) | `program⇥message`: the program whose reply carried a warning (a deprecated program) and the warning text. Raised on the main form || `onPopupBlocked` (form, A20) | the name of the form whose window the browser refused; raised on the opener's form |
 | `onError` (Authentication) | the outcome word of the backend's answer (`auth-failed`, `rate-limited`, `invalid`) or the HTTP status (`http/403`), never its message (A19) |

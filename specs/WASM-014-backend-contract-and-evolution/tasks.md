@@ -300,7 +300,7 @@ as completed.
       round-trips;
     - the player suite: the `hello` carries the manifest's contract, and `idempotent` comes from `remote`.
 
-- [ ] **T9 — `onBackendVersion` and `onBackendWarning` on the main form, in every host** (R2, R6; AC1, AC3; Δ7)
+- [x] **T9 — `onBackendVersion` and `onBackendWarning` on the main form, in every host** (R2, R6; AC1, AC3; Δ7)
   - Files:
     - `crates/cobolt-runtime/src/interpreter/remote.rs`: `RemoteEvent::Version {state, message, update_to}`, and `Warning` carries the
       program;

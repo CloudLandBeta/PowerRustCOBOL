@@ -4606,6 +4606,8 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         mpsc::channel::<cobolt_runtime::form_host::FormRequest>();
     let (closed_tx, closed_rx) = mpsc::channel::<String>();
     let form_object = first_form.name.trim().to_ascii_uppercase();
+    // WASM-014 T9: the backend's version notices and warnings reach this main form as events, from every form of the run.
+    cobolt_runtime::interpreter::remote::set_main_form_events(ev_tx.clone(), &form_object);
 
     // 049 — a SideMenu on the MAIN form puts the application in SHELL mode:
     // one window laid out as MenuPane + breadcrumb + ContentPane, exactly what
@@ -5329,7 +5331,8 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"WS-PAUSE"` | milliseconds in | On the backend, wait; it ends early when the caller asks to cancel |
 | `COBOL::"WS-PROGRESS"` | percent in, message in | On the backend, report the progress of a long-running call; it is a safe point where a cancel ends the call |
 | `COBOL::"WS-UPLOAD"` | slot in, path in, mime in, file-id out, status out | Send a local file into one of the backend's upload slots, in pieces; OK, NOFILE, REFUSED (see WS-LAST-ERROR), FAILED or NOBACKEND |
-| `COBOL::"WS-WARNING"` | message out | The most recent warning the backend attached to a call (a deprecated program, an older application); spaces when none |
+| `COBOL::"WS-VERSION"` | state out, message out, update-to out | What the backend said about this application's version in the latest connection that was not accepted as is: `warn` or `refused`, its message and the contract to update to; spaces when it said nothing (read it in `onBackendVersion`) |
+| `COBOL::"WS-WARNING"` | message out, [program out]| The most recent warning the backend attached to a call (a deprecated program, an older application), and the program whose reply carried it; spaces when none (read it in `onBackendWarning`) |
 
 ### Timed sequences and layout scripts — `ANIMATIONSEQUENCE`, `LAYOUT`
 Both take an **action word** first and a **script** as a string, so one call replaces a run of calls. They are written as methods of the `COBOL` object, `COBOL::AnimationSequence(...)` and `COBOL::Layout(...)`; the table above lists them under their built-in names `COBOL::"ANIMATIONSEQUENCE"` and `COBOL::"LAYOUT"`, which are the same calls. The script is data in a string, one entry per line or separated by `;` (so a plain literal works in fixed format), `*>` starts a comment, and in free format a block literal of three backticks on its own lines holds a multi-line script.
@@ -6189,12 +6192,18 @@ nothing will ever call it.
 - **Clipboard** — `onCut`, `onCopy`, `onPaste`
 - **System / OS** — `onSystemColorChanged`
 - **Error Handling** — `onUnhandledException`, `onBackendUnreachable`,
-  `onRouteNotFound`, `onPopupBlocked`
+  `onBackendVersion`, `onBackendWarning`, `onRouteNotFound`, `onPopupBlocked`
 
 `onBackendUnreachable` fires when the connection to the backend gave up after its
 three attempts (see *A lost connection* under *Calling the backend*), on the form the
 page started with — the main form of a single-page application. It is raised by the
 web player; the desktop form host does not raise it yet.
+
+`onBackendVersion` fires on the main form after a connection to the backend that was not accepted as is: `warn` (this
+application is older than the backend and is still served) or `refused` (every call then fails `version 600x` until the
+application is updated). Read `COBOL::"WS-VERSION" ( state message update-to )` in the handler. `onBackendWarning` fires on
+the main form after a call whose reply carried a warning (a deprecated program); `COBOL::"WS-WARNING" ( message program )`
+reads the text and the program. Both are raised from every form of the application, and by the web player.
 
 `onRouteNotFound` and `onPopupBlocked` are web events too (see *Navigation in a Web
 application* below); a desktop form never receives them.

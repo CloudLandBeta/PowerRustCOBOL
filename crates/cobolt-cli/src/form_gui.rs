@@ -529,6 +529,8 @@ pub fn cmd_run_form(args: &[String]) {
         mpsc::channel::<cobolt_runtime::form_host::FormRequest>();
     let (closed_tx, closed_rx) = mpsc::channel::<String>();
     let form_object = form.name.trim().to_ascii_uppercase();
+    // WASM-014 T9: the backend's version notices and warnings reach this main form as events, from every form of the run.
+    cobolt_runtime::interpreter::remote::set_main_form_events(ev_tx.clone(), &form_object);
 
     // 051 Q1 — the ROOT interpreter's object bridge becomes the ONE shared,
     // process-wide bridge every spawned child adopts; the thread exports its

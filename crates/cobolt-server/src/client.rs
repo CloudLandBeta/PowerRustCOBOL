@@ -158,6 +158,8 @@ struct Link {
 
 enum Note {
     Progress(u8, String),
+    /// The connection's hello was not ok: state, message, update-to (WASM-014 T9).
+    Version(String, String, String),
     Done(Result<CallReply, CallError>),
 }
 
@@ -466,7 +468,14 @@ impl Transport for WsClient {
         loop {
             match rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(Note::Progress(p, m)) => observer.progress(p, &m),
+                Ok(Note::Version(s, m, u)) => observer.backend_version(&s, &m, &u),
                 Ok(Note::Done(r)) => {
+                    // A refusal is the version event too: the call fails `version 600x`, and the application is told why.
+                    if let Err(e) = &r {
+                        if e.class == ErrorClass::Version {
+                            observer.backend_version("refused", &e.message, e.detail.as_deref().unwrap_or(""));
+                        }
+                    }
                     if let Ok(reply) = &r {
                         for w in &reply.warnings {
                             observer.warning(w);
@@ -754,6 +763,8 @@ struct Actor {
     subs: HashMap<u64, Sub>,
     /// A compatibility notice (older client, newer backend) to hand to the next answer.
     notice: Option<String>,
+    /// The same hello as an event for the application: `(state, message, update_to)`, handed to the next answer.
+    version: Option<(String, String, String)>,
     /// The last thing the backend said about the connection itself (an oversized frame, a
     /// refused message) and when: if the connection then ends, that is why.
     conn_error: Option<(CallError, Instant)>,
@@ -774,7 +785,7 @@ async fn read(conn: &mut Option<Conn>) -> Option<Result<Message, tokio_tungsteni
 
 impl Actor {
     fn new(cfg: ClientConfig, rx: mpsc::UnboundedReceiver<Cmd>, link: Arc<Link>) -> Self {
-        Actor { cfg, rx, conn: None, hello: None, calls: HashMap::new(), rpcs: HashMap::new(), subs: HashMap::new(), notice: None, conn_error: None, link }
+        Actor { cfg, rx, conn: None, hello: None, calls: HashMap::new(), rpcs: HashMap::new(), subs: HashMap::new(), notice: None, version: None, conn_error: None, link }
     }
 
     async fn run(mut self) {
@@ -844,6 +855,7 @@ impl Actor {
                 Ok(Ok((c, h))) => {
                     if h.accepted == Accepted::Warn {
                         self.notice = Some(h.message.clone());
+                        self.version = Some(("warn".into(), h.message.clone(), h.update_to.clone().unwrap_or_default()));
                     }
                     self.hello = Some(h);
                     self.conn = Some(c);
@@ -1122,6 +1134,9 @@ impl Actor {
         match frame {
             ServerFrame::Reply(r) => {
                 if let Some(c) = self.calls.remove(&r.id) {
+                    if let Some((s, m, u)) = self.version.take() {
+                        let _ = c.notes.send(Note::Version(s, m, u));
+                    }
                     let mut warnings = r.warnings;
                     if let Some(n) = self.notice.take() {
                         warnings.insert(0, n);

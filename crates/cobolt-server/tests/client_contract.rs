@@ -241,6 +241,7 @@ fn req(program: &str, json_arg: &str) -> CallRequest {
 struct Watch {
     progress: Vec<(u8, String)>,
     warnings: Vec<String>,
+    versions: Vec<(String, String, String)>,
     cancel_after: Option<usize>,
 }
 
@@ -250,6 +251,9 @@ impl CallObserver for Watch {
     }
     fn warning(&mut self, message: &str) {
         self.warnings.push(message.to_string());
+    }
+    fn backend_version(&mut self, state: &str, message: &str, update_to: &str) {
+        self.versions.push((state.into(), message.into(), update_to.into()));
     }
     fn cancel_requested(&mut self) -> bool {
         self.cancel_after.map(|n| self.progress.len() >= n).unwrap_or(false)
@@ -281,7 +285,13 @@ fn ac1_ac10_a_client_built_for_an_older_minor_is_accepted_with_a_warning_and_a_n
     // AC10, one direction: an application built for 1.0 against the backend at 1.2 is served in the
     // shape it was built for - it asks without DONE and is answered without DONE - and is told it is old.
     let mut older = w.client("1.0.0");
-    let reply = older.call(&req("SAFE-ADD", "{\"TAG\":\"old\"}")).expect("an older minor of the same major is served");
+    let mut seen = Watch::default();
+    let reply = older.call_observed(&req("SAFE-ADD", "{\"TAG\":\"old\"}"), &mut seen).expect("an older minor of the same major is served");
+    // WASM-014 T9: the application hears it as a version event too, with the contract to update to.
+    println!("version events of the older application: {:?}", seen.versions);
+    assert_eq!(seen.versions.len(), 1);
+    assert_eq!(seen.versions[0].0, "warn");
+    assert_eq!(seen.versions[0].2, "1.2.0");
     assert!(reply.warnings.iter().any(|m| m.contains("compatible") && m.contains("1.0.0")), "{:?}", reply.warnings);
     let answer: serde_json::Value = serde_json::from_str(reply.args[0].as_ref().unwrap()).unwrap();
     assert_eq!(answer, json!({"TAG": "old"}), "the member the old application never heard of is not sent to it");
@@ -292,7 +302,9 @@ fn ac1_ac10_a_client_built_for_an_older_minor_is_accepted_with_a_warning_and_a_n
     assert!(reply.warnings.is_empty(), "{:?}", reply.warnings);
 
     let mut newer = w.client("1.3.0");
-    let e = newer.call(&ping_req()).expect_err("a newer minor than the backend has");
+    let mut seen = Watch::default();
+    let e = newer.call_observed(&ping_req(), &mut seen).expect_err("a newer minor than the backend has");
+    assert_eq!(seen.versions.iter().map(|v| v.0.as_str()).collect::<Vec<_>>(), ["refused"], "the refusal is reported as an event as well: {:?}", seen.versions);
     assert_eq!((e.class, e.code), (ErrorClass::Version, codes::CLIENT_TOO_NEW), "{e:?}");
     assert!(e.message.contains("update the backend"), "{}", e.message);
     assert_eq!(e.may_have_run, Some(false));

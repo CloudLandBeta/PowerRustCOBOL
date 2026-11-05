@@ -270,6 +270,7 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("WS-PAUSE", Support::BackendOnly(BACKEND_VERB)),
     c("WS-PROGRESS", Support::BackendOnly(BACKEND_VERB)),
     c("WS-UPLOAD", Support::Unsupported(NO_PATHS)),
+    c("WS-VERSION", Support::Unsupported("not in a browser module yet")),
     c("WS-WARNING", Support::Unsupported("not in a browser module yet")),
 ];
 

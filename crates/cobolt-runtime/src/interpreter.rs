@@ -11641,6 +11641,7 @@ impl Interpreter {
                             // Always set — an event that carries no node clears
                             // them, so a handler can never read the last node
                             // some other event happened to leave behind.
+                            self.note_backend_event(&ev.event_id, &ev.value);
                             self.bind_node_payload(&ev.value);
                             // Spec 106 — a Button column's row, into the buffer the
                             // dispatcher hands its handler as DATAGRID-ROW-CONTENT.
@@ -11907,6 +11908,7 @@ impl Interpreter {
             "COBOL-WS-FILE-PUBLISH" => self.builtin_ws_file_publish(using, span)?,
             // The frontend's side: the last warning, and files in and out.
             "COBOL-WS-WARNING" => self.builtin_ws_warning(using),
+            "COBOL-WS-VERSION" => self.builtin_ws_version(using),
             "COBOL-WS-UPLOAD" => self.builtin_ws_upload(using, span)?,
             "COBOL-WS-DOWNLOAD" => self.builtin_ws_download(using, span)?,
             // COBOL-FILE-STATUS file-name status-item

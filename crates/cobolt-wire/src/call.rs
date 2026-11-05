@@ -72,6 +72,10 @@ pub trait CallObserver {
     /// The backend attached a warning to a call or to the connection (a
     /// deprecated program, an older client; WASM-014 R2, R6).
     fn warning(&mut self, _message: &str) {}
+    /// The backend's `hello` was not `ok` (WASM-014 R2): `state` is `warn` (an older application still
+    /// served) or `refused` (every call fails `version 600x` until it is updated); `update_to` is the
+    /// contract to update to, empty when the backend named none.
+    fn backend_version(&mut self, _state: &str, _message: &str, _update_to: &str) {}
     /// Asked while the call is pending; `true` asks the backend to cancel it.
     fn cancel_requested(&mut self) -> bool {
         false

@@ -309,7 +309,7 @@ fn progress_and_warnings_reach_the_host_and_ws_warning_reads_the_last_one() {
     let ev = events.lock().unwrap().clone();
     assert_eq!(ev[0], RemoteEvent::Progress { percent: 30, message: "reading".into() });
     assert_eq!(ev[1], RemoteEvent::Progress { percent: 100, message: "done".into() });
-    assert_eq!(ev[2], RemoteEvent::Warning("CHARGE is deprecated: use CHARGE-V2".into()));
+    assert_eq!(ev[2], RemoteEvent::Warning { program: "CHARGE".into(), message: "CHARGE is deprecated: use CHARGE-V2".into() });
     assert_eq!(ev.len(), 3, "a warning is reported once however it arrives");
     assert!(shown(&rx)[1].starts_with("warning=[CHARGE is deprecated: use CHARGE-V2 "), "the field is padded as a PIC X(80) is");
 }

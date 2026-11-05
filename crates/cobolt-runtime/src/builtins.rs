@@ -107,7 +107,8 @@ pub const BUILTINS: &[Builtin] = &[
     b("WS-PAUSE", "milliseconds in", "On the backend, wait; it ends early when the caller asks to cancel"),
     b("WS-PROGRESS", "percent in, message in", "On the backend, report the progress of a long-running call; it is a safe point where a cancel ends the call"),
     b("WS-UPLOAD", "slot in, path in, mime in, file-id out, status out", "Send a local file into one of the backend's upload slots, in pieces; OK, NOFILE, REFUSED (see WS-LAST-ERROR), FAILED or NOBACKEND"),
-    b("WS-WARNING", "message out", "The most recent warning the backend attached to a call (a deprecated program, an older application); spaces when none"),
+    b("WS-VERSION", "state out, message out, update-to out", "What the backend said about this application's version in the latest connection that was not accepted as is: warn or refused, its message and the contract to update to; spaces when it said nothing (read it in onBackendVersion)"),
+    b("WS-WARNING", "message out, [program out]", "The most recent warning the backend attached to a call (a deprecated program, an older application), and the program whose reply carried it; spaces when none (read it in onBackendWarning)"),
 ];
 
 /// The built-in `name` names — with or without its `COBOL-` prefix, any case.
