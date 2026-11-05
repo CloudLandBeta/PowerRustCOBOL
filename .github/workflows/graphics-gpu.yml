@@ -84,6 +84,11 @@ jobs:
             echo "Golden tolerance:"; grep "GOLDEN-TOLERANCE" scene3d.log || echo "(none printed)"
             echo "Tests:"; grep "test result" scene3d.log
           } >> "$GITHUB_STEP_SUMMARY"
+          # Annotations are public through the API and the run page, even signed out: the same numbers, one line each.
+          echo "::notice title=Adapter::$(grep -i 'llvmpipe\|lavapipe' vulkaninfo.txt | head -1 | tr -s ' ')"
+          echo "::notice title=Backend::$(grep 'Canvas3D backend' scene3d.log | head -1)"
+          echo "::notice title=GoldenTolerance::$(grep 'GOLDEN-TOLERANCE' scene3d.log | tr '\n' ';' | cut -c1-900)"
+          echo "::notice title=Tests::$(grep 'test result' scene3d.log | tr '\n' ';' | cut -c1-900)"
 
       - uses: actions/upload-artifact@v4
         if: always()

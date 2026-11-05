@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.221 — 2026-11-05
+
+**WASM-018 T29: the lavapipe run is green (run 42111370290), and its numbers are published as annotations.** *(Written on features-2x-wasm-pending, after 2.0.220.)* The repaired workflow ran green in 1 min 30 s. A signed-out visitor sees neither the log nor the job summary, but does see annotations, so the job now also prints the adapter, the backend, the golden tolerance and the test results as one `::notice` line each.
+
 ## 2.0.220 — 2026-11-05
 
 **WASM-018 T29: the lavapipe workflow file is valid again.** *(Written on features-2x-wasm-pending, after 2.0.219.)* 2.0.219 pushed `graphics-gpu.yml` with stray lines at its top (an edit script put the new summary step's text before the licence header), so GitHub refused it as an invalid workflow ("Unexpected value 'run'") and the job did not start. The stray lines are gone, the file parses as YAML with its one job and seven steps, and the summary step is as 2.0.219 described.
