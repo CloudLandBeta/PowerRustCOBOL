@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.220 — 2026-11-05
+
+**WASM-018 T29: the lavapipe workflow file is valid again.** *(Written on features-2x-wasm-pending, after 2.0.219.)* 2.0.219 pushed `graphics-gpu.yml` with stray lines at its top (an edit script put the new summary step's text before the licence header), so GitHub refused it as an invalid workflow ("Unexpected value 'run'") and the job did not start. The stray lines are gone, the file parses as YAML with its one job and seven steps, and the summary step is as 2.0.219 described.
+
 ## 2.0.219 — 2026-11-05
 
 **WASM-018 T29: the lavapipe job ran green; its numbers now go where anyone can read them.** *(Written on features-2x-wasm-pending, after 2.0.218.)* The "Graphics on a software Vulkan" job ran on GitHub for the first time (run 42110551530, push of 2.0.218): Mesa lavapipe was found, the Canvas3D adapter tests ran with no test skipped and the backend asserted `Software`, and the job succeeded in 2 min 40 s. GitHub shows a job's log only to a signed-in person, so the job now also writes the adapter, the backend, the golden tolerance and the test results to its **job summary**, which is readable without signing in. Also: `cobolt-wasm-abi`'s `write_fixtures` example now declares the `fixture` feature it needs, so a plain `cargo test -p cobolt-wasm-abi` builds.

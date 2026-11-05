@@ -1,13 +1,4 @@
-        run: |
-          grep "GOLDEN-TOLERANCE" scene3d.log || true
-          # The job summary is readable without signing in (the log is not): the adapter, the backend and the tolerance go there.
-          {
-            echo "### Canvas3D on lavapipe"
-            echo "Adapter:"; grep -i "llvmpipe\|lavapipe" vulkaninfo.txt | head -3
-            echo "Backend:"; grep "Canvas3D backend" scene3d.log | head -3
-            echo "Golden tolerance:"; grep "GOLDEN-TOLERANCE" scene3d.log || echo "(none printed)"
-            echo "Tests:"; grep "test result" scene3d.log
-          } >> "$GITHUB_STEP_SUMMARY"# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 #
 # Licensed under the Apache License, Version 2.0.
