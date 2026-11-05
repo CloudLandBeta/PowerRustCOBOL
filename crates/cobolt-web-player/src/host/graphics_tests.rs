@@ -196,3 +196,72 @@ fn a_gamepad_event_reaches_a_canvas_with_a_bound_handler_and_no_other() {
     assert_eq!(queued, [(3, 1, vec!["0 0 1".to_owned()]), (3, 2, vec!["0 0 0.500".to_owned()])], "the Plot PLT-A is not a canvas and gets none");
     println!("T28 browser: a pad with one button down and one axis at 0.5 queued onGamepadButton(0 0 1) and onGamepadAxis(0 0 0.500) on the bound canvas only ({} us)", started.elapsed().as_micros());
 }
+
+/// WASM-018 T30 (R14, AC12): a canvas with `TargetFps` and an `onFrame` handler is paced by the desktop's own clock: at the target
+/// rate within a tolerance, in whole fixed steps when `FixedStep` is on, and not at all while the page is hidden; a canvas with no
+/// handler (or no `TargetFps`) asks for no frames.
+#[test]
+fn on_frame_is_paced_by_the_desktops_clock_and_a_hidden_page_raises_none() {
+    use cobolt_wasm_abi::manifest::HandlerEntry;
+    let started = std::time::Instant::now();
+    let form = |fps: &str, fixed: &str| FORM.replace(r#"h="100"></Control>
+  <Control id="PLT-A"#, &format!(r#"h="100"><Property name="TargetFps">{fps}</Property><Property name="FixedStep">{fixed}</Property></Control>
+  <Control id="PLT-A"#));
+    let host = |fps: &str, fixed: &str, bound: bool| {
+        let mut m = manifest();
+        m.events = vec!["onLoad".into(), "onFrame".into()];
+        if bound {
+            m.forms[0].handlers = vec![HandlerEntry { ctrl: 3, event: 1, entry: 0 }];
+        }
+        let mut h = Host::new(m, HostOptions::default());
+        h.add_description(&to_json(&describe(&load_form_from_str(&form(fps, fixed)).unwrap()))).unwrap();
+        h.create_tree_as(0, 0, None, Vec::new(), OpenMode::Root).unwrap();
+        h
+    };
+    let frames = |h: &Host, from: usize| -> Vec<String> {
+        h.work.iter().skip(from).filter_map(|w| if let Work::Event(e) = w { e.args.first().cloned() } else { None }).collect()
+    };
+
+    // No handler: no frames asked for, none raised.
+    let mut h = host("30", "0", false);
+    assert!(!h.wants_frames());
+    assert_eq!(h.frame_tick(0.0, true) + h.frame_tick(50.0, true), 0);
+
+    // Variable rate, a 144 Hz display for 10 s: the target rate within a tolerance.
+    let mut h = host("30", "0", true);
+    assert!(h.wants_frames());
+    let (mut t, mut raised) = (0.0, 0);
+    while t < 10_000.0 {
+        raised += h.frame_tick(t, true);
+        t += 1000.0 / 144.0;
+    }
+    let rate = raised as f64 / 10.0;
+    assert!((rate - 30.0).abs() <= 3.0, "{rate} frames a second");
+
+    // Fixed step: every argument is exactly 1000 / fps.
+    let mut h = host("60", "1", true);
+    let before = h.work.len();
+    let mut t = 0.0;
+    for gap in [7.0, 31.0, 5.0, 60.0, 16.0, 16.0, 2.0, 40.0].iter().cycle().take(80) {
+        h.frame_tick(t, true);
+        t += gap;
+    }
+    let steps = frames(&h, before);
+    assert!(!steps.is_empty() && steps.iter().all(|s| s == "16.667"), "{steps:?}");
+
+    // Hidden: no frame, and showing the page again does not repay the hidden time.
+    let mut h = host("60", "0", true);
+    h.frame_tick(0.0, true);
+    assert!(h.frame_tick(20.0, true) >= 1);
+    let before = h.work.len();
+    for i in 0..50 {
+        assert_eq!(h.frame_tick(1000.0 + i as f64 * 16.0, false), 0, "a hidden page raises no frame");
+    }
+    assert_eq!(h.frame_tick(60_000.0, true), 0, "the first visible frame only sets the mark");
+    assert_eq!(h.work.len(), before);
+    println!(
+        "T30 AC12 browser: onFrame at TargetFps 30 on a 144 Hz display, 10 s: {raised} frames = {rate:.2}/s; fixed step 60: {} steps all 16.667 ms; hidden 50 frames: 0 raised, no repayment ({} us)",
+        steps.len(),
+        started.elapsed().as_micros()
+    );
+}

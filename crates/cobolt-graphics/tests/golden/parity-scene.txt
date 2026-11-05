@@ -1,0 +1,24 @@
+SetFillColor|#102030
+FillRect|0|0|160|120
+SetFillColor|#E0A030
+FillRect|10|10|60|40
+SetStrokeColor|#40C0FF
+SetLineWidth|3
+BeginPath
+MoveTo|20|100
+LineTo|80|70
+LineTo|140|105
+Stroke
+BeginPath
+Arc|110|35|22|0|6.2831853|0
+SetFillColor|#C03050
+Fill|0
+SetFont|14px Ubuntu
+SetFillColor|#FFFFFF
+DrawText|Hello, world|6|64|0|1
+DrawText|Olá, mundo|6|80|0|1
+DrawText|Hola, señor|6|94|0|1
+DrawText|Bonjour, français|6|108|0|1
+DrawText|こんにちは|90|64|0|1
+DrawText|你好，世界|90|80|0|1
+Present

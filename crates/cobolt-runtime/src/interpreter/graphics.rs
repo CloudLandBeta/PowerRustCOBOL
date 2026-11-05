@@ -396,6 +396,40 @@ mod tests {
         i.exec_method(obj, &m.to_ascii_uppercase(), &a).as_display_string().trim().to_string()
     }
 
+    /// WASM-018 T30 (AC1): the parity scene drawn through the interpreter, the way a form's COBOL calls a canvas, is the picture
+    /// the native registry pinned and the canvas part drew in Chrome: the same fingerprint, read back pixel by pixel.
+    #[test]
+    fn the_parity_scene_through_the_interpreter_has_the_fingerprint_the_other_hosts_share() {
+        let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cobolt-graphics/tests/golden");
+        let scene = std::fs::read_to_string(golden.join("parity-scene.txt")).expect("the scene");
+        let want = std::fs::read_to_string(golden.join("parity-canvas.fnv")).expect("the fingerprint");
+        let mut i = interp(&[("CANVAS-1", "Canvas2D", &[("Width", "160"), ("Height", "120")][..])]);
+        let t0 = Instant::now();
+        for line in scene.lines().filter(|l| !l.trim().is_empty()) {
+            let mut parts = line.split('|');
+            let method = parts.next().unwrap();
+            let args: Vec<&str> = parts.collect();
+            call(&mut i, "CANVAS-1", method, &args);
+            assert_eq!(i.obj_get("CANVAS-1", "LastError"), "", "{line}");
+        }
+        let drawn = t0.elapsed();
+        let mut px = Vec::with_capacity(160 * 120 * 4);
+        for y in 0..120 {
+            for x in 0..160 {
+                let c: u32 = call(&mut i, "CANVAS-1", "GetPixel", &[&x.to_string(), &y.to_string()]).parse().expect("a colour");
+                px.extend_from_slice(&c.to_be_bytes());
+            }
+        }
+        let mut h = 0xcbf2_9ce4_8422_2325u64;
+        for b in &px {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        let got = format!("160x120 {h:016x}\n");
+        println!("T30 parity interpreter: {} calls in {:.1} ms, fingerprint {}", scene.lines().count(), drawn.as_secs_f64() * 1000.0, got.trim());
+        assert_eq!(got, want, "the interpreter's picture is not the one the native registry pinned");
+    }
+
     /// WASM-018 T27: a canvas letters a text with no `LoadFont` call: the stand-in face and the project's fonts are
     /// registered with the registry, in the order every host uses, and a font a host published is registered too.
     #[test]

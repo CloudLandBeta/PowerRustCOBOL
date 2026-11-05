@@ -424,6 +424,8 @@ pub struct Host {
     pub trees: BTreeMap<u32, FormTree>,
     work: VecDeque<Work>,
     tasks: BTreeMap<i32, Task>,
+    /// The `onFrame` pacing of each canvas (instance, control) that has `TargetFps` above zero (WASM-018 T30, R14).
+    frame_clocks: HashMap<(u32, usize), cobolt_forms::frame_clock::FrameClock>,
     inflight: Option<InFlight>,
     next_id: u32,
     handles: HashMap<String, Handle>,
@@ -519,6 +521,7 @@ impl Host {
             trees: BTreeMap::new(),
             work: VecDeque::new(),
             tasks: BTreeMap::new(),
+            frame_clocks: HashMap::new(),
             inflight: None,
             next_id: 1,
             handles: HashMap::new(),
@@ -757,6 +760,55 @@ impl Host {
         for e in events {
             for &(inst, ctl) in &canvases {
                 if self.dom_event(inst, ctl, e.name(), vec![e.argument()]) {
+                    queued += 1;
+                }
+            }
+        }
+        queued
+    }
+
+    /// Does any open canvas have `TargetFps` above zero and an `onFrame` handler? The page runs its frame loop only while one does.
+    pub fn wants_frames(&self) -> bool {
+        self.trees.values().any(|t| t.ctls.iter().any(Self::paced_canvas))
+    }
+
+    fn paced_canvas(c: &crate::tree::Ctl) -> bool {
+        matches!(crate::kinds::player_kind(c), Some(crate::kinds::PlayerKind::Canvas2D | crate::kinds::PlayerKind::Canvas3D))
+            && c.has_handler("onFrame")
+            && c.props.get("targetfps").and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(0.0) > 0.0
+    }
+
+    /// A display frame at `now_ms` (WASM-018 T30, R14, AC12): every canvas with `TargetFps` and an `onFrame` handler raises the frames
+    /// the shared [`cobolt_forms::frame_clock::FrameClock`] says are due, with the elapsed milliseconds as the event's argument
+    /// (three decimals, as the desktop writes `ElapsedMs`). A hidden page is not a frame: the clocks forget the past, so showing the
+    /// page again does not repay it. Answers how many events were queued.
+    pub fn frame_tick(&mut self, now_ms: f64, visible: bool) -> usize {
+        let canvases: Vec<(u32, usize, f64, bool)> = self
+            .trees
+            .iter()
+            .flat_map(|(inst, t)| {
+                t.ctls
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| Self::paced_canvas(c))
+                    .map(|(i, c)| {
+                        let fps = c.props.get("targetfps").and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(0.0);
+                        let fixed = c.props.get("fixedstep").is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
+                        (*inst, i, fps, fixed)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        self.frame_clocks.retain(|k, _| canvases.iter().any(|(inst, i, _, _)| (*inst, *i) == *k));
+        let mut queued = 0;
+        for (inst, ctl, fps, fixed) in canvases {
+            let clock = self.frame_clocks.entry((inst, ctl)).or_default();
+            if !visible {
+                clock.pause();
+                continue;
+            }
+            for dt in clock.advance(now_ms, fps, fixed) {
+                if self.dom_event(inst, ctl, "onFrame", vec![format!("{dt:.3}")]) {
                     queued += 1;
                 }
             }

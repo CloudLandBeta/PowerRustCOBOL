@@ -445,6 +445,9 @@ pub(crate) struct Inner {
     /// The gamepads the page saw at its last look, and the timer of the next one (WASM-018 T28): the page looks only while a
     /// canvas has a gamepad handler bound.
     gamepad: RefCell<(Vec<cobolt_forms::gamepad::Pad>, Option<Timeout>)>,
+    /// The timer of the next display frame (WASM-018 T30, AC12): the page runs a frame loop only while a canvas has `TargetFps`
+    /// above zero and an `onFrame` handler bound, and a hidden tab is not a frame.
+    frames: RefCell<Option<Timeout>>,
     /// reCAPTCHA: the time limits and the script's load listeners of the tokens being obtained.
     pub(crate) captcha: RefCell<crate::dom::captcha::Pending>,
     /// The authorisation code the hosted flow came back with, until a control takes it.
@@ -982,7 +985,39 @@ impl Inner {
         self.sync_gamepad();
     }
 
+    /// Start or stop the frame loop (WASM-018 T30, AC12): one look every display frame (16 ms) while some open canvas has `TargetFps`
+    /// and an `onFrame` handler. The clock of each canvas (`cobolt_forms::frame_clock`) decides which looks are frames; a hidden
+    /// tab (`document.hidden`) raises none and forgets the time it was hidden.
+    fn sync_frames(self: &Rc<Self>) {
+        let wants = self.host.borrow().wants_frames();
+        let mut slot = self.frames.borrow_mut();
+        if !wants {
+            *slot = None;
+            return;
+        }
+        if slot.is_some() {
+            return;
+        }
+        let weak = self.weak.borrow().clone();
+        *slot = Some(Timeout::new(16, move || {
+            if let Some(inner) = weak.upgrade() {
+                inner.frame_look();
+            }
+        }));
+    }
+
+    fn frame_look(self: &Rc<Self>) {
+        self.frames.borrow_mut().take();
+        let now = web_sys::window().and_then(|w| w.performance()).map_or(0.0, |p| p.now());
+        let visible = !web_sys::window().and_then(|w| w.document()).is_some_and(|d| d.hidden());
+        self.push(Inbox::Raw(Box::new(move |inner| {
+            inner.host.borrow_mut().frame_tick(now, visible);
+        })));
+        self.sync_frames();
+    }
+
     fn after_call(self: &Rc<Self>) {
+        self.sync_frames();
         self.sync_gamepad();
         self.take_hosted_return();
         // What a step leaves can start another (an Authentication answer that raises an event, a
@@ -1154,6 +1189,7 @@ impl Player {
             gpu_tried: Cell::new(false),
             fonts: RefCell::new(None),
             gamepad: RefCell::new((Vec::new(), None)),
+            frames: RefCell::new(None),
             captcha: RefCell::new(Default::default()),
             hosted_return: RefCell::new(hosted_return),
             superlink: RefCell::new(Default::default()),

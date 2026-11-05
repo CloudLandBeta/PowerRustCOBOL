@@ -1,0 +1,35 @@
+c|Canvas2D|SetFont|14px Ubuntu
+c|Canvas2D|MeasureText|Hello, world
+c|Canvas2D|MeasureText|Olá, mundo
+c|Canvas2D|MeasureText|Hola, señor
+c|Canvas2D|MeasureText|Bonjour, français
+c|Canvas2D|MeasureText|こんにちは
+c|Canvas2D|MeasureText|你好，世界
+p|Physics2D|CreateWorld|0|10
+p|Physics2D|SetFixedStep|1|0.01|200
+p|Physics2D|AddBody|1|0|0|30
+p|Physics2D|AddBox|1|1|50|1
+p|Physics2D|AddBody|1|1|0|28
+p|Physics2D|AddBox|1|2|1|1
+p|Physics2D|AddBody|1|1|0.1|26
+p|Physics2D|AddBox|1|3|1|1
+p|Physics2D|AddBody|1|1|-0.1|24
+p|Physics2D|AddBox|1|4|1|1
+p|Physics2D|Step|1|1.0
+p|Physics2D|Step|1|1.0
+p|Physics2D|GetPosition|1|2
+p|Physics2D|GetPosition|1|3
+p|Physics2D|GetPosition|1|4
+p|Physics2D|GetStateFingerprint|1
+i|ImageBuffer|Create|300|200|#336699
+i|ImageBuffer|SetPixel|7|5|#FFCC00
+i|ImageBuffer|SetPixel|14|10|#FF0000
+i|ImageBuffer|SetPixel|140|100|#00FF00
+i|ImageBuffer|SetPixel|280|190|#FFFFFF
+i|ImageBuffer|Resize|150|100|lanczos
+i|ImageBuffer|BlurGaussian|2.5
+i|ImageBuffer|Saturation|1.3
+i|ImageBuffer|Histogram|0
+i|ImageBuffer|Histogram|1
+i|ImageBuffer|Histogram|2
+i|ImageBuffer|Encode|png
