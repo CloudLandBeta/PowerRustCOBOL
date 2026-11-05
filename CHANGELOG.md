@@ -1,5 +1,8 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.227 — 2026-11-05
+
+**WASM-014 T11: `status = "<group>"` in `exports.toml`, checked by the loader, and the `WS-STATUS` copybook.** *(Written on features-2x-wasm-pending, after 2.0.226.)* An export may name the group of its `RETURNING` record that reports a business failure. The loader refuses, naming the program and the item, a `status` that names no group inside the `RETURNING` item, and a group that is not laid out as `WS-STATUS` (a code `9(4)`, a message `X(200)`, a detail `X(1000)`); a valid one is recorded on the contract as `status`. A new Backend project gets `backend/COPYBOOKS/WS-STATUS.cpy` (from a Rust constant, written only when missing, never over a developer's file; a program copies it with `COPY "../COPYBOOKS/WS-STATUS"`) and the commented `[contract]` defaults in `backend.toml`. Tests: `status_naming_no_group_is_refused_with_program_and_item`, `status_of_the_wrong_shape_is_refused`, the copybook-in-`RETURNING` load and `scaffold_writes_ws_status_once_and_never_overwrites`.
 ## 2.0.226 — 2026-11-05
 
 **WASM-014 T10: a program's `status` group in the signature, and the rule `status-changed`.** *(Written on features-2x-wasm-pending, after 2.0.225.)* `ProgramSig` gains an optional `status` (the name of the group inside `RETURNING` that reports an application failure); it is omitted when absent, so existing `interface.json` files are byte-identical. The release comparison treats the status group as part of what a client was promised: removing it, renaming it or changing its layout is breaking (`status-changed`), adding one is a note. Tests `adding_a_status_group_is_compatible` and `removing_or_reshaping_a_status_group_breaks_with_status_changed` in `cobolt-wire`.

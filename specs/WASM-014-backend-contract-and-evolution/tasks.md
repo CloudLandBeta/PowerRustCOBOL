@@ -328,7 +328,7 @@ as completed.
   - Verify: `cargo test -p cobolt-wire --no-fail-fast` passes the six existing evolution tests plus `adding_a_status_group_is_compatible` and
     `removing_or_reshaping_a_status_group_breaks_with_status_changed`, which prints the break line.
 
-- [ ] **T11 — `exports.toml` `status = "<name>"`; the loader checks it; the `WS-STATUS` copybook** (R8; Q1; Δ3)
+- [x] **T11 — `exports.toml` `status = "<name>"`; the loader checks it; the `WS-STATUS` copybook** (R8; Q1; Δ3)
   - Files:
     - `crates/cobolt-server/src/backend.rs`: `ExportDecl.status`. `Backend::build` `:154` refuses a `status` that names no group inside the
       program's `RETURNING` item, or a group whose layout is not `WS-STATUS` (code `9(4)`, message `X(200)`, detail `X(1000)`), naming the

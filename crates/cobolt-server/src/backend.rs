@@ -236,6 +236,10 @@ pub struct ExportDecl {
     pub directions: Vec<String>,
     #[serde(default)]
     pub deprecated: Option<DeprecatedDecl>,
+    /// The group inside the program's `RETURNING` item that reports a business failure (`WS-STATUS`: code `9(4)`,
+    /// message `X(200)`, detail `X(1000)`; WASM-014 R8). A non-zero code reaches the caller's `ON EXCEPTION` as `application`.
+    #[serde(default)]
+    pub status: Option<String>,
     /// The control a generated program calls a method on (WASM-005 T11):
     /// only the Build's `generated/exports.toml` declares one.
     #[serde(default)]
@@ -459,6 +463,12 @@ impl Backend {
                     sig.returning = Some(p);
                 }
             }
+            if let Some(st) = &decl.status {
+                match check_status(sig.returning.as_ref(), st) {
+                    Ok(()) => sig.status = Some(st.clone()),
+                    Err(why) => errs.push(format!("exports.toml: export {name}: {why}")),
+                }
+            }
 
             // Every other program rides inside this one, as Common Code does. An identity program
             // calls only `COBOL::"AUTH-OP"` and carries none; no other program carries one.
@@ -509,6 +519,32 @@ impl Backend {
         }
         Backend::build(programs, &exports, history)
     }
+}
+
+/// `status = "<group>"` names a group directly inside `RETURNING` laid out as `WS-STATUS` (WASM-014 R8): a code `9(4)`, then a
+/// message `X(200)`, then a detail `X(1000)`. The error names the program's item.
+fn check_status(returning: Option<&Param>, group: &str) -> Result<(), String> {
+    use cobolt_wire::layout::Kind;
+    let Some(ret) = returning else {
+        return Err(format!("status \"{group}\" names no group: the program has no RETURNING item"));
+    };
+    let Kind::Group { children } = &ret.layout.kind else {
+        return Err(format!("status \"{group}\" names no group inside {}, which is not a group", ret.name));
+    };
+    let Some(g) = children.iter().find(|c| c.name.eq_ignore_ascii_case(group)) else {
+        return Err(format!("status \"{group}\" names no group inside the RETURNING item {}", ret.name));
+    };
+    let shaped = match &g.kind {
+        Kind::Group { children } => matches!(
+            children.iter().map(|c| (&c.kind, c.occurs.is_some())).collect::<Vec<_>>().as_slice(),
+            [(Kind::Numeric { digits: 4, scale: 0, signed: false }, false), (Kind::Alphanumeric { len: 200, .. }, false), (Kind::Alphanumeric { len: 1000, .. }, false)]
+        ),
+        _ => false,
+    };
+    if !shaped {
+        return Err(format!("status group {group} in the RETURNING item {} is not laid out as WS-STATUS (a code PIC 9(4), a message PIC X(200), a detail PIC X(1000); COPY \"../COPYBOOKS/WS-STATUS\")", ret.name));
+    }
+    Ok(())
 }
 
 /// The source format of a hand-written file: fixed when a line carries a
