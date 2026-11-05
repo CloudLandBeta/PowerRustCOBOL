@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CHARTS-FORM" title="PowerGraphics - Chart gallery" definition="The chart gallery of the PowerGraphics example: each press of Next kind draws one more kind of chart, as an HTML canvas picture, as a small rendered picture and as SVG text; Big table draws a hundred thousand values passed from a COBOL table in one call." width="640" height="400" background="#1B1F27FF" grid-size="8" snap-to-grid="true" target="Custom" index-base="1">
+<Form name="CHARTS-FORM" title="PowerGraphics - Chart gallery" width="640" height="400" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="The chart gallery of the PowerGraphics example: each press of Next kind draws one more kind of chart, as an HTML canvas picture, as a small rendered picture and as SVG text; Big table draws a hundred thousand values passed from a COBOL table in one call." index-base="1">
   <working-storage><![CDATA[       01 WS-KIND                                GLOBAL    PIC 99    VALUE 0.
        01 WS-NAME                                GLOBAL    PIC X(12).
        01 WS-SER                                 GLOBAL    PIC 9(10).
@@ -14,21 +14,117 @@
                10 WS-RX                          PIC 9(6).
                10 WS-RY                          PIC 9(6).
 ]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="CHARTS-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
            SET     WS-CNV                        TO    CNV-CHART::GetHandle()
 ]]></Event>
+    <Event name="onClose" paragraph="CHARTS-FORM--ONCLOSE">
+    </Event>
   </form-events>
   <Control id="CNV-CHART" type="Canvas2D" x="10" y="10" w="480" h="300" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The drawing surface of the gallery. The chart is drawn on its left part and a small rendered copy of the same chart on its right.</Property>
     <Property name="AccessibleLabel">The chart of the selected kind</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="PLT-1" type="Plot" x="500" y="330" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The chart object: it holds the series, draws them on the canvas, renders a picture of them and writes them as SVG text.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
   </Control>
   <Control id="BTN-NEXT" type="Button" x="500" y="10" w="130" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="Definition">Draws the next kind of chart: line, bar, scatter, area, pie, histogram, candlestick, heatmap, polar, error bars, surface and 3D scatter, then back to line.</Property>
     <Property name="Caption">Next kind</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onClick" paragraph="BTN-NEXT--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
            ADD     1                             TO    WS-KIND
            IF      WS-KIND > 12
@@ -131,6 +227,22 @@
   <Control id="BTN-BIG" type="Button" x="500" y="52" w="130" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
     <Property name="Definition">Fills a COBOL table of a hundred thousand rows and hands it to a scatter series in one call, then draws it.</Property>
     <Property name="Caption">Big table</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onClick" paragraph="BTN-BIG--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
            IF      WS-SER > 0
                PLT-1::RemoveSeries( WS-SER )
@@ -155,6 +267,22 @@
   <Control id="BTN-BACK" type="Button" x="500" y="94" w="130" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
     <Property name="Definition">Closes the chart gallery and returns to the game window.</Property>
     <Property name="Caption">Close</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
            INVOKE    ME::Close()
 ]]></Event>
@@ -163,5 +291,20 @@
     <Property name="Definition">The name of the chart kind on show, or the size of the big table.</Property>
     <Property name="Caption">Press Next kind.</Property>
     <Property name="ForegroundColor">#C8D0DC</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
   </Control>
 </Form>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="VIEWER3D-FORM" title="PowerGraphics - 3D viewer" definition="The 3D viewer of the PowerGraphics example: a lit scene with a turning cube, a sphere and a floor, drawn by a 3D canvas thirty times a second." width="640" height="400" background="#1B1F27FF" grid-size="8" snap-to-grid="true" target="Custom" index-base="1">
+<Form name="VIEWER3D-FORM" title="PowerGraphics - 3D viewer" width="640" height="400" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="The 3D viewer of the PowerGraphics example: a lit scene with a turning cube, a sphere and a floor, drawn by a 3D canvas thirty times a second." index-base="1">
   <working-storage><![CDATA[       01 WS-BOX                                 GLOBAL    PIC 9(10).
        01 WS-BALL                                GLOBAL    PIC 9(10).
        01 WS-FLOOR                               GLOBAL    PIC 9(10).
@@ -7,6 +7,54 @@
        01 WS-CAM                                 GLOBAL    PIC 9(10).
        01 WS-ANGLE                               GLOBAL    PIC 9(3)  VALUE 0.
 ]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="VIEWER3D-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
            *> The scene: a cube and a sphere standing on a floor, one light from above and a camera that looks at them.
@@ -28,11 +76,29 @@
            CNV-3D::SetCamera( WS-CAM )
            CNV-3D::Render()
 ]]></Event>
+    <Event name="onClose" paragraph="VIEWER3D-FORM--ONCLOSE">
+    </Event>
   </form-events>
   <Control id="CNV-3D" type="Canvas3D" x="10" y="10" w="480" h="320" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The 3D drawing surface. It raises onFrame thirty times a second; the handler turns the cube a little and draws the scene again.</Property>
     <Property name="TargetFps">30</Property>
     <Property name="AccessibleLabel">A red cube turning beside a blue sphere</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onFrame" paragraph="CNV-3D--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
            ADD     3                             TO    WS-ANGLE
            IF      WS-ANGLE > 359
@@ -44,10 +110,40 @@
   </Control>
   <Control id="SCN-1" type="Scene3D" x="500" y="340" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The 3D scene: the cube, the sphere, the floor, the light and the camera that the canvas draws.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
   </Control>
   <Control id="BTN-BACK" type="Button" x="500" y="10" w="130" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="Definition">Closes the 3D viewer and returns to the game window.</Property>
     <Property name="Caption">Close</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onClick" paragraph="BTN-BACK--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
            INVOKE    ME::Close()
 ]]></Event>
@@ -56,5 +152,20 @@
     <Property name="Definition">A line that says what the viewer shows.</Property>
     <Property name="Caption">A cube turning beside a sphere, lit from above.</Property>
     <Property name="ForegroundColor">#C8D0DC</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
   </Control>
 </Form>

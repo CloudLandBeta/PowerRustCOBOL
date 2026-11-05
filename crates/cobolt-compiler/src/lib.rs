@@ -8507,6 +8507,15 @@ fn graphics_method_lines(control: &str) -> Vec<String> {
     lines
 }
 
+/// What a COBOL program must know to use the graphics objects (WASM-018 T32): handles, lists, fonts.
+const GRAPHICS_FROM_COBOL: &str = "\n\
+Writing these calls in COBOL:\n\n\
+- A method that answers a **handle** (`GetHandle()`, `AddSeries`, `AddBody`, `Render` ...) answers a whole number of up to 32 bits that grows when a slot is reused: keep it in an item with `PIC 9(10)`, never `PIC 9(4)`.\n\
+- A method that takes a **list of numbers** (`SetSeriesGrid`, `SetSeriesSurface`, `Convolve`, `AddMesh`, `SetInstances`) takes them as text, separated by spaces or commas: `PLT-1::SetSeriesGrid( WS-SER 3 3 \"1 2 3 4 5 6 7 8 9\" )`. A word that is no number is refused by name in `LastError`.\n\
+- A **table of rows** goes to `SetSeriesFromTable` as the group that holds it, with the row count, the row width in bytes and the columns described once (`\"0:zoned(6,0); 6:zoned(6,0)\"`).\n\
+- A text drawn in a **font** the form names needs the font file under `Assets/` for a Web build; the build stops and says which family is missing.\n\
+- A Physics2D position answers the text `x y`: split it with `UNSTRING ... DELIMITED BY SPACE` and read each part with `FUNCTION NUMVAL`.\n";
+
 /// How a Canvas2D differs from the HTML `<canvas>` 2D context a web developer knows (WASM-018 §6).
 const CANVAS_VS_HTML: &str = "\
 ### Canvas2D compared with the HTML canvas\n\n\
@@ -10045,6 +10054,9 @@ fn controls_reference_doc() -> String {
             for line in gfx {
                 doc.push_str(&format!("- {line}\n"));
             }
+        }
+        if !graphics_method_lines(&name).is_empty() {
+            doc.push_str(GRAPHICS_FROM_COBOL);
         }
         doc.push('\n');
         if name == "Canvas2D" {

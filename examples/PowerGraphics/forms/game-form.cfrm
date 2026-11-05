@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="GAME-FORM" definition="The main window of the PowerGraphics example: a small physics game drawn on a canvas, with buttons that open the chart gallery, the image lab and the 3D viewer." title="PowerGraphics - Game" width="640" height="400" background="#1B1F27FF" grid-size="8" snap-to-grid="true" target="Custom" main-form="true" index-base="1">
+<Form name="GAME-FORM" title="PowerGraphics - Game" width="640" height="400" background="#1B1F27FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" definition="The main window of the PowerGraphics example: a small physics game drawn on a canvas, with buttons that open the chart gallery, the image lab and the 3D viewer." main-form="true" index-base="1">
   <working-storage><![CDATA[       01 WS-WORLD                               GLOBAL    PIC 9(10).
        01 WS-GROUND                              GLOBAL    PIC 9(10).
        01 WS-IMG                                 GLOBAL    PIC 9(10).
@@ -12,6 +12,54 @@
        01 WS-X                                   GLOBAL    PIC S9(5)V9(3).
        01 WS-Y                                   GLOBAL    PIC S9(5)V9(3).
 ]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="GAME-FORM--ONLOAD"><![CDATA[       PROCEDURE DIVISION.
            *> The sprite: a 32 x 32 yellow square the player's ball wears.
@@ -33,12 +81,30 @@
                PHY-1::AddBall( WS-WORLD WS-BALL(WS-I) 16 1 0.3 0.7 )
            END-PERFORM
 ]]></Event>
+    <Event name="onClose" paragraph="GAME-FORM--ONCLOSE">
+    </Event>
   </form-events>
   <Control id="CNV-GAME" type="Canvas2D" x="10" y="10" w="480" h="320" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The 480 by 320 drawing surface of the game. It raises onFrame sixty times a second; the handler steps the physics world and redraws every ball.</Property>
     <Property name="TargetFps">60</Property>
     <Property name="FixedStep">True</Property>
     <Property name="AccessibleLabel">Physics game: arrow keys push the yellow ball</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onFrame" paragraph="CNV-GAME--ONFRAME"><![CDATA[       PROCEDURE DIVISION.
            *> Input: the arrow keys push the player's ball.
            IF      CNV-GAME::IsKeyDown( "ArrowLeft" ) = 1
@@ -81,13 +147,57 @@
   </Control>
   <Control id="PHY-1" type="Physics2D" x="500" y="340" w="60" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="Definition">The two-dimensional physics engine that moves the five balls under gravity and keeps them on the floor.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
   </Control>
   <Control id="IMG-SPRITE" type="ImageBuffer" x="570" y="340" w="60" h="24" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="Definition">An in-memory 32 by 32 yellow picture that the game draws as the player ball sprite.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
   </Control>
   <Control id="BTN-CHARTS" type="Button" x="500" y="10" w="130" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
     <Property name="Definition">Opens the chart gallery window, which shows every kind of plot.</Property>
     <Property name="Caption">Chart gallery</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onClick" paragraph="BTN-CHARTS--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
            INVOKE    ME::OpenFormSync("CHARTS-FORM")
 ]]></Event>
@@ -95,6 +205,22 @@
   <Control id="BTN-IMAGES" type="Button" x="500" y="52" w="130" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
     <Property name="Definition">Opens the image lab window, which applies filters to a picture.</Property>
     <Property name="Caption">Image lab</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onClick" paragraph="BTN-IMAGES--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
            INVOKE    ME::OpenFormSync("IMAGELAB-FORM")
 ]]></Event>
@@ -102,6 +228,22 @@
   <Control id="BTN-VIEWER" type="Button" x="500" y="94" w="130" h="32" tab-order="5" z-order="0" visible="true" enabled="true">
     <Property name="Definition">Opens the 3D viewer window, which shows a lit rotating model.</Property>
     <Property name="Caption">3D viewer</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onClick" paragraph="BTN-VIEWER--ONCLICK"><![CDATA[       PROCEDURE DIVISION.
            INVOKE    ME::OpenFormSync("VIEWER3D-FORM")
 ]]></Event>
@@ -110,5 +252,20 @@
     <Property name="Definition">A line of help text telling the player to click the canvas and use the arrow keys.</Property>
     <Property name="Caption">Click the canvas, then use the arrow keys.</Property>
     <Property name="ForegroundColor">#C8D0DC</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
   </Control>
 </Form>

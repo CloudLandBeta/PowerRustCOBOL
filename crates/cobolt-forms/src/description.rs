@@ -575,6 +575,8 @@ pub fn code_free(form: &Form) -> Form {
         e.code.clear();
     }
     f.user_ws_source.clear();
+    // The form's definition is for authors and agents; the description a browser is sent does not carry it.
+    f.definition.clear();
     f.cobol_structure = Default::default();
     f.user_procedures.clear();
     f.deleted_code.clear();
