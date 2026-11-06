@@ -297,7 +297,7 @@ as completed.
     `frame-ancestors`.
 
   - **Done (2.0.266):** no wording fix was needed: `BuildReport::text` already prints "in the page (<meta>)" and "only as a response header", the latter listing `frame-ancestors`, `report-uri` and `(report-only mode)`. New `cobolt-web-bundle/tests/csp_report.rs` pins it: the default report lists `frame-ancestors` as header-only and keeps it out of the `<meta>` line; with report-only and a report URI, both are named as header-only and the URI is absent from the `<meta>`.
-- [ ] **T12 — The browser enforces the CSP: a headless proof** (R2; AC2)
+- [x] **T12 — The browser enforces the CSP: a headless proof** (R2; AC2)
   - Files: `crates/cobolt-web-bundle/src/devserver.rs` (Δ1) and `crates/cobolt-web-bundle/tests/csp_browser.rs` (new).
   - Do:
     - Add `ServeOptions.csp_report_sink: bool`, default `false`. When it is true, `handle` accepts `POST /__csp-report` and stores the bodies,
@@ -312,6 +312,7 @@ as completed.
   - Verify: `cargo test -p cobolt-web-bundle --test csp_browser -- --nocapture` shows three reports (`script-src-elem`, `script-src` eval,
     `connect-src`) for the tampered copy, and **zero** for the clean bundle, whose main form renders. The counts are printed.
 
+  - **Done (2.0.267):** `ServeOptions.csp_report_sink` (default off) and `Server::csp_reports()` in `cobolt-web-bundle`'s development server: `POST /__csp-report` answers 204 and keeps the body (at most 64 KiB); with the sink off, or on another path, a POST is 405. `tests/csp_browser.rs` (a real Chrome, found as the other browser tests find it; `SKIPPED: no Chrome`, and a failure under `PR_SECURITY_GATE=1`): the clean bundle, policy delivered as a header with `report-uri /__csp-report`, renders its main form and Chrome reports **0** violations; the tampered copy (temporary folder only: an inline script, a same-origin script that evals, a `fetch` to an address outside `connect-src`) gets **3** reports and none of the three things runs. Measured: under the strict policy the reports are `script-src-elem`, `connect-src` and `require-trusted-types-for` (Trusted Types stops the eval before `script-src` is asked); with Trusted Types off the same eval is reported as `script-src`. Both runs are asserted.
 - [ ] **T13 — The TLS floor is proven; the HTTPS headers are present** (R4; O5)
   - Files: `crates/cobolt-server/tests/tls_floor.rs` (new).
   - Do:

@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.267 — 2026-11-06
+
+**WASM-013 T12: a real browser enforces the Content-Security-Policy, proven headlessly (R2).** *(Written on features-2x-wasm-pending, after 2.0.266.)* The development server of `cobolt-web-bundle` can now record CSP violation reports (`ServeOptions.csp_report_sink`, off by default; `POST /__csp-report`; never part of a bundle). A new test drives Chrome: the clean bundle renders its main form with the policy as a response header and Chrome reports no violation; a tampered copy (an inline script, a same-origin script that calls `eval`, a `fetch` outside `connect-src`) gets three reports and none of the three runs. Under the strict policy the eval is stopped by Trusted Types (`require-trusted-types-for`); with Trusted Types off it is reported as `script-src`.
+
 ## 2.0.266 — 2026-11-06
 
 **WASM-013 T11: the printed Build report names the header-only CSP directives (R3).** *(Written on features-2x-wasm-pending, after 2.0.265.)* A new test (`cobolt-web-bundle/tests/csp_report.rs`) pins that the report says which directives sit in the page's `<meta>` and which only a response header can carry: `frame-ancestors`, `report-uri` and report-only mode are listed as header-only and are never in the `<meta>` line. The wording already did this; only the test was missing.

@@ -28,11 +28,15 @@ pub struct ServeOptions {
     pub extra_headers: Vec<(String, String)>,
     /// Serve index.html with `Cache-Control: no-cache` and everything else as given (default true).
     pub no_cache: bool,
+    /// Accept `POST /__csp-report` and keep the bodies ([`Server::csp_reports`]). WASM-013 R2: this is how a
+    /// test sees the violations a browser reports. It is for the development server only; a bundle never
+    /// contains the route. Default false.
+    pub csp_report_sink: bool,
 }
 
 impl Default for ServeOptions {
     fn default() -> Self {
-        ServeOptions { isolation: Isolation::Off, extra_headers: Vec::new(), no_cache: true }
+        ServeOptions { isolation: Isolation::Off, extra_headers: Vec::new(), no_cache: true, csp_report_sink: false }
     }
 }
 
@@ -41,6 +45,7 @@ pub struct Server {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
     log: Arc<Mutex<Vec<String>>>,
+    reports: Arc<Mutex<Vec<String>>>,
 }
 
 impl Server {
@@ -51,6 +56,11 @@ impl Server {
     /// The paths served so far, in order (`GET /index.html`).
     pub fn requests(&self) -> Vec<String> {
         self.log.lock().unwrap().clone()
+    }
+
+    /// The bodies posted to `/__csp-report` so far (only with [`ServeOptions::csp_report_sink`]).
+    pub fn csp_reports(&self) -> Vec<String> {
+        self.reports.lock().unwrap().clone()
     }
 
     pub fn clear_requests(&self) {
@@ -151,7 +161,7 @@ fn respond(stream: &mut TcpStream, status: &str, headers: &[(String, String)], b
     let _ = stream.flush();
 }
 
-fn handle(mut stream: TcpStream, root: &Path, opts: &ServeOptions, log: &Mutex<Vec<String>>) {
+fn handle(mut stream: TcpStream, root: &Path, opts: &ServeOptions, log: &Mutex<Vec<String>>, reports: &Mutex<Vec<String>>) {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 2048];
     loop {
@@ -185,6 +195,21 @@ fn handle(mut stream: TcpStream, root: &Path, opts: &ServeOptions, log: &Mutex<V
         }
     }
     headers.extend(opts.extra_headers.iter().cloned());
+    if opts.csp_report_sink && method == "POST" && target.split(['?', '#']).next() == Some("/__csp-report") {
+        // the body follows the blank line; read what the first chunks did not bring (at most 64 KiB)
+        let want: usize = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse().ok())).unwrap_or(0);
+        let want = want.min(64 * 1024);
+        let start = buf.windows(4).position(|w| w == b"\r\n\r\n").map_or(buf.len(), |i| i + 4);
+        while buf.len() < start + want {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            }
+        }
+        reports.lock().unwrap().push(String::from_utf8_lossy(&buf[start.min(buf.len())..]).into_owned());
+        respond(&mut stream, "204 No Content", &headers, b"", false);
+        return;
+    }
     if method != "GET" && method != "HEAD" {
         respond(&mut stream, "405 Method Not Allowed", &headers, b"method not allowed", false);
         return;
@@ -213,7 +238,8 @@ pub fn serve(root: impl Into<PathBuf>, addr: &str, opts: ServeOptions) -> io::Re
     let local = listener.local_addr()?;
     let stop = Arc::new(AtomicBool::new(false));
     let log = Arc::new(Mutex::new(Vec::new()));
-    let (s2, l2) = (stop.clone(), log.clone());
+    let reports = Arc::new(Mutex::new(Vec::new()));
+    let (s2, l2, r2) = (stop.clone(), log.clone(), reports.clone());
     let opts = Arc::new(opts);
     let root = Arc::new(root);
     let thread = std::thread::spawn(move || {
@@ -222,11 +248,11 @@ pub fn serve(root: impl Into<PathBuf>, addr: &str, opts: ServeOptions) -> io::Re
                 break;
             }
             let Ok(stream) = conn else { continue };
-            let (root, opts, log) = (root.clone(), opts.clone(), l2.clone());
-            std::thread::spawn(move || handle(stream, &root, &opts, &log));
+            let (root, opts, log, reports) = (root.clone(), opts.clone(), l2.clone(), r2.clone());
+            std::thread::spawn(move || handle(stream, &root, &opts, &log, &reports));
         }
     });
-    Ok(Server { addr: local, stop, thread: Some(thread), log })
+    Ok(Server { addr: local, stop, thread: Some(thread), log, reports })
 }
 
 #[cfg(test)]
@@ -290,5 +316,26 @@ mod tests {
         assert_eq!(resolve(root, "/forms/a%20b.cfrm?x=1").unwrap(), Path::new("/srv/app/forms/a b.cfrm"));
         assert!(resolve(root, "/a/../../b").is_none());
         assert!(resolve(root, "/%zz").is_none());
+    }
+
+    fn post(addr: SocketAddr, path: &str, body: &str) -> String {
+        let mut s = TcpStream::connect(addr).unwrap();
+        s.write_all(format!("POST {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/csp-report\r\nContent-Length: {}\r\n\r\n{body}", body.len()).as_bytes()).unwrap();
+        let mut out = Vec::new();
+        s.read_to_end(&mut out).unwrap();
+        String::from_utf8_lossy(&out).lines().next().unwrap_or("").to_owned()
+    }
+
+    #[test]
+    fn the_csp_report_sink_is_off_by_default_and_keeps_the_bodies_when_on() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("index.html"), "<p>hi</p>").unwrap();
+        let off = serve(dir.path(), "127.0.0.1:0", ServeOptions::default()).unwrap();
+        assert!(post(off.addr, "/__csp-report", "{}").contains("405"), "a server without the sink refuses a POST");
+        assert!(off.csp_reports().is_empty());
+        let on = serve(dir.path(), "127.0.0.1:0", ServeOptions { csp_report_sink: true, ..Default::default() }).unwrap();
+        assert!(post(on.addr, "/__csp-report", r#"{"csp-report":{"effective-directive":"script-src"}}"#).contains("204"));
+        assert!(post(on.addr, "/other", "x").contains("405"), "only the report route is a sink");
+        assert_eq!(on.csp_reports(), vec![r#"{"csp-report":{"effective-directive":"script-src"}}"#.to_string()]);
     }
 }
