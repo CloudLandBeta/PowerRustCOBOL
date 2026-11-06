@@ -157,7 +157,7 @@ as completed.
 
   - **Done (2.0.259):** T2: `secrets::PATTERNS` (15 entries, one planted per entry in a test), the `Key=value` rule (`Password=`, `Pwd=`, `AccountKey=`, `SharedAccessKey=`, placeholders ignored), `connectionstring` in the property list, `scan_project` used by the bundle loop. T3: `tests/examples_clean.rs` scans 557 tracked example text files and finds 10 Errors in 7 files (the demo forms and one Knowledge Base document); **reported to the operator, not opened, not edited**. The test pins those 7 files by file, pattern and count, so any new hit fails. The operator decides what to do with them.
 
-- [ ] **T4 — A release backend refuses a literal secret** (R7, R8; AC7 backend half)
+- [x] **T4 — A release backend refuses a literal secret** (R7, R8; AC7 backend half)
   - Files: `crates/cobolt-server/src/config.rs` (`ServerConfig::resolve` `:358`), `crates/cobolt-server/tests/config_rules.rs`.
   - Do:
     - In `RunMode::Release`, refuse a `Secret` field whose text is neither `env:…` nor `file:…`. The fields are `tls.pkcs12_password`, the
@@ -170,6 +170,8 @@ as completed.
     - New cases: in Release a literal is refused with its key named and the value absent from the error; `env:` and `file:` resolve; in
       Development there is a warning and no error.
     - The existing `a_release_start_refuses_every_unsafe_setting…` still passes.
+
+  - **Done (2.0.260):** the identity client secret, cookie key and reCAPTCHA secret were already refused as literals in Release (WASM-009); the missing one was `tls.pkcs12_password`, now the same rule (error names the key, never the value; a warning in Development). New test `a_literal_pkcs12_password_stops_a_release_start_and_only_warns_in_development`; `cobolt-server` all green.
 
 ## M2 — settings, profile, warnings (R11, R12)
 

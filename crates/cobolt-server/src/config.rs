@@ -801,7 +801,16 @@ impl ServerConfig {
             },
             (None, None, Some(p)) => {
                 let password = match &self.tls.pkcs12_password {
-                    Some(spec) => Secret::new(resolve_secret(spec.expose()).map_err(|e| errs.push(format!("tls.pkcs12_password: {e}"))).unwrap_or_default()),
+                    Some(spec) => {
+                        // A literal password: refused in release, a warning in development (WASM-013 R7, R8).
+                        if !is_secret_reference(spec.expose()) {
+                            match mode {
+                                RunMode::Release => errs.push("tls.pkcs12_password is written in backend.toml: give it as env:NAME or file:PATH (the file is committed; WASM-013 R7)".to_string()),
+                                RunMode::Development => warnings.push("tls.pkcs12_password is written in backend.toml — for development only; a release build refuses it (use env:NAME or file:PATH)".to_string()),
+                            }
+                        }
+                        Secret::new(resolve_secret(spec.expose()).map_err(|e| errs.push(format!("tls.pkcs12_password: {e}"))).unwrap_or_default())
+                    }
                     None => Secret::default(),
                 };
                 match std::fs::read(abs(p)) {

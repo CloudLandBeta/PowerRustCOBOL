@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.260 — 2026-11-06
+
+**WASM-013 T4: a release backend refuses a literal PKCS#12 password (R7, R8).** *(Written on features-2x-wasm-pending, after 2.0.259.)* The identity secrets already had the rule; `tls.pkcs12_password` did not. In a Release start a password written in `backend.toml` is now an error naming the key and saying "give it as env:NAME or file:PATH" (the value is never in the message); in Development it is accepted with a warning; `env:` and `file:` resolve as before. One new case in `cobolt-server/tests/config_rules.rs`; the crate's tests are green.
+
 ## 2.0.259 — 2026-11-06
 
 **WASM-013 T2, T3: the secret-scan pattern list is public, one project scan, the examples under it (R7).** *(Written on features-2x-wasm-pending, after 2.0.258.)* `cobolt-web-bundle::secrets` gains `PATTERNS` (every pattern `scan_text` can report, with its severity; `scan_text` can only push names from it), the `Key=value` connection-string rule (`Password=`, `Pwd=`, `AccountKey=`, `SharedAccessKey=`, ignoring case, placeholders `${…}`/`<…>`/`*` not flagged), `connectionstring` among the secret property names, and `scan_project`, which the bundle loop now calls. One planted value per pattern is found under its own name and severity and never shown. New `tests/examples_clean.rs` scans the 557 tracked text files of `examples/`: **10 secret shapes in 7 files** (PowerAnalytics, PowerChat, PowerDemo3 forms and one Knowledge Base document). They were not opened or edited — the operator decides; the test pins them by file, pattern and count so a new hit fails.

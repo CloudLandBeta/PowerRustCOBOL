@@ -401,3 +401,33 @@ fn contract_section_reads_both_store_modes_and_refuses_an_unknown_key() {
     }
     println!("[contract]: memory and server read; 3 misspellings refused");
 }
+
+/// WASM-013 T4: the PKCS#12 password follows the same rule as the identity secrets: `env:`/`file:` in a release
+/// start, a literal only as a development warning; the error names the key and never the value.
+#[test]
+fn a_literal_pkcs12_password_stops_a_release_start_and_only_warns_in_development() {
+    let dir = std::env::temp_dir().join(format!("prc-t4-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let p12 = dir.join("id.p12");
+    std::fs::write(&p12, b"not a real identity; the file is only read, not parsed, by resolve").unwrap();
+    std::fs::write(dir.join("pw.txt"), "from-the-file\n").unwrap();
+    let base = |password: &str| {
+        format!(
+            "[server]\nlisten = \"127.0.0.1:8443\"\nallowed_origins = [\"https://app.example.com\"]\n[tls]\npkcs12 = \"{}\"\npkcs12_password = \"{password}\"\n{}",
+            p12.display().to_string().replace('\\', "/"),
+            cognito("").split_once("[identity").map(|(_, r)| format!("[identity{r}")).unwrap_or_default()
+        )
+    };
+    let literal = "hunter2-literal-password";
+    let e = errors(&base(literal), RunMode::Release);
+    assert!(e.contains("tls.pkcs12_password") && e.contains("env:NAME or file:PATH"), "{e}");
+    assert!(!e.contains(literal), "the value is never in the error: {e}");
+    let r = resolve(&base(literal), RunMode::Development).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(r.warnings.iter().any(|w| w.contains("tls.pkcs12_password")), "{:?}", r.warnings);
+    assert!(!format!("{r:?}").contains(literal));
+    let file = format!("file:{}", dir.join("pw.txt").display().to_string().replace('\\', "/"));
+    if let Err(es) = resolve(&base(&file), RunMode::Release) {
+        assert!(!es.join("\n").contains("tls.pkcs12_password"), "file: resolves: {es:?}");
+    }
+    println!("pkcs12_password: literal refused in release (key named, value absent), warned in development; file: accepted");
+}
