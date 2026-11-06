@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.256 — 2026-11-06
+
+**WASM-015 T12: the ledger's `wasm` column and the one-command regression (R6, AC1, AC6).** *(Written on features-2x-wasm-pending, after 2.0.255.)* `cargo run -p cobolt-wasm --example nist_wasm -- regress <MODULES…> [--record]` builds `nist_wasm_run` and `nist_conformance`, runs the compile census in process (the same `census` function the plain mode now calls, not a copy) and the CCVS85 execution pass with the module generator as the runner, then prints per module both numbers, the assertion tally, the programs that did not compile grouped by cause, the programs that compiled but did not run clean, and the interpreter's ledger figures beside them; it exits 1 when the generator is behind the interpreter. `--record` edits only the `"wasm"` object of each module in `NIST/progress.json` (engine, version, compile, execution, assertions) line by line, so no other field moves. Measured on `wasmtime`: NC compile 95/95, execution 95/95, 4612 PASS / 0 FAIL / 5 DELETED (the ledger's interpreter figure is 4614 PASS: two assertions fewer reported, none failing); IF 45/45, 45/45, 841 PASS / 0 FAIL; IC 47/47, 25/25, 309 PASS / 0 FAIL / 4 DELETED. The `nist-grind` skill documents the column.
+
 ## 2.0.255 — 2026-11-06
 
 **WASM-015 T11: the module runner takes the shared script steps (R1, R9).** *(Written on features-2x-wasm-pending, after 2.0.254.)* New `cobolt-wasm/tests/runner.rs`: `run_script` drives a project module on `wasmtime` with the clock and the random source fixed, taking the same `Step` type as the browser and desktop runners (`cobolt-project-tools` is a dev-dependency of `cobolt-wasm` only) — `set` types into a property, `event` raises a handler, `read` answers the property; a step that needs a page (`rect`, `style`, `snapshot`, …) is refused by name. One script run twice gives byte-identical reads, output, errors and batches in both memory variants, and a read after a handler's own `SET` answers that value. It prints the steps, the host calls and the bytes compared. `FormHost` already held the stub property store, so the library is unchanged.

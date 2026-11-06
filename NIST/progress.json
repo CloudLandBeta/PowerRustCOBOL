@@ -74,6 +74,23 @@
         "pass": 4614,
         "fail": 0,
         "deleted": 5
+      },
+      "wasm": {
+        "engine": "wasmtime",
+        "measured_at_version": "2.0.255",
+        "compile": [
+          95,
+          95
+        ],
+        "execution": [
+          95,
+          95
+        ],
+        "assertions": {
+          "pass": 4612,
+          "fail": 0,
+          "deleted": 5
+        }
       }
     },
     "SQ": {
@@ -131,7 +148,24 @@
         "deleted": 0
       },
       "finished_at": "1.62.81 — from a 24/45 baseline. Five causes, none of them in the module's own subject matter: a lexer separator rule (twice), a flagging gap, NUMVAL's argument grammar, an argument-list comparison, and a division overflow path. The Conditional module is a test of intrinsic functions, and every defect it found lived somewhere else.",
-      "baselined_at": "1.62.77 — measured for the first time. 87.4% of 803 assertions. Two members CRASH the interpreter outright (IF124A, IF133A, exit 101) rather than failing, and a crash is a runtime panic, not a wrong answer — look at those first, they are the only two of their kind in the module. Three flagging members are heavily red (IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5); IF401M asking for HIGH-subset flagging is the same shape as IX401M, which scores 10/10, so it is a real gap rather than a scoping question. The rest is a long tail of 1-12 failures across 18 members."
+      "baselined_at": "1.62.77 — measured for the first time. 87.4% of 803 assertions. Two members CRASH the interpreter outright (IF124A, IF133A, exit 101) rather than failing, and a crash is a runtime panic, not a wrong answer — look at those first, they are the only two of their kind in the module. Three flagging members are heavily red (IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5); IF401M asking for HIGH-subset flagging is the same shape as IX401M, which scores 10/10, so it is a real gap rather than a scoping question. The rest is a long tail of 1-12 failures across 18 members.",
+      "wasm": {
+        "engine": "wasmtime",
+        "measured_at_version": "2.0.255",
+        "compile": [
+          45,
+          45
+        ],
+        "execution": [
+          45,
+          45
+        ],
+        "assertions": {
+          "pass": 841,
+          "fail": 0,
+          "deleted": 0
+        }
+      }
     },
     "IC": {
       "name": "Inter-program communication",
@@ -163,7 +197,24 @@
       "ic227a_note": "1.62.89 took it from 11 failures to 1. The survivor is EXT-REC-TEST-01, `SUBPROGRAM DID NOT WRITE TO RECORD AREA` — the EXTERNAL FD's shared RECORD AREA, which is a different question from the status item and is not yet diagnosed.",
       "baselined_at": "1.62.81 — 6 of 47, 134 PASS / 129 FAIL. Corrected at 1.62.82 once the harness supplied each caller's callees: 10 of 25, 187 PASS / 71 FAIL, 72.5%.",
       "denominator_note": "The execution denominator is 25, not 47. Twenty-two of IC's members are `SUBRTN` callees — separately compiled subprograms with no CCVS report of their own — so running one alone could only ever fail. They are still counted on the COMPILE axis, where the module remains 45 of 47. When comparing against the 1.62.81 baseline use 6 -> 10 of 25.",
-      "shape": "Unlike NC/SQ/IX/RL/IF this module's subject is a whole language area — CALL, nested programs, LINKAGE, INITIAL, EXTERNAL — so expect fewer, larger causes rather than a long tail. No crashes and no timeouts: the programs run and get the answers wrong. Two members do not compile (IC224A: `unexpected token in statement: EndCall`)."
+      "shape": "Unlike NC/SQ/IX/RL/IF this module's subject is a whole language area — CALL, nested programs, LINKAGE, INITIAL, EXTERNAL — so expect fewer, larger causes rather than a long tail. No crashes and no timeouts: the programs run and get the answers wrong. Two members do not compile (IC224A: `unexpected token in statement: EndCall`).",
+      "wasm": {
+        "engine": "wasmtime",
+        "measured_at_version": "2.0.255",
+        "compile": [
+          47,
+          47
+        ],
+        "execution": [
+          25,
+          25
+        ],
+        "assertions": {
+          "pass": 309,
+          "fail": 0,
+          "deleted": 4
+        }
+      }
     },
     "ST": {
       "name": "Sort/Merge",

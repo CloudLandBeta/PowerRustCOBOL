@@ -198,6 +198,21 @@ Every `protected_baselines` figure must match exactly. If one moved down,
 the trade the operator chose deliberately. Revert the offending change and
 record a dead end; do not chase the regression forward.
 
+**The `wasm` column (2.x.x only).** On the WebAssembly line each finished module
+also carries a `wasm` object beside the interpreter's figures: engine, version,
+`compile`, `execution`, `assertions`. It is read, never hand-written:
+
+```bash
+cargo run -p cobolt-wasm --example nist_wasm -- regress NC IF IC          # measure, print beside the interpreter
+cargo run -p cobolt-wasm --example nist_wasm -- regress NC IF IC --record # and write only the `wasm` objects
+```
+
+`regress` exits 1 when the generator is behind the interpreter on a module
+(compile, execution or FAIL count). `--record` never touches the interpreter
+fields or `protected_baselines`; check with `git diff NIST/progress.json` that
+only `wasm` lines moved. A generator fix is gated by this exactly as an
+interpreter fix is gated by `run`.
+
 ⚠️ **One exception stays per-change.** If the fix touches `cobolt-lexer` or
 `cobolt-parser`, run the full gate immediately rather than deferring it. Two of
 the grind's four caught regressions were front-end changes breaking a module
