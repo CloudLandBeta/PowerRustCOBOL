@@ -20,8 +20,13 @@ use crate::value::truthy;
 // ── TreeView ────────────────────────────────────────────────────────────────
 
 /// The payload a tree event carries: `text⇥index⇥level⇥checked` (`render::node_payload`).
+///
+/// `index` and `level` are 1-BASED, as COBOL counts and as the desktop sends them: the first node is index 1 at
+/// level 1. (`NodeInfo` counts from 0.) The program side reads index 0 as "no node" (a click in the tree's empty
+/// space) and leaves `CONTROL-NODE` empty, so a payload counted from 0 would give a handler an empty node for the
+/// first node of every tree.
 pub fn node_payload(n: &NodeInfo, checked: &[String]) -> String {
-    format!("{}\t{}\t{}\t{}", n.text, n.index, n.level, if checked.iter().any(|c| *c == n.text) { 1 } else { 0 })
+    format!("{}\t{}\t{}\t{}", n.text, n.index + 1, n.level + 1, if checked.iter().any(|c| *c == n.text) { 1 } else { 0 })
 }
 
 /// Which nodes the tree shows: a node whose ancestor is folded shut is not.
@@ -224,6 +229,7 @@ mod tests {
     #[test]
     fn the_node_payload_is_the_one_the_desktop_gives_a_handler() {
         let all = nodes("A\n  B");
-        assert_eq!(node_payload(&all[1], &["B".into()]), "B\t1\t1\t1");
+        assert_eq!(node_payload(&all[1], &["B".into()]), "B\t2\t2\t1", "B is the second node, at the second level, ticked");
+        assert_eq!(node_payload(&all[0], &[]), "A\t1\t1\t0", "the first node is index 1 at level 1, never 0");
     }
 }

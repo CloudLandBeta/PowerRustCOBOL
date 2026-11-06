@@ -43,7 +43,7 @@ fn the_loader_the_player_and_the_program_run_together_under_node() {
 
     // The scenario project (WASM-017 T11), built by the product's own Web Build: its bundle is served to the same script.
     let project = support::scenario_project("e2e");
-    let req = WebBuildRequest::from_manifest(&project.join("Core.project.toml")).unwrap();
+    let req = WebBuildRequest::from_manifest(&project.path().join("Core.project.toml")).unwrap();
     let built = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("the scenario project does not build: {e}"));
     let mut modules = 0;
     for entry in std::fs::read_dir(&built.bundle_dir).unwrap().flatten() {

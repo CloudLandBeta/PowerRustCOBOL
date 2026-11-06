@@ -14,7 +14,7 @@ use cobolt_project_tools::web::{WebBuildBackend, WebBuildRequest};
 #[test]
 fn the_scenario_project_builds_to_a_bundle() {
     let dir = support::scenario_project("probe");
-    let req = WebBuildRequest::from_manifest(&dir.join("Core.project.toml")).unwrap();
+    let req = WebBuildRequest::from_manifest(&dir.path().join("Core.project.toml")).unwrap();
     let report = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("{e}"));
     for p in report.size.parts.iter().filter(|p| p.name.contains("program")) {
         println!("{}: {} bytes", p.name, p.bytes);

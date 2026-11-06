@@ -94,7 +94,7 @@ fn every_part_of_the_bundle_against_the_recorded_size() {
     let mut current: BTreeMap<String, u64> = out.report.sizes.iter().filter(|s| s.path.ends_with(".wasm") || s.path.ends_with(".js")).map(|s| (unhashed(&s.path), s.bytes)).collect();
     // The program module of the scenario project, one per memory variant (named apart: they are the generator's output).
     let project = support::scenario_project("size");
-    let req = WebBuildRequest::from_manifest(&project.join("Core.project.toml")).unwrap();
+    let req = WebBuildRequest::from_manifest(&project.path().join("Core.project.toml")).unwrap();
     let built = GeneratorBackend.build(&req).unwrap_or_else(|e| panic!("the scenario project does not build: {e}"));
     for e in std::fs::read_dir(&built.bundle_dir).unwrap().flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
