@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 //
 // Licensed under the Apache License, Version 2.0.
-// See the LICENSE fifilter(|l| l.contains('=') && !l.trim().starts_with("auth.") && !l.trim().starts_with("contract."))e in the project root for full license information.
+// See the LICENSE file in the project root for full license information.
 
 //! The contract end to end (WASM-014 AC1-AC10): the Rust client against a real
 //! backend over a real TLS loopback, with a proxy that can cut the connection at

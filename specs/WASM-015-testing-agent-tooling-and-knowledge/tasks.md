@@ -80,7 +80,7 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
   - Do: without a helper or a display, return a typed "no web view — <reason>" error; the test prints it and returns, and fails under `PRC_REQUIRE_WEBVIEW=1`.
   - Verify (**AC2**): `cargo test -p cobolt-web-tests --test runner --no-fail-fast` on this Mac: click a button, read a label's `text`, a `style` `color`, a PNG of non-zero size; prints engine, version and ms per step. Run once with the helper path pointed nowhere → prints the skip; with `PRC_REQUIRE_WEBVIEW=1` → fails.
 
-- [ ] **T7 — The backend runner: start, sign in, call, skew, teardown** (R3, AC3)
+- [x] **T7 — The backend runner: start, sign in, call, skew, teardown** (R3, AC3)
   - Files: `crates/cobolt-server/src/testkit.rs` (binary mode: build with `cobolt_compiler::backend_build` from a fixture `backend/`, start on `127.0.0.1:0` with a test `backend.toml` trusting the testkit's JWKS written to a file), new `crates/cobolt-server/tests/runner.rs`.
   - Do: **if `backend.toml` cannot name a local key-set file without an `unsafe_*` setting, stop and ask the operator** before adding a setting (plan §5). Binary mode runs only with `PRC_WEB_E2E=1`.
   - Verify (**AC3**): `cargo test -p cobolt-server --features testkit --test runner --no-fail-fast`: in-process — sign a test user in, one call, one skew call a minor ahead and one behind, shutdown with no task left and the port released (re-bind succeeds); prints each step's ms. `PRC_WEB_E2E=1 cargo test … --test runner` does the same against the built binary.

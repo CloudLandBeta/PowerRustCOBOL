@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.242 — 2026-11-06
+
+**WASM-015 T7: the backend runner, in process and against the built binary (AC3).** *(Written on features-2x-wasm-pending, after 2.0.241.)* New `cobolt-server/tests/runner.rs`. In process: start 134 ms, sign in 5 ms, a call 79 ms, a call as 1.1.0 (served with a compatibility warning) 11 ms, as 1.3.0 (refused: Version / CLIENT_TOO_NEW, "update the backend") 9 ms, shutdown, and the port re-binds. With `PRC_WEB_E2E=1` the same sequence against the backend built by `backend_build` (debug build 46,141 ms, process listening in 1,262 ms, calls 56 / 26 / 16 ms, port released after the stop). The decision the task asked to put to the operator: a backend names its issuer keys with `jwks_uri`, and a loopback `http` address is allowed (`jwks::address_allowed`), so the binary mode serves the kit's key set from a loopback port and needs NO `unsafe_*` setting; no setting was added. Also repaired a garbled licence-header line in `client_contract.rs`.
+
 ## 2.0.241 — 2026-11-06
 
 **WASM-015 T6: the browser runner library, and AC2 on the hello world.** *(Written on features-2x-wasm-pending, after 2.0.240.)* New `cobolt_project_tools::web::runner`: `run(root, form, size, &[Step], limit)` builds the project, serves it on loopback, opens the form in the system web view's headless helper, runs the steps one script call each and answers `RunReport {values, displayed, errors, png, engine {name, user_agent}, step_ms}`; a machine without the helper or a web view is the typed `RunnerError::NoWebView(reason)`. `Step` gains the helper's own `type`, `wait`, `get`; `to_helper` maps the desktop spellings; the helper's `page` step gains `navigator.userAgent`. Test `cobolt-web-tests/tests/runner.rs::hello_world_bundle` on this Mac (WebKit): empty box asks for a name, "Ada" is greeted, a `style` colour reads `rgb(255, 255, 255)`, a 74,178-byte PNG; per step 54 to 830 ms, the form on the page in 2,256 ms, 8 checks passed. With `PRC_WEB_PREVIEW=/nowhere` it prints the skip; with `PRC_REQUIRE_WEBVIEW=1` too it fails. project-tools 238 passed, web-preview 8+3 passed.
