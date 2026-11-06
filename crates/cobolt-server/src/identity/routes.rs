@@ -253,7 +253,7 @@ impl AuthRoutes {
             },
             _ => AuthResponse::text(404, "not found"),
         };
-        for (k, v) in http::cors_headers(req.header("origin").filter(|o| self.origin_allowed(o)), &self.origins) {
+        for (k, v) in http::cors_headers(req.header("origin").filter(|o| self.origin_allowed(o)), &self.origins, false, http::Credentials::Yes) {
             res.headers.push((k.to_string(), v));
         }
         res.headers.push(("cache-control".into(), "no-store".into()));

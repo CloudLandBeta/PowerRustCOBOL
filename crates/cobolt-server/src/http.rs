@@ -131,17 +131,31 @@ impl SetCookie {
     }
 }
 
-/// The CORS headers for a credentialed request from `origin` (D5): the one origin echoed, never
-/// `*`, with `Vary: Origin` so a cache cannot hand one origin's answer to another. An origin not in
-/// `allowed` (or none) gets no CORS header at all, and the browser keeps the answer from the page.
-pub fn cors_headers(origin: Option<&str>, allowed: &[String]) -> Vec<(&'static str, String)> {
-    match origin {
-        Some(o) if o != "null" && allowed.iter().any(|a| a == o) => vec![
-            ("access-control-allow-origin", o.to_owned()),
-            ("access-control-allow-credentials", "true".to_owned()),
-            ("vary", "Origin".to_owned()),
-        ],
-        _ => vec![("vary", "Origin".to_owned())],
+/// Does the answer carry the browser's cookies and credentials (WASM-013 R6)?
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Credentials {
+    No,
+    Yes,
+}
+
+/// **The one CORS function** (WASM-013 R6): no other place in the server writes `Access-Control-Allow-Origin` or
+/// `Access-Control-Allow-Credentials` (`tests/cors_sources.rs` searches for it).
+///
+/// * `Credentials::Yes` — a request that carries cookies (D5): the one origin is echoed **only when it is listed**
+///   in `allowed`, with `Allow-Credentials: true`. Never `*`, never under `any_origin`, never `null`.
+/// * `Credentials::No` — a plain answer (a download): a listed origin is echoed, and so is any origin when
+///   `any_origin` is on (a development run); never `*`, never `Allow-Credentials`.
+///
+/// `Vary: Origin` is always added, so a cache cannot hand one origin's answer to another. An origin that is not
+/// answered gets no CORS header at all, and the browser keeps the answer from the page.
+pub fn cors_headers(origin: Option<&str>, allowed: &[String], any_origin: bool, c: Credentials) -> Vec<(&'static str, String)> {
+    let vary = ("vary", "Origin".to_owned());
+    let Some(o) = origin.filter(|o| *o != "null" && *o != "*") else { return vec![vary] };
+    let listed = allowed.iter().any(|a| a == o);
+    match c {
+        Credentials::Yes if listed => vec![("access-control-allow-origin", o.to_owned()), ("access-control-allow-credentials", "true".to_owned()), vary],
+        Credentials::No if listed || any_origin => vec![("access-control-allow-origin", o.to_owned()), vary],
+        _ => vec![vary],
     }
 }
 
@@ -242,14 +256,34 @@ mod tests {
     #[test]
     fn cors_echoes_one_listed_origin_with_credentials_and_never_a_wildcard() {
         let allowed = vec!["https://app.example.test".to_string()];
-        let h = cors_headers(Some("https://app.example.test"), &allowed);
+        let h = cors_headers(Some("https://app.example.test"), &allowed, false, Credentials::Yes);
         assert!(h.contains(&("access-control-allow-origin", "https://app.example.test".to_string())));
         assert!(h.contains(&("access-control-allow-credentials", "true".to_string())));
         for other in [Some("https://evil.example.test"), Some("null"), None, Some("https://app.example.test.evil.test")] {
-            let h = cors_headers(other, &allowed);
+            let h = cors_headers(other, &allowed, false, Credentials::Yes);
             assert!(h.iter().all(|(k, _)| !k.starts_with("access-control-")), "{other:?}: {h:?}");
+            assert!(h.contains(&("vary", "Origin".to_string())));
         }
         assert!(!format!("{h:?}").contains('*'));
+    }
+
+    /// WASM-013 T10: under `any_origin` a credentialed answer echoes nothing and carries no `Allow-Credentials`; a plain
+    /// answer echoes the origin (a development download) but never credentials, and a `*` or `null` origin is never echoed.
+    #[test]
+    fn any_origin_never_carries_credentials_and_a_wildcard_is_never_echoed() {
+        let none: Vec<String> = Vec::new();
+        let listed = vec!["https://app.example.test".to_string()];
+        let yes = cors_headers(Some("https://evil.example.test"), &none, true, Credentials::Yes);
+        assert_eq!(yes, vec![("vary", "Origin".to_string())], "credentials + any origin: no echo, no Allow-Credentials");
+        let no = cors_headers(Some("https://evil.example.test"), &none, true, Credentials::No);
+        assert!(no.contains(&("access-control-allow-origin", "https://evil.example.test".to_string())));
+        assert!(no.iter().all(|(k, _)| *k != "access-control-allow-credentials"), "{no:?}");
+        assert!(cors_headers(Some("https://evil.example.test"), &listed, false, Credentials::No).iter().all(|(k, _)| !k.starts_with("access-control-")));
+        assert!(cors_headers(Some("https://app.example.test"), &listed, false, Credentials::No).iter().any(|(k, _)| *k == "access-control-allow-origin"));
+        for odd in ["*", "null"] {
+            assert_eq!(cors_headers(Some(odd), &listed, true, Credentials::No), vec![("vary", "Origin".to_string())], "{odd}");
+        }
+        println!("cors_headers: credentials only for a listed origin, any_origin never with credentials, * and null never echoed");
     }
 
     #[test]

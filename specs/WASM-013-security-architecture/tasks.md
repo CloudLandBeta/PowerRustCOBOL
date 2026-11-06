@@ -269,7 +269,7 @@ as completed.
 
   - **Done (2.0.264):** `DevOptions.page_origin`; `rcrun backend run --page-origin <origin>`; the Preview chooses the page's port before it starts the Backend (`devbackend::free_loopback_port`), hands the origin over, and serves the page on exactly that port; a Backend the IDE already runs is reused only while its port is free again, else restarted for a new one. `None` keeps any origin and warns on the Output. A client sending no Origin is still accepted (a browser always sends one). Tests: `cobolt-server/tests/dev_origin.rs` (origin accepted; another port of 127.0.0.1, `localhost` and a foreign site get 403) and a new assertion in the Preview's backend test. The Preview-with-Backend tests need `target/debug/rcrun` built (they were red in a fresh worktree for that reason; with it they pass).
 
-- [ ] **T10 — One CORS function; wildcard-with-credentials is impossible** (R6; AC5 server half)
+- [x] **T10 — One CORS function; wildcard-with-credentials is impossible** (R6; AC5 server half)
   - Files: `crates/cobolt-server/src/http.rs`, `crates/cobolt-server/src/serve.rs` (`:389-390`), `crates/cobolt-server/tests/loopback.rs`, and
     `crates/cobolt-server/tests/cors_sources.rs` (new).
   - Do:
@@ -288,6 +288,7 @@ as completed.
 
 ## M4 — policies the build generates (R2, R3, R4, Q4)
 
+  - **Done (2.0.265):** one function, `http::cors_headers(origin, allowed, any_origin, Credentials)`, with `Credentials::{No, Yes}`. `Yes` (the identity routes) echoes only a **listed** origin and sends `Allow-Credentials`; `No` (the download response) echoes a listed origin, or any origin when `unsafe_allow_any_origin` is on, and never sends credentials. `Vary: Origin` always; `*` and `null` are never echoed. `serve.rs` and `identity/routes.rs` both go through it. Tests: a unit test in `http.rs` (any-origin never carries credentials; a wildcard is never echoed) and `tests/cors_sources.rs` (the `Access-Control-Allow-*` strings appear only inside `cors_headers`: 31 files searched). The signature takes the config values rather than `&Resolved`/`&Head`, which the two call sites do not share.
 - [ ] **T11 — The printed report names the header-only directives** (R3; AC3)
   - Files: `crates/cobolt-web-bundle/src/lib.rs` (`BuildReport::text` `:246`) and its tests.
   - Do: a test, plus a wording fix only if the test shows one is needed. `BuildReport::text` must say which directives are in the `<meta>` and

@@ -653,9 +653,12 @@ async fn download(State(c): State<ConnCtx>, method: Method, Path(token): Path<St
             rh.insert(header::CONTENT_RANGE, v);
         }
     }
-    if let Some(origin) = headers.get(header::ORIGIN).filter(|o| origin_allowed(&c.shared.cfg, o.to_str().ok())) {
-        rh.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
-        rh.insert(header::VARY, HeaderValue::from_static("Origin"));
+    // The one CORS function (WASM-013 R6): a plain answer, no credentials.
+    let origin = headers.get(header::ORIGIN).and_then(|o| o.to_str().ok());
+    for (k, v) in crate::http::cors_headers(origin, &c.shared.cfg.allowed_origins, c.shared.cfg.allow_any_origin, crate::http::Credentials::No) {
+        if let Ok(v) = HeaderValue::from_str(&v) {
+            rh.insert(axum::http::HeaderName::from_static(k), v);
+        }
     }
     res
 }

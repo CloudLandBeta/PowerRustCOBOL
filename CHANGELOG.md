@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.265 — 2026-11-06
+
+**WASM-013 T10: one CORS function; a wildcard with credentials is impossible (R6).** *(Written on features-2x-wasm-pending, after 2.0.264.)* `cobolt-server` now builds every `Access-Control-Allow-*` header in one place, `http::cors_headers(origin, allowed, any_origin, Credentials)`. With `Credentials::Yes` (the identity routes) only an origin listed in `allowed_origins` is echoed, with `Allow-Credentials`; with `Credentials::No` (the download response) a listed origin is echoed, or any origin when `unsafe_allow_any_origin` is on, and credentials are never sent. `Vary: Origin` is always added; `*` and `null` are never echoed. A test searches the sources and fails if those header names appear outside the function.
+
 ## 2.0.264 — 2026-11-06
 
 **WASM-013 T9: the development backend accepts the page's origin, not any origin (R12).** *(Written on features-2x-wasm-pending, after 2.0.263.)* `rcrun backend run` takes `--page-origin <origin>`; given one, the development backend allows that origin only (a browser from another port of the same machine, `localhost`, or a foreign site gets 403; a client that sends no Origin, like `rcrun` or `curl`, still connects). The Preview now picks the page's port before it starts the Backend, tells the Backend the origin and serves the page on that port; a Backend already running for the project is reused only while its port is free, otherwise it is restarted. Started without an origin (the Run menu's Start Backend) it keeps accepting any origin and says so on the Output. `DevOptions` gains `page_origin`. New `cobolt-server/tests/dev_origin.rs`; the Preview's backend test asserts the origin it handed over.
