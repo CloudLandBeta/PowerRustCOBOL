@@ -151,12 +151,13 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
   - Do: dispatch by kind in code, never by prompt words (policy-first). If an agent golden changes, regenerate with `COBOLT_WRITE_GOLDEN=1` and read the diff.
   - Verify: `cargo test -p cobolt-agents --no-fail-fast` (`route_specialist_for(Web, "add a SqlDatabase") == "WebFormsDesigner"`, Desktop unchanged); `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast` green, with new tests: the Web planning prompt carries `PROJECT KIND:` and lists `Web Form Designer Agent` and not `Form Designer Agent`; `produces_form_change_set` is true for the new agent and the apply path accepts its change set; neither new prompt is detected as stale.
 
-- [ ] **T20 — i18n check for the new agent** (spec §6 i18n)
+- [x] **T20 — i18n check for the new agent** (spec §6 i18n)
   - Files: `crates/cobolt-ide/src/i18n.rs` only if needed.
   - Do: find where the Agents dialog draws agent names and descriptions. Today `agent_form_designer` exists in six languages but is unused, so names are shown in English. If the dialog shows the new agent through any IDE-visible string that is not an agent name or prompt, add a `Tr` key in EN/ES/PT (pt-BR)/JA/ZH/FR; otherwise record "no new key" here with the file read.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide i18n --no-fail-fast` green (no empty translation).
+  - **Done (no new key):** read `panels/agents_modal.rs` and `agents_db.rs`: an agent's name, purpose, routing and specialization are stored text drawn as it is (the six-language `agent_form_designer` is still unused by any panel), so the Web Form Designer Agent and its reviewer add no IDE string. Verified by `cargo test -p cobolt-ide --bin cobolt-ide i18n` staying green.
 
-- [ ] **T21 — The web knowledge census and the KB store** (R14, AC11 KB half)
+- [x] **T21 — The web knowledge census and the KB store** (R14, AC11 KB half)
   - Files: `crates/cobolt-compiler/src/lib.rs` (test `web_knowledge_is_complete` only: the expected set built from `ControlType::ALL` with classes, `BUILTINS` with browser support, the `WEBSOCKET LINKAGE` phrase, `ApplicationStyle` (`project_kind.rs:142`), Authentication and Hyperlink; asserts each in `system_documentation()`; prints `N of M present` and the missing names), `assets/knowledge/chunked.data` (regenerated in the same task as any doc-table change).
   - Do: the tables are written by their own specs; this task never writes them. So that the workspace stays green while they land, the test asserts the facts whose owning spec is marked landed in a Rust list next to it, and prints the rest as `owed: <spec>` (never `#[ignore]`); each owed spec is a row in `WASM-PROGRESS.md`. AC11 is checked only when the owed list is empty.
   - Verify (**AC11** KB): `cargo test -p cobolt-compiler web_knowledge_is_complete -- --nocapture`; `cargo run -p cobolt-ide --example build_chunked_kb`; `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation` green; `git status` shows `chunked.data` changed together with `lib.rs`.

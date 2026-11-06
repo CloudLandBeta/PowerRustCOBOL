@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.251 — 2026-11-06
+
+**WASM-015 T20, T21: no new IDE string for the web agent; the System KB's web knowledge is checked complete (R14, AC11).** *(Written on features-2x-wasm-pending, after 2.0.250.)* T20: the Agents dialog draws an agent's name, purpose, routing and specialization as stored text, so the Web Form Designer Agent adds no `Tr` key (the file read is recorded in `tasks.md`). T21: new test `web_knowledge_is_complete` in `cobolt-compiler`, built from the live tables and written to change none — every control's web class line, every built-in's row in the browser-module table, the `WITH WEBSOCKET LINKAGE` phrase, both application styles, Authentication and Hyperlink — and it prints `156 of 156 present`; a fact whose owning spec has not landed would be listed as `owed: <spec>` (none is). No documentation table changed, so `chunked.data` is unchanged.
+
 ## 2.0.250 — 2026-11-06
 
 **WASM-015 T19: Grace reads the project's kind, and a Web or Mobile project is designed by a `WebFormsDesigner` (R15, Q5).** *(Written on features-2x-wasm-pending, after 2.0.249.)* `cobolt-agents`: a `Kind` (Desktop, Web, Mobile), a built-in `WebFormsDesigner` specialist whose preamble carries the browser's rules (the host appends the plugin's own `web-kinds`, `web-layers` and `backend-secrets` text), and `route_specialist_for(kind, prompt)`, which swaps `FormsDesigner` for `WebFormsDesigner` by kind in code, never by words; `route_specialist` is unchanged. In the IDE: a fixed `Web Form Designer Agent` with its own `Web Form Designer Agent Pedantic Reviewer` (one to one), seeded only into Web and Mobile projects and counted among the agents whose change sets are applied; their default prompts are derived from the desktop ones, so every correction there reaches them. Grace's planning prompt gains a `PROJECT KIND:` block and lists the forms designer of the project's kind and no other; the Grace and Grace-reviewer defaults gain the kind rule; the form context carries a `PROJECT KIND:` header above the layers block on a Web or Mobile form. New tests in `agents_db.rs` and `grace_host.rs`.

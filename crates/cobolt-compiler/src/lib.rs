@@ -15332,3 +15332,59 @@ mod indexed_file_documentation_tests {
         assert!(auto.contains("IndexedFile"), "{auto}");
     }
 }
+
+#[cfg(test)]
+mod web_knowledge_tests {
+    use super::*;
+
+    /// WASM-015 R14, AC11 (KB half): the System KB says, for the web, everything the specs of the
+    /// series own — every control's class, every built-in's place in a browser module, the
+    /// `CALL … WITH WEBSOCKET LINKAGE` phrase, the application styles, Authentication and Hyperlink.
+    /// This test writes no table; it only checks the tables the owning specs wrote are all there.
+    ///
+    /// A fact whose owning spec has not landed is listed in `OWED` with that spec and printed, never
+    /// `#[ignore]`d; each owed spec is a row of `WASM-PROGRESS.md`. AC11 holds when `OWED` is empty.
+    #[test]
+    fn web_knowledge_is_complete() {
+        // (fact, owning spec): empty when every owner has landed.
+        const OWED: &[(&str, &str)] = &[];
+
+        let docs = system_documentation();
+        let all: String = docs.iter().map(|(_, d)| d.as_str()).collect::<Vec<_>>().join("\n");
+        let mut present = 0usize;
+        let mut missing: Vec<String> = Vec::new();
+        let mut check = |ok: bool, what: String| {
+            if ok {
+                present += 1;
+            } else {
+                missing.push(what);
+            }
+        };
+
+        // 1. Every control: its class line, exactly as the generator writes it (WASM-004 R12).
+        for ct in cobolt_forms::ControlType::ALL {
+            check(all.contains(&web_class_line(ct)), format!("class of {}", ct.as_str()));
+        }
+        // 2. Every built-in, with its place in a browser module (WASM-010 R7).
+        for b in cobolt_wasm::support::BUILTIN_TABLE {
+            check(all.contains(&format!("| {} |", b.name)), format!("built-in {}", b.name));
+        }
+        // 3. The remote-call phrase and its mapping (WASM-005).
+        check(all.contains("WITH WEBSOCKET LINKAGE"), "the WEBSOCKET LINKAGE phrase".into());
+        // 4. The application styles (WASM-011).
+        for style in [crate::project_kind::ApplicationStyle::Spa, crate::project_kind::ApplicationStyle::Standalone] {
+            check(all.contains(&format!("`{}`", style.as_str())), format!("application style {}", style.as_str()));
+        }
+        // 5. The controls the series added (WASM-009, WASM-011).
+        for name in ["Authentication", "Hyperlink"] {
+            check(all.contains(name), format!("the {name} control"));
+        }
+
+        let total = present + missing.len();
+        println!("web knowledge: {present} of {total} present");
+        for (fact, spec) in OWED {
+            println!("owed: {spec} — {fact}");
+        }
+        assert!(missing.is_empty(), "missing from the System KB: {missing:?}");
+    }
+}
