@@ -18,6 +18,11 @@ publish     = false
 name = "cobolt-bench"
 path = "src/main.rs"
 
+[features]
+# The WebAssembly module rows (WASM-015 T14). Off by default: it pulls in the host (`wasmtime`), which the
+# interpreter baseline has no use for.
+wasm = ["dep:cobolt-wasm"]
+
 [dependencies]
 cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-ast      = { path = "../cobolt-ast" }
@@ -25,3 +30,4 @@ cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-runtime  = { path = "../cobolt-runtime" }
 redb            = "4.3"
+cobolt-wasm     = { path = "../cobolt-wasm", optional = true }

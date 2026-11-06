@@ -44,6 +44,9 @@ use std::time::{Duration, Instant};
 #[global_allocator]
 static ALLOC: counting_alloc::CountingAlloc = counting_alloc::CountingAlloc;
 
+#[cfg(feature = "wasm")]
+mod wasm_rows;
+
 // ── Result rows ───────────────────────────────────────────────────────────────
 
 struct Row {
@@ -452,6 +455,10 @@ fn main() {
     }
     if wanted("decimal") {
         rows.push(bench_decimal_math(scale));
+    }
+    #[cfg(feature = "wasm")]
+    if wanted("module") || wanted("decimal") || wanted("string") {
+        rows.extend(wasm_rows::rows(scale, &wanted));
     }
     if wanted("record") || wanted("batch") {
         rows.push(bench_record_batch(scale));

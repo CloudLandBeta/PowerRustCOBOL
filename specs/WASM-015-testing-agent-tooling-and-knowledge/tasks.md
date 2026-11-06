@@ -122,9 +122,11 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
 
   - **Done in part (2.0.257): the size report (T13a).** `cobolt-web-bundle/tests/size_report.rs` measures every loader/player/part file and the scenario project's program module of each memory variant (hashes taken out of the names), prints them beside `tests/size-ledger.json`, and fails when one grew past `threshold_percent` (5, Q-new-5). A planted 3 978 699 -> 3 600 000 ledger entry fails the test (+10.5 %); `PRC_RECORD_SIZES=1` accepts a deliberate growth. Measured on the test player, not the shipped one. **Still open (T13b): the matrix cells on the browser runner.** The threaded player is not built here (`target-player/out-test` holds `plain` and `parts` only) and the scenario harness is a node script, so no browser cell exists to run; none is claimed.
 
-- [ ] **T14 — Bench rows for the module** (R8) — **gated on T11**
+- [x] **T14 — Bench rows for the module** (R8)
   - Files: `crates/cobolt-bench/Cargo.toml` (feature `wasm`, off by default, pulls `cobolt-wasm/host`), `crates/cobolt-bench/src/main.rs` (`module_size`, `module_startup` labelled "native, not a browser figure", `decimal_math` and a string workload on the module and the interpreter side by side).
   - Verify: `cargo build -p cobolt-bench` (default) does not build `wasmtime` (`cargo tree -p cobolt-bench | grep -c wasmtime` = 0); `cargo run --release -p cobolt-bench --features wasm` prints the three rows with units. No budget asserted.
+
+  - **Done (2.0.258):** feature `wasm` (off by default; `cargo tree -p cobolt-bench | grep -c wasmtime` = 0) and `src/wasm_rows.rs`. Release run on this Mac: module size 102 869 bytes for the decimal program; startup 200 empty-program starts in 1.122 s (178/s, native, not a browser figure); decimal COMPUTE 829 316/s on the module against 372 895/s in the interpreter (2.2x); MOVE+STRING 1 505 451/s against 164 132/s (9.2x). No budget asserted.
 
 - [x] **T15 — Goldens for web output** (R7, AC7) — **gated on WASM-004 C1 for the form; WASM-007 for the stylesheet**
   - Files: new `crates/cobolt-web-tests/tests/web_golden.rs`, `fixtures/golden-project/`, `fixtures/golden/` (the generated `.cbl` through `cobolt-codegen`, the interface description via `cobolt_server::dev::write_interface`, the stylesheet, the host page + `config.json` + CSP from `cobolt-web-bundle`, the manifest).

@@ -2081,6 +2081,7 @@ dependencies = [
  "cobolt-parser",
  "cobolt-runtime",
  "cobolt-semantic",
+ "cobolt-wasm",
  "redb 4.3.0",
 ]
 

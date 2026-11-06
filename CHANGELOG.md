@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.258 — 2026-11-06
+
+**WASM-015 T14: bench rows for the module (R8).** *(Written on features-2x-wasm-pending, after 2.0.257.)* `cobolt-bench` gains the feature `wasm` (off by default, so the interpreter baseline still builds no `wasmtime`) and `src/wasm_rows.rs`: the size of the generated module, the start-up of an empty one (labelled native, not a browser figure), and the decimal `COMPUTE` and a `MOVE`/`STRING` loop on the module and on the interpreter side by side. Release run: module 102 869 bytes; 178 starts/s; decimal 829 316/s on the module against 372 895/s interpreted; strings 1 505 451/s against 164 132/s. No budget is asserted. `cargo run --release -p cobolt-bench --features wasm`.
+
 ## 2.0.257 — 2026-11-06
 
 **WASM-015 T13a: the size report (R8b).** *(Written on features-2x-wasm-pending, after 2.0.256.)* New `cobolt-web-bundle/tests/size_report.rs` and `tests/size-ledger.json`: the size of every loader, player and part file of an assembled bundle, and of the scenario project's program module in both memory variants, is printed beside the last recorded size, and the test fails when a part grew by more than the ledger's `threshold_percent` (5) — it names the part, both sizes and the growth. Content hashes are taken out of the part names so a part keeps its key when its bytes change; a new or removed part is reported, not failed. A planted +10.5 % on the plain player fails; `PRC_RECORD_SIZES=1` rewrites the ledger to accept a deliberate growth. 20 parts recorded (the plain player 3 978 699 bytes, the scenario module 157 261). The matrix cells on the browser runner (T13b) stay open: no threaded player is built here and the scenario harness is a node script.
