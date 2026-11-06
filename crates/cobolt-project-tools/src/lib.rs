@@ -43,6 +43,8 @@ pub mod patterns;
 pub mod powerchat;
 pub mod reference;
 pub mod root;
+/// The script of `run_form` as one type (WASM-015 T1).
+pub mod script;
 /// The New Project templates as data (WASM-001 R2).
 pub mod templates;
 pub mod tools;

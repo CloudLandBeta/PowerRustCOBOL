@@ -187,6 +187,10 @@ pub fn run(host: &mut impl ProjectHost, root: &ProjectRoot, runner: Option<&Form
     if !cfrm.is_file() {
         return Err(format!("no form at {rel}"));
     }
+    let parsed = crate::script::Step::parse_all(steps)?;
+    if let Some((i, s)) = parsed.iter().enumerate().find(|(_, s)| s.desktop_unsupported()) {
+        return Err(format!("step {}: `{}` is not supported on the desktop host (it reads the browser's page)", i + 1, s.name()));
+    }
     let cbl = fresh_program(host, root, rel)?;
     let outcome = runner(&cfrm, &cbl, steps, limit_s)?;
     let mut answer = outcome.report;

@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.236 — 2026-11-05
+
+**WASM-015 T1: the shared script type.** *(Written on features-2x-wasm-pending, after 2.0.235.)* New `cobolt_project_tools::script::Step` (set, event, click, wait_ms, read, dump, open_form, and the browser helper's text, style, rect, snapshot, focused, key, page): `Step::parse`/`parse_all` (an unknown step is refused by name, numbered), `to_json` (round-trips the unchanged JSON), `desktop_unsupported`. `run_form` parses through it and refuses a browser-only step on the desktop host by name before running. Tests: `every_step_round_trips_its_json`, `an_unknown_or_malformed_step_is_refused_by_name`, `the_browser_steps_are_the_ones_the_desktop_cannot_run`; `cargo test -p cobolt-project-tools` all green (142 lib tests).
+
 ## 2.0.235 — 2026-11-05
 
 **WASM-014 T20: finalized.** *(Written on features-2x-wasm-pending, after 2.0.234.)* Sweep of the touched crates: cobolt-forms (render), cobolt-wire, cobolt-wasm, cobolt-server, cobolt-form-host and cobolt-compiler --lib all green; cobolt-ide bin 1961 passed, 3 failed, the known pre-existing reds (`docs_embed::tests::every_document_ships_in_every_language` and two live crates.io `external_crates_service::flow_tests`). Open in WASM-014: T1, T7, T13b, T15b, AC2 build half, AC10.

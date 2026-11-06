@@ -49,7 +49,7 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
 
 ### Harness foundations (no gate)
 
-- [ ] **T1 — The shared script type** (R11, D1, plan §3.1)
+- [x] **T1 — The shared script type** (R11, D1, plan §3.1)
   - Files: new `crates/cobolt-project-tools/src/script.rs` (`pub enum Step { Set, Event, WaitMs, Read, OpenForm, Text, Style, Rect, Snapshot, Focused, Key }`, `Step::parse(&Value)`), `src/lib.rs` (`pub mod script`), `src/tools/run.rs` (parse through `Step` instead of reading `Value`s directly).
   - Do: the JSON of the five existing steps is unchanged; the six read-only steps (§3.2) parse but the desktop runner answers "not supported on the desktop host" for `text`/`style`/`rect`/`snapshot`; `focused` and `key` are implemented on the desktop host only if `FormRunner` already exposes focus, otherwise reported unsupported and recorded for T10.
   - Verify: `cargo test -p cobolt-project-tools --no-fail-fast` green (every existing `run_form` test unchanged); a unit test round-trips each step's JSON and rejects an unknown step by name.
