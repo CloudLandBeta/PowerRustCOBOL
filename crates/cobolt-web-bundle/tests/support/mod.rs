@@ -27,6 +27,20 @@ pub fn node_available() -> bool {
     Command::new("node").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
 }
 
+/// Is `node` there to run the test? Without it the test prints `skipped: node not on PATH` and passes
+/// (WASM-015 T2: a machine without node is not a broken build); with `PRC_REQUIRE_NODE=1` its absence fails,
+/// so CI that must run these cannot skip them silently.
+pub fn require_node(test: &str) -> bool {
+    if node_available() {
+        return true;
+    }
+    if std::env::var("PRC_REQUIRE_NODE").is_ok_and(|v| v == "1") {
+        panic!("{test}: node is required (PRC_REQUIRE_NODE=1) and was not found on PATH");
+    }
+    println!("skipped: node not on PATH ({test})");
+    false
+}
+
 fn newest(dir: &Path) -> SystemTime {
     let mut t = SystemTime::UNIX_EPOCH;
     if let Ok(rd) = std::fs::read_dir(dir) {

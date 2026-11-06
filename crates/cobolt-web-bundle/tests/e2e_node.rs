@@ -21,8 +21,8 @@ use support::harness::{HARNESS, WORKER_SHIM};
 
 #[test]
 fn the_loader_the_player_and_the_program_run_together_under_node() {
-    if !support::node_available() {
-        panic!("node is required for the end-to-end tests (WASM-015) and was not found on PATH");
+    if !support::require_node("the_loader_the_player_and_the_program_run_together_under_node") {
+        return;
     }
     let player_out = support::built_player();
     let plain = support::player_variant(&player_out, "plain");

@@ -54,7 +54,7 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
   - Do: the JSON of the five existing steps is unchanged; the six read-only steps (§3.2) parse but the desktop runner answers "not supported on the desktop host" for `text`/`style`/`rect`/`snapshot`; `focused` and `key` are implemented on the desktop host only if `FormRunner` already exposes focus, otherwise reported unsupported and recorded for T10.
   - Verify: `cargo test -p cobolt-project-tools --no-fail-fast` green (every existing `run_form` test unchanged); a unit test round-trips each step's JSON and rejects an unknown step by name.
 
-- [ ] **T2 — Node end-to-end skips instead of panicking** (R2 constraint, R8b, D3)
+- [x] **T2 — Node end-to-end skips instead of panicking** (R2 constraint, R8b, D3)
   - Files: `crates/cobolt-web-bundle/tests/e2e_node.rs`, `tests/support/` as needed.
   - Do: when `node` is absent print `skipped: node not on PATH` and return; when `PRC_REQUIRE_NODE=1` the absence fails. Same rule for every other `node` test in the file.
   - Verify: `cargo test -p cobolt-web-bundle --no-fail-fast` green with `node` present (cells counted and printed); with `PATH` stripped of `node` the test passes and prints the skip; with `PRC_REQUIRE_NODE=1` and no `node` it fails.

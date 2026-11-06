@@ -158,8 +158,8 @@ fn the_loader_probes_the_optional_accelerations_and_uses_neither_017() {
         assert!(loader.contains(want), "the loader carries {want:?}");
     }
     assert!(!loader.contains("import source"), "detected without module syntax");
-    if !support::node_available() {
-        panic!("node is required for the loader tests (WASM-015) and was not found on PATH");
+    if !support::require_node("generated_host_page loader") {
+        return;
     }
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("loader.mjs"), &loader).unwrap();

@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.237 — 2026-11-05
+
+**WASM-015 T2: the Node end-to-end tests skip instead of panicking.** *(Written on features-2x-wasm-pending, after 2.0.236.)* `support::require_node(test)`: without `node` the test prints `skipped: node not on PATH (...)` and passes; with `PRC_REQUIRE_NODE=1` its absence fails. Used by `e2e_node` and the loader test of `generated_host_page`. Checked three ways: with node (e2e 1 passed in 173.79 s, generated_host_page 6 passed), with PATH stripped of node (both skip and pass), and stripped with `PRC_REQUIRE_NODE=1` (fails).
+
 ## 2.0.236 — 2026-11-05
 
 **WASM-015 T1: the shared script type.** *(Written on features-2x-wasm-pending, after 2.0.235.)* New `cobolt_project_tools::script::Step` (set, event, click, wait_ms, read, dump, open_form, and the browser helper's text, style, rect, snapshot, focused, key, page): `Step::parse`/`parse_all` (an unknown step is refused by name, numbered), `to_json` (round-trips the unchanged JSON), `desktop_unsupported`. `run_form` parses through it and refuses a browser-only step on the desktop host by name before running. Tests: `every_step_round_trips_its_json`, `an_unknown_or_malformed_step_is_refused_by_name`, `the_browser_steps_are_the_ones_the_desktop_cannot_run`; `cargo test -p cobolt-project-tools` all green (142 lib tests).
