@@ -151,7 +151,7 @@ as completed.
 
 ## M0 — the built part, measured
 
-- [ ] **T1 — Baseline the built contract; add the `negotiate` table test** (R1–R3, R16; AC1 server half)
+- [x] **T1 — Baseline the built contract; add the `negotiate` table test** (R1–R3, R16; AC1 server half)
   - Files: `crates/cobolt-server/src/serve.rs` (a `#[cfg(test)]` table over `negotiate` `:772`).
   - Do:
     - Run `df -h .` first.
@@ -161,6 +161,8 @@ as completed.
       read.
   - Verify: `cargo test -p cobolt-server negotiate --no-fail-fast` prints each row (client, server, outcome, message). The baseline counts
     are recorded under this task.
+
+  - **Done (2.0.278):** the table test `serve::negotiate_tests::negotiate_table` was written with the contract work (2.0.2xx) and is run and recorded here now; the one row the task names that it lacked, **protocol 0**, is added (the table had `PROTOCOL_MIN - 1`, which is 1). `cargo test -p cobolt-server --lib negotiate_table -- --nocapture` prints the ten rows (protocol, client contract, server contract, outcome, message): 1.2.0 on 1.2.0 `Ok`; 1.0.0 on 1.2.0 `Warn` ("compatible; update the application when convenient", `update_to` 1.2.0); 1.2.0 on 1.2.5 `Ok`; 1.3.0 on 1.2.0 `Refused` ("update the backend"); 2.0.0 on 1.2.0 `Refused` ("update the backend"); 1.9.0 on 2.0.0 `Refused` ("update the application", `update_to` 2.0.0); `one.two` `Refused` ("major.minor.patch"); protocol 1 and protocol 0 `Refused` ("an older protocol (0) than this backend still serves (from 2): update the application"); protocol 3 `Refused` ("a newer protocol (3) than this backend (2): update the backend"). **The baseline, every `test result` line** of `cargo test -p cobolt-wire -p cobolt-server --no-fail-fast` (2026-11-06, with the WASM-013 T25 sweep): `cobolt-wire` 5 lines, 42, 5, 1, 2 and 0 passed = **50 passed, 0 failed**; `cobolt-server` 27 lines, 41, 4, 21, 20, 1, 7, 2, 3, 1, 5, 6, 1, 7, 3, 5, 2, 1, 6, 23, 1, 1, 1, 2, 2, 1, 17 and 0 passed = **184 passed, 0 failed**. Plan §9 stays history.
 
 ## M5 — one wire, and sessions (plan §2.4, §2.8)
 
@@ -270,7 +272,7 @@ as completed.
     - `the_session_id_is_never_written_to_storage`: scans `src/` for `local_storage`/`session_storage`/`indexed_db`, and the mock socket sees
       the same session on a reconnect.
 
-- [ ] **T7 — One transcript, both sides** (R2, R3, R7; AC1, AC4, AC10 halves; Δ4)
+- [x] **T7 — One transcript, both sides** (R2, R3, R7; AC1, AC4, AC10 halves; Δ4)
   - **Status 2026-11-05 (2.0.218): built, one check owed.** `vectors/wire.v1.json` (19 frames) recorded from a real rig; the rig test, the wire test (10 client + 9 backend frames) and the player replay (11 frames) pass; one edited frame turned the rig test red and was reverted. Found on the way: the player sent a 64-bit session id, which the backend refuses; it now sends 128 bits (32 hex). Owed: the test that lists every code the player emits next to `cobolt_wire::error::codes`.
   - Files:
     - new `specs/WASM-014-backend-contract-and-evolution/vectors/wire.v1.json` (data, language-neutral, like WASM-005's vectors) and
@@ -284,6 +286,8 @@ as completed.
     - the three suites above are green, each printing how many frames it checked;
     - the codes-equality test lists every code the player emits next to `cobolt_wire::error::codes`;
     - after a deliberate edit of one frame in the JSON, the server test turns red (checked once and reverted).
+
+  - **Done (2.0.278):** the owed check is written: `crates/cobolt-web-player/tests/wire_codes.rs` (an integration test, so the freshness fingerprint of `src/` does not move and the shipped player stays fresh). It reads `net::code` (the player's mirror) and `cobolt_wire::error::codes` as text, with no hand-kept list: every mirror constant is in the wire's table with the same number (9 of 9); every `code::NAME` and `codes::NAME` the player's non-test source writes, over 54 files, exists in the wire's table (12 named: 9 through the mirror, 3 read from the wire's table in `grid.rs`: `RATE_LIMITED`, `TOO_MANY_CALLS`, `CALL_TIMEOUT`), and the test prints each with its value, its table and where it is first used; no code is written as a bare number (a struct field `code: 1000` or the code argument of `error_frame(`, `.fail(`, `.fail_all(`, `refuse(`: 0 found); no mirror constant is unused. It shows it can fail two ways, each reverted: a mirror value changed (`TIMEOUT` 1005 against the wire's 1002: red) and a bare `1000` passed to `fail(` (red, `net.rs:496`); the third rule, a mirror constant that no source uses, is asserted but was not exercised. The frame counts the three suites print: the server rig `19 frames checked against wire.v1.json`; the wire test `10 client frames and 9 backend frames parse`; the player replay (11 frames, in the player crate's 465 passed). Freshness stayed green: the player's `src/` is untouched.
 
 ## M6 — the frontend knows its contract (plan §2.1, §2.7)
 

@@ -1790,6 +1790,7 @@ mod negotiate_tests {
             (hi, "1.9.0", "2.0.0", Accepted::Refused, "update the application", Some("2.0.0")),
             (hi, "one.two", "1.2.0", Accepted::Refused, "major.minor.patch", None),
             (lo.saturating_sub(1), "1.2.0", "1.2.0", Accepted::Refused, "update the application", Some("1.2.0")),
+            (0, "1.2.0", "1.2.0", Accepted::Refused, "update the application", Some("1.2.0")),
             (hi + 1, "1.2.0", "1.2.0", Accepted::Refused, "update the backend", None),
         ];
         println!("{:<8} {:<8} {:<8} {:<8} message", "protocol", "client", "server", "outcome");
