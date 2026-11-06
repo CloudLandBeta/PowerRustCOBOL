@@ -219,6 +219,17 @@ pub struct BuildReport {
     pub budget: Option<BudgetLine>,
     /// The font files the bundle carries, each with where it came from and its licence (WASM-018 T27, Q7).
     pub fonts: Vec<crate::fonts::ShippedFont>,
+    /// The secret scan: the files it read and what it found that did not stop the build (`None`: skipped, or
+    /// a backend that does not scan).
+    pub secret_scan: Option<SecretScan>,
+}
+
+/// The secret scan of a build, as the tools answer it (WASM-015 R18). A finding names a file, a line and a
+/// pattern, never the value.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SecretScan {
+    pub scanned_files: usize,
+    pub findings: Vec<String>,
 }
 
 impl BuildReport {
@@ -244,6 +255,7 @@ impl BuildReport {
                 "fs_type": f.licence.as_ref().and_then(|l| l.fs_type),
                 "licence": f.licence.as_ref().map(|l| l.text.as_str()),
             })).collect::<Vec<_>>(),
+            "secret_scan": self.secret_scan.as_ref().map(|s| serde_json::json!({"scanned_files": s.scanned_files, "findings": s.findings})),
             "budget": self.budget.map(|b| serde_json::json!({
                 "first_download_bytes": b.first_download_bytes,
                 "budget_bytes": b.budget_bytes,

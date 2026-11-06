@@ -1133,6 +1133,7 @@ impl WebBuildBackend for GeneratorBackend {
             player: player_sizes(&player),
             budget: Some(bundle.report.budget),
             fonts: font_outcome.shipped,
+            secret_scan: bundle.report.secret_scan.as_ref().map(|s| super::SecretScan { scanned_files: s.scanned_files, findings: s.findings.clone() }),
         })
     }
 }

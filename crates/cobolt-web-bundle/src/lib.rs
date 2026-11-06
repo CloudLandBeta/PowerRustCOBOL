@@ -341,6 +341,16 @@ pub struct BuildReport {
     /// The bytes of the font files the bundle carries: the stand-in face and every font file under `Assets/`
     /// (WASM-004 Q5), against [`BuildReport::total_bytes`].
     pub font_bytes: u64,
+    /// How many files the secret scan read, and what it said that did not stop the Build (a finding
+    /// names the file, the line and the pattern, never the value). `None` when the scan was skipped.
+    pub secret_scan: Option<SecretScanLine>,
+}
+
+/// The secret scan's account of itself (WASM-015 R18).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SecretScanLine {
+    pub scanned_files: usize,
+    pub findings: Vec<String>,
 }
 
 impl BuildReport {
@@ -1044,15 +1054,19 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     b.add("sbom.cdx.json".into(), serde_json::to_string_pretty(&bom).expect("bom").into_bytes());
 
     // ── the secret scan, over every text the bundle holds ──────────────────
+    let mut secret_scan = None;
     if !o.skip_secret_scan {
         let mut findings = Vec::new();
+        let mut scanned_files = 0usize;
         for f in &b.files {
             if secrets::is_text_path(&f.path) && !f.path.starts_with("player/") && f.path != "sbom.cdx.json" {
                 if let Ok(t) = std::str::from_utf8(&f.bytes) {
+                    scanned_files += 1;
                     findings.extend(secrets::scan_text(&f.path, t, o.entropy_len));
                 }
             }
         }
+        secret_scan = Some(SecretScanLine { scanned_files, findings: findings.iter().map(|f| f.to_string()).collect() });
         // Source assets (stylesheets) were added hashed; scan the originals' names too via the files above.
         let (errs, warns): (Vec<_>, Vec<_>) = findings.into_iter().partition(|f| f.severity == secrets::Severity::Error);
         if !errs.is_empty() {
@@ -1115,6 +1129,7 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         stylesheet_img_sources: sheet_img.into_iter().collect(),
         stylesheet_font_sources: sheet_font.into_iter().collect(),
         font_bytes,
+        secret_scan,
     };
     Ok(BundleOutput { files: b.files, report })
 }
