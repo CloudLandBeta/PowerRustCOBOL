@@ -448,7 +448,7 @@ as completed.
     the untouched sections prints empty) and `no_empty_ui_translations`. Manual check (the operator's): the fields at the default window size
     in all six languages, with no overflow (the egui-resize memory).
 
-- [ ] **T18 — System KB: the contract, as the agents must write it** (R6–R15 as language behaviour)
+- [x] **T18 — System KB: the contract, as the agents must write it** (R6–R15 as language behaviour)
   - Files:
     - `crates/cobolt-compiler/src/lib.rs`: the built-in rows (`:5105` neighbourhood) for `WS-SHOW-PROGRESS`, `WS-SUBSCRIBE`,
       `WS-UNSUBSCRIBE` and `WS-STREAM-ITEM`.
@@ -467,7 +467,7 @@ as completed.
       prebuilt_chunked_kb_matches_the_published_documentation`, green after the regeneration (it is red before it);
     - `cargo test -p cobolt-runtime builtins --no-fail-fast`.
 
-- [ ] **T19 — The spec ledger** (all; specs only)
+- [x] **T19 — The spec ledger** (all; specs only)
   - Files: `specs/WASM-PROGRESS.md` (the WASM-014 row `:43`: M5–M9 state, each AC's evidence, the owed rows: T15's gated end-to-end; no run
     on Windows, Linux or behind a proxy; OQ1–OQ3 open), and this file's checkboxes and recorded counts.
   - Verify: every AC1–AC10 cites a test name or an owed row, and `git status` shows nothing under `docs/` and no `README.md` change.
