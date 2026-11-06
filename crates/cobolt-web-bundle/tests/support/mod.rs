@@ -11,6 +11,7 @@
 
 pub mod cdp;
 pub mod harness;
+pub mod project;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

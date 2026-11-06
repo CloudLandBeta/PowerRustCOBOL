@@ -163,7 +163,25 @@ The loader already merges `config.texts` over `DEFAULT_TEXTS` for its own panels
 | `cobolt-web-bundle/tests/navigation_chrome.rs` | Chrome 156.0.8078.80, headless | the fixture program, plain, `Isolation::RequireCorp`, served by `devserver` | start: live region `main-form`, focus on the main form's root, address owned; `#/child-form` typed: opened over the main form (no shell), announced, its title focused; Back: closed, hash empty; `#/no-such-form`: only the main form, the English notice, the address taken back |
 | `cobolt-web-bundle/tests/page_layers.rs` | the same | the fixture's main form with two layers | the root clips; each layer inside it, a stacking context after the base, hidden and inert at start (R16) |
 
-Not run here, owed (T25): AC1 with three SideMenu forms and `pr_dbg_live`, AC2, AC3, AC4 (Chromium and Firefox), AC5, AC6's sign-in half, AC8, AC9, two applications on one page.
+Owed on 2026-11-01 (T25), since run: AC1, AC2, AC3, AC4 (Chromium), AC5 (first half), AC7, AC8 — see §6.2. Still owed: see the end of §6.2.
+
+### 6.2 Runs recorded (2026-11-06, WASM-011 T25)
+
+Every run is a Rust test in `crates/cobolt-web-bundle/tests/` (nothing outside the tree): the application is a project written in code (`tests/support/project.rs`), built by the product's own Web Build (`GeneratorBackend`, the same generator the IDE's Build calls), served by `devserver` with `Isolation::RequireCorp`, and clicked by headless Chrome over CDP (`tests/support/cdp.rs`). The browser is Google Chrome 157, headless (its user agent reports `HeadlessChrome/157.0.0.0`: the build number is reduced).
+
+| AC | Test | Bundle | Seen |
+|---|---|---|---|
+| AC1 | `acceptance_spa_chrome.rs` `ac1_…` | SPA, a SideMenu with three entries (`orders-form`, `customers-form`, `reports-form`) | Orders → `#/orders-form`; Customers → `#/customers-form` and Orders torn down; Back → `#/orders-form`; a reload at `#/reports-form` reopens it and its `onLoad` runs |
+| AC2 | `ac2_…` | SPA, a form with `OpenFormSync` and `OpenFormAsync` buttons | `OpenFormSync`: a modal `<dialog>` (`:modal`), the caption written after the verb unchanged for 500 ms, `after sync` when the dialog's `Close` ran; `OpenFormAsync`: a modeless panel and `after async` already written |
+| AC7 | `ac7_…` | the AC1 application | each load and Back is announced in the polite live region (`role=status`) and the focus is on the form's root in the pane (the windowed title focus is `navigation_chrome.rs`, 2026-11-01) |
+| AC8 | `ac8_…` | SPA, a form that calls `SetUnsavedChanges(1)` | Back and a menu entry each ask Leave / Stay and Stay keeps the form and its address; leaving the page gets the browser's `beforeunload` question (dismissed); Leave leaves, and a navigation afterwards asks nothing |
+| AC3 | `acceptance_standalone_chrome.rs` `ac3_…` | standalone, a form with `OpenFormAsync` and `OpenFormSync` buttons | `OpenFormAsync`: a new tab (`pr-form=child-form`) listed by the browser and `after async` already written; the child's `Close` ends the tab; `OpenFormSync`: a new tab, `waiting` held for 600 ms, `after sync` written when the tab closed |
+| AC4 | `ac4_…` | standalone, a timer that calls `OpenFormSync`, a form event `onPopupBlocked` | headless Chrome has **no popup blocker**, so a script run before the page's own makes `window.open` answer `null`, as a blocker does: the timer's `OpenFormSync` is refused, the caller is released (`released`), *The browser blocked the new window…* is on the page, `onPopupBlocked` wrote `blocked`, and no tab of the child exists. **Firefox is not installed here: the run is Chromium only.** |
+| AC5, first half | `ac5_…` | standalone, a main form (`Title` "Opener Title") that opens `child-form`; the child's buttons read `super::Title`, call `super::GetFormState()` and write `super::Title` | in the child's tab: the read waits and shows `Opener Title`; after the opener sets its own `Title` the next read shows `Retitled by the opener`; `INVOKE super::GetFormState() RETURNING` answers `Normal`; the child's write reaches the opener (`Written by the child`); neither page threw. **This run found the defect fixed in 2.0.280** (the page's glue returned an empty answer for "on its way"): before the fix the same click wrote an empty caption at once. |
+
+**AC5's second half is open and named:** closing the opener ends the child's next `super::` statement in a run-time error (`-6` "the window that opened this one has been closed", then `1104`); nothing a `super::` call can be written in carries an `ON EXCEPTION` clause (`INVOKE` has none in the AST, the generator has no `TRY`). The operator's decision (Q3) is that a closed opener is a normal `ON EXCEPTION`: the next change gives `INVOKE super::Method(…) [RETURNING x] ON EXCEPTION … [NOT ON EXCEPTION …] [END-INVOKE]` that meaning in the generated module and on the desktop, and then runs this half.
+
+Not run here, owed: AC6's sign-in half (WASM-009 R11), AC9 (`stack: true`, WASM-012), AC11 (T21, ABI A9 in the manifest), AC4 in Firefox, two applications on one page (T19).
 
 ## 7. Steering compliance
 

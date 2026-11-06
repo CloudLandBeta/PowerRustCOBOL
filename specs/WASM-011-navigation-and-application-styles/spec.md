@@ -93,14 +93,14 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A SPA with a SideMenu and three forms: choosing a menu entry loads the form and changes the address; Back returns to the previous form; a reload at a form's address reopens it.
-- [ ] **AC2** — `OpenFormSync` in an SPA shows a modal dialog and the caller does not run on until it closes (a test checks the statement after the verb); `OpenFormAsync` shows a modeless panel and the caller runs on.
-- [ ] **AC3** — A standalone project: `OpenFormAsync` from a click opens a new tab (a headless browser sees it); `OpenFormSync` suspends the caller until that tab closes, then resumes it.
-- [ ] **AC4** — A standalone open from a timer, with popups blocked, releases the caller with a failure and shows the hint.
+- [x] **AC1** — A SPA with a SideMenu and three forms: choosing a menu entry loads the form and changes the address; Back returns to the previous form; a reload at a form's address reopens it. *(Passed 2026-11-06: headless Chrome 157, `cobolt-web-bundle/tests/acceptance_spa_chrome.rs`; plan §6.1.)*
+- [x] **AC2** — `OpenFormSync` in an SPA shows a modal dialog and the caller does not run on until it closes (a test checks the statement after the verb); `OpenFormAsync` shows a modeless panel and the caller runs on. *(Passed 2026-11-06: headless Chrome 157, `acceptance_spa_chrome.rs`; plan §6.1.)*
+- [x] **AC3** — A standalone project: `OpenFormAsync` from a click opens a new tab (a headless browser sees it); `OpenFormSync` suspends the caller until that tab closes, then resumes it. *(Passed 2026-11-06: headless Chrome 157, `acceptance_standalone_chrome.rs`; plan §6.1.)*
+- [x] **AC4** — A standalone open from a timer, with popups blocked, releases the caller with a failure and shows the hint. *(Passed 2026-11-06 in headless Chrome 157, `acceptance_standalone_chrome.rs`, with the blocker played by `window.open` answering `null` (headless Chrome has no blocker); Firefox not run, plan §6.1.)*
 - [ ] **AC5** — `super` property reads and method calls cross from a standalone child to its opener; closing the opener makes the next one fail with `ON EXCEPTION`.
 - [ ] **AC6** — An unknown address shows the not-found outcome; a protected form's address without a session shows sign-in and, after sign-in, the requested form.
-- [ ] **AC7** — Focus lands on the new form's title on each navigation and a screen reader announces it (an automated accessibility check).
-- [ ] **AC8** — A form marked as having unsaved changes prompts on Back and on closing the tab.
+- [x] **AC7** — Focus lands on the new form's title on each navigation and a screen reader announces it (an automated accessibility check). *(Passed 2026-11-06: headless Chrome 157, `acceptance_spa_chrome.rs`; the polite live region and the focus are asserted — on the form's root in the shell's pane, on its title in a windowed form (`navigation_chrome.rs`) — not a full screen-reader audit; plan §6.1.)*
+- [x] **AC8** — A form marked as having unsaved changes prompts on Back and on closing the tab. *(Passed 2026-11-06: headless Chrome 157, `acceptance_spa_chrome.rs`; plan §6.1.)*
 - [ ] **AC9** — In the mobile shell, standalone forms stack, Back pops them and a deep link opens a form.
 - [ ] **AC10** — The `FormFormat` build-time check rejects an `Embedded` form opened standalone, and the desktop projects' tests stay green.
 - [ ] **AC11** — A route to a layered form shows the form with every layer hidden, and the ContentPane then shows the layers the program shows, within the pane (R16).

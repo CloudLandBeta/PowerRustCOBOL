@@ -143,9 +143,8 @@ fn a_waiting_read_asks_the_opener_suspends_and_is_answered_from_the_reply_not_th
     assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::SUSPENDED_QUERY), "on its way, not the replica's `stale`");
     assert!(h.effects.contains(&Effect::SuperGet { id: 1, prop: "Status".into() }));
     assert_eq!(h.inflight.as_ref().unwrap().wait, Some(Wait::Super { ids: vec![1], done: false }));
-    let last = h.last_error;
     assert_eq!(h.shape_answer(Some(Err(err::SUSPENDED_QUERY))), Err(err::SUSPENDED_QUERY));
-    assert_eq!(h.last_error, last, "'on its way' is not an error the module can read back");
+    assert_eq!(h.last_error, err::SUSPENDED_QUERY, "the page's glue gives the module `last_error()` when the query has no bytes: it has to say 'on its way'");
     // Asked again before the answer (a second look in the same pass): still waiting, nothing sent twice.
     assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::SUSPENDED_QUERY));
     assert_eq!(h.effects.iter().filter(|e| matches!(e, Effect::SuperGet { .. })).count(), 1);

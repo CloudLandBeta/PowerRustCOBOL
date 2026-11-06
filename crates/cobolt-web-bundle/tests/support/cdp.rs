@@ -63,9 +63,15 @@ impl Drop for Chrome {
 
 impl Chrome {
     pub fn launch(exe: &Path) -> Result<Chrome, String> {
+        Chrome::launch_with(exe, &[])
+    }
+
+    /// As [`Chrome::launch`], with more command-line flags (`--block-new-web-contents`: every popup is refused).
+    pub fn launch_with(exe: &Path, extra: &[&str]) -> Result<Chrome, String> {
         let profile = tempfile::tempdir().map_err(|e| e.to_string())?;
         let child = Command::new(exe)
             .args(["--headless=new", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--mute-audio"])
+            .args(extra)
             .arg(format!("--user-data-dir={}", profile.path().display()))
             .arg("about:blank")
             .stdout(Stdio::null())
@@ -108,7 +114,7 @@ impl Chrome {
         let stream = TcpStream::connect(("127.0.0.1", self.port)).map_err(|e| e.to_string())?;
         stream.set_read_timeout(Some(Duration::from_secs(30))).map_err(|e| e.to_string())?;
         let (ws, _) = tungstenite::client::client(ws_url, stream).map_err(|e| format!("DevTools handshake: {e}"))?;
-        let mut page = Page { ws, next: 1, console: Vec::new(), exceptions: Vec::new(), browser_log: Vec::new() };
+        let mut page = Page { ws, next: 1, console: Vec::new(), exceptions: Vec::new(), browser_log: Vec::new(), dialogs: Vec::new(), dialog_accept: None };
         page.call("Runtime.enable", json!({}))?;
         page.call("Page.enable", json!({}))?;
         Ok(page)
@@ -149,6 +155,11 @@ pub struct Page {
     pub exceptions: Vec<String>,
     /// What the browser itself reported (`Log.entryAdded`, `Network.loadingFailed`): a blocked cross-origin resource is named here.
     pub browser_log: Vec<String>,
+    /// Every JavaScript dialog the browser opened (`alert`, `confirm`, `beforeunload`), as `type: message`.
+    pub dialogs: Vec<String>,
+    /// How to answer such a dialog the moment it opens: `Some(true)` accepts (a `beforeunload` lets the page go),
+    /// `Some(false)` dismisses it (the page stays); `None` leaves it open, and the page is stuck until it is handled.
+    pub dialog_accept: Option<bool>,
 }
 
 impl Drop for Page {
@@ -175,6 +186,15 @@ impl Page {
                 Some("Runtime.exceptionThrown") => {
                     let d = &v["params"]["exceptionDetails"];
                     self.exceptions.push(d["exception"]["description"].as_str().or(d["text"].as_str()).unwrap_or("?").to_owned());
+                }
+                Some("Page.javascriptDialogOpening") => {
+                    let p = &v["params"];
+                    self.dialogs.push(format!("{}: {}", p["type"].as_str().unwrap_or("?"), p["message"].as_str().unwrap_or("")));
+                    if let Some(accept) = self.dialog_accept {
+                        let answer = self.next;
+                        self.next += 1;
+                        self.ws.send(Message::text(json!({"id": answer, "method": "Page.handleJavaScriptDialog", "params": {"accept": accept}}).to_string())).map_err(|e| format!("{method}: {e}"))?;
+                    }
                 }
                 Some("Log.entryAdded") => {
                     let e = &v["params"]["entry"];

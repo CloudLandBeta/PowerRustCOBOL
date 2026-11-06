@@ -1765,8 +1765,14 @@ impl Host {
                 self.stats.bytes_out += text.len() as u64;
                 Ok(text.into_bytes())
             }
-            // "On its way" (ABI A24) is not an error: the module suspends and asks again.
-            Some(Err(code)) if code == err::SUSPENDED_QUERY => Err(code),
+            // "On its way" (ABI A24) is not an error: the module suspends and asks again. The page's glue answers
+            // the module with `last_error()` whenever the player's `query` has no bytes (hostpage.rs), so the code
+            // is kept there: left at its old value the module read an empty answer and ran its statement at once
+            // (found by the first real-browser run of AC5, WASM-011 T25).
+            Some(Err(code)) if code == err::SUSPENDED_QUERY => {
+                self.last_error = code;
+                Err(code)
+            }
             Some(Err(code)) => {
                 self.last_error = code;
                 Err(code)
