@@ -1,0 +1,26 @@
+{
+  "note": "sizes of the test player and the scenario project, in bytes; rewritten by PRC_RECORD_SIZES=1",
+  "parts": {
+    "app.js": 2936,
+    "gfx-worker.js": 1721,
+    "loader.js": 48084,
+    "player/part-canvas/canvas.js": 19178,
+    "player/part-canvas/canvas_bg.wasm": 3190421,
+    "player/part-graphics/graphics.js": 25244,
+    "player/part-graphics/graphics_bg.wasm": 5974612,
+    "player/part-graphics3d/graphics3d.js": 143445,
+    "player/part-graphics3d/graphics3d_bg.wasm": 8470389,
+    "player/part-mermaid/mermaid.js": 7985,
+    "player/part-mermaid/mermaid_bg.wasm": 2218950,
+    "player/part-pdf/pdf.js": 6785,
+    "player/part-pdf/pdf_bg.wasm": 216664,
+    "player/plain/player.js": 100000,
+    "player/plain/player_bg.wasm": 3978699,
+    "program.single.wasm": 7498,
+    "program.wasm": 7384,
+    "scenario/program.single.wasm": 157277,
+    "scenario/program.wasm": 157261,
+    "worker.js": 6188
+  },
+  "threshold_percent": 5
+}
