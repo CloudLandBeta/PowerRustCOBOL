@@ -1,0 +1,20 @@
+[package]
+name         = "cobolt-web-tests"
+description  = "The web test crate (WASM-015 D4): shared helpers and fixtures for the browser, backend and module runners"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+publish = false
+
+[dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]
+cobolt-project-tools = { path = "../cobolt-project-tools" }
+cobolt-forms         = { path = "../cobolt-forms", features = ["render"] }
+cobolt-wasm          = { path = "../cobolt-wasm", features = ["host"] }
+cobolt-server        = { path = "../cobolt-server", features = ["testkit"] }
+cobolt-web-bundle    = { path = "../cobolt-web-bundle" }
+cobolt-codegen       = { path = "../cobolt-codegen" }

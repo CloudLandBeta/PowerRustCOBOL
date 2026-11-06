@@ -64,7 +64,7 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
   - Do: keep the RustCrypto-only rule in the file's header; `tests/dependency_guards.rs` must keep holding with and without the feature.
   - Verify: `cargo test -p cobolt-server --no-fail-fast` and `cargo test -p cobolt-server --features testkit --no-fail-fast` green, same test counts as before the move (record both); `cargo tree -p cobolt-server -e normal` without the feature shows none of the RustCrypto crates added.
 
-- [ ] **T4 — The test crate `cobolt-web-tests`** (D4)
+- [x] **T4 — The test crate `cobolt-web-tests`** (D4)
   - Files: new `crates/cobolt-web-tests/Cargo.toml` (`publish = false`, workspace deps, dev-dependencies on `cobolt-project-tools`, `cobolt-forms` with `render`, `cobolt-wasm` with `host`, `cobolt-server` with `testkit`, `cobolt-web-bundle`, `cobolt-codegen`), `src/lib.rs` (shared helpers: summary line `→ N passed, M failed`, skip helper honouring `PRC_REQUIRE_WEBVIEW`/`PRC_WEB_E2E`), `fixtures/` (empty project skeleton), root `Cargo.toml` `members` (one line, with the usual comment).
   - Verify: `cargo build -p cobolt-web-tests` and `cargo test -p cobolt-web-tests` green (a smoke test of the skip helper); `df -h .` before and after, growth noted.
 

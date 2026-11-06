@@ -2692,6 +2692,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-web-tests"
+version = "0.2.0"
+dependencies = [
+ "cobolt-codegen",
+ "cobolt-forms",
+ "cobolt-project-tools",
+ "cobolt-server",
+ "cobolt-wasm",
+ "cobolt-web-bundle",
+ "serde_json",
+]
+
+[[package]]
 name = "cobolt-wire"
 version = "0.2.0"
 dependencies = [

@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.239 — 2026-11-05
+
+**WASM-015 T4: the test crate `cobolt-web-tests`.** *(Written on features-2x-wasm-pending, after 2.0.238.)* New workspace member (`publish = false`): dev-dependencies on project-tools, forms (render), wasm (host), server (testkit), web-bundle and codegen; `gate`/`gate_with` (a missing machine need skips by name and passes, or fails with `PRC_REQUIRE_WEBVIEW=1` / `PRC_WEB_E2E=1`), `summary` (`→ N passed, M failed`) and `fixtures/empty-project`. Tests: `the_gate_runs_skips_or_fails`, `the_fixture_skeleton_exists` (2 passed). Disk: the target folder grew about 2.2 GiB building it (9.3 to 7.1 GiB free, after cleaning the worktree's test executables).
+
 ## 2.0.238 — 2026-11-05
 
 **WASM-015 T3: the backend test kit is `cobolt_server::testkit`.** *(Written on features-2x-wasm-pending, after 2.0.237.)* `tests/support/mod.rs` moved, behaviour unchanged, to `src/testkit.rs` behind the new `testkit` feature (not in `default`); `rcgen`, `p256`, `rand_core`, `rsa`, `signature` are optional dependencies it enables (with `jsonwebtoken/use_pem`), and the crate's own tests switch it on through a dev-dependency on itself. Every test now imports `cobolt_server::testkit`. `cargo test -p cobolt-server`: 19 targets, 167 passed, 0 failed (the same 127 test functions in `tests/` as before the move; the kit has none of its own); `dependency_guards` 7 passed with the feature; `rcgen` is absent from the normal tree without it (p256, rsa and signature were already there as `jsonwebtoken`'s RustCrypto backend).
