@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.262 — 2026-11-06
+
+**WASM-013 T7: the Web Build gate over the project's own inputs (R7, R11).** *(Written on features-2x-wasm-pending, after 2.0.261.)* Check and Build now start with a gate, before anything is generated: the `unsafe` settings against the profile (a warning in Development, a refusal naming the key in Release) and the secret scan over every form, Common Code file and copybook, the project stylesheet and theme file, the text assets and `backend/backend.toml`. A secret stops the Build as `file:line` and the pattern name — the value is never shown; a possible secret (entropy) is a warning. A literal in `backend/backend.toml` is a warning in Development and a refusal in Release. The profile, `plain_ws`, `skip_secret_scan` and `csp_report_only` now reach the bundle's options (a report-only CSP, the release checks). `tests/web_inputs_gate.rs`: 14 error patterns planted in a form, a copybook and a stylesheet (42 refusals, no value shown), each unsafe key, the skip and the `backend.toml` rule. The older `backend_secret_not_scanned` test now sees the gate's refusal in place of the bundle scan's.
+
 ## 2.0.261 — 2026-11-06
 
 **WASM-013 T5, T6: the security tables of the manifest and the build profile (R11, Q4, Q5).** *(Written on features-2x-wasm-pending, after 2.0.260.)* `[web.unsafe]` and `[mobile.unsafe]` (`plain_ws`, `skip_secret_scan`, `csp_report_only`), `[mobile.pinning]` (`pins`, `expires`) and `[security]` (`contact`, `policy`, `expires`, `preferred_languages`) are read from the manifest; each is written back only when set, so an existing manifest is saved unchanged, and the IDE's manifest model keeps `[security]` across a save. `WebBuildRequest` gains `profile` (`BuildProfile`: Development by default, Release set by the caller), `pinning` and `security`, and `unsafe_problems()`: each `unsafe` key that is on is a warning in Development and a refusal in Release, naming the key (`web.unsafe.plain_ws`, `mobile.unsafe.plain_ws`, …). Nothing consumes the profile yet — the Build gate is T7.

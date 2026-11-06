@@ -969,6 +969,54 @@ fn known_secrets_in_sources(req: &WebBuildRequest, known: &cobolt_web_bundle::se
     }
 }
 
+/// Before any generation (WASM-013 T7, R7, R11): the `unsafe` settings against the profile, then the secret scan over the
+/// project's own inputs — forms, Common Code and copybooks, stylesheets, text assets and `backend/backend.toml`. The
+/// Backend's COBOL is not scanned (it is where secrets belong: read from the environment). A refusal names the file, the
+/// line and the pattern, never the value; a possible secret (entropy) and an `unsafe` setting in Development are warnings.
+fn gate_inputs(req: &WebBuildRequest, warnings: &mut Vec<WebDiagnostic>) -> Result<(), WebBuildError> {
+    use cobolt_web_bundle::secrets::{is_text_path, scan_project, Severity, DEFAULT_ENTROPY_LEN};
+    let (unsafe_warnings, unsafe_refusals) = req.unsafe_problems();
+    for w in unsafe_warnings {
+        warnings.push(diag("manifest".into(), WebDiagnosticKind::Other, String::new(), w));
+    }
+    if !unsafe_refusals.is_empty() {
+        return Err(WebBuildError::Refused(unsafe_refusals.into_iter().map(|m| diag("manifest".into(), WebDiagnosticKind::Other, String::new(), m)).collect()));
+    }
+    if req.web.unsafe_.skip_secret_scan {
+        return Ok(());
+    }
+    let mut rels: Vec<String> = req.forms.iter().chain(&req.sources).chain(&req.assets).cloned().collect();
+    rels.push(req.web.stylesheet.clone());
+    rels.extend(req.web.theme_file.clone());
+    rels.push("backend/backend.toml".into());
+    rels.sort();
+    rels.dedup();
+    let files: Vec<(String, String)> = rels
+        .iter()
+        .map(|r| r.replace('\\', "/"))
+        .filter(|r| is_text_path(r))
+        .filter_map(|r| std::fs::read_to_string(req.project_dir.join(&r)).ok().map(|t| (r, t)))
+        .collect();
+    let mut refused = Vec::new();
+    for f in scan_project(&files, DEFAULT_ENTROPY_LEN) {
+        let location = format!("{}:{}", f.file, f.line);
+        // `backend/backend.toml` is where a backend's settings live (WASM-003 R17): a literal secret there is the
+        // developer's to fix before a release — a warning in Development, a refusal in Release (the backend itself refuses
+        // it at start, WASM-013 G4) — while the same shape anywhere that reaches the bundle is always a refusal.
+        let in_backend_toml = f.file == "backend/backend.toml" && req.profile == super::BuildProfile::Development;
+        if f.severity == Severity::Error && !in_backend_toml {
+            refused.push(diag(location, WebDiagnosticKind::Other, f.pattern.to_owned(), format!("secret ({}); the value is not shown", f.pattern)));
+        } else {
+            warnings.push(diag(location, WebDiagnosticKind::Other, f.pattern.to_owned(), format!("possible secret ({}); the value is not shown", f.pattern)));
+        }
+    }
+    if refused.is_empty() {
+        Ok(())
+    } else {
+        Err(WebBuildError::Refused(refused))
+    }
+}
+
 impl WebBuildBackend for GeneratorBackend {
     fn name(&self) -> &str {
         "cobolt-wasm"
@@ -982,6 +1030,7 @@ impl WebBuildBackend for GeneratorBackend {
         // The same steps as the Build up to the generator; the bytes are
         // discarded, nothing is written (WASM-002 R3: Check and Build agree).
         let mut warnings = Vec::new();
+        gate_inputs(req, &mut warnings)?;
         let (forms, _) = self.compile(req, &mut warnings)?;
         stylesheets(req, &forms)?;
         backend_programs(req, &forms)?;
@@ -994,6 +1043,7 @@ impl WebBuildBackend for GeneratorBackend {
     fn build(&self, req: &WebBuildRequest) -> Result<BuildReport, WebBuildError> {
         let started = Instant::now();
         let mut warnings: Vec<WebDiagnostic> = Vec::new();
+        gate_inputs(req, &mut warnings)?;
         let (forms, modules) = self.compile(req, &mut warnings)?;
         let mut sheets = stylesheets(req, &forms)?;
         // WASM-005 T9: the backend end of the forms' data controls, regenerated
@@ -1084,6 +1134,11 @@ impl WebBuildBackend for GeneratorBackend {
             recaptcha_site_key: identity.site_key.unwrap_or_default(),
             sign_in_form: req.web.sign_in_form.clone(),
             known_secrets,
+            // WASM-013 R11: the profile and the `unsafe` settings reach the bundle, whose own checks stay as they are.
+            release: req.profile == super::BuildProfile::Release,
+            unsafe_plain_ws: req.web.unsafe_.plain_ws,
+            skip_secret_scan: req.web.unsafe_.skip_secret_scan,
+            csp: cobolt_web_bundle::csp::CspOptions { report_only: req.web.unsafe_.csp_report_only, ..BundleOptions::default().csp },
             ..BundleOptions::default()
         };
         let program_multi = modules.multi.as_ref().map(|c| c.wasm.clone());

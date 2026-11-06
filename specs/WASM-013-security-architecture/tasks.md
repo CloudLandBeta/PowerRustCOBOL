@@ -205,7 +205,7 @@ as completed.
 
   - **Done (2.0.261):** T5: `UnsafeSettings` (field `unsafe_`, TOML `unsafe`), `PinningSettings`, `SecuritySettings` in `project_kind.rs`; `[security]` read by `project_manifest_view` and kept by the IDE's manifest model so a save does not drop it; every table is written only when set (an old manifest is saved byte for byte). T6: `BuildProfile`, `WebBuildRequest.profile/pinning/security`, `unsafe_problems()`; `[mobile.unsafe]` is carried into the request's web settings. Tests: `project_kind` 20, `cobolt-project-tools` all green; `cobolt-ide` checks.
 
-- [ ] **T7 — The Web Build scans the project inputs and enforces the profile — GATED on WASM-002's linked backend** (R7, R11; AC6, AC9 build half)
+- [x] **T7 — The Web Build scans the project inputs and enforces the profile — GATED on WASM-002's linked backend** (R7, R11; AC6, AC9 build half)
   - Files: WASM-002's backend that implements `WebBuildBackend` (plan §2's `cobolt-project-tools/src/web/build.rs`, or wherever WASM-002 puts
     it), and `crates/cobolt-project-tools/tests/web_build.rs` (new).
   - Do:
@@ -224,6 +224,8 @@ as completed.
       and pattern.
     - The printed text contains no planted value.
     - Each `unsafe` key warns in Development and fails in Release naming the key.
+
+  - **Done (2.0.262):** the gate is not blocked: `GeneratorBackend` is linked. `gate_inputs` (in `generator.rs`) runs first in Check and in Build: `unsafe_problems()` (warnings, or `Refused` naming the key in Release), then `scan_project` over forms, Common Code and copybooks, the stylesheet and theme file, text assets and `backend/backend.toml`; errors are `Refused` as `file:line` plus the pattern, possible secrets are warnings. `backend.toml` literals: warning in Development, refusal in Release (G4; WASM-003 R17 keeps the backend's own settings there). The profile and the three `unsafe` keys reach the `BundleOptions` (`release`, `unsafe_plain_ws`, `skip_secret_scan`, report-only CSP). New `tests/web_inputs_gate.rs`: 14 Error patterns x form/copybook/stylesheet = 42 refusals, none showing the value; each unsafe key; skip; backend.toml. `backend_secret_not_scanned` now expects the gate's `Refused`.
 
 - [ ] **T8 — The IDE shows the warnings and the refusals, in six languages** (R11, i18n; AC9 IDE half)
   - Files:

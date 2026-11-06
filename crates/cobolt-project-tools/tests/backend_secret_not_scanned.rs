@@ -80,6 +80,14 @@ fn a_frontend_secret_stops_the_build_and_the_backends_own_does_not() {
     let dir = project("form", &key);
     let req = WebBuildRequest::from_manifest(&dir.join("Shop.project.toml")).unwrap();
     match GeneratorBackend.build(&req) {
+        // The project-input gate (WASM-013 T7) stops it before generation, as file:line and the pattern.
+        Err(WebBuildError::Refused(list)) => {
+            let why = list.iter().map(|d| format!("{}: {}", d.location, d.message)).collect::<Vec<_>>().join("\n");
+            println!("in a form       → stopped: {why}");
+            assert!(!why.contains(&key), "the value is never shown: {why}");
+            assert!(why.contains("main-form"), "the file is named: {why}");
+            assert!(why.contains("secret (cloud access key id)"), "the pattern is named: {why}");
+        }
         Err(WebBuildError::Failed(why)) => {
             println!("in a form       → stopped: {why}");
             assert!(!why.contains(&key), "the value is never shown: {why}");
