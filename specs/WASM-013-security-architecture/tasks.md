@@ -341,7 +341,7 @@ as completed.
   - **Done (2.0.269):** one text for both places: `cobolt_wire::security_txt::SecurityTxt::render(now)` (RFC 9116; `Contact`, `Expires`, then `Policy` and `Preferred-Languages` when given). It requires `contact` (a `mailto:` or `https:` address) and `expires` (`YYYY-MM-DD`, read as the end of that day in UTC, or a full `…T…Z`), refuses an `expires` that has passed, and refuses a value that spans lines (it would write a field the developer never wrote); each error names `[security] <key>`. The Web Build: `BundleOptions.security` writes `/.well-known/security.txt` (unhashed, as the convention requires); absent, nothing is written and the report carries a **note**, not a warning. The manifest's `[security]` is mapped in the generator, and Check refuses an incomplete table too. The backend: `[security]` in `backend.toml` (same four keys, misspellings refused), rendered at start so a bad table stops the start, served at `GET /.well-known/security.txt` (404 without the table). Tests: 4 unit (wire), 3 bundle, 1 project-tools gate case, 2 backend (the served text equals the bundle's).
 ## M5 — XSS (R5)
 
-- [ ] **T15 — Text, never markup, in the controls and in the Viewer** (R5; AC4)
+- [x] **T15 — Text, never markup, in the controls and in the Viewer** (R5; AC4)
   - Files: `crates/cobolt-web-player/tests/xss.rs` (new), in the `abi_host.rs` style.
   - Do:
     - Set a Caption, a ListBox item, a DataGrid cell and a ToolTip to `<img src=x onerror=alert(1)>` through `SET` commands. Assert that the
@@ -351,6 +351,7 @@ as completed.
     - `sinks.rs` already covers the sources and is not changed.
   - Verify: `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test xss --test sinks --no-fail-fast` is green, and the counts are
     printed.
+  - **Done (2.0.270):** `cobolt-web-player/src/view/xss.rs` (unit tests beside the views, because the tree builders are crate-private; `tests/xss.rs` was not used). Test 1 sets a Label's Caption and Tooltip, a Button's Caption, a ListBox item and a DataGrid header and cell to `<img src=x onerror=alert(1)>` and `<script>`: 0 dangerous elements, 0 `on*` attributes, 0 `javascript:` addresses, the literal kept as text (the tooltip as a `title` attribute value). Test 2 feeds the Viewer HTML with script, `onclick`/`onmouseover`, `<img onerror>`, `<iframe>`, `<style>`, `javascript:` and `data:` links: only the `https:` link is an anchor, refused links keep their text, `link_allowed` refuses five bad forms. Test 3 proves the search catches a planted `img`, `onerror` and `JavaScript:` link. Player lib 418 passed, `sinks` 3 passed. No player code needed changing.
 
 ## M6 — supply chain (R9, R10)
 

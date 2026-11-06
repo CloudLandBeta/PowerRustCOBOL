@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.270 — 2026-11-06
+
+**WASM-013 T15: text, never markup, in the controls and in the Viewer (R5; AC4).** *(Written on features-2x-wasm-pending, after 2.0.269.)* New tests in `cobolt-web-player/src/view/xss.rs` set a Label's Caption and Tooltip, a Button's Caption, a ListBox item and a DataGrid header and cell to `<img src=x onerror=alert(1)>` (and `<script>`), and assert the node tree holds that literal as text with no `img`, `script`, `iframe`, `object`, `embed`, `link`, `style`, `base`, `form` or `svg` element, no `on*` attribute and no `javascript:` address. A second test feeds the Viewer an HTML document with `<script>`, `onclick`/`onmouseover`, an `<img onerror>`, an `<iframe>`, a `<style>` and `javascript:`/`data:` links: no dangerous node comes out, only the `https:` link stays an anchor, and the refused links keep their text. A third proves the search itself catches what it looks for. The tests sit beside the views, not in `tests/`, because the tree builders are crate-private; `tests/sinks.rs` (the player has no API that parses a string into nodes) is unchanged and green. No player code changed. Player lib 418 passed, `sinks` 3 passed.
+
 ## 2.0.269 — 2026-11-06
 
 **WASM-013 T14: `security.txt` from the developer's own parameters (Q4).** *(Written on features-2x-wasm-pending, after 2.0.268.)* A `[security]` table (`contact`, `expires`, optionally `policy` and `preferred_languages`) in the project manifest makes the Web Build write `/.well-known/security.txt` (RFC 9116) into the bundle, and the same table in `backend.toml` makes the backend answer `GET /.well-known/security.txt` over HTTPS with the same text. Both go through one function in `cobolt-wire`. A table without `contact` or `expires`, a contact that is not a `mailto:` or `https:` address, an `expires` that has passed, or a value spanning several lines is refused (Check and Build for the project, the start for the backend), naming the key. Without the table nothing is written and the Build report carries a note.

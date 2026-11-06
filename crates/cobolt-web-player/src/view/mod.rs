@@ -39,6 +39,8 @@ pub mod shell;
 pub mod style;
 pub mod svg;
 pub mod viewer;
+#[cfg(test)]
+mod xss;
 
 use std::collections::BTreeMap;
 
