@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.244 — 2026-11-06
+
+**WASM-015 T9: the seven desktop control files; the web round-trip is WASM-004 T32's.** *(Written on features-2x-wasm-pending, after 2.0.243.)* `tests/controls/` gains `sidemenu`, `switch`, `snackbar`, `knob`, `gauge`, `maps` and `viewer` (same shape as `button.rs`, listed in its `Cargo.toml`): 50 test binaries, all passing. The web property round-trip of every class A/B control already exists (`controls_roundtrip_chrome`: 39 controls, 332 checks, 5 documented mismatches, re-run in Chrome today); the same read through the system web view (WebKit) is left open as T9b in the task list.
+
 ## 2.0.243 — 2026-11-06
 
 **WASM-015 T8: the coverage table for every control type.** *(Written on features-2x-wasm-pending, after 2.0.242.)* `cobolt-web-tests/src/coverage.rs`: `COVERAGE`, one row per `ControlType::ALL` entry (name, class letter, `Decision::{CoveredNow, KnownGap(reason)}`) and `mismatches`; `tests/coverage.rs` prints `71 of 71 rows, A/B covered 41 of 41, known gaps 21` and fails on a control type with no row, a row for none, or a class that differs from `web_class::class_of`. The spec counted 62 types and 27 uncovered; the toolbox has 71 and 28 (the 7 class A/B ones without a desktop file, 20 class C ones, and Authentication from WASM-009). Decisions are the plan's working assumption: the seven class A/B (SideMenu, Switch, Snackbar, Knob, Gauge, Maps, Viewer) are covered by T9's new desktop files and web round-trips; the class C ones are a known gap (their round-trip is WASM-005's backend-call test).

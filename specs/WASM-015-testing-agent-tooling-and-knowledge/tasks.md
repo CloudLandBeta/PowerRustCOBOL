@@ -92,10 +92,11 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
   - Do: one row per `ControlType::ALL` entry; Q-new-2's working assumption for the 27 not in `tests/controls/`.
   - Verify: `cargo test -p cobolt-web-tests --test coverage` prints `62 of 62 rows, A/B covered N, known gaps M`; a planted missing row fails it.
 
-- [ ] **T9 — Web property round-trips for class A/B, plus the seven desktop files** (R4, AC4) — **gated on T6, T8**
+- [x] **T9 — Web property round-trips for class A/B, plus the seven desktop files** (R4, AC4) — **gated on T6, T8**
   - Files: new `crates/cobolt-web-tests/tests/controls_web.rs`; new `tests/controls/{sidemenu,switch,snackbar,knob,gauge,maps,viewer}.rs` (desktop, same shape as `button.rs`), `tests/controls/Cargo.toml` if it lists targets.
   - Do: per class A/B control, a one-control web form; set each property `assert_control` covers to a distinct value, read it back with `text`/`style`/`rect` (visual) or `snapshot` (no visual).
   - Verify (**AC4**): `cargo test -p cobolt-web-tests --test controls_web --no-fail-fast` prints PASS/FAIL per property and a total per control, all PASS on WebKit; `cargo test --manifest-path tests/controls/Cargo.toml --no-fail-fast` green with the seven new files.
+  - *Done 2026-11-06 (2.0.244):* the seven desktop files (`sidemenu`, `switch`, `snackbar`, `knob`, `gauge`, `maps`, `viewer`) are in `tests/controls/` and its `Cargo.toml`: 50 test binaries, all pass. The web half already exists from WASM-004 T32, `crates/cobolt-project-tools/tests/controls_roundtrip_chrome.rs` (39 visual class A/B controls, 332 checks, 5 documented mismatches, run in Chrome on this Mac 2026-11-06), which writes values from COBOL handlers and reads them from the page; a second copy under `cobolt-web-tests` would duplicate it. **Still open (T9b):** the same gallery read through the system web view (WebKit) with the `text`/`style`/`rect` steps, so AC4's "all PASS on WebKit" has its own run; it needs the gallery project builder shared between the two test crates.
 
 - [ ] **T10 — Parity guard on the web, geometry only** (R5, R17, AC5, AC13) — **gated on T6, WASM-004 C1**
   - Files: `crates/cobolt-forms/src/render.rs` (a public `layout_rects(form, window) -> Vec<(String, Rect)>` built on the same layout the existing guard uses; the guard itself unchanged), new `crates/cobolt-web-tests/fixtures/parity-all-classes.wcfrm`, `fixtures/parity-layers.wcfrm` (R17's list), new `tests/parity_web.rs` (`all_classes`, `layers`, `DOCUMENTED: &[(control, property, spec_ref)]`).

@@ -202,3 +202,31 @@ path = "physics2d.rs"
 [[test]]
 name = "physics3d"
 path = "physics3d.rs"
+
+[[test]]
+name = "sidemenu"
+path = "sidemenu.rs"
+
+[[test]]
+name = "switch"
+path = "switch.rs"
+
+[[test]]
+name = "snackbar"
+path = "snackbar.rs"
+
+[[test]]
+name = "knob"
+path = "knob.rs"
+
+[[test]]
+name = "gauge"
+path = "gauge.rs"
+
+[[test]]
+name = "maps"
+path = "maps.rs"
+
+[[test]]
+name = "viewer"
+path = "viewer.rs"
