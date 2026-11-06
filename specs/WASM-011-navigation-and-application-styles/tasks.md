@@ -26,9 +26,9 @@ main one, root `Cargo.toml` `exclude = ["crates/cobolt-web-player"]`). `PLAYER` 
   carries it unchanged. Likewise `crates/cobolt-web-bundle/assets/loader.js` only forwards configuration and is replaced by WASM-002's
   Rust-emitted loader (WASM-016 T7 note); a forwarding change goes into whichever loader exists.
 - **ABI document.** A task that changes the ABI updates `specs/WASM-ABI-v1.md` (A10, A11, §12.1, §12.2) in the same change.
-- **Operator gates.** PQ1–PQ4 (plan §8) are **not answered**. A task built on a working assumption says so; T22 is not started
-  until PQ1 and PQ2 are answered. The names `onRouteNotFound`, `onPopupBlocked` (PQ3) and `me::SetUnsavedChanges` (PQ4) are working
-  assumptions, renamed in one place each if the operator chooses otherwise.
+- **Operator gates.** PQ1–PQ4 (plan §8) were **answered on 2026-11-02** (plan §8.1): PQ1 per-open `pr-window=same`, PQ2 `OpenFormSync` in the
+  same window behaves as `OpenFormAsync`, PQ3 and PQ4 confirmed as built; T22 is done. The notes below that say "working assumption" or
+  "not answered" were written before that day and are kept as the history of each task.
 - **Not touched on 2.x.x:** `README.md` and `docs/` — there is no documentation task. What 2.x.x says about itself goes in `specs/`.
 
 ## Done (plan of 2026-10-20, and R1 found built in the revision)
@@ -161,7 +161,8 @@ main one, root `Cargo.toml` `exclude = ["crates/cobolt-web-player"]`). `PLAYER` 
   - **Run 2026-11-06 (2.0.285), Chrome 157 headless — AC6's sign-in half** (T13): see T13 and plan §6.2. The spec's AC6 box is ticked.
   - **Still owed:** AC4 in Firefox (not installed here); AC9 (`stack: true`, WASM-012).
 
-- [ ] **T26 — Finalize**
+- [x] **T26 — Finalize** — *done 2026-11-06 (2.0.286); T25 stays open for AC4 in Firefox and AC9*
+  - **Done 2026-11-06 (2.0.286):** the sweeps at 2.0.285, each run to the end with `--no-fail-fast`, every `test result` line read. `cobolt-wasm-abi` + `cobolt-web-bundle`: 55 lines, 154 passed, 1 failed (`isolation_chrome`: `PUT /json/new … os error 35` with 3.4 GB of disk free; alone, 3 passed in 13 s). `cobolt-wasm` + `cobolt-semantic` + `cobolt-form-host`: 60 lines, 489 passed, 0 failed. `cobolt-runtime` + `cobolt-compiler` (library, 214 integration targets, binaries, doc tests, in batches of 20 on a debug-free build, the executables deleted after each batch): 221 lines, 1 918 passed, 0 failed, 34 ignored. `cobolt-project-tools` + `cobolt-web-preview`: 31 lines, 259 passed, 0 failed. `cobolt-ide --bin`: 1 962 passed, 8 failed — 5 needed `target/debug/rcrun` and pass with it built (24 passed, 1 ignored); the 3 others are the known reds (`docs_embed::every_document_ships_in_every_language`; the two `external_crates_service::flow_tests` that reach crates.io). The player's native tests (`--lib`, `abi_host`, `sinks`, `dependency_guard`, `freshness`, …) passed at 2.0.284, the last version that touched the player, and were not re-run. The build prints warnings from `cobolt-runtime`, `cobolt-compiler` and `cobolt-project-tools` that this task did not introduce; the new test files add none and no `allow`. `README.md` and `docs/` untouched. AC10 (the desktop projects' suites) is ticked on the strength of the `cobolt-semantic`, `cobolt-compiler`, `cobolt-form-host` and `cobolt-runtime` lines above.
   - Files: `crates/cobolt-ide/src/version.rs` (`VERSION`: bump `z` once, from the value current at that time), `CHANGELOG.md` (one entry above the previous heading, dated, *Written on `features-2x`*, naming what landed and what stays open: T13, T21, T22, PQ1–PQ4).
   - Verify: `cargo test PLAYER --no-fail-fast` (lib, `abi_host`, `sinks`, `dependency_guard`, `freshness`); `cargo test --no-fail-fast -p cobolt-wasm-abi -p cobolt-web-bundle -p cobolt-wasm -p cobolt-semantic -p cobolt-runtime -p cobolt-compiler -p cobolt-form-host`; `cargo test --no-fail-fast -p cobolt-ide --bin cobolt-ide` (and `-p cobolt-project-tools` if T22 ran) — every `test result` line read; no warnings, no `allow`; `README.md` and `docs/` untouched (`git status`).
 
