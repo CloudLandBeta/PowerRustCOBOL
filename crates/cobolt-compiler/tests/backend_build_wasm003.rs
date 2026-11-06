@@ -329,3 +329,32 @@ fn the_built_backend_is_a_binary_that_checks_describes_and_answers_its_health_pr
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&staging);
 }
+
+/// WASM-014 T16 (R5, AC2): the contract check alone - no cargo, no staging folder - names each break's program, parameter, item and rule.
+#[test]
+fn check_contract_reports_program_item_rule_without_cargo() {
+    let dir = project("check", EXPORTS, PING);
+    let backend = cobolt_server::backend::Backend::load(&dir.join("backend")).expect("loads");
+    let released = dir.join("backend").join("contract").join("released");
+    std::fs::create_dir_all(&released).unwrap();
+    std::fs::write(released.join("1.0.0.json"), backend.interface.to_json()).unwrap();
+
+    // Nothing changed: no break, and the report says what it compared with.
+    let t = Instant::now();
+    let same = cobolt_compiler::backend_build::check_contract(&dir).expect("checks");
+    assert!(same.breaks.is_empty() && same.against == "1.0.0", "{same:?}");
+
+    // The reply loses a member the released contract promised.
+    std::fs::write(dir.join("backend").join("src").join("ping.cbl"), PING.replace("REPLY", "ANSWER")).unwrap();
+    let r = cobolt_compiler::backend_build::check_contract(&dir).expect("checks");
+    let ms = t.elapsed().as_millis();
+    println!("== T16 check_contract ==");
+    for b in &r.breaks {
+        println!("program {} | parameter {} | item {} | rule {} | {}", b.program, b.parameter, b.item, b.rule, b.text);
+    }
+    println!("{} break(s) found in {ms} ms, no cargo", r.breaks.len());
+    assert!(r.breaks.iter().any(|b| b.program == "PING" && b.parameter == "RETURNING" && b.item.ends_with("REPLY") && b.rule == "member-missing"), "{:?}", r.breaks);
+    assert_eq!(r.breaking, r.breaks.iter().map(|b| b.text.clone()).collect::<Vec<_>>(), "the text rcrun prints is the structured breaks, as text");
+    assert!(!dir.join("backend").join("target").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}

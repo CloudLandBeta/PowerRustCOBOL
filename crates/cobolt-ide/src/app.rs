@@ -1872,6 +1872,24 @@ fn guardian_severity_label<'a>(tr: &'a Tr, severity: &cobolt_forms::GuardianSeve
     }
 }
 
+/// The lines the Output panel gets for a backend's contract check (WASM-014 T16), and whether the contract is intact. Program,
+/// parameter, item and rule are code identifiers and stay as the report names them; the sentences are the developer's language.
+fn contract_report_lines(tr: &Tr, report: &cobolt_compiler::backend_build::ContractReport) -> (Vec<String>, bool) {
+    if report.against == "(none)" {
+        return (vec![tr.contract_check_unreleased.to_owned()], true);
+    }
+    if report.breaks.is_empty() {
+        return (vec![tr.contract_check_ok.replace("{v}", &report.against)], true);
+    }
+    let mut lines = vec![tr.contract_breaks.replace("{v}", &report.against)];
+    for b in &report.breaks {
+        let parts: Vec<&str> = [b.program.as_str(), b.parameter.as_str(), b.item.as_str(), b.rule.as_str()].into_iter().filter(|p| !p.is_empty()).collect();
+        lines.push(format!("  {}", parts.join(" · ")));
+    }
+    lines.push(tr.contract_raise_major.to_owned());
+    (lines, false)
+}
+
 fn data_binding_action_label<'a>(tr: &'a Tr, action: BindingActionGate) -> &'a str {
     match action {
         BindingActionGate::SaveForm => tr.menu_save,
@@ -2781,6 +2799,26 @@ impl CoboltApp {
         })
     }
 
+    /// Compare the backend's contract with the last released one and write the result to the Output panel (WASM-014 T16). Answers
+    /// whether the contract is intact; a check that cannot be made says why and lets the build report its own error.
+    fn report_backend_contract(&mut self) -> bool {
+        let Some(dir) = self.backend_project_dir() else { return true };
+        let tr = self.lang.tr();
+        match cobolt_compiler::backend_build::check_contract(&dir) {
+            Err(e) => {
+                self.output.push_status(tr.contract_check_failed.replace("{why}", &e.to_string()));
+                true
+            }
+            Ok(report) => {
+                let (lines, intact) = contract_report_lines(&tr, &report);
+                for l in lines {
+                    self.output.push_status(l);
+                }
+                intact
+            }
+        }
+    }
+
     /// Build the bundle of the open Web or Mobile project and — for
     /// [`WebIntent::Show`] — serve it and show it. The build reads the forms
     /// from disk, so the designers with unsaved edits are saved first, as
@@ -2810,6 +2848,11 @@ impl CoboltApp {
             }
         }
         // 037 R3 — a project with no main form, or two, is healed before it is built.
+        // A project with a backend: its contract is compared with the last released one, and a Build stops on a break (the Preview
+        // only reports it, as a debug build does).
+        if !self.report_backend_contract() && matches!(intent, WebIntent::Build) {
+            return;
+        }
         self.apply_main_form_invariant();
         // A project with a Backend: the Preview starts it (or uses the one the
         // IDE already runs for it) and builds the page for where it listens.
@@ -24990,5 +25033,42 @@ mod update_offer_wiring_tests {
             frame.contains("self.show_update_offer("),
             "the frame must offer the update whatever the Main Pane shows"
         );
+    }
+}
+
+#[cfg(test)]
+mod contract_report_tests {
+    use super::*;
+    use cobolt_compiler::backend_build::{ContractBreak, ContractReport};
+
+    fn report(against: &str, breaks: Vec<ContractBreak>) -> ContractReport {
+        ContractReport { against: against.into(), breaking: breaks.iter().map(|b| b.text.clone()).collect(), breaks, notes: vec![] }
+    }
+
+    /// WASM-014 T16 (AC2): what Build writes to the Output panel, in every language: a heading, one line per break with its program,
+    /// parameter, item and rule as identifiers, and the way through.
+    #[test]
+    fn build_writes_the_contract_report_to_output() {
+        let b = ContractBreak {
+            program: "PING".into(),
+            parameter: "RETURNING".into(),
+            item: "LK-PONG.REPLY".into(),
+            rule: "member-missing".into(),
+            text: "PING: RETURNING: …".into(),
+        };
+        for lang in crate::i18n::Language::ALL.iter().copied() {
+            let tr = lang.tr();
+            let (ok, intact) = contract_report_lines(&tr, &report("1.0.0", vec![]));
+            assert!(intact && ok.len() == 1 && ok[0].contains("1.0.0"), "{ok:?}");
+            let (none, intact) = contract_report_lines(&tr, &report("(none)", vec![]));
+            assert!(intact && none.len() == 1);
+            let (lines, intact) = contract_report_lines(&tr, &report("1.0.0", vec![b.clone()]));
+            println!("{lang:?}: {lines:?}");
+            assert!(!intact);
+            assert_eq!(lines.len(), 3, "heading, one line per break, the hint");
+            assert!(lines[0].contains("1.0.0"));
+            assert_eq!(lines[1], "  PING · RETURNING · LK-PONG.REPLY · member-missing", "identifiers stay as the report names them");
+            assert!(lines.iter().all(|l| !l.contains('{')), "no placeholder is left: {lines:?}");
+        }
     }
 }

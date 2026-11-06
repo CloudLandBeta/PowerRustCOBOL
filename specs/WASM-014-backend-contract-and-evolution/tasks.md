@@ -419,7 +419,7 @@ as completed.
 
 ## M9 — the IDE and the System KB
 
-- [ ] **T16 — Structured breaks; `check_contract`; the report in the Output panel** (R5; AC2; Δ8)
+- [x] **T16 — Structured breaks; `check_contract`; the report in the Output panel** (R5; AC2; Δ8)
   - Files:
     - `crates/cobolt-wire/src/evolution.rs`: `Break {program, parameter, item, rule}` in `Report.breaks`; `breaking: Vec<String>` stays,
       produced from `Display`, so `rcrun` and `build_backend` print exactly what they print today;
@@ -435,6 +435,7 @@ as completed.
     - `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`: `no_empty_ui_translations`, plus `build_writes_the_contract_report_to_output`;
     - the AC2 run, once per R4 change, compatible and incompatible: `rcrun backend build --release` on a fixture prints the build outcome and,
       for a break, the program, the item and the rule. The table is recorded here.
+  - **Done 2026-11-05 (2.0.232).** **Still open:** the AC2 table with `rcrun backend build --release` on a fixture for each R4 change (it needs cargo to build the backend); the release/debug split of the IDE Build is "Build stops, Preview reports", as the IDE has no separate release switch for a Web build.
 
 - [ ] **T17 — The Backend settings: store mode and session idle time** (R10; Q5, OQ2)
   - Files:

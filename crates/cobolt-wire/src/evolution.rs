@@ -40,6 +40,33 @@
 use crate::compat::{fits, fits_projected};
 use crate::contract::{Direction, InterfaceDescription, Param, ProgramSig};
 
+/// One change that breaks a client built against the released contract.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Break {
+    /// The exported program (upper case), or empty for a change to the contract version.
+    pub program: String,
+    /// `parameter 2 (NAME)` or `RETURNING`; empty when the change is not about one parameter.
+    pub parameter: String,
+    /// The member path inside the parameter (`ORDER.LINES`); empty when the change is not about one member.
+    pub item: String,
+    /// The rule that names the change (`member-missing`, `status-changed`, `program-removed`, …).
+    pub rule: String,
+    /// The sentence `rcrun` and the Build print.
+    pub text: String,
+}
+
+impl Break {
+    fn new(program: &str, parameter: &str, item: &str, rule: &str, text: String) -> Break {
+        Break { program: program.to_string(), parameter: parameter.to_string(), item: item.to_string(), rule: rule.to_string(), text }
+    }
+}
+
+impl std::fmt::Display for Break {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
 /// What comparing two interface descriptions found.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Report {
@@ -47,6 +74,8 @@ pub struct Report {
     pub against: String,
     /// Changes that break a client built against `against`.
     pub breaking: Vec<String>,
+    /// The same changes, structured: which program, which parameter and item, which rule (WASM-014 R5). `breaking` is these, as text.
+    pub breaks: Vec<Break>,
     /// Compatible changes worth saying out loud.
     pub notes: Vec<String>,
 }
@@ -69,19 +98,21 @@ pub fn check_against_released(current: &InterfaceDescription, released: &[Interf
 pub fn compare(old: &InterfaceDescription, new: &InterfaceDescription, old_v: (u64, u64, u64)) -> Report {
     let mut r = Report { against: old.contract.clone(), ..Report::default() };
     let Some(new_v) = semver(&new.contract) else {
-        r.breaking.push(format!("the contract version \"{}\" is not major.minor.patch", new.contract));
+        r.breaks.push(Break::new("", "", "", "version-invalid", format!("the contract version \"{}\" is not major.minor.patch", new.contract)));
+        r.breaking = r.breaks.iter().map(|b| b.text.clone()).collect();
         return r;
     };
     if new_v.0 < old_v.0 {
-        r.breaking.push(format!("the contract version went backwards: {} is older than the released {}", new.contract, old.contract));
+        r.breaks.push(Break::new("", "", "", "version-backwards", format!("the contract version went backwards: {} is older than the released {}", new.contract, old.contract)));
+        r.breaking = r.breaks.iter().map(|b| b.text.clone()).collect();
         return r;
     }
-    let mut breaking = Vec::new();
+    let mut breaking: Vec<Break> = Vec::new();
     let mut notes = Vec::new();
 
     for o in &old.programs {
         match new.program(&o.name) {
-            None => breaking.push(format!("program {} was removed (rule: program-removed)", o.name)),
+            None => breaking.push(Break::new(&o.name, "", "", "program-removed", format!("program {} was removed (rule: program-removed)", o.name))),
             Some(n) => compare_program(o, n, &mut breaking, &mut notes),
         }
     }
@@ -97,24 +128,25 @@ pub fn compare(old: &InterfaceDescription, new: &InterfaceDescription, old_v: (u
     } else if new_v == old_v && (!breaking.is_empty() || !notes.is_empty()) {
         notes.push(format!("the interface differs from the released contract {} but its version was not raised: raise the minor version", old.contract));
     }
-    r.breaking = breaking;
+    r.breaking = breaking.iter().map(|b| b.text.clone()).collect();
+    r.breaks = breaking;
     r.notes = notes;
     r
 }
 
-fn compare_program(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<String>, notes: &mut Vec<String>) {
+fn compare_program(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<Break>, notes: &mut Vec<String>) {
     let name = &o.name;
     if o.public != n.public {
-        breaking.push(format!("{name}: its `public` setting changed (rule: access-changed)"));
+        breaking.push(Break::new(name, "", "", "access-changed", format!("{name}: its `public` setting changed (rule: access-changed)")));
     }
     let (mut or, mut nr) = (o.roles.clone(), n.roles.clone());
     or.sort();
     nr.sort();
     if or != nr {
-        breaking.push(format!("{name}: its required roles changed from {or:?} to {nr:?} (rule: roles-changed)"));
+        breaking.push(Break::new(name, "", "", "roles-changed", format!("{name}: its required roles changed from {or:?} to {nr:?} (rule: roles-changed)")));
     }
     if o.idempotent && !n.idempotent {
-        breaking.push(format!("{name}: it is no longer safe to repeat (rule: idempotency-removed)"));
+        breaking.push(Break::new(name, "", "", "idempotency-removed", format!("{name}: it is no longer safe to repeat (rule: idempotency-removed)")));
     } else if !o.idempotent && n.idempotent {
         notes.push(format!("{name}: it is now declared safe to repeat"));
     }
@@ -122,14 +154,14 @@ fn compare_program(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<String>, n
         notes.push(format!("{name}: its ordering declaration changed (independent: {} -> {})", o.independent, n.independent));
     }
     if o.long_running != n.long_running || o.stream != n.stream {
-        breaking.push(format!("{name}: its kind (long-running / stream) changed (rule: kind-changed)"));
+        breaking.push(Break::new(name, "", "", "kind-changed", format!("{name}: its kind (long-running / stream) changed (rule: kind-changed)")));
     }
     compare_status(o, n, breaking, notes);
     if n.deprecated.is_some() && o.deprecated.is_none() {
         notes.push(format!("{name}: it is now deprecated"));
     }
     if o.params.len() != n.params.len() {
-        breaking.push(format!("{name}: it takes {} parameter(s) now, {} before (rule: parameters-changed)", n.params.len(), o.params.len()));
+        breaking.push(Break::new(name, "", "", "parameters-changed", format!("{name}: it takes {} parameter(s) now, {} before (rule: parameters-changed)", n.params.len(), o.params.len())));
     } else {
         for (i, (op, np)) in o.params.iter().zip(n.params.iter()).enumerate() {
             compare_param(name, &format!("parameter {} ({})", i + 1, op.name), op, np, breaking);
@@ -137,7 +169,7 @@ fn compare_program(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<String>, n
     }
     match (&o.returning, &n.returning) {
         (Some(op), Some(np)) => compare_param(name, "RETURNING", op, np, breaking),
-        (Some(_), None) => breaking.push(format!("{name}: it no longer returns anything (rule: returning-removed)")),
+        (Some(_), None) => breaking.push(Break::new(name, "", "", "returning-removed", format!("{name}: it no longer returns anything (rule: returning-removed)"))),
         (None, Some(_)) => notes.push(format!("{name}: it now returns a group (callers that ignore it are unaffected)")),
         (None, None) => {}
     }
@@ -145,7 +177,7 @@ fn compare_program(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<String>, n
 
 /// The status group of a program is part of what a client was promised (WASM-014 R8): removing, renaming or reshaping it breaks
 /// whoever reads it; adding one is a note.
-fn compare_status(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<String>, notes: &mut Vec<String>) {
+fn compare_status(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<Break>, notes: &mut Vec<String>) {
     let name = &o.name;
     let group = |p: &ProgramSig, s: &str| -> Option<crate::layout::Item> {
         match p.returning.as_ref().map(|r| &r.layout.kind) {
@@ -155,28 +187,28 @@ fn compare_status(o: &ProgramSig, n: &ProgramSig, breaking: &mut Vec<String>, no
     };
     match (&o.status, &n.status) {
         (None, Some(s)) => notes.push(format!("{name}: it now reports failures in the status group {s}")),
-        (Some(s), None) => breaking.push(format!("{name}: the status group {s} is no longer declared (rule: status-changed)")),
-        (Some(a), Some(b)) if !a.eq_ignore_ascii_case(b) => breaking.push(format!("{name}: its status group was renamed from {a} to {b} (rule: status-changed)")),
+        (Some(s), None) => breaking.push(Break::new(name, "", "", "status-changed", format!("{name}: the status group {s} is no longer declared (rule: status-changed)"))),
+        (Some(a), Some(b)) if !a.eq_ignore_ascii_case(b) => breaking.push(Break::new(name, "", "", "status-changed", format!("{name}: its status group was renamed from {a} to {b} (rule: status-changed)"))),
         (Some(a), Some(_)) => {
             if group(o, a) != group(n, a) {
-                breaking.push(format!("{name}: the layout of its status group {a} changed (rule: status-changed)"));
+                breaking.push(Break::new(name, "", "", "status-changed", format!("{name}: the layout of its status group {a} changed (rule: status-changed)")));
             }
         }
         (None, None) => {}
     }
 }
 
-fn compare_param(program: &str, what: &str, old: &Param, new: &Param, breaking: &mut Vec<String>) {
+fn compare_param(program: &str, what: &str, old: &Param, new: &Param, breaking: &mut Vec<Break>) {
     // The released contract's declared direction decides what was promised.
     let dir = old.direction;
     if dir != Direction::Out {
         for m in fits(&old.layout, &new.layout) {
-            breaking.push(format!("{program}: {what}: an old client's request no longer fits — {m}"));
+            breaking.push(Break::new(program, what, &m.path, m.rule, format!("{program}: {what}: an old client's request no longer fits — {m}")));
         }
     }
     if dir != Direction::In {
         for m in fits_projected(&new.layout, &old.layout) {
-            breaking.push(format!("{program}: {what}: the new answer no longer fits an old client — {m}"));
+            breaking.push(Break::new(program, what, &m.path, m.rule, format!("{program}: {what}: the new answer no longer fits an old client — {m}")));
         }
     }
 }

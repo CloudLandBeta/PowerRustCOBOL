@@ -124,6 +124,33 @@ pub fn identity_for_build(backend_dir: &Path) -> cobolt_server::identity_setting
     cobolt_server::identity_settings::build_identity(&text, backend_dir)
 }
 
+/// What the contract check returns: the report and the structured breaks in it (WASM-014 T16).
+pub use cobolt_wire::evolution::{Break as ContractBreak, Report as ContractReport};
+
+/// What comparing a backend's interface with the contracts it released found (WASM-014 R5): the one place Build, `rcrun` and the IDE
+/// get it from.
+fn contract_report(current: &cobolt_wire::contract::InterfaceDescription, history: &[String]) -> cobolt_wire::evolution::Report {
+    let released: Vec<cobolt_wire::contract::InterfaceDescription> = history.iter().filter_map(|h| cobolt_wire::contract::InterfaceDescription::from_json(h).ok()).collect();
+    cobolt_wire::evolution::check_against_released(current, &released)
+}
+
+/// Read the backend of the project in `project_dir` and compare its contract with the last released one, without building anything
+/// (WASM-014 T16): no cargo, no staging folder, nothing written but the identity programs that every path regenerates first. The IDE
+/// calls this to write the report to the Output panel before a Build; each break names its program, parameter, item and rule.
+pub fn check_contract(project_dir: &Path) -> Result<cobolt_wire::evolution::Report, CompilerError> {
+    let backend_dir = project_dir.join("backend");
+    if !backend_dir.join("exports.toml").exists() {
+        return Err(CompilerError::Workspace(format!("{} has no exports.toml: a backend declares the programs it exports there (see the Developer's Guide, Backend)", backend_dir.display())));
+    }
+    let state = backend_state(project_dir)?;
+    regenerate_identity(&backend_dir)?;
+    let mut bundle = cobolt_server::bundle::Bundle::from_dir(&backend_dir).map_err(|errs| CompilerError::Parse { file: "backend".into(), message: errs.join("\n") })?;
+    bundle.state = state;
+    let history = bundle.history.clone();
+    let backend = bundle.into_backend().map_err(|errs| CompilerError::Semantic { file: "backend".into(), message: errs.join("\n") })?;
+    Ok(contract_report(&backend.interface, &history))
+}
+
 /// Build the backend of the project in `project_dir`.
 pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<BackendBuildResult, CompilerError> {
     let log = |m: &str| {
@@ -172,11 +199,7 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
 
     // 3. Compatibility with the last released contract (WASM-014 R5).
     let mut notes = Vec::new();
-    let released: Vec<cobolt_wire::contract::InterfaceDescription> = history
-        .iter()
-        .filter_map(|h| cobolt_wire::contract::InterfaceDescription::from_json(h).ok())
-        .collect();
-    let report = cobolt_wire::evolution::check_against_released(&backend.interface, &released);
+    let report = contract_report(&backend.interface, &history);
     // A connection that keeps its state runs its calls in turn (WASM-003 Q2).
     if state == cobolt_server::backend::StateMode::PerConnection {
         for p in backend.interface.programs.iter().filter(|p| p.independent) {
