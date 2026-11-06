@@ -200,13 +200,17 @@ pub enum Wait {
     Timer { id: u32, done: bool },
     /// The module suspended with nothing registered: it resumes on the next turn.
     Turn,
+    /// `super::` reads that wait for the window that opened this one (ABI A24, WASM-011 T17): `ids` are
+    /// the requests still unanswered; `done` once none is (an answer, an error, a timeout or the
+    /// opener's `closed` each settle one).
+    Super { ids: Vec<u32>, done: bool },
 }
 
 impl Wait {
     fn ready(&self) -> bool {
         match self {
             Wait::Remote { answer, .. } => answer.is_some(),
-            Wait::Dialog { done, .. } | Wait::Child { done, .. } | Wait::Timer { done, .. } => *done,
+            Wait::Dialog { done, .. } | Wait::Child { done, .. } | Wait::Timer { done, .. } | Wait::Super { done, .. } => *done,
             Wait::Turn => true,
         }
     }
@@ -275,6 +279,11 @@ pub enum Effect {
     SuperSet { prop: String, value: String },
     /// `CALL super::Method(args)` in such a window: the opener runs it.
     SuperCall { name: String, args: Vec<String> },
+    /// A read of `super::Prop` that waits (ABI A24): ask the opener for the property's text; its answer
+    /// settles request `id` ([`Host::super_reply`]).
+    SuperGet { id: u32, prop: String },
+    /// A read of `super::Method(args)` that waits: the opener runs it and answers request `id` with the result.
+    SuperCallR { id: u32, name: String, args: Vec<String> },
     Dialog { id: u32, kind: DialogKind, text: String, title: String, buttons: String, default: String },
     /// A timed wait of `ms` started.
     Timer { id: u32, ms: u64 },
@@ -568,6 +577,34 @@ pub struct RemoteOpener {
     pub props: BTreeMap<String, String>,
     /// The opener went away (its window closed, or it never answered): `super::` fails with `ON EXCEPTION`.
     pub closed: bool,
+    /// The opener answers requests by id (its `state` said so, ABI A24). One that does not — an older
+    /// player — is read from the replica, as it always was, and never waited for.
+    pub waits: bool,
+    /// The requests the module's waiting reads made, by id.
+    pub reqs: BTreeMap<u32, SuperReq>,
+    /// The id the next request takes.
+    pub next_req: u32,
+}
+
+/// A request to the opener that a waiting `super::` read made, and what became of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuperReq {
+    /// The instance whose handler asked.
+    pub inst: u32,
+    /// What was asked, as text: the module asks the same read again after the resume and finds its answer by this.
+    pub key: String,
+    pub state: SuperState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SuperState {
+    /// Sent; no answer yet.
+    Pending,
+    /// The answer (or the reason there is none), kept for the module's next ask of the same read.
+    Answered(Result<String, String>),
+    /// The module has been given the answer in the run that is under way: asks of the same read in that run
+    /// are answered the same, and the entry goes when the run ends ([`Host::complete`]).
+    Served(Result<String, String>),
 }
 
 /// Events that fire in floods; a newer one replaces a queued one of the same target.
@@ -1299,6 +1336,10 @@ impl Host {
         let wait = flight.as_ref().and_then(|f| f.wait.clone());
         let desc = flight.as_ref().and_then(|f| f.event_desc.clone());
         let resumed_task = flight.as_ref().and_then(|f| f.task);
+        // The run is over: what it was told about the opener's answers is not for the next one to reuse.
+        if let (Some(i), Some(r)) = (inst, self.remote_opener.as_mut()) {
+            r.reqs.retain(|_, q| !(q.inst == i && matches!(q.state, SuperState::Served(_))));
+        }
         match (call, result) {
             (ModuleCall::OpenForm { .. }, CallResult::Opened { inst: id, status, task }) => {
                 let (form, opener, mode, handle, params) = flight.as_ref().and_then(|f| f.opening.clone()).expect("open in flight");
@@ -1587,6 +1628,9 @@ impl Host {
         self.auth_calls.retain(|_, (i, _, _)| *i != inst);
         self.auth_captchas.retain(|_, (i, _)| *i != inst);
         self.auth_queue.retain(|(i, _, _)| *i != inst);
+        if let Some(r) = self.remote_opener.as_mut() {
+            r.reqs.retain(|_, q| q.inst != inst);
+        }
         // A grid's answer that arrives after its form closed has nowhere to go.
         self.grids.retain(|(i, _), _| *i != inst);
         self.grid_calls.retain(|_, c| c.inst != inst);
@@ -1721,6 +1765,8 @@ impl Host {
                 self.stats.bytes_out += text.len() as u64;
                 Ok(text.into_bytes())
             }
+            // "On its way" (ABI A24) is not an error: the module suspends and asks again.
+            Some(Err(code)) if code == err::SUSPENDED_QUERY => Err(code),
             Some(Err(code)) => {
                 self.last_error = code;
                 Err(code)
@@ -1832,7 +1878,7 @@ impl Host {
                 }
             };
             self.stats.commands += 1;
-            let is_q = matches!(&cmd, Command::Get(_) | Command::CallR(_) | Command::Count(_));
+            let is_q = matches!(&cmd, Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_));
             match cmd {
                 Command::Set { path, value } => {
                     self.stats.sets += 1;
@@ -1886,7 +1932,7 @@ impl Host {
                     };
                     self.report(RunError { code: c, message: m, form: form_name, event: ev, unit, line });
                 }
-                q @ (Command::Get(_) | Command::CallR(_) | Command::Count(_)) => {
+                q @ (Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_)) => {
                     if want_query {
                         answer = Some(self.eval_query(&q));
                     } else {
@@ -2222,11 +2268,155 @@ impl Host {
         }
     }
 
-    /// The opener's window closed, or never answered.
+    /// The opener says it answers requests by id (ABI A24): from now on a waiting `super::` read is sent to it.
+    pub fn remote_opener_waits(&mut self, waits: bool) {
+        if let Some(r) = &mut self.remote_opener {
+            r.waits = waits;
+        }
+    }
+
+    /// The opener's window closed, or never answered: what the module waits for from it fails, and the
+    /// task is let go to see the error.
     pub fn remote_opener_closed(&mut self) {
+        let mut settled = Vec::new();
         if let Some(r) = &mut self.remote_opener {
             r.closed = true;
+            for (id, q) in r.reqs.iter_mut() {
+                if q.state == SuperState::Pending {
+                    q.state = SuperState::Answered(Err("the window that opened this one is closed".into()));
+                    settled.push(*id);
+                }
+            }
         }
+        for id in settled {
+            self.super_settled(id);
+        }
+    }
+
+    /// The opener answered request `id` (or said why it cannot). `false` when nothing waits for it.
+    pub fn super_reply(&mut self, id: u32, answer: Result<String, String>) -> bool {
+        let Some(q) = self.remote_opener.as_mut().and_then(|r| r.reqs.get_mut(&id)) else { return false };
+        if q.state != SuperState::Pending {
+            return false;
+        }
+        q.state = SuperState::Answered(answer);
+        self.super_settled(id);
+        true
+    }
+
+    /// Request `id` has been waiting for the longest the application allows: it fails.
+    pub fn super_timeout(&mut self, id: u32) -> bool {
+        self.super_reply(id, Err("the window that opened this one did not answer in time".into()))
+    }
+
+    /// Request `id` is settled: the task that waits for it, if it waits for nothing else, may go on.
+    fn super_settled(&mut self, id: u32) {
+        let settle = |w: &mut Wait| {
+            if let Wait::Super { ids, done } = w {
+                ids.retain(|i| *i != id);
+                if ids.is_empty() {
+                    *done = true;
+                }
+            }
+        };
+        for t in self.tasks.values_mut() {
+            if let TaskState::Suspended(w) = &mut t.state {
+                settle(w);
+            }
+        }
+        if let Some(w) = self.inflight.as_mut().and_then(|f| f.wait.as_mut()) {
+            settle(w);
+        }
+    }
+
+    /// The run in flight is to suspend until request `id` is answered.
+    fn wait_on_super(&mut self, id: u32) {
+        let Some(f) = self.inflight.as_mut() else { return };
+        match &mut f.wait {
+            Some(Wait::Super { ids, done }) => {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+                *done = false;
+            }
+            w => *w = Some(Wait::Super { ids: vec![id], done: false }),
+        }
+    }
+
+    /// A read the module can wait for (`GET_WAIT` / `CALLR_WAIT`, ABI A24). In a window another window opened,
+    /// whose opener answers by id, the answer is that window's: the first ask sends the request and answers
+    /// "on its way" (`SUSPENDED_QUERY`), the module suspends, and when the request is settled the same ask is
+    /// answered from it. Everything else is answered at once, as the plain `GET` / `CALLR` is — a window with
+    /// no opener window, an opener that is gone (the plain read says so), an older opener (the replica).
+    fn eval_wait_query(&mut self, q: &Command<'_>) -> Result<String, i32> {
+        let (path, call) = match q {
+            Command::GetWait(p) => (p, false),
+            Command::CallRWait(p) => (p, true),
+            _ => return Err(err::BAD_ARGUMENT),
+        };
+        let remote = path.ctrl == ctrl::SUPER && self.remote_opener.as_ref().is_some_and(|r| r.waits && !r.closed);
+        let single = path.segs.len() == 1;
+        if !(remote && single) {
+            return self.eval_query(&if call { Command::CallR(path.clone()) } else { Command::Get(path.clone()) });
+        }
+        let seg = &path.segs[0];
+        let name = match self.name_of(seg.name) {
+            Ok(n) => n,
+            Err(e) => return Err(self.query_error(e)),
+        };
+        let args: Vec<String> = seg.args.iter().map(|a| (*a).to_owned()).collect();
+        // A property is asked whole (a subscript picks a line of the answer here); a method with its arguments.
+        let key = if call { format!("c|{}|{}", name.to_ascii_lowercase(), args.join("\u{1}")) } else { format!("g|{}", name.to_ascii_lowercase()) };
+        let inst = path.inst;
+        let found = self.remote_opener.as_ref().and_then(|r| r.reqs.iter().find(|(_, q)| q.inst == inst && q.key == key).map(|(id, q)| (*id, q.state.clone())));
+        match found {
+            Some((id, SuperState::Answered(res) | SuperState::Served(res))) => {
+                if let Some(q) = self.remote_opener.as_mut().and_then(|r| r.reqs.get_mut(&id)) {
+                    q.state = SuperState::Served(res.clone());
+                }
+                match res {
+                    Ok(text) if call => Ok(text),
+                    Ok(text) => Ok(match seg.args.first() {
+                        None => text,
+                        Some(a) => crate::value::index1(a).and_then(|n| text.lines().nth(n).map(str::to_owned)).unwrap_or_default(),
+                    }),
+                    Err(m) => Err(self.query_error(CmdError::Refused(m))),
+                }
+            }
+            Some((id, SuperState::Pending)) => {
+                self.wait_on_super(id);
+                Err(err::SUSPENDED_QUERY)
+            }
+            None => {
+                let r = self.remote_opener.as_mut().expect("checked above");
+                r.next_req += 1;
+                let id = r.next_req;
+                r.reqs.insert(id, SuperReq { inst, key, state: SuperState::Pending });
+                self.effects.push(if call { Effect::SuperCallR { id, name, args } } else { Effect::SuperGet { id, prop: name } });
+                self.wait_on_super(id);
+                Err(err::SUSPENDED_QUERY)
+            }
+        }
+    }
+
+    /// The window this one opened reads `prop` of instance `inst` (its waiting `super::Prop`): the form's own.
+    pub fn apply_super_get(&mut self, inst: u32, prop: &str) -> Result<String, String> {
+        let tree = self.trees.get(&inst).ok_or_else(|| format!("instance {inst} is closed"))?;
+        if let Some(v) = self.form_get(inst, prop) {
+            return Ok(v);
+        }
+        Ok(tree.get(0, prop))
+    }
+
+    /// The window this one opened calls `name` of instance `inst` and wants the answer (its waiting `super::Method(…)`).
+    pub fn apply_super_call_result(&mut self, inst: u32, name: &str, args: &[&str]) -> Result<String, String> {
+        if !self.trees.contains_key(&inst) {
+            return Err(format!("instance {inst} is closed"));
+        }
+        self.call_ctl(inst, 0, name, args).map(Option::unwrap_or_default).map_err(|e| match e {
+            CmdError::Unknown(m) | CmdError::Refused(m) | CmdError::Bad(m) => m,
+            CmdError::Deferred => String::new(),
+        })
     }
 
     /// The form properties instance `inst` publishes to the window it opened (its own, by name).
@@ -2296,6 +2486,7 @@ impl Host {
                 Ok(v) => Ok(v.unwrap_or_default()),
                 Err(e) => Err(self.query_error(e)),
             },
+            Command::GetWait(_) | Command::CallRWait(_) => self.eval_wait_query(q),
             Command::Count(path) => {
                 let r = (|| -> Result<String, CmdError> {
                     let target = self.resolve(path)?;

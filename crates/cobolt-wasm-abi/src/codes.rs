@@ -40,6 +40,11 @@ pub mod op {
     pub const CALLR: u8 = 0x11;
     /// The number of members of a collection, as decimal text.
     pub const COUNT: u8 = 0x12;
+    /// The property's text, from a read the module can wait for (A24): the host may answer
+    /// [`super::err::SUSPENDED_QUERY`] and the module asks again after `pr_resume`.
+    pub const GET_WAIT: u8 = 0x13;
+    /// The method's result as text, from a read the module can wait for (A24).
+    pub const CALLR_WAIT: u8 = 0x14;
 
     /// `true` for an opcode in the query range.
     pub const fn is_query(op: u8) -> bool {
@@ -80,6 +85,10 @@ pub mod err {
     pub const CANCELLED: i32 = -8;
     pub const TIMEOUT: i32 = -9;
     pub const TRAPPED: i32 = -10;
+    /// The answer to a `GET_WAIT` or `CALLR_WAIT` on [`super::ctrl::SUPER`] is in another window
+    /// (A24): the host has sent the request, the module returns `SUSPENDED` and asks again after
+    /// `pr_resume`. A plain `GET` or `CALLR` is never answered this.
+    pub const SUSPENDED_QUERY: i32 = -11;
 
     /// A short English name for a code, for logs.
     pub fn name(code: i32) -> &'static str {
@@ -94,6 +103,7 @@ pub mod err {
             CANCELLED => "cancelled",
             TIMEOUT => "timeout",
             TRAPPED => "the module trapped",
+            SUSPENDED_QUERY => "the answer is in another window; ask again after resume",
             _ => "error",
         }
     }

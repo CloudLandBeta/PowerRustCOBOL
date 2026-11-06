@@ -23,7 +23,7 @@ fn host() -> Host {
         project: "demo".into(),
         variant: VariantInfo { multi_memory: true, conformance: false },
         limits: Limits::default(),
-        names: vec!["Status".into(), "Refresh".into()],
+        names: vec!["Status".into(), "Refresh".into(), "Lines".into()],
         events: vec!["onLoad".into()],
         forms: vec![FormEntry { id: 0, name: "main-form".into(), main: true, instances: 4, region_size: 64, controls: vec![], handlers: vec![], layers: vec![] }],
         builtins: vec![],
@@ -108,4 +108,138 @@ fn the_opener_applies_what_its_child_asks_to_its_own_form_and_says_when_it_canno
     assert!(h.close_after.contains(&0), "a window verb runs as it would for a local child");
     assert!(h.apply_super_set(9, "Caption", "x").unwrap_err().contains("closed"));
     assert!(h.apply_super_call(9, "Close", &[]).unwrap_err().contains("closed"));
+}
+
+// ── reads that wait (ABI A24, WASM-011 T17) ─────────────────────────────────
+
+/// A window whose opener answers by id, with the call of an event in flight on instance 0.
+fn waiting_host() -> Host {
+    let mut h = host();
+    h.attach_remote_opener();
+    h.remote_opener_waits(true);
+    h.remote_opener_state([("Status".to_owned(), "stale".to_owned())].into_iter().collect());
+    h.inflight = Some(InFlight { inst: Some(0), opening: None, wait: None, task: None, event_desc: None });
+    h
+}
+
+fn get_wait(h: &mut Host, name: u32, args: Vec<&str>) -> Result<String, i32> {
+    h.eval_query(&Command::GetWait(path(name, args)))
+}
+
+/// The call ends `SUSPENDED`: what it waits for becomes the task's wait, as `complete` does.
+fn suspend(h: &mut Host, task: i32) {
+    let wait = h.inflight.take().and_then(|f| f.wait).expect("the call waits");
+    h.tasks.insert(task, Task { inst: 0, state: TaskState::Suspended(wait), closing: false, desc: None });
+}
+
+/// The task is resumed: the call in flight is its.
+fn resume(h: &mut Host, task: i32) {
+    h.inflight = Some(InFlight { inst: Some(0), opening: None, wait: None, task: Some(task), event_desc: None });
+}
+
+#[test]
+fn a_waiting_read_asks_the_opener_suspends_and_is_answered_from_the_reply_not_the_replica() {
+    let mut h = waiting_host();
+    assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::SUSPENDED_QUERY), "on its way, not the replica's `stale`");
+    assert!(h.effects.contains(&Effect::SuperGet { id: 1, prop: "Status".into() }));
+    assert_eq!(h.inflight.as_ref().unwrap().wait, Some(Wait::Super { ids: vec![1], done: false }));
+    let last = h.last_error;
+    assert_eq!(h.shape_answer(Some(Err(err::SUSPENDED_QUERY))), Err(err::SUSPENDED_QUERY));
+    assert_eq!(h.last_error, last, "'on its way' is not an error the module can read back");
+    // Asked again before the answer (a second look in the same pass): still waiting, nothing sent twice.
+    assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::SUSPENDED_QUERY));
+    assert_eq!(h.effects.iter().filter(|e| matches!(e, Effect::SuperGet { .. })).count(), 1);
+    suspend(&mut h, 9);
+    assert!(!h.can_run(), "nothing to run while the opener has not answered");
+    assert!(h.has_waiting());
+
+    assert!(h.super_reply(1, Ok("fresh".into())));
+    assert!(matches!(&h.tasks[&9].state, TaskState::Suspended(Wait::Super { done: true, .. })));
+    assert!(h.can_run(), "the answer releases the task");
+    resume(&mut h, 9);
+    assert_eq!(get_wait(&mut h, 0, vec![]), Ok("fresh".into()), "the opener's answer");
+    assert_eq!(get_wait(&mut h, 0, vec![]), Ok("fresh".into()), "the same ask in the same run is answered the same");
+    assert_eq!(h.remote_opener.as_ref().unwrap().props["status"], "stale", "the replica stays what it was: a cache, not the answer");
+    h.complete(&ModuleCall::Resume { task: 9, frame: None }, CallResult::Status { status: 0, task: 0 });
+    assert!(h.remote_opener.as_ref().unwrap().reqs.is_empty(), "the run is over: its answers are not reused by the next");
+    h.inflight = Some(InFlight { inst: Some(0), opening: None, wait: None, task: None, event_desc: None });
+    assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::SUSPENDED_QUERY), "the next read of it asks again");
+    assert!(h.effects.contains(&Effect::SuperGet { id: 2, prop: "Status".into() }));
+    eprintln!("waiting read: asked once, suspended, answered `fresh` (replica `stale` untouched), answered again within the run, forgotten when the run ended, asked afresh by the next");
+}
+
+#[test]
+fn a_waiting_read_ends_in_the_error_path_when_the_opener_does_not_answer_in_time_or_goes_away() {
+    // A timeout.
+    let mut h = waiting_host();
+    assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::SUSPENDED_QUERY));
+    suspend(&mut h, 9);
+    assert!(h.super_timeout(1));
+    assert!(h.can_run(), "a timeout releases the task");
+    resume(&mut h, 9);
+    assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::HOST_REFUSED), "the read fails: the program's ON EXCEPTION");
+    assert!(h.effects.iter().any(|e| matches!(e, Effect::RuntimeError(r) if r.message.contains("did not answer in time"))), "and the report says why");
+    assert!(!h.super_timeout(1), "a request that is already settled is not settled twice");
+
+    // The opener's window closes while the task waits.
+    let mut h = waiting_host();
+    assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::SUSPENDED_QUERY));
+    suspend(&mut h, 9);
+    h.remote_opener_closed();
+    assert!(h.can_run(), "`closed` releases the task");
+    resume(&mut h, 9);
+    assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::HOST_REFUSED));
+    assert!(h.effects.iter().any(|e| matches!(e, Effect::RuntimeError(r) if r.message.contains("closed"))));
+    // And a read made after it closed is not even sent.
+    h.effects.clear();
+    assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::HOST_REFUSED));
+    assert!(h.effects.iter().all(|e| !matches!(e, Effect::SuperGet { .. })), "nothing is sent to a window that is gone");
+}
+
+#[test]
+fn an_opener_that_does_not_answer_by_id_and_a_window_with_no_opener_are_read_as_before() {
+    // An older opener: the replica answers at once, nothing is asked, nothing waits.
+    let mut h = host();
+    h.attach_remote_opener();
+    h.remote_opener_state([("Status".to_owned(), "ready".to_owned())].into_iter().collect());
+    h.inflight = Some(InFlight { inst: Some(0), opening: None, wait: None, task: None, event_desc: None });
+    assert_eq!(get_wait(&mut h, 0, vec![]), Ok("ready".into()));
+    assert!(h.effects.iter().all(|e| !matches!(e, Effect::SuperGet { .. })));
+    assert_eq!(h.inflight.as_ref().unwrap().wait, None);
+    // No opener window at all: the plain read's answer (a refusal), not a wait.
+    let mut h = host();
+    h.inflight = Some(InFlight { inst: Some(0), opening: None, wait: None, task: None, event_desc: None });
+    let r = get_wait(&mut h, 0, vec![]);
+    assert!(r.is_err() && r != Err(err::SUSPENDED_QUERY), "{r:?}");
+}
+
+#[test]
+fn a_waiting_method_is_asked_with_its_arguments_and_two_reads_in_one_pass_wait_together() {
+    let mut h = waiting_host();
+    assert_eq!(h.eval_query(&Command::CallRWait(path(1, vec!["one", "two"]))), Err(err::SUSPENDED_QUERY));
+    assert!(h.effects.contains(&Effect::SuperCallR { id: 1, name: "Refresh".into(), args: vec!["one".into(), "two".into()] }));
+    assert_eq!(get_wait(&mut h, 2, vec!["2"]), Err(err::SUSPENDED_QUERY), "a subscripted read asks for the whole property");
+    assert!(h.effects.contains(&Effect::SuperGet { id: 2, prop: "Lines".into() }));
+    assert_eq!(h.inflight.as_ref().unwrap().wait, Some(Wait::Super { ids: vec![1, 2], done: false }), "one wait for both");
+    suspend(&mut h, 9);
+    assert!(h.super_reply(1, Ok("done".into())));
+    assert!(!h.can_run(), "one answer is not enough");
+    assert!(h.super_reply(2, Ok("a\nb\nc".into())));
+    assert!(h.can_run());
+    resume(&mut h, 9);
+    assert_eq!(h.eval_query(&Command::CallRWait(path(1, vec!["one", "two"]))), Ok("done".into()));
+    assert_eq!(get_wait(&mut h, 2, vec!["2"]), Ok("b".into()), "the subscript picks the second line of the answer");
+    assert_eq!(h.eval_query(&Command::CallRWait(path(1, vec!["other"]))), Err(err::SUSPENDED_QUERY), "the same method with other arguments is another read");
+}
+
+#[test]
+fn the_opener_answers_a_read_and_a_call_from_its_own_form_and_says_when_it_cannot() {
+    let mut h = host();
+    h.apply_super_set(0, "Caption", "From the child").unwrap();
+    assert_eq!(h.apply_super_get(0, "Caption"), Ok("From the child".into()));
+    assert_eq!(h.apply_super_get(0, "Instance"), Ok("0".into()), "the form's own properties, as the form reads them");
+    assert_eq!(h.apply_super_call_result(0, "Close", &[]), Ok(String::new()));
+    assert!(h.close_after.contains(&0));
+    assert!(h.apply_super_get(9, "Caption").unwrap_err().contains("closed"));
+    assert!(h.apply_super_call_result(9, "Close", &[]).unwrap_err().contains("closed"));
 }

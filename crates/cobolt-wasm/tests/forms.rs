@@ -812,3 +812,98 @@ fn a_raw_answer_is_taken_as_text_and_a_read_sees_the_earlier_write() {
         eprintln!("raw answer (multi={multi}): {} bytes of non-JSON text round-tripped; read-after-write saw \"written first\"", raw.len());
     }
 }
+
+/// ABI A24 (WASM-011 T17): the `super::` reads of a statement are asked before it, with the waiting
+/// opcodes; the host answers "the answer is in another window", the handler suspends once and, after
+/// `pr_resume`, the same asks are answered. What ran before the statement does not run twice, two reads
+/// of one statement wait together, and a host that answers at once (the replica, an older player) is
+/// not waited for.
+#[test]
+fn a_super_read_that_waits_suspends_the_handler_and_asks_again_after_the_resume() {
+    let src = form_source(
+        "SUPER-FORM",
+        "01 WS-N PIC 9(4) VALUE 0 GLOBAL.\n01 WS-ST PIC X(5) VALUE SPACES GLOBAL.\n01 WS-V PIC X(8) VALUE \"unset\" GLOBAL.\n",
+        &[(
+            "BTN-ASK",
+            "onClick",
+            "    DISPLAY \"BEFORE\"\n    ADD 1 TO WS-N\n    MOVE super::Status TO WS-ST\n    DISPLAY \"GOT \" WS-ST \" N=\" WS-N\n    DISPLAY super::Status \"/\" super::Mode \"/\" WS-N\n    DISPLAY super::Mode::Upper()\n    INVOKE super::GetProperty(\"K\") RETURNING WS-V\n    DISPLAY \"V=\" WS-V\n    DISPLAY \"END\"\n",
+        )],
+    );
+    let p = Project::new().form("SUPER-FORM", true, 1, &[("BTN-ASK", "Button")], &src);
+    let mut waits = 0u32;
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let m = manifest_of(&c);
+        let click = m.event_index("onClick").unwrap() as i32;
+        for answers_at_once in [false, true] {
+            let mut host = FormHost::with(&c.wasm, HostOptions { super_waits: !answers_at_once, ..HostOptions::default() }).unwrap();
+            let (inst, _) = host.open_form(0, -1);
+            host.set_property(inst as u32, 1, name_id(&m, "Status"), "ready");
+            host.set_property(inst as u32, 1, name_id(&m, "Mode"), "draft");
+            let mut statuses = vec![host.event(inst, 3, click, &[])];
+            while *statuses.last().unwrap() == 1 {
+                if statuses.len() == 1 {
+                    assert_eq!(common::wasm_lines(&host.outcome()), vec!["BEFORE"], "stopped at the first read, after what came before it");
+                }
+                assert!(statuses.len() < 10, "{:?}", host.outcome());
+                statuses.push(host.resume(inst, &[]));
+            }
+            let o = host.outcome();
+            assert!(o.trapped.is_none() && o.errors.is_empty(), "{o:?}");
+            assert_eq!(
+                common::wasm_lines(&o),
+                vec!["BEFORE", "GOT ready N=0001", "ready/draft/0001", "DRAFT", "V=        ", "END"],
+                "the statement before a read ran once, and a read kept the one before it in the same statement"
+            );
+            if answers_at_once {
+                assert_eq!((statuses.as_slice(), o.super_pending), (&[0][..], 0), "an answer at once is not waited for");
+            } else {
+                // Five reads in four statements: Status; Status and Mode together (one wait); Mode with a value method; the method's answer.
+                assert_eq!((statuses.as_slice(), o.super_pending), (&[1, 1, 1, 1, 0][..], 5), "{o:?}");
+                waits += o.super_pending;
+            }
+        }
+    }
+    eprintln!("super read: {waits} waits over 2 variants; each read suspended once and was asked again after pr_resume; the lines before a read ran once; an immediate answer ran straight through");
+}
+
+/// ABI A24: the statements whose reads wait are the ones with a plain value to read — `IF`,
+/// `COMPUTE`, `PERFORM UNTIL`'s head, each time round — and a `super::` read anywhere else (here an
+/// `EVALUATE TRUE WHEN super::… = …`, whose conditions the generator does not hoist) is answered at
+/// once, from the replica. The test host plays the replica as `STALE`, so a read that did not wait shows.
+#[test]
+fn super_reads_wait_in_if_compute_and_the_head_of_a_loop_each_time_round() {
+    let src = form_source(
+        "SUPER-LOOP",
+        "01 WS-N PIC 9(4) VALUE 0 GLOBAL.\n01 WS-T PIC 9(4) VALUE 0 GLOBAL.\n",
+        &[(
+            "BTN-GO",
+            "onClick",
+            "    IF super::Status = \"ready\"\n        DISPLAY \"READY\"\n    ELSE\n        DISPLAY \"NOT\"\n    END-IF\n    COMPUTE WS-T = 3 + super::Count\n    DISPLAY \"T=\" WS-T\n    PERFORM UNTIL WS-N = 3 OR super::Status = \"stop\"\n        ADD 1 TO WS-N\n    END-PERFORM\n    DISPLAY \"N=\" WS-N\n    EVALUATE super::Status\n        WHEN \"ready\"\n            DISPLAY \"SUBJECT\"\n    END-EVALUATE\n    EVALUATE TRUE\n        WHEN super::Status = \"ready\"\n            DISPLAY \"WHEN-READY\"\n        WHEN OTHER\n            DISPLAY \"WHEN-REPLICA\"\n    END-EVALUATE\n",
+        )],
+    );
+    let p = Project::new().form("SUPER-LOOP", true, 1, &[("BTN-GO", "Button")], &src);
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let m = manifest_of(&c);
+        let click = m.event_index("onClick").unwrap() as i32;
+        let mut host = FormHost::with(&c.wasm, HostOptions { super_waits: true, ..HostOptions::default() }).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        host.set_property(inst as u32, 1, name_id(&m, "Status"), "ready");
+        host.set_property(inst as u32, 1, name_id(&m, "Count"), "7");
+        let mut statuses = vec![host.event(inst, 3, click, &[])];
+        while *statuses.last().unwrap() == 1 {
+            assert!(statuses.len() < 20, "{:?}", host.outcome());
+            statuses.push(host.resume(inst, &[]));
+        }
+        let o = host.outcome();
+        assert!(o.trapped.is_none() && o.errors.is_empty(), "{o:?}");
+        // The last line is the `WHEN super::Status = …` that is not waited for: the test host's plain
+        // read is the replica's `STALE`, so the branch for `ready` is not taken. Every other read got its answer.
+        assert_eq!(common::wasm_lines(&o), vec!["READY", "T=0010", "N=0003", "SUBJECT", "WHEN-REPLICA"]);
+        // The IF waits once, the COMPUTE once, the loop's head once for each test of its condition (N = 0, 1, 2, 3)
+        // and the EVALUATE's subject once.
+        assert_eq!((statuses.as_slice(), o.super_pending), (&[1, 1, 1, 1, 1, 1, 1, 0][..], 7), "{o:?}");
+        eprintln!("super reads in IF, COMPUTE, a loop head and an EVALUATE subject (multi={multi}): {} waits, the loop head asked on each of its 4 tests, output READY / T=0010 / N=0003 / SUBJECT; a WHEN condition read the replica (WHEN-REPLICA)", o.super_pending);
+    }
+}

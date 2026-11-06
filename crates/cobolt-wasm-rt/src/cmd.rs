@@ -30,6 +30,9 @@ pub const CMD_CALL: u8 = 0x02;
 pub const Q_GET: u8 = 0x10;
 pub const Q_CALLR: u8 = 0x11;
 pub const Q_COUNT: u8 = 0x12;
+/// The reads the module can wait for (ABI A24): the same paths as `Q_GET` / `Q_CALLR`.
+pub const Q_GETW: u8 = 0x13;
+pub const Q_CALLRW: u8 = 0x14;
 /// ABI amendment A14: a property named by text, and an event raised.
 pub const OP_SET_NAMED: u8 = 0x06;
 pub const OP_RAISE: u8 = 0x07;
@@ -235,6 +238,18 @@ pub fn call() {
     disp::batch_put(path_bytes());
 }
 
+/// What the host answers a query whose answer is in another window (ABI A24,
+/// `cobolt_wasm_abi::codes::err::SUSPENDED_QUERY`).
+const QUERY_PENDING: i32 = -11;
+
+/// Did the last query come back "ask again after the resume"? Reading it clears it.
+pub fn query_pending() -> u32 {
+    let s = st();
+    let p = s.query_pending;
+    s.query_pending = false;
+    p as u32
+}
+
 /// A query (`GET`, `CALLR`, `COUNT`) on the path: the commands staged so far
 /// and the query go to the host together, and the answer text is left in
 /// character temporary `k`, which `dynamic` marks as a property read.
@@ -264,6 +279,14 @@ pub fn query(op: u32, k: u32, dynamic: u32) {
     // property as if it were all of it (the desktop hands it every byte).
     if n == -5 || (n > 0 && n as u32 > ANSWER_SIZE.min(CTEMP_SIZE)) {
         too_large_answer(if n > 0 { n as u32 } else { 0 });
+    }
+    // ABI A24: the answer of a `super::` read is in another window. The host has sent the
+    // request; the generated code asks `query_pending`, suspends and asks again after the
+    // resume. The temporary is left empty so nothing reads a stale answer in between.
+    if n == QUERY_PENDING {
+        s.query_pending = true;
+        s.ctemp_len[k as usize] = 0;
+        return;
     }
     if n < 0 {
         crate::fail(err::BAD_OPERAND);

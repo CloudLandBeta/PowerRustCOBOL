@@ -520,3 +520,44 @@ fn a_run_time_error_in_onload_abandons_the_handler_and_the_form_keeps_working() 
         println!("start-up error (multi={multi}): reported once under onLoad, the form opened, a tick and a click ran");
     }
 }
+
+/// WASM-011 T17 (ABI A24), end to end: a module the **generator** built reads `super::Status`, the
+/// player's host asks the opener and answers `-11`, the module suspends; when the opener's answer
+/// arrives (`super_reply`) the handler goes on from that answer — not from the replica of the
+/// opener's state, which still says `stale`. Both variants. A window whose opener answers by id
+/// (`remote_opener_waits`) is the one this proves; the replica read is `a_module_the_generator_built_runs_in_the_player`'s kind.
+#[test]
+fn a_super_read_of_a_generated_module_waits_for_the_opener_and_goes_on_with_its_answer() {
+    use cobolt_wasm_abi::fixture::Fixture;
+    use cobolt_web_player::host::HostOptions;
+    let cfrm = include_str!("fixtures/generated/superread-form.cfrm").to_owned();
+    for (multi, wasm) in [(true, &include_bytes!("fixtures/generated/superread.wasm")[..]), (false, &include_bytes!("fixtures/generated/superread.single.wasm")[..])] {
+        let manifest = cobolt_wasm_abi::scan::scan_module(wasm).unwrap().embedded_manifest().unwrap();
+        let mut rig = Rig::with_forms(Fixture { wasm: wasm.to_vec(), manifest }, std::slice::from_ref(&cfrm), multi, HostOptions::default());
+        {
+            let mut h = rig.host.borrow_mut();
+            h.attach_remote_opener();
+            h.remote_opener_waits(true);
+            h.remote_opener_state([("Status".to_owned(), "stale".to_owned())].into_iter().collect());
+        }
+        rig.start();
+        assert_eq!(rig.module_live(), 1, "multi={multi}");
+        assert!(rig.click(0, "BTN-GO"));
+        // The question went to the opener and the handler waits: nothing written, nothing shown.
+        let asked: Vec<(u32, String)> = rig.host.borrow().effects.iter().filter_map(|e| if let Effect::SuperGet { id, prop } = e { Some((*id, prop.clone())) } else { None }).collect();
+        assert_eq!(asked, [(1, "STATUS".to_owned())], "asked once, by id, in the case the generator writes (the opener looks it up without case) (multi={multi})");
+        assert_eq!(rig.get(0, "LBL-OUT", "Caption"), "LBL-OUT", "nothing written while it waits: the label keeps its own name (multi={multi})");
+        assert!(!rig.host.borrow().effects.iter().any(|e| matches!(e, Effect::Display(_))), "nothing shown while it waits (multi={multi})");
+        assert_eq!(rig.module_live(), 1, "the window is still open (multi={multi})");
+        assert!(errors(&rig).is_empty(), "{:?}", errors(&rig));
+        // The opener's answer: the task resumes and writes what the opener said.
+        assert!(rig.host.borrow_mut().super_reply(1, Ok("ready".to_owned())), "multi={multi}");
+        rig.drive();
+        assert_eq!(rig.get(0, "LBL-OUT", "Caption"), "ready", "the answer, not the replica's `stale` (multi={multi})");
+        let displays: Vec<String> =
+            rig.host.borrow().effects.iter().filter_map(|e| if let Effect::Display(t) = e { Some(t.clone()) } else { None }).collect();
+        assert_eq!(displays, ["shown ready"], "multi={multi}");
+        assert!(errors(&rig).is_empty(), "{:?}", errors(&rig));
+        println!("super read (multi={multi}): asked the opener once, waited, resumed with `ready`, {} displays", displays.len());
+    }
+}

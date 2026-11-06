@@ -983,6 +983,10 @@ impl Inner {
                     self.super_to_opener(&e);
                     continue;
                 }
+                Effect::SuperGet { .. } | Effect::SuperCallR { .. } => {
+                    self.super_ask_opener(&e);
+                    continue;
+                }
                 Effect::AuthCall { id, call } => {
                     self.send_auth_call(*id, call.clone());
                     continue;

@@ -20,7 +20,7 @@ use crate::ir::*;
 use crate::lower::Lower;
 use cobolt_ast::expr::*;
 use cobolt_ast::stmt::*;
-use cobolt_wasm_rt::cmd::{CMD_CALL, Q_CALLR, Q_GET};
+use cobolt_wasm_rt::cmd::{CMD_CALL, Q_CALLR, Q_CALLRW, Q_GET};
 use wasm_encoder::Instruction as I;
 
 /// The reserved control ids of ABI v1 §5.
@@ -38,7 +38,7 @@ pub(crate) struct Seg<'e> {
 
 impl Lower<'_, '_> {
     /// A member chain's root and segments, outermost call last.
-    fn chain<'e>(e: &'e Expr) -> Option<(&'e Expr, Vec<Seg<'e>>)> {
+    pub(crate) fn chain<'e>(e: &'e Expr) -> Option<(&'e Expr, Vec<Seg<'e>>)> {
         let mut segs = Vec::new();
         let mut cur = e;
         while let Expr::Member { recv, member, args, parens, .. } = cur {
@@ -151,6 +151,13 @@ impl Lower<'_, '_> {
     /// temporaries, so they come before the path is started), then start the
     /// path and add each segment with its arguments.
     fn build_path(&mut self, ctrl: u32, segs: &[Seg<'_>]) -> GenResult<()> {
+        let arg_opds = self.path_args(segs)?;
+        self.emit_path(ctrl, segs, arg_opds);
+        Ok(())
+    }
+
+    /// The operands of every segment's arguments, evaluated now.
+    pub(crate) fn path_args(&mut self, segs: &[Seg<'_>]) -> GenResult<Vec<Vec<u32>>> {
         let mut arg_opds: Vec<Vec<u32>> = Vec::with_capacity(segs.len());
         for s in segs {
             let mut v = Vec::with_capacity(s.args.len());
@@ -159,6 +166,11 @@ impl Lower<'_, '_> {
             }
             arg_opds.push(v);
         }
+        Ok(arg_opds)
+    }
+
+    /// Start the path and add each segment with its (already evaluated) arguments.
+    pub(crate) fn emit_path(&mut self, ctrl: u32, segs: &[Seg<'_>], arg_opds: Vec<Vec<u32>>) {
         if ctrl == CTRL_APP {
             if let Some(first) = segs.first() {
                 self.names.builtins.insert(first.name.to_string());
@@ -176,6 +188,38 @@ impl Lower<'_, '_> {
                 self.call_rt("rt_path_arg");
             }
         }
+    }
+
+    /// Ask the host the `super::` reads of `asks` (`GET_WAIT` / `CALLR_WAIT`, the answers in their
+    /// character temporaries). The opener may live in another window (ABI A24, WASM-011 R11): the host
+    /// then answers each "pending", the task **suspends once, here**, and the same pass runs again after
+    /// `pr_resume`, when every answer is at hand. The arguments are evaluated inside the pass, so what
+    /// was in the temporaries while other windows' events ran is never read. No statement is run twice:
+    /// the pass is placed before the statement that reads (see `lower_super`).
+    pub(crate) fn ask_super(&mut self, asks: Vec<crate::lower_super::SuperAsk<'_>>) -> GenResult<()> {
+        if asks.is_empty() {
+            return Ok(());
+        }
+        let again = self.new_block("super-ask");
+        let waiting = self.new_block("super-wait");
+        let answered = self.new_block("super-answered");
+        self.jump(again);
+        self.begin(again);
+        for a in &asks {
+            let arg_opds = self.path_args(&a.segs)?;
+            self.emit_path(CTRL_SUPER, &a.segs, arg_opds);
+            self.i32c(a.op);
+            self.i32c(a.k as i32);
+            self.i32c(1);
+            self.call_rt("rt_cmd_query");
+        }
+        // Asked of the host, answered "pending" by any of them? Wait for all, then ask again.
+        self.call_rt("rt_query_pending");
+        self.branch(waiting, answered);
+        self.begin(waiting);
+        self.suspend_here("super-read");
+        self.jump(again);
+        self.begin(answered);
         Ok(())
     }
 
@@ -276,6 +320,13 @@ impl Lower<'_, '_> {
         self.host_read(ctrl, &segs, line)
     }
 
+    /// How many leading segments of a chain after a control are the host's: up to the first value
+    /// method (`Trim`, `Upper`, …) after the first segment, which applies to the answer here.
+    pub(crate) fn host_prefix_len(segs: &[Seg<'_>]) -> usize {
+        use cobolt_ast::methods::is_data_item_method;
+        segs.iter().skip(1).position(|s| is_data_item_method(s.name)).map_or(segs.len(), |i| i + 1)
+    }
+
     /// Read `ctrl::segs…` from the host into a new character temporary.
     fn host_read(&mut self, ctrl: u32, segs: &[Seg<'_>], line: u32) -> GenResult<u32> {
         let k = self.next_ctemp(line)?;
@@ -288,7 +339,7 @@ impl Lower<'_, '_> {
         Ok(self.pool.opd_ctemp(k))
     }
 
-    fn next_ctemp(&mut self, line: u32) -> GenResult<u32> {
+    pub(crate) fn next_ctemp(&mut self, line: u32) -> GenResult<u32> {
         let k = self.ctemp_next;
         if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
             return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
@@ -304,15 +355,18 @@ impl Lower<'_, '_> {
     /// answered for the segments before it; the segments up to the first value
     /// method after a control are the host's.
     pub(crate) fn member_value(&mut self, e: &Expr, line: u32) -> GenResult<u32> {
-        use cobolt_ast::methods::is_data_item_method;
         let Some((root, segs)) = Self::chain(e) else {
             return self.err(line, "a member was expected");
         };
         let (mut recv, local) = match self.host_root(root) {
             Some(ctrl) => {
-                let host_len = segs.iter().skip(1).position(|s| is_data_item_method(s.name)).map_or(segs.len(), |i| i + 1);
+                let host_len = Self::host_prefix_len(&segs);
                 self.check_layer_rules(root, ctrl, &segs[..host_len], false, line)?;
-                let r = self.host_read(ctrl, &segs[..host_len], line)?;
+                // A `super::` read the statement asked for before it began (`lower_super`): the answer is there.
+                let r = match self.hoisted_super_read(e) {
+                    Some(k) => self.pool.opd_ctemp(k),
+                    None => self.host_read(ctrl, &segs[..host_len], line)?,
+                };
                 if host_len == segs.len() {
                     return Ok(r);
                 }
@@ -388,11 +442,16 @@ impl Lower<'_, '_> {
                     return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
                 }
                 self.ctemp_next += 1;
-                self.build_path(ctrl, std::slice::from_ref(&seg))?;
-                self.i32c(Q_CALLR as i32);
-                self.i32c(k as i32);
-                self.i32c(1);
-                self.call_rt("rt_cmd_query");
+                if ctrl == CTRL_SUPER && self.form.is_some() {
+                    // The answer may come from another window: ask, wait, ask again (`ask_super`).
+                    self.ask_super(vec![crate::lower_super::SuperAsk { segs: vec![seg], op: Q_CALLRW as i32, k }])?;
+                } else {
+                    self.build_path(ctrl, std::slice::from_ref(&seg))?;
+                    self.i32c(Q_CALLR as i32);
+                    self.i32c(k as i32);
+                    self.i32c(1);
+                    self.call_rt("rt_cmd_query");
+                }
                 let src = self.pool.opd_ctemp(k);
                 self.move_operand_to(src, r, line)?;
                 self.suspend_if_waiting(ctrl, method);

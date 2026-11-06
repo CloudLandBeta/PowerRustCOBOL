@@ -69,6 +69,8 @@ impl Shared {
             | Effect::Closed { .. }
             | Effect::SuperSet { .. }
             | Effect::SuperCall { .. }
+            | Effect::SuperGet { .. }
+            | Effect::SuperCallR { .. }
             | Effect::AuthCall { .. }
             | Effect::AuthCaptcha { .. } => {}
         }

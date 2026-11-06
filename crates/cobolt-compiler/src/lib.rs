@@ -6399,10 +6399,20 @@ question, and Back or a menu item that would leave the form asks *Leave* or
 
 **`super` across tabs (standalone).** A form opened in its own tab still reaches
 its opener through `super::`: a write and a procedure call travel to the opener's
-tab, and a read answers the opener's published properties. Both tabs must be the
-same site in the same browser profile. When the opener's tab is closed, a
-`super::` statement fails and its `ON EXCEPTION` runs — write one wherever the
-opener may be gone. When a standalone tab is closed, its forms' closing handlers
+tab. A **read** (`super::Prop`, `super::Method(…)`, `INVOKE super::Method(…)
+RETURNING item`) in a `MOVE`, an arithmetic statement, `COMPUTE`, `IF`, the subject
+of an `EVALUATE`, `DISPLAY`, `PERFORM n TIMES` or the condition of a
+`PERFORM … UNTIL` **waits for the opener's own answer** — the handler stops at that
+statement, the page stays live, and the statement runs when the answer comes, so
+it sees what the opener holds now. A read anywhere else (a `WHEN` condition of
+`EVALUATE TRUE`, an argument of a `CALL`) answers the opener's published
+properties, a copy that can be an instant behind. A read the opener does not
+answer within the application's call time limit (30 seconds unless the page's
+configuration sets another) fails like a closed opener. A `super::` read cannot take
+another `super::` read as an argument: read the inner one into a data item first.
+Both tabs must be the same site in the same browser profile. When the opener's tab
+is closed, a `super::` statement fails and its `ON EXCEPTION` runs — write one
+wherever the opener may be gone. When a standalone tab is closed, its forms' closing handlers
 run as far as the browser lets a closing page run; a handler
 that would wait for something is abandoned.
 "##;

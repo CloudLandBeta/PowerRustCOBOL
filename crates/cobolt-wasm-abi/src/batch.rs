@@ -156,6 +156,11 @@ pub enum Command<'a> {
     Get(Path<'a>),
     CallR(Path<'a>),
     Count(Path<'a>),
+    /// `GET` of a read the module can wait for (A24): the same path as `GET`; the host may answer
+    /// `SUSPENDED_QUERY` (the answer is in another window) and the module asks again after `pr_resume`.
+    GetWait(Path<'a>),
+    /// `CALLR` of a read the module can wait for (A24); see [`Command::GetWait`].
+    CallRWait(Path<'a>),
     /// `SET_NAMED` (A14): `varint inst, varint ctrl, text name, text value` —
     /// the property `name` of control `ctrl`, the name known only at run time
     /// (`COBOL::"SET-PROPERTY"` with the property in a data item).
@@ -173,7 +178,7 @@ pub enum Command<'a> {
 
 impl Command<'_> {
     pub fn is_query(&self) -> bool {
-        matches!(self, Command::Get(_) | Command::CallR(_) | Command::Count(_))
+        matches!(self, Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_))
     }
     pub fn opcode(&self) -> u8 {
         match self {
@@ -185,6 +190,8 @@ impl Command<'_> {
             Command::Get(_) => op::GET,
             Command::CallR(_) => op::CALLR,
             Command::Count(_) => op::COUNT,
+            Command::GetWait(_) => op::GET_WAIT,
+            Command::CallRWait(_) => op::CALLR_WAIT,
             Command::SetNamed { .. } => op::SET_NAMED,
             Command::Raise { .. } => op::RAISE,
             Command::Draw { .. } => op::DRAW,
@@ -269,6 +276,8 @@ impl<'a> BatchReader<'a> {
             op::GET => Command::Get(read_path(buf, pos)?),
             op::CALLR => Command::CallR(read_path(buf, pos)?),
             op::COUNT => Command::Count(read_path(buf, pos)?),
+            op::GET_WAIT => Command::GetWait(read_path(buf, pos)?),
+            op::CALLR_WAIT => Command::CallRWait(read_path(buf, pos)?),
             op::SET_NAMED => {
                 let inst = read_varint(buf, pos)?;
                 let ctrl = read_varint(buf, pos)?;
@@ -426,6 +435,18 @@ impl BatchWriter {
         write_path(&mut self.buf, path);
         self
     }
+    /// A `GET` the module can wait for (A24).
+    pub fn get_wait(&mut self, path: &PathSpec) -> &mut Self {
+        self.buf.push(op::GET_WAIT);
+        write_path(&mut self.buf, path);
+        self
+    }
+    /// A `CALLR` the module can wait for (A24).
+    pub fn call_result_wait(&mut self, path: &PathSpec) -> &mut Self {
+        self.buf.push(op::CALLR_WAIT);
+        write_path(&mut self.buf, path);
+        self
+    }
     pub fn set_named(&mut self, inst: u32, ctrl: u32, name: &str, value: &str) -> &mut Self {
         self.buf.push(op::SET_NAMED);
         write_varint(&mut self.buf, inst);
@@ -557,6 +578,23 @@ mod tests {
             Command::Error { code: 1001, message: "subscript out of range", unit: 1, line: 42, form: 0, event: 3 }
         );
         assert!(cmds[5].is_query() && cmds[5].opcode() == op::GET);
+    }
+
+    #[test]
+    fn the_two_waiting_queries_are_queries_with_their_own_opcodes_and_the_same_path() {
+        let p = PathSpec::call(0, 1, 9, &["K"]);
+        let mut w = BatchWriter::new();
+        w.get_wait(&p);
+        let cmds = decode_batch(w.as_bytes()).unwrap();
+        assert!(matches!(&cmds[..], [Command::GetWait(path)] if path.ctrl == 1 && path.segs[0].args == ["K"]));
+        assert_eq!((cmds[0].is_query(), cmds[0].opcode()), (true, op::GET_WAIT));
+        let mut w = BatchWriter::new();
+        w.call_result_wait(&p);
+        let cmds = decode_batch(w.as_bytes()).unwrap();
+        assert!(matches!(&cmds[..], [Command::CallRWait(path)] if path.segs[0].name == 9));
+        assert_eq!((cmds[0].is_query(), cmds[0].opcode()), (true, op::CALLR_WAIT));
+        assert!(op::is_query(op::GET_WAIT) && op::is_query(op::CALLR_WAIT));
+        eprintln!("waiting queries: GET_WAIT {:#04x} and CALLR_WAIT {:#04x}, both inside the query range, same path bytes as GET and CALLR", op::GET_WAIT, op::CALLR_WAIT);
     }
 
     #[test]

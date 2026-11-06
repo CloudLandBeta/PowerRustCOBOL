@@ -58,6 +58,20 @@ fn startup_form() -> Form {
     form
 }
 
+/// `child-form`, a window another window opened (WASM-011 T17, ABI A24): BTN-GO reads the opener's
+/// `Status` and writes it to LBL-OUT, then says what it wrote. The read is asked of the opener
+/// and the handler waits for the answer; the player's test answers it and watches the handler go on.
+fn super_read_form() -> Form {
+    let mut form = Form::new("main-form", "Reads its opener", 400, 300);
+    let mut btn = Control::new("BTN-GO", ControlType::Button, 10, 10);
+    let mut ev = EventBinding::for_control("BTN-GO", "onClick");
+    ev.code = "       PROCEDURE DIVISION.\n           MOVE super::Status TO LBL-OUT::Caption\n           DISPLAY \"shown \" LBL-OUT::Caption.".to_string();
+    btn.events.push(ev);
+    form.controls.push(btn);
+    form.controls.push(Control::new("LBL-OUT", ControlType::Label, 10, 60));
+    form
+}
+
 fn build(multi: bool) -> Vec<u8> {
     build_form(&form(), &[("BTN-GO", "onClick")], multi)
 }
@@ -98,6 +112,7 @@ fn build_form(form: &Form, bindings: &[(&str, &str)], multi: bool) -> Vec<u8> {
 fn the_players_generated_fixture_is_what_the_generator_writes() {
     let cfrm = cobolt_forms::xml::form_to_string(&form()).unwrap();
     let startup = startup_form();
+    let super_read = super_read_form();
     let startup_bindings = [("BTN-GO", "onClick"), ("TMR-1", "onTick")];
     let files = [
         ("program.wasm", build(true)),
@@ -106,6 +121,9 @@ fn the_players_generated_fixture_is_what_the_generator_writes() {
         ("startup.wasm", build_form(&startup, &startup_bindings, true)),
         ("startup.single.wasm", build_form(&startup, &startup_bindings, false)),
         ("startup-form.cfrm", cobolt_forms::xml::form_to_string(&startup).unwrap().into_bytes()),
+        ("superread.wasm", build_form(&super_read, &[("BTN-GO", "onClick")], true)),
+        ("superread.single.wasm", build_form(&super_read, &[("BTN-GO", "onClick")], false)),
+        ("superread-form.cfrm", cobolt_forms::xml::form_to_string(&super_read).unwrap().into_bytes()),
     ];
     assert_eq!(
         build(true),

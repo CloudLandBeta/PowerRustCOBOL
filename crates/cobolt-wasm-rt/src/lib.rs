@@ -604,6 +604,13 @@ pub extern "C" fn rt_cmd_query(op: u32, k: u32, dynamic: u32) {
     cmd::query(op, k, dynamic);
 }
 
+/// `1` when the last query was answered "the answer is in another window" (ABI A24): suspend,
+/// then ask again. Reading it clears it.
+#[no_mangle]
+pub extern "C" fn rt_query_pending() -> u32 {
+    cmd::query_pending()
+}
+
 /// `WAIT-EVENT`: remember where the next event's names are to be written.
 #[no_mangle]
 pub extern "C" fn rt_park(base: u32, slot: u32, a: u32, b: u32) {

@@ -248,6 +248,9 @@ pub struct Lower<'a, 'b> {
     pub(crate) temp_next: u32,
     /// Next free character temporary (reset for every statement).
     pub(crate) ctemp_next: u32,
+    /// The `super::` reads asked before the statement being lowered (ABI A24): each read's place in
+    /// the source -> the character temporary that holds its answer (`lower_super`).
+    pub(crate) super_reads: HashMap<cobolt_lexer::Span, u32>,
     /// The `WHEN-COMPILED` text of this build (21 characters).
     pub(crate) when_compiled: String,
     /// Paragraphs that are `ALTER` targets -> the region offset of their slot.
@@ -432,6 +435,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             record_file: HashMap::new(),
             temp_next: 0,
             ctemp_next: 0,
+            super_reads: HashMap::new(),
             when_compiled,
             alter_slots: HashMap::new(),
             unit_by_name: units.iter().enumerate().map(|(i, u)| (u.name.clone(), i)).collect(),
@@ -1871,6 +1875,8 @@ impl<'a, 'b> Lower<'a, 'b> {
         if let Some(r) = self.memory_file_stmt(s, line) {
             return r;
         }
+        // The `super::` reads of this statement are asked, and waited for, before it begins (ABI A24).
+        self.hoist_super_reads_of(s, line)?;
         match s {
             Stmt::Move { from, to, .. } => self.move_(from, to, line),
             Stmt::Add { operands, to, giving, on_size_error, not_on_size_error, .. } => {
@@ -2779,6 +2785,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         if test_before {
             self.jump(head);
             self.begin(head);
+            self.hoist_super_cond(cond, cond.span().line)?;
             self.cond(cond)?;
             self.branch(exit, body);
             self.begin(body);
@@ -2792,6 +2799,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             // TEST AFTER: body first, then the test.
             self.jump(body);
             self.begin(head);
+            self.hoist_super_cond(cond, cond.span().line)?;
             self.cond(cond)?;
             self.branch(exit, body);
             self.begin(body);
@@ -2891,6 +2899,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.jump(tests[0]);
             for k in 0..n {
                 self.begin(tests[k]);
+                self.hoist_super_cond(levels[k].until, levels[k].until.span().line)?;
                 self.cond(levels[k].until)?;
                 let on_true = if k == 0 { exit } else { advance[k - 1] };
                 let on_false = if k + 1 < n { tests[k + 1] } else { body_b };
@@ -2942,6 +2951,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.jump(tests[n - 1]);
             // innermost test
             self.begin(tests[n - 1]);
+            self.hoist_super_cond(levels[n - 1].until, levels[n - 1].until.span().line)?;
             self.cond(levels[n - 1].until)?;
             let step_in = self.new_block("varying-step");
             let sat_in = if n == 1 { exit } else { outer[n - 1] };
@@ -2951,6 +2961,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             self.jump(body_b);
             for k in (1..n).rev() {
                 self.begin(outer[k]);
+                self.hoist_super_cond(levels[k - 1].until, levels[k - 1].until.span().line)?;
                 self.cond(levels[k - 1].until)?;
                 let restart = self.new_block("varying-restart");
                 let on_true = if k - 1 == 0 { exit } else { outer[k - 1] };
