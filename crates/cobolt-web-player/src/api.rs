@@ -226,18 +226,80 @@ pub(crate) fn now_ms() -> u64 {
 }
 
 /// A macrotask turn: the browser can paint and handle input between two of these.
+///
+/// The turn is a message on a `MessageChannel`, not `setTimeout(0)`: once timers nest a browser holds each one back
+/// by about 4 ms (1 500 of them in a row took 6.8 s in Chrome, 1 500 messages 5-13 ms), and a long loop that yields
+/// every few milliseconds of work was paying that wait at every yield (WASM-015 T13b, `specs/WASM-PROGRESS.md`). A
+/// message is a task of its own like a timer's, so painting and input still get their turn between two; a page with no
+/// `MessageChannel` falls back to the timer.
 async fn next_turn() {
     let p = Promise::new(&mut |resolve, _| {
-        match global_fn("setTimeout") {
-            Some(f) => {
-                let _ = f.call2(&JsValue::UNDEFINED, &resolve, &0.into());
-            }
-            None => {
-                let _ = resolve.call0(&JsValue::UNDEFINED);
-            }
+        if !message_turn(&resolve) {
+            timer_turn(&resolve);
         }
     });
     let _ = JsFuture::from(p).await;
+}
+
+/// A turn to wait out something that comes from elsewhere (a Worker's answer, a reply, a timer): a timer, because a
+/// message turn would have the wait spin a core while it lasts. Where there is work to be done, use [`next_turn`].
+async fn idle_turn() {
+    let p = Promise::new(&mut |resolve, _| timer_turn(&resolve));
+    let _ = JsFuture::from(p).await;
+}
+
+fn timer_turn(resolve: &Function) {
+    match global_fn("setTimeout") {
+        Some(f) => {
+            let _ = f.call2(&JsValue::UNDEFINED, resolve, &0.into());
+        }
+        None => {
+            let _ = resolve.call0(&JsValue::UNDEFINED);
+        }
+    }
+}
+
+/// Wait, a turn at a time, until `done` holds or `limit_ms` of wall-clock time have passed. `true`: it held. The bound is
+/// a time, not a count of turns: what a turn costs is the browser's to say, and a count that was a few seconds long
+/// with timers is gone before a Worker has answered once with messages.
+async fn wait_until(limit_ms: u64, mut done: impl FnMut() -> bool) -> bool {
+    let deadline = now_ms() + limit_ms;
+    loop {
+        if done() {
+            return true;
+        }
+        if now_ms() >= deadline {
+            return false;
+        }
+        idle_turn().await;
+    }
+}
+
+/// How long `unmount` and `reset` wait for a call in flight (the old bound was 1 000 timer turns, 1 to 4.5 s).
+const IN_FLIGHT_WAIT_MS: u64 = 5_000;
+/// How long `settled` waits for the driver to be idle (the old bound was 100 000 timer turns, 100 s or more).
+const SETTLED_WAIT_MS: u64 = 120_000;
+/// How many turns in a row `settled` may find the driver busy with nothing queued before it waits on a timer instead.
+const SETTLED_SPIN_TURNS: u32 = 200;
+
+/// Have `resolve` called by a message on a channel made for the purpose. `false`: the page has no `MessageChannel`, or
+/// the message could not be posted, and nothing will call `resolve`.
+fn message_turn(resolve: &Function) -> bool {
+    let Ok(channel) = web_sys::MessageChannel::new() else { return false };
+    let (receiver, sender) = (channel.port1(), channel.port2());
+    let (done, resolve) = (receiver.clone(), resolve.clone());
+    // Called once, by the message below; closing the port lets the channel go.
+    let on_message = Closure::once_into_js(move |_event: JsValue| {
+        done.close();
+        let _ = resolve.call0(&JsValue::UNDEFINED);
+    });
+    receiver.set_onmessage(Some(on_message.unchecked_ref()));
+    if sender.post_message(&JsValue::UNDEFINED).is_ok() {
+        return true;
+    }
+    receiver.set_onmessage(None);
+    receiver.close();
+    false
 }
 
 /// A one-shot timer. The closure is owned by the timer's own task, so nothing is leaked and
@@ -1531,7 +1593,9 @@ impl Player {
     pub fn settled(&self) -> Promise {
         let inner = self.inner.clone();
         future_to_promise(async move {
-            for _ in 0..100_000 {
+            let deadline = now_ms() + SETTLED_WAIT_MS;
+            let mut waiting = 0u32;
+            while now_ms() < deadline {
                 // Look first, and start the driver only when there is something for it: starting it
                 // sets `driving`, so pumping an idle player would make it look busy forever.
                 let queued = !inner.inbox.borrow().is_empty() || inner.host.borrow().can_run() || inner.host.borrow().has_yielded();
@@ -1541,7 +1605,14 @@ impl Player {
                 if !queued && !inner.driving.get() {
                     return Ok(JsValue::TRUE);
                 }
-                next_turn().await;
+                // Work to do, or a call that is about to answer: the next turn, as quickly as it comes. A wait that goes on
+                // (a Worker running a long loop, a reply on the wire) is waited out on a timer, not by spinning a core.
+                waiting = if queued { 0 } else { waiting + 1 };
+                if waiting < SETTLED_SPIN_TURNS {
+                    next_turn().await;
+                } else {
+                    idle_turn().await;
+                }
             }
             Ok(JsValue::FALSE)
         })
@@ -1624,12 +1695,7 @@ impl Player {
                 return Err(JsError::new("the player was unmounted").into());
             }
             let fresh = make_host(&inner.cfg, &manifest_json)?;
-            for _ in 0..1000 {
-                if !inner.driving.get() {
-                    break;
-                }
-                next_turn().await;
-            }
+            wait_until(IN_FLIGHT_WAIT_MS, || !inner.driving.get()).await;
             // Nothing the old program asked for may reach the new one.
             inner.driving.set(true);
             let calls = inner.host.borrow_mut().teardown();
@@ -1662,12 +1728,7 @@ impl Player {
                 return Ok(JsValue::from_str("{\"closed\":0,\"cancelled\":0}"));
             }
             // Wait for a call in flight to finish, then take everything down.
-            for _ in 0..1000 {
-                if !inner.driving.get() {
-                    break;
-                }
-                next_turn().await;
-            }
+            wait_until(IN_FLIGHT_WAIT_MS, || !inner.driving.get()).await;
             let calls = inner.host.borrow_mut().teardown();
             inner.dead.set(true);
             if let Some(c) = inner.net.borrow_mut().as_mut() {

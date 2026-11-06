@@ -304,6 +304,12 @@ fn run_cell(chrome: &Chrome, url: &str, cell: Cell) -> Result<String, String> {
 
     // 100 forms opened and closed; the instance limit; fixed memory
     let disposal = p.eval(DISPOSAL)?;
+    // A turn between two steps is a message, not a timer (2.0.284): with `setTimeout(0)` each open and each close waited about
+    // 4.5 ms and the 100 cycles took 1 000 ms on the plain player; as messages they take about 140 ms.
+    let cycles_ms = disposal["ms"].as_u64().unwrap_or(u64::MAX);
+    if cycles_ms >= 700 {
+        return Err(format!("100 forms opened and closed took {cycles_ms} ms (about 140 ms with message turns, about 1 000 with timer turns)"));
+    }
 
     // the player's memory grows when the text box takes 40 MB, and the next read is right
     let memory = p.eval(PASTE_BIG)?;

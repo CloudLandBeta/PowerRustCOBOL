@@ -14,13 +14,13 @@
     "player/part-mermaid/mermaid_bg.wasm": 2218097,
     "player/part-pdf/pdf.js": 6785,
     "player/part-pdf/pdf_bg.wasm": 216662,
-    "player/plain/player.js": 100000,
-    "player/plain/player_bg.wasm": 3995929,
+    "player/plain/player.js": 100921,
+    "player/plain/player_bg.wasm": 3997932,
     "program.single.wasm": 7498,
     "program.wasm": 7384,
     "scenario/program.single.wasm": 157346,
     "scenario/program.wasm": 157330,
-    "worker.js": 6188
+    "worker.js": 6420
   },
   "threshold_percent": 5
 }

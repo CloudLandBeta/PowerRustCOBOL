@@ -105,7 +105,7 @@ web-sys = { version = "0.3", features = [
     "CssStyleSheet", "CssRuleList", "DocumentFragment", "CanvasRenderingContext2d", "DomException", "ScrollToOptions",
     "ScrollBehavior", "FocusOptions", "HtmlCollection", "ProgressEvent", "StorageEvent",
     "PageTransitionEvent", "HashChangeEvent", "PopStateEvent", "HtmlLinkElement", "HtmlStyleElement", "HtmlHeadElement",
-    "console", "Range", "ImageData",
+    "console", "Range", "ImageData", "MessageChannel", "MessagePort",
 ] }
 
 [dev-dependencies]

@@ -332,7 +332,7 @@ async function coreBody(program, mode, src, player) {
   const loopMs = performance.now() - t0;
   running = false;
   await ticker;
-  eq(caption(app), 'spun', 'the loop finished');
+  eq(caption(app), 'spun', `the loop finished (errors: ${app.player.errors()}; stats: ${app.player.stats()})`);
   const y1 = stats(app);
   out.yield = { iterations: src.spins, resumes: y1.yields - y0.yields, longest_main_thread_gap_ms: Math.round(maxGap * 100) / 100, loop_ms: Math.round(loopMs) };
   if (mode === 'main' && src.yields) eq(y1.yields - y0.yields, src.yields, 'the main-thread host saw each yield');
