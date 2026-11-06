@@ -601,6 +601,7 @@ pub enum Token {
     Content_, // CALL ... BY CONTENT
     Value_,   // CALL ... BY VALUE
     EndCall,  // END-CALL
+    EndInvoke, // END-INVOKE
     Cancel,
     AddressOf, // ADDRESS OF
 

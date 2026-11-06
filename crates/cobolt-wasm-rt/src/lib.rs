@@ -611,6 +611,13 @@ pub extern "C" fn rt_query_pending() -> u32 {
     cmd::query_pending()
 }
 
+/// `1` when the last soft query (ABI A25: `Q_GETWS` / `Q_CALLRWS`, asked by a statement that has an
+/// `ON EXCEPTION`) failed: the statement runs its `ON EXCEPTION`. Reading it clears it.
+#[no_mangle]
+pub extern "C" fn rt_query_failed() -> u32 {
+    cmd::query_failed()
+}
+
 /// `WAIT-EVENT`: remember where the next event's names are to be written.
 #[no_mangle]
 pub extern "C" fn rt_park(base: u32, slot: u32, a: u32, b: u32) {

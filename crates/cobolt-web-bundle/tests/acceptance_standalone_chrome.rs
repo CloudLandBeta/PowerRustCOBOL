@@ -398,6 +398,22 @@ fn across_windows() -> App {
         160,
         handler(&["MOVE \"Written by the child\" TO super::Title."]),
     ));
+    // The same call as `BTN-CALL`, written for an opener that may be gone: its failure is the program's to handle.
+    child.controls.push(button(
+        "BTN-GUARD",
+        "Guarded",
+        16,
+        208,
+        handler_with(
+            &["01 WS-S PIC X(40) VALUE SPACES."],
+            &[
+                "INVOKE super::GetFormState() RETURNING WS-S",
+                "ON EXCEPTION MOVE \"gone\" TO LBL-OUT::Caption",
+                "NOT ON EXCEPTION MOVE WS-S TO LBL-OUT::Caption",
+                "END-INVOKE.",
+            ],
+        ),
+    ));
     build(Spec {
         style: "standalone",
         forms: vec![main, child],
@@ -501,5 +517,97 @@ fn ac5_super_reads_calls_and_writes_cross_from_the_child_tab_to_the_opener() {
     println!(
         "AC5 in Chrome ({}): from the child's tab, `MOVE super::Title` waited for the opener and read `Opener Title`, then `Retitled by the opener` after the opener changed it; `INVOKE super::GetFormState() RETURNING` answered `Normal`; `MOVE … TO super::Title` reached the opener (`Written by the child`); no page threw",
         agent.as_str().unwrap_or("?")
+    );
+}
+
+/// What the child's page shows of a run-time error: the banner the player raises, and what it wrote to the console.
+const ERRORS_SHOWN: &str = r#"(() => {
+  const root = document.getElementById('pr-app') && document.getElementById('pr-app').shadowRoot;
+  return root ? root.querySelectorAll('.pr-error-banner').length : -1;
+})()"#;
+
+/// **AC5, the second half** — the opener goes away. A `super::` call that the program guards with `ON EXCEPTION`
+/// is the program's to handle: with the opener's tab open it answers (`NOT ON EXCEPTION` runs with the value); with
+/// the tab closed it fails quietly and `ON EXCEPTION` runs, and the page shows no run-time error, throws nothing and
+/// writes nothing to its console. The handler goes on after `END-INVOKE` and the page keeps working.
+#[test]
+fn ac5_a_guarded_super_call_meets_a_closed_opener_with_on_exception_and_no_error() {
+    let Some(exe) = find_chrome() else {
+        eprintln!("SKIPPED: no Chrome on this machine (set CHROME to a Chrome or Chromium binary)");
+        return;
+    };
+    let app = across_windows();
+    let server = serve_app(&app);
+    let chrome = Chrome::launch(&exe).unwrap_or_else(|e| panic!("{e}"));
+    let (main, mut child) = opener_and_child(&chrome, &server);
+    let agent = child.eval("navigator.userAgent").unwrap();
+
+    // The opener is open: the call is answered and the clause for an answer runs.
+    child.click_at(&control_rect("BTN-GUARD")).unwrap();
+    child
+        .wait_for(&caption_is("Normal"), 40)
+        .unwrap_or_else(|e| {
+            panic!(
+                "the guarded call did not go through while the opener was open: {e}; it shows {:?}",
+                child.eval(LOOK)
+            )
+        });
+
+    // The opener's tab is closed (a user closing it: the page says goodbye on the way out).
+    let started = Instant::now();
+    drop(main);
+    // Give the goodbye the time it needs to cross the channel, then ask again: the child must now be told it is gone.
+    let mut caption = String::new();
+    for _ in 0..80 {
+        child.click_at(&control_rect("BTN-GUARD")).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        caption = child
+            .eval(LOOK)
+            .ok()
+            .and_then(|v| v["caption"].as_str().map(str::to_owned))
+            .unwrap_or_default();
+        if caption == "gone" {
+            break;
+        }
+    }
+    let took = started.elapsed();
+    assert_eq!(
+        caption, "gone",
+        "ON EXCEPTION did not run once the opener was closed; the child shows {:?}",
+        child.eval(LOOK)
+    );
+    let banners = child.eval(ERRORS_SHOWN).unwrap();
+    assert_eq!(
+        banners,
+        json!(0),
+        "the page shows a run-time error for a failure the program handled"
+    );
+    assert!(
+        child.exceptions.is_empty(),
+        "the child page threw: {:?}",
+        child.exceptions
+    );
+    let errors: Vec<String> = child
+        .console
+        .iter()
+        .filter(|l| l.starts_with("error"))
+        .cloned()
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "the child wrote to its console as an error: {errors:?}"
+    );
+
+    // The page is alive: a button that needs no opener still answers.
+    child
+        .eval("1")
+        .unwrap_or_else(|e| panic!("the child page stopped answering: {e}"));
+
+    println!(
+        "AC5 second half in Chrome ({}): with the opener open `INVOKE super::GetFormState() RETURNING … ON EXCEPTION … NOT ON EXCEPTION … END-INVOKE` ran NOT ON EXCEPTION with `Normal`; after the opener's tab was closed it ran ON EXCEPTION (`gone`) within {:?}; run-time error banners 0, uncaught exceptions {}, console errors {}",
+        agent.as_str().unwrap_or("?"),
+        took,
+        child.exceptions.len(),
+        errors.len()
     );
 }

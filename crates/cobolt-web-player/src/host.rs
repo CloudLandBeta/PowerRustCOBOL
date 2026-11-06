@@ -503,6 +503,9 @@ pub struct Host {
     /// The application object's own properties (`DialogResult`, `Locale`, …).
     app: HashMap<String, String>,
     last_error: i32,
+    /// A read asked by a statement that has an `ON EXCEPTION` is being answered (ABI A25): a failure is the
+    /// program's to handle, so it is not reported to the page.
+    quiet_errors: bool,
     /// The call that has gone to a worker, with the rest of its batch (WASM-018 T30).
     stall: Option<Stall>,
     /// The batches that arrived while it was away.
@@ -639,6 +642,7 @@ impl Host {
             stopped: false,
             app: HashMap::new(),
             last_error: 0,
+            quiet_errors: false,
             stall: None,
             held: VecDeque::new(),
             pending_call: None,
@@ -1884,7 +1888,7 @@ impl Host {
                 }
             };
             self.stats.commands += 1;
-            let is_q = matches!(&cmd, Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_));
+            let is_q = matches!(&cmd, Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_) | Command::GetWaitSoft(_) | Command::CallRWaitSoft(_));
             match cmd {
                 Command::Set { path, value } => {
                     self.stats.sets += 1;
@@ -1938,7 +1942,7 @@ impl Host {
                     };
                     self.report(RunError { code: c, message: m, form: form_name, event: ev, unit, line });
                 }
-                q @ (Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_)) => {
+                q @ (Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_) | Command::GetWaitSoft(_) | Command::CallRWaitSoft(_)) => {
                     if want_query {
                         answer = Some(self.eval_query(&q));
                     } else {
@@ -2493,6 +2497,15 @@ impl Host {
                 Err(e) => Err(self.query_error(e)),
             },
             Command::GetWait(_) | Command::CallRWait(_) => self.eval_wait_query(q),
+            // ABI A25: the same read, for a statement that has an `ON EXCEPTION`. A failure is not reported (no run-time
+            // error on the page): the code goes back to the module, which runs the clause.
+            Command::GetWaitSoft(p) | Command::CallRWaitSoft(p) => {
+                let plain = if matches!(q, Command::GetWaitSoft(_)) { Command::GetWait(p.clone()) } else { Command::CallRWait(p.clone()) };
+                let was = std::mem::replace(&mut self.quiet_errors, true);
+                let answer = self.eval_wait_query(&plain);
+                self.quiet_errors = was;
+                answer
+            }
             Command::Count(path) => {
                 let r = (|| -> Result<String, CmdError> {
                     let target = self.resolve(path)?;
@@ -2524,7 +2537,10 @@ impl Host {
             CmdError::Bad(_) => err::BAD_ARGUMENT,
             CmdError::Deferred => return 0,
         };
-        self.report_cmd_error(e);
+        // A statement with an `ON EXCEPTION` (ABI A25) handles the failure itself: nothing is put on the page.
+        if !self.quiet_errors {
+            self.report_cmd_error(e);
+        }
         code
     }
 

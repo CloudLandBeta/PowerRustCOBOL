@@ -869,3 +869,44 @@ fn a_hyperlinks_methods_parse_inline_and_through_invoke() {
         assert_eq!(found, vec![true], "{m}(…) is a method call, not a subscript");
     }
 }
+
+/// `INVOKE … [ON EXCEPTION …] [NOT ON EXCEPTION …] [END-INVOKE]` (COBOL 2002): both spellings of the
+/// verb carry the two imperatives, `ON` is optional, `END-INVOKE` closes the statement, and a statement
+/// with no clause is what it always was.
+#[test]
+fn invoke_takes_on_exception_and_not_on_exception() {
+    let stmts = parse_stmts(&prog(
+        "    INVOKE super::\"GetFormState\"() RETURNING WS-S\n        ON EXCEPTION MOVE \"gone\" TO WS-R\n        NOT ON EXCEPTION MOVE WS-S TO WS-R\n    END-INVOKE.\n    INVOKE LNK-1 \"OpenIn\" USING \"NewTab\" EXCEPTION MOVE 1 TO WS-N.\n    INVOKE LNK-1 \"OpenIn\" USING \"NewTab\".\n    STOP RUN.\n",
+    ));
+    let shape = |s: &Stmt| match s {
+        Stmt::Invoke { method, args, returning, comma_form, on_exception, not_on_exception, .. } => {
+            Some((method.clone(), args.len(), returning.is_some(), *comma_form, on_exception.len(), not_on_exception.len()))
+        }
+        _ => None,
+    };
+    let shapes: Vec<_> = stmts.iter().map(shape).collect();
+    println!("INVOKE shapes (method, args, returning, comma form, ON EXCEPTION, NOT ON EXCEPTION): {shapes:?}");
+    assert_eq!(shapes[0], Some(("GetFormState".into(), 0, true, true, 1, 1)), "the comma form with both clauses");
+    assert_eq!(shapes[1], Some(("OpenIn".into(), 1, false, false, 1, 0)), "the space form: the clause is not swallowed as an argument, `ON` is optional");
+    assert_eq!(shapes[2], Some(("OpenIn".into(), 1, false, false, 0, 0)), "no clause: as it always was");
+    assert!(matches!(stmts[3], Stmt::Stop { .. }), "the statements after the last period are still there: {:?}", stmts[3]);
+    assert_eq!(stmts.len(), 4, "END-INVOKE and the periods end each statement where they should: {stmts:?}");
+}
+
+/// A `NOT` that is not `NOT ON EXCEPTION` belongs to the enclosing statement, not to the INVOKE.
+#[test]
+fn an_invoke_inside_a_phrase_leaves_the_enclosing_not_clause_alone() {
+    let stmts = parse_stmts(&prog(
+        "    ADD 1 TO WS-N ON SIZE ERROR INVOKE LNK-1 \"Open\" NOT ON SIZE ERROR MOVE 1 TO WS-M END-ADD.\n    STOP RUN.\n",
+    ));
+    match &stmts[0] {
+        Stmt::Add { on_size_error, not_on_size_error, .. } => {
+            assert_eq!((on_size_error.len(), not_on_size_error.len()), (1, 1), "the ADD keeps its own NOT ON SIZE ERROR: {stmts:?}");
+            assert!(
+                matches!(&on_size_error[0], Stmt::Invoke { on_exception, not_on_exception, .. } if on_exception.is_empty() && not_on_exception.is_empty()),
+                "the INVOKE took nothing that was not its own: {on_size_error:?}"
+            );
+        }
+        other => panic!("expected ADD, got {other:?}"),
+    }
+}

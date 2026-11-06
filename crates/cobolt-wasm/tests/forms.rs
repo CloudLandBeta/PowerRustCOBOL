@@ -907,3 +907,68 @@ fn super_reads_wait_in_if_compute_and_the_head_of_a_loop_each_time_round() {
         eprintln!("super reads in IF, COMPUTE, a loop head and an EVALUATE subject (multi={multi}): {} waits, the loop head asked on each of its 4 tests, output READY / T=0010 / N=0003 / SUBJECT; a WHEN condition read the replica (WHEN-REPLICA)", o.super_pending);
     }
 }
+
+/// ABI A25 (WASM-011 T17, Q3): `INVOKE super::Method(…) [RETURNING x] ON EXCEPTION … NOT ON EXCEPTION …`.
+/// The read is asked soft (`CALLR_WAIT_SOFT`): when the opener answers, `x` has the answer and `NOT ON
+/// EXCEPTION` runs; when its window is gone the host refuses the read, no run-time error is raised, `x` is
+/// left as it was and `ON EXCEPTION` runs. Without the clause the same refusal is a run-time error.
+#[test]
+fn invoke_super_with_on_exception_runs_its_branch_when_the_opener_is_gone_and_the_other_when_it_answers() {
+    let guarded = "    MOVE \"unset\" TO WS-V\n    DISPLAY \"BEFORE\"\n    INVOKE super::GetProperty(\"K\") RETURNING WS-V\n        ON EXCEPTION DISPLAY \"GONE v=\" WS-V\n        NOT ON EXCEPTION DISPLAY \"OK v=\" WS-V\n    END-INVOKE\n    DISPLAY \"AFTER\"\n";
+    let unguarded = "    DISPLAY \"BEFORE\"\n    INVOKE super::GetProperty(\"K\") RETURNING WS-V\n    DISPLAY \"AFTER\"\n";
+    let src = form_source(
+        "GUARD-FORM",
+        "01 WS-V PIC X(8) VALUE SPACES GLOBAL.\n",
+        &[("BTN-GUARDED", "onClick", guarded), ("BTN-BARE", "onClick", unguarded)],
+    );
+    let p = Project::new().form("GUARD-FORM", true, 1, &[("BTN-GUARDED", "Button"), ("BTN-BARE", "Button")], &src);
+    let mut runs = 0u32;
+    for multi in [true, false] {
+        let c = p.compile(multi);
+        let m = manifest_of(&c);
+        let click = m.event_index("onClick").unwrap() as i32;
+        let id = |n: &str| m.forms[0].controls.iter().find(|c| c.name == n).unwrap().id as i32;
+        for gone in [false, true] {
+            let mut host = FormHost::with(&c.wasm, HostOptions { super_waits: true, super_gone: gone, ..HostOptions::default() }).unwrap();
+            let (inst, _) = host.open_form(0, -1);
+            let mut statuses = vec![host.event(inst, id("BTN-GUARDED"), click, &[])];
+            while *statuses.last().unwrap() == 1 {
+                assert!(statuses.len() < 10, "{:?}", host.outcome());
+                statuses.push(host.resume(inst, &[]));
+            }
+            let o = host.outcome();
+            assert!(o.trapped.is_none() && o.errors.is_empty(), "multi={multi} gone={gone}: {o:?}");
+            let expect = if gone { vec!["BEFORE", "GONE v=unset   ", "AFTER"] } else { vec!["BEFORE", "OK v=        ", "AFTER"] };
+            assert_eq!(common::wasm_lines(&o), expect, "multi={multi} gone={gone}: a refusal runs ON EXCEPTION and leaves the item; an answer runs NOT ON EXCEPTION");
+            assert_eq!((statuses.as_slice(), o.super_pending, o.super_soft), (&[1, 0][..], 1, 1), "multi={multi} gone={gone}: one wait, asked soft: {o:?}");
+            runs += 1;
+        }
+        // The same refusal with no clause is a run-time error, as before.
+        let mut host = FormHost::with(&c.wasm, HostOptions { super_waits: true, super_gone: true, ..HostOptions::default() }).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        let mut statuses = vec![host.event(inst, id("BTN-BARE"), click, &[])];
+        while *statuses.last().unwrap() == 1 {
+            assert!(statuses.len() < 10, "{:?}", host.outcome());
+            statuses.push(host.resume(inst, &[]));
+        }
+        let o = host.outcome();
+        assert!(!o.errors.is_empty() || o.trapped.is_some(), "multi={multi}: without the clause a refused read is a run-time error: {o:?}");
+        assert_eq!((o.super_soft, common::wasm_lines(&o)), (0, vec!["BEFORE".to_string()]), "multi={multi}: asked hard, and the handler stopped at the error");
+        runs += 1;
+    }
+    eprintln!("INVOKE super:: ON EXCEPTION: {runs} runs over 2 variants — answered: NOT ON EXCEPTION with the value stored; opener gone: ON EXCEPTION, no run-time error, the item as it was; the same refusal without the clause: a run-time error");
+}
+
+/// An `ON EXCEPTION` on an INVOKE of anything but `super::` is refused when the module is built, with the reason.
+#[test]
+fn on_exception_on_an_invoke_of_a_control_is_refused_at_build_time() {
+    let src = form_source(
+        "BAD-FORM",
+        "01 WS-V PIC X(8) VALUE SPACES GLOBAL.\n",
+        &[("BTN-X", "onClick", "    INVOKE LBL-OUT::GetProperty(\"K\") RETURNING WS-V ON EXCEPTION DISPLAY \"x\" END-INVOKE\n")],
+    );
+    let p = Project::new().form("BAD-FORM", true, 1, &[("BTN-X", "Button"), ("LBL-OUT", "Label")], &src);
+    let err = p.try_compile(true).err().expect("the module must not build").to_string();
+    eprintln!("refused: {err}");
+    assert!(err.contains("ON EXCEPTION") && err.contains("super::"), "{err}");
+}

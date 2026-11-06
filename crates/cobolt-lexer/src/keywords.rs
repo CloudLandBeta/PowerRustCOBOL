@@ -245,6 +245,7 @@ pub fn lookup(word: &str) -> Option<Token> {
         "RETURNING" => Token::Returning,
         "REFERENCE" => Token::Reference,
         "END-CALL" => Token::EndCall,
+        "END-INVOKE" => Token::EndInvoke,
         "CANCEL" => Token::Cancel,
         "ADDRESS-OF" => Token::AddressOf,
 

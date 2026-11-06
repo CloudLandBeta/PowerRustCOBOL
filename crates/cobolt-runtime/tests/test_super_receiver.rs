@@ -579,6 +579,94 @@ fn unbound_super_raises_the_null_error() {
     println!("049 R32 shape — unbound super: read, write and method all raise 'super is NULL' (3/3)");
 }
 
+/// WASM-011 T17 (2.0.281): `INVOKE … ON EXCEPTION … NOT ON EXCEPTION … END-INVOKE`. A call through a `super` that
+/// is NULL fails; with the clause the program handles it — `ON EXCEPTION` runs, nothing is raised, the run goes
+/// on — and a call that succeeds runs `NOT ON EXCEPTION`. Without a clause the same call is still the error.
+#[test]
+fn invoke_on_exception_handles_a_failed_call_and_not_on_exception_follows_a_good_one() {
+    let (req_tx, host) = spawn_host();
+    let mut cases = 0u32;
+    // A PIC X item is shown at its full width: compare the lines without the padding.
+    let shown = |lines: &Vec<String>| lines.iter().map(|l| l.trim_end().to_owned()).collect::<Vec<String>>();
+
+    // No opener: the call fails, ON EXCEPTION runs, the statements after END-INVOKE run, the run ends well.
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN-FORM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-T PIC X(12) VALUE "unchanged".
+       PROCEDURE DIVISION.
+           INVOKE super::"Close"()
+               ON EXCEPTION
+                   MOVE "gone" TO WS-T
+               NOT ON EXCEPTION
+                   MOVE "answered" TO WS-T
+           END-INVOKE.
+           DISPLAY "after " WS-T.
+           STOP RUN.
+"#;
+    let (display, run) = run_form(src, req_tx.clone(), ROOT_HANDLE, "MAIN-FORM", None, vec![]);
+    run.expect("the program handled the failure: the run ends without an error");
+    assert_eq!(shown(&display), ["after gone"], "ON EXCEPTION ran, NOT ON EXCEPTION did not, and the flow went on");
+    cases += 1;
+
+    // ON EXCEPTION alone, and the exception phrase spelled without ON.
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN-FORM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-T PIC X(12) VALUE "unchanged".
+       PROCEDURE DIVISION.
+           INVOKE super::"Close"() EXCEPTION MOVE "gone" TO WS-T END-INVOKE.
+           DISPLAY "after " WS-T.
+           STOP RUN.
+"#;
+    let (display, run) = run_form(src, req_tx.clone(), ROOT_HANDLE, "MAIN-FORM", None, vec![]);
+    run.expect("handled");
+    assert_eq!(shown(&display), ["after gone"]);
+    cases += 1;
+
+    // The call goes through (a child bound to its opener): NOT ON EXCEPTION runs, ON EXCEPTION does not.
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DETAIL-FORM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-T PIC X(12) VALUE "unchanged".
+       PROCEDURE DIVISION.
+           INVOKE super::"SetWindowState"("Minimized")
+               ON EXCEPTION
+                   MOVE "gone" TO WS-T
+               NOT ON EXCEPTION
+                   MOVE "answered" TO WS-T
+           END-INVOKE.
+           DISPLAY "after " WS-T.
+           STOP RUN.
+"#;
+    let (display, run) = run_form(src, req_tx.clone(), "W1", "DETAIL-FORM", Some(ROOT_HANDLE), vec![]);
+    run.expect("the call goes through");
+    assert_eq!(shown(&display), ["after answered"], "NOT ON EXCEPTION ran, ON EXCEPTION did not");
+    cases += 1;
+
+    // No clause: the same failing call is the run-time error it always was.
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN-FORM.
+       PROCEDURE DIVISION.
+           INVOKE super::"Close"().
+           STOP RUN.
+"#;
+    let (_d, run) = run_form(src, req_tx.clone(), ROOT_HANDLE, "MAIN-FORM", None, vec![]);
+    assert!(run.expect_err("no clause, no handling").contains("super is NULL"));
+    cases += 1;
+
+    drop(req_tx);
+    let _ = host.join();
+    println!("INVOKE ON EXCEPTION: {cases}/4 cases — failed call → ON EXCEPTION and the run goes on; good call → NOT ON EXCEPTION; EXCEPTION without ON; no clause → 'super is NULL' as before");
+}
+
 /// `super::"<Procedure>"()` — the Guide's "form-specific procedures dispatch
 /// at run time", which the supervisor used to refuse as "windowHandler has no
 /// method". A procedure-shaped name now becomes a CallProcedure on the

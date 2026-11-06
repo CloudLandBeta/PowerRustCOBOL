@@ -162,6 +162,9 @@ pub struct State {
     /// The last query was answered "the answer is in another window" (ABI A24, `-11`): the generated
     /// code asks `rt_query_pending`, suspends and asks again after the resume.
     pub query_pending: bool,
+    /// The last soft query (ABI A25, `Q_GETWS` / `Q_CALLRWS`) failed: the generated code asks
+    /// `rt_query_failed` and runs the statement's `ON EXCEPTION`.
+    pub query_failed: bool,
     /// The argument count the next intrinsic-function call uses instead of its
     /// record's (an `ALL` over an `OCCURS … DEPENDING ON` table); `u32::MAX`
     /// when the record's stands.
@@ -188,7 +191,7 @@ pub struct State {
 
 impl State {
     pub const fn new() -> State {
-        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0, query_pending: false, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0, gfx_at: 0, gfx_cap: 0, gfx_len: 0, gfx_cmds: 0, gfx_ctrl: u32::MAX, gfx_inst: 0 }
+        State { regs: [Val::ZERO; NREG], sp: 0, temps: [Val::ZERO; NTEMP], size_err: false, div0: false, ws: 0, inst: 0, batch_len: 0, collate: 0, snd: None, ctemp_len: [0; NCTEMP], random: crate::func::RANDOM_INITIAL, path_len: 0, path_nseg_at: 0, path_nargs_at: 0, ctemp_dynamic: 0, query_pending: false, query_failed: false, func_argc: u32::MAX, heap_base: 0, heap_end: 0, heap_rover: 0, json_path_len: 0, disp_len: 0, gfx_at: 0, gfx_cap: 0, gfx_len: 0, gfx_cmds: 0, gfx_ctrl: u32::MAX, gfx_inst: 0 }
     }
 }
 

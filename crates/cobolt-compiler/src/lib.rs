@@ -6364,7 +6364,8 @@ only what an opening verb shows differs.
   One opening can replace the page instead of opening a tab: pass the parameter
   **`pr-window=same`** after the form's name (`pr-window=new` is the default). The
   form then takes this page's place, Back returns to the page's own address, there
-  is no opener and `super::` fails into `ON EXCEPTION`. The caller's page is gone, so
+  is no opener and `super::` fails (an `INVOKE super::…` with `ON EXCEPTION` runs its
+  clause). The caller's page is gone, so
   an `OpenFormSync` with `pr-window=same` behaves as `OpenFormAsync` and waits for
   nobody. `pr-window` is not a parameter of the form, and a single-page application,
   which has no tabs, ignores it.
@@ -6411,8 +6412,26 @@ answer within the application's call time limit (30 seconds unless the page's
 configuration sets another) fails like a closed opener. A `super::` read cannot take
 another `super::` read as an argument: read the inner one into a data item first.
 Both tabs must be the same site in the same browser profile. When the opener's tab
-is closed, a `super::` statement fails and its `ON EXCEPTION` runs — write one
-wherever the opener may be gone. When a standalone tab is closed, its forms' closing handlers
+is closed (or never answers), a `super::` read or call fails like any run-time
+error and ends the handler. **`INVOKE super::Method(…) [RETURNING item]` can carry
+the clause that meets that failure**: `ON EXCEPTION` runs and nothing is put on the
+page, `NOT ON EXCEPTION` runs when the opener answered (the answer is already in
+`RETURNING`), and the statements after `END-INVOKE` go on in both cases. Write the
+clause wherever the opener may be gone:
+
+```cobol
+           INVOKE super::GetFormState() RETURNING WS-STATE
+               ON EXCEPTION
+                   MOVE "gone" TO LBL-OUT::Caption
+               NOT ON EXCEPTION
+                   MOVE WS-STATE TO LBL-OUT::Caption
+           END-INVOKE
+```
+
+In a web application the clause is accepted only on `INVOKE super::…` (a build
+error anywhere else); a plain `super::` read in `MOVE`, `IF` and the like cannot
+carry it. On the desktop the clause is accepted on any `INVOKE`. When a standalone
+tab is closed, its forms' closing handlers
 run as far as the browser lets a closing page run; a handler
 that would wait for something is abandoned.
 "##;

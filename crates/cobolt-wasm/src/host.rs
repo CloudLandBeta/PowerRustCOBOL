@@ -67,6 +67,8 @@ pub struct Outcome {
     pub draws: Vec<(u32, u32, Vec<u8>)>,
     /// How many `super::` reads were answered "pending" (A24; see [`HostOptions::super_waits`]).
     pub super_pending: u32,
+    /// How many of the `super::` reads were asked soft (A25: a statement that has an `ON EXCEPTION`).
+    pub super_soft: u32,
 }
 
 struct State {
@@ -95,6 +97,7 @@ struct State {
     /// Answer every waiting `super::` read "pending" once (A24); the reads already answered so, by the bytes of the query.
     super_waits: bool,
     super_asked: HashSet<Vec<u8>>,
+    super_gone: bool,
 }
 
 /// Apply a command batch to the outcome, through the ABI's one codec.
@@ -239,6 +242,7 @@ fn new_state(out: Rc<RefCell<Outcome>>, conformance: Option<Conformance>, (batch
         batches: None,
         super_waits: false,
         super_asked: HashSet::new(),
+        super_gone: false,
     }
 }
 
@@ -429,7 +433,7 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
                 // A24: the opener lives in another window, so a waiting `super::` read is answered
                 // "pending" the first time it is asked and from the properties the next time (after the
                 // resume), as the player does from the opener's reply.
-                if let Command::GetWait(p) | Command::CallRWait(p) = &query {
+                if let Command::GetWait(p) | Command::CallRWait(p) | Command::GetWaitSoft(p) | Command::CallRWaitSoft(p) = &query {
                     if p.ctrl == cobolt_wasm_abi::codes::ctrl::SUPER && caller.data().super_waits {
                         let key = batch[prefix..].to_vec();
                         let st = caller.data_mut();
@@ -440,13 +444,20 @@ fn linker(engine: &Engine, omit: &[&str]) -> Result<Linker<State>, String> {
                         // Answered now: the next ask of the same read is pending again, as the next statement's.
                         let key = batch[prefix..].to_vec();
                         caller.data_mut().super_asked.remove(&key);
+                        if matches!(query, Command::GetWaitSoft(_) | Command::CallRWaitSoft(_)) {
+                            out.borrow_mut().super_soft += 1;
+                        }
+                        // The opener's window was closed while the request was out (Q3): nothing answers it.
+                        if caller.data().super_gone {
+                            return cobolt_wasm_abi::codes::err::HOST_REFUSED;
+                        }
                     }
                 }
                 let answer = match &query {
                     // The plain read of `super::` in a window whose opener answers by id is the
                     // replica's: it can be behind. The test says so, so a read that was not waited for shows.
                     Command::Get(p) if p.ctrl == cobolt_wasm_abi::codes::ctrl::SUPER && caller.data().super_waits => "STALE".to_string(),
-                    Command::Get(p) | Command::GetWait(p) => {
+                    Command::Get(p) | Command::GetWait(p) | Command::GetWaitSoft(p) => {
                         let segs: Vec<u32> = p.segs.iter().map(|s| s.name).collect();
                         prop_key(p.inst, p.ctrl, &segs).and_then(|k| caller.data().props.get(&k).cloned()).unwrap_or_default()
                     }
@@ -556,6 +567,9 @@ pub struct HostOptions {
     /// can wait makes after `pr_resume`. A plain `GET` on `super::` is the replica's, which can be
     /// behind: this host answers it `STALE`.
     pub super_waits: bool,
+    /// With `super_waits`: the opener's window has been closed, so every waiting `super::` read is asked and then
+    /// refused (`HOST_REFUSED`) instead of answered.
+    pub super_gone: bool,
 }
 
 /// A host for a project module: it opens forms, delivers events, resumes and
@@ -592,6 +606,7 @@ impl FormHost {
             state.random = r;
         }
         state.super_waits = opts.super_waits;
+        state.super_gone = opts.super_gone;
         let mut store = Store::new(&engine, state);
         let omit: Vec<&str> = opts.omit_imports.iter().map(String::as_str).collect();
         let linker = linker(&engine, &omit)?;

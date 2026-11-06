@@ -33,6 +33,10 @@ pub const Q_COUNT: u8 = 0x12;
 /// The reads the module can wait for (ABI A24): the same paths as `Q_GET` / `Q_CALLR`.
 pub const Q_GETW: u8 = 0x13;
 pub const Q_CALLRW: u8 = 0x14;
+/// The same two reads for a statement that has an `ON EXCEPTION` (ABI A25): a read that fails is not a
+/// run-time error, the host reports nothing and the module reads `query_failed` instead.
+pub const Q_GETWS: u8 = 0x15;
+pub const Q_CALLRWS: u8 = 0x16;
 /// ABI amendment A14: a property named by text, and an event raised.
 pub const OP_SET_NAMED: u8 = 0x06;
 pub const OP_RAISE: u8 = 0x07;
@@ -250,6 +254,14 @@ pub fn query_pending() -> u32 {
     p as u32
 }
 
+/// Did the last query of a statement with an `ON EXCEPTION` fail (ABI A25)? Reading it clears it.
+pub fn query_failed() -> u32 {
+    let s = st();
+    let f = s.query_failed;
+    s.query_failed = false;
+    f as u32
+}
+
 /// A query (`GET`, `CALLR`, `COUNT`) on the path: the commands staged so far
 /// and the query go to the host together, and the answer text is left in
 /// character temporary `k`, which `dynamic` marks as a property read.
@@ -289,6 +301,13 @@ pub fn query(op: u32, k: u32, dynamic: u32) {
         return;
     }
     if n < 0 {
+        // A statement that has an `ON EXCEPTION` asked with a soft read (ABI A25): the failure is the
+        // program's to handle, not a run-time error. The answer is left empty and the flag is set.
+        if op == Q_GETWS as u32 || op == Q_CALLRWS as u32 {
+            s.query_failed = true;
+            s.ctemp_len[k as usize] = 0;
+            return;
+        }
         crate::fail(err::BAD_OPERAND);
     }
     let n = n as u32;

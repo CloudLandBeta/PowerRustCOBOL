@@ -72,6 +72,19 @@ fn super_read_form() -> Form {
     form
 }
 
+/// `child-form` that guards its read of the opener (WASM-011 T17, ABI A25): BTN-GO asks the opener for
+/// its form state and says what came back, or `gone` when the opener cannot answer (`ON EXCEPTION`).
+fn super_guard_form() -> Form {
+    let mut form = Form::new("main-form", "Guards its opener", 400, 300);
+    let mut btn = Control::new("BTN-GO", ControlType::Button, 10, 10);
+    let mut ev = EventBinding::for_control("BTN-GO", "onClick");
+    ev.code = "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01 WS-S PIC X(12) VALUE SPACES.\n       PROCEDURE DIVISION.\n           INVOKE super::GetFormState() RETURNING WS-S\n               ON EXCEPTION MOVE \"gone\" TO LBL-OUT::Caption\n               NOT ON EXCEPTION MOVE WS-S TO LBL-OUT::Caption\n           END-INVOKE\n           DISPLAY \"after \" LBL-OUT::Caption.".to_string();
+    btn.events.push(ev);
+    form.controls.push(btn);
+    form.controls.push(Control::new("LBL-OUT", ControlType::Label, 10, 60));
+    form
+}
+
 fn build(multi: bool) -> Vec<u8> {
     build_form(&form(), &[("BTN-GO", "onClick")], multi)
 }
@@ -113,6 +126,7 @@ fn the_players_generated_fixture_is_what_the_generator_writes() {
     let cfrm = cobolt_forms::xml::form_to_string(&form()).unwrap();
     let startup = startup_form();
     let super_read = super_read_form();
+    let super_guard = super_guard_form();
     let startup_bindings = [("BTN-GO", "onClick"), ("TMR-1", "onTick")];
     let files = [
         ("program.wasm", build(true)),
@@ -124,6 +138,9 @@ fn the_players_generated_fixture_is_what_the_generator_writes() {
         ("superread.wasm", build_form(&super_read, &[("BTN-GO", "onClick")], true)),
         ("superread.single.wasm", build_form(&super_read, &[("BTN-GO", "onClick")], false)),
         ("superread-form.cfrm", cobolt_forms::xml::form_to_string(&super_read).unwrap().into_bytes()),
+        ("superguard.wasm", build_form(&super_guard, &[("BTN-GO", "onClick")], true)),
+        ("superguard.single.wasm", build_form(&super_guard, &[("BTN-GO", "onClick")], false)),
+        ("superguard-form.cfrm", cobolt_forms::xml::form_to_string(&super_guard).unwrap().into_bytes()),
     ];
     assert_eq!(
         build(true),

@@ -577,6 +577,8 @@ impl<'a> ResolveCtx<'a> {
                 returning,
                 comma_form,
                 span,
+                on_exception,
+                not_on_exception,
             } => {
                 // 037 R22 — the SPACE (COBOL-standard) form of the checked
                 // window methods requires every parameter; a mismatch is a
@@ -600,6 +602,12 @@ impl<'a> ResolveCtx<'a> {
                 }
                 if let Some(r) = returning {
                     self.resolve_expr(r);
+                }
+                for s in on_exception {
+                    self.resolve_stmt(s);
+                }
+                for s in not_on_exception {
+                    self.resolve_stmt(s);
                 }
             }
             _ => {}

@@ -3367,6 +3367,7 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
         } else {
             None
         };
+        let (on_exception, not_on_exception) = parse_invoke_exceptions(p);
         p.eat(&Token::Period);
         return Stmt::Invoke {
             object,
@@ -3375,6 +3376,8 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
             returning,
             comma_form: true,
             span,
+            on_exception,
+            not_on_exception,
         };
     }
 
@@ -3395,7 +3398,9 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
                     p.advance();
                     true
                 });
-            if !is_expr_start(p) {
+            // `EXCEPTION` is reserved and not a data-name, but `is_expr_start` accepts it as a
+            // word: the argument list would swallow the phrase (as it did for CALL, above).
+            if matches!(p.peek(), Token::Exception) || !is_expr_start(p) {
                 break;
             }
             args.push(parse_expr(p));
@@ -3406,6 +3411,7 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
     } else {
         None
     };
+    let (on_exception, not_on_exception) = parse_invoke_exceptions(p);
     p.eat(&Token::Period);
 
     Stmt::Invoke {
@@ -3415,7 +3421,40 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
         returning,
         comma_form: false,
         span,
+        on_exception,
+        not_on_exception,
     }
+}
+
+/// `[ON EXCEPTION imperative] [NOT ON EXCEPTION imperative] [END-INVOKE]` after the phrases of an
+/// INVOKE (COBOL 2002). `ON` is optional. The clauses are read only when they are there: a `NOT`
+/// that is not followed by `EXCEPTION` belongs to an enclosing statement (`NOT AT END`, …), and
+/// without a clause the statement ends as it always did, at its period.
+fn parse_invoke_exceptions(p: &mut Parser) -> (Vec<Stmt>, Vec<Stmt>) {
+    let exception_at = |p: &Parser, at: usize| {
+        matches!(p.peek_at(at), Token::Exception)
+            || (matches!(p.peek_at(at), Token::On) && matches!(p.peek_at(at + 1), Token::Exception))
+    };
+    let mut seen = false;
+    let mut on_exception = Vec::new();
+    if exception_at(p, 0) {
+        seen = true;
+        p.eat(&Token::On);
+        p.advance(); // EXCEPTION
+        on_exception = parse_stmts(p, &|t| matches!(t, Token::Not) || matches!(t, Token::EndInvoke));
+    }
+    let mut not_on_exception = Vec::new();
+    if p.at(&Token::Not) && exception_at(p, 1) {
+        seen = true;
+        p.advance(); // NOT
+        p.eat(&Token::On);
+        p.advance(); // EXCEPTION
+        not_on_exception = parse_stmts(p, &|t| matches!(t, Token::EndInvoke));
+    }
+    if seen && p.at(&Token::EndInvoke) {
+        p.advance();
+    }
+    (on_exception, not_on_exception)
 }
 
 /// Inline OO call as a statement: `object::member(arg, …)` and chains thereof

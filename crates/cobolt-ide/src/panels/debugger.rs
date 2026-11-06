@@ -4086,6 +4086,7 @@ const COBOL_KEYWORDS: &[&str] = &[
     "END-COMPUTE",
     "END-EVALUATE",
     "END-IF",
+    "END-INVOKE",
     "END-PERFORM",
     "END-READ",
     "END-WRITE",

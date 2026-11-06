@@ -851,6 +851,12 @@ pub enum Stmt {
     /// parameters are OPTIONAL (defaulted at runtime, 037 R21), while the
     /// classic space form requires every parameter of a checked signature
     /// (037 R22 — enforced by `cobolt-semantic`).
+    ///
+    /// `INVOKE … [ON EXCEPTION imperative] [NOT ON EXCEPTION imperative]
+    /// [END-INVOKE]` (COBOL 2002): `on_exception` runs when the invocation
+    /// fails — the object cannot be reached, as a `super::` whose window has
+    /// been closed — and `not_on_exception` when it went through. With neither
+    /// clause a failed invocation is a run-time error, as it always was.
     Invoke {
         object: String,
         method: String,
@@ -858,6 +864,12 @@ pub enum Stmt {
         returning: Option<Expr>,
         comma_form: bool,
         span: Span,
+        /// 🔴 Appended: `Stmt` is bincode-serialized field by field, by ordinal.
+        #[serde(default)]
+        on_exception: Vec<Stmt>,
+        /// 🔴 Appended, see `on_exception`.
+        #[serde(default)]
+        not_on_exception: Vec<Stmt>,
     },
 
     /// An inline member-access **chain used as a statement**, evaluated for its
@@ -1135,6 +1147,11 @@ impl Stmt {
                 on_exception,
                 not_on_exception,
                 ..
+            }
+            | Stmt::Invoke {
+                on_exception,
+                not_on_exception,
+                ..
             } => {
                 out.extend(on_exception.iter());
                 out.extend(not_on_exception.iter());
@@ -1179,7 +1196,6 @@ impl Stmt {
             | Stmt::Sort { .. }
             | Stmt::Merge { .. }
             | Stmt::Release { .. }
-            | Stmt::Invoke { .. }
             | Stmt::InvokeExpr { .. }
             | Stmt::Cancel { .. }
             | Stmt::Stop { .. }
@@ -1256,7 +1272,7 @@ impl Stmt {
                 out.push(at_end);
                 out.push(not_at_end);
             }
-            Stmt::Call { on_exception, not_on_exception, .. } => {
+            Stmt::Call { on_exception, not_on_exception, .. } | Stmt::Invoke { on_exception, not_on_exception, .. } => {
                 out.push(on_exception);
                 out.push(not_on_exception);
             }
@@ -1290,7 +1306,6 @@ impl Stmt {
             | Stmt::Sort { .. }
             | Stmt::Merge { .. }
             | Stmt::Release { .. }
-            | Stmt::Invoke { .. }
             | Stmt::InvokeExpr { .. }
             | Stmt::Cancel { .. }
             | Stmt::Stop { .. }

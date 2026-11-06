@@ -75,6 +75,7 @@ pub(crate) const VERBS: &[&str] = &[
     "RETURNING",
     "EXCEPTION",
     "END-CALL",
+    "END-INVOKE",
     "OPEN",
     "CLOSE",
     "READ",

@@ -6200,9 +6200,35 @@ impl Interpreter {
                 method,
                 args,
                 returning,
-                comma_form: _,
+                comma_form,
                 span,
+                on_exception,
+                not_on_exception,
             } => {
+                // `INVOKE … ON EXCEPTION … NOT ON EXCEPTION …`: the invocation runs as it is written
+                // without the clauses; one that fails (a general run-time error: the window or the
+                // method cannot be reached) takes the exception branch, one that goes through takes
+                // the other. Control-flow signals and the program's own faults pass through, and
+                // without an `ON EXCEPTION` a failure is the run-time error it always was.
+                if !on_exception.is_empty() || !not_on_exception.is_empty() {
+                    let plain = Stmt::Invoke {
+                        object: object.clone(),
+                        method: method.clone(),
+                        args: args.clone(),
+                        returning: returning.clone(),
+                        comma_form: *comma_form,
+                        span: *span,
+                        on_exception: Vec::new(),
+                        not_on_exception: Vec::new(),
+                    };
+                    return match self.dispatch_stmt(&plain) {
+                        Ok(()) => self.exec_stmts(not_on_exception),
+                        Err(RuntimeError::General { .. }) if !on_exception.is_empty() => {
+                            self.exec_stmts(on_exception)
+                        }
+                        Err(e) => Err(e),
+                    };
+                }
                 // A control-loop element (spec 109 §5.4) stands for its control.
                 let aliased = self.control_alias.get(&object.trim().to_ascii_uppercase()).cloned();
                 let object = aliased.as_ref().unwrap_or(object);

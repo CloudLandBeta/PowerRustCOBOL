@@ -735,8 +735,10 @@ fn canonical_invoke(v: &mut serde_json::Value) {
     let args = expr.get("args").cloned();
     let parens = expr.get("parens").and_then(Value::as_bool) == Some(true);
     if let (Some(object), Some(method), Some(args), true) = (recv, member, args, parens) {
+        // The exception branches are part of the statement's shape (2.0.281): a bare call has none.
         *v = json!({"Invoke": {"args": args, "comma_form": true, "method": method,
-                               "object": object, "returning": null, "span": null}});
+                               "object": object, "returning": null, "span": null,
+                               "on_exception": [], "not_on_exception": []}});
     }
 }
 

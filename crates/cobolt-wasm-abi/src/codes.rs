@@ -45,6 +45,12 @@ pub mod op {
     pub const GET_WAIT: u8 = 0x13;
     /// The method's result as text, from a read the module can wait for (A24).
     pub const CALLR_WAIT: u8 = 0x14;
+    /// [`GET_WAIT`] asked by a statement that has an `ON EXCEPTION` (A25): the same path and the same
+    /// answers, but a failure is the program's to handle: the host reports no run-time error and only
+    /// answers the error code.
+    pub const GET_WAIT_SOFT: u8 = 0x15;
+    /// [`CALLR_WAIT`] asked by a statement that has an `ON EXCEPTION` (A25).
+    pub const CALLR_WAIT_SOFT: u8 = 0x16;
 
     /// `true` for an opcode in the query range.
     pub const fn is_query(op: u8) -> bool {

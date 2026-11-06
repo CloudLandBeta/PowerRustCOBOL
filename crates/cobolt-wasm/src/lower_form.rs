@@ -20,7 +20,7 @@ use crate::ir::*;
 use crate::lower::Lower;
 use cobolt_ast::expr::*;
 use cobolt_ast::stmt::*;
-use cobolt_wasm_rt::cmd::{CMD_CALL, Q_CALLR, Q_CALLRW, Q_GET};
+use cobolt_wasm_rt::cmd::{CMD_CALL, Q_CALLR, Q_CALLRW, Q_CALLRWS, Q_GET};
 use wasm_encoder::Instruction as I;
 
 /// The reserved control ids of ABI v1 §5.
@@ -423,13 +423,30 @@ impl Lower<'_, '_> {
         Ok(recv)
     }
 
-    /// `INVOKE Ctrl 'Method' USING args [RETURNING x]`.
-    pub(crate) fn invoke_(&mut self, object: &str, method: &str, args: &[Expr], returning: Option<&Expr>, line: u32) -> GenResult<()> {
+    /// `INVOKE Ctrl 'Method' USING args [RETURNING x] [ON EXCEPTION …] [NOT ON EXCEPTION …]`.
+    pub(crate) fn invoke_(
+        &mut self,
+        object: &str,
+        method: &str,
+        args: &[Expr],
+        returning: Option<&Expr>,
+        (on_exc, not_exc): (&[Stmt], &[Stmt]),
+        line: u32,
+    ) -> GenResult<()> {
         let root = Expr::Identifier(object.to_string(), cobolt_lexer::Span::new(0, 0, line, 0));
         let Some(ctrl) = self.host_root(&root) else {
             return self.err(line, format!("INVOKE {object}: it is not a control of this form"));
         };
         let seg = Seg { name: method, args, parens: true };
+        if !on_exc.is_empty() || !not_exc.is_empty() {
+            if ctrl != CTRL_SUPER || self.form.is_none() {
+                return self.err(
+                    line,
+                    "ON EXCEPTION / NOT ON EXCEPTION on an INVOKE is available for `super::` in a WebAssembly module (the window that opened this one may be closed); a control or the form answers at once, and what it refuses is a run-time error",
+                );
+            }
+            return self.invoke_super_guarded(seg, returning, on_exc, not_exc, line);
+        }
         match returning {
             None => {
                 self.build_path(ctrl, std::slice::from_ref(&seg))?;
@@ -457,6 +474,49 @@ impl Lower<'_, '_> {
                 self.suspend_if_waiting(ctrl, method);
             }
         }
+        Ok(())
+    }
+
+    /// `INVOKE super::Method(…) [RETURNING x] ON EXCEPTION … [NOT ON EXCEPTION …]` (ABI A25, WASM-011 Q3).
+    ///
+    /// The window that opened this one may have been closed, or never answer: the read is asked soft
+    /// (`Q_CALLRWS`), the host reports no run-time error and the module asks `rt_query_failed`. A failed
+    /// read runs `ON EXCEPTION` and leaves `x` as it was; one that went through stores its answer in `x`
+    /// and runs `NOT ON EXCEPTION`. Without `RETURNING` the answer is dropped, the call is still waited for.
+    fn invoke_super_guarded(
+        &mut self,
+        seg: Seg<'_>,
+        returning: Option<&Expr>,
+        on_exc: &[Stmt],
+        not_exc: &[Stmt],
+        line: u32,
+    ) -> GenResult<()> {
+        let k = self.ctemp_next;
+        if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
+            return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
+        }
+        self.ctemp_next += 1;
+        self.ask_super(vec![crate::lower_super::SuperAsk { segs: vec![seg], op: Q_CALLRWS as i32, k }])?;
+        let failed = self.new_block("super-failed");
+        let went_through = self.new_block("super-went-through");
+        let join = self.new_block("end-invoke");
+        self.call_rt("rt_query_failed");
+        self.branch(failed, went_through);
+        self.begin(went_through);
+        if let Some(r) = returning {
+            let src = self.pool.opd_ctemp(k);
+            self.move_operand_to(src, r, line)?;
+        }
+        self.stmts(not_exc)?;
+        if self.cur.is_some() {
+            self.jump(join);
+        }
+        self.begin(failed);
+        self.stmts(on_exc)?;
+        if self.cur.is_some() {
+            self.jump(join);
+        }
+        self.begin(join);
         Ok(())
     }
 

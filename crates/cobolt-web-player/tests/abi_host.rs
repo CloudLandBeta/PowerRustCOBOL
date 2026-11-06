@@ -561,3 +561,47 @@ fn a_super_read_of_a_generated_module_waits_for_the_opener_and_goes_on_with_its_
         println!("super read (multi={multi}): asked the opener once, waited, resumed with `ready`, {} displays", displays.len());
     }
 }
+
+/// WASM-011 T17 (ABI A25), end to end: a module the generator built guards its call of the opener with
+/// `INVOKE super::GetFormState() RETURNING … ON EXCEPTION … NOT ON EXCEPTION …`. The player's host asks
+/// the opener by id; an answer runs `NOT ON EXCEPTION` with the value; an opener that has gone, or one
+/// that does not answer in time, runs `ON EXCEPTION` — and **no run-time error reaches the page**, which
+/// is the difference from the same refusal with no clause. Both variants.
+#[test]
+fn a_guarded_super_call_runs_on_exception_when_the_opener_is_gone_or_silent_and_reports_nothing() {
+    use cobolt_wasm_abi::fixture::Fixture;
+    use cobolt_web_player::host::HostOptions;
+    let cfrm = include_str!("fixtures/generated/superguard-form.cfrm").to_owned();
+    let mut runs = 0u32;
+    for (multi, wasm) in [(true, &include_bytes!("fixtures/generated/superguard.wasm")[..]), (false, &include_bytes!("fixtures/generated/superguard.single.wasm")[..])] {
+        // How the opener ends the request, and what the handler then shows.
+        let cases: [(&str, fn(&mut cobolt_web_player::host::Host), &str); 4] = [
+            ("answers", |h| assert!(h.super_reply(1, Ok("Normal".to_owned()))), "Normal"),
+            ("refuses", |h| assert!(h.super_reply(1, Err("no such method".to_owned()))), "gone"),
+            ("is gone", |h| h.remote_opener_closed(), "gone"),
+            ("is silent", |h| assert!(h.super_timeout(1)), "gone"),
+        ];
+        for (what, end, expect) in cases {
+            let manifest = cobolt_wasm_abi::scan::scan_module(wasm).unwrap().embedded_manifest().unwrap();
+            let mut rig = Rig::with_forms(Fixture { wasm: wasm.to_vec(), manifest }, std::slice::from_ref(&cfrm), multi, HostOptions::default());
+            {
+                let mut h = rig.host.borrow_mut();
+                h.attach_remote_opener();
+                h.remote_opener_waits(true);
+            }
+            rig.start();
+            assert!(rig.click(0, "BTN-GO"));
+            let asked: Vec<(u32, String)> = rig.host.borrow().effects.iter().filter_map(|e| if let Effect::SuperCallR { id, name, .. } = e { Some((*id, name.clone())) } else { None }).collect();
+            assert_eq!(asked, [(1, "GETFORMSTATE".to_owned())], "the opener is asked once, by id, and the handler waits (multi={multi}, opener {what})");
+            assert_eq!(rig.get(0, "LBL-OUT", "Caption"), "LBL-OUT", "nothing written while it waits (multi={multi}, opener {what})");
+            end(&mut rig.host.borrow_mut());
+            rig.drive();
+            assert_eq!(rig.get(0, "LBL-OUT", "Caption"), expect, "multi={multi}, opener {what}");
+            let displays: Vec<String> = rig.host.borrow().effects.iter().filter_map(|e| if let Effect::Display(t) = e { Some(t.clone()) } else { None }).collect();
+            assert_eq!(displays, [format!("after {expect}")], "the statements after END-INVOKE ran once (multi={multi}, opener {what})");
+            assert!(errors(&rig).is_empty(), "the program handled it: nothing is reported (multi={multi}, opener {what}): {:?}", errors(&rig));
+            runs += 1;
+        }
+    }
+    println!("guarded super call: {runs} runs (2 variants × opener answers / refuses / is gone / is silent): NOT ON EXCEPTION with the value, or ON EXCEPTION; the handler went on after END-INVOKE; no error on the page");
+}

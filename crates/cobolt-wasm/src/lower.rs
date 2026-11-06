@@ -1967,7 +1967,9 @@ impl<'a, 'b> Lower<'a, 'b> {
             }
             Stmt::Cancel { programs, .. } => self.cancel_(programs, line),
             Stmt::InvokeExpr { expr, .. } => self.member_call(expr, line),
-            Stmt::Invoke { object, method, args, returning, .. } => self.invoke_(object, method, args, returning.as_ref(), line),
+            Stmt::Invoke { object, method, args, returning, on_exception, not_on_exception, .. } => {
+                self.invoke_(object, method, args, returning.as_ref(), (on_exception, not_on_exception), line)
+            }
             Stmt::ControlSet { control, property, value, .. } => {
                 let target = Expr::Member {
                     recv: Box::new(control.clone()),

@@ -161,6 +161,11 @@ pub enum Command<'a> {
     GetWait(Path<'a>),
     /// `CALLR` of a read the module can wait for (A24); see [`Command::GetWait`].
     CallRWait(Path<'a>),
+    /// `GET_WAIT` for a statement that has an `ON EXCEPTION` (A25): the same path and answers, but a
+    /// failure is the program's to handle, so the host reports nothing and only answers the error code.
+    GetWaitSoft(Path<'a>),
+    /// `CALLR_WAIT` for a statement that has an `ON EXCEPTION` (A25); see [`Command::GetWaitSoft`].
+    CallRWaitSoft(Path<'a>),
     /// `SET_NAMED` (A14): `varint inst, varint ctrl, text name, text value` —
     /// the property `name` of control `ctrl`, the name known only at run time
     /// (`COBOL::"SET-PROPERTY"` with the property in a data item).
@@ -178,7 +183,7 @@ pub enum Command<'a> {
 
 impl Command<'_> {
     pub fn is_query(&self) -> bool {
-        matches!(self, Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_))
+        matches!(self, Command::Get(_) | Command::CallR(_) | Command::Count(_) | Command::GetWait(_) | Command::CallRWait(_) | Command::GetWaitSoft(_) | Command::CallRWaitSoft(_))
     }
     pub fn opcode(&self) -> u8 {
         match self {
@@ -192,6 +197,8 @@ impl Command<'_> {
             Command::Count(_) => op::COUNT,
             Command::GetWait(_) => op::GET_WAIT,
             Command::CallRWait(_) => op::CALLR_WAIT,
+            Command::GetWaitSoft(_) => op::GET_WAIT_SOFT,
+            Command::CallRWaitSoft(_) => op::CALLR_WAIT_SOFT,
             Command::SetNamed { .. } => op::SET_NAMED,
             Command::Raise { .. } => op::RAISE,
             Command::Draw { .. } => op::DRAW,
@@ -278,6 +285,8 @@ impl<'a> BatchReader<'a> {
             op::COUNT => Command::Count(read_path(buf, pos)?),
             op::GET_WAIT => Command::GetWait(read_path(buf, pos)?),
             op::CALLR_WAIT => Command::CallRWait(read_path(buf, pos)?),
+            op::GET_WAIT_SOFT => Command::GetWaitSoft(read_path(buf, pos)?),
+            op::CALLR_WAIT_SOFT => Command::CallRWaitSoft(read_path(buf, pos)?),
             op::SET_NAMED => {
                 let inst = read_varint(buf, pos)?;
                 let ctrl = read_varint(buf, pos)?;
@@ -447,6 +456,18 @@ impl BatchWriter {
         write_path(&mut self.buf, path);
         self
     }
+    /// A `GET` the module can wait for, asked by a statement that has an `ON EXCEPTION` (A25).
+    pub fn get_wait_soft(&mut self, path: &PathSpec) -> &mut Self {
+        self.buf.push(op::GET_WAIT_SOFT);
+        write_path(&mut self.buf, path);
+        self
+    }
+    /// A `CALLR` the module can wait for, asked by a statement that has an `ON EXCEPTION` (A25).
+    pub fn call_result_wait_soft(&mut self, path: &PathSpec) -> &mut Self {
+        self.buf.push(op::CALLR_WAIT_SOFT);
+        write_path(&mut self.buf, path);
+        self
+    }
     pub fn set_named(&mut self, inst: u32, ctrl: u32, name: &str, value: &str) -> &mut Self {
         self.buf.push(op::SET_NAMED);
         write_varint(&mut self.buf, inst);
@@ -595,6 +616,28 @@ mod tests {
         assert_eq!((cmds[0].is_query(), cmds[0].opcode()), (true, op::CALLR_WAIT));
         assert!(op::is_query(op::GET_WAIT) && op::is_query(op::CALLR_WAIT));
         eprintln!("waiting queries: GET_WAIT {:#04x} and CALLR_WAIT {:#04x}, both inside the query range, same path bytes as GET and CALLR", op::GET_WAIT, op::CALLR_WAIT);
+    }
+
+    #[test]
+    fn the_two_soft_queries_of_a_statement_with_on_exception_are_queries_with_their_own_opcodes() {
+        let p = PathSpec::call(0, 1, 9, &["K"]);
+        let mut w = BatchWriter::new();
+        w.get_wait_soft(&p);
+        let soft_get = w.as_bytes().to_vec();
+        let cmds = decode_batch(&soft_get).unwrap();
+        assert!(matches!(&cmds[..], [Command::GetWaitSoft(path)] if path.ctrl == 1 && path.segs[0].args == ["K"]));
+        assert_eq!((cmds[0].is_query(), cmds[0].opcode()), (true, op::GET_WAIT_SOFT));
+        let mut w = BatchWriter::new();
+        w.call_result_wait_soft(&p);
+        let cmds = decode_batch(w.as_bytes()).unwrap();
+        assert!(matches!(&cmds[..], [Command::CallRWaitSoft(path)] if path.segs[0].name == 9));
+        assert_eq!((cmds[0].is_query(), cmds[0].opcode()), (true, op::CALLR_WAIT_SOFT));
+        assert!(op::is_query(op::GET_WAIT_SOFT) && op::is_query(op::CALLR_WAIT_SOFT));
+        // The same path bytes as the waiting read: only the opcode differs.
+        let mut hard = BatchWriter::new();
+        hard.get_wait(&p);
+        assert_eq!(soft_get[1..], hard.as_bytes()[1..], "the path is the same");
+        eprintln!("soft queries: GET_WAIT_SOFT {:#04x} and CALLR_WAIT_SOFT {:#04x}, inside the query range, the same path bytes as GET_WAIT", op::GET_WAIT_SOFT, op::CALLR_WAIT_SOFT);
     }
 
     #[test]

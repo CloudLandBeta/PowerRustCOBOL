@@ -242,3 +242,74 @@ fn the_opener_answers_a_read_and_a_call_from_its_own_form_and_says_when_it_canno
     assert!(h.apply_super_get(9, "Caption").unwrap_err().contains("closed"));
     assert!(h.apply_super_call_result(9, "Close", &[]).unwrap_err().contains("closed"));
 }
+
+// ── a read made by a statement that has ON EXCEPTION (ABI A25, WASM-011 T17) ─
+
+fn get_soft(h: &mut Host, name: u32) -> Result<String, i32> {
+    h.eval_query(&Command::GetWaitSoft(path(name, vec![])))
+}
+
+fn run_errors(h: &Host) -> usize {
+    h.effects.iter().filter(|e| matches!(e, Effect::RuntimeError(_))).count()
+}
+
+#[test]
+fn a_guarded_read_waits_and_is_answered_like_a_plain_waiting_read() {
+    let mut h = waiting_host();
+    assert_eq!(get_soft(&mut h, 0), Err(err::SUSPENDED_QUERY), "the opener is asked by id and the handler waits, exactly as for the plain read");
+    assert!(h.effects.contains(&Effect::SuperGet { id: 1, prop: "Status".into() }));
+    suspend(&mut h, 9);
+    assert!(h.super_reply(1, Ok("fresh".into())));
+    resume(&mut h, 9);
+    assert_eq!(get_soft(&mut h, 0), Ok("fresh".into()), "the opener's answer goes to NOT ON EXCEPTION");
+    assert_eq!(run_errors(&h), 0);
+    // The method form takes the same road.
+    let mut h = waiting_host();
+    assert_eq!(h.eval_query(&Command::CallRWaitSoft(path(1, vec!["a"]))), Err(err::SUSPENDED_QUERY));
+    assert!(h.effects.contains(&Effect::SuperCallR { id: 1, name: "Refresh".into(), args: vec!["a".into()] }));
+}
+
+#[test]
+fn a_guarded_read_that_fails_answers_the_code_and_reports_nothing_where_the_plain_one_reports() {
+    for (how, end) in [("times out", 0u8), ("is closed under it", 1), ("is refused by the opener", 2)] {
+        let mut soft = waiting_host();
+        let mut hard = waiting_host();
+        // The first ask is the guarded one for `soft` and the plain one for `hard`: the same wait either way.
+        assert_eq!(get_soft(&mut soft, 0), Err(err::SUSPENDED_QUERY), "{how}");
+        assert_eq!(get_wait(&mut hard, 0, vec![]), Err(err::SUSPENDED_QUERY), "{how}");
+        suspend(&mut soft, 9);
+        suspend(&mut hard, 9);
+        for h in [&mut soft, &mut hard] {
+            match end {
+                0 => assert!(h.super_timeout(1)),
+                1 => h.remote_opener_closed(),
+                _ => assert!(h.super_reply(1, Err("no such method".into()))),
+            }
+            resume(h, 9);
+        }
+        assert_eq!(get_soft(&mut soft, 0), Err(err::HOST_REFUSED), "the code, for the clause to see ({how})");
+        assert_eq!(run_errors(&soft), 0, "nothing reaches the page: the program handles it ({how})");
+        assert_eq!(get_wait(&mut hard, 0, vec![]), Err(err::HOST_REFUSED), "the plain read fails the same way ({how})");
+        assert_eq!(run_errors(&hard), 1, "but it is a run-time error with its reason ({how})");
+    }
+}
+
+#[test]
+fn a_guarded_read_after_the_opener_has_gone_is_not_sent_and_reports_nothing_and_quiet_mode_does_not_stick() {
+    let mut h = waiting_host();
+    h.remote_opener_closed();
+    h.effects.clear();
+    assert_eq!(get_soft(&mut h, 0), Err(err::HOST_REFUSED));
+    assert_eq!(h.eval_query(&Command::CallRWaitSoft(path(1, vec![]))), Err(err::HOST_REFUSED));
+    assert!(h.effects.iter().all(|e| !matches!(e, Effect::SuperGet { .. } | Effect::SuperCallR { .. })), "nothing is sent to a window that is gone");
+    assert_eq!(run_errors(&h), 0);
+    // A plain read right after still reports: the quiet mode belongs to the one query.
+    assert_eq!(get_wait(&mut h, 0, vec![]), Err(err::HOST_REFUSED));
+    assert_eq!(run_errors(&h), 1, "the next plain read is reported as always");
+    // No opener window at all: the guarded read is a refusal for the clause, not a report.
+    let mut h = host();
+    h.inflight = Some(InFlight { inst: Some(0), opening: None, wait: None, task: None, event_desc: None });
+    let r = get_soft(&mut h, 0);
+    assert!(r.is_err() && r != Err(err::SUSPENDED_QUERY), "{r:?}");
+    assert_eq!(run_errors(&h), 0);
+}
