@@ -473,7 +473,7 @@ as completed.
   - Verify: every AC1–AC10 cites a test name or an owed row, and `git status` shows nothing under `docs/` and no `README.md` change.
 
 - [x] **T19b — D21: the key exchange in the handshake** (R18; AC11) — added 2026-10-24 by the operator's ruling. *Specs only, 2026-11-02:* R18's lead wording corrected to the order decided in WASM-003 O10; the members (`key`, `nonce`, both ways, required from protocol 2) are written into plan §2.1 as M7. The code and AC11's test are WASM-003 T15b-3 and T15b-4; AC11 stays open until then.
-- [ ] **T20 — Finalize: version, CHANGELOG, the tests of the touched crates**
+- [x] **T20 — Finalize: version, CHANGELOG, the tests of the touched crates**
   - Files:
     - `crates/cobolt-ide/src/version.rs`: `z` + 1, **once**. Go from `2.0.30` to the next free `2.0.z` at that time; never change `x` or `y`.
     - `CHANGELOG.md`: **one** entry above the previous `## [PowerRustCOBOL 2.0.z]` heading, dated, "Written on features-2x". It lists:

@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.235 — 2026-11-05
+
+**WASM-014 T20: finalized.** *(Written on features-2x-wasm-pending, after 2.0.234.)* Sweep of the touched crates: cobolt-forms (render), cobolt-wire, cobolt-wasm, cobolt-server, cobolt-form-host and cobolt-compiler --lib all green; cobolt-ide bin 1961 passed, 3 failed, the known pre-existing reds (`docs_embed::tests::every_document_ships_in_every_language` and two live crates.io `external_crates_service::flow_tests`). Open in WASM-014: T1, T7, T13b, T15b, AC2 build half, AC10.
+
 ## 2.0.234 — 2026-11-05
 
 **WASM-014 T18/T19: the System KB teaches the contract, and the progress ledger records WASM-014.** *(Written on features-2x-wasm-pending, after 2.0.233.)* "Calling the backend" gains three entries: delivery, sessions and `[contract]` (at most once per idempotency key, `idempotency_store`, `session_idle_seconds`), the rule that generated and agent-written COBOL reports a business failure with `WS-FAIL` only (the `status` group, and its `status-changed` break, are for hand-written and existing COBOL), and the form events `onBackendVersion`, `onBackendWarning`, `onStreamItem`, `onStreamEnd` with `WS-SHOW-PROGRESS`. `chunked.data` regenerated; `prebuilt_chunked_kb_matches_the_published_documentation` green. The Backend settings hint for the `server` store now says what it does (a file the backend writes before it answers, kept across a restart) in all six languages. `specs/WASM-PROGRESS.md` WASM-014 row: evidence per AC and the owed rows.
