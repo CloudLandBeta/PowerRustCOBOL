@@ -6604,6 +6604,48 @@ have no run-time effect yet. A `backend_url` that is not `wss://` is refused
 unless it is plain `ws://` to the same machine, and a refused address is never
 written to the manifest.
 
+**Security tables of a Web or Mobile project** (all optional; a manifest without them is
+saved without them):
+
+```toml
+[web.unsafe]                 # [mobile.unsafe] in a Mobile project; each key is off by default
+plain_ws         = false      # serve and talk plain ws:// beyond this machine
+skip_secret_scan = false      # skip the Build's scan of the project's own files for secrets
+csp_report_only  = false      # send the Content-Security-Policy as report-only: violations are reported, none blocked
+
+[mobile.pinning]             # certificate pinning of the app's web view; absent = no pinning
+pins    = ["sha256/<base64>", "sha256/<base64>"]   # at least two different ones: the live key and a backup
+expires = "2027-06-30"       # the day the pins stop being the ones to trust
+
+[security]                   # becomes /.well-known/security.txt (RFC 9116)
+contact   = "mailto:security@example.com"   # a mailto: or https: address; required
+expires   = "2027-01-31"     # YYYY-MM-DD (to the end of that day, UTC) or YYYY-MM-DDTHH:MM:SSZ; required
+policy    = "https://example.com/security"   # optional https: address
+preferred_languages = "en, pt"               # optional
+```
+
+Each `unsafe` key weakens one protection and is a **warning** in a Development build
+(Check, Preview and Build name the key) and a **refusal** in a Release build, which
+names the key and asks for its removal; the table is written to the manifest only
+while a key is on. The Build also **scans the project's own files** — forms, Common
+Code and copybooks, stylesheets, text assets and `backend/backend.toml` — for secrets
+(private keys, cloud and API keys, tokens, connection strings with a password, and
+a property named like a secret that holds a value): one it recognises stops the
+Build naming the file, the line and the pattern, never the value, and a string that
+only looks like one (high entropy) is a warning. The Backend's COBOL is not scanned:
+that is where secrets are read from the environment. A **release Backend refuses a
+literal secret** in `backend.toml` and the release Build says so before it starts; write
+`env:NAME` or `file:PATH` in its place (in Development it is a warning).
+
+`[mobile.pinning]` is checked by Check and Build: fewer than two different pins, a pin
+that is not `sha256/` and the base64 of 32 bytes, a missing `expires`, an unreadable
+one and one that has passed are refused, and a table whose `expires` is less than 30
+days away is a warning in the project's language. A pin is named by its position in
+the message, never quoted. Applying the pins to the app's web view belongs to the
+Mobile build. `[security]` is checked the same way: Check refuses a table without
+`contact` or `expires`, or one whose `expires` has passed, and the Build writes the
+file into the bundle and the Backend serves the same text at the same path.
+
 **Run and Preview of a project with a Backend.** The page calls the Backend
 address its Build wrote into it, so Run (the browser) and the Preview (the web
 view) start the project's Backend first — `rcrun backend run`, its log in the

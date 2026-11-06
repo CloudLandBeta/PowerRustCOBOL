@@ -8,7 +8,9 @@
 //!
 //! What a token must be to be accepted, in the order it is checked:
 //!
-//! 1. **Shaped like a JWT** and not absurdly long.
+//! 1. **Shaped like a JWT** and not absurdly long, its header asking for no
+//!    extension this backend does not understand (`crit`, RFC 7515 section
+//!    4.1.11: it understands none, so a header that carries one is refused).
 //! 2. **Signed with an allowed algorithm** — the configured list, which can
 //!    never hold `none` or an HMAC (config refuses them) — **by a key the
 //!    issuer publishes**, found by `kid`. The key's own `alg`, when it names
@@ -125,6 +127,11 @@ impl TokenValidator {
 
     async fn verify(&self, token: &str) -> Result<Claims, CallError> {
         let header = jsonwebtoken::decode_header(token).map_err(|_| auth_err(codes::TOKEN_INVALID, "the token header cannot be read, or names an algorithm this backend does not know"))?;
+        // A verifier that meets a `crit` it does not understand refuses the token (RFC 7515 section 4.1.11). This one understands
+        // none, and no issuer of an access token sets it: reading the token as if the header did not say so would be wrong.
+        if header_has_crit(token) {
+            return Err(auth_err(codes::TOKEN_INVALID, "the token's header demands an extension this backend does not understand"));
+        }
 
         // The development token: HS256 with the configured secret, development only.
         if header.alg == Algorithm::HS256 || header.alg == Algorithm::HS384 || header.alg == Algorithm::HS512 {
@@ -229,7 +236,11 @@ impl TokenValidator {
         if sub.is_empty() && !dev {
             return Err(auth_err(codes::TOKEN_INVALID, "the token has no subject"));
         }
-        let exp = c.get("exp").and_then(|v| v.as_i64()).unwrap_or(0);
+        // A signed-in caller's token expires at a moment this backend can name: an `exp` it cannot read as a whole number of
+        // seconds (one past `i64`, say, which the signature check passes as a `u64`) would read as 0 and be "expired" at once.
+        let Some(exp) = c.get("exp").and_then(|v| v.as_i64()) else {
+            return Err(auth_err(codes::TOKEN_INVALID, "the token's exp is not a whole number of seconds"));
+        };
         let nbf = c.get("nbf").and_then(|v| v.as_i64());
         let issuer = c.get("iss").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let default_roles: &[&str] = match self.cfg.profile {
@@ -253,6 +264,17 @@ impl TokenValidator {
         flatten("", c, 0, &mut flat);
         Ok(Claims { sub, issuer, exp, nbf, roles, flat, dev })
     }
+}
+
+/// Whether the token's protected header has a `crit` member. (The header has been read once already, by `decode_header`.)
+fn header_has_crit(token: &str) -> bool {
+    use base64::Engine;
+    let first = token.split('.').next().unwrap_or("");
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(first)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .is_some_and(|h| h.get("crit").is_some())
 }
 
 fn map_jwt_error(e: jsonwebtoken::errors::Error) -> CallError {

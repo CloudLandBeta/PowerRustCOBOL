@@ -139,6 +139,21 @@ impl Issuer {
         jsonwebtoken::encode(&h, claims, &jsonwebtoken::EncodingKey::from_ec_der(&self.pkcs8_der)).expect("sign")
     }
 
+    /// A token whose header is exactly `header` and whose claims are `claims`, signed ES256 by this key over that text:
+    /// what an attacker who holds a key of their own makes, with any header they like (an embedded `jwk`, a `jku`, an
+    /// `x5c`, an algorithm the verifier must not take from the token).
+    pub fn mint_with_header(&self, header: &Value, claims: &Value) -> String {
+        use p256::ecdsa::signature::Signer;
+        let input = format!("{}.{}", URL_SAFE_NO_PAD.encode(header.to_string()), URL_SAFE_NO_PAD.encode(claims.to_string()));
+        let sig: p256::ecdsa::Signature = self.signing.sign(input.as_bytes());
+        format!("{input}.{}", URL_SAFE_NO_PAD.encode(sig.to_bytes()))
+    }
+
+    /// The public key as a JWK (what an attacker would embed in a header).
+    pub fn jwk(&self) -> Value {
+        serde_json::from_str::<Value>(&self.jwks()).ok().and_then(|d| d["keys"][0].as_object().cloned()).map(Value::Object).unwrap_or(Value::Null)
+    }
+
     /// Standard claims for an access token valid for `ttl` seconds.
     pub fn access(&self, sub: &str, aud: &str, ttl: i64, extra: Value) -> String {
         let now = crate::jwt::now();

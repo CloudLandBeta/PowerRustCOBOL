@@ -80,6 +80,13 @@ fn parse_expires(text: &str) -> Option<(String, i64)> {
     Some((shown, days_from_civil(y, m, d) * 86_400 + hh * 3600 + mm * 60 + ss))
 }
 
+/// The moment a date setting expires, in unix seconds: `YYYY-MM-DD` is read as the end of that day in UTC, or a full
+/// `YYYY-MM-DDTHH:MM:SSZ`. `None` when it is neither (a month 13, a 30th of February, a missing part). The manifest's
+/// `[mobile.pinning] expires` reads dates the same way (WASM-013 T21).
+pub fn expiry_unix(text: &str) -> Option<i64> {
+    parse_expires(text).map(|(_, at)| at)
+}
+
 impl SecurityTxt {
     /// Is any key set? A table with nothing in it is the same as no table.
     pub fn is_empty(&self) -> bool {

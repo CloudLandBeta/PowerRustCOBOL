@@ -195,8 +195,16 @@ pub fn diagnostic_text(d: &WebDiagnostic, tr: &Tr) -> String {
     // with its key; a possible secret likewise. A secret that stops the Build keeps the English `file:line: secret (…)`
     // line, like the compiler's own diagnostics.
     if d.kind == WebDiagnosticKind::Other && d.location == "manifest" {
-        let key = d.message.split_whitespace().next().unwrap_or_default();
-        return fill(if d.message.contains("refuses it") { tr.pk_unsafe_refused } else { tr.pk_unsafe_on }, &[key]);
+        let mut words = d.message.split_whitespace();
+        let key = words.next().unwrap_or_default();
+        // The pins are about to expire (WASM-013 T21): `pin-expiring <date> <days>`.
+        if key == "pin-expiring" {
+            return fill(tr.pk_pin_expiring, &[words.next().unwrap_or_default(), words.next().unwrap_or_default()]);
+        }
+        if key.contains(".unsafe.") {
+            return fill(if d.message.contains("refuses it") { tr.pk_unsafe_refused } else { tr.pk_unsafe_on }, &[key]);
+        }
+        // Any other line about the manifest (`[security]`, `[mobile.pinning]`) is the generator's own, in English.
     }
     if d.kind == WebDiagnosticKind::Other && d.message.starts_with("possible secret (") {
         return fill(tr.pk_scan_possible, &[&format!("{} ({})", d.location, d.subject)]);
@@ -2707,5 +2715,26 @@ mod tests {
         }
         assert_eq!(distinct.len(), Language::ALL.len(), "six different sentences");
         println!("gate lines: unsafe on/refused, possible secret, secret heading read in {} languages", Language::ALL.len());
+    }
+
+    /// WASM-013 T21: the pins about to expire are said in each language with the date and the days; any other line about the
+    /// manifest (`[security]`, `[mobile.pinning]`) is the generator's own English, and is not mistaken for an `unsafe` key.
+    #[test]
+    fn the_pin_expiry_warning_reads_in_all_six_languages_and_other_manifest_lines_are_left_alone() {
+        use cobolt_project_tools::web::WebDiagnosticKind::Other;
+        let line = |m: &str| WebDiagnostic { location: "manifest".into(), kind: Other, subject: String::new(), message: m.into(), alternative: String::new() };
+        let expiring = line("pin-expiring 2026-12-05 29");
+        let mut distinct = std::collections::BTreeSet::new();
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            let t = diagnostic_text(&expiring, &tr);
+            assert!(t.contains("2026-12-05") && t.contains("29") && !t.contains("{}") && !t.contains("pin-expiring"), "{lang:?}: {t}");
+            distinct.insert(t);
+            for english in ["[mobile.pinning] pins: at least two different pins are required (the live key and a backup), found 1", "[security] expires: required (a date, YYYY-MM-DD) once [security] is present"] {
+                assert_eq!(diagnostic_text(&line(english), &tr), format!("manifest: {english}"), "{lang:?}");
+            }
+        }
+        assert_eq!(distinct.len(), Language::ALL.len(), "six different sentences");
+        println!("pin expiry: said in {} languages with the date and the days; [security] and [mobile.pinning] lines kept in English", Language::ALL.len());
     }
 }

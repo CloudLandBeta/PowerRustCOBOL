@@ -298,3 +298,32 @@ async fn an_issuer_outage_does_not_stop_callers_whose_keys_are_known() {
     assert_eq!(code, codes::TOKEN_INVALID);
     assert!(message.contains("unavailable"), "{message}");
 }
+
+// ── found by the token fuzz (WASM-013 T20) ──────────────────────────────────
+
+#[tokio::test]
+async fn a_header_that_demands_an_extension_is_refused_even_when_the_key_signed_it() {
+    // RFC 7515 section 4.1.11: a verifier that meets a `crit` it does not understand refuses the token. This one understands none.
+    let (v, issuer) = ec_validator("");
+    let with_crit = issuer.mint_with_header(&json!({"alg": "ES256", "kid": "k1", "typ": "JWT", "crit": ["exp"], "exp": 1}), &claims(json!({})));
+    let (code, message) = refused(&v, &with_crit).await;
+    assert_eq!(code, codes::TOKEN_INVALID);
+    assert!(message.contains("extension"), "{message}");
+    // The same header without the `crit` is a good token: the refusal is the `crit`, nothing else.
+    let without = issuer.mint_with_header(&json!({"alg": "ES256", "kid": "k1", "typ": "JWT"}), &claims(json!({})));
+    assert!(v.validate(&without).await.is_ok(), "a header with no crit is accepted");
+}
+
+#[tokio::test]
+async fn an_exp_that_is_not_a_whole_number_of_seconds_is_refused_not_read_as_zero() {
+    // The signature check reads `exp` as an unsigned number; the claims are read as a signed one. A value past `i64` passed the first and
+    // became 0 in the second: a caller signed in, and every call after was "expired". It is refused when the token is read.
+    let (v, issuer) = ec_validator("");
+    for exp in [json!(u64::MAX), json!(9_223_372_036_854_775_808u64), json!(4_102_444_800.5)] {
+        let token = issuer.mint(&claims(json!({ "exp": exp })));
+        let (code, _) = refused(&v, &token).await;
+        assert_eq!(code, codes::TOKEN_INVALID, "exp {exp}");
+    }
+    let fine = issuer.mint(&claims(json!({})));
+    assert!(v.validate(&fine).await.is_ok());
+}

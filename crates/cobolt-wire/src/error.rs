@@ -144,9 +144,25 @@ pub struct CallError {
     pub may_have_run: Option<bool>,
 }
 
+/// The longest message the platform's own failures may carry. Many say what they found, and what they found may be a stranger's text (a
+/// key, a slot, a number, a contract version): the message is cut, so a megabyte sent is never a megabyte answered, logged or shown
+/// (WASM-013 T20: found by the dispatch fuzz). A program's own failure ([`ErrorClass::Application`]) says what the program says.
+pub const MESSAGE_MAX: usize = 400;
+
+/// `s` cut to `max` characters (on a character, never inside one), with `…` where it was cut.
+pub fn clipped(mut s: String, max: usize) -> String {
+    if let Some((cut, _)) = s.char_indices().nth(max) {
+        s.truncate(cut);
+        s.push('…');
+    }
+    s
+}
+
 impl CallError {
     pub fn new(class: ErrorClass, code: u32, message: impl Into<String>) -> Self {
-        CallError { class, code, message: message.into(), detail: None, may_have_run: None }
+        let message = message.into();
+        let message = if class == ErrorClass::Application { message } else { clipped(message, MESSAGE_MAX) };
+        CallError { class, code, message, detail: None, may_have_run: None }
     }
 
     pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
@@ -164,7 +180,8 @@ impl CallError {
     }
 
     pub fn validation(message: impl Into<String>, path: impl Into<String>) -> Self {
-        CallError::new(ErrorClass::Validation, codes::INVALID_PAYLOAD, message).with_detail(path)
+        // The path names the keys the payload used, which are the sender's: it is cut like the message.
+        CallError::new(ErrorClass::Validation, codes::INVALID_PAYLOAD, message).with_detail(clipped(path.into(), MESSAGE_MAX))
     }
 }
 
@@ -175,3 +192,31 @@ impl std::fmt::Display for CallError {
 }
 
 impl std::error::Error for CallError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_the_platform_says_about_a_strangers_text_is_cut_and_a_programs_own_words_are_not() {
+        let long = "x".repeat(100_000);
+        // Every class the platform raises is bounded, whatever the code puts in the message.
+        for class in ErrorClass::ALL.into_iter().filter(|c| *c != ErrorClass::Application) {
+            let e = CallError::new(class, 1, format!("no member named \"{long}\""));
+            assert!(e.message.chars().count() <= MESSAGE_MAX + 1, "{class:?}: {} characters", e.message.chars().count());
+            assert!(e.message.starts_with("no member named"), "the part that says what happened stays");
+            assert!(e.message.ends_with('…'));
+        }
+        // The path of an invalid payload names the sender's keys.
+        let e = CallError::validation("unknown-key", format!("PAYLOAD.{long}"));
+        assert!(e.detail.as_deref().is_some_and(|d| d.chars().count() <= MESSAGE_MAX + 1 && d.starts_with("PAYLOAD.")));
+        // A program's own failure says what the program says, whole.
+        let app = CallError::new(ErrorClass::Application, 12, "y".repeat(1200));
+        assert_eq!(app.message.len(), 1200);
+        // A short message is untouched; a cut falls on a character.
+        assert_eq!(CallError::new(ErrorClass::Limit, 7000, "a message is larger").message, "a message is larger");
+        let wide = clipped("日".repeat(500), 10);
+        assert_eq!(wide.chars().count(), 11);
+        assert!(wide.ends_with('…'));
+    }
+}

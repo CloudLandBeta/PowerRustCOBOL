@@ -370,6 +370,22 @@ pub enum ClientFrame {
     Bye(Bye),
 }
 
+/// Whether `text` is a JSON object, which a frame always is. The derived readers below also accept a struct written as a
+/// positional array (`["bye"]`), and two implementations of the wire (the browser's and the backend's) must not differ on
+/// what is a message (WASM-013 T19: found by the frame fuzz).
+fn is_object(text: &str) -> bool {
+    text.trim_start_matches([' ', '\t', '\n', '\r']).starts_with('{')
+}
+
+/// The longest a parse failure's reason may be. serde names the value it met, and a frame may quote its own `t`, so the reason for
+/// a megabyte of one letter would be a megabyte of it: the reason is cut, and a rejection never repeats a stranger's text at length
+/// (WASM-013 T20: found by the dispatch fuzz, in the error the backend sent back).
+const REASON_MAX: usize = 200;
+
+fn reason(s: String) -> String {
+    crate::error::clipped(s, REASON_MAX)
+}
+
 /// Whether `s` is a session id: 32 lowercase hexadecimal characters.
 pub fn is_session_id(s: &str) -> bool {
     s.len() == 32 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
@@ -379,7 +395,10 @@ pub fn is_session_id(s: &str) -> bool {
 /// as that kind — a payload never passes through a generic JSON value, so its
 /// numbers keep every digit.
 pub fn parse_client(text: &str) -> Result<ClientFrame, CallError> {
-    let bad = |m: String| CallError::new(ErrorClass::Validation, crate::error::codes::BAD_MESSAGE, m);
+    let bad = |m: String| CallError::new(ErrorClass::Validation, crate::error::codes::BAD_MESSAGE, reason(m));
+    if !is_object(text) {
+        return Err(bad("not a message: a message is a JSON object".into()));
+    }
     let tag: Tag<'_> = serde_json::from_str(text).map_err(|e| bad(format!("not a message: {e}")))?;
     macro_rules! kind {
         ($ty:ty, $variant:ident) => {{
@@ -439,10 +458,13 @@ pub enum ServerFrame {
 /// build does not know is an error the client logs and goes on from: a newer
 /// backend may say more than an older client understands.
 pub fn parse_server(text: &str) -> Result<ServerFrame, String> {
-    let tag: Tag<'_> = serde_json::from_str(text).map_err(|e| format!("not a message: {e}"))?;
+    if !is_object(text) {
+        return Err("not a message: a message is a JSON object".into());
+    }
+    let tag: Tag<'_> = serde_json::from_str(text).map_err(|e| reason(format!("not a message: {e}")))?;
     macro_rules! kind {
         ($ty:ty, $variant:ident) => {
-            serde_json::from_str::<$ty>(text).map(ServerFrame::$variant).map_err(|e| format!("a {} message does not fit: {e}", tag.t))
+            serde_json::from_str::<$ty>(text).map(ServerFrame::$variant).map_err(|e| reason(format!("a {} message does not fit: {e}", tag.t)))
         };
     }
     match tag.t {
@@ -458,7 +480,7 @@ pub fn parse_server(text: &str) -> Result<ServerFrame, String> {
         "put-ready" => kind!(PutReady, PutReady),
         "put-done" => kind!(PutDone, PutDone),
         "file-url" => kind!(FileUrl, FileUrl),
-        other => Err(format!("unknown message kind \"{other}\"")),
+        other => Err(reason(format!("unknown message kind \"{other}\""))),
     }
 }
 
@@ -538,6 +560,31 @@ mod tests {
         assert!(parse_server("{\"t\":\"telepathy\",\"x\":1}").unwrap_err().contains("unknown message kind"));
         assert!(parse_server("not json").is_err());
         assert!(parse_server("{\"t\":\"reply\"}").is_err(), "a reply without its fields does not fit");
+    }
+
+    #[test]
+    fn a_refusal_never_repeats_a_strangers_text_at_length() {
+        // The kind, and a value of the wrong type in three frames: each quoted by the reason, each cut.
+        let long = "A".repeat(100_000);
+        let texts = [
+            format!("{{\"t\":\"{long}\"}}"),
+            format!("{{\"t\":\"call\",\"id\":\"{long}\",\"program\":\"P\",\"args\":[]}}"),
+            format!("{{\"t\":\"cancel\",\"id\":\"{long}\"}}"),
+            format!("{{\"t\":\"hello\",\"protocol\":\"{long}\"}}"),
+        ];
+        for text in &texts {
+            let client = parse_client(text).unwrap_err().message;
+            let server = parse_server(text).unwrap_err();
+            for (who, m) in [("backend", client), ("client", server)] {
+                assert!(m.chars().count() <= 201, "the {who}'s reason for {} bytes is {} characters", text.len(), m.chars().count());
+                assert!(!m.is_empty());
+            }
+        }
+        // A short reason is left whole, and a cut falls on a character.
+        assert_eq!(parse_client("{\"t\":\"telepathy\"}").unwrap_err().message, "unknown message kind \"telepathy\"");
+        let wide = "日".repeat(500);
+        let m = parse_client(&format!("{{\"t\":\"{wide}\"}}")).unwrap_err().message;
+        assert!(m.ends_with('…') && m.chars().count() == 201, "{m}");
     }
 
     #[test]

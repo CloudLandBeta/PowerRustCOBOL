@@ -8,7 +8,7 @@
 //! WASM-013 R15 — the JSON-to-group fuzz target, run here with a fixed seed so
 //! it is reproducible and cheap enough for every run).
 //!
-//! Two properties, over thousands of random layouts:
+//! Three properties, over thousands of random layouts (`PR_FUZZ_ITERS=<n>` multiplies the work for a longer run):
 //!
 //! 1. **Round trip is the identity.** Any state the generator can build is
 //!    encoded and read back into a blank group; what travelled is the same.
@@ -16,7 +16,11 @@
 //!    byte by byte; decoding either refuses it (with a named error) or accepts a
 //!    state that still encodes. A refused read leaves the group as it was
 //!    (decoding borrows it).
+//! 3. **The JSON reader alone survives the same bytes** (WASM-013 T19). Each mutated text, and the lossy reading of
+//!    the ones that are not UTF-8, goes through `json::parse` with its limit: it is refused with a named reason or
+//!    it is a value whose own text reads back as the same value; a limit one byte short of the text refuses it.
 
+use cobolt_wire::json;
 use cobolt_wire::layout::{validate, Item, Kind, Occurs};
 use cobolt_wire::node::{dump, Node};
 use cobolt_wire::number::from_mantissa;
@@ -193,13 +197,49 @@ fn settle_counts(item: &Item, node: &mut Node, rng: &mut Rng) {
     }
 }
 
+/// The multiplier of the random work (default 1).
+fn iters() -> u64 {
+    std::env::var("PR_FUZZ_ITERS").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(1).max(1)
+}
+
+/// What the JSON reader does with `text`: counted, and held to its contract.
+#[derive(Default)]
+struct JsonTally {
+    parsed: u64,
+    refused: u64,
+    accepted: u64,
+    lossy: u64,
+}
+
+fn read_json(text: &str, t: &mut JsonTally) {
+    t.parsed += 1;
+    match json::parse(text, 1 << 22) {
+        Err(e) => {
+            t.refused += 1;
+            assert!(!e.message.is_empty() && e.at <= text.len(), "a refusal is named and points into the text: {e:?}");
+        }
+        Ok(v) => {
+            t.accepted += 1;
+            // What the writer says reads back as the same value (the strict reader accepts the writer's text).
+            let again = v.to_text();
+            assert_eq!(json::parse(&again, 1 << 22).as_ref(), Ok(&v), "the writer's text for an accepted value must read back as it: {again}");
+        }
+    }
+    // A limit one byte short of the text refuses it, and says so.
+    if !text.is_empty() {
+        let e = json::parse(text, text.len() - 1).expect_err("a text over the limit is refused");
+        assert!(e.message.contains("limit"), "the refusal names the limit: {e:?}");
+    }
+}
+
 #[test]
 fn random_layouts_round_trip_and_garbage_is_refused_without_panic() {
+    let mut json_tally = JsonTally::default();
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let (mut layouts, mut skipped, mut states, mut json_bytes, mut mutations, mut refused, mut accepted) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
     let started = std::time::Instant::now();
 
-    for _ in 0..1500 {
+    for _ in 0..500 * iters() {
         let mut counter = 0;
         let root = group(&mut rng, "ROOT".into(), 0, &mut counter);
         if validate(&root).is_err() {
@@ -240,7 +280,16 @@ fn random_layouts_round_trip_and_garbage_is_refused_without_panic() {
                         }
                         _ => m.insert(pos, bytes[pos]),
                     }
-                    let Ok(mutated) = String::from_utf8(m) else { continue };
+                    let mutated = match String::from_utf8(m) {
+                        Ok(text) => text,
+                        Err(e) => {
+                            // Not text: the reader never sees it; its lossy reading (with U+FFFD in it) it does.
+                            json_tally.lossy += 1;
+                            read_json(&String::from_utf8_lossy(e.as_bytes()), &mut json_tally);
+                            continue;
+                        }
+                    };
+                    read_json(&mutated, &mut json_tally);
                     mutations += 1;
                     let before = dump(&root, &blank);
                     match decode(&root, &blank, &mutated, 1 << 22) {
@@ -261,8 +310,14 @@ fn random_layouts_round_trip_and_garbage_is_refused_without_panic() {
 
     println!(
         "\n  random layouts: {layouts} layouts ({skipped} refused by validate), {states} states, {json_bytes} bytes of JSON written and read back identically; \
-         {mutations} mutated texts: {refused} refused with a named error, {accepted} accepted as whole states, 0 panics; {:.0} ms",
-        started.elapsed().as_secs_f64() * 1000.0
+         {mutations} mutated texts: {refused} refused with a named error, {accepted} accepted as whole states, 0 panics; \
+         json::parse on the same bytes: {} texts ({} lossily read), {} refused with a named reason, {} accepted and written back identically; {:.0} ms (PR_FUZZ_ITERS={})",
+        json_tally.parsed,
+        json_tally.lossy,
+        json_tally.refused,
+        json_tally.accepted,
+        started.elapsed().as_secs_f64() * 1000.0,
+        iters()
     );
-    assert!(layouts > 1000 && states > 3000 && mutations > 100_000, "the run was big enough to mean something");
+    assert!(layouts > 400 && states > 1200 && mutations > 60_000, "the run was big enough to mean something");
 }

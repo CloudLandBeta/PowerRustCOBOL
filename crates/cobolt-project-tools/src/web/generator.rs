@@ -989,10 +989,21 @@ fn gate_inputs(req: &WebBuildRequest, warnings: &mut Vec<WebDiagnostic>) -> Resu
     if !unsafe_refusals.is_empty() {
         return Err(WebBuildError::Refused(unsafe_refusals.into_iter().map(|m| diag("manifest".into(), WebDiagnosticKind::Other, String::new(), m)).collect()));
     }
+    // `[mobile.pinning]` (WASM-013 R14, T21): off when the table is absent. Present, it needs two different pins and an
+    // `expires` that has not passed, and it warns within 30 days of that date.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    if let (cobolt_compiler::ProjectKind::Mobile, Some(pinning)) = (req.kind, &req.pinning) {
+        let (pin_warnings, pin_errors) = pinning.check(now);
+        for w in pin_warnings {
+            warnings.push(diag("manifest".into(), WebDiagnosticKind::Other, String::new(), w));
+        }
+        if !pin_errors.is_empty() {
+            return Err(WebBuildError::Refused(pin_errors.into_iter().map(|m| diag("manifest".into(), WebDiagnosticKind::Other, String::new(), m)).collect()));
+        }
+    }
     // `[security]` (WASM-013 Q4): an incomplete table, or an `expires` that has passed, is the developer's to fix
     // before the Build, so Check says it too.
     if let Some(t) = security_txt_of(req) {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
         if let Err(problems) = t.render(now) {
             return Err(WebBuildError::Refused(problems.into_iter().map(|m| diag("manifest".into(), WebDiagnosticKind::Other, String::new(), m)).collect()));
         }
@@ -1441,5 +1452,64 @@ mod tests {
         // Not a WebSocket address: passed on whole, and the bundle refuses it by name.
         assert_eq!(backend_origin("https://api.example.com"), Some("https://api.example.com".into()));
         assert_eq!(connect_src("default-src 'none'; connect-src 'self' wss://a.b; object-src 'none'"), "connect-src 'self' wss://a.b");
+    }
+
+    /// The date `days` after today, `YYYY-MM-DD` (UTC).
+    fn date_after(days: i64) -> String {
+        let z = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 / 86_400 + days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        format!("{:04}-{:02}-{:02}", yoe + era * 400 + i64::from(m <= 2), m, d)
+    }
+
+    /// WASM-013 T21: Check and Build pass `[mobile.pinning]` through the same gate: wrong, it stops them naming the key; right
+    /// but near its end, it warns; absent, nothing.
+    #[test]
+    fn the_pinning_table_stops_check_and_build_when_wrong_and_warns_near_its_end() {
+        let (a, b) = (format!("sha256/{}=", "A".repeat(43)), format!("sha256/{}=", "E".repeat(43)));
+        let manifest = |pinning: &str| {
+            format!("[project]\nname = \"M.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"mobile\"\n\n[files]\nforms = [\"mobileforms/main-form.cfrm\"]\n\n[mobile]\nplatform = \"android\"\ndevice = \"phone\"\n{pinning}")
+        };
+        let gate = |tag: &str, pinning: &str| {
+            let dir = std::env::temp_dir().join(format!("prc-pin-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("M.project.toml"), manifest(pinning)).unwrap();
+            let req = WebBuildRequest::from_manifest(&dir.join("M.project.toml")).unwrap();
+            let mut warnings = Vec::new();
+            let r = gate_inputs(&req, &mut warnings);
+            let _ = std::fs::remove_dir_all(&dir);
+            (r, warnings)
+        };
+        // Absent: pinning is off.
+        let (r, w) = gate("none", "");
+        assert!(r.is_ok() && w.iter().all(|d| !d.message.starts_with("pin-expiring")), "{r:?} {w:?}");
+        // Right, far from its end.
+        let far = date_after(90);
+        let (r, w) = gate("ok", &format!("\n[mobile.pinning]\npins = [\"{a}\", \"{b}\"]\nexpires = \"{far}\"\n"));
+        assert!(r.is_ok() && w.iter().all(|d| !d.message.starts_with("pin-expiring")), "{r:?} {w:?}");
+        // Right, ten days from its end: a warning, in the form the IDE translates.
+        let soon = date_after(10);
+        let (r, w) = gate("soon", &format!("\n[mobile.pinning]\npins = [\"{a}\", \"{b}\"]\nexpires = \"{soon}\"\n"));
+        assert!(r.is_ok(), "{r:?}");
+        let said = w.iter().find(|d| d.message.starts_with("pin-expiring")).unwrap_or_else(|| panic!("{w:?}"));
+        let days: i64 = said.message.rsplit(' ').next().unwrap().parse().unwrap();
+        assert!(said.location == "manifest" && said.message.contains(&soon) && (9..=11).contains(&days), "{said:?}");
+        // Wrong: one pin, a date that has passed.
+        for (label, table, why) in [
+            ("one pin", format!("\n[mobile.pinning]\npins = [\"{a}\"]\nexpires = \"{far}\"\n"), "at least two different pins"),
+            ("past", format!("\n[mobile.pinning]\npins = [\"{a}\", \"{b}\"]\nexpires = \"2020-01-01\"\n"), "the date has passed"),
+            ("empty table", "\n[mobile.pinning]\n".to_string(), "expires: required"),
+        ] {
+            match gate(label, &table).0 {
+                Err(WebBuildError::Refused(list)) => assert!(list.iter().any(|d| d.location == "manifest" && d.message.contains(why)), "{label}: {list:?}"),
+                other => panic!("{label}: expected a refusal, got {other:?}"),
+            }
+        }
     }
 }

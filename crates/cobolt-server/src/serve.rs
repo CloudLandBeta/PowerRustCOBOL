@@ -35,7 +35,8 @@ use serde_json::value::RawValue;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch, Semaphore};
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::{CloseFrame, WebSocketConfig};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 use tokio_tungstenite::tungstenite::protocol::Role;
@@ -691,6 +692,8 @@ struct Conn {
     claims: Option<Claims>,
     rate: Bucket,
     auth_failures: u32,
+    /// The client said `bye`: it is leaving, whatever the state of the exchange.
+    said_bye: bool,
     calls: Arc<Semaphore>,
     in_flight: Arc<Mutex<HashMap<u64, Running>>>,
     /// Stream subscriptions of this connection, by the client's id.
@@ -803,6 +806,7 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         claims: None,
         rate: Bucket::new(shared.cfg.limits.connection_rate.0, shared.cfg.limits.connection_rate.1),
         auth_failures: 0,
+        said_bye: false,
         calls: Arc::new(Semaphore::new(shared.cfg.limits.max_calls_per_connection)),
         in_flight: Arc::new(Mutex::new(HashMap::new())),
         subs: Arc::new(Mutex::new(HashMap::new())),
@@ -816,17 +820,33 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
 
     let hello_deadline = Instant::now() + Duration::from_millis(shared.cfg.limits.handshake_timeout_ms);
     let mut shutdown = shared.shutdown.clone();
+    // How the connection ends, as the close frame names it (RFC 6455 section 7.4; WASM-013 T20): a peer that breaks a rule is
+    // told which kind of rule, and the fuzz target holds the server to it. `None` when the peer went first.
+    let mut ending: Option<(CloseCode, &'static str)> = None;
     loop {
         let wait = if conn.hello.is_none() { hello_deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1)) } else { idle };
         let next = tokio::select! {
-            _ = shutdown.changed() => break,
+            _ = shutdown.changed() => {
+                ending = Some((CloseCode::Away, "the backend is shutting down"));
+                break;
+            }
             n = tokio::time::timeout(wait, stream.next()) => n,
         };
         let msg = match next {
-            Err(_) => break, // nothing for too long, or no hello in time
+            Err(_) => {
+                // nothing for too long, or no hello in time
+                ending = Some(if conn.hello.is_none() { (CloseCode::Policy, "no hello in time") } else { (CloseCode::Normal, "idle") });
+                break;
+            }
             Ok(None) => break,
             Ok(Some(Err(e))) => {
                 use tokio_tungstenite::tungstenite::error::{CapacityError, Error};
+                ending = match &e {
+                    Error::Capacity(CapacityError::MessageTooLong { .. }) => Some((CloseCode::Size, "a message is too large")),
+                    Error::Utf8(_) => Some((CloseCode::Invalid, "a text message is not UTF-8")),
+                    Error::Protocol(_) => Some((CloseCode::Protocol, "a WebSocket protocol rule was broken")),
+                    _ => None,
+                };
                 if matches!(e, Error::Capacity(CapacityError::MessageTooLong { .. })) {
                     send_error(&tx, None, &CallError::new(ErrorClass::Limit, codes::FRAME_TOO_LARGE, format!("a message is larger than the {} bytes this backend accepts", shared.cfg.limits.max_frame_bytes))).await;
                     let mut r = LogRecord::new("refused");
@@ -842,15 +862,27 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         match msg {
             Message::Text(t) => {
                 // After the `hello`s the channel is sealed: a text message is a peer that skipped it (R24).
-                if conn.receiver.is_some() || !on_text(&shared, &mut conn, &tx, t.as_str()).await {
+                if conn.receiver.is_some() {
+                    ending = Some((CloseCode::Protocol, "after the hello every message is sealed"));
+                    break;
+                }
+                if !on_text(&shared, &mut conn, &tx, t.as_str()).await {
+                    ending = Some(ended_by_frame(&conn));
                     break;
                 }
             }
             Message::Binary(b) => {
                 // A sealed frame opens to what used to be a text message; one that does not open ends the connection.
-                let Some(rx) = conn.receiver.as_mut() else { break };
-                let Ok(plain) = rx.open(&b) else { break };
+                let Some(rx) = conn.receiver.as_mut() else {
+                    ending = Some((CloseCode::Protocol, "the hello comes first"));
+                    break;
+                };
+                let Ok(plain) = rx.open(&b) else {
+                    ending = Some((CloseCode::Protocol, "a sealed frame does not open"));
+                    break;
+                };
                 if !on_text(&shared, &mut conn, &tx, &plain).await {
+                    ending = Some(ended_by_frame(&conn));
                     break;
                 }
             }
@@ -866,9 +898,23 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
             }
         }
     }
-    let _ = tx.send(Message::Close(None)).await;
+    let _ = tx.send(Message::Close(ending.map(|(code, reason)| CloseFrame { code, reason: reason.into() }))).await;
     drop(tx);
     let _ = tokio::time::timeout(Duration::from_secs(2), writer).await;
+}
+
+/// Why a connection that a frame ended ended, for its close frame: a `hello` that was refused, a client that could not sign in
+/// five times, or a `bye`.
+fn ended_by_frame(conn: &Conn) -> (CloseCode, &'static str) {
+    if conn.said_bye {
+        (CloseCode::Normal, "bye")
+    } else if conn.hello.is_none() {
+        (CloseCode::Protocol, "the hello was refused")
+    } else if conn.auth_failures >= 5 {
+        (CloseCode::Policy, "too many failed sign-ins")
+    } else {
+        (CloseCode::Normal, "closed")
+    }
 }
 
 async fn send_error(tx: &mpsc::Sender<Message>, id: Option<u64>, e: &CallError) {
@@ -886,8 +932,15 @@ async fn on_text(shared: &Arc<Shared>, conn: &mut Conn, tx: &mpsc::Sender<Messag
         }
     };
     match frame {
+        // The exchange happens once a connection (R24): a second `hello` would re-key the receiving half under a client that
+        // does not know it, so it is refused as the message it is not, and the channel stays as it was (WASM-013 T20).
+        ClientFrame::Hello(_) if conn.hello.is_some() => {
+            send_error(tx, None, &CallError::new(ErrorClass::Validation, codes::BAD_MESSAGE, "the hello was already exchanged on this connection")).await;
+            true
+        }
         ClientFrame::Hello(h) => on_hello(shared, conn, tx, h).await,
         ClientFrame::Bye(_) => {
+            conn.said_bye = true;
             // The client is leaving for good: its session and what it kept go now.
             if let Some(s) = conn.hello.as_ref().and_then(|h| h.session.clone()) {
                 let caller = conn.claims.as_ref().map(|c| c.sub.clone()).unwrap_or_else(|| format!("ip:{}", conn.peer.ip()));

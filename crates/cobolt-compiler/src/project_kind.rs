@@ -419,6 +419,67 @@ pub struct PinningSettings {
     pub expires: Option<String>,
 }
 
+/// How many days before `[mobile.pinning] expires` Check starts to say so.
+pub const PIN_WARN_DAYS: i64 = 30;
+
+/// Whether `s` is a pin: `sha256/` and the standard base64 (with its `=`) of exactly 32 bytes, the SHA-256 of a certificate's public key.
+pub fn is_pin(s: &str) -> bool {
+    let Some(b) = s.strip_prefix("sha256/") else { return false };
+    let b = b.as_bytes();
+    // 32 bytes are 256 bits: 43 characters of 6 bits and one `=`; the 43rd carries 4 bits of the key and two that must be zero.
+    if b.len() != 44 || b[43] != b'=' {
+        return false;
+    }
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    b[..43].iter().all(|c| value(*c).is_some()) && value(b[42]).is_some_and(|v| v & 0b11 == 0)
+}
+
+impl PinningSettings {
+    /// What is wrong with this table, as `(warnings, errors)` (WASM-013 R14). A pin that cannot be checked, too few pins and an
+    /// expiry that is missing, unreadable or past are errors: a pinned app that cannot reach its backend is the failure this
+    /// exists to avoid, and a single pin leaves no way out of a key change. Within [`PIN_WARN_DAYS`] of the expiry it warns, in
+    /// the form `pin-expiring <date> <days>` (the IDE says it in its own language). Pins are named by position, never quoted.
+    /// Pinning is off, and this is not called, when the table is absent.
+    pub fn check(&self, now_unix: i64) -> (Vec<String>, Vec<String>) {
+        let mut warnings = Vec::new();
+        let mut errors = Vec::new();
+        let mut good = std::collections::BTreeSet::new();
+        for (i, pin) in self.pins.iter().enumerate() {
+            if is_pin(pin) {
+                if !good.insert(pin.as_str()) {
+                    errors.push(format!("[mobile.pinning] pins: pin {} repeats an earlier one", i + 1));
+                }
+            } else {
+                errors.push(format!("[mobile.pinning] pins: pin {} is not sha256/ and the base64 of 32 bytes", i + 1));
+            }
+        }
+        if good.len() < 2 {
+            errors.push(format!("[mobile.pinning] pins: at least two different pins are required (the live key and a backup), found {}", good.len()));
+        }
+        match self.expires.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+            None => errors.push("[mobile.pinning] expires: required (a date, YYYY-MM-DD)".into()),
+            Some(text) => match cobolt_wire::security_txt::expiry_unix(text) {
+                None => errors.push("[mobile.pinning] expires: must be a date, YYYY-MM-DD (or YYYY-MM-DDTHH:MM:SSZ)".into()),
+                Some(at) if at <= now_unix => errors.push("[mobile.pinning] expires: the date has passed; pin the current keys and set a later date".into()),
+                Some(at) => {
+                    let days = (at - now_unix) / 86_400;
+                    if days < PIN_WARN_DAYS {
+                        warnings.push(format!("pin-expiring {} {}", text.get(..10).unwrap_or(text), days));
+                    }
+                }
+            },
+        }
+        (warnings, errors)
+    }
+}
+
 /// `[security]` — what the generated `/.well-known/security.txt` says (WASM-013 Q4, RFC 9116).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SecuritySettings {
@@ -1113,5 +1174,64 @@ mod tests {
         let back: SecuritySettings = toml::from_str(&toml::to_string_pretty(&sec).unwrap()).unwrap();
         assert_eq!(back, sec);
         println!("security tables: old manifest unchanged, [unsafe], [pinning], [security] round-trip, enabled() names the keys");
+    }
+
+    /// WASM-013 T21 (R14): `[mobile.pinning]` needs two different, well-formed pins and a date that has not passed, and warns
+    /// within 30 days of it. An absent table is pinning off (`check` is not called; the manifest keeps `pinning: None`).
+    #[test]
+    fn the_pinning_table_needs_two_pins_and_a_date_and_warns_a_month_before_it() {
+        let now = cobolt_wire::security_txt::expiry_unix("2026-11-06T00:00:00Z").unwrap();
+        // 43 characters and `=`: the 43rd must carry two zero bits, so it is one of A E I M Q U Y c g k o s w 0 4 8.
+        let pin = |c: char, last: char| format!("sha256/{}{last}=", c.to_string().repeat(42));
+        let (a, b) = (pin('A', 'A'), pin('x', 'E'));
+        let table = |pins: &[&str], expires: Option<&str>| PinningSettings { pins: pins.iter().map(|p| p.to_string()).collect(), expires: expires.map(str::to_owned) };
+        let mut cases = 0usize;
+        let mut case = |label: &str, t: PinningSettings, warn: &[&str], err: &[&str]| {
+            let given = t.pins.clone();
+            let (w, e) = t.check(now);
+            assert_eq!(w.len(), warn.len(), "{label}: warnings {w:?}");
+            assert_eq!(e.len(), err.len(), "{label}: errors {e:?}");
+            for (got, want) in w.iter().chain(&e).zip(warn.iter().chain(err)) {
+                assert!(got.contains(want), "{label}: {got:?} should contain {want:?}");
+            }
+            for text in w.iter().chain(&e) {
+                for pin in given.iter().filter(|p| !p.is_empty()) {
+                    assert!(!text.contains(pin.as_str()), "{label}: a pin is named by its position, never quoted: {text}");
+                }
+            }
+            cases += 1;
+        };
+        case("two pins and a date far off", table(&[&a, &b], Some("2027-06-30")), &[], &[]);
+        case("a full time stamp", table(&[&a, &b], Some("2027-06-30T12:00:00Z")), &[], &[]);
+        case("one pin", table(&[&a], Some("2027-06-30")), &[], &["at least two different pins are required (the live key and a backup), found 1"]);
+        case("no pin", table(&[], Some("2027-06-30")), &[], &["found 0"]);
+        case("the same pin twice", table(&[&a, &a], Some("2027-06-30")), &[], &["pin 2 repeats an earlier one", "found 1"]);
+        for (label, bad) in [
+            ("a pin too short", "sha256/AAAA".to_string()),
+            ("no sha256/ prefix", format!("{}=", "A".repeat(43))),
+            ("sha1, not sha256", format!("sha1/{}=", "A".repeat(43))),
+            ("a character outside base64", format!("sha256/{}!=", "A".repeat(42))),
+            ("the url-safe alphabet", format!("sha256/{}_=", "A".repeat(42))),
+            ("two bits that are not zero", pin('A', 'B')),
+            ("no padding", format!("sha256/{}", "A".repeat(44))),
+            ("a pin of 33 bytes", format!("sha256/{}=", "A".repeat(44))),
+            ("empty", String::new()),
+        ] {
+            case(label, table(&[&a, &bad], Some("2027-06-30")), &[], &["pin 2 is not sha256/ and the base64 of 32 bytes", "found 1"]);
+        }
+        case("no date", table(&[&a, &b], None), &[], &["expires: required"]);
+        case("a blank date", table(&[&a, &b], Some("  ")), &[], &["expires: required"]);
+        case("not a date", table(&[&a, &b], Some("soon")), &[], &["must be a date"]);
+        case("a day that does not exist", table(&[&a, &b], Some("2027-02-30")), &[], &["must be a date"]);
+        case("yesterday", table(&[&a, &b], Some("2026-11-05")), &[], &["the date has passed"]);
+        case("a time stamp that has just passed", table(&[&a, &b], Some("2026-11-06T00:00:00Z")), &[], &["the date has passed"]);
+        case("today, to its last second", table(&[&a, &b], Some("2026-11-06")), &["pin-expiring 2026-11-06 0"], &[]);
+        case("29 days and a day to go", table(&[&a, &b], Some("2026-12-05")), &["pin-expiring 2026-12-05 29"], &[]);
+        case("30 days and a day to go", table(&[&a, &b], Some("2026-12-06")), &[], &[]);
+        case("everything wrong at once", table(&[&a], Some("2020-01-01")), &[], &["found 1", "the date has passed"]);
+        // Off by default: an old manifest has no table, and is saved without one.
+        let plain: MobileSettings = toml::from_str("platform = \"android\"\ndevice = \"phone\"").unwrap();
+        assert!(plain.pinning.is_none());
+        println!("pinning: {cases} cases (each refusal, the repeat, the 30-day edge at 29 and 30 days, today); a pin is named by position, never quoted; absent table = off");
     }
 }
