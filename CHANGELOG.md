@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.248 — 2026-11-06
+
+**WASM-015 T17: the agents' tools on a web project, end to end and on both servers (AC8, AC9).** *(Written on features-2x-wasm-pending, after 2.0.247.)* New `cobolt-web-tests/tests/servers_agree.rs`: `web_tool_sequence` (create_project, check refusing a plug-in control, fix, build with its secret scan, `render_form` on the system web view with `engine`, `run_form` typing, clicking and reading back "Hello, Ada") and `both_servers_agree` (six tool answers equal between a server with the renderer and runner injected and one without, time and path fields set aside). Both pass on WebKit on this Mac; no product code changed.
+
 ## 2.0.247 — 2026-11-06
 
 **WASM-015 T16: `build` reports its secret scan; `check` on a web form is pinned end to end.** *(Written on features-2x-wasm-pending, after 2.0.246.)* The Web Build's answer gains `report.secret_scan {scanned_files, findings}` (a finding names the file, the line and the pattern, never the value). New `cobolt-web-tests/tests/agent_tools.rs`: `check` refuses a plug-in control with file, line and control name, leaves the form untouched, and is clean again once it is removed; `build` on the Web template read 16 files and found nothing. project-tools 238 passed. The `validate` half of T16 stays open as T16b.
