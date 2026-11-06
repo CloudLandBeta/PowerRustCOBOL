@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.245 — 2026-11-06
+
+**WASM-015 T10: the web parity guard is closed by the tests WASM-004 and WASM-016 already ship.** *(Written on features-2x-wasm-pending, after 2.0.244.)* `desktop_comparison_chrome`, `layers_chrome`, `focus_comparison_chrome` and `lifecycle_comparison_chrome` compare the desktop host with a built page (geometry to half a pixel, layers, focus, lifecycle) and pass today; a second copy on the WebKit helper would add no check, so T10 is ticked with the evidence and T10b (the same forms through the system web view, and the spread in `WASM-PROGRESS.md`) stays open. Specs only; no code changed.
+
 ## 2.0.244 — 2026-11-06
 
 **WASM-015 T9: the seven desktop control files; the web round-trip is WASM-004 T32's.** *(Written on features-2x-wasm-pending, after 2.0.243.)* `tests/controls/` gains `sidemenu`, `switch`, `snackbar`, `knob`, `gauge`, `maps` and `viewer` (same shape as `button.rs`, listed in its `Cargo.toml`): 50 test binaries, all passing. The web property round-trip of every class A/B control already exists (`controls_roundtrip_chrome`: 39 controls, 332 checks, 5 documented mismatches, re-run in Chrome today); the same read through the system web view (WebKit) is left open as T9b in the task list.
