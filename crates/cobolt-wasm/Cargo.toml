@@ -66,3 +66,5 @@ cobolt-runtime  = { path = "../cobolt-runtime" }
 cobolt-graphics = { path = "../cobolt-graphics" }
 # A form generated the way the Build generates it, and its source map (R14).
 cobolt-codegen  = { path = "../cobolt-codegen" }
+# WASM-015 T11: the module runner takes the shared script steps from the one place that defines them (a dev-dependency only).
+cobolt-project-tools = { path = "../cobolt-project-tools" }

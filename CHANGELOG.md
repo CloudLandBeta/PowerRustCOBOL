@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.255 — 2026-11-06
+
+**WASM-015 T11: the module runner takes the shared script steps (R1, R9).** *(Written on features-2x-wasm-pending, after 2.0.254.)* New `cobolt-wasm/tests/runner.rs`: `run_script` drives a project module on `wasmtime` with the clock and the random source fixed, taking the same `Step` type as the browser and desktop runners (`cobolt-project-tools` is a dev-dependency of `cobolt-wasm` only) — `set` types into a property, `event` raises a handler, `read` answers the property; a step that needs a page (`rect`, `style`, `snapshot`, …) is refused by name. One script run twice gives byte-identical reads, output, errors and batches in both memory variants, and a read after a handler's own `SET` answers that value. It prints the steps, the host calls and the bytes compared. `FormHost` already held the stub property store, so the library is unchanged.
+
 ## 2.0.254 — 2026-11-06
 
 **WASM-015 T24: finalized — what the spec shipped and what stays open.** *(Written on features-2x-wasm-pending, after 2.0.253.)* WASM-015 is shipped except the tasks gated on other specs. In place: the browser runner and the backend runner (T6, T7), the control coverage table (71 of 71 rows, A/B 41 of 41, 21 known class C gaps), the web goldens, the agents' tools on web projects (`check` gates, the `engine` field, `report.secret_scan`) with both servers agreeing, the plugin rules (14 → 15, `web-layers`, the reviewer's class C/D checks), `WebFormsDesigner` and the Web Form Designer Agent with its Pedantic Reviewer, the web knowledge census (156 of 156), `examples/PowerWebHello`, and the CI jobs. Measured in this release: 242 test targets, 2794 passed, 0 failed over the crates touched; `cobolt-ide` 1960 passed, 8 failed, all of them known (3 pre-existing, 5 that need `rcrun`/a backend binary in a fresh worktree). Open: T11–T14 (gated on WASM-010), T9b, T10b, T16b, T22b, the first CI run's engine per cell, and the operator's manual check of Grace on a web form.

@@ -2619,6 +2619,7 @@ dependencies = [
  "cobolt-graphics-wire",
  "cobolt-lexer",
  "cobolt-parser",
+ "cobolt-project-tools",
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-wasm-abi",
