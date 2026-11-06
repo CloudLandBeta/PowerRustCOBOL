@@ -12,7 +12,6 @@
 //! over it — the address of a local HTTP stub and a token read from a file.
 //! The stub sees the token; the browser's answer never carries it.
 
-mod support;
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -22,7 +21,7 @@ use cobolt_codegen::remote_controls::{fixtures, generate_control_programs, gener
 use cobolt_server::backend::Backend;
 use cobolt_server::config::{RunMode, ServerConfig};
 use serde_json::Value;
-use support::*;
+use cobolt_server::testkit::*;
 
 const EXPORTS: &str = "[contract]\nversion = \"1.0.0\"\n";
 const TOKEN: &str = "s3cret-crm-token-0042";

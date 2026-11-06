@@ -16,7 +16,6 @@
 //! and the two endpoints), plus a grid bound to a COBOL table, which stays in
 //! the form (Q8) and makes no call.
 
-mod support;
 
 use std::cell::RefCell;
 use std::sync::{mpsc, Arc, Mutex};
@@ -29,7 +28,7 @@ use cobolt_wire::call::{ArgMode, ArgPayload, CallObserver, CallReply, CallReques
 use cobolt_wire::controls::endpoint_name;
 use cobolt_wire::error::CallError;
 use serde_json::{json, Value};
-use support::*;
+use cobolt_server::testkit::*;
 
 const CUSTOMERS: usize = 250;
 

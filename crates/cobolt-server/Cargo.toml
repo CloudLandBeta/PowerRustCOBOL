@@ -14,6 +14,8 @@ license.workspace      = true
 repository.workspace   = true
 
 [features]
+# `cobolt_server::testkit`: the loopback tests' certificate, identity provider and raw client. Not in `default`.
+testkit = ["server", "client", "dep:rcgen", "dep:p256", "dep:rand_core", "dep:rsa", "dep:signature", "jsonwebtoken/use_pem"]
 default = ["server", "client"]
 
 # Reading a backend project and packing it: the programs, `exports.toml`, the
@@ -101,6 +103,12 @@ chacha20poly1305 = { workspace = true, optional = true }
 hmac      = { workspace = true, optional = true }
 base64    = { version = "0.22", optional = true }
 getrandom = { version = "0.4", optional = true }
+# The test kit (WASM-015 D5): a certificate authority and an identity provider of one, RustCrypto only.
+rcgen     = { version = "0.14", default-features = false, features = ["pem"], optional = true }
+p256      = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"], optional = true }
+rand_core = { version = "0.6", features = ["getrandom"], optional = true }
+rsa       = { version = "0.9", features = ["sha2"], optional = true }
+signature = { version = "2", optional = true }
 
 [dev-dependencies]
 cobolt-wire = { path = "../cobolt-wire" }
@@ -115,12 +123,7 @@ cobolt-compiler = { path = "../cobolt-compiler" }
 # WASM-005 T15: the remote-binding test writes the `.cidx` the desktop path reads.
 cobolt-indexed = { path = "../cobolt-indexed" }
 cobolt-runtime = { path = "../cobolt-runtime", default-features = false, features = ["sql", "http"] }
-# A self-signed certificate for the loopback tests, signed with RustCrypto
-# through rcgen's remote-key hook: no ring, no aws-lc-rs.
-rcgen = { version = "0.14", default-features = false, features = ["pem"] }
-p256  = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
-rand_core = { version = "0.6", features = ["getrandom"] }
-rsa = { version = "0.9", features = ["sha2"] }
+# The test kit (`testkit` feature: rcgen, p256, rand_core, rsa, signature, jsonwebtoken/use_pem) is switched on
+# for this crate's own tests by the dev-dependency on itself.
+cobolt-server = { path = ".", features = ["testkit"] }
 sha2 = { workspace = true }
-signature = "2"
-jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto", "use_pem"] }

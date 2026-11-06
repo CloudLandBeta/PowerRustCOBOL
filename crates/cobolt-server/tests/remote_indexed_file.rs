@@ -12,7 +12,6 @@
 //! generates for the control (`cobolt-codegen`'s `remote_controls::indexed`).
 //! A call without a token is refused.
 
-mod support;
 
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -25,7 +24,7 @@ use cobolt_server::client::{ClientConfig, SpecToken, WsClient};
 use cobolt_wire::call::{ArgMode, ArgPayload, CallObserver, CallReply, CallRequest, Transport};
 use cobolt_wire::error::CallError;
 use serde_json::{json, Value};
-use support::*;
+use cobolt_server::testkit::*;
 
 const MY_EXPORTS: &str = "[contract]\nversion = \"1.0.0\"\n";
 const PARTS: usize = 20;

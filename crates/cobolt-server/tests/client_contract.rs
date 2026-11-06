@@ -8,13 +8,12 @@
 //! backend over a real TLS loopback, with a proxy that can cut the connection at
 //! the moment a test chooses. Each test names the acceptance criterion it proves.
 
-mod support;
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use support::*;
+use cobolt_server::testkit::*;
 
 use cobolt_server::client::{ClientConfig, StaticToken, StreamItem, WsClient};
 use cobolt_wire::call::{ArgMode, ArgPayload, CallObserver, CallRequest, DownloadRequest, Transport, UploadRequest};

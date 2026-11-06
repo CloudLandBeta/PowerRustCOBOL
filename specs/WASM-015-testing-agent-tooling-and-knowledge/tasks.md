@@ -59,7 +59,7 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
   - Do: when `node` is absent print `skipped: node not on PATH` and return; when `PRC_REQUIRE_NODE=1` the absence fails. Same rule for every other `node` test in the file.
   - Verify: `cargo test -p cobolt-web-bundle --no-fail-fast` green with `node` present (cells counted and printed); with `PATH` stripped of `node` the test passes and prints the skip; with `PRC_REQUIRE_NODE=1` and no `node` it fails.
 
-- [ ] **T3 — The backend test kit as `cobolt_server::testkit`** (R3, D5)
+- [x] **T3 — The backend test kit as `cobolt_server::testkit`** (R3, D5)
   - Files: new `crates/cobolt-server/src/testkit.rs` (moved from `tests/support/mod.rs`, behaviour unchanged), `src/lib.rs` (`#[cfg(feature = "testkit")] pub mod testkit`), `Cargo.toml` (feature `testkit`; `rcgen`, `p256`, `rsa`, `rand_core`, `jsonwebtoken/use_pem` become optional dependencies enabled by it and stay dev-dependencies), every `tests/*.rs` importing from `cobolt_server::testkit`; `tests/support/mod.rs` removed or reduced to a re-export.
   - Do: keep the RustCrypto-only rule in the file's header; `tests/dependency_guards.rs` must keep holding with and without the feature.
   - Verify: `cargo test -p cobolt-server --no-fail-fast` and `cargo test -p cobolt-server --features testkit --no-fail-fast` green, same test counts as before the move (record both); `cargo tree -p cobolt-server -e normal` without the feature shows none of the RustCrypto crates added.

@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.238 — 2026-11-05
+
+**WASM-015 T3: the backend test kit is `cobolt_server::testkit`.** *(Written on features-2x-wasm-pending, after 2.0.237.)* `tests/support/mod.rs` moved, behaviour unchanged, to `src/testkit.rs` behind the new `testkit` feature (not in `default`); `rcgen`, `p256`, `rand_core`, `rsa`, `signature` are optional dependencies it enables (with `jsonwebtoken/use_pem`), and the crate's own tests switch it on through a dev-dependency on itself. Every test now imports `cobolt_server::testkit`. `cargo test -p cobolt-server`: 19 targets, 167 passed, 0 failed (the same 127 test functions in `tests/` as before the move; the kit has none of its own); `dependency_guards` 7 passed with the feature; `rcgen` is absent from the normal tree without it (p256, rsa and signature were already there as `jsonwebtoken`'s RustCrypto backend).
+
 ## 2.0.237 — 2026-11-05
 
 **WASM-015 T2: the Node end-to-end tests skip instead of panicking.** *(Written on features-2x-wasm-pending, after 2.0.236.)* `support::require_node(test)`: without `node` the test prints `skipped: node not on PATH (...)` and passes; with `PRC_REQUIRE_NODE=1` its absence fails. Used by `e2e_node` and the loader test of `generated_host_page`. Checked three ways: with node (e2e 1 passed in 173.79 s, generated_host_page 6 passed), with PATH stripped of node (both skip and pass), and stripped with `PRC_REQUIRE_NODE=1` (fails).

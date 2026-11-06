@@ -10,7 +10,6 @@
 //! certificate and a one-key identity provider; a raw client says what the
 //! protocol allows and what it does not.
 
-mod support;
 #[path = "support/idp_mock.rs"]
 mod idp_mock;
 
@@ -18,7 +17,7 @@ use futures_util::SinkExt;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use support::*;
+use cobolt_server::testkit::*;
 
 const EXPORTS: &str = r#"
 [contract]

@@ -9,6 +9,10 @@
 //! `aws-lc-rs`), an identity provider of one (an issuer key, its JWKS and a
 //! token mint), and a raw WebSocket client that can say anything, including
 //! what a well-behaved client never would.
+//!
+//! It is the crate's `testkit` feature (WASM-015 D5), so the test crate `cobolt-web-tests` can use the same kit.
+//! **RustCrypto only**: `rcgen` signs through its remote-key hook with `rsa`; no `ring`, no `aws-lc-rs`
+//! (`tests/dependency_guards.rs` holds this with and without the feature).
 
 #![allow(dead_code)]
 
@@ -26,11 +30,11 @@ use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 
-use cobolt_server::backend::Backend;
-use cobolt_server::config::{ServerConfig, RunMode};
-use cobolt_server::jwks::JwksFetcher;
-use cobolt_server::log::MemorySink;
-use cobolt_server::serve::{Options, ServerHandle};
+use crate::backend::Backend;
+use crate::config::{ServerConfig, RunMode};
+use crate::jwks::JwksFetcher;
+use crate::log::MemorySink;
+use crate::serve::{Options, ServerHandle};
 
 // ── a certificate ─────────────────────────────────────────────────────────────
 //
@@ -137,7 +141,7 @@ impl Issuer {
 
     /// Standard claims for an access token valid for `ttl` seconds.
     pub fn access(&self, sub: &str, aud: &str, ttl: i64, extra: Value) -> String {
-        let now = cobolt_server::jwt::now();
+        let now = crate::jwt::now();
         let mut c = json!({"iss": self.issuer, "sub": sub, "aud": aud, "iat": now, "exp": now + ttl});
         if let (Some(o), Some(e)) = (c.as_object_mut(), extra.as_object()) {
             for (k, v) in e {
@@ -251,25 +255,25 @@ pub const ORIGIN: &str = "https://app.example.test";
 
 /// Start a TLS server with the backend in `dir`, trusting `issuer`.
 pub fn rig(dir: std::path::PathBuf, extra_toml: &str) -> Rig {
-    rig_with_state(dir, extra_toml, cobolt_server::backend::StateMode::PerCall)
+    rig_with_state(dir, extra_toml, crate::backend::StateMode::PerCall)
 }
 
 /// [`rig`], with the project's `[backend] state` (WASM-003 Q2).
-pub fn rig_with_state(dir: std::path::PathBuf, extra_toml: &str, state: cobolt_server::backend::StateMode) -> Rig {
+pub fn rig_with_state(dir: std::path::PathBuf, extra_toml: &str, state: crate::backend::StateMode) -> Rig {
     rig_full(dir, extra_toml, state, None)
 }
 
 /// [`rig`] with an `[identity]` section in `extra_toml`, its provider and reCAPTCHA reached through
 /// `http` (WASM-009: the mocks of `idp_mock.rs`).
-pub fn rig_with_identity(dir: std::path::PathBuf, extra_toml: &str, http: Arc<dyn cobolt_server::identity::client::Http>) -> Rig {
-    rig_full(dir, extra_toml, cobolt_server::backend::StateMode::PerCall, Some(http))
+pub fn rig_with_identity(dir: std::path::PathBuf, extra_toml: &str, http: Arc<dyn crate::identity::client::Http>) -> Rig {
+    rig_full(dir, extra_toml, crate::backend::StateMode::PerCall, Some(http))
 }
 
 fn rig_full(
     dir: std::path::PathBuf,
     extra_toml: &str,
-    state: cobolt_server::backend::StateMode,
-    identity_http: Option<Arc<dyn cobolt_server::identity::client::Http>>,
+    state: crate::backend::StateMode,
+    identity_http: Option<Arc<dyn crate::identity::client::Http>>,
 ) -> Rig {
     let serial = Serial::take();
     let cert = test_cert();
@@ -300,7 +304,7 @@ jwks_uri = "https://idp.example.test/pool/.well-known/jwks.json"
     backend.state = state;
     let iface = backend.interface.clone();
     let sink = MemorySink::new();
-    let server = cobolt_server::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: Some(jwks.clone()), identity_http }).expect("start");
+    let server = crate::start(resolved, backend, Options { sink: Some(Arc::new(sink.clone())), fetcher: Some(jwks.clone()), identity_http }).expect("start");
     Rig { server, cert, issuer, jwks, sink, dir, iface, _serial: serial }
 }
 
@@ -324,7 +328,7 @@ impl Raw {
 
     pub async fn connect_to(addr: std::net::SocketAddr, cert_pem: &str, origin: Option<&str>) -> Result<Raw, String> {
         let tcp = tokio::net::TcpStream::connect(addr).await.map_err(|e| e.to_string())?;
-        let connector = cobolt_server::tlsutil::connector(Some(cert_pem.as_bytes()))?;
+        let connector = crate::tlsutil::connector(Some(cert_pem.as_bytes()))?;
         let tls = connector.connect("localhost", tcp).await.map_err(|e| format!("tls: {e}"))?;
         let mut req = format!("wss://localhost:{}/ws", addr.port()).into_client_request().map_err(|e| e.to_string())?;
         if let Some(o) = origin {

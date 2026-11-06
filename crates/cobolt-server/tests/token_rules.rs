@@ -8,14 +8,13 @@
 //! R9-R13, WASM-009 R8): the validator is driven directly, with no socket, so
 //! each rule has its own named test and its own failure.
 
-mod support;
 
 use std::sync::Arc;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde_json::{json, Value};
-use support::*;
+use cobolt_server::testkit::*;
 
 use cobolt_server::config::{RunMode, ServerConfig};
 use cobolt_server::jwks::{Jwks, JwksFetcher};

@@ -62,5 +62,9 @@ pub mod standalone;
 #[cfg(feature = "net")]
 pub mod tlsutil;
 
+/// The loopback tests' kit: a certificate, an identity provider of one, a raw client (WASM-015 D5).
+#[cfg(feature = "testkit")]
+pub mod testkit;
+
 #[cfg(feature = "server")]
 pub use serve::{start, Options, ServerHandle};

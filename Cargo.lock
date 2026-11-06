@@ -2562,6 +2562,7 @@ dependencies = [
  "cobolt-parser",
  "cobolt-runtime",
  "cobolt-semantic",
+ "cobolt-server",
  "cobolt-wire",
  "flate2",
  "futures-util",

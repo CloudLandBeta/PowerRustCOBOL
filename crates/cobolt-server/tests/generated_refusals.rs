@@ -13,14 +13,13 @@
 //! statement; and the backend's log says so — a `call` record whose outcome is the refusal's
 //! class, never `ok`, and no payload in it.
 
-mod support;
 
 use std::path::{Path, PathBuf};
 
 use cobolt_codegen::remote_controls::{fixtures, generate_backend};
 use cobolt_runtime::Interpreter;
 use serde_json::{json, Value};
-use support::*;
+use cobolt_server::testkit::*;
 
 const EXPORTS: &str = "[contract]\nversion = \"1.0.0\"\n\n[[export]]\nprogram = \"SETUP-DB\"\n";
 const READ: &str = "RC-6-ORDERS-9-GRID-CUST-READ";
