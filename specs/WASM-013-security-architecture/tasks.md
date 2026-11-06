@@ -313,7 +313,7 @@ as completed.
     `connect-src`) for the tampered copy, and **zero** for the clean bundle, whose main form renders. The counts are printed.
 
   - **Done (2.0.267):** `ServeOptions.csp_report_sink` (default off) and `Server::csp_reports()` in `cobolt-web-bundle`'s development server: `POST /__csp-report` answers 204 and keeps the body (at most 64 KiB); with the sink off, or on another path, a POST is 405. `tests/csp_browser.rs` (a real Chrome, found as the other browser tests find it; `SKIPPED: no Chrome`, and a failure under `PR_SECURITY_GATE=1`): the clean bundle, policy delivered as a header with `report-uri /__csp-report`, renders its main form and Chrome reports **0** violations; the tampered copy (temporary folder only: an inline script, a same-origin script that evals, a `fetch` to an address outside `connect-src`) gets **3** reports and none of the three things runs. Measured: under the strict policy the reports are `script-src-elem`, `connect-src` and `require-trusted-types-for` (Trusted Types stops the eval before `script-src` is asked); with Trusted Types off the same eval is reported as `script-src`. Both runs are asserted.
-- [ ] **T13 — The TLS floor is proven; the HTTPS headers are present** (R4; O5)
+- [x] **T13 — The TLS floor is proven; the HTTPS headers are present** (R4; O5)
   - Files: `crates/cobolt-server/tests/tls_floor.rs` (new).
   - Do:
     - Use a loopback HTTPS server with a test certificate, built the way the existing TLS tests in `loopback.rs` build theirs.
@@ -322,6 +322,7 @@ as completed.
     - A TLS 1.2+ response carries every line of `SECURITY_HEADERS`.
   - Verify: `cargo test -p cobolt-server --test tls_floor -- --nocapture` is green, and its output names the platform's behaviour.
 
+  - **Done (2.0.268):** `cobolt-server/tests/tls_floor.rs`: on a loopback HTTPS server with the test certificate, a `native_tls` client capped at TLS 1.1 is **refused during the handshake** (measured on macOS: "connection closed via error"; if a platform's client cannot offer 1.1 at all, the test prints that and asserts `Protocol::Tlsv12` in `tlsutil::acceptor` instead). A client at TLS 1.2 or better is served `/health` with **5 of 5** `SECURITY_HEADERS` lines present. No source change was needed: the floor was already set.
 - [ ] **T14 — `security.txt` from the developer's parameters** (Q4)
   - Files:
     - `crates/cobolt-web-bundle/src/lib.rs`: a new optional `BundleOptions.security`, which writes `/.well-known/security.txt` with `Contact`,

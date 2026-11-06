@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.268 — 2026-11-06
+
+**WASM-013 T13: the TLS floor is proven (R4).** *(Written on features-2x-wasm-pending, after 2.0.267.)* A new test, `cobolt-server/tests/tls_floor.rs`, connects to a loopback HTTPS server with a client that offers nothing above TLS 1.1 and shows it refused during the handshake; a client at TLS 1.2 or better is served and its response carries all five security headers (HSTS, `nosniff`, no referrer, permissions policy, `no-store`). Where a platform's TLS stack cannot offer 1.1 at all, the test says so and asserts the server's configured minimum instead. No server code changed.
+
 ## 2.0.267 — 2026-11-06
 
 **WASM-013 T12: a real browser enforces the Content-Security-Policy, proven headlessly (R2).** *(Written on features-2x-wasm-pending, after 2.0.266.)* The development server of `cobolt-web-bundle` can now record CSP violation reports (`ServeOptions.csp_report_sink`, off by default; `POST /__csp-report`; never part of a bundle). A new test drives Chrome: the clean bundle renders its main form with the policy as a response header and Chrome reports no violation; a tampered copy (an inline script, a same-origin script that calls `eval`, a `fetch` outside `connect-src`) gets three reports and none of the three runs. Under the strict policy the eval is stopped by Trusted Types (`require-trusted-types-for`); with Trusted Types off it is reported as `script-src`.
