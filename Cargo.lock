@@ -2703,6 +2703,7 @@ dependencies = [
  "cobolt-wasm",
  "cobolt-web-bundle",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -1,0 +1,460 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="PowerWebHello" width="960" height="640" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" main-form="true" index-base="1" responsive="true">
+  <Layer name="LAYER-DONE" color="#00000000"/>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="MAIN-FORM--ONLOAD">
+    </Event>
+    <Event name="onClose" paragraph="MAIN-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="LBL-TITLE" type="Label" x="272" y="24" w="664" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Welcome to PowerWebHello</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">24</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="RotateX">0</Property>
+    <Property name="RotateY">0</Property>
+    <Property name="PerspectiveDistance">50</Property>
+    <Property name="PerspectiveStrength">100</Property>
+    <Property name="PinTopLeftX">0</Property>
+    <Property name="PinTopLeftY">0</Property>
+    <Property name="PinTopRightX">0</Property>
+    <Property name="PinTopRightY">0</Property>
+    <Property name="PinBottomRightX">0</Property>
+    <Property name="PinBottomRightY">0</Property>
+    <Property name="PinBottomLeftX">0</Property>
+    <Property name="PinBottomLeftY">0</Property>
+    <Property name="AccessibleLabel"></Property>
+  </Control>
+  <Control id="LBL-HINT" type="Label" x="272" y="64" w="664" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Type your name and press Greet.</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="RotateX">0</Property>
+    <Property name="RotateY">0</Property>
+    <Property name="PerspectiveDistance">50</Property>
+    <Property name="PerspectiveStrength">100</Property>
+    <Property name="PinTopLeftX">0</Property>
+    <Property name="PinTopLeftY">0</Property>
+    <Property name="PinTopRightX">0</Property>
+    <Property name="PinTopRightY">0</Property>
+    <Property name="PinBottomRightX">0</Property>
+    <Property name="PinBottomRightY">0</Property>
+    <Property name="PinBottomLeftX">0</Property>
+    <Property name="PinBottomLeftY">0</Property>
+    <Property name="AccessibleLabel"></Property>
+  </Control>
+  <Control id="TXT-NAME" type="TextBox" x="272" y="104" w="664" h="40" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#12131CFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="Text"></Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="HintText"></Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Picture"></Property>
+    <Property name="Multiline">false</Property>
+    <Property name="PasswordCharacter"></Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#FFFFFF33</Property>
+    <Property name="CornerRadius">12</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="AccessibleLabel"></Property>
+  </Control>
+  <Control id="BTN-GREET" type="Button" x="272" y="160" w="112" h="40" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Greet</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="AccessibleLabel"></Property>
+    <Event name="onClick" paragraph="BTN-GREET--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+DATA DIVISION.
+
+WORKING-STORAGE SECTION.
+
+01 WS-NAME                                    PIC    X(30).
+01 WS-GREETING                                PIC    X(40).
+
+LINKAGE SECTION.
+
+PROCEDURE DIVISION.
+
+*> Asks the Backend's HELLO program to greet the person whose name is in the box.
+*> The name travels to the Backend and the greeting comes back; the form holds no
+*> file, no database and no secret.
+*> Uses:   WS-NAME = the name typed in the box (trimmed); WS-GREETING = filled by HELLO.
+*> Result: LBL-RESULT shows the greeting and the layer LAYER-DONE is shown.
+
+IF    TXT-NAME::Text::Trim()::Len = 0
+SET     LBL-RESULT::Caption       TO    "Type your name first."
+ELSE
+SET     WS-NAME                   TO    TXT-NAME::Text::Trim()
+CALL "HELLO" WITH WEBSOCKET LINKAGE USING WS-NAME RETURNING WS-GREETING
+SET     LBL-RESULT::Caption       TO    WS-GREETING
+SET     LAYER-DONE::Visible       TO    TRUE
+END-IF.
+]]></Event>
+  </Control>
+  <Control id="LBL-RESULT" type="Label" x="272" y="224" w="664" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption"></Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="RotateX">0</Property>
+    <Property name="RotateY">0</Property>
+    <Property name="PerspectiveDistance">50</Property>
+    <Property name="PerspectiveStrength">100</Property>
+    <Property name="PinTopLeftX">0</Property>
+    <Property name="PinTopLeftY">0</Property>
+    <Property name="PinTopRightX">0</Property>
+    <Property name="PinTopRightY">0</Property>
+    <Property name="PinBottomRightX">0</Property>
+    <Property name="PinBottomRightY">0</Property>
+    <Property name="PinBottomLeftX">0</Property>
+    <Property name="PinBottomLeftY">0</Property>
+    <Property name="AccessibleLabel"></Property>
+  </Control>
+  <Control id="LBL-DONE" type="Label" x="272" y="272" w="664" h="32" tab-order="0" z-order="0" visible="true" enabled="true" layer="LAYER-DONE">
+    <Property name="Caption">The Backend answered.</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+    <Property name="RotateX">0</Property>
+    <Property name="RotateY">0</Property>
+    <Property name="PerspectiveDistance">50</Property>
+    <Property name="PerspectiveStrength">100</Property>
+    <Property name="PinTopLeftX">0</Property>
+    <Property name="PinTopLeftY">0</Property>
+    <Property name="PinTopRightX">0</Property>
+    <Property name="PinTopRightY">0</Property>
+    <Property name="PinBottomRightX">0</Property>
+    <Property name="PinBottomRightY">0</Property>
+    <Property name="PinBottomLeftX">0</Property>
+    <Property name="PinBottomLeftY">0</Property>
+    <Property name="AccessibleLabel"></Property>
+  </Control>
+  <Control id="SideMenu-1" type="SideMenu" x="-8" y="0" w="264" h="640" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="HighlightBgColor">#4488FF</Property>
+    <Property name="HighlightFgColor">#FFFFFF</Property>
+    <Property name="SelectedBgColor">#3366CC</Property>
+    <Property name="SelectedFgColor">#FFFFFF</Property>
+    <Property name="FullHeight">true</Property>
+    <Property name="Collapsed">false</Property>
+    <Property name="IconEffect">None</Property>
+    <Property name="IconSize">22</Property>
+    <Property name="IconSizeCollapsed">22</Property>
+    <Property name="CollapsedWidth">48</Property>
+    <Property name="AppTitle"></Property>
+    <Property name="HeaderHeight">120</Property>
+    <Property name="FooterHeight">72</Property>
+    <Property name="HeaderBandHeight">0</Property>
+    <Property name="BreadcrumbHeight">28</Property>
+    <Property name="BreadcrumbBackgroundColor"></Property>
+    <Property name="BreadcrumbTextAlign">Middle</Property>
+    <Property name="BreadcrumbFontSize">0</Property>
+    <Property name="BreadcrumbIconSize">0</Property>
+    <Property name="HeaderImage"></Property>
+    <Property name="HeaderIcon"></Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="AccessibleLabel"></Property>
+  </Control>
+  <Control id="SideMenu-1-Footer" type="Panel" x="-8" y="568" w="264" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1">
+    <Property name="BackgroundColor">#36383EB3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Expandable">false</Property>
+    <Property name="Expanded">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="AccessibleLabel"></Property>
+    <Property name="IsSideMenuFooter">true</Property>
+  </Control>
+</Form>

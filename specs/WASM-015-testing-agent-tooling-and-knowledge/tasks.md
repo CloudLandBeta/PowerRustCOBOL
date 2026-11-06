@@ -164,10 +164,11 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
 
 ### Examples
 
-- [ ] **T22 — `examples/PowerWebHello` built and run by the suite** (R16, AC12) — **gated on T6, T7, WASM-005 (`WEBSOCKET LINKAGE`), WASM-002/010 WP6**
+- [x] **T22 — `examples/PowerWebHello` built and run by the suite** (R16, AC12) — **gated on T6, T7, WASM-005 (`WEBSOCKET LINKAGE`), WASM-002/010 WP6**
   - Files: new `examples/PowerWebHello/` (a Web project: one form, a button calling a Backend program through `CALL … WITH WEBSOCKET LINKAGE`, a label showing the answer, a layer shown by the program; `backend/` exporting that program and reading an in-memory or `redb` indexed file), new `crates/cobolt-web-tests/tests/examples.rs`.
   - Do: COBOL written against the rustcobol-code-style skill (properties as data items, inline method calls, English identifiers); no key, password, token or account id; regenerate `generated/` through the regenerate path, never by hand.
   - Verify (**AC12**): `cargo test -p cobolt-web-tests --test examples --no-fail-fast`: the real Build succeeds, the backend runner starts (in-process; binary with `PRC_WEB_E2E=1`), a click reads the backend's answer in the label, `secrets` over the example's tree reports 0 findings. Commit gate: `! grep -rEq 'AKIA|ASIA|Password=|APIKey|Token=|BEGIN .*PRIVATE KEY' examples/PowerWebHello`.
+  - **Done, with one step open (T22b):** the example is built, checked, scanned (0 findings) and its Backend answers `HELLO`; the page loads in the system web view and its handler runs. The click that carries the name to the Backend and reads the greeting back in the label is not run: the page speaks `ws://` on loopback and the test kit's server speaks TLS with a certificate no web view trusts. It needs a plain loopback listener in the kit or a Chrome run (`e2e_chrome.rs` has the mock).
 
 ### CI
 

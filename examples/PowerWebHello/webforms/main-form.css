@@ -1,0 +1,21 @@
+/* The stylesheet of this form, generated from the web theme "spatial". It is yours to edit.
+   The block between the two markers is the theme's look for the controls of this form, in the theme's layer:
+   the Properties panel's values win over it. A rule you write after the end marker wins over both. */
+/* pr-theme block: begin ef34efcc0e15e4ea */
+@layer pr-theme {
+  .pr-form-root { background: var(--pr-surface); color: var(--pr-text); }
+  /* buttons, labels, text */ .pr-button { color: inherit; background: var(--pr-surface-2); border: 1px solid var(--pr-border); border-radius: var(--pr-radius); }
+  .pr-button:hover { filter: brightness(1.15); }
+  .pr-button:active { filter: brightness(.9); }
+  .pr-textbox, .pr-combobox, .pr-numericupdown, .pr-datetimepicker { color: var(--pr-field-text); background: var(--pr-field); border: 1px solid var(--pr-border); border-radius: 4px; }
+  .pr-textbox input, .pr-textbox textarea, .pr-combobox input, .pr-numericupdown input, .pr-datetimepicker input { color: inherit; background: transparent; border: 0; outline: none; }
+  .pr-textbox input::placeholder, .pr-textbox textarea::placeholder { color: inherit; }
+  .pr-sidemenu { background: var(--pr-surface-2); border-right: 1px solid var(--pr-border); }
+  .pr-sidemenu .pr-menu > button[aria-current="page"] { background: var(--pr-accent); color: var(--pr-menu-selected-fg, #fff); }
+  .pr-button { background: rgb(255 255 255 / 0.157); }
+  .pr-textbox, .pr-combobox, .pr-numericupdown, .pr-datetimepicker, .pr-listbox, .pr-treeview { border-radius: var(--pr-radius); }
+  .pr-groupbox, .pr-panel { border-radius: 24px; background: var(--pr-surface-2); }
+}
+/* pr-theme block: end */
+
+/* Your rules. */

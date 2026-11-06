@@ -19,3 +19,4 @@ cobolt-server        = { path = "../cobolt-server", features = ["testkit"] }
 cobolt-web-bundle    = { path = "../cobolt-web-bundle" }
 cobolt-codegen       = { path = "../cobolt-codegen" }
 cobolt-mcp           = { path = "../cobolt-mcp" }
+tokio                = { workspace = true }

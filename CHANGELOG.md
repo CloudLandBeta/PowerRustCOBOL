@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.252 — 2026-11-06
+
+**WASM-015 T22: `examples/PowerWebHello`, built and run by the suite (R16, AC12).** *(Written on features-2x-wasm-pending, after 2.0.251.)* A Web project of one form: a name box, a Greet button, a label and a layer, with a Backend whose exported `HELLO` program answers the name with a greeting; the button's handler calls it with `CALL "HELLO" WITH WEBSOCKET LINKAGE` and shows the layer. It holds no key, password or token. New `cobolt-web-tests/tests/examples.rs`: the suite's own scan of the example's tree and the Build's `secret_scan` find nothing; `check` is clean and the real Build succeeds; the example's Backend, started in process, answers `HELLO("Ada")` with `Hello, Ada`; the page loads in the system web view and its handler answers an empty name. The click that reaches the Backend from the page is not run here (the kit's server speaks TLS with a certificate no web view trusts); it stays open as T22b.
+
 ## 2.0.251 — 2026-11-06
 
 **WASM-015 T20, T21: no new IDE string for the web agent; the System KB's web knowledge is checked complete (R14, AC11).** *(Written on features-2x-wasm-pending, after 2.0.250.)* T20: the Agents dialog draws an agent's name, purpose, routing and specialization as stored text, so the Web Form Designer Agent adds no `Tr` key (the file read is recorded in `tasks.md`). T21: new test `web_knowledge_is_complete` in `cobolt-compiler`, built from the live tables and written to change none — every control's web class line, every built-in's row in the browser-module table, the `WITH WEBSOCKET LINKAGE` phrase, both application styles, Authentication and Hyperlink — and it prints `156 of 156 present`; a fact whose owning spec has not landed would be listed as `owed: <spec>` (none is). No documentation table changed, so `chunked.data` is unchanged.

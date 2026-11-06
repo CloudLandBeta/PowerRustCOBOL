@@ -1,0 +1,6 @@
+menu:
+- id: home
+  label: Home
+  type: action
+  enabled: true
+hash: 3b25bcf335ab2acfa2faab22fdfb7601d5c34d1434e06b4dbd56faa283465b84
