@@ -300,7 +300,7 @@ fn serve_auth(mut stream: std::net::TcpStream, state: &Arc<Mutex<State>>) {
     let _ = stream.write_all(res.as_bytes());
 }
 
-fn main() {
+pub fn main() {
     let (mut port, mut ttl, mut first_ttl) = (8096u16, 3600u64, None);
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
