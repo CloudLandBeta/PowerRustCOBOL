@@ -129,6 +129,21 @@ fn with_theme(cfrm: &str, theme: &str) -> String {
     format!("{} theme=\"{id}\"{}", &cfrm[..at + "<Form".len()], &cfrm[at + "<Form".len()..])
 }
 
+/// The refusal for a connection string or a key on a web form, named by control and property (never by value) and
+/// with the way out: the value belongs to a `[[configuration]]` of `backend/backend.toml` (WASM-005 T13, AC9).
+fn secret_on_form_diag(rel: &str, s: &cobolt_codegen::remote_controls::SecretOnForm) -> WebDiagnostic {
+    let subject = format!("{}.{}", s.control, s.property);
+    diag(
+        rel.to_owned(),
+        WebDiagnosticKind::SecretOnForm,
+        subject.clone(),
+        format!(
+            "{subject} holds a connection string or a key on a web form: clear it, put the value in a [[configuration]] of backend/backend.toml and name that configuration in {}",
+            cobolt_forms::web_class::BACKEND_CONFIG
+        ),
+    )
+}
+
 impl GeneratorBackend {
     /// Read, regenerate and parse every form of the request.
     fn load_forms(
@@ -169,16 +184,7 @@ impl GeneratorBackend {
             // never to a form a browser downloads. Checked before anything is
             // generated; named by control and property, never by value.
             for s in cobolt_codegen::remote_controls::secrets_on_form(&form) {
-                let subject = format!("{}.{}", s.control, s.property);
-                refused.push(diag(
-                    rel.clone(),
-                    WebDiagnosticKind::SecretOnForm,
-                    subject.clone(),
-                    format!(
-                        "{subject} holds a connection string or a key on a web form: clear it, put the value in a [[configuration]] of backend/backend.toml and name that configuration in {}",
-                        cobolt_forms::web_class::BACKEND_CONFIG
-                    ),
-                ));
+                refused.push(secret_on_form_diag(rel, &s));
             }
             // WASM-005 T15 (operator, 2026-10-30): a grid bound to a RestApi or
             // an AgentAi source waits for a spec of its own; refused here, before
@@ -1037,10 +1043,23 @@ fn gate_inputs(req: &WebBuildRequest, warnings: &mut Vec<WebDiagnostic>) -> Resu
         }
     }
     if refused.is_empty() {
-        Ok(())
-    } else {
-        Err(WebBuildError::Refused(refused))
+        return Ok(());
     }
+    // The scan refuses before the forms are compiled, so the refusal that names the control and the property, and says
+    // where the value belongs (WASM-005 T13, AC9), would never be reached for a form this scan stops: it is said here
+    // as well, first, for each form the scan found something in (found by the T25 sweep of 2.0.277).
+    let mut named = Vec::new();
+    for rel in &req.forms {
+        let rel = rel.replace('\\', "/");
+        if !refused.iter().any(|d| d.location.split(':').next() == Some(rel.as_str())) {
+            continue;
+        }
+        let Some(text) = files.iter().find(|(f, _)| *f == rel).map(|(_, t)| t) else { continue };
+        let Ok(form) = cobolt_forms::xml::load_form_from_str(text) else { continue };
+        named.extend(cobolt_codegen::remote_controls::secrets_on_form(&form).iter().map(|s| secret_on_form_diag(&rel, s)));
+    }
+    named.extend(refused);
+    Err(WebBuildError::Refused(named))
 }
 
 impl WebBuildBackend for GeneratorBackend {

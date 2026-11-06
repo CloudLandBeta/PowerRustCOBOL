@@ -702,8 +702,12 @@ fn secret_in_a_wcfrm_property_stops_the_build_naming_file_and_pattern() {
     std::fs::create_dir_all(&req.out_dir).unwrap();
     std::fs::write(req.out_dir.join("index.html"), "previous").unwrap();
     match GeneratorBackend.build(&req) {
-        Err(WebBuildError::Failed(why)) => {
+        // Since the gate of WASM-013 T7 a secret is a refusal with one diagnostic per finding (file and line, then the
+        // pattern), not one failure text.
+        Err(WebBuildError::Refused(found)) => {
+            let why = found.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n");
             eprintln!("secret: {why}");
+            assert_eq!(found.len(), 1, "one finding: {why}");
             assert!(!why.contains(&key), "the value is never shown: {why}");
             assert!(why.contains("main-form"), "the file is named: {why}");
             assert!(

@@ -23,6 +23,14 @@ fn caller(body: &str) -> String {
 
 const CALL: &str = "           CALL \"BIG-JOB\" WITH WEBSOCKET LINKAGE USING BY REFERENCE ORDER-REC ON EXCEPTION DISPLAY \"failed\" NOT ON EXCEPTION DISPLAY \"ok\" END-CALL";
 
+/// The declared cancel control is one process-wide slot. These tests all declare `BTN-CANCEL`, and the third
+/// asserts it is spent after its call, so run in parallel one test's declaration could end another's and
+/// fail it (7 runs in 12). Each test holds this lock from its first line to its last.
+fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static SLOT: Mutex<()> = Mutex::new(());
+    SLOT.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 type Script = Box<dyn FnMut(&mut dyn CallObserver) -> Result<CallReply, CallError> + Send>;
 
 struct Rig(Script);
@@ -58,6 +66,7 @@ fn run(body: &str, script: Script) -> (Vec<StateUpdate>, Vec<String>) {
 
 #[test]
 fn progress_frames_reach_the_declared_controls() {
+    let _one_at_a_time = one_at_a_time();
     let (updates, shown) = run(
         &format!("           COBOL::\"WS-SHOW-PROGRESS\" ( PRG-1 LBL-MSG BTN-CANCEL )\n{CALL}\n{CALL}"),
         Box::new(|o| {
@@ -74,6 +83,7 @@ fn progress_frames_reach_the_declared_controls() {
 
 #[test]
 fn cancel_control_ends_the_call_with_application_8000() {
+    let _one_at_a_time = one_at_a_time();
     let (_, shown) = run(
         &format!("           COBOL::\"WS-SHOW-PROGRESS\" ( PRG-1 LBL-MSG BTN-CANCEL )\n{CALL}\n           COBOL::\"WS-LAST-ERROR\" ( WS-CLASS WS-CODE WS-MSG )\n           DISPLAY \"class=\" WS-CLASS \" code=\" WS-CODE"),
         Box::new(|o| {
@@ -93,6 +103,7 @@ fn cancel_control_ends_the_call_with_application_8000() {
 
 #[test]
 fn a_control_the_form_does_not_have_fails_the_call_naming_it() {
+    let _one_at_a_time = one_at_a_time();
     let ran = Arc::new(Mutex::new(false));
     let r2 = ran.clone();
     let (_, shown) = run(

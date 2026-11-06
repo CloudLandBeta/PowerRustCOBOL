@@ -245,7 +245,16 @@ fn secret_property(line: &str) -> bool {
         ""
     };
     let v = value.trim();
-    !(v.is_empty() || v == "0" || v == "false" || v.starts_with("${") || v.starts_with("<") || v.chars().all(|c| c == '*' || c == '•'))
+    if v.is_empty() || v == "0" || v == "false" || v.starts_with("${") || v.starts_with("<") || v.chars().all(|c| c == '*' || c == '•') {
+        return false;
+    }
+    // "Token" also counts what a model may answer with (the AgentObject's `MaximumTokens` = 1024) and
+    // how long a sign-in lasts: a NUMBER under a name that says it is a count is not a credential.
+    // Only when "token" is the one word that made the name suspect, so `AdminToken` and
+    // `ClientSecretTokens` stay flagged, and only when the value is all digits.
+    let only_token = secretish.iter().filter(|s| name.contains(*s)).all(|s| *s == "token");
+    let counts = ["maximumtoken", "maxtoken", "minimumtoken", "tokencount", "tokenlimit", "tokenbudget", "tokenttl", "tokenlifetime", "tokenexpir", "tokensize", "tokenusage", "tokensused"];
+    !(only_token && v.chars().all(|c| c.is_ascii_digit()) && counts.iter().any(|w| name.contains(w)))
 }
 
 /// Scan one text. `entropy_len` is the shortest run flagged as high-entropy (0 turns that off).
@@ -581,6 +590,32 @@ mod tests {
             println!("{} -> {e:?}", bad.split('=').next().unwrap());
             assert!(!e.is_empty() || bad.contains("Trusted"), "{bad}");
         }
+    }
+
+    /// WASM-013 T25: a number of tokens is not a token. The AgentObject saves `MaximumTokens` = 1024
+    /// on every form that carries one; the gate refused those forms until the rule learned the
+    /// difference. A real credential under a token-like name is still flagged.
+    #[test]
+    fn a_count_of_tokens_is_not_a_secret() {
+        for ok in [
+            "<Property name=\"MaximumTokens\">1024</Property>",
+            "<Property name=\"MaxTokens\">256</Property>",
+            "<Property name=\"TokenLimit\" value=\"4096\"/>",
+            "<Property name=\"TokenLifetimeSeconds\">3600</Property>",
+            "<Property name=\"TokensUsed\">12</Property>",
+        ] {
+            assert!(errors("f.wcfrm", ok).is_empty(), "{ok}: {:?}", errors("f.wcfrm", ok));
+        }
+        for bad in [
+            "<Property name=\"MaximumTokens\">q8Zk3vLw9PxT2mRb</Property>".to_string(),
+            "<Property name=\"AdminToken\">1024</Property>".to_string(),
+            "<Property name=\"AccessToken\">8842771</Property>".to_string(),
+            "<Property name=\"ClientSecretTokens\">1024</Property>".to_string(),
+            format!("<Property name=\"AuthToken\">{}</Property>", "q8Zk3vLw9PxT2mRb"),
+        ] {
+            assert!(!errors("f.wcfrm", &bad).is_empty(), "{bad} must still be flagged");
+        }
+        println!("TOKEN COUNTS: 5 numeric counts pass, 5 credentials under token-like names are still refused");
     }
 
     /// WASM-013 T2: the one project scan filters by text path and reports the file.

@@ -523,7 +523,7 @@ as completed.
 ## M12 — finalize
 
 - [x] **T24b — D21: the channel's encryption in the threat model** (R17; AC12) — added 2026-10-24 by the operator's ruling. *Specs only, 2026-11-02:* the construction, what it protects against and what it does not, the residual risks and the audit are written into plan §1.11. The threat-model table (T1 of this spec) gains the four rows when it is written, each naming its WASM-003 T15b-4 test; AC12 stays open until the code lands.
-- [ ] **T25 — Finalize: version, CHANGELOG, the tests of the touched crates**
+- [x] **T25 — Finalize: version, CHANGELOG, the tests of the touched crates**
   - Files:
     - `crates/cobolt-ide/src/version.rs`: `z` + 1, **once**. Go from `2.0.30` to the next free `2.0.z` at that time; never change `x` or `y`.
     - `CHANGELOG.md`: **one** entry above the previous `## [PowerRustCOBOL 2.0.z]` heading, dated, "Written on features-2x". It lists what
@@ -542,6 +542,25 @@ as completed.
     - The staged diff has no credential: `AKIA`/`ASIA`, PEM blocks, or the fragment-built test secrets assembled anywhere outside tests.
     - `git status` shows nothing under `docs/` and no `README.md` change.
     - Manual check (the operator's): launch the IDE and confirm the version string; look at the T8 warnings in six languages.
+
+  - **Done (2.0.277):** `z` bumped once (2.0.276 to 2.0.277), one CHANGELOG entry. **The shipped player was rebuilt** (`build_player`; 11 files under `assets/web-player/`) and its freshness test is green. **The sweep, every `test result` line read** (disk was the limit: test executables deleted after each crate, `CARGO_INCREMENTAL=0`; the 202 test files of `cobolt-runtime` are 216 MB each and ran in chunks of 12):
+
+    | Command | Result |
+    |---|---|
+    | `cargo test -p cobolt-web-bundle --no-fail-fast` | 120 passed, 0 failed |
+    | `cargo test -p cobolt-compiler --no-fail-fast` | 256 passed, 0 failed, 5 ignored |
+    | `cargo test -p cobolt-project-tools --no-fail-fast` | 248 passed, 0 failed, 1 ignored |
+    | `cargo test -p cobolt-wire --no-fail-fast` | 50 passed, 0 failed |
+    | `cargo test -p cobolt-server --no-fail-fast` | 184 passed, 0 failed |
+    | `cargo test -p cobolt-docs`, `-p cobolt-kb`, `-p cobolt-cli` (touched by 2.0.272) | 11, 31 and 64 passed, 0 failed (cli: 6 ignored) |
+    | `cargo test -p cobolt-forms --features render --no-fail-fast` | 1,837 passed, 0 failed, 2 ignored |
+    | `cargo test -p cobolt-runtime` (lib, doc, and its 202 test files in chunks) | 563 + 1 + 1,097 = 1,661 passed, 0 failed, 29 ignored |
+    | `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast` | 1,967 passed, 5 ignored, **3 failed: the known reds, none of this series** (`docs_embed::every_document_ships_in_every_language`, two `external_crates_service::flow_tests`) |
+    | `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --no-fail-fast` | 465 passed, 0 failed (9 test results) |
+    | `PR_SECURITY_GATE=1 cargo test -p cobolt-web-bundle --test csp_browser` | ran, not skipped: 1 passed in 12.6 s, clean bundle rendered, 0 violation reports |
+    | `PR_SECURITY_GATE=1 cargo test -p cobolt-compiler --test supply_chain` | ran, not skipped: 1 passed in 13.0 s, 8 checks on 2 locks, 2 negative fixtures failed as they must |
+
+    **Three defects the sweep found, fixed in this task** (not in the plan; each has a test): (1) the T7 gate ran the generic secret scan before the class-C check, so a form holding a connection string or a key was refused without the control and property being named; `generator::gate_inputs` now adds the `SecretOnForm` diagnostics (`CONTROL.Property`, the fix) ahead of the generic findings, and `web_build.rs`'s `secret_in_a_wcfrm_property_stops_the_build_naming_file_and_pattern` matches `WebBuildError::Refused`; `class_c_secret_on_form` is green again. (2) `secrets::secret_property` read the AgentObject's saved `MaximumTokens` = 1024 as a token, so a form that carried an AgentObject was refused; a name whose only suspect word is "token" is not flagged when it is a count **and** its value is all digits (`a_count_of_tokens_is_not_a_secret`: five counts pass, five credentials under token-like names are still refused); `examples_clean` still finds the same 10 shapes in the same 7 files. (3) `cobolt-runtime/tests/test_show_progress.rs` (WASM-014 T13) raced on the process-wide cancel declaration and failed 7 runs in 12; a lock now serialises its three tests (25 runs in 25). **Verify:** the staged diff was scanned (cloud key prefixes, PEM blocks, provider key prefixes, 12-digit ids); `git status` shows nothing under `docs/` and no `README.md` change. **The operator's manual check stands:** launch the IDE, read the version string, look at the T8 warnings in six languages.
 
 ## Done criteria
 - Every acceptance criterion in spec.md is covered by at least one task's verification:
