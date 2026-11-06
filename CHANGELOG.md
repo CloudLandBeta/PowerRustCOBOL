@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.240 — 2026-11-05
+
+**WASM-015 T5: the read-only steps in the helper protocol, closed.** *(Written on features-2x-wasm-pending, after 2.0.239.)* The helper already ran `text`, `style`, `rect`, `snapshot`, `focused`, `key` (and `page`) from WASM-008 T47, with controls by `[data-name]` or the roles `form`, `layer:<NAME>`, `snackbar` and no `eval` (its test `a_script_is_a_closed_set_of_checked_steps` refuses `{"eval":...}`). What was missing is on the IDE side: `PreviewSession::script` now reports a helper that does not know a step as `helper too old: ...` instead of a page failure, and `the_read_only_steps_are_pinned_and_an_old_helper_is_named` pins the six steps' exact line. cobolt-web-preview 8+3 passed; project-tools preview tests 8 passed.
+
 ## 2.0.239 — 2026-11-05
 
 **WASM-015 T4: the test crate `cobolt-web-tests`.** *(Written on features-2x-wasm-pending, after 2.0.238.)* New workspace member (`publish = false`): dev-dependencies on project-tools, forms (render), wasm (host), server (testkit), web-bundle and codegen; `gate`/`gate_with` (a missing machine need skips by name and passes, or fails with `PRC_REQUIRE_WEBVIEW=1` / `PRC_WEB_E2E=1`), `summary` (`→ N passed, M failed`) and `fixtures/empty-project`. Tests: `the_gate_runs_skips_or_fails`, `the_fixture_skeleton_exists` (2 passed). Disk: the target folder grew about 2.2 GiB building it (9.3 to 7.1 GiB free, after cleaning the worktree's test executables).

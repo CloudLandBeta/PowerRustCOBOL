@@ -647,7 +647,7 @@ impl PreviewSession {
             return Err("the helper is not running".to_owned());
         }
         let limit = std::time::Duration::from_secs(u64::from(time_limit_s) + 30);
-        match self.wait_for(limit, |e| matches!(e, Event::Scripted { .. }))? {
+        match self.wait_for(limit, |e| matches!(e, Event::Scripted { .. })).map_err(helper_too_old)? {
             Event::Scripted { values, text, errors } => Ok((values, text, errors)),
             _ => unreachable!("only Scripted is picked"),
         }
@@ -667,6 +667,16 @@ impl PreviewSession {
     pub fn close(&mut self) {
         let _ = self.send(&Command::Close);
         self.kill();
+    }
+}
+
+/// A helper that does not know a step answers ``name` is not a step`; the runner says the helper is too old
+/// instead of passing that on as a failed page (WASM-015 T5: a step is never ignored).
+fn helper_too_old(message: String) -> String {
+    if message.contains("is not a step") || message.contains("is not a page property") {
+        format!("helper too old: {message}; update PowerRustCOBOL AI's web view helper")
+    } else {
+        message
     }
 }
 
@@ -723,6 +733,27 @@ mod tests {
         }
         let line = Command::open("http://127.0.0.1:8123/", 1, 1, &Emulation::default()).to_line();
         assert!(!line.contains("title"), "{line}");
+    }
+
+    /// WASM-015 T5: the six read-only steps travel as the lines the helper pins, and an old helper's answer is
+    /// reported as "helper too old", never as a page failure.
+    #[test]
+    fn the_read_only_steps_are_pinned_and_an_old_helper_is_named() {
+        let steps = vec![
+            serde_json::json!({ "text": { "control": "LBL-OUT" } }),
+            serde_json::json!({ "style": { "control": "form", "property": "color" } }),
+            serde_json::json!({ "rect": { "control": "layer:LAYER-1" } }),
+            serde_json::json!({ "snapshot": {} }),
+            serde_json::json!({ "focused": {} }),
+            serde_json::json!({ "key": { "key": "Tab", "shift": false } }),
+        ];
+        let line = Command::Script { steps, time_limit_s: None }.to_line();
+        assert_eq!(
+            line,
+            "{\"cmd\":\"script\",\"steps\":[{\"text\":{\"control\":\"LBL-OUT\"}},{\"style\":{\"control\":\"form\",\"property\":\"color\"}},{\"rect\":{\"control\":\"layer:LAYER-1\"}},{\"snapshot\":{}},{\"focused\":{}},{\"key\":{\"key\":\"Tab\",\"shift\":false}}]}\n"
+        );
+        assert!(helper_too_old("`rect` is not a step".into()).starts_with("helper too old:"));
+        assert_eq!(helper_too_old("the helper ended".into()), "the helper ended");
     }
 
     #[test]

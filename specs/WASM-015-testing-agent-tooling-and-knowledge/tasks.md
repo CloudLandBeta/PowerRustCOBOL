@@ -70,7 +70,7 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
 
 ### Runners
 
-- [ ] **T5 — The read-only steps in the helper protocol** (R2, plan §3.2) — **gated on WASM-008 §2.3**
+- [x] **T5 — The read-only steps in the helper protocol** (R2, plan §3.2) — **gated on WASM-008 §2.3**
   - Files: `crates/cobolt-web-preview/src/main.rs` (inside `script`: `text`, `style`, `rect`, `snapshot`, `focused`, `key`; addressing by `[data-name=…]` or the roles `form`, `layer:<NAME>`, `snackbar`; no `eval`), `crates/cobolt-project-tools/src/web/preview.rs` (the IDE side), the page-side code as a Rust string constant.
   - Do: an unknown step answers an error the runner reports as "helper too old"; never ignored.
   - Verify: `cargo test -p cobolt-web-preview -p cobolt-project-tools --no-fail-fast` green; both sides pin each protocol line in a test (as WASM-008 §3 does); a test asserts there is no step that takes free script text.
