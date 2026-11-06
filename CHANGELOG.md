@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.243 — 2026-11-06
+
+**WASM-015 T8: the coverage table for every control type.** *(Written on features-2x-wasm-pending, after 2.0.242.)* `cobolt-web-tests/src/coverage.rs`: `COVERAGE`, one row per `ControlType::ALL` entry (name, class letter, `Decision::{CoveredNow, KnownGap(reason)}`) and `mismatches`; `tests/coverage.rs` prints `71 of 71 rows, A/B covered 41 of 41, known gaps 21` and fails on a control type with no row, a row for none, or a class that differs from `web_class::class_of`. The spec counted 62 types and 27 uncovered; the toolbox has 71 and 28 (the 7 class A/B ones without a desktop file, 20 class C ones, and Authentication from WASM-009). Decisions are the plan's working assumption: the seven class A/B (SideMenu, Switch, Snackbar, Knob, Gauge, Maps, Viewer) are covered by T9's new desktop files and web round-trips; the class C ones are a known gap (their round-trip is WASM-005's backend-call test).
+
 ## 2.0.242 — 2026-11-06
 
 **WASM-015 T7: the backend runner, in process and against the built binary (AC3).** *(Written on features-2x-wasm-pending, after 2.0.241.)* New `cobolt-server/tests/runner.rs`. In process: start 134 ms, sign in 5 ms, a call 79 ms, a call as 1.1.0 (served with a compatibility warning) 11 ms, as 1.3.0 (refused: Version / CLIENT_TOO_NEW, "update the backend") 9 ms, shutdown, and the port re-binds. With `PRC_WEB_E2E=1` the same sequence against the backend built by `backend_build` (debug build 46,141 ms, process listening in 1,262 ms, calls 56 / 26 / 16 ms, port released after the stop). The decision the task asked to put to the operator: a backend names its issuer keys with `jwks_uri`, and a loopback `http` address is allowed (`jwks::address_allowed`), so the binary mode serves the kit's key set from a loopback port and needs NO `unsafe_*` setting; no setting was added. Also repaired a garbled licence-header line in `client_contract.rs`.

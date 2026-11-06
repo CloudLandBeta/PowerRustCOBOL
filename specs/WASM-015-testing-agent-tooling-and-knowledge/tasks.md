@@ -87,7 +87,7 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
 
 ### Test families
 
-- [ ] **T8 — Coverage table for the 62 control types** (R4, AC4 second half) — **gated on WASM-004 C1**
+- [x] **T8 — Coverage table for the 62 control types** (R4, AC4 second half) — **gated on WASM-004 C1**
   - Files: new `crates/cobolt-web-tests/src/coverage.rs` (`COVERAGE: &[(&str, Decision)]`, `Decision::{CoveredNow, KnownGap(&str)}`), new `tests/coverage.rs`.
   - Do: one row per `ControlType::ALL` entry; Q-new-2's working assumption for the 27 not in `tests/controls/`.
   - Verify: `cargo test -p cobolt-web-tests --test coverage` prints `62 of 62 rows, A/B covered N, known gaps M`; a planted missing row fails it.

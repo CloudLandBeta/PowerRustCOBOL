@@ -80,3 +80,6 @@ mod tests {
         assert!(empty_project().is_dir());
     }
 }
+
+/// What each control type's tests cover (WASM-015 T8).
+pub mod coverage;
