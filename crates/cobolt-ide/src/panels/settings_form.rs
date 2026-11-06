@@ -58,6 +58,8 @@ pub struct SettingsDraft {
     pub exports_text: String,
     /// `backend/backend.toml`'s `[identity]` (WASM-009 T19), filled by the caller like the exports.
     pub identity: crate::panels::web_settings::IdentityDraft,
+    /// `backend/backend.toml`'s `[contract]` store mode and idle time (WASM-014 T17).
+    pub contract: crate::panels::web_settings::ContractDraft,
     /// `[backend] state`: `per-call` or `per-connection` (WASM-003 Q2).
     pub backend_state: String,
     // ── License ──
@@ -168,6 +170,7 @@ impl SettingsDraft {
             has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
             exports_text: String::new(),
             identity: Default::default(),
+            contract: Default::default(),
             backend_state: p.backend.clone().unwrap_or_default().state,
             license_model: p.project.license_model.clone(),
             // A project that names a license but carries no text (older projects,
@@ -606,6 +609,9 @@ impl SettingsForm {
         let identity = crate::panels::web_settings::read_identity(project_dir);
         self.draft.identity = identity.clone();
         self.baseline.identity = identity;
+        let contract = crate::panels::web_settings::read_contract_settings(project_dir);
+        self.draft.contract = contract.clone();
+        self.baseline.contract = contract;
         self.project_dir = Some(project_dir.to_path_buf());
     }
 
@@ -613,6 +619,11 @@ impl SettingsForm {
     /// written, as for the exports.
     pub fn identity_edited(&self) -> bool {
         self.draft.identity != self.baseline.identity
+    }
+
+    /// The contract settings were edited since the last load or save.
+    pub fn contract_edited(&self) -> bool {
+        self.draft.contract != self.baseline.contract
     }
 
     /// The identity provider as last saved.

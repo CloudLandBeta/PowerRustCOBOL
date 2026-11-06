@@ -11335,6 +11335,12 @@ impl CoboltApp {
                 identity_unsaved = Some(form.baseline_identity().clone());
             }
         }
+        if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()).map(|d| d.to_path_buf()).filter(|_| form.contract_edited() && form.draft.has_backend && form.draft.kind.has_backend()) {
+            if let Err(e) = crate::panels::web_settings::write_contract_settings(&dir, &form.draft.contract) {
+                let tr = self.lang.tr();
+                self.output.push_status(tr.pk_set_contract_write_failed.replacen("{}", &e, 1));
+            }
+        }
         form.mark_saved();
         if let Some(previous) = identity_unsaved {
             form.restore_identity_baseline(previous);

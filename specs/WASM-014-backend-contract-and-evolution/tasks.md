@@ -437,7 +437,7 @@ as completed.
       for a break, the program, the item and the rule. The table is recorded here.
   - **Done 2026-11-05 (2.0.232).** **Still open:** the AC2 table with `rcrun backend build --release` on a fixture for each R4 change (it needs cargo to build the backend); the release/debug split of the IDE Build is "Build stops, Preview reports", as the IDE has no separate release switch for a Web build.
 
-- [ ] **T17 — The Backend settings: store mode and session idle time** (R10; Q5, OQ2)
+- [x] **T17 — The Backend settings: store mode and session idle time** (R10; Q5, OQ2)
   - Files:
     - `crates/cobolt-ide/src/panels/web_settings.rs` (the Backend part `:192`): a two-value choice (`memory`, `server`) and a seconds field
       that read and write `[contract]` of `backend/backend.toml`. The edit is surgical: other sections and comments are kept, and a file

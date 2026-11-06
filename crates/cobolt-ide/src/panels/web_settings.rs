@@ -317,6 +317,94 @@ pub struct IdentityDraft {
     pub min_score: String,
 }
 
+/// `[contract]` of `backend.toml` as the page edits it (WASM-014 T17): where the idempotency
+/// record lives and how long a session may sit idle. Empty `idle_seconds` is the default (900).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContractDraft {
+    /// `memory` or `server`.
+    pub store: String,
+    pub idle_seconds: String,
+}
+
+pub const STORE_MEMORY: &str = "memory";
+pub const STORE_SERVER: &str = "server";
+
+impl Default for ContractDraft {
+    fn default() -> Self {
+        Self { store: STORE_MEMORY.into(), idle_seconds: String::new() }
+    }
+}
+
+impl ContractDraft {
+    /// Is the idle time acceptable (empty, or a whole number of seconds above zero)?
+    pub fn idle_ok(&self) -> bool {
+        let t = self.idle_seconds.trim();
+        t.is_empty() || t.parse::<u64>().is_ok_and(|v| v > 0)
+    }
+}
+
+/// `[contract]` of the project's `backend.toml`; the defaults when there is none.
+pub fn read_contract_settings(project_dir: &Path) -> ContractDraft {
+    let Ok(doc) = std::fs::read_to_string(backend_config_path(project_dir)).unwrap_or_default().parse::<toml_edit::DocumentMut>() else {
+        return ContractDraft::default();
+    };
+    let Some(c) = doc.get("contract").and_then(|c| c.as_table_like()) else { return ContractDraft::default() };
+    ContractDraft {
+        store: if c.get("idempotency_store").and_then(|v| v.as_str()) == Some(STORE_SERVER) { STORE_SERVER } else { STORE_MEMORY }.into(),
+        idle_seconds: c.get("session_idle_seconds").and_then(|v| v.as_integer()).map(|i| i.to_string()).unwrap_or_default(),
+    }
+}
+
+/// Write the draft into `[contract]`. Only the two keys change; every other section, key and
+/// comment stays byte for byte, and a file without `[contract]` gains only that section. The
+/// default (memory, no idle time) removes the keys it would add, and an emptied section it
+/// created. Returns whether the file changed.
+pub fn write_contract_settings(project_dir: &Path, d: &ContractDraft) -> Result<bool, String> {
+    if !d.idle_ok() {
+        return Err("contract.session_idle_seconds is not a whole number of seconds above zero".into());
+    }
+    let path = backend_config_path(project_dir);
+    let before = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut doc: toml_edit::DocumentMut = before.parse().map_err(|e| format!("{}: {e}", path.display()))?;
+    let want_store = d.store == STORE_SERVER;
+    let idle = d.idle_seconds.trim().parse::<i64>().ok();
+    let present = doc.get("contract").is_some();
+    if !present && !want_store && idle.is_none() {
+        return Ok(false);
+    }
+    if !present {
+        doc.insert("contract", toml_edit::Item::Table(toml_edit::Table::new()));
+    }
+    let c = doc["contract"].as_table_mut().ok_or("[contract] is not a table")?;
+    let have_store = c.get("idempotency_store").and_then(|v| v.as_str()).map(str::to_owned);
+    if want_store {
+        if have_store.as_deref() != Some(STORE_SERVER) {
+            c.insert("idempotency_store", toml_edit::value(STORE_SERVER));
+        }
+    } else if have_store.is_some() && have_store.as_deref() != Some(STORE_MEMORY) {
+        c.insert("idempotency_store", toml_edit::value(STORE_MEMORY));
+    }
+    match idle {
+        Some(v) if c.get("session_idle_seconds").and_then(|x| x.as_integer()) != Some(v) => {
+            c.insert("session_idle_seconds", toml_edit::value(v));
+        }
+        None => {
+            c.remove("session_idle_seconds");
+        }
+        _ => {}
+    }
+    let after = doc.to_string();
+    if after == before {
+        return Ok(false);
+    }
+    std::fs::write(&path, after).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(true)
+}
+
 /// What is wrong with a draft, said by the setting's name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IdentityProblem {
@@ -983,6 +1071,23 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
             });
         });
         note(ui, lay, tr.pk_set_state_hint, dim);
+        row(ui, lay, tr.pk_set_store, |ui| {
+            egui::ComboBox::from_id_salt("kind_contract_store")
+                .selected_text(if draft.contract.store == STORE_SERVER { tr.pk_set_store_server } else { tr.pk_set_store_memory })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut draft.contract.store, STORE_MEMORY.to_owned(), tr.pk_set_store_memory);
+                    ui.selectable_value(&mut draft.contract.store, STORE_SERVER.to_owned(), tr.pk_set_store_server);
+                });
+        });
+        row(ui, lay, tr.pk_set_idle_seconds, |ui| {
+            let w = ui.available_width();
+            ui.add(egui::TextEdit::singleline(&mut draft.contract.idle_seconds).hint_text("900").desired_width(w));
+        });
+        if draft.contract.idle_ok() {
+            note(ui, lay, tr.pk_set_contract_hint, dim);
+        } else {
+            note(ui, lay, tr.pk_set_idle_bad, theme.error);
+        }
         identity_rows(ui, &mut draft.identity, tr, theme, lay, project_dir, identity_test);
     } else {
         note(ui, lay, tr.pk_set_no_backend, dim);
@@ -1451,4 +1556,45 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), BACKEND_TOML, "no provider removes [identity] alone");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// WASM-014 T17: the store mode and the idle time are read and written in `[contract]`; the
+    /// rest of the file stays byte for byte, a file without the section gains only it, and the
+    /// defaults put the file back as it was.
+    #[test]
+    fn contract_settings_round_trip_and_keep_other_sections() {
+        let dir = scratch("contract");
+        let path = backend_config_path(&dir);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, BACKEND_TOML).unwrap();
+        assert_eq!(read_contract_settings(&dir), ContractDraft::default());
+        assert_eq!(write_contract_settings(&dir, &ContractDraft::default()), Ok(false), "the defaults add nothing");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), BACKEND_TOML);
+
+        let d = ContractDraft { store: STORE_SERVER.into(), idle_seconds: "1200".into() };
+        assert_eq!(write_contract_settings(&dir, &d), Ok(true));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with(BACKEND_TOML), "the other sections stay byte for byte:\n{text}");
+        assert_eq!(text[BACKEND_TOML.len()..].trim(), "[contract]\nidempotency_store = \"server\"\nsession_idle_seconds = 1200");
+        assert_eq!(read_contract_settings(&dir), d, "the file reads back as the draft");
+        assert_eq!(write_contract_settings(&dir, &d), Ok(false), "the same draft again changes nothing");
+
+        // Another key of the section, and a comment, survive an edit of the two.
+        let mut with_other = text.clone();
+        with_other.push_str("# keep me\nstrict = true\n");
+        std::fs::write(&path, &with_other).unwrap();
+        let memory = ContractDraft { store: STORE_MEMORY.into(), idle_seconds: String::new() };
+        assert_eq!(write_contract_settings(&dir, &memory), Ok(true));
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(after.contains("# keep me") && after.contains("strict = true") && after.contains("idempotency_store = \"memory\""), "{after}");
+        assert!(!after.contains("session_idle_seconds"));
+        assert_eq!(read_contract_settings(&dir), memory);
+
+        for bad in ["0", "-3", "abc", "1.5"] {
+            let b = ContractDraft { store: STORE_SERVER.into(), idle_seconds: bad.into() };
+            assert!(!b.idle_ok() && write_contract_settings(&dir, &b).is_err(), "{bad}");
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), after, "a refused draft writes nothing");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
+
