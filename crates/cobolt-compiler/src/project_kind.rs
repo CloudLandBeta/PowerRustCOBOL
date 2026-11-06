@@ -377,6 +377,61 @@ impl ModuleVariants {
     }
 }
 
+/// `[web.unsafe]` / `[mobile.unsafe]` — settings that weaken a protection (WASM-013 R11). Every one is off by default,
+/// a warning in Development and a refusal in a Release build; the table is written only when one is on.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnsafeSettings {
+    /// Serve and talk plain `ws://` beyond loopback.
+    #[serde(default)]
+    pub plain_ws: bool,
+    /// Skip the secret scan of the bundle.
+    #[serde(default)]
+    pub skip_secret_scan: bool,
+    /// Send the Content-Security-Policy as report-only: the browser reports a violation and blocks nothing.
+    #[serde(default)]
+    pub csp_report_only: bool,
+}
+
+impl UnsafeSettings {
+    /// The TOML key path of every setting that is on, for `table` (`web` or `mobile`).
+    pub fn enabled(&self, table: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for (on, key) in [(self.plain_ws, "plain_ws"), (self.skip_secret_scan, "skip_secret_scan"), (self.csp_report_only, "csp_report_only")] {
+            if on {
+                out.push(format!("{table}.unsafe.{key}"));
+            }
+        }
+        out
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// `[mobile.pinning]` — the certificate pins of a Mobile build's web view (WASM-013 R14): a list of SPKI SHA-256 pins
+/// (`sha256/<base64>`) and the date they expire.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PinningSettings {
+    #[serde(default)]
+    pub pins: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
+}
+
+/// `[security]` — what the generated `/.well-known/security.txt` says (WASM-013 Q4, RFC 9116).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecuritySettings {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub contact: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub policy: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub expires: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub preferred_languages: String,
+}
+
 /// `[web]` — a Web project's settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebSettings {
@@ -440,6 +495,9 @@ pub struct WebSettings {
     /// (WASM-009 R11, D11). `None`: the first form holding an Authentication control.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign_in_form: Option<String>,
+    /// `[web.unsafe]` (WASM-013 R11). Written only when a setting is on.
+    #[serde(default, rename = "unsafe", skip_serializing_if = "UnsafeSettings::is_default")]
+    pub unsafe_: UnsafeSettings,
 }
 
 impl Default for WebSettings {
@@ -458,6 +516,7 @@ impl Default for WebSettings {
             theme_file: None,
             preview_browser: String::new(),
             sign_in_form: None,
+            unsafe_: UnsafeSettings::default(),
         }
     }
 }
@@ -526,6 +585,12 @@ pub struct MobileSettings {
     /// C15), as [`WebSettings::preview_browser`]. Written only when set.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub preview_browser: String,
+    /// `[mobile.unsafe]` (WASM-013 R11).
+    #[serde(default, rename = "unsafe", skip_serializing_if = "UnsafeSettings::is_default")]
+    pub unsafe_: UnsafeSettings,
+    /// `[mobile.pinning]` (WASM-013 R14).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinning: Option<PinningSettings>,
 }
 
 fn auto() -> String {
@@ -553,6 +618,8 @@ impl MobileSettings {
             stylesheet: mobile_stylesheet(),
             theme_file: None,
             preview_browser: String::new(),
+            unsafe_: UnsafeSettings::default(),
+            pinning: None,
         }
     }
 
@@ -1015,5 +1082,36 @@ mod tests {
         let e = wrong.backend.state_mode().unwrap_err();
         assert!(e.contains("\"session\"") && e.contains("per-call") && e.contains("per-connection"), "{e}");
         println!("absent → per-call (not written back); per-connection → {:?}; \"session\" → {e}", saved.trim());
+    }
+
+    /// WASM-013 T5: a manifest without the security tables loads and saves unchanged; each table round-trips;
+    /// `enabled` names the key paths that are on.
+    #[test]
+    fn the_security_tables_round_trip_and_an_old_manifest_is_saved_unchanged() {
+        let old: WebSettings = toml::from_str("backend_url = \"wss://api.example.com/ws\"").unwrap();
+        assert!(old.unsafe_.is_default() && old.unsafe_.enabled("web").is_empty());
+        let saved = toml::to_string_pretty(&old).unwrap();
+        assert!(!saved.contains("unsafe") && !saved.contains("security") && !saved.contains("pinning"), "{saved}");
+
+        let web: WebSettings = toml::from_str("[unsafe]\nplain_ws = true\ncsp_report_only = true\n").unwrap();
+        assert_eq!(web.unsafe_.enabled("web"), ["web.unsafe.plain_ws", "web.unsafe.csp_report_only"]);
+        let back: WebSettings = toml::from_str(&toml::to_string_pretty(&web).unwrap()).unwrap();
+        assert_eq!(back, web);
+
+        let mobile: MobileSettings = toml::from_str("platform = \"ios\"\ndevice = \"phone\"\n[unsafe]\nskip_secret_scan = true\n[pinning]\npins = [\"sha256/AAAA\", \"sha256/BBBB\"]\nexpires = \"2027-01-31\"\n").unwrap();
+        assert_eq!(mobile.unsafe_.enabled("mobile"), ["mobile.unsafe.skip_secret_scan"]);
+        let pins = mobile.pinning.as_ref().unwrap();
+        assert_eq!((pins.pins.len(), pins.expires.as_deref()), (2, Some("2027-01-31")));
+        let back: MobileSettings = toml::from_str(&toml::to_string_pretty(&mobile).unwrap()).unwrap();
+        assert_eq!(back, mobile);
+        let plain: MobileSettings = toml::from_str("platform = \"android\"\ndevice = \"tablet\"").unwrap();
+        let saved = toml::to_string_pretty(&plain).unwrap();
+        assert!(!saved.contains("unsafe") && !saved.contains("pinning"), "{saved}");
+
+        let sec: SecuritySettings = toml::from_str("contact = \"mailto:security@example.com\"\nexpires = \"2027-01-01T00:00:00Z\"\n").unwrap();
+        assert_eq!((sec.contact.as_str(), sec.policy.as_str()), ("mailto:security@example.com", ""));
+        let back: SecuritySettings = toml::from_str(&toml::to_string_pretty(&sec).unwrap()).unwrap();
+        assert_eq!(back, sec);
+        println!("security tables: old manifest unchanged, [unsafe], [pinning], [security] round-trip, enabled() names the keys");
     }
 }

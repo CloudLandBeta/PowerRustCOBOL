@@ -1201,6 +1201,8 @@ pub struct ManifestView {
     pub web: Option<project_kind::WebSettings>,
     /// `[mobile]`, when the manifest has one.
     pub mobile: Option<project_kind::MobileSettings>,
+    /// `[security]`, when the manifest has one (WASM-013 Q4).
+    pub security: Option<project_kind::SecuritySettings>,
     /// The programs a remote caller can reach: the `program` of each
     /// `[[export]]` in `backend/exports.toml` beside the manifest (WASM-003 D5).
     pub backend_exports: Vec<String>,
@@ -1233,6 +1235,8 @@ struct ViewManifest {
     mobile: Option<project_kind::MobileSettings>,
     #[serde(default)]
     backend: Option<project_kind::BackendSettings>,
+    #[serde(default)]
+    security: Option<project_kind::SecuritySettings>,
     #[serde(default, rename = "sql-connections")]
     sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
 }
@@ -1273,6 +1277,7 @@ pub fn project_manifest_view(manifest_path: &Path) -> Result<ManifestView, Strin
         kind: m.project.kind,
         web: m.web,
         mobile: m.mobile,
+        security: m.security,
         backend_exports,
         backend_state: m.backend.unwrap_or_default().state,
         sql_connections: m.sql_connections,

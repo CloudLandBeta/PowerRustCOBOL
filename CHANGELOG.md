@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.261 — 2026-11-06
+
+**WASM-013 T5, T6: the security tables of the manifest and the build profile (R11, Q4, Q5).** *(Written on features-2x-wasm-pending, after 2.0.260.)* `[web.unsafe]` and `[mobile.unsafe]` (`plain_ws`, `skip_secret_scan`, `csp_report_only`), `[mobile.pinning]` (`pins`, `expires`) and `[security]` (`contact`, `policy`, `expires`, `preferred_languages`) are read from the manifest; each is written back only when set, so an existing manifest is saved unchanged, and the IDE's manifest model keeps `[security]` across a save. `WebBuildRequest` gains `profile` (`BuildProfile`: Development by default, Release set by the caller), `pinning` and `security`, and `unsafe_problems()`: each `unsafe` key that is on is a warning in Development and a refusal in Release, naming the key (`web.unsafe.plain_ws`, `mobile.unsafe.plain_ws`, …). Nothing consumes the profile yet — the Build gate is T7.
+
 ## 2.0.260 — 2026-11-06
 
 **WASM-013 T4: a release backend refuses a literal PKCS#12 password (R7, R8).** *(Written on features-2x-wasm-pending, after 2.0.259.)* The identity secrets already had the rule; `tls.pkcs12_password` did not. In a Release start a password written in `backend.toml` is now an error naming the key and saying "give it as env:NAME or file:PATH" (the value is never in the message); in Development it is accepted with a warning; `env:` and `file:` resolve as before. One new case in `cobolt-server/tests/config_rules.rs`; the crate's tests are green.

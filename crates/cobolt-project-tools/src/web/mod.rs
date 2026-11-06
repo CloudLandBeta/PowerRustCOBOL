@@ -37,7 +37,7 @@ pub mod runner;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use cobolt_compiler::project_kind::{ModuleVariants, ProjectKind, WebSettings};
+use cobolt_compiler::project_kind::{ModuleVariants, PinningSettings, ProjectKind, SecuritySettings, WebSettings};
 
 pub use devserver::{ServeError, ServeOptions, ServerHandle};
 
@@ -52,6 +52,15 @@ pub use generator::PLAYER_UNAVAILABLE_PREFIX;
 /// Where a Build puts a Web bundle, relative to the project: the `dist/`
 /// folder every kind already delivers into, and `web` inside it.
 pub const BUNDLE_SUBDIR: &str = "dist/web";
+
+/// Which kind of build this is (WASM-013 O2, a working assumption): Build and `rcrun build` are **Release**; Run and the
+/// Preview are **Development**. A Release build refuses every `unsafe` setting; a Development one only warns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BuildProfile {
+    #[default]
+    Development,
+    Release,
+}
 
 /// Everything a build reads, taken from the manifest: what the project is, how
 /// it is set up and which files are its forms, programs and Backend.
@@ -83,9 +92,26 @@ pub struct WebBuildRequest {
     /// its bundled assets (the IDE: beside its executable, WASM-016 T14);
     /// `None` = [`generator::player_dir`].
     pub player_dir: Option<PathBuf>,
+    /// Development unless the caller sets Release (WASM-013 R11, O2).
+    pub profile: BuildProfile,
+    /// `[mobile.pinning]`, for a Mobile project that has one.
+    pub pinning: Option<PinningSettings>,
+    /// `[security]`, when the manifest has one.
+    pub security: Option<SecuritySettings>,
 }
 
 impl WebBuildRequest {
+    /// The `unsafe` settings that are on, as `(warnings, refusals)` (WASM-013 R11): in a Development build each is a
+    /// warning, in a Release build a refusal; both name the TOML key. A clean manifest gives neither.
+    pub fn unsafe_problems(&self) -> (Vec<String>, Vec<String>) {
+        let table = if self.kind == ProjectKind::Mobile { "mobile" } else { "web" };
+        let keys = self.web.unsafe_.enabled(table);
+        match self.profile {
+            BuildProfile::Development => (keys.iter().map(|k| format!("{k} is on: for development only; a release build refuses it")).collect(), Vec::new()),
+            BuildProfile::Release => (Vec::new(), keys.iter().map(|k| format!("{k} is on: a release build refuses it; remove it from the manifest")).collect()),
+        }
+    }
+
     /// Read the request from the project at `manifest`. `Err` says why it is
     /// not a Web or Mobile project, or why the manifest cannot be read.
     pub fn from_manifest(manifest: &Path) -> Result<Self, String> {
@@ -127,6 +153,7 @@ impl WebBuildRequest {
                     theme_file: mobile.theme_file.clone(),
                     preview_browser: mobile.preview_browser.clone(),
                     sign_in_form: None,
+                    unsafe_: mobile.unsafe_.clone(),
                 };
                 (web, mobile.module_variants())
             }
@@ -151,6 +178,9 @@ impl WebBuildRequest {
             assets: view.assets,
             form_theme,
             player_dir: None,
+            profile: BuildProfile::default(),
+            pinning: view.mobile.as_ref().and_then(|m| m.pinning.clone()),
+            security: view.security.clone(),
         })
     }
 }
@@ -622,5 +652,31 @@ mod tests {
         let refused = WebBuildError::Refused(vec!["webforms/a.cfrm:4: OPEN — use a remote CALL".into()]);
         assert!(refused.to_string().contains("OPEN") && refused.to_string().starts_with("the project uses what a browser cannot run"));
         assert_eq!(WebBuildError::Failed("x".into()).to_string(), "the web build failed: x");
+    }
+
+    /// WASM-013 T6: each `unsafe` key is a warning in Development and a refusal in Release, naming the key; a clean
+    /// manifest gives neither; Mobile keys are named `mobile.unsafe.*`.
+    #[test]
+    fn each_unsafe_key_warns_in_development_and_refuses_in_release() {
+        let clean = WebBuildRequest::from_manifest(&project("unsafe-clean", WEB_MANIFEST)).unwrap();
+        assert_eq!(clean.profile, BuildProfile::Development);
+        assert_eq!(clean.unsafe_problems(), (Vec::new(), Vec::new()));
+        for key in ["plain_ws", "skip_secret_scan", "csp_report_only"] {
+            let text = format!("{WEB_MANIFEST}\n[web.unsafe]\n{key} = true\n");
+            let mut r = WebBuildRequest::from_manifest(&project(&format!("unsafe-{key}"), &text)).unwrap();
+            let (warns, refusals) = r.unsafe_problems();
+            assert!(refusals.is_empty() && warns.len() == 1 && warns[0].starts_with(&format!("web.unsafe.{key} ")), "{key}: {warns:?}");
+            r.profile = BuildProfile::Release;
+            let (warns, refusals) = r.unsafe_problems();
+            assert!(warns.is_empty() && refusals.len() == 1 && refusals[0].starts_with(&format!("web.unsafe.{key} ")), "{key}: {refusals:?}");
+        }
+        let mobile = "[project]\nname = \"M.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"mobile\"\n\n[files]\nforms = [\"mobileforms/main-form.cfrm\"]\n\n[mobile]\nplatform = \"android\"\ndevice = \"phone\"\n\n[mobile.unsafe]\nplain_ws = true\n\n[mobile.pinning]\npins = [\"sha256/AAAA\"]\nexpires = \"2027-01-31\"\n\n[security]\ncontact = \"mailto:s@example.com\"\n";
+        let mut r = WebBuildRequest::from_manifest(&project("unsafe-mobile", mobile)).unwrap();
+        r.profile = BuildProfile::Release;
+        assert_eq!(r.unsafe_problems().1.len(), 1);
+        assert!(r.unsafe_problems().1[0].starts_with("mobile.unsafe.plain_ws "));
+        assert_eq!(r.pinning.as_ref().unwrap().pins, ["sha256/AAAA"]);
+        assert_eq!(r.security.as_ref().unwrap().contact, "mailto:s@example.com");
+        println!("unsafe_problems: 3 web keys + 1 mobile key, warning in Development, refusal in Release, key named; pinning and security carried");
     }
 }

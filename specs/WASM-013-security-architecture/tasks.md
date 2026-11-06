@@ -175,7 +175,7 @@ as completed.
 
 ## M2 — settings, profile, warnings (R11, R12)
 
-- [ ] **T5 — Manifest tables: `[web.unsafe]`, `[mobile.unsafe]`, `[mobile.pinning]`, `[security]`** (R11, Q4, Q5)
+- [x] **T5 — Manifest tables: `[web.unsafe]`, `[mobile.unsafe]`, `[mobile.pinning]`, `[security]`** (R11, Q4, Q5)
   - Files: `crates/cobolt-compiler/src/project_kind.rs`.
   - Do:
     - Add `UnsafeSettings { plain_ws, skip_secret_scan, csp_report_only }` (all `bool`, `#[serde(default)]`) as `unsafe` on `WebSettings` and
@@ -189,7 +189,7 @@ as completed.
     - New tests: a manifest without the tables loads unchanged; each table round-trips; `enabled()` names `web.unsafe.plain_ws` and so on.
     - The existing `project_kind` tests are unchanged.
 
-- [ ] **T6 — `WebBuildRequest` carries the profile and the settings** (R11; O2 as a working assumption)
+- [x] **T6 — `WebBuildRequest` carries the profile and the settings** (R11; O2 as a working assumption)
   - Files: `crates/cobolt-project-tools/src/web/mod.rs`.
   - Do:
     - Add `pub enum BuildProfile { Development, Release }` and `WebBuildRequest.profile`. `from_manifest` defaults to `Development`; the caller
@@ -202,6 +202,8 @@ as completed.
     - `cargo test -p cobolt-project-tools --no-fail-fast` is green.
     - New tests in `mod.rs` `tests`: each `unsafe` key gives a warning in Development and a refusal in Release, naming the key; a clean
       manifest gives neither.
+
+  - **Done (2.0.261):** T5: `UnsafeSettings` (field `unsafe_`, TOML `unsafe`), `PinningSettings`, `SecuritySettings` in `project_kind.rs`; `[security]` read by `project_manifest_view` and kept by the IDE's manifest model so a save does not drop it; every table is written only when set (an old manifest is saved byte for byte). T6: `BuildProfile`, `WebBuildRequest.profile/pinning/security`, `unsafe_problems()`; `[mobile.unsafe]` is carried into the request's web settings. Tests: `project_kind` 20, `cobolt-project-tools` all green; `cobolt-ide` checks.
 
 - [ ] **T7 — The Web Build scans the project inputs and enforces the profile — GATED on WASM-002's linked backend** (R7, R11; AC6, AC9 build half)
   - Files: WASM-002's backend that implements `WebBuildBackend` (plan §2's `cobolt-project-tools/src/web/build.rs`, or wherever WASM-002 puts

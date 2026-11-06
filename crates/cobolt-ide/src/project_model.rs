@@ -100,6 +100,9 @@ pub struct CoboltProject {
     /// `[backend]` — the Backend part of a Web or Mobile project (WASM-003 R1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend: Option<BackendSettings>,
+    /// `[security]` — the `security.txt` parameters (WASM-013 Q4). Kept so an IDE save does not drop the table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security: Option<cobolt_compiler::project_kind::SecuritySettings>,
 }
 
 /// `[links]` in the project manifest (WASM-006 R7): extra schemes a Hyperlink may follow. Read by
@@ -927,6 +930,7 @@ impl CoboltProject {
             web: None,
             mobile: None,
             backend: None,
+            security: None,
         }
     }
 
