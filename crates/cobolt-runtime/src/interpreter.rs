@@ -3823,7 +3823,7 @@ impl Interpreter {
     }
 
     /// `obj` as the form spells it, or unchanged when the form never said.
-    fn form_spelling(&self, obj: &str) -> String {
+    pub(super) fn form_spelling(&self, obj: &str) -> String {
         self.control_ids
             .get(&obj.to_ascii_uppercase())
             .cloned()
@@ -11909,6 +11909,7 @@ impl Interpreter {
             // The frontend's side: the last warning, and files in and out.
             "COBOL-WS-WARNING" => self.builtin_ws_warning(using),
             "COBOL-WS-VERSION" => self.builtin_ws_version(using),
+            "COBOL-WS-SHOW-PROGRESS" => self.builtin_ws_show_progress(using, span)?,
             "COBOL-WS-UPLOAD" => self.builtin_ws_upload(using, span)?,
             "COBOL-WS-DOWNLOAD" => self.builtin_ws_download(using, span)?,
             // COBOL-FILE-STATUS file-name status-item

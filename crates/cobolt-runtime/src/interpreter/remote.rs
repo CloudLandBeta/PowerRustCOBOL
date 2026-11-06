@@ -148,12 +148,46 @@ pub struct RemoteState {
     /// key it carried: the same call made again right after reuses the key, so the
     /// backend answers from its store instead of running it twice (WASM-014 R10).
     pub(crate) retry: Option<(u64, String)>,
+    /// Where the next remote call's progress is shown (`COBOL::"WS-SHOW-PROGRESS"`); spent when that call ends.
+    pub(crate) show_progress: Option<ShowProgress>,
+}
+
+/// The controls a call's progress is shown in (WASM-014 R13, D-Progress): a progress bar, a label for its message, and a button that cancels.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ShowProgress {
+    pub progress: String,
+    pub label: String,
+    pub cancel: String,
+}
+
+/// A cancel button a form declared, by form and control: while the interpreter's thread is blocked in the call, the host that paints the
+/// form sees the click and answers it (no handler can run).
+static CANCEL_CONTROLS: std::sync::Mutex<Vec<(String, String, Arc<AtomicBool>)>> = std::sync::Mutex::new(Vec::new());
+
+/// A host tells the runtime that `event` was raised on `control` of `form`: a click on a declared cancel control asks the pending call to
+/// cancel. Answers whether the click was one. Cheap when nothing is declared (the common case).
+pub fn cancel_control_clicked(form: &str, control: &str, event: &str) -> bool {
+    if !event.eq_ignore_ascii_case("onClick") {
+        return false;
+    }
+    let Ok(g) = CANCEL_CONTROLS.lock() else { return false };
+    for (f, c, flag) in g.iter() {
+        if f.eq_ignore_ascii_case(form) && c.eq_ignore_ascii_case(control) {
+            flag.store(true, Ordering::SeqCst);
+            return true;
+        }
+    }
+    false
 }
 
 /// Feeds a transport's reports to the host and to the interpreter's own state.
 struct Observer<'a> {
     /// The program being called (empty for a file transfer).
     program: &'a str,
+    /// Where progress is shown while the call is pending: the form's state channel and the declared controls.
+    shown: Option<(std::sync::mpsc::Sender<crate::StateUpdate>, ShowProgress)>,
+    /// The last progress the call reported, to leave in the controls' own state when it ends.
+    last: Option<(u8, String)>,
     events: &'a mut Option<EventSink>,
     warnings: &'a mut Vec<String>,
     cancel: &'a Arc<AtomicBool>,
@@ -161,6 +195,15 @@ struct Observer<'a> {
 
 impl CallObserver for Observer<'_> {
     fn progress(&mut self, percent: u8, message: &str) {
+        self.last = Some((percent, message.to_string()));
+        if let Some((tx, s)) = &self.shown {
+            if !s.progress.is_empty() {
+                let _ = tx.send(crate::StateUpdate::new(s.progress.clone(), "Value".to_string(), percent.to_string()));
+            }
+            if !s.label.is_empty() {
+                let _ = tx.send(crate::StateUpdate::new(s.label.clone(), "Caption".to_string(), message.to_string()));
+            }
+        }
         if let Some(f) = self.events.as_mut() {
             f(RemoteEvent::Progress { percent, message: message.to_string() });
         }
@@ -440,6 +483,17 @@ impl Interpreter {
         request.idempotency_key = Some(key.clone());
         self.remote.cancel.store(false, Ordering::SeqCst);
         self.remote.warnings.clear();
+        // The declaration of `WS-SHOW-PROGRESS` is for this call alone, whether it succeeds or fails.
+        let declared = self.remote.show_progress.take();
+        if let Some(d) = &declared {
+            for (what, name) in [("progress control", &d.progress), ("label control", &d.label), ("cancel control", &d.cancel)] {
+                if !name.is_empty() && !self.objects.contains(name) {
+                    return Err(CallError::validation(format!("COBOL::\"WS-SHOW-PROGRESS\": the {what} {name} is not a control of this form"), name.clone()));
+                }
+            }
+        }
+        let shown = declared.as_ref().and_then(|d| self.state_tx.clone().map(|tx| (tx, d.clone())));
+        let cancel_key = declared.as_ref().filter(|d| !d.cancel.is_empty()).map(|d| (self.self_form_object.clone().unwrap_or_default(), d.cancel.clone()));
         let RemoteState { transport, events, warnings, cancel, .. } = &mut self.remote;
         let Some(transport) = transport.as_mut() else {
             return Err(CallError::transport(
@@ -449,8 +503,28 @@ impl Interpreter {
             .may_have_run(false));
         };
         let program = request.program.clone();
-        let mut observer = Observer { program: &program, events, warnings, cancel };
+        if let Some((form, ctrl)) = &cancel_key {
+            if let Ok(mut g) = CANCEL_CONTROLS.lock() {
+                g.push((form.clone(), ctrl.clone(), cancel.clone()));
+            }
+        }
+        let mut observer = Observer { program: &program, shown, last: None, events, warnings, cancel };
         let outcome = transport.call_observed(request, &mut observer);
+        let last = observer.last.take();
+        // The declaration is spent: the cancel control is no longer listened to, and the controls keep what the call last showed.
+        if let Some((form, ctrl)) = &cancel_key {
+            if let Ok(mut g) = CANCEL_CONTROLS.lock() {
+                g.retain(|(f, c, flag)| !(f == form && c == ctrl && Arc::ptr_eq(flag, &self.remote.cancel)));
+            }
+        }
+        if let (Some(d), Some((percent, message))) = (&declared, last) {
+            if !d.progress.is_empty() {
+                self.objects.set_property(&d.progress, "Value", percent.to_string());
+            }
+            if !d.label.is_empty() {
+                self.objects.set_property(&d.label, "Caption", message);
+            }
+        }
         let reply = match outcome {
             Ok(r) => r,
             Err(e) => {
@@ -734,6 +808,24 @@ impl Interpreter {
         }
     }
 
+    /// `COBOL::"WS-SHOW-PROGRESS"( progress-control [label-control [cancel-control]] )`: where the NEXT remote call shows its progress
+    /// (WASM-014 R13, D-Progress). The host sets the progress control's `Value` and the label's `Caption` from each progress frame, and a
+    /// click on the cancel control asks the call to cancel; no COBOL runs meanwhile. The declaration is spent when that call ends. A control
+    /// is written as its name or as a literal; one the form does not have fails the call with `validation`, naming it.
+    pub(super) fn builtin_ws_show_progress(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        let mut names = Vec::new();
+        for a in using.iter().take(3) {
+            let n = match call_arg_expr(a) {
+                Expr::Literal(..) => self.eval_call_arg(a, span)?.as_display_string().trim().to_string(),
+                e => self.expr_to_name(e),
+            };
+            names.push(self.form_spelling(n.trim()));
+        }
+        let mut it = names.into_iter();
+        self.remote.show_progress = Some(ShowProgress { progress: it.next().unwrap_or_default(), label: it.next().unwrap_or_default(), cancel: it.next().unwrap_or_default() });
+        Ok(())
+    }
+
     /// `COBOL::"WS-VERSION"( state message update-to )`: what the backend said about this application's version in the latest
     /// `hello` that was not ok - `warn` or `refused`, its message, and the contract to update to; spaces when it said nothing.
     pub(super) fn builtin_ws_version(&mut self, using: &[CallArg]) {
@@ -788,7 +880,7 @@ impl Interpreter {
             match transport.as_mut() {
                 None => (String::new(), "NOBACKEND"),
                 Some(t) => {
-                    let mut observer = Observer { program: "", events, warnings, cancel };
+                    let mut observer = Observer { program: "", shown: None, last: None, events, warnings, cancel };
                     let r = t.upload(&UploadRequest { slot, path: p, name, mime }, &mut observer);
                     match r {
                         Ok(done) => (done.file, "OK"),
@@ -824,7 +916,7 @@ impl Interpreter {
                 return Ok(());
             }
             Some(t) => {
-                let mut observer = Observer { program: "", events, warnings, cancel };
+                let mut observer = Observer { program: "", shown: None, last: None, events, warnings, cancel };
                 t.download(&DownloadRequest { file, dest }, &mut observer).map(|_| ())
             }
         };

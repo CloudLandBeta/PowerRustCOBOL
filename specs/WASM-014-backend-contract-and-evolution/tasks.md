@@ -355,7 +355,7 @@ as completed.
 
 ## M8 — progress, streams and files from a form (plan §2.5, §2.6, D-Progress)
 
-- [ ] **T13 — `WS-SHOW-PROGRESS` in the interpreter hosts; the compiled-binary parity test** (R13; AC8; OQ3; Δ6, Δ7)
+- [x] **T13 — `WS-SHOW-PROGRESS` in the interpreter hosts; the compiled-binary parity test** (R13; AC8; OQ3; Δ6, Δ7)
   - Files:
     - `crates/cobolt-runtime/src/interpreter/remote.rs`: `COBOL::"WS-SHOW-PROGRESS" ( progress-control [label-control [cancel-control]] )`
       records a one-shot declaration for the next long-running call;
@@ -373,7 +373,13 @@ as completed.
       - the same test through an embedded child form;
     - `cargo test -p cobolt-compiler --test compiled_app_calls_backend -- --ignored`, recorded here. It needs a native build, so `df -h .`
       first.
-
+  - **Done (2026-11-05, 2.0.229):** the declaration, the progress frames into the controls, the cancel click and the spent declaration, with
+    `test_show_progress` (runtime) and `progress_frames_reach_the_declared_controls_and_the_cancel_button_ends_the_call` (`cobolt-form-host`,
+    the real host and interpreter; it prints bar 40, label halfway, then 8000). The cancel click is seen by the host that paints the form
+    (`send_event`), through a process-wide registry, so every form of a run is covered.
+  - **Still open (T13b):** the same behaviour through an embedded child form, and the ignored compiled-binary test
+    `compiled_app_calls_backend.rs` (needs a native build). The compiled application runs this same runtime and host, so the parity is by
+    construction, but it has not been run.
 - [ ] **T14 — Streams from COBOL: `WS-SUBSCRIBE`, `WS-UNSUBSCRIBE`, `WS-STREAM-ITEM`, `onStreamItem`, `onStreamEnd`** (R14; AC8; Q3)
   - Files:
     - `crates/cobolt-wire/src/call.rs`: `Transport::subscribe` / `unsubscribe` / `next_item`, defaulting to `not configured 1003`;

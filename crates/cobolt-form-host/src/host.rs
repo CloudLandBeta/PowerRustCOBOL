@@ -1859,6 +1859,9 @@ impl FormBody {
             return;
         }
         crate::diagnostics::trace_event("send", &ev.ctrl_id, &ev.event_id, ev.instance_index);
+        // A click on the cancel button a form declared with `WS-SHOW-PROGRESS` asks the pending call to cancel (WASM-014 R13): the
+        // interpreter's thread is blocked in that call, so no handler could. The click is still queued for a handler bound to it.
+        cobolt_runtime::interpreter::remote::cancel_control_clicked(&self.form_object, &ev.ctrl_id, &ev.event_id);
         // Counted BEFORE it is sent: the interpreter's decrement is
         // saturating, so one that took the event before it was counted found
         // nothing to lower, and the backlog stayed one too high for the rest
