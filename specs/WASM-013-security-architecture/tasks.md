@@ -480,7 +480,7 @@ as completed.
 
 ## M11 — the whole, written down (R1, R16)
 
-- [ ] **T23 — The threat model, its test, and the release-review rule** (R1, R16, Q1; AC1)
+- [x] **T23 — The threat model, its test, and the release-review rule** (R1, R16, Q1; AC1)
   - Files: `specs/WASM-013-security-architecture/threat-model.md` (new) and `crates/cobolt-web-bundle/tests/threat_model.rs` (new).
   - Do:
     - Write the model:
@@ -506,8 +506,10 @@ as completed.
       penetration-test` and a reviewer different from its author line. Until then the check prints "not a release candidate".
   - Verify: `cargo test -p cobolt-web-bundle --test threat_model -- --nocapture` is green and prints the row count and the owed count. A
     temporary edit that removes a row's test name makes it fail; revert the edit.
+  - **Done (2.0.276):** `threat-model.md` and `crates/cobolt-web-bundle/tests/threat_model.rs`. The model: 5 assets (S1–S5), **7 actors** (A1–A7: the six of R1 and, from R17, a party that holds or terminates the TLS session), the 7 boundaries (B1–B7), **49 rows** (B1 17, B2 7, B3 6, B4 5, B5 5, B6 4, B7 5), the STRIDE walk as a matrix (7 boundaries × 6 letters = 42 cells, each naming rows of that boundary or a dash with its reason), the personal-data table with `subject` listed, the 15 secret-scan pattern names with their severity, five accepted residual risks (R-1 the unauthenticated key agreement, R-2 the TLS cipher floor = plan O5, R-3 traffic analysis, R-4 an attacker inside the browser or a compromised backend, R-5 "marked field" = a password-mode control = plan O1), what is not measured here, and the R16 rule. The test (3 cases, 0.8 s) asserts: the boundaries and actors are exactly the defined ones; every boundary has a row; every row has a boundary, an actor, a STRIDE letter in its threat, a control of substance, and either test names or `owed: WASM-NNN — what` (never both); **every named test is found as `fn name` under `crates/<crate>`** (132 found); every STRIDE cell is filled and cites only rows of its own boundary; the pattern table equals `secrets::PATTERNS` in names, order and severity; `subject` is listed as personal data. It prints the rows per boundary, the actors, the tests found and the **owed count: 5** (TM-30 WASM-016: the player's `components` in `player-build.json`; TM-37 to TM-40 WASM-012: the capability file, the pin files, the mobile guard and SBOM, `store_required`). A second case damages the model five ways in memory (a test name that does not exist, a boundary with no rows, a row with no control, a pattern renamed, a malformed owed marker) and asserts each is reported, which is the task's "remove a row's test name and it fails" without editing the file. **R16:** the marker is a line of `WASM-PROGRESS.md` that begins `RELEASE CANDIDATE:` followed by `reached`; from then on `release-review.md` must exist with `kind` (review or penetration-test), `reviewer`, `author`, `scope` and `date`, and a reviewer other than the author; the third case tests the rule on text (a good record, an unknown kind, reviewer = author, no reviewer, an empty file, the marker present and absent) and on the repository (today it prints "not a release candidate").
+    - **What writing it found:** the five WASM-009 rows the task listed as owed are not: the identity tests exist (the refresh and its cross-site refusal, the custom header, which is `X-PR-Identity` and not `X-PR-Refresh`, the cookie, the sign-in log test, the identity secret fields), and WASM-002's T7 shipped on 2.0.262, so neither is an owed row; WASM-017's R15b rows have tests too. What stays owed is only what no code exists for yet. This segment's findings are rows: `crit` and a non-integer `exp` (TM-02, TM-03), a second hello and the close codes (TM-05, TM-08), the cut error messages (TM-12), the positional-array frame (TM-05). TM-13 (repudiation) rests on the last assertion of `no_secret_in_logs.rs` (the log still says who did what), which was already there and is now named.
 
-- [ ] **T24 — Owed and unmeasured items recorded in `WASM-PROGRESS.md`** (R1, R15)
+- [x] **T24 — Owed and unmeasured items recorded in `WASM-PROGRESS.md`** (R1, R15)
   - Files: `specs/WASM-PROGRESS.md`.
   - Do:
     - Add one WASM-013 section listing what is owed and by whom: the T23 owed rows, T7 if it is still gated, and T9's Preview case if it is
@@ -516,6 +518,7 @@ as completed.
       best effort), and iOS and Android pinning on devices.
     - Record the fuzz budgets from T19 and T20.
   - Verify: the section exists, its owed count equals the one `threat_model.rs` prints, and nothing under `docs/` changed.
+  - **Done (2.0.276):** the section "WASM-013 — security architecture: what is owed, what is not measured, the fuzz budgets" closes `specs/WASM-PROGRESS.md`. It holds the owed table (5 rows, equal to the count the test prints; **TM-30 WASM-016**, **TM-37 to TM-40 WASM-012**), what is **no longer** owed and the test that answers it, the open items that are not rows (the advisory baseline, the 10 secret shapes in 7 tracked examples for the operator, the stale shipped player), what cannot be measured here with its command and its reason (Firefox and Safari CSP and Trusted Types, pinning and the capability file on a device, the fuzz over TLS), the fuzz budgets of T19 and T20 (default and recorded 200×), and the R16 marker. Nothing under `docs/` or `README.md` changed.
 
 ## M12 — finalize
 
