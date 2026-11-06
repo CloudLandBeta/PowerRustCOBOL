@@ -269,11 +269,29 @@ pub fn rig_with_identity(dir: std::path::PathBuf, extra_toml: &str, http: Arc<dy
     rig_full(dir, extra_toml, crate::backend::StateMode::PerCall, Some(http))
 }
 
+/// [`rig`] as a **development** run with a development token secret (`unsafe_dev_token_secret`, WASM-013 R11):
+/// the server accepts HS256 tokens minted with [`crate::dev::mint_dev_token`]. A release start refuses the secret.
+pub fn rig_dev(dir: std::path::PathBuf, dev_secret: &str) -> Rig {
+    rig_core(dir, "", &format!("unsafe_dev_token_secret = {dev_secret:?}\n"), crate::backend::StateMode::PerCall, None, RunMode::Development)
+}
+
 fn rig_full(
     dir: std::path::PathBuf,
     extra_toml: &str,
     state: crate::backend::StateMode,
     identity_http: Option<Arc<dyn crate::identity::client::Http>>,
+) -> Rig {
+    rig_core(dir, extra_toml, "", state, identity_http, RunMode::Release)
+}
+
+/// `top_toml` is written before the first table, `extra_toml` after `[auth]`.
+fn rig_core(
+    dir: std::path::PathBuf,
+    extra_toml: &str,
+    top_toml: &str,
+    state: crate::backend::StateMode,
+    identity_http: Option<Arc<dyn crate::identity::client::Http>>,
+    mode: RunMode,
 ) -> Rig {
     let serial = Serial::take();
     let cert = test_cert();
@@ -283,6 +301,7 @@ fn rig_full(
     std::fs::write(dir.join("server-key.pem"), &cert.key_pem).unwrap();
     let config_text = format!(
         r#"
+{top_toml}
 [server]
 listen = "127.0.0.1:0"
 allowed_origins = ["{ORIGIN}"]
@@ -299,7 +318,7 @@ jwks_uri = "https://idp.example.test/pool/.well-known/jwks.json"
         issuer.issuer
     );
     let cfg = ServerConfig::from_toml(&config_text).expect("config");
-    let resolved = cfg.resolve(RunMode::Release, &dir).expect("resolve");
+    let resolved = cfg.resolve(mode, &dir).expect("resolve");
     let mut backend = Backend::load(&dir).expect("backend");
     backend.state = state;
     let iface = backend.interface.clone();

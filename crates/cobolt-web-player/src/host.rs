@@ -56,6 +56,9 @@ pub const MAX_PARAMS: usize = 16;
 pub const MAX_PARAM_NAME: usize = 64;
 pub const MAX_PARAM_VALUE: usize = 512;
 
+/// The shortest text of a password-mode control that an error report is cleaned of (WASM-013 R13, T18).
+const SECRET_FLOOR: usize = 3;
+
 /// The form event the player raises when the connection to the backend gave up (WASM-016 R21; the form catalogue's
 /// "Error Handling" group, `cobolt_forms::model::FORM_EVENT_GROUPS`).
 pub const ON_BACKEND_UNREACHABLE: &str = "onBackendUnreachable";
@@ -77,14 +80,31 @@ pub const ON_POPUP_BLOCKED: &str = "onPopupBlocked";
 
 /// Why `name=value` is not an acceptable parameter, if it is not: a name is letters, digits, `-`, `_` and `.`
 /// and at most [`MAX_PARAM_NAME`] long; a value is at most [`MAX_PARAM_VALUE`] characters.
-fn param_problem(k: &str, v: &str) -> Option<String> {
+fn param_problem(k: &str, v: &str) -> Option<ParamProblem> {
     if k.is_empty() || k.len() > MAX_PARAM_NAME || !k.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) {
-        return Some(format!("`{k}` is not a parameter name (letters, digits, - _ . up to {MAX_PARAM_NAME})"));
+        return Some(ParamProblem::Name);
     }
     if v.chars().count() > MAX_PARAM_VALUE {
-        return Some(format!("the value of `{k}` is longer than {MAX_PARAM_VALUE} characters"));
+        return Some(ParamProblem::Value);
     }
     None
+}
+
+/// What is wrong with a parameter. The refusal names the parameter by its **position**, never by its text: the argument
+/// may be a data item the program passed by mistake (a password-mode control's text among them), and an error report
+/// is read by whoever has the console (WASM-013 R13, T18).
+enum ParamProblem {
+    Name,
+    Value,
+}
+
+impl ParamProblem {
+    fn describe(&self, n: usize) -> String {
+        match self {
+            ParamProblem::Name => format!("the name of parameter {n} is not a parameter name (letters, digits, - _ . up to {MAX_PARAM_NAME})"),
+            ParamProblem::Value => format!("the value of parameter {n} is longer than {MAX_PARAM_VALUE} characters"),
+        }
+    }
 }
 
 /// The reserved parameter that chooses where one `OpenFormAsync` / `OpenFormSync` shows its form (WASM-011 T22).
@@ -98,7 +118,7 @@ fn take_window_choice(params: &mut Params) -> Result<bool, String> {
     match v.trim().to_ascii_lowercase().as_str() {
         "same" => Ok(true),
         "new" | "" => Ok(false),
-        other => Err(format!("`{WINDOW_PARAM}` is `new` or `same`, not `{other}`")),
+        _ => Err(format!("`{WINDOW_PARAM}` is `new` or `same`")),
     }
 }
 
@@ -122,18 +142,19 @@ pub fn parse_params(args: &[&str]) -> Result<Params, String> {
         return Err(format!("at most {MAX_PARAMS} parameters can be passed to a form"));
     }
     let mut out: Params = Vec::new();
-    for a in args {
+    for (i, a) in args.iter().enumerate() {
+        let n = i + 1;
         let a = a.trim();
         if a.is_empty() {
             continue;
         }
-        let (k, v) = a.split_once('=').ok_or_else(|| format!("the parameter `{a}` is not name=value"))?;
+        let (k, v) = a.split_once('=').ok_or_else(|| format!("parameter {n} is not name=value"))?;
         let k = k.trim();
         if let Some(p) = param_problem(k, v) {
-            return Err(p);
+            return Err(p.describe(n));
         }
-        if out.iter().any(|(n, _)| n.eq_ignore_ascii_case(k)) {
-            return Err(format!("the parameter `{k}` is given twice"));
+        if out.iter().any(|(m, _)| m.eq_ignore_ascii_case(k)) {
+            return Err(format!("the name of parameter {n} is given twice"));
         }
         out.push((k.to_owned(), v.to_owned()));
     }
@@ -1499,10 +1520,32 @@ impl Host {
         }
     }
 
-    fn report(&mut self, e: RunError) {
+    fn report(&mut self, mut e: RunError) {
+        e.message = self.without_secrets(&e.message);
         self.last_error = e.code;
         self.reported_in_call = true;
         self.effects.push(Effect::RuntimeError(e));
+    }
+
+    /// `text` with the text of every password-mode control in it replaced by `<redacted>` (WASM-013 R13, T18). An error
+    /// report is read by whoever has the console, and a message that quotes an argument or a value would quote what a
+    /// user typed into a password box. The messages are written so that they quote none (`parse_params`); this is the
+    /// net under them, so that one that does is not a leak. A value shorter than [`SECRET_FLOOR`] characters is left:
+    /// replacing one or two letters would garble every message while it sits in the box.
+    fn without_secrets(&self, text: &str) -> String {
+        let mut out = text.to_owned();
+        for tree in self.trees.values() {
+            for i in 0..tree.ctls.len() {
+                if tree.get(i, "PasswordCharacter").is_empty() {
+                    continue;
+                }
+                let value = tree.get(i, "Text");
+                if value.chars().count() >= SECRET_FLOOR {
+                    out = out.replace(&value, "<redacted>");
+                }
+            }
+        }
+        out
     }
 
     fn create_tree(&mut self, inst: u32, form: usize, opener: Option<u32>, params: Params) -> Result<(), String> {
@@ -1968,7 +2011,7 @@ impl Host {
                     } else if seg.args.len() == 1 {
                         // `LST::Items(3) = x`: replace the nth line of a newline-separated property.
                         let Some(n) = crate::value::index1(seg.args[0]) else {
-                            return Err(CmdError::Bad(format!("`{name}({})`: an index counts from 1", seg.args[0])));
+                            return Err(CmdError::Bad(format!("`{name}(…)`: an index is a whole number counting from 1")));
                         };
                         let cur = tree.get(idx, &name);
                         let mut lines: Vec<String> = cur.lines().map(str::to_owned).collect();

@@ -158,7 +158,8 @@ fn another_value_is_the_programs_mistake_and_opens_nothing() {
     let mut h = host(true);
     h.create_tree(0, 0, None, Vec::new()).unwrap();
     let e = h.form_verb(0, "OpenFormAsync", &["child-form", "pr-window=beside"]).unwrap_err();
-    assert!(matches!(e, CmdError::Bad(m) if m.contains("pr-window") && m.contains("beside")));
+    // The refusal names the parameter, never the value the program gave it (WASM-013 R13, T18): that may be a password.
+    assert!(matches!(e, CmdError::Bad(m) if m.contains("pr-window") && !m.contains("beside")));
     assert!(windows(&h).is_empty() && h.work.is_empty(), "no form was opened");
 }
 

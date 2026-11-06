@@ -396,7 +396,7 @@ as completed.
 
 ## M7 — logs and privacy (R13)
 
-- [ ] **T18 — No token, password or marked field in a log, the console or an error report** (R13; AC10; O1 as a working assumption)
+- [x] **T18 — No token, password or marked field in a log, the console or an error report** (R13; AC10; O1 as a working assumption)
   - Files:
     - Player: `crates/cobolt-web-player/src/` on the `ERROR` path (ABI A4), and `crates/cobolt-web-player/tests/no_secret_in_console.rs` (new).
     - Server: `crates/cobolt-server/tests/no_secret_in_logs.rs` (new). This is Δ2.
@@ -414,6 +414,9 @@ as completed.
     - `cargo test -p cobolt-server --test no_secret_in_logs -- --nocapture` and `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml
       --test no_secret_in_console -- --nocapture` are green, with zero hits.
     - The `subject` field remains, and is listed as personal data (T23).
+  - **Done (2.0.274):** both tests are green with zero hits. **Server** (`no_secret_in_logs.rs`, with `testkit::rig_dev`): a dev-token sign-in and a call carrying a planted password; 8 records, about 870 bytes, 7 strings (token, its three parts, a refused token, the password, the development secret). **Player** (`no_secret_in_console.rs`, 3 tests): (1) a fixture form with seven buttons that each hand the password to the player where a message could quote it (a second `OpenFormAsync` argument, the `pr-window` value, the form id, a subscript, a method's argument, a property's value, a remote call whose reply is an error) — 2 module variants, 10 error reports, 1,852 bytes of effect `Debug`; (2) `parse_params` itself, 5 refusals; (3) a `Client` over a socket whose server reads the sealed wire — token expired and repeated under the new token, refused, invalid, a frame that is not JSON and echoes both secrets, a connection error, a timeout and a lost connection until the policy gives up: 2 console warnings, 4 error answers, 2,512 bytes of `Debug`, the wire carrying the password and both tokens (1,211 bytes). Two positive controls: with a plain box the form-id error does quote the text; the server half of the socket sees the planted values. `auth.rs` extends its assertion to the `Debug` of machine, action, ops and session against the real token and password (4 outputs, 931 bytes).
+    - **What it found:** the refusal of an open's arguments quoted the argument ("the parameter `<text>` is not name=value"). Now `parse_params` says "parameter 2 is not name=value", names positions, never text; the `pr-window` refusal and the subscript refusal no longer quote their value. `Host::report` is the net under them: the text of every password-mode control of three characters or more is replaced by `<redacted>` in any report (below three it would garble every message while the box holds it; this is the one limit). The form id is the one site that still quotes an argument (a typo in a form's name is the commonest mistake and the quote is what finds it); a password there is cleaned by the net, and the test asserts both.
+    - **Not covered, stated:** the native test builds the console lines the way `api.rs` does (`DISPLAY`, log, `describe()`, `Warning`) but does not run `web_sys::console`; the panic hook's message and the backend's own words in a `Warning` (the server half covers what it writes) are not audited here; "marked field" is a password-mode control until the program has a way to mark others (O1). The full provider sign-in stays with WASM-009. **The shipped player is stale** (`freshness` has been red since 2.0.270, which changed player source; this task changes its behaviour): T25 rebuilds it.
 
 ## M8 — fuzzing (R15)
 
@@ -517,6 +520,7 @@ as completed.
       what stays open: O1–O5, the gated T7, the owed rows and count, and T1's licence decisions.
   - Do:
     - Run `df -h .` first.
+    - **Rebuild the shipped player once**, after the last change to player source: `cargo run --manifest-path crates/cobolt-web-player/Cargo.toml --example build_player -- --out assets/web-player`. `freshness` has been red since 2.0.270 (T15, T18 changed its source), the same discipline as 2.0.188. Commit `assets/web-player/` with the entry.
     - Run the tests of the crates touched, with `--no-fail-fast`, and read every `test result` line:
       - `cargo test -p cobolt-web-bundle -p cobolt-server -p cobolt-wire -p cobolt-compiler -p cobolt-project-tools --no-fail-fast`;
       - `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`;

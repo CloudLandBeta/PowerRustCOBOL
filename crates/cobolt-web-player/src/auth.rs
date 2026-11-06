@@ -1465,6 +1465,16 @@ mod tests {
         assert_eq!(m.session.claim("nope"), "");
         let dbg = format!("{:?}", m.session);
         assert!(dbg.contains("<redacted>") && !dbg.contains("eyJ"), "R6: a token never reaches a log: {dbg}");
+        // WASM-013 T18 (R13, AC10): the same for every `Debug` a diagnostic could print — the machine, what the user
+        // did, what the machine asked the shell to do and the session — against the real token and the real password.
+        let token = m.session.token().expect("signed in").to_owned();
+        let did = format!("{:?}", Action::SignIn { user: "ana".into(), password: "s3cret!".into() });
+        let asked = format!("{shown:?}");
+        let machine = format!("{m:?}");
+        for (what, text) in [("session", &dbg), ("action", &did), ("ops", &asked), ("machine", &machine)] {
+            assert!(!text.contains(&token) && !text.contains("s3cret!"), "R13: the {what} prints neither the token nor the password: {text}");
+        }
+        println!("auth Debug: 4 outputs ({} bytes) searched for the token and the password: 0 hits", dbg.len() + did.len() + asked.len() + machine.len());
     }
 
     #[test]
