@@ -5331,6 +5331,9 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"WS-PAUSE"` | milliseconds in | On the backend, wait; it ends early when the caller asks to cancel |
 | `COBOL::"WS-PROGRESS"` | percent in, message in | On the backend, report the progress of a long-running call; it is a safe point where a cancel ends the call |
 | `COBOL::"WS-SHOW-PROGRESS"` | progress-control in, [label-control in], [cancel-control in] | Where the next `CALL … WITH WEBSOCKET LINKAGE` shows its progress: the ProgressBar's `Value`, the Label's `Caption`, and a Button whose click cancels the call; spent when that call ends |
+| `COBOL::"WS-STREAM-ITEM"` | sub-id in/out, group out, [restart out], [reason out] | The latest item of a stream subscription, read into a group; a blank sub-id means the subscription whose `onStreamItem` or `onStreamEnd` is being handled; restart is `Y` on the first item after the stream subscribed again, reason says why the stream ended |
+| `COBOL::"WS-SUBSCRIBE"` | program in, sub-id out, status out, [group in …] | Start a stream program on the backend; each item raises `onStreamItem` and the end raises `onStreamEnd` on this form; OK, REFUSED (see WS-LAST-ERROR), FAILED or NOBACKEND |
+| `COBOL::"WS-UNSUBSCRIBE"` | sub-id in | End a stream subscription; the backend stops the program and keeps nothing for it, and `onStreamEnd` follows with the reason `unsubscribed` |
 | `COBOL::"WS-UPLOAD"` | slot in, path in, mime in, file-id out, status out | Send a local file into one of the backend's upload slots, in pieces; OK, NOFILE, REFUSED (see WS-LAST-ERROR), FAILED or NOBACKEND |
 | `COBOL::"WS-VERSION"` | state out, message out, update-to out | What the backend said about this application's version in the latest connection that was not accepted as is: `warn` or `refused`, its message and the contract to update to; spaces when it said nothing (read it in `onBackendVersion`) |
 | `COBOL::"WS-WARNING"` | message out, [program out]| The most recent warning the backend attached to a call (a deprecated program, an older application), and the program whose reply carried it; spaces when none (read it in `onBackendWarning`) |
@@ -6193,7 +6196,7 @@ nothing will ever call it.
 - **Clipboard** — `onCut`, `onCopy`, `onPaste`
 - **System / OS** — `onSystemColorChanged`
 - **Error Handling** — `onUnhandledException`, `onBackendUnreachable`,
-  `onBackendVersion`, `onBackendWarning`, `onRouteNotFound`, `onPopupBlocked`
+  `onBackendVersion`, `onBackendWarning`, `onStreamItem`, `onStreamEnd`, `onRouteNotFound`, `onPopupBlocked`
 
 `onBackendUnreachable` fires when the connection to the backend gave up after its
 three attempts (see *A lost connection* under *Calling the backend*), on the form the
@@ -6205,6 +6208,13 @@ application is older than the backend and is still served) or `refused` (every c
 application is updated). Read `COBOL::"WS-VERSION" ( state message update-to )` in the handler. `onBackendWarning` fires on
 the main form after a call whose reply carried a warning (a deprecated program); `COBOL::"WS-WARNING" ( message program )`
 reads the text and the program. Both are raised from every form of the application, and by the web player.
+
+`onStreamItem` and `onStreamEnd` belong to a stream the form subscribed to with `COBOL::"WS-SUBSCRIBE" ( program sub-id
+status [group …] )`. Each item the backend sends raises `onStreamItem` on that form once the form's running task is done,
+and the handler reads it with `COBOL::"WS-STREAM-ITEM" ( sub-id group [restart [reason]] )` (a blank `sub-id` means the
+subscription being handled); `restart` reads `Y` on the first item after a lost connection was recovered and the stream
+subscribed again. `onStreamEnd` fires when the stream program ends, when `COBOL::"WS-UNSUBSCRIBE" ( sub-id )` ends it, or when
+the backend does; `reason` says which. A form's subscriptions end when the form closes.
 
 `onRouteNotFound` and `onPopupBlocked` are web events too (see *Navigation in a Web
 application* below); a desktop form never receives them.

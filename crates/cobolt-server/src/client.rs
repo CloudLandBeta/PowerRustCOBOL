@@ -42,7 +42,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::Uri;
 use tokio_tungstenite::tungstenite::Message;
 
-use cobolt_wire::call::{ArgMode, CallObserver, CallReply, CallRequest, DownloadRequest, DownloadResult, Transport, UploadRequest, UploadResult};
+use cobolt_wire::call::{ArgMode, CallObserver, CallReply, CallRequest, DownloadRequest, DownloadResult, StreamNote, Transport, UploadRequest, UploadResult};
 use cobolt_wire::contract::{InterfaceDescription, PROTOCOL};
 use cobolt_wire::error::{codes, CallError, ErrorClass};
 use cobolt_wire::proto::{self, Accepted, ServerFrame, ServerHello};
@@ -215,6 +215,8 @@ struct Shared {
     cfg: ClientConfig,
     next_id: AtomicU64,
     link: Arc<Link>,
+    /// What each live subscription started through [`Transport::subscribe`] has to say. Kept apart from [`Subscription`], which holds a client.
+    streams: std::sync::Mutex<HashMap<u64, std_mpsc::Receiver<StreamItem>>>,
 }
 
 /// A handle on the connection. Clones share it.
@@ -256,7 +258,7 @@ impl WsClient {
             };
             rt.block_on(Actor::new(actor_cfg, rx, actor_link).run());
         });
-        WsClient { shared: Arc::new(Shared { tx, cfg, next_id: AtomicU64::new(1), link }) }
+        WsClient { shared: Arc::new(Shared { tx, cfg, next_id: AtomicU64::new(1), link, streams: Default::default() }) }
     }
 
     /// Whether the connection is being tried again, or the last try gave up (R26).
@@ -500,6 +502,35 @@ impl Transport for WsClient {
 
     fn download(&mut self, request: &DownloadRequest, observer: &mut dyn CallObserver) -> Result<DownloadResult, CallError> {
         WsClient::download(self, request, observer)
+    }
+
+    fn subscribe(&mut self, request: &CallRequest) -> Result<u64, CallError> {
+        let args: Vec<(ArgMode, String)> = request.args.iter().map(|a| (a.mode, a.json.clone())).collect();
+        let Subscription { id, items, .. } = WsClient::subscribe(self, &request.program, args)?;
+        if let Ok(mut g) = self.shared.streams.lock() {
+            g.insert(id, items);
+        }
+        Ok(id)
+    }
+
+    fn unsubscribe(&mut self, sub: u64) {
+        let known = self.shared.streams.lock().ok().and_then(|mut g| g.remove(&sub)).is_some();
+        if known {
+            let _ = self.shared.tx.send(Cmd::Unsubscribe { id: sub });
+        }
+    }
+
+    fn next_item(&mut self, sub: u64) -> Option<StreamNote> {
+        let g = self.shared.streams.lock().ok()?;
+        let rx = g.get(&sub)?;
+        match rx.try_recv() {
+            Ok(StreamItem::Event { seq, json }) => Some(StreamNote::Item { seq, json }),
+            Ok(StreamItem::Restarted) => Some(StreamNote::Restarted),
+            Ok(StreamItem::Ended) => Some(StreamNote::Ended),
+            Ok(StreamItem::Failed(e)) => Some(StreamNote::Failed(e)),
+            Err(std_mpsc::TryRecvError::Empty) => None,
+            Err(std_mpsc::TryRecvError::Disconnected) => Some(StreamNote::Ended),
+        }
     }
 }
 

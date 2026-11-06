@@ -4047,8 +4047,10 @@ impl Interpreter {
         self.tool_loops_resume();
         loop {
             self.sequences_tick();
+            self.drain_streams();
             self.drain_async_ops();
             if let Some((ctrl, event_id)) = self.async_dispatch_queue.pop_front() {
+                self.stream_apply_payload(&event_id);
                 // Spec 068 — a KnowledgeBase event's own values, written as it
                 // is presented, so its handler reads exactly them.
                 self.kb_apply_payload(&ctrl, &event_id);
@@ -4073,6 +4075,7 @@ impl Interpreter {
             // another form is noticed while this one is idle (spec 076 R16).
             let sequence_due = self.sequences_wait_ms();
             let has_pending = !self.async_pending.is_empty()
+                || !self.remote.streams.is_empty()
                 || !self.model_entry_seen.is_empty()
                 || sequence_due.is_some();
             let debugging = self.debug_event_tx.is_some();
@@ -11910,6 +11913,9 @@ impl Interpreter {
             "COBOL-WS-WARNING" => self.builtin_ws_warning(using),
             "COBOL-WS-VERSION" => self.builtin_ws_version(using),
             "COBOL-WS-SHOW-PROGRESS" => self.builtin_ws_show_progress(using, span)?,
+            "COBOL-WS-SUBSCRIBE" => self.builtin_ws_subscribe(using, span)?,
+            "COBOL-WS-UNSUBSCRIBE" => self.builtin_ws_unsubscribe(using, span)?,
+            "COBOL-WS-STREAM-ITEM" => self.builtin_ws_stream_item(using, span)?,
             "COBOL-WS-UPLOAD" => self.builtin_ws_upload(using, span)?,
             "COBOL-WS-DOWNLOAD" => self.builtin_ws_download(using, span)?,
             // COBOL-FILE-STATUS file-name status-item

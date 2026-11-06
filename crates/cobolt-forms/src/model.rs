@@ -4570,6 +4570,10 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
             // WASM-014 R6 — a call's reply carried a warning (a deprecated program). Raised on the main
             // form; `COBOL::"WS-WARNING" ( message program )` reads it.
             "onBackendWarning",
+            // WASM-014 R14 - a stream the form subscribed to (`COBOL::"WS-SUBSCRIBE"`) delivered an item, or ended.
+            // Raised on the form that subscribed; `COBOL::"WS-STREAM-ITEM"` reads the item.
+            "onStreamItem",
+            "onStreamEnd",
             // WASM-011 R6 — the address named no form the application has (a
             // bookmark, a pasted link); raised on the main form with the address's
             // form name. Web only: a desktop window has no address.
@@ -12979,6 +12983,9 @@ mod tests {
             // WASM-014 R2, R6.
             "onBackendVersion",
             "onBackendWarning",
+            // WASM-014 R14.
+            "onStreamItem",
+            "onStreamEnd",
             // WASM-011 R6, R10.
             "onRouteNotFound",
             "onPopupBlocked",
@@ -12987,8 +12994,8 @@ mod tests {
         }
         assert_eq!(
             all.len(),
-            63,
-            "expected 63 form events — 68 less the ELEVEN retired on 2026-09-06, plus 056's onBreakpointChanged, WASM-016's onBackendUnreachable, WASM-014's onBackendVersion and onBackendWarning and WASM-011's onRouteNotFound and onPopupBlocked"
+            65,
+            "expected 65 form events — 68 less the ELEVEN retired on 2026-09-06, plus 056's onBreakpointChanged, WASM-016's onBackendUnreachable, WASM-014's onBackendVersion, onBackendWarning, onStreamItem and onStreamEnd and WASM-011's onRouteNotFound and onPopupBlocked"
         );
     }
 

@@ -27,7 +27,7 @@ use cobolt_ast::expr::Expr;
 use cobolt_ast::program::{DataSection, Program};
 use cobolt_ast::stmt::{CallArg, Stmt};
 use cobolt_lexer::Span;
-use cobolt_wire::call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallReply, CallRequest, DownloadRequest, Transport, UploadRequest};
+use cobolt_wire::call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallReply, CallRequest, DownloadRequest, StreamNote, Transport, UploadRequest};
 use cobolt_wire::error::{codes, CallError, ErrorClass};
 use cobolt_wire::layout::{self, Item, Kind};
 use cobolt_wire::mapping::{self, DEFAULT_MAX_BYTES};
@@ -150,6 +150,37 @@ pub struct RemoteState {
     pub(crate) retry: Option<(u64, String)>,
     /// Where the next remote call's progress is shown (`COBOL::"WS-SHOW-PROGRESS"`); spent when that call ends.
     pub(crate) show_progress: Option<ShowProgress>,
+    /// The stream subscriptions this run holds (WASM-014 R14), by the transport's id; ended when the run ends.
+    pub(crate) streams: Vec<u64>,
+    /// What the streams said, in the order their events were queued; each is taken when its event is presented.
+    pub(crate) stream_events: std::collections::VecDeque<StreamEvent>,
+    /// The latest item each stream delivered, for `COBOL::"WS-STREAM-ITEM"`: json and whether it is the first after a re-subscription.
+    pub(crate) stream_last: HashMap<u64, (String, bool)>,
+    /// The subscription whose event is being handled now.
+    pub(crate) stream_current: Option<(u64, String)>,
+    /// A subscription that was re-made after a lost connection and has not delivered its first item yet.
+    pub(crate) stream_restarted: Vec<u64>,
+}
+
+/// One thing a stream said, waiting to be presented as `onStreamItem` or `onStreamEnd`.
+#[derive(Debug, Clone)]
+pub(crate) struct StreamEvent {
+    pub sub: u64,
+    /// `Some(reason)` for the end of the stream.
+    pub end: Option<String>,
+    pub json: String,
+    pub restart: bool,
+}
+
+impl Drop for RemoteState {
+    /// Subscriptions belong to the run: when it ends (the form closes) the backend stops the programs and keeps nothing for them.
+    fn drop(&mut self) {
+        if let Some(t) = self.transport.as_mut() {
+            for id in self.streams.drain(..) {
+                t.unsubscribe(id);
+            }
+        }
+    }
 }
 
 /// The controls a call's progress is shown in (WASM-014 R13, D-Progress): a progress bar, a label for its message, and a button that cancels.
@@ -846,6 +877,159 @@ impl Interpreter {
             let mut p = value.splitn(3, '\t').map(str::to_string);
             self.remote.version = Some((p.next().unwrap_or_default(), p.next().unwrap_or_default(), p.next().unwrap_or_default()));
         }
+    }
+
+    // ── streams (WASM-014 R14) ───────────────────────────────────────────────
+
+    /// `COBOL::"WS-SUBSCRIBE"( program sub-id status [group …] )`: start a stream program. `sub-id` receives the number that names the
+    /// subscription; `status` is `OK`, `REFUSED` (the backend said no), `FAILED` (no connection) or `NOBACKEND`. Each item then raises
+    /// `onStreamItem` on this form, and the end raises `onStreamEnd`.
+    pub(super) fn builtin_ws_subscribe(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        if using.len() < 3 {
+            return Ok(());
+        }
+        let program = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_ascii_uppercase();
+        let sub_name = self.expr_to_name(call_arg_expr(&using[1]));
+        let st_name = self.expr_to_name(call_arg_expr(&using[2]));
+        let mut request = CallRequest { program, ..CallRequest::default() };
+        for arg in &using[3..] {
+            let encoded = self.bind_group(call_arg_expr(arg), span).and_then(|b| mapping::encode(&b.item, &b.node).map_err(|e| CallError::validation(e.to_string(), e.path.clone())));
+            match encoded {
+                Ok(json) => request.args.push(ArgPayload { mode: ArgMode::Value, json }),
+                Err(e) => {
+                    let word = self.transfer_status(Err(e));
+                    self.env.set_str(&st_name, word);
+                    return Ok(());
+                }
+            }
+        }
+        self.ensure_transport();
+        let started = match self.remote.transport.as_mut() {
+            None => {
+                self.env.set_str(&st_name, "NOBACKEND");
+                return Ok(());
+            }
+            Some(t) => t.subscribe(&request),
+        };
+        match started {
+            Ok(id) => {
+                self.remote.streams.push(id);
+                self.remote.last_error = None;
+                self.env.set_str(&sub_name, &id.to_string());
+                self.env.set_str(&st_name, "OK");
+            }
+            Err(e) => {
+                let word = self.transfer_status(Err(e));
+                self.env.set_str(&st_name, word);
+            }
+        }
+        Ok(())
+    }
+
+    /// `COBOL::"WS-UNSUBSCRIBE"( sub-id )`: end a subscription. The backend stops the program; `onStreamEnd` follows with the reason `unsubscribed`.
+    pub(super) fn builtin_ws_unsubscribe(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        let Some(a) = using.first() else { return Ok(()) };
+        let Ok(id) = self.eval_call_arg(a, span)?.as_display_string().trim().parse::<u64>() else { return Ok(()) };
+        if let Some(pos) = self.remote.streams.iter().position(|s| *s == id) {
+            self.remote.streams.remove(pos);
+            if let Some(t) = self.remote.transport.as_mut() {
+                t.unsubscribe(id);
+            }
+            self.queue_stream_event(StreamEvent { sub: id, end: Some("unsubscribed".into()), json: String::new(), restart: false });
+        }
+        Ok(())
+    }
+
+    /// `COBOL::"WS-STREAM-ITEM"( sub-id group [restart [reason]] )`: read the latest item of a stream into `group`. A blank `sub-id` means the
+    /// subscription whose event is being handled (and receives its number). `restart` is `Y` when the item is the first after the
+    /// connection was lost and the stream subscribed again; `reason` is why the stream ended, spaces while it runs.
+    pub(super) fn builtin_ws_stream_item(&mut self, using: &[CallArg], span: Span) -> Result<(), RuntimeError> {
+        if using.len() < 2 {
+            return Ok(());
+        }
+        let sub_name = self.expr_to_name(call_arg_expr(&using[0]));
+        let given = self.eval_call_arg(&using[0], span)?.as_display_string().trim().to_string();
+        let (id, reason) = match (given.parse::<u64>(), self.remote.stream_current.clone()) {
+            (Ok(id), cur) => (Some(id), cur.filter(|(s, _)| *s == id).map(|(_, r)| r).unwrap_or_default()),
+            (Err(_), Some((s, r))) => {
+                self.env.set_str(&sub_name, &s.to_string());
+                (Some(s), r)
+            }
+            (Err(_), None) => (None, String::new()),
+        };
+        let latest = id.and_then(|i| self.remote.stream_last.get(&i).cloned());
+        if let Some((json, _)) = &latest {
+            let group = self.expr_to_name(call_arg_expr(&using[1]));
+            self.remote.last_error = self.group_from_json(&group, json).err();
+        }
+        if let Some(a) = using.get(2) {
+            let n = self.expr_to_name(call_arg_expr(a));
+            self.env.set_str(&n, if latest.as_ref().is_some_and(|(_, restart)| *restart) { "Y" } else { "N" });
+        }
+        if let Some(a) = using.get(3) {
+            let n = self.expr_to_name(call_arg_expr(a));
+            self.env.set_str(&n, &reason);
+        }
+        Ok(())
+    }
+
+    fn queue_stream_event(&mut self, ev: StreamEvent) {
+        let form = self.self_form_object.clone().unwrap_or_default();
+        let ctrl = self.form_spelling(&form);
+        let name = if ev.end.is_some() { "onStreamEnd" } else { "onStreamItem" };
+        self.remote.stream_events.push_back(ev);
+        self.async_dispatch_queue.push_back((ctrl, name.to_string()));
+    }
+
+    /// Take in what the subscriptions have said since the last look. Called while the form waits for its next event, so an item is
+    /// presented only once the instance's running task is done.
+    pub(super) fn drain_streams(&mut self) {
+        const BACKLOG: usize = 1000;
+        if self.remote.streams.is_empty() {
+            return;
+        }
+        for id in self.remote.streams.clone() {
+            while self.remote.stream_events.len() < BACKLOG {
+                let Some(note) = self.remote.transport.as_mut().and_then(|t| t.next_item(id)) else { break };
+                match note {
+                    StreamNote::Item { json, .. } => {
+                        let restart = match self.remote.stream_restarted.iter().position(|s| *s == id) {
+                            Some(p) => {
+                                self.remote.stream_restarted.remove(p);
+                                true
+                            }
+                            None => false,
+                        };
+                        self.queue_stream_event(StreamEvent { sub: id, end: None, json, restart });
+                    }
+                    StreamNote::Restarted => self.remote.stream_restarted.push(id),
+                    StreamNote::Ended | StreamNote::Failed(_) => {
+                        let reason = match &note {
+                            StreamNote::Failed(e) => e.to_string(),
+                            _ => "ended".to_string(),
+                        };
+                        self.remote.streams.retain(|s| *s != id);
+                        if let Some(t) = self.remote.transport.as_mut() {
+                            t.unsubscribe(id);
+                        }
+                        self.queue_stream_event(StreamEvent { sub: id, end: Some(reason), json: String::new(), restart: false });
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The event about to be presented is a stream's: make what it carries readable by `COBOL::"WS-STREAM-ITEM"`.
+    pub(super) fn stream_apply_payload(&mut self, event: &str) {
+        if event != "onStreamItem" && event != "onStreamEnd" {
+            return;
+        }
+        let Some(ev) = self.remote.stream_events.pop_front() else { return };
+        if ev.end.is_none() {
+            self.remote.stream_last.insert(ev.sub, (ev.json, ev.restart));
+        }
+        self.remote.stream_current = Some((ev.sub, ev.end.unwrap_or_default()));
     }
 
     /// The status word of a file transfer, and `WS-LAST-ERROR`'s record of why.

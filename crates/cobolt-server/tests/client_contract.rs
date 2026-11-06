@@ -978,3 +978,73 @@ fn ac5_a_status_code_out_of_range_is_a_server_fault() {
     assert_eq!(serde_json::from_str::<serde_json::Value>(ok.args[0].as_ref().unwrap()).unwrap()["AMOUNT"], 9999);
     w.rig.server.stop();
 }
+
+// ── WASM-014 T14: a form's streams end with the form ─────────────────────────
+
+/// A form (a run of the interpreter) subscribes to `TICKER` from COBOL, receives items as `onStreamItem`, and quits while the
+/// stream is still running: the server's subscription count goes back to what it was before.
+#[test]
+fn closing_the_form_unsubscribes() {
+    use cobolt_lexer::{tokenize, SourceFormat};
+    use cobolt_parser::parse;
+    use cobolt_runtime::Interpreter;
+    use std::sync::atomic::Ordering;
+
+    let w = world("t14", "");
+    let c = w.client_at(w.rig.server.addr, "1.2.0", Some(w.rig.issuer.access("user-1", AUDIENCE, 3600, json!({}))));
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FEED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 COBOL-EVENT-ID    PIC X(30).
+       01 COBOL-CONTROL-ID  PIC X(30).
+       01 COBOL-QUIT        PIC 9 VALUE 0.
+       01 WS-SUB            PIC X(10).
+       01 WS-ST             PIC X(10).
+       01 WS-GOT            PIC 9 VALUE 0.
+       01 LK-A.
+          05 EVERY-MS       PIC 9(4) VALUE 30.
+       01 TICK.
+          05 N              PIC 9(6).
+       PROCEDURE DIVISION.
+       MAIN.
+           COBOL::"WS-SUBSCRIBE" ( "TICKER" WS-SUB WS-ST LK-A )
+           DISPLAY "subscribed " WS-ST
+           PERFORM UNTIL COBOL-QUIT = 1
+               CALL "COBOL-WAIT-EVENT"
+                   USING COBOL-EVENT-ID COBOL-CONTROL-ID
+               IF COBOL-EVENT-ID = "onStreamItem"
+                   COBOL::"WS-STREAM-ITEM" ( WS-SUB TICK )
+                   DISPLAY "tick " N
+                   ADD 1 TO WS-GOT
+                   IF WS-GOT = 3
+                       MOVE 1 TO COBOL-QUIT
+                   END-IF
+               END-IF
+           END-PERFORM
+           STOP RUN.
+"#;
+    let baseline = w.rig.server.stats().subscriptions_active.load(Ordering::SeqCst);
+    let (_events, event_rx) = std::sync::mpsc::channel();
+    let (state_tx, _state_rx) = std::sync::mpsc::channel();
+    let (display_tx, display_rx) = std::sync::mpsc::channel();
+    let mut form = Interpreter::new_with_channels(parse(tokenize(src, SourceFormat::Free)).program.expect("parses"), event_rx, state_tx, display_tx);
+    form.set_remote_transport(Box::new(c.clone()));
+    form.run().expect("the form runs");
+    let shown: Vec<String> = display_rx.try_iter().map(|s| s.trim_end().to_string()).collect();
+    let during = w.rig.server.stats().subscriptions_active.load(Ordering::SeqCst);
+    drop(form); // the form closes
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while w.rig.server.stats().subscriptions_active.load(Ordering::SeqCst) != baseline && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let after = w.rig.server.stats().subscriptions_active.load(Ordering::SeqCst);
+    println!("== T14: the form's stream ends with the form ==");
+    println!("shown: {shown:?}");
+    println!("server subscriptions: baseline {baseline}, while the form ran {during}, after it closed {after}");
+    assert_eq!(&shown[..2], ["subscribed OK", "tick 000001"]);
+    assert_eq!(during, baseline + 1);
+    assert_eq!(after, baseline, "a closed form costs the server nothing");
+    w.rig.server.stop();
+}

@@ -380,7 +380,7 @@ as completed.
   - **Still open (T13b):** the same behaviour through an embedded child form, and the ignored compiled-binary test
     `compiled_app_calls_backend.rs` (needs a native build). The compiled application runs this same runtime and host, so the parity is by
     construction, but it has not been run.
-- [ ] **T14 — Streams from COBOL: `WS-SUBSCRIBE`, `WS-UNSUBSCRIBE`, `WS-STREAM-ITEM`, `onStreamItem`, `onStreamEnd`** (R14; AC8; Q3)
+- [x] **T14 — Streams from COBOL: `WS-SUBSCRIBE`, `WS-UNSUBSCRIBE`, `WS-STREAM-ITEM`, `onStreamItem`, `onStreamEnd`** (R14; AC8; Q3)
   - Files:
     - `crates/cobolt-wire/src/call.rs`: `Transport::subscribe` / `unsubscribe` / `next_item`, defaulting to `not configured 1003`;
     - `crates/cobolt-server/src/client.rs`: `WsClient` implements them over the existing `subscribe` `:246`;

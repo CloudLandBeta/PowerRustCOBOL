@@ -128,6 +128,19 @@ pub trait BackendFiles: Send + Sync {
     fn publish(&self, path: &std::path::Path) -> Result<String, String>;
 }
 
+/// What a subscription to a stream program tells the frontend (WASM-014 R14).
+#[derive(Debug, Clone)]
+pub enum StreamNote {
+    /// An item of the stream; `seq` counts from 1 for each (re)subscription.
+    Item { seq: u64, json: String },
+    /// The connection was lost and the stream subscribed again: the next item is the first of the new subscription.
+    Restarted,
+    /// The stream program ended.
+    Ended,
+    /// The subscription failed, or the backend ended it.
+    Failed(CallError),
+}
+
 /// What carries a remote call.
 pub trait Transport: Send {
     /// Perform the call and return when it has finished or failed. Blocks; the
@@ -144,6 +157,19 @@ pub trait Transport: Send {
     /// Put a local file into an upload slot, in pieces, resuming after a lost connection.
     fn upload(&mut self, _request: &UploadRequest, _observer: &mut dyn CallObserver) -> Result<UploadResult, CallError> {
         Err(CallError::transport(crate::error::codes::NOT_CONFIGURED, "this transport does not move files"))
+    }
+
+    /// Subscribe to a stream program (WASM-014 R14): answers the subscription's id, or why it could not start.
+    fn subscribe(&mut self, _request: &CallRequest) -> Result<u64, CallError> {
+        Err(CallError::transport(crate::error::codes::NOT_CONFIGURED, "this transport does not carry streams"))
+    }
+
+    /// End a subscription: the backend stops the program and keeps nothing for it. Ending one that is over is harmless.
+    fn unsubscribe(&mut self, _sub: u64) {}
+
+    /// The next thing a subscription has to say, or `None` when nothing is waiting. Never blocks.
+    fn next_item(&mut self, _sub: u64) -> Option<StreamNote> {
+        None
     }
 
     /// Fetch a file the backend offers.
