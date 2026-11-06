@@ -459,6 +459,17 @@ impl Configurations {
     }
 }
 
+/// `[security]` — the developer's own contact for `/.well-known/security.txt`. The manifest's `[security]` table
+/// takes the same four keys and writes the same text (`cobolt_wire::security_txt`).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct SecuritySection {
+    pub contact: String,
+    pub policy: String,
+    pub expires: String,
+    pub preferred_languages: String,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ServerConfig {
@@ -470,6 +481,8 @@ pub struct ServerConfig {
     /// How the idempotency store and the sessions are kept (WASM-014 T3).
     pub contract: ContractSection,
     pub identity: Option<IdentitySection>,
+    /// `[security]`: what `/.well-known/security.txt` says (RFC 9116, WASM-013 Q4). Absent: the path is a 404.
+    pub security: Option<SecuritySection>,
     /// The named configurations of web forms' controls (WASM-005 T11).
     #[serde(rename = "configuration")]
     pub configurations: Vec<ConfigurationEntry>,
@@ -665,6 +678,9 @@ pub struct Resolved {
     pub files: FilesResolved,
     pub contract: ContractResolved,
     pub identity: Option<ResolvedIdentity>,
+    /// The text of `/.well-known/security.txt`, when `[security]` is configured (rendered at start, so an incomplete
+    /// table or an `expires` in the past stops the start).
+    pub security_txt: Option<String>,
     /// `[auth]` is to be filled from the provider's metadata at start ([`Resolved::discover`]): the
     /// configuration has `[identity]` and no `[auth] issuer` (WASM-009 D3, C7).
     pub auth_from_identity: bool,
@@ -956,6 +972,21 @@ impl ServerConfig {
         let configurations = Configurations::resolve(&self.configurations, &mut errs);
         let identity = self.identity.as_ref().and_then(|i| i.resolve(mode, &self.server.allowed_origins, &mut errs, &mut warnings));
 
+        let security_txt = match self.security.as_ref() {
+            Some(sec) => {
+                let t = cobolt_wire::security_txt::SecurityTxt { contact: sec.contact.clone(), policy: sec.policy.clone(), expires: sec.expires.clone(), preferred_languages: sec.preferred_languages.clone() };
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+                match t.render(now) {
+                    Ok(text) => Some(text),
+                    Err(e) => {
+                        errs.extend(e);
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+
         if !errs.is_empty() {
             return Err(errs);
         }
@@ -997,6 +1028,7 @@ impl ServerConfig {
             files,
             contract,
             identity,
+            security_txt,
             auth_from_identity,
             discovery: None,
             dev_token_secret,

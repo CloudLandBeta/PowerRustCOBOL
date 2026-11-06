@@ -34,6 +34,7 @@ use cobolt_wasm_abi::manifest::Manifest;
 use cobolt_wasm_abi::scan;
 use serde_json::{json, Value};
 
+pub use cobolt_wire::security_txt::{self, SecurityTxt};
 pub use csp::CspOptions;
 
 /// The loader's version, in `PowerRustCOBOL.versions`.
@@ -214,6 +215,9 @@ pub struct BundleOptions {
     pub release: bool,
     pub unsafe_plain_ws: bool,
     pub skip_secret_scan: bool,
+    /// `[security]`: when present, `/.well-known/security.txt` is written (RFC 9116, WASM-013 Q4); an incomplete
+    /// table, or an `expires` in the past, refuses the bundle. `None`: nothing is written and the report says so.
+    pub security: Option<cobolt_wire::security_txt::SecurityTxt>,
     pub call_timeout_ms: Option<u64>,
     /// The largest frame the player sends or accepts, in bytes (WASM-017 R8:
     /// the project's payload limit); `None` keeps the player's own default.
@@ -277,6 +281,7 @@ impl Default for BundleOptions {
             release: true,
             unsafe_plain_ws: false,
             skip_secret_scan: false,
+            security: None,
             call_timeout_ms: None,
             max_frame: None,
             backend_contract: None,
@@ -712,6 +717,23 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         sheet_font.extend(font);
     }
 
+    let security_txt = match o.security.as_ref().filter(|t| !t.is_empty()) {
+        Some(t) => {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+            match t.render(now) {
+                Ok(text) => Some(text),
+                Err(e) => {
+                    problems.extend(e);
+                    None
+                }
+            }
+        }
+        None => {
+            notes.push("no security.txt: add a [security] table to the manifest (contact, expires) to publish /.well-known/security.txt".into());
+            None
+        }
+    };
+
     if !problems.is_empty() {
         return Err(BundleError { problems });
     }
@@ -1050,6 +1072,9 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
         if let Ok(v) = serde_json::from_str::<Value>(info) {
             bom["metadata"]["properties"] = json!([{"name": "player-build", "value": v.to_string()}]);
         }
+    }
+    if let Some(text) = security_txt {
+        b.add(".well-known/security.txt".into(), text.into_bytes());
     }
     b.add("sbom.cdx.json".into(), serde_json::to_string_pretty(&bom).expect("bom").into_bytes());
 

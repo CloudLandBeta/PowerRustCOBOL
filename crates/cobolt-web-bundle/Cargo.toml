@@ -15,6 +15,8 @@ repository.workspace   = true
 
 [dependencies]
 cobolt-wasm-abi = { path = "../cobolt-wasm-abi", features = ["scan"] }
+# `security.txt` (WASM-013 Q4): the one text the bundle and the backend both write, `cobolt_wire::security_txt`.
+cobolt-wire = { path = "../cobolt-wire", default-features = false }
 # The form model: a bundle's form descriptions are the .cfrm with the program code taken out
 # (WASM-016 R4), read and written by the model's own loader/serialiser so that nothing is re-implemented.
 cobolt-forms = { path = "../cobolt-forms", default-features = false }

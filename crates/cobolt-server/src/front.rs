@@ -33,6 +33,8 @@ pub const UPGRADE_PATHS: [&str; 2] = ["/", "/ws"];
 pub const DOWNLOAD_PATH: &str = "/dl/{token}";
 /// The health probe: the server function's address.
 pub const HEALTH_PATH: &str = "/health";
+/// `security.txt` (RFC 9116, WASM-013 Q4): the developer's own contact, from `[security]` in `backend.toml`.
+pub const SECURITY_TXT_PATH: &str = "/.well-known/security.txt";
 /// The identity routes (WASM-009 D5): one segment (`/auth/sign-in`) or the hosted flow's two
 /// (`/auth/hosted/start`). Mounted for every method, like the health probe, because they take POST
 /// and the CORS preflight's OPTIONS as well as GET; which names and methods exist is the identity

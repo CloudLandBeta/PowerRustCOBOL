@@ -323,7 +323,7 @@ as completed.
   - Verify: `cargo test -p cobolt-server --test tls_floor -- --nocapture` is green, and its output names the platform's behaviour.
 
   - **Done (2.0.268):** `cobolt-server/tests/tls_floor.rs`: on a loopback HTTPS server with the test certificate, a `native_tls` client capped at TLS 1.1 is **refused during the handshake** (measured on macOS: "connection closed via error"; if a platform's client cannot offer 1.1 at all, the test prints that and asserts `Protocol::Tlsv12` in `tlsutil::acceptor` instead). A client at TLS 1.2 or better is served `/health` with **5 of 5** `SECURITY_HEADERS` lines present. No source change was needed: the floor was already set.
-- [ ] **T14 — `security.txt` from the developer's parameters** (Q4)
+- [x] **T14 — `security.txt` from the developer's parameters** (Q4)
   - Files:
     - `crates/cobolt-web-bundle/src/lib.rs`: a new optional `BundleOptions.security`, which writes `/.well-known/security.txt` with `Contact`,
       `Expires`, and `Policy` and `Preferred-Languages` when given (RFC 9116).
@@ -338,6 +338,7 @@ as completed.
     `Expires` when configured, absent otherwise, and refused when incomplete; the backend answers `GET /.well-known/security.txt` with the same
     text.
 
+  - **Done (2.0.269):** one text for both places: `cobolt_wire::security_txt::SecurityTxt::render(now)` (RFC 9116; `Contact`, `Expires`, then `Policy` and `Preferred-Languages` when given). It requires `contact` (a `mailto:` or `https:` address) and `expires` (`YYYY-MM-DD`, read as the end of that day in UTC, or a full `…T…Z`), refuses an `expires` that has passed, and refuses a value that spans lines (it would write a field the developer never wrote); each error names `[security] <key>`. The Web Build: `BundleOptions.security` writes `/.well-known/security.txt` (unhashed, as the convention requires); absent, nothing is written and the report carries a **note**, not a warning. The manifest's `[security]` is mapped in the generator, and Check refuses an incomplete table too. The backend: `[security]` in `backend.toml` (same four keys, misspellings refused), rendered at start so a bad table stops the start, served at `GET /.well-known/security.txt` (404 without the table). Tests: 4 unit (wire), 3 bundle, 1 project-tools gate case, 2 backend (the served text equals the bundle's).
 ## M5 — XSS (R5)
 
 - [ ] **T15 — Text, never markup, in the controls and in the Viewer** (R5; AC4)

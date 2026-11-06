@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.269 — 2026-11-06
+
+**WASM-013 T14: `security.txt` from the developer's own parameters (Q4).** *(Written on features-2x-wasm-pending, after 2.0.268.)* A `[security]` table (`contact`, `expires`, optionally `policy` and `preferred_languages`) in the project manifest makes the Web Build write `/.well-known/security.txt` (RFC 9116) into the bundle, and the same table in `backend.toml` makes the backend answer `GET /.well-known/security.txt` over HTTPS with the same text. Both go through one function in `cobolt-wire`. A table without `contact` or `expires`, a contact that is not a `mailto:` or `https:` address, an `expires` that has passed, or a value spanning several lines is refused (Check and Build for the project, the start for the backend), naming the key. Without the table nothing is written and the Build report carries a note.
+
 ## 2.0.268 — 2026-11-06
 
 **WASM-013 T13: the TLS floor is proven (R4).** *(Written on features-2x-wasm-pending, after 2.0.267.)* A new test, `cobolt-server/tests/tls_floor.rs`, connects to a loopback HTTPS server with a client that offers nothing above TLS 1.1 and shows it refused during the handshake; a client at TLS 1.2 or better is served and its response carries all five security headers (HSTS, `nosniff`, no referrer, permissions policy, `no-store`). Where a platform's TLS stack cannot offer 1.1 at all, the test says so and asserts the server's configured minimum instead. No server code changed.

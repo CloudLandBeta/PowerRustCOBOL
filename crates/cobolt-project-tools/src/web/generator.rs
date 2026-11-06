@@ -969,6 +969,13 @@ fn known_secrets_in_sources(req: &WebBuildRequest, known: &cobolt_web_bundle::se
     }
 }
 
+/// The manifest's `[security]` table as the text it writes, when the table has anything in it.
+fn security_txt_of(req: &WebBuildRequest) -> Option<cobolt_web_bundle::SecurityTxt> {
+    let s = req.security.as_ref()?;
+    let t = cobolt_web_bundle::SecurityTxt { contact: s.contact.clone(), policy: s.policy.clone(), expires: s.expires.clone(), preferred_languages: s.preferred_languages.clone() };
+    (!t.is_empty()).then_some(t)
+}
+
 /// Before any generation (WASM-013 T7, R7, R11): the `unsafe` settings against the profile, then the secret scan over the
 /// project's own inputs — forms, Common Code and copybooks, stylesheets, text assets and `backend/backend.toml`. The
 /// Backend's COBOL is not scanned (it is where secrets belong: read from the environment). A refusal names the file, the
@@ -981,6 +988,14 @@ fn gate_inputs(req: &WebBuildRequest, warnings: &mut Vec<WebDiagnostic>) -> Resu
     }
     if !unsafe_refusals.is_empty() {
         return Err(WebBuildError::Refused(unsafe_refusals.into_iter().map(|m| diag("manifest".into(), WebDiagnosticKind::Other, String::new(), m)).collect()));
+    }
+    // `[security]` (WASM-013 Q4): an incomplete table, or an `expires` that has passed, is the developer's to fix
+    // before the Build, so Check says it too.
+    if let Some(t) = security_txt_of(req) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        if let Err(problems) = t.render(now) {
+            return Err(WebBuildError::Refused(problems.into_iter().map(|m| diag("manifest".into(), WebDiagnosticKind::Other, String::new(), m)).collect()));
+        }
     }
     if req.web.unsafe_.skip_secret_scan {
         return Ok(());
@@ -1138,6 +1153,7 @@ impl WebBuildBackend for GeneratorBackend {
             release: req.profile == super::BuildProfile::Release,
             unsafe_plain_ws: req.web.unsafe_.plain_ws,
             skip_secret_scan: req.web.unsafe_.skip_secret_scan,
+            security: security_txt_of(req),
             csp: cobolt_web_bundle::csp::CspOptions { report_only: req.web.unsafe_.csp_report_only, ..BundleOptions::default().csp },
             ..BundleOptions::default()
         };

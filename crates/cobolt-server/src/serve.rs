@@ -44,7 +44,7 @@ use axum::body::Body;
 use axum::extract::{FromRef, Path, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::any;
+use axum::routing::{any, get};
 use axum::Router;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
@@ -447,6 +447,7 @@ fn front_router(ctx: ConnCtx) -> Router {
         .leptos_routes_with_handler(crate::front::listings(&[crate::front::DOWNLOAD_PATH]), download)
         .route(crate::front::AUTH_PATHS[0], any(auth))
         .route(crate::front::AUTH_PATHS[1], any(auth))
+        .route(crate::front::SECURITY_TXT_PATH, get(security_txt))
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .layer(axum::middleware::map_response(security_headers))
@@ -468,6 +469,14 @@ async fn serve_http<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(shared: 
 
 fn plain(status: StatusCode, body: &'static str) -> Response {
     (status, [(header::CONTENT_TYPE, "text/plain")], body).into_response()
+}
+
+/// `GET /.well-known/security.txt`: the text of `[security]`, or a 404 when the backend has none.
+async fn security_txt(State(c): State<ConnCtx>) -> Response {
+    match &c.shared.cfg.security_txt {
+        Some(text) => (StatusCode::OK, [(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text.clone()).into_response(),
+        None => plain(StatusCode::NOT_FOUND, "not found"),
+    }
 }
 
 async fn not_found() -> Response {

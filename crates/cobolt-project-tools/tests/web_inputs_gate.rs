@@ -130,3 +130,27 @@ fn skip_and_the_backend_toml_follow_the_profile() {
     assert!(why.contains("backend/backend.toml:") && why.contains("cloud access key id") && !why.contains(&value), "{why}");
     println!("backend.toml literal: a warning in Development, a refusal in Release; skip_secret_scan skips the scan");
 }
+
+/// WASM-013 T14 (Q4): the manifest's `[security]` table. Absent: nothing, and the bundle says so in a note. Complete: the
+/// Build writes `/.well-known/security.txt`. Incomplete or out of date: Check refuses, naming the key.
+#[test]
+fn the_security_table_is_checked_and_written_into_the_bundle() {
+    let none = project("sec-none", "", "", &[]);
+    let req = WebBuildRequest::from_manifest(&none.join("Gate.project.toml")).unwrap();
+    assert!(GeneratorBackend.check_with_warnings(&req).is_ok(), "no [security] is fine");
+
+    let incomplete = project("sec-inc", "\n[security]\ncontact = \"mailto:security@example.com\"", "", &[]);
+    let req = WebBuildRequest::from_manifest(&incomplete.join("Gate.project.toml")).unwrap();
+    let why = refusal_text(GeneratorBackend.check_with_warnings(&req));
+    assert!(why.contains("[security] expires"), "{why}");
+
+    let stale = project("sec-old", "\n[security]\ncontact = \"mailto:security@example.com\"\nexpires = \"2020-01-01\"", "", &[]);
+    let req = WebBuildRequest::from_manifest(&stale.join("Gate.project.toml")).unwrap();
+    let why = refusal_text(GeneratorBackend.check_with_warnings(&req));
+    assert!(why.contains("[security] expires") && why.contains("has passed"), "{why}");
+
+    let ok = project("sec-ok", "\n[security]\ncontact = \"mailto:security@example.com\"\nexpires = \"2999-01-31\"\npolicy = \"https://example.com/policy\"", "", &[]);
+    let req = WebBuildRequest::from_manifest(&ok.join("Gate.project.toml")).unwrap();
+    assert!(GeneratorBackend.check_with_warnings(&req).is_ok(), "a complete [security] passes the check");
+    println!("[security]: absent passes, incomplete and stale are refused naming `expires`, complete passes");
+}
