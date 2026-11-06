@@ -1329,6 +1329,101 @@ jobs:
   # expire; a release is permanent, anonymous and linkable, which is what a
   # download has to be. `needs: build` means one broken platform publishes
   # nothing — a release either offers every machine a download or it waits.
+  # The web tests (WASM-015 T23, R2, R3, R8b, D3). The browser runner draws a web form in the system's web
+  # view, and the Node tests run the player headless; on a machine without either, those tests print
+  # "skipped" and pass, which on a developer's laptop is right and on CI is a hole. So this job sets the two
+  # switches that turn a missing engine into a failure:
+  #
+  #   PRC_REQUIRE_WEBVIEW=1   the browser-runner tests fail when no web view is available (WebKit on macOS,
+  #                           WebView2 on Windows, WebKitGTK under Xvfb on Linux);
+  #   PRC_REQUIRE_NODE=1      the Node tests fail when `node` is absent.
+  #
+  # Each system is a cell of its own, and the engine it measured is printed by every test (the browser
+  # runner's report names it). Node cells are recorded as `node`, never as browser cells (Q-new-3); Chromium
+  # is measured only by WebView2 on the Windows cell.
+  web-tests:
+    name: web tests (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+          - name: windows-x86_64
+            os: windows-latest
+          - name: macos-aarch64
+            os: macos-latest
+    env:
+      PRC_REQUIRE_WEBVIEW: "1"
+      PRC_REQUIRE_NODE: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libxkbcommon-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev \
+            libwebkit2gtk-4.1-dev xvfb
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-tests-${{ matrix.name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The browser runner finds the helper next to the test binaries; build it first.
+      - name: Build the headless web view helper
+        run: cargo build --locked -p cobolt-web-preview
+
+      - name: Browser runner, module runner, goldens, agent tools and servers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then run="xvfb-run -a"; else run=""; fi
+          $run cargo test --locked -p cobolt-web-tests -p cobolt-web-bundle -p cobolt-project-tools --no-fail-fast -- --nocapture --test-threads=1 2>&1 | tee web-tests.log
+          # A skip is a failure here, whatever the test said about it.
+          # (A Chrome test that finds no Chrome says so in its own words; that is the WASM-016 job's to require.)
+          ! grep -E "skipped: " web-tests.log | grep -viE "chrome"
+
+  # The backend runner against the built binary (WASM-015 T7, AC3): it builds the backend with cargo, which
+  # takes minutes, so it runs once, on Linux, and not in every cell.
+  web-e2e-binary:
+    name: backend runner, built binary (linux-x86_64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      PRC_WEB_E2E: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-e2e-binary
+
+      - name: Backend runner, in process and against the built binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p cobolt-server --test runner --no-fail-fast -- --nocapture --test-threads=1 2>&1 | tee runner.log
+          ! grep -E "skipped: " runner.log
+
   release:
     name: Publish the downloads
     needs: build

@@ -172,10 +172,11 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
 
 ### CI
 
-- [ ] **T23 — The web-test jobs** (R2, R3, R8b, D3)
+- [x] **T23 — The web-test jobs** (R2, R3, R8b, D3)
   - Files: `.github/workflows/build-all-platforms.yml`.
   - Do: Linux with Xvfb and `libwebkit2gtk-4.1`, macOS and Windows, all with `PRC_REQUIRE_WEBVIEW=1`; `node` with `PRC_REQUIRE_NODE=1`; a binary-mode job with `PRC_WEB_E2E=1`, once per job. Note in `WASM-PROGRESS.md` that `cobolt-web-preview`'s target gate excludes Linux today (WASM-008 C6); until it builds there, the Linux job is an owed row, never a silent skip.
   - Verify: the YAML parses (`cargo` is not needed; read back the job list); the next CI run shows the three jobs, with engine per cell recorded in `WASM-PROGRESS.md`.
+  - **Done, to be seen on the next CI run:** two jobs in `build-all-platforms.yml` — `web-tests` (linux-x86_64 under Xvfb, windows-x86_64, macos-aarch64; `PRC_REQUIRE_WEBVIEW=1`, `PRC_REQUIRE_NODE=1`; a non-Chrome skip fails the job) and `web-e2e-binary` (Linux, `PRC_WEB_E2E=1`, once). The YAML parses and lists `build, web-tests, web-e2e-binary, release`. The note about `cobolt-web-preview`'s target gate excluding Linux is stale: it builds on Linux since WASM-008 T42 (the existing build job already tests it under Xvfb), so there is no owed Linux row. The engine of each cell is printed by the tests and recorded here after the first run.
 
 ### Finalize
 

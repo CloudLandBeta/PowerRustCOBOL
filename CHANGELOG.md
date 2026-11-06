@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.253 — 2026-11-06
+
+**WASM-015 T23: the web-test jobs in CI (R2, R3, R8b, D3).** *(Written on features-2x-wasm-pending, after 2.0.252.)* `build-all-platforms.yml` gains `web-tests` — Linux (under Xvfb), Windows and macOS, each with `PRC_REQUIRE_WEBVIEW=1` and `PRC_REQUIRE_NODE=1`, so a missing web view or `node` fails the job instead of printing "skipped"; it runs `cobolt-web-tests`, `cobolt-web-bundle` and `cobolt-project-tools` and fails on any non-Chrome skip — and `web-e2e-binary`, which runs the backend runner against the built binary once, on Linux, with `PRC_WEB_E2E=1`. Not yet seen on a CI run; the engine of each cell is recorded after the first.
+
 ## 2.0.252 — 2026-11-06
 
 **WASM-015 T22: `examples/PowerWebHello`, built and run by the suite (R16, AC12).** *(Written on features-2x-wasm-pending, after 2.0.251.)* A Web project of one form: a name box, a Greet button, a label and a layer, with a Backend whose exported `HELLO` program answers the name with a greeting; the button's handler calls it with `CALL "HELLO" WITH WEBSOCKET LINKAGE` and shows the layer. It holds no key, password or token. New `cobolt-web-tests/tests/examples.rs`: the suite's own scan of the example's tree and the Build's `secret_scan` find nothing; `check` is clean and the real Build succeeds; the example's Backend, started in process, answers `HELLO("Ada")` with `Hello, Ada`; the page loads in the system web view and its handler answers an empty name. The click that reaches the Backend from the page is not run here (the kit's server speaks TLS with a certificate no web view trusts); it stays open as T22b.
