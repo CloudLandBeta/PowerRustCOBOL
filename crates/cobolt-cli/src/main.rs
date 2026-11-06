@@ -495,6 +495,7 @@ fn cmd_backend(args: &[String]) {
     }
     let mut dir: Option<PathBuf> = None;
     let mut listen: Option<String> = None;
+    let mut page_origin: Option<String> = None;
     let mut debug = false;
     let mut quiet = false;
     let mut accept_breaking = false;
@@ -506,6 +507,16 @@ fn cmd_backend(args: &[String]) {
                     Some(v) => listen = Some(v.clone()),
                     None => {
                         eprintln!("rcrun backend: --listen needs host:port");
+                        process::exit(2);
+                    }
+                }
+            }
+            "--page-origin" => {
+                i += 1;
+                match args.get(i) {
+                    Some(v) => page_origin = Some(v.clone()),
+                    None => {
+                        eprintln!("rcrun backend: --page-origin needs an origin such as http://127.0.0.1:5173");
                         process::exit(2);
                     }
                 }
@@ -612,7 +623,7 @@ fn cmd_backend(args: &[String]) {
             }
             // The log goes to standard error as it is written, so a terminal and
             // the IDE's Output panel (which runs this as a child) both see it live.
-            let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen, state, echo: true };
+            let opts = cobolt_server::dev::DevOptions { backend_dir: backend_dir.clone(), listen, state, echo: true, page_origin };
             let server = cobolt_server::dev::DevServer::start(&opts).unwrap_or_else(|e| fail(e));
             let token = server.dev_token("developer", &["user", "admin"]);
             println!("backend listening on {}", server.url);
@@ -681,6 +692,7 @@ fn cmd_help() {
         "  rcrun backend run     [dir]           Serve the project's backend for development (a\n",
         "                                         loopback address, a development token printed)\n",
         "         [--listen host:port]            Default 127.0.0.1:0 (a free port)\n",
+        "         [--page-origin origin]          The page's origin; only it may connect (default: any, warned)\n",
         "  rcrun backend describe [dir]          Write and print the interface description\n",
         "  rcrun backend check   [dir]           Check the backend and compare its contract with\n",
         "                                         the released ones\n",

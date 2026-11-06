@@ -252,7 +252,7 @@ as completed.
 
   - **Done (2.0.263):** four `Tr` keys in all six languages (`pk_unsafe_on`, `pk_unsafe_refused`, `pk_scan_failed`, `pk_scan_possible`); `diagnostic_text` says the gate's lines in the developer's language (so the Preview note and Check share it), `Note::BuildRefused` takes the scan's heading for a secret and none for an unsafe-only refusal; Check (`app.rs` `check_web_portability`) prints the same heading; the Web/Mobile settings panel marks each enabled `unsafe` key in the warning colour. No new `Note` variants were needed: the existing `BuildWarning`/`BuildRefused` carry the lines. `pk_pin_expiring` and `pk_security_txt_unset` are not added here — they would be strings with no consumer; they arrive with T21 (pinning) and T14 (`security.txt`). Tests: `the_gate_lines_read_in_all_six_languages`; `cobolt-ide` bin 1961 passed, the 8 known failures unchanged. Not done: the operator's judgement of fit in the settings panel, and the manual MCP check (the IDE server is not reachable here).
 
-- [ ] **T9 — The dev backend uses the dev origin instead of any origin** (R12)
+- [x] **T9 — The dev backend uses the dev origin instead of any origin** (R12)
   - Files: `crates/cobolt-server/src/dev.rs` (`:73`), the call site that starts the dev backend for the Preview, and
     `crates/cobolt-server/tests/loopback.rs`.
   - Do:
@@ -266,6 +266,8 @@ as completed.
     - The Preview still connects; this is a WASM-008 loopback test if one exists, otherwise a T24 owed row.
 
 ## M3 — CORS and origin (R6)
+
+  - **Done (2.0.264):** `DevOptions.page_origin`; `rcrun backend run --page-origin <origin>`; the Preview chooses the page's port before it starts the Backend (`devbackend::free_loopback_port`), hands the origin over, and serves the page on exactly that port; a Backend the IDE already runs is reused only while its port is free again, else restarted for a new one. `None` keeps any origin and warns on the Output. A client sending no Origin is still accepted (a browser always sends one). Tests: `cobolt-server/tests/dev_origin.rs` (origin accepted; another port of 127.0.0.1, `localhost` and a foreign site get 403) and a new assertion in the Preview's backend test. The Preview-with-Backend tests need `target/debug/rcrun` built (they were red in a fresh worktree for that reason; with it they pass).
 
 - [ ] **T10 — One CORS function; wildcard-with-credentials is impossible** (R6; AC5 server half)
   - Files: `crates/cobolt-server/src/http.rs`, `crates/cobolt-server/src/serve.rs` (`:389-390`), `crates/cobolt-server/tests/loopback.rs`, and

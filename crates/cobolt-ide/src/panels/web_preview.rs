@@ -619,6 +619,9 @@ pub struct WebPreview {
     dev_backend: Option<DevBackend>,
     /// The application runs on a device: its log is read each poll.
     on_device: bool,
+    /// The port the page is served on, chosen before the Backend started so it could be told the page's origin
+    /// (WASM-013 R12); `None` = any free port.
+    page_port: Option<u16>,
 }
 
 impl WebPreview {
@@ -760,6 +763,8 @@ impl WebPreview {
         if self.reuse(&launch, intent) {
             return Some(false);
         }
+        // Chosen again below when this start runs a Backend of its own.
+        self.page_port = None;
         if intent == Intent::Build || !exports.is_file() {
             return self.start(launch, intent).then_some(false);
         }
@@ -782,10 +787,15 @@ impl WebPreview {
         };
         let wait = |intent| AwaitBackend { intent, deadline: Instant::now() + BACKEND_WAIT, bake, manifest_url: manifest_url.clone(), tail: Vec::new() };
         // The Backend the IDE already runs for this project is used as it is.
+        // If it was told a page origin, the page must be served on that port: free again, it is taken back; held by
+        // something else, the Backend is started afresh for a new port.
         let same = |run: &BackendRun| {
-            run.is_running() && std::fs::canonicalize(&run.project_dir).ok() == std::fs::canonicalize(&project_dir).ok()
+            run.is_running()
+                && std::fs::canonicalize(&run.project_dir).ok() == std::fs::canonicalize(&project_dir).ok()
+                && run.page_origin.as_deref().and_then(devbackend::page_port_of).is_none_or(devbackend::loopback_port_is_free)
         };
         if let Some(run) = ide_backend.as_ref().filter(|r| same(r)) {
+            self.page_port = run.page_origin.as_deref().and_then(devbackend::page_port_of);
             match run.url().map(str::to_owned) {
                 Some(url) => self.listening(launch, wait(intent), &url),
                 None => {
@@ -799,7 +809,10 @@ impl WebPreview {
         if let Some(port) = busy_port {
             self.say(Note::BackendPortBusy { port });
         }
-        match BackendRun::spawn_with(rcrun, &project_dir, Some(&listen)) {
+        // The page's port is chosen now so the Backend accepts that origin and no other port of this machine.
+        self.page_port = devbackend::free_loopback_port();
+        let origin = self.page_port.map(devbackend::page_origin_of);
+        match BackendRun::spawn_with(rcrun, &project_dir, Some(&listen), origin.as_deref()) {
             Ok(run) => {
                 if let Some(mut other) = ide_backend.replace(run) {
                     other.stop();
@@ -1057,7 +1070,7 @@ impl WebPreview {
             self.say(Note::NoBundle);
             return;
         }
-        let options = ServeOptions { port: 0, isolation, live_reload: true };
+        let options = ServeOptions { port: self.page_port.unwrap_or(0), isolation, live_reload: true };
         let server = match launch.backend.serve(bundle, &options) {
             Ok(s) => s,
             Err(e) => {
@@ -2399,6 +2412,9 @@ mod tests {
         assert!(p.notes().contains(&Note::BackendReady { url: url.clone() }));
         assert!(!p.notes().contains(&Note::BackendOff), "{:?}", p.notes());
         assert!(get_health(&url).starts_with("HTTP/1.1 200"), "the Backend answers where the page calls");
+        // WASM-013 R12: the Backend was told the page's origin before it started, and the page is served on exactly that port.
+        let page_url = p.url().unwrap();
+        assert_eq!(ide.as_ref().unwrap().page_origin.as_deref(), Some(page_url.trim_end_matches('/')), "the Backend accepts the origin the page is served from");
         println!("backend listening and the page served {} ms after Run; built for {url}", t.elapsed().as_millis());
         // WASM-008 R6: the served config.json names the Backend and carries its token; the file does not.
         let root = p.live.as_ref().unwrap().server.root().to_path_buf();

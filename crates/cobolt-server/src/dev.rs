@@ -55,6 +55,10 @@ pub struct DevOptions {
     pub state: crate::backend::StateMode,
     /// Also print each log record to standard error as it is written.
     pub echo: bool,
+    /// The origin of the page that talks to this backend (`http://127.0.0.1:PORT`, the Preview's dev server)
+    /// (WASM-013 R12). Only that origin is accepted — plus a client that sends none, which a browser never does.
+    /// `None`: any origin is accepted, with a warning (a caller that has not been told its page's origin yet).
+    pub page_origin: Option<String>,
 }
 
 pub struct DevServer {
@@ -89,7 +93,18 @@ impl DevServer {
             cfg.server.listen = Some(opts.listen.clone().unwrap_or_else(|| "127.0.0.1:0".to_string()));
         }
         cfg.unsafe_dev_token_secret = Some(crate::config::Secret::new(secret.clone()));
-        cfg.unsafe_allow_any_origin = true;
+        match &opts.page_origin {
+            Some(origin) => {
+                cfg.server.allowed_origins = vec![origin.clone()];
+                cfg.server.allow_missing_origin = true;
+            }
+            None => {
+                cfg.unsafe_allow_any_origin = true;
+                if opts.echo {
+                    eprintln!("warning: no page origin was given (--page-origin): this development backend accepts a browser from any origin");
+                }
+            }
+        }
         let resolved = cfg.resolve(RunMode::Development, &opts.backend_dir)?;
         let tls = resolved.tls.is_some();
         let sink = MemorySink::new();

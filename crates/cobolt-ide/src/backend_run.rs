@@ -46,6 +46,8 @@ pub enum BackendEvent {
 pub struct BackendRun {
     /// The project folder the backend was started for.
     pub project_dir: PathBuf,
+    /// The page origin it was started to accept (`--page-origin`), when the Preview told it one (WASM-013 R12).
+    pub page_origin: Option<String>,
     child: Child,
     lines: Receiver<String>,
     reading: Reading,
@@ -104,16 +106,19 @@ impl BackendRun {
     /// Start `<rcrun> backend run <project_dir>` (the Run menu's Start Backend:
     /// where `backend/backend.toml` says).
     pub fn spawn(rcrun: &Path, project_dir: &Path) -> std::io::Result<Self> {
-        Self::spawn_with(rcrun, project_dir, None)
+        Self::spawn_with(rcrun, project_dir, None, None)
     }
 
     /// The same, with `--listen <listen>` when given (the Preview's start,
     /// `cobolt_project_tools::web::devbackend::plan`).
-    pub fn spawn_with(rcrun: &Path, project_dir: &Path, listen: Option<&str>) -> std::io::Result<Self> {
+    pub fn spawn_with(rcrun: &Path, project_dir: &Path, listen: Option<&str>, page_origin: Option<&str>) -> std::io::Result<Self> {
         let mut command = Command::new(rcrun);
         command.arg("backend").arg("run").arg(project_dir);
         if let Some(listen) = listen {
             command.arg("--listen").arg(listen);
+        }
+        if let Some(origin) = page_origin {
+            command.arg("--page-origin").arg(origin);
         }
         let mut child = command
             .current_dir(project_dir)
@@ -128,7 +133,7 @@ impl BackendRun {
         if let Some(err) = child.stderr.take() {
             forward(err, tx);
         }
-        Ok(BackendRun { project_dir: project_dir.to_path_buf(), child, lines, reading: Reading::default(), exit_status: None })
+        Ok(BackendRun { project_dir: project_dir.to_path_buf(), page_origin: page_origin.map(str::to_owned), child, lines, reading: Reading::default(), exit_status: None })
     }
 
     /// The address, once the child has printed it.

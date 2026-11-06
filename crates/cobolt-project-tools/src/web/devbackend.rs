@@ -64,6 +64,22 @@ pub fn loopback_port_is_free(port: u16) -> bool {
     TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).is_ok()
 }
 
+/// A free loopback port for the Preview's page, chosen before the Backend starts so that the Backend can be told the
+/// page's origin (WASM-013 R12). The port is released at once; the dev server binds it next.
+pub fn free_loopback_port() -> Option<u16> {
+    TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).ok().and_then(|l| l.local_addr().ok()).map(|a| a.port())
+}
+
+/// The origin of a page served on `port` by the Preview's dev server.
+pub fn page_origin_of(port: u16) -> String {
+    format!("http://127.0.0.1:{port}")
+}
+
+/// The port of an origin written by [`page_origin_of`].
+pub fn page_port_of(origin: &str) -> Option<u16> {
+    origin.strip_prefix("http://127.0.0.1:")?.parse().ok()
+}
+
 /// Is `host` a name or address of this machine?
 fn is_loopback_host(host: &str) -> bool {
     let h = host.trim().trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();

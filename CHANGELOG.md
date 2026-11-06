@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.264 — 2026-11-06
+
+**WASM-013 T9: the development backend accepts the page's origin, not any origin (R12).** *(Written on features-2x-wasm-pending, after 2.0.263.)* `rcrun backend run` takes `--page-origin <origin>`; given one, the development backend allows that origin only (a browser from another port of the same machine, `localhost`, or a foreign site gets 403; a client that sends no Origin, like `rcrun` or `curl`, still connects). The Preview now picks the page's port before it starts the Backend, tells the Backend the origin and serves the page on that port; a Backend already running for the project is reused only while its port is free, otherwise it is restarted. Started without an origin (the Run menu's Start Backend) it keeps accepting any origin and says so on the Output. `DevOptions` gains `page_origin`. New `cobolt-server/tests/dev_origin.rs`; the Preview's backend test asserts the origin it handed over.
+
 ## 2.0.263 — 2026-11-06
 
 **WASM-013 T8: the IDE says the gate's lines in six languages (R11).** *(Written on features-2x-wasm-pending, after 2.0.262.)* An `unsafe` manifest setting that is on, one a release build refuses, and a possible secret are now said in the developer's language with their key or place (`pk_unsafe_on`, `pk_unsafe_refused`, `pk_scan_possible`; English, Spanish, Portuguese, Japanese, Chinese, French); a Build or Check stopped by a secret gets its own heading (`pk_scan_failed`) instead of "uses what a browser cannot run", the refusal lines stay English like compiler diagnostics, and no value is ever shown. The Web and Mobile settings panel marks each enabled `unsafe` key. The pin-expiry and `security.txt` strings wait for T21 and T14, which give them a use.
