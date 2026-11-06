@@ -1321,7 +1321,7 @@ impl DbAgentInvoker {
         cause: &str,
     ) -> Result<crate::agent::AgentChangeSet, String> {
         self.typed_extract::<crate::agent::AgentChangeSet>(
-            crate::agents_db::FORM_DESIGNER,
+            crate::agents_db::form_designer_for(crate::agents_db::project_kind_of_dir(&self.project_dir)),
             "change-set",
             CHANGE_SET_EXTRACT_PREAMBLE,
             source,
@@ -2446,35 +2446,8 @@ pub fn run_grace_workflow_with_control(
     );
     // Registry census for the planning prompt: names, kinds, specializations,
     // companions — Grace selects by capability, never by name similarity.
-    let registry: String = db
-        .agents
-        .iter()
-        .map(|a| {
-            // Only an ENABLED companion is advertised — a disabled reviewer
-            // must read as "no companion" so Grace leaves reviewer null
-            // (the host enforces the mapping mechanically afterwards anyway).
-            let comp = a
-                .companion
-                .as_ref()
-                .and_then(|cid| db.by_id(cid))
-                .filter(|c| c.enabled)
-                .map(|c| format!(" · companion: {}", c.name))
-                .unwrap_or_default();
-            format!(
-                "- {} [{:?}] specialization: {}{}{}",
-                a.name,
-                a.kind,
-                if a.specialization.is_empty() {
-                    "—"
-                } else {
-                    &a.specialization
-                },
-                if a.enabled { "" } else { " (DISABLED)" },
-                comp,
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let project_kind = crate::agents_db::project_kind_of_dir(project_dir);
+    let registry = agent_registry(&db, project_kind);
     let surface = if routing.surface.trim().is_empty() {
         "Project workspace"
     } else {
@@ -2494,8 +2467,9 @@ pub fn run_grace_workflow_with_control(
     // per-specialist slicing in `inject_task_context` further down.
     let planning_context = planning_surface_context(context, request);
     let planning_context = planning_context.as_str();
+    let kind_block = project_kind_block(project_kind);
     let plan_user = format!(
-        "USER REQUEST:\n{request}{understood}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{planning_context}\n\nRELEVANT INDEXED KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nCONVERSATION CONTINUITY: when the surface context carries a CONVERSATION SO FAR section, the user request continues that conversation. A short request that answers a CLARIFYING question the assistant asked about an earlier request means the real objective is that earlier request combined with this answer. Any other request is a NEW request: it replaces the earlier ones, and a request the conversation already answered must never be answered again. Likewise resolve references such as \u{201c}the initial request\u{201d} from that conversation. Never re-ask for a fact the conversation already states.\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
+        "USER REQUEST:\n{request}{understood}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nPROJECT KIND:\n{kind_block}\n\nSURFACE CONTEXT:\n{planning_context}\n\nRELEVANT INDEXED KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nCONVERSATION CONTINUITY: when the surface context carries a CONVERSATION SO FAR section, the user request continues that conversation. A short request that answers a CLARIFYING question the assistant asked about an earlier request means the real objective is that earlier request combined with this answer. Any other request is a NEW request: it replaces the earlier ones, and a request the conversation already answered must never be answered again. Likewise resolve references such as \u{201c}the initial request\u{201d} from that conversation. Never re-ask for a fact the conversation already states.\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
     );
     // The MODEL routes the request — no keyword pre-classification. Grace
     // reads the request and the contracts and chooses one of three shapes:
@@ -2843,7 +2817,7 @@ fn inject_task_context_with_project(
         if !task.context.trim().is_empty() {
             continue; // Grace's own explicit context wins.
         }
-        let is_designer = task.agent == crate::agents_db::FORM_DESIGNER;
+        let is_designer = crate::agents_db::is_form_designer(&task.agent);
         let is_event_handler = task.agent == crate::agents_db::EVENT_HANDLER;
         if !is_designer && !is_event_handler {
             continue;
@@ -4170,10 +4144,95 @@ fn grace_final_summary(record: &WorkflowRecord, evidence: &[ToolEvidence]) -> St
     sections.join("\n\n")
 }
 
+
+/// The registry census of Grace's planning prompt: names, kinds, specializations and companions. A
+/// project lists the forms designer of its kind and no other (WASM-015 R15).
+pub fn agent_registry(db: &AgentsDb, project_kind: cobolt_compiler::project_kind::ProjectKind) -> String {
+    db
+        .agents
+        .iter()
+        // The project's kind decides which forms designer Grace may plan with, and which
+        // reviewer comes with it (WASM-015 R15): the other pair is not listed.
+        .filter(|a| crate::agents_db::listed_for_kind(&a.name, project_kind))
+        .map(|a| {
+            // Only an ENABLED companion is advertised — a disabled reviewer
+            // must read as "no companion" so Grace leaves reviewer null
+            // (the host enforces the mapping mechanically afterwards anyway).
+            let comp = a
+                .companion
+                .as_ref()
+                .and_then(|cid| db.by_id(cid))
+                .filter(|c| c.enabled)
+                .map(|c| format!(" · companion: {}", c.name))
+                .unwrap_or_default();
+            format!(
+                "- {} [{:?}] specialization: {}{}{}",
+                a.name,
+                a.kind,
+                if a.specialization.is_empty() {
+                    "—"
+                } else {
+                    &a.specialization
+                },
+                if a.enabled { "" } else { " (DISABLED)" },
+                comp,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The PROJECT KIND block of Grace's planning prompt (WASM-015 R15): what the open project is
+/// and what its forms may hold, from the same rules the plugin tells an external coding agent.
+pub fn project_kind_block(kind: cobolt_compiler::project_kind::ProjectKind) -> String {
+    use cobolt_compiler::project_kind::ProjectKind;
+    match kind {
+        ProjectKind::Desktop => format!(
+            "desktop. Forms run in the desktop interpreter. Delegate form design to {} and its reviewer {}.",
+            crate::agents_db::FORM_DESIGNER,
+            crate::agents_db::PEDANTIC_FORM_DESIGNER_REVIEWER
+        ),
+        ProjectKind::Web | ProjectKind::Mobile => format!(
+            "{}. Forms are built to WebAssembly and run in a browser. Delegate form design to {} and its reviewer {}, never to {}. \
+             A form holds only what a browser can run: no file organisation on disk, no SQL, no EXEC RUST, no child process, no \
+             native socket, no plug-in control and no secret; that work belongs to the Backend.",
+            if kind == ProjectKind::Web { "web" } else { "mobile" },
+            crate::agents_db::WEB_FORM_DESIGNER,
+            crate::agents_db::PEDANTIC_WEB_FORM_DESIGNER_REVIEWER,
+            crate::agents_db::FORM_DESIGNER
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use cobolt_agents::grace::{TaskRecord, TaskSpec, TaskState};
+    // ── WASM-015 T19 ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn grace_plans_with_the_forms_designer_of_the_projects_kind() {
+        use cobolt_compiler::project_kind::ProjectKind;
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let dir = std::env::temp_dir().join(format!("prc_gk_{}", crate::agents_db::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("K.project.toml"), "[project]\nname = \"K\"\nkind = \"web\"\n").unwrap();
+        let mut db = AgentsDb::load(&dir);
+        db.ensure_fixed_agents(&llm);
+        let web = agent_registry(&db, ProjectKind::Web);
+        assert!(web.contains("Web Form Designer Agent") && web.contains("companion: Web Form Designer Agent Pedantic Reviewer"), "{web}");
+        assert!(!web.contains("- Form Designer Agent ") && !web.contains("companion: Form Designer Agent Pedantic Reviewer"), "{web}");
+        let desktop = agent_registry(&db, ProjectKind::Desktop);
+        assert!(desktop.contains("- Form Designer Agent ") && !desktop.contains("Web Form Designer Agent"), "{desktop}");
+        for kind in [ProjectKind::Web, ProjectKind::Mobile] {
+            let block = project_kind_block(kind);
+            assert!(block.contains("WebAssembly") && block.contains("Web Form Designer Agent") && block.contains("never to Form Designer Agent"), "{block}");
+        }
+        assert!(project_kind_block(ProjectKind::Desktop).contains("desktop interpreter"));
+        let _ = std::fs::remove_dir_all(dir);
+        crate::llm::set_project_kind(cobolt_agents::Kind::Desktop);
+    }
+
 
     /// An objective names what it BUILDS, and it names it in the plural: "add
     /// 15 TextBoxes". Missing that stripped TextBox from the task context, and
@@ -6563,3 +6622,4 @@ mod task_form_match_tests {
         assert_eq!(task_form_match("Rename a button", &forms), None);
     }
 }
+

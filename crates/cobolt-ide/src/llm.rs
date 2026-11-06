@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 
-use cobolt_agents::specialist::{compose_system_prompt, route_specialist, Specialist};
+use cobolt_agents::specialist::{compose_system_prompt, route_specialist, route_specialist_for, Specialist};
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "You are an expert pair programmer for PowerRustCOBOL...";
 
@@ -1768,8 +1768,14 @@ fn run_mesh_request(
         let target = req
             .specialist
             .clone()
-            .unwrap_or_else(|| route_specialist(&req.user_prompt).to_string());
-        let specialist = Specialist::builtin(&target);
+            .unwrap_or_else(|| route_specialist_for(project_kind(), &req.user_prompt).to_string());
+        let specialist = Specialist::builtin(&target).map(|s| {
+            if s.name == "WebFormsDesigner" {
+                s.with_rules(&web_kind_rules())
+            } else {
+                s
+            }
+        });
         push_ai_log(
             AiLogKind::Detail,
             match &specialist {
@@ -2352,6 +2358,10 @@ Review the complete orchestration for:
    - Grace coordinates work instead of performing specialist work itself.
    - No agent modifies resources outside its authorized scope.
 
+3b. Project kind
+   - The PROJECT KIND block names the kind of the open project. On a Web or Mobile project, form work is assigned to the Web Form Designer Agent (with its own Pedantic Reviewer), never to the Form Designer Agent; on a Desktop project the reverse.
+   - No task asks a Web or Mobile form for a file organisation on disk, SQL, EXEC RUST, a child process, a native socket, a plug-in control, or any secret. Reject such a plan.
+
 4. Dependency correctness
    - Dependencies reflect the real production order.
    - Dependent agents receive the approved outputs of every required producer.
@@ -2469,6 +2479,62 @@ pub fn default_grace_prompt() -> String {
 /// an empty legacy prompt. Project-edited non-empty prompts remain untouched.
 pub fn default_form_designer_agent_prompt() -> String {
     DEFAULT_FORM_DESIGNER_AGENT_PROMPT.to_string()
+}
+
+/// The rules a browser-bound form is held to, taken from the plugin's own `web-kinds`,
+/// `web-layers` and `backend-secrets` rules so the agents and the external coding agent are
+/// told one thing (WASM-015 R15).
+pub fn web_kind_rules() -> String {
+    ["web-kinds", "web-layers", "backend-secrets"]
+        .iter()
+        .filter_map(|id| cobolt_project_tools::content::APPLICATION_RULES.iter().find(|(i, _)| i == id))
+        .map(|(_, text)| *text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// Web Form Designer Agent: the Form Designer Agent for a Web or Mobile project (WASM-015 Q5).
+/// Derived from the desktop default, so every correction to that reaches this one, with the
+/// browser's rules appended. Edit the desktop DEFAULT_* constant, not a copy.
+pub fn default_web_form_designer_agent_prompt() -> String {
+    format!(
+        "{}\n\nPROJECT KIND: this is a Web or Mobile project. Its forms are built to WebAssembly and run in a browser, \
+         not in the desktop interpreter. Everything below is binding on every operation you produce:\n\n{}",
+        DEFAULT_FORM_DESIGNER_AGENT_PROMPT
+            .replace("RAD desktop forms", "RAD forms of a Web or Mobile application")
+            .replace("Form Designer Agent", "Web Form Designer Agent"),
+        web_kind_rules()
+    )
+}
+
+/// The Web Form Designer Agent's own Pedantic Reviewer (companions are one to one).
+pub fn default_pedantic_web_ui_prompt() -> String {
+    format!(
+        "{}\n\nPROJECT KIND: the reviewed forms belong to a Web or Mobile project. Reject, as a defect, any operation \
+         that puts in a form a file organisation on disk, SQL, EXEC RUST, a child process, a native socket, a plug-in \
+         control, a class D control or action, or any key, password, token or connection string; a class C control is \
+         acceptable only when it names a backend configuration. Reject a layer addressed as a control. The rules the \
+         author was held to:\n\n{}",
+        DEFAULT_PEDANTIC_UI_PROMPT.replace("Form Designer Agent", "Web Form Designer Agent"),
+        web_kind_rules()
+    )
+}
+
+static PROJECT_KIND: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Tell the mesh which kind of project is open, so routing swaps the forms designer by kind
+/// in code (WASM-015 R15). Set when the project's agents are ensured, which is on open and
+/// before every Grace run.
+pub fn set_project_kind(kind: cobolt_agents::Kind) {
+    PROJECT_KIND.store(kind as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn project_kind() -> cobolt_agents::Kind {
+    match PROJECT_KIND.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => cobolt_agents::Kind::Web,
+        2 => cobolt_agents::Kind::Mobile,
+        _ => cobolt_agents::Kind::Desktop,
+    }
 }
 
 /// Built-in skill docs for the Form Designer Agent, seeded to
@@ -2940,6 +3006,10 @@ When a request involves creating or modifying a desktop form, Grace must delegat
 The delegation must include: the form identifier; the requested visual or structural changes; the requested form style, when one was asked for; required controls; required layout behavior; alignment and spacing rules; tab-order expectations; existing controls or behavior that must be preserved; event requirements; relevant egui MCP Server constraints. Grace must direct the Form Designer Agent to restyle a form by setting the form-level `GlassStyle` property — whose only accepted values are "Classic", "Enhanced", "Neumorphic Light", and "Neumorphic Dark" — rather than requesting custom styling properties for individual controls. Grace must pass the developer's requested style through to that exact spelling ("neumorphic dark" becomes "Neumorphic Dark") and must never invent a style identifier or restate it as a slug such as "neumorphic-dark".
 
 The Form Designer Agent's work must be reviewed by its Form Designer Agent Pedantic Reviewer companion before the Orchestrator accepts the UI task as complete.
+
+Project kind
+
+The request carries a PROJECT KIND block naming the kind of the open project: desktop, web or mobile. On a Web or Mobile project the forms are built to WebAssembly and run in a browser, so form work is delegated to the Web Form Designer Agent, reviewed by its Web Form Designer Agent Pedantic Reviewer companion, and never to the Form Designer Agent. On a Desktop project it is the reverse. A task for a Web or Mobile project must not ask a form for a file organisation on disk, SQL, EXEC RUST, a child process, a native socket, a plug-in control, or any key, password, token or connection string: that work belongs to the Backend, and a control of class C only names a backend configuration.
 
 The Orchestrator must not consider the form complete merely because the controls were created. Layout, visual consistency, properties, tab order, form-style application (ensuring a supported `GlassStyle` value is set at form level), and preservation of existing behavior must also pass review.
 

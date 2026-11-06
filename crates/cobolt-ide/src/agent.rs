@@ -2976,6 +2976,11 @@ pub fn build_context_for(form: &Form, kind: cobolt_compiler::project_kind::Proje
     out.push_str("AVAILABLE CONTROL TYPES (use these for 'deploy_control'):\n");
     out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart, RadarChart\n\n");
     if !kind.is_desktop() {
+        // The kind header sits above the layers block, so the slicing of CONTROLS: is unaffected.
+        out.push_str(&format!(
+            "PROJECT KIND: {}. The forms of this project are built to WebAssembly and run in a browser; a layer is addressed as LAYER-NAME::Property, never as a control.\n",
+            kind.as_str()
+        ));
         out.push_str(&web_availability(kind));
     }
 

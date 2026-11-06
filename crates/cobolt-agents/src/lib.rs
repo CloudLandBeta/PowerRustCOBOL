@@ -9,4 +9,4 @@ pub mod rig_transport;
 pub mod sandbox;
 pub mod specialist;
 
-pub use specialist::{compose_system_prompt, route_specialist, MeshRequest, Specialist};
+pub use specialist::{compose_system_prompt, route_specialist, route_specialist_for, Kind, MeshRequest, Specialist};

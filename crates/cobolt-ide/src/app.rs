@@ -6415,7 +6415,9 @@ impl CoboltApp {
                             &sent,
                             crate::grace_host::GraceRoutingContext::new(
                                 "Form inspector chatbot",
-                                Some(crate::agents_db::FORM_DESIGNER),
+                                Some(crate::agents_db::form_designer_for(
+                                    crate::agents_db::project_kind_of_dir(&dir),
+                                )),
                                 context,
                             ),
                         ));

@@ -99,6 +99,81 @@ pub const VERSION_CONTROL: &str = "Version Control Agent";
 /// form work to it by this exact name (spec 030 applies its approved output).
 pub const FORM_DESIGNER: &str = "Form Designer Agent";
 
+/// Canonical name of the form-design specialist of a Web or Mobile project (WASM-015 Q5). The
+/// project's registry lists this agent instead of [`FORM_DESIGNER`], and the reverse on a
+/// Desktop project; the kind decides, in code, never a word of the prompt.
+pub const WEB_FORM_DESIGNER: &str = "Web Form Designer Agent";
+
+/// Built-in tandem reviewer for [`WEB_FORM_DESIGNER`] (companions are one to one).
+pub const PEDANTIC_WEB_FORM_DESIGNER_REVIEWER: &str = "Web Form Designer Agent Pedantic Reviewer";
+
+/// Whether `name` is a form-design specialist, desktop or web.
+pub fn is_form_designer(name: &str) -> bool {
+    name.eq_ignore_ascii_case(FORM_DESIGNER) || name.eq_ignore_ascii_case(WEB_FORM_DESIGNER)
+}
+
+/// The form-design specialist of a project of this kind.
+pub fn form_designer_for(kind: cobolt_compiler::project_kind::ProjectKind) -> &'static str {
+    if kind.is_desktop() {
+        FORM_DESIGNER
+    } else {
+        WEB_FORM_DESIGNER
+    }
+}
+
+/// The kind of the project in `project_dir`, read from its manifest (`*.project.toml`,
+/// `[project] kind`). Desktop when there is no manifest or no kind, as a manifest without one
+/// always meant.
+pub fn project_kind_of_dir(project_dir: &Path) -> cobolt_compiler::project_kind::ProjectKind {
+    use cobolt_compiler::project_kind::ProjectKind;
+    let Ok(rd) = std::fs::read_dir(project_dir) else {
+        return ProjectKind::Desktop;
+    };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if !path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(".project.toml")) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(value) = text.parse::<toml::Table>() else { continue };
+        let kind = value.get("project").and_then(|p| p.get("kind")).and_then(|k| k.as_str());
+        return match kind {
+            Some("web") => ProjectKind::Web,
+            Some("mobile") => ProjectKind::Mobile,
+            _ => ProjectKind::Desktop,
+        };
+    }
+    ProjectKind::Desktop
+}
+
+/// The routing kind the mesh uses for a project kind.
+pub fn mesh_kind(kind: cobolt_compiler::project_kind::ProjectKind) -> cobolt_agents::Kind {
+    use cobolt_compiler::project_kind::ProjectKind;
+    match kind {
+        ProjectKind::Desktop => cobolt_agents::Kind::Desktop,
+        ProjectKind::Web => cobolt_agents::Kind::Web,
+        ProjectKind::Mobile => cobolt_agents::Kind::Mobile,
+    }
+}
+
+/// Whether the registry of a project of this kind lists the agent `name`. A project lists one
+/// forms designer with its reviewer (WASM-015 R15), the one of its kind; every other agent is
+/// listed in every kind.
+pub fn listed_for_kind(name: &str, kind: cobolt_compiler::project_kind::ProjectKind) -> bool {
+    let web_pair = name.eq_ignore_ascii_case(WEB_FORM_DESIGNER)
+        || name.eq_ignore_ascii_case(PEDANTIC_WEB_FORM_DESIGNER_REVIEWER);
+    let desktop_pair = name.eq_ignore_ascii_case(FORM_DESIGNER)
+        || name.eq_ignore_ascii_case(PEDANTIC_FORM_DESIGNER_REVIEWER);
+    if kind.is_desktop() {
+        !web_pair
+    } else {
+        !desktop_pair
+    }
+}
+
+const WEB_FORM_DESIGNER_ROUTING: &str = "Preferred for form design requests of a Web or Mobile project; receives form design and change tasks from Grace; delegates event implementation to COBOL Event Handler Script Agent; keeps secrets, files and SQL out of forms (they belong to the Backend); returns validated form change sets to Grace.";
+const WEB_FORM_DESIGNER_REVIEWER_ROUTING: &str = "Reviews only Web Form Designer Agent output: controls, hierarchy, layout, layers, bindings, the browser's limits (no file organisation, SQL, EXEC RUST, child process, native socket, plug-in control or secret in a form), tool evidence, and regressions; returns an approval verdict or complete correction request to Grace.";
+
 /// Fixed documentation specialist. Grace must delegate every project-document
 /// creation or update to this exact agent.
 pub const DOCUMENTATION_AGENT: &str = "Documentation Agent";
@@ -112,7 +187,7 @@ pub const DOCUMENTATION_AGENT: &str = "Documentation Agent";
 /// is harvested by the apply path. Telling only one side is what silently
 /// discards a reviewed, approved handler.
 pub fn produces_form_change_set(agent: &str) -> bool {
-    agent.eq_ignore_ascii_case(FORM_DESIGNER) || agent.eq_ignore_ascii_case(EVENT_HANDLER)
+    is_form_designer(agent) || agent.eq_ignore_ascii_case(EVENT_HANDLER)
 }
 
 const LEGACY_PEDANTIC_GRACE_REVIEWER: &str = "Pedantic Grace Reviewer";
@@ -138,6 +213,8 @@ pub fn is_fixed_agent_name(name: &str) -> bool {
     name.eq_ignore_ascii_case(GRACE)
         || name.eq_ignore_ascii_case(PEDANTIC_GRACE_REVIEWER)
         || name.eq_ignore_ascii_case(PEDANTIC_FORM_DESIGNER_REVIEWER)
+        || name.eq_ignore_ascii_case(PEDANTIC_WEB_FORM_DESIGNER_REVIEWER)
+        || name.eq_ignore_ascii_case(WEB_FORM_DESIGNER)
         || name.eq_ignore_ascii_case(PEDANTIC_EVENT_HANDLER_REVIEWER)
         || name.eq_ignore_ascii_case(PEDANTIC_DOCUMENTATION_REVIEWER)
         || name.eq_ignore_ascii_case(PEDANTIC_VERSION_CONTROL_REVIEWER)
@@ -1544,6 +1621,14 @@ impl AgentsDb {
             &crate::llm::default_pedantic_ui_prompt(),
         ) as usize;
         changed += self.ensure_tandem_reviewer(
+            WEB_FORM_DESIGNER,
+            PEDANTIC_WEB_FORM_DESIGNER_REVIEWER,
+            "web-form-design-review",
+            "Independently reviews the forms of a Web or Mobile project for the browser's limits, layers, controls, bindings, and regressions.",
+            WEB_FORM_DESIGNER_REVIEWER_ROUTING,
+            &crate::llm::default_pedantic_web_ui_prompt(),
+        ) as usize;
+        changed += self.ensure_tandem_reviewer(
             EVENT_HANDLER,
             PEDANTIC_EVENT_HANDLER_REVIEWER,
             "cobol-event-review",
@@ -1649,6 +1734,48 @@ impl AgentsDb {
             }
             Err(_) => false,
         }
+    }
+
+    /// Ensure the Web Form Designer specialist exists. Only a Web or Mobile project has one: the
+    /// project's registry lists it instead of the Form Designer Agent (WASM-015 Q5).
+    pub fn ensure_web_form_designer(&mut self, llm: &crate::llm::LlmConfig) -> bool {
+        if self.by_name(WEB_FORM_DESIGNER).is_some() {
+            return false;
+        }
+        match self.create_kinded(
+            WEB_FORM_DESIGNER,
+            &crate::llm::default_web_form_designer_agent_prompt(),
+            AgentKind::Specialist,
+            "web-form-design",
+        ) {
+            Ok(id) => {
+                if let Some(agent) = self.agents.iter_mut().find(|agent| agent.id == id) {
+                    agent.purpose =
+                        "Designs and edits the forms of a Web or Mobile project and delegates event implementation."
+                            .into();
+                    agent.provider = llm.provider.clone();
+                    agent.endpoint = llm.endpoint.clone();
+                    agent.model = llm.model.clone();
+                    agent.temperature = llm.temperature;
+                    agent.max_tokens = llm.max_tokens;
+                    agent.timeout_secs = llm.timeout_secs;
+                    agent.routing = WEB_FORM_DESIGNER_ROUTING.into();
+                    agent.tools = vec!["egui.tree".into(), "egui.rects".into()];
+                }
+                let _ = self.save_all();
+                self.sort_rail();
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// The kind of the project this database belongs to (its `agentic_ai` folder's parent).
+    pub fn project_kind(&self) -> cobolt_compiler::project_kind::ProjectKind {
+        self.root
+            .parent()
+            .map(project_kind_of_dir)
+            .unwrap_or(cobolt_compiler::project_kind::ProjectKind::Desktop)
     }
 
     /// Seed the Form Designer Agent's built-in skill docs (container-carry and
@@ -2121,6 +2248,8 @@ impl AgentsDb {
         let data_indexed_file_prompt = crate::llm::default_data_indexed_file_agent_prompt();
         let grace_reviewer_prompt = crate::llm::default_pedantic_grace_prompt();
         let form_reviewer_prompt = crate::llm::default_pedantic_ui_prompt();
+        let web_form_prompt = crate::llm::default_web_form_designer_agent_prompt();
+        let web_form_reviewer_prompt = crate::llm::default_pedantic_web_ui_prompt();
         let event_reviewer_prompt = crate::llm::default_pedantic_event_prompt();
         let documentation_reviewer_prompt = crate::llm::default_pedantic_documentation_prompt();
         let version_control_reviewer_prompt = crate::llm::default_pedantic_version_control_prompt();
@@ -2193,6 +2322,28 @@ impl AgentsDb {
             GRACE_REVIEWER_ROUTING,
             &["Reviews: Grace orchestration"],
             &grace_reviewer_prompt,
+            &[],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            WEB_FORM_DESIGNER,
+            AgentKind::Specialist,
+            "web-form-design",
+            "Designs and edits the forms of a Web or Mobile project and delegates event implementation.",
+            WEB_FORM_DESIGNER_ROUTING,
+            &["Receives: user form requests"],
+            &web_form_prompt,
+            &["egui.tree", "egui.rects"],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            PEDANTIC_WEB_FORM_DESIGNER_REVIEWER,
+            AgentKind::Pedantic,
+            "web-form-design-review",
+            "Independently reviews the forms of a Web or Mobile project for the browser's limits, layers, controls, bindings, and regressions.",
+            WEB_FORM_DESIGNER_REVIEWER_ROUTING,
+            &["Reviews: Web Form Designer Agent"],
+            &web_form_reviewer_prompt,
             &[],
             llm,
         ) as usize;
@@ -2321,6 +2472,7 @@ impl AgentsDb {
         for name in [
             GRACE,
             FORM_DESIGNER,
+            WEB_FORM_DESIGNER,
             EVENT_HANDLER,
             VERSION_CONTROL,
             DOCUMENTATION_AGENT,
@@ -2379,6 +2531,12 @@ impl AgentsDb {
             changed += 1;
         }
         if self.ensure_form_designer_skills() {
+            changed += 1;
+        }
+        // The mesh swaps the forms designer by the project's kind, in code (WASM-015 R15).
+        let kind = self.project_kind();
+        crate::llm::set_project_kind(mesh_kind(kind));
+        if !kind.is_desktop() && self.ensure_web_form_designer(llm) {
             changed += 1;
         }
         if self.ensure_event_handler(llm) {
@@ -3570,6 +3728,72 @@ mod tests {
         assert_eq!(cfg.model, "qwen3.5:397b");
         assert_eq!(cfg.api_key, "profile-key");
         let _ = std::fs::remove_dir_all(proj);
+    }
+
+    // ── WASM-015 T19: the project's kind decides the forms designer ─────────────
+
+    fn project_of_kind(kind: &str) -> PathBuf {
+        let proj = tmp_project();
+        let manifest = if kind == "desktop" {
+            "[project]\nname = \"K\"\n".to_string()
+        } else {
+            format!("[project]\nname = \"K\"\nkind = \"{kind}\"\n")
+        };
+        std::fs::write(proj.join("K.project.toml"), manifest).unwrap();
+        proj
+    }
+
+    #[test]
+    fn a_web_project_gets_the_web_designer_and_its_own_reviewer_and_a_desktop_one_does_not() {
+        use cobolt_compiler::project_kind::ProjectKind;
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        for (kind, expect) in [("web", ProjectKind::Web), ("mobile", ProjectKind::Mobile), ("desktop", ProjectKind::Desktop)] {
+            let proj = project_of_kind(kind);
+            assert_eq!(project_kind_of_dir(&proj), expect);
+            let mut db = AgentsDb::load(&proj);
+            db.ensure_fixed_agents(&llm);
+            if kind == "desktop" {
+                assert!(db.by_name(WEB_FORM_DESIGNER).is_none(), "a desktop project has no web designer");
+                assert!(db.by_name(PEDANTIC_WEB_FORM_DESIGNER_REVIEWER).is_none());
+            } else {
+                let web = db.by_name(WEB_FORM_DESIGNER).expect("web designer").clone();
+                let rev = db.by_name(PEDANTIC_WEB_FORM_DESIGNER_REVIEWER).expect("its reviewer").clone();
+                assert_eq!(web.companion.as_deref(), Some(rev.id.as_str()), "one to one");
+                let fd = db.by_name(FORM_DESIGNER).unwrap();
+                assert_ne!(fd.companion, web.companion, "the pairs are separate");
+                assert!(db.load_prompt(WEB_FORM_DESIGNER).contains("PROJECT KIND: this is a Web or Mobile project"));
+                assert!(db.load_prompt(PEDANTIC_WEB_FORM_DESIGNER_REVIEWER).contains("Web Form Designer Agent"));
+            }
+            let _ = std::fs::remove_dir_all(proj);
+        }
+        crate::llm::set_project_kind(cobolt_agents::Kind::Desktop);
+    }
+
+    #[test]
+    fn the_web_designer_is_a_fixed_agent_whose_change_sets_are_applied() {
+        for name in [WEB_FORM_DESIGNER, PEDANTIC_WEB_FORM_DESIGNER_REVIEWER] {
+            assert!(is_fixed_agent_name(name), "{name}");
+        }
+        assert!(produces_form_change_set(WEB_FORM_DESIGNER));
+        assert!(produces_form_change_set(FORM_DESIGNER));
+        assert!(!produces_form_change_set(PEDANTIC_WEB_FORM_DESIGNER_REVIEWER));
+        assert!(is_form_designer("web form designer agent"));
+        assert_eq!(form_designer_for(cobolt_compiler::project_kind::ProjectKind::Web), WEB_FORM_DESIGNER);
+        assert_eq!(form_designer_for(cobolt_compiler::project_kind::ProjectKind::Desktop), FORM_DESIGNER);
+    }
+
+    #[test]
+    fn neither_new_default_prompt_looks_stale_and_a_kept_one_survives_ensure() {
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let proj = project_of_kind("web");
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        // A second ensure repairs nothing: the defaults are what was just written.
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "ensure is idempotent for a web project");
+        assert_eq!(db.load_prompt(WEB_FORM_DESIGNER).trim(), crate::llm::default_web_form_designer_agent_prompt().trim());
+        assert_eq!(db.load_prompt(PEDANTIC_WEB_FORM_DESIGNER_REVIEWER).trim(), crate::llm::default_pedantic_web_ui_prompt().trim());
+        let _ = std::fs::remove_dir_all(proj);
+        crate::llm::set_project_kind(cobolt_agents::Kind::Desktop);
     }
 
     #[test]

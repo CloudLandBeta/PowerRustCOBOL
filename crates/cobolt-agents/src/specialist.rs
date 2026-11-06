@@ -105,8 +105,30 @@ If the request cannot be expressed with these operations, or is a plain question
 - **Do not invent variables.** Never invent array variables like `WS-LINECHART-1-TABLE` or `WS-LINECHART-1-COUNT` for charts. If you must manipulate a chart in code, use inline chart methods such as `LineChart-1::Clear()`, `LineChart-1::AddPoint(label, value)`, and `LineChart-1::Refresh()`, or rely on the `DataSource` property. Only use variables explicitly present in the CONTEXT.
 "##;
 
-/// The three built-in mesh specialists.
-pub const BUILTIN_SPECIALISTS: [&str; 3] = ["FormsDesigner", "CodeGenerator", "EventBinder"];
+/// The three built-in mesh specialists, and the one that replaces `FormsDesigner` in a Web or
+/// Mobile project (WASM-015 R15).
+pub const BUILTIN_SPECIALISTS: [&str; 4] = ["FormsDesigner", "CodeGenerator", "EventBinder", "WebFormsDesigner"];
+
+/// The kind of the open project, as far as routing needs it (the product's own `ProjectKind`
+/// lives in the compiler, which this crate does not depend on).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Kind {
+    #[default]
+    Desktop,
+    Web,
+    Mobile,
+}
+
+impl Kind {
+    /// Web and Mobile projects are built to WebAssembly and share the browser's limits.
+    pub fn is_browser(self) -> bool {
+        !matches!(self, Kind::Desktop)
+    }
+}
+
+/// What a Web or Mobile project's forms designer is told before the product's own rules (the
+/// `web-kinds` and `web-layers` rules) are appended by the host. A policy, not a word heuristic.
+const WEB_PREAMBLE: &str = "This project is a **Web or Mobile** project: its forms are built to WebAssembly and run in a browser. Deploy only controls the CONTEXT legend lists, and only what a browser can run: never an indexed or sequential file organisation on disk, SQL, EXEC RUST, a child process, a native socket, a plug-in control, or any key, password, token or connection string. Work that needs a file, a database or a secret goes to the Backend; a control of class C names a backend configuration and holds no secret. A layer is addressed as LAYER-NAME::Property and is never a control.";
 
 impl Specialist {
     /// The built-in specialist with this exact name, if any. Named project
@@ -117,10 +139,23 @@ impl Specialist {
             .then(|| Self::new(name.to_string()))
     }
 
+    /// This specialist with extra rules appended after its preamble (the host passes the
+    /// product's own `web-kinds` and `web-layers` text, so there is one source of it).
+    pub fn with_rules(mut self, rules: &str) -> Self {
+        if !rules.trim().is_empty() {
+            self.system_prompt = format!("{}\n\n{}", self.system_prompt, rules.trim());
+        }
+        self
+    }
+
     pub fn new(name: impl Into<String>) -> Self {
         let name_str = name.into();
         let prompt = match name_str.as_str() {
             "FormsDesigner" => format!("You are the **PowerRustCOBOL Forms Designer Agent**. Your primary focus is on deploying controls and setting properties to build the visual UI layout.\nYou MUST follow the `rustcobol-desktop-form-design` skill whenever creating, modifying, validating, or reorganizing forms: default 14px typography, black readable foreground for buttons/tabs/input controls, 15px corner radius where supported, theme-aware colors and shadows, correct label/input alignment, valid tab/container ownership, preservation of existing controls/events/bindings, and atomic structured operations.\nIf the user asks a conversational question (like syntax, guidelines, style) or you need more information, answer using the `message` operation inside the `operations` array.\n{}", BASE_PROTOCOL),
+            "WebFormsDesigner" => {
+                let base = Specialist::new("FormsDesigner").system_prompt;
+                format!("{}\n\n{}", base.replacen("Forms Designer Agent", "Web Forms Designer Agent", 1), WEB_PREAMBLE)
+            }
             "EventBinder" => format!("You are the **PowerRustCOBOL Event Binder Agent**. Your primary focus is on generating COBOL event handlers for UI controls.\nIf the user asks a conversational question (like syntax, guidelines, style) or you need more information, answer using the `message` operation inside the `operations` array.\n{}", BASE_PROTOCOL),
             _ => "You are the **PowerRustCOBOL Code Generator Agent**. Your primary focus is on creating complex COBOL procedures and backend business logic.
 When you write COBOL code, you MUST output it inside a markdown code block:
@@ -295,6 +330,16 @@ pub fn route_specialist(prompt: &str) -> &'static str {
     "CodeGenerator"
 }
 
+/// Route by the project's kind first (WASM-015 R15): the forms designer of a Web or Mobile
+/// project is `WebFormsDesigner`, so a prompt that would reach `FormsDesigner` there does not
+/// get the desktop rules. The kind is decided in code, never by words of the prompt.
+pub fn route_specialist_for(kind: Kind, prompt: &str) -> &'static str {
+    match route_specialist(prompt) {
+        "FormsDesigner" if kind.is_browser() => "WebFormsDesigner",
+        other => other,
+    }
+}
+
 fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
 }
@@ -334,6 +379,27 @@ mod tests {
         let prompt = "Grace must end planning with workflow JSON.";
         assert_eq!(compose_system_prompt(prompt, None), prompt);
         assert!(!compose_system_prompt(prompt, None).contains("Do not output JSON"));
+    }
+
+    #[test]
+    fn web_kinds_route_the_forms_designer_to_the_web_one() {
+        let p = "add a button to Tab1 of TabControl-1";
+        assert_eq!(route_specialist_for(Kind::Web, p), "WebFormsDesigner");
+        assert_eq!(route_specialist_for(Kind::Mobile, p), "WebFormsDesigner");
+        assert_eq!(route_specialist_for(Kind::Desktop, p), "FormsDesigner");
+        // Other specialists are not touched by the kind.
+        let q = "write a function to calculate tax";
+        assert_eq!(route_specialist_for(Kind::Web, q), route_specialist(q));
+        assert_eq!(route_specialist_for(Kind::Desktop, "wire the Save buttons to the indexed file"), route_specialist("wire the Save buttons to the indexed file"));
+        assert_eq!(Kind::default(), Kind::Desktop);
+    }
+
+    #[test]
+    fn the_web_designer_carries_the_browser_rules_and_the_hosts_text() {
+        let s = Specialist::builtin("WebFormsDesigner").expect("built in").with_rules("HOST WEB RULES");
+        assert!(s.system_prompt.contains("Web Forms Designer Agent"));
+        assert!(s.system_prompt.contains("Web or Mobile") && s.system_prompt.contains("HOST WEB RULES"));
+        assert!(!Specialist::new("FormsDesigner").system_prompt.contains("Web or Mobile"), "desktop unchanged");
     }
 
     #[test]
