@@ -396,7 +396,7 @@ as completed.
     - `closing_the_form_unsubscribes`, which asserts that the server's subscription count is back to its baseline and prints it;
     - the existing `ac8_a_stream_…` (`client_contract.rs:541`) unchanged.
 
-- [ ] **T15 — The player: progress, streams, upload in pieces, download by address** (R13, R14, R15; AC8, AC9, AC10; Q4)
+- [x] **T15 — The player: progress, streams, upload in pieces, download by address** (R13, R14, R15; AC8, AC9, AC10; Q4)
   - Files: `crates/cobolt-web-player/src/net.rs` (`put-begin`/`put-chunk`/`put-end` with resume, `get-file`, `sub`/`unsub`/`event`,
     `progress`, `cancel`), `src/host.rs`, `src/api.rs` (D-Progress, the stream events, the picked-file handle as `WS-UPLOAD`'s `path`,
     `onFilesDropped` input; the download is the browser's own navigation to the issued `/dl/<token>`).
@@ -414,6 +414,8 @@ as completed.
     - **Gated (WASM-010 T16):** the AC10 end-to-end, a generated module plus the player plus a rig, in both skew directions (client 1.0 to
       backend 1.2, and client 1.2 to backend 1.1, which is refused). It is recorded here when the gate opens and listed as owed in T19 until
       then.
+  - **Done 2026-11-05 (2.0.231):** the connection, the host and the page glue, with the tests named above (`a_progress_frame_…_cancel_sends_the_cancel_frame`, `progress_frames_set_the_declared_controls`, `stream_items_raise_on_stream_item_after_the_task` and `reconnect_resubscribes` among them).
+  - **Still open (T15b):** the generated module has no imports for `WS-SUBSCRIBE`, `WS-UNSUBSCRIBE`, `WS-STREAM-ITEM`, `WS-SHOW-PROGRESS`, `WS-UPLOAD` and `WS-DOWNLOAD` (`cobolt-wasm` `support.rs` lists them unsupported), so the page cannot yet start a stream or an upload from COBOL; `onFilesDropped` as the source of the picked-file handle; the transcript growth of T7; and the AC10 end-to-end (gated by WASM-010 T16).
 
 ## M9 — the IDE and the System KB
 

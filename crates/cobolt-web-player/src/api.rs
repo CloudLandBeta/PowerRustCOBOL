@@ -534,6 +534,13 @@ impl Inner {
         for a in acts {
             match a {
                 Act::Event { name, args } => {
+                    // A click on the cancel control a form declared with `WS-SHOW-PROGRESS` cancels the pending call (WASM-014 R13).
+                    let cancel = if name == "onClick" { self.host.borrow().cancel_clicked(inst, ctl) } else { None };
+                    if let Some(call) = cancel {
+                        if let Some(c) = self.net.borrow_mut().as_mut() {
+                            c.request_cancel(call);
+                        }
+                    }
                     self.host.borrow_mut().dom_event(inst, ctl, name, args);
                 }
                 Act::Quiet { prop, value } => self.host.borrow_mut().ui_set(inst, ctl, &prop, &value),
@@ -599,6 +606,32 @@ impl Inner {
                 Out::BackendWarning { program, message } => {
                     self.host.borrow_mut().backend_warning(&program, &message);
                 }
+                Out::Progress { id, percent, message } => {
+                    // D-Progress (WASM-014 R13): the controls the form declared are set here, with no COBOL running.
+                    self.host.borrow_mut().call_progress(id, percent, &message);
+                }
+                Out::StreamItem { sub, json, restart } => {
+                    self.host.borrow_mut().stream_item(sub, &json, restart);
+                }
+                Out::StreamEnd { sub, reason } => {
+                    self.host.borrow_mut().stream_end(sub, &reason);
+                }
+                Out::FileUrl { path, .. } => {
+                    // A download is the browser's own navigation to the address the backend issued (WASM-014 R15, Q4): a short-lived
+                    // path under this page's origin, never an address the module chose.
+                    if path.starts_with("/dl/") && !path.contains("//") {
+                        if let Some(w) = web_sys::window() {
+                            let _ = w.location().assign(&path);
+                        }
+                    } else {
+                        web_sys::console::warn_1(&format!("the backend issued a download address that is not under /dl/: {path}").into());
+                    }
+                }
+                // The module reaches uploads through imports the ABI does not carry yet (WASM-010); until then a transfer's progress is only logged.
+                Out::PutReady { .. } | Out::PutDone { .. } => {}
+                Out::TransferFailed { id, class, code, message } => {
+                    web_sys::console::warn_1(&format!("transfer {id} failed: {class} {code}: {message}").into());
+                }
                 Out::Blocked(b) => {
                     modal_changed |= self.net_blocked.replace(b) != b;
                 }
@@ -611,6 +644,11 @@ impl Inner {
                         self.host.borrow_mut().backend_unreachable();
                     }
                 }
+            }
+        }
+        for sub in self.host.borrow_mut().take_closed_streams() {
+            if let Some(c) = self.net.borrow_mut().as_mut() {
+                c.unsubscribe(sub);
             }
         }
         // The modal follows in the same turn as the break, so it is up before the next frame (AC13).

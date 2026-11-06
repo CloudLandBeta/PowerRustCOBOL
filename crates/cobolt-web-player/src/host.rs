@@ -63,6 +63,9 @@ pub const ON_BACKEND_UNREACHABLE: &str = "onBackendUnreachable";
 pub const ON_BACKEND_VERSION: &str = "onBackendVersion";
 /// A call's reply carried a warning (WASM-014 R6, T9).
 pub const ON_BACKEND_WARNING: &str = "onBackendWarning";
+/// A stream the form subscribed to delivered an item, or ended (WASM-014 R14, T14).
+pub const ON_STREAM_ITEM: &str = "onStreamItem";
+pub const ON_STREAM_END: &str = "onStreamEnd";
 
 /// The form event raised on the main form when the page's address names no form the application has (WASM-011 R6);
 /// its argument is the name the address gave.
@@ -448,6 +451,12 @@ pub struct Host {
     layout: ArenaLayout,
     forms: Vec<Option<Rc<Form>>>,
     pub trees: BTreeMap<u32, FormTree>,
+    /// Streams: who subscribed, the latest item, and the subscriptions of closed instances (WASM-014 T15).
+    stream_owners: BTreeMap<u32, u32>,
+    stream_items: BTreeMap<u32, (String, bool)>,
+    closed_streams: Vec<u32>,
+    /// Where each pending call's progress is shown (`WS-SHOW-PROGRESS`).
+    progress_shown: BTreeMap<u32, streams::ProgressTargets>,
     work: VecDeque<Work>,
     tasks: BTreeMap<i32, Task>,
     /// The `onFrame` pacing of each canvas (instance, control) that has `TargetFps` above zero (WASM-018 T30, R14).
@@ -554,6 +563,10 @@ impl Host {
             layout,
             forms: vec![None; n],
             trees: BTreeMap::new(),
+            stream_owners: BTreeMap::new(),
+            stream_items: BTreeMap::new(),
+            closed_streams: Vec::new(),
+            progress_shown: BTreeMap::new(),
             work: VecDeque::new(),
             tasks: BTreeMap::new(),
             frame_clocks: HashMap::new(),
@@ -1037,6 +1050,7 @@ impl Host {
 
     /// A remote request was answered (or failed: the frame then carries the error, ABI A6).
     pub fn remote_answer(&mut self, id: u32, frame: Vec<u8>) {
+        self.progress_shown.remove(&id);
         for t in self.tasks.values_mut() {
             if let TaskState::Suspended(Wait::Remote { id: rid, answer }) = &mut t.state {
                 if *rid == id {
@@ -1524,6 +1538,7 @@ impl Host {
         if self.trees.remove(&inst).is_some() {
             self.effects.push(Effect::Closed { inst });
         }
+        self.drop_streams_of(inst);
         self.unsaved.remove(&inst);
         self.work.retain(|w| !matches!(w, Work::Event(e) if e.inst == inst));
         self.auth_calls.retain(|_, (i, _, _)| *i != inst);
@@ -3137,6 +3152,9 @@ mod raise_tests;
 mod resize_tests;
 #[cfg(test)]
 mod unreachable_tests;
+mod streams;
+#[cfg(test)]
+mod streams_tests;
 #[cfg(test)]
 mod backend_version_tests;
 #[cfg(test)]

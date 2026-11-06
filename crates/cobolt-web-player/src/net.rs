@@ -42,6 +42,9 @@ use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 
+mod transfer;
+pub use transfer::{plain_name, CHUNK_BYTES};
+
 /// The error classes of WASM-014 R7 the player itself produces, as they appear in an error frame.
 pub mod class {
     pub const TRANSPORT: &str = "transport";
@@ -110,6 +113,20 @@ pub enum Out {
     BackendVersion { state: String, message: String, update_to: String },
     /// A call's reply carried a warning (WASM-014 R6): `onBackendWarning` on the main form, with the program's name.
     BackendWarning { program: String, message: String },
+    /// A long call reported progress (WASM-014 R13): the host sets the controls the form declared with `WS-SHOW-PROGRESS`.
+    Progress { id: u32, percent: u8, message: String },
+    /// An item of a stream (R14): `json` is the group as the backend sent it; `restart` is true for the first after a re-subscription.
+    StreamItem { sub: u32, json: String, restart: bool },
+    /// A stream ended: `ended`, `unsubscribed`, `refused: …` or the backend's failure.
+    StreamEnd { sub: u32, reason: String },
+    /// The backend holds `have` bytes of upload `id`: read the next piece from there (R15).
+    PutReady { id: u32, have: u64 },
+    /// Upload `id` is stored under the backend's own name `file`.
+    PutDone { id: u32, file: String, size: u64 },
+    /// The address to navigate to for download `id` (a short-lived path under the page's own origin).
+    FileUrl { id: u32, path: String, expires_in: u64, size: u64, sha256: String },
+    /// An upload or a download failed, or was refused before any frame left.
+    TransferFailed { id: u32, class: String, code: u32, message: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,6 +271,10 @@ pub struct Client<S: Socket> {
     /// The halves of the channel, from the server's `hello` to the end of the connection.
     tx: Option<cobolt_wire::seal::Sender>,
     rx: Option<cobolt_wire::seal::Receiver>,
+    /// Streams, uploads and downloads in progress (WASM-014 T15).
+    subs: BTreeMap<u32, transfer::Sub>,
+    puts: BTreeMap<u32, transfer::Put>,
+    gets: BTreeMap<u32, String>,
 }
 
 /// Is `url` an acceptable backend address for `cfg`?
@@ -324,6 +345,9 @@ impl<S: Socket> Client<S> {
             own_nonce: [0; cobolt_wire::seal::NONCE_LEN],
             tx: None,
             rx: None,
+            subs: BTreeMap::new(),
+            puts: BTreeMap::new(),
+            gets: BTreeMap::new(),
         }
     }
 
@@ -676,6 +700,7 @@ impl<S: Socket> Client<S> {
         }
         self.set_state(LinkState::Ready);
         self.flush_held();
+        self.transfers_ready();
     }
 
     pub fn on_message(&mut self, text: &str) {
@@ -770,6 +795,9 @@ impl<S: Socket> Client<S> {
                     }
                     return;
                 };
+                if !self.inflight.contains_key(&id) && self.on_transfer_error(id, &v) {
+                    return;
+                }
                 let Some(f) = self.inflight.get_mut(&id) else { return };
                 // The token expired: refresh and repeat once; the server refused before running anything.
                 if class_ == class::AUTHENTICATION && code_ == code::TOKEN_EXPIRED && !f.auth_repeated && self.token.is_some() {
@@ -788,9 +816,10 @@ impl<S: Socket> Client<S> {
                 }
                 self.out.push(Out::Answer { id, frame: json!({"id": id, "error": e}).to_string().into_bytes() });
             }
-            // Progress, streams and files are not this player's yet; a kind a newer backend invented
-            // is not an error either (`proto::parse_server`).
-            _ => {}
+            // Progress, streams and files; a kind a newer backend invented is not an error either (`proto::parse_server`).
+            other => {
+                self.on_transfer_frame(other, text, &v);
+            }
         }
     }
 
@@ -804,6 +833,7 @@ impl<S: Socket> Client<S> {
             LinkState::Ready => {
                 // An established connection broke (R25 retries any break): what was sent is decided
                 // when an attempt succeeds or the cycle gives up, not now (D12).
+                self.transfers_lost();
                 for f in self.inflight.values_mut() {
                     if f.sent {
                         f.sent = false;
@@ -884,6 +914,12 @@ impl<S: Socket> Client<S> {
         for id in sent {
             self.fail(id, class::TRANSPORT, code::CLOSED, "the connection was closed by the sign-out", Some(true));
         }
+        for sub in std::mem::take(&mut self.subs).into_keys() {
+            self.out.push(Out::StreamEnd { sub, reason: "the connection was closed by the sign-out".into() });
+        }
+        for id in std::mem::take(&mut self.puts).into_keys().chain(std::mem::take(&mut self.gets).into_keys()) {
+            self.out.push(Out::TransferFailed { id, class: class::TRANSPORT.into(), code: code::CLOSED, message: "the connection was closed by the sign-out".into() });
+        }
         self.token = None;
         self.wanted = false;
         let now = self.clock;
@@ -897,6 +933,9 @@ impl<S: Socket> Client<S> {
     pub fn shutdown(&mut self) {
         self.wanted = false;
         self.inflight.clear();
+        self.subs.clear();
+        self.puts.clear();
+        self.gets.clear();
         let now = self.clock;
         self.end_cycle(now);
         self.sock.close();
@@ -1808,5 +1847,205 @@ mod tests {
         let (c, i) = backend_from_manifest(&m, "1.0.0", &["a".into()]);
         println!("manifest says contract {c}, repeatable {i:?}");
         assert_eq!((c.as_str(), i), ("2.3.0", vec!["fund-totals".to_string()]));
+    }
+    // ── WASM-014 T15: progress, streams, files ───────────────────────────────
+
+    /// A ready client whose connection events have been read.
+    fn ready_quiet() -> Client<Mock> {
+        let mut c = ready_client();
+        c.take_out();
+        c
+    }
+
+    /// Every frame sent since the last call, parsed, with the sent list emptied.
+    fn drain_sent(c: &mut Client<Mock>) -> Vec<Value> {
+        let v = sent_json(c);
+        c.socket().sent.clear();
+        v
+    }
+
+    /// Cut the connection and let the policy make a new one that works: the page is Ready again afterwards.
+    fn cut_and_reconnect(c: &mut Client<Mock>, now: u64) {
+        c.on_close(now);
+        let next = c.next_deadline().unwrap_or(now + 1000);
+        c.tick(next);
+        c.on_open(next);
+        c.on_message(&hello_ok());
+        assert_eq!(c.state(), LinkState::Ready);
+    }
+
+    #[test]
+    fn a_progress_frame_for_a_pending_call_is_reported_and_cancel_sends_the_cancel_frame() {
+        let mut c = ready_quiet();
+        let id = c.request(br#"{"program":"BIG-JOB","args":[]}"#, 10);
+        drain_sent(&mut c);
+        c.on_message(r#"{"t":"progress","id":1,"percent":40,"message":"half way"}"#);
+        c.on_message(r#"{"t":"progress","id":77,"percent":10,"message":"nobody waits for it"}"#);
+        let out = c.take_out();
+        println!("progress reported: {out:?}");
+        assert_eq!(out, vec![Out::Progress { id, percent: 40, message: "half way".into() }]);
+        c.cancel(id);
+        assert_eq!(drain_sent(&mut c), vec![json!({"t": "cancel", "id": id})], "cancel_sends_the_cancel_frame");
+    }
+
+    #[test]
+    fn a_cancel_request_keeps_the_call_pending_until_the_backend_answers_it() {
+        let mut c = ready_quiet();
+        let id = c.request(br#"{"program":"BIG-JOB","args":[]}"#, 10);
+        drain_sent(&mut c);
+        assert!(c.request_cancel(id));
+        assert_eq!(drain_sent(&mut c), vec![json!({"t": "cancel", "id": id})]);
+        assert_eq!(c.in_flight(), 1, "still waiting for the answer");
+        c.on_message(&format!(r#"{{"t":"error","id":{id},"class":"application","code":8000,"message":"cancelled"}}"#));
+        let a = answers(&mut c);
+        println!("the program is answered: {a:?}");
+        assert_eq!(a[0].1["error"]["code"], 8000);
+        assert!(!c.request_cancel(id), "nothing left to cancel");
+    }
+
+    #[test]
+    fn a_dot_dot_name_is_refused_before_any_frame() {
+        let mut c = ready_quiet();
+        let hash = "0".repeat(64);
+        let mut refused = Vec::new();
+        for (slot, name) in [("docs", "../../etc/passwd"), ("docs", ".."), ("docs", "a\\b.txt"), ("../docs", "a.txt"), ("docs", "")] {
+            c.put_begin(slot, name, "text/plain", 3, &hash, 20);
+            refused.push(c.take_out().into_iter().filter(|o| matches!(o, Out::TransferFailed { class, .. } if class == "validation")).count());
+        }
+        let g = c.get_file("../secret", 20);
+        let got = c.take_out();
+        println!("refused uploads: {refused:?}; refused download {g}: {got:?}");
+        assert_eq!(refused, [1, 1, 1, 1, 1]);
+        assert!(matches!(got[0], Out::TransferFailed { .. }));
+        assert!(drain_sent(&mut c).is_empty(), "nothing left the player");
+    }
+
+    /// 3 MiB in pieces; the connection is cut after the fifth piece; the upload resumes where the backend says it is.
+    #[test]
+    fn upload_3mb_in_pieces_resumes_after_a_cut_and_checksums() {
+        let size: usize = 3 * 1024 * 1024;
+        let data: Vec<u8> = (0..size).map(|i| (i.wrapping_mul(31) % 251) as u8).collect();
+        // The browser hashes the file over the pieces it reads.
+        let mut hash = crate::upload::FileHash::new();
+        for piece in data.chunks(CHUNK_BYTES) {
+            hash.update(piece);
+        }
+        assert_eq!(hash.len(), size as u64);
+        let sha = hash.finish_hex();
+        let mut c = ready_quiet();
+        let t = std::time::Instant::now();
+        let id = c.put_begin("ledger", "q3.csv", "text/csv", size as u64, &sha, 100);
+        let begin = drain_sent(&mut c);
+        assert_eq!(begin[0]["t"], "put-begin");
+        assert_eq!(begin[0]["sha256"], sha.as_str());
+        assert!(begin[0].get("resume").is_none());
+        c.on_message(&format!(r#"{{"t":"put-ready","id":{id},"upload":"up-1","have":0}}"#));
+        assert_eq!(c.take_out(), vec![Out::PutReady { id, have: 0 }]);
+        // The backend's side: what it holds, piece by piece, as the encoded text the player sent.
+        let mut held = 0u64;
+        let mut pieces = 0usize;
+        let mut offset = 0usize;
+        let mut check = |frames: Vec<Value>, held: &mut u64, pieces: &mut usize, data: &[u8]| {
+            for f in frames {
+                if f["t"] == "put-chunk" {
+                    let off = f["offset"].as_u64().unwrap() as usize;
+                    assert_eq!(off as u64, *held, "pieces arrive in order");
+                    let len = (data.len() - off).min(CHUNK_BYTES);
+                    assert_eq!(f["data"].as_str().unwrap(), cobolt_wire::seal::encode_b64(&data[off..off + len]), "the bytes are the file's");
+                    *held += len as u64;
+                    *pieces += 1;
+                }
+            }
+        };
+        for _ in 0..5 {
+            let len = (size - offset).min(CHUNK_BYTES);
+            assert!(c.put_chunk(id, offset as u64, &data[offset..offset + len]));
+            offset += len;
+        }
+        let first = drain_sent(&mut c);
+        check(first, &mut held, &mut pieces, &data);
+        assert_eq!(pieces, 5);
+        // The connection is cut: the player makes a new one and asks to resume.
+        cut_and_reconnect(&mut c, 200);
+        let resume = drain_sent(&mut c);
+        let begin2 = resume.iter().find(|f| f["t"] == "put-begin").expect("the upload is begun again");
+        assert_eq!(begin2["resume"], "up-1", "under the id the backend gave");
+        c.on_message(&format!(r#"{{"t":"put-ready","id":{id},"upload":"up-1","have":{held}}}"#));
+        let ready = c.take_out().into_iter().find_map(|o| if let Out::PutReady { have, .. } = o { Some(have) } else { None }).expect("put-ready is reported again");
+        assert_eq!(ready, held, "the host reads on from where the backend is");
+        offset = ready as usize;
+        while offset < size {
+            let len = (size - offset).min(CHUNK_BYTES);
+            assert!(c.put_chunk(id, offset as u64, &data[offset..offset + len]));
+            offset += len;
+        }
+        let rest = drain_sent(&mut c);
+        check(rest, &mut held, &mut pieces, &data);
+        assert!(c.put_end(id));
+        assert_eq!(drain_sent(&mut c), vec![json!({"t": "put-end", "id": id})]);
+        c.on_message(&format!(r#"{{"t":"put-done","id":{id},"file":"f-9","size":{size}}}"#));
+        assert_eq!(c.take_out(), vec![Out::PutDone { id, file: "f-9".into(), size: size as u64 }]);
+        let ms = t.elapsed().as_millis();
+        println!("== T15 upload ==");
+        println!("{size} bytes in {pieces} pieces of up to {CHUNK_BYTES}; cut after 5 pieces ({held_at_cut} bytes held), resumed at offset {ready}; sha256 {sha}; {ms} ms", held_at_cut = 5 * CHUNK_BYTES);
+        assert_eq!(held, size as u64);
+        assert_eq!(pieces, size.div_ceil(CHUNK_BYTES));
+    }
+
+    #[test]
+    fn a_download_is_the_address_the_backend_issues() {
+        let mut c = ready_quiet();
+        let id = c.get_file("f-9", 5);
+        assert_eq!(drain_sent(&mut c), vec![json!({"t": "get-file", "id": id, "file": "f-9"})]);
+        c.on_message(&format!(r#"{{"t":"file-url","id":{id},"path":"/dl/abc","expires_in":60,"size":12,"sha256":"{}"}}"#, "ab".repeat(32)));
+        let out = c.take_out();
+        assert_eq!(out, vec![Out::FileUrl { id, path: "/dl/abc".into(), expires_in: 60, size: 12, sha256: "ab".repeat(32) }]);
+        // A refusal ends it with the backend's own words.
+        let id2 = c.get_file("gone", 6);
+        c.on_message(&format!(r#"{{"t":"error","id":{id2},"class":"not-found","code":5001,"message":"no such file"}}"#));
+        assert!(matches!(c.take_out().as_slice(), [Out::TransferFailed { code: 5001, .. }]));
+    }
+
+    #[test]
+    fn stream_items_arrive_in_order_and_the_end_is_reported() {
+        let mut c = ready_quiet();
+        let sub = c.subscribe(br#"{"program":"ticker","args":[{"mode":"value","json":{"EVERY-MS":30}}]}"#, 7);
+        let sent = drain_sent(&mut c);
+        assert_eq!(sent[0]["t"], "sub");
+        assert_eq!(sent[0]["id"], sub);
+        assert_eq!(sent[0]["program"], "ticker");
+        for n in 1..=3 {
+            c.on_message(&format!(r#"{{"t":"event","sub":{sub},"seq":{n},"data":{{"N":{n}}}}}"#));
+        }
+        c.on_message(&format!(r#"{{"t":"sub-end","sub":{sub}}}"#));
+        let out = c.take_out();
+        println!("stream: {out:?}");
+        assert_eq!(out[0], Out::StreamItem { sub, json: r#"{"N":1}"#.into(), restart: false });
+        assert_eq!(out[2], Out::StreamItem { sub, json: r#"{"N":3}"#.into(), restart: false });
+        assert_eq!(out[3], Out::StreamEnd { sub, reason: "ended".into() });
+        assert!(c.subscriptions().is_empty());
+    }
+
+    #[test]
+    fn reconnect_resubscribes() {
+        let mut c = ready_quiet();
+        let sub = c.subscribe(br#"{"program":"ticker","args":[]}"#, 7);
+        drain_sent(&mut c);
+        c.on_message(&format!(r#"{{"t":"event","sub":{sub},"seq":1,"data":{{"N":1}}}}"#));
+        cut_and_reconnect(&mut c, 300);
+        let again: Vec<Value> = drain_sent(&mut c).into_iter().filter(|f| f["t"] == "sub").collect();
+        println!("after the cut: {again:?}");
+        assert_eq!(again.len(), 1, "subscribed again, once");
+        assert_eq!(again[0]["id"], sub, "under the same id");
+        c.take_out();
+        c.on_message(&format!(r#"{{"t":"event","sub":{sub},"seq":1,"data":{{"N":2}}}}"#));
+        c.on_message(&format!(r#"{{"t":"event","sub":{sub},"seq":2,"data":{{"N":3}}}}"#));
+        let items: Vec<bool> = c.take_out().into_iter().filter_map(|o| if let Out::StreamItem { restart, .. } = o { Some(restart) } else { None }).collect();
+        assert_eq!(items, [true, false], "the restart flag is on the first item after the re-subscription only");
+        // Unsubscribing tells the backend, and its answer ends the stream.
+        c.unsubscribe(sub);
+        assert_eq!(drain_sent(&mut c), vec![json!({"t": "unsub", "id": sub})]);
+        c.on_message(&format!(r#"{{"t":"unsubscribed","id":{sub}}}"#));
+        assert_eq!(c.take_out(), vec![Out::StreamEnd { sub, reason: "unsubscribed".into() }]);
     }
 }

@@ -62,6 +62,9 @@ cobolt-wasm-abi = { path = "../cobolt-wasm-abi" }
 cobolt-wire     = { path = "../cobolt-wire", features = ["channel"] }
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
+# WASM-014 T15: the incremental SHA-256 of an upload (src/upload.rs), taken over the pieces the browser reads; also the
+# fingerprint of the player's own source (src/fingerprint.rs, WASM-016 R12). Pure Rust, MIT OR Apache-2.0.
+sha2        = "0.10"
 indexmap    = { version = "2", features = ["serde"] }
 rayon       = { version = "1", optional = true }
 # Reads the SVG the icon catalogue and the diagram renderer write, to build DOM nodes from an
@@ -71,11 +74,6 @@ quick-xml   = "0.36"
 # code made of DOM nodes (view/auth.rs). MIT OR Apache-2.0, rust-version 1.67.1, pure Rust; without
 # its default features (`image`, `svg`, `pic`) it depends on nothing.
 qrcode      = { version = "0.14", default-features = false }
-
-# Native only: the fingerprint of the player's source (src/fingerprint.rs, WASM-016 R12), which
-# build_player records and the freshness test checks. The browser build never links it.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-sha2 = "0.10"
 
 # The browser crates are `wasm32` only: a native `cargo test` of the pure layers (the ABI host,
 # the state, the policies) compiles none of them, which keeps the test loop fast and small. The

@@ -26,6 +26,7 @@ pub mod methods;
 pub mod motion;
 pub mod metrics;
 pub mod net;
+pub mod upload;
 pub mod par;
 pub mod texts;
 pub mod theme_css;
