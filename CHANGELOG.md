@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.263 — 2026-11-06
+
+**WASM-013 T8: the IDE says the gate's lines in six languages (R11).** *(Written on features-2x-wasm-pending, after 2.0.262.)* An `unsafe` manifest setting that is on, one a release build refuses, and a possible secret are now said in the developer's language with their key or place (`pk_unsafe_on`, `pk_unsafe_refused`, `pk_scan_possible`; English, Spanish, Portuguese, Japanese, Chinese, French); a Build or Check stopped by a secret gets its own heading (`pk_scan_failed`) instead of "uses what a browser cannot run", the refusal lines stay English like compiler diagnostics, and no value is ever shown. The Web and Mobile settings panel marks each enabled `unsafe` key. The pin-expiry and `security.txt` strings wait for T21 and T14, which give them a use.
+
 ## 2.0.262 — 2026-11-06
 
 **WASM-013 T7: the Web Build gate over the project's own inputs (R7, R11).** *(Written on features-2x-wasm-pending, after 2.0.261.)* Check and Build now start with a gate, before anything is generated: the `unsafe` settings against the profile (a warning in Development, a refusal naming the key in Release) and the secret scan over every form, Common Code file and copybook, the project stylesheet and theme file, the text assets and `backend/backend.toml`. A secret stops the Build as `file:line` and the pattern name — the value is never shown; a possible secret (entropy) is a warning. A literal in `backend/backend.toml` is a warning in Development and a refusal in Release. The profile, `plain_ws`, `skip_secret_scan` and `csp_report_only` now reach the bundle's options (a report-only CSP, the release checks). `tests/web_inputs_gate.rs`: 14 error patterns planted in a form, a copybook and a stylesheet (42 refusals, no value shown), each unsafe key, the skip and the `backend.toml` rule. The older `backend_secret_not_scanned` test now sees the gate's refusal in place of the bundle scan's.

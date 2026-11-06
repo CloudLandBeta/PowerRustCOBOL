@@ -4872,7 +4872,13 @@ impl CoboltApp {
             }
             Err(_) => return,
         };
-        self.output.push_status(tr.web_check_not_portable.to_owned());
+        // The Build's own gate speaks first: a secret or an unsafe setting is not a line a browser cannot run.
+        let secret = lines.iter().any(|d| d.message.starts_with("secret ("));
+        if secret {
+            self.output.push_status(tr.pk_scan_failed.to_owned());
+        } else if lines.iter().any(|d| d.location != "manifest") {
+            self.output.push_status(tr.web_check_not_portable.to_owned());
+        }
         for d in &lines {
             let text = crate::panels::web_preview::diagnostic_text(d, &tr);
             self.output

@@ -191,6 +191,16 @@ fn fill(template: &str, args: &[&str]) -> String {
 /// from its `Tr` template with the subject filled in, free text as it is
 /// (WASM-010 D6). The location stays in front.
 pub fn diagnostic_text(d: &WebDiagnostic, tr: &Tr) -> String {
+    // The Build's gate over the project's inputs (WASM-013 T7): an `unsafe` setting is said in the developer's language
+    // with its key; a possible secret likewise. A secret that stops the Build keeps the English `file:line: secret (…)`
+    // line, like the compiler's own diagnostics.
+    if d.kind == WebDiagnosticKind::Other && d.location == "manifest" {
+        let key = d.message.split_whitespace().next().unwrap_or_default();
+        return fill(if d.message.contains("refuses it") { tr.pk_unsafe_refused } else { tr.pk_unsafe_on }, &[key]);
+    }
+    if d.kind == WebDiagnosticKind::Other && d.message.starts_with("possible secret (") {
+        return fill(tr.pk_scan_possible, &[&format!("{} ({})", d.location, d.subject)]);
+    }
     let template = match d.kind {
         WebDiagnosticKind::Other => None,
         WebDiagnosticKind::BackendOnly => Some(tr.wasm_diag_backend_only),
@@ -279,7 +289,9 @@ impl Note {
             }
             Note::BuildWarning(w) => vec![fill(tr.pk_build_warning, &[&diagnostic_text(w, tr)])],
             Note::BuildRefused(lines) => {
-                let mut out = vec![tr.pk_build_refused.to_owned()];
+                let secret = lines.iter().any(|l| l.kind == WebDiagnosticKind::Other && l.message.starts_with("secret ("));
+                let unsafe_only = lines.iter().all(|l| l.location == "manifest");
+                let mut out = if unsafe_only { Vec::new() } else { vec![(if secret { tr.pk_scan_failed } else { tr.pk_build_refused }).to_owned()] };
                 out.extend(lines.iter().map(|l| format!("  {}", diagnostic_text(l, tr))));
                 out
             }
@@ -2649,5 +2661,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// WASM-013 T8: an `unsafe` setting and a possible secret are said in each language with their key or place;
+    /// a secret that stops the Build keeps the English line and gets the scan's heading.
+    #[test]
+    fn the_gate_lines_read_in_all_six_languages() {
+        use cobolt_project_tools::web::WebDiagnosticKind::Other;
+        let on = WebDiagnostic { location: "manifest".into(), kind: Other, subject: String::new(), message: "web.unsafe.plain_ws is on: for development only; a release build refuses it".into(), alternative: String::new() };
+        let refused = WebDiagnostic { message: "web.unsafe.plain_ws is on: a release build refuses it; remove it from the manifest".into(), ..on.clone() };
+        let possible = WebDiagnostic { location: "webforms/a.wcfrm:7".into(), kind: Other, subject: "high-entropy string".into(), message: "possible secret (high-entropy string); the value is not shown".into(), alternative: String::new() };
+        let secret = WebDiagnostic { location: "webforms/a.wcfrm:9".into(), kind: Other, subject: "cloud access key id".into(), message: "secret (cloud access key id); the value is not shown".into(), alternative: String::new() };
+        let mut distinct = std::collections::BTreeSet::new();
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            let a = diagnostic_text(&on, &tr);
+            let b = diagnostic_text(&refused, &tr);
+            let c = diagnostic_text(&possible, &tr);
+            for t in [&a, &b] {
+                assert!(t.contains("web.unsafe.plain_ws") && !t.contains("{}"), "{lang:?}: {t}");
+            }
+            assert!(c.contains("webforms/a.wcfrm:7") && c.contains("high-entropy string") && !c.contains("{}"), "{lang:?}: {c}");
+            assert!(!tr.pk_scan_failed.trim().is_empty());
+            distinct.insert(a);
+            let lines = Note::BuildRefused(vec![secret.clone()]).lines(&tr);
+            assert_eq!(lines[0], tr.pk_scan_failed);
+            assert!(lines[1].contains("secret (cloud access key id)") && !lines[1].contains("{}"), "{lines:?}");
+            assert_eq!(Note::BuildRefused(vec![refused.clone()]).lines(&tr).len(), 1, "an unsafe refusal needs no heading");
+        }
+        assert_eq!(distinct.len(), Language::ALL.len(), "six different sentences");
+        println!("gate lines: unsafe on/refused, possible secret, secret heading read in {} languages", Language::ALL.len());
     }
 }

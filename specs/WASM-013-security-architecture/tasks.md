@@ -227,7 +227,7 @@ as completed.
 
   - **Done (2.0.262):** the gate is not blocked: `GeneratorBackend` is linked. `gate_inputs` (in `generator.rs`) runs first in Check and in Build: `unsafe_problems()` (warnings, or `Refused` naming the key in Release), then `scan_project` over forms, Common Code and copybooks, the stylesheet and theme file, text assets and `backend/backend.toml`; errors are `Refused` as `file:line` plus the pattern, possible secrets are warnings. `backend.toml` literals: warning in Development, refusal in Release (G4; WASM-003 R17 keeps the backend's own settings there). The profile and the three `unsafe` keys reach the `BundleOptions` (`release`, `unsafe_plain_ws`, `skip_secret_scan`, report-only CSP). New `tests/web_inputs_gate.rs`: 14 Error patterns x form/copybook/stylesheet = 42 refusals, none showing the value; each unsafe key; skip; backend.toml. `backend_secret_not_scanned` now expects the gate's `Refused`.
 
-- [ ] **T8 — The IDE shows the warnings and the refusals, in six languages** (R11, i18n; AC9 IDE half)
+- [x] **T8 — The IDE shows the warnings and the refusals, in six languages** (R11, i18n; AC9 IDE half)
   - Files:
     - `crates/cobolt-ide/src/i18n.rs`: new `Tr` fields, filled in all six language tables.
     - `crates/cobolt-ide/src/panels/web_preview.rs` (`Note`, `Note::lines`).
@@ -249,6 +249,8 @@ as completed.
     - Each new string fits the settings panel in all six languages, judged by the operator. Do not drive the window.
     - Manual check (through the MCP tools): open a Web project with `[web.unsafe] plain_ws = true`. Check shows the warning, and once T7 has
       landed, Build fails naming `plain_ws`.
+
+  - **Done (2.0.263):** four `Tr` keys in all six languages (`pk_unsafe_on`, `pk_unsafe_refused`, `pk_scan_failed`, `pk_scan_possible`); `diagnostic_text` says the gate's lines in the developer's language (so the Preview note and Check share it), `Note::BuildRefused` takes the scan's heading for a secret and none for an unsafe-only refusal; Check (`app.rs` `check_web_portability`) prints the same heading; the Web/Mobile settings panel marks each enabled `unsafe` key in the warning colour. No new `Note` variants were needed: the existing `BuildWarning`/`BuildRefused` carry the lines. `pk_pin_expiring` and `pk_security_txt_unset` are not added here — they would be strings with no consumer; they arrive with T21 (pinning) and T14 (`security.txt`). Tests: `the_gate_lines_read_in_all_six_languages`; `cobolt-ide` bin 1961 passed, the 8 known failures unchanged. Not done: the operator's judgement of fit in the settings panel, and the manual MCP check (the IDE server is not reachable here).
 
 - [ ] **T9 — The dev backend uses the dev origin instead of any origin** (R12)
   - Files: `crates/cobolt-server/src/dev.rs` (`:73`), the call site that starts the dev backend for the Preview, and

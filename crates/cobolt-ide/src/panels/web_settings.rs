@@ -1039,6 +1039,17 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
         note(ui, lay, tr.pk_set_iso_hint, dim);
     }
 
+    // The `unsafe` settings that are on, marked (WASM-013 R11): a release build refuses each.
+    let table = if draft.kind == ProjectKind::Web { "web" } else { "mobile" };
+    let unsafe_keys = match (draft.kind, &draft.mobile) {
+        (ProjectKind::Web, _) => draft.web.unsafe_.enabled(table),
+        (_, Some(m)) => m.unsafe_.enabled(table),
+        _ => Vec::new(),
+    };
+    for key in unsafe_keys {
+        note(ui, lay, &tr.pk_unsafe_on.replacen("{}", &key, 1), theme.warn);
+    }
+
     // The Backend's address.
     let url = match draft.kind {
         ProjectKind::Web => &mut draft.web.backend_url,
