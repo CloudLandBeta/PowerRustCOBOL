@@ -92,7 +92,7 @@ pub fn expand(
             let mut zip = zip::ZipArchive::new(Cursor::new(bytes))
                 .map_err(|e| Skip::new(code::DAMAGED, format!("the archive could not be read: {e}")))?;
             for i in 0..zip.len() {
-                let listed = zip.name_for_index(i).map(clean).unwrap_or_default();
+                let listed = zip.name_for_index(i).and_then(|n| n.ok()).map(|n| clean(&n)).unwrap_or_default();
                 let (member, data) = {
                     let file = match zip.by_index(i) {
                         Ok(f) => f,
@@ -104,7 +104,14 @@ pub fn expand(
                     if file.is_dir() {
                         continue;
                     }
-                    let member = clean(file.name());
+                    // zip 9 reports a name that is not UTF-8 as an error: the member is skipped and named by its index.
+                    let member = match file.name() {
+                        Ok(n) => clean(&n),
+                        Err(e) => {
+                            out.skipped.push((listed, member_error(&e.to_string())));
+                            continue;
+                        }
+                    };
                     if is_junk(&member) {
                         continue;
                     }

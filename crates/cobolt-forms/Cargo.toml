@@ -118,6 +118,6 @@ render = ["pdf-reader", "mermaid", "dep:egui", "dep:fontdb", "dep:skrifa", "dep:
 
 [dev-dependencies]
 # The Viewer's Office tests build a Word document in memory.
-zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 pretty_assertions = { workspace = true }
 tempfile = "3"

@@ -65,7 +65,7 @@ fn normalise_headings(bytes: &[u8]) -> Result<Option<Vec<u8>>, String> {
     let mut out = zip::ZipWriter::new(Cursor::new(Vec::with_capacity(bytes.len())));
     for i in 0..zip.len() {
         let file = zip.by_index_raw(i).map_err(|e| e.to_string())?;
-        if file.name() == "word/document.xml" {
+        if file.name().is_ok_and(|n| n == "word/document.xml") {
             drop(file);
             let options = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated);

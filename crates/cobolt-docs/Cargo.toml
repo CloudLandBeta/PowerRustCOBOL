@@ -24,7 +24,7 @@ htmd        = "=0.5.5"
 # PDF page text — the same reader and settings as the Viewer in cobolt-forms.
 lopdf       = { version = "0.26", default-features = false, features = ["nom_parser"] }
 # Our own bounded archive walk. No defaults: bzip2 and zstd are C libraries.
-zip         = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+zip         = { version = "9", default-features = false, features = ["deflate-flate2"] }
 tar         = { version = "0.4", default-features = false }
 flate2      = { workspace = true }
 quick-xml   = { workspace = true }

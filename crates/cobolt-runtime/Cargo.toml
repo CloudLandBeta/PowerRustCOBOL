@@ -254,7 +254,7 @@ cobolt-parser     = { path = "../cobolt-parser" }
 cobolt-semantic   = { path = "../cobolt-semantic" }
 pretty_assertions = { workspace = true }
 # Archive fixtures for the KnowledgeBase document-import test (spec 074).
-zip               = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+zip               = { version = "9", default-features = false, features = ["deflate-flate2"] }
 tempfile          = "3"
 # Spec 103: the tests verify every signed request with their OWN SigV4 code (not the
 # crate that signed it). The workspace's hmac 0.12 pairs with sha2 0.10, not with the

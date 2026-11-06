@@ -94,7 +94,9 @@ fn slide_order(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Vec<String> {
         return order;
     }
     let mut numbered: Vec<(u32, String)> = zip
+        
         .file_names()
+        .filter_map(|n| n.ok())
         .filter_map(|n| {
             let num = n.strip_prefix("ppt/slides/slide")?.strip_suffix(".xml")?.parse().ok()?;
             Some((num, n.to_string()))

@@ -46,5 +46,5 @@ semantic = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:
 [dev-dependencies]
 tempfile = "3.10"
 # Fixture writers for the document-import test (spec 074).
-zip   = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+zip   = { version = "9", default-features = false, features = ["deflate-flate2"] }
 lopdf = { version = "0.26", default-features = false, features = ["nom_parser"] }
