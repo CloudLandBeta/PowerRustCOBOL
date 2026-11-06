@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.259 — 2026-11-06
+
+**WASM-013 T2, T3: the secret-scan pattern list is public, one project scan, the examples under it (R7).** *(Written on features-2x-wasm-pending, after 2.0.258.)* `cobolt-web-bundle::secrets` gains `PATTERNS` (every pattern `scan_text` can report, with its severity; `scan_text` can only push names from it), the `Key=value` connection-string rule (`Password=`, `Pwd=`, `AccountKey=`, `SharedAccessKey=`, ignoring case, placeholders `${…}`/`<…>`/`*` not flagged), `connectionstring` among the secret property names, and `scan_project`, which the bundle loop now calls. One planted value per pattern is found under its own name and severity and never shown. New `tests/examples_clean.rs` scans the 557 tracked text files of `examples/`: **10 secret shapes in 7 files** (PowerAnalytics, PowerChat, PowerDemo3 forms and one Knowledge Base document). They were not opened or edited — the operator decides; the test pins them by file, pattern and count so a new hit fails.
+
 ## 2.0.258 — 2026-11-06
 
 **WASM-015 T14: bench rows for the module (R8).** *(Written on features-2x-wasm-pending, after 2.0.257.)* `cobolt-bench` gains the feature `wasm` (off by default, so the interpreter baseline still builds no `wasmtime`) and `src/wasm_rows.rs`: the size of the generated module, the start-up of an empty one (labelled native, not a browser figure), and the decimal `COMPUTE` and a `MOVE`/`STRING` loop on the module and on the interpreter side by side. Release run: module 102 869 bytes; 178 starts/s; decimal 829 316/s on the module against 372 895/s interpreted; strings 1 505 451/s against 164 132/s. No budget is asserted. `cargo run --release -p cobolt-bench --features wasm`.

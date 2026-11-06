@@ -123,7 +123,7 @@ as completed.
 
 ## M1 — secrets (R7, R8)
 
-- [ ] **T2 — The pattern list is public and complete; one project-scan function** (R7, Q3; AC6 logic)
+- [x] **T2 — The pattern list is public and complete; one project-scan function** (R7, Q3; AC6 logic)
   - Files: `crates/cobolt-web-bundle/src/secrets.rs`, `crates/cobolt-web-bundle/src/lib.rs` (`:772-786`).
   - Do:
     - Add `pub const PATTERNS: &[(&str, Severity)]`, naming every pattern `scan_text` can push. It is one table, and `scan_text` pushes only
@@ -145,7 +145,7 @@ as completed.
     - The existing "innocent lines" cases still pass.
     - Placeholder `ConnectionString` values are not flagged.
 
-- [ ] **T3 — The committed examples stay clean under the new shapes** (R7)
+- [x] **T3 — The committed examples stay clean under the new shapes** (R7)
   - Files: `crates/cobolt-web-bundle/tests/examples_clean.rs` (new).
   - Do: run `scan_project` over the **tracked** text files under `examples/` (`git ls-files examples`; an untracked local file must not
     decide the result) and assert there are **zero Errors**. On a failure, print only file, line and
@@ -154,6 +154,8 @@ as completed.
       sacred, and the example `.cfrm` files may carry live keys.
   - Verify: `cargo test -p cobolt-web-bundle --test examples_clean -- --nocapture` passes and prints the file count, or the operator has been
     told which file and pattern hit.
+
+  - **Done (2.0.259):** T2: `secrets::PATTERNS` (15 entries, one planted per entry in a test), the `Key=value` rule (`Password=`, `Pwd=`, `AccountKey=`, `SharedAccessKey=`, placeholders ignored), `connectionstring` in the property list, `scan_project` used by the bundle loop. T3: `tests/examples_clean.rs` scans 557 tracked example text files and finds 10 Errors in 7 files (the demo forms and one Knowledge Base document); **reported to the operator, not opened, not edited**. The test pins those 7 files by file, pattern and count, so any new hit fails. The operator decides what to do with them.
 
 - [ ] **T4 — A release backend refuses a literal secret** (R7, R8; AC7 backend half)
   - Files: `crates/cobolt-server/src/config.rs` (`ServerConfig::resolve` `:358`), `crates/cobolt-server/tests/config_rules.rs`.

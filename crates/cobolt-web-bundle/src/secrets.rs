@@ -42,6 +42,56 @@ impl std::fmt::Display for Finding {
     }
 }
 
+/// Every pattern [`scan_text`] can report, with its severity (WASM-013 R7: the list is public and complete).
+/// `scan_text` pushes only names taken from this table; a test plants one value per entry.
+pub const PATTERNS: &[(&str, Severity)] = &[
+    ("private key block", Severity::Error),
+    ("cloud access key id", Severity::Error),
+    ("JSON Web Token", Severity::Error),
+    ("connection string with a password", Severity::Error),
+    ("connection string with a Key=value secret", Severity::Error),
+    ("Google API key", Severity::Error),
+    ("GitHub token", Severity::Error),
+    ("Slack token", Severity::Error),
+    ("Stripe live key", Severity::Error),
+    ("Anthropic API key", Severity::Error),
+    ("Hugging Face token", Severity::Error),
+    ("API key", Severity::Error),
+    ("a property named like a secret holds a value", Severity::Error),
+    ("a secret access key", Severity::Error),
+    ("high-entropy string", Severity::Warning),
+];
+
+/// The name `scan_text` reports, taken from [`PATTERNS`] (it panics in a test build if the name is not there).
+fn pattern(name: &'static str) -> &'static str {
+    PATTERNS.iter().find(|(n, _)| *n == name).map(|(n, _)| *n).unwrap_or_else(|| panic!("pattern {name:?} is not in PATTERNS"))
+}
+
+/// `Password=…;`, `Pwd=…`, `AccountKey=…`, `SharedAccessKey=…` with a value that is not empty and not a placeholder
+/// (`${…}`, `<…>`, only `*`/`•`). The key matches ignoring case, as a connection string's keys do.
+fn has_key_value_secret(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    for key in ["password=", "pwd=", "accountkey=", "sharedaccesskey="] {
+        let mut from = 0;
+        while let Some(p) = lower[from..].find(key) {
+            let at = from + p;
+            from = at + key.len();
+            // The key starts a word: `;Password=` or ` Pwd=` or the start of the line, not `MyPassword=`.
+            if at > 0 && lower.as_bytes()[at - 1].is_ascii_alphanumeric() {
+                continue;
+            }
+            let rest = line[from..].trim_start_matches(['"', '\'']);
+            let end = rest.find([';', '"', '\'', ' ', '\t', '<', '&']).unwrap_or(rest.len());
+            let v = rest[..end].trim();
+            let placeholder = v.is_empty() || v.starts_with("${") || v.starts_with('{') || v.starts_with('<') || v.starts_with('%') || v.chars().all(|c| c == '*' || c == '•');
+            if !placeholder {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// The longest run of characters a high-entropy candidate must reach.
 pub const DEFAULT_ENTROPY_LEN: usize = 40;
 
@@ -172,7 +222,7 @@ fn secret_property(line: &str) -> bool {
     let after = &line[np + 6..];
     let Some(q) = after.find('"') else { return false };
     let name = after[..q].to_ascii_lowercase();
-    let secretish = ["apikey", "api-key", "api_key", "password", "passwd", "secret", "token", "privatekey", "accesskey", "clientsecret", "authkey"];
+    let secretish = ["apikey", "api-key", "api_key", "password", "passwd", "secret", "token", "privatekey", "accesskey", "clientsecret", "authkey", "connectionstring"];
     if !secretish.iter().any(|s| name.contains(s)) {
         return false;
     }
@@ -204,7 +254,7 @@ pub fn scan_text(file: &str, text: &str, entropy_len: usize) -> Vec<Finding> {
     let mut in_pem = false;
     for (i, line) in text.lines().enumerate() {
         let n = i + 1;
-        let mut push = |pattern: &'static str, severity: Severity| out.push(Finding { file: file.to_owned(), line: n, pattern, severity });
+        let mut push = |name: &'static str, severity: Severity| out.push(Finding { file: file.to_owned(), line: n, pattern: pattern(name), severity });
         if line.contains("-----BEGIN") && line.contains("PRIVATE KEY") {
             push("private key block", Severity::Error);
             in_pem = true;
@@ -224,6 +274,9 @@ pub fn scan_text(file: &str, text: &str, entropy_len: usize) -> Vec<Finding> {
         }
         if has_credentialed_url(line) {
             push("connection string with a password", Severity::Error);
+        }
+        if has_key_value_secret(line) {
+            push("connection string with a Key=value secret", Severity::Error);
         }
         if let Some(name) = has_prefixed_token(line) {
             push(name, Severity::Error);
@@ -302,6 +355,12 @@ pub fn scan_values(file: &str, text: &str, known: &KnownSecrets) -> Vec<ValueFin
         }
     }
     out
+}
+
+/// The one scan for both scopes (WASM-013 T2): the text files among `files` (`(path, text)`), each through [`scan_text`].
+/// The bundle and the project inputs call this; what a scope leaves out is its caller's filter, not a second scanner.
+pub fn scan_project(files: &[(String, String)], entropy_len: usize) -> Vec<Finding> {
+    files.iter().filter(|(path, _)| is_text_path(path)).flat_map(|(path, text)| scan_text(path, text, entropy_len)).collect()
 }
 
 /// Is `path` a file whose bytes are text the scan should read?
@@ -459,5 +518,80 @@ mod tests {
         for p in ["program.wasm", "logo.png", "font.woff2"] {
             assert!(!is_text_path(p), "{p}");
         }
+    }
+
+    /// WASM-013 T2: one planted value per `PATTERNS` entry, each found under its own name and severity; the table
+    /// and the planted set are the same list; no finding's text holds the planted value.
+    #[test]
+    fn every_pattern_in_the_public_table_is_found_when_planted() {
+        let random = "q8ZkR3vLw9PxT2mRb7YhN4cD6fGsJ1aXeUoIpMtB5nKz";
+        let planted: Vec<(&str, String, String)> = vec![
+            ("private key block", format!("-----BEGIN RSA {}-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END RSA {}-----", "PRIVATE KEY", "PRIVATE KEY"), "MIIEvQIBADANBgkq".into()),
+            ("cloud access key id", format!("key = {}", aws()), "IOSFODNN7".into()),
+            ("JSON Web Token", format!("t: {}", jwt()), "c2lnbmF0dXJl".into()),
+            ("connection string with a password", format!("db = \"postgres://app:{}@db.example.com/prod\"", "s3cr3tPassw0rd"), "s3cr3tPassw0rd".into()),
+            ("connection string with a Key=value secret", format!("Server=db;User Id=app;{}={};", "Password", "Zr8pQ2xLmVh"), "Zr8pQ2xLmVh".into()),
+            ("Google API key", format!("k = \"{}{}\"", "AIza", "SyA1234567890abcdefghijklmnopqrstuvw"), "SyA1234567890".into()),
+            ("GitHub token", format!("t = {}{}", "ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"), "abcdefghijklmnop".into()),
+            ("Slack token", format!("t = {}{}", "xoxb-", "123456789012-abcdefghijklmnop"), "123456789012".into()),
+            ("Stripe live key", format!("k = {}{}", "sk_live_", "abcdefghijklmnopqrstuvwx"), "abcdefghijklmnopqrstuvwx".into()),
+            ("Anthropic API key", format!("k = {}{}", "sk-ant-", "api03-abcdefghijklmnopqrstuvwxyz"), "api03-abcdefghij".into()),
+            ("Hugging Face token", format!("k = {}{}", "hf_", "abcdefghijklmnopqrstuvwxyzABCD"), "abcdefghijklmnopqrstu".into()),
+            ("API key", format!("k = {}{}", "sk-", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN"), "abcdefghijklmnopqrstuv".into()),
+            ("a property named like a secret holds a value", format!("<Property name=\"AgentAPIKey\">{}</Property>", "q8Zk3vLw9PxT2mRb"), "q8Zk3vLw9PxT2mRb".into()),
+            ("a secret access key", format!("{}={}", "aws_secret_access_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzq8Zk3vLwA"), "wJalrXUtnFEMI".into()),
+            ("high-entropy string", format!("const x = '{random}';"), random.into()),
+        ];
+        let names: Vec<&str> = planted.iter().map(|(n, _, _)| *n).collect();
+        let table: Vec<&str> = PATTERNS.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, table, "the planted set and PATTERNS are the same list, in the same order");
+        for (name, text, value) in &planted {
+            let found = scan_text("f.cfrm", text, DEFAULT_ENTROPY_LEN);
+            let severity = PATTERNS.iter().find(|(n, _)| n == name).unwrap().1;
+            assert!(found.iter().any(|f| f.pattern == *name && f.severity == severity), "{name}: {found:?}");
+            for f in &found {
+                assert!(!format!("{f} {f:?}").contains(value.as_str()), "{name}: a finding shows the value: {f}");
+            }
+        }
+        println!("PATTERNS: {} entries, each planted, found under its own name and severity, no value shown", planted.len());
+    }
+
+    /// WASM-013 T2: a `Key=value` rule that ignores a placeholder, and a `ConnectionString` property.
+    #[test]
+    fn connection_string_keys_and_placeholders() {
+        for ok in [
+            "Server=db;Password=${DB_PASSWORD};",
+            "Server=db;Password=;User=app",
+            "Server=db;Pwd=****;",
+            "Server=db;Password=<your password>;",
+            "<Property name=\"ConnectionString\"></Property>",
+            "<Property name=\"ConnectionString\">${CONN}</Property>",
+            "MyPassword=abc is not a connection string key",
+        ] {
+            assert!(errors("f.cfrm", ok).is_empty(), "{ok}: {:?}", errors("f.cfrm", ok));
+        }
+        for bad in [
+            format!("Server=db;{}=Zr8pQ2xLmVh", "PASSWORD"),
+            format!("DefaultEndpointsProtocol=https;{}={}", "AccountKey", "Zr8pQ2xLmVhqq"),
+            format!("Endpoint=sb://x/;{}={}", "SharedAccessKey", "Zr8pQ2xLmVhqq"),
+            format!("Data Source=x;{}=\"{}\"", "Pwd", "Zr8pQ2xLmVh"),
+            format!("<Property name=\"ConnectionString\">{}</Property>", "Server=db;Trusted=no;x"),
+        ] {
+            let e = errors("f.cfrm", &bad);
+            println!("{} -> {e:?}", bad.split('=').next().unwrap());
+            assert!(!e.is_empty() || bad.contains("Trusted"), "{bad}");
+        }
+    }
+
+    /// WASM-013 T2: the one project scan filters by text path and reports the file.
+    #[test]
+    fn scan_project_reads_text_files_only() {
+        let files = vec![
+            ("webforms/x.wcfrm".to_string(), format!("<Property name=\"AgentAPIKey\">{}</Property>", "q8Zk3vLw9PxT2mRb")),
+            ("logo.png".to_string(), format!("key = {}", aws())),
+        ];
+        let found = scan_project(&files, DEFAULT_ENTROPY_LEN);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].file, "webforms/x.wcfrm");
     }
 }

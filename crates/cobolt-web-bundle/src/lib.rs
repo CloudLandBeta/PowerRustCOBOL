@@ -1056,16 +1056,15 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     // ── the secret scan, over every text the bundle holds ──────────────────
     let mut secret_scan = None;
     if !o.skip_secret_scan {
-        let mut findings = Vec::new();
-        let mut scanned_files = 0usize;
-        for f in &b.files {
-            if secrets::is_text_path(&f.path) && !f.path.starts_with("player/") && f.path != "sbom.cdx.json" {
-                if let Ok(t) = std::str::from_utf8(&f.bytes) {
-                    scanned_files += 1;
-                    findings.extend(secrets::scan_text(&f.path, t, o.entropy_len));
-                }
-            }
-        }
+        // The player and the SBOM are the product's own files; everything else goes through the one project scan.
+        let texts: Vec<(String, String)> = b
+            .files
+            .iter()
+            .filter(|f| secrets::is_text_path(&f.path) && !f.path.starts_with("player/") && f.path != "sbom.cdx.json")
+            .filter_map(|f| std::str::from_utf8(&f.bytes).ok().map(|t| (f.path.clone(), t.to_owned())))
+            .collect();
+        let scanned_files = texts.len();
+        let findings = secrets::scan_project(&texts, o.entropy_len);
         secret_scan = Some(SecretScanLine { scanned_files, findings: findings.iter().map(|f| f.to_string()).collect() });
         // Source assets (stylesheets) were added hashed; scan the originals' names too via the files above.
         let (errs, warns): (Vec<_>, Vec<_>) = findings.into_iter().partition(|f| f.severity == secrets::Severity::Error);
