@@ -289,13 +289,14 @@ as completed.
 ## M4 — policies the build generates (R2, R3, R4, Q4)
 
   - **Done (2.0.265):** one function, `http::cors_headers(origin, allowed, any_origin, Credentials)`, with `Credentials::{No, Yes}`. `Yes` (the identity routes) echoes only a **listed** origin and sends `Allow-Credentials`; `No` (the download response) echoes a listed origin, or any origin when `unsafe_allow_any_origin` is on, and never sends credentials. `Vary: Origin` always; `*` and `null` are never echoed. `serve.rs` and `identity/routes.rs` both go through it. Tests: a unit test in `http.rs` (any-origin never carries credentials; a wildcard is never echoed) and `tests/cors_sources.rs` (the `Access-Control-Allow-*` strings appear only inside `cors_headers`: 31 files searched). The signature takes the config values rather than `&Resolved`/`&Head`, which the two call sites do not share.
-- [ ] **T11 — The printed report names the header-only directives** (R3; AC3)
+- [x] **T11 — The printed report names the header-only directives** (R3; AC3)
   - Files: `crates/cobolt-web-bundle/src/lib.rs` (`BuildReport::text` `:246`) and its tests.
   - Do: a test, plus a wording fix only if the test shows one is needed. `BuildReport::text` must say which directives are in the `<meta>` and
     must list `frame-ancestors` and report-only mode as header-only.
   - Verify: `cargo test -p cobolt-web-bundle --no-fail-fast` is green. The existing `csp.rs` unit tests show that `meta_content` has no
     `frame-ancestors`.
 
+  - **Done (2.0.266):** no wording fix was needed: `BuildReport::text` already prints "in the page (<meta>)" and "only as a response header", the latter listing `frame-ancestors`, `report-uri` and `(report-only mode)`. New `cobolt-web-bundle/tests/csp_report.rs` pins it: the default report lists `frame-ancestors` as header-only and keeps it out of the `<meta>` line; with report-only and a report URI, both are named as header-only and the URI is absent from the `<meta>`.
 - [ ] **T12 — The browser enforces the CSP: a headless proof** (R2; AC2)
   - Files: `crates/cobolt-web-bundle/src/devserver.rs` (Δ1) and `crates/cobolt-web-bundle/tests/csp_browser.rs` (new).
   - Do:

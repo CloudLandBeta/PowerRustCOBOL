@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.266 — 2026-11-06
+
+**WASM-013 T11: the printed Build report names the header-only CSP directives (R3).** *(Written on features-2x-wasm-pending, after 2.0.265.)* A new test (`cobolt-web-bundle/tests/csp_report.rs`) pins that the report says which directives sit in the page's `<meta>` and which only a response header can carry: `frame-ancestors`, `report-uri` and report-only mode are listed as header-only and are never in the `<meta>` line. The wording already did this; only the test was missing.
+
 ## 2.0.265 — 2026-11-06
 
 **WASM-013 T10: one CORS function; a wildcard with credentials is impossible (R6).** *(Written on features-2x-wasm-pending, after 2.0.264.)* `cobolt-server` now builds every `Access-Control-Allow-*` header in one place, `http::cors_headers(origin, allowed, any_origin, Credentials)`. With `Credentials::Yes` (the identity routes) only an origin listed in `allowed_origins` is echoed, with `Allow-Credentials`; with `Credentials::No` (the download response) a listed origin is echoed, or any origin when `unsafe_allow_any_origin` is on, and credentials are never sent. `Vary: Origin` is always added; `*` and `null` are never echoed. A test searches the sources and fails if those header names appear outside the function.
