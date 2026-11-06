@@ -55,6 +55,36 @@ pub struct BackendBuildResult {
     pub programs: usize,
     /// Warnings about the contract (a compatible-but-noteworthy change).
     pub notes: Vec<String>,
+    /// The software bill of materials written beside the binary (`sbom.cdx.json`, WASM-013 R10).
+    pub sbom: PathBuf,
+}
+
+/// The CycloneDX document of a backend build (WASM-013 T17): the binary with its SHA-256, then every
+/// package of the generated project's resolved graph with its version and licence, from the `cargo
+/// metadata` JSON. The generated package itself is not listed as a library; it is the application.
+pub fn backend_sbom(application: &str, binary_name: &str, binary_bytes: &[u8], metadata_json: &str) -> Result<serde_json::Value, String> {
+    use sha2::{Digest, Sha256};
+    let meta: serde_json::Value = serde_json::from_str(metadata_json).map_err(|e| format!("cargo metadata answered something unreadable: {e}"))?;
+    let packages = meta["packages"].as_array().ok_or("cargo metadata listed no packages")?;
+    let digest = Sha256::digest(binary_bytes);
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let mut components = vec![cobolt_wire::sbom::file_component(binary_name, &hex)];
+    let mut libs: Vec<(String, String, String)> = packages
+        .iter()
+        .filter(|p| p["name"].as_str() != Some(application))
+        .map(|p| {
+            (
+                p["name"].as_str().unwrap_or("?").to_owned(),
+                p["version"].as_str().unwrap_or("?").to_owned(),
+                p["license"].as_str().filter(|l| !l.is_empty()).unwrap_or("NOASSERTION").to_owned(),
+            )
+        })
+        .collect();
+    libs.sort();
+    for (n, v, l) in &libs {
+        components.push(cobolt_wire::sbom::library_component(n, v, l));
+    }
+    Ok(cobolt_wire::sbom::cyclonedx(application, components, None))
 }
 
 fn main_rs() -> &'static str {
@@ -299,5 +329,20 @@ pub fn build_backend(project_dir: &Path, opts: &BackendBuildOptions) -> Result<B
     let dst = bin_dir.join(&exe);
     install_executable(&src_bin, &dst).ctx(|| format!("install the backend at '{}'", dst.display()))?;
     log(&format!("✅ Backend → {}", dst.display()));
-    Ok(BackendBuildResult { binary: dst, interface: interface_path, contract, programs: backend.interface.programs.len(), notes })
+
+    // 7. The SBOM beside the binary (WASM-013 R10): the packages cargo resolved, offline, and the binary's hash.
+    let meta = std::process::Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--offline"])
+        .current_dir(&build_dir)
+        .output()
+        .map_err(|e| toolchain_error("cargo", &e))?;
+    if !meta.status.success() {
+        return Err(CompilerError::CargoBuild { code: meta.status.code().unwrap_or(-1), stderr: String::from_utf8_lossy(&meta.stderr).into_owned() });
+    }
+    let binary_bytes = std::fs::read(&dst).ctx(|| format!("read '{}'", dst.display()))?;
+    let bom = backend_sbom(&bin_name, &exe, &binary_bytes, &String::from_utf8_lossy(&meta.stdout)).map_err(|m| CompilerError::Semantic { file: "sbom.cdx.json".into(), message: m })?;
+    let sbom_path = bin_dir.join("sbom.cdx.json");
+    std::fs::write(&sbom_path, serde_json::to_string_pretty(&bom).expect("sbom")).ctx(|| format!("write '{}'", sbom_path.display()))?;
+    log(&format!("   SBOM → {}", sbom_path.display()));
+    Ok(BackendBuildResult { binary: dst, interface: interface_path, contract, programs: backend.interface.programs.len(), notes, sbom: sbom_path })
 }

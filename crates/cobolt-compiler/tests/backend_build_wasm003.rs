@@ -243,6 +243,12 @@ fn the_built_backend_is_a_binary_that_checks_describes_and_answers_its_health_pr
     assert_eq!(built.contract, "1.0.0");
     assert_eq!(built.programs, 1);
     assert!(built.interface.is_file());
+    // WASM-013 T17: the SBOM sits beside the binary and lists it with its hash.
+    assert_eq!(built.sbom.parent(), built.binary.parent());
+    let sbom: serde_json::Value = serde_json::from_slice(&std::fs::read(&built.sbom).unwrap()).expect("the SBOM parses");
+    let bin_name = built.binary.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(sbom["components"].as_array().unwrap().iter().any(|c| c["name"] == bin_name.as_str() && c["hashes"][0]["alg"] == "SHA-256"), "{sbom}");
+    assert!(sbom["components"].as_array().unwrap().iter().any(|c| c["name"] == "cobolt-server"), "the server crate is a component");
 
     // The generated project names the server crate and no Leptos crate: the front is inside cobolt-server (R2, D2).
     let generated = std::fs::read_dir(&staging).unwrap().flatten().map(|e| e.path().join("Cargo.toml")).find(|p| p.is_file()).expect("the generated Cargo.toml");
@@ -357,4 +363,31 @@ fn check_contract_reports_program_item_rule_without_cargo() {
     assert_eq!(r.breaking, r.breaks.iter().map(|b| b.text.clone()).collect::<Vec<_>>(), "the text rcrun prints is the structured breaks, as text");
     assert!(!dir.join("backend").join("target").exists());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// WASM-013 T17 (R10): the SBOM beside the backend binary lists the binary with its SHA-256 and every
+/// package of the resolved graph with its licence, in CycloneDX 1.5, and not the generated package itself.
+#[test]
+fn the_backend_sbom_lists_the_binary_with_its_hash_and_the_resolved_packages() {
+    use cobolt_compiler::backend_build::backend_sbom;
+    let metadata = r#"{"packages":[
+        {"name":"demo-backend","version":"0.1.0","license":null},
+        {"name":"serde","version":"1.0.200","license":"MIT OR Apache-2.0"},
+        {"name":"cobolt-server","version":"0.2.0","license":"Apache-2.0"},
+        {"name":"mystery","version":"0.0.1","license":""}]}"#;
+    let bytes = b"not really a binary";
+    let bom = backend_sbom("demo-backend", "demo-backend", bytes, metadata).expect("the SBOM builds");
+    assert_eq!(bom["bomFormat"], "CycloneDX");
+    assert_eq!(bom["specVersion"], "1.5");
+    let comps = bom["components"].as_array().unwrap();
+    // The binary first, with the SHA-256 of its bytes (known value for this input).
+    use sha2::{Digest, Sha256};
+    let want: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
+    assert_eq!(comps[0]["type"], "file");
+    assert_eq!(comps[0]["name"], "demo-backend");
+    assert_eq!(comps[0]["hashes"][0]["content"], want.as_str());
+    let libs: Vec<(&str, &str)> = comps[1..].iter().map(|c| (c["name"].as_str().unwrap(), c["licenses"][0]["license"]["name"].as_str().unwrap())).collect();
+    assert_eq!(libs, [("cobolt-server", "Apache-2.0"), ("mystery", "NOASSERTION"), ("serde", "MIT OR Apache-2.0")], "sorted, the application left out, a missing licence said so");
+    assert!(backend_sbom("a", "a", bytes, "nope").is_err());
+    println!("backend SBOM: {} components (1 binary + {} packages), hash {}…", comps.len(), comps.len() - 1, &want[..12]);
 }

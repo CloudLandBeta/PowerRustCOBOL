@@ -1054,25 +1054,13 @@ pub fn assemble_bundle(input: &BundleInput) -> Result<BundleOutput, BundleError>
     }
 
     // SBOM (CycloneDX) and integrity of the whole
-    let mut components: Vec<Value> = b
-        .files
-        .iter()
-        .map(|f| json!({"type": "file", "name": f.path, "hashes": [{"alg": "SHA-256", "content": hash::sha256_hex(&f.bytes)}]}))
-        .collect();
+    // One writer for the Web Build and the Backend build (WASM-013 T17): `cobolt_wire::sbom`.
+    let mut components: Vec<Value> = b.files.iter().map(|f| cobolt_wire::sbom::file_component(&f.path, &hash::sha256_hex(&f.bytes))).collect();
     for c in &input.player.components {
-        components.push(json!({"type": "library", "name": c.name, "version": c.version, "licenses": [{"license": {"name": c.license}}]}));
+        components.push(cobolt_wire::sbom::library_component(&c.name, &c.version, &c.license));
     }
-    components.push(json!({"type": "data", "name": "Ubuntu Light", "licenses": [{"license": {"name": "Ubuntu-font-1.0"}}]}));
-    let mut bom = json!({
-        "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
-        "metadata": {"component": {"type": "application", "name": manifest.project}},
-        "components": components,
-    });
-    if let Some(info) = &input.player.build_info {
-        if let Ok(v) = serde_json::from_str::<Value>(info) {
-            bom["metadata"]["properties"] = json!([{"name": "player-build", "value": v.to_string()}]);
-        }
-    }
+    components.push(cobolt_wire::sbom::data_component("Ubuntu Light", "Ubuntu-font-1.0"));
+    let bom = cobolt_wire::sbom::cyclonedx(&manifest.project, components, input.player.build_info.as_deref());
     if let Some(text) = security_txt {
         b.add(".well-known/security.txt".into(), text.into_bytes());
     }

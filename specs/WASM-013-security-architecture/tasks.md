@@ -374,7 +374,7 @@ as completed.
     fixtures failing. `cargo test -p cobolt-compiler --test dependency_guards_063`, `-p cobolt-server --test dependency_guards` and the player's
     `--test dependency_guard` stay green.
 
-- [ ] **T17 — One SBOM writer; an SBOM beside the backend binary** (R10; AC8 SBOM half)
+- [x] **T17 — One SBOM writer; an SBOM beside the backend binary** (R10; AC8 SBOM half)
   - Files: `crates/cobolt-web-bundle/src/sbom.rs` (new; it moves the writer out of `lib.rs` around `:750-769`), `crates/cobolt-web-bundle/src/lib.rs`,
     `crates/cobolt-compiler/src/backend_build.rs`, and `crates/cobolt-compiler/Cargo.toml`, which gains the `cobolt-web-bundle` dependency only
     if that edge is acceptable.
@@ -390,6 +390,7 @@ as completed.
     - A bundle test asserts the SBOM bytes are unchanged by the move.
     - A backend-build test asserts that `sbom.cdx.json` exists, parses, and lists the binary with its hash.
     - SRI on every fetched file is covered by existing tests; name them here.
+  - **Done (2.0.271):** the writer is `cobolt_wire::sbom` (not `cobolt-web-bundle/src/sbom.rs`): the edge check came out as planned — `cobolt-compiler` already depends on `cobolt-wire`, and `cobolt-web-bundle` would have added the browser stack to the compiler, so the smaller shared crate was used and no guard was widened. It hashes nothing; each caller passes the SHA-256 it has. `build_backend` writes `bin/sbom.cdx.json` (binary + packages from `cargo metadata --offline`, `NOASSERTION` for a missing licence; `BackendBuildResult.sbom`). Tests: `cobolt-web-bundle/tests/sbom.rs` (bytes equal the former inline construction), `backend_sbom` unit case and the real-build case in `backend_build_wasm003.rs` (5 of 5, 53 s), 2 unit in `cobolt-wire`. SRI on every fetched file: covered by `csp_origins.rs` and `isolation_chrome.rs` in `cobolt-web-bundle`.
 
 ## M7 — logs and privacy (R13)
 

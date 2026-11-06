@@ -36,6 +36,7 @@ pub mod proto;
 pub mod retry;
 #[cfg(feature = "channel")]
 pub mod seal;
+pub mod sbom;
 pub mod security_txt;
 
 pub use call::{ArgMode, ArgPayload, BackendFiles, CallObserver, CallReply, CallRequest, DownloadRequest, DownloadResult, NoObserver, Transport, UploadRequest, UploadResult};
