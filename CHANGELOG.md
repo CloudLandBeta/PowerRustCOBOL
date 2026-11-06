@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.249 — 2026-11-06
+
+**WASM-015 T18: the plugin's rules, skills and reviewer teach the web kinds as the product enforces them (R13, R18, AC10).** *(Written on features-2x-wasm-pending, after 2.0.248.)* The `web-kinds` rule no longer says `check` cannot find what a browser cannot run (it runs the build's gates now) and names the class D things — plug-in controls, the ToolBar actions run-app, open-terminal, print and share, the Viewer's Print and Share — says class C controls (a bound DataGrid, Maps and its server methods) work only through the Backend by a backend configuration name, and states the browser subset, in-memory INDEXED included. A new `web-layers` rule (`APPLICATION_RULES` 14 → 15) states the layer model for web forms: `LAYER-NAME::Property`, never a control, `Non-Visuals` a designer tab. The web-application skill gains the layer step and the `check` gates; the backend skill the class C rule and `secret_scan`; the reviewer rejects class D, and class C without a Backend or holding a connection string, key, token or password. New test `cobolt-project-tools/tests/web_rules.rs` holds the text to the class tables.
+
 ## 2.0.248 — 2026-11-06
 
 **WASM-015 T17: the agents' tools on a web project, end to end and on both servers (AC8, AC9).** *(Written on features-2x-wasm-pending, after 2.0.247.)* New `cobolt-web-tests/tests/servers_agree.rs`: `web_tool_sequence` (create_project, check refusing a plug-in control, fix, build with its secret scan, `render_form` on the system web view with `engine`, `run_form` typing, clicking and reading back "Hello, Ada") and `both_servers_agree` (six tool answers equal between a server with the renderer and runner injected and one without, time and path fields set aside). Both pass on WebKit on this Mac; no product code changed.

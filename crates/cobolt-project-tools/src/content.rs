@@ -251,7 +251,7 @@ pub fn server_instructions(version: &str) -> String {
 
 /// The golden rules for every application a coding agent builds (operator,
 /// 2026-10-03): `(id, rule)`, in the order they are told.
-pub const APPLICATION_RULES: [(&str, &str); 14] = [
+pub const APPLICATION_RULES: [(&str, &str); 15] = [
     (
         "responsive",
         "Responsive. Every form is responsive (`responsive=\"true\"`) and holds together at any screen \
@@ -455,13 +455,33 @@ pub const APPLICATION_RULES: [(&str, &str); 14] = [
          forms live in `webforms/` as `.wcfrm` (Web) or `mobileforms/` as `.mcfrm` (Mobile) — write a form there, then register \
          it with `add_to_project` — and the project may have a \
          Backend in `backend/`, which is COBOL too. A web form is responsive and wears the Spatial look \
-         like every other, and it holds only what a browser can run: no file organisation (indexed files \
-         included), no SQL, no `EXEC RUST`, no child process, no native socket and no secret. The \
-         WebAssembly build is what refuses each of them, at its line and with the alternative, and \
-         produces no bundle while one remains — so keep them out yourself, because `check` does not \
-         find them. The `build` tool of a Web project reports the bundle's size, its start-up and its \
-         warnings; when the product does not include the WebAssembly generator yet it says so, and the \
-         forms, the Backend and the settings can still be created, edited and checked.",
+         like every other. Every control has a class on the web. Classes A and B run in the browser as \
+         they are. Class C controls — a DataGrid bound to an indexed file or to SQL, Maps and its \
+         Geocode, ReverseGeocode, Directions, DistanceMatrix, PlacesSearch and TraceRoad, and the other \
+         controls that need a server — work only through the Backend: the control names a backend \
+         configuration and never holds a connection string, a key, a token or a password. Class D is \
+         not available and `check` refuses it, with the alternative: plug-in (Custom) controls; the \
+         ToolBar actions run-app, open-terminal, print and share; the Viewer methods Print and Share. \
+         The browser itself holds only what a browser can run: in-memory data, in-memory INDEXED \
+         files included, but no file organisation on disk, no SQL, no `EXEC RUST`, no child process, \
+         no native socket and no secret. `check` of a Web or Mobile project runs the same gates as the \
+         WebAssembly build and reports each one at its file and line, with the alternative; the build \
+         produces no bundle while one remains. The `build` tool of a Web project reports the bundle's \
+         size, its start-up, its warnings and the secret scan of the files it ships; when the product \
+         does not include the WebAssembly generator yet it says so, and the forms, the Backend and the \
+         settings can still be created, edited and checked.",
+    ),
+    (
+        "web-layers",
+        "Layers on a web form. A web form has the same layers as a desktop one: the base, called \
+         `Form`, and up to 64 layers above it, each with a name, a backdrop and its controls. A layer \
+         is addressed as `LAYER-NAME::Property` (`LAYER-1::Visible`) and is never a control: it has \
+         only the properties the reference lists for a layer, and a name that is not a layer of the \
+         form, or a property it does not have, is an error `check` reports. A control in a layer is \
+         addressed by its own name as any other. `Non-Visuals` is a tab of the designer, not an object: \
+         the controls that paint nothing at run time (Timer, SqlDatabase, IndexedFile, Snackbar and \
+         the like) sit there. The layer operations of the agents (create, rename, show, hide, \
+         delete) apply to `.wcfrm` and `.mcfrm` files as to `.cfrm`.",
     ),
     (
         "backend-secrets",
@@ -1215,9 +1235,13 @@ fn skills(version: &str) -> Vec<Skill> {
                    and any secret. What needs them goes to the Backend (`powerrustcobol-backend`), and \
                    the form calls it."),
                 s("`regenerate` the form, then `check`; fix every error until `check` reports none. \
-                   `check` finds what the compiler's front end finds; the constructs a browser cannot \
-                   run are refused by the WebAssembly build, so read the list above against your own \
-                   code."),
+                   On a Web or Mobile project `check` also runs the gates of the WebAssembly build: it \
+                   reports each construct a browser cannot run, a class D control and a layer name \
+                   the form does not have, at its file and line with the alternative. Fix them all."),
+                s("Layers: a web form has a base, `Form`, and up to 64 layers above it. Address a layer \
+                   as `LAYER-NAME::Property` (`LAYER-1::Visible`), never as a control, and use only the \
+                   properties the reference lists for a layer. `Non-Visuals` is a tab of the designer \
+                   for the controls that paint nothing, not an object. See the `web-layers` rule."),
                 s("Call `build`: for a Web project it builds the bundle under `dist/web/` and reports \
                    its size, its start-up and its warnings. If the answer says the WebAssembly \
                    generator is not included in this program yet, tell the developer — the project is \
@@ -1250,6 +1274,10 @@ fn skills(version: &str) -> Vec<Skill> {
                    USING …` over the secure channel; look the phrase up with `kb_lookup` first and, if \
                    the reference does not list it, write a gap report instead of inventing the \
                    syntax. The Backend's address is `wss://`, or `ws://` only on this machine."),
+                s("A control of class C (a bound DataGrid, Maps and the like) reaches this Backend by a \
+                   backend configuration name; the form never holds the connection string, key, token \
+                   or password. `build` scans the files it ships for secrets and lists each finding \
+                   in `secret_scan`: remove every one."),
                 s("`check` the Backend files until `check` reports no error. The IDE does not start a \
                    project's Backend yet, so a Preview shows calls to it failing; say so to the \
                    developer rather than pretending the call works."),
@@ -1327,6 +1355,12 @@ fn reviewer() -> Reviewer {
                key, password, token or connection string; remote work is a call to a program the \
                Backend exports, written the way the reference lists it, and a Backend address is \
                `wss://` (or `ws://` on this machine only)."),
+            s("In a Web or Mobile project, no control is of class D (a plug-in control, the ToolBar \
+               actions run-app, open-terminal, print and share, the Viewer's Print and Share): reject \
+               it. A class C control (a bound DataGrid, Maps and the like) is accepted only when the \
+               project has a Backend and the control names a backend configuration; reject a \
+               SqlDatabase or any control holding a connection string, key, token or password, and \
+               a class C control in a project with no Backend."),
             s("`check` reports no error for the changed files. A missing capability has a gap report \
                in `docs/compiler-requests/` instead of a workaround that pretends."),
         ],
