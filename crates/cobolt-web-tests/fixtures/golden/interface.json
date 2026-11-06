@@ -1,0 +1,25 @@
+{
+  "format": "prc-interface",
+  "format_version": 1,
+  "contract": "1.0.0",
+  "protocol": 2,
+  "programs": [
+    {
+      "name": "HEALTH",
+      "params": [
+        {
+          "name": "LK-STATUS",
+          "direction": "in-out",
+          "layout": {
+            "name": "LK-STATUS",
+            "kind": {
+              "type": "alphanumeric",
+              "len": 8
+            }
+          }
+        }
+      ],
+      "public": true
+    }
+  ]
+}

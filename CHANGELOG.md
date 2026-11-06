@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.246 — 2026-11-06
+
+**WASM-015 T15: goldens for what the web Build writes (AC7).** *(Written on features-2x-wasm-pending, after 2.0.245.)* `cobolt-web-tests/tests/web_golden.rs` builds the Web template and compares ten artefacts with `fixtures/golden/`: the generated COBOL, the backend interface description, the form description, the form's, the application's and the project stylesheets, the host page, `config.json`, the `_headers` (CSP) and the manifest. Content hashes, SRI digests, part sizes and the CSP script hash are replaced by placeholders before comparing (a unit test pins the replacement), so a player or module rebuild does not move a golden and a format change does. `UPDATE_GOLDEN=1` rewrites them; every artefact is compared before the test fails; an artefact whose producer is missing is printed `owed:`. Checked: write, then a second run green (10 match); two goldens deleted gives `missing: ["form.css", "_headers"]` in one run.
+
 ## 2.0.245 — 2026-11-06
 
 **WASM-015 T10: the web parity guard is closed by the tests WASM-004 and WASM-016 already ship.** *(Written on features-2x-wasm-pending, after 2.0.244.)* `desktop_comparison_chrome`, `layers_chrome`, `focus_comparison_chrome` and `lifecycle_comparison_chrome` compare the desktop host with a built page (geometry to half a pixel, layers, focus, lifecycle) and pass today; a second copy on the WebKit helper would add no check, so T10 is ticked with the evidence and T10b (the same forms through the system web view, and the spread in `WASM-PROGRESS.md`) stays open. Specs only; no code changed.

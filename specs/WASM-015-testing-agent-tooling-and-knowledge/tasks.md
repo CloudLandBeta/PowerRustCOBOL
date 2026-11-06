@@ -121,7 +121,7 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
   - Files: `crates/cobolt-bench/Cargo.toml` (feature `wasm`, off by default, pulls `cobolt-wasm/host`), `crates/cobolt-bench/src/main.rs` (`module_size`, `module_startup` labelled "native, not a browser figure", `decimal_math` and a string workload on the module and the interpreter side by side).
   - Verify: `cargo build -p cobolt-bench` (default) does not build `wasmtime` (`cargo tree -p cobolt-bench | grep -c wasmtime` = 0); `cargo run --release -p cobolt-bench --features wasm` prints the three rows with units. No budget asserted.
 
-- [ ] **T15 — Goldens for web output** (R7, AC7) — **gated on WASM-004 C1 for the form; WASM-007 for the stylesheet**
+- [x] **T15 — Goldens for web output** (R7, AC7) — **gated on WASM-004 C1 for the form; WASM-007 for the stylesheet**
   - Files: new `crates/cobolt-web-tests/tests/web_golden.rs`, `fixtures/golden-project/`, `fixtures/golden/` (the generated `.cbl` through `cobolt-codegen`, the interface description via `cobolt_server::dev::write_interface`, the stylesheet, the host page + `config.json` + CSP from `cobolt-web-bundle`, the manifest).
   - Do: `UPDATE_GOLDEN=1` rewrites them; every artefact is compared **before** the test fails (unlike the desktop snapshot test that stops at the first missing golden). An artefact whose producer has not landed is reported "owed: <spec>" and does not fail.
   - Verify (**AC7**): `UPDATE_GOLDEN=1 cargo test -p cobolt-web-tests --test web_golden`, then a second run without it is green; deleting two goldens reports both missing in one run.

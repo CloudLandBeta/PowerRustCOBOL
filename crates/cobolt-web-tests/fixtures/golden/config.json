@@ -1,0 +1,115 @@
+{
+  "assets": {
+    "0-stand-in/ubuntu-light.ttf": "fonts/Ubuntu-Light.<hash>.ttf"
+  },
+  "backend": {
+    "call_timeout_ms": null,
+    "contract": "1.0.0",
+    "idempotent": [],
+    "max_frame": 393216,
+    "origins": [],
+    "unsafe_plain_ws": false
+  },
+  "forms": [
+    {
+      "css": {
+        "integrity": "sha384-<digest>",
+        "url": "forms/MAIN-FORM.<hash>.css"
+      },
+      "entry": "MAIN-FORM.html",
+      "integrity": "sha384-<digest>",
+      "main": true,
+      "name": "MAIN-FORM",
+      "url": "forms/MAIN-FORM.<hash>.json"
+    }
+  ],
+  "gfx_worker": {
+    "integrity": "sha384-<digest>",
+    "url": "gfx-worker.<hash>.js"
+  },
+  "manifest": {
+    "integrity": "sha384-<digest>",
+    "url": "manifest.<hash>.json"
+  },
+  "menus": [
+    {
+      "control": "SideMenu-1",
+      "form": "MAIN-FORM",
+      "integrity": "sha384-<digest>",
+      "url": "forms/MAIN-FORM.SideMenu-1.menu.<hash>.json"
+    }
+  ],
+  "options": {
+    "auth_flow": "in-app",
+    "debug_level": 0,
+    "embed": {
+      "address": "own",
+      "mode": "window"
+    },
+    "image_origins": [],
+    "link_schemes": [],
+    "locale": "en",
+    "recaptcha_site_key": "",
+    "stack": false,
+    "threads": "auto",
+    "tile_url": "",
+    "workers": null
+  },
+  "player": {
+    "parts": {
+      "mermaid": {
+        "bytes": 0,
+        "js": "player/part-mermaid-<hash>/mermaid.js",
+        "js_integrity": "sha384-<digest>",
+        "wasm": "player/part-mermaid-<hash>/mermaid_bg.wasm",
+        "wasm_integrity": "sha384-<digest>"
+      },
+      "pdf": {
+        "bytes": 0,
+        "js": "player/part-pdf-<hash>/pdf.js",
+        "js_integrity": "sha384-<digest>",
+        "wasm": "player/part-pdf-<hash>/pdf_bg.wasm",
+        "wasm_integrity": "sha384-<digest>"
+      }
+    },
+    "plain": {
+      "js": "player/plain-<hash>/player.js",
+      "js_integrity": "sha384-<digest>",
+      "wasm": "player/plain-<hash>/player_bg.wasm",
+      "wasm_integrity": "sha384-<digest>"
+    },
+    "threaded": {
+      "js": "player/threaded-<hash>/player.js",
+      "js_integrity": "sha384-<digest>",
+      "wasm": "player/threaded-<hash>/player_bg.wasm",
+      "wasm_integrity": "sha384-<digest>"
+    }
+  },
+  "program": {
+    "multi": {
+      "integrity": "sha384-<digest>",
+      "url": "program.<hash>.wasm"
+    },
+    "single": {
+      "integrity": "sha384-<digest>",
+      "url": "program.single.<hash>.wasm"
+    }
+  },
+  "project": "Hello.project",
+  "style": "spa",
+  "stylesheet": {
+    "integrity": "sha384-<digest>",
+    "url": "stylesheet.<hash>.css"
+  },
+  "texts": {},
+  "v": 1,
+  "versions": {
+    "abi": 1,
+    "description": 1,
+    "loader": 1
+  },
+  "worker": {
+    "integrity": "sha384-<digest>",
+    "url": "worker.<hash>.js"
+  }
+}
