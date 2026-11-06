@@ -100,7 +100,7 @@ as completed.
 
 ## M0 — verify before building
 
-- [ ] **T1 — Close the plan's `[verify]` points; fix the licence list (operator-gated)** (R9; prepares AC8)
+- [x] **T1 — Close the plan's `[verify]` points; fix the licence list (operator-gated)** (R9; prepares AC8)
   - Files: none in the tree. Record the findings in this file, under T1, at `/implement`.
   - Do:
     1. **Install the tool, with the operator's approval.** `cargo-deny` is not installed. Installing it changes the machine, not the repository,
@@ -120,6 +120,7 @@ as completed.
        its minimum API level. These are inputs for T21 and WASM-012.
   - Verify: the four findings are written here, with the tool version and the date. The licence list is either approved by the operator or
     explicitly left open as O4. **No task from T16 onward starts on an unverified assumption.**
+  - **Done (2.0.273, 2026-11-06), the four findings.** (1) `cargo-deny` 0.20.2 installed with the operator's approval (`cargo install cargo-deny --locked`, built with Rust 1.95). (2) Offline mode works: `cargo deny --offline check advisories` reads the database `cargo deny fetch` keeps in `~/.cargo/advisory-dbs`; a database can be a plain local git repository placed in the folder cargo-deny names for its URL (a `file://` URL is refused), which is how T16's synthetic fixture works. So the plan's Rust fallback matcher is not needed. (3) Licences found over today's lock: outside the plan §1.6 set and with no permitted alternative are Apache-2.0 WITH LLVM-exception (wasmtime, cranelift, regalloc2, target-lexicon), BSL-1.0 (clipboard-win, error-code, xxhash-rust), CC0-1.0 (base16, encoding-index-*), `(MIT OR Apache-2.0) AND NCSA` (libfuzzer-sys, through rav1e) and OFL-1.1 + Ubuntu-font-1.0 (epaint_default_fonts). The operator approved all six on 2026-11-06 (O4 closed) and asked that every licence and copyright notice be included: `licenses/` and `THIRD_PARTY_NOTICES.md`. The NCSA text is not in the libfuzzer-sys crate; the notice points to LLVM's licence file. (4) Pinning keys. Android (read from developer.android.com/privacy-and-security/security-config): `<pin-set expiration="yyyy-MM-dd">` holding `<pin digest="SHA-256">` (base64 of the SPKI), inside a `<domain-config>`; only SHA-256 is supported; the expiry is optional; the doc advises a backup pin; network security config exists from API 24. iOS (Apple's page could not be read from here, so this is from memory and must be re-checked in WASM-012): `NSAppTransportSecurity` → `NSPinnedDomains` → `<domain>` → `NSIncludesSubdomains`, `NSPinnedLeafIdentities` / `NSPinnedCAIdentities`, each an array of dictionaries with `SPKI-SHA256-BASE64`; iOS 14.0.
 
 ## M1 — secrets (R7, R8)
 
@@ -355,7 +356,7 @@ as completed.
 
 ## M6 — supply chain (R9, R10)
 
-- [ ] **T16 — `deny.toml` and the supply-chain test** (R9; AC8 audit half). Depends on T1.
+- [x] **T16 — `deny.toml` and the supply-chain test** (R9; AC8 audit half). Depends on T1.
   - Files: `deny.toml` (new, at the root; it is configuration) and `crates/cobolt-compiler/tests/supply_chain.rs` (new).
   - Do:
     - `deny.toml` sections:
@@ -373,6 +374,7 @@ as completed.
   - Verify: `cargo test -p cobolt-compiler --test supply_chain -- --nocapture` shows the four sections passing on the tree and both negative
     fixtures failing. `cargo test -p cobolt-compiler --test dependency_guards_063`, `-p cobolt-server --test dependency_guards` and the player's
     `--test dependency_guard` stay green.
+  - **Done (2.0.273):** `deny.toml` (root), `crates/cobolt-server/deny-bans.toml`, `crates/cobolt-web-player/deny-bans.toml`, `crates/cobolt-compiler/tests/supply_chain.rs`. The bans are two files, not one: a closure ban must apply to one crate's graph only (the IDE legitimately links what the backend must not), so each runs with its own `--manifest-path` and `--exclude-dev`; the server one is limited to the macOS and Windows targets, where `native-tls` is the operating system's, because on Linux it is the system's dynamically linked OpenSSL (`openssl-src`, a vendored copy, is banned everywhere). The advisories section is a **baseline**, not a clean sheet: the safe upgrades went in first (2.0.272); what is left (19 distinct advisories: wasmtime 44 pinned by the operator, quick-xml 0.36, lopdf 0.26, calamine, zip 8.6 held by markdownify/candle-core, `rsa`, `crypto-bigint`, plus the unmaintained transitive crates) is listed in `deny.toml` with a reason each and is **owed**: retire the entries by upgrading (quick-xml 0.41 needs entity events handled in every reader first; lopdf 0.42 needs the PDF reading rewritten). Result: eight checks on two locks pass offline in about 9 s; the synthetic-advisory and the missing-licence fixtures fail as they must; the guards `dependency_guards_063` (3), the server's `dependency_guards` (7) and the player's `dependency_guard` (7) plus `sinks` (3) are green. The guards already run offline (`cargo tree --offline`, or the lock file read directly), so no change was needed there.
 
 - [x] **T17 — One SBOM writer; an SBOM beside the backend binary** (R10; AC8 SBOM half)
   - Files: `crates/cobolt-web-bundle/src/sbom.rs` (new; it moves the writer out of `lib.rs` around `:750-769`), `crates/cobolt-web-bundle/src/lib.rs`,

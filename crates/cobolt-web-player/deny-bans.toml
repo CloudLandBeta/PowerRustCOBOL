@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# What the browser build must never link (WASM-016 AC10, WASM-017 R14; WASM-013 T16). It mirrors NEVER in
+# tests/dependency_guard.rs, for the wasm32 target only. Run by crates/cobolt-compiler/tests/supply_chain.rs:
+#   cargo deny --manifest-path crates/cobolt-web-player/Cargo.toml --exclude-dev --config crates/cobolt-web-player/deny-bans.toml check bans
+
+[graph]
+targets = ["wasm32-unknown-unknown"]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+deny = [
+    { crate = "ring" }, { crate = "aws-lc-rs" }, { crate = "aws-lc-sys" },
+    { crate = "openssl" }, { crate = "openssl-sys" }, { crate = "openssl-probe" }, { crate = "native-tls" },
+    { crate = "rustls" }, { crate = "rustls-webpki" },
+    { crate = "hyper" }, { crate = "reqwest" }, { crate = "ureq" }, { crate = "tokio" },
+    { crate = "cc" }, { crate = "cmake" }, { crate = "pkg-config" },
+    { crate = "zstd-sys" }, { crate = "bzip2-sys" }, { crate = "lzma-sys" }, { crate = "libsqlite3-sys" },
+    { crate = "curl-sys" }, { crate = "libz-sys" },
+]

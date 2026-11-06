@@ -170,6 +170,37 @@ License: MPL-2.0
 Used by: dirs-sys, through wry's dirs 7 (cobolt-web-preview)
 Notes: Unmodified. MPL-2.0 is a file-level copyleft: its Source Code Form is available from
        https://crates.io/crates/option-ext (version 0.2.0).
+
+Component: Default fonts of egui — epaint_default_fonts 0.36 (Hack, NotoEmoji, Ubuntu Light, emoji-icon-font)
+Homepage: https://github.com/emilk/egui (crates/epaint_default_fonts)
+License: Hack and the DejaVu parts — MIT, with Bitstream Vera Sans Mono under the Bitstream Vera License; NotoEmoji — SIL Open Font License 1.1;
+         Ubuntu Light — Ubuntu Font Licence 1.0; emoji-icon-font — MIT
+Copyright: Hack — Copyright 2018 Source Foundry Authors; Bitstream Vera Sans Mono — Copyright 2003 Bitstream Inc. ("Bitstream" and "Vera" are
+           Reserved Font Names); emoji-icon-font — Copyright (c) 2014 John Slegers; NotoEmoji and Ubuntu Light — the holders named in the font
+           files themselves
+Used by: cobolt-ide, cobolt-forms (the desktop painter), and the Web Build, which ships Ubuntu Light as the stand-in face (`sbom.cdx.json` lists it)
+Notes: Full texts: licenses/OFL-1.1-fonts.txt, licenses/Ubuntu-font-1.0.txt, licenses/Hack-and-DejaVu-fonts.txt, licenses/emoji-icon-font-MIT.txt.
+       The fonts are unmodified; none is sold on its own.
+
+Component: Dependencies whose licence has no MIT/Apache-2.0 alternative (WASM-013 T16, approved 2026-11-06)
+License and texts:
+       Boost Software License 1.0 (BSL-1.0) — licenses/BSL-1.0.txt
+         clipboard-win 5.4, error-code 3.3, xxhash-rust 0.8 — Copyright (c) the authors, Douman <douman@gmx.se>
+       CC0 1.0 Universal (public-domain dedication) — licenses/CC0-1.0.txt
+         base16 0.2 (Thom Chiovoloni), encoding-index-japanese / -korean / -simpchinese / -singlebyte / -tradchinese 1.20141219 and
+         encoding_index_tests (Kang Seonghoon)
+       Apache-2.0 WITH LLVM-exception — licenses/Apache-2.0-with-LLVM-exception.txt
+         wasmtime 44 and its internal crates, cranelift-* 0.131, pulley-* 44, regalloc2 0.15 (The Wasmtime / Cranelift Project Developers),
+         target-lexicon 0.12 and 0.13 (Dan Gohman and contributors)
+       (MIT OR Apache-2.0) AND NCSA
+         libfuzzer-sys 0.4 (The rust-fuzz Project Developers), which embeds LLVM's libFuzzer; its MIT and Apache-2.0 texts are in the crate
+         (LICENSE-MIT, LICENSE-APACHE); the NCSA text is the University of Illinois/NCSA Open Source License of the LLVM project, see
+         https://llvm.org/LICENSE.txt
+Used by: clipboard-win and error-code through arboard (the IDE's clipboard, Windows); xxhash-rust through server_fn (Leptos, the web player);
+         base16 through wasm_split_macros; encoding-index-* through encoding and lopdf (a development dependency); wasmtime and the cranelift
+         family through cobolt-wasm's `host` feature (the module runner); libfuzzer-sys through rav1e and ravif (the image encoder). Whether a
+         given binary links one depends on its features: `cargo tree -i <crate>` shows the path.
+Notes: Every one is permissive. Redistribution keeps the notices above and the texts in licenses/. Re-check with `cargo deny list` before a release.
 ```
 
 ## Template entry

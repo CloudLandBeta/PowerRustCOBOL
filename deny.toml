@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# cargo-deny configuration (WASM-013 R9, T16). It is checked by
+# crates/cobolt-compiler/tests/supply_chain.rs, which runs it over the workspace lock and the
+# web player's own lock. Closure-specific bans live next to the crate they guard:
+# crates/cobolt-server/deny-bans.toml and crates/cobolt-web-player/deny-bans.toml.
+
+[graph]
+all-features = false
+
+[advisories]
+# The RustSec database is read from a local path with fetching disabled (`cargo deny fetch` once, then
+# `--disable-fetch`): a build machine without network checks against the copy it has.
+yanked = "deny"
+# An unmaintained crate is reported for the workspace's own direct dependencies; transitive ones are
+# listed in the baseline below, each with the reason it stays.
+unmaintained = "all"
+unsound = "all"
+ignore = [
+    # ── Vulnerabilities (baseline of 2026-11-06). Every safe, compatible upgrade was taken first (2.0.272); what remains needs a
+    #    breaking upgrade or has no fix. Each entry is a task to retire, not an acceptance: see specs/WASM-013 T16. ──
+    # zip 8.6 is held by markdownify→calamine and candle-core. All four are in `extract()`/`ZipStreamReader`, which no crate of
+    # ours and neither of those crates calls (searched 2026-11-06); our own zip use is 9.x.
+    { id = "RUSTSEC-2026-0367", reason = "zip 8.6 (calamine, candle-core, markdownify): extract() only; never called" },
+    { id = "RUSTSEC-2026-0368", reason = "zip 8.6 (calamine, candle-core, markdownify): extract() only; never called" },
+    { id = "RUSTSEC-2026-0369", reason = "zip 8.6 (calamine, candle-core, markdownify): extract() only; never called" },
+    { id = "RUSTSEC-2026-0429", reason = "zip 8.6 (calamine, candle-core, markdownify): extract() only; never called" },
+    { id = "RUSTSEC-2026-0436", reason = "calamine 0.36 through markdownify (cobolt-docs): needs markdownify to move to calamine 0.38; hostile .xls is the exposure" },
+    # wasmtime is pinned `=44.0.3` by the operator (WASM-010 Q2) and is linked only through development dependencies (the module
+    # test runners of cobolt-compiler, cobolt-project-tools and cobolt-web-player); it runs only modules this product generated.
+    { id = "RUSTSEC-2026-0222", reason = "wasmtime 44.0.3, operator pin, test runners only; upgrade to 49 is its own task" },
+    { id = "RUSTSEC-2026-0269", reason = "wasmtime 44.0.3, operator pin, test runners only; upgrade to 49 is its own task" },
+    { id = "RUSTSEC-2026-0316", reason = "wasmtime 44.0.3, operator pin, test runners only; upgrade to 49 is its own task" },
+    { id = "RUSTSEC-2026-0327", reason = "wasmtime 44.0.3, operator pin, test runners only; upgrade to 49 is its own task" },
+    { id = "RUSTSEC-2026-0359", reason = "wasmtime 44.0.3, operator pin, test runners only; upgrade to 49 is its own task" },
+    { id = "RUSTSEC-2026-0362", reason = "wasmtime 44.0.3, operator pin, test runners only; upgrade to 49 is its own task" },
+    { id = "RUSTSEC-2026-0363", reason = "wasmtime 44.0.3, operator pin, test runners only; upgrade to 49 is its own task" },
+    { id = "RUSTSEC-2026-0379", reason = "wasmtime 44.0.3, operator pin, test runners only; upgrade to 49 is its own task" },
+    { id = "RUSTSEC-2026-0424", reason = "wasmtime 44.0.3, operator pin, test runners only; upgrade to 49 is its own task" },
+    # quick-xml 0.36 is ours (.cfrm, .cidx, Office files, SVG). 0.41 emits entities as separate events, which the readers do not handle
+    # yet (text would be dropped silently), so the move is a task with tests; the exposure is a quadratic parse of a hostile file.
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.36 (ours) and 0.39 (wayland-scanner, build time): 0.41 needs entity events handled in every reader" },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml: NsReader is not used by this product; 0.41 migration pending as above" },
+    { id = "RUSTSEC-2026-0187", reason = "lopdf 0.26 (cobolt-docs, cobolt-forms, cobolt-kb): 0.42 renames the parser feature and reshapes the API; the PDF reading is to be rewritten" },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 under RustCrypto p256/elliptic-curve 0.13; the fix arrives with their next major" },
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.9: no fixed release exists; only the test key (cobolt-server testkit) signs, the server verifies with public keys" },
+    # ── Unsound ──
+    { id = "RUSTSEC-2023-0086", reason = "lexical-core 0.7 through nom 6 (lopdf); goes with the lopdf upgrade" },
+    { id = "RUSTSEC-2024-0429", reason = "glib 0.18 through gtk 0.18 (Linux web view, wry); goes with wry's move to gtk4" },
+    # ── Unmaintained (no vulnerability recorded) ──
+    { id = "RUSTSEC-2020-0020", reason = "stb_truetype: transitive font code of the painter" },
+    { id = "RUSTSEC-2020-0056", reason = "stdweb through time 0.2: transitive, old time crate" },
+    { id = "RUSTSEC-2020-0144", reason = "lzw through lopdf; goes with the lopdf upgrade" },
+    { id = "RUSTSEC-2021-0140", reason = "rusttype: transitive font code of the painter" },
+    { id = "RUSTSEC-2021-0153", reason = "encoding through lopdf; goes with the lopdf upgrade" },
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error: transitive proc-macro" },
+    { id = "RUSTSEC-2024-0436", reason = "paste: transitive (gemm, either_of)" },
+    { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml: transitive" },
+    { id = "RUSTSEC-2025-0056", reason = "adler: transitive, adler2 is used by current miniz_oxide" },
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.3: ours (cobolt-agents, cobolt-cli, the backend bundle format); a format change, its own task" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser: transitive font code" },
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz through usvg 0.46 (SVG text)" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant: transitive (zbus, Linux desktop integration)" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names: transitive (zbus, Linux desktop integration)" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: transitive (zbus, Linux desktop integration)" },
+    { id = "RUSTSEC-2026-0441", reason = "pin-utils: transitive" },
+]
+
+[licenses]
+# plan §1.6, plus the six approved by the operator on 2026-11-06 (O4): licences/*.txt and THIRD_PARTY_NOTICES.md carry their texts and notices.
+allow = [
+    "Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "Unicode-3.0", "Unicode-DFS-2016", "MPL-2.0",
+    "Apache-2.0 WITH LLVM-exception", "BSL-1.0", "CC0-1.0", "NCSA", "OFL-1.1", "Ubuntu-font-1.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

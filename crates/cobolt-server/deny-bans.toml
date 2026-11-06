@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# What the backend must never link (WASM-003 R2, R3, R7; WASM-013 T16). It mirrors HEADLESS and NO_C_CRYPTO in
+# tests/dependency_guards.rs, so Cargo's resolver and cargo-deny agree. Run by
+# crates/cobolt-compiler/tests/supply_chain.rs:
+#   cargo deny --manifest-path crates/cobolt-server/Cargo.toml --exclude-dev --config crates/cobolt-server/deny-bans.toml check bans
+
+# macOS and Windows use the operating system's TLS (Secure Transport, SChannel), so the `openssl` crates must not appear there. On Linux
+# `native-tls` is the operating system's OpenSSL, dynamically linked, so those two crates are allowed on that target and a vendored
+# copy (`openssl-src`) is banned everywhere.
+[graph]
+targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+deny = [
+    # headless: no window system and none of the IDE's crates
+    { crate = "egui" }, { crate = "eframe" }, { crate = "winit" }, { crate = "wgpu" }, { crate = "epaint" },
+    { crate = "cobolt-ide" }, { crate = "cobolt-form-host" }, { crate = "cobolt-agents" }, { crate = "cobolt-dap" },
+    # no C-built crypto and no second TLS stack: TLS is the operating system's, signatures are RustCrypto's
+    { crate = "ring" }, { crate = "aws-lc-rs" }, { crate = "aws-lc-sys" }, { crate = "aws-lc-fips-sys" },
+    { crate = "rustls" }, { crate = "rustls-webpki" }, { crate = "openssl" }, { crate = "openssl-sys" },
+    { crate = "boring" }, { crate = "boring-sys" }, { crate = "openssl-src" },
+]
