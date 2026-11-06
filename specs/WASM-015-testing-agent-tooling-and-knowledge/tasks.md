@@ -180,7 +180,8 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
 
 ### Finalize
 
-- [ ] **T24 — Finalize: version, CHANGELOG, the tests of the crates touched**
+- [x] **T24 — Finalize: version, CHANGELOG, the tests of the crates touched**
+  - **Done (2.0.254):** the sweeps of the crates touched ran green — 242 targets, 2794 passed, 0 failed (project-tools, web-tests, web-bundle, web-preview, wasm, agents, bench, compiler, server with `testkit`, forms with `render`); `cobolt-ide` bin 1960 passed, 8 failed, all known (3 pre-existing; 5 need `rcrun` or a backend binary in a fresh worktree); `tests/controls` green. Still open: T11–T14 (gated on WASM-010 WP1/WP2), T9b, T10b, T16b, T22b, the CI cells' first run and the operator's manual check.
   - Files:
     - `crates/cobolt-ide/src/version.rs`: `z` + 1, **once** — from `2.0.30` (or whatever `z` is current then) to the next free `2.0.z`; never `x` or `y`.
     - `CHANGELOG.md`: **one** entry above the previous `## [PowerRustCOBOL 2.0.z]` heading, dated, "*(Written on `features-2x`, after 2.0.<prev>.)*". It lists the runners, the families and their measured numbers, the tool changes (`engine`, `secret_scan`, web gates), the rule count 14 → 15, `WebFormsDesigner`, the example, and what stays open (Q-new-1 … Q-new-5, every gated task still unchecked).

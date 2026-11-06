@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.254 — 2026-11-06
+
+**WASM-015 T24: finalized — what the spec shipped and what stays open.** *(Written on features-2x-wasm-pending, after 2.0.253.)* WASM-015 is shipped except the tasks gated on other specs. In place: the browser runner and the backend runner (T6, T7), the control coverage table (71 of 71 rows, A/B 41 of 41, 21 known class C gaps), the web goldens, the agents' tools on web projects (`check` gates, the `engine` field, `report.secret_scan`) with both servers agreeing, the plugin rules (14 → 15, `web-layers`, the reviewer's class C/D checks), `WebFormsDesigner` and the Web Form Designer Agent with its Pedantic Reviewer, the web knowledge census (156 of 156), `examples/PowerWebHello`, and the CI jobs. Measured in this release: 242 test targets, 2794 passed, 0 failed over the crates touched; `cobolt-ide` 1960 passed, 8 failed, all of them known (3 pre-existing, 5 that need `rcrun`/a backend binary in a fresh worktree). Open: T11–T14 (gated on WASM-010), T9b, T10b, T16b, T22b, the first CI run's engine per cell, and the operator's manual check of Grace on a web form.
+
 ## 2.0.253 — 2026-11-06
 
 **WASM-015 T23: the web-test jobs in CI (R2, R3, R8b, D3).** *(Written on features-2x-wasm-pending, after 2.0.252.)* `build-all-platforms.yml` gains `web-tests` — Linux (under Xvfb), Windows and macOS, each with `PRC_REQUIRE_WEBVIEW=1` and `PRC_REQUIRE_NODE=1`, so a missing web view or `node` fails the job instead of printing "skipped"; it runs `cobolt-web-tests`, `cobolt-web-bundle` and `cobolt-project-tools` and fails on any non-Chrome skip — and `web-e2e-binary`, which runs the backend runner against the built binary once, on Linux, with `PRC_WEB_E2E=1`. Not yet seen on a CI run; the engine of each cell is recorded after the first.
