@@ -14,6 +14,8 @@
 
 mod support;
 
+use std::time::Duration;
+
 use cobolt_forms::model::FormFormat;
 use cobolt_web_bundle::devserver::{serve, ServeOptions, Server};
 use cobolt_web_bundle::Isolation;
@@ -567,5 +569,205 @@ fn ac8_a_form_with_unsaved_changes_asks_before_back_before_a_menu_load_and_befor
     println!(
         "AC8 in Chrome ({}): Back and a menu entry each got the Leave / Stay question and Stay kept the form and its address; navigating away got the browser's beforeunload question (dismissed, the page stayed); Leave left, and a navigation after it asked nothing",
         agent.as_str().unwrap_or("?")
+    );
+}
+
+/// Home, and `layered-form` behind its menu entry: a form with a base button, a layer `LYR-POP` holding two labels (one
+/// inside the form, one that runs past its right edge), and a button that shows the layer from COBOL.
+fn layered_screens() -> App {
+    use cobolt_forms::model::{Control, ControlType, Layer, PropValue};
+    let mut main = form("main-form", "Home");
+    main.controls.push(side_menu(480));
+    form_event(
+        &mut main,
+        "onLoad",
+        handler(&["MOVE \"home\" TO LBL-OUT::Caption."]),
+    );
+    let mut layered = form("layered-form", "Layered");
+    layered.form_format = FormFormat::Embedded;
+    layered.layers.push(Layer::new("LYR-POP"));
+    form_event(
+        &mut layered,
+        "onLoad",
+        handler(&["MOVE \"layered loaded\" TO LBL-OUT::Caption."]),
+    );
+    layered.controls.push(button(
+        "BTN-SHOW",
+        "Show",
+        16,
+        64,
+        handler(&["MOVE 1 TO LYR-POP::Visible."]),
+    ));
+    for (id, x, w) in [("LBL-IN", 16, 240), ("LBL-EDGE", 520, 480)] {
+        let mut c = Control::new(id, ControlType::Label, x, 200);
+        c.set_prop("Caption", PropValue::String(format!("{id} in the layer")));
+        c.rect.w = w;
+        c.rect.h = 32;
+        c.layer = Some("LYR-POP".to_owned());
+        layered.controls.push(c);
+    }
+    build(Spec {
+        style: "spa",
+        forms: vec![main, layered],
+        menus: vec![(
+            "SideMenu-1",
+            menu_def(&[("lay", "Layered", "layered-form")]),
+        )],
+    })
+}
+
+/// **AC11** — a route to a layered form shows the form with every layer hidden; the program then shows the layer, and its
+/// controls appear within the form's own area in the shell's pane (the root clips what runs past the edge), never over the menu.
+#[test]
+fn ac11_a_route_to_a_layered_form_shows_every_layer_hidden_and_the_program_then_shows_it_within_the_pane() {
+    let Some(exe) = find_chrome() else {
+        eprintln!("SKIPPED: no Chrome on this machine (set CHROME to a Chrome or Chromium binary)");
+        return;
+    };
+    let app = layered_screens();
+    let chrome = Chrome::launch(&exe).unwrap_or_else(|e| panic!("{e}"));
+    let (mut page, _server) = open(&chrome, &app, "");
+    let agent = page.eval("navigator.userAgent").unwrap();
+
+    // The route: the menu entry loads the form (the address follows).
+    page.click_at(&entry("Layered")).unwrap();
+    page.wait_for(
+        "(() => { const r = document.getElementById('pr-app').shadowRoot; const l = r.querySelector('[data-pr-form=\"layered-form\"] [data-name=\"LBL-OUT\"]'); return !!l && l.textContent === 'layered loaded'; })()",
+        40,
+    )
+    .unwrap_or_else(|e| panic!("the layered form did not load: {e}; the page shows {:?}", page.eval(LOOK)));
+    assert_eq!(page.eval(LOOK).unwrap()["hash"], "#/layered-form");
+
+    // Every layer is hidden and inert, its controls with it: nothing of the layer is drawn or takes the pointer.
+    let state = "(() => { const r = document.getElementById('pr-app').shadowRoot; \
+        const root = r.querySelector('[data-pr-form=\"layered-form\"]'); \
+        const layer = root.querySelector('.pr-form-layer[data-layer=\"LYR-POP\"]'); \
+        const inn = layer.querySelector('[data-name=\"LBL-IN\"]'); \
+        const cs = getComputedStyle(layer); \
+        return { rootClass: root.className, hidden: layer.hasAttribute('hidden'), inert: layer.hasAttribute('inert'), display: cs.display, \
+                 innBox: (() => { const b = inn.getBoundingClientRect(); return b.width * b.height; })() }; })()";
+    let before = page.eval(state).unwrap();
+    assert_eq!(before["hidden"], true, "{before}");
+    assert_eq!(before["inert"], true, "{before}");
+    assert_eq!(before["display"], "none", "a hidden layer is not drawn: {before}");
+    assert_eq!(before["innBox"], 0, "and its controls take no room: {before}");
+
+    // The program shows the layer.
+    page.click_at(&control_rect("layered-form", "BTN-SHOW")).unwrap();
+    page.wait_for(
+        "(() => { const r = document.getElementById('pr-app').shadowRoot; const l = r.querySelector('[data-pr-form=\"layered-form\"] .pr-form-layer[data-layer=\"LYR-POP\"]'); return !!l && !l.hasAttribute('hidden') && getComputedStyle(l).display !== 'none'; })()",
+        40,
+    )
+    .unwrap_or_else(|e| panic!("the program did not show the layer: {e}"));
+
+    // Where it is: the controls are inside the form's own area, to the right of the menu, and the part of `LBL-EDGE` that runs
+    // past the form's right edge is clipped (the pointer there reaches nothing of the layer).
+    let after = page
+        .eval(
+            "(() => { const r = document.getElementById('pr-app').shadowRoot; \
+              const root = r.querySelector('[data-pr-form=\"layered-form\"]'); const rr = root.getBoundingClientRect(); \
+              const rect = n => { const b = root.querySelector('[data-name=\"' + n + '\"]').getBoundingClientRect(); return { x: b.x, y: b.y, r: b.right, b: b.bottom }; }; \
+              const menu = r.querySelector('.pr-sm-items').getBoundingClientRect(); \
+              const inn = rect('LBL-IN'), edge = rect('LBL-EDGE'); \
+              const past = r.elementFromPoint(rr.right + 4, edge.y + 8); \
+              return { root: { x: rr.x, y: rr.y, r: rr.right, b: rr.bottom }, menuRight: menu.right, inn, edge, \
+                       overflow: getComputedStyle(root).overflow, \
+                       pastHitsLayer: !!(past && past.closest('[data-layer=\"LYR-POP\"]')) }; })()",
+        )
+        .unwrap();
+    let f = |v: &serde_json::Value, k: &str| v[k].as_f64().unwrap();
+    let (root, inn, edge) = (&after["root"], &after["inn"], &after["edge"]);
+    assert_eq!(after["overflow"], "hidden", "the root clips what the layer draws: {after}");
+    assert!(f(inn, "x") >= f(root, "x") && f(inn, "r") <= f(root, "r") && f(inn, "y") >= f(root, "y") && f(inn, "b") <= f(root, "b"), "LBL-IN lies within the form's area: {after}");
+    assert!(f(root, "x") >= after["menuRight"].as_f64().unwrap() - 1.0, "the form, and so the layer, is in the pane, not over the menu: {after}");
+    assert!(f(edge, "r") > f(root, "r"), "LBL-EDGE was designed to run past the form's right edge: {after}");
+    assert_eq!(after["pastHitsLayer"], false, "what runs past the edge is clipped, so the pointer there reaches nothing of the layer: {after}");
+    assert!(page.exceptions.is_empty(), "the page threw: {:?}", page.exceptions);
+
+    println!(
+        "AC11 in Chrome ({}): the route `#/layered-form` showed the form with its layer hidden, inert and taking no room; `MOVE 1 TO LYR-POP::Visible` showed it; its label lay inside the form's area (x {:.0}..{:.0} of {:.0}..{:.0}), right of the menu (edge {:.0}); the label designed past the edge was clipped (the pointer past it hit nothing of the layer); no page threw",
+        agent.as_str().unwrap_or("?"),
+        f(inn, "x"),
+        f(inn, "r"),
+        f(root, "x"),
+        f(root, "r"),
+        after["menuRight"].as_f64().unwrap()
+    );
+}
+
+/// The caption of a form's label inside the application mounted in element `host` (an id), or `null`.
+fn caption_in(host: &str, form_name: &str) -> String {
+    format!(
+        "(() => {{ const e = document.getElementById('{host}'); const r = e && e.shadowRoot; const l = r && r.querySelector('[data-pr-form=\"{form_name}\"] [data-name=\"LBL-OUT\"]'); return l ? l.textContent : null; }})()"
+    )
+}
+
+/// The rectangle of the menu entry labelled `label` in the application mounted in element `host`.
+fn entry_in(host: &str, label: &str) -> String {
+    format!(
+        "(() => {{ const e = document.getElementById('{host}'); const r = e && e.shadowRoot; const x = r && [...r.querySelectorAll('.pr-sm-items .pr-menu-label')].find(n => n.textContent === '{label}'); if (!x) return null; const b = x.getBoundingClientRect(); return {{x: b.x, y: b.y, width: b.width, height: b.height}}; }})()"
+    )
+}
+
+/// **Two applications on one page** (WASM-011 T19, R5, Q7) — one of them owns the page's address, the other keeps its chain
+/// to itself. The page that mounts a second application says, per mount, that it does not follow the address; a second that
+/// asks to follow it too is refused with a message and the first goes on.
+#[test]
+fn two_applications_on_one_page_only_the_one_that_owns_the_address_writes_it() {
+    let Some(exe) = find_chrome() else {
+        eprintln!("SKIPPED: no Chrome on this machine (set CHROME to a Chrome or Chromium binary)");
+        return;
+    };
+    let app = three_screens();
+    let chrome = Chrome::launch(&exe).unwrap_or_else(|e| panic!("{e}"));
+    let (mut page, _server) = open(&chrome, &app, "");
+    let agent = page.eval("navigator.userAgent").unwrap();
+
+    // The first application owns the address, by the Build's choice for a page that is the application.
+    // The first application fills the window, so the others are given boxes in its corners that leave its menu free.
+    page.eval("(() => { const boxes = { 'pr-app2': 'right:0;top:0;width:300px;height:200px', 'pr-app3': 'right:0;bottom:0;width:560px;height:420px' }; for (const [id, box] of Object.entries(boxes)) { const d = document.createElement('div'); d.id = id; d.style.cssText = 'position:fixed;z-index:10;background:#fff;overflow:hidden;' + box; document.body.appendChild(d); } return true; })()").unwrap();
+
+    // One that does not follow the address mounts and shows its main form.
+    let mounted = page
+        .eval("(() => { const el = document.getElementById('pr-app3'); window.__why = []; el.addEventListener('pr-error', ev => window.__why.push(JSON.stringify(ev.detail))); return PowerRustCOBOL.mount(el, {address: 'none'}).then(() => 'mounted', e => 'failed: ' + (e && e.message ? e.message : e) + ' / ' + window.__why.join(' | ')); })()")
+        .unwrap();
+    page.wait_for(&format!("{} === 'home'", caption_in("pr-app3", "main-form")), 40)
+        .unwrap_or_else(|e| {
+            let held = page.eval("(() => { const e = document.getElementById('pr-app3'); const r = e && e.shadowRoot; return r ? r.textContent.slice(0, 300) : 'no shadow root'; })()");
+            panic!(
+                "the second application did not start: {e}; mount said {mounted}; console {:?}; the element holds {held:?}",
+                page.console
+            )
+        });
+
+    // The owner's menu changes the address; the other's does not.
+    page.click_at(&entry("Orders")).unwrap();
+    page.wait_for("location.hash === '#/orders-form'", 20)
+        .unwrap_or_else(|e| panic!("the owner did not write the address: {e}; it is {:?}; app1 shows {:?}; app3 shows {:?}", page.eval("location.hash"), page.eval(LOOK), page.eval("[...document.getElementById('pr-app3').shadowRoot.querySelectorAll('[data-pr-form]')].map(e => e.dataset.prForm).join(',')")));
+    page.click_at(&entry_in("pr-app3", "Customers")).unwrap();
+    page.wait_for(&format!("{} === 'customers loaded'", caption_in("pr-app3", "customers-form")), 40)
+        .unwrap_or_else(|e| panic!("the second application's own menu did nothing: {e}"));
+    std::thread::sleep(Duration::from_millis(400));
+    let hash = page.eval("location.hash").unwrap();
+    assert_eq!(hash, json!("#/orders-form"), "the second application wrote the page's address");
+    assert_eq!(page.eval(&caption_in("pr-app", "orders-form")).unwrap(), json!("orders loaded"), "the owner is still where it was");
+
+    // A third application that asks to follow the address as well is refused, with a message, and the others go on.
+    let refused = page
+        .eval("(() => { const el = document.getElementById('pr-app2'); const why = []; el.addEventListener('pr-error', ev => why.push(String(ev.detail && ev.detail.detail))); return PowerRustCOBOL.mount(el, {address: 'own'}).then(() => 'mounted', e => 'refused: ' + (e && e.message ? e.message : e) + ' (' + why.join(' | ') + ')'); })()")
+        .unwrap();
+    let refused = refused.as_str().unwrap_or("").to_owned();
+    assert!(refused.starts_with("refused:"), "the second owner was not refused: {refused:?}");
+    assert!(refused.contains("another application on this page already follows the address"), "and the refusal says why and what to do: {refused:?}");
+    assert!(page.eval(&caption_in("pr-app2", "main-form")).unwrap().is_null(), "and it shows nothing");
+    assert_eq!(page.eval(&caption_in("pr-app", "orders-form")).unwrap(), json!("orders loaded"), "the owner went on");
+    assert_eq!(page.eval(&caption_in("pr-app3", "customers-form")).unwrap(), json!("customers loaded"), "so did the other");
+    assert_eq!(page.eval("location.hash").unwrap(), json!("#/orders-form"));
+    assert!(page.exceptions.is_empty(), "the page threw: {:?}", page.exceptions);
+
+    println!(
+        "two applications on one page in Chrome ({}): the first owns the address; a second asking to follow it too was {:?}; one mounted with `address: 'none'` showed its own main form, and its Customers entry loaded `customers-form` in it without touching the address, which stayed `#/orders-form` where the owner's Orders entry had put it; no page threw",
+        agent.as_str().unwrap_or("?"),
+        refused
     );
 }

@@ -80,3 +80,23 @@ fn the_loader_forwards_the_address_and_the_stack_to_the_player() {
     assert!(text.contains("address: options.address || (config.options && config.options.embed && config.options.embed.address) || ''"), "address forwarded");
     assert!(text.contains("stack: !!(config.options && config.options.stack)"), "stack forwarded");
 }
+
+/// A page that mounts two applications (WASM-011 T19, T25): `PowerRustCOBOL.mount(element, { address })` reaches the loader — it
+/// was documented and read by the loader but never passed on, so a page could not say which of its applications follows the
+/// address — and a threaded player's pool of Workers is built once per player instance, not once per application (a second
+/// build fails, because the instances are shared).
+#[test]
+fn the_page_api_passes_the_address_on_and_the_thread_pool_is_built_once_per_player_instance() {
+    let out = assemble_bundle(&support::input_with(stub_player(), BundleOptions::default())).unwrap_or_else(|e| panic!("{e}"));
+    let text_of = |needle: &str| {
+        let f = out.files.iter().find(|f| f.path.ends_with(".js") && String::from_utf8_lossy(&f.bytes).contains(needle)).unwrap_or_else(|| panic!("no script contains `{needle}`"));
+        String::from_utf8_lossy(&f.bytes).into_owned()
+    };
+    let glue = text_of("async function mount(element, params = {})");
+    assert!(glue.contains("if (params.address === 'own' || params.address === 'none') options.address = params.address;"), "the page API passes `address` on");
+    let loader = text_of("const pcfg = {");
+    assert!(loader.contains("const pools = new WeakMap();"), "the pools are kept by player module");
+    assert_eq!(loader.matches("initThreadPool(n)").count(), 1, "the pool is built in one place");
+    assert!(loader.contains("if (!pools.has(playerModule)) {"), "and only when the player instance has none");
+    assert!(loader.contains("await pools.get(playerModule);"), "a second application waits for the first one's pool");
+}

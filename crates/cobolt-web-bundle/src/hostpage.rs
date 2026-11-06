@@ -582,6 +582,9 @@ function showMessage(doc, host, texts, title, detail, actions) {
   void texts;
 }
 
+// The thread pool each threaded player instance was given, by the player module (see step 5 of `mount`).
+const pools = new WeakMap();
+
 /**
  * Mount the application into `target` (an element) and return the running app.
  *
@@ -707,12 +710,20 @@ export async function mount(target, options = {}) {
     }
     const playerExports = await playerModule.default({ module_or_path: wasmSource });
     if (choice.player === 'threaded' && typeof playerModule.initThreadPool === 'function') {
+      // The pool of Workers is built once for a player instance. A second application on the page (WASM-011 T19) shares the
+      // instance of the first, and building the pool again fails ("the global pool is already initialized"): it waits for
+      // the first one's pool instead.
+      if (!pools.has(playerModule)) {
       const n = (config.options && config.options.workers) || Math.max(1, Math.min("#,
     );
     s.push_str(&WORKERS_CAP.to_string());
     s.push_str(
         r#", p.hardwareConcurrency - 1));
-      await playerModule.initThreadPool(n);
+      const building = playerModule.initThreadPool(n);
+      pools.set(playerModule, building);
+      building.catch(() => pools.delete(playerModule));
+      }
+      await pools.get(playerModule);
     }
     timing.player = env.performance ? env.performance.now() - t0 : 0;
 
@@ -1271,7 +1282,8 @@ pub fn app_js(loader: &str) -> String {
 //   PowerRustCOBOL.unmount(element)         unmount it and free everything it held
 //   PowerRustCOBOL.versions                 { loader, abi }
 //
-//   params: { config, locale, theme: { '--pr-accent': '#…' }, backend: 'wss://…' }
+//   params: { config, locale, theme: { '--pr-accent': '#…' }, backend: 'wss://…', address: 'own' | 'none' }
+//   (`address`: whether this application follows the page's address; one application per page may)
 //
 // Events come out on the element as DOM events: pr-ready, pr-error, pr-navigated, pr-signed-in,
 // pr-signed-out (each a CustomEvent with a `detail`).
@@ -1298,6 +1310,9 @@ async function mount(element, params = {}) {
     }
   }
   const options = {};
+  // Whose the page's address is, for this mount (WASM-011 R5, Q7): a page that mounts two applications says that all but one
+  // leave the address alone. Anything but the two words is ignored, so the Build's choice stands.
+  if (params.address === 'own' || params.address === 'none') options.address = params.address;
   if (params.config) options.configUrl = params.config;
   if (params.config && typeof params.config === 'object') {
     options.config = params.config;

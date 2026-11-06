@@ -103,7 +103,7 @@ blocking modal, but it has URLs, history and tabs. This spec says what a Web or 
 - [x] **AC8** — A form marked as having unsaved changes prompts on Back and on closing the tab. *(Passed 2026-11-06: headless Chrome 157, `acceptance_spa_chrome.rs`; plan §6.1.)*
 - [ ] **AC9** — In the mobile shell, standalone forms stack, Back pops them and a deep link opens a form.
 - [ ] **AC10** — The `FormFormat` build-time check rejects an `Embedded` form opened standalone, and the desktop projects' tests stay green.
-- [ ] **AC11** — A route to a layered form shows the form with every layer hidden, and the ContentPane then shows the layers the program shows, within the pane (R16).
+- [x] **AC11** — A route to a layered form shows the form with every layer hidden, and the ContentPane then shows the layers the program shows, within the pane (R16). *(Passed 2026-11-06: headless Chrome 157, `acceptance_spa_chrome.rs::ac11_…`: the route `#/layered-form` showed the form with its layer hidden, inert and taking no room; `MOVE 1 TO LYR-POP::Visible` showed it; its controls lay inside the form's area, to the right of the menu, and a label designed past the form's edge was clipped; plan §6.2.)*
 
 ## 6. Constraints & steering check
 
