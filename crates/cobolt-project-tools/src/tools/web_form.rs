@@ -42,16 +42,16 @@ pub fn is_web_form(rel: &str) -> bool {
 
 /// The first step of every script: the player draws the form after the page
 /// has loaded, so nothing is read or pictured before it is there.
-fn form_on_the_page() -> Value {
+pub(crate) fn form_on_the_page() -> Value {
     json!({ "wait": { "control": "form" } })
 }
 
 /// A web form, built, served and open in the helper. Dropping it ends the
 /// helper and the server and removes the build.
-struct OpenPage {
-    session: PreviewSession,
+pub(crate) struct OpenPage {
+    pub(crate) session: PreviewSession,
     _server: ServerHandle,
-    work: PathBuf,
+    pub(crate) work: PathBuf,
 }
 
 impl Drop for OpenPage {
@@ -69,6 +69,11 @@ fn open(root: &ProjectRoot, rel: &str, window: Option<[f32; 2]>, dpr: f32) -> Re
             preview::HELPER_NAME
         )
     })?;
+    open_with(&helper, root, rel, window, dpr)
+}
+
+/// [`open`] with the helper given (the browser runner looks for it in more places than the IDE does).
+pub(crate) fn open_with(helper: &std::path::Path, root: &ProjectRoot, rel: &str, window: Option<[f32; 2]>, dpr: f32) -> Result<(OpenPage, cobolt_forms::Form), String> {
     let abs = root.resolve(rel)?;
     if !abs.is_file() {
         return Err(format!("no form at {rel}"));
@@ -100,7 +105,7 @@ fn open(root: &ProjectRoot, rel: &str, window: Option<[f32; 2]>, dpr: f32) -> Re
     let (w, h) = ((w.round() as u32).max(64), (h.round() as u32).max(64));
     let url = format!("{}?pr-form={}", server.url(), form.name);
     let emulation = Emulation { dpr: Some(dpr), ..Emulation::default() };
-    let session = match PreviewSession::start(&url, w, h, &emulation, &helper) {
+    let session = match PreviewSession::start(&url, w, h, &emulation, helper) {
         Ok(s) => s,
         Err(e) => {
             let _ = std::fs::remove_dir_all(&work);
@@ -117,7 +122,7 @@ fn open(root: &ProjectRoot, rel: &str, window: Option<[f32; 2]>, dpr: f32) -> Re
 }
 
 /// Picture the open page; the PNG's bytes and pixels.
-fn picture(page: &mut OpenPage) -> Result<(Vec<u8>, u32, u32), String> {
+pub(crate) fn picture(page: &mut OpenPage) -> Result<(Vec<u8>, u32, u32), String> {
     let png = page.work.join("picture.png");
     let (w, h) = page.session.render(&png, Duration::from_secs(30))?;
     let bytes = std::fs::read(&png).map_err(|e| e.to_string())?;

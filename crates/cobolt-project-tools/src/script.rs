@@ -44,6 +44,12 @@ pub enum Step {
     Key { key: String, shift: bool },
     /// `{"page":{"property","frame"?}}`: a window property of a fixed list (browser).
     Page { property: String, frame: Option<String> },
+    /// `{"type":{"control","text"}}`: real input and change events (browser).
+    Type { control: String, text: String },
+    /// `{"wait":{"ms"}}` or `{"wait":{"control"}}`: let the page settle, or wait until the element is on it (browser).
+    Wait { ms: Option<u64>, control: Option<String> },
+    /// `{"get":{"control","property"}}`: Text, Value, Caption, Visible, Enabled or Checked (browser).
+    Get { control: String, property: String },
 }
 
 impl Step {
@@ -64,6 +70,9 @@ impl Step {
             Step::Focused => "focused",
             Step::Key { .. } => "key",
             Step::Page { .. } => "page",
+            Step::Type { .. } => "type",
+            Step::Wait { .. } => "wait",
+            Step::Get { .. } => "get",
         }
     }
 
@@ -72,7 +81,7 @@ impl Step {
         let obj = v.as_object().ok_or("a step is an object")?;
         let (name, arg) = obj.iter().find(|(k, _)| k.as_str() != "wait").or_else(|| obj.iter().next()).ok_or("a step is an object with one key")?;
         let known = [
-            "set", "event", "click", "wait_ms", "read", "dump", "open_form", "text", "style", "rect", "snapshot", "focused", "key", "page",
+            "set", "event", "click", "wait_ms", "read", "dump", "open_form", "text", "style", "rect", "snapshot", "focused", "key", "page", "type", "wait", "get",
         ];
         if !known.contains(&name.as_str()) {
             return Err(format!("`{name}` is not a step (use {})", known.join(", ")));
@@ -98,6 +107,13 @@ impl Step {
             "focused" => Step::Focused,
             "key" => Step::Key { key: need("key")?, shift: arg.get("shift").and_then(Value::as_bool).unwrap_or(false) },
             "page" => Step::Page { property: need("property")?, frame: text("frame") },
+            "type" => Step::Type { control: need("control")?, text: need("text")? },
+            "wait" => match (arg.get("ms").and_then(Value::as_u64), text("control")) {
+                (Some(ms), None) => Step::Wait { ms: Some(ms), control: None },
+                (None, Some(c)) => Step::Wait { ms: None, control: Some(c) },
+                _ => return Err("`wait` needs `ms`, or `control` to wait for".into()),
+            },
+            "get" => Step::Get { control: need("control")?, property: need("property")? },
             _ => unreachable!("checked against the list"),
         })
     }
@@ -141,12 +157,16 @@ impl Step {
                 }
                 one("page", a)
             }
+            Step::Type { control, text } => one("type", json!({"control": control, "text": text})),
+            Step::Wait { ms: Some(ms), .. } => one("wait", json!({"ms": ms})),
+            Step::Wait { ms: None, control } => one("wait", json!({"control": control})),
+            Step::Get { control, property } => one("get", json!({"control": control, "property": property})),
         }
     }
 
     /// Does this step need the browser's DOM, so the desktop host cannot run it?
     pub fn desktop_unsupported(&self) -> bool {
-        matches!(self, Step::Text { .. } | Step::Style { .. } | Step::Rect { .. } | Step::Snapshot | Step::Focused | Step::Key { .. } | Step::Page { .. })
+        matches!(self, Step::Text { .. } | Step::Style { .. } | Step::Rect { .. } | Step::Snapshot | Step::Focused | Step::Key { .. } | Step::Page { .. } | Step::Type { .. } | Step::Wait { .. } | Step::Get { .. })
     }
 }
 
@@ -171,6 +191,10 @@ mod tests {
             json!({"focused": {}}),
             json!({"key": {"key": "Tab", "shift": true}}),
             json!({"page": {"property": "innerWidth", "frame": "phone-frame"}}),
+            json!({"type": {"control": "TXT-NAME", "text": "Ana"}}),
+            json!({"wait": {"ms": 200}}),
+            json!({"wait": {"control": "form"}}),
+            json!({"get": {"control": "LBL-OUT", "property": "Text"}}),
         ]
     }
 
@@ -182,7 +206,7 @@ mod tests {
             assert_eq!(step.to_json(), v, "{}", step.name());
             assert_eq!(Step::parse(&step.to_json()), Ok(step));
         }
-        assert_eq!(Step::parse_all(&all()).unwrap().len(), 15);
+        assert_eq!(Step::parse_all(&all()).unwrap().len(), 19);
     }
 
     #[test]
@@ -199,6 +223,6 @@ mod tests {
     #[test]
     fn the_browser_steps_are_the_ones_the_desktop_cannot_run() {
         let unsupported: Vec<&str> = Step::parse_all(&all()).unwrap().iter().filter(|s| s.desktop_unsupported()).map(Step::name).collect();
-        assert_eq!(unsupported, ["text", "style", "rect", "snapshot", "focused", "key", "page"]);
+        assert_eq!(unsupported, ["text", "style", "rect", "snapshot", "focused", "key", "page", "type", "wait", "wait", "get"]);
     }
 }

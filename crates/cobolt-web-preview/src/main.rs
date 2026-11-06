@@ -193,7 +193,8 @@ mod steps {
     pub const MAX_WAIT_MS: u64 = 30_000;
 
     /// The window properties the `page` step reads, and nothing else (WASM-008 T47).
-    pub const PAGE_PROPERTIES: [&str; 5] = ["innerWidth", "innerHeight", "devicePixelRatio", "crossOriginIsolated", "location.pathname"];
+    pub const PAGE_PROPERTIES: [&str; 6] =
+        ["innerWidth", "innerHeight", "devicePixelRatio", "crossOriginIsolated", "location.pathname", "navigator.userAgent"];
 
     /// The roles a `page` step may name as its `frame`.
     pub const FRAMES: [&str; 1] = ["phone-frame"];
@@ -442,6 +443,7 @@ mod steps {
           case 'devicePixelRatio': return w.devicePixelRatio;
           case 'crossOriginIsolated': return !!w.crossOriginIsolated;
           case 'location.pathname': return String(w.location.pathname);
+          case 'navigator.userAgent': return String(w.navigator.userAgent);
         }
         throw new Error('`' + s.property + '` is not a page property');
       }

@@ -75,7 +75,7 @@ Until a gate opens, the task runs on a **fixture** bundle (as `cobolt-web-bundle
   - Do: an unknown step answers an error the runner reports as "helper too old"; never ignored.
   - Verify: `cargo test -p cobolt-web-preview -p cobolt-project-tools --no-fail-fast` green; both sides pin each protocol line in a test (as WASM-008 §3 does); a test asserts there is no step that takes free script text.
 
-- [ ] **T6 — The browser runner library** (R2, R9, AC2) — **gated on T5**
+- [x] **T6 — The browser runner library** (R2, R9, AC2) — **gated on T5**
   - Files: new `crates/cobolt-project-tools/src/web/runner.rs` (`mod runner` in `web/mod.rs`): bundle (via `web::backend()` or `cobolt_web_bundle::assemble_bundle` on a fixture) → serve on loopback (`web/devserver.rs`) → open the helper headless at a preset size → run `script::Step`s → `values`, `displayed`, `errors` (page and `cobol-error`), `png`, `engine` (`webkit`/`webview2`/`webkitgtk` + `navigator.userAgent`); new `crates/cobolt-web-tests/tests/runner.rs::hello_world_bundle`.
   - Do: without a helper or a display, return a typed "no web view — <reason>" error; the test prints it and returns, and fails under `PRC_REQUIRE_WEBVIEW=1`.
   - Verify (**AC2**): `cargo test -p cobolt-web-tests --test runner --no-fail-fast` on this Mac: click a button, read a label's `text`, a `style` `color`, a PNG of non-zero size; prints engine, version and ms per step. Run once with the helper path pointed nowhere → prints the skip; with `PRC_REQUIRE_WEBVIEW=1` → fails.

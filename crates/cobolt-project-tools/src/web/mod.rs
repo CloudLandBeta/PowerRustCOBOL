@@ -31,6 +31,8 @@ pub mod devserver;
 pub mod generator;
 pub mod presets;
 pub mod preview;
+/// The browser runner (WASM-015 R2): a form in the headless web view, driven by `script::Step`s.
+pub mod runner;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};

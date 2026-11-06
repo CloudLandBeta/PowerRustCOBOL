@@ -1,6 +1,10 @@
 # PowerRustCOBOL — Changelog
 
 
+## 2.0.241 — 2026-11-06
+
+**WASM-015 T6: the browser runner library, and AC2 on the hello world.** *(Written on features-2x-wasm-pending, after 2.0.240.)* New `cobolt_project_tools::web::runner`: `run(root, form, size, &[Step], limit)` builds the project, serves it on loopback, opens the form in the system web view's headless helper, runs the steps one script call each and answers `RunReport {values, displayed, errors, png, engine {name, user_agent}, step_ms}`; a machine without the helper or a web view is the typed `RunnerError::NoWebView(reason)`. `Step` gains the helper's own `type`, `wait`, `get`; `to_helper` maps the desktop spellings; the helper's `page` step gains `navigator.userAgent`. Test `cobolt-web-tests/tests/runner.rs::hello_world_bundle` on this Mac (WebKit): empty box asks for a name, "Ada" is greeted, a `style` colour reads `rgb(255, 255, 255)`, a 74,178-byte PNG; per step 54 to 830 ms, the form on the page in 2,256 ms, 8 checks passed. With `PRC_WEB_PREVIEW=/nowhere` it prints the skip; with `PRC_REQUIRE_WEBVIEW=1` too it fails. project-tools 238 passed, web-preview 8+3 passed.
+
 ## 2.0.240 — 2026-11-05
 
 **WASM-015 T5: the read-only steps in the helper protocol, closed.** *(Written on features-2x-wasm-pending, after 2.0.239.)* The helper already ran `text`, `style`, `rect`, `snapshot`, `focused`, `key` (and `page`) from WASM-008 T47, with controls by `[data-name]` or the roles `form`, `layer:<NAME>`, `snackbar` and no `eval` (its test `a_script_is_a_closed_set_of_checked_steps` refuses `{"eval":...}`). What was missing is on the IDE side: `PreviewSession::script` now reports a helper that does not know a step as `helper too old: ...` instead of a page failure, and `the_read_only_steps_are_pinned_and_an_old_helper_is_named` pins the six steps' exact line. cobolt-web-preview 8+3 passed; project-tools preview tests 8 passed.
