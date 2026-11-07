@@ -1,5 +1,15 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.303 — 2026-11-07
+
+**Fix: a Web page whose application runs on threads connects to its Backend again — PowerAnalyticsWeb showed "the connection has no random source" and loaded no data.** *(Written on fixes-2x, after 2.0.302.)*
+
+- **Symptom:** a project with `isolation = "require-corp"` (PowerAnalyticsWeb) opened, but every Backend call failed with `TRANSPORT the connection has no random source`; the dashboard stayed at zero.
+- **Cause:** since the sealed channel (2.0.157) the page draws its key and nonce with `crypto.getRandomValues`, straight into the player's memory. The threaded player (chosen when the page is cross-origin isolated) keeps that memory shared, and the browser refuses `getRandomValues` on a view over shared memory, so no connection was ever started. Projects without isolation use the plain player and were not affected.
+- **Second symptom behind it:** once the key was drawn, the page stalled on "Carregando fundos…" with the connection open and no data, because a sealed frame was sent from a view over the same shared memory, which a WebSocket also refuses.
+- **Fix:** the key and nonce are drawn into a fresh array and copied out, a binary frame is sent from a copy in a plain buffer, and the sign-in state of a hosted login draws its bytes the same way. `Math.random` is still never a fallback. The player in `assets/web-player/` is rebuilt.
+- **Checked:** PowerAnalyticsWeb against its Backend loads the dashboard with the threaded player (and with the plain one); the player's tests pass.
+
 ## 2.0.302 — 2026-11-07
 
 **WASM-036 tasks: the work broken into 24 ordered, checkable steps.** *(Written on features-2x, after 2.0.301.)*

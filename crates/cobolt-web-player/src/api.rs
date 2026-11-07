@@ -419,7 +419,10 @@ impl Socket for WsSocket {
 
     fn send_binary(&mut self, bytes: &[u8]) {
         if let Some(ws) = &self.ws {
-            let _ = ws.send_with_u8_array(bytes);
+            // A copy in a plain ArrayBuffer: a WebSocket refuses a view over the threaded player's shared memory.
+            let copy = js_sys::Uint8Array::new_with_length(bytes.len() as u32);
+            copy.copy_from(bytes);
+            let _ = ws.send_with_array_buffer(&copy.buffer());
         }
     }
 
@@ -430,10 +433,19 @@ impl Socket for WsSocket {
 
 /// The 32 bytes of a key and the 16 of a nonce: the browser's cryptographic generator, `crypto.getRandomValues`,
 /// and nothing else. `Math.random` is never a fallback (WASM-003 R24): a page without it gets no connection.
-fn browser_entropy(buf: &mut [u8]) -> bool {
-    web_sys::window()
-        .and_then(|w| w.crypto().ok())
-        .is_some_and(|c| c.get_random_values_with_u8_array(buf).is_ok())
+///
+/// The bytes are drawn into a fresh array and copied out: the threaded player's memory is a `SharedArrayBuffer`, and
+/// `getRandomValues` refuses a view over shared memory, so a direct draw into `buf` failed there ("no random source").
+pub(crate) fn browser_entropy(buf: &mut [u8]) -> bool {
+    let Some(crypto) = web_sys::window().and_then(|w| w.crypto().ok()) else {
+        return false;
+    };
+    let tmp = js_sys::Uint8Array::new_with_length(buf.len() as u32);
+    if crypto.get_random_values_with_js_u8_array(&tmp).is_err() {
+        return false;
+    }
+    tmp.copy_to(buf);
+    true
 }
 
 // ── the instance ────────────────────────────────────────────────────────────

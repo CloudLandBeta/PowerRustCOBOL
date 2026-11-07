@@ -1517,8 +1517,8 @@ mod tests {
     fn the_browser_key_source_is_get_random_values_and_never_math_random() {
         let api = include_str!("api.rs");
         let start = api.find("fn browser_entropy").expect("browser_entropy exists");
-        let body = &api[start..start + 400];
-        assert!(body.contains("get_random_values_with_u8_array"), "{body}");
+        let body = &api[start..start + 700];
+        assert!(body.contains("get_random_values_with_js_u8_array"), "{body}");
         assert!(!body.contains("Math::random") && !body.contains("Math.random"), "{body}");
         assert!(api.contains("ncfg.entropy = Some(browser_entropy)"), "the connection is given that source");
     }

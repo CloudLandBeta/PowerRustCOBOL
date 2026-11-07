@@ -7,9 +7,9 @@
       "sha256": "c45b4f656c0fd2be200a9df0e9ac07806b049507f6a5be35fe229b5f32dd7825"
     },
     {
-      "bytes": 3190571,
+      "bytes": 3190430,
       "path": "parts/canvas/canvas_bg.wasm",
-      "sha256": "22cb095340411d7688acd231a49451c4288c29122ae16e764e77efa1b76e6497"
+      "sha256": "6e52de175fb6bf1ae72b0441a11fa1b56bacae14c57574a82eee3e601064e71b"
     },
     {
       "bytes": 25244,
@@ -17,9 +17,9 @@
       "sha256": "4e76bd99e7392dd110f0f81382d99997084868048882b57322bea5ddb8282c60"
     },
     {
-      "bytes": 5974708,
+      "bytes": 5974539,
       "path": "parts/graphics/graphics_bg.wasm",
-      "sha256": "198a2cbfba80b8b2c10774e89c8189da0883e8508618616f2fa849b97d80aad0"
+      "sha256": "18921a4c688cd5170d52e28e19eea5df14c49d4bf3da74defe357dd7975be8b7"
     },
     {
       "bytes": 143445,
@@ -27,9 +27,9 @@
       "sha256": "a4bc10688eec50f27d70b50f87e80ae65ca1bb2afd2dc061a5b7ca8fc94552e0"
     },
     {
-      "bytes": 8470113,
+      "bytes": 8469866,
       "path": "parts/graphics3d/graphics3d_bg.wasm",
-      "sha256": "5ff6f8aa4d221c3753d229bc74e819a39d164b4ec3f33c8913eb1430f45d7b9d"
+      "sha256": "7686b04fde9c084c84312b789451ad4ebabbf9e824097d37982b3a835108ee0c"
     },
     {
       "bytes": 7985,
@@ -37,9 +37,9 @@
       "sha256": "2585e75ede88c4a08edb85882d76f07972c94362415cad19fb64745caca9f26d"
     },
     {
-      "bytes": 2218097,
+      "bytes": 2218089,
       "path": "parts/mermaid/mermaid_bg.wasm",
-      "sha256": "b4f86526b006de32fd4edf9a333566f4270f475a23ad6a69de52e5a8e3a65bb7"
+      "sha256": "ed29e212efd66d8b5080d6ae249a96bece1eaa7de07ee247582daa5bad225aad"
     },
     {
       "bytes": 6785,
@@ -47,29 +47,29 @@
       "sha256": "0acbcc4dbaa3dea42c3bc8e9f4228aa9110f792e8d77349f3f578b03aa42e7cf"
     },
     {
-      "bytes": 216662,
+      "bytes": 216654,
       "path": "parts/pdf/pdf_bg.wasm",
-      "sha256": "0cadbdf0d6fa71771e0094fe9dd7b21c1aaa9438d7280c43d4ec4e53f0dc030f"
+      "sha256": "133af18c0164323b601f16a058d8f7ad437e195bf6ad0357d3c2976d227dbf60"
     },
     {
-      "bytes": 100602,
+      "bytes": 100558,
       "path": "plain/player.js",
-      "sha256": "4dadaeb399d5d09c0a6b822521e49e58783c98e3cd2bfbfc0198bffc0616f0a5"
+      "sha256": "09528fcc4c5d7d4e7fc5b0de6ce0dae7384287741a3d599c65e4aae40a56b378"
     },
     {
-      "bytes": 4013719,
+      "bytes": 4013514,
       "path": "plain/player_bg.wasm",
-      "sha256": "c946e3f7275c7cd4c88fb4f3f851af5ba0ffa33feea9233dbac85e92248548c1"
+      "sha256": "ac92f2ef87d35a773f1f93e97767d708121daadea516ce160a0a2aec387909ca"
     },
     {
-      "bytes": 106893,
+      "bytes": 106849,
       "path": "threaded/player.js",
-      "sha256": "8edb8d85180b849f220fe30874216b9452ee340591a5f3b5aed5b1f1df0d0551"
+      "sha256": "9136b53df73c8b35df422292ec8bcdfb83f7c67e39b4dec373525b3c87437143"
     },
     {
-      "bytes": 3834479,
+      "bytes": 3834842,
       "path": "threaded/player_bg.wasm",
-      "sha256": "3a0f9b2a65d65564d1a807d4d673af4fed8abc98f4558c7c4381012261720712"
+      "sha256": "eb211a66274868b841fae081a96ace79fb3afc945d74d107a4127377ddeb3ea4"
     },
     {
       "bytes": 4556,
@@ -87,67 +87,67 @@
   ],
   "measurements": [
     {
-      "after_bindgen_bytes": 4360101,
-      "after_wasm_opt_bytes": 4013719,
-      "cargo_output_bytes": 5852618,
-      "glue_js_bytes": 100602,
-      "gzip_bytes": 1385934,
+      "after_bindgen_bytes": 4365205,
+      "after_wasm_opt_bytes": 4013514,
+      "cargo_output_bytes": 5858018,
+      "glue_js_bytes": 100558,
+      "gzip_bytes": 1385689,
       "opt_level": "s",
       "variant": "plain"
     },
     {
-      "after_bindgen_bytes": 4135480,
-      "after_wasm_opt_bytes": 3834479,
-      "cargo_output_bytes": 5639142,
-      "glue_js_bytes": 106893,
-      "gzip_bytes": 1360898,
+      "after_bindgen_bytes": 4136084,
+      "after_wasm_opt_bytes": 3834842,
+      "cargo_output_bytes": 5639837,
+      "glue_js_bytes": 106849,
+      "gzip_bytes": 1361227,
       "opt_level": "s",
       "variant": "threaded"
     }
   ],
   "parts": [
     {
-      "after_bindgen_bytes": 2392225,
-      "after_wasm_opt_bytes": 2218097,
-      "cargo_output_bytes": 2540322,
+      "after_bindgen_bytes": 2392217,
+      "after_wasm_opt_bytes": 2218089,
+      "cargo_output_bytes": 2540314,
       "glue_js_bytes": 7985,
-      "gzip_bytes": 798373,
+      "gzip_bytes": 798353,
       "name": "mermaid",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 3459522,
-      "after_wasm_opt_bytes": 3190571,
-      "cargo_output_bytes": 3620234,
+      "after_bindgen_bytes": 3459394,
+      "after_wasm_opt_bytes": 3190430,
+      "cargo_output_bytes": 3620106,
       "glue_js_bytes": 19178,
-      "gzip_bytes": 1255512,
+      "gzip_bytes": 1255481,
       "name": "canvas",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 6574559,
-      "after_wasm_opt_bytes": 5974708,
-      "cargo_output_bytes": 7476164,
+      "after_bindgen_bytes": 6574367,
+      "after_wasm_opt_bytes": 5974539,
+      "cargo_output_bytes": 7475972,
       "glue_js_bytes": 25244,
-      "gzip_bytes": 2376631,
+      "gzip_bytes": 2376491,
       "name": "graphics",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 9326593,
-      "after_wasm_opt_bytes": 8470113,
-      "cargo_output_bytes": 10979548,
+      "after_bindgen_bytes": 9326337,
+      "after_wasm_opt_bytes": 8469866,
+      "cargo_output_bytes": 10979292,
       "glue_js_bytes": 143445,
-      "gzip_bytes": 3348742,
+      "gzip_bytes": 3349171,
       "name": "graphics3d",
       "opt_level": "s"
     },
     {
-      "after_bindgen_bytes": 237318,
-      "after_wasm_opt_bytes": 216662,
-      "cargo_output_bytes": 265623,
+      "after_bindgen_bytes": 237310,
+      "after_wasm_opt_bytes": 216654,
+      "cargo_output_bytes": 265615,
       "glue_js_bytes": 6785,
-      "gzip_bytes": 100616,
+      "gzip_bytes": 100613,
       "name": "pdf",
       "opt_level": "s"
     }
@@ -160,7 +160,7 @@
     "strip": true,
     "wasm_opt": "-Os"
   },
-  "source_hash": "6c03a8cce25c234cad92d4ee6f4cb23af98b51f69298ab621b76b8e2ea23bd44",
+  "source_hash": "d811d2426102534c7f298787c03d9a55f47f27614cd4a0955afa458c2c2ddb23",
   "tools": {
     "nightly": "nightly-2026-10-22",
     "rustc_nightly": "rustc 1.101.0-nightly (1a2c4797e 2026-10-21)",

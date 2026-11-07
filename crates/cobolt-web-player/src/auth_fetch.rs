@@ -58,7 +58,9 @@ pub(crate) fn page_address() -> String {
 pub(crate) fn keep_state() -> Option<String> {
     let w = web_sys::window()?;
     let mut bytes = [0u8; 16];
-    w.crypto().ok()?.get_random_values_with_u8_array(&mut bytes).ok()?;
+    if !crate::api::browser_entropy(&mut bytes) {
+        return None;
+    }
     let state: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     w.session_storage().ok()??.set_item(HOSTED_STATE_KEY, &state).ok()?;
     Some(state)
