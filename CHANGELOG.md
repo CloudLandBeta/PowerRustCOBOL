@@ -1,5 +1,16 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.304 — 2026-11-07
+
+**Fix: the PowerDemo3 Maps demo draws Elena's region along the official boundary of the province of A Coruna.** *(Written on fixes-2x, after 2.0.303.)*
+
+- **Symptom:** the "Norte - Elena" territory was a coarse six-point shape stretching from Galicia to the Basque Country, ignoring the province of A Coruna it is named for.
+- **Fix:** `examples/PowerDemo3/forms/Common/maps-demo.cfrm` now gives NORTE the province outline taken from the Instituto Geografico Nacional of Spain (Base de Datos de Divisiones Administrativas de Espana, "Unidades administrativas", province code 34121500000, served by api-features.ign.es), simplified from 74,005 to 478 vertices (about 500 m tolerance) so it stays a light literal. Only the mainland ring is kept; the islets are left out.
+
+- **Second symptom, in the renderer:** with that detailed outline, zooming the map out threw thin red spikes from the region across the whole map. `cobolt-forms/src/map_tiles.rs` painted each filled triangle as its own `convex_polygon`, and epaint feathers a convex polygon by pushing each vertex along its normal; at a low zoom hundreds of vertices fall inside one pixel, the triangles become slivers, and a sliver's normal blows up. The fill is now ONE un-feathered mesh built from the triangulation already computed for hit-testing, and the outline stroke draws the edge. Every region on every map is painted this way.
+- **Snapshot:** the codegen golden `crates/cobolt-codegen/tests/golden/corpus/PowerDemo3/Common__maps-demo.cbl` is regenerated for the new comment and polygon (`UPDATE_GOLDEN=1`); only that snapshot moved, and `example_corpus_codegen` passes again.
+- **Checked:** `cargo check -p cobolt-forms --features render` is clean and the 47 `map_` unit tests pass. In `cargo test -p cobolt-forms --features render`, the library's 1493 tests and the first 17 integration test binaries passed with 0 failures; the sweep was stopped there to push, so its remaining binaries and `cobolt-form-host` were not run. The zoomed-out view was not looked at.
+
 ## 2.0.303 — 2026-11-07
 
 **Fix: a Web page whose application runs on threads connects to its Backend again — PowerAnalyticsWeb showed "the connection has no random source" and loaded no data.** *(Written on fixes-2x, after 2.0.302.)*

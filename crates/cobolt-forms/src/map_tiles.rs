@@ -1036,15 +1036,19 @@ pub fn paint_map_at(
         let fill = parse_hex_color(&region.fill).unwrap_or(colors.region_fill);
         // Triangulated, never `convex_polygon`: a sales territory or a delivery
         // zone is nearly always concave, and a convex fill floods its notches.
-        for tri in crate::map_geometry::triangulate(&pts) {
-            painter.add(egui::Shape::convex_polygon(
-                tri.iter()
-                    .map(|&i| egui::pos2(pts[i].0, pts[i].1))
-                    .collect(),
-                fill,
-                egui::Stroke::NONE,
-            ));
+        // Painted as ONE un-feathered mesh, not a `convex_polygon` per triangle:
+        // epaint feathers every convex polygon by pushing each vertex along its
+        // normal, and a sliver triangle (a fine boundary seen zoomed out, where
+        // hundreds of vertices fall within a pixel) has a normal that blows up,
+        // throwing spikes across the whole map. The outline below is the edge.
+        let mut mesh = egui::Mesh::default();
+        for p in &pts {
+            mesh.colored_vertex(egui::pos2(p.0, p.1), fill);
         }
+        for tri in &tris {
+            mesh.add_triangle(tri[0] as u32, tri[1] as u32, tri[2] as u32);
+        }
+        painter.add(egui::Shape::mesh(mesh));
         if let Some(stroke) = parse_hex_color(&region.stroke) {
             let mut ring: Vec<egui::Pos2> =
                 pts.iter().map(|&(x, y)| egui::pos2(x, y)).collect();
