@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.302 — 2026-11-07
+
+**WASM-036 tasks: the work broken into 24 ordered, checkable steps.** *(Written on features-2x, after 2.0.301.)*
+
+`specs/WASM-036-stylesheet-values-in-designer-and-properties/tasks.md` turns the plan into seven phases:
+- **The engine** in `cobolt-forms`, with no egui (T1–T6):
+  - attribute selectors, `:host` and decided media queries;
+  - the sheet set, element path and cascade;
+  - the reverse table;
+  - the properties layer, pinned to the player by tests;
+  - the write-back planner;
+  - the caches and the 200-control, 500-rule budget.
+- **Painting** (T7–T8): `RenderInput.css_final` on both render paths, and `render_form` with `color_scheme`.
+- **Showing it in the IDE** (T9–T10): the designer's canvas and badge, and the Properties panel's values and marks.
+- **Writing it** (T11–T14): `Cmd::SetStylesheet` with compare-before-write, the shared-rule question window, Go to rule / Remove, and edits with several controls selected.
+- **Light / Dark** (T15).
+- **Check and the agent** (T16–T18).
+- **Closing** (T19–T24): the i18n audit, the System KB, the Chrome differential test, Desktop unchanged, the emulator check by eye, and finalize.
+
+Each task names its files, its requirements and the exact command that verifies it. Every acceptance criterion (AC1 to AC20) is mapped to the task that proves it. The spec and plan say so, and `WASM-PROGRESS.md` is updated.
+
+No code changed, only the version.
+
 ## 2.0.301 — 2026-11-07
 
 **WASM-036 widened: a Light / Dark colour scheme in the designer, `render_form` and `check` reading the stylesheets, and a property tool for the Form Designer agent.** *(Written on features-2x, after 2.0.300.)*

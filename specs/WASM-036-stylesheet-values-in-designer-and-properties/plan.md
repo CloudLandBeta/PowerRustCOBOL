@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Plan — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule
 
-- **Status:** draft
+- **Status:** accepted; broken into tasks in `./tasks.md` (2.0.302)
 - **Spec:** ./spec.md   **Date:** 2026-11-07
 - **Branch:** `features-2x` (2.x.x)
 - **Ground truth:** read 2026-11-07 on `2.x.x` at `73fbccaf` (2.0.299). File:line references are to that tree.

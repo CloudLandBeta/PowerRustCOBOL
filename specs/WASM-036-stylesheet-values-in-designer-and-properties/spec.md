@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule
 
-- **Status:** planned (`plan.md`, 2026-11-07).
+- **Status:** planned and broken into tasks (`plan.md`; `tasks.md`, 2.0.302, 2026-11-07). No task started.
   - The operator asked for it on 2026-11-07 and accepted the six recommended answers to Q1–Q6 the same day.
   - R1, R4, R5 and R17 were corrected to what the code does (plan §0.6).
   - At the operator's request (2.0.301) it also covers three gaps the plan found: the designer gets a Light / Dark colour scheme (R24, R25); `render_form` and `check` read the stylesheets (R17, R21); the Form Designer agent gets a property tool, and its change sets take the Properties panel's path (R22, R23). Q5 was revised to match.
