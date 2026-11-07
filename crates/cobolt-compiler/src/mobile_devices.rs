@@ -102,6 +102,34 @@ pub fn application_log(line: &str) -> Option<&str> {
     Some(text.strip_prefix("File: ").and_then(|t| t.split_once(" - Msg: ")).map_or(text, |(_, m)| m))
 }
 
+/// Is the activity of the application `app_id` among the activities in `dumpsys activity
+/// activities`'s answer? It is from the moment a start is taken (before the process has even been
+/// named), and not after the application is stopped.
+pub fn has_activity(dumpsys: &str, app_id: &str) -> bool {
+    let record = format!(" {app_id}/.MainActivity ");
+    dumpsys.lines().any(|l| l.contains("ActivityRecord{") && l.contains(&record))
+}
+
+/// The Linux user id of the application `app_id` in `pm list packages -U <app_id>`'s answer
+/// (`package:<id> uid:<n>`; the command also lists every package whose id contains `app_id`).
+pub fn parse_package_uid(text: &str, app_id: &str) -> Option<u32> {
+    text.lines().find_map(|l| {
+        let (package, uid) = l.trim().strip_prefix("package:")?.split_once(" uid:")?;
+        (package == app_id).then(|| uid.trim().parse().ok()).flatten()
+    })
+}
+
+/// The arguments of `adb logcat` that follow the application's log from now on: its tags
+/// ([`LOG_TAGS`]) and, when its user id is known, only its own processes. Without the user id a
+/// crash of any application on the device (`E/AndroidRuntime`) would read as this one's; with it,
+/// a new process of the application (started again from its icon) is still followed.
+pub fn logcat_args(uid: Option<u32>) -> Vec<String> {
+    let mut args: Vec<String> = ["logcat", "-T", "1", "-v", "brief"].iter().map(|s| (*s).to_owned()).collect();
+    args.extend(uid.map(|u| format!("--uid={u}")));
+    args.extend(LOG_TAGS.iter().map(|s| (*s).to_owned()));
+    args
+}
+
 /// The emulators (Android Virtual Devices) in `emulator -list-avds`'s answer. An emulator's name
 /// is made of letters, digits, `.`, `_` and `-`; any other line (a note the emulator prints about
 /// itself) is not one.
@@ -255,7 +283,10 @@ impl Adb {
     /// Start the application `app_id` on `serial` as a tap on its icon does ([`launch_args`]). A
     /// device that has just started refuses a start for a few seconds (measured: an emulator that
     /// resumed its saved state took a start before its user was unlocked); a refused start is
-    /// asked again every 2 s until `patience` has passed, then its reason is answered.
+    /// asked again every 2 s until `patience` has passed, then its reason is answered. A start that
+    /// answered a failure but was taken (measured: a busy emulator answered after 18 s) is not
+    /// asked again: a second start replaces the application's activity, and that ends a Tauri
+    /// application ([`has_activity`]).
     pub fn launch(&self, serial: &str, app_id: &str, patience: Duration) -> Result<(), String> {
         let args = launch_args(app_id);
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -266,6 +297,10 @@ impl Adb {
                 Ok(text) => format!("the application did not start: {}", text.trim()),
                 Err(why) => why,
             };
+            let taken = self.run(Some(serial), &["shell", "dumpsys", "activity", "activities"]).is_ok_and(|t| has_activity(&t, app_id));
+            if taken {
+                return Ok(());
+            }
             if t0.elapsed() >= patience {
                 return Err(why);
             }
@@ -273,16 +308,22 @@ impl Adb {
         }
     }
 
-    /// Stop the application `app_id` on `serial`, so the next start loads the new package.
+    /// Stop the application `app_id` on `serial`; before an install, so Android has no running
+    /// application to cover and start again when the update is done.
     pub fn stop(&self, serial: &str, app_id: &str) -> Result<(), String> {
         self.run(Some(serial), &["shell", "am", "force-stop", app_id]).map(|_| ())
     }
 
-    /// The application's log from now on: a running `adb logcat` whose output is read line by
-    /// line (stop it with `kill`).
-    pub fn logcat(&self, serial: &str) -> Result<Child, String> {
+    /// The Linux user id of the installed application `app_id` on `serial` ([`parse_package_uid`]).
+    pub fn uid(&self, serial: &str, app_id: &str) -> Option<u32> {
+        self.run(Some(serial), &["shell", "pm", "list", "packages", "-U", app_id]).ok().and_then(|t| parse_package_uid(&t, app_id))
+    }
+
+    /// The log of the application whose user id is `uid` from now on ([`logcat_args`]): a running
+    /// `adb logcat` whose output is read line by line (stop it with `kill`).
+    pub fn logcat(&self, serial: &str, uid: Option<u32>) -> Result<Child, String> {
         let mut c = self.command(Some(serial));
-        c.args(["logcat", "-T", "1", "-v", "brief"]).args(LOG_TAGS).stdout(Stdio::piped()).stderr(Stdio::null());
+        c.args(logcat_args(uid)).stdout(Stdio::piped()).stderr(Stdio::null());
         c.spawn().map_err(|e| format!("adb logcat could not be started ({e})"))
     }
 }

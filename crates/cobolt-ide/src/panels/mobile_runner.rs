@@ -165,11 +165,15 @@ impl Job {
         // The device may have restarted its system while the package was built (an emulator
         // starved by the build): wait for it rather than fail the install.
         adb.wait_until_ready(device, EMULATOR_START_LIMIT)?;
-        adb.install(device, &package.path)?;
+        // Stopped before the install, not after: Android 17 covers a visible application with a
+        // placeholder while its package is updated and starts it again when the update is done —
+        // on a busy emulator after the Run has started it, replacing its activity, which ends a
+        // Tauri application (measured 2026-11-06). A stopped application has nothing to cover.
         let _ = adb.stop(device, &app_id);
+        adb.install(device, &package.path)?;
         adb.launch(device, &app_id, LAUNCH_PATIENCE)?;
         self.say(fill(self.tr.pk_dev_started, &[device]));
-        let mut child = adb.logcat(device)?;
+        let mut child = adb.logcat(device, adb.uid(device, &app_id))?;
         if let Some(out) = child.stdout.take() {
             let job = self.clone();
             std::thread::spawn(move || {

@@ -264,6 +264,22 @@ fn the_devices_and_the_application_log_are_read_from_adb() {
         assert_eq!(md::is_application_log(line), shown.is_some(), "{line}");
         assert_eq!(md::application_log(line), shown, "{line}");
     }
+    // Only the application's own processes are followed: its user id from `pm list packages -U`,
+    // which also lists the packages whose id merely contains the one asked for.
+    let listed = "package:com.powerrustcobol.mobilehello.extra uid:10240\npackage:com.powerrustcobol.mobilehello uid:10233\r\n";
+    assert_eq!(md::parse_package_uid(listed, "com.powerrustcobol.mobilehello"), Some(10233));
+    assert_eq!(md::parse_package_uid("", "com.powerrustcobol.mobilehello"), None);
+    assert_eq!(
+        md::logcat_args(Some(10233)).join(" "),
+        "logcat -T 1 -v brief --uid=10233 Tauri/Console:V RustStdoutStderr:V AndroidRuntime:E *:S"
+    );
+    assert!(!md::logcat_args(None).iter().any(|a| a.starts_with("--uid")), "unknown user id: the whole device's tags, as before");
+    // A start that answered a failure is asked again only when it was not taken: the activity is
+    // listed one second after a start, before `pidof` knows the process.
+    let taken = "  Task id #42\n    * Hist  #0: ActivityRecord{109047888 u0 com.powerrustcobol.mobilehello/.MainActivity t42}\n";
+    assert!(md::has_activity(taken, "com.powerrustcobol.mobilehello"));
+    assert!(!md::has_activity(taken, "com.powerrustcobol.mobile"), "another application's id that is a prefix of it");
+    assert!(!md::has_activity("  ResumedActivity: ActivityRecord{1 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t1}\n", "com.powerrustcobol.mobilehello"));
     // The application is started as a tap on its icon starts it: the launcher's intent, Tauri's activity.
     assert_eq!(
         md::launch_args("com.example.hello").join(" "),
@@ -271,7 +287,8 @@ fn the_devices_and_the_application_log_are_read_from_adb() {
     );
     println!(
         "adb parsing: 2 devices of 4 lines (ready, unauthorized), model label, empty list; 7 log lines told apart (web view noise, shell, console error, \
-         a DISPLAY, a continuation line, crash, system) and each shown as the program wrote it"
+         a DISPLAY, a continuation line, crash, system) and each shown as the program wrote it; the user id of 2 listed packages and of none; \
+         the log arguments with and without it; a taken start told from 2 that were not"
     );
 }
 

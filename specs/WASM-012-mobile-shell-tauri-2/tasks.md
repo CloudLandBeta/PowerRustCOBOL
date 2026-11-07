@@ -9,11 +9,12 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   plan's first draft (2.0.30). No box was checked in the first version, so there is no evidence to carry. No shell code exists yet. Every Tauri, Android
   and iOS statement in the plan is marked **[verify]** and is unconfirmed; T1 confirms them before any other task starts.
 - **Plan:** ./plan.md   **Date:** 2026-10-23
-- **Implementation (2026-11-05/06, `features-2x-wasm-pending`, 2.0.288–2.0.290).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
+- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.291).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
   of a Mobile project make the web bundle and then `dist/mobile/android/<Name>-debug.apk`; the IDE's Run with an emulator builds, installs and starts
   it as a tap on its icon would and shows the application's log (a `DISPLAY` reads as the program wrote it); the phone's secure storage works on the
   emulator (stored, read back after a restart, deleted); the forms keep out of the status and gesture bars; Back on the first form ends the
-  application cleanly (2.0.289); with no phone and no emulator running, Run starts the emulator set up and waits for it (2.0.290). The example is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1, T3–T7,
+  application cleanly (2.0.289); with no phone and no emulator running, Run starts the emulator set up and waits for it (2.0.290); a Run
+  over the application on screen keeps it alive, and the Output shows only the application's own log (2.0.291). The example is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1, T3–T7,
   T12, T17, T18. Partly done (what is left is named under each): T8, T9, T11, T13–T16, T20, T22, T24. Not started: T2 (the baseline was not taken
   before the change; T23 is run after it), T10 (O9), T19, T21, T25 (O1), T25b, T25c, T26. iOS is not run here: Xcode 15.2's simulators are iOS
   17.2, below the iOS 18 floor.
@@ -400,7 +401,12 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     server ("Blocked in handler on ui thread for 68s") while the package was being built, `sys.boot_completed` stayed `1`, and the install
     failed with "Can't find service: package"; the Run now waits for the package service before every install), and
     `targets` (the devices running, then the emulators that can be started, less those already running); test
-    `the_emulators_that_can_be_started_are_read_from_the_sdk` from this Mac's recorded answers. **Left:** the iOS simulators and devices, the
+    `the_emulators_that_can_be_started_are_read_from_the_sdk` from this Mac's recorded answers. **2.0.291:** the log follows the
+    application's own processes only (`logcat --uid=<its user id>`, from `pm list packages -U`; `parse_package_uid`, `logcat_args`) — before,
+    another application's crash (`E/AndroidRuntime`, seen when Android restarted its system) would have read as this one's; the user id
+    survives a new process (the application started again from its icon). A start that answered a failure is asked again only when it was
+    not taken (`has_activity`, `dumpsys activity activities`: measured, a busy emulator answered an accepted start as a failure after 18 s,
+    and the second start replaced the activity, which ends a Tauri application). **Left:** the iOS simulators and devices, the
     LAN opt-in, `adb reverse` for the dev server (D-Dev: the Run builds the package from the bundle instead).
   - Files: `crates/cobolt-compiler/src/mobile_devices.rs` (new); `src/lib.rs`.
   - Do:
@@ -460,6 +466,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     starts it, says so in the Output (`pk_dev_emulator_starting`, `pk_dev_emulator_ready`, ×6), waits for it (at most 300 s) and goes on; the
     fallback note with no device and no emulator now says how to create one (`pk_prev_not_device_none` ×6, plan case (d)). **Interim, until
     T19's window:** with several targets and none chosen, the first is taken (a running one before one that must be started) instead of asking.
+    **2.0.291:** the Run stops the application **before** the install, not after: measured on Android 17, an install over the application
+    on screen covers it with a placeholder and starts it again when the update is done ("PackageUpdateController … launching the base
+    intent"); on a busy emulator that came 38 s later, after the Run had started it, and replaced its activity — the application ended. A
+    stopped application gets "no process with activities in it" and nothing is started again (measured: alive 90 s after the Run).
     **Decision tests:** (a) `a_mobile_preview_hands_the_address_to_a_device_and_reads_its_log_008` (detect, list, run on the first target with
     the dev address; no browser); (c) `a_mobile_preview_without_device_tools_opens_the_phone_page_008` (the missing tool reaches `NotTheDevice`,
     six languages); (d) and (f) `a_mobile_preview_with_no_target_and_a_web_preview_take_the_browser_012` (tools and no target: the browser page
@@ -539,7 +549,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     state), built, installed, "Started on emulator-5554" — 14.4 s in all; the form greeted "Welcome back, Grace!". Two earlier attempts found
     what the Run now waits for: Android restarting its system on the emulator starved by the build (the package service gone while
     `sys.boot_completed` stayed `1`), and a start refused before the user was unlocked; each is now waited for (the package service before
-    the install, a refused start asked again for up to 60 s). The restart case is covered by that wait, not re-measured. AC7 in part: the forms stand below the status bar (root 24 CSS px down,
+    the install, a refused start asked again for up to 60 s). The restart case is covered by that wait, not re-measured. **2.0.291, a Run
+    over the application on screen** (the case a developer meets on every second Run): 22.1 s to the started application, one start, alive
+    and in front 90 s later; then, following the log with the Run's own `--uid` arguments, Greet, Forget me and Greet gave the program's three
+    `DISPLAY` lines ("Hello, Grace. I will remember you.", "Forgotten. See you, stranger.", "Type your name first."), every line from the
+    application's process and none from another. AC7 in part: the forms stand below the status bar (root 24 CSS px down,
     the strip `#f4f5f7`) and above the gesture bar; Back measured (it closes, it does not pop: the example has one form). **Not run here:** the
     `.aab`; iOS (Xcode 15.2, simulators iOS 17.2 < floor 18); AC4 live (the operator's key); AC6 (O4); AC7's rotation and a multi-form Back;
     AC8–AC9 on the device; the R3a fallback.
