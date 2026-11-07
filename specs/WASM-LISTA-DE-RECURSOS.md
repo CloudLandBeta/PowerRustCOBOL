@@ -1379,7 +1379,7 @@ Todas as escolhas de realização em HTML (`inert`, `pointer-events`, `overflow:
 
 Pedido do operador em 2026-11-07: as propriedades da form e dos controles de um projeto mobile devem refletir o CSS definido para eles, e vice-versa. A parte do mesmo relato que era defeito saiu como a correção 2.0.298: a Line girada por `LineAngle`, o vidro do tema Spatial e o desktop substituto no canvas.
 
-- **WASM-036 (20 requisitos, 16 critérios de aceite):**
+- **WASM-036 (25 requisitos e 20 critérios de aceite desde a 2.0.301; eram 20 e 16 na 2.0.299):**
   - **Cálculo único da aparência efetiva**, sem egui. Para cada propriedade, dá o valor em vigor e a origem: a propriedade, o bloco do tema, uma regra (com arquivo e linha) ou o `CssStyle`.
   - **Tabela reversa CSS → propriedade**, com fidelidade *exact*, *approximate* ou *not reversible*.
   - **`@media` decidido pelo tamanho da form**, e não pelos 1024 px fixos.
@@ -1388,6 +1388,9 @@ Pedido do operador em 2026-11-07: as propriedades da form e dos controles de um 
   - **Escrita segura:** toda escrita é desfazível e conferida depois. Uma escrita sem efeito é desfeita e explicada.
   - **Ações na linha:** **Go to rule** e **Remove the CSS declaration**, esta com confirmação e undo.
   - **Também:** seleção múltipla; as ferramentas de agente veem os mesmos valores; projeto desktop inalterado.
+  - **Esquema de cores (2.0.301):** o designer ganha a escolha **Light / Dark**. Ela decide as regras `prefers-color-scheme`. É estado de visualização, lembrado por projeto, e não muda o arquivo da form nem a stylesheet.
+  - **`render_form` e `check` (2.0.301):** `render_form` pinta os valores efetivos e ganha o argumento `color_scheme`. `check` lista, como notas, o que uma stylesheet sobrescreve e os seletores que o IDE não avalia.
+  - **Agente Form Designer (2.0.301):** ganha a ferramenta de leitura `form.properties`. O `SetProperty` dos seus change sets segue o mesmo caminho de uma edição no painel Properties. Regra compartilhada continua dependendo da resposta do desenvolvedor.
 - **Emenda:** WASM-007 R12. O designer passa a mostrar o resultado do CSS que consegue pintar.
 - **Índice:**
   - decisão D23, pedida pelo operador;
@@ -1398,5 +1401,5 @@ Pedido do operador em 2026-11-07: as propriedades da form e dos controles de um 
   - **Q2:** "só este controle" escreve uma regra por id na stylesheet da form.
   - **Q3:** uma propriedade sem regra continua sendo propriedade.
   - **Q4:** mostrar os valores do bloco do tema.
-  - **Q5:** os agentes só informam.
+  - **Q5:** os agentes só informam. Revista na 2.0.301: isso continua valendo para o agente de código via MCP, que edita arquivos. O agente Form Designer, que não tem ferramentas de arquivo, passa a escrever pelo caminho do painel.
   - **Q6:** `@media` pelo tamanho da form.

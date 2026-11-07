@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.301 — 2026-11-07
+
+**WASM-036 widened: a Light / Dark colour scheme in the designer, `render_form` and `check` reading the stylesheets, and a property tool for the Form Designer agent.** *(Written on features-2x, after 2.0.300.)*
+
+At the operator's request, the spec and the plan now close three gaps the plan had found in the code.
+
+**1. The designer had no light or dark mode for a form** (no `theme_mode` anywhere), so a rule under `@media (prefers-color-scheme: dark)`, which a phone in dark mode applies, could be neither seen nor edited.
+- **R24:** the designer of a Web or Mobile form offers **Light** or **Dark** in its toolbar. It is a way of viewing, remembered per project, and is never written to the form file or a stylesheet.
+- **R25:** it decides `prefers-color-scheme`, so the canvas, the Properties panel and the write-back all follow it. The Preview, Run and the built application keep the browser's or the device's own setting.
+
+**2. The MCP `render_form` and `check` read no stylesheet.**
+- **R17:** `render_form` paints a Web or Mobile form's effective values and takes a new `color_scheme` argument (`light` when absent). The IDE's and `rcrun`'s renderers give the same picture.
+- **R21:** `check` notes each property a stylesheet overrides (with file, line and scheme) and each selector the IDE cannot evaluate. Notes are not errors.
+
+**3. The Form Designer agent had no property tools.** It read a context and wrote change sets applied as a raw `Cmd::SetProperty`.
+- **R22:** its context lists the overrides, and a new read-only IDE tool, `form.properties`, gives each property's stored value, effective value and source.
+- **R23:** a change set's `SetProperty` on a Web or Mobile form takes the Properties panel's path, with the same checks, undo and refusals. An operation on a shared rule is held until the developer answers. The outcome ledger says what was written where, or why nothing was.
+- **Q5 revised:** "report only" assumed the agent edits the stylesheet as a file. That holds for the MCP coding agent, but not for the in-IDE agent, which has no file tools.
+
+**Totals:** the spec now has 25 requirements and 20 acceptance criteria (AC12 is now about `render_form`; AC17 to AC20 are new).
+
+**Also:**
+- The plan gains §1.9 (the colour scheme) and a rewritten §1.6. Its files, data, decisions, risks, tests and the count of new `Tr` keys (20) follow.
+- `WASM-PROGRESS.md` and the addendum in `WASM-LISTA-DE-RECURSOS.md` are updated.
+
+No code changed, only the version.
+
 ## 2.0.300 — 2026-11-07
 
 **WASM-036 plan: how the designer and the Properties panel will show what a Web or Mobile form's stylesheet sets, and how an edit is written back to the rule.** *(Written on features-2x, after 2.0.299.)*

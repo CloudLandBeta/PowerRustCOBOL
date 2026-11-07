@@ -83,6 +83,8 @@ The theme's value then applies on the page, so **Q4's "from the theme" is common
 - The **Form Designer agent has no property tools.** It reads a context (`agent::build_context_for`, agent.rs:2926) and writes a change set (`AgentOp::SetProperty`, agent.rs:74; applied at designer.rs:4081 as a raw `Cmd::SetProperty`).
 - The MCP **`render_form`** (`snapshot::render_form_png`, snapshot.rs:203) and **`check`** (`tools/check.rs:199`) read no stylesheet.
 
+At the operator's request (2.0.301) the spec now closes all three gaps: a Light / Dark scheme (R24, R25, §1.9), `render_form` and `check` reading the stylesheets (R17, R21), and the agent's property tool and change-set path (R22, R23). §1.6 covers the last two.
+
 ### 0.5 Engine gaps to close
 
 - **Attribute selectors.** `cobolt_forms::css` drops any selector with `[`, so attribute selectors are unsupported (css.rs:365-367). A developer rule such as `[data-name="BTN-1"]` is invisible to the IDE today.
@@ -94,10 +96,10 @@ The theme's value then applies on the page, so **Q4's "from the theme" is common
 | Requirement | Correction |
 |---|---|
 | R1 | The cascade levels are those of §0.1, with the project sheet in `pr-app` and `CssStyle` a (1,1,0) rule adopted last. |
-| R4 | `prefers-color-scheme` stays "may": the designer has no form colour mode. |
+| R4 | `prefers-color-scheme` is decided against the designer's new Light / Dark choice (R24, R25), since the designer had no form colour mode. |
 | R5 | "From the theme" means the theme's whole CSS, which the player adopts as `pr-theme`. A value from the copy in the form's sheet names that file and line. |
-| R17 | The agent reads its context and writes a change set. "Reads" means the context, and "the set-property tool" means applying an `AgentOp::SetProperty`. |
-| Q1–Q6 | The operator accepted the six recommendations on 2026-11-07. |
+| R17, R21–R23 | R17 is now `render_form` alone. `check`'s notes are R21. The agent's reading is R22: its context, plus a new read-only `form.properties` tool. Its writing is R23: a change set's `AgentOp::SetProperty` takes the panel's path. Q5 is revised for the in-IDE agent. |
+| Q1–Q6 | The operator accepted the six recommendations on 2026-11-07. Q5 was revised for the in-IDE agent in 2.0.301, at the operator's request. |
 
 ## 1. Approach
 
@@ -121,9 +123,13 @@ The layer-aware scanner is `css_overrides::rules()` (css_overrides.rs:130), exte
 
 **The theme source.** It is `web_themes::theme_css(<the form's resolved theme>)`, the whole theme as the player adopts it, labelled with the theme's name. The form sheet's `pr-theme` block is the same rules in the same layer; a value it gives names its file and line.
 
-**`MediaEnv { width, height }`.** The width and height are the designer's `canvas_size()`: the designed size, or a responsive form's view size. `css::media_eval(list, &MediaEnv) -> Tri` answers `Holds`, `Fails` or `Unknown`:
-- `width` / `min-width` / `max-width`, `height` (and its min/max), `orientation` and `aspect-ratio` are decided;
-- `hover`, `pointer`, `prefers-*`, a `@container` query and `@supports` are `Unknown`, so the rule is "may" (R4, as corrected).
+**`MediaEnv { width, height, scheme }`.**
+- The width and height are the designer's `canvas_size()`: the designed size, or a responsive form's view size.
+- `scheme` is the designer's Light / Dark choice (§1.9). `render_form` takes it from its `color_scheme` argument.
+
+`css::media_eval(list, &MediaEnv) -> Tri` answers `Holds`, `Fails` or `Unknown`:
+- decided: `width` / `min-width` / `max-width`, `height` (and its min/max), `orientation`, `aspect-ratio`, and `prefers-color-scheme` against `scheme` (R25);
+- `Unknown`, so the rule is "may" (R4): `hover`, `pointer`, the other `prefers-*` features, a `@container` query, and `@supports`.
 
 `css::media_matches(list)` keeps its signature and its desktop answers for the Viewer: `media_eval` at 1024 px, with `Unknown` read as its old fixed answer.
 
@@ -289,7 +295,7 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
 5. **Lint (R18).** `stylesheet_lint::lint` of each new text may not have an Error-severity finding that the old text did not have.
 6. **Remove the CSS declaration** (R14) is `css_edit::remove(decl)`: it removes the declaration's byte range and its line when the declaration had the line to itself. A rule left empty stays.
 
-**The executor** is in the IDE.
+**The executor** is in the designer (`DesignerPanel::css_apply`), shared by the panel and the agent (§1.6).
 - **Routing:** both consumers of `set_props` route through `css_route`:
   - the designer's, at app.rs:20883;
   - the Main-Pane inspector's, at app.rs:8223.
@@ -316,21 +322,43 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
   - Go to rule opens the stylesheet modal with a new `pub fn open_at(line)` (setting the existing `jump_to`), or the Style editor.
   - Remove asks first, then runs as an edit through the same `SetStylesheet` undo.
 
-### 1.6 Check, `render_form` and the agent (R17)
+### 1.6 Check, `render_form` and the agent (R17, R21–R23)
 
-**`render_form`**
-- `snapshot::render_form_png` (snapshot.rs:203) builds the effective clones and `CssFinal` for a Web or Mobile project's form from the project and form sheets.
-- The IDE's renderer and the CLI's both call it, so the coding agent's eye sees what the canvas shows.
+**`render_form` (R17)**
+- `snapshot::render_form_png` (snapshot.rs:203) builds the effective clones and `CssFinal` for a Web or Mobile project's form from the project and form sheets, at the size it lays the form out for (`width` / `height`, or the form's own).
+- Its options gain `color_scheme`.
+- The MCP schema (`tools/mod.rs`, the `render_form` tool) gains `"color_scheme": { "enum": ["light", "dark"] }`, `light` when absent. `tools/render.rs` passes it through.
+- Both renderers call `render_form_png` and pass the argument: the IDE's (`agent_kit/ide_host.rs::form_renderer`) and the CLI's (`cobolt-cli/src/main.rs`). So the coding agent's eye sees what the canvas shows.
 
-**`check`**
-- For a Web or Mobile form, `tools/check.rs::check_form` adds one **note** per overridden property: `BTN-1.BackgroundColor has no effect: mobileforms/main-form.css:2 (background-color: …) wins`.
-- It adds one note per selector the subset cannot evaluate.
-- Notes are not errors. The severity is the informational one Check already has; checked at task time.
+**`check` (R21)**
+- For a Web or Mobile form, `tools/check.rs::check_form` evaluates the form in Light and in Dark.
+- It adds one **note** per certain override: `BTN-1.BackgroundColor has no effect: mobileforms/main-form.css:2 (background-color: …) wins [light, dark]`.
+- It adds one note per selector the subset cannot evaluate, with its line.
+- Notes are not errors: they use Check's informational level (checked at task time), and change neither its result nor the Build's.
 
-**The agent**
-- `agent::build_context_for` lists, for each control with overrides, the property, the effective value and the source.
-- Applying an `AgentOp::SetProperty` on an overridden property still stores it (Q5). The apply's report to the agent says it has no effect and which declaration wins.
-- The agent changes the stylesheet as a file, which the developer sees as a diff.
+**The agent reads (R22)**
+- `agent::build_context_for` gains, for a Web or Mobile form, one line per control (and one for the form) with overrides: the property, the effective value and the source.
+- The existing context headers are load-bearing and are left as they are.
+- A new IDE tool, **`form.properties`**, joins the namespaces of `tool_exec.rs`. It is read-only.
+  - **Arguments:** `{ "control": "<name>" }`, or `{}` for the form.
+  - **Answer:** for each mapped property, the stored value, the effective value and the source (`property`, `theme`, `file:line`, `Style`), at the designer's `MediaEnv` (its size and scheme).
+  - **Contract:** its text sits beside the other tool contracts, and its test follows `CHANGE_SET_CONTRACT`'s (tool_exec.rs:1946).
+  - **Runs** only while a designer is open, against the form the agent is working on, as `egui.tree` does.
+
+**The agent writes (R23)**
+- The executor of §1.5 lives in the designer, as `DesignerPanel::css_apply`. Both writers call it:
+  - the app's `css_route`, for the panel's edits;
+  - `apply_agent_change_set`'s `SetProperty` arm (designer.rs:4081), for a Web or Mobile form, in place of its raw `Cmd::SetProperty`.
+- An operation on a shared rule is held in the designer's `pending_css_question`. The app shows the question window for it, and the developer answers.
+- The ledger (`last_change_outcome`) records each operation:
+  - `stored`;
+  - `written mobileforms/main-form.css:2`;
+  - `held: waiting for the developer's answer`;
+  - `no effect: … wins`;
+  - `not writable`;
+  - `refused: …`.
+- The whole change set applied is one undo step, as today: its `Cmd::Batch` holds the `SetStylesheet` steps.
+- A Desktop form keeps the raw `Cmd::SetProperty`.
 
 ### 1.7 The System KB
 
@@ -344,6 +372,17 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
   - each control's `Effective`, keyed by the control's id, type, parent, layer, CssClass and CssStyle, the stored values of the mapped properties, the `MediaEnv` and the `SheetSet` key.
 - Selectors are parsed once, and matching uses the parsed form.
 - **Budget for 200 controls and 500 rules:** a whole form recomputed in **≤ 100 ms in the test (debug) build**, printed, and measured once with `--release`, recorded expecting ≤ 16 ms. A frame with nothing changed computes nothing.
+
+### 1.9 The colour scheme (R24, R25)
+
+- **The choice:** `DesignerPanel` gains `css_scheme: Scheme { Light, Dark }`, shown for a Web or Mobile form as a two-state button in the designer's icon toolbar (`draw_icon_toolbar`), with its tooltip.
+- **Remembered:** it is kept per project in the IDE's UI preferences, keyed by the project's path, never in the form file or a stylesheet. The store is checked at task time; `ui_prefs` holds the recent projects today.
+- **Effect:**
+  - it sets `MediaEnv.scheme`, so changing it invalidates the `Effective` caches (§1.8) and the canvas and the Properties panel follow on the next frame;
+  - write-back plans under it (R25);
+  - `form.properties` answers in it (§1.6).
+- **No new look:** the native painter keeps its theme's look in both schemes. Dark changes only which CSS rules apply.
+- **Not driven:** the Preview, Run and the built application. The browser and the device keep their own setting.
 
 ## 2. Affected crates / files
 
@@ -359,7 +398,7 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
 - `src/css_overrides.rs`: a thin view over `css_effective`. Its three tests stay green.
 - `src/viewer.rs`: `ElementRef { attrs: &[] }` where it builds them. Its behaviour is unchanged.
 - `src/render.rs`: `RenderInput.css_final`, read by the face, border and shadow colour paths of both entry points.
-- `src/snapshot.rs`: effective clones for a Web or Mobile project (§1.6).
+- `src/snapshot.rs`: effective clones for a Web or Mobile project, and the `color_scheme` option (§1.6).
 
 **`cobolt-web-player`** (natively built tests)
 - the `props_layer` parity test;
@@ -369,7 +408,16 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
 
 **`cobolt-ide`**
 - `src/panels/properties.rs`: the effective clone, the marks' new texts, `CSS_UNKNOWN`, `CSS_MIXED`, the mark's context menu, and the new `InspectorAction` fields `css_go_to` and `css_remove`.
-- `src/panels/designer.rs`: the effective stage in `controls_for_render`, the effective form look for the background, `css_final` in `RenderInput`, the badge's tooltip, `Cmd::SetStylesheet` (execute and reverse), and the `SheetSet` and `Effective` caches.
+- `src/panels/designer.rs`:
+  - the effective stage in `controls_for_render`, the effective form look for the background, and `css_final` in `RenderInput`;
+  - the badge's tooltip;
+  - `Cmd::SetStylesheet` (execute and reverse);
+  - the `SheetSet` and `Effective` caches;
+  - `css_apply` and `pending_css_question`;
+  - `apply_agent_change_set`'s `SetProperty` arm for a Web or Mobile form;
+  - `css_scheme` and its toolbar button.
+- `src/tool_exec.rs`: the `form.properties` tool, its contract text and its test.
+- `src/agent_kit/ide_host.rs`: `form_renderer` passes `color_scheme`.
 - `src/panels/stylesheet_modal.rs`: `pub fn open_at(line)`.
 - `src/panels/css_rule_question.rs` (new): the question window.
 - `src/app.rs`: `css_route` in both `set_props` consumers, the pending edit and the question, gesture end, the row actions, the in-memory sheet update and the Preview update after a write, and the `MediaEnv` from `canvas_size()`.
@@ -377,7 +425,10 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
 - `src/i18n.rs`: the new `Tr` keys (§3), six languages each.
 
 **Other crates**
-- `cobolt-project-tools`, `src/tools/check.rs`: the notes of §1.6.
+- `cobolt-project-tools`:
+  - `src/tools/check.rs`: the notes of §1.6, in both schemes;
+  - `src/tools/mod.rs` and `src/tools/render.rs`: `render_form`'s `color_scheme` argument.
+- `cobolt-cli`, `src/main.rs`: the CLI's renderer passes `color_scheme`.
 - `cobolt-compiler`, `src/lib.rs`: the KB text (§1.7). Then `assets/knowledge/chunked.data` is regenerated.
 
 **`specs/`**
@@ -395,6 +446,8 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
   - `ElementRef` gains `attrs`. It is `pub` with two other construction sites, both in `cobolt-forms`, so this is a source change inside the crate only.
 - **`RenderInput`**
   - gains `css_final: Option<&CssFinal>`, `None` everywhere but the designer and `snapshot`.
+- **`render_form`'s MCP schema** gains an optional `color_scheme`. Calls without it are answered as before, in Light.
+- **The IDE's UI preferences** gain the colour scheme per project path (§1.9). Nothing is added to the project manifest.
 - **New `Tr` keys**, each in the six languages:
 
   | Group | Keys |
@@ -404,6 +457,7 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
   | Row actions | `css_go_to_rule`, `css_remove_declaration`, `css_remove_confirm` |
   | Question window | `css_shared_title`, `css_shared_body`, `css_shared_change_rule`, `css_shared_only_this` |
   | Messages | `css_write_refused_unapplied`, `css_write_no_effect`, `css_write_not_writable`, `css_undo_changed_on_disk` |
+  | Colour scheme | `css_scheme_light`, `css_scheme_dark`, `css_scheme_tip` |
 
   Cancel reuses the existing key. The badge's `idef` literal is replaced by `css_badge_header`.
 
@@ -417,6 +471,8 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
 | `Cmd::SetStylesheet` with compare-before-write on execute and on reverse | Undo never overwrites a change another program made after the IDE's write | Holding the stylesheet in the designer's memory and saving it with the form, which would make a sheet edit invisible to other tools until the form is saved |
 | Colours from CSS reach the painter through `RenderInput.css_final` | The page uses a CSS colour as written; the painter fades by `Transparency`. An explicit input keeps both paths exact | Pre-compensating the alpha in the clone (impossible at `Transparency` 100); a hidden marker property in the clone, which could leak into a saved file |
 | "May" stays a mark, never a value | A state or screen the designer cannot decide must not change what it shows (R4) | Picking the desktop answer, as the Viewer does |
+| The in-IDE agent's `SetProperty` takes the panel's path (R23); the MCP agent only reads (R17, R21) | The in-IDE agent has no file tools, so "it edits the stylesheet as a file" (Q5's premise) cannot happen for it. The MCP agent edits files, so seeing the truth is enough for it. One executor (`css_apply`) serves the panel and the agent, so they cannot drift apart | Report only for both, which leaves the in-IDE agent unable to change what it sees; a stylesheet-writing tool for the agent, a second write path beside the change set the developer approves |
+| A Light / Dark choice in the designer, as view state remembered per project | A phone's dark mode applies `prefers-color-scheme: dark` rules, so they must be seeable and editable. View state keeps the form file and the stylesheet untouched | A scheme property on the form, which would change the files and imply the application forces a scheme |
 | Attribute selectors in `cobolt_forms::css`, with the Viewer passing no attributes | The player's own selectors and `data-name` rules are attribute selectors; the Viewer's behaviour is unchanged | A private matcher for the IDE, a second CSS engine to keep equal |
 
 ## 5. Risks & mitigations
@@ -437,6 +493,10 @@ Every value R3 names is `Unknown`, carrying its CSS text. `em` and `rem` convert
   → `css_route` drops a value equal to the one in effect (§1.5). A test focuses and unfocuses every text row of an overridden control and asserts no write.
 - **The theme's CSS is large**, and every control's path is matched against it.
   → The `SheetSet` cache and parsed selectors. The theme is parsed once per theme id, and the budget of §1.8 includes it.
+- **A change set applied inside a Grace workflow, with no developer at the window, meets a shared rule.**
+  → The operation is held, never decided for the developer. The ledger says "held: waiting for the developer's answer", and the question is shown when the designer is next on screen. The rest of the change set applies.
+- **The colour scheme makes twice the work for `check`.**
+  → `check` evaluates both schemes only for a form whose sheets contain `prefers-color-scheme`. Otherwise one pass serves both.
 - **Found while planning, not in this scope:** `App::open_stylesheet_modal` returns at once when the form has no stylesheet file (app.rs:15489, `project_fs::form_stylesheet` is `Some` only for an existing file). Its doc comment says it opens the generated text. That is a fix of its own (`fixes-2x`), reported to the operator, not made here.
 
 ## 6. Test strategy
@@ -453,7 +513,7 @@ Every test prints one result block: the cases it ran, the counts, and for the ti
   - source order;
   - specificity.
 - **The rest of the engine:**
-  - `@media` width, height and orientation decided at a 412 × 915 `MediaEnv`; `hover` and `prefers-color-scheme` "may";
+  - `@media` width, height and orientation decided at a 412 × 915 `MediaEnv`; `prefers-color-scheme` decided in Light and in Dark; `hover` and `prefers-reduced-motion` "may";
   - `var()` through the path and through `:host` tokens;
   - `em` and `rem`;
   - each `Unknown` kind of R3;
@@ -520,11 +580,19 @@ These tests drive real frames, as `designer_page_backdrop_tests.rs` does.
   - the System KB guard green on the regenerated `chunked.data`;
   - the whole `cobolt-ide --bin` sweep with `--no-fail-fast`: only the three known reds of the 2.x line.
 
+- **AC18:** `form.properties` gives the AC2 fixture's stored and effective values and sources, in Light and in Dark. The agent's context carries the override lines.
+- **AC19:** a change set's `SetProperty` on an overridden control:
+  - writes the declaration, shown by a byte diff;
+  - its ledger line names the file and line;
+  - Ctrl+Z restores the sheet;
+  - on a shared rule it is held until the question is answered, and Cancel leaves the files byte-identical;
+  - on a Desktop form it is the raw `Cmd::SetProperty`, as before.
+- **AC20:** the scheme button flips the BackgroundColor row and the canvas fill between the stored value and the dark rule's `#111111`. An edit in Dark writes inside the dark block. The form file is byte-identical in both schemes. Reopening the project restores the choice. Its texts are in the six languages.
+
 ### 6.4 `cobolt-project-tools`
 
-- **AC12:** `check` on the AC2 fixture lists the notes, and `render_form` gives the effective pixel.
-- The agent's context lists the overrides.
-- Applying a `SetProperty` on an overridden property reports which declaration wins.
+- **AC12:** `render_form` gives the canvas's pixel, without `color_scheme` and with `color_scheme: "dark"`, from the IDE's renderer and from `rcrun`'s.
+- **AC17:** `check` on the AC2 fixture lists the notes with file, line and scheme, and a note for a `:has()` selector. Its result and exit status are the same as without the stylesheet.
 
 ### 6.5 Manual (AC16)
 
@@ -535,7 +603,7 @@ These tests drive real frames, as `designer_page_backdrop_tests.rs` does.
 
 ## 7. Steering compliance
 
-- [ ] **i18n:** the 17 new `Tr` keys of §3, in the six languages. The badge's literal is replaced.
+- [ ] **i18n:** the 20 new `Tr` keys of §3, in the six languages. The badge's literal is replaced. `check`'s notes and `form.properties`' answers are English text for agents, like the other tools' answers.
 - [x] **Generated-code banner and regenerate-on-action contract:** untouched. No COBOL is generated or changed.
 - [x] **English developer's guide:** not touched on 2.x.x; the chapter is written when 2.x.x merges into main. What 2.x.x says is in `specs/` and the System KB.
 - [ ] **System KB:** the WASM-007 text updated and `chunked.data` regenerated (§1.7).
