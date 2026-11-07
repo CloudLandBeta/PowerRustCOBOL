@@ -9,7 +9,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   plan's first draft (2.0.30). No box was checked in the first version, so there is no evidence to carry. No shell code exists yet. Every Tauri, Android
   and iOS statement in the plan is marked **[verify]** and is unconfirmed; T1 confirms them before any other task starts.
 - **Plan:** ./plan.md   **Date:** 2026-10-23
-- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.294).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
+- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.295).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
   of a Mobile project make the web bundle and then `dist/mobile/android/<Name>-debug.apk`; the IDE's Run with an emulator builds, installs and starts
   it as a tap on its icon would and shows the application's log (a `DISPLAY` reads as the program wrote it); the phone's secure storage works on the
   emulator (stored, read back after a restart, deleted); the forms keep out of the status and gesture bars; Back on the first form ends the
@@ -689,9 +689,31 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     running `tauri android build` or `dev` for its options (`fetch_options`, tauri-cli `src/mobile/mod.rs:551`: "the `tauri android dev` or
     `tauri android build` command must be running while Android Studio builds the app"). Android Studio builds the project only while
     `cargo tauri android build --debug --apk --open` runs in `android/src-tauri` (it builds once, opens Android Studio and waits). The KB says so.
-  - **Left:** an **Open in Android Studio** action that runs that command for the developer and stops it with the IDE; AC12's live half (Android
-    Studio opening the project and running it on the emulator: the operator's window); the Xcode project (iOS is not run here); WASM-001 T19's
-    own Finalize.
+  - **Done (2.0.295), Open in Android Studio and AC12 on the command line:**
+    - `mobile_native::open_android_studio` brings the project up to date (as Create does), starts its Rust build from the package build's
+      on macOS (`seed_rust_build`: `cp -c`, a copy-on-write clone, only when the native project has none), and starts the Tauri command line
+      itself (`cargo-tauri`, not `cargo tauri`, so stopping it stops it): `android build --ci --debug --apk --target <abi> --open`
+      (`studio_args`) in `android/src-tauri`, every line in `android-studio.log` in the build folder.
+    - IDE: Project Settings, Mobile application, the Android Studio project row gains **Open in Android Studio** (when the project is there)
+      and **Stop** while it runs, with a note (running and the log; could not start and why; ended by itself and how; stopped). The app owns
+      the process (`native_project::Studio`, lent to the page as `SharedStudio`): closing Project Settings leaves it running, the next Open,
+      Stop and closing the IDE end it (Drop). Create again waits while it runs. `Tr` ×6: 6 keys.
+    - **Found while proving it (Tauri 2.12.4), fixed:** `tauri android build` gives Cargo the Android linker and flags in its own
+      environment (`configure_cargo`: `CARGO_TARGET_<T>_LINKER`, `_RUSTFLAGS`), which reaches Gradle only when it runs Gradle itself;
+      `android-studio-script`, what Android Studio's Gradle runs, sets neither. In Android Studio's build Cargo linked with the computer's
+      `cc` (`linking with cc failed`) and built every library again, its flags differing. Every create and refresh now writes
+      `android/src-tauri/.cargo/config.toml` (`cargo_config`: the NDK's `clang` of the minimum API level and the same three flags, for the
+      four Android targets; left out of version control, the paths are the computer's), so Android Studio's build links whatever started it.
+    - **Found, fixed:** Tauri's identifier (and an iOS bundle id) takes no `_`, which Android and `validate_app_id` accepted: `tauri android
+      build` refused `com.example.power_mobile` after `tauri android init` had taken it, so such an id passed Project Settings and failed
+      inside the build. `validate_app_id` now takes letters and digits only (no `_` or `-`); the page's message says so in six languages.
+    - **AC12, command-line half, passed** (`gradle_builds_the_android_studio_project_while_the_tauri_command_runs_ac12`, ignored; seeded from
+      the IDE's package build of `PowerMobileHello`): started in 3.2 s; Android Studio opened at 27.2 s; while the Tauri command line ran,
+      `./gradlew assembleArm64Debug` (the arm64 variant Android Studio's Run builds) made a 31.7 MB package in 10.4 s; installed on
+      `emulator-5554` it ran (pid 5444) and its web view showed the test's bundle (title `AC12`, read through the DevTools). Without the Cargo
+      file the same run failed at the link.
+  - **Left:** AC12 inside Android Studio's own window (its Run button: the operator's window, not driven here); the Xcode project (iOS is not
+    run here); WASM-001 T19's own Finalize.
 - [ ] **T26 — Finalize: version, CHANGELOG, tests of the touched crates**
   - Files: `crates/cobolt-ide/src/version.rs` (`z` +1 **once**: from the value at that time, `2.0.49` today, to the next `2.0.z`; never `x` or `y`);
     `CHANGELOG.md` (one entry above the previous heading, dated, "Written on features-2x", listing what landed and what stays open: O1–O10 and the T24

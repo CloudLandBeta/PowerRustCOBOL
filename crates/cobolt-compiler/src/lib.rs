@@ -6680,8 +6680,10 @@ phone's width.
 with the application id `com.example.<name>` (its name in lower case, letters and
 digits only), so its first Run works; give it your own in Project Settings, Mobile
 application, Application id before you publish: a store takes no `com.example` id,
-and changing it later makes a different application. The page refuses a value that
-is not an id and keeps the saved one. When New Project creates a Mobile project for
+and changing it later makes a different application. Each part of the id starts
+with a letter and holds letters and digits only — no `_` and no `-`, which Android
+takes but the Tauri identifier and an iOS bundle id do not — and the page refuses
+any other value and keeps the saved one. When New Project creates a Mobile project for
 Android, a step of its own offers to create its **Android Studio project** too:
 Create makes it in the project's `android/` folder, Not now leaves it out. Project
 Settings, Mobile application shows whether it is there and where, with Create (or
@@ -6690,9 +6692,17 @@ back. Android Studio opens `android/src-tauri/gen/android`, a Gradle project nam
 after the PowerRustCOBOL AI project; every Build and every Run on a device brings it
 up to date with the same bundle, so what Android Studio runs is what the package
 shows. Its Gradle build compiles the shell through the Tauri command line, which
-must be running meanwhile: in `android/src-tauri`, `cargo tauri android build
---debug --apk --open` builds it once, opens Android Studio and stays running while
-you run the application from there (stop it with Ctrl+C when you are done). It holds the generated shell and the
+must be running meanwhile, so open it with **Open in Android Studio** on the same
+row: the IDE brings the project up to date, starts the Tauri command line
+(`cargo tauri android build --ci --debug --apk --target aarch64 --open` in
+`android/src-tauri`), which builds the application once, opens Android Studio on the
+project and keeps running while you run and debug it there; **Stop** ends it, as do
+the next Open and closing the IDE (Android Studio then cannot build the shell until
+it is opened again). Its lines go to `android-studio.log` in the project's build
+folder. On macOS the first open starts the project's Rust build from the IDE's own
+package build (a copy-on-write clone), so only the application's crates are built
+again. Without the IDE, run that command yourself in `android/src-tauri` and stop it
+with Ctrl+C. It holds the generated shell and the
 web bundle only: no COBOL, no form, no secret; its `.gitignore` leaves out what the
 tools build and cache. Without the Android SDK, its NDK, Java 17 to 21 or the Tauri
 command line only its sources are written, and the Output names what is missing.

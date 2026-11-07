@@ -49,7 +49,7 @@ fn request(dir: &Path, settings: MobileSettings, profile: Profile) -> PackageReq
 
 fn settings(features: &[&str]) -> MobileSettings {
     let mut s = MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone);
-    s.app_id = "com.example.power_mobile".into();
+    s.app_id = "com.example.powermobile".into();
     s.features = features.iter().map(|f| (*f).to_owned()).collect();
     s
 }
@@ -85,18 +85,18 @@ fn staging_writes_the_shell_and_an_application_made_from_the_mobile_settings() {
     assert!(!cargo.contains("tauri-plugin-opener"), "a feature not declared is not linked");
     assert!(read(&staged.app_dir.join("build.rs")).contains("\"secure_store\", \"secure_load\", \"secure_delete\""));
     let entry = read(&staged.app_dir.join("src/lib.rs"));
-    assert!(entry.contains("app_id: \"com.example.power_mobile\", title: \"Hello\", single_page: true"), "{entry}");
+    assert!(entry.contains("app_id: \"com.example.powermobile\", title: \"Hello\", single_page: true"), "{entry}");
 
     // tauri.conf.json and the capability.
     let conf = json(&staged.app_dir.join("tauri.conf.json"));
-    assert_eq!(conf["identifier"], "com.example.power_mobile");
+    assert_eq!(conf["identifier"], "com.example.powermobile");
     assert_eq!(conf["productName"], "Hello");
     assert_eq!(conf["version"], "1.2.3");
     assert_eq!(conf["bundle"]["android"]["versionCode"], 10203);
     assert_eq!(conf["bundle"]["android"]["minSdkVersion"], 35);
     assert_eq!(conf["bundle"]["iOS"]["minimumSystemVersion"], "18.0");
     assert_eq!(conf["app"]["windows"], serde_json::json!([]), "the shell opens the one window itself");
-    assert_eq!(conf["plugins"]["deep-link"]["mobile"][0]["scheme"][0], "com.example.power-mobile", "a scheme has no _");
+    assert_eq!(conf["plugins"]["deep-link"]["mobile"][0]["scheme"][0], "com.example.powermobile", "the scheme is the application id");
     let cap = json(&staged.app_dir.join("capabilities/default.json"));
     let perms: Vec<&str> = cap["permissions"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
     assert_eq!(perms, ["core:default", "allow-secure-store", "allow-secure-load", "allow-secure-delete", "deep-link:default"]);
@@ -404,7 +404,8 @@ fn the_android_studio_project_lives_in_the_project_and_follows_the_build_012() {
     let staged = mb::stage(&native, &checked).unwrap();
     assert_eq!(read(&staged.root.join("frontend/index.html")), mb::NOT_BUILT_PAGE);
     assert!(staged.app_dir.join("tauri.conf.json").is_file() && staged.root.join("shell/src/lib.rs").is_file());
-    assert_eq!(mn::refresh_android(&req, &checked), Ok(false), "no Gradle project yet: nothing to bring up to date");
+    let tools = mb::Toolchain { android_home: dir.join("sdk"), ndk_home: dir.join("sdk/ndk/29.0.1"), java_home: dir.join("jdk") };
+    assert_eq!(mn::refresh_android(&req, &checked, &tools), Ok(false), "no Gradle project yet: nothing to bring up to date");
 
     // The Gradle project there (as `tauri android init` leaves it), then a Build: the bundle and the edits arrive.
     fake_gradle_project(&mn::android_root(&dir));
@@ -416,7 +417,10 @@ fn the_android_studio_project_lives_in_the_project_and_follows_the_build_012() {
         std::fs::copy(built.join("dist/web").join(f), web.join(f)).unwrap();
     }
     let checked = mb::check(&req, None).expect("built now");
-    assert_eq!(mn::refresh_android(&req, &checked), Ok(true));
+    assert_eq!(mn::refresh_android(&req, &checked, &tools), Ok(true));
+    let cargo_config = read(&dir.join("android/src-tauri/.cargo/config.toml"));
+    assert!(cargo_config.contains("[target.aarch64-linux-android]") && cargo_config.contains("aarch64-linux-android35-clang"), "{cargo_config}");
+    assert!(read(&dir.join("android/.gitignore")).contains("src-tauri/.cargo/"), "the linker paths are this computer's");
     assert_eq!(read(&dir.join("android/frontend/index.html")), read(&web.join("index.html")), "the same bundle as the package");
     assert!(dir.join("android/frontend/player/player.js").is_file());
     let manifest = read(&dir.join("android/src-tauri/gen/android/app/src/main/AndroidManifest.xml"));
@@ -467,9 +471,182 @@ fn the_android_studio_project_is_generated_by_the_tauri_command_line() {
     assert!(settings_gradle.starts_with("rootProject.name = 'PowerMobileHello'"), "named after the project: {settings_gradle}");
     assert!(settings_gradle.contains("include ':app'"));
     let app_gradle = read(&studio.join("app/build.gradle.kts"));
-    assert!(app_gradle.contains("com.example.power_mobile"), "the identity is the Gradle namespace");
+    assert!(app_gradle.contains("com.example.powermobile"), "the identity is the Gradle namespace");
     assert!(app_gradle.contains("prcRelease"));
     assert_eq!(read(&dir.join("android/frontend/index.html")), mb::NOT_BUILT_PAGE);
     assert!(dir.join("android/.gitignore").is_file());
     println!("Android Studio project generated in {:.1} s ({lines} tool lines): {}", t.elapsed().as_secs_f64(), studio.display());
+}
+
+/// WASM-012 R16 (T25c), Open in Android Studio: the Tauri command line its builds talk to is the
+/// debug build of one target that opens Android Studio and stays; it is started as its own program;
+/// the native project's Rust build starts from the package build's only where there is none; and
+/// nothing is started for a project that cannot have the Android Studio project.
+#[test]
+fn open_in_android_studio_starts_the_tauri_command_its_builds_need_012() {
+    use cobolt_compiler::mobile_native as mn;
+    let t = Instant::now();
+    let args = mn::studio_args(AndroidAbi::Aarch64);
+    assert_eq!(args, ["android", "build", "--ci", "--debug", "--apk", "--target", "aarch64", "--open"]);
+    assert_eq!(mn::studio_args(AndroidAbi::X86_64)[6], "x86_64");
+    let program = mn::cargo_tauri();
+    let exe = program.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
+    assert!(exe == "cargo-tauri" || exe == "cargo-tauri.exe", "{}", program.display());
+
+    // How Cargo links in Android Studio: the NDK's clang of the API level, for the four targets, with the shell's flags.
+    let ndk = scratch("studio-ndk");
+    std::fs::create_dir_all(ndk.join("toolchains/llvm/prebuilt/linux-x86_64/bin")).unwrap();
+    std::fs::write(ndk.join("toolchains/llvm/prebuilt/README"), "not a host").unwrap();
+    let config = mn::cargo_config(&ndk, 35);
+    let parsed: toml::Value = toml::from_str(&config).expect("valid TOML");
+    let targets = parsed["target"].as_table().unwrap();
+    assert_eq!(targets.len(), 4);
+    let suffix = if cfg!(windows) { ".cmd" } else { "" };
+    for (triple, clang) in [
+        ("aarch64-linux-android", "aarch64-linux-android"),
+        ("armv7-linux-androideabi", "armv7a-linux-androideabi"),
+        ("i686-linux-android", "i686-linux-android"),
+        ("x86_64-linux-android", "x86_64-linux-android"),
+    ] {
+        let t = &targets[triple];
+        let linker = PathBuf::from(t["linker"].as_str().unwrap());
+        assert_eq!(linker, ndk.join("toolchains/llvm/prebuilt/linux-x86_64/bin").join(format!("{clang}35-clang{suffix}")), "{triple}");
+        let flags: Vec<&str> = t["rustflags"].as_array().unwrap().iter().map(|f| f.as_str().unwrap()).collect();
+        assert_eq!(flags, ["-Clink-arg=-landroid", "-Clink-arg=-llog", "-Clink-arg=-lOpenSLES"]);
+    }
+
+    // The seed: cloned where the native project has no build, never over one.
+    let dir = scratch("studio-seed");
+    let from = dir.join("staging/src-tauri/target");
+    std::fs::create_dir_all(from.join("debug")).unwrap();
+    std::fs::write(from.join("debug/lib.rlib"), "warm").unwrap();
+    let to = dir.join("android/src-tauri/target");
+    let mut lines = Vec::new();
+    mn::seed_rust_build(&dir.join("absent"), &to, &mut |l| lines.push(l.to_owned()));
+    assert!(!to.exists() && lines.is_empty(), "nothing to seed from: nothing made");
+    mn::seed_rust_build(&from, &to, &mut |l| lines.push(l.to_owned()));
+    if cfg!(target_os = "macos") {
+        assert_eq!(read(&to.join("debug/lib.rlib")), "warm");
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        std::fs::write(from.join("debug/lib.rlib"), "newer").unwrap();
+        mn::seed_rust_build(&from, &to, &mut |l| lines.push(l.to_owned()));
+        assert_eq!(read(&to.join("debug/lib.rlib")), "warm", "a build that is there is kept");
+        assert_eq!(lines.len(), 1);
+    } else {
+        assert!(!to.exists(), "only a copy-on-write clone seeds");
+    }
+
+    // Refused before anything starts: an iOS project, a project without its application id.
+    let mut ios = settings(&[]);
+    ios.platform = MobilePlatform::Ios;
+    let req = request(&dir, ios, Profile::Debug);
+    let err = mn::open_android_studio(&req, &dir.join("logs/studio.log")).expect_err("iOS refused");
+    assert!(err.contains("iOS"), "{err}");
+    let mut no_id = settings(&[]);
+    no_id.app_id.clear();
+    let err = mn::open_android_studio(&request(&dir, no_id, Profile::Debug), &dir.join("logs/studio.log")).expect_err("no id refused");
+    assert!(!err.is_empty());
+    assert!(dir.join("logs/studio.log").is_file(), "the log is written from the first line");
+    assert!(!mn::android_exists(&dir));
+    println!(
+        "open in Android Studio: `{} {}`; Cargo's linker for 4 Android targets (API 35, the NDK's host folder found); \
+         seed cloned once and kept ({}); iOS and a missing application id refused, nothing started ({} ms)",
+        exe,
+        args.join(" "),
+        if cfg!(target_os = "macos") { "macOS clone" } else { "no clone off macOS" },
+        t.elapsed().as_millis()
+    );
+}
+
+/// WASM-012 AC12 on this computer's tools, Android Studio's half on the command line: Open in
+/// Android Studio starts the Tauri command line (which builds once and opens Android Studio on the
+/// project); while it runs, the Gradle build Android Studio's Run makes (`assembleArm64Debug`, the
+/// arm64 variant) builds the application with its bundle; a running emulator or phone gets it and
+/// runs it. `PRC_ANDROID_STAGING` may name a package build's staging folder to seed the Rust build
+/// from (the IDE's `…/builds/cobolt-build-powermobilehello-android`).
+/// `cargo test -p cobolt-compiler --test mobile_shell gradle_builds_the_android_studio_project -- --ignored --nocapture`
+#[test]
+#[ignore = "needs the Android SDK, the NDK, Java 17 to 21, the Tauri CLI and Android Studio; opens Android Studio"]
+fn gradle_builds_the_android_studio_project_while_the_tauri_command_runs_ac12() {
+    use cobolt_compiler::mobile_native as mn;
+    use std::process::Command;
+    let t = Instant::now();
+    let dir = project("ac12", &[]);
+    std::fs::write(dir.join("dist/web/index.html"), "<!doctype html><title>AC12</title><p id=\"ac12\">built by Android Studio's Gradle</p>").unwrap();
+    let mut req = request(&dir, settings(&[]), Profile::Debug);
+    if let Some(staging) = std::env::var_os("PRC_ANDROID_STAGING") {
+        req.staging_dir = PathBuf::from(staging);
+    }
+    let log = dir.join("studio.log");
+    /// Ends the Tauri command line on every way out of the test, a failed assertion included.
+    struct Stop(std::process::Child);
+    impl Drop for Stop {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut child = Stop(mn::open_android_studio(&req, &log).unwrap_or_else(|e| panic!("not started: {e}")));
+    let started = t.elapsed();
+    // The command line builds once, then opens Android Studio and waits.
+    let deadline = Instant::now() + std::time::Duration::from_secs(40 * 60);
+    loop {
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        if text.contains("Opening Android Studio") {
+            break;
+        }
+        if let Some(status) = child.0.try_wait().unwrap() {
+            panic!("the Tauri command line ended ({status}) before opening Android Studio:\n{text}");
+        }
+        assert!(Instant::now() < deadline, "not open after 40 minutes:\n{text}");
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
+    let opened = t.elapsed();
+    let studio = mn::android_studio_dir(&dir);
+    let tools = mb::Toolchain::detect(AndroidAbi::Aarch64).expect("tools");
+    let gradlew = studio.join(if cfg!(windows) { "gradlew.bat" } else { "gradlew" });
+    let mut gradle = Command::new(&gradlew);
+    gradle.arg("assembleArm64Debug").current_dir(&studio).env_remove("CARGO_TARGET_DIR");
+    for (k, v) in tools.env() {
+        gradle.env(k, v);
+    }
+    let out = gradle.output().expect("gradlew runs");
+    let gradle_text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let built = t.elapsed();
+    assert!(out.status.success(), "Gradle failed while the Tauri command line ran:\n{gradle_text}");
+    let apk = studio.join("app/build/outputs/apk/arm64/debug/app-arm64-debug.apk");
+    let bytes = std::fs::metadata(&apk).map(|m| m.len()).unwrap_or(0);
+    assert!(bytes > 0, "no package at {}", apk.display());
+    let still = child.0.try_wait().unwrap().is_none();
+    drop(child);
+    assert!(still, "the Tauri command line keeps running until it is stopped");
+    // On a running emulator or phone: install it and see it run.
+    let adb = tools.adb();
+    let devices = Command::new(&adb).arg("devices").output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    let serial = devices.lines().skip(1).find_map(|l| l.strip_suffix("\tdevice").map(str::to_owned));
+    let ran = serial.as_ref().map(|s| {
+        let install = Command::new(&adb).args(["-s", s, "install", "-r"]).arg(&apk).output().expect("adb install");
+        assert!(install.status.success(), "{}", String::from_utf8_lossy(&install.stderr));
+        let id = "com.example.powermobile";
+        let _ = Command::new(&adb).args(["-s", s, "shell", "am", "force-stop", id]).output();
+        let launch = Command::new(&adb).args(["-s", s, "shell", "monkey", "-p", id, "-c", "android.intent.category.LAUNCHER", "1"]).output().expect("adb monkey");
+        assert!(launch.status.success());
+        std::thread::sleep(std::time::Duration::from_secs(8));
+        let pid = Command::new(&adb).args(["-s", s, "shell", "pidof", id]).output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned()).unwrap_or_default();
+        assert!(!pid.is_empty(), "the application is not running on {s}");
+        format!("installed and running on {s} (pid {pid})")
+    });
+    let log_lines = std::fs::read_to_string(&log).map(|t| t.lines().count()).unwrap_or(0);
+    println!(
+        "AC12 (command line): started in {:.1} s, Android Studio opened at {:.1} s, `gradlew assembleArm64Debug` built {:.1} MB at {:.1} s \
+         (Gradle {:.1} s) while the Tauri command line ran; {}; {log_lines} log lines; seeded: {}",
+        started.as_secs_f64(),
+        opened.as_secs_f64(),
+        bytes as f64 / 1_048_576.0,
+        built.as_secs_f64(),
+        (built - opened).as_secs_f64(),
+        ran.unwrap_or_else(|| "no emulator or phone attached".into()),
+        std::env::var_os("PRC_ANDROID_STAGING").is_some()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

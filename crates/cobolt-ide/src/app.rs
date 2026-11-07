@@ -961,6 +961,9 @@ pub struct CoboltApp {
     /// (WASM-001 R19), and its making: the project's manifest and the job (WASM-012 T25c).
     native_step: Option<crate::panels::native_project::NativeStep>,
     native_job: (Option<PathBuf>, crate::panels::native_project::NativeJob),
+    /// Open in Android Studio's Tauri command line (WASM-012 R16): the app's, lent to every Project
+    /// Settings page, so closing the page leaves it running; it ends with the app.
+    studio: crate::panels::native_project::SharedStudio,
     /// The web Preview of a Web or Mobile project: its build job, development
     /// server and the browser it opens (WASM-008).
     web_preview: WebPreview,
@@ -2365,6 +2368,7 @@ impl CoboltApp {
             new_project: NewProjectDialog::new(),
             native_step: None,
             native_job: (None, Default::default()),
+            studio: Default::default(),
             web_preview: WebPreview::default(),
             browser_confirm: None,
             backend_run: None,
@@ -5286,6 +5290,7 @@ impl CoboltApp {
                     if let Some(root) = self.project_path.as_ref().and_then(|p| p.parent()) {
                         form.load_backend_exports(root);
                     }
+                    form.share_studio(self.studio.clone());
                     self.settings_form = Some(form);
                     self.show_project_settings = true;
                     self.show_grace_chat = false;

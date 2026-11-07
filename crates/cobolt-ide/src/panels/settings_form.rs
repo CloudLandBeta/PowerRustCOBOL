@@ -601,6 +601,11 @@ impl SettingsForm {
         self.available_models = models;
     }
 
+    /// Lend the page the app's Open in Android Studio (WASM-012 R16): it outlives the page.
+    pub fn share_studio(&mut self, studio: crate::panels::native_project::SharedStudio) {
+        self.page_jobs.studio = studio;
+    }
+
     /// Fill the exports box from `backend/exports.toml` of the project in
     /// `project_dir` (draft and baseline, so loading is not an edit).
     pub fn load_backend_exports(&mut self, project_dir: &std::path::Path) {

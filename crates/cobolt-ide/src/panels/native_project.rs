@@ -14,10 +14,15 @@
 //!   `native.log` in the project's build folder.
 //! * [`NativeStep`] is New Project's step of its own for a Mobile project for Android: *Create* or
 //!   *Not now*. Not now leaves the project without it; Project Settings, Mobile makes it later.
+//! * [`Studio`] is *Open in Android Studio*: the Tauri command line the project's Gradle build talks
+//!   to while the developer works in Android Studio, kept by the app.
 
+use std::cell::RefCell;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
+use std::process::Child;
+use std::rc::Rc;
+use std::sync::mpsc::{channel, Receiver, SendError, TryRecvError};
 
 use cobolt_compiler::mobile_build::{self as mb, AndroidAbi, PackageRequest, Profile};
 use cobolt_compiler::mobile_native::{self as mn, Created};
@@ -127,14 +132,161 @@ impl NativeJob {
     }
 }
 
+/// What the Tauri command line for Android Studio is doing, for one project (Open in Android
+/// Studio).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StudioState {
+    /// Not started for this project.
+    Idle,
+    /// Bringing the project up to date and starting it.
+    Starting,
+    /// Running: Android Studio's builds of the project work.
+    Running,
+    /// It could not start: why.
+    Failed(String),
+    /// It ended by itself: how.
+    Ended(String),
+    /// Stopped from Project Settings.
+    Stopped,
+}
+
+impl StudioState {
+    /// The note under the row, in the developer's language, or none; `log` is the log's path.
+    pub fn text(&self, tr: &Tr, log: &str) -> Option<String> {
+        match self {
+            StudioState::Idle => None,
+            StudioState::Starting | StudioState::Running => Some(tr.pk_native_opening.replacen("{}", log, 1)),
+            StudioState::Failed(why) => Some(tr.pk_native_open_failed.replacen("{}", why, 1).replacen("{}", log, 1)),
+            StudioState::Ended(how) => Some(tr.pk_native_open_ended.replacen("{}", how, 1).replacen("{}", log, 1)),
+            StudioState::Stopped => Some(tr.pk_native_stopped.to_owned()),
+        }
+    }
+
+    /// Starting or running.
+    pub fn is_live(&self) -> bool {
+        matches!(self, StudioState::Starting | StudioState::Running)
+    }
+
+    /// It failed or ended by itself.
+    pub fn is_problem(&self) -> bool {
+        matches!(self, StudioState::Failed(_) | StudioState::Ended(_))
+    }
+}
+
+/// The Tauri command line Android Studio's builds of a project talk to, started by Open in Android
+/// Studio ([`mn::open_android_studio`]). The app keeps the one there is, so closing Project
+/// Settings leaves it running; Stop, the next Open and closing the IDE end it.
+#[derive(Default)]
+pub struct Studio {
+    starting: Option<Receiver<Result<Child, String>>>,
+    child: Option<Child>,
+    /// The project it is for.
+    project: Option<PathBuf>,
+    /// The tools' lines (`android-studio.log` in the project's build folder).
+    log: Option<PathBuf>,
+    /// How the last one ended.
+    ended: Option<StudioState>,
+}
+
+/// The app's [`Studio`], lent to Project Settings.
+pub type SharedStudio = Rc<RefCell<Studio>>;
+
+impl Studio {
+    /// Open the project `req` describes in Android Studio, stopping the one running; `ctx` is
+    /// repainted once it has started (or could not). The request's staging folder becomes the
+    /// project's package build folder, which holds the log and the Rust build the native project's
+    /// starts from.
+    pub fn open(&mut self, ctx: &egui::Context, mut req: PackageRequest) {
+        self.stop();
+        let build_dir = cobolt_compiler::build_staging_dir(None, &format!("{}-android", req.crate_name()));
+        let log = build_dir.join("android-studio.log");
+        req.staging_dir = build_dir;
+        self.project = Some(req.project_dir.clone());
+        self.log = Some(log.clone());
+        self.ended = None;
+        let (tx, rx) = channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            // Stopped while it started: the receiver is gone, so the process it started is ended here.
+            if let Err(SendError(Ok(mut child))) = tx.send(mn::open_android_studio(&req, &log)) {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            ctx.request_repaint();
+        });
+        self.starting = Some(rx);
+    }
+
+    fn poll(&mut self) {
+        if let Some(rx) = &self.starting {
+            match rx.try_recv() {
+                Ok(Ok(child)) => {
+                    self.child = Some(child);
+                    self.starting = None;
+                }
+                Ok(Err(why)) => {
+                    self.ended = Some(StudioState::Failed(why));
+                    self.starting = None;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    self.ended = Some(StudioState::Failed("the start was interrupted".to_owned()));
+                    self.starting = None;
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+        }
+        if let Some(child) = self.child.as_mut() {
+            let ended = match child.try_wait() {
+                Ok(None) => return,
+                Ok(Some(status)) => status.to_string(),
+                Err(e) => e.to_string(),
+            };
+            self.ended = Some(StudioState::Ended(ended));
+            self.child = None;
+        }
+    }
+
+    /// What it is doing for the project in `project_dir`.
+    pub fn state(&mut self, project_dir: &Path) -> StudioState {
+        self.poll();
+        if self.project.as_deref() != Some(project_dir) {
+            StudioState::Idle
+        } else if self.starting.is_some() {
+            StudioState::Starting
+        } else if self.child.is_some() {
+            StudioState::Running
+        } else {
+            self.ended.clone().unwrap_or(StudioState::Idle)
+        }
+    }
+
+    /// The log of the last one.
+    pub fn log(&self) -> Option<&Path> {
+        self.log.as_deref()
+    }
+
+    /// End it, if it is starting or running.
+    pub fn stop(&mut self) {
+        let live = self.starting.take().is_some() | self.child.is_some();
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if live {
+            self.ended = Some(StudioState::Stopped);
+        }
+    }
+}
+
+impl Drop for Studio {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 /// The record `[mobile.native]` keeps of the Android Studio project once it is made (R18).
 pub fn record_android(settings: &mut MobileSettings) {
     settings.native.android = mn::ANDROID_DIR.to_owned();
-}
-
-/// The folder Android Studio opens, as the developer reads it: relative to the project.
-pub fn studio_folder_shown() -> String {
-    format!("{}/{}", mn::ANDROID_DIR, mn::ANDROID_STUDIO_SUBDIR)
 }
 
 /// What New Project's step asks the app to do.
@@ -234,11 +386,82 @@ mod tests {
     }
 
     #[test]
+    fn open_in_android_studio_says_what_it_is_doing_in_six_languages_012() {
+        let states = [
+            StudioState::Starting,
+            StudioState::Running,
+            StudioState::Failed("the Android NDK was not found".into()),
+            StudioState::Ended("exit status: 1".into()),
+            StudioState::Stopped,
+        ];
+        let log = "/caches/builds/cobolt-build-orders-android/android-studio.log";
+        let mut lines = 0;
+        for lang in Language::ALL {
+            let tr = lang.tr();
+            assert_eq!(StudioState::Idle.text(&tr, log), None);
+            for s in &states {
+                let t = s.text(&tr, log).unwrap_or_default();
+                assert!(!t.is_empty() && !t.contains("{}"), "{lang:?} {s:?}: {t}");
+                if *s != StudioState::Stopped {
+                    assert!(t.contains(log), "{lang:?} {s:?}: the log is named");
+                }
+                lines += 1;
+            }
+            assert!(states[2].text(&tr, log).unwrap().contains("NDK") && states[3].text(&tr, log).unwrap().contains("exit status: 1"));
+            for b in [tr.pk_native_open, tr.pk_native_stop] {
+                assert!(!b.trim().is_empty(), "{lang:?}");
+            }
+        }
+        assert!(states[0].is_live() && states[1].is_live() && !states[4].is_live());
+        assert!(states[2].is_problem() && states[3].is_problem() && !states[1].is_problem() && !states[4].is_problem());
+        println!("open in Android Studio: 6 languages, {lines} state lines, the log named in every one but Stopped");
+    }
+
+    /// The process is the project's: another project sees nothing; Stop ends it and says so; a
+    /// process that ends by itself is reported with its status; dropping the Studio ends it too.
+    #[cfg(unix)]
+    #[test]
+    fn the_studio_ends_its_process_on_stop_and_on_drop_012() {
+        let dir = PathBuf::from("/p/Orders");
+        let spawn = || std::process::Command::new("sleep").arg("30").spawn().expect("sleep");
+        let studio_with = |child: Child| {
+            let mut s = Studio::default();
+            s.project = Some(dir.clone());
+            s.child = Some(child);
+            s
+        };
+        let mut studio = studio_with(spawn());
+        studio.log = Some(PathBuf::from("/l/android-studio.log"));
+        assert_eq!(studio.state(&dir), StudioState::Running);
+        assert_eq!(studio.state(Path::new("/p/Other")), StudioState::Idle, "another project's page sees none");
+        let pid = studio.child.as_ref().map(Child::id).unwrap();
+        studio.stop();
+        assert_eq!(studio.state(&dir), StudioState::Stopped);
+        assert!(studio.child.is_none() && studio.log() == Some(Path::new("/l/android-studio.log")));
+        let alive = std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false);
+        assert!(!alive, "the process is gone");
+
+        let quick = std::process::Command::new("sh").args(["-c", "exit 3"]).spawn().unwrap();
+        let mut studio = studio_with(quick);
+        let t = std::time::Instant::now();
+        while studio.state(&dir).is_live() && t.elapsed().as_secs() < 10 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(matches!(studio.state(&dir), StudioState::Ended(ref how) if how.contains('3')), "{:?}", studio.state(&dir));
+
+        let held = spawn();
+        let pid = held.id();
+        drop(studio_with(held));
+        let alive = std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false);
+        assert!(!alive, "closing the IDE ends it");
+        println!("studio: running, idle for another project, stopped (process gone), ended by itself (exit 3), ended with the app");
+    }
+
+    #[test]
     fn a_made_project_is_recorded_in_the_mobile_settings_012() {
         let mut m = MobileSettings::new(cobolt_compiler::project_kind::MobilePlatform::Android, cobolt_compiler::project_kind::DeviceClass::Phone);
         assert!(m.native.is_default());
         record_android(&mut m);
         assert_eq!(m.native.android, "android");
-        assert_eq!(studio_folder_shown(), "android/src-tauri/gen/android");
     }
 }

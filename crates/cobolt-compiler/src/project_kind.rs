@@ -782,9 +782,12 @@ pub fn validate_app_id(id: &str) -> Result<(), String> {
     for s in &segments {
         let mut chars = s.chars();
         let ok_first = chars.next().is_some_and(|c| c.is_ascii_alphabetic());
-        if !ok_first || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        // Letters and digits only: Android takes `_`, but the Tauri identifier and an iOS bundle
+        // id do not (found 2026-11-07: `tauri android build` refuses `com.example.power_mobile`,
+        // which `tauri android init` and Android accept).
+        if !ok_first || !chars.all(|c| c.is_ascii_alphanumeric()) {
             return Err(format!(
-                "the application id '{id}' has the part '{s}': each part starts with a letter and holds only letters, digits and _"
+                "the application id '{id}' has the part '{s}': each part starts with a letter and holds only letters and digits (no _ or -)"
             ));
         }
     }
@@ -1565,7 +1568,7 @@ apple_profile = "Orders App Store"
 
     #[test]
     fn app_ids_are_reverse_dns() {
-        for good in ["com.example.app", "com.example.orders_2", "a.b"] {
+        for good in ["com.example.app", "com.example.orders2", "a.b"] {
             assert!(validate_app_id(good).is_ok(), "{good}");
         }
         for (bad, says) in [
@@ -1573,12 +1576,13 @@ apple_profile = "Orders App Store"
             ("1com.x", "'1com'"),
             ("com..x", "the part ''"),
             ("com.ex-ample", "'ex-ample'"),
+            ("com.example.orders_2", "no _ or -"),
             ("", "not set"),
         ] {
             let why = validate_app_id(bad).unwrap_err();
             assert!(why.contains(says), "{bad}: {why}");
         }
-        println!("app_id: 3 accepted, 5 refused with the part named");
+        println!("app_id: 3 accepted, 6 refused with the part named (an _ among them: Tauri and iOS take none)");
     }
 
     #[test]

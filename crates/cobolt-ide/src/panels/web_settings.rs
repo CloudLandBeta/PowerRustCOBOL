@@ -878,9 +878,10 @@ fn mobile_identity_rows(
     theme: &Theme,
     lay: RowLayout,
     project_dir: Option<&Path>,
-    job: &mut crate::panels::native_project::NativeJob,
+    jobs: &mut PageJobs,
 ) {
     use crate::panels::native_project as np;
+    let PageJobs { native: job, studio, .. } = jobs;
     use cobolt_compiler::mobile_native as mn;
     let dim = theme.text_dim;
     let version = format!("{}.{}.{}", draft.ver_major, draft.ver_minor, draft.ver_fix);
@@ -908,11 +909,27 @@ fn mobile_identity_rows(
                 return;
             };
             let exists = mn::android_exists(dir);
+            let mut studio = studio.borrow_mut();
+            let state = studio.state(dir);
             row(ui, lay, tr.pk_set_native_android, |ui| {
-                let label = if exists { tr.pk_native_recreate } else { tr.pk_native_create };
-                ui.add_enabled_ui(!job.running() && id_ok, |ui| {
-                    if ui.button(label).clicked() {
-                        job.start(ui.ctx(), np::request_from(dir, &name, &version, m.clone()));
+                ui.horizontal_wrapped(|ui| {
+                    let label = if exists { tr.pk_native_recreate } else { tr.pk_native_create };
+                    // Not made again under the Tauri command line Android Studio builds through.
+                    ui.add_enabled_ui(!job.running() && id_ok && !state.is_live(), |ui| {
+                        if ui.button(label).clicked() {
+                            job.start(ui.ctx(), np::request_from(dir, &name, &version, m.clone()));
+                        }
+                    });
+                    if state.is_live() {
+                        if ui.button(tr.pk_native_stop).clicked() {
+                            studio.stop();
+                        }
+                    } else if exists {
+                        ui.add_enabled_ui(!job.running() && id_ok, |ui| {
+                            if ui.button(tr.pk_native_open).clicked() {
+                                studio.open(ui.ctx(), np::request_from(dir, &name, &version, m.clone()));
+                            }
+                        });
                     }
                 });
             });
@@ -923,6 +940,10 @@ fn mobile_identity_rows(
                 None => (tr.pk_set_native_missing.replacen("{}", &mn::android_root(dir).to_string_lossy(), 1), dim),
             };
             note(ui, lay, &text, colour);
+            let log = studio.log().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            if let Some(text) = state.text(tr, &log) {
+                note(ui, lay, &text, if state.is_problem() { theme.error } else { dim });
+            }
         }
         MobilePlatform::Ios => {
             row(ui, lay, tr.pk_set_native_xcode, |ui| {
@@ -932,16 +953,16 @@ fn mobile_identity_rows(
     }
 }
 
-/// The page's work on threads of its own: the Identity section's Test connection and the making
-/// of the Android Studio project.
+/// The page's work on threads of its own: the Identity section's Test connection, the making
+/// of the Android Studio project, and the app's Open in Android Studio (lent: it outlives the page).
 #[derive(Default)]
 pub struct PageJobs {
     pub identity_test: IdentityTest,
     pub native: crate::panels::native_project::NativeJob,
+    pub studio: crate::panels::native_project::SharedStudio,
 }
 
 pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout, project_dir: Option<&Path>, jobs: &mut PageJobs) {
-    let PageJobs { identity_test, native } = jobs;
     if draft.kind.is_desktop() {
         return;
     }
@@ -983,7 +1004,7 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
             ui.label(device);
         });
     }
-    mobile_identity_rows(ui, draft, tr, theme, lay, project_dir, native);
+    mobile_identity_rows(ui, draft, tr, theme, lay, project_dir, jobs);
 
     row(ui, lay, tr.pk_f_description, |ui| {
         let w = ui.available_width();
@@ -1181,7 +1202,7 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
         } else {
             note(ui, lay, tr.pk_set_idle_bad, theme.error);
         }
-        identity_rows(ui, &mut draft.identity, tr, theme, lay, project_dir, identity_test);
+        identity_rows(ui, &mut draft.identity, tr, theme, lay, project_dir, &mut jobs.identity_test);
     } else {
         note(ui, lay, tr.pk_set_no_backend, dim);
     }

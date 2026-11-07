@@ -903,7 +903,7 @@ pub fn build_android(req: &PackageRequest, tools: &Toolchain, signing: Option<&S
     patch_android_project(&staged, req)?;
     // The project's own Android Studio project, when it has one, takes the same bundle and sources
     // (WASM-012 R16, R18); a failure there is said and does not stop the package.
-    match crate::mobile_native::refresh_android(req, &checked) {
+    match crate::mobile_native::refresh_android(req, &checked, tools) {
         Ok(true) => log(&format!("Android Studio project brought up to date: {}", crate::mobile_native::android_studio_dir(&req.project_dir).display())),
         Ok(false) => {}
         Err(why) => log(&format!("The Android Studio project could not be brought up to date: {why}")),
