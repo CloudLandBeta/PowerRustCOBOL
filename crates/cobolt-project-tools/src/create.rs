@@ -660,6 +660,9 @@ fn build_manifest(
             mobile.style = cobolt_compiler::project_kind::ApplicationStyle::parse(resolved.choice("style")).unwrap_or_default();
             mobile.orientation = cobolt_compiler::project_kind::Orientation::parse(resolved.choice("orientation")).unwrap_or_default();
             mobile.min_os = resolved.choice("min_os").to_owned();
+            // A package build needs an application id (WASM-012 R6): the project starts with a valid
+            // one, which the developer replaces with their own in Project Settings.
+            mobile.app_id = cobolt_compiler::project_kind::default_app_id(stored);
             tables.push(table_text(&MobileTable { mobile: &mobile })?);
         }
         _ => {}
@@ -714,8 +717,20 @@ pub struct CloneDone {
 }
 
 /// Folders a copy leaves behind: build output and working folders, version
-/// control and downloaded dependencies. What the developer wrote is what is copied.
-const NOT_COPIED: &[&str] = &["bin", "debug", "temp", "dist", "target", ".git", "node_modules"];
+/// control and downloaded dependencies, and a Mobile project's native projects —
+/// generated, and named after the project copied (WASM-012 R16, R18); the copy makes
+/// its own. What the developer wrote is what is copied.
+const NOT_COPIED: &[&str] = &[
+    "bin",
+    "debug",
+    "temp",
+    "dist",
+    "target",
+    ".git",
+    "node_modules",
+    cobolt_compiler::mobile_native::ANDROID_DIR,
+    cobolt_compiler::mobile_native::IOS_DIR,
+];
 
 /// *Create from Template…* (WASM-001 R7): copy the project whose manifest is
 /// `source` into `dest_dir` as a new project named `stored_name`.

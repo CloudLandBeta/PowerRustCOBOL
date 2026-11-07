@@ -61,7 +61,24 @@ pub fn run(root: &ProjectRoot) -> Result<Value, String> {
         });
         answer["web_assets"] = json!(web_assets(root));
     }
+    // A Mobile project's native projects (WASM-012 R18): what the manifest records per platform,
+    // whether it is on disk, and the folder the platform's own tool opens.
+    if let Some(m) = view.mobile.as_ref() {
+        answer["native"] = native_projects(root, &m.native);
+    }
     Ok(answer)
+}
+
+/// `[mobile.native]` as the agent sees it: per platform, the folder recorded (`null` when none was
+/// made), whether the project is there, and the folder Android Studio opens.
+fn native_projects(root: &ProjectRoot, recorded: &cobolt_compiler::project_kind::NativeProjects) -> Value {
+    use cobolt_compiler::mobile_native as mn;
+    let or_null = |s: &str| if s.trim().is_empty() { Value::Null } else { json!(s.trim()) };
+    let studio = root.relative(&mn::android_studio_dir(root.dir())).unwrap_or_else(|| format!("{}/{}", mn::ANDROID_DIR, mn::ANDROID_STUDIO_SUBDIR));
+    json!({
+        "android": { "recorded": or_null(&recorded.android), "exists": mn::android_exists(root.dir()), "android_studio_folder": studio },
+        "ios": { "recorded": or_null(&recorded.ios), "exists": false },
+    })
 }
 
 /// The web side of a Web or Mobile project on disk: the form stylesheets
@@ -172,5 +189,32 @@ mod tests {
         println!(
             "list: 6 lists reported, 4 entries (3 exist, 1 missing), 2 reports newest first, 1 non-.md ignored"
         );
+    }
+
+    #[test]
+    fn a_mobile_project_reports_its_native_projects_012() {
+        let dir = std::env::temp_dir().join(format!("prc-012-list-native-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("mobileforms")).unwrap();
+        let manifest = "[project]\nname = \"M.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"mobile\"\n[files]\n\
+                        [mobile]\nplatform = \"android\"\ndevice = \"phone\"\n";
+        std::fs::write(dir.join("M.project.toml"), manifest).unwrap();
+        let root = ProjectRoot::open(&dir).unwrap();
+        let v = run(&root).unwrap();
+        let none = json!({
+            "android": { "recorded": null, "exists": false, "android_studio_folder": "android/src-tauri/gen/android" },
+            "ios": { "recorded": null, "exists": false },
+        });
+        assert_eq!(v["native"], none, "{v:#}");
+        // Made and recorded: the Gradle project the Tauri command line writes, and `[mobile.native]`.
+        let studio = dir.join("android/src-tauri/gen/android/app");
+        std::fs::create_dir_all(&studio).unwrap();
+        std::fs::write(studio.join("build.gradle.kts"), "// generated").unwrap();
+        std::fs::write(dir.join("M.project.toml"), format!("{manifest}[mobile.native]\nandroid = \"android\"\n")).unwrap();
+        let v = run(&ProjectRoot::open(&dir).unwrap()).unwrap();
+        assert_eq!(v["native"]["android"]["recorded"], "android");
+        assert_eq!(v["native"]["android"]["exists"], true);
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("list: a Mobile project's native projects, missing then made and recorded");
     }
 }

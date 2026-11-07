@@ -286,6 +286,17 @@ pub struct Checked {
 /// Check what a package needs, all at once: `Err` lists every problem, each a sentence that says
 /// what to change. `signing` is looked at only for a release.
 pub fn check(req: &PackageRequest, signing: Option<&SigningSecrets>) -> Result<Checked, Vec<String>> {
+    check_parts(req, signing, true)
+}
+
+/// [`check`] without the Web bundle: what the shell itself needs (the identity, the version, the
+/// minimum OS, the declared features, the icon). The native project of a project not built yet is
+/// made from it (WASM-012 R16); its bundle arrives with the first Build.
+pub fn check_shell(req: &PackageRequest) -> Result<Checked, Vec<String>> {
+    check_parts(req, None, false)
+}
+
+fn check_parts(req: &PackageRequest, signing: Option<&SigningSecrets>, with_bundle: bool) -> Result<Checked, Vec<String>> {
     let s = &req.settings;
     let mut problems = Vec::new();
     if let Err(e) = project_kind::validate_app_id(&s.app_id) {
@@ -299,9 +310,11 @@ pub fn check(req: &PackageRequest, signing: Option<&SigningSecrets>) -> Result<C
     };
     // Each already a sentence that names the feature and the ones there are.
     problems.extend(mobile_features::unknown_declared(&s.features));
-    if !req.bundle_dir.join("index.html").is_file() {
+    let bundled = with_bundle && req.bundle_dir.join("index.html").is_file();
+    if with_bundle && !bundled {
         problems.push(format!("the Web bundle {} is missing; build the project first", req.bundle_dir.display()));
-    } else {
+    }
+    if bundled {
         match bundle_builtins(&req.bundle_dir) {
             Ok(builtins) => {
                 let used = mobile_features::features_of_builtins(builtins.iter().map(String::as_str));
@@ -571,7 +584,7 @@ pub struct Staged {
 
 /// Write `text` to `path` unless it already holds it (an unchanged file keeps its time, so cargo
 /// and Gradle do not rebuild what did not change).
-fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if std::fs::read(path).is_ok_and(|old| old == bytes) {
         return Ok(());
     }
@@ -600,11 +613,20 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Write the staging folder for `req`.
+/// The page the shell shows before the project's first Build put its bundle there (a native project
+/// made with a new project, WASM-012 R16).
+pub const NOT_BUILT_PAGE: &str = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"><title>Not built yet</title></head>\n<body style=\"font-family: system-ui, sans-serif; margin: 48px 24px\"><p>This application has not been built yet. Build the project in PowerRustCOBOL AI: the Build puts the application here.</p></body></html>\n";
+
+/// Write the staging folder for `req`. The Web bundle becomes `frontend/`; with no bundle yet the
+/// shell shows [`NOT_BUILT_PAGE`] until a Build brings one.
 pub fn stage(req: &PackageRequest, c: &Checked) -> Result<Staged, String> {
     let root = req.staging_dir.clone();
     let app_dir = root.join("src-tauri");
-    copy_tree(&req.bundle_dir, &root.join("frontend"))?;
+    if req.bundle_dir.join("index.html").is_file() {
+        copy_tree(&req.bundle_dir, &root.join("frontend"))?;
+    } else if !root.join("frontend/index.html").is_file() {
+        write_if_changed(&root.join("frontend/index.html"), NOT_BUILT_PAGE.as_bytes())?;
+    }
     write_if_changed(&root.join("shell/Cargo.toml"), SHELL_MANIFEST.as_bytes())?;
     write_if_changed(&root.join("shell/src/lib.rs"), SHELL_LIB.as_bytes())?;
     let crate_name = req.crate_name();
@@ -813,7 +835,7 @@ pub struct Package {
 
 /// Run `program args` in `dir` with the toolchain's environment (and `extra`), every line of its
 /// output to `log`. `Err` carries the last lines when it fails.
-fn run_logged(dir: &Path, args: &[&str], tools: &Toolchain, extra: &[(&str, String)], log: &mut dyn FnMut(&str)) -> Result<(), String> {
+pub(crate) fn run_logged(dir: &Path, args: &[&str], tools: &Toolchain, extra: &[(&str, String)], log: &mut dyn FnMut(&str)) -> Result<(), String> {
     log(&format!("$ cargo {}", args.join(" ")));
     let mut cmd = Command::new("cargo");
     cmd.args(args).current_dir(dir).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
@@ -879,6 +901,13 @@ pub fn build_android(req: &PackageRequest, tools: &Toolchain, signing: Option<&S
         run_logged(&staged.app_dir, &["tauri", "android", "init", "--ci", "--skip-targets-install"], tools, &[], log)?;
     }
     patch_android_project(&staged, req)?;
+    // The project's own Android Studio project, when it has one, takes the same bundle and sources
+    // (WASM-012 R16, R18); a failure there is said and does not stop the package.
+    match crate::mobile_native::refresh_android(req, &checked) {
+        Ok(true) => log(&format!("Android Studio project brought up to date: {}", crate::mobile_native::android_studio_dir(&req.project_dir).display())),
+        Ok(false) => {}
+        Err(why) => log(&format!("The Android Studio project could not be brought up to date: {why}")),
+    }
     let icon = staged.icon.to_string_lossy().into_owned();
     run_logged(&staged.app_dir, &["tauri", "icon", &icon], tools, &[], log)?;
     let mut args = vec!["tauri", "android", "build", "--ci", "--apk", "--target", req.abi.tauri_target()];

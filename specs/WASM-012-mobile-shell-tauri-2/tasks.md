@@ -9,7 +9,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   plan's first draft (2.0.30). No box was checked in the first version, so there is no evidence to carry. No shell code exists yet. Every Tauri, Android
   and iOS statement in the plan is marked **[verify]** and is unconfirmed; T1 confirms them before any other task starts.
 - **Plan:** ./plan.md   **Date:** 2026-10-23
-- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.293).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
+- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.294).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
   of a Mobile project make the web bundle and then `dist/mobile/android/<Name>-debug.apk`; the IDE's Run with an emulator builds, installs and starts
   it as a tap on its icon would and shows the application's log (a `DISPLAY` reads as the program wrote it); the phone's secure storage works on the
   emulator (stored, read back after a restart, deleted); the forms keep out of the status and gesture bars; Back on the first form ends the
@@ -17,9 +17,11 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   over the application on screen keeps it alive, and the Output shows only the application's own log (2.0.291); with several places to run,
   the Run on device window asks once and the session keeps the answer, and a failed run opens nothing else (2.0.292); with nothing running
   and one emulator set up, Run starts it again without asking (2.0.293, a regression of 2.0.292 fixed), and inside the shell the
-  "connecting" modal draws the phone or the tablet and a return from the background retries a lost connection behind it (2.0.293). The
+  "connecting" modal draws the phone or the tablet and a return from the background retries a lost connection behind it (2.0.293); a
+  Mobile project for Android gets its Android Studio project in `android/` from New Project's step or from Project Settings, every package
+  build keeps it on the same bundle, and a new Mobile project starts with an application id that Project Settings edits (2.0.294). The
   example is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1–T7, T12, T17, T18, T23. Partly done
-  (what is left is named under each): T8, T9, T11, T13–T16, T19, T20, T22, T24, T25b. Not started: T10 (O9), T21, T25 (O1), T25c, T26. iOS is not run here:
+  (what is left is named under each): T8, T9, T11, T13–T16, T19, T20, T22, T24, T25b, T25c. Not started: T10 (O9), T21, T25 (O1), T26. iOS is not run here:
   Xcode 15.2's simulators are iOS 17.2, below the iOS 18 floor.
   The "no task commits" rule below is overridden by the operator (2026-11-06: every task is committed, merged into `2.x.x` and pushed outside the
   window).
@@ -594,6 +596,17 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     `DISPLAY` lines ("Hello, Grace. I will remember you.", "Forgotten. See you, stranger.", "Type your name first."), every line from the
     application's process and none from another. **2.0.292:** the device test again, now listing through `DeviceTarget`
     (`emulator-5554` running, the one target): built, installed and started in 23.6 s, alive and the resumed activity 20 s later.
+    **2026-11-07, the 2.0.293 package on the same emulator, read over the web view's DevTools (`adb forward … webview_devtools_remote_<pid>`):**
+    the shell's bridge is there (`__TAURI_INTERNALS__.invoke` a function); the screen is 412 × 915 CSS px (`devicePixelRatio` 2.625), so the
+    modal draws the phone. **AC8's signals:** HOME and back to the application gave, in order, `visibilitychange` hidden, `pr-shell`
+    `{"type":"paused"}`, `visibilitychange` visible, `pr-shell` `{"type":"resumed"}`, the same process throughout (pid kept). **The keyboard:**
+    a tap on the name box shows it (`dumpsys input_method`: `mInputShown=true`); `innerHeight` stays 914 while `visualViewport.height` falls
+    to 578 (the keyboard covers 336 CSS px), `navigator.virtualKeyboard.overlaysContent` is false and its rectangle empty; the focused box
+    (bottom at 167) stays in view. Rotation is not measurable with the example: its manifest locks portrait. **The emulator itself:** the AVD
+    `Medium_Phone_API_37.0` had one virtual processor (`hw.cpu.ncore=1`, Play Store images hide the setting) and software rendering (`auto`
+    chose lavapipe + SwANGLE): a cold boot took over 8 minutes and Android's `system_server` failed under the load (the WebViewZygote
+    `NullPointerException`, "Can't find service: package" during installs) — the failures met on 2026-11-06. With 4 processors
+    (`config.ini`, the setting Device Manager edits) the cold boot completed in under a minute and the install and start worked at once.
     AC7 in part: the forms stand below the status bar (root 24 CSS px down,
     the strip `#f4f5f7`) and above the gesture bar; Back measured (it closes, it does not pop: the example has one form). **Not run here:** the
     `.aab`; iOS (Xcode 15.2, simulators iOS 17.2 < floor 18); AC4 live (the operator's key); AC6 (O4); AC7's rotation and a multi-form Back;
@@ -640,6 +653,45 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     longer than the three windows. The lifecycle events of spec 037 for paused/resumed: spec 037 has no folder in `specs/`; nothing maps them
     yet (T15).
 - [ ] **T25c — D22: the native Android Studio / Xcode project created with the Mobile project, and its re-creation from Project Settings** (R16–R18; AC12; WASM-001 R19; Q7) — added 2026-10-24 by the operator's ruling.
+  - **Q7, decided as the spec recommends (agent, under the operator's delegation of 2026-11-06):** the native project lives in the project
+    folder, `android/` (and `ios/` when it exists) beside `mobileforms/` and `backend/`; the IDE's package builds keep their own staging in the
+    build folder, so a Build never waits on Android Studio's caches nor Android Studio on the IDE's.
+  - **Done (2.0.294), Android:**
+    - `cobolt-compiler` `mobile_native`: `create_android` stages the shell into `android/` as a package build stages it (shell sources,
+      `src-tauri/`, the bundle in `frontend/`), writes `android/.gitignore` (what the tools build and cache), runs `tauri android init --ci
+      --skip-targets-install` when the Gradle project is not there, makes the package build's edits (orientation, signing hook, the names under
+      the icon), names the Gradle project after the project (`rootProject.name`, a marked line in `settings.gradle`, `patch_project_name`) and
+      makes the launcher icons. Without the tools it writes the sources only and names what is missing (`Created::SourcesOnly`).
+      `refresh_android` brings it up to date after every package build (`build_android`), so Build and Run on a device keep it on the bundle
+      the package shows (R16, R18). `mobile_build::check_shell` checks what the shell needs without a bundle; until the first Build
+      `frontend/index.html` is `NOT_BUILT_PAGE` (it says to build in PowerRustCOBOL AI). `[mobile.native]` (`NativeProjects`, `android`, `ios`)
+      is written only when set (R18).
+    - IDE, `panels/native_project.rs`: New Project's step for a Mobile project for Android (`NativeStep`: Create / Not now; a fixed size, no
+      grip, nothing in it grows); the making on a thread (`NativeJob`, every tool line in `native.log` in the build folder); the outcome in the
+      Output and, when made, `[mobile.native] android = "android"` saved into the project if it is still the one open (WASM-001 R19).
+    - Project Settings, Mobile application (`web_settings::mobile_identity_rows`): the **Application id** row (a refused id keeps the saved one,
+      the page says why); the **Android Studio project** row (where it is, or that it is not created, and where it would go; Create / Create
+      again, made from the settings on the page, saved or not; the made project recorded in the draft); for an iOS project, the **Xcode
+      project** row, unavailable, with the reason (R17).
+    - `list_files` reports `native` (`recorded`, `exists`, `android_studio_folder`; iOS `exists: false`) (R18). *Create from Template…* leaves
+      `android/` and `ios/` behind: generated, and named after the project copied (R18's "marked generated", for the copy).
+    - **Found while doing it, fixed in the same change:** a new Mobile project had no application id and the IDE had no field to give it one,
+      so its first Run was refused pointing at "Mobile settings, Application id", which did not exist. `create::plan` now writes
+      `com.example.<name>` (`project_kind::default_app_id`: lower case, letters and digits, valid for `validate_app_id` and for Tauri's
+      identifier, which takes no `_`), so the IDE and `create_project` still write the same manifest (WASM-001 AC3), and the row above edits it.
+    - `Tr` ×6: 17 keys. System KB: the paragraph "The Application id and the Android Studio project"; `chunked.data` regenerated (4284
+      records).
+    - **Also found, a slip of 2.0.288 (T3's minimum OS floors):** the templates named the Minimum OS choice `auto` "Auto / Latest" (what
+      `create_project` shows the agent) while it resolves to the floor; it now reads "Auto (the oldest supported)", as the dialog's `Tr` did.
+      Two IDE tests had been red since 2.0.288 (`the_fields_make_the_request` still chose iOS 17.0; `the_builtin_catalogue_is_fully_worded…`
+      listed the withdrawn versions) and pass again.
+  - **Found (Tauri 2.12.4):** the generated Gradle project builds the shell through `cargo tauri android android-studio-script`, which asks a
+    running `tauri android build` or `dev` for its options (`fetch_options`, tauri-cli `src/mobile/mod.rs:551`: "the `tauri android dev` or
+    `tauri android build` command must be running while Android Studio builds the app"). Android Studio builds the project only while
+    `cargo tauri android build --debug --apk --open` runs in `android/src-tauri` (it builds once, opens Android Studio and waits). The KB says so.
+  - **Left:** an **Open in Android Studio** action that runs that command for the developer and stops it with the IDE; AC12's live half (Android
+    Studio opening the project and running it on the emulator: the operator's window); the Xcode project (iOS is not run here); WASM-001 T19's
+    own Finalize.
 - [ ] **T26 — Finalize: version, CHANGELOG, tests of the touched crates**
   - Files: `crates/cobolt-ide/src/version.rs` (`z` +1 **once**: from the value at that time, `2.0.49` today, to the next `2.0.z`; never `x` or `y`);
     `CHANGELOG.md` (one entry above the previous heading, dated, "Written on features-2x", listing what landed and what stays open: O1–O10 and the T24

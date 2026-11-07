@@ -688,6 +688,27 @@ pub struct MobileSettings {
     /// secret store and reach the build in memory.
     #[serde(default, skip_serializing_if = "MobileSigning::is_default")]
     pub signing: MobileSigning,
+    /// `[mobile.native]` — the native project made for each platform (WASM-012 R16–R18): where it
+    /// is in the project folder, empty while there is none. Written only once one is made.
+    #[serde(default, skip_serializing_if = "NativeProjects::is_default")]
+    pub native: NativeProjects,
+}
+
+/// `[mobile.native]` (WASM-012 R18): per platform, the folder of the native project the platform's
+/// own tools open — the Android Studio project, the Xcode project — relative to the project folder,
+/// or empty when none was made (declined in New Project, or not yet made from Project Settings).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeProjects {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub android: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ios: String,
+}
+
+impl NativeProjects {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// `[mobile.signing]` (WASM-012 R4): where the signing material is and what it
@@ -768,6 +789,21 @@ pub fn validate_app_id(id: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The application id a new Mobile project starts with (WASM-012 R6): `com.example.` and the
+/// project's name in lower case, letters and digits only — what Android Studio offers for a new
+/// project, valid for [`validate_app_id`] and for the Tauri identifier, which takes no `_`. The
+/// developer replaces it with their own in Project Settings, Mobile, Application id; a store takes
+/// no `com.example` id.
+pub fn default_app_id(project_name: &str) -> String {
+    let name = project_name.trim();
+    let name = name.strip_suffix(".project").unwrap_or(name);
+    let mut last: String = name.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect();
+    if !last.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        last.insert_str(0, "app");
+    }
+    format!("com.example.{last}")
 }
 
 /// The build number of a version (WASM-012 D-BuildNo): `major*10000 +
@@ -870,6 +906,7 @@ impl MobileSettings {
             app_name: BTreeMap::new(),
             rationale: BTreeMap::new(),
             signing: MobileSigning::default(),
+            native: NativeProjects::default(),
         }
     }
 
@@ -1542,6 +1579,23 @@ apple_profile = "Orders App Store"
             assert!(why.contains(says), "{bad}: {why}");
         }
         println!("app_id: 3 accepted, 5 refused with the part named");
+    }
+
+    #[test]
+    fn a_new_mobile_project_starts_with_a_valid_application_id_012() {
+        for (name, want) in [
+            ("PowerMobileHello.project", "com.example.powermobilehello"),
+            ("Orders", "com.example.orders"),
+            ("my-app 2", "com.example.myapp2"),
+            ("2048.project", "com.example.app2048"),
+            ("Ação", "com.example.ao"),
+            ("", "com.example.app"),
+        ] {
+            let id = default_app_id(name);
+            assert_eq!(id, want, "{name}");
+            assert!(validate_app_id(&id).is_ok() && !id.contains('_'), "{id}");
+        }
+        println!("default app_id: 6 names, 6 valid reverse-DNS ids without _");
     }
 
     #[test]

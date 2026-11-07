@@ -957,6 +957,10 @@ pub struct CoboltApp {
     /// the dialog was raised by a folder row's `[+]`. `None` means `indexed/`.
     new_indexed_dir: Option<String>,
     new_project: NewProjectDialog,
+    /// New Project's step that makes the Android Studio project of a Mobile project for Android
+    /// (WASM-001 R19), and its making: the project's manifest and the job (WASM-012 T25c).
+    native_step: Option<crate::panels::native_project::NativeStep>,
+    native_job: (Option<PathBuf>, crate::panels::native_project::NativeJob),
     /// The web Preview of a Web or Mobile project: its build job, development
     /// server and the browser it opens (WASM-008).
     web_preview: WebPreview,
@@ -2359,6 +2363,8 @@ impl CoboltApp {
             new_indexed: NewIndexedDialog::new(),
             new_indexed_dir: None,
             new_project: NewProjectDialog::new(),
+            native_step: None,
+            native_job: (None, Default::default()),
             web_preview: WebPreview::default(),
             browser_confirm: None,
             backend_run: None,
@@ -5055,6 +5061,16 @@ impl CoboltApp {
             };
             self.output
                 .push_status(tr.pk_status_created.replacen("{}", kind, 1).replacen("{}", &plan.stored_name, 1));
+            // A Mobile project for Android: its Android Studio project is a step of its own,
+            // which the developer may decline (WASM-001 R19, WASM-012 R16–R17).
+            let android = self
+                .cobolt_project
+                .as_ref()
+                .and_then(|p| p.mobile.as_ref())
+                .is_some_and(|m| m.platform == cobolt_compiler::project_kind::MobilePlatform::Android);
+            if android {
+                self.native_step = Some(crate::panels::native_project::NativeStep::new(manifest, &plan.stored_name));
+            }
         }
     }
 
@@ -14602,6 +14618,42 @@ impl CoboltApp {
         }
     }
 
+    /// New Project's Android Studio step (WASM-001 R19), and the making it starts: the outcome goes
+    /// to the Output and, when the project is made, into `[mobile.native]` of the project it was
+    /// made for, if that project is still the one open (WASM-012 R18).
+    fn show_native_project_step(&mut self, ctx: &Context) {
+        let tr = self.lang.tr();
+        if let Some(mut step) = self.native_step.take() {
+            let answer = step.show(ctx, self.current_theme(), &tr);
+            if answer.is_none() {
+                self.native_step = Some(step);
+            }
+            if let Some(answer) = answer {
+                if let Some(manifest) = answer.create {
+                    match crate::panels::native_project::request_from_manifest(&manifest) {
+                        Ok(req) => {
+                            self.output.push_status(tr.pk_native_working.to_owned());
+                            self.native_job.1.start(ctx, req);
+                            self.native_job.0 = Some(manifest);
+                        }
+                        Err(why) => self.output.push_status(tr.pk_native_failed.replacen("{}", &why, 1)),
+                    }
+                }
+            }
+        }
+        let Some(outcome) = self.native_job.1.poll() else {
+            return;
+        };
+        self.output.push_status(outcome.text(&tr));
+        let made_for = self.native_job.0.take();
+        if outcome.is_ready() && made_for.is_some() && made_for == self.project_path {
+            if let Some(m) = self.cobolt_project.as_mut().and_then(|p| p.mobile.as_mut()) {
+                crate::panels::native_project::record_android(m);
+                self.do_save_project();
+            }
+        }
+    }
+
     fn show_new_form_dialog(&mut self, ctx: &Context) {
         if !self.new_form.open {
             return;
@@ -16860,6 +16912,7 @@ impl eframe::App for CoboltApp {
         // ── Dialogs ───────────────────────────────────────────────────────────
         self.show_code_search_window(ctx);
         self.show_new_project_dialog(ctx);
+        self.show_native_project_step(ctx);
         self.show_web_preview(ctx);
         self.poll_backend(ctx);
         self.show_new_form_dialog(ctx);

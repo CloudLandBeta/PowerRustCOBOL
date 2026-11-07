@@ -341,3 +341,135 @@ fn the_emulators_that_can_be_started_are_read_from_the_sdk() {
          a choice by the emulator's name found after it started; 1 startable alone; none"
     );
 }
+
+/// The generated Gradle project's two files the package build edits, as `tauri android init` writes them (the parts
+/// the edits look at).
+fn fake_gradle_project(android: &Path) {
+    let app = android.join("src-tauri/gen/android/app");
+    std::fs::create_dir_all(app.join("src/main")).unwrap();
+    std::fs::write(
+        app.join("src/main/AndroidManifest.xml"),
+        "<manifest>\n    <application>\n        <activity\n            android:name=\".MainActivity\"\n            android:exported=\"true\">\n        </activity>\n    </application>\n</manifest>\n",
+    )
+    .unwrap();
+    std::fs::write(app.join("build.gradle.kts"), "android {\n    buildTypes {\n        getByName(\"release\") {\n        }\n    }\n}\n").unwrap();
+}
+
+/// Every file under `dir`, relative to it.
+fn files_under(dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                out.push(p.strip_prefix(dir).unwrap().to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// WASM-012 R16–R18 (T25c): the native project of a project not built yet is the shell staged into `android/` with a
+/// page saying to build; its identity is needed, its bundle is not; a Build's refresh brings the bundle and the edits
+/// into an Android Studio project that exists and leaves a project without one alone; nothing of the application
+/// but the bundle is in it — no COBOL, no form, no secret.
+#[test]
+fn the_android_studio_project_lives_in_the_project_and_follows_the_build_012() {
+    use cobolt_compiler::mobile_native as mn;
+    let dir = scratch("native");
+    std::fs::create_dir_all(dir.join("mobileforms")).unwrap();
+    std::fs::write(dir.join("mobileforms/main-form.mcfrm"), "<Form/>").unwrap();
+    let req = request(&dir, settings(&["secure-storage"]), Profile::Debug);
+    assert_eq!((mn::android_root(&dir), mn::android_studio_dir(&dir)), (dir.join("android"), dir.join("android/src-tauri/gen/android")));
+    assert!(!mn::android_exists(&dir));
+
+    // Not built yet: a package is refused for want of the bundle, the native project's shell is not.
+    let refused = mb::check(&req, None).unwrap_err();
+    assert!(refused.iter().any(|p| p.contains("build the project first")), "{refused:?}");
+    let checked = mb::check_shell(&req).expect("the shell needs no bundle");
+    let mut no_id = req.clone();
+    no_id.settings.app_id.clear();
+    assert!(mb::check_shell(&no_id).unwrap_err().iter().any(|p| p.contains("Application id")), "the identity is needed");
+    let mut ios = req.clone();
+    ios.settings.platform = MobilePlatform::Ios;
+    assert!(mn::create_android(&ios, &mut |_| {}).unwrap_err().contains("iOS"));
+
+    // Staged into android/ (what create_android does before the tools run): the page that says to build.
+    let mut native = req.clone();
+    native.staging_dir = mn::android_root(&dir);
+    let staged = mb::stage(&native, &checked).unwrap();
+    assert_eq!(read(&staged.root.join("frontend/index.html")), mb::NOT_BUILT_PAGE);
+    assert!(staged.app_dir.join("tauri.conf.json").is_file() && staged.root.join("shell/src/lib.rs").is_file());
+    assert_eq!(mn::refresh_android(&req, &checked), Ok(false), "no Gradle project yet: nothing to bring up to date");
+
+    // The Gradle project there (as `tauri android init` leaves it), then a Build: the bundle and the edits arrive.
+    fake_gradle_project(&mn::android_root(&dir));
+    assert!(mn::android_exists(&dir));
+    let built = project("native-built", &["SECURESTORE"]);
+    let web = dir.join("dist/web");
+    std::fs::create_dir_all(web.join("player")).unwrap();
+    for f in ["index.html", "player/player.js", "manifest.0123abcd.json"] {
+        std::fs::copy(built.join("dist/web").join(f), web.join(f)).unwrap();
+    }
+    let checked = mb::check(&req, None).expect("built now");
+    assert_eq!(mn::refresh_android(&req, &checked), Ok(true));
+    assert_eq!(read(&dir.join("android/frontend/index.html")), read(&web.join("index.html")), "the same bundle as the package");
+    assert!(dir.join("android/frontend/player/player.js").is_file());
+    let manifest = read(&dir.join("android/src-tauri/gen/android/app/src/main/AndroidManifest.xml"));
+    assert!(manifest.contains("android:screenOrientation=\"portrait\""), "{manifest}");
+    assert!(read(&dir.join("android/src-tauri/gen/android/app/build.gradle.kts")).contains("prcRelease"), "the signing hook");
+
+    // Android Studio shows the Gradle project under the project's name (Tauri writes none): set once, replaced, quoted.
+    let tauri_settings = "include ':app'\n\napply from: 'tauri.settings.gradle'\n";
+    let named = mn::patch_project_name(tauri_settings, "PowerMobileHello");
+    assert!(named.starts_with("rootProject.name = 'PowerMobileHello' //") && named.ends_with("apply from: 'tauri.settings.gradle'\n"), "{named}");
+    let renamed = mn::patch_project_name(&named, "Hello Again");
+    assert_eq!(renamed.matches("rootProject.name").count(), 1, "{renamed}");
+    assert!(renamed.starts_with("rootProject.name = 'Hello Again' //"));
+    assert_eq!(mn::patch_project_name(&renamed, "Hello Again"), renamed, "the same name changes nothing");
+    assert!(mn::patch_project_name(tauri_settings, "O'Neil").starts_with("rootProject.name = 'O\\'Neil' //"));
+
+    // R18: no COBOL, no form, no secret.
+    let listed = files_under(&mn::android_root(&dir));
+    let foreign: Vec<&String> = listed.iter().filter(|f| [".cbl", ".cob", ".cpy", ".cfrm", ".wcfrm", ".mcfrm", ".cidx"].iter().any(|x| f.ends_with(x))).collect();
+    assert!(foreign.is_empty(), "{foreign:?}");
+    for f in &listed {
+        let text = String::from_utf8_lossy(&std::fs::read(mn::android_root(&dir).join(f)).unwrap()).into_owned();
+        assert!(!text.contains("PASSWORD=") && !text.contains("AKIA") && !text.contains("BEGIN PRIVATE KEY"), "{f}");
+    }
+    println!(
+        "native project: android/ and its Gradle folder; refused package without a bundle, the shell without one accepted; no identity refused; \
+         iOS refused; staged with the not-built page; refresh: none -> false, Gradle project -> true with the bundle, the orientation and the signing hook; \
+         {} files, no COBOL, no form, no secret",
+        listed.len()
+    );
+}
+
+/// WASM-012 R16, AC12 (T25c), on this computer's tools: the Android Studio project of the example, made in a copy of
+/// it, is a Gradle project named after the application, with the identity and the not-built page or the bundle.
+/// `cargo test -p cobolt-compiler --test mobile_shell the_android_studio_project_is_generated -- --ignored --nocapture`
+#[test]
+#[ignore = "needs the Android SDK, the NDK, Java 17 to 21 and the Tauri CLI"]
+fn the_android_studio_project_is_generated_by_the_tauri_command_line() {
+    use cobolt_compiler::mobile_native as mn;
+    let t = Instant::now();
+    let dir = scratch("native-live");
+    let req = request(&dir, settings(&["secure-storage"]), Profile::Debug);
+    let mut lines = 0usize;
+    let made = mn::create_android(&req, &mut |_| lines += 1).expect("created");
+    let studio = mn::android_studio_dir(&dir);
+    assert_eq!(made, mn::Created::Ready(studio.clone()));
+    let settings_gradle = read(&studio.join("settings.gradle"));
+    assert!(settings_gradle.starts_with("rootProject.name = 'PowerMobileHello'"), "named after the project: {settings_gradle}");
+    assert!(settings_gradle.contains("include ':app'"));
+    let app_gradle = read(&studio.join("app/build.gradle.kts"));
+    assert!(app_gradle.contains("com.example.power_mobile"), "the identity is the Gradle namespace");
+    assert!(app_gradle.contains("prcRelease"));
+    assert_eq!(read(&dir.join("android/frontend/index.html")), mb::NOT_BUILT_PAGE);
+    assert!(dir.join("android/.gitignore").is_file());
+    println!("Android Studio project generated in {:.1} s ({lines} tool lines): {}", t.elapsed().as_secs_f64(), studio.display());
+}

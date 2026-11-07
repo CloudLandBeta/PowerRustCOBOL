@@ -1176,7 +1176,8 @@ mod tests {
         d.location = std::env::temp_dir().join("prc-npd-request").display().to_string();
         d.select(index_of(&d, "ipad"));
         d.set_option("orientation", "landscape");
-        d.set_option("min_os", "17.0");
+        // iOS 18 is the floor since WASM-012 (D-MinOS); 17.0 is no longer offered.
+        d.set_option("min_os", "18.0");
         let ready = d.ready().unwrap();
         let r = &ready.request;
         assert_eq!((r.name.as_str(), r.template.as_str(), r.version.as_str()), ("Inventory", "ipad", "2.1.0"));
@@ -1189,7 +1190,9 @@ mod tests {
         assert_eq!(plan.kind, ProjectKind::Mobile);
         assert_eq!(plan.main, "mobileforms/main-form.mcfrm");
         assert_eq!(d.entry_shown(), plan.main, "the dialog shows the entry the plan writes");
-        assert!(plan.manifest.contains("platform = \"ios\"") && plan.manifest.contains("min_os = \"17.0\""));
+        assert!(plan.manifest.contains("platform = \"ios\"") && plan.manifest.contains("min_os = \"18.0\""));
+        // And it starts with an application id, so its first package build can run (WASM-012 R6).
+        assert!(plan.manifest.contains("app_id = \"com.example.inventory\""), "{}", plan.manifest);
         // The Desktop request carries the entry only when it is not the default.
         d.select(index_of(&d, "desktop"));
         assert!(d.request().main.is_empty());
@@ -1266,17 +1269,8 @@ mod tests {
     /// has a label, and every choice either has one or is a version name.
     #[test]
     fn the_builtin_catalogue_is_fully_worded_in_every_language() {
-        let version_names = [
-            "Android 7.0 (API 24)",
-            "Android 8.0 (API 26)",
-            "Android 10 (API 29)",
-            "Android 12 (API 31)",
-            "Android 14 (API 34)",
-            "iOS 15.0",
-            "iOS 16.0",
-            "iOS 17.0",
-            "iOS 18.0",
-        ];
+        // The minimum OS versions offered since WASM-012 D-MinOS (product names, never translated).
+        let version_names = ["Android 15 (API 35)", "Android 16 (API 36)", "Android 17 (API 37)", "iOS 18.0", "iOS 26.0"];
         let mut checked = 0;
         for lang in Language::ALL {
             let tr = lang.tr();

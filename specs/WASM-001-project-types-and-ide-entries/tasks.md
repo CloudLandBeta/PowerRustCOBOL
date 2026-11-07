@@ -339,6 +339,13 @@ search `"cfrm"|\.cfrm"` over `crates/` (plan §5) and either convert or justify 
     from the staged SDK). They are reported, not fixed here.
 
 - [ ] **T19 — D22: the native-project step in New Project and its manifest record** (R19; AC8; WASM-012 R16–R17) — added 2026-10-24 by the operator's ruling, after T18 had finalized the spec; a Finalize of its own closes it.
+  - **Built (2.0.294, 2026-11-07, with WASM-012 T25c; Q7 decided: `android/` in the project folder):** after New Project creates and opens a
+    Mobile project for Android, a step of its own (`panels/native_project.rs` `NativeStep`, `Tr` ×6) offers **Create** or **Not now**; Create
+    makes the Android Studio project on a thread and, when made, records `[mobile.native] android = "android"` in the project still open; Not
+    now leaves it out, and Project Settings, Mobile application makes it later (WASM-012 R17). A Web or Desktop template shows no step. The
+    record is `MobileSettings.native`, written only when set, so `create::plan` writes the same bytes for the IDE and `create_project` (AC3);
+    `create::plan` now also writes a valid application id (`com.example.<name>`). **Left:** an iOS project's Xcode step (this version makes no
+    Xcode project: Project Settings says so); AC8's test as the spec words it; this task's Finalize.
   - **Owed to WASM-012 (stays open, checked 2026-11-01):** the step's action is WASM-012 R16's generator of the Android
     Studio / Xcode project, and its re-creation from Project Settings is WASM-012 R17 — both WASM-012 **T25c**, unchecked;
     `specs/WASM-012-mobile-shell-tauri-2/tasks.md` says *"No shell code exists yet"* and every task T1–T26 is open. Where

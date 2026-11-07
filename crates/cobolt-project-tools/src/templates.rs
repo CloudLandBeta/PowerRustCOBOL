@@ -148,14 +148,14 @@ const ORIENTATIONS: &[Choice] = &[
     Choice { id: "landscape", label: "Landscape" },
 ];
 const ANDROID_MIN_OS: &[Choice] = &[
-    Choice { id: "auto", label: "Auto / Latest" },
+    Choice { id: "auto", label: "Auto (the oldest supported)" },
     // The floor of this major and newer (WASM-012 D-MinOS): the last version of 2024.
     Choice { id: "35", label: "Android 15 (API 35)" },
     Choice { id: "36", label: "Android 16 (API 36)" },
     Choice { id: "37", label: "Android 17 (API 37)" },
 ];
 const IOS_MIN_OS: &[Choice] = &[
-    Choice { id: "auto", label: "Auto / Latest" },
+    Choice { id: "auto", label: "Auto (the oldest supported)" },
     Choice { id: "18.0", label: "iOS 18.0" },
     Choice { id: "26.0", label: "iOS 26.0" },
 ];

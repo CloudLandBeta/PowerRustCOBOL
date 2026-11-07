@@ -66,6 +66,7 @@ pub mod project_kind;
 pub mod mobile_features;
 pub mod mobile_build;
 pub mod mobile_devices;
+pub mod mobile_native;
 pub mod web_remote;
 pub mod web_remote_indexed;
 
@@ -6674,6 +6675,30 @@ it without asking until the IDE is closed; the choice is not saved in the projec
 where it was started last. A Run that fails says why in the Output and opens
 nothing else. With no device and no emulator the Preview opens in the browser at a
 phone's width.
+
+**The Application id and the Android Studio project.** A new Mobile project starts
+with the application id `com.example.<name>` (its name in lower case, letters and
+digits only), so its first Run works; give it your own in Project Settings, Mobile
+application, Application id before you publish: a store takes no `com.example` id,
+and changing it later makes a different application. The page refuses a value that
+is not an id and keeps the saved one. When New Project creates a Mobile project for
+Android, a step of its own offers to create its **Android Studio project** too:
+Create makes it in the project's `android/` folder, Not now leaves it out. Project
+Settings, Mobile application shows whether it is there and where, with Create (or
+Create again), so a project created without it, or whose folder was deleted, gets it
+back. Android Studio opens `android/src-tauri/gen/android`, a Gradle project named
+after the PowerRustCOBOL AI project; every Build and every Run on a device brings it
+up to date with the same bundle, so what Android Studio runs is what the package
+shows. Its Gradle build compiles the shell through the Tauri command line, which
+must be running meanwhile: in `android/src-tauri`, `cargo tauri android build
+--debug --apk --open` builds it once, opens Android Studio and stays running while
+you run the application from there (stop it with Ctrl+C when you are done). It holds the generated shell and the
+web bundle only: no COBOL, no form, no secret; its `.gitignore` leaves out what the
+tools build and cache. Without the Android SDK, its NDK, Java 17 to 21 or the Tauri
+command line only its sources are written, and the Output names what is missing.
+The project file records it as `[mobile.native]` `android = "android"`, and the
+coding agent's `list_files` reports it under `native`. This version makes no Xcode
+project for an iOS project; Project Settings says so.
 
 **On the phone's screen** the application keeps out of the status bar, the notch
 and the gesture bar: the form starts below the status bar, and the Preview's phone

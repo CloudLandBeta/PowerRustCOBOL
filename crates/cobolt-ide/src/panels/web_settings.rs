@@ -174,7 +174,8 @@ pub fn min_os_choices(platform: MobilePlatform) -> &'static [templates::Choice] 
 impl SettingsDraft {
     /// Write the kind's settings back into the project. A Desktop project's
     /// are untouched. The Backend's address is written only if it is one the
-    /// channel accepts (WASM-003 R5): the section told the developer why not.
+    /// channel accepts (WASM-003 R5), a Mobile project's Application id only if it is one
+    /// (WASM-012 R6): the section told the developer why not.
     pub fn apply_kind(&self, p: &mut CoboltProject) {
         p.project.description = self.description.clone();
         p.project.locale = self.locale.clone();
@@ -199,6 +200,13 @@ impl SettingsDraft {
                     let kept = p.mobile.as_ref().map(|m| m.backend_url.clone()).unwrap_or_default();
                     let mut mobile = draft.clone();
                     mobile.backend_url = accepted_url(&draft.backend_url, &kept);
+                    // The Application id likewise (WASM-012 R6): one that is not an id keeps the
+                    // saved one, and the page says why.
+                    mobile.app_id = if cobolt_compiler::project_kind::validate_app_id(&draft.app_id).is_ok() {
+                        draft.app_id.trim().to_owned()
+                    } else {
+                        p.mobile.as_ref().map(|m| m.app_id.clone()).unwrap_or_default()
+                    };
                     p.mobile = Some(mobile);
                 }
             }
@@ -860,7 +868,80 @@ pub fn show_browser_confirm(ctx: &egui::Context, tr: &Tr, path: &str) -> Option<
 }
 
 /// Draw the section for a Web or Mobile project; nothing for a Desktop one.
-pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout, project_dir: Option<&Path>, identity_test: &mut IdentityTest) {
+/// A Mobile project's Application id and its native project (WASM-012 R6, R17): whether the
+/// Android Studio project is there and where, with the button that makes it (again); an iOS
+/// project's Xcode project, unavailable, with the reason.
+fn mobile_identity_rows(
+    ui: &mut Ui,
+    draft: &mut SettingsDraft,
+    tr: &Tr,
+    theme: &Theme,
+    lay: RowLayout,
+    project_dir: Option<&Path>,
+    job: &mut crate::panels::native_project::NativeJob,
+) {
+    use crate::panels::native_project as np;
+    use cobolt_compiler::mobile_native as mn;
+    let dim = theme.text_dim;
+    let version = format!("{}.{}.{}", draft.ver_major, draft.ver_minor, draft.ver_fix);
+    let name = draft.name.clone();
+    let Some(m) = &mut draft.mobile else {
+        return;
+    };
+    row(ui, lay, tr.pk_set_app_id, |ui| {
+        let w = ui.available_width();
+        ui.add(egui::TextEdit::singleline(&mut m.app_id).hint_text("com.company.orders").desired_width(w));
+    });
+    let id_ok = cobolt_compiler::project_kind::validate_app_id(&m.app_id).is_ok();
+    if id_ok {
+        note(ui, lay, tr.pk_set_app_id_hint, dim);
+    } else {
+        note(ui, lay, tr.pk_set_app_id_bad, theme.error);
+    }
+    // A project made while the page is open is recorded in the draft: Save writes `[mobile.native]`.
+    if job.poll().is_some_and(|o| o.is_ready()) {
+        np::record_android(m);
+    }
+    match m.platform {
+        MobilePlatform::Android => {
+            let Some(dir) = project_dir else {
+                return;
+            };
+            let exists = mn::android_exists(dir);
+            row(ui, lay, tr.pk_set_native_android, |ui| {
+                let label = if exists { tr.pk_native_recreate } else { tr.pk_native_create };
+                ui.add_enabled_ui(!job.running() && id_ok, |ui| {
+                    if ui.button(label).clicked() {
+                        job.start(ui.ctx(), np::request_from(dir, &name, &version, m.clone()));
+                    }
+                });
+            });
+            let (text, colour) = match &job.last {
+                _ if job.running() => (tr.pk_native_working.to_owned(), dim),
+                Some(o) => (o.text(tr), if o.is_ready() { dim } else { theme.error }),
+                None if exists => (tr.pk_set_native_present.replacen("{}", &mn::android_studio_dir(dir).to_string_lossy(), 1), dim),
+                None => (tr.pk_set_native_missing.replacen("{}", &mn::android_root(dir).to_string_lossy(), 1), dim),
+            };
+            note(ui, lay, &text, colour);
+        }
+        MobilePlatform::Ios => {
+            row(ui, lay, tr.pk_set_native_xcode, |ui| {
+                ui.add(egui::Label::new(RichText::new(tr.pk_set_native_xcode_unavailable).color(dim)).wrap());
+            });
+        }
+    }
+}
+
+/// The page's work on threads of its own: the Identity section's Test connection and the making
+/// of the Android Studio project.
+#[derive(Default)]
+pub struct PageJobs {
+    pub identity_test: IdentityTest,
+    pub native: crate::panels::native_project::NativeJob,
+}
+
+pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay: RowLayout, project_dir: Option<&Path>, jobs: &mut PageJobs) {
+    let PageJobs { identity_test, native } = jobs;
     if draft.kind.is_desktop() {
         return;
     }
@@ -902,6 +983,7 @@ pub fn show(ui: &mut Ui, draft: &mut SettingsDraft, tr: &Tr, theme: &Theme, lay:
             ui.label(device);
         });
     }
+    mobile_identity_rows(ui, draft, tr, theme, lay, project_dir, native);
 
     row(ui, lay, tr.pk_f_description, |ui| {
         let w = ui.available_width();
@@ -1234,6 +1316,31 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_application_id_is_not_written_and_a_made_project_is_recorded_012() {
+        let mut p = mobile_project(MobilePlatform::Android);
+        p.mobile.as_mut().unwrap().app_id = "com.company.orders".into();
+        let mut draft = SettingsDraft::from_project(&p, &LlmConfig::load_defaults_for_test());
+        assert_eq!(draft.mobile.as_ref().unwrap().app_id, "com.company.orders");
+        for bad in ["", "orders", "com.2fast.orders", "com.my-company.orders"] {
+            draft.mobile.as_mut().unwrap().app_id = bad.into();
+            draft.apply_kind(&mut p);
+            assert_eq!(p.mobile.as_ref().unwrap().app_id, "com.company.orders", "{bad:?} was written");
+        }
+        draft.mobile.as_mut().unwrap().app_id = " com.company.sales ".into();
+        crate::panels::native_project::record_android(draft.mobile.as_mut().unwrap());
+        draft.apply_kind(&mut p);
+        let m = p.mobile.as_ref().unwrap();
+        assert_eq!(m.app_id, "com.company.sales", "a valid id is written, trimmed");
+        assert_eq!(m.native.android, "android", "the made project is recorded");
+        // And the record survives the project file.
+        let text = toml::to_string(&p).unwrap();
+        assert!(text.contains("[mobile.native]") && text.contains("android = \"android\""), "{text}");
+        let back: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(back.mobile.unwrap().native.android, "android");
+        println!("application id: 4 refused ids keep the saved one, 1 valid id written; [mobile.native] round-trips");
+    }
+
+    #[test]
     fn a_mobile_project_edits_its_own_table_and_ios_starts_with_multi_memory_off() {
         let llm = LlmConfig::load_defaults_for_test();
         let mut p = mobile_project(MobilePlatform::Ios);
@@ -1370,7 +1477,7 @@ mod tests {
                     let mut out = ctx.run_ui(input, |ui| {
                         let before = ui.available_width();
                         let lay = RowLayout { splitter: 260.0, resizer_width: 5.0, gap_after_resizer: 10.0, property_indent: 12.0 };
-                        show(ui, &mut draft, &tr, theme, lay, None, &mut IdentityTest::default());
+                        show(ui, &mut draft, &tr, theme, lay, None, &mut PageJobs::default());
                         used = ui.min_rect().width();
                         assert!(ui.min_rect().width() <= before + 0.5, "[{lang:?}] the section is wider than the room it was given");
                     });
@@ -1479,7 +1586,7 @@ mod tests {
         let mut out = ctx.run_ui(input, |ui| {
             let lay = RowLayout { splitter: 260.0, resizer_width: 5.0, gap_after_resizer: 10.0, property_indent: 12.0 };
             let before = ui.cursor().top();
-            show(ui, &mut draft, &tr, theme, lay, None, &mut IdentityTest::default());
+            show(ui, &mut draft, &tr, theme, lay, None, &mut PageJobs::default());
             height = ui.cursor().top() - before;
         });
         out.textures_delta.clear();

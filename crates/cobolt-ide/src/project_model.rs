@@ -3198,6 +3198,9 @@ mod project_kind_tests {
         std::fs::create_dir_all(src.join("temp")).unwrap();
         std::fs::write(src.join("temp/scratch.txt"), "x").unwrap();
         std::fs::write(src.join("docs-note.md"), "keep me").unwrap();
+        // A native project is generated and named after the source (WASM-012 R16): it stays behind.
+        std::fs::create_dir_all(src.join("android/src-tauri/gen/android")).unwrap();
+        std::fs::write(src.join("android/src-tauri/gen/android/settings.gradle"), "rootProject.name = 'Source'").unwrap();
         let before = tree(&src);
 
         let dest = base.join("Copy");
@@ -3206,6 +3209,7 @@ mod project_kind_tests {
         assert!(dest.join("webforms/main-form.wcfrm").is_file() && dest.join("backend/src/health.cbl").is_file());
         assert!(dest.join("docs-note.md").is_file(), "the developer's own files");
         assert!(!dest.join("dist/web/index.html").exists() && !dest.join("temp/scratch.txt").exists(), "no build output");
+        assert!(!dest.join("android").exists(), "no native project named after the source");
         assert!(!dest.join("Source.project.toml").exists(), "the source's manifest stays behind");
         let copy = load_project(&done.manifest).unwrap();
         assert_eq!(copy.project.name, "Copy.project");

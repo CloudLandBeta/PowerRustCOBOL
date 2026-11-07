@@ -509,8 +509,9 @@ pub struct SettingsForm {
     aws_results: std::collections::HashMap<String, Vec<(Server, Report)>>,
     /// The project folder the Backend files were read from (WASM-009 T19: Test connection runs there).
     project_dir: Option<std::path::PathBuf>,
-    /// The Identity section's Test connection: running, or its last lines.
-    identity_test: crate::panels::web_settings::IdentityTest,
+    /// The Identity section's Test connection (running, or its last lines) and the making of the
+    /// Android Studio project.
+    page_jobs: crate::panels::web_settings::PageJobs,
 }
 
 /// What Test connection found, in the IDE's language (spec 078 R24).
@@ -578,7 +579,7 @@ impl SettingsForm {
             aws_tests: std::collections::HashMap::new(),
             aws_results: std::collections::HashMap::new(),
             project_dir: None,
-            identity_test: Default::default(),
+            page_jobs: Default::default(),
         }
     }
 
@@ -951,7 +952,7 @@ impl SettingsForm {
                                 property_indent,
                             },
                             self.project_dir.as_deref(),
-                            &mut self.identity_test,
+                            &mut self.page_jobs,
                         );
 
                         ui.add_space(8.0);

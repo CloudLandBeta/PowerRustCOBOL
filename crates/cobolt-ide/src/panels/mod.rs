@@ -73,6 +73,9 @@ pub mod web_preview;
 pub mod mobile_runner;
 /// The Run on device window of a Mobile project (WASM-012 T19).
 pub mod mobile_devices;
+/// The Android Studio project of a Mobile project: made from New Project and Project Settings
+/// (WASM-012 T25c).
+pub mod native_project;
 /// The settings of a Web or Mobile project (WASM-001, WASM-002).
 pub mod web_settings;
 
