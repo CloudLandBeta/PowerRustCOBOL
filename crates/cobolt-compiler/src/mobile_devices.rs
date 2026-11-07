@@ -5,14 +5,17 @@
 // See the LICENSE file in the project root for full license information.
 
 //! **The Android devices and emulators** a Mobile application runs on (WASM-012 T16, T20),
-//! reached with the SDK's `adb`: the ones connected, the processor of one (the package is built
-//! for it), installing a package, starting the application, and its log.
+//! reached with the SDK's `adb` and `emulator`: the ones connected, the emulators that can be
+//! started and starting one, the processor of a device (the package is built for it), installing a
+//! package, starting the application, and its log.
 //!
-//! What `adb` prints is read by small parsers ([`parse_devices`], [`is_application_log`]) so the
-//! answers are tested from recorded output; the commands themselves need a device.
+//! What the tools print is read by small parsers ([`parse_devices`], [`parse_avds`],
+//! [`is_application_log`]…) so the answers are tested from recorded output; the commands
+//! themselves need a device.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
 use crate::mobile_build::{android_sdk, AndroidAbi};
 
@@ -99,6 +102,47 @@ pub fn application_log(line: &str) -> Option<&str> {
     Some(text.strip_prefix("File: ").and_then(|t| t.split_once(" - Msg: ")).map_or(text, |(_, m)| m))
 }
 
+/// The emulators (Android Virtual Devices) in `emulator -list-avds`'s answer. An emulator's name
+/// is made of letters, digits, `.`, `_` and `-`; any other line (a note the emulator prints about
+/// itself) is not one.
+pub fn parse_avds(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The emulator's name in `adb emu avd name`'s answer (the name, then `OK`).
+pub fn parse_avd_name(text: &str) -> Option<String> {
+    let first = text.lines().next()?.trim();
+    (!first.is_empty() && first != "OK" && !first.starts_with("KO")).then(|| first.to_owned())
+}
+
+/// Has the device finished starting? (`getprop sys.boot_completed` answers `1`; before, nothing.)
+pub fn boot_completed(getprop: &str) -> bool {
+    getprop.trim() == "1"
+}
+
+/// Does the device's package service answer? (`service check package`: `Service package: found`,
+/// or `… not found` while Android starts or restarts its system.)
+pub fn package_service_found(answer: &str) -> bool {
+    answer.trim().ends_with(": found")
+}
+
+/// What a Run can go to, in the order it prefers them: the devices and emulators running now
+/// (`ready`, their serial numbers), then the emulators that can be started (`avds`, their names),
+/// less the ones already running (`running_avds`).
+pub fn targets(ready: &[String], running_avds: &[String], avds: &[String]) -> Vec<String> {
+    ready.iter().chain(avds.iter().filter(|a| !running_avds.contains(a))).cloned().collect()
+}
+
+/// The arguments that start the emulator `avd`: its own window, as the Device Manager of Android
+/// Studio starts it (a saved state is resumed when there is one, so a second start is quick).
+pub fn emulator_args(avd: &str) -> Vec<String> {
+    vec!["-avd".to_owned(), avd.to_owned()]
+}
+
 /// The SDK's `adb`.
 #[derive(Debug, Clone)]
 pub struct Adb {
@@ -151,6 +195,52 @@ impl Adb {
         self.run(Some(serial), &["shell", "getprop", "ro.product.cpu.abi"]).ok().and_then(|t| AndroidAbi::from_device_abi(&t))
     }
 
+    /// The emulator `serial` is (`adb emu avd name`); `None` for a phone.
+    pub fn avd_name(&self, serial: &str) -> Option<String> {
+        if !serial.starts_with("emulator-") {
+            return None;
+        }
+        self.run(Some(serial), &["emu", "avd", "name"]).ok().and_then(|t| parse_avd_name(&t))
+    }
+
+    /// Can `serial` take a package now? The system has finished starting ([`boot_completed`]) and
+    /// its package service answers ([`package_service_found`]). The first alone is not enough: it
+    /// stays `1` while Android restarts its system after a hang (an emulator starved by a busy
+    /// computer), and an install then fails with "Can't find service: package".
+    pub fn ready_to_install(&self, serial: &str) -> bool {
+        self.run(Some(serial), &["shell", "getprop", "sys.boot_completed"]).is_ok_and(|t| boot_completed(&t))
+            && self.run(Some(serial), &["shell", "service", "check", "package"]).is_ok_and(|t| package_service_found(&t))
+    }
+
+    /// Wait until `serial` can take a package ([`Adb::ready_to_install`]), or why not after
+    /// `timeout`. At once for a device that is ready.
+    pub fn wait_until_ready(&self, serial: &str, timeout: Duration) -> Result<(), String> {
+        let t0 = Instant::now();
+        while !self.ready_to_install(serial) {
+            if t0.elapsed() >= timeout {
+                return Err(format!("{serial} was not ready to install in {} s (its system was starting)", timeout.as_secs()));
+            }
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        Ok(())
+    }
+
+    /// Wait until the emulator `avd` is listed and can take a package: its serial number, or why
+    /// not after `timeout`.
+    pub fn wait_for_avd(&self, avd: &str, timeout: Duration) -> Result<String, String> {
+        let t0 = Instant::now();
+        loop {
+            let started = self.devices().into_iter().filter(Device::ready).find(|d| self.avd_name(&d.serial).as_deref() == Some(avd));
+            if let Some(d) = started.filter(|d| self.ready_to_install(&d.serial)) {
+                return Ok(d.serial);
+            }
+            if t0.elapsed() >= timeout {
+                return Err(format!("the emulator {avd} did not finish starting in {} s", timeout.as_secs()));
+            }
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    }
+
     /// Install (or replace) the package `apk` on `serial`, keeping the application's data.
     pub fn install(&self, serial: &str, apk: &Path) -> Result<(), String> {
         let apk = apk.to_string_lossy();
@@ -162,15 +252,24 @@ impl Adb {
         }
     }
 
-    /// Start the application `app_id` on `serial` as a tap on its icon does ([`launch_args`]).
-    pub fn launch(&self, serial: &str, app_id: &str) -> Result<(), String> {
+    /// Start the application `app_id` on `serial` as a tap on its icon does ([`launch_args`]). A
+    /// device that has just started refuses a start for a few seconds (measured: an emulator that
+    /// resumed its saved state took a start before its user was unlocked); a refused start is
+    /// asked again every 2 s until `patience` has passed, then its reason is answered.
+    pub fn launch(&self, serial: &str, app_id: &str, patience: Duration) -> Result<(), String> {
         let args = launch_args(app_id);
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let text = self.run(Some(serial), &args)?;
-        if text.contains("Error") {
-            Err(format!("the application did not start: {}", text.trim()))
-        } else {
-            Ok(())
+        let t0 = Instant::now();
+        loop {
+            let why = match self.run(Some(serial), &args) {
+                Ok(text) if !text.contains("Error") => return Ok(()),
+                Ok(text) => format!("the application did not start: {}", text.trim()),
+                Err(why) => why,
+            };
+            if t0.elapsed() >= patience {
+                return Err(why);
+            }
+            std::thread::sleep(Duration::from_secs(2));
         }
     }
 
@@ -185,5 +284,55 @@ impl Adb {
         let mut c = self.command(Some(serial));
         c.args(["logcat", "-T", "1", "-v", "brief"]).args(LOG_TAGS).stdout(Stdio::piped()).stderr(Stdio::null());
         c.spawn().map_err(|e| format!("adb logcat could not be started ({e})"))
+    }
+}
+
+/// The SDK's `emulator`.
+#[derive(Debug, Clone)]
+pub struct Emulator {
+    pub path: PathBuf,
+}
+
+impl Emulator {
+    /// `emulator` of the Android SDK [`android_sdk`] finds.
+    pub fn find() -> Option<Self> {
+        let sdk = android_sdk()?;
+        Self::in_sdk(&sdk)
+    }
+
+    /// `emulator` of the SDK at `sdk`.
+    pub fn in_sdk(sdk: &Path) -> Option<Self> {
+        let path = sdk.join("emulator").join(if cfg!(windows) { "emulator.exe" } else { "emulator" });
+        path.is_file().then_some(Self { path })
+    }
+
+    /// The emulators set up on this computer (Android Studio's Device Manager creates them).
+    pub fn avds(&self) -> Vec<String> {
+        Command::new(&self.path)
+            .arg("-list-avds")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .map(|o| parse_avds(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or_default()
+    }
+
+    /// Start the emulator `avd` ([`emulator_args`]) and return at once; [`Adb::wait_for_avd`] waits
+    /// for it. It is the developer's from then on: it goes on running when the IDE ends (on Unix in
+    /// its own process group, so an interrupt of the IDE's terminal does not reach it).
+    pub fn start(&self, avd: &str) -> Result<(), String> {
+        let mut c = Command::new(&self.path);
+        c.args(emulator_args(avd)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            c.process_group(0);
+        }
+        let mut child = c.spawn().map_err(|e| format!("the emulator could not be started ({e})"))?;
+        // Reap it when it ends, so it does not linger as a finished process while the IDE runs.
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
     }
 }

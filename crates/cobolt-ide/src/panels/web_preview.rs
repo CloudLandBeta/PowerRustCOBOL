@@ -491,9 +491,11 @@ impl SourceWatcher {
 pub trait DeviceRunner: Send + Sync {
     /// `Err(tool)`: what is not on this machine to run on `platform`.
     fn detect(&self, platform: MobilePlatform) -> Result<(), String>;
-    /// The devices and running emulators of `platform`, the first one used.
+    /// The devices and running emulators of `platform`, then the emulators
+    /// that can be started; the first one is used.
     fn list(&self, platform: MobilePlatform) -> Vec<String>;
-    /// Run the application served at `dev_url` on `device`.
+    /// Run the application served at `dev_url` on `device` (an emulator that
+    /// is not running is started first).
     fn run(&self, device: &str, dev_url: &str) -> Result<(), String>;
     /// The device's log lines since the last call.
     fn log(&self) -> Vec<String>;
@@ -1385,11 +1387,12 @@ mod tests {
         notes
     }
 
-    /// A device runner that has one device and two log lines, and writes down
-    /// what it was asked, in order.
+    /// A device runner with the targets `targets` and two log lines, which
+    /// writes down what it was asked, in order.
     struct FakeDevices {
         calls: Mutex<Vec<String>>,
         log: Mutex<Vec<String>>,
+        targets: Vec<String>,
     }
 
     impl DeviceRunner for FakeDevices {
@@ -1400,7 +1403,7 @@ mod tests {
 
         fn list(&self, platform: MobilePlatform) -> Vec<String> {
             self.calls.lock().unwrap().push(format!("list {}", platform.as_str()));
-            vec!["Pixel 8".into(), "Pixel Tablet".into()]
+            self.targets.clone()
         }
 
         fn run(&self, device: &str, dev_url: &str) -> Result<(), String> {
@@ -1459,7 +1462,11 @@ mod tests {
     fn a_mobile_preview_hands_the_address_to_a_device_and_reads_its_log_008() {
         quiet();
         let manifest = project("on-device");
-        let fake = Arc::new(FakeDevices { calls: Mutex::new(Vec::new()), log: Mutex::new(vec!["I/chromium: started".into(), "I/chromium: MAIN-FORM shown".into()]) });
+        let fake = Arc::new(FakeDevices {
+            calls: Mutex::new(Vec::new()),
+            log: Mutex::new(vec!["I/chromium: started".into(), "I/chromium: MAIN-FORM shown".into()]),
+            targets: vec!["Pixel 8".into(), "Pixel Tablet".into()],
+        });
         let mut p = WebPreview::default();
         assert!(p.start(mobile_launch(&manifest, fake.clone(), DeviceClass::Phone, Orientation::Auto), Intent::Show));
         wait_until(&mut p, "the device run", |p| p.notes().iter().any(|n| matches!(n, Note::OnDevice { .. })));
@@ -1474,6 +1481,44 @@ mod tests {
         for c in &calls {
             println!("runner: {c}");
         }
+        p.close();
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+    }
+
+    /// R3a (WASM-012 T20, D-Preview), cases (d) and (f) of the plan; (a) and
+    /// (c) are the two tests above. (d) The device tools are there but there
+    /// is no phone and no emulator, not even one to start: the phone page in
+    /// the browser, and the note says where an emulator is created. (f) A Web
+    /// project never asks the device runner, whatever it has.
+    #[test]
+    fn a_mobile_preview_with_no_target_and_a_web_preview_take_the_browser_012() {
+        quiet();
+        let manifest = project("decide-no-target");
+        let fake = Arc::new(FakeDevices { calls: Mutex::new(Vec::new()), log: Mutex::new(Vec::new()), targets: Vec::new() });
+        let mut p = WebPreview::default();
+        assert!(p.start(mobile_launch(&manifest, fake.clone(), DeviceClass::Phone, Orientation::Portrait), Intent::Show));
+        wait_until(&mut p, "the phone page to be opened", |p| p.opened().is_some());
+        let note = Note::NotTheDevice { platform: "Android".into(), install: None, width: 390, height: 844 };
+        assert!(p.notes().contains(&note), "{:?}", p.notes());
+        assert_eq!(*fake.calls.lock().unwrap(), ["detect android", "list android"], "nothing is run");
+        for &lang in Language::ALL {
+            let lines = note.lines(&lang.tr());
+            assert!(lines[0].contains("Android") && lines[0].contains("Device Manager") && !lines[0].contains("{}"), "{lang:?} {lines:?}");
+        }
+        println!("(d) tools, no target: the browser at 390 x 844; {}", note.lines(&Language::English.tr())[0]);
+        p.close();
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+
+        let manifest = project("decide-web");
+        let fake = Arc::new(FakeDevices { calls: Mutex::new(Vec::new()), log: Mutex::new(Vec::new()), targets: vec!["Pixel 8".into()] });
+        let mut l = launch(&manifest, Fake::new());
+        l.devices = fake.clone();
+        let mut p = WebPreview::default();
+        assert!(p.start(l, Intent::Show));
+        wait_until(&mut p, "the page to be opened", |p| p.opened().is_some());
+        assert!(fake.calls.lock().unwrap().is_empty(), "a Web project asked the device runner: {:?}", fake.calls.lock().unwrap());
+        assert!(!p.notes().iter().any(|n| matches!(n, Note::OnDevice { .. } | Note::NotTheDevice { .. })), "{:?}", p.notes());
+        println!("(f) a Web project with a device runner holding Pixel 8: the browser, 0 calls to the runner");
         p.close();
         let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
     }

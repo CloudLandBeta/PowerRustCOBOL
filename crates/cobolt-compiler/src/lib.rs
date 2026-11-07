@@ -6659,11 +6659,14 @@ with your key: the keystore and the alias are named in `[mobile.signing]` (the
 keystore outside the project folder), and the two passwords come only from the
 variables `PRC_ANDROID_STORE_PASSWORD` and `PRC_ANDROID_KEY_PASSWORD` of the
 process that builds — never from a file. The coding agent's `build` takes
-`release: true` for it. **Run** with an Android emulator running or a phone connected builds the
-package for that device, installs it, starts it as a tap on its icon would and
-shows the application's log in the Output panel: what a `DISPLAY` writes, as the
-program wrote it, the shell's lines and a crash; without one the Preview opens in
-the browser at a phone's width.
+`release: true` for it. **Run** with a phone connected or an Android emulator running
+builds the package for that device, installs it, starts it as a tap on its icon
+would and shows the application's log in the Output panel: what a `DISPLAY`
+writes, as the program wrote it, the shell's lines and a crash. With neither, but
+an emulator set up in Android Studio's Device Manager, Run starts the first one and
+waits until it has started (a minute or two cold, seconds when it resumes a saved
+state), then does the same; the emulator stays open afterwards. With no device and
+no emulator the Preview opens in the browser at a phone's width.
 
 **On the phone's screen** the application keeps out of the status bar, the notch
 and the gesture bar: the form starts below the status bar, and the Preview's phone

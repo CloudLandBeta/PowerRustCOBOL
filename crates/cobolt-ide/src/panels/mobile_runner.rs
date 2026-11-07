@@ -6,11 +6,11 @@
 
 //! **The Android device of a Mobile project** (WASM-012 T17, T20): the IDE's [`DeviceRunner`].
 //!
-//! * A **Run** (the Preview) of a Mobile project for Android, with an emulator running or a phone
-//!   connected, builds the development package from the bundle the Preview serves, installs it on
-//!   that device, starts it and shows the application's log (the page's console, the shell's lines,
-//!   a crash) in the Output; without them the Preview opens in the browser at a phone's width, as
-//!   before.
+//! * A **Run** (the Preview) of a Mobile project for Android, with a phone connected, an emulator
+//!   running, or an emulator set up (which it starts first and waits for), builds the development
+//!   package from the bundle the Preview serves, installs it on that device, starts it and shows the
+//!   application's log (the page's console, the shell's lines, a crash) in the Output; without any
+//!   of them the Preview opens in the browser at a phone's width, as before.
 //! * A **Build** goes on into the package (`dist/mobile/android/<Name>-debug.apk`).
 //!
 //! Both run the Tauri command line and Gradle, which take seconds when warm and a few minutes the
@@ -22,6 +22,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use cobolt_compiler::mobile_build::{self as mb, AndroidAbi, PackageRequest, Profile, Toolchain};
 use cobolt_compiler::mobile_devices::{self as md, Adb};
@@ -32,6 +33,13 @@ use crate::i18n::Tr;
 
 /// The most lines kept for the Output between two polls.
 const MAX_QUEUED: usize = 2000;
+
+/// How long a Run waits for an emulator it started to finish starting (a cold start on a busy
+/// computer takes minutes).
+const EMULATOR_START_LIMIT: Duration = Duration::from_secs(300);
+
+/// How long a refused start of the application is asked again (a device that has just started).
+const LAUNCH_PATIENCE: Duration = Duration::from_secs(60);
 
 #[derive(Default)]
 struct State {
@@ -129,16 +137,37 @@ impl Job {
         self.say(fill(self.tr.pk_pkg_built, &[&p.path.to_string_lossy(), &mb_size]));
     }
 
-    /// Build, install, start and follow the application on `device`.
-    fn run_on(&self, device: &str) -> Result<(), String> {
+    /// The serial number of `target`: a device or an emulator running now is used as it is; an
+    /// emulator that is set up but not running is started first, and waited for.
+    fn started(&self, adb: &Adb, target: &str) -> Result<String, String> {
+        if adb.devices().iter().any(|d| d.ready() && d.serial == target) {
+            return Ok(target.to_owned());
+        }
+        let emulator = md::Emulator::find().filter(|e| e.avds().iter().any(|a| a == target)).ok_or_else(|| format!("{target} is not connected"))?;
+        self.say(fill(self.tr.pk_dev_emulator_starting, &[target]));
+        let t0 = Instant::now();
+        emulator.start(target)?;
+        let serial = adb.wait_for_avd(target, EMULATOR_START_LIMIT)?;
+        self.say(fill(self.tr.pk_dev_emulator_ready, &[target, &format!("{:.0}", t0.elapsed().as_secs_f64())]));
+        Ok(serial)
+    }
+
+    /// Build, install, start and follow the application on `target` (a device, or an emulator,
+    /// started first when it is not running).
+    fn run_on(&self, target: &str) -> Result<(), String> {
         let adb = Adb::find().ok_or_else(|| "adb was not found".to_owned())?;
+        let device = self.started(&adb, target)?;
+        let device = device.as_str();
         let abi = adb.abi(device).unwrap_or(AndroidAbi::Aarch64);
         let (package, app_id) = self.package_for(abi)?;
         self.say_built(&package);
         self.say(fill(self.tr.pk_dev_installing, &[device]));
+        // The device may have restarted its system while the package was built (an emulator
+        // starved by the build): wait for it rather than fail the install.
+        adb.wait_until_ready(device, EMULATOR_START_LIMIT)?;
         adb.install(device, &package.path)?;
         let _ = adb.stop(device, &app_id);
-        adb.launch(device, &app_id)?;
+        adb.launch(device, &app_id, LAUNCH_PATIENCE)?;
         self.say(fill(self.tr.pk_dev_started, &[device]));
         let mut child = adb.logcat(device)?;
         if let Some(out) = child.stdout.take() {
@@ -170,11 +199,18 @@ impl DeviceRunner for MobileDeviceRunner {
         }
     }
 
+    /// The phones and emulators running now, then the emulators that can be started
+    /// ([`md::targets`]). It runs on the UI thread: `adb devices`, `emulator -list-avds` and, for
+    /// each emulator running, `adb emu avd name` — tens of milliseconds each.
     fn list(&self, platform: MobilePlatform) -> Vec<String> {
-        match (platform, Adb::find()) {
-            (MobilePlatform::Android, Some(adb)) => adb.devices().into_iter().filter(md::Device::ready).map(|d| d.serial).collect(),
-            _ => Vec::new(),
-        }
+        let (MobilePlatform::Android, Some(adb)) = (platform, Adb::find()) else {
+            return Vec::new();
+        };
+        let devices = adb.devices();
+        let ready: Vec<String> = devices.iter().filter(|d| d.ready()).map(|d| d.serial.clone()).collect();
+        let avds = md::Emulator::find().map(|e| e.avds()).unwrap_or_default();
+        let running = if avds.is_empty() { Vec::new() } else { devices.iter().filter_map(|d| adb.avd_name(&d.serial)).collect() };
+        md::targets(&ready, &running, &avds)
     }
 
     fn run(&self, device: &str, _dev_url: &str) -> Result<(), String> {
@@ -231,9 +267,10 @@ mod tests {
     }
 
     /// The IDE's Run of a Mobile project, end to end, without the IDE's window: the runner the
-    /// Preview is given builds `examples/PowerMobileHello` for the first device `adb` sees,
-    /// installs it, starts it and follows its log. Run it with an emulator started and the
-    /// example's bundle built (`rcrun mcp` `build`, or the IDE's Build):
+    /// Preview is given builds `examples/PowerMobileHello` for the first target (a device `adb`
+    /// sees, else the first emulator set up, which the Run starts and waits for), installs it,
+    /// starts it and follows its log. Run it with the example's bundle built (`rcrun mcp` `build`,
+    /// or the IDE's Build):
     /// `cargo test -p cobolt-ide --bin cobolt-ide the_example_runs_on_the_first_android_device -- --ignored --nocapture`
     #[test]
     #[ignore = "needs an Android emulator or phone, the SDK, the NDK, Java 17 to 21 and the Tauri CLI"]
@@ -255,12 +292,15 @@ mod tests {
         // The application's own lines (the page's console, the shell) arrive after the start.
         std::thread::sleep(Duration::from_secs(10));
         lines.extend(r.log());
-        for l in &lines {
-            println!("  | {l}");
+        for part in lines.iter().flat_map(|l| l.lines()) {
+            println!("  | {part}");
         }
-        let started = fill(tr.pk_dev_started, &[&device]);
-        assert!(lines.iter().any(|l| l == &started), "the application was not started on {device}");
-        let after = lines.iter().position(|l| l == &started).map_or(0, |i| lines.len() - i - 1);
+        // The line names the device's serial number; when the target was an emulator that was not
+        // running, the Run started it first and the serial is the one it got.
+        let (head, tail) = tr.pk_dev_started.split_once("{}").expect("the message names the device");
+        let started = lines.iter().position(|l| l.starts_with(head) && l.ends_with(tail));
+        assert!(started.is_some(), "the application was not started on {device}");
+        let after = started.map_or(0, |i| lines.len() - i - 1);
         println!("mobile runner on {device}: built, installed and started in {:.1} s; {after} application log lines in the next 10 s", built_in.as_secs_f64());
     }
 }

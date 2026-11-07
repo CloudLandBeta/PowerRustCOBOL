@@ -274,3 +274,36 @@ fn the_devices_and_the_application_log_are_read_from_adb() {
          a DISPLAY, a continuation line, crash, system) and each shown as the program wrote it"
     );
 }
+
+/// The emulators a Run can start, from what `emulator -list-avds`, `adb emu avd name` and
+/// `getprop sys.boot_completed` printed on this Mac (2026-11-06).
+#[test]
+fn the_emulators_that_can_be_started_are_read_from_the_sdk() {
+    use cobolt_compiler::mobile_devices as md;
+    let listed = "Medium_Phone_API_37.0\nPixel_9-Pro.API_35\n";
+    assert_eq!(md::parse_avds(listed), ["Medium_Phone_API_37.0", "Pixel_9-Pro.API_35"]);
+    // A note the emulator prints about itself is not an emulator.
+    assert_eq!(md::parse_avds("INFO    | Storing crashdata in: /tmp/x\nMedium_Phone_API_37.0\n\n"), ["Medium_Phone_API_37.0"]);
+    assert!(md::parse_avds("").is_empty());
+    assert_eq!(md::parse_avd_name("Medium_Phone_API_37.0\r\nOK\r\n").as_deref(), Some("Medium_Phone_API_37.0"));
+    assert_eq!(md::parse_avd_name("OK\r\n"), None);
+    assert_eq!(md::parse_avd_name("KO: unknown command\r\n"), None);
+    assert!(md::boot_completed("1\n") && !md::boot_completed("") && !md::boot_completed("0\n"));
+    // `sys.boot_completed` stayed 1 while Android restarted its system on a starved emulator; the
+    // package service did not answer until it was back.
+    assert!(md::package_service_found("Service package: found\n"));
+    assert!(!md::package_service_found("Service package: not found\n") && !md::package_service_found(""));
+    let s = |v: &[&str]| v.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
+    // Running devices come first; an emulator already running is not offered a second time.
+    let targets = md::targets(&s(&["emulator-5554", "R58N12ABC"]), &s(&["Medium_Phone_API_37.0"]), &s(&["Medium_Phone_API_37.0", "Pixel_9"]));
+    assert_eq!(targets, ["emulator-5554", "R58N12ABC", "Pixel_9"]);
+    // Nothing running: the emulators that can be started, so a Run starts the first.
+    assert_eq!(md::targets(&[], &[], &s(&["Medium_Phone_API_37.0"])), ["Medium_Phone_API_37.0"]);
+    assert!(md::targets(&[], &[], &[]).is_empty(), "no device and no emulator: the Preview's browser page");
+    assert_eq!(md::emulator_args("Medium_Phone_API_37.0").join(" "), "-avd Medium_Phone_API_37.0");
+    println!(
+        "emulator parsing: 2 emulators listed, a note line refused, empty list; the running emulator's name of 3 answers; boot done of 3 answers; \
+         the package service of 3 answers; \
+         targets: 2 running + 1 startable (a running emulator not offered twice), 1 startable alone, none"
+    );
+}
