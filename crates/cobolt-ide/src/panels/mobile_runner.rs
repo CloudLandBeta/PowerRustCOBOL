@@ -145,8 +145,8 @@ impl Job {
             let job = self.clone();
             std::thread::spawn(move || {
                 for line in BufReader::new(out).lines().map_while(Result::ok) {
-                    if md::is_application_log(&line) {
-                        job.say(line);
+                    if let Some(text) = md::application_log(&line) {
+                        job.say(text.to_owned());
                     }
                 }
             });

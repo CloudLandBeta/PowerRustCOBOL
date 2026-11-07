@@ -33,8 +33,11 @@
 //!
 //! The Back button of Android needs nothing here: Tauri's web view goes back in
 //! the page's history when it can — which is the player's navigation pop
-//! (WASM-011 R13) — and otherwise lets the system send the application to the
-//! background (plan §9 V0 record, item 5).
+//! (WASM-011 R13). On the first screen Tauri hands Back to the activity, which
+//! Android 17 closes (measured, whether the application was started from its
+//! icon or by name), and the application ends ([`on_run_event`]); the next
+//! start is a fresh one. Sending it to the background instead needs a native
+//! call no published plugin offers (D-Native).
 
 use tauri::{Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
@@ -65,7 +68,7 @@ pub fn run(context: tauri::Context<tauri::Wry>, config: ShellConfig) {
     let builder = builder.plugin(tauri_plugin_deep_link::init());
     #[cfg(feature = "secure-storage")]
     let builder = builder.invoke_handler(tauri::generate_handler![secure::secure_store, secure::secure_load, secure::secure_delete]);
-    let outcome = builder
+    let built = builder
         .manage(config)
         .setup(move |app| {
             let start = start_address(app, &config);
@@ -79,9 +82,32 @@ pub fn run(context: tauri::Context<tauri::Wry>, config: ShellConfig) {
                 tell_page(window.app_handle(), &format!("{{\"type\":\"{kind}\"}}"));
             }
         })
-        .run(context);
-    if let Err(e) = outcome {
-        eprintln!("PowerRustCOBOL mobile shell: the application could not start: {e}");
+        .build(context);
+    match built {
+        Ok(app) => app.run(on_run_event),
+        Err(e) => eprintln!("PowerRustCOBOL mobile shell: the application could not start: {e}"),
+    }
+}
+
+/// The application's end, on Android. The process is the system's: when the application's only
+/// activity is closed — Back on the first screen, the developer option "Don't keep activities",
+/// any `finish` — Tauri ends its event
+/// loop and calls `std::process::exit`, whose exit handlers run while the Java runtime's own threads
+/// still hold their locks, and the runtime aborts the process (signal 6 and a crash report; measured
+/// on Android 17 with tauri 2.12.5). The shell ends the process at once instead, as the system ends
+/// a cached one. Nothing is lost: the activity was stopped before it was closed, and a stopped
+/// activity has written its pending preferences (the secure store); the page writes its storage as
+/// it changes. The next start is a fresh process, which is what a Tauri application needs — a second
+/// activity in the same process would get no web view.
+fn on_run_event(_app: &tauri::AppHandle, _event: tauri::RunEvent) {
+    #[cfg(target_os = "android")]
+    if let tauri::RunEvent::Exit = _event {
+        extern "C" {
+            fn _exit(status: i32) -> !;
+        }
+        // SAFETY: `_exit` (bionic) ends the process without running exit handlers; it takes a plain
+        // status and never returns, and nothing of the application runs after it.
+        unsafe { _exit(0) }
     }
 }
 

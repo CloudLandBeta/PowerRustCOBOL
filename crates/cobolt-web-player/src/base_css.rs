@@ -24,7 +24,22 @@ pub const BASE_CSS: &str = r#"
   --pr-accent: #4e8cff; --pr-surface: #2e3138; --pr-surface-2: #3a3e47; --pr-text: #ffffff;
   --pr-text-dim: #b8bcc6; --pr-border: #565b66; --pr-radius: 6px; --pr-danger: #e5484d;
   --pr-font: "PR Ubuntu Light", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --pr-focus: #8ab4ff; --pr-field: #f4f5f7; --pr-field-text: #14161a; --pr-field-border: #aab0ba; }
-.pr-root { width: 100%; height: 100%; position: relative; font: 11px var(--pr-font); line-height: 13px; overflow: hidden;
+/* A phone's safe area (WASM-012 R10, D-Insets): what the status bar, a notch and the gesture bar cover is left out of the
+   application's area. Each inset is the web view's own (`env()`, filled by the page's `viewport-fit=cover`) or the one the
+   IDE's Preview or a host page sets (`--pr-safe-top`, `-right`, `-bottom`, `-left`), whichever is larger: 0 in a desktop
+   browser, so a page there is laid out exactly as before. */
+:host {
+  --pr-inset-top: max(env(safe-area-inset-top, 0px), var(--pr-safe-top, 0px)); --pr-inset-right: max(env(safe-area-inset-right, 0px), var(--pr-safe-right, 0px));
+  --pr-inset-bottom: max(env(safe-area-inset-bottom, 0px), var(--pr-safe-bottom, 0px)); --pr-inset-left: max(env(safe-area-inset-left, 0px), var(--pr-safe-left, 0px));
+  --pr-statusbar: transparent; }
+/* The status bar's icons take the phone's light or dark appearance (the one it had when the application started), not the
+   application's colours, and the shell has no native code to change them (D-Native): in the light appearance, where they
+   are dark, a light strip under them keeps them readable over a dark form. A theme or a host page sets `--pr-statusbar`
+   to choose its own. */
+@media (prefers-color-scheme: light) { :host { --pr-statusbar: #f4f5f7; } }
+:host::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: var(--pr-inset-top); background: var(--pr-statusbar); pointer-events: none; z-index: 80; }
+.pr-root { position: absolute; top: var(--pr-inset-top); right: var(--pr-inset-right); bottom: var(--pr-inset-bottom); left: var(--pr-inset-left);
+  font: 11px var(--pr-font); line-height: 13px; overflow: hidden;
   /* The desktop's text is the sum of the font's advances and its pair kerning, with no hinting and no synthetic bold (egui). */
   font-kerning: normal; font-synthesis-weight: none; text-rendering: geometricPrecision;
   /* The desktop draws a glyph with a coverage boost a browser does not: the same text carries about 20 % less ink here. A quarter of a pixel of outline (measured on 9 to 28 px text) brings the two to within 5 %. */
@@ -267,7 +282,10 @@ pub const BASE_CSS: &str = r#"
 .pr-panelwin > .pr-body > .pr-form-root { position: absolute; inset: 0; }
 /* A phone's navigation stack (WASM-011 R13, Q5): a dialog or a panel is a screen of its own, the whole application's area. */
 .pr-panelwin.pr-screen { inset: 0; left: 0; top: 0; } .pr-panelwin.pr-screen > .pr-titlebar { cursor: default; }
-.pr-dialog.pr-screen { width: 100vw; height: 100vh; margin: 0; display: flex; flex-direction: column; }
+.pr-dialog.pr-screen { width: 100vw; height: 100vh; margin: 0; display: flex; flex-direction: column;
+  padding: var(--pr-inset-top) var(--pr-inset-right) var(--pr-inset-bottom) var(--pr-inset-left); }
+/* A modal screen is drawn above the page, its status-bar strip with it. */
+.pr-dialog.pr-screen::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: var(--pr-inset-top); background: var(--pr-statusbar); pointer-events: none; }
 .pr-dialog.pr-screen > .pr-body { flex: 1 1 auto; min-height: 0; }
 .pr-title:focus { outline: none; } .pr-form-root:focus { outline: none; }
 /* What the player tells assistive technology on each navigation (WASM-011 R7): read, never seen. */
@@ -594,6 +612,35 @@ mod tests {
         let tab = rule(".pr-tab {");
         assert!(tab.contains("flex: 0 0 auto"), "a tab keeps its size: {tab}");
         eprintln!("web TabControl strip — slides sideways (top, bottom) and down (left, right) with no scroll bar; a tab no longer shrinks or clips");
+    }
+
+    /// WASM-012 R10, D-Insets: on a phone the application's area is the safe area, from the web view's `env()` or the
+    /// `--pr-safe-*` the Preview sets, and the status bar's icons stay readable over a dark form in the light appearance.
+    #[test]
+    fn the_application_keeps_out_of_the_status_bar_the_notch_and_the_gesture_bar() {
+        let rule = |selector: &str| {
+            let start = BASE_CSS.find(selector).unwrap_or_else(|| panic!("{selector}"));
+            let end = BASE_CSS[start..].find('}').expect("a closed rule") + start;
+            BASE_CSS[start..end].to_owned()
+        };
+        let mut sides = 0;
+        for side in ["top", "right", "bottom", "left"] {
+            let inset = format!("--pr-inset-{side}: max(env(safe-area-inset-{side}, 0px), var(--pr-safe-{side}, 0px));");
+            assert!(BASE_CSS.contains(&inset), "{inset}");
+            let root = rule(".pr-root {");
+            assert!(root.contains(&format!("{side}: var(--pr-inset-{side});")), "the root is placed inside the {side} inset: {root}");
+            assert!(rule(".pr-dialog.pr-screen {").contains(&format!("var(--pr-inset-{side})")), "a modal screen keeps out of the {side} inset");
+            sides += 1;
+        }
+        let root = rule(".pr-root {");
+        assert!(root.contains("position: absolute") && !root.contains("width: 100%"), "the root fills the safe area, not the page: {root}");
+        let strip = rule(":host::before {");
+        assert!(strip.contains("height: var(--pr-inset-top)") && strip.contains("background: var(--pr-statusbar)"), "{strip}");
+        assert!(strip.contains("pointer-events: none"), "the strip never takes a touch: {strip}");
+        assert!(BASE_CSS.contains("--pr-statusbar: transparent;"), "no strip in the dark appearance, where the icons are light");
+        assert!(BASE_CSS.contains("@media (prefers-color-scheme: light) { :host { --pr-statusbar: #f4f5f7; } }"), "a light strip under dark icons");
+        assert!(rule(".pr-dialog.pr-screen::before {").contains("height: var(--pr-inset-top)"), "a modal screen has the strip too");
+        eprintln!("safe area — {sides} insets from env() or --pr-safe-*, the root and a modal screen inside them, a status-bar strip in the light appearance");
     }
 
     #[test]

@@ -241,15 +241,36 @@ fn the_devices_and_the_application_log_are_read_from_adb() {
     assert!(devices[0].ready() && !devices[1].ready(), "a phone that has not accepted this computer is not used");
     assert_eq!(devices[0].label(), "sdk gphone64 arm64 (emulator-5554)");
     assert!(md::parse_devices("List of devices attached\n\n").is_empty());
+    // Each line of `adb logcat -v brief`, and what the IDE's Output shows of it (None: not shown).
     let log = [
-        ("I/RustStdoutStderr( 3581): [WARNING:net/dns/dns_config_service_android.cc:69] Failed to read DnsConfig.", false),
-        ("I/RustStdoutStderr( 3581): PowerRustCOBOL mobile shell: the deep link could not open its form: x", true),
-        ("E/Tauri/Console( 3581): File:  - Line 1 - Msg: Applying inline style violates the following Content Security Policy directive", true),
-        ("E/AndroidRuntime( 3581): FATAL EXCEPTION: main", true),
-        ("I/ActivityManager(  612): Start proc 3581:com.example.powermobilehello/u0a210", false),
+        ("I/RustStdoutStderr( 3581): [WARNING:net/dns/dns_config_service_android.cc:69] Failed to read DnsConfig.", None),
+        (
+            "I/RustStdoutStderr( 3581): PowerRustCOBOL mobile shell: the deep link could not open its form: x",
+            Some("PowerRustCOBOL mobile shell: the deep link could not open its form: x"),
+        ),
+        (
+            "E/Tauri/Console( 3581): File:  - Line 1 - Msg: Applying inline style violates the following Content Security Policy directive",
+            Some("Applying inline style violates the following Content Security Policy directive"),
+        ),
+        (
+            "I/Tauri/Console(14101): File: http://tauri.localhost/player/plain-51ca6bec/player.js - Line 1350 - Msg: PowerMobileHello: Hello, Ada. I will remember you.",
+            Some("PowerMobileHello: Hello, Ada. I will remember you."),
+        ),
+        ("I/Tauri/Console(14101): the second line of a message", Some("the second line of a message")),
+        ("E/AndroidRuntime( 3581): FATAL EXCEPTION: main", Some("E/AndroidRuntime( 3581): FATAL EXCEPTION: main")),
+        ("I/ActivityManager(  612): Start proc 3581:com.example.powermobilehello/u0a210", None),
     ];
-    for (line, ours) in log {
-        assert_eq!(md::is_application_log(line), ours, "{line}");
+    for (line, shown) in log {
+        assert_eq!(md::is_application_log(line), shown.is_some(), "{line}");
+        assert_eq!(md::application_log(line), shown, "{line}");
     }
-    println!("adb parsing: 2 devices of 4 lines (ready, unauthorized), model label, empty list; 5 log lines told apart (web view noise, console, shell, crash, system)");
+    // The application is started as a tap on its icon starts it: the launcher's intent, Tauri's activity.
+    assert_eq!(
+        md::launch_args("com.example.hello").join(" "),
+        "shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n com.example.hello/.MainActivity"
+    );
+    println!(
+        "adb parsing: 2 devices of 4 lines (ready, unauthorized), model label, empty list; 7 log lines told apart (web view noise, shell, console error, \
+         a DISPLAY, a continuation line, crash, system) and each shown as the program wrote it"
+    );
 }

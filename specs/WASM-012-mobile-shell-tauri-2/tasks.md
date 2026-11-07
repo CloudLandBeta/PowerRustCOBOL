@@ -9,12 +9,14 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   plan's first draft (2.0.30). No box was checked in the first version, so there is no evidence to carry. No shell code exists yet. Every Tauri, Android
   and iOS statement in the plan is marked **[verify]** and is unconfirmed; T1 confirms them before any other task starts.
 - **Plan:** ./plan.md   **Date:** 2026-10-23
-- **Implementation (2026-11-05/06, `features-2x-wasm-pending`, 2.0.288).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
+- **Implementation (2026-11-05/06, `features-2x-wasm-pending`, 2.0.288–2.0.289).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
   of a Mobile project make the web bundle and then `dist/mobile/android/<Name>-debug.apk`; the IDE's Run with an emulator builds, installs and starts
-  it and shows the application's log; the phone's secure storage works on the emulator (stored, read back after a restart, deleted). The example
-  is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1, T3–T7, T12, T17, T18. Partly done (what is left is
-  named under each): T8, T11, T13–T16, T20, T22, T24. Not started: T2 (the baseline was not taken before the change; T23 is run after it), T9,
-  T10 (O9), T19, T21, T25 (O1), T25b, T25c, T26. iOS is not run here: Xcode 15.2's simulators are iOS 17.2, below the iOS 18 floor.
+  it as a tap on its icon would and shows the application's log (a `DISPLAY` reads as the program wrote it); the phone's secure storage works on the
+  emulator (stored, read back after a restart, deleted); the forms keep out of the status and gesture bars; Back on the first form ends the
+  application cleanly (2.0.289). The example is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1, T3–T7,
+  T12, T17, T18. Partly done (what is left is named under each): T8, T9, T11, T13–T16, T20, T22, T24. Not started: T2 (the baseline was not taken
+  before the change; T23 is run after it), T10 (O9), T19, T21, T25 (O1), T25b, T25c, T26. iOS is not run here: Xcode 15.2's simulators are iOS
+  17.2, below the iOS 18 floor.
   The "no task commits" rule below is overridden by the operator (2026-11-06: every task is committed, merged into `2.x.x` and pushed outside the
   window).
 
@@ -241,8 +243,12 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   Risks 2–4)
   - **Partly done:** the crate (own workspace, excluded from the root), the version set of V0, the navigation guard (own origins stay, the rest goes
     to the opener), the lifecycle as `pr-shell` events, deep links, the three secure-storage commands over keyring-core, and
-    `tests/dependency_guard.rs`. Run on the emulator: the package builds from it and the secure-storage commands work. **Left:** inset and keyboard
-    forwarding (with T9).
+    `tests/dependency_guard.rs`. Run on the emulator: the package builds from it and the secure-storage commands work. **2.0.289:** the end of the
+    application. Back on the first form closes Tauri's activity (its own Back handler calls the activity's; measured on API 37 for a start by name
+    and by the launcher's intent alike), the window's `Destroyed` ends the event loop, and tao's `std::process::exit` then made ART abort the
+    process (signal 6). `on_run_event` ends the process with `_exit(0)` on `RunEvent::Exit` (Android only):
+    measured "Process … exited cleanly (0)", and the next start is a fresh, working process. Insets need no forwarding: the web view is drawn edge
+    to edge and `env(safe-area-inset-*)` answers there (T9). **Left:** keyboard forwarding (`--pr-keyboard`).
   - Files: `crates/cobolt-mobile-shell/Cargo.toml`, `Cargo.lock`, `src/lib.rs`, `tests/dependency_guard.rs` (all new); root `Cargo.toml` `exclude` `:45`
     (add the crate beside `cobolt-web-player`); `crates/cobolt-compiler/src/` (the `TAURI_CLI_VERSION` constant, where `mobile_toolchain.rs` reads it).
   - Do:
@@ -258,6 +264,17 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     - `cargo check --workspace` is unaffected.
 
 - [ ] **T9 — The bundle for a Mobile build: `viewport-fit=cover`, `--pr-safe-*`, CSP for the shell origin** (R10, R12; AC7 static, AC9 static; D-Insets)
+  - **Partly done (2.0.289):** the insets live in the player's base CSS (`crates/cobolt-web-player/src/base_css.rs`), not in a Mobile-only
+    writer: `.pr-root` and a full-screen dialog stand inside `--pr-inset-*` = `max(env(safe-area-inset-*), var(--pr-safe-*))`, and a strip of
+    `--pr-statusbar` (light `#f4f5f7` when the phone is in light mode, transparent in dark) is painted under the status bar. **Deviation, on
+    purpose:** every kind gets it, because the host page already declares `viewport-fit=cover` for every kind and `env()` answers 0 on a desktop
+    browser, so a Web page is unchanged there and is right on a phone's browser too. The web preview's phone frame sets `--pr-safe-top/right/
+    bottom/left` (renamed from `--prc-safe-area-*`, which nothing read). Test
+    `the_application_keeps_out_of_the_status_bar_the_notch_and_the_gesture_bar`; the player rebuilt, freshness 6/6. Measured on the emulator
+    through the web view's DevTools: the root starts 24 CSS px down (the 63 px status bar at DPR 2.625), the strip is `#f4f5f7`, and the status
+    bar's dark icons read on it. **Caveat:** the icons take the phone's light or dark mode at the activity's start; a switch while the
+    application runs keeps them (the manifest's `configChanges` includes `uiMode`, so the activity is not re-created). **Left:** the CSP for the
+    shell origin; `--pr-keyboard`.
   - Files: `crates/cobolt-web-bundle/src/csp.rs` (a shell-origin option beside `CspOptions` `:26`); the bundle's host-page and base-CSS writer
     (`viewport-fit=cover`; `max(env(safe-area-inset-*), var(--pr-safe-*))`; `--pr-keyboard`), for Mobile only.
   - Verify: `cargo test -p cobolt-web-bundle --no-fail-fast`. New tests: a Mobile bundle's page has `viewport-fit=cover`, the four `--pr-safe-*` names
@@ -354,7 +371,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     of `host.rs` (A26); a refused call answers `-6`; outside the shell `-6` at once with a console line. Tests in `src/host/shell_tests.rs` (2); the
     player rebuilt into `assets/web-player/`. Run on the emulator through the page's own bridge. **Left:** Back is the web view's history (no
     shell event needed, V0 row 11); the lifecycle reconnect on `resumed` (AC8); external addresses through the opener from the player (the shell's
-    navigation guard already does it).
+    navigation guard already does it). **Measured 2026-11-06 (API 37):** Back on the first form closes the application (Tauri's own Back handler
+    calls the activity's) whether it was started by name or from its icon; "ask the shell to background" on an empty stack would need a native call
+    (`moveTaskToBack`), which D-Native rules out — the shell ends the process cleanly instead (T8), and the next start is a fresh one. The
+    hardware Escape key acts as Back when the page does not consume it.
   - Files: `crates/cobolt-web-player/src/` (a new `shell.rs`; `host.rs` `verb` `:1605`: three `SECURE*` arms beside the application verbs, and the
     `NAVIGATE`/`OPENURL` `:1639` and `COPYTOCLIPBOARD` `:1647` effects routed through the shell when present — WASM-006 R11; the Android rationale
     dialog; Back → the navigation pop of WASM-011 R13, empty stack → ask the shell to background; lifecycle → spec 037 events, `net.rs` reconnects on
@@ -370,7 +390,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 - [ ] **T16 — `mobile_devices.rs`: list, start, install and launch, log, stop** (R3, R3a input; AC3 logic; D-Dev)
   - **Partly done (Android):** `Adb::{find, devices, abi, install, launch, stop, logcat}`, `parse_devices`, `is_application_log` (the page's
-    console, the shell's own lines, a crash; the web view's `[INFO:…]` noise left out). Tested from the emulator's recorded output. **Left:**
+    console, the shell's own lines, a crash; the web view's `[INFO:…]` noise left out). Tested from the emulator's recorded output. **2.0.289:**
+    `launch_args` starts the application with the launcher's intent (`MAIN`/`LAUNCHER`), so a Run starts the task a tap on the icon would;
+    `application_log` gives the Output the line as the program wrote it (a console line without level, tag, process number and the web view's
+    `File: … - Line … - Msg:`; a shell line without its prefix; a crash whole) — 7 recorded lines tested. **Left:**
     starting an emulator (`emulator -avd`), the iOS simulators and devices, the LAN opt-in.
   - Files: `crates/cobolt-compiler/src/mobile_devices.rs` (new); `src/lib.rs`.
   - Do:
@@ -425,6 +448,7 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     it for Android — `detect` (adb), `list` (the ready devices), `run` (build for the device's ABI, install, stop, start, follow the log), `log`,
     and the new defaulted `package()`/`busy()`; `app.rs` gives it to a Mobile project's Preview, a Web project keeps `NoDeviceTools`. One worker at
     a time (a second request answers "busy"). Run on the emulator by the ignored test `the_example_runs_on_the_first_android_device` (T24).
+    **2.0.289:** the log thread hands the Output `application_log`'s text, so a `DISPLAY` of the program reads there as it does on the desktop.
     **Left:** the decision tests (a)–(f), the choice among several targets (T19's window), the iOS half.
   - Files: `crates/cobolt-ide/src/panels/mobile_devices.rs` (`MobileDeviceRunner`); `crates/cobolt-ide/src/panels/web_preview.rs` (the `DeviceRunner`
     seam receives the real implementation); `crates/cobolt-ide/src/app.rs` (`toggle_web_preview` `:2736`, `do_run` `:2823`: a Mobile project goes
@@ -456,7 +480,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     `pk_dev_started`, `pk_dev_failed`, `pk_dev_busy`); `pk_prev_on_device` and `pk_build_package_note` rewritten (the note now speaks of iOS
     only). The System KB ("Project kinds", `crates/cobolt-compiler/src/lib.rs`): the Mobile row no longer says the shell is missing; the new
     `[mobile]` fields; "The Android package" (tools, checks, `package.log`, release signing, Run on a device); "The phone's secure storage" (the
-    three verbs, the statuses, the limits, the Preview's `-6`, deep links); `chunked.data` regenerated. **Left:** the keys of T14/T19/T21.
+    three verbs, the statuses, the limits, the Preview's `-6`, deep links); `chunked.data` regenerated. **2.0.289:** Run "starts it as a tap
+    on its icon would" and the Output shows the application's log as the program wrote it; a new paragraph "On the phone's screen" (the safe
+    area, the light strip, `--pr-statusbar`, `--pr-safe-*`, Back on the first form, the light/dark caveat); `chunked.data` regenerated (4277
+    records). **Left:** the keys of T14/T19/T21.
   - Files: `crates/cobolt-ide/src/i18n.rs` (the `Tr` keys ×6 of plan §7: every `MobileTool` name/purpose/next step; "unavailable on this machine" +
     reason; "no emulator, simulator or device" + next step (R3a); a target that failed to start; the device window; the LAN opt-in warning; the signing
     window; the R5 refusals; the R7 message; the checklist heading; `pk_build_package_note` `:458`/`:2998` rewritten in all six languages);
@@ -486,8 +513,13 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     started again greeted "Welcome back" from `SecureLoad`, Forget me deleted it (`0`) and a second Forget me answered `1`. The package is 40 MB
     (6–7 s warm). **AC3 / R3a, the IDE's half:** `cargo test -p cobolt-ide --bin cobolt-ide the_example_runs_on_the_first_android_device --
     --ignored --nocapture` — the runner the Preview is given built, installed and started the example on `emulator-5554` in 112.8 s (Gradle's
-    first start; Cargo compiled nothing); the window itself is the operator's to look at. **Not run here:** the
-    `.aab`; iOS (Xcode 15.2, simulators iOS 17.2 < floor 18); AC4 live (the operator's key); AC6 (O4); AC7–AC9 on the device; the R3a fallback.
+    first start; Cargo compiled nothing); the window itself is the operator's to look at. **2.0.289, the demonstration path, run on the same
+    emulator:** the IDE's runner test again, 25.9 s and 40.9 s (warm Gradle); the example's `DISPLAY` reached the log as `PowerMobileHello: Hello,
+    Grace. I will remember you.` (the line the Output shows); Back on the first form → "Process … exited cleanly (0)" (before the fix: signal 6); started again from the launcher's intent (cold, 10 s on a loaded host) → "Welcome back, Grace!" from `SecureLoad`. A
+    minute's watch of an idle started application: alive throughout. AC7 in part: the forms stand below the status bar (root 24 CSS px down,
+    the strip `#f4f5f7`) and above the gesture bar; Back measured (it closes, it does not pop: the example has one form). **Not run here:** the
+    `.aab`; iOS (Xcode 15.2, simulators iOS 17.2 < floor 18); AC4 live (the operator's key); AC6 (O4); AC7's rotation and a multi-form Back;
+    AC8–AC9 on the device; the R3a fallback.
   - Files: `specs/WASM-PROGRESS.md` (the WASM-012 row `:41`, T/I/V columns, and a dated evidence note); the `#[ignore]` tests of T11–T16.
   - Do: run each `#[ignore]` test where the tools exist, with its exact command; record platform, command and result:
     - **AC1:** Android `.apk` + `.aab`; the emulator shows the main form. On a Mac with Xcode: the iOS archive; the simulator shows the main form.

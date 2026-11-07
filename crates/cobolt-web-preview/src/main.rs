@@ -169,10 +169,10 @@ const INIT_SCRIPT: &str = r#"(function () {
     var p = safe.split(',');
     var apply = function () {
       var s = document.documentElement.style;
-      s.setProperty('--prc-safe-area-top', p[0] + 'px');
-      s.setProperty('--prc-safe-area-right', p[1] + 'px');
-      s.setProperty('--prc-safe-area-bottom', p[2] + 'px');
-      s.setProperty('--prc-safe-area-left', p[3] + 'px');
+      s.setProperty('--pr-safe-top', p[0] + 'px');
+      s.setProperty('--pr-safe-right', p[1] + 'px');
+      s.setProperty('--pr-safe-bottom', p[2] + 'px');
+      s.setProperty('--pr-safe-left', p[3] + 'px');
     };
     if (document.documentElement) { apply(); } else { document.addEventListener('DOMContentLoaded', apply); }
   }
@@ -1256,7 +1256,7 @@ mod tests {
     #[test]
     fn the_script_keeps_what_the_ide_sets() {
         // The commands store under `__prc_<key>`; the script reads the same keys back.
-        for needle in ["'__prc_' + key", "stored('dpr')", "stored('locale')", "stored('safe')", "--prc-safe-area-top"] {
+        for needle in ["'__prc_' + key", "stored('dpr')", "stored('locale')", "stored('safe')", "--pr-safe-top"] {
             assert!(INIT_SCRIPT.contains(needle), "{needle}");
         }
         // The capture is the served page's (one script for the browser and here).

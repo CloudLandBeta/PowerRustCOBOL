@@ -73,7 +73,7 @@ pub enum Command {
     /// Prefer the dark or the light colour scheme.
     Scheme { dark: bool },
     /// The device the page is told it runs on — `devicePixelRatio`,
-    /// `navigator.language`, the insets `--prc-safe-area-*` carry (top, right,
+    /// `navigator.language`, the insets `--pr-safe-*` carry (top, right,
     /// bottom, left, in CSS pixels). Any of the three may be left out; the
     /// page loads again **once** for all of them.
     Emulate {
@@ -170,7 +170,7 @@ pub struct Emulation {
     pub dark: Option<bool>,
     /// The language the page sees (`navigator.language`).
     pub locale: Option<String>,
-    /// The insets `--prc-safe-area-*` carry: top, right, bottom, left, in CSS pixels.
+    /// The insets `--pr-safe-*` carry (the player's safe area reads them): top, right, bottom, left, in CSS pixels.
     pub safe_area: Option<[u32; 4]>,
 }
 

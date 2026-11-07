@@ -6660,9 +6660,22 @@ keystore outside the project folder), and the two passwords come only from the
 variables `PRC_ANDROID_STORE_PASSWORD` and `PRC_ANDROID_KEY_PASSWORD` of the
 process that builds — never from a file. The coding agent's `build` takes
 `release: true` for it. **Run** with an Android emulator running or a phone connected builds the
-package for that device, installs it, starts it and shows the application's log
-(the page's console, the shell's lines, a crash) in the Output panel; without one
-the Preview opens in the browser at a phone's width.
+package for that device, installs it, starts it as a tap on its icon would and
+shows the application's log in the Output panel: what a `DISPLAY` writes, as the
+program wrote it, the shell's lines and a crash; without one the Preview opens in
+the browser at a phone's width.
+
+**On the phone's screen** the application keeps out of the status bar, the notch
+and the gesture bar: the form starts below the status bar, and the Preview's phone
+sizes show the same. In the phone's light appearance a light strip lies under the
+status bar, so its dark icons stay readable over a dark form; a theme or the page
+sets the custom property `--pr-statusbar` to choose another colour, and a page
+that is not the phone's web view gives the insets as `--pr-safe-top`, `-right`,
+`-bottom` and `-left`. Back on the first form closes the application, and the
+next start is a fresh one.
+Caveat: the status bar icons keep the appearance the phone had when the
+application started; switching the phone between light and dark while it runs
+shows them mismatched until the next start.
 
 **The phone's secure storage** (feature `secure-storage`): a secret the phone
 keeps in its own store (the Android Keystore, the iOS Keychain), never the page.

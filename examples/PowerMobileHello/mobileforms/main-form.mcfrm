@@ -284,7 +284,11 @@ STRING    "Hello, " TXT-NAME::Text::Trim() ". I will remember you." DELIMITED BY
 ELSE
 STRING    "Hello, " TXT-NAME::Text::Trim() "." DELIMITED BY SIZE INTO LBL-RESULT::Caption
 END-IF
-END-IF.
+END-IF
+
+*> What the screen now says also goes to the log: on a phone or an emulator the
+*> IDE's Output shows it as the application runs.
+DISPLAY   "PowerMobileHello: " LBL-RESULT::Caption::Trim().
 ]]></Event>
   </Control>
   <Control id="BTN-FORGET" type="Button" x="152" y="160" w="128" h="40" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -345,7 +349,10 @@ IF    COBOL::SecureStatus = 0
 SET     LBL-RESULT::Caption       TO    "Forgotten. See you, stranger."
 ELSE
 SET     LBL-RESULT::Caption       TO    "There was nothing to forget."
-END-IF.
+END-IF
+
+*> What the screen now says also goes to the log, as for Greet.
+DISPLAY   "PowerMobileHello: " LBL-RESULT::Caption::Trim().
 ]]></Event>
   </Control>
   <Control id="LBL-RESULT" type="Label" x="24" y="224" w="342" h="32" tab-order="0" z-order="0" visible="true" enabled="true">

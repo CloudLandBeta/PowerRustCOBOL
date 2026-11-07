@@ -70,6 +70,35 @@ pub fn is_application_log(line: &str) -> bool {
     line.contains("/Tauri/Console") || line.starts_with("E/AndroidRuntime") || (line.contains("/RustStdoutStderr") && line.contains("PowerRustCOBOL"))
 }
 
+/// The `adb` arguments that start the application `app_id` as the phone's launcher does: Tauri's
+/// activity (`<app id>.MainActivity`) with the launcher's intent (`MAIN`, `LAUNCHER`), so a run
+/// from the IDE starts the task a tap on the icon would, and a later tap on the icon finds it.
+/// (Back on the first screen closes the application either way on Android 17: Tauri's own Back
+/// handler calls the activity's, and the shell then ends the process cleanly.)
+pub fn launch_args(app_id: &str) -> Vec<String> {
+    let component = format!("{app_id}/.MainActivity");
+    ["shell", "am", "start", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-n", &component]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect()
+}
+
+/// What the IDE's Output shows of `line` (of `adb logcat -v brief`), or `None` when it is not the
+/// application's ([`is_application_log`]). A console line is shown as the program wrote it — a
+/// DISPLAY reads as it does on the desktop, without the log's level, tag, process number and the
+/// web view's `File: … - Line … - Msg:` — and so is a line of the shell; a crash keeps Android's
+/// whole line, so it reads as the crash it is.
+pub fn application_log(line: &str) -> Option<&str> {
+    if !is_application_log(line) {
+        return None;
+    }
+    if line.starts_with("E/AndroidRuntime") {
+        return Some(line);
+    }
+    let text = line.split_once("): ").map_or(line, |(_, t)| t);
+    Some(text.strip_prefix("File: ").and_then(|t| t.split_once(" - Msg: ")).map_or(text, |(_, m)| m))
+}
+
 /// The SDK's `adb`.
 #[derive(Debug, Clone)]
 pub struct Adb {
@@ -133,10 +162,11 @@ impl Adb {
         }
     }
 
-    /// Start the application `app_id` on `serial` (Tauri's activity is `<app id>.MainActivity`).
+    /// Start the application `app_id` on `serial` as a tap on its icon does ([`launch_args`]).
     pub fn launch(&self, serial: &str, app_id: &str) -> Result<(), String> {
-        let component = format!("{app_id}/.MainActivity");
-        let text = self.run(Some(serial), &["shell", "am", "start", "-n", &component])?;
+        let args = launch_args(app_id);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let text = self.run(Some(serial), &args)?;
         if text.contains("Error") {
             Err(format!("the application did not start: {}", text.trim()))
         } else {
