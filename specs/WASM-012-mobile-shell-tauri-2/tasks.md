@@ -514,7 +514,13 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     start → the window; two to start, one chosen → it); **(e)** `a_failed_device_run_is_said_and_opens_nothing_else_012`
     — a run the device refuses before it starts (a package build already running) is the Output's `pk_prev_device_failed`, rewritten in the
     six languages to say how to choose another device, and **no** browser page. Test (a) now gives one running target and one to start (it
-    gave two, which D-Preview answers with the window). **Left:** the iOS half.
+    gave two, which D-Preview answers with the window). **2.0.297, a fix (the operator's report):** the form designer's **Run Form**
+    (▶) skipped D-Preview and ran a Mobile project's form in the desktop interpreter, whose `COBOL::SecureLoad` ends in "available in a
+    Mobile application only"; `do_run_form` now hands a Web or Mobile project to Run (the phone or emulator, else the browser) and the
+    button's tip says where it runs (`run_form_tip`, six languages; test
+    `run_form_in_a_web_or_mobile_project_says_where_it_runs_in_six_languages`). Debug Form keeps the desktop window: no debugger
+    reaches the device yet. **Left:** the iOS half (with Xcode, the simulator — not run here: Xcode 15.2's simulators are iOS 17.2,
+    below the iOS 18 floor).
   - Files: `crates/cobolt-ide/src/panels/mobile_devices.rs` (`MobileDeviceRunner`); `crates/cobolt-ide/src/panels/web_preview.rs` (the `DeviceRunner`
     seam receives the real implementation); `crates/cobolt-ide/src/app.rs` (`toggle_web_preview` `:2736`, `do_run` `:2823`: a Mobile project goes
     through `DeviceRunner`).

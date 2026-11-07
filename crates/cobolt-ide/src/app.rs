@@ -289,6 +289,19 @@ fn run_needs_a_build(debug: bool, has_blocks: bool, has_project: bool) -> bool {
     has_blocks || (debug && has_project)
 }
 
+/// The tip of a designer's Run Form button: the live interpreter in a Desktop project (or
+/// with no project), and where the application runs in a Web or Mobile one, which is where
+/// its Run Form sends it ([`CoboltApp::do_run_form`]).
+fn run_form_tip(kind: Option<cobolt_compiler::ProjectKind>) -> &'static str {
+    crate::ui_text::ide(match kind {
+        Some(cobolt_compiler::ProjectKind::Web) => "Run the application in the browser",
+        Some(cobolt_compiler::ProjectKind::Mobile) => {
+            "Run the application on the phone or emulator (in the browser when there is none)"
+        }
+        _ => "Run Form (live interpreter)",
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum StaleBuildIntent {
     /// The IDE toolbar's Run.
@@ -3644,8 +3657,15 @@ impl CoboltApp {
     // command with a notice on the record (`Designer::delete_controls`). Save
     // and Run write what the developer wrote.
 
-    /// Run Form: launch the form as a standalone `rcrun run-form` process.
+    /// Run Form: launch the form as a standalone `rcrun run-form` process. A Web or
+    /// Mobile project's form runs where the project runs, as Run does (the phone or
+    /// emulator, else the browser): the desktop interpreter has no phone's features
+    /// (the secure store, the camera) and is not where the application will run.
     fn do_run_form(&mut self, idx: usize) {
+        if self.is_web_project() {
+            self.do_run();
+            return;
+        }
         // Same version gate as the IDE's Run — the developer is starting their
         // solution either way, and a stale full build affects both equally.
         if self.stale_build_blocks(StaleBuildIntent::RunForm(idx)) {
@@ -20355,6 +20375,7 @@ impl CoboltApp {
                     .as_ref()
                     .map(|(p, _)| p.as_path())
                     == Some(form_path.as_path());
+                let run_form_tip = run_form_tip(self.cobolt_project.as_ref().map(|p| p.kind()));
                 ui.horizontal_centered(|ui| {
                     action = draw_icon_toolbar(
                         ui,
@@ -20391,6 +20412,7 @@ impl CoboltApp {
                             tr.task_wizard_tip_off
                         },
                         tr.task_wizard_catalogue_tip,
+                        run_form_tip,
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::ComboBox::from_id_salt("designer_lang_selector")
@@ -25149,6 +25171,30 @@ mod build_profile_tests {
             assert_eq!(run_needs_a_build(debug, blocks, project), want, "{why}");
         }
         println!("run/debug routing: {} cases (Run -> interpreter unless a block; Debug -> debug build in a project)", table.len());
+    }
+
+    /// Fix 2.0.297: a Web or Mobile project's Run Form runs the application where Run does
+    /// (the phone or emulator, else the browser), and its button says so in six languages.
+    #[test]
+    fn run_form_in_a_web_or_mobile_project_says_where_it_runs_in_six_languages() {
+        use cobolt_compiler::ProjectKind;
+        use crate::i18n::Language;
+        let cases = [
+            (None, "Run Form (live interpreter)"),
+            (Some(ProjectKind::Desktop), "Run Form (live interpreter)"),
+            (Some(ProjectKind::Web), "Run the application in the browser"),
+            (Some(ProjectKind::Mobile), "Run the application on the phone or emulator (in the browser when there is none)"),
+        ];
+        for (kind, english) in cases {
+            assert!(crate::ui_text::has_ide(english), "{english:?} is in the IDE's table");
+            let tip = crate::app::run_form_tip(kind);
+            assert!(Language::ALL.iter().any(|&l| crate::ui_text::ide_localized(l, english) == tip), "{english:?}: the tip drawn is {tip:?}");
+            for &l in Language::ALL {
+                let t = crate::ui_text::ide_localized(l, english);
+                assert!(!t.is_empty() && (l == Language::English) == (t == english), "{english:?} in {}: {t:?}", l.native_name());
+            }
+        }
+        println!("Run Form tip: {} project kinds (none, Desktop, Web, Mobile) x {} languages, each translated", cases.len(), Language::ALL.len());
     }
 }
 

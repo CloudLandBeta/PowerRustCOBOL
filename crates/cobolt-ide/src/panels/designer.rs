@@ -18663,6 +18663,9 @@ pub(crate) fn draw_icon_toolbar(
     task_wizard_on: bool,
     task_wizard_tip: &str,
     task_wizard_more_tip: &str,
+    // The Run Form button's tip: the live interpreter, or where a Web or Mobile
+    // project runs (`run_form_tip` in app.rs).
+    run_form_tip: &str,
 ) -> DesignerToolbarAction {
     use egui::{Color32, Rect, Vec2};
 
@@ -18931,7 +18934,7 @@ pub(crate) fn draw_icon_toolbar(
             // "toggled wins over disabled" in icon_btn keeps it high-contrast.
             let _ = icon_btn(ui, false, true, crate::ui_text::ide("Run Form — building/running…"), &icon_run);
         } else {
-            if icon_btn(ui, true, false, crate::ui_text::ide("Run Form (live interpreter)"), &icon_run) {
+            if icon_btn(ui, true, false, run_form_tip, &icon_run) {
                 action = DesignerToolbarAction::RunForm;
             }
         }

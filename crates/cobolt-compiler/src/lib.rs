@@ -6674,7 +6674,13 @@ that is not running is started first and waited for — and every later Run goes
 it without asking until the IDE is closed; the choice is not saved in the project. **Stop** stops the application
 where it was started last. A Run that fails says why in the Output and opens
 nothing else. With no device and no emulator the Preview opens in the browser at a
-phone's width.
+phone's width. The form designer's **Run Form** button does what Run does in a
+Mobile project, and in a Web project, where it opens the browser: it runs the
+application from its main form on the phone or emulator, never in a desktop window,
+which has none of the phone's features (the secure store, the camera). **Debug
+Form** still runs the form in a desktop window, the one place the debugger reaches
+today, so a device verb there ends in its exception unless the call names
+`ON EXCEPTION`.
 
 **The Application id and the Android Studio project.** A new Mobile project starts
 with the application id `com.example.<name>` (its name in lower case, letters and
