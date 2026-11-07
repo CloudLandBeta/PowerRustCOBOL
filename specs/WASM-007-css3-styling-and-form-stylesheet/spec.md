@@ -86,6 +86,10 @@ look is **CSS**. This spec says how the two meet: every appearance property is t
 - **R11 (event):** When a property, `CssClass`, `Style` or the stylesheet changes, the Preview (WASM-008) shall show the change without a rebuild.
 - **R12 (state):** While a control has CSS overrides the designer cannot paint (a class rule or a `Style`), the Form Designer shall mark it so, and shall not pretend to show the result; and because CSS wins (R8), the Properties panel shall mark, on the property itself,
   a value that a CSS rule overrides, so that the developer is not left changing a value that has no effect.
+  - **Amended by [WASM-036](../WASM-036-stylesheet-values-in-designer-and-properties/spec.md) (operator, 2026-11-07):**
+    - For the properties its reverse table maps, the designer paints the value the CSS gives, and the Properties panel shows it.
+    - An edit of an overridden property is written into the winning rule.
+    - The mark above stays for what the designer still cannot paint.
 
 **Safety**
 - **R13 (ubiquitous):** The stylesheet shall not be able to load a remote resource unless the project allows that origin: `url()` shall be limited to the project's assets, data URIs and allowed origins;

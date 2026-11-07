@@ -39,6 +39,7 @@ Items that overlap were merged (as asked). Item 12 is §5.
 | Decision on the module layout | The player: a prebuilt Leptos form engine, the second `.wasm` | [WASM-016](WASM-016-prebuilt-player/spec.md) |
 | Decision of 2026-10-20 | Canvas 2D, Canvas 3D and graphics objects (games, charts, image manipulation) on every platform | [WASM-018](WASM-018-canvas-and-graphics-objects/spec.md) |
 | Guidance of 2026-10-20 | Module architecture, memory model, threads and the JavaScript boundary: modules per form loaded and discarded on demand, fixed memory, coarse-grained host API, feature baseline, build profile | [WASM-017](WASM-017-module-architecture-and-js-boundary/spec.md) |
+| Request of 2026-11-07 (a Mobile form's properties reflect its CSS, and the reverse) | The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the winning rule; amends WASM-007 R12 | [WASM-036](WASM-036-stylesheet-values-in-designer-and-properties/spec.md) |
 | Form layers and the Non-Visuals tab (spec 091), adapted to HTML | Stacking, visibility, hit testing, clipping, tab order and run-time properties of layers on the web | [WASM-004](WASM-004-control-reuse-on-the-web/spec.md) R13–R24, with WASM-007, 010, 011, 015 and 016 and ABI amendment A9 |
 | 12 | The rest of what is missing | §5 below |
 
@@ -114,6 +115,8 @@ flowchart TD
   W10 --> W18
   W16 --> W18
   W17 --> W18
+  W7 --> W36["WASM-036 stylesheet values in the designer"]
+  W4 --> W36
 ```
 
 ## 3. Decisions
@@ -143,6 +146,7 @@ flowchart TD
 | D8 | **Layout on the web:** CSS layout or the existing solver | WASM-004 Q1, R8 | **Decided: CSS layout** (operator, 2026-10-19), parity-checked against the desktop |
 | D21 | **The frontend↔backend channel is asymmetrically encrypted, and a broken connection is retried behind a blocking modal** (operator, 2026-10-24: "a side note that must permeate all WASM specs"). The key pair is **generated when the application starts**. When the connection breaks, the frontend **retries** with a timeout of **10 s, raised by 10 s on each retry, for at most 3 cycles** (10 s, 20 s, 30 s); after the third it **gives up and raises an exception**. While it retries it **blocks all mouse and keyboard input** and shows a **modal** with an **animation** — the screen (the desktop, or the device on a phone) trying to reach the server, a **cloud between them** — on a left-to-right multi-stop gradient **red → dark red → crimson → black**, foreground **white**; the modal **appears when the connection breaks and disappears when it is re-established**. Where each spec carries it: WASM-003 R24–R26 (the channel and the retry policy), WASM-016 R20–R21 and WASM-012 R15 (the modal on the web and on a device), WASM-005 R18 (a call in flight), WASM-014 R18 (the key exchange in the handshake), WASM-013 R17 (the threat model); every other spec names it in its §6 | WASM-003, 005, 012, 013, 014, 016; every §6 | **Decided** (operator, 2026-10-24) |
 | D22 | **A Mobile project is created together with its native development project** — an **Android Studio** project for Android, an **Xcode** project for iOS — **named as the PowerRustCOBOL AI Mobile project**, holding the **stub that loads the project's WASM binary** (the bundle of WASM-002: host page, player, program module), so that the developer previews the application in the platform's own tools; if the developer **cancels** that creation, **Project Settings** creates it later (operator, 2026-10-24). Where it lands: WASM-012 R16–R18 and AC12 (the native project, its stub, Project Settings), WASM-001 R19 and AC8 (the cancellable step in New Project), WASM-008 §6 (Preview runs through it) | WASM-012, WASM-001, WASM-008 | **Decided** (operator, 2026-10-24); where the native project lives is WASM-012 Q7 |
+| D23 | **The designer and the Properties panel show what the stylesheet gives, and an edit takes effect** (operator, 2026-11-07: "make sure the form/control properties reflect the CSS defined for it, and vice-versa"). The canvas paints, and the panel shows, the effective value of each property the reverse table maps (CSS still wins, D3). An edit of an overridden property rewrites the winning declaration; a rule shared with other controls asks first; every write is undoable and checked to take effect. This reverses WASM-007 R12's "shall not pretend to show the result" for that subset | WASM-036, WASM-007 R12 | **Asked for** (operator, 2026-11-07); WASM-036 Q1–Q6 open, with recommendations |
 
 ## 4. What carries over from the removed spec 006, and what does not
 
@@ -184,7 +188,7 @@ below start at 019 (WASM-017 is the architecture spec, WASM-018 the graphics spe
 | WASM-032 | **Plugins, custom controls and external crates on `wasm32`** | `Custom { plugin_id }` has no painter or runtime today; `EXEC RUST` is refused in the browser (WASM-002 Q4) and needs a story through the backend | P3 |
 | WASM-033 | **More web-native controls** | Embedded video and audio, image from a URL, IFrame, a rich-text editor, a camera/QR scanner (mobile) | P3 |
 | WASM-034 | **Other form factors** | Android Smartwatch, Apple Watch, TV | P3 |
-| WASM-035 | **Designer evolution** | A web-view-based designer, a CSS-aware designer, device frames, component-state preview | P3 |
+| WASM-035 | **Designer evolution** | A web-view-based designer, device frames, component-state preview. (The CSS-aware designer of this row was written as WASM-036 on 2026-11-07, at the operator's request.) | P3 |
 
 **Strategic gaps worth saying out loud** (they are not specs of their own, but they bear on every one):
 

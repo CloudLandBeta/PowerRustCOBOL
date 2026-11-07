@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.299 — 2026-11-07
+
+**Spec WASM-036 (draft): the stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule.** *(Written on features-2x, after 2.0.298.)*
+
+The operator asked on 2026-11-07 that a Mobile form's properties reflect the CSS defined for it, and the reverse. Fix 2.0.298 shipped the part of that report that was a defect; this spec is the rest. It amends WASM-007 R12, which kept the CSS's result out of the designer.
+
+**Its 20 requirements:**
+- one computation of the effective appearance, with no egui: the value in effect and its source, following the player's cascade, with `@media` decided against the form's size instead of a fixed 1024 px;
+- a reverse table from CSS to properties, each entry marked exact, approximate or not reversible;
+- the canvas paints, and the Properties panel shows, the effective values; the badge stays only for what the designer cannot paint;
+- an edit of an overridden property rewrites the winning declaration and keeps every other byte of the sheet;
+- a question before a rule shared with other controls changes;
+- every write is undoable and checked to take effect; a write that does not take effect is undone, with the reason;
+- Go to rule and Remove the CSS declaration;
+- multiple selection;
+- the agent tools see the same values;
+- Desktop projects are unchanged.
+
+There are 16 acceptance criteria. Six open questions each carry a recommendation, and the requirements follow it until the operator rules.
+
+**Also updated:**
+- WASM-007 R12 is marked as amended.
+- `WASM-INDEX.md`: decision D23 and the operator's item. The CSS-aware designer in WASM-035's proposed row is this spec.
+- `WASM-PROGRESS.md`: a row for WASM-036.
+- `WASM-LISTA-DE-RECURSOS.md`: an addendum.
+
+No code changed, only the version.
+
 ## 2.0.298 — 2026-11-07
 
 **Fix: a Mobile or Web form looks on the phone and in the browser as it does in the form designer.** *(Written on fixes-2x, after 2.0.297.)* The operator's report: "the rendered app in the emulator/device is completely different from the one in the designer". Two causes, both fixed. (1) A **Line** with a `LineAngle` (PowerMobileHello's `Line-1`, 137°) was drawn on the page as a flat horizontal bar with the grey face, border and shadow of a box, across the buttons; the web player now draws the desktop's segment — centred, as long as the control is wide, turned clockwise by `LineAngle`, the `Vertical` and `Diagonal` presets without one, `LineColor`, `LineThickness`, the `LineStyle` dashes and `RoundedEnds` — and a Line has no face, border or shadow, as on the desktop (`cobolt-web-player`: the `line` view, its rule and `appearance`; the shipped player rebuilt). Seen on the Android emulator with the example's bundle and the new player: the thin white diagonal behind the text box and the buttons. (2) The designer's **canvas** now paints what the form runs over. Under the Spatial theme both runtimes paint the theme's translucent glass, faded by the form's `Transparency`, in place of the form's colour, gradient and picture; the canvas painted the colour (`#40404008`, nearly clear) and showed the computer's desktop through the IDE. It now paints the glass, in every kind of project. And in a Web or Mobile project, where a page has no desktop behind it, the canvas paints the warm grey stand-in (`#4A4642`) that the build paints behind a see-through or translucent form (`cobolt_forms::theme::lets_the_desktop_show`, moved there from the web generator so both read one rule). Test `the_canvas_paints_what_the_form_runs_over` (5 cases, real designer frames) and `a_line_is_the_desktops_segment_turned_by_its_angle`. System KB: the Spatial paragraph says what the canvas paints; `chunked.data` regenerated. Not in this fix: the Properties panel showing what a form's own stylesheet (`mobileforms/<form>.css`) sets, and the canvas applying it — WASM-007 keeps arbitrary CSS out of the designer; it needs a spec of its own.

@@ -1374,3 +1374,29 @@ Todas as escolhas de realização em HTML (`inert`, `pointer-events`, `overflow:
 - **Q2:** forms web com `.wcfrm`, forms mobile com `.mcfrm`, desktop com `.cfrm`. Refletido em WASM-004 R1 e R13, WASM-007 (lugar da stylesheet) e WASM-016 R3. A implementação ainda escreve `.cfrm` para web e mobile: tarefa T15 aberta.
 - **Q6:** *Create from Template…* copia um projeto salvo. *Recent Projects* entra no rodapé, com a confirmação pendente: o código já tem uma lista de recentes no diálogo (`new_project.rs`, alimentada por `ui_prefs` em `app.rs`).
 - **R7 da WASM-001** virou requisito (antes era opcional).
+
+## 13. Adendo 2.0.299 — WASM-036: os valores da stylesheet no designer e no painel Properties
+
+Pedido do operador em 2026-11-07: as propriedades da form e dos controles de um projeto mobile devem refletir o CSS definido para eles, e vice-versa. A parte do mesmo relato que era defeito saiu como a correção 2.0.298: a Line girada por `LineAngle`, o vidro do tema Spatial e o desktop substituto no canvas.
+
+- **WASM-036 (20 requisitos, 16 critérios de aceite):**
+  - **Cálculo único da aparência efetiva**, sem egui. Para cada propriedade, dá o valor em vigor e a origem: a propriedade, o bloco do tema, uma regra (com arquivo e linha) ou o `CssStyle`.
+  - **Tabela reversa CSS → propriedade**, com fidelidade *exact*, *approximate* ou *not reversible*.
+  - **`@media` decidido pelo tamanho da form**, e não pelos 1024 px fixos.
+  - **O que aparece:** o canvas pinta e o painel Properties mostra os valores efetivos. O selo da WASM-007 R12 fica só para o que o designer não pinta, com a lista das declarações.
+  - **Edição:** a edição de uma propriedade sobrescrita reescreve a declaração vencedora e preserva o resto do arquivo byte a byte. Uma regra compartilhada com outros controles pergunta antes: mudar a regra, só este controle, ou cancelar.
+  - **Escrita segura:** toda escrita é desfazível e conferida depois. Uma escrita sem efeito é desfeita e explicada.
+  - **Ações na linha:** **Go to rule** e **Remove the CSS declaration**, esta com confirmação e undo.
+  - **Também:** seleção múltipla; as ferramentas de agente veem os mesmos valores; projeto desktop inalterado.
+- **Emenda:** WASM-007 R12. O designer passa a mostrar o resultado do CSS que consegue pintar.
+- **Índice:**
+  - decisão D23, pedida pelo operador;
+  - uma linha nova na tabela de itens do operador;
+  - a linha da WASM-035 perde o "designer ciente de CSS", que virou a WASM-036.
+- **Questões abertas, cada uma com recomendação:**
+  - **Q1:** perguntar a cada edição numa regra compartilhada.
+  - **Q2:** "só este controle" escreve uma regra por id na stylesheet da form.
+  - **Q3:** uma propriedade sem regra continua sendo propriedade.
+  - **Q4:** mostrar os valores do bloco do tema.
+  - **Q5:** os agentes só informam.
+  - **Q6:** `@media` pelo tamanho da form.
