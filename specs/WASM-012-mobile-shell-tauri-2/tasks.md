@@ -9,7 +9,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   plan's first draft (2.0.30). No box was checked in the first version, so there is no evidence to carry. No shell code exists yet. Every Tauri, Android
   and iOS statement in the plan is marked **[verify]** and is unconfirmed; T1 confirms them before any other task starts.
 - **Plan:** ./plan.md   **Date:** 2026-10-23
-- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.295).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
+- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.296).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
   of a Mobile project make the web bundle and then `dist/mobile/android/<Name>-debug.apk`; the IDE's Run with an emulator builds, installs and starts
   it as a tap on its icon would and shows the application's log (a `DISPLAY` reads as the program wrote it); the phone's secure storage works on the
   emulator (stored, read back after a restart, deleted); the forms keep out of the status and gesture bars; Back on the first form ends the
@@ -280,8 +280,14 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     `the_application_keeps_out_of_the_status_bar_the_notch_and_the_gesture_bar`; the player rebuilt, freshness 6/6. Measured on the emulator
     through the web view's DevTools: the root starts 24 CSS px down (the 63 px status bar at DPR 2.625), the strip is `#f4f5f7`, and the status
     bar's dark icons read on it. **Caveat:** the icons take the phone's light or dark mode at the activity's start; a switch while the
-    application runs keeps them (the manifest's `configChanges` includes `uiMode`, so the activity is not re-created). **Left:** the CSP for the
-    shell origin; `--pr-keyboard`.
+    application runs keeps them (the manifest's `configChanges` includes `uiMode`, so the activity is not re-created).
+  - **Measured on Android, no change needed (2026-11-07, 2.0.296):** the CSP for the shell origin — the bundle's own strict policy (`<meta>`,
+    `connect-src 'self'` plus the backends) already covers the page's origin in the shell (`http://tauri.localhost`), and Tauri's IPC on Android
+    goes through the web view's `postMessage`, not a fetch to an `ipc:` origin: on the 2.0.293 package, a `secure_load` call through
+    `__TAURI_INTERNALS__.invoke` answered (`null`, no such key) with **0** `securitypolicyviolation` events (read through the web view's
+    DevTools). `--pr-keyboard` — the Android web view shrinks the visual viewport for the keyboard (578 of 914 CSS px) and keeps the focused box
+    in view (AC8's measurement of 2026-11-07), so the page needs no variable there. **Left (iOS, not run here):** the WKWebView origin
+    (`tauri://localhost`) and its IPC under the policy, and whether the keyboard needs `--pr-keyboard` there.
   - Files: `crates/cobolt-web-bundle/src/csp.rs` (a shell-origin option beside `CspOptions` `:26`); the bundle's host-page and base-CSS writer
     (`viewport-fit=cover`; `max(env(safe-area-inset-*), var(--pr-safe-*))`; `--pr-keyboard`), for Mobile only.
   - Verify: `cargo test -p cobolt-web-bundle --no-fail-fast`. New tests: a Mobile bundle's page has `viewport-fit=cover`, the four `--pr-safe-*` names
