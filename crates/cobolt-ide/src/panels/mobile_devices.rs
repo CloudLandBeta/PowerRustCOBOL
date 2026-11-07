@@ -7,8 +7,9 @@
 //! **Run on device** (WASM-012 T19; R3, D-Preview): where a Mobile project's Run and Preview go.
 //!
 //! A Run goes straight to a device when the answer is plain: the one chosen here earlier in this
-//! session, while it is still listed, else the only one running. Otherwise — several running, or
-//! only emulators that must be started first — the Preview asks for this window, which lists the
+//! session, while it is still listed, else the only one running, else the only emulator set up
+//! (started first). Otherwise — several running, or several emulators that must be started
+//! first — the Preview asks for this window, which lists the
 //! phones and emulators running now and the emulators set up that a Start starts first; Run →
 //! **Run on device…** opens it at any time, to choose again or to stop the application. The
 //! choice belongs to this session of the IDE and is never written to the project. The

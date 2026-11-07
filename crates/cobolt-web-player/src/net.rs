@@ -261,6 +261,8 @@ pub struct Client<S: Socket> {
     /// The latest time an event carried (a message carries none: its time is the open's or later).
     clock: u64,
     wanted: bool,
+    /// A connection has worked since `connect`: what a return from the background may find gone (WASM-012 R15).
+    had_link: bool,
     out: Vec<Out>,
     /// Ask the owner to refresh the token (the server said it expired); it then calls [`Client::set_token`].
     pub refresh_requested: bool,
@@ -339,6 +341,7 @@ impl<S: Socket> Client<S> {
             unreachable: false,
             clock: 0,
             wanted: false,
+            had_link: false,
             out: Vec::new(),
             refresh_requested: false,
             keys: None,
@@ -698,6 +701,7 @@ impl<S: Socket> Client<S> {
             self.unreachable = false;
             self.out.push(Out::Unreachable(false));
         }
+        self.had_link = true;
         self.set_state(LinkState::Ready);
         self.flush_held();
         self.transfers_ready();
@@ -884,6 +888,25 @@ impl<S: Socket> Client<S> {
             }
             LinkState::Ready | LinkState::Closed => self.attempt = None,
         }
+    }
+
+    /// The application came back from the background (WASM-012 R11, R15). A connection that worked and is gone — the cycle
+    /// that followed its break gave up, perhaps while the application was away — is tried again at once, behind the
+    /// "connecting" modal and under the policy of R25; a cycle that gives up again raises the exception of WASM-016 R21
+    /// again. A break the page hears only now (a web view frozen in the background) starts its cycle itself. A connection that
+    /// works, or is being tried, is left alone; so is one that never worked, was refused or was signed out of (the
+    /// application's next call decides those, O8).
+    pub fn resumed(&mut self, now: u64) {
+        self.clock = self.clock.max(now);
+        if !(self.wanted && self.had_link && self.state == LinkState::Closed && self.url.is_some()) {
+            return;
+        }
+        if self.unreachable {
+            self.unreachable = false;
+            self.out.push(Out::Unreachable(false));
+        }
+        self.block(now);
+        self.start_attempt(1, now);
     }
 
     /// The next time `tick` must run, so a timer can be set (None = nothing pending). While blocked
@@ -1619,6 +1642,57 @@ mod tests {
         assert_eq!(answers(&mut c).iter().map(|(id, v)| (*id, v["error"]["code"].as_u64())).collect::<Vec<_>>(), [(safe, Some(1002))]);
         c.tick(11_500 + 30_000);
         assert_eq!(answers(&mut c).iter().map(|(id, _)| *id).collect::<Vec<_>>(), [unsent]);
+    }
+
+    /// WASM-012 R11, R15: back from the background, a connection that worked and whose cycle gave up while the application
+    /// was away is tried again at once behind the modal (blocked), its give-up raises *unreachable* again (the exception
+    /// of WASM-016 R21), and a success lifts the modal; a connection that works, is being tried, never worked or was
+    /// signed out of is left alone.
+    #[test]
+    fn a_return_from_the_background_retries_a_lost_connection_behind_the_modal_012() {
+        // Away: the connection breaks and its cycle gives up.
+        let mut c = ready_client();
+        c.on_close(1_000);
+        let first = refuse_every_attempt(&mut c, u64::MAX);
+        assert_eq!(flags(&c.take_out()), ["blocked=true", "blocked=false", "unreachable=true"]);
+        assert_eq!((c.state(), c.unreachable()), (LinkState::Closed, true));
+        let opened = c.sock.opened.len();
+        // Back: a new cycle at once, behind the modal; it gives up again and says so again.
+        let back = 600_000;
+        c.resumed(back);
+        assert_eq!((c.state(), c.blocked(), c.sock.opened.len()), (LinkState::Connecting, true, opened + 1), "attempt 1 at the return");
+        assert_eq!(flags(&c.take_out()), ["unreachable=false", "blocked=true"]);
+        c.on_error(back);
+        c.on_close(back);
+        let again = refuse_every_attempt(&mut c, u64::MAX);
+        let rel: Vec<u64> = again.iter().map(|t| t - back).collect();
+        assert_eq!(rel, [10_000, 30_000], "the policy's windows of R25");
+        assert_eq!(flags(&c.take_out()), ["blocked=false", "unreachable=true"], "the give-up is raised again");
+        // Back once more, and the backend answers: the modal goes, nothing is unreachable.
+        c.resumed(900_000);
+        c.on_open(900_010);
+        c.on_message(&hello_ok());
+        assert_eq!(flags(&c.take_out()), ["unreachable=false", "blocked=true", "blocked=false"]);
+        assert_eq!(c.state(), LinkState::Ready);
+        // Left alone: a working connection, one being tried, one that never worked, one signed out of.
+        let opened = c.sock.opened.len();
+        c.resumed(900_100);
+        assert_eq!((c.state(), c.sock.opened.len(), c.take_out().len()), (LinkState::Ready, opened, 0), "working");
+        c.on_close(900_200);
+        let trying = c.sock.opened.len();
+        c.resumed(900_300);
+        assert_eq!(c.sock.opened.len(), trying, "a cycle running is not started twice");
+        let mut never = client();
+        never.connect(URL, 0).unwrap();
+        never.on_error(10);
+        let before = never.sock.opened.len();
+        never.resumed(20);
+        assert_eq!((never.state(), never.blocked(), never.sock.opened.len()), (LinkState::Closed, false, before), "never worked");
+        let mut out = ready_client();
+        out.reset_session();
+        out.resumed(5);
+        assert_eq!((out.state(), out.blocked()), (LinkState::Closed, false), "signed out");
+        println!("away: attempts at {first:?}; back at {back}: attempts at +0, {rel:?}, raised again; back and answered: ready; left alone: working, trying, never worked, signed out");
     }
 
     /// O7: a first connection that a call needs and that fails runs the cycle; one nobody waits for

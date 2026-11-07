@@ -9,15 +9,17 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   plan's first draft (2.0.30). No box was checked in the first version, so there is no evidence to carry. No shell code exists yet. Every Tauri, Android
   and iOS statement in the plan is marked **[verify]** and is unconfirmed; T1 confirms them before any other task starts.
 - **Plan:** ./plan.md   **Date:** 2026-10-23
-- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.292).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
+- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.293).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
   of a Mobile project make the web bundle and then `dist/mobile/android/<Name>-debug.apk`; the IDE's Run with an emulator builds, installs and starts
   it as a tap on its icon would and shows the application's log (a `DISPLAY` reads as the program wrote it); the phone's secure storage works on the
   emulator (stored, read back after a restart, deleted); the forms keep out of the status and gesture bars; Back on the first form ends the
   application cleanly (2.0.289); with no phone and no emulator running, Run starts the emulator set up and waits for it (2.0.290); a Run
   over the application on screen keeps it alive, and the Output shows only the application's own log (2.0.291); with several places to run,
-  the Run on device window asks once and the session keeps the answer, and a failed run opens nothing else (2.0.292). The example is
-  `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1–T7, T12, T17, T18, T23. Partly done (what is left
-  is named under each): T8, T9, T11, T13–T16, T19, T20, T22, T24. Not started: T10 (O9), T21, T25 (O1), T25b, T25c, T26. iOS is not run here:
+  the Run on device window asks once and the session keeps the answer, and a failed run opens nothing else (2.0.292); with nothing running
+  and one emulator set up, Run starts it again without asking (2.0.293, a regression of 2.0.292 fixed), and inside the shell the
+  "connecting" modal draws the phone or the tablet and a return from the background retries a lost connection behind it (2.0.293). The
+  example is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1–T7, T12, T17, T18, T23. Partly done
+  (what is left is named under each): T8, T9, T11, T13–T16, T19, T20, T22, T24, T25b. Not started: T10 (O9), T21, T25 (O1), T25c, T26. iOS is not run here:
   Xcode 15.2's simulators are iOS 17.2, below the iOS 18 floor.
   The "no task commits" rule below is overridden by the operator (2026-11-06: every task is committed, merged into `2.x.x` and pushed outside the
   window).
@@ -373,7 +375,9 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - **Partly done:** `crates/cobolt-web-player/src/shell.rs` (detects the shell, calls its commands, reads the answers) and the three `SECURE*` arms
     of `host.rs` (A26); a refused call answers `-6`; outside the shell `-6` at once with a console line. Tests in `src/host/shell_tests.rs` (2); the
     player rebuilt into `assets/web-player/`. Run on the emulator through the page's own bridge. **Left:** Back is the web view's history (no
-    shell event needed, V0 row 11); the lifecycle reconnect on `resumed` (AC8); external addresses through the opener from the player (the shell's
+    shell event needed, V0 row 11); ~~the lifecycle reconnect on `resumed` (AC8)~~ done in 2.0.293 with T25b (`net::Client::resumed`, the
+    page's `pr-shell` / `visibilitychange` listeners; the `expired` → sign-in half is the existing refresh path, not re-tested here); the
+    spec 037 events for paused/resumed (no spec 037 folder in `specs/`); external addresses through the opener from the player (the shell's
     navigation guard already does it). **Measured 2026-11-06 (API 37):** Back on the first form closes the application (Tauri's own Back handler
     calls the activity's) whether it was started by name or from its icon; "ask the shell to background" on an empty stack would need a native call
     (`moveTaskToBack`), which D-Native rules out — the shell ends the process cleanly instead (T8), and the next start is a fresh one. The
@@ -495,7 +499,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     interim "first target" is gone — `pick_target` is D-Preview's rule (the session's choice while listed, else the only one running, else
     the window); **(b)** `several_targets_ask_the_window_once_and_the_choice_is_kept_for_the_session_012` (3 targets, 2 running: the window
     asked once, 0 runs, no browser; Pixel_9 chosen: the next 2 Runs go there; the manifest's bytes unchanged) and
-    `a_run_takes_the_chosen_target_else_the_only_one_running_012` (7 cases); **(e)** `a_failed_device_run_is_said_and_opens_nothing_else_012`
+    `a_run_takes_the_chosen_target_else_the_only_one_running_012` (7 cases). **2.0.293, a regression of 2.0.292 fixed:** with nothing
+    running and **one** emulator set up the window opened, where 2.0.290 started that emulator — there is nothing to choose, so the rule
+    now ends "else the only one there is"; two emulators to start still ask. The test is now
+    `a_run_takes_the_chosen_target_else_the_only_one_running_else_the_only_one_set_up_012` (9 cases: the only one to start → it; two to
+    start → the window; two to start, one chosen → it); **(e)** `a_failed_device_run_is_said_and_opens_nothing_else_012`
     — a run the device refuses before it starts (a package build already running) is the Output's `pk_prev_device_failed`, rewritten in the
     six languages to say how to choose another device, and **no** browser page. Test (a) now gives one running target and one to start (it
     gave two, which D-Preview answers with the window). **Left:** the iOS half.
@@ -615,6 +623,22 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 ## M7 — finalize
 
 - [ ] **T25b — D21: the "connecting" modal on the device** (R15; AC11) — added 2026-10-24 by the operator's ruling.
+  - **Done in the player (2.0.293):** `view::shell::NetDevice` (`Screen`, `Phone`, `Tablet`) and `net_device(in_shell, w, h)`: outside the shell
+    the desktop screen, inside it a tablet from a shortest side of 600 CSS px (`TABLET_SHORT_SIDE`, Android's `sw600dp`, below every iPad), a
+    phone otherwise; `net_modal_view` draws that device in the screen's place, its right edge at x = 82 so the link to the cloud starts where it
+    did, and nothing else changes (dialog, gradient, white strokes, captions, Reload, the events it takes); the page reads the screen through
+    `window.screen` (`dom::net_device_here`). The return from the background: `net::Client::resumed` — a connection that worked and whose cycle
+    gave up (perhaps while the application was away) is tried again at once behind the modal under R25's policy, its give-up raises
+    *unreachable* again (WASM-016 R21's exception again); a connection that works, is being tried, never worked or was signed out of is left
+    alone. The page hears the return from the shell's `pr-shell` `{"type":"resumed"}` and from `visibilitychange` to visible (plan R11's
+    portable fallback); both may come, the second finds the cycle running. The listeners exist only inside the shell and are taken off at
+    unmount (no `Closure::forget`). Tests: `in_the_mobile_shell_the_connecting_modal_draws_the_phone_or_the_tablet_012` (7 screen sizes, the
+    three devices connecting and unreachable) and `a_return_from_the_background_retries_a_lost_connection_behind_the_modal_012`.
+  - **Left:** AC11 on a device. **Not run here:** the example's bundle carries no backend address (`dist/web/config.json` `backend.origins` is
+    `[]`; a Mobile Run gives the device no route to a backend — no `adb reverse`), so there is no connection to cut; command once a Mobile
+    project has a reachable backend: run it, `adb shell cmd connectivity airplane-mode enable`, look, `… disable` within 60 s, and again for
+    longer than the three windows. The lifecycle events of spec 037 for paused/resumed: spec 037 has no folder in `specs/`; nothing maps them
+    yet (T15).
 - [ ] **T25c — D22: the native Android Studio / Xcode project created with the Mobile project, and its re-creation from Project Settings** (R16–R18; AC12; WASM-001 R19; Q7) — added 2026-10-24 by the operator's ruling.
 - [ ] **T26 — Finalize: version, CHANGELOG, tests of the touched crates**
   - Files: `crates/cobolt-ide/src/version.rs` (`z` +1 **once**: from the value at that time, `2.0.49` today, to the next `2.0.z`; never `x` or `y`);

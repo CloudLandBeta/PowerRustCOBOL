@@ -131,6 +131,8 @@ pub(crate) enum NetEvent {
     Close,
     Error,
     Tick,
+    /// The application came back from the background inside the mobile shell (WASM-012 R11, R15).
+    Resumed,
 }
 
 /// How the player calls into the module: the loader's `perform` function.
@@ -521,6 +523,20 @@ pub(crate) struct Inner {
     hosted_return: RefCell<Option<(String, String)>>,
     /// The channels to the windows this one opened and to the one that opened it (WASM-011 R11).
     pub(crate) superlink: RefCell<crate::superlink::Links>,
+    /// Inside the mobile shell, what hears a return from the background (WASM-012 R11): the target, the event and the
+    /// listener, kept while the page is mounted and taken off at unmount.
+    resume: RefCell<Vec<(web_sys::EventTarget, &'static str, Closure<dyn FnMut(web_sys::Event)>)>>,
+}
+
+/// Is `ev`, of kind `kind`, the application coming back from the background? The mobile shell's `pr-shell` event with
+/// `{"type":"resumed"}` (WASM-012 A26), or the page becoming visible again — the portable fallback (plan R11).
+fn is_resume(kind: &str, ev: &web_sys::Event) -> bool {
+    let get = |v: &JsValue, k: &str| Reflect::get(v, &k.into()).ok().and_then(|v| v.as_string());
+    match kind {
+        "pr-shell" => Reflect::get(ev, &"detail".into()).ok().is_some_and(|d| get(&d, "type").as_deref() == Some("resumed")),
+        "visibilitychange" => ev.target().is_some_and(|t| get(&t.into(), "visibilityState").as_deref() == Some("visible")),
+        _ => false,
+    }
 }
 
 impl Inner {
@@ -550,6 +566,28 @@ impl Inner {
             let _ = w.add_event_listener_with_callback("pagehide", on_hide.as_ref().unchecked_ref());
         }
         self.superlink.borrow_mut().closing = Some(on_hide);
+    }
+
+    /// Inside the mobile shell, a return from the background reaches the connection (WASM-012 R11, R15), which tries a
+    /// lost one again behind the "connecting" modal. Both signals may come for one return: the second finds the cycle
+    /// already running. Outside the shell nothing is listened to.
+    fn listen_for_resume(self: &Rc<Self>) {
+        let Some(w) = web_sys::window().filter(|_| crate::shell::present()) else { return };
+        let mut targets: Vec<(web_sys::EventTarget, &'static str)> = vec![(w.clone().into(), "pr-shell")];
+        if let Some(d) = w.document() {
+            targets.push((d.into(), "visibilitychange"));
+        }
+        let mut kept = self.resume.borrow_mut();
+        for (target, kind) in targets {
+            let weak = Rc::downgrade(self);
+            let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |ev: web_sys::Event| {
+                if let Some(inner) = weak.upgrade().filter(|_| is_resume(kind, &ev)) {
+                    inner.push(Inbox::Net(NetEvent::Resumed));
+                }
+            });
+            let _ = target.add_event_listener_with_callback(kind, cb.as_ref().unchecked_ref());
+            kept.push((target, kind, cb));
+        }
     }
 
     /// Queue something for the driver and make sure it runs.
@@ -636,6 +674,7 @@ impl Inner {
                 NetEvent::Close => c.on_close(now),
                 NetEvent::Error => c.on_error(now),
                 NetEvent::Tick => c.tick(now),
+                NetEvent::Resumed => c.resumed(now),
             }
         }
         self.drain_net();
@@ -1374,6 +1413,7 @@ impl Player {
             captcha: RefCell::new(Default::default()),
             hosted_return: RefCell::new(hosted_return),
             superlink: RefCell::new(Default::default()),
+            resume: RefCell::new(Vec::new()),
         });
         *inner.weak.borrow_mut() = Rc::downgrade(&inner);
         if !inner.cfg.backend_origins.is_empty() {
@@ -1469,6 +1509,7 @@ impl Player {
         if self.inner.cfg.standalone {
             self.inner.close_on_pagehide();
         }
+        self.inner.listen_for_resume();
         pump(&self.inner);
         Ok(())
     }
@@ -1768,6 +1809,9 @@ impl Player {
             }
             *inner.net.borrow_mut() = None;
             *inner.net_timer.borrow_mut() = None;
+            for (target, kind, cb) in inner.resume.borrow_mut().drain(..) {
+                let _ = target.remove_event_listener_with_callback(kind, cb.as_ref().unchecked_ref());
+            }
             // The look at the gamepads stops with the page (WASM-018 T28).
             *inner.gamepad.borrow_mut() = (Vec::new(), None);
             // The graphics device the 3D part opened for the page goes with it (WASM-018 T26).

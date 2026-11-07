@@ -594,7 +594,7 @@ impl Shared {
         // Retrying wins: after a give-up, the application's next call starts a new cycle (WASM-003 R25).
         let failed = unreachable && !blocked;
         let (caption, reload) = shell::net_modal_texts(&inner.cfg.locale, &inner.cfg.texts, failed);
-        let v = shell::net_modal_view(failed, &caption, &reload);
+        let v = shell::net_modal_view(failed, &caption, &reload, net_device_here());
         let dispatch = self.dispatch(Route::NetModal);
         if let Some(m) = st.net_modal.as_mut() {
             nodes::patch(&self.doc, &mut m.rec, &v, None, &dispatch);
@@ -884,6 +884,14 @@ fn js_value(el: &Element) -> String {
 /// Call a method of an element that takes no argument (`showModal`, `close`), ignoring what it answers.
 fn call_method(el: &Element, name: &str) {
     call_method_of(el.as_ref(), name);
+}
+
+/// The device the "connecting" modal draws here (WASM-012 R15): the mobile shell's phone or tablet by the screen's size in
+/// CSS pixels, a desktop screen in a browser.
+fn net_device_here() -> shell::NetDevice {
+    let screen = web_sys::window().and_then(|w| js_sys::Reflect::get(&w, &"screen".into()).ok());
+    let side = |k: &str| screen.as_ref().and_then(|s| js_sys::Reflect::get(s, &k.into()).ok()).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    shell::net_device(crate::shell::present(), side("width"), side("height"))
 }
 
 /// The modal's motion while the player retries (WASM-016 R20): the links flow from the screen to the server and the cloud

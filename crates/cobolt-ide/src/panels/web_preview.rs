@@ -530,15 +530,17 @@ pub trait DeviceRunner: Send + Sync {
 
 /// Which target a Run of a Mobile project goes to without asking (WASM-012
 /// D-Preview): the one chosen in this session, while it is listed; else the
-/// only one running. `None`: the developer chooses in the Run on device
-/// window.
+/// only one running; else the only one there is (an emulator set up, which
+/// the Run starts — there is nothing to choose). `None`: the developer
+/// chooses in the Run on device window.
 pub fn pick_target<'a>(targets: &'a [DeviceTarget], chosen: Option<&str>) -> Option<&'a DeviceTarget> {
     if let Some(t) = chosen.and_then(|c| targets.iter().find(|t| t.is(c))) {
         return Some(t);
     }
     let mut running = targets.iter().filter(|t| t.running);
-    match (running.next(), running.next()) {
-        (Some(only), None) => Some(only),
+    match (running.next(), running.next(), targets) {
+        (Some(only), None, _) => Some(only),
+        (None, _, [only]) => Some(only),
         _ => None,
     }
 }
@@ -1611,9 +1613,9 @@ mod tests {
 
     /// D-Preview's rule on its own: the session's choice while listed (by id,
     /// or by the emulator's name once that emulator runs), else the only one
-    /// running; otherwise nobody guesses.
+    /// running, else the only one there is; otherwise nobody guesses.
     #[test]
-    fn a_run_takes_the_chosen_target_else_the_only_one_running_012() {
+    fn a_run_takes_the_chosen_target_else_the_only_one_running_else_the_only_one_set_up_012() {
         let phone = target("R58N12ABC", true, None);
         let emulator = target("emulator-5554", true, Some("Medium_Phone_API_37.0"));
         let startable = target("Pixel_9", false, Some("Pixel_9"));
@@ -1624,9 +1626,12 @@ mod tests {
         assert_eq!(ids(pick_target(&all, Some("Medium_Phone_API_37.0"))), Some("emulator-5554".into()), "the chosen emulator, now running");
         assert_eq!(ids(pick_target(&all, Some("gone"))), None, "a choice no longer listed is not a choice");
         assert_eq!(ids(pick_target(&[phone.clone(), startable.clone()], None)), Some("R58N12ABC".into()), "the only one running");
-        assert_eq!(ids(pick_target(std::slice::from_ref(&startable), None)), None, "an emulator to start is started only when chosen");
+        assert_eq!(ids(pick_target(std::slice::from_ref(&startable), None)), Some("Pixel_9".into()), "the only emulator set up: the Run starts it (2.0.290)");
+        let tablet = target("Tablet", false, Some("Tablet"));
+        assert_eq!(ids(pick_target(&[startable.clone(), tablet.clone()], None)), None, "2 emulators to start and none running: the window");
+        assert_eq!(ids(pick_target(&[startable.clone(), tablet], Some("Tablet"))), Some("Tablet".into()));
         assert_eq!(ids(pick_target(&[], Some("Pixel_9"))), None);
-        println!("pick: 2 running and none chosen -> ask; chosen by id; chosen emulator by name -> its serial; a gone choice -> ask; 1 running -> it; 1 to start -> ask; none -> none");
+        println!("pick: 2 running and none chosen -> ask; chosen by id; chosen emulator by name -> its serial; a gone choice -> ask; 1 running -> it; the only one, to start -> it; 2 to start -> ask; 2 to start, 1 chosen -> it; none -> none");
     }
 
     /// R3a, plan case (b): several targets and none chosen — the Run on

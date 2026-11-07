@@ -588,12 +588,70 @@ pub fn net_modal_texts(locale: &str, page: &BTreeMap<String, String>, unreachabl
 /// The modal's background (WASM-016 R20): left to right, red → dark red → crimson → black.
 pub const NET_MODAL_GRADIENT: &str = "linear-gradient(to right, #ff0000 0%, #8b0000 40%, #dc143c 70%, #000000 100%)";
 
+/// What the "connecting" modal draws on its left, trying to reach the server: the machine the application runs on
+/// (WASM-012 R15). A page in a browser draws a desktop screen; inside the mobile shell, a phone or a tablet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetDevice {
+    Screen,
+    Phone,
+    Tablet,
+}
+
+impl NetDevice {
+    /// The name the drawing carries (`data-device`) and its key.
+    pub fn name(self) -> &'static str {
+        match self {
+            NetDevice::Screen => "screen",
+            NetDevice::Phone => "phone",
+            NetDevice::Tablet => "tablet",
+        }
+    }
+}
+
+/// The shortest side, in CSS pixels, from which a screen is a tablet's: Android's `sw600dp`, below every iPad's.
+pub const TABLET_SHORT_SIDE: f64 = 600.0;
+
+/// The device the modal draws: a desktop screen outside the mobile shell; inside it a tablet when the screen's shortest
+/// side reaches [`TABLET_SHORT_SIDE`] (whichever way the device is held), a phone otherwise.
+pub fn net_device(in_mobile_shell: bool, screen_width: f64, screen_height: f64) -> NetDevice {
+    match (in_mobile_shell, screen_width.min(screen_height) >= TABLET_SHORT_SIDE) {
+        (false, _) => NetDevice::Screen,
+        (true, true) => NetDevice::Tablet,
+        (true, false) => NetDevice::Phone,
+    }
+}
+
+/// The left of the drawing: the device, in the white strokes of the rest, its right edge at x = 82 for all three so the
+/// link to the cloud starts at the same place.
+fn net_device_view(device: NetDevice, stroke: &dyn Fn(VNode) -> VNode) -> VNode {
+    let g = VNode::svg("g").key(device.name()).class("pr-netmodal-device").attr("data-device", device.name());
+    match device {
+        NetDevice::Screen => g
+            .class("pr-netmodal-screen")
+            .child(stroke(VNode::svg("rect").key("frame").attr("x", "10").attr("y", "18").attr("width", "72").attr("height", "50").attr("rx", "4")))
+            .child(stroke(VNode::svg("path").key("stand").attr("d", "M40 68 v12 M52 68 v12 M30 82 h32"))),
+        // A phone held upright: the body, the earpiece at the top and the gesture bar at the bottom.
+        NetDevice::Phone => g
+            .class("pr-netmodal-phone")
+            .child(stroke(VNode::svg("rect").key("body").attr("x", "48").attr("y", "10").attr("width", "34").attr("height", "70").attr("rx", "7")))
+            .child(stroke(VNode::svg("path").key("earpiece").attr("d", "M60 17 h10")))
+            .child(stroke(VNode::svg("path").key("bar").attr("d", "M58 73 h14"))),
+        // A tablet: a wider body, its camera at the top and the gesture bar at the bottom.
+        NetDevice::Tablet => g
+            .class("pr-netmodal-tablet")
+            .child(stroke(VNode::svg("rect").key("body").attr("x", "22").attr("y", "10").attr("width", "60").attr("height", "76").attr("rx", "6")))
+            .child(VNode::svg("circle").key("camera").attr("cx", "52").attr("cy", "16").attr("r", "1.8").attr("fill", "#ffffff"))
+            .child(stroke(VNode::svg("path").key("bar").attr("d", "M44 80 h16"))),
+    }
+}
+
 /// The "connecting" modal (WASM-016 R20–R21): a screen on the left trying to reach a server on the right through a cloud,
 /// all white on the gradient, and the caption. While the player retries the attempt is animated (the links flow, the cloud
 /// pulses: `dom::animate_net_modal`); once the retries are exhausted the drawing stands still, the caption says the server could not be
 /// reached, and the host page's own recovery — Reload — is offered. The colours are the element's own declarations, so no
-/// stylesheet of the application can change them.
-pub fn net_modal_view(unreachable: bool, caption: &str, reload: &str) -> VNode {
+/// stylesheet of the application can change them. Inside the mobile shell the screen is the phone or the tablet the
+/// application runs on (`device`, WASM-012 R15); the rest — the motion, the gradient, the captions — is the same.
+pub fn net_modal_view(unreachable: bool, caption: &str, reload: &str, device: NetDevice) -> VNode {
     const WHITE: &str = "#ffffff";
     let stroke = |n: VNode| n.attr("fill", "none").attr("stroke", WHITE).attr("stroke-width", "3").attr("stroke-linecap", "round").attr("stroke-linejoin", "round");
     let link = |key: &str, x1: &str, x2: &str| {
@@ -605,13 +663,7 @@ pub fn net_modal_view(unreachable: bool, caption: &str, reload: &str) -> VNode {
         .class("pr-netmodal-drawing")
         .attr("viewBox", "0 0 320 110")
         .attr("aria-hidden", "true")
-        .child(
-            VNode::svg("g")
-                .key("screen")
-                .class("pr-netmodal-screen")
-                .child(stroke(VNode::svg("rect").key("frame").attr("x", "10").attr("y", "18").attr("width", "72").attr("height", "50").attr("rx", "4")))
-                .child(stroke(VNode::svg("path").key("stand").attr("d", "M40 68 v12 M52 68 v12 M30 82 h32"))),
-        )
+        .child(net_device_view(device, &stroke))
         .child(link("link-left", "88", "124"))
         .child(stroke(VNode::svg("path").key("cloud").class("pr-netmodal-cloud").attr("d", "M138 64 a14 14 0 0 1 2 -28 a20 20 0 0 1 38 -6 a16 16 0 0 1 14 34 z")))
         .child(link("link-right", "198", "232"))
@@ -716,7 +768,7 @@ mod tests {
     /// exhausted it says so and offers Reload, and nothing in it is a markup string.
     #[test]
     fn the_connecting_modal_draws_the_screen_the_cloud_and_the_server_white_on_the_gradient() {
-        let v = net_modal_view(false, "Connecting to the server\u{2026}", "Reload");
+        let v = net_modal_view(false, "Connecting to the server\u{2026}", "Reload", NetDevice::Screen);
         assert_eq!(v.tag, "dialog");
         assert_eq!(v.attr_of("aria-modal"), Some("true"));
         assert_eq!(v.attr_of("data-state"), Some("connecting"));
@@ -748,13 +800,69 @@ mod tests {
         assert!(v.find(&|n| n.attr_of("data-part") == Some("reload")).is_none(), "no Reload while it retries");
         assert!(v.on.contains(&"keydown") && v.on.contains(&"pointerdown") && v.on.contains(&"cancel"), "keys, pointers and Escape are taken by the modal");
 
-        let f = net_modal_view(true, "The server could not be reached.", "Reload");
+        let f = net_modal_view(true, "The server could not be reached.", "Reload", NetDevice::Screen);
         assert_eq!(f.attr_of("data-state"), Some("unreachable"));
         assert!(f.classes.iter().any(|c| c == "pr-netmodal-failed"), "the drawing stands still");
         let reload = f.find(&|n| n.attr_of("data-part") == Some("reload")).expect("Reload once the retries are exhausted");
         assert_eq!(reload.text.as_deref(), Some("Reload"));
         assert_eq!(f.find(&|n| n.key == "caption").and_then(|n| n.text.as_deref()), Some("The server could not be reached."));
         println!("{} colour attributes, all white; links 2; Reload only when unreachable", colours.len());
+    }
+
+    /// WASM-012 R15: inside the mobile shell the modal draws the phone or the tablet the application runs on in the
+    /// screen's place — a tablet from a shortest side of 600 CSS pixels, whichever way it is held — and nothing else
+    /// changes: the same dialog, gradient, white strokes, links, cloud, server, captions and Reload.
+    #[test]
+    fn in_the_mobile_shell_the_connecting_modal_draws_the_phone_or_the_tablet_012() {
+        let cases = [
+            ((false, 1920.0, 1080.0), NetDevice::Screen),
+            ((false, 411.0, 914.0), NetDevice::Screen),
+            ((true, 411.0, 914.0), NetDevice::Phone),
+            ((true, 914.0, 411.0), NetDevice::Phone),
+            ((true, 599.0, 960.0), NetDevice::Phone),
+            ((true, 600.0, 960.0), NetDevice::Tablet),
+            ((true, 1280.0, 800.0), NetDevice::Tablet),
+        ];
+        for ((shell_, w, h), want) in cases {
+            assert_eq!(net_device(shell_, w, h), want, "in the shell {shell_}, {w} × {h}");
+        }
+        fn paints(n: &VNode, out: &mut Vec<String>) {
+            for (k, val) in &n.attrs {
+                if k == "fill" || k == "stroke" {
+                    out.push(val.clone());
+                }
+            }
+            n.children.iter().for_each(|c| paints(c, out));
+        }
+        let mut drawn = Vec::new();
+        for device in [NetDevice::Screen, NetDevice::Phone, NetDevice::Tablet] {
+            for failed in [false, true] {
+                let v = net_modal_view(failed, "c", "Reload", device);
+                let screen = net_modal_view(failed, "c", "Reload", NetDevice::Screen);
+                let left = v.find(&|n| n.svg && n.classes.iter().any(|c| c == "pr-netmodal-device")).expect("a device is drawn");
+                assert_eq!(left.attr_of("data-device"), Some(device.name()));
+                assert!(left.classes.iter().any(|c| *c == format!("pr-netmodal-{}", device.name())));
+                let others = [NetDevice::Screen, NetDevice::Phone, NetDevice::Tablet].into_iter().filter(|d| *d != device);
+                for other in others {
+                    assert!(v.find(&|n| n.attr_of("data-device") == Some(other.name())).is_none(), "{device:?}: no {other:?} as well");
+                }
+                // Everything but the device is the desktop modal's: the dialog, its declarations and every other part.
+                assert_eq!((v.tag, v.attr_of("data-state"), &v.styles, &v.on), (screen.tag, screen.attr_of("data-state"), &screen.styles, &screen.on));
+                for part in ["pr-netmodal-cloud", "pr-netmodal-server", "pr-netmodal-link"] {
+                    assert!(v.find(&|n| n.svg && n.classes.iter().any(|c| c == part)).is_some(), "{device:?}: {part}");
+                }
+                assert_eq!(v.find(&|n| n.attr_of("data-part") == Some("reload")).is_some(), failed);
+                let mut colours = Vec::new();
+                paints(&v, &mut colours);
+                assert!(colours.iter().all(|c| c == "#ffffff" || c == "none"), "{device:?}: {colours:?}");
+                // The device's right edge stays at 82, where the link to the cloud starts (x1 = 88).
+                let body = left.children.iter().find(|n| n.tag == "rect").expect("the device's body");
+                let right: f64 = body.attr_of("x").unwrap().parse::<f64>().unwrap() + body.attr_of("width").unwrap().parse::<f64>().unwrap();
+                assert_eq!(right, 82.0, "{device:?}");
+            }
+            drawn.push(device.name());
+        }
+        println!("device: 7 screen sizes, in and out of the shell; drawn {drawn:?}, each connecting and unreachable, right edge at 82, all white");
     }
     use crate::tree::testing::tree_with;
     use cobolt_forms::menu::{MenuDefinition, MenuItem};
