@@ -941,6 +941,8 @@ pub struct CoboltApp {
     leaderboard: crate::leaderboard::Leaderboard,
     /// The Model Leaderboard panel, present while open.
     leaderboard_modal: Option<crate::panels::leaderboard_modal::LeaderboardModal>,
+    /// The Run on device window of a Mobile project (WASM-012 T19), present while open.
+    run_on_device: Option<crate::panels::mobile_devices::RunOnDevice>,
     /// The last step of an AI configuration import: one key per provider.
     import_keys_modal: Option<crate::panels::import_keys_modal::ImportKeysModal>,
     /// In-flight capability probe and the `(provider, model, endpoint)` it
@@ -2348,6 +2350,7 @@ impl CoboltApp {
             llm_benchmark_report: None,
             leaderboard: crate::leaderboard::Leaderboard::load(),
             leaderboard_modal: None,
+            run_on_device: None,
             import_keys_modal: None,
             llm_caps_rx: None,
             llm_caps_target: None,
@@ -2897,12 +2900,80 @@ impl CoboltApp {
                 self.output.push_status(line);
             }
         }
+        // WASM-012 T19: a Run of a Mobile project with several places to run asks the developer.
+        if let Some(targets) = self.web_preview.take_device_choice() {
+            match self.run_on_device.as_mut() {
+                Some(window) => {
+                    window.set_targets(targets);
+                    window.open = true;
+                }
+                None => self.open_run_on_device(Some(targets)),
+            }
+        }
+        self.show_run_on_device(ctx);
         // The Backend the Preview started ends with it (Close, Stop, the web view closed, a failed start).
         if self.backend_by_preview && !self.web_preview.active() {
             self.stop_backend();
         }
         if wants_frame {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
+    }
+
+    /// Is the open project a Mobile one for Android (the platform whose devices the IDE reaches)?
+    fn is_android_project(&self) -> bool {
+        self.cobolt_project.as_ref().and_then(|p| p.mobile_settings()).is_some_and(|m| m.platform == cobolt_compiler::project_kind::MobilePlatform::Android)
+    }
+
+    /// The Android device runner of the open Mobile project: the Preview's while it has one (it
+    /// knows where the application was started), else a new one, to list the targets.
+    fn mobile_device_runner(&self) -> Option<std::sync::Arc<dyn crate::panels::web_preview::DeviceRunner>> {
+        let manifest = self.project_path.as_ref().filter(|_| self.is_android_project())?;
+        Some(self.web_preview.devices_for(manifest).unwrap_or_else(|| {
+            std::sync::Arc::new(crate::panels::mobile_runner::MobileDeviceRunner::new(manifest.clone(), self.lang.tr()))
+        }))
+    }
+
+    /// Run → Run on device… (the targets are listed now), or a Run that could not choose among
+    /// `targets`.
+    fn open_run_on_device(&mut self, targets: Option<Vec<cobolt_compiler::mobile_devices::DeviceTarget>>) {
+        let Some(runner) = self.mobile_device_runner() else { return };
+        let (Some(manifest), Some(project)) = (self.project_path.as_ref(), self.cobolt_project.as_ref()) else { return };
+        let targets = targets.unwrap_or_else(|| runner.list(cobolt_compiler::project_kind::MobilePlatform::Android));
+        let chosen = self.web_preview.chosen_device(manifest);
+        self.run_on_device = Some(crate::panels::mobile_devices::RunOnDevice::new(&project.project.name, targets, chosen));
+    }
+
+    /// Once a frame while the Run on device window is open: draw it and do what it asks. Start
+    /// remembers the target for the session and runs as Run does, which goes to it.
+    fn show_run_on_device(&mut self, ctx: &Context) {
+        let Some(mut window) = self.run_on_device.take() else { return };
+        let theme = self.current_theme().clone();
+        let tr = self.lang.tr();
+        let preview = self.project_path.as_ref().and_then(|m| self.web_preview.devices_for(m));
+        let started_on = preview.as_ref().and_then(|r| r.started_on());
+        let busy = preview.as_ref().is_some_and(|r| r.busy());
+        let act = window.show(ctx, &theme, &tr, started_on.as_deref(), busy);
+        if act.refresh {
+            if let Some(runner) = self.mobile_device_runner() {
+                window.set_targets(runner.list(cobolt_compiler::project_kind::MobilePlatform::Android));
+            }
+        }
+        if act.stop {
+            if let Some(Err(why)) = preview.map(|r| r.stop()) {
+                if !why.is_empty() {
+                    self.output.push_status(why);
+                }
+            }
+        }
+        if window.open {
+            self.run_on_device = Some(window);
+        }
+        if let Some(id) = act.start {
+            if let Some(manifest) = self.project_path.clone() {
+                self.web_preview.choose_device(&manifest, &id);
+            }
+            self.do_run();
         }
     }
 
@@ -5088,8 +5159,10 @@ impl CoboltApp {
     }
 
     fn open_project_at(&mut self, path: PathBuf) {
-        // A Preview belongs to the project it was started for; so does a backend.
+        // A Preview belongs to the project it was started for; so does a backend, and so does the
+        // Run on device window.
         self.web_preview.close();
+        self.run_on_device = None;
         self.browser_confirm = None;
         self.stop_backend();
         match load_project(&path) {
@@ -16970,6 +17043,11 @@ impl eframe::App for CoboltApp {
                                 }
                                 if ui.add_enabled(busy, egui::Button::new(tr.menu_stop)).clicked() {
                                     self.do_stop(); ui.close();
+                                }
+                                // WASM-012 T19 — where a Mobile project runs: choose, start, stop.
+                                if self.is_android_project() && ui.button(tr.menu_run_on_device).clicked() {
+                                    self.open_run_on_device(None);
+                                    ui.close();
                                 }
                                 ui.separator();
                                 if ui.button(tr.menu_check_only).clicked() { self.do_check(); ui.close(); }

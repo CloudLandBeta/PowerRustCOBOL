@@ -28,11 +28,13 @@
 //! words — so the Output panel shows it in the language the developer chose,
 //! from the `Tr` tables.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cobolt_compiler::mobile_devices::DeviceTarget;
 use cobolt_compiler::project_kind::{DeviceClass, Isolation, MobilePlatform, Orientation, ProjectKind};
 use cobolt_project_tools::web::devbackend::{self, DevBackendPlan};
 use cobolt_project_tools::web::devserver::{self, DevBackend, PageEvent, PageStrings, PhoneFrame, ServeOptions, ServerHandle};
@@ -125,10 +127,13 @@ pub enum Note {
     NotTheDevice { platform: String, install: Option<String>, width: u32, height: u32 },
     /// The application runs on `device`, served from `url` (R14).
     OnDevice { device: String, url: String },
-    /// `device` could not run it; the browser at a phone's size follows.
+    /// `device` could not run it. Nothing else is opened: the developer asked for the device
+    /// (WASM-012 D-Preview).
     DeviceFailed { device: String, why: String },
     /// A line of the device's log.
     DeviceLog(String),
+    /// Several targets and none chosen: the Run on device window opens (WASM-012 T19).
+    ChooseDevice,
 }
 
 /// What kind of in-place update `app.update` answered (WASM-016 R16).
@@ -379,6 +384,7 @@ impl Note {
             Note::OnDevice { device, url } => vec![tr.pk_prev_on_device.replacen("{}", device, 1).replacen("{}", url, 1)],
             Note::DeviceFailed { device, why } => vec![tr.pk_prev_device_failed.replacen("{}", device, 1).replacen("{}", why, 1)],
             Note::DeviceLog(line) => vec![line.clone()],
+            Note::ChooseDevice => vec![tr.pk_prev_choose_device.to_owned()],
         }
     }
 
@@ -492,10 +498,10 @@ pub trait DeviceRunner: Send + Sync {
     /// `Err(tool)`: what is not on this machine to run on `platform`.
     fn detect(&self, platform: MobilePlatform) -> Result<(), String>;
     /// The devices and running emulators of `platform`, then the emulators
-    /// that can be started; the first one is used.
-    fn list(&self, platform: MobilePlatform) -> Vec<String>;
-    /// Run the application served at `dev_url` on `device` (an emulator that
-    /// is not running is started first).
+    /// that can be started ([`pick_target`] says which one a Run takes).
+    fn list(&self, platform: MobilePlatform) -> Vec<DeviceTarget>;
+    /// Run the application served at `dev_url` on `device` (a target's id;
+    /// an emulator that is not running is started first).
     fn run(&self, device: &str, dev_url: &str) -> Result<(), String>;
     /// The device's log lines since the last call.
     fn log(&self) -> Vec<String>;
@@ -509,6 +515,32 @@ pub trait DeviceRunner: Send + Sync {
     fn busy(&self) -> bool {
         false
     }
+    /// Stop the application where it was started last, off the UI thread;
+    /// what happened comes through [`DeviceRunner::log`]. `Err` with the
+    /// reason (empty: nothing was started).
+    fn stop(&self) -> Result<(), String> {
+        Err(String::new())
+    }
+    /// The device the application was started on last, while it has not
+    /// been stopped from here.
+    fn started_on(&self) -> Option<String> {
+        None
+    }
+}
+
+/// Which target a Run of a Mobile project goes to without asking (WASM-012
+/// D-Preview): the one chosen in this session, while it is listed; else the
+/// only one running. `None`: the developer chooses in the Run on device
+/// window.
+pub fn pick_target<'a>(targets: &'a [DeviceTarget], chosen: Option<&str>) -> Option<&'a DeviceTarget> {
+    if let Some(t) = chosen.and_then(|c| targets.iter().find(|t| t.is(c))) {
+        return Some(t);
+    }
+    let mut running = targets.iter().filter(|t| t.running);
+    match (running.next(), running.next()) {
+        (Some(only), None) => Some(only),
+        _ => None,
+    }
 }
 
 /// No device tools on this machine (until WASM-012).
@@ -519,7 +551,7 @@ impl DeviceRunner for NoDeviceTools {
         Err(device_tool(platform).to_owned())
     }
 
-    fn list(&self, _platform: MobilePlatform) -> Vec<String> {
+    fn list(&self, _platform: MobilePlatform) -> Vec<DeviceTarget> {
         Vec::new()
     }
 
@@ -647,6 +679,11 @@ pub struct WebPreview {
     /// The port the page is served on, chosen before the Backend started so it could be told the page's origin
     /// (WASM-013 R12); `None` = any free port.
     page_port: Option<u16>,
+    /// The target chosen in the Run on device window, per project manifest, for this session of
+    /// the IDE (WASM-012 D-Preview): never written to the project, kept across Previews.
+    chosen_devices: HashMap<PathBuf, String>,
+    /// The targets a Run could not choose among, for the Run on device window.
+    device_choice: Option<Vec<DeviceTarget>>,
 }
 
 impl WebPreview {
@@ -693,6 +730,26 @@ impl WebPreview {
     /// The notes not yet handed to the Output panel.
     pub fn take_outbox(&mut self) -> Vec<Note> {
         std::mem::take(&mut self.outbox)
+    }
+
+    /// The target chosen for the project `manifest` in this session.
+    pub fn chosen_device(&self, manifest: &Path) -> Option<&str> {
+        self.chosen_devices.get(manifest).map(String::as_str)
+    }
+
+    /// Remember `id` as the target of the project `manifest` until the IDE closes.
+    pub fn choose_device(&mut self, manifest: &Path, id: &str) {
+        self.chosen_devices.insert(manifest.to_path_buf(), id.to_owned());
+    }
+
+    /// The targets a Run asked the developer to choose among, once.
+    pub fn take_device_choice(&mut self) -> Option<Vec<DeviceTarget>> {
+        self.device_choice.take()
+    }
+
+    /// The device runner of the Mobile Preview of the project `manifest`, while there is one.
+    pub fn devices_for(&self, manifest: &Path) -> Option<Arc<dyn DeviceRunner>> {
+        self.launch.as_ref().filter(|l| l.kind == ProjectKind::Mobile && l.manifest == manifest).map(|l| l.devices.clone())
     }
 
     fn say(&mut self, note: Note) {
@@ -1170,27 +1227,38 @@ impl WebPreview {
         }
     }
 
-    /// A Mobile Preview (R14, R15, D12): the first device or running emulator
-    /// runs the application (`None`); without one, the phone page is set up at
-    /// `[mobile] device` and `orientation` and its address is answered, to be
-    /// opened in the project's browser, and the Output panel says why.
+    /// A Mobile Preview (R14, R15, D12; WASM-012 D-Preview): with a phone or
+    /// an emulator to run on, [`pick_target`]'s target runs the application,
+    /// or the Run on device window is asked for when there is no plain
+    /// answer (`None` either way; a failed run is said, and nothing else is
+    /// opened). With none, the phone page is set up at `[mobile] device` and
+    /// `orientation` and its address is answered, to be opened in the
+    /// project's browser, and the Output panel says why.
     fn open_on_device(&mut self, url: &str) -> Option<String> {
         let launch = self.launch.as_ref()?;
         let platform = launch.platform.unwrap_or(MobilePlatform::Android);
         let devices = launch.devices.clone();
         let landscape = launch.orientation == Some(Orientation::Landscape);
         let view = presets::default_for(ProjectKind::Mobile, launch.device).viewport(landscape);
+        let chosen = self.chosen_devices.get(&launch.manifest).cloned();
         let install = devices.detect(platform).err();
         if install.is_none() {
-            if let Some(device) = devices.list(platform).into_iter().next() {
-                match devices.run(&device, url) {
-                    Ok(()) => {
-                        self.on_device = true;
-                        self.say(Note::OnDevice { device, url: url.to_owned() });
-                        return None;
+            let targets = devices.list(platform);
+            if !targets.is_empty() {
+                match pick_target(&targets, chosen.as_deref()) {
+                    Some(target) => match devices.run(&target.id, url) {
+                        Ok(()) => {
+                            self.on_device = true;
+                            self.say(Note::OnDevice { device: target.label.clone(), url: url.to_owned() });
+                        }
+                        Err(why) => self.say(Note::DeviceFailed { device: target.label.clone(), why }),
+                    },
+                    None => {
+                        self.say(Note::ChooseDevice);
+                        self.device_choice = Some(targets);
                     }
-                    Err(why) => self.say(Note::DeviceFailed { device, why }),
                 }
+                return None;
             }
         }
         let live = self.live.as_ref()?;
@@ -1388,11 +1456,32 @@ mod tests {
     }
 
     /// A device runner with the targets `targets` and two log lines, which
-    /// writes down what it was asked, in order.
+    /// writes down what it was asked, in order; a run answers `fail` when set.
     struct FakeDevices {
         calls: Mutex<Vec<String>>,
         log: Mutex<Vec<String>>,
-        targets: Vec<String>,
+        targets: Vec<DeviceTarget>,
+        fail: Option<String>,
+    }
+
+    impl FakeDevices {
+        fn with(targets: Vec<DeviceTarget>, log: &[&str], fail: Option<&str>) -> Arc<Self> {
+            Arc::new(Self {
+                calls: Mutex::new(Vec::new()),
+                log: Mutex::new(log.iter().map(|l| (*l).to_owned()).collect()),
+                targets,
+                fail: fail.map(str::to_owned),
+            })
+        }
+
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    /// A target named by its id; `emulator` for an emulator's own name.
+    fn target(id: &str, running: bool, emulator: Option<&str>) -> DeviceTarget {
+        DeviceTarget { id: id.to_owned(), label: id.to_owned(), running, emulator: emulator.map(str::to_owned) }
     }
 
     impl DeviceRunner for FakeDevices {
@@ -1401,14 +1490,14 @@ mod tests {
             Ok(())
         }
 
-        fn list(&self, platform: MobilePlatform) -> Vec<String> {
+        fn list(&self, platform: MobilePlatform) -> Vec<DeviceTarget> {
             self.calls.lock().unwrap().push(format!("list {}", platform.as_str()));
             self.targets.clone()
         }
 
         fn run(&self, device: &str, dev_url: &str) -> Result<(), String> {
             self.calls.lock().unwrap().push(format!("run {device} {dev_url}"));
-            Ok(())
+            self.fail.clone().map_or(Ok(()), Err)
         }
 
         fn log(&self) -> Vec<String> {
@@ -1457,22 +1546,19 @@ mod tests {
 
     /// AC13, the hand-over only (the real device run waits for WASM-012): a
     /// runner with a device gets the development address, no browser is
-    /// opened, and the device's log reaches the Output notes.
+    /// opened, and the device's log reaches the Output notes. The one target
+    /// running is taken without asking (WASM-012 D-Preview, plan case (a)).
     #[test]
     fn a_mobile_preview_hands_the_address_to_a_device_and_reads_its_log_008() {
         quiet();
         let manifest = project("on-device");
-        let fake = Arc::new(FakeDevices {
-            calls: Mutex::new(Vec::new()),
-            log: Mutex::new(vec!["I/chromium: started".into(), "I/chromium: MAIN-FORM shown".into()]),
-            targets: vec!["Pixel 8".into(), "Pixel Tablet".into()],
-        });
+        let fake = FakeDevices::with(vec![target("Pixel 8", true, None), target("Pixel_Tablet", false, Some("Pixel_Tablet"))], &["I/chromium: started", "I/chromium: MAIN-FORM shown"], None);
         let mut p = WebPreview::default();
         assert!(p.start(mobile_launch(&manifest, fake.clone(), DeviceClass::Phone, Orientation::Auto), Intent::Show));
         wait_until(&mut p, "the device run", |p| p.notes().iter().any(|n| matches!(n, Note::OnDevice { .. })));
         let url = p.url().unwrap();
         p.poll(Instant::now());
-        let calls = fake.calls.lock().unwrap().clone();
+        let calls = fake.calls();
         assert_eq!(calls, ["detect android".to_owned(), "list android".to_owned(), format!("run Pixel 8 {url}")]);
         assert!(p.opened().is_none(), "no browser when a device runs it");
         assert!(p.notes().contains(&Note::OnDevice { device: "Pixel 8".into(), url: url.clone() }));
@@ -1494,7 +1580,7 @@ mod tests {
     fn a_mobile_preview_with_no_target_and_a_web_preview_take_the_browser_012() {
         quiet();
         let manifest = project("decide-no-target");
-        let fake = Arc::new(FakeDevices { calls: Mutex::new(Vec::new()), log: Mutex::new(Vec::new()), targets: Vec::new() });
+        let fake = FakeDevices::with(Vec::new(), &[], None);
         let mut p = WebPreview::default();
         assert!(p.start(mobile_launch(&manifest, fake.clone(), DeviceClass::Phone, Orientation::Portrait), Intent::Show));
         wait_until(&mut p, "the phone page to be opened", |p| p.opened().is_some());
@@ -1510,7 +1596,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
 
         let manifest = project("decide-web");
-        let fake = Arc::new(FakeDevices { calls: Mutex::new(Vec::new()), log: Mutex::new(Vec::new()), targets: vec!["Pixel 8".into()] });
+        let fake = FakeDevices::with(vec![target("Pixel 8", true, None)], &[], None);
         let mut l = launch(&manifest, Fake::new());
         l.devices = fake.clone();
         let mut p = WebPreview::default();
@@ -1519,6 +1605,90 @@ mod tests {
         assert!(fake.calls.lock().unwrap().is_empty(), "a Web project asked the device runner: {:?}", fake.calls.lock().unwrap());
         assert!(!p.notes().iter().any(|n| matches!(n, Note::OnDevice { .. } | Note::NotTheDevice { .. })), "{:?}", p.notes());
         println!("(f) a Web project with a device runner holding Pixel 8: the browser, 0 calls to the runner");
+        p.close();
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+    }
+
+    /// D-Preview's rule on its own: the session's choice while listed (by id,
+    /// or by the emulator's name once that emulator runs), else the only one
+    /// running; otherwise nobody guesses.
+    #[test]
+    fn a_run_takes_the_chosen_target_else_the_only_one_running_012() {
+        let phone = target("R58N12ABC", true, None);
+        let emulator = target("emulator-5554", true, Some("Medium_Phone_API_37.0"));
+        let startable = target("Pixel_9", false, Some("Pixel_9"));
+        let ids = |t: Option<&DeviceTarget>| t.map(|t| t.id.clone());
+        let all = [phone.clone(), emulator.clone(), startable.clone()];
+        assert_eq!(ids(pick_target(&all, None)), None, "2 running, none chosen: the window");
+        assert_eq!(ids(pick_target(&all, Some("Pixel_9"))), Some("Pixel_9".into()));
+        assert_eq!(ids(pick_target(&all, Some("Medium_Phone_API_37.0"))), Some("emulator-5554".into()), "the chosen emulator, now running");
+        assert_eq!(ids(pick_target(&all, Some("gone"))), None, "a choice no longer listed is not a choice");
+        assert_eq!(ids(pick_target(&[phone.clone(), startable.clone()], None)), Some("R58N12ABC".into()), "the only one running");
+        assert_eq!(ids(pick_target(std::slice::from_ref(&startable), None)), None, "an emulator to start is started only when chosen");
+        assert_eq!(ids(pick_target(&[], Some("Pixel_9"))), None);
+        println!("pick: 2 running and none chosen -> ask; chosen by id; chosen emulator by name -> its serial; a gone choice -> ask; 1 running -> it; 1 to start -> ask; none -> none");
+    }
+
+    /// R3a, plan case (b): several targets and none chosen — the Run on
+    /// device window is asked for, nothing runs and no browser opens; the
+    /// developer's choice is then taken by every later Run of the session
+    /// without asking again, and the project's files do not change.
+    #[test]
+    fn several_targets_ask_the_window_once_and_the_choice_is_kept_for_the_session_012() {
+        quiet();
+        let manifest = project("decide-several");
+        let before = std::fs::read(&manifest).unwrap();
+        let targets = vec![target("R58N12ABC", true, None), target("emulator-5554", true, Some("Medium_Phone_API_37.0")), target("Pixel_9", false, Some("Pixel_9"))];
+        let fake = FakeDevices::with(targets.clone(), &[], None);
+        let mut p = WebPreview::default();
+        assert!(p.start(mobile_launch(&manifest, fake.clone(), DeviceClass::Phone, Orientation::Portrait), Intent::Show));
+        wait_until(&mut p, "the window to be asked for", |p| p.notes().contains(&Note::ChooseDevice));
+        assert_eq!(fake.calls(), ["detect android", "list android"], "nothing is run");
+        assert!(p.opened().is_none(), "no browser: there are devices");
+        assert_eq!(p.take_device_choice(), Some(targets), "the window gets the list");
+        assert_eq!(p.take_device_choice(), None, "once");
+        let url = p.url().unwrap();
+
+        // Start on Pixel_9 in the window: the Run goes there, and so does the next one.
+        p.choose_device(&manifest, "Pixel_9");
+        for _ in 0..2 {
+            assert!(p.start(mobile_launch(&manifest, fake.clone(), DeviceClass::Phone, Orientation::Portrait), Intent::Show));
+        }
+        let calls = fake.calls();
+        let expected: [String; 6] = ["detect android".into(), "list android".into(), format!("run Pixel_9 {url}"), "detect android".into(), "list android".into(), format!("run Pixel_9 {url}")];
+        assert_eq!(calls[2..], expected);
+        assert_eq!(p.notes().iter().filter(|n| **n == Note::ChooseDevice).count(), 1, "asked once: {:?}", p.notes());
+        assert!(p.notes().contains(&Note::OnDevice { device: "Pixel_9".into(), url: url.clone() }));
+        assert_eq!(p.chosen_device(&manifest), Some("Pixel_9"));
+        assert_eq!(std::fs::read(&manifest).unwrap(), before, "the choice is not written to the project");
+        for c in &calls {
+            println!("runner: {c}");
+        }
+        println!("(b) 3 targets (2 running), none chosen: the window asked once, 0 runs, no browser; chosen Pixel_9: 2 Runs went there; the manifest unchanged");
+        p.close();
+        let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
+    }
+
+    /// R3a, plan case (e): the target chosen cannot run the application —
+    /// the Output says why and nothing else opens (no browser page that is
+    /// not the device).
+    #[test]
+    fn a_failed_device_run_is_said_and_opens_nothing_else_012() {
+        quiet();
+        let manifest = project("decide-fails");
+        let fake = FakeDevices::with(vec![target("emulator-5554", true, None)], &[], Some("A package is already being built"));
+        let mut p = WebPreview::default();
+        assert!(p.start(mobile_launch(&manifest, fake.clone(), DeviceClass::Phone, Orientation::Portrait), Intent::Show));
+        wait_until(&mut p, "the failed run", |p| p.notes().iter().any(|n| matches!(n, Note::DeviceFailed { .. })));
+        assert!(p.opened().is_none(), "no browser after a failed device run: {:?}", p.notes());
+        assert!(!p.notes().iter().any(|n| matches!(n, Note::NotTheDevice { .. } | Note::OnDevice { .. })), "{:?}", p.notes());
+        let note = Note::DeviceFailed { device: "emulator-5554".into(), why: "A package is already being built".into() };
+        assert!(p.notes().contains(&note), "{:?}", p.notes());
+        for &lang in Language::ALL {
+            let text = note.text(&lang.tr());
+            assert!(text.contains("emulator-5554") && text.contains("A package is already being built") && !text.contains("{}"), "{lang:?}: {text}");
+        }
+        println!("(e) {}; no browser, no phone page", note.text(&Language::English.tr()));
         p.close();
         let _ = std::fs::remove_dir_all(manifest.parent().unwrap());
     }
@@ -1659,6 +1829,7 @@ mod tests {
             Note::DeviceFailed { device: "Pixel 8".into(), why: "offline".into() },
             Note::DeviceLog("I/chromium: hello".into()),
             Note::PackageStarted,
+            Note::ChooseDevice,
         ];
         let mut shown = 0;
         for &lang in Language::ALL {

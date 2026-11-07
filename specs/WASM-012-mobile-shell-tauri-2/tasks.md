@@ -9,15 +9,16 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   plan's first draft (2.0.30). No box was checked in the first version, so there is no evidence to carry. No shell code exists yet. Every Tauri, Android
   and iOS statement in the plan is marked **[verify]** and is unconfirmed; T1 confirms them before any other task starts.
 - **Plan:** ./plan.md   **Date:** 2026-10-23
-- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.291).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
+- **Implementation (2026-11-05/07, `features-2x-wasm-pending`, 2.0.288–2.0.292).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
   of a Mobile project make the web bundle and then `dist/mobile/android/<Name>-debug.apk`; the IDE's Run with an emulator builds, installs and starts
   it as a tap on its icon would and shows the application's log (a `DISPLAY` reads as the program wrote it); the phone's secure storage works on the
   emulator (stored, read back after a restart, deleted); the forms keep out of the status and gesture bars; Back on the first form ends the
   application cleanly (2.0.289); with no phone and no emulator running, Run starts the emulator set up and waits for it (2.0.290); a Run
-  over the application on screen keeps it alive, and the Output shows only the application's own log (2.0.291). The example is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1, T3–T7,
-  T12, T17, T18. Partly done (what is left is named under each): T8, T9, T11, T13–T16, T20, T22, T24. Not started: T2 (the baseline was not taken
-  before the change; T23 is run after it), T10 (O9), T19, T21, T25 (O1), T25b, T25c, T26. iOS is not run here: Xcode 15.2's simulators are iOS
-  17.2, below the iOS 18 floor.
+  over the application on screen keeps it alive, and the Output shows only the application's own log (2.0.291); with several places to run,
+  the Run on device window asks once and the session keeps the answer, and a failed run opens nothing else (2.0.292). The example is
+  `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1–T7, T12, T17, T18, T23. Partly done (what is left
+  is named under each): T8, T9, T11, T13–T16, T19, T20, T22, T24. Not started: T10 (O9), T21, T25 (O1), T25b, T25c, T26. iOS is not run here:
+  Xcode 15.2's simulators are iOS 17.2, below the iOS 18 floor.
   The "no task commits" rule below is overridden by the operator (2026-11-06: every task is committed, merged into `2.x.x` and pushed outside the
   window).
 
@@ -141,9 +142,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - Verify: every `[verify]` in `plan.md` has a V0 row (count the markers and the rows; the two counts are equal). The probe output is pasted into the
     record. `git status` shows only `plan.md` changed by this task.
 
-- [ ] **T2 — Baseline: the Web and Desktop build tests are green before anything changes** (R14; AC10 baseline)
-  - **Not run before the change** (the work started from T1 and the code). The same commands are run after it as T23, and a red one is compared
-    with `2.x.x` at 2.0.287 before it is called pre-existing.
+- [x] **T2 — Baseline: the Web and Desktop build tests are green before anything changes** (R14; AC10 baseline)
+  - **Closed without the run before the change** (the work started from T1 and the code). Its purpose — telling a red caused by this spec
+    from one that was there before — needs no baseline now: T23 ran the same four commands on 2.0.291 and on 2.0.292 and every test was
+    green (counts under T23), so there is no red to attribute.
   - Files: none changed.
   - Do: run the tests AC10 later re-runs unchanged; record their counts here. A red test is fixed in its owning crate before T3.
   - Verify:
@@ -448,6 +450,21 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     T14 rows; the Web and Desktop answers are unchanged.
 
 - [ ] **T19 — The Run on device window** (R3; AC3)
+  - **Partly done (2.0.292, 2026-11-07):** `crates/cobolt-ide/src/panels/mobile_devices.rs` (`RunOnDevice`): the phones and emulators
+    running and the emulators set up that Start starts first (`cobolt_compiler::mobile_devices::DeviceTarget` — id, label, running, the
+    emulator's own name — built by `targets` from `adb devices -l`, `adb emu avd name` and `emulator -list-avds`; a phone that is not ready
+    is left out), Start / Stop / Refresh, the empty-list text naming Android Studio's Device Manager; 560 × 400, `resizable(false)` +
+    `fixed_size`, one grip in a foreground `Area`. Opened by D-Preview when a Run has no plain answer (`Note::ChooseDevice`,
+    `WebPreview::take_device_choice`) and from **Run → Run on device…** (an Android Mobile project only). The choice is
+    `WebPreview::chosen_devices` (per manifest, this IDE session; never written to the project); a choice made while an emulator was not
+    running still finds it once it runs (`DeviceTarget::is` by the emulator's name). Stop is `DeviceRunner::stop` (the runner keeps where it
+    started the application last, `started_on`), which also ends the log. The application's log goes to the Output as for every Run.
+    Tests: `cargo test -p cobolt-ide --bin cobolt-ide -- mobile_devices mobile_runner _012 _008` — the list model (the session's choice by
+    id and by the emulator's name, the first running, a refresh keeping or moving the selection, Start asking for the selected), the six
+    languages, **the window keeping 560 × 400 over 12 frames in each language with a row longer than it**, the list from the stored height,
+    Stop (nothing started; refused while busy; `started_on`), and T20 (b) below for "remembered for the session and not saved"; with the
+    other touched tests 20 passed, 1 ignored (the device run, passed on the emulator separately). **Left:** the iOS LAN opt-in warning
+    (D-Dev: there is no iOS device listing yet, T16's iOS half); the operator's look at the window in the six languages at its size.
   - Files: `crates/cobolt-ide/src/panels/mobile_devices.rs` (new); `panels/mod.rs`.
   - Do: target list (emulators, simulators, devices; an empty-list text with "create one"), Start/Stop, the log streamed to the Output panel, the iOS
     LAN opt-in warning (D-Dev). Opens at an explicit default size, never sized from available space. The chosen target is IDE session state, never
@@ -474,10 +491,14 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     the dev address; no browser); (c) `a_mobile_preview_without_device_tools_opens_the_phone_page_008` (the missing tool reaches `NotTheDevice`,
     six languages); (d) and (f) `a_mobile_preview_with_no_target_and_a_web_preview_take_the_browser_012` (tools and no target: the browser page
     at 390 × 844 and the note names Android Studio's Device Manager in the six languages, nothing run; a Web project with a runner holding a
-    device: 0 calls to it) — `cargo test -p cobolt-ide --bin cobolt-ide -- _012 _008 mobile_runner`: 9 passed, 1 ignored. **Left:** (b) (needs
-    T19's window); (e) in part — a failure after the start (the build, the install, the emulator) is an Output line with no fallback, as D-Preview
-    asks, but a refusal before it (a package build already running) still opens the browser with WASM-008's `pk_prev_device_failed` note; the
-    choice among several targets (T19's window), the iOS half.
+    device: 0 calls to it) — `cargo test -p cobolt-ide --bin cobolt-ide -- _012 _008 mobile_runner`: 9 passed, 1 ignored. **2.0.292:** the
+    interim "first target" is gone — `pick_target` is D-Preview's rule (the session's choice while listed, else the only one running, else
+    the window); **(b)** `several_targets_ask_the_window_once_and_the_choice_is_kept_for_the_session_012` (3 targets, 2 running: the window
+    asked once, 0 runs, no browser; Pixel_9 chosen: the next 2 Runs go there; the manifest's bytes unchanged) and
+    `a_run_takes_the_chosen_target_else_the_only_one_running_012` (7 cases); **(e)** `a_failed_device_run_is_said_and_opens_nothing_else_012`
+    — a run the device refuses before it starts (a package build already running) is the Output's `pk_prev_device_failed`, rewritten in the
+    six languages to say how to choose another device, and **no** browser page. Test (a) now gives one running target and one to start (it
+    gave two, which D-Preview answers with the window). **Left:** the iOS half.
   - Files: `crates/cobolt-ide/src/panels/mobile_devices.rs` (`MobileDeviceRunner`); `crates/cobolt-ide/src/panels/web_preview.rs` (the `DeviceRunner`
     seam receives the real implementation); `crates/cobolt-ide/src/app.rs` (`toggle_web_preview` `:2736`, `do_run` `:2823`: a Mobile project goes
     through `DeviceRunner`).
@@ -511,7 +532,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     three verbs, the statuses, the limits, the Preview's `-6`, deep links); `chunked.data` regenerated. **2.0.289:** Run "starts it as a tap
     on its icon would" and the Output shows the application's log as the program wrote it; a new paragraph "On the phone's screen" (the safe
     area, the light strip, `--pr-statusbar`, `--pr-safe-*`, Back on the first form, the light/dark caveat); `chunked.data` regenerated (4277
-    records). **Left:** the keys of T14/T19/T21.
+    records). **2.0.292:** T19's 13 keys ×6 (`dev_win_*`, `menu_run_on_device`, `pk_prev_choose_device`, `pk_dev_stopped`) and
+    `pk_prev_device_failed` rewritten (no browser after a failed run); the KB's Mobile Run paragraph describes the window, the session's
+    choice, Stop and the failed run; `chunked.data` regenerated (4279 records); `no_empty_ui_translations`,
+    `non_english_is_actually_translated`, `the_system_kb_teaches_every_builtin_inline`, `prebuilt_chunked_kb_matches_the_published_documentation`
+    and `cobolt-compiler published_documentation_tests knowledge_base_build_tests` green. **Left:** the keys of T14/T21 and the iOS LAN warning.
   - Files: `crates/cobolt-ide/src/i18n.rs` (the `Tr` keys ×6 of plan §7: every `MobileTool` name/purpose/next step; "unavailable on this machine" +
     reason; "no emulator, simulator or device" + next step (R3a); a target that failed to start; the device window; the LAN opt-in warning; the signing
     window; the R5 refusals; the R7 message; the checklist heading; `pk_build_package_note` `:458`/`:2998` rewritten in all six languages);
@@ -529,7 +554,13 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 ## M6 — device evidence and the ledger
 
-- [ ] **T23 — AC10 re-run: Web and Desktop build exactly as before** (R14; AC10)
+- [x] **T23 — AC10 re-run: Web and Desktop build exactly as before** (R14; AC10)
+  - **Run 2026-11-07 on 2.0.291, the compiler half again on 2.0.292** (the four commands of T2, `--no-fail-fast`, every `test result:` line
+    read): `cobolt-project-tools` **248 passed, 0 failed, 1 ignored** over 28 test targets (`kinds.rs` 10/10, `web_build.rs` 25/25, the
+    Chrome comparisons all green); `cobolt-web-bundle` **133 / 0** over 53; `cobolt-wasm` **107 / 0** over 27; `cobolt-compiler project_kind`
+    **27 / 0** over 15 (including `project_kind_build_tests`). T7's Web refusal and T17's identity tests are among them; T20 (f)
+    (`a_mobile_preview_with_no_target_and_a_web_preview_take_the_browser_012`) is green. No count from before the change exists (T2), so
+    "the same counts" is read as "all green, no test removed".
   - Files: none changed.
   - Verify: the T2 commands give the same counts (plus the new tests), all green; T7's, T9's and T17's identity tests green; T20 (f) green. Compare the
     counts here.
@@ -553,7 +584,9 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     over the application on screen** (the case a developer meets on every second Run): 22.1 s to the started application, one start, alive
     and in front 90 s later; then, following the log with the Run's own `--uid` arguments, Greet, Forget me and Greet gave the program's three
     `DISPLAY` lines ("Hello, Grace. I will remember you.", "Forgotten. See you, stranger.", "Type your name first."), every line from the
-    application's process and none from another. AC7 in part: the forms stand below the status bar (root 24 CSS px down,
+    application's process and none from another. **2.0.292:** the device test again, now listing through `DeviceTarget`
+    (`emulator-5554` running, the one target): built, installed and started in 23.6 s, alive and the resumed activity 20 s later.
+    AC7 in part: the forms stand below the status bar (root 24 CSS px down,
     the strip `#f4f5f7`) and above the gesture bar; Back measured (it closes, it does not pop: the example has one form). **Not run here:** the
     `.aab`; iOS (Xcode 15.2, simulators iOS 17.2 < floor 18); AC4 live (the operator's key); AC6 (O4); AC7's rotation and a multi-form Back;
     AC8–AC9 on the device; the R3a fallback.

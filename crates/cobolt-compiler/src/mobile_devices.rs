@@ -158,11 +158,46 @@ pub fn package_service_found(answer: &str) -> bool {
     answer.trim().ends_with(": found")
 }
 
-/// What a Run can go to, in the order it prefers them: the devices and emulators running now
-/// (`ready`, their serial numbers), then the emulators that can be started (`avds`, their names),
-/// less the ones already running (`running_avds`).
-pub fn targets(ready: &[String], running_avds: &[String], avds: &[String]) -> Vec<String> {
-    ready.iter().chain(avds.iter().filter(|a| !running_avds.contains(a))).cloned().collect()
+/// Something a Run can go to: a phone or an emulator running now, or an emulator set up that a Run
+/// starts first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceTarget {
+    /// What a Run is given: the serial number of one running now, or the name of an emulator to
+    /// start.
+    pub id: String,
+    /// How it is named to the developer.
+    pub label: String,
+    /// Running now; otherwise an emulator a Run starts first.
+    pub running: bool,
+    /// The emulator's own name (its Android Virtual Device), running or not; `None` for a phone.
+    pub emulator: Option<String>,
+}
+
+impl DeviceTarget {
+    /// Is this the target `id` names — by its id, or, for an emulator, by the emulator's name (the
+    /// id it had before it was started)?
+    pub fn is(&self, id: &str) -> bool {
+        self.id == id || self.emulator.as_deref() == Some(id)
+    }
+}
+
+/// What a Run can go to, in the order it prefers them: the devices `adb` sees ready (an emulator
+/// among them named by `running_avds`, its serial number and its name), then the emulators set up
+/// (`avds`) that are not running.
+pub fn targets(devices: &[Device], running_avds: &[(String, String)], avds: &[String]) -> Vec<DeviceTarget> {
+    let avd_of = |serial: &str| running_avds.iter().find(|(s, _)| s == serial).map(|(_, a)| a.clone());
+    let running = devices.iter().filter(|d| d.ready()).map(|d| {
+        let emulator = avd_of(&d.serial);
+        let label = emulator.as_ref().map_or_else(|| d.label(), |a| format!("{} ({})", a.replace('_', " "), d.serial));
+        DeviceTarget { id: d.serial.clone(), label, running: true, emulator }
+    });
+    let startable = avds.iter().filter(|a| !running_avds.iter().any(|(_, r)| r == *a)).map(|a| DeviceTarget {
+        id: a.clone(),
+        label: a.replace('_', " "),
+        running: false,
+        emulator: Some(a.clone()),
+    });
+    running.chain(startable).collect()
 }
 
 /// The arguments that start the emulator `avd`: its own window, as the Device Manager of Android

@@ -311,16 +311,33 @@ fn the_emulators_that_can_be_started_are_read_from_the_sdk() {
     assert!(md::package_service_found("Service package: found\n"));
     assert!(!md::package_service_found("Service package: not found\n") && !md::package_service_found(""));
     let s = |v: &[&str]| v.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
-    // Running devices come first; an emulator already running is not offered a second time.
-    let targets = md::targets(&s(&["emulator-5554", "R58N12ABC"]), &s(&["Medium_Phone_API_37.0"]), &s(&["Medium_Phone_API_37.0", "Pixel_9"]));
-    assert_eq!(targets, ["emulator-5554", "R58N12ABC", "Pixel_9"]);
-    // Nothing running: the emulators that can be started, so a Run starts the first.
-    assert_eq!(md::targets(&[], &[], &s(&["Medium_Phone_API_37.0"])), ["Medium_Phone_API_37.0"]);
+    // What `adb devices -l` answered with the emulator running and a phone that has not accepted this computer yet.
+    let devices = md::parse_devices(
+        "List of devices attached\nemulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1\n\
+         R58N12ABC              device usb:1-1 product:shiba model:Pixel_8 device:shiba transport_id:2\n\
+         R3CN90XYZ              unauthorized usb:1-2 transport_id:3\n",
+    );
+    let running = [("emulator-5554".to_owned(), "Medium_Phone_API_37.0".to_owned())];
+    // Running devices come first, an emulator named by its own name; an emulator already running is not offered a
+    // second time; a phone that is not ready is not offered.
+    let targets = md::targets(&devices, &running, &s(&["Medium_Phone_API_37.0", "Pixel_9"]));
+    let shown: Vec<(&str, &str, bool)> = targets.iter().map(|t| (t.id.as_str(), t.label.as_str(), t.running)).collect();
+    assert_eq!(
+        shown,
+        [("emulator-5554", "Medium Phone API 37.0 (emulator-5554)", true), ("R58N12ABC", "Pixel 8 (R58N12ABC)", true), ("Pixel_9", "Pixel 9", false)]
+    );
+    // A choice made while the emulator was not running still names it once it runs.
+    assert!(targets[0].is("emulator-5554") && targets[0].is("Medium_Phone_API_37.0") && !targets[1].is("Medium_Phone_API_37.0"));
+    assert!(targets[2].is("Pixel_9") && targets[1].emulator.is_none());
+    // Nothing running: the emulators that can be started.
+    let idle = md::targets(&[], &[], &s(&["Medium_Phone_API_37.0"]));
+    assert_eq!(idle.iter().map(|t| (t.id.as_str(), t.running)).collect::<Vec<_>>(), [("Medium_Phone_API_37.0", false)]);
     assert!(md::targets(&[], &[], &[]).is_empty(), "no device and no emulator: the Preview's browser page");
     assert_eq!(md::emulator_args("Medium_Phone_API_37.0").join(" "), "-avd Medium_Phone_API_37.0");
     println!(
         "emulator parsing: 2 emulators listed, a note line refused, empty list; the running emulator's name of 3 answers; boot done of 3 answers; \
          the package service of 3 answers; \
-         targets: 2 running + 1 startable (a running emulator not offered twice), 1 startable alone, none"
+         targets: 2 running (the emulator by its name) + 1 startable, an unauthorized phone left out, a running emulator not offered twice, \
+         a choice by the emulator's name found after it started; 1 startable alone; none"
     );
 }

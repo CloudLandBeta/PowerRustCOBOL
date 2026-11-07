@@ -47,6 +47,8 @@ struct State {
     busy: bool,
     /// The `adb logcat` of the application started last.
     logcat: Option<Child>,
+    /// Where the application was started last, and its id: what Stop stops.
+    started: Option<(String, String)>,
 }
 
 /// One Mobile project's Android device runner.
@@ -172,6 +174,7 @@ impl Job {
         let _ = adb.stop(device, &app_id);
         adb.install(device, &package.path)?;
         adb.launch(device, &app_id, LAUNCH_PATIENCE)?;
+        self.state.lock().unwrap_or_else(|p| p.into_inner()).started = Some((device.to_owned(), app_id.clone()));
         self.say(fill(self.tr.pk_dev_started, &[device]));
         let mut child = adb.logcat(device, adb.uid(device, &app_id))?;
         if let Some(out) = child.stdout.take() {
@@ -206,15 +209,18 @@ impl DeviceRunner for MobileDeviceRunner {
     /// The phones and emulators running now, then the emulators that can be started
     /// ([`md::targets`]). It runs on the UI thread: `adb devices`, `emulator -list-avds` and, for
     /// each emulator running, `adb emu avd name` — tens of milliseconds each.
-    fn list(&self, platform: MobilePlatform) -> Vec<String> {
+    fn list(&self, platform: MobilePlatform) -> Vec<md::DeviceTarget> {
         let (MobilePlatform::Android, Some(adb)) = (platform, Adb::find()) else {
             return Vec::new();
         };
         let devices = adb.devices();
-        let ready: Vec<String> = devices.iter().filter(|d| d.ready()).map(|d| d.serial.clone()).collect();
         let avds = md::Emulator::find().map(|e| e.avds()).unwrap_or_default();
-        let running = if avds.is_empty() { Vec::new() } else { devices.iter().filter_map(|d| adb.avd_name(&d.serial)).collect() };
-        md::targets(&ready, &running, &avds)
+        let running: Vec<(String, String)> = if avds.is_empty() {
+            Vec::new()
+        } else {
+            devices.iter().filter(|d| d.ready()).filter_map(|d| adb.avd_name(&d.serial).map(|avd| (d.serial.clone(), avd))).collect()
+        };
+        md::targets(&devices, &running, &avds)
     }
 
     fn run(&self, device: &str, _dev_url: &str) -> Result<(), String> {
@@ -250,6 +256,35 @@ impl DeviceRunner for MobileDeviceRunner {
     fn busy(&self) -> bool {
         self.job.state.lock().unwrap_or_else(|p| p.into_inner()).busy
     }
+
+    /// Stop the application where it was started last (Run on device → Stop), and stop following
+    /// its log.
+    fn stop(&self) -> Result<(), String> {
+        self.claim()?;
+        let started = self.job.state.lock().unwrap_or_else(|p| p.into_inner()).started.take();
+        let Some((serial, app_id)) = started else {
+            self.job.done();
+            return Err(String::new());
+        };
+        let job = self.job.clone();
+        std::thread::spawn(move || {
+            let logcat = job.state.lock().unwrap_or_else(|p| p.into_inner()).logcat.take();
+            if let Some(mut c) = logcat {
+                let _ = c.kill();
+                let _ = c.wait();
+            }
+            match Adb::find().ok_or_else(|| "adb was not found".to_owned()).and_then(|adb| adb.stop(&serial, &app_id)) {
+                Ok(()) => job.say(fill(job.tr.pk_dev_stopped, &[&serial])),
+                Err(why) => job.say(why),
+            }
+            job.done();
+        });
+        Ok(())
+    }
+
+    fn started_on(&self) -> Option<String> {
+        self.job.state.lock().unwrap_or_else(|p| p.into_inner()).started.as_ref().map(|(serial, _)| serial.clone())
+    }
 }
 
 #[cfg(test)]
@@ -270,6 +305,24 @@ mod tests {
         println!("mobile runner: {} step lines shown, {} tool lines kept for package.log only, a second build while one runs refused", shown.len(), hidden.len());
     }
 
+    /// Stop (Run on device, T19): nothing started is nothing to stop and leaves the runner free;
+    /// a Stop while a build runs is refused with the reason; where the application was started
+    /// last is what the window shows.
+    #[test]
+    fn stop_answers_where_the_application_was_started_and_refuses_while_busy() {
+        let tr = crate::i18n::Language::English.tr();
+        let r = MobileDeviceRunner::new(PathBuf::from("/nowhere/A.project.toml"), tr);
+        assert_eq!(r.started_on(), None);
+        assert_eq!(r.stop(), Err(String::new()), "nothing started");
+        assert!(!r.busy(), "a Stop with nothing to stop leaves the runner free");
+        r.job.state.lock().unwrap().started = Some(("emulator-5554".into(), "com.example.app".into()));
+        assert_eq!(r.started_on().as_deref(), Some("emulator-5554"));
+        r.claim().unwrap();
+        assert_eq!(r.stop(), Err(tr.pk_dev_busy.to_owned()), "a build is running");
+        assert_eq!(r.started_on().as_deref(), Some("emulator-5554"), "a refused Stop forgets nothing");
+        println!("mobile runner stop: nothing started -> nothing to stop, runner free; started on emulator-5554 -> shown; Stop while busy -> refused, kept");
+    }
+
     /// The IDE's Run of a Mobile project, end to end, without the IDE's window: the runner the
     /// Preview is given builds `examples/PowerMobileHello` for the first target (a device `adb`
     /// sees, else the first emulator set up, which the Run starts and waits for), installs it,
@@ -284,7 +337,7 @@ mod tests {
         let tr = crate::i18n::Language::English.tr();
         let r = MobileDeviceRunner::new(manifest, tr);
         r.detect(MobilePlatform::Android).expect("adb is found");
-        let device = r.list(MobilePlatform::Android).into_iter().next().expect("an emulator or a phone is connected");
+        let device = r.list(MobilePlatform::Android).into_iter().next().expect("an emulator or a phone is connected").id;
         let t0 = Instant::now();
         r.run(&device, "").expect("the worker starts");
         let mut lines = Vec::new();
