@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.300 — 2026-11-07
+
+**WASM-036 plan: how the designer and the Properties panel will show what a Web or Mobile form's stylesheet sets, and how an edit is written back to the rule.** *(Written on features-2x, after 2.0.299.)*
+
+The operator accepted the spec's six recommended answers.
+
+**The plan (`specs/WASM-036-stylesheet-values-in-designer-and-properties/plan.md`):**
+- **One engine in `cobolt-forms`, with no egui.** It computes each property's value in effect and where it comes from, following the cascade the web player really builds:
+  - normal declarations, lowest to highest: `pr-base`, then `pr-theme`, then `pr-props`, then the project stylesheet in `pr-app`, then the unlayered form stylesheet;
+  - `CssStyle` is the (1,1,0) rule adopted last;
+  - `!important` declarations reverse the layer order.
+
+  `@media` is decided against the form's size. The CSS subset gains attribute selectors and `:host`.
+- **A model of what the player's properties layer writes**, pinned to the player by a test. The player writes a control's default background, Bold, padding on three control types and Spatial's radius in ways a one-row-per-property table would get wrong.
+- **A reverse table** from CSS to properties.
+- **The canvas** paints effective copies of the controls. Colours taken from CSS are painted as written, not faded by Transparency, through a new render input that both render paths read.
+- **The Properties panel** shows the effective values, read-only CSS text for values a property cannot hold, and a mixed mark for a multiple selection.
+- **Edits:** a pure planner checks in memory that an edit takes effect before any file is written. Writes are undoable stylesheet steps that never overwrite another program's change. A three-button question appears before a shared rule changes.
+- **Check, `render_form` and the agent's context** see the same values.
+
+**Spec corrections:** R1, R4, R5 and R17 now match what the code does:
+- the project stylesheet's layer;
+- there is no form colour mode, so `prefers-color-scheme` stays "may";
+- the theme is its whole CSS;
+- the agent works through a context and change sets, not property tools.
+
+**Also:**
+- `WASM-INDEX.md` D23 is decided, and `WASM-PROGRESS.md` is updated.
+- **Found while planning, not fixed here:** `open_stylesheet_modal` does nothing for a form that has no stylesheet file yet, though its own comment says it opens the generated text. It is a separate fix.
+
+No code changed, only the version.
+
 ## 2.0.299 — 2026-11-07
 
 **Spec WASM-036 (draft): the stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule.** *(Written on features-2x, after 2.0.298.)*

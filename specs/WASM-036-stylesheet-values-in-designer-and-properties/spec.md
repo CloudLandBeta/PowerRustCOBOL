@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — The stylesheet's values in the Form Designer and the Properties panel, and edits written back to the rule
 
-- **Status:** draft. The operator asked for it on 2026-11-07. Q1–Q6 carry a recommendation, and the requirements are written to it until the operator rules.
+- **Status:** planned (`plan.md`, 2026-11-07). The operator asked for it on 2026-11-07 and accepted the six recommended answers to Q1–Q6 the same day. R1, R4, R5 and R17 were corrected to what the code does (plan §0.6).
 - **Folder:** specs/WASM-036-stylesheet-values-in-designer-and-properties/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-11-07
 - **Branch:** `features-2x` (version line 2.x.x). Part of the WASM series, see `specs/WASM-INDEX.md`.
@@ -90,6 +90,10 @@ This spec makes the designer and the panel show the **effective value**: what th
     - a developer rule, at sheet file and line;
     - the control's `CssStyle`.
   - **How:** it shall follow the cascade of WASM-007 R8 as the player builds it: the layers, specificity, order, `!important`, and the element path of `dom/instance.rs`. For the form, that path is `section.pr-form-root` → `div.pr-form` → `div.pr-surface`, with each property on the element the player writes it to.
+  - **The levels, as the player builds them (plan §0.1):**
+    - normal declarations, lowest to highest: `pr-base`, then `pr-theme`, then `pr-props`, then the project stylesheet in `pr-app`, then the unlayered form stylesheet and `CssStyle`;
+    - `CssStyle` is the rule `[data-pr-inst] #NAME`, specificity (1,1,0), adopted last;
+    - `!important` declarations reverse the layer order.
   - **Where:** one library with no egui, called by the Properties panel, the canvas, Check and the agent tools.
 - **R2 (ubiquitous):** Each CSS property of `CSS_TO_PROPERTIES` shall have a **reverse rule** in one table beside it, marked with one of three fidelities. A test shall enumerate `CSS_TO_PROPERTIES` and fail on a CSS property that has no reverse rule.
   - ***exact*:** the value converts to the property without loss, and back to CSS that converts to the same value. This covers:
@@ -115,7 +119,7 @@ This spec makes the designer and the panel show the **effective value**: what th
   - `var()` resolves through the custom properties defined on the element path in the sheets, and the theme's published custom properties.
 - **R4 (state):** While a rule applies only under a condition (`@media`, `@container`, `@supports`), the IDE shall decide the condition where the designer knows the answer, and count the rule as *applying* or *not applying*:
   - `width`, `height`, `orientation` and `aspect-ratio` are decided against the form's design size. For a Mobile form that is its phone size, not the 1024 px of `MEDIA_WIDTH_PX`.
-  - `prefers-color-scheme` is decided against the theme mode the designer shows.
+  - `prefers-color-scheme` is decided against the theme mode the designer shows, when it has one. Today it has none for a form (plan §0.4), so such a rule stays "may".
 
   The rest shall stay "may" (WASM-007 R12) and shall not change the effective value: a condition the designer cannot decide (`hover`, `pointer`, `@supports`, a container query), and a rule whose subject has a pseudo-class.
 
@@ -124,7 +128,7 @@ This spec makes the designer and the panel show the **effective value**: what th
   - The row's mark names the source: file and line, or Style.
   - The mark's tooltip gives the stored value as "not in effect".
   - An unknown value (R3) shows the CSS text, read-only, with the mark.
-  - A value that comes from the theme block shows with a "from the theme" mark.
+  - A value that comes from the theme shows with a "from the theme" mark. The theme is its whole CSS, which the player adopts as `pr-theme`. A value given by the copy of the theme block in the form's sheet names that file and line.
 - **R6 (state):** The Form Designer's canvas shall paint each control, and the form, with their effective values.
   - It shall go through the one render engine, on both of its paths (`render_form` and `render_faces`), so that the canvas, the designer's thumbnails and the `render_form` tool show the same thing.
   - This amends WASM-007 R12: the designer shows the result of the CSS it can paint.
@@ -175,8 +179,8 @@ This spec makes the designer and the panel show the **effective value**: what th
 
 **Agents and Check**
 - **R17 (ubiquitous):** The agent tools shall see what the developer sees:
-  - The tools that read or render a form shall give the effective value and its source for an overridden property: `render_form`, the Form Designer agent's property reads, and `check`'s report.
-  - The Form Designer agent's tool that sets a property shall answer, when CSS overrides it, that the value has no effect and which declaration wins.
+  - The tools that read or render a form shall give the effective value and its source for an overridden property: `render_form`, the context the Form Designer agent reads (`agent::build_context_for`), and `check`'s report.
+  - When the Form Designer agent's change set sets a property CSS overrides (`AgentOp::SetProperty`), the report of that change shall say that the value has no effect and which declaration wins.
   - The tools write no stylesheet (Q5).
 
 **Safety and scope**
@@ -276,7 +280,9 @@ This spec makes the designer and the panel show the **effective value**: what th
 
 ## 7. Open questions
 
-Each one carries a recommendation, and the requirements are written to it until the operator rules.
+Each one carries a recommendation, and the requirements are written to it.
+
+**Decided (operator, 2026-11-07):** the six recommendations are accepted as written: Q1 ask on every edit, Q2 the id rule, Q3 keep storing it as a property, Q4 yes, Q5 report only, Q6 the form's size.
 
 - **Q1 — A shared rule (R11):** ask on every edit, or remember the answer for that rule until the sheet changes?
   - *Recommended:* ask on every edit. One click more, and no edit ever restyles other controls unseen.
