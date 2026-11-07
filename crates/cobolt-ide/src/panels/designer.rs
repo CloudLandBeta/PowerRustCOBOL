@@ -2921,6 +2921,11 @@ pub struct DesignerPanel {
     // ── UI options ────────────────────────────────────────────────────────────
     pub show_grid: bool,
     pub glass_mode: bool,
+    /// The form is a page's, in a Web or Mobile project (set by the app each frame). Where the desktop would
+    /// show through the form, a page has none: the build paints its stand-in desktop
+    /// (`cobolt_forms::theme::SEE_THROUGH_BACKDROP_RGB`), so the canvas paints the same, and shows what the
+    /// browser and the phone show.
+    pub page_backdrop: bool,
 
     // ── 049 — the rail state the CANVAS is showing ────────────────────────────
     /// Which state the sidebar is drawn in on the canvas. Design time ONLY,
@@ -3280,6 +3285,7 @@ impl DesignerPanel {
             props_hidden: false,
             show_grid: true,
             glass_mode: true,
+            page_backdrop: false,
             rail_view_collapsed: None,
             rail_designed_collapsed: None,
             crumb_toggle_rect: None,
@@ -10275,14 +10281,26 @@ impl DesignerPanel {
                 // Transparent (alpha=0) means the wallpaper shows through.
                 // form.transparency (0=opaque..100=fully transparent) also dims the canvas.
                 let form_alpha_mul = 1.0 - (self.form.transparency as f32 / 100.0);
-                let bg_raw = parse_color(&self.form.background_color);
-                // Apply form transparency to background alpha
-                let bg = Color32::from_rgba_premultiplied(
-                    bg_raw.r(),
-                    bg_raw.g(),
-                    bg_raw.b(),
-                    ((bg_raw.a() as f32) * form_alpha_mul) as u8,
-                );
+                // Under a see-through theme (Spatial) both runtimes paint the theme's glass, faded by the form's
+                // Transparency, in place of the form's colour, gradient and picture (`cobolt-form-host`'s backdrop,
+                // the Web player's form rule): the canvas paints the same.
+                let see_through = cobolt_forms::theme::is_see_through(&cobolt_forms::theme::resolve_theme_id(
+                    self.form.theme.as_deref(),
+                    self.project_form_theme.as_deref(),
+                ));
+                let bg = if see_through {
+                    let [r, g, b, a] = cobolt_forms::theme::SPATIAL_FORM_GLASS;
+                    Color32::from_rgba_unmultiplied(r, g, b, (a as f32 * form_alpha_mul).floor() as u8)
+                } else {
+                    let bg_raw = parse_color(&self.form.background_color);
+                    // Apply form transparency to background alpha
+                    Color32::from_rgba_premultiplied(
+                        bg_raw.r(),
+                        bg_raw.g(),
+                        bg_raw.b(),
+                        ((bg_raw.a() as f32) * form_alpha_mul) as u8,
+                    )
+                };
                 // WYSIWYG: a fully transparent form renders over the runtime's
                 // dark glass base, NOT over the IDE theme — paint that same
                 // dark base here so light IDE themes don't hide light-coloured
@@ -10293,8 +10311,21 @@ impl DesignerPanel {
                 // tabs show — would take that legibility away. Same for Desktop, Web
                 // and Mobile forms: the one designer paints all three.
                 let non_visuals_tab = self.tabs.is_non_visuals();
+                // A page's form shows what its build puts behind it: the stand-in desktop under a see-through
+                // theme or a translucent face, as `cobolt-project-tools`' web generator decides it, the form's own
+                // colour over it — not the IDE's window, which shows the computer's desktop.
+                let page_desktop = (self.page_backdrop
+                    && (see_through || cobolt_forms::theme::lets_the_desktop_show(&self.form)))
+                .then_some(cobolt_forms::paint::SEE_THROUGH_DESKTOP);
                 let canvas_bg = if non_visuals_tab {
                     Color32::BLACK
+                } else if let Some(desktop) = page_desktop {
+                    // A page paints a gradient straight over its backdrop, with no colour beneath.
+                    if self.form.background_gradient_enabled && !see_through {
+                        desktop
+                    } else {
+                        cobolt_forms::paint::composite_premultiplied_over(bg, desktop)
+                    }
                 } else if bg.a() > 0 {
                     bg
                 } else {
@@ -10308,7 +10339,7 @@ impl DesignerPanel {
                     canvas_bg,
                     ui.visuals().panel_fill,
                 );
-                let canvas_gradient = if self.form.background_gradient_enabled && !non_visuals_tab {
+                let canvas_gradient = if self.form.background_gradient_enabled && !non_visuals_tab && !see_through {
                     let gradient_color = |hex: &str| {
                         let color = parse_color(hex);
                         let alpha = color.a() as f32 * form_alpha_mul;
@@ -10401,7 +10432,7 @@ impl DesignerPanel {
                 let mut notch_img: Option<(egui::TextureId, egui::Rect)> = None;
                 let bg_img_path = self.form.background_image.clone();
                 let bg_img_mode = self.form.bg_image_mode;
-                if !themed_bg && !bg_img_path.is_empty() {
+                if !themed_bg && !see_through && !bg_img_path.is_empty() {
                     let ctx_ref2 = ui.ctx().clone();
                     self.load_image(&bg_img_path, &ctx_ref2);
                     let img_alpha = (255.0 * form_alpha_mul) as u8;
@@ -27612,6 +27643,12 @@ mod grid_layout_088;
 #[cfg(test)]
 #[path = "designer_perspective_096_tests.rs"]
 mod perspective_096;
+
+// The canvas paints behind the form what it runs over: the theme's glass under Spatial, and a
+// Web or Mobile page's stand-in desktop where the desktop would show through.
+#[cfg(test)]
+#[path = "designer_page_backdrop_tests.rs"]
+mod page_backdrop;
 
 // A chart's AnimateValues / AnimateOnLoad / AnimationDuration, written by the Properties pane,
 // are stored — `set_property` reserves only `Anim<N>_<Field>` for the animation list.

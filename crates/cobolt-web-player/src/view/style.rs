@@ -489,17 +489,24 @@ pub fn kind_decls(ctls: &[Ctl], i: usize) -> Decls {
             }
         }
         ControlType::Line => {
+            // The stroke is the view's SVG (`controls::line`), painted as the desktop's Line block paints it
+            // (`paint::draw_control_body`): dash 5t on 4t off, dot 1.2t on 2.5t off, dash-dot 5t 3t 1.2t 3t
+            // (t the thickness, at least 1), round ends for RoundedEnds.
             let thick = num(c, "linethickness").unwrap_or(1.0).clamp(0.0, 40.0);
-            let style = match c.text_or("dashstyle", "Solid").to_ascii_lowercase().as_str() {
-                "dash" => "dashed",
-                "dot" => "dotted",
-                _ => "solid",
+            let t = thick.max(1.0);
+            let dashes: &[f64] = match c.text_or("dashstyle", "Solid").to_ascii_lowercase().as_str() {
+                "dash" => &[5.0, 4.0],
+                "dot" => &[1.2, 2.5],
+                "dashdot" => &[5.0, 3.0, 1.2, 3.0],
+                _ => &[],
             };
-            let col = color(c, "linecolor").unwrap_or_else(|| "rgb(0 0 0)".into());
-            let side = if c.text_or("linedirection", "Horizontal").eq_ignore_ascii_case("Vertical") { "border-left" } else { "border-top" };
-            push(&mut d, side, format!("{} {style} {col}", px(thick)));
+            push(&mut d, "--pr-line-color", color(c, "linecolor").unwrap_or_else(|| "rgb(0 0 0)".into()));
+            push(&mut d, "--pr-line-width", px(thick));
+            if !dashes.is_empty() {
+                push(&mut d, "--pr-line-dash", dashes.iter().map(|k| px(k * t)).collect::<Vec<_>>().join(" "));
+            }
             if c.flag("roundedends") {
-                push(&mut d, "border-radius", px(thick));
+                push(&mut d, "--pr-line-cap", "round");
             }
         }
         ControlType::Panel | ControlType::GroupBox => {
@@ -1089,7 +1096,27 @@ mod tests {
         let lb = control_decls(&t.ctls, t.by_name("LB").unwrap(), false);
         assert_eq!((decl(&lb, "justify-content"), decl(&lb, "align-items")), (Some("flex-end"), Some("flex-start")));
         let ln = control_decls(&t.ctls, t.by_name("LN").unwrap(), false);
-        assert_eq!(decl(&ln, "border-top"), Some("3px dashed rgb(255 0 0)"));
+        assert_eq!(
+            (decl(&ln, "--pr-line-color"), decl(&ln, "--pr-line-width"), decl(&ln, "--pr-line-dash")),
+            (Some("rgb(255 0 0)"), Some("3px"), Some("15px 12px")),
+            "the desktop's dash: 5t on, 4t off"
+        );
+        assert_eq!(decl(&ln, "border-top"), None, "the stroke is the SVG's, not a border");
+    }
+
+    /// Fix 2.0.298: a Line has no face on the page, as the desktop's Line block draws none — its
+    /// BackgroundColor, gradient, corner radius and border stay off the page, whatever their values.
+    #[test]
+    fn a_line_paints_its_stroke_and_no_face() {
+        let t = tree_of(
+            r##"<Control id="LN" type="Line" x="0" y="160" w="344" h="4"><Property name="BackgroundColor">#36383EFF</Property><Property name="BackgroundGradientEnabled">true</Property><Property name="BackgroundGradientStartColor">#4E4E4EFF</Property><Property name="BackgroundGradientEndColor">#000000FF</Property><Property name="CornerRadius">10</Property><Property name="BorderStyle">Single</Property><Property name="LineColor">#FFFFFFFF</Property><Property name="LineAngle">137</Property><Property name="RoundedEnds">true</Property></Control>"##,
+        );
+        let ln = control_decls(&t.ctls, t.by_name("LN").unwrap(), false);
+        for k in ["background", "background-color", "background-image", "border-radius", "border", "box-shadow"] {
+            assert_eq!(decl(&ln, k), None, "{k} is the face's, and a Line has none");
+        }
+        assert_eq!((decl(&ln, "--pr-line-width"), decl(&ln, "--pr-line-cap")), (Some("1px"), Some("round")));
+        println!("Line: no face (6 face declarations absent), stroke 1px with round ends");
     }
 
     #[test]

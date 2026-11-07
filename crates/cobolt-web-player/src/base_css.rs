@@ -178,6 +178,8 @@ pub const BASE_CSS: &str = r#"
 .pr-statusbar { display: flex; align-items: center; }
 .pr-statusbar .pr-panel-item { padding: 0 8px; }
 .pr-line { display: block; }
+div.pr-line > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; transform-origin: 50% 50%; }
+div.pr-line > svg > line { stroke: var(--pr-line-color, currentColor); stroke-width: var(--pr-line-width, 1px); stroke-dasharray: var(--pr-line-dash, none); stroke-linecap: var(--pr-line-cap, butt); }
 .pr-picturebox, .pr-animator { overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .pr-picturebox img, .pr-animator img { max-width: 100%; max-height: 100%; }
 

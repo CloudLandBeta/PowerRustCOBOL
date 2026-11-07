@@ -5962,7 +5962,12 @@ system blurs the desktop behind the window and every other window of the
 application. Blur works on macOS and Windows, and on Linux where the
 compositor offers it (KDE on Wayland); elsewhere the window is see-through
 without blur. White text reads best over a darker wallpaper. Pair it with
-`BorderStyle` `Glow` for the corner-lit glass edge.
+`BorderStyle` `Glow` for the corner-lit glass edge. The Form Designer's canvas
+paints the same glass, at the form's `Transparency`. A Web or Mobile page has no
+desktop behind it: its build paints a warm grey stand-in (`#4A4642`) behind a
+Spatial form, and behind any form whose colour, gradient or `Transparency` lets
+the desktop show, and the canvas of a Web or Mobile project paints that stand-in
+too, so the form looks as it will in the browser and on the phone.
 
 **The Spatial look** is what the IDE gives a new Spatial form and every
 control dropped on one: on the form, `background="40404008"` and

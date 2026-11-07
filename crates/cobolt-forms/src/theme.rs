@@ -86,6 +86,21 @@ pub fn is_see_through(id: &str) -> bool {
     id == SPATIAL
 }
 
+/// Whether the desktop shows through the form's own face: a window `Transparency`, or a colour (or either end
+/// of the gradient) with an alpha under 255. A page has no desktop behind it, so a Web or Mobile build paints
+/// [`SEE_THROUGH_BACKDROP_RGB`] behind such a form, as it does behind a see-through theme, and the Form
+/// Designer of a Web or Mobile project paints the same stand-in.
+pub fn lets_the_desktop_show(form: &crate::model::Form) -> bool {
+    // `#RRGGBB` is opaque, `#RRGGBBAA` carries its alpha (the `#` is optional).
+    let translucent = |c: &str| c.trim().trim_start_matches('#').get(6..8).and_then(|a| u8::from_str_radix(a, 16).ok()).is_some_and(|a| a < 255);
+    form.transparency > 0
+        || if form.background_gradient_enabled {
+            translucent(&form.background_gradient_start_color) || translucent(&form.background_gradient_end_color)
+        } else {
+            translucent(&form.background_color)
+        }
+}
+
 /// Whether a theme is drawn procedurally or composited from an asset pack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemeKind {

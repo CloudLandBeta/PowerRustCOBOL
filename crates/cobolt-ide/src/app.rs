@@ -21211,6 +21211,8 @@ impl CoboltApp {
             .and_then(|p| p.parent())
             .map(|p| p.to_path_buf());
         let project_snapshot = self.cobolt_project.clone();
+        // A Web or Mobile project's canvas shows what its page shows behind the form.
+        self.designers[idx].1.page_backdrop = self.is_web_project();
         let designer_result = egui::CentralPanel::default()
             .show(panel_ui, |ui| {
                 crate::panels::task_wizard::anchors::mark(

@@ -477,11 +477,14 @@ pub fn v_align(name: &str) -> &'static str {
 /// Everything the properties say about a control's look — the property layer of the cascade.
 pub fn appearance(ctl: &Ctl) -> Decls {
     let mut d = Decls::new();
-    if let Some((k, v)) = background(ctl) {
+    // A Line is its stroke and nothing else: the desktop's Line block returns before any face, frame,
+    // corner or shadow (`paint::draw_control_body`), whatever the control's Background* say.
+    let face = !matches!(ctl.control_type(), Some(ControlType::Line));
+    if let Some((k, v)) = background(ctl).filter(|_| face) {
         push(&mut d, k, v);
     }
     text(ctl, &mut d);
-    if let Some(r) = int(ctl, "cornerradius") {
+    if let Some(r) = int(ctl, "cornerradius").filter(|_| face) {
         if r > 0 {
             push(&mut d, "border-radius", format!("{r}px"));
             // The drawn corners of spec 057: a child at a rounded corner stays inside its arc.
@@ -490,11 +493,11 @@ pub fn appearance(ctl: &Ctl) -> Decls {
             }
         }
     }
-    if ctl.raw("borderstyle").is_some() {
+    if face && ctl.raw("borderstyle").is_some() {
         border(ctl, &mut d);
     }
     // The first shadow paints on top: the desktop draws a chart's glow over its drop shadow.
-    let shadows: Vec<String> = [border_glow(ctl), box_shadow(ctl)].into_iter().flatten().collect();
+    let shadows: Vec<String> = if face { [border_glow(ctl), box_shadow(ctl)].into_iter().flatten().collect() } else { Vec::new() };
     if !shadows.is_empty() {
         push(&mut d, "box-shadow", shadows.join(", "));
     }

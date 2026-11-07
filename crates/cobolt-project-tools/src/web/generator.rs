@@ -754,20 +754,6 @@ fn replace_dir(out: &Path, files: &[cobolt_web_bundle::BundleFile]) -> std::io::
     Ok(())
 }
 
-/// Whether the desktop shows through the form's own face: a window `Transparency`, or a colour (or either end
-/// of the gradient) with an alpha under 255. The Form Designer paints such a form over its canvas; a page has
-/// no desktop behind it, so it gets the same stand-in as a see-through theme ([`BundleOptions::backdrop`]).
-fn lets_the_desktop_show(form: &Form) -> bool {
-    // `#RRGGBB` is opaque, `#RRGGBBAA` carries its alpha (the `#` is optional).
-    let translucent = |c: &str| c.trim().trim_start_matches('#').get(6..8).and_then(|a| u8::from_str_radix(a, 16).ok()).is_some_and(|a| a < 255);
-    form.transparency > 0
-        || if form.background_gradient_enabled {
-            translucent(&form.background_gradient_start_color) || translucent(&form.background_gradient_end_color)
-        } else {
-            translucent(&form.background_color)
-        }
-}
-
 /// `pr_init` + `pr_open_form(main)` of `wasm`, in milliseconds.
 /// `wss://host[:port]` (or `ws://…`) of the project's `backend_url`, which is a
 /// WebSocket address. `cobolt_web_bundle::origin_of` answers http(s) only, so a
@@ -1170,7 +1156,7 @@ impl WebBuildBackend for GeneratorBackend {
                     main.and_then(|f| f.form.theme.as_deref()),
                     req.form_theme.as_deref(),
                 );
-                (cobolt_forms::theme::is_see_through(&theme) || main.is_some_and(|f| lets_the_desktop_show(&f.form))).then(|| {
+                (cobolt_forms::theme::is_see_through(&theme) || main.is_some_and(|f| cobolt_forms::theme::lets_the_desktop_show(&f.form))).then(|| {
                     let (r, g, b) = cobolt_forms::theme::SEE_THROUGH_BACKDROP_RGB;
                     format!("#{r:02X}{g:02X}{b:02X}")
                 })

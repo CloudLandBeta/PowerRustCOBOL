@@ -971,9 +971,27 @@ pub fn switch(cx: &ViewCtx, i: usize) -> VNode {
 
 // ── Display controls ────────────────────────────────────────────────────────
 
+/// A Line: the desktop's segment (`cobolt_forms::model::line_endpoints`) as an SVG stroke over the
+/// control's box, which shows nothing else (the desktop draws no face for a Line). `LineAngle`, when
+/// the control has one, turns the box's centre line about its centre, as long as the box is wide;
+/// without it the `LineDirection` presets stand: Vertical down the left edge, Diagonal corner to
+/// corner, else the centre line. The stroke's colour, width, dashes and ends are the control's CSS
+/// (`style::kind_decls`).
 pub fn line(cx: &ViewCtx, i: usize) -> VNode {
-    let vertical = cx.tree.get(i, "LineDirection").eq_ignore_ascii_case("Vertical");
-    root(cx, i, "div").class(if vertical { "pr-vertical" } else { "pr-horizontal" }).attr("role", "separator")
+    let direction = cx.tree.get(i, "LineDirection").trim().to_ascii_lowercase();
+    let angle = cx.tree.ctl(i).raw("LineAngle").and_then(|v| v.trim().parse::<f64>().ok());
+    let ((x1, y1), (x2, y2)) = match (angle, direction.as_str()) {
+        (None, "vertical") => (("0", "0"), ("0", "100%")),
+        (None, "diagonal") => (("0", "0"), ("100%", "100%")),
+        _ => (("0", "50%"), ("100%", "50%")),
+    };
+    let mut svg = VNode::svg("svg").key("stroke").attr("aria-hidden", "true").attr("focusable", "false");
+    if let Some(deg) = angle.filter(|d| d % 360.0 != 0.0) {
+        svg = svg.style("transform", format!("rotate({deg}deg)"));
+    }
+    let segment = VNode::svg("line").key("segment").attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2);
+    let vertical = angle.is_none() && direction == "vertical";
+    root(cx, i, "div").class(if vertical { "pr-vertical" } else { "pr-horizontal" }).attr("role", "separator").child(svg.child(segment))
 }
 
 /// The CSS `object-fit` of a PictureBox `SizeMode`.
@@ -1128,6 +1146,32 @@ mod tests {
     use super::super::{Empty, Prop, VNode};
     use super::*;
     use crate::tree::testing::{tree, tree_with};
+
+    /// Fix 2.0.298: a Line is the desktop's segment — `LineAngle` turns the centre line about the box's
+    /// centre (137° in the operator's form was drawn flat), and without it the `LineDirection` presets stand.
+    #[test]
+    fn a_line_is_the_desktops_segment_turned_by_its_angle() {
+        let cases: [(&[(&str, &str)], [&str; 4], Option<&str>, &str); 5] = [
+            (&[("LineAngle", "137")], ["0", "50%", "100%", "50%"], Some("rotate(137deg)"), "pr-horizontal"),
+            (&[("LineAngle", "0"), ("LineDirection", "Vertical")], ["0", "50%", "100%", "50%"], None, "pr-horizontal"),
+            (&[("LineDirection", "Vertical")], ["0", "0", "0", "100%"], None, "pr-vertical"),
+            (&[("LineDirection", "Diagonal")], ["0", "0", "100%", "100%"], None, "pr-horizontal"),
+            (&[], ["0", "50%", "100%", "50%"], None, "pr-horizontal"),
+        ];
+        for (props, ends, turn, class) in cases {
+            let (t, i) = tree_with("Line", "LN-1", props);
+            let e = Empty::default();
+            let cx = e.cx(&t);
+            let n = view(&cx, i);
+            assert!(n.has_class("pr-line") && n.has_class(class), "{props:?}: {}", n.describe());
+            let svg = n.find(&|v| v.tag == "svg").unwrap_or_else(|| panic!("{props:?}: no svg in {}", n.describe()));
+            let seg = svg.find(&|v| v.tag == "line").expect("the segment");
+            let got: Vec<_> = ["x1", "y1", "x2", "y2"].iter().map(|k| seg.attr_of(k).unwrap_or("")).collect();
+            assert_eq!(got, ends, "{props:?}");
+            assert_eq!(svg.styles.iter().find(|(k, _)| k == "transform").map(|(_, v)| v.as_str()), turn, "{props:?}");
+        }
+        println!("Line: {} cases (LineAngle 137 and 0, Vertical, Diagonal, none), each the desktop's segment", cases.len());
+    }
 
     fn view_of(name: &str, props: &[(&str, &str)]) -> VNode {
         let mut t = tree();
