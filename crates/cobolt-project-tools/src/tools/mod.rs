@@ -284,12 +284,17 @@ impl<H: ProjectHost> ProjectTools<H> {
                 description: Some(
                     "Regenerate everything, refuse on any check error, then build the binary. Waits at \
                      most 40 seconds: if the build is still running it answers {\"status\":\"running\"} \
-                     — call build again to keep waiting on the same build."
+                     — call build again to keep waiting on the same build. A Mobile project for Android \
+                     also builds its package (dist/mobile/android/<Name>-debug.apk) in the same way: \
+                     while it builds, \"package\" answers {\"status\":\"running\"} — call build again."
                         .into(),
                 ),
                 input_schema: json!({
                     "type": "object",
-                    "properties": { "full": { "type": "boolean", "description": "Discard cached build artefacts first." } },
+                    "properties": {
+                        "full": { "type": "boolean", "description": "Discard cached build artefacts first." },
+                        "release": { "type": "boolean", "description": "Mobile: build the release package, signed with the keystore of [mobile.signing]; the passwords come from PRC_ANDROID_STORE_PASSWORD and PRC_ANDROID_KEY_PASSWORD. Default: the debug package." }
+                    },
                     "additionalProperties": false
                 }),
                 annotations: None,
@@ -673,6 +678,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                 &root,
                 &shared,
                 args.get("full").and_then(Value::as_bool).unwrap_or(false),
+                args.get("release").and_then(Value::as_bool).unwrap_or(false),
             ),
             "validate" => {
                 let path = opt_str(args, "path").ok_or("validate needs a 'path'")?;

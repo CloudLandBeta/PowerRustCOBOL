@@ -972,3 +972,69 @@ fn on_exception_on_an_invoke_of_a_control_is_refused_at_build_time() {
     eprintln!("refused: {err}");
     assert!(err.contains("ON EXCEPTION") && err.contains("super::"), "{err}");
 }
+
+/// WASM-012 T7 (ABI A26): in a Mobile module the phone shell's three verbs
+/// compile onto the application object, are named in the manifest's
+/// `builtins`, and each one suspends the handler until the shell answers.
+#[test]
+fn the_phone_shells_verbs_compile_in_a_mobile_module_and_each_waits() {
+    let src = form_source(
+        "SEC-FORM",
+        "01 WS-KEY PIC X(20) VALUE \"session\" GLOBAL.\n01 WS-VAL PIC X(40) VALUE \"token\" GLOBAL.\n",
+        &[(
+            "BTN-SAVE",
+            "onClick",
+            "    DISPLAY \"BEFORE\"\n    COBOL::SecureStore( WS-KEY WS-VAL )\n    DISPLAY \"STORED\"\n    COBOL::SecureLoad( WS-KEY WS-VAL )\n    DISPLAY \"LOADED\"\n    INVOKE COBOL::SecureDelete( WS-KEY )\n    DISPLAY \"AFTER\"\n",
+        )],
+    );
+    let p = Project::new().form("SEC-FORM", true, 1, &[("BTN-SAVE", "Button")], &src);
+    for multi in [true, false] {
+        let specs = p.form_specs();
+        let c = compile_project(&specs, &Options { multi_memory: multi, name: "demo".into(), mobile: true, ..Options::default() })
+            .unwrap_or_else(|e| panic!("{e}"));
+        let m = manifest_of(&c);
+        for v in ["SECURESTORE", "SECURELOAD", "SECUREDELETE"] {
+            assert!(m.builtins.iter().any(|b| b.eq_ignore_ascii_case(v)), "{v} is in builtins {:?}", m.builtins);
+            assert!(cobolt_wasm::lower_remote::suspends(2, v), "{v} waits (A26)");
+        }
+        let click = m.event_index("onClick").unwrap() as i32;
+        let mut host = FormHost::new(&c.wasm).unwrap();
+        let (inst, _) = host.open_form(0, -1);
+        assert_eq!(host.event(inst, 3, click, &[]), 1, "{:?}", host.outcome());
+        assert_eq!(common::wasm_lines(&host.outcome()), vec!["BEFORE"]);
+        assert_eq!(host.resume(inst, &[]), 1, "SecureLoad waits too");
+        assert_eq!(common::wasm_lines(&host.outcome()), vec!["BEFORE", "STORED"]);
+        assert_eq!(host.resume(inst, &[]), 1, "SecureDelete waits too");
+        assert_eq!(common::wasm_lines(&host.outcome()), vec!["BEFORE", "STORED", "LOADED"]);
+        assert_eq!(host.resume(inst, &[]), 0);
+        assert_eq!(common::wasm_lines(&host.outcome()), vec!["BEFORE", "STORED", "LOADED", "AFTER"]);
+        eprintln!("mobile verbs (multi={multi}): 3 in builtins, 3 suspensions, resumed to the end");
+    }
+}
+
+/// WASM-012 T7 (D-WebRefuse): a Web module refuses each of the three verbs at
+/// its line, and a module that does not use them is the same bytes whether it
+/// is built for a Web or a Mobile project (AC10).
+#[test]
+fn a_web_module_refuses_the_phone_shells_verbs_and_is_otherwise_unchanged() {
+    for (verb, call) in [
+        ("SecureStore", "    COBOL::SecureStore( WS-KEY WS-KEY )\n"),
+        ("SecureLoad", "    COBOL::SecureLoad( WS-KEY )\n"),
+        ("SecureDelete", "    INVOKE COBOL::SecureDelete( WS-KEY )\n"),
+    ] {
+        let src = form_source("WEB-FORM", "01 WS-KEY PIC X(20) VALUE \"k\" GLOBAL.\n", &[("BTN-1", "onClick", call)]);
+        let p = Project::new().form("WEB-FORM", true, 1, &[("BTN-1", "Button")], &src);
+        let e = p.try_compile(true).err().unwrap_or_else(|| panic!("{verb} compiled in a Web module")).to_string();
+        assert!(e.contains(&format!("COBOL::{verb} is available in a Mobile project only")), "{verb}: {e}");
+        let line = src.lines().position(|l| l.contains(verb)).unwrap() + 1;
+        assert!(e.contains(&line.to_string()), "{verb}: the line {line} is named: {e}");
+    }
+    let calc = calculator();
+    let specs = calc.form_specs();
+    for multi in [true, false] {
+        let web = compile_project(&specs, &Options { multi_memory: multi, name: "demo".into(), when_compiled: Some("2026110600000000+0000".into()), ..Options::default() }).unwrap();
+        let mobile = compile_project(&specs, &Options { multi_memory: multi, name: "demo".into(), when_compiled: Some("2026110600000000+0000".into()), mobile: true, ..Options::default() }).unwrap();
+        assert_eq!(web.wasm, mobile.wasm, "multi={multi}: the same module");
+    }
+    eprintln!("web refusal: 3 verbs refused at their line; the calculator is byte-identical as Web and Mobile (2 variants)");
+}

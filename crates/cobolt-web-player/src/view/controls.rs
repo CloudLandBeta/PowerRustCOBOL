@@ -1403,13 +1403,17 @@ mod tests {
     }
 
     /// WASM-004 T22, R9 and Q9: on a coarse pointer an interactive control's hit area is 15 % larger — a transparent
-    /// `::after` 7.5 % out on each side — and a Label nobody handles, a Line and a Shape are not enlarged.
+    /// `::after` 7.5 % out on each side — and a Label nobody handles, a Line and a Shape are not enlarged. The native
+    /// input, text area or list a wrapper holds sits above that `::after` (WASM-012, found on the Android emulator: a
+    /// tap on a TextBox landed on the wrapper and never focused the input, so no keyboard opened).
     #[test]
     fn a_finger_gets_a_target_15_percent_larger_on_an_interactive_control_only() {
         let sheet = crate::base_css::BASE_CSS;
-        let rule = "@media (pointer: coarse) { .pr-touch::after { content: \"\"; position: absolute; inset: -7.5%; background: transparent; } }";
-        assert!(sheet.contains(rule));
-        assert_eq!(sheet.matches(".pr-touch").count(), 1, "the rule exists only inside the coarse-pointer query");
+        let rule = "@media (pointer: coarse) { .pr-touch::after { content: \"\"; position: absolute; inset: -7.5%; background: transparent; } \
+                    .pr-touch:has(> :is(input, textarea, select)) { isolation: isolate; } \
+                    .pr-touch > :is(input, textarea, select) { position: relative; z-index: 1; } }";
+        assert!(sheet.contains(rule), "the coarse-pointer rule");
+        assert_eq!(sheet.matches(".pr-touch").count(), 3, "every .pr-touch rule is inside the coarse-pointer query");
         let e = Empty::default();
         let touch = |ty: &str, bind: bool| {
             let (mut t, i) = tree_with(ty, "C-1", &[]);

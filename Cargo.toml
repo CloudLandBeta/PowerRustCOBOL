@@ -45,7 +45,9 @@ members = [
 ]
 # The prebuilt browser player is its own Cargo workspace (wasm-bindgen pinned to the installed CLI,
 # a nightly confined to its build, its own lock file): see crates/cobolt-web-player/Cargo.toml.
-exclude = ["crates/cobolt-web-player"]
+# The mobile shell (WASM-012) is its own workspace too: Tauri and the phone stores stay out of the
+# main lock, and its own lock is copied into every staged Mobile build (crates/cobolt-mobile-shell/Cargo.toml).
+exclude = ["crates/cobolt-web-player", "crates/cobolt-mobile-shell"]
 resolver = "2"
 
 # ── Shared package metadata ────────────────────────────────────────────────────

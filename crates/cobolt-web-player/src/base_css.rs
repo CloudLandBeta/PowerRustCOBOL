@@ -47,7 +47,7 @@ pub const BASE_CSS: &str = r#"
 .pr-form-root > .pr-form { position: absolute !important; inset: 0 !important; z-index: 0 !important; }
 .pr-form-layer { position: absolute !important; inset: 0 !important; isolation: isolate !important; overflow: visible !important; pointer-events: none !important; }
 .pr-form-layer:not([hidden]) { display: block !important; visibility: inherit !important; }
-@media (pointer: coarse) { .pr-touch::after { content: ""; position: absolute; inset: -7.5%; background: transparent; } }
+@media (pointer: coarse) { .pr-touch::after { content: ""; position: absolute; inset: -7.5%; background: transparent; } .pr-touch:has(> :is(input, textarea, select)) { isolation: isolate; } .pr-touch > :is(input, textarea, select) { position: relative; z-index: 1; } }
 .pr-surface { position: relative; }
 .pr-form[data-responsive] > .pr-surface { position: absolute; inset: 0; }
 .pr-control { font-family: inherit; }

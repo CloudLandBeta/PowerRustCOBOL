@@ -241,6 +241,8 @@ pub struct Lower<'a, 'b> {
     /// The NIST gate build: file verbs are compiled.
     pub(crate) conformance: bool,
     pub(crate) tolerant: bool,
+    /// A Mobile project's module: the phone shell's verbs compile (WASM-012, ABI A26).
+    pub(crate) mobile: bool,
     pub(crate) files: HashMap<String, FileInfo>,
     /// Record item -> the file whose area it is.
     pub(crate) record_file: HashMap<usize, String>,
@@ -333,6 +335,7 @@ impl<'a, 'b> Lower<'a, 'b> {
         unit_base: usize,
         conformance: bool,
         tolerant: bool,
+        mobile: bool,
         when_compiled: String,
     ) -> GenResult<Lowered> {
         // The units: the main program, then every program nested in it or
@@ -431,6 +434,7 @@ impl<'a, 'b> Lower<'a, 'b> {
             lines_used: std::collections::BTreeSet::new(),
             conformance,
             tolerant,
+            mobile,
             files: HashMap::new(),
             record_file: HashMap::new(),
             temp_next: 0,

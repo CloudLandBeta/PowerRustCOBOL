@@ -9,6 +9,14 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   plan's first draft (2.0.30). No box was checked in the first version, so there is no evidence to carry. No shell code exists yet. Every Tauri, Android
   and iOS statement in the plan is marked **[verify]** and is unconfirmed; T1 confirms them before any other task starts.
 - **Plan:** ./plan.md   **Date:** 2026-10-23
+- **Implementation (2026-11-05/06, `features-2x-wasm-pending`, 2.0.288).** The Android half runs end to end: `rcrun mcp build` and the IDE's Build
+  of a Mobile project make the web bundle and then `dist/mobile/android/<Name>-debug.apk`; the IDE's Run with an emulator builds, installs and starts
+  it and shows the application's log; the phone's secure storage works on the emulator (stored, read back after a restart, deleted). The example
+  is `examples/PowerMobileHello`. The ABI amendment is **A26** (A14–A25 were taken). Done: T1, T3–T7, T12, T17, T18. Partly done (what is left is
+  named under each): T8, T11, T13–T16, T20, T22, T24. Not started: T2 (the baseline was not taken before the change; T23 is run after it), T9,
+  T10 (O9), T19, T21, T25 (O1), T25b, T25c, T26. iOS is not run here: Xcode 15.2's simulators are iOS 17.2, below the iOS 18 floor.
+  The "no task commits" rule below is overridden by the operator (2026-11-06: every task is committed, merged into `2.x.x` and pushed outside the
+  window).
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches, the requirement(s) it satisfies, and how to verify it. Check off as
 completed, with the evidence (counts, command output) written under the task.
@@ -107,7 +115,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 ## M0 — verify and baseline
 
-- [ ] **T1 — V0: verify every `[verify]` item and probe the local toolchain** (all R; plan §6 V0, Risks 1–4, 6, 9)
+- [x] **T1 — V0: verify every `[verify]` item and probe the local toolchain** (all R; plan §6 V0, Risks 1–4, 6, 9)
+  - **Done 2026-11-06:** plan §9, 31 rows for the 31 `[verify]` markers (`grep -o "\[verify" plan.md | wc -l` = 31), the probe output, the version
+    set, the secure-storage choice (keyring-core; **O5 not raised**) and the desktop's path for an unknown `COBOL-` name (silent: fixed in T5).
+    Changes it forced: A26 (not A14); the lifecycle is `WindowEvent::Suspended`/`Resumed` (no mobile `RunEvent`); no iOS device-family key;
+    D-Sign through `System.getenv` in the staged Gradle script; `INVOKE COBOL::…` now becomes the same `CALL` as the inline form.
   - Files: `specs/WASM-012-mobile-shell-tauri-2/plan.md` only (a new "§9 V0 record").
   - Do:
     - For each `[verify]` in the plan, record the official source (Tauri v2 documentation, crates.io `Cargo.toml`, Apple/Android documentation), the
@@ -127,6 +139,8 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     record. `git status` shows only `plan.md` changed by this task.
 
 - [ ] **T2 — Baseline: the Web and Desktop build tests are green before anything changes** (R14; AC10 baseline)
+  - **Not run before the change** (the work started from T1 and the code). The same commands are run after it as T23, and a red one is compared
+    with `2.x.x` at 2.0.287 before it is called pre-existing.
   - Files: none changed.
   - Do: run the tests AC10 later re-runs unchanged; record their counts here. A red test is fixed in its owning crate before T3.
   - Verify:
@@ -137,8 +151,12 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 ## M1 — the manifest and the feature table
 
-- [ ] **T3 — `[mobile]` gains identity, features and signing names; `min_os` gets its floor** (R4 names, R6, R14; AC4 part, AC10; D-MinOS, D-BuildNo;
+- [x] **T3 — `[mobile]` gains identity, features and signing names; `min_os` gets its floor** (R4 names, R6, R14; AC4 part, AC10; D-MinOS, D-BuildNo;
   O10)
+  - **Done:** `project_kind.rs` — the fields, `validate_app_id`, `build_number`, `min_os_floor` (Android `35`, iOS `18.0`), `resolved_min_os`,
+    `keystore_inside_project`, `display_name`; plan §3 corrected for O10 (`[mobile.rationale.<feature>]`). Tests:
+    `the_full_mobile_table_round_trips`, `an_old_mobile_table_loads_with_every_new_default_and_saves_unchanged`, `app_ids_are_reverse_dns`,
+    `min_os_resolves_to_the_floor_and_refuses_below_it`, `the_build_number_comes_from_the_version`, `a_keystore_inside_the_project_is_refused`.
   - Files: `crates/cobolt-compiler/src/project_kind.rs`; `specs/WASM-012-mobile-shell-tauri-2/plan.md` §3 (the O10 correction only).
   - Do:
     - Add to `MobileSettings` `:446`, **after** `call_timeout_ms` `:473`: `app_id: String`, `app_name: BTreeMap<String, String>`, `icon: String`,
@@ -154,7 +172,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     table loads with every new default **and saves byte-for-byte**; `app_id` accepts `com.example.app`, refuses `example`, `1com.x`, `com..x`; `min_os`
     below the floor refused with the floor named, `auto` → floor; `2.0.29` → `20029`; a keystore path inside the project folder refused.
 
-- [ ] **T4 — `mobile_features.rs`: the feature table and the AST scan** (R7, R9, R13; AC5 scan half; D-Scan)
+- [x] **T4 — `mobile_features.rs`: the feature table and the AST scan** (R7, R9, R13; AC5 scan half; D-Scan)
+  - **Done:** the three rows, `scan`, `undeclared`, `unknown_declared`. Tests: `every_row_of_the_table_is_complete`,
+    `the_scan_finds_both_spellings_at_their_lines_and_ignores_comments_and_strings`, `an_undeclared_use_is_refused_with_its_line`. The Mobile
+    package build also checks the bundle's `builtins` against the declared features (`mobile_build::check`).
   - Files: `crates/cobolt-compiler/src/mobile_features.rs` (new); `src/lib.rs` (the `mod` line beside `:57-63`).
   - Do:
     - `FEATURE_SET_VERSION`.
@@ -172,7 +193,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 ## M2 — the device verbs in every host (interpreter/binary parity)
 
-- [ ] **T5 — A device verb is never silently ignored on the desktop** (R9; parity; plan §2 `cobolt-runtime`, §7)
+- [x] **T5 — A device verb is never silently ignored on the desktop** (R9; parity; plan §2 `cobolt-runtime`, §7)
+  - **Done:** the read found the desktop silent (a warning, then on). The refusal is in the interpreter's built-in dispatch, shared by
+    `rcrun run-form`, embedded child forms and `run_form_app` (the compiled binary): "COBOL::SecureStore at line N is available in a Mobile
+    application only …"; a call that names `ON EXCEPTION` runs it instead. Test `crates/cobolt-runtime/tests/test_mobile_device_verbs.rs`
+    (`each_device_verb_is_refused_with_where_it_is_available`).
   - Files: decided by the read — `crates/cobolt-runtime/src/interpreter.rs` (the built-in dispatch, e.g. near `:11567`) if the refusal belongs at run
     time, or `crates/cobolt-semantic/src/calls.rs` (`:123`, which today returns early for every `COBOL-` name) if Check is the one place all three hosts
     share. **Not** `BUILTINS` (plan §2: the device verbs are not desktop built-ins).
@@ -185,7 +210,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     verb and asserts the same message from the interpreter path and from the path the compiled binary uses (the binary's own run is `#[ignore]` with its
     command if it needs a build).
 
-- [ ] **T6 — ABI amendment A14** (R8, R9, R10, R11; D-Errors)
+- [x] **T6 — ABI amendment A14** (R8, R9, R10, R11; D-Errors)
+  - **Done as A26** (`specs/WASM-ABI-v1.md` §12, and a §12.1 row): the three verbs, their limits, `SecureStatus` `0`/`1`/`-6` and `SecureValue`,
+    the wait, `-6` at once outside the shell (no run-time error), the Web refusal, the deep link to the A21 route or address, the `pr-shell`
+    `paused`/`resumed` events (reserved: the player does not act on them yet). The manifest does not validate built-in names, so
+    `cobolt-wasm-abi` is unchanged. Insets and Back are not ABI: Back is the web view's history (V0 row 11), insets wait for T9.
   - Files: `specs/WASM-ABI-v1.md` (§12 row A14 after `:176`; §12.1 rows); `crates/cobolt-wasm-abi/src/manifest.rs` (only if the manifest validates
     built-in names).
   - Do: write A14: `COBOL::SecureStore(key, value)`, `SecureLoad(key)` → value or empty, `SecureDelete(key)` on ctrl 2, and whether they suspend (T1);
@@ -193,7 +222,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     no new code; the ABI version stays 1.
   - Verify: `cargo test -p cobolt-wasm-abi --no-fail-fast` green. The A14 row names every verb T7 and T15 implement (listed here by reading).
 
-- [ ] **T7 — The generator: device verbs in a Mobile module, refused in a Web module** (R7, R9, R14; AC5, AC10; D-WebRefuse, D-Scan)
+- [x] **T7 — The generator: device verbs in a Mobile module, refused in a Web module** (R7, R9, R14; AC5, AC10; D-WebRefuse, D-Scan)
+  - **Done:** `MOBILE_VERBS` in `lower_remote.rs`, the Mobile option reaches the generator, `SecureLoad( key item )` moves the answer on resume.
+    Tests in `crates/cobolt-wasm/tests/forms.rs`: `the_phone_shells_verbs_compile_in_a_mobile_module_and_each_waits`,
+    `a_web_module_refuses_the_phone_shells_verbs_and_is_otherwise_unchanged`.
   - Files: `crates/cobolt-wasm/src/lower_remote.rs` (`APP_VERBS` `:26` gains `SECURESTORE`, `SECURELOAD`, `SECUREDELETE`; `suspends` `:53` per A14);
     `src/lower_form.rs` (`builtin_call` `:441`, the app-verb arm `:494`); the generator's options (the project kind must reach it); the manifest's
     `builtins`.
@@ -207,6 +239,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 - [ ] **T8 — `crates/cobolt-mobile-shell/`: the Rust shell crate and its dependency guard** (R9 secure storage, R10, R11, R12; D-Shape, D-Native, D-Pin;
   Risks 2–4)
+  - **Partly done:** the crate (own workspace, excluded from the root), the version set of V0, the navigation guard (own origins stay, the rest goes
+    to the opener), the lifecycle as `pr-shell` events, deep links, the three secure-storage commands over keyring-core, and
+    `tests/dependency_guard.rs`. Run on the emulator: the package builds from it and the secure-storage commands work. **Left:** inset and keyboard
+    forwarding (with T9).
   - Files: `crates/cobolt-mobile-shell/Cargo.toml`, `Cargo.lock`, `src/lib.rs`, `tests/dependency_guard.rs` (all new); root `Cargo.toml` `exclude` `:45`
     (add the crate beside `cobolt-web-player`); `crates/cobolt-compiler/src/` (the `TAURI_CLI_VERSION` constant, where `mobile_toolchain.rs` reads it).
   - Do:
@@ -239,6 +275,12 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 - [ ] **T11 — `mobile_build::generate`: the shell project, configuration, capabilities and platform declarations** (R1, R6, R7, R10, R12, R13 data;
   AC4 scan, AC5, AC7 static, AC9 static; D-Shape, D-Tablet)
+  - **Partly done (Android):** `mobile_build::{check, stage, patch_android_project}` write into `build_staging_dir(None, "<crate>-android")`:
+    `frontend/` (the bundle), `shell/` (embedded with `include_str!`, so an installed IDE needs no source tree), `app/` (Cargo.toml, build.rs,
+    `src/lib.rs`, `tauri.conf.json` with `frontendDist`, no `devUrl`, the identity, version and build number, the minimum OS; the capability file
+    with exactly the declared features' permissions), the Android `screenOrientation` and the localized `app_name`. Nothing is written into the
+    project folder except `dist/mobile/`. Tests in `tests/mobile_shell.rs` (6). **Left:** the iOS declarations (usage keys, orientations), the CSP
+    of T9, the AC4 byte scan of the staging folder for the fake passwords.
   - Files: `crates/cobolt-compiler/src/mobile_build.rs` (new; pattern `backend_build.rs`); `src/lib.rs` (`mod` line, re-exports);
     `crates/cobolt-compiler/tests/mobile_shell.rs` (new; Android and iOS fixture projects built in code in a temp dir).
   - Do: `generate(project, bundle_dir, uses, profile)` writes into `build_staging_dir(None, "<name>-mobile")`:
@@ -255,7 +297,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     permissions and usage keys exactly the declared ones (AC5); an undeclared use fails at its `file:line` (AC5); orientation as set (AC7 static); with
     known fake passwords in memory, a byte scan of the project folder **and** the staging folder finds none (AC4 scan).
 
-- [ ] **T12 — Icons and splash from one source image** (R6)
+- [x] **T12 — Icons and splash from one source image** (R6)
+  - **Done (icons):** Check refuses an icon that is not a square PNG of at least 1024 px, with its size (`every_problem_is_named_before_any_tool_runs`:
+    a 512 × 512 icon); the build runs `cargo tauri icon` after `android init` (run: the Android mipmaps are written); no icon → the PowerRustCOBOL
+    icon. A splash image is not generated: Tauri 2 has no splash step, the web view shows the page's own first paint.
   - Files: `crates/cobolt-compiler/src/mobile_build.rs`.
   - Do: refuse an icon that is not square or smaller than 1024 px, with the reason. Produce the platform sets through `tauri icon` as T1 confirmed; if
     the CLI cannot be used, resize in Rust with an image crate the workspace already has, if any; record which.
@@ -264,6 +309,12 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 - [ ] **T13 — `build_mobile` and `run_dev`: Web build → generate → Tauri CLI; release-signing checks; store checklist** (R1, R3, R3a, R4, R5, R13;
   AC1 driver, AC4 refusal; D-Sign, D-Dev)
+  - **Partly done:** `mobile_build::build_android` (check → stage → `cargo tauri android init --ci` → patch → `cargo tauri icon` →
+    `cargo tauri android build --ci [--debug] --apk --target <abi>` → `dist/mobile/android/<Name>-<debug|release>.apk`), every tool line in
+    `package.log`. A release is refused before any process without the keystore, the alias or a password, or with the keystore inside the project;
+    the passwords reach Gradle only as `PRC_ANDROID_STORE_PASSWORD`/`PRC_ANDROID_KEY_PASSWORD` in its environment (`patch_signing`, tested). **Run**
+    (debug): 57 s cold, 8 s warm. **Left:** the `.aab`, the `apksigner` check after a release, the R13 checklist output, `run_dev` (the dev-server
+    shell: the Run builds the package from the bundle instead), a release with the operator's key (T24 AC4).
   - Files: `crates/cobolt-compiler/src/mobile_build.rs`; `crates/cobolt-compiler/tests/mobile_shell.rs`.
   - Do:
     - `MobileBuildOptions` carries the profile and the signing secrets **in memory**; `MobileBuildResult` the artefacts (`dist/mobile/<platform>/`) and
@@ -283,6 +334,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 ## M4 — toolchain, player bridge and devices
 
 - [ ] **T14 — `mobile_toolchain.rs`: detection, next steps, safe installs** (R2, R3a input; AC2)
+  - **Partly done, in `mobile_build.rs`:** `Toolchain::detect(abi)` names every missing piece with how to get it (`Missing { what, how }`): the
+    Tauri CLI at `TAURI_CLI_VERSION` (and the `cargo install` line), the Rust target, the SDK, the NDK, Java 17–21 (`JAVA_HOME`, `java_home -v`,
+    Android Studio's runtime). The parsers are tested from recorded output. **Left:** `install` with consent (O3), the iOS rows, the tool × state
+    table of AC2.
   - Files: `crates/cobolt-compiler/src/mobile_toolchain.rs` (new); `src/lib.rs`.
   - Do:
     - `MobileTool`/`MobileToolStatus` rows (present / missing / wrong version; purpose; next step) from `detect(platform)`: `ANDROID_HOME`/
@@ -295,6 +350,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     iOS unavailable off macOS with the reason (`cfg`-driven); a tool × state table printed (AC2).
 
 - [ ] **T15 — The player's shell bridge** (R8, R10, R11, R12; AC6 logic, AC7 logic, AC8 logic, AC9 logic)
+  - **Partly done:** `crates/cobolt-web-player/src/shell.rs` (detects the shell, calls its commands, reads the answers) and the three `SECURE*` arms
+    of `host.rs` (A26); a refused call answers `-6`; outside the shell `-6` at once with a console line. Tests in `src/host/shell_tests.rs` (2); the
+    player rebuilt into `assets/web-player/`. Run on the emulator through the page's own bridge. **Left:** Back is the web view's history (no
+    shell event needed, V0 row 11); the lifecycle reconnect on `resumed` (AC8); external addresses through the opener from the player (the shell's
+    navigation guard already does it).
   - Files: `crates/cobolt-web-player/src/` (a new `shell.rs`; `host.rs` `verb` `:1605`: three `SECURE*` arms beside the application verbs, and the
     `NAVIGATE`/`OPENURL` `:1639` and `COPYTOCLIPBOARD` `:1647` effects routed through the shell when present — WASM-006 R11; the Android rationale
     dialog; Back → the navigation pop of WASM-011 R13, empty stack → ask the shell to background; lifecycle → spec 037 events, `net.rs` reconnects on
@@ -309,6 +369,9 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
       `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --test freshness` green.
 
 - [ ] **T16 — `mobile_devices.rs`: list, start, install and launch, log, stop** (R3, R3a input; AC3 logic; D-Dev)
+  - **Partly done (Android):** `Adb::{find, devices, abi, install, launch, stop, logcat}`, `parse_devices`, `is_application_log` (the page's
+    console, the shell's own lines, a crash; the web view's `[INFO:…]` noise left out). Tested from the emulator's recorded output. **Left:**
+    starting an emulator (`emulator -avd`), the iOS simulators and devices, the LAN opt-in.
   - Files: `crates/cobolt-compiler/src/mobile_devices.rs` (new); `src/lib.rs`.
   - Do:
     - `DeviceTarget` (kind emulator/simulator/device, running or startable) from `emulator -list-avds`, `adb devices -l`,
@@ -323,7 +386,10 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 ## M5 — the IDE and the agent tool
 
-- [ ] **T17 — Build wiring: the IDE continues into the mobile half** (R1, R14; AC1 driver, AC10)
+- [x] **T17 — Build wiring: the IDE continues into the mobile half** (R1, R14; AC1 driver, AC10)
+  - **Done (debug):** after a Mobile project's Web build the Preview asks its `DeviceRunner` for the package (`DeviceRunner::package`, a worker
+    thread in `panels/mobile_runner.rs`); the Output shows the steps, the errors and "Package: <path> (<n> MB)"; `PackageNote` is said only for iOS.
+    Desktop and Web take their old path (`NoDeviceTools` answers `package()` with no package). The menu entries wait for T19/T21.
   - Files: `crates/cobolt-ide/src/app.rs` (`start_web` `:2715`; menu entries **Run on device…** and **Signing…**, Mobile projects only);
     `crates/cobolt-ide/src/panels/web_preview.rs` (`Note::PackageNote` `:78`/`:217`/`:730` gives way to the mobile build's notes).
   - Do: for a Mobile project, after the Web build succeeds, run `build_mobile` on a worker thread. Before it, show T14's missing tools with their next
@@ -332,7 +398,13 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`. A test of the dispatch: Desktop and Web take exactly their current path (AC10);
     Mobile continues into the mobile step; `PackageNote` is no longer said for a Mobile build that ran the shell step.
 
-- [ ] **T18 — `rcrun mcp` `build`: the mobile half, debug only** (R1, R2; D-Sign)
+- [x] **T18 — `rcrun mcp` `build`: the mobile half, debug only** (R1, R2; D-Sign)
+  - **Done, with one change:** a Mobile/Android project's `build` makes the bundle, then runs the package on the shared build slot and answers
+    `package: {status, built, apk, bytes, elapsed_s, log}` (a build still running after 40 s answers `running`; calling `build` again waits on the
+    same one); the missing tools come back with how to get each. **Changed:** `release: true` is not refused — it builds a signed release with the
+    keystore and alias named in `[mobile.signing]` and the two passwords from the environment of `rcrun` (`PRC_ANDROID_STORE_PASSWORD`,
+    `PRC_ANDROID_KEY_PASSWORD`; the build hands all four to Gradle as `PRC_ANDROID_*` variables), and is refused with what is missing otherwise. A build machine has no IDE and no secret store; the environment is the
+    route D-Sign already uses, and no password is ever in a file. iOS answers `built: false` with the reason.
   - Files: `crates/cobolt-project-tools/src/tools/build.rs` (the Mobile `package` answer `:126-135`, reason `:134`).
   - Do: a Mobile project builds a debug package and reports the artefacts, or the T14 missing-tool rows. A release request answers "release signing is
     from the IDE only". Off macOS, iOS keeps today's "only on macOS" reason. The device list is available as a tool output.
@@ -349,6 +421,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
 
 - [ ] **T20 — R3a: Preview and Run of a Mobile project go to the device; `MobileDeviceRunner`** (R3a, R3, R14; AC3, AC10; WASM-008 AC13/AC14,
   the WASM-012 half; D-Preview, O6)
+  - **Partly done:** WASM-008's `DeviceRunner` seam had landed; `MobileDeviceRunner` (`crates/cobolt-ide/src/panels/mobile_runner.rs`) implements
+    it for Android — `detect` (adb), `list` (the ready devices), `run` (build for the device's ABI, install, stop, start, follow the log), `log`,
+    and the new defaulted `package()`/`busy()`; `app.rs` gives it to a Mobile project's Preview, a Web project keeps `NoDeviceTools`. One worker at
+    a time (a second request answers "busy"). Run on the emulator by the ignored test `the_example_runs_on_the_first_android_device` (T24).
+    **Left:** the decision tests (a)–(f), the choice among several targets (T19's window), the iOS half.
   - Files: `crates/cobolt-ide/src/panels/mobile_devices.rs` (`MobileDeviceRunner`); `crates/cobolt-ide/src/panels/web_preview.rs` (the `DeviceRunner`
     seam receives the real implementation); `crates/cobolt-ide/src/app.rs` (`toggle_web_preview` `:2736`, `do_run` `:2823`: a Mobile project goes
     through `DeviceRunner`).
@@ -375,6 +452,11 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     `cobolt.toml` read back and scanned for the fake password); an unavailable store blocks the save.
 
 - [ ] **T22 — i18n ×6 and the System KB** (all R; i18n; System KB rule)
+  - **Partly done:** seven new `Tr` keys in the six languages (`pk_pkg_started`, `pk_pkg_built`, `pk_pkg_failed`, `pk_dev_installing`,
+    `pk_dev_started`, `pk_dev_failed`, `pk_dev_busy`); `pk_prev_on_device` and `pk_build_package_note` rewritten (the note now speaks of iOS
+    only). The System KB ("Project kinds", `crates/cobolt-compiler/src/lib.rs`): the Mobile row no longer says the shell is missing; the new
+    `[mobile]` fields; "The Android package" (tools, checks, `package.log`, release signing, Run on a device); "The phone's secure storage" (the
+    three verbs, the statuses, the limits, the Preview's `-6`, deep links); `chunked.data` regenerated. **Left:** the keys of T14/T19/T21.
   - Files: `crates/cobolt-ide/src/i18n.rs` (the `Tr` keys ×6 of plan §7: every `MobileTool` name/purpose/next step; "unavailable on this machine" +
     reason; "no emulator, simulator or device" + next step (R3a); a target that failed to start; the device window; the LAN opt-in warning; the signing
     window; the R5 refusals; the R7 message; the checklist heading; `pk_build_package_note` `:458`/`:2998` rewritten in all six languages);
@@ -398,6 +480,14 @@ commits, pushes, checks out, switches, resets, stashes or rebases.
     counts here.
 
 - [ ] **T24 — Device runs, recorded, never claimed** (AC1, AC3, AC4 live, AC6, AC7, AC8, AC9; R3a)
+  - **Run so far (2026-11-06, emulator `Medium_Phone_API_37.0`, API 37, arm64):** AC1 Android debug: `rcrun mcp build` on
+    `examples/PowerMobileHello` → `dist/mobile/android/PowerMobileHello-debug.apk`, `adb install -r` → Success, the main form shown; the page at
+    `http://tauri.localhost/` with the shell's bridge. The secure verbs: Greet stored the name (`SecureStatus 0`), the application stopped and
+    started again greeted "Welcome back" from `SecureLoad`, Forget me deleted it (`0`) and a second Forget me answered `1`. The package is 40 MB
+    (6–7 s warm). **AC3 / R3a, the IDE's half:** `cargo test -p cobolt-ide --bin cobolt-ide the_example_runs_on_the_first_android_device --
+    --ignored --nocapture` — the runner the Preview is given built, installed and started the example on `emulator-5554` in 112.8 s (Gradle's
+    first start; Cargo compiled nothing); the window itself is the operator's to look at. **Not run here:** the
+    `.aab`; iOS (Xcode 15.2, simulators iOS 17.2 < floor 18); AC4 live (the operator's key); AC6 (O4); AC7–AC9 on the device; the R3a fallback.
   - Files: `specs/WASM-PROGRESS.md` (the WASM-012 row `:41`, T/I/V columns, and a dated evidence note); the `#[ignore]` tests of T11–T16.
   - Do: run each `#[ignore]` test where the tools exist, with its exact command; record platform, command and result:
     - **AC1:** Android `.apk` + `.aab`; the emulator shows the main form. On a Mac with Xcode: the iOS archive; the simulator shows the main form.

@@ -2780,6 +2780,12 @@ impl CoboltApp {
             Some(m) => m.preview_browser.clone(),
             None => p.web_settings().preview_browser,
         };
+        // WASM-012: a Mobile project runs on its Android device or emulator and builds its
+        // package; a Web project has no device.
+        let devices: std::sync::Arc<dyn crate::panels::web_preview::DeviceRunner> = match mobile {
+            Some(_) => std::sync::Arc::new(crate::panels::mobile_runner::MobileDeviceRunner::new(manifest.clone(), tr)),
+            None => std::sync::Arc::new(crate::panels::web_preview::NoDeviceTools),
+        };
         Some(WebLaunch {
             manifest,
             name: p.project.name.clone(),
@@ -2787,8 +2793,7 @@ impl CoboltApp {
             platform: mobile.map(|m| m.platform),
             device: mobile.map(|m| m.device),
             orientation: mobile.map(|m| m.orientation),
-            // WASM-012 brings the device tools; until then a Mobile Preview is the browser at a phone's size.
-            devices: std::sync::Arc::new(crate::panels::web_preview::NoDeviceTools),
+            devices,
             has_backend: p.backend.is_some() || !p.files.backend.is_empty(),
             backend: cobolt_project_tools::web::backend(),
             browser: cobolt_project_tools::web::preview::BrowserChoice::parse(&setting),

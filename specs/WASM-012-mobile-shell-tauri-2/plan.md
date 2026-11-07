@@ -233,3 +233,68 @@ apple_profile    = "Orders App Store"
 - **WASM-008 Q7 (decided in the WASM-008 plan, not by the operator):** `preview_browser` in `[mobile]` and the Mobile fallback uses it. This plan follows it; if the operator overrules, only WASM-008's launcher changes.
 - **WASM-017 Q5 (not answered, affects this shell):** isolation headers in the shell's asset protocol and whether the iOS web view isolates. *Working assumption:* `Isolation::Off` for Mobile, as `WebBuildRequest::from_manifest` already sets — the plain player and the main thread.
 - **Q2, Q3, Q4, Q5, Q6 (decided by the operator, 2026-10-22):** no remote builds; the 2024 OS floor raised one year per major; tablets by breakpoints; Tauri tracks the IDE; certificate pinning optional in WASM-013 (nothing here).
+
+## 9. V0 record (T1, 2026-11-05/06)
+
+**Sources.** The source of the pinned crates as published (tauri 2.12.5, tauri-build 2.7.4, tauri-cli 2.12.4 with its cargo-mobile2 0.22.5
+templates, tauri-plugin-opener 2.7.2, tauri-plugin-deep-link 2.6.3, keyring-core 1.0.1, android-native-keyring-store 1.0.0,
+apple-native-keyring-store 1.0.2: crates.io and their tagged GitHub trees), the Tauri v2 documentation (v2.tauri.app), developer.android.com,
+developer.apple.com and the AOSP release notes, read 2026-11-05; and, for every row marked **run**, a build or run on this Mac on 2026-11-06 (the
+emulator `Medium_Phone_API_37.0`, Android 17 / API 37, arm64).
+
+**Version set chosen (D-Pin), builds on Rust 1.92:** `tauri =2.12.5` (`default-features = false`, `wry`, `compression`), `tauri-build =2.7.4`,
+Tauri CLI `2.12.4`, `tauri-plugin-opener =2.7.2`, `tauri-plugin-deep-link =2.6.3`, `keyring-core =1.0.1` with `android-native-keyring-store =1.0.0`
+and `apple-native-keyring-store =1.0.2` (`protected`). The guard (`crates/cobolt-mobile-shell/tests/dependency_guard.rs`) checks the lock: no
+`ring`/`aws-lc-rs`, licences in the allow-list, every `rust-version` ≤ 1.92.
+
+**Secure storage (Risk 2, D-Native): O5 is not raised.** `keyring-core` with its Android (Keystore) and Apple (Keychain) stores is Rust only, MIT or
+Apache-2.0, ≤ 1.92, no `ring`; the native halves are the platforms' own APIs reached through JNI and Security.framework. No Kotlin or Swift is written.
+
+**The local probe (2026-11-05, after the SDK install):** `cargo tauri --version` → `tauri-cli 2.12.4`; `rustup target list --installed` →
+aarch64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, aarch64-linux-android, armv7-linux-androideabi, i686-linux-android,
+wasm32-unknown-unknown, x86_64-apple-ios, x86_64-linux-android, x86_64-pc-windows-gnu, x86_64-unknown-linux-gnu; `xcodebuild -version` → `Xcode 15.2
+Build version 15C500b` (its simulators are iOS 17.2: **below the iOS 18 floor, so no iOS run is possible here**); `java -version` → JDK 21
+(`/Library/Java/JavaVirtualMachines/jdk-21.jdk`; Android Studio's own runtime is Java 25, which Gradle 8 refuses, so the build looks for 17–21 first);
+the SDK at `~/Library/Android/sdk`: build-tools 30.0.3, 33.0.1, 36.0.0, NDK 29.0.14206865, platforms android-32, 33, 36; `emulator -list-avds` →
+`Medium_Phone_API_37.0`.
+
+**The desktop's answer to an unknown `COBOL-` name (input to T5):** silent — the interpreter logged a warning and went on. Fixed in the
+interpreter, the one place `rcrun run-form`, embedded child forms and the compiled binary (`run_form_app`) share (T5).
+
+| # | Marker (§) | Answer | Change it forces |
+|---|---|---|---|
+| 1 | §0 C6: nothing could be verified on 2026-10-23 | Verified now, rows 3–31 | none |
+| 2 | §0: every Tauri/Android/iOS statement is marked | This table is the record | none |
+| 3 | R1 `tauri android build --apk --aab` | **Run.** `--apk`/`--aab` select the outputs (neither → both). APK at `gen/android/app/build/outputs/apk/universal/<debug\|release>/app-universal-<debug\|release[-unsigned]>.apk`, AAB at `…/bundle/universalRelease/app-universal-release.aab` | `built_apk` reads those paths |
+| 4 | R1 `tauri ios build` and its export option | `tauri ios build` → `gen/apple/build/<arch>/<App>.ipa`; `--export-method app-store-connect\|release-testing\|debugging`; the team from `APPLE_DEVELOPMENT_TEAM` or `bundle.iOS.developmentTeam` | none; **not run here** (Xcode 15.2) |
+| 5 | R3 `xcrun devicectl list devices` | Exists in Xcode 15.2: `xcrun devicectl list devices --json-output <path>` | none |
+| 6 | R4 debug signing defaults | **Run.** `--debug` signs with `~/.android/debug.keystore` automatically; Xcode signs a debug build with the developer's automatic signing | none |
+| 7 | R5 `apksigner`/`codesign` output | `apksigner verify --print-certs` prints `Signer #N certificate DN: …`; the debug DN `CN=Android Debug, O=Android, C=US` is the SDK's, not documented on developer.android.com | the post-build check matches `CN=Android Debug` (T13, open) |
+| 8 | R6 `tauri icon <png>` | **Run.** Writes the desktop set into `icons/` and, when the native projects exist, the Android mipmaps into `gen/android/app/src/main/res` and the iOS AppIcon into `gen/apple/Assets.xcassets`. The source must be square (or `--fit`); a 1024 px minimum is Apple's App Store rule, not the CLI's | the build runs `tauri icon` after `android init`; Check refuses non-square or < 1024 px |
+| 9 | R8 the iOS rationale | The `NS…UsageDescription` text is the only rationale iOS shows | none |
+| 10 | R10 `env(safe-area-inset-*)` on Android | Not settled by the sources: apps targeting API 35 are drawn edge-to-edge, and whether the system WebView then fills `env()` depends on its version. The bundle's page already has `viewport-fit=cover` | `--pr-safe-*` from the shell stays in the design, as the plan says (T9, open); measured on the device in T24 (AC7) |
+| 11 | R10 intercepting Back | Tauri ≥ 2.9: `onBackButtonPress` in JS (Android only, `plugin:app\|register_listener`, event `back-button`). With no listener: `webView.canGoBack()` → history back, else the activity's default (to the background). **Run:** Back pops the player's navigation through the web view's history | no shell code needed for Back; the player's history is the navigation stack |
+| 12 | R11 the mobile `RunEvent`s | **There is no `RunEvent::Suspended`.** The events are `WindowEvent::Suspended` / `WindowEvent::Resumed` (`#[cfg(mobile)]`; Android onPause/onResume, iOS willResignActive/willEnterForeground) | the shell listens on the window and raises `pr-shell` `paused`/`resumed` (A26) |
+| 13 | R12 the CSP key | `app.security.csp` (and `devCsp`); Tauri adds nonces and hashes to the HTML unless `dangerousDisableAssetCspModification` | the bundle's own `<meta>` CSP is kept and `app.security.csp` is `null` (T9 decides whether to move it) |
+| 14 | R12 the shell origins | Android `http://tauri.localhost` (`https` with `useHttpsScheme`), iOS `tauri://localhost`. **Run:** the page is at `http://tauri.localhost/` | the navigation guard keeps both |
+| 15 | R12 external addresses: the opener plugin | Android `ACTION_VIEW`, iOS `UIApplication.open`; `opener:default` = open-url + default urls (mailto, tel, http, https); `on_navigation` works on Android; `on_new_window` is not supported on mobile; remote origins get no IPC without `remote.urls` | the shell's navigation guard hands other origins to the opener |
+| 16 | R13 Apple's required-reason categories | Five categories: FileTimestamp, SystemBootTime, DiskSpace, ActiveKeyboards, UserDefaults | the checklist names them |
+| 17 | §2 `suspends` names the verbs | Yes: a Tauri `invoke` always answers a Promise | `SECURE*` suspend (A26) |
+| 18 | §3 ABI suspension | As 17. **Run:** the task waits and resumes with the shell's answer | A26 (not A14: A14–A25 were taken) |
+| 19 | D-Sign: how the Android template takes signing | The template (`compileSdk 37`, `targetSdk 37`) has **no** `signingConfigs`; `versionCode`/`versionName` come from `tauri.properties` | the build adds a `signingConfigs` block to the staged `app/build.gradle.kts` that reads `System.getenv("PRC_ANDROID_*")`; the passwords reach only the Gradle process's environment |
+| 20 | D-Sign: `keystore.properties` | It is Tauri's documented route (a file next to the project) | rejected, as planned: a file holds the passwords |
+| 21 | D-MinOS 2024 floors | Android 15 = API 35 (AOSP, 2024-09-03); iOS 18 (2024-09-16) | `min_os_floor`: Android `35`, iOS `18.0` |
+| 22 | D-MinOS Tauri supports the floor | Tauri's defaults are lower (minSdk 24, iOS 15.0) | the build writes `minSdkVersion` / `minimumSystemVersion` |
+| 23 | D-Tablet the iOS device-family key | **No key in `tauri.conf.json`.** The XcodeGen preset `TARGETED_DEVICE_FAMILY '1,2'` (iPhone and iPad) applies by default; a change goes through `bundle.iOS.template` | nothing is written for `device = "tablet"`: every iOS build already allows the iPad |
+| 24 | Risk 1: every Tauri fact | This table | none |
+| 25 | Risk 2: an official keystore plugin | Tauri's official plugins have none (stronghold is a file vault, not the OS store) | keyring-core (above) |
+| 26 | Risk 2: `keyring` with Android and iOS backends | `keyring-core` 1.0 with `android-native-keyring-store` and `apple-native-keyring-store`; **run:** store, load after a restart and delete on the emulator | O5 not raised |
+| 27 | Risk 3: TLS through Tauri or a plugin | On mobile Tauri depends on `reqwest` 0.13 with `default-features = false` (no TLS); `rustls`/`ring` only with `rustls-tls`; the opener has no TLS. The guard passes | none |
+| 28 | Risk 7: one target per debug run | `--target aarch64` (also `armv7`, `i686`, `x86_64`). **Run:** the CLI then builds `--target aarch64-linux-android --features tauri/custom-protocol --lib` | the build picks the device's ABI (`ro.product.cpu.abi`) |
+| 29 | Risk 9: Back and lifecycle across minors | Pinned to 2.12.5 (D-Pin); `TauriActivity` sets `handleBackNavigation=false` and `WryActivity` forwards `onPause`/`onResume` | the pin is the mitigation |
+| 30 | §6 V0 | This record | none |
+| 31 | §6 the tools' output formats | `adb devices -l`: the header `List of devices attached`, then `serial state … model:…`; `xcrun simctl list devices --json`: `devices` keyed by runtime id, each `name`/`udid`/`state`/`isAvailable`; `emulator -list-avds`: one name per line (the tool is deprecated in favour of `android emulator`). **Run** on the emulator, recorded in `tests/mobile_shell.rs` | the parsers read those |
+
+**Also found by running it (2026-11-06), not in the plan.** `INVOKE COBOL::Verb(…)` did not become `CALL "COBOL-VERB"` (only the inline form did):
+fixed in the parser, so both spellings reach the scan and every host. A debug build's native library was 128 MB of debug information, giving a
+143 MB package: the staged application's `[profile.dev]` now has `debug = false`, `strip = "debuginfo"`.

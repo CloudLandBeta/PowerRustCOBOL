@@ -1242,19 +1242,19 @@ mod tests {
         let m = draft.mobile.as_mut().unwrap();
         assert!(!m.multi_memory, "iOS default");
         m.orientation = Orientation::Landscape;
-        m.min_os = "17.0".into();
+        m.min_os = "26.0".into();
         m.backend_url = "wss://m.example.com".into();
         assert_eq!(draft.mobile.as_ref().unwrap().module_variants().multi_memory, false);
         draft.apply_kind(&mut p);
         let m = p.mobile.as_ref().unwrap();
-        assert_eq!((m.orientation, m.min_os.as_str(), m.backend_url.as_str()), (Orientation::Landscape, "17.0", "wss://m.example.com"));
+        assert_eq!((m.orientation, m.min_os.as_str(), m.backend_url.as_str()), (Orientation::Landscape, "26.0", "wss://m.example.com"));
         assert!(p.web.is_none(), "a Mobile project gains no [web]");
         assert!(p.backend.is_none(), "no Backend part, none written");
         // Its minimum-OS choices are its platform's.
         let ios: Vec<&str> = min_os_choices(MobilePlatform::Ios).iter().map(|c| c.id).collect();
         let android: Vec<&str> = min_os_choices(MobilePlatform::Android).iter().map(|c| c.id).collect();
-        assert!(ios.contains(&"17.0") && !ios.contains(&"29"));
-        assert!(android.contains(&"29") && !android.contains(&"17.0"));
+        assert!(ios.contains(&"26.0") && !ios.contains(&"36") && !ios.contains(&"17.0"));
+        assert!(android.contains(&"36") && !android.contains(&"26.0") && !android.contains(&"29"));
     }
 
     // ── backend/exports.toml is the one list (WASM-003 C5, D5) ───────────

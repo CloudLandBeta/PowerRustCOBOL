@@ -703,6 +703,19 @@ impl Lower<'_, '_> {
                         CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e.clone(),
                     })
                     .collect();
+                if crate::lower_remote::is_mobile_verb(other) && !self.mobile {
+                    let verb = match other {
+                        "SECURESTORE" => "SecureStore",
+                        "SECURELOAD" => "SecureLoad",
+                        _ => "SecureDelete",
+                    };
+                    return self.err_kind(
+                        line,
+                        crate::error::ErrorKind::Unsupported,
+                        format!("COBOL::{verb}"),
+                        format!("COBOL::{verb} is available in a Mobile project only: it keeps a secret in the phone's own secure store, which a web page does not have"),
+                    );
+                }
                 match crate::support::builtin_support(other) {
                     // A verb of the application object the page implements (ABI §12.1).
                     _ if crate::lower_remote::is_app_verb(other) => {}
@@ -714,10 +727,32 @@ impl Lower<'_, '_> {
                         return self.err_kind(line, crate::error::ErrorKind::Unsupported, format!("COBOL::\"{other}\""), format!("COBOL::\"{other}\" is not available in a browser module: {why}"));
                     }
                 }
-                let seg = Seg { name: other, args: &args, parens: true };
+                // `COBOL::SecureLoad( key value )` (A26): the value the shell found
+                // lands in the second argument once the task resumes.
+                if other == "SECURELOAD" && args.len() > 2 {
+                    return self.err(line, "COBOL::SecureLoad takes the key and, optionally, the data item that receives the value");
+                }
+                let receiver = if other == "SECURELOAD" { args.get(1).cloned() } else { None };
+                let sent: &[Expr] = if receiver.is_some() { &args[..1] } else { &args };
+                let seg = Seg { name: other, args: sent, parens: true };
                 self.build_path(CTRL_APP, std::slice::from_ref(&seg))?;
                 self.call_rt("rt_cmd_call");
                 self.suspend_if_waiting(CTRL_APP, other);
+                if let Some(dest) = receiver {
+                    let k = self.ctemp_next;
+                    if k >= cobolt_wasm_rt::state::NCTEMP as u32 {
+                        return self.too_many_reads(line, "this statement reads more than four properties or character-valued functions; split it into statements that read at most four");
+                    }
+                    self.ctemp_next += 1;
+                    let value = Seg { name: "SecureValue", args: &[], parens: false };
+                    self.build_path(CTRL_APP, std::slice::from_ref(&value))?;
+                    self.i32c(Q_GET as i32);
+                    self.i32c(k as i32);
+                    self.i32c(1);
+                    self.call_rt("rt_cmd_query");
+                    let src = self.pool.opd_ctemp(k);
+                    self.move_operand_to(src, &dest, line)?;
+                }
                 Ok(())
             }
         }

@@ -1,0 +1,32 @@
+# PowerMobileHello.project — where and how the Backend runs.
+# Plain ws:// is served on a loopback address only. For a network address,
+# add a [tls] section, or terminate TLS in a reverse proxy in front of it.
+# A secret is never written here by value: use "env:NAME" or "file:PATH".
+
+[server]
+listen = "127.0.0.1:8443"
+
+# The contract (WASM-014): where the idempotency store lives (memory | server) and how
+# long an idle session is kept, in seconds. The values below are the defaults.
+# [contract]
+# idempotency_store = "memory"
+# session_idle_seconds = 900
+
+# Before a release, name the frontend's origins and the identity provider:
+# [server]  allowed_origins = ["https://app.example.com"]
+# [auth]    issuer = ["https://login.example.com"], audiences = ["api"]
+
+# Sign-in for the Authentication control (the project's Identity settings write this).
+# With [identity], [auth] may stay empty: the issuer and its keys are the provider's.
+# Build writes the AUTH-* programs into backend/generated/identity/.
+# [identity]
+# provider = "cognito"                  # cognito | keycloak | entra | entra-external
+# cookie_key = "env:PRC_COOKIE_KEY"      # 32 bytes, base64 or 64 hex digits
+# [identity.settings]
+# region = "eu-west-1"
+# user_pool_id = "eu-west-1_XXXXXXXXX"
+# client_id = "your-app-client-id"
+# client_secret = "env:PRC_CLIENT_SECRET"
+# [identity.recaptcha]
+# site_key = "your-public-site-key"
+# secret = "env:PRC_RECAPTCHA_SECRET"

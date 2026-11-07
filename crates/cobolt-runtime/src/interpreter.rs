@@ -12542,6 +12542,33 @@ impl Interpreter {
                 self.env.set_str(&var, chosen.as_deref().unwrap_or(""));
             }
 
+            // ── The device verbs of a Mobile application (WASM-012 R9, T5) ──
+            // `COBOL::SecureStore`, `SecureLoad`, `SecureDelete` are the phone
+            // shell's: no desktop host has them. Every desktop host runs this
+            // interpreter (rcrun run-form, an embedded child form, the
+            // compiled binary), so this is the one place the call is refused
+            // instead of being skipped as an unknown program: `ON EXCEPTION`
+            // when the program names one, otherwise a run-time error that
+            // says where the verb is available.
+            "COBOL-SECURESTORE" | "COBOL-SECURELOAD" | "COBOL-SECUREDELETE" => {
+                resolved = false;
+                if on_exception.is_empty() {
+                    let verb = match prog_name.as_str() {
+                        "COBOL-SECURESTORE" => "SecureStore",
+                        "COBOL-SECURELOAD" => "SecureLoad",
+                        _ => "SecureDelete",
+                    };
+                    return Err(RuntimeError::General {
+                        message: format!(
+                            "COBOL::{verb} at line {} is available in a Mobile application only (the phone's secure storage); \
+                             a desktop program has no secure store. Name ON EXCEPTION on the call to carry on without it",
+                            span.line
+                        ),
+                    });
+                }
+                self.exec_stmts(on_exception)?;
+            }
+
             // ── COBOL-85 nested program CALL ──────────────────────────────────
             _ if self.nested_registry.contains_key(&prog_name) => {
                 // Clone the para_map, para_order, local_items, and USING

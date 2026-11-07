@@ -56,4 +56,6 @@ mod auth_fetch;
 #[cfg(target_arch = "wasm32")]
 mod superlink;
 #[cfg(target_arch = "wasm32")]
+mod shell;
+#[cfg(target_arch = "wasm32")]
 mod dom;

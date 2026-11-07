@@ -204,13 +204,15 @@ pub enum Wait {
     /// the requests still unanswered; `done` once none is (an answer, an error, a timeout or the
     /// opener's `closed` each settle one).
     Super { ids: Vec<u32>, done: bool },
+    /// A command of the phone shell (ABI A26, WASM-012 T15): `done` when its promise settled.
+    Shell { id: u32, done: bool },
 }
 
 impl Wait {
     fn ready(&self) -> bool {
         match self {
             Wait::Remote { answer, .. } => answer.is_some(),
-            Wait::Dialog { done, .. } | Wait::Child { done, .. } | Wait::Timer { done, .. } | Wait::Super { done, .. } => *done,
+            Wait::Dialog { done, .. } | Wait::Child { done, .. } | Wait::Timer { done, .. } | Wait::Super { done, .. } | Wait::Shell { done, .. } => *done,
             Wait::Turn => true,
         }
     }
@@ -307,6 +309,9 @@ pub enum Effect {
     /// An Authentication control needs a reCAPTCHA v3 token for `action`; the answer comes back
     /// through [`Host::auth_captcha`] (`None` when the script could not be loaded or did not answer).
     AuthCaptcha { id: u32, site_key: String, action: &'static str },
+    /// Call the phone shell's command `command` with `args` (ABI A26): the page invokes it and gives
+    /// the answer to [`Host::shell_answer`] under the same `id`.
+    Shell { id: u32, command: &'static str, args: Vec<(&'static str, String)> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -519,6 +524,9 @@ pub struct Host {
     pub auth: crate::auth::Session,
     /// The project's extra link schemes (WASM-006 R7), copied into every form instance.
     pub policy: crate::hyperlink::Policy,
+    /// The page runs inside the PowerRustCOBOL mobile shell (WASM-012): the device verbs of ABI A26
+    /// are answered by it. Outside the shell they are refused with `-6`.
+    pub shell: bool,
     /// The platform whose modifier-key table links follow (WASM-006 Q2), copied into every form instance.
     pub platform: crate::hyperlink::Platform,
     /// Counts the changes of the session's token: the page gives the connection the new one when it moves.
@@ -650,6 +658,7 @@ impl Host {
             final_answer: None,
             auth: crate::auth::Session::default(),
             policy: crate::hyperlink::Policy::default(),
+            shell: false,
             platform: crate::hyperlink::Platform::Other,
             auth_epoch: 0,
             auth_defaults: (crate::auth::Flow::InApp, String::new()),
@@ -1144,6 +1153,28 @@ impl Host {
         if let Some(f) = &mut self.inflight {
             if let Some(Wait::Dialog { id: did, done }) = &mut f.wait {
                 if *did == id {
+                    *done = true;
+                }
+            }
+        }
+    }
+
+    /// The phone shell answered command `id` (ABI A26): `status` is `0` done, `1` the key holds no
+    /// value, negative a refusal (`-6`); `value` is what `SecureLoad` found. The program reads them as
+    /// the application's `SecureStatus` and `SecureValue`; the task that waited goes on.
+    pub fn shell_answer(&mut self, id: u32, status: i32, value: &str) {
+        self.app.insert("securestatus".into(), status.to_string());
+        self.app.insert("securevalue".into(), value.to_owned());
+        for t in self.tasks.values_mut() {
+            if let TaskState::Suspended(Wait::Shell { id: sid, done }) = &mut t.state {
+                if *sid == id {
+                    *done = true;
+                }
+            }
+        }
+        if let Some(f) = &mut self.inflight {
+            if let Some(Wait::Shell { id: sid, done }) = &mut f.wait {
+                if *sid == id {
                     *done = true;
                 }
             }
@@ -2880,6 +2911,45 @@ impl Host {
                 self.effects.push(Effect::Clipboard(arg(0)));
                 Ok(None)
             }
+            // The phone shell's secure storage (ABI A26, WASM-012 R9): the shell keeps the value in
+            // the Android Keystore or the iOS Keychain; the task waits for its answer.
+            "SECURESTORE" | "SECURELOAD" | "SECUREDELETE" => {
+                let verb = match m.as_str() {
+                    "SECURESTORE" => "SecureStore",
+                    "SECURELOAD" => "SecureLoad",
+                    _ => "SecureDelete",
+                };
+                // Outside the shell (the Preview in a browser, a page opened by hand) there is no
+                // secure store: the answer is the status -6, as a FILE STATUS tells a program of a
+                // file it cannot use, so one form runs in the Preview and on the phone and decides
+                // for itself (A26). Nothing is kept anywhere else; the console says why.
+                if !self.shell {
+                    self.app.insert("securestatus".into(), err::HOST_REFUSED.to_string());
+                    self.app.insert("securevalue".into(), String::new());
+                    self.effects.push(Effect::Log {
+                        level: 1,
+                        text: format!(
+                            "COBOL::{verb} answered SecureStatus -6: the phone's secure storage exists only inside the PowerRustCOBOL mobile shell, and this page is not running in it"
+                        ),
+                    });
+                    return Ok(None);
+                }
+                let key = arg(0).trim().to_owned();
+                let (command, args) = match m.as_str() {
+                    "SECURESTORE" => ("secure_store", vec![("key", key), ("value", arg(1).trim_end().to_owned())]),
+                    "SECURELOAD" => ("secure_load", vec![("key", key)]),
+                    _ => ("secure_delete", vec![("key", key)]),
+                };
+                let id = self.next_id;
+                self.next_id += 1;
+                self.app.insert("securestatus".into(), String::new());
+                self.app.insert("securevalue".into(), String::new());
+                self.effects.push(Effect::Shell { id, command, args });
+                if let Some(f) = &mut self.inflight {
+                    f.wait = Some(Wait::Shell { id, done: false });
+                }
+                Ok(None)
+            }
             "SETTITLE" => {
                 self.effects.push(Effect::Title(arg(0)));
                 Ok(None)
@@ -3394,6 +3464,8 @@ mod graphics_tests;
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod shell_tests;
 #[cfg(test)]
 mod link_tests;
 #[cfg(test)]

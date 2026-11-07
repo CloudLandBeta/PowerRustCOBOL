@@ -928,6 +928,33 @@ impl Inner {
         });
     }
 
+    /// Ask the phone shell to run `command` (ABI A26); its answer settles wait `id`. A shell that
+    /// has gone, or a promise that rejects, answers `-6` with the reason in the console.
+    fn shell_invoke(self: &Rc<Self>, id: u32, command: &'static str, args: &[(&'static str, String)]) {
+        let weak = Rc::downgrade(self);
+        let settle = move |status: i32, value: String| {
+            if let Some(i) = weak.upgrade() {
+                i.push(Inbox::Raw(Box::new(move |inner| inner.host.borrow_mut().shell_answer(id, status, &value))));
+            }
+        };
+        let Some(promise) = crate::shell::invoke(command, args) else {
+            settle(cobolt_wasm_abi::codes::err::HOST_REFUSED, String::new());
+            return;
+        };
+        spawn_local(async move {
+            match JsFuture::from(promise).await {
+                Ok(v) => {
+                    let (status, value) = crate::shell::answer_of(command, &v);
+                    settle(status, value);
+                }
+                Err(e) => {
+                    web_sys::console::warn_1(&format!("PowerRustCOBOL mobile shell: {command}: {}", crate::shell::refusal_of(&e)).into());
+                    settle(cobolt_wasm_abi::codes::err::HOST_REFUSED, String::new());
+                }
+            }
+        });
+    }
+
     /// The answer to identity call `id` reached the page.
     fn auth_answered(self: &Rc<Self>, id: u32, result: auth::AuthResult) {
         let answered = self.host.borrow_mut().auth_answer(id, result, now_ms() as f64);
@@ -1055,6 +1082,10 @@ impl Inner {
                 }
                 Effect::AuthCaptcha { id, site_key, action } => {
                     self.run_captcha(*id, site_key, *action);
+                    continue;
+                }
+                Effect::Shell { id, command, args } => {
+                    self.shell_invoke(*id, command, args);
                     continue;
                 }
                 Effect::Timer { id, ms } => {
@@ -1275,6 +1306,7 @@ fn make_host(cfg: &PlayerConfig, manifest_json: &str) -> Result<Host, JsError> {
     }
     host.policy = crate::hyperlink::Policy { extra_schemes: cfg.link_schemes.clone() };
     host.platform = browser_platform();
+    host.shell = crate::shell::present();
     Ok(host)
 }
 

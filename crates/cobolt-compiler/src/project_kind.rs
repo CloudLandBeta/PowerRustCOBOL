@@ -19,6 +19,7 @@
 //! and a new Desktop manifest is byte-for-byte what it was before kinds existed.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// What a project builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -612,9 +613,12 @@ pub struct MobileSettings {
     pub device: DeviceClass,
     #[serde(default)]
     pub orientation: Orientation,
-    /// The oldest operating system the application runs on: `auto` (the
-    /// newest the toolchain supports), an Android API level (`26`) or an iOS
-    /// version (`16.0`).
+    /// The oldest operating system the application runs on (WASM-012
+    /// D-MinOS): `auto` is the floor of this PowerRustCOBOL major
+    /// ([`min_os_floor`]: the last version released in 2024, Android 15 =
+    /// API level `35`, iOS `18.0`); otherwise an Android API level or an iOS
+    /// version at or above that floor. [`MobileSettings::resolved_min_os`]
+    /// resolves `auto` and refuses a value below the floor.
     #[serde(default = "auto")]
     pub min_os: String,
     #[serde(default)]
@@ -635,6 +639,23 @@ pub struct MobileSettings {
     /// The remote-call wait, as [`WebSettings::call_timeout_ms`].
     #[serde(default = "default_call_timeout", skip_serializing_if = "is_default_call_timeout")]
     pub call_timeout_ms: u32,
+    /// The application's identity on the device (WASM-012 R6): reverse-DNS,
+    /// two or more segments, each `[A-Za-z][A-Za-z0-9_]*`
+    /// ([`validate_app_id`]). Empty until set; a package build needs it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub app_id: String,
+    /// The launcher icon, a square image of at least 1024 px in `Assets/`
+    /// (R6); every platform size is made from it at Build.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub icon: String,
+    /// The launch screen image in `Assets/` (R6). Optional.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub splash: String,
+    /// The device features the application declares (R7): `secure-storage`,
+    /// `open-address`, `deep-link` (`mobile_features`). A program that uses
+    /// one it does not declare is refused at Build with the line.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
     /// The project stylesheet, as [`WebSettings::stylesheet`]; the default is
     /// `mobileforms/application.css`.
     #[serde(default = "mobile_stylesheet", skip_serializing_if = "is_mobile_stylesheet")]
@@ -652,6 +673,167 @@ pub struct MobileSettings {
     /// `[mobile.pinning]` (WASM-013 R14).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinning: Option<PinningSettings>,
+    /// `[mobile.app_name]` — the application's name under its icon, per
+    /// language (`en`, `es`, `pt`, `fr`, `ja`, `zh`); `en` is the one used
+    /// where a language has none (R6). Empty = the project's name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub app_name: BTreeMap<String, String>,
+    /// `[mobile.rationale.<feature>]` — why the application needs a feature
+    /// that asks the user's permission, per language (R8; WASM-012 O10: a
+    /// table of its own, because `features` is the list).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub rationale: BTreeMap<String, BTreeMap<String, String>>,
+    /// `[mobile.signing]` — the NAMES of the release signing material (R4).
+    /// The passwords are never here: they live in the operating system's
+    /// secret store and reach the build in memory.
+    #[serde(default, skip_serializing_if = "MobileSigning::is_default")]
+    pub signing: MobileSigning,
+}
+
+/// `[mobile.signing]` (WASM-012 R4): where the signing material is and what it
+/// is called. None of these is a secret; the keystore must sit outside the
+/// project folder ([`keystore_inside_project`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobileSigning {
+    /// The Android keystore file (`.jks`/`.keystore`), an absolute path.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub android_keystore: String,
+    /// The key's alias inside the keystore.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub android_alias: String,
+    /// The Apple developer team id (ten characters).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub apple_team_id: String,
+    /// The signing identity's name in the login keychain.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub apple_identity: String,
+    /// The provisioning profile's name.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub apple_profile: String,
+}
+
+impl MobileSigning {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// The oldest operating system a Mobile project of this PowerRustCOBOL major
+/// may target (WASM-012 D-MinOS, operator's Q3): the last version released in
+/// 2024, raised one year per major. Android 15 is API level 35 (released
+/// 2024-09-03); iOS 18 was released 2024-09-16 (plan §9 V0 record).
+pub fn min_os_floor(platform: MobilePlatform) -> &'static str {
+    match platform {
+        MobilePlatform::Android => "35",
+        MobilePlatform::Ios => "18.0",
+    }
+}
+
+/// `major.minor` of an iOS version, or the API level of Android, as numbers
+/// that compare (`"18"` and `"18.0"` are equal).
+fn os_version_key(platform: MobilePlatform, v: &str) -> Option<(u32, u32)> {
+    let v = v.trim();
+    match platform {
+        MobilePlatform::Android => v.parse::<u32>().ok().map(|n| (n, 0)),
+        MobilePlatform::Ios => {
+            let mut parts = v.split('.');
+            let major = parts.next()?.parse::<u32>().ok()?;
+            let minor = match parts.next() {
+                Some(m) => m.parse::<u32>().ok()?,
+                None => 0,
+            };
+            parts.next().map_or(Some((major, minor)), |p| p.parse::<u32>().ok().map(|_| (major, minor)))
+        }
+    }
+}
+
+/// Is `id` a valid application id (WASM-012 R6)? Reverse-DNS: two or more
+/// segments separated by dots, each `[A-Za-z][A-Za-z0-9_]*`. `Err` says why.
+pub fn validate_app_id(id: &str) -> Result<(), String> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err("the application id is not set; give it a reverse-DNS name such as com.example.orders".to_owned());
+    }
+    let segments: Vec<&str> = id.split('.').collect();
+    if segments.len() < 2 {
+        return Err(format!("the application id '{id}' needs two or more parts separated by dots, such as com.example.orders"));
+    }
+    for s in &segments {
+        let mut chars = s.chars();
+        let ok_first = chars.next().is_some_and(|c| c.is_ascii_alphabetic());
+        if !ok_first || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(format!(
+                "the application id '{id}' has the part '{s}': each part starts with a letter and holds only letters, digits and _"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The build number of a version (WASM-012 D-BuildNo): `major*10000 +
+/// minor*100 + patch`, the Android `versionCode` and the iOS
+/// `CFBundleVersion`. `Err` when the version is not `x.y.z` with `y`, `z`
+/// below 100.
+pub fn build_number(version: &str) -> Result<u32, String> {
+    let nums: Option<Vec<u32>> = version.trim().split('.').map(|p| p.parse::<u32>().ok()).collect();
+    match nums.as_deref() {
+        // Android's versionCode is at least 1 and at most 2,100,000,000.
+        Some(&[major, minor, patch]) if minor < 100 && patch < 100 && major < 210_000 && (major, minor, patch) != (0, 0, 0) => {
+            Ok(major * 10000 + minor * 100 + patch)
+        }
+        _ => Err(format!(
+            "the project version '{version}' cannot give a build number: write it as major.minor.patch, minor and patch below 100"
+        )),
+    }
+}
+
+/// Does `keystore` point inside `project_dir` (WASM-012 R4)? A project folder
+/// is shared and committed, and the keystore file is itself a secret, so a
+/// keystore there is refused. A relative path is taken from the project.
+pub fn keystore_inside_project(project_dir: &std::path::Path, keystore: &str) -> bool {
+    let keystore = keystore.trim();
+    if keystore.is_empty() {
+        return false;
+    }
+    let path = std::path::Path::new(keystore);
+    let path = if path.is_absolute() { path.to_path_buf() } else { project_dir.join(path) };
+    resolve(&path).starts_with(resolve(project_dir))
+}
+
+/// `p` with its deepest existing ancestor canonicalized (symbolic links such
+/// as macOS's `/var` → `/private/var` resolved) and the rest, which may not
+/// exist yet, normalized onto it.
+fn resolve(p: &std::path::Path) -> std::path::PathBuf {
+    let p = normalize(p);
+    let mut existing = p.as_path();
+    let mut rest = Vec::new();
+    loop {
+        if let Ok(canon) = std::fs::canonicalize(existing) {
+            return rest.iter().rev().fold(canon, |acc, c| acc.join(c));
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                existing = parent;
+            }
+            _ => return p,
+        }
+    }
+}
+
+/// `a/./b/../c` → `a/c`, for a path that does not exist yet.
+fn normalize(p: &std::path::Path) -> std::path::PathBuf {
+    let mut out = std::path::PathBuf::new();
+    for c in p.components() {
+        match c {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn auto() -> String {
@@ -681,7 +863,55 @@ impl MobileSettings {
             preview_browser: String::new(),
             unsafe_: UnsafeSettings::default(),
             pinning: None,
+            app_id: String::new(),
+            icon: String::new(),
+            splash: String::new(),
+            features: Vec::new(),
+            app_name: BTreeMap::new(),
+            rationale: BTreeMap::new(),
+            signing: MobileSigning::default(),
         }
+    }
+
+    /// `min_os` as the build uses it (WASM-012 D-MinOS): `auto` (or empty)
+    /// is [`min_os_floor`]; a value at or above the floor is itself; a value
+    /// below it, or one that is not a version of the platform, is `Err`
+    /// naming the floor.
+    pub fn resolved_min_os(&self) -> Result<String, String> {
+        let floor = min_os_floor(self.platform);
+        let v = self.min_os.trim();
+        if v.is_empty() || v.eq_ignore_ascii_case("auto") {
+            return Ok(floor.to_owned());
+        }
+        let (what, example) = match self.platform {
+            MobilePlatform::Android => ("an Android API level", "35"),
+            MobilePlatform::Ios => ("an iOS version", "18.0"),
+        };
+        let Some(key) = os_version_key(self.platform, v) else {
+            return Err(format!("min_os = \"{v}\" is not {what} (such as \"{example}\") or \"auto\""));
+        };
+        let floor_key = os_version_key(self.platform, floor).unwrap_or((0, 0));
+        if key < floor_key {
+            return Err(format!(
+                "min_os = \"{v}\" is below the oldest {} this version of PowerRustCOBOL supports, {floor}; use \"auto\" or {floor} and newer",
+                match self.platform {
+                    MobilePlatform::Android => "Android API level",
+                    MobilePlatform::Ios => "iOS version",
+                }
+            ));
+        }
+        Ok(v.to_owned())
+    }
+
+    /// The application's name in `lang`, else in English, else `fallback`
+    /// (the project's name).
+    pub fn display_name<'a>(&'a self, lang: &str, fallback: &'a str) -> &'a str {
+        self.app_name
+            .get(lang)
+            .or_else(|| self.app_name.get("en"))
+            .map(String::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(fallback)
     }
 
     /// The program-module variants a Mobile build emits: an iOS build always
@@ -1233,5 +1463,131 @@ mod tests {
         let plain: MobileSettings = toml::from_str("platform = \"android\"\ndevice = \"phone\"").unwrap();
         assert!(plain.pinning.is_none());
         println!("pinning: {cases} cases (each refusal, the repeat, the 30-day edge at 29 and 30 days, today); a pin is named by position, never quoted; absent table = off");
+    }
+
+    /// WASM-012 plan §3 as corrected by O10: `features` is the list and the
+    /// rationale texts are a table of their own.
+    const FULL_MOBILE_TABLE: &str = r#"platform = "android"
+device = "phone"
+orientation = "portrait"
+min_os = "auto"
+style = "spa"
+multi_memory = true
+backend_url = ""
+app_id = "com.example.orders"
+icon = "Assets/icon.png"
+splash = "Assets/splash.png"
+features = ["secure-storage", "open-address", "deep-link"]
+
+[app_name]
+en = "Orders"
+es = "Pedidos"
+
+[rationale.secure-storage]
+en = "Keeps you signed in on this phone."
+
+[signing]
+android_keystore = "/Users/me/keys/orders.jks"
+android_alias = "orders"
+apple_team_id = "ABCDE12345"
+apple_identity = "Apple Distribution: Example Ltd"
+apple_profile = "Orders App Store"
+"#;
+
+    #[test]
+    fn the_full_mobile_table_round_trips() {
+        let m: MobileSettings = toml::from_str(FULL_MOBILE_TABLE).unwrap();
+        assert_eq!(m.app_id, "com.example.orders");
+        assert_eq!(m.icon, "Assets/icon.png");
+        assert_eq!(m.splash, "Assets/splash.png");
+        assert_eq!(m.features, ["secure-storage", "open-address", "deep-link"]);
+        assert_eq!(m.display_name("es", "P"), "Pedidos");
+        assert_eq!(m.display_name("ja", "P"), "Orders", "a language without a name takes the English one");
+        assert_eq!(m.rationale["secure-storage"]["en"], "Keeps you signed in on this phone.");
+        assert_eq!(m.signing.android_alias, "orders");
+        assert_eq!(m.signing.apple_profile, "Orders App Store");
+        let again: MobileSettings = toml::from_str(&toml::to_string(&m).unwrap()).unwrap();
+        assert_eq!(again, m);
+        println!("[mobile]: 11 values and 3 tables (app_name, rationale.<feature>, signing) read and written back equal");
+    }
+
+    #[test]
+    fn an_old_mobile_table_loads_with_every_new_default_and_saves_unchanged() {
+        let old = MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone);
+        let text = toml::to_string(&old).unwrap();
+        for key in ["app_id", "icon", "splash", "features", "app_name", "rationale", "signing"] {
+            assert!(!text.contains(key), "a default {key} is not written: {text}");
+        }
+        let loaded: MobileSettings = toml::from_str(&text).unwrap();
+        assert!(loaded.app_id.is_empty() && loaded.features.is_empty() && loaded.app_name.is_empty());
+        assert!(loaded.rationale.is_empty() && loaded.signing.is_default());
+        assert_eq!(toml::to_string(&loaded).unwrap(), text, "saved byte for byte");
+        assert_eq!(loaded.display_name("en", "Orders.project"), "Orders.project");
+        println!("an old [mobile] table ({} bytes) loads with 7 new defaults and saves byte for byte", text.len());
+    }
+
+    #[test]
+    fn app_ids_are_reverse_dns() {
+        for good in ["com.example.app", "com.example.orders_2", "a.b"] {
+            assert!(validate_app_id(good).is_ok(), "{good}");
+        }
+        for (bad, says) in [
+            ("example", "two or more parts"),
+            ("1com.x", "'1com'"),
+            ("com..x", "the part ''"),
+            ("com.ex-ample", "'ex-ample'"),
+            ("", "not set"),
+        ] {
+            let why = validate_app_id(bad).unwrap_err();
+            assert!(why.contains(says), "{bad}: {why}");
+        }
+        println!("app_id: 3 accepted, 5 refused with the part named");
+    }
+
+    #[test]
+    fn min_os_resolves_to_the_floor_and_refuses_below_it() {
+        let android = |v: &str| MobileSettings { min_os: v.into(), ..MobileSettings::new(MobilePlatform::Android, DeviceClass::Phone) };
+        let ios = |v: &str| MobileSettings { min_os: v.into(), ..MobileSettings::new(MobilePlatform::Ios, DeviceClass::Phone) };
+        assert_eq!(android("auto").resolved_min_os().unwrap(), "35");
+        assert_eq!(android("").resolved_min_os().unwrap(), "35");
+        assert_eq!(android("36").resolved_min_os().unwrap(), "36");
+        assert_eq!(ios("auto").resolved_min_os().unwrap(), "18.0");
+        assert_eq!(ios("18").resolved_min_os().unwrap(), "18");
+        assert_eq!(ios("26.0").resolved_min_os().unwrap(), "26.0");
+        let low = android("26").resolved_min_os().unwrap_err();
+        assert!(low.contains("below") && low.contains("35"), "{low}");
+        let low = ios("17.4").resolved_min_os().unwrap_err();
+        assert!(low.contains("below") && low.contains("18.0"), "{low}");
+        assert!(android("16.0").resolved_min_os().unwrap_err().contains("not an Android API level"));
+        assert!(ios("eighteen").resolved_min_os().unwrap_err().contains("not an iOS version"));
+        println!("min_os: auto -> 35 / 18.0; 36, 18, 26.0 kept; 26 and 17.4 refused naming the floor; 2 malformed refused");
+    }
+
+    #[test]
+    fn the_build_number_comes_from_the_version() {
+        assert_eq!(build_number("2.0.29").unwrap(), 20029);
+        assert_eq!(build_number("1.0.0").unwrap(), 10000);
+        assert_eq!(build_number("0.1.0").unwrap(), 100);
+        assert_eq!(build_number("10.99.99").unwrap(), 109999);
+        for bad in ["1.0", "1.100.0", "1.0.100", "0.0.0", "1.0.0-beta", ""] {
+            assert!(build_number(bad).is_err(), "{bad}");
+        }
+        println!("build number: 4 versions -> 20029 10000 100 109999; 6 refused");
+    }
+
+    #[test]
+    fn a_keystore_inside_the_project_is_refused() {
+        let dir = std::env::temp_dir().join(format!("prc-keystore-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("keys")).unwrap();
+        let inside = dir.join("keys").join("app.jks");
+        assert!(keystore_inside_project(&dir, &inside.to_string_lossy()));
+        assert!(keystore_inside_project(&dir, "keys/app.jks"), "relative = from the project");
+        assert!(keystore_inside_project(&dir, "./keys/../app.jks"));
+        let outside = std::env::temp_dir().join("elsewhere-app.jks");
+        assert!(!keystore_inside_project(&dir, &outside.to_string_lossy()));
+        assert!(!keystore_inside_project(&dir, "../elsewhere.jks"));
+        assert!(!keystore_inside_project(&dir, ""));
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("keystore: 3 paths inside the project refused, 2 outside and an empty one accepted");
     }
 }

@@ -76,8 +76,21 @@ fn run_web<H: ProjectHost>(
     root: &ProjectRoot,
     shared: &Arc<Shared>,
     view: &cobolt_compiler::ManifestView,
+    release: bool,
 ) -> Result<Value, String> {
     use crate::web::{self, WebBuildError, WebBuildRequest};
+    let android = view.kind == cobolt_compiler::ProjectKind::Mobile
+        && view.mobile.as_ref().is_some_and(|m| m.platform == cobolt_compiler::project_kind::MobilePlatform::Android);
+    // A package still building: keep waiting on it (the bundle it wraps was built by the call that
+    // started it, and is not rebuilt under it).
+    if android && !slot_idle(shared) {
+        return Ok(json!({
+            "status": "built",
+            "kind": view.kind.as_str(),
+            "bundle": web::BUNDLE_SUBDIR,
+            "package": package_answer(wait(shared, root)),
+        }));
+    }
     if let Some(why) = host.build_blocked() {
         return Err(why);
     }
@@ -94,7 +107,11 @@ fn run_web<H: ProjectHost>(
             "check": report.to_json(),
         }));
     }
-    let request = WebBuildRequest::from_manifest(root.manifest())?;
+    let mut request = WebBuildRequest::from_manifest(root.manifest())?;
+    // A release package wraps a release bundle (WASM-013 R11).
+    if release {
+        request.profile = web::BuildProfile::Release;
+    }
     let backend = web::backend();
     let started = Instant::now();
     let mut answer = match backend.build(&request) {
@@ -125,17 +142,86 @@ fn run_web<H: ProjectHost>(
     };
     answer["elapsed_ms"] = json!(started.elapsed().as_millis() as u64);
     if view.kind == cobolt_compiler::ProjectKind::Mobile && answer["status"] == "built" {
-        let ios = view.mobile.as_ref().is_some_and(|m| m.platform == cobolt_compiler::project_kind::MobilePlatform::Ios);
-        answer["package"] = json!({
-            "built": false,
-            "reason": if ios && !cfg!(target_os = "macos") {
-                "an iOS package can only be built on macOS; the web bundle is built and can be taken there"
-            } else {
-                "the Android and iOS package step needs the Tauri 2 mobile shell, which this program does not include yet; the web bundle it wraps is built"
-            },
-        });
+        answer["package"] = if android {
+            start_android_package(shared, root, release)
+        } else {
+            json!({
+                "built": false,
+                "reason": if cfg!(target_os = "macos") {
+                    "this release builds the Android package; the iOS package step (Xcode 16 or later, the iOS 18 SDK) is not finished yet. The web bundle it wraps is built"
+                } else {
+                    "an iOS package can only be built on macOS; the web bundle is built and can be taken there"
+                },
+            })
+        };
     }
     Ok(answer)
+}
+
+fn slot_idle(shared: &Arc<Shared>) -> bool {
+    matches!(*shared.build.state.lock().unwrap_or_else(|p| p.into_inner()), SlotState::Idle)
+}
+
+/// The package step of an Android project (WASM-012 T18): the tools found, the project checked,
+/// and the package built on the build worker — the slot a desktop build uses, so one build runs at
+/// a time and a call waits at most [`DEFAULT_BUILD_WAIT`] on it. The tools' output goes to
+/// `package.log` in the staging folder (stdout is the protocol stream of `rcrun mcp`).
+fn start_android_package(shared: &Arc<Shared>, root: &ProjectRoot, release: bool) -> Value {
+    use cobolt_compiler::mobile_build as mb;
+    let abi = mb::AndroidAbi::Aarch64;
+    let tools = match mb::Toolchain::detect(abi) {
+        Ok(t) => t,
+        Err(missing) => {
+            let how: Vec<&str> = missing.iter().map(|m| m.how.as_str()).collect();
+            return json!({ "built": false, "reason": "the Android tools this build needs are missing", "missing": how });
+        }
+    };
+    let profile = if release { mb::Profile::Release } else { mb::Profile::Debug };
+    let name = cobolt_compiler::project_manifest_view(root.manifest()).map(|v| mb::application_name(&v.name)).unwrap_or_default();
+    let staging = cobolt_compiler::build_staging_dir(None, &format!("{}-android", mb::crate_name(&name)));
+    let req = match mb::PackageRequest::from_manifest(root.manifest(), staging, profile, abi) {
+        Ok(r) => r,
+        Err(e) => return json!({ "built": false, "reason": e }),
+    };
+    let secrets = release.then(signing_secrets_from_env).flatten();
+    if let Err(problems) = mb::check(&req, secrets.as_ref()) {
+        return json!({ "built": false, "reason": "the package cannot be built yet", "refused": problems });
+    }
+    let log_path = req.staging_dir.join("package.log");
+    let log_shown = root.relative(&log_path).unwrap_or_else(|| log_path.to_string_lossy().into_owned());
+    start_job(shared, move || {
+        let _ = std::fs::create_dir_all(&req.staging_dir);
+        let mut file = std::fs::File::create(&log_path).ok();
+        let mut log = |line: &str| {
+            if let Some(f) = file.as_mut() {
+                use std::io::Write;
+                let _ = writeln!(f, "{line}");
+            }
+        };
+        mb::build_android(&req, &tools, secrets.as_ref(), &mut log).map(|p| BuildOutcome { binary: p.path })
+    });
+    let mut answer = package_answer(wait(shared, root));
+    answer["log"] = json!(log_shown);
+    answer
+}
+
+/// The release passwords from the build's environment (`PRC_ANDROID_STORE_PASSWORD`,
+/// `PRC_ANDROID_KEY_PASSWORD`); the IDE reads them from the system's secret store instead.
+fn signing_secrets_from_env() -> Option<cobolt_compiler::mobile_build::SigningSecrets> {
+    use cobolt_compiler::mobile_build as mb;
+    let store_password = std::env::var(mb::ENV_STORE_PASSWORD).ok()?;
+    let key_password = std::env::var(mb::ENV_KEY_PASSWORD).ok()?;
+    Some(mb::SigningSecrets { store_password, key_password })
+}
+
+/// A package's answer from the slot's: `built` true or false, the package's path as `apk`.
+fn package_answer(mut slot: Value) -> Value {
+    let built = slot["status"] == "built";
+    if let Some(apk) = slot.as_object_mut().and_then(|o| o.remove("binary")) {
+        slot["apk"] = apk;
+    }
+    slot["built"] = json!(built);
+    slot
 }
 
 pub fn run<H: ProjectHost>(
@@ -143,10 +229,11 @@ pub fn run<H: ProjectHost>(
     root: &ProjectRoot,
     shared: &Arc<Shared>,
     full: bool,
+    release: bool,
 ) -> Result<Value, String> {
     let view = cobolt_compiler::project_manifest_view(root.manifest())?;
     if !view.kind.is_desktop() {
-        return run_web(host, root, shared, &view);
+        return run_web(host, root, shared, &view, release);
     }
     let idle = {
         let st = shared.build.state.lock().unwrap_or_else(|p| p.into_inner());
@@ -174,8 +261,8 @@ pub fn run<H: ProjectHost>(
     Ok(wait(shared, root))
 }
 
-/// Start the build on a worker unless one is already running.
-fn start(shared: &Arc<Shared>, manifest: PathBuf, workspace_root: Option<PathBuf>, full: bool) {
+/// Run `job` on the build worker unless a build is already running.
+fn start_job(shared: &Arc<Shared>, job: impl FnOnce() -> Result<BuildOutcome, String> + Send + 'static) {
     {
         let mut st = shared.build.state.lock().unwrap_or_else(|p| p.into_inner());
         if !matches!(*st, SlotState::Idle) {
@@ -185,6 +272,18 @@ fn start(shared: &Arc<Shared>, manifest: PathBuf, workspace_root: Option<PathBuf
     }
     let shared = Arc::clone(shared);
     std::thread::spawn(move || {
+        let started = Instant::now();
+        let result = job();
+        let mut st = shared.build.state.lock().unwrap_or_else(|p| p.into_inner());
+        *st = SlotState::Done { result, elapsed: started.elapsed() };
+        shared.build.done.notify_all();
+    });
+}
+
+/// Start the build on a worker unless one is already running.
+fn start(shared: &Arc<Shared>, manifest: PathBuf, workspace_root: Option<PathBuf>, full: bool) {
+    let builder = Arc::clone(&shared.builder);
+    start_job(shared, move || {
         let opts = cobolt_compiler::BuildOptions {
             // Nothing on stdout: on `rcrun mcp` stdout is the protocol stream.
             verbose: false,
@@ -202,14 +301,7 @@ fn start(shared: &Arc<Shared>, manifest: PathBuf, workspace_root: Option<PathBuf
             // The agent's build is the one a developer ships: optimised.
             debug: false,
         };
-        let started = Instant::now();
-        let result = (shared.builder)(&manifest, &opts);
-        let mut st = shared.build.state.lock().unwrap_or_else(|p| p.into_inner());
-        *st = SlotState::Done {
-            result,
-            elapsed: started.elapsed(),
-        };
-        shared.build.done.notify_all();
+        builder(&manifest, &opts)
     });
 }
 
@@ -319,7 +411,7 @@ mod tests {
             Duration::from_secs(5),
         ));
         let mut host = Fixed(root.clone());
-        let v = run(&mut host, &root, &shared, false).unwrap();
+        let v = run(&mut host, &root, &shared, false, false).unwrap();
         assert_eq!(v["status"], "refused", "{v}");
         assert!(v["check"]["errors"].as_u64().unwrap() >= 1);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
@@ -347,11 +439,11 @@ mod tests {
             Duration::from_millis(300),
         ));
         let mut host = Fixed(root.clone());
-        let first = run(&mut host, &root, &shared, false).unwrap();
+        let first = run(&mut host, &root, &shared, false, false).unwrap();
         assert_eq!(first["status"], "running", "{first}");
         let mut polls = 1;
         let last = loop {
-            let v = run(&mut host, &root, &shared, false).unwrap();
+            let v = run(&mut host, &root, &shared, false, false).unwrap();
             polls += 1;
             if v["status"] != "running" {
                 break v;

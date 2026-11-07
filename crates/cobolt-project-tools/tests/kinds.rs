@@ -134,13 +134,13 @@ fn the_kind_and_its_options_pick_the_template_and_shape_the_project() {
     assert!(e.contains("platform"), "{e}");
     let e = make(&mut tools, "m1", json!({"kind": "mobile", "platform": "ios"})).unwrap_err();
     assert!(e.contains("device"), "{e}");
-    let (f, made) = make(&mut tools, "m2", json!({"kind": "mobile", "platform": "ios", "device": "tablet", "options": {"orientation": "landscape", "min_os": "17.0"}})).unwrap();
+    let (f, made) = make(&mut tools, "m2", json!({"kind": "mobile", "platform": "ios", "device": "tablet", "options": {"orientation": "landscape", "min_os": "26.0"}})).unwrap();
     assert_eq!(made["template"], "ipad");
     let doc = manifest_of(&f);
     assert_eq!(doc["mobile"]["platform"].as_str(), Some("ios"));
     assert_eq!(doc["mobile"]["device"].as_str(), Some("tablet"));
     assert_eq!(doc["mobile"]["orientation"].as_str(), Some("landscape"));
-    assert_eq!(doc["mobile"]["min_os"].as_str(), Some("17.0"));
+    assert_eq!(doc["mobile"]["min_os"].as_str(), Some("26.0"));
     assert_eq!(doc["mobile"]["multi_memory"].as_bool(), Some(false), "iOS starts with multi-memory off (WASM-017 R9)");
     assert!(f.join("mobileforms/main-form.mcfrm").is_file());
 

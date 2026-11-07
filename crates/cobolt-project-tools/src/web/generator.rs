@@ -329,6 +329,7 @@ impl GeneratorBackend {
             arena: cobolt_wasm::module::Arena { frame: req.web.max_payload_bytes, ..defaults.arena },
             contract,
             remote,
+            mobile: req.kind == cobolt_compiler::project_kind::ProjectKind::Mobile,
             ..defaults
         };
         let modules = cobolt_wasm::compile_web_project(

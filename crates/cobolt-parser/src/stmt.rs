@@ -3369,6 +3369,18 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
         };
         let (on_exception, not_on_exception) = parse_invoke_exceptions(p);
         p.eat(&Token::Period);
+        // `INVOKE COBOL::Name(args)` is the inline `COBOL::Name(args)` written
+        // with the verb: the same built-in CALL, never an object method that
+        // no host has (it was silently skipped before WASM-012).
+        if object.eq_ignore_ascii_case("COBOL") && !method.trim().is_empty() {
+            let mut call = cobol_object_call_named(&method, &args, span);
+            if let Stmt::Call { returning: r, on_exception: on, not_on_exception: not_on, .. } = &mut call {
+                *r = returning;
+                *on = on_exception;
+                *not_on = not_on_exception;
+            }
+            return call;
+        }
         return Stmt::Invoke {
             object,
             method,
@@ -3483,6 +3495,11 @@ fn cobol_object_call(expr: &Expr, span: cobolt_lexer::Span) -> Option<Stmt> {
     if !object.eq_ignore_ascii_case("COBOL") || member.trim().is_empty() {
         return None;
     }
+    Some(cobol_object_call_named(member, args, span))
+}
+
+/// The `CALL "COBOL-NAME" USING …` of the `COBOL` object's method `member`.
+fn cobol_object_call_named(member: &str, args: &[Expr], span: cobolt_lexer::Span) -> Stmt {
     let name = member.trim().trim_matches('"').to_ascii_uppercase();
     let name = if name.starts_with("COBOL-") { name } else { format!("COBOL-{name}") };
     let using = args
@@ -3494,7 +3511,7 @@ fn cobol_object_call(expr: &Expr, span: cobolt_lexer::Span) -> Option<Stmt> {
             other => CallArg::ByContent(other.clone()),
         })
         .collect();
-    Some(Stmt::Call {
+    Stmt::Call {
         program: Expr::Literal(cobolt_ast::expr::Literal::String(name), span),
         using,
         returning: None,
@@ -3502,7 +3519,7 @@ fn cobol_object_call(expr: &Expr, span: cobolt_lexer::Span) -> Option<Stmt> {
         not_on_exception: Vec::new(),
         span,
         convention: CallConvention::Local,
-    })
+    }
 }
 
 // ── INITIALIZE ────────────────────────────────────────────────────────────────

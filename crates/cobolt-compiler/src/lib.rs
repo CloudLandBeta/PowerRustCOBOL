@@ -63,6 +63,9 @@ pub mod runtime_features;
 pub mod external_crates;
 pub mod main_form_guard;
 pub mod project_kind;
+pub mod mobile_features;
+pub mod mobile_build;
+pub mod mobile_devices;
 pub mod web_remote;
 pub mod web_remote_indexed;
 
@@ -1184,6 +1187,9 @@ pub struct ManifestView {
     /// `[project] structure` — 0 for a project older than the first numbered
     /// shape.
     pub structure: u32,
+    /// `[project] version` — the version a Mobile package carries (WASM-012 R6); empty when the
+    /// manifest has none.
+    pub version: String,
     pub sources: Vec<String>,
     pub forms: Vec<String>,
     pub assets: Vec<String>,
@@ -1248,6 +1254,8 @@ struct ViewMeta {
     kind: ProjectKind,
     #[serde(default)]
     structure: u32,
+    #[serde(default)]
+    version: String,
 }
 
 /// Read `manifest_path` into a [`ManifestView`]. Public in the style of
@@ -1266,6 +1274,7 @@ pub fn project_manifest_view(manifest_path: &Path) -> Result<ManifestView, Strin
     Ok(ManifestView {
         name: m.project.name,
         structure: m.project.structure,
+        version: m.project.version,
         sources: m.files.sources,
         forms: m.files.forms,
         assets: m.files.assets,
@@ -6578,7 +6587,7 @@ and unavailable); the coding-agent `create_project` tool takes `kind`
 |---|---|---|---|---|
 | Desktop | `forms/` | `<name>.cfrm` | Forms | a native executable in `bin/` |
 | Web | `webforms/` | `<name>.wcfrm` | WebForms | a static WebAssembly bundle in `dist/web/` |
-| Mobile | `mobileforms/` | `<name>.mcfrm` | MobileForms | the same bundle; the Android or iOS package step needs the mobile shell, which the product does not include yet |
+| Mobile | `mobileforms/` | `<name>.mcfrm` | MobileForms | the same bundle, then for Android the installable package `dist/mobile/android/<Name>-debug.apk` (the iOS package step is not finished yet) |
 
 Every kind lists its forms under `[files] forms`. The three form files are one
 format; only the name differs. A form named for another kind (a `.cfrm` in a Web
@@ -6615,17 +6624,68 @@ android_webview = true
 platform     = "ios"         # "android" or "ios"
 device       = "phone"       # "phone" or "tablet"
 orientation  = "auto"        # "auto", "portrait" or "landscape"
-min_os       = "auto"        # an Android API level ("26") or an iOS version ("16.0")
+min_os       = "auto"        # the oldest supported (Android 15 = API "35", iOS "18.0"), or a newer API level or iOS version
 style        = "spa"
 multi_memory = false         # false is the iOS default; true for Android
 backend_url  = ""
 max_payload_bytes = 393216   # as under [web]
 call_timeout_ms = 60000      # as under [web]
 # player     = "2.0.0"       # as under [web]
+app_id       = "com.example.orders"  # the application's identity on the phone: reverse-DNS, two or more parts; a package needs it
+features     = ["secure-storage"]   # the device features it uses: secure-storage, open-address, deep-link
+icon         = "Assets/icon.png"    # a square PNG of at least 1024 px; absent = the PowerRustCOBOL icon
+[mobile.app_name]            # the name under the icon, per language; absent = the project's name
+en = "Orders"
+pt = "Pedidos"
+[mobile.signing]             # the NAMES of the release signing material, never a password
+android_keystore = "/Users/me/keys/orders.jks"   # outside the project folder
+android_alias    = "orders"
 
 [backend]                   # a Web or Mobile project that has a Backend
 exports = ["HEALTH"]         # the only programs a remote caller can reach
 ```
+
+**The Android package.** The Build of a Mobile project for Android makes the web
+bundle and then the package `dist/mobile/android/<Name>-debug.apk`, with the
+PowerRustCOBOL mobile shell (Tauri 2) around the bundle. It needs the Android SDK,
+its NDK, Java 17 to 21, the Rust target of the phone and the Tauri command line;
+the Build names each one that is missing and how to get it. Before any tool runs
+it names every problem of the project at once: no `app_id`, a version with no
+build number (`1.2.3` gives `10203`), a device feature used and not declared (the
+file and line), an icon that is not a square PNG of at least 1024 px. Every line
+of the tools goes to `package.log` in the build folder; the first build of a
+project takes a few minutes, a later one seconds. A **release** package is signed
+with your key: the keystore and the alias are named in `[mobile.signing]` (the
+keystore outside the project folder), and the two passwords come only from the
+variables `PRC_ANDROID_STORE_PASSWORD` and `PRC_ANDROID_KEY_PASSWORD` of the
+process that builds — never from a file. The coding agent's `build` takes
+`release: true` for it. **Run** with an Android emulator running or a phone connected builds the
+package for that device, installs it, starts it and shows the application's log
+(the page's console, the shell's lines, a crash) in the Output panel; without one
+the Preview opens in the browser at a phone's width.
+
+**The phone's secure storage** (feature `secure-storage`): a secret the phone
+keeps in its own store (the Android Keystore, the iOS Keychain), never the page.
+
+```cobol
+       COBOL::SecureStore( "user-name" TXT-NAME::Text::Trim() )
+       IF COBOL::SecureStatus = 0
+           MOVE "Saved." TO LBL-RESULT::Caption
+       END-IF
+       COBOL::SecureLoad( "user-name" WS-SAVED-NAME )
+       COBOL::SecureDelete( "user-name" )
+```
+
+Each waits for the phone's answer: `COBOL::SecureStatus` is `0` done, `1` nothing
+was there (a `SecureLoad` that found no value, a `SecureDelete` with nothing to
+delete), `-6` refused; `SecureLoad` puts the value in its second argument (and in
+`COBOL::SecureValue`). A key is 1 to 128 letters, digits, `-`, `_` or `.`; a value
+is at most 4096 bytes. In the browser Preview the three answer `-6` at once and
+say why in the console, so one form runs in the Preview and on the phone. A Web
+project's Build refuses them at their line; a desktop program stops with a
+run-time error naming where they work, unless the call names `ON EXCEPTION`.
+A **deep link** (feature `deep-link`) `com.example.orders://order-form?id=7`
+opens that form with its parameters, read with `me::GetParam`.
 
 A Desktop project made from a template may carry `[desktop]` (`window_style`,
 `ui_framework`, `high_dpi`, `gpu_acceleration`); those choices are recorded and

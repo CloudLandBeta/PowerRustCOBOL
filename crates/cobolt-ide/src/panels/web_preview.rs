@@ -74,8 +74,11 @@ pub enum Note {
     PlayerSizes(Vec<PartSize>),
     /// The project pins a player the Build cannot use (WASM-016 R11).
     PlayerPin(PlayerPinError),
-    /// A Mobile build ends at the bundle until the mobile shell is linked.
+    /// A Mobile build of a platform whose package step is not finished (iOS) ends at the bundle.
     PackageNote,
+    /// A Mobile build goes on into the Android package (WASM-012 T17); its progress follows as
+    /// [`Note::DeviceLog`] lines.
+    PackageStarted,
     NoBundle,
     Serving { name: String, url: String },
     ServerFailed(String),
@@ -324,6 +327,7 @@ impl Note {
             }
             Note::PlayerPin(PlayerPinError::CannotEmit { pinned, oldest: None, .. }) => vec![fill(tr.web_build_pin_cannot_emit_none, &[pinned])],
             Note::PackageNote => vec![tr.pk_build_package_note.to_owned()],
+            Note::PackageStarted => vec![tr.pk_pkg_started.to_owned()],
             Note::NoBundle => vec![tr.pk_prev_no_bundle.to_owned()],
             Note::Serving { name, url } => vec![fill(tr.pk_prev_serving, &[name, url])],
             Note::ServerFailed(why) => vec![fill(tr.pk_prev_server_failed, &[why])],
@@ -481,9 +485,9 @@ impl SourceWatcher {
 // ── Devices (WASM-008 R14, D12) ─────────────────────────────────────────────
 
 /// The seam to a device or an emulator: a Mobile Preview runs there first.
-/// WASM-012's `mobile_toolchain` / `mobile_devices` implement it; until then
-/// [`NoDeviceTools`] is the only one, and every Mobile Preview takes the
-/// browser at a phone's size.
+/// WASM-012 implements it for Android (`panels::mobile_runner`); without the
+/// tools ([`NoDeviceTools`]) every Mobile Preview takes the browser at a
+/// phone's size.
 pub trait DeviceRunner: Send + Sync {
     /// `Err(tool)`: what is not on this machine to run on `platform`.
     fn detect(&self, platform: MobilePlatform) -> Result<(), String>;
@@ -493,6 +497,16 @@ pub trait DeviceRunner: Send + Sync {
     fn run(&self, device: &str, dev_url: &str) -> Result<(), String>;
     /// The device's log lines since the last call.
     fn log(&self) -> Vec<String>;
+    /// Build the project's package (a Mobile Build, WASM-012 T17), off the
+    /// UI thread; its progress comes through [`DeviceRunner::log`]. `Err` with
+    /// the reason (empty: no package step here).
+    fn package(&self) -> Result<(), String> {
+        Err(String::new())
+    }
+    /// A package build or a device run is in progress.
+    fn busy(&self) -> bool {
+        false
+    }
 }
 
 /// No device tools on this machine (until WASM-012).
@@ -625,7 +639,8 @@ pub struct WebPreview {
     /// That Backend's address and token, once both were printed: put into
     /// the served `config.json`, never into the bundle (WASM-008 R6).
     dev_backend: Option<DevBackend>,
-    /// The application runs on a device: its log is read each poll.
+    /// The application runs on a device, or its package is being built: the
+    /// runner's log is read each poll.
     on_device: bool,
     /// The port the page is served on, chosen before the Backend started so it could be told the page's origin
     /// (WASM-013 R12); `None` = any free port.
@@ -971,6 +986,7 @@ impl WebPreview {
         self.poll_job();
         self.poll_events();
         self.poll_device();
+        let device_busy = self.on_device && self.launch.as_ref().is_some_and(|l| l.devices.busy());
         let changed = self.live.as_mut().and_then(|l| l.watcher.poll(now));
         if let Some(when) = changed {
             self.rebuild_after.get_or_insert(when);
@@ -982,7 +998,8 @@ impl WebPreview {
                 }
             }
         }
-        self.active()
+        // A package being built keeps the frames coming, so its lines show as they come.
+        self.active() || device_busy
     }
 
     fn poll_job(&mut self) {
@@ -1048,8 +1065,20 @@ impl WebPreview {
         match kind {
             // A Build ends here; a Mobile one says where it stops.
             JobKind::Initial(Intent::Build) => {
-                if built && self.launch.as_ref().is_some_and(|l| l.kind == ProjectKind::Mobile) {
-                    self.say(Note::PackageNote);
+                let mobile = self.launch.as_ref().filter(|l| l.kind == ProjectKind::Mobile).map(|l| (l.platform, l.devices.clone()));
+                if let (true, Some((platform, devices))) = (built, mobile) {
+                    if platform == Some(MobilePlatform::Ios) {
+                        self.say(Note::PackageNote);
+                    } else {
+                        match devices.package() {
+                            Ok(()) => {
+                                self.on_device = true;
+                                self.say(Note::PackageStarted);
+                            }
+                            Err(why) if why.is_empty() => self.say(Note::PackageNote),
+                            Err(why) => self.say(Note::DeviceLog(why)),
+                        }
+                    }
                 }
             }
             JobKind::Initial(Intent::Show) => {
@@ -1584,6 +1613,7 @@ mod tests {
             Note::OnDevice { device: "Pixel 8".into(), url: "http://127.0.0.1:5173/".into() },
             Note::DeviceFailed { device: "Pixel 8".into(), why: "offline".into() },
             Note::DeviceLog("I/chromium: hello".into()),
+            Note::PackageStarted,
         ];
         let mut shown = 0;
         for &lang in Language::ALL {

@@ -72,7 +72,8 @@ impl Shared {
             | Effect::SuperGet { .. }
             | Effect::SuperCallR { .. }
             | Effect::AuthCall { .. }
-            | Effect::AuthCaptcha { .. } => {}
+            | Effect::AuthCaptcha { .. }
+            | Effect::Shell { .. } => {}
         }
     }
 
@@ -151,6 +152,11 @@ impl Shared {
                 if let Some(w) = web_sys::window() {
                     let t = crate::hyperlink::Target::parse(target);
                     match t {
+                        // In the phone shell there are no tabs: the page navigates, and the shell's
+                        // guard hands an address outside the application to the system (WASM-012 R12).
+                        _ if crate::shell::present() => {
+                            let _ = w.location().assign(&norm);
+                        }
                         crate::hyperlink::Target::SelfFrame => {
                             let _ = w.location().assign(&norm);
                         }

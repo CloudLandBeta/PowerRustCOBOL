@@ -81,11 +81,15 @@ pub struct Options {
     pub contract: Option<String>,
     /// The backend's exported programs and how each may be called, for the manifest (WASM-014 R9).
     pub remote: Vec<cobolt_wasm_abi::manifest::RemoteSig>,
+    /// A Mobile project's module (WASM-012 R9, D-WebRefuse): the phone shell's verbs
+    /// (`COBOL::SecureStore`, `SecureLoad`, `SecureDelete`, ABI A26) compile; in a Web
+    /// module they are refused at their line.
+    pub mobile: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP, contract: None, remote: Vec::new() }
+        Options { multi_memory: true, conformance: false, tolerate_undeclared: false, arena: Arena::default(), budget: 20_000, name: "program".into(), when_compiled: None, file_heap: DEFAULT_FILE_HEAP, contract: None, remote: Vec::new(), mobile: false }
     }
 }
 
@@ -385,6 +389,7 @@ fn compile_forms(forms: &[FormSpec<'_>], opts: &Options, project: bool) -> GenRe
             unit_base,
             opts.conformance,
             opts.tolerate_undeclared,
+            opts.mobile,
             when_compiled.clone(),
         )
         .map_err(|e| if project { e.in_form(lowered_forms.len()) } else { e })?;

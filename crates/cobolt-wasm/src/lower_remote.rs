@@ -41,7 +41,22 @@ pub const APP_VERBS: &[&str] = &[
     "SETPROPERTY",
     "STOPRUN",
     "EXIT",
+    // The phone shell's (WASM-012 R9, ABI A26): a Mobile module only.
+    "SECURESTORE",
+    "SECURELOAD",
+    "SECUREDELETE",
 ];
+
+/// The application verbs only a Mobile application has: the phone shell
+/// answers them (ABI A26). A Web module refuses them at their line
+/// (WASM-012 D-WebRefuse).
+pub const MOBILE_VERBS: &[&str] = &["SECURESTORE", "SECURELOAD", "SECUREDELETE"];
+
+/// Is `name` a verb only the phone shell answers (any case)?
+pub fn is_mobile_verb(name: &str) -> bool {
+    let n = name.trim().to_ascii_uppercase();
+    MOBILE_VERBS.contains(&n.as_str())
+}
 
 /// Is `name` a verb of the application object (any case)?
 pub fn is_app_verb(name: &str) -> bool {
@@ -56,6 +71,8 @@ pub fn suspends(ctrl: u32, verb: &str) -> bool {
         CTRL_APP => matches!(
             v.as_str(),
             "MESSAGEBOX" | "ALERT" | "CONFIRM" | "INPUTBOX" | "SLEEP" | "WAIT" | "OPENFORMSYNC"
+                // A Tauri command answers through a promise: the task waits for it (A26).
+                | "SECURESTORE" | "SECURELOAD" | "SECUREDELETE"
         ),
         CTRL_FORM => v == "OPENFORMSYNC",
         _ => false,

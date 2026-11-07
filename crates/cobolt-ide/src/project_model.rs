@@ -3122,8 +3122,8 @@ mod project_kind_tests {
             }
             if t.option("orientation").is_some() {
                 variants.push(CreateRequest::new("Turn").template(t.id).option("orientation", "landscape").option("min_os", t.option("min_os").map(|_| match t.mobile.map(|m| m.0) {
-                    Some(MobilePlatform::Ios) => "16.0",
-                    _ => "29",
+                    Some(MobilePlatform::Ios) => "26.0",
+                    _ => "36",
                 }).unwrap()));
             }
             if t.id == "desktop" {

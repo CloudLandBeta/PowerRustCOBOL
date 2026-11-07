@@ -149,18 +149,15 @@ const ORIENTATIONS: &[Choice] = &[
 ];
 const ANDROID_MIN_OS: &[Choice] = &[
     Choice { id: "auto", label: "Auto / Latest" },
-    Choice { id: "24", label: "Android 7.0 (API 24)" },
-    Choice { id: "26", label: "Android 8.0 (API 26)" },
-    Choice { id: "29", label: "Android 10 (API 29)" },
-    Choice { id: "31", label: "Android 12 (API 31)" },
-    Choice { id: "34", label: "Android 14 (API 34)" },
+    // The floor of this major and newer (WASM-012 D-MinOS): the last version of 2024.
+    Choice { id: "35", label: "Android 15 (API 35)" },
+    Choice { id: "36", label: "Android 16 (API 36)" },
+    Choice { id: "37", label: "Android 17 (API 37)" },
 ];
 const IOS_MIN_OS: &[Choice] = &[
     Choice { id: "auto", label: "Auto / Latest" },
-    Choice { id: "15.0", label: "iOS 15.0" },
-    Choice { id: "16.0", label: "iOS 16.0" },
-    Choice { id: "17.0", label: "iOS 17.0" },
     Choice { id: "18.0", label: "iOS 18.0" },
+    Choice { id: "26.0", label: "iOS 26.0" },
 ];
 
 const fn flag(id: &'static str, label: &'static str, default: bool) -> OptionDescriptor {
@@ -583,8 +580,8 @@ mod tests {
         // The minimum-OS choices are the platform's own.
         let android = find(&catalogue, "android-phone").unwrap().option("min_os").unwrap();
         let ios = find(&catalogue, "iphone").unwrap().option("min_os").unwrap();
-        assert!(android.accepts("26") && !android.accepts("16.0"));
-        assert!(ios.accepts("16.0") && !ios.accepts("26"));
+        assert!(android.accepts("35") && !android.accepts("26") && !android.accepts("18.0"), "the floor and newer only (D-MinOS)");
+        assert!(ios.accepts("18.0") && !ios.accepts("17.0") && !ios.accepts("35"));
     }
 
     #[test]
@@ -616,9 +613,9 @@ mod tests {
         assert_eq!(r.template.id, "desktop");
         assert!(r.flag("sample") && r.flag("high_dpi") && r.choice("window_style") == "tabbed");
         // A named template with an override.
-        let r = resolve(&CreateRequest::new("X").template("android-phone").option("min_os", "29"), &catalogue).unwrap();
+        let r = resolve(&CreateRequest::new("X").template("android-phone").option("min_os", "36"), &catalogue).unwrap();
         assert_eq!(r.template.mobile, Some((MobilePlatform::Android, DeviceClass::Phone)));
-        assert_eq!(r.choice("min_os"), "29");
+        assert_eq!(r.choice("min_os"), "36");
         assert_eq!(r.choice("orientation"), "portrait", "the rest keep their defaults");
         // Refusals say what would have worked.
         let e = resolve(&CreateRequest::new("X").template("nope"), &catalogue).unwrap_err();
