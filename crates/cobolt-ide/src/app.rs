@@ -988,6 +988,9 @@ pub struct CoboltApp {
     /// `rcrun backend run` (WASM-003 R20), or by the web Preview of a
     /// project with a Backend (WASM-008 R6); dropping it stops it.
     backend_run: Option<crate::backend_run::BackendRun>,
+    /// The Backend window (the counterpart of the desktop Building window) and whether it has seen the current run.
+    backend_window: crate::panels::backend_window::BackendWindow,
+    backend_window_live: bool,
     /// `backend_run` was started by the web Preview: it stops with the Preview.
     backend_by_preview: bool,
 
@@ -2385,6 +2388,8 @@ impl CoboltApp {
             web_preview: WebPreview::default(),
             browser_confirm: None,
             backend_run: None,
+            backend_window: Default::default(),
+            backend_window_live: false,
             backend_by_preview: false,
 
             pending_open_in_editor: None,
@@ -3032,13 +3037,31 @@ impl CoboltApp {
             run.stop();
             if was_running {
                 self.output.push_status(self.lang.tr().backend_stopped.to_owned());
+                self.backend_window.push_line(self.lang.tr().backend_stopped.to_owned());
             }
+        }
+    }
+
+    /// The Backend window, every frame: it opens with a new run, stays while the
+    /// Backend runs, and its Stop button (or closing it, after the warning) stops
+    /// the Backend.
+    fn show_backend_window(&mut self, ctx: &Context) {
+        let running = self.backend_run.as_ref().is_some_and(|r| r.is_running());
+        let theme = self.current_theme();
+        let tr = self.lang.tr();
+        if self.backend_window.show(ctx, theme, &tr, running).stop {
+            self.stop_backend();
         }
     }
 
     /// Once a frame: hand the backend's lines to the Output panel.
     fn poll_backend(&mut self, ctx: &Context) {
-        if self.backend_run.is_none() {
+        let up = self.backend_run.is_some();
+        if up && !self.backend_window_live {
+            self.backend_window.begin();
+        }
+        self.backend_window_live = up;
+        if !up {
             return;
         }
         // The Preview waiting for this Backend reads its events first (its address, or why it ended).
@@ -3047,13 +3070,18 @@ impl CoboltApp {
         let tr = self.lang.tr();
         for event in events {
             match event {
-                crate::backend_run::BackendEvent::Line(line) => self.output.push_line(line),
+                crate::backend_run::BackendEvent::Line(line) => {
+                    self.backend_window.push_line(line.clone());
+                    self.output.push_line(line)
+                }
                 crate::backend_run::BackendEvent::Listening(url) => {
-                    self.output.push_status(tr.backend_running.replacen("{}", &url, 1))
+                    self.output.push_status(tr.backend_running.replacen("{}", &url, 1));
+                    self.backend_window.set_url(url);
                 }
                 crate::backend_run::BackendEvent::Exited(code) => {
                     // It ended by itself; the lines above say why.
                     let why = code.map(|c| format!("exit {c}")).unwrap_or_else(|| "signal".to_owned());
+                    self.backend_window.push_line(format!("{} ({why})", tr.backend_stopped));
                     self.output.push_status(format!("{} ({why})", tr.backend_stopped));
                 }
             }
@@ -16950,6 +16978,7 @@ impl eframe::App for CoboltApp {
             }
             self.do_save_project();
         }
+        self.show_backend_window(ctx);
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);

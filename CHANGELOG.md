@@ -1,5 +1,10 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.321 — 2026-11-08
+
+**Feature: a Backend window for Web and Mobile projects, the counterpart of the desktop's Building window.** It opens when the Backend starts (Run → Start Backend, or the Preview), shows what the Backend prints, stays up while it runs, and has a **Stop Backend** button and a Copy button. Closing it while the Backend runs stops the Backend, after a warning ("Stop Backend and close" / "Keep running"); once the Backend has ended it closes without one. Its size changes only when the developer drags its grip. *(Written on features-2x-backend-window, after 2.0.311; 2.0.312 is on fixes-2x-backend-adopt.)*
+Tests: `closing_a_running_backend_asks_first_and_a_finished_one_just_closes`, `the_log_keeps_the_newest_lines_and_a_new_run_starts_clean`; `cobolt-ide` bin sweep 1980 passed, 9 failed (the known reds on 2.x.x, none in this window). The window itself has not been looked at on screen.
+
 ## 2.0.320 — 2026-11-08
 
 **Fix: the web page's sidebar takes the designer's logo pane and stays in place; a control can show a loading effect; a drawing that never appears says why.**

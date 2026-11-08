@@ -40,6 +40,7 @@ pub mod definition_box;
 pub mod indexed_properties;
 pub mod layer_tabs;
 pub(crate) mod layout_grid_edit;
+pub mod backend_window;
 pub mod leaderboard_modal;
 pub mod md_render;
 pub mod model_search;
