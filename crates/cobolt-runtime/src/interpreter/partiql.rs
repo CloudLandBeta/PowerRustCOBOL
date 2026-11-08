@@ -61,6 +61,16 @@ pub(crate) struct OwnedFile {
     mode: OpenMode,
 }
 
+/// Where one argument of a member call came from, so `Execute` can type it.
+pub(crate) enum ArgOrigin {
+    /// A literal or an expression: typed by the form of its value.
+    Value,
+    /// A control's property: untyped text (O2), whatever it looks like.
+    Property(String),
+    /// A data item, by its storage key: typed by its declaration (R3).
+    Item(String),
+}
+
 fn canonical(p: &std::path::Path) -> PathBuf {
     std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
@@ -96,29 +106,73 @@ impl Interpreter {
         obj.trim().to_ascii_uppercase()
     }
 
-    /// Note which arguments of the call about to be made came from a control's
-    /// property: their text is untyped (O2), whatever it looks like.
-    pub(crate) fn partiql_note_origins(&mut self, args: &[cobolt_ast::expr::Expr]) {
+    /// Note where each argument of the call about to be made came from: a
+    /// control's property is untyped text (O2), whatever it looks like, and a
+    /// data item is typed by its declaration (R3). `receiver` is the control
+    /// the call is made on, when the call names it directly: data items are
+    /// noted only for an `IndexedFile`, so no other member call pays for
+    /// resolving its arguments' names.
+    pub(crate) fn partiql_note_origins(&mut self, receiver: Option<&str>, args: &[cobolt_ast::expr::Expr]) {
         use cobolt_ast::expr::Expr;
         self.partiql_arg_origin.clear();
         if args.is_empty() {
             return;
         }
-        let origins: Vec<Option<String>> = args
+        let items = receiver.is_some_and(|r| self.is_partiql(r));
+        let origins: Vec<ArgOrigin> = args
             .iter()
             .map(|a| match a {
                 Expr::Member { recv, member, args, parens: false, .. } if args.is_empty() => match recv.as_ref() {
                     Expr::Identifier(root, _)
                         if self.objects.contains(root.trim()) && !self.env.is_declared(root, &[]) =>
                     {
-                        Some(self.obj_get(root.trim(), member))
+                        ArgOrigin::Property(self.obj_get(root.trim(), member))
                     }
-                    _ => None,
+                    _ => ArgOrigin::Value,
                 },
-                _ => None,
+                _ if items => self.partiql_item(a).map_or(ArgOrigin::Value, ArgOrigin::Item),
+                _ => ArgOrigin::Value,
             })
             .collect();
         self.partiql_arg_origin = origins;
+    }
+
+    /// The storage key of the data item an argument names, or `None` for
+    /// anything else. A reference modification is always alphanumeric, so it
+    /// is typed by its value like an expression.
+    fn partiql_item(&self, e: &cobolt_ast::expr::Expr) -> Option<String> {
+        use cobolt_ast::expr::Expr;
+        match e {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => Some(self.expr_to_name(e)),
+            _ => None,
+        }
+    }
+
+    /// One `?` argument, typed as R3 says: a data item by its declaration (a
+    /// Number for a numeric item, a String otherwise), anything else by the form
+    /// of its value.
+    ///
+    /// Never by the kind of value a numeric item's slot holds. A group `MOVE` is
+    /// alphanumeric, so it leaves characters in a `PIC 9` child; typed by the
+    /// slot, a key filled that way (a record brought back through `CALL …
+    /// RETURNING` into its 01) was a String, and `WHERE QUO-ID = ?` failed with
+    /// `94 ValidationException`. Characters that spell no number stay a String,
+    /// so the statement still fails and names the argument rather than matching
+    /// an invented number.
+    fn partiql_arg(&self, item: Option<&str>, v: CobolValue) -> Arg {
+        if let Some(n) = item.and_then(|name| self.env.numeric_by_picture(name, &v)) {
+            return Arg::Value(Value::Num(n));
+        }
+        match v {
+            CobolValue::Numeric(n) => Arg::Value(Value::Num(n)),
+            // COMP-1 / COMP-2: numeric in every usage (R2). Rust prints an f64
+            // without an exponent, so its text is a decimal literal.
+            CobolValue::Float(f) => match crate::value::parse_decimal(&f.to_string()) {
+                Some(n) => Arg::Value(Value::Num(n)),
+                None => Arg::Value(Value::text(&f.to_string())),
+            },
+            other => Arg::Value(Value::text(&other.as_display_string())),
+        }
     }
 
     /// The members of the control (R20). `None` leaves a method to the rest of
@@ -134,12 +188,10 @@ impl Interpreter {
                     .iter()
                     .enumerate()
                     .skip(1)
-                    .map(|(i, v)| match origins.get(i).and_then(|o| o.clone()) {
-                        Some(raw) => Arg::Text(raw),
-                        None => match v {
-                            CobolValue::Numeric(n) => Arg::Value(Value::Num(n.clone())),
-                            other => Arg::Value(Value::text(&other.as_display_string())),
-                        },
+                    .map(|(i, v)| match origins.get(i) {
+                        Some(ArgOrigin::Property(raw)) => Arg::Text(raw.clone()),
+                        Some(ArgOrigin::Item(name)) => self.partiql_arg(Some(name), v.clone()),
+                        _ => self.partiql_arg(None, v.clone()),
                     })
                     .collect();
                 let outcome = self.partiql_outcome(obj, &text, &rest, unit);
@@ -509,9 +561,13 @@ impl Interpreter {
                 Some((ctl, prop)) => Arg::Text(self.obj_get(ctl.trim(), prop.trim())),
                 None => {
                     let name = self.env.resolve_name(p, &[]);
-                    match self.env.get(&name) {
-                        Some(CobolValue::Numeric(n)) => Arg::Value(Value::Num(n.clone())),
-                        Some(other) => Arg::Value(Value::text(&other.as_display_string())),
+                    // A group is its subordinate items' bytes, never its own slot.
+                    let value = match self.env.group_bytes(&name) {
+                        Some(bytes) => Some(CobolValue::String { capacity: bytes.len(), bytes }),
+                        None => self.env.get(&name).cloned(),
+                    };
+                    match value {
+                        Some(v) => self.partiql_arg(Some(&name), v),
                         None => Arg::Value(Value::Str(String::new())),
                     }
                 }
@@ -956,10 +1012,9 @@ impl Interpreter {
         let text = self.eval_call_arg(&using[1], span)?.as_display_string().trim_end().to_string();
         let mut args = Vec::new();
         for a in &using[4..] {
-            args.push(match self.eval_call_arg(a, span)? {
-                CobolValue::Numeric(n) => Arg::Value(Value::Num(n)),
-                other => Arg::Value(Value::text(&other.as_display_string())),
-            });
+            let v = self.eval_call_arg(a, span)?;
+            let item = self.partiql_item(super::call_arg_expr(a));
+            args.push(self.partiql_arg(item.as_deref(), v));
         }
         let outcome = self.partiql_file_outcome(&file, &text, &args);
         let mut res = FileResults::default();

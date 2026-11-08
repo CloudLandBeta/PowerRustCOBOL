@@ -1811,9 +1811,10 @@ pub struct Interpreter {
     aws_payloads: HashMap<String, std::collections::VecDeque<aws::AwsPayload>>,
     /// Spec 108 — the PartiQL state of each `IndexedFile` control.
     partiql: HashMap<String, partiql::PartiqlControl>,
-    /// Spec 108 (O2) — for the call being made, the raw text of each argument that
-    /// is a control's property, which reaches the method as a number when it looks like one.
-    partiql_arg_origin: Vec<Option<String>>,
+    /// Spec 108 (O2, R3) — for the call being made, where each argument came from:
+    /// a control's property keeps its raw text, which reaches the method as a number
+    /// when it looks like one, and a data item is typed by its declaration.
+    partiql_arg_origin: Vec<partiql::ArgOrigin>,
     /// Spec 108 — the last `COBOL::"PARTIQL"` result of each file the program opened.
     partiql_files: HashMap<String, partiql::FileResults>,
     /// Spec 108 — data path of every file a control holds → its `open_files` key.
@@ -6236,7 +6237,7 @@ impl Interpreter {
                 for a in args {
                     vals.push(self.eval_expr(a, *span)?);
                 }
-                self.partiql_note_origins(args);
+                self.partiql_note_origins(Some(object), args);
                 // 037 — window-supervisor calls (OpenForm*, handle methods,
                 // me:: window methods) dispatch first: they can raise runtime
                 // errors and OpenForm* must BIND the returning data-item as a
@@ -16026,7 +16027,7 @@ impl Interpreter {
                 for a in args {
                     vals.push(self.eval_expr(a, *span)?);
                 }
-                self.partiql_note_origins(args);
+                self.partiql_note_origins(segs.is_empty().then_some(root.as_str()), args);
                 segs.push(MemberSeg {
                     member: member.clone(),
                     parens: *parens,

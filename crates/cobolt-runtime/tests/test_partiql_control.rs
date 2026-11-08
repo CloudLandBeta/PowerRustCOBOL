@@ -264,8 +264,18 @@ fn partiql_control() {
     let out = run_with_fd(&proc_, &g, Some("true"));
     check(out.first().map(|l| l.trim().trim_start_matches('0')) == Some("2"), format!("AutoCommit on commits the statement and the pending WRITE: {out:?}"));
 
+    // R3 — a data item is typed by its PICTURE, not by what its storage holds: a group MOVE
+    // leaves the characters "00000004" in CUST-ID, still a Number against the key (was 94).
+    let h = project("ctl-f", true, 10);
+    let proc_ = "           MOVE \"00000004\" TO CUST-REC.\n           SET WS-N TO IXF-CUST::Execute(\"SELECT CUST-NAME FROM CUSTOMERS WHERE CUST-ID = ?\" CUST-ID).\n           DISPLAY WS-N.\n           DISPLAY IXF-CUST::StatusCode.\n";
+    let out = run_with_fd(proc_, &h, None);
+    check(
+        out.first().map(|l| l.trim().trim_start_matches('0')) == Some("1") && out.get(1).is_some_and(|l| matches!(l.trim(), "0" | "00")),
+        format!("a PIC 9(8) key filled by a group MOVE is a Number: {out:?}"),
+    );
+
     println!("\n=== test_partiql_control ===");
-    println!("forms exercised: Execute, Fetch, Get(name|position), ColumnNames, ResultCount/StatusCode/LastError, property reads (IXF-CUST::CUST-BALANCE), INSERT into a file created from the .cidx, INPUT on a missing file, ResourceNotFoundException, a form that declares the FD (shared engine, ROLLBACK, AutoCommit on/off)");
+    println!("forms exercised: Execute, Fetch, Get(name|position), ColumnNames, ResultCount/StatusCode/LastError, property reads (IXF-CUST::CUST-BALANCE), INSERT into a file created from the .cidx, INPUT on a missing file, ResourceNotFoundException, a form that declares the FD (shared engine, ROLLBACK, AutoCommit on/off), a ? from a PIC 9(8) key filled by a group MOVE");
     println!("PICTUREs: 9(8), X(40), S9(6)V99, X(20) in group BILLING; engine: PRCIDXD1 (100 records); no SELECT / FD declared");
     println!("checks: {} passed, {} failed; elapsed {} ms", checks - failures.len(), failures.len(), t0.elapsed().as_millis());
     for f in &failures {

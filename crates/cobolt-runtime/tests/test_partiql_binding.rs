@@ -149,11 +149,13 @@ fn partiql_binding() {
     };
     let body = "           MOVE 10 TO WS-ID.\n           SET WS-N TO DG-1::RefreshBinding().\n           DISPLAY WS-N.\n           DISPLAY DG-1::Rows.\n           DISPLAY \"SV[\" DG-1::SelectedValue \"]\".\n           MOVE 2 TO DG-1::ClickedRow.\n           DISPLAY \"SV[\" DG-1::SelectedValue \"]\".\n           SET WS-N TO CMB-1::RefreshBinding().\n           DISPLAY WS-N.\n           DISPLAY CMB-1::Items.\n           DISPLAY \"CV[\" CMB-1::SelectedValue \"]\".\n           MOVE 3 TO CMB-1::SelectedIndex.\n           DISPLAY \"CV[\" CMB-1::SelectedValue \"]\".\n           SET WS-N TO IXF-CUST::Execute(\"SELECT CUST-ID, CUST-NAME FROM CUSTOMERS WHERE CUST-ID <= 4\").\n           SET WS-N TO DG-FOLLOW::RefreshBinding().\n           DISPLAY WS-N.\n           MOVE \"DELETE FROM CUSTOMERS WHERE CUST-ID = 1\" TO DG-1::BindingQuery.\n           DISPLAY IXF-CUST::StatusCode.\n           MOVE \"SELECT CUST-ID FROM CUSTOMERS WHERE CUST-ID = 2\" TO DG-1::BindingQuery.\n           SET WS-N TO DG-1::RefreshBinding().\n           DISPLAY WS-N.\n           MOVE \"SELECT CUST-ID FROM CUSTOMERS WHERE CUST-ID BETWEEN ? AND ?\" TO DG-1::BindingQuery.\n           SET WS-N TO DG-1::RefreshBinding().\n           DISPLAY IXF-CUST::StatusCode.\n";
     let mut controls = controls();
-    // WS-HI is a numeric data item the parameters name.
-    let src_body = body.replace("MOVE 10 TO WS-ID.", "MOVE 10 TO WS-ID.\n           MOVE 10 TO WS-HI.");
+    // WS-HI is a numeric data item the parameters name. Last, a group MOVE leaves the
+    // characters "00000012" in it: by its PICTURE still a Number, so ids 4..12 (R3).
+    let src_body = body.replace("MOVE 10 TO WS-ID.", "MOVE 10 TO WS-ID.\n           MOVE 10 TO WS-HI.")
+        + "           MOVE \"00000012\" TO WS-RANGE.\n           SET WS-N TO DG-1::RefreshBinding().\n           DISPLAY \"GROUP-HI \" WS-N.\n";
     let out = {
         let src = format!(
-            "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. T.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01 WS-N PIC 9(4).\n       01 WS-ID PIC 9(8).\n       01 WS-HI PIC 9(8).\n       PROCEDURE DIVISION.\n{src_body}           STOP RUN.\n"
+            "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. T.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01 WS-N PIC 9(4).\n       01 WS-ID PIC 9(8).\n       01 WS-RANGE.\n           05 WS-HI PIC 9(8).\n       PROCEDURE DIVISION.\n{src_body}           STOP RUN.\n"
         );
         let parsed = parse(tokenize(&src, SourceFormat::Free));
         assert!(parsed.diagnostics.iter().all(|d| d.severity != Severity::Error), "parse errors: {:?}\n{src}", parsed.diagnostics);
@@ -178,9 +180,11 @@ fn partiql_binding() {
     check(shown.iter().any(|l| l.trim().trim_start_matches('0') == "2"), format!("follow: {all}"));
     // AC14 — a DELETE as BindingQuery is refused with 94.
     check(shown.iter().any(|l| l.trim() == "94"), format!("BindingQuery refuses a DELETE: {all}"));
+    // R3 — a parameter filled by a group MOVE is typed by its PICTURE: even ids 4..12.
+    check(shown.iter().any(|l| l.trim() == "GROUP-HI 0005"), format!("a group-filled PIC 9(8) parameter: {all}"));
 
     println!("\n=== test_partiql_binding ===");
-    println!("forms exercised: PartiQL-bound DataGrid (parameters from a TextBox property and a data item), ComboBox with SelectedValue, DataGrid SelectedValue (ClickedRow), a grid that follows the control, BindingQuery refused for a DELETE");
+    println!("forms exercised: PartiQL-bound DataGrid (parameters from a TextBox property and a data item, also filled by a group MOVE), ComboBox with SelectedValue, DataGrid SelectedValue (ClickedRow), a grid that follows the control, BindingQuery refused for a DELETE");
     println!("PICTUREs: 9(8), X(40), S9(6)V99; engine: PRCIDXD1 (50 records); no SELECT / FD declared");
     println!("checks: {} passed, {} failed; elapsed {} ms", checks - failures.len(), failures.len(), t0.elapsed().as_millis());
     for f in &failures {

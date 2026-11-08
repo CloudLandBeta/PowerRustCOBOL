@@ -3317,6 +3317,47 @@ impl CobolEnvironment {
         Some(CobolNumeric::new(mantissa, decimals))
     }
 
+    /// The number a **declared numeric** item holds, read by its PICTURE and
+    /// never by the kind of value its slot happens to hold (spec 108 R3).
+    ///
+    /// `v` is the item's value as read (one occurrence's, for a subscripted
+    /// reference). A number is itself, and a never-written item is zero, as a
+    /// `MOVE` sends it. Characters are what a group `MOVE` or a REDEFINES
+    /// leaves in a `PIC 9` item, since a group move is alphanumeric (see
+    /// [`Self::set_group_bytes`]). They are read as the item's own digit
+    /// positions, with the implied decimal point where the PICTURE puts it and
+    /// the sign overpunched on the last byte or standing separate at either end.
+    ///
+    /// `None` when the item is not declared numeric (alphanumeric, edited,
+    /// national, a group or undeclared), or when its characters spell no
+    /// number (spaces, letters): no number is invented for those.
+    pub fn numeric_by_picture(&self, name: &str, v: &CobolValue) -> Option<CobolNumeric> {
+        let key = name.to_ascii_uppercase();
+        let &(_, decimals) = self.field_caps.get(&key).or_else(|| self.field_caps.get(base_name(&key)))?;
+        let bytes = match v {
+            CobolValue::Numeric(n) => return Some(n.clone()),
+            CobolValue::Unset => return Some(CobolNumeric::new(0, decimals)),
+            CobolValue::String { bytes, .. } => bytes.as_slice(),
+            CobolValue::Float(_) => return None,
+        };
+        if let Some(CobolValue::Numeric(n)) = self.decode_overpunched_slice(&key, bytes) {
+            return Some(n);
+        }
+        let (negative, digits) = match bytes {
+            [b'-', rest @ ..] | [rest @ .., b'-'] => (true, rest),
+            [b'+', rest @ ..] | [rest @ .., b'+'] => (false, rest),
+            _ => (false, bytes),
+        };
+        if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+            return None;
+        }
+        let mut mantissa: i128 = 0;
+        for &b in digits {
+            mantissa = mantissa.checked_mul(10)?.checked_add((b - b'0') as i128)?;
+        }
+        Some(CobolNumeric::new(if negative { -mantissa } else { mantissa }, decimals))
+    }
+
     /// `true` if the named item is a plain alphanumeric field (not numeric-edited).
     /// Digits after the implied decimal point in this item's PICTURE, or 0 for
     /// an item that has none. See [`ItemSym::pic_decimals`].
