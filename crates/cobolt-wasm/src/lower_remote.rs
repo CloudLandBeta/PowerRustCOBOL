@@ -41,7 +41,9 @@ pub const APP_VERBS: &[&str] = &[
     "SETPROPERTY",
     "STOPRUN",
     "EXIT",
-    // The phone shell's (WASM-012 R9, ABI A26): a Mobile module only.
+    // The phone shell's (WASM-012 R9, ABI A26): a Mobile module only. Unlike
+    // the verbs above they ARE in `BUILTINS`: the desktop interpreter
+    // dispatches them, to refuse them with a run-time error.
     "SECURESTORE",
     "SECURELOAD",
     "SECUREDELETE",

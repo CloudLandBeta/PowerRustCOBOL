@@ -5332,6 +5332,9 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | `COBOL::"RAISE-EVENT"` | object in, event in, [argument in] | Queue a control's event as the control raises it: its handler runs after the running one |
 | `COBOL::"ROW-COUNT"` | handle in, count out | How many rows the last result set has |
 | `COBOL::"SAVE-FILE-DIALOG"` | title in, [filter in], [file-name in], [start-folder in], path out | Ask the operator where to save; spaces when cancelled |
+| `COBOL::"SECUREDELETE"` | key in | In a Mobile application, delete a key from the phone's secure storage; `COBOL::SecureStatus` is `0` done, `1` nothing there, `-6` refused. A desktop program stops with a run-time error unless the call names `ON EXCEPTION` |
+| `COBOL::"SECURELOAD"` | key in, [value out] | In a Mobile application, read a key's value from the phone's secure storage into value and `COBOL::SecureValue`; `COBOL::SecureStatus` is `0` found, `1` nothing there, `-6` refused. A desktop program stops with a run-time error unless the call names `ON EXCEPTION` |
+| `COBOL::"SECURESTORE"` | key in, value in | In a Mobile application, keep a value under a key in the phone's secure storage (Android Keystore, iOS Keychain); `COBOL::SecureStatus` is `0` done, `-6` refused. A desktop program stops with a run-time error unless the call names `ON EXCEPTION` |
 | `COBOL::"SET-PROPERTY"` | object in, property in, value in | Set a control's property |
 | `COBOL::"WAIT-EVENT"` | event-id out, control-id out | Wait for the next event (generated code calls it) |
 | `COBOL::"WRITE-FILE"` | path in, text in, [status out] | Write a file holding one line of text, replacing it |

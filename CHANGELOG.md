@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.310 — 2026-11-08
+
+**Fix: the table of built-ins lists `COBOL::SecureStore`, `SecureLoad` and `SecureDelete`, which the interpreter has dispatched since 2.0.288.** *(Forward-port of 2.0.309, eee398ec on fixes-2x-builtins-secure; renumbered 2.0.310.)*
+
+- **Symptom:** `cargo test -p cobolt-runtime --lib` failed in `builtins::tests::the_table_is_every_builtin_the_interpreter_dispatches` with "dispatched but not in BUILTINS: [SECUREDELETE, SECURELOAD, SECURESTORE]". WASM-012 (2.0.288) added the three verbs to `exec_call`, which refuses them on the desktop, but not to `BUILTINS`, the table that the editor's `COBOL::` completion, the coding agent's reference listing and the System KB are built from.
+- **Fix:** `crates/cobolt-runtime/src/builtins.rs` lists the three in alphabetical order: `SECUREDELETE` (key in), `SECURELOAD` (key in, [value out]) and `SECURESTORE` (key in, value in). Each says that it works in a Mobile application, what `COBOL::SecureStatus` answers, and that a desktop program stops with a run-time error unless the call names `ON EXCEPTION`.
+- **The tables that follow `BUILTINS`:**
+  - `cobolt-wasm`'s `BUILTIN_TABLE` classifies the three as running in a module, on the phone's secure storage through the mobile shell, for Mobile projects only. A Web module still refuses them at their line before the row is read.
+  - The System KB's built-ins table in `rustcobol_extensions.md` has a row for each.
+  - The IDE text table has their descriptions in the six languages.
+  - The comment on `APP_VERBS` no longer says these verbs are missing from `BUILTINS`.
+- **System KB:** `assets/knowledge/chunked.data` is rebuilt with `build_chunked_kb` (release, 4,292 records from 8 documents). This Mac has no model in `~/PowerRustCOBOL/data/models`, so the builder ran with `HOME` pointed at a scratch folder linking the `multilingual-e5-small` copy in `examples/PowerChat/dist/models`.
+- **Checked:**
+  - `cargo test -p cobolt-runtime --lib`: 563 passed, 0 failed, 3 ignored. The guard reports 83 built-ins dispatched and 83 listed.
+  - `cargo test -p cobolt-wasm`: 107 passed, 0 failed, among them `subset_table` and the Mobile and Web secure-verb tests in `forms`.
+  - `cargo test -p cobolt-project-tools`: 249 passed, 0 failed.
+  - `cobolt-compiler`'s `published_documentation_tests` and `mobile_features` tests pass.
+  - `cargo test -p cobolt-ide --bin cobolt-ide`: 1,982 passed, 5 failed, 6 ignored.
+    - Three failures are the known reds: `docs_embed` and the two live crates.io tests.
+    - `backend_run::…reads_its_log_and_stops_it` passes when run on its own.
+    - `a_menu_reorder_request_retrieves_the_sidemenu_structure` fails only because the model is missing here: the query falls back to the hashing embedder. With the model visible it passes (SideMenu, 0.890), as do the KB freshness test, the 83-built-in KB test, the six-language completion check (432 descriptions, none missing) and `ui_text`.
+
 ## 2.0.309 — 2026-11-08
 
 **Fix: a BarChart writes its category labels — each point's label under its bars, or left of them when horizontal — on the desktop and on the web alike.** *(Written on fixes-2x-chart-legend-labels, after 2.0.307. Numbered 2.0.308 there; merged into 2.x.x as 2.0.309.)*

@@ -184,6 +184,7 @@ const SECRETS: &str = "keys and model providers stay on the backend; call a back
 const BACKEND_VERB: &str = "it is a verb of a backend program, which runs on the server";
 const NO_PATHS: &str = "a browser page has no file paths; let the backend hold the file";
 const IDENTITY: &str = "identity operations run in the Backend, through its /auth routes; on the page the Authentication control signs the user in (WASM-009 D15)";
+const PHONE_STORE: &str = "the phone's secure storage, through the mobile shell (Mobile projects only; a Web project's Build refuses it)";
 
 const fn c(name: &'static str, support: Support) -> BuiltinClass {
     BuiltinClass { name, support, api: None }
@@ -256,6 +257,12 @@ pub const BUILTIN_TABLE: &[BuiltinClass] = &[
     c("RAISE-EVENT", Support::Module),
     c("ROW-COUNT", Support::BackendOnly(SQL)),
     c("SAVE-FILE-DIALOG", Support::Unsupported(NO_PATHS)),
+    // The phone shell's verbs (WASM-012 R9, ABI A26): a Mobile module compiles
+    // them onto the application object; a Web module refuses them at their
+    // line before this row is read (`lower_remote::is_mobile_verb`).
+    web("SECUREDELETE", PHONE_STORE, BOTH),
+    web("SECURELOAD", PHONE_STORE, BOTH),
+    web("SECURESTORE", PHONE_STORE, BOTH),
     c("SET-PROPERTY", Support::Module),
     c("WAIT-EVENT", Support::Module),
     c("WRITE-FILE", Support::BackendOnly(FILES)),
