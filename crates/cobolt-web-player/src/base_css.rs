@@ -200,12 +200,16 @@ div.pr-line > svg > line { stroke: var(--pr-line-color, currentColor); stroke-wi
 .pr-badge-outline { background: transparent; }
 .pr-badge-count { min-width: 1.6em; text-align: center; padding: 0 .3em; }
 .pr-sidemenu { display: flex; flex-direction: column; overflow: hidden; }
-.pr-sm-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; min-height: 48px; }
-.pr-sm-header img { max-height: 40px; max-width: 100%; }
+.pr-sm-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; min-height: 120px; }
+.pr-sm-header img { max-height: 80px; max-width: min(270px, 100%); }
 .pr-sm-title { font-weight: 600; }
 .pr-sm-toggle { align-self: flex-end; margin: 0 8px 4px; background: transparent; border: 0; color: inherit; cursor: pointer; font: inherit; }
 .pr-sm-items { flex: 1; overflow: auto; margin: 0; padding: 0; list-style: none; }
-.pr-sidemenu .pr-menu-items { position: static; margin: 0; padding: 0 0 0 1em; list-style: none; }
+.pr-sidemenu .pr-menu-items { position: static; margin: 0; padding: 0 0 0 16px; list-style: none; }
+/* The rail's rows as the desktop paints them (sidebar.rs: ROW_H 42, ROW_GAP 4, PAD_X 12, ICON 22, NEST_INDENT 16, RADIUS 10). */
+.pr-sidemenu .pr-menu { margin-bottom: 4px; }
+.pr-sidemenu .pr-menu > button { min-height: 42px; padding: 0 12px; gap: 10px; border-radius: 10px; }
+.pr-sidemenu .pr-menu-icon { width: 22px; height: 22px; }
 .pr-sidemenu .pr-chevron { margin-left: auto; opacity: .7; }
 .pr-sidemenu.pr-collapsed .pr-menu-label, .pr-sidemenu.pr-collapsed .pr-menu-accel, .pr-sidemenu.pr-collapsed .pr-badge, .pr-sidemenu.pr-collapsed .pr-chevron,
 .pr-sidemenu.pr-collapsed .pr-menu-section { display: none; }

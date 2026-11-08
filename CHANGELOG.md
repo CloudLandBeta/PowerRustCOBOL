@@ -1,5 +1,10 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.315 — 2026-11-08
+
+**Fix: the web page's sidebar rail takes the desktop's measurements.** The Designer paints each rail row 42 px high with a 4 px gap, 12 px side padding, 22 px icons, 16 px nesting and a logo up to 270 × 80 in a 120 px header; the page used generic menu styles (rows about 28 px, 16 px icons, a 40 px logo), so the same text sat visibly tighter in the browser than in the RAD. The rail now uses the desktop's numbers. Other controls were not compared in this change. *(Written on fixes-2x-import-picked-asset, after 2.0.314.)*
+Tests: `cobolt-web-player` lib 439 passed; `assets/web-player` rebuilt. The `cobolt-web-bundle` freshness test was NOT run (the disk filled); the page has not been looked at in a browser.
+
 ## 2.0.314 — 2026-11-08
 
 **Fix: an image picked in the Inspector from outside the project is copied into `Assets/` and stored relative, and the project lists it.** The pickers stored the absolute path, which a Web build carries into the bundle unchanged: PowerOficina's sidebar logo showed in the Designer and not in the browser, because the form pointed at the developer's Downloads folder. Every image picker (Picture, Icon, Header image and icon, Background, the form's own) now imports the file; a name already taken by other content is not overwritten (`-2`, `-3`…), the same content is reused, a file already inside the project is only made relative. The Documents picker is unchanged. *(Written on fixes-2x-import-picked-asset, after 2.0.311; 2.0.312 and 2.0.313 are on other branches.)*
