@@ -120,6 +120,10 @@ pub fn tab_geometry(c: &Ctl) -> (i32, Rect) {
 /// local positions count from, and the size anchors are measured against.
 pub fn child_space(ctls: &[Ctl], i: usize) -> ((f64, f64), (f64, f64)) {
     let c = &ctls[i];
+    if let Some((x, y, w, h)) = side_menu_footer_band(ctls, i) {
+        let b = border_px(c);
+        return ((x + b, y + b), ((w - 2.0 * b).max(0.0), (h - 2.0 * b).max(0.0)));
+    }
     let (x, y) = (num(c, "x").unwrap_or(0.0), num(c, "y").unwrap_or(0.0));
     let (w, h) = (num(c, "width").unwrap_or(0.0), num(c, "height").unwrap_or(0.0));
     match &c.kind {
@@ -134,6 +138,36 @@ pub fn child_space(ctls: &[Ctl], i: usize) -> ((f64, f64), (f64, f64)) {
         }
         _ => ((x, y), (w, h)),
     }
+}
+
+/// How tall a SideMenu's footer band is: its `FooterHeight`, or the desktop's default when unset.
+fn side_menu_footer_height(side: &Ctl) -> f64 {
+    num(side, "footerheight").filter(|h| *h >= 0.0).unwrap_or(cobolt_forms::model::DEFAULT_SIDE_MENU_FOOTER_H as f64)
+}
+
+/// Does SideMenu `i` hold its footer Panel?
+fn has_footer_panel(ctls: &[Ctl], i: usize) -> bool {
+    ctls[i].children.iter().any(|&k| side_menu_footer_band(ctls, k).is_some())
+}
+
+/// When control `i` is the Panel a SideMenu owns in its footer band, that band in form space
+/// (`x, y, w, h`): the rail's width, `FooterHeight` tall, at the rail's foot. The desktop pins the Panel
+/// there whatever rectangle the file gives it (`FormModel::sync_side_menu_footer_panels`), and the
+/// controls inside it keep their form-space positions, so they count from the band, not from the file.
+pub fn side_menu_footer_band(ctls: &[Ctl], i: usize) -> Option<(f64, f64, f64, f64)> {
+    let c = &ctls[i];
+    if !matches!(&c.kind, Kind::Control(ControlType::Panel)) || !c.flag(cobolt_forms::model::SIDE_MENU_FOOTER_PROP) {
+        return None;
+    }
+    let side = &ctls[c.parent?];
+    if !matches!(&side.kind, Kind::Control(ControlType::SideMenu)) {
+        return None;
+    }
+    let full_height = !matches!(side.raw("fullheight").map(str::trim), Some("false" | "0"));
+    let (x, w) = (num(side, "x").unwrap_or(0.0), num(side, "width").unwrap_or(0.0));
+    let (y, h) = if full_height { (0.0, num(&ctls[0], "height").unwrap_or(0.0)) } else { (num(side, "y").unwrap_or(0.0), num(side, "height").unwrap_or(0.0)) };
+    let fh = side_menu_footer_height(side).min(h.max(0.0));
+    Some((x, y + h - fh, w, fh))
 }
 
 fn is_splitter_pane(ctls: &[Ctl], i: usize) -> bool {
@@ -585,6 +619,10 @@ pub fn kind_decls(ctls: &[Ctl], i: usize) -> Decls {
                 if let Some(n) = num(c, "collapsedwidth") {
                     push(&mut d, "--pr-rail-collapsed", px(n));
                 }
+                // The footer band is as tall as `FooterHeight` while the rail holds its footer Panel; without one it takes no room.
+                if has_footer_panel(ctls, i) {
+                    push(&mut d, "--pr-sm-footer-h", px(side_menu_footer_height(c)));
+                }
             }
         }
         _ => {}
@@ -614,7 +652,8 @@ pub fn control_decls(ctls: &[Ctl], i: usize, responsive: bool) -> Decls {
         return d;
     }
     let parent = c.parent.unwrap_or(0);
-    if let Some(_pane) = splitter_pane(ctls, i) {
+    if splitter_pane(ctls, i).is_some() || side_menu_footer_band(ctls, i).is_some() {
+        // A splitter's pane fills its slot; so does a SideMenu's footer Panel, whose slot is the rail's footer band.
         push(&mut d, "position", "absolute");
         push(&mut d, "inset", "0");
     } else {
@@ -928,6 +967,34 @@ mod tests {
         assert_eq!(css.matches('{').count(), css.matches('}').count(), "braces still balance: {css}");
         assert!(!css.contains("body {"), "{css}");
         assert_eq!(css_string("a\"b\\c"), "a\\\"b\\\\c");
+    }
+
+    #[test]
+    fn a_side_menus_footer_panel_fills_the_footer_band_and_its_controls_count_from_the_band() {
+        // The rail runs the form's full height (480); its footer band is the bottom 96 points. The file gives the Panel a
+        // rectangle of its own (y 900) that the desktop never uses: it pins the Panel to the band.
+        let t = tree_of(
+            r#"<Control id="SM" type="SideMenu" x="0" y="0" w="248" h="480"><Property name="FooterHeight">96</Property></Control>
+               <Control id="SM-Footer" type="Panel" x="0" y="900" w="248" h="96" parent="SM"><Property name="IsSideMenuFooter">true</Property><Property name="BorderStyle">None</Property></Control>
+               <Control id="CARD" type="Panel" x="16" y="396" w="216" h="72" parent="SM-Footer"><Property name="BorderStyle">None</Property></Control>"#,
+        );
+        let (sm, footer, card) = (t.by_name("SM").unwrap(), t.by_name("SM-Footer").unwrap(), t.by_name("CARD").unwrap());
+        assert_eq!(side_menu_footer_band(&t.ctls, footer), Some((0.0, 384.0, 248.0, 96.0)));
+        let d = control_decls(&t.ctls, footer, false);
+        assert_eq!((decl(&d, "position"), decl(&d, "inset"), decl(&d, "top")), (Some("absolute"), Some("0"), None), "the Panel fills the band");
+        let d = control_decls(&t.ctls, card, false);
+        assert_eq!((decl(&d, "left"), decl(&d, "top")), (Some("16px"), Some("12px")), "16-0, 396-384");
+        assert_eq!(decl(&kind_decls(&t.ctls, sm), "--pr-sm-footer-h"), Some("96px"), "the band is FooterHeight tall");
+        assert!(base_css_has_footer_height(), "the footer element takes its height from the rail");
+
+        // A rail without a footer Panel keeps a footer that takes no room, and a Panel that is not the footer is not pinned.
+        let t = tree_of(r#"<Control id="SM" type="SideMenu" x="0" y="0" w="248" h="480"></Control><Control id="P" type="Panel" x="0" y="10" w="20" h="20" parent="SM"></Control>"#);
+        assert_eq!(decl(&kind_decls(&t.ctls, t.by_name("SM").unwrap()), "--pr-sm-footer-h"), None);
+        assert_eq!(side_menu_footer_band(&t.ctls, t.by_name("P").unwrap()), None);
+    }
+
+    fn base_css_has_footer_height() -> bool {
+        crate::base_css::BASE_CSS.contains(".pr-sm-footer { flex: none; position: relative; height: var(--pr-sm-footer-h, auto); }")
     }
 
     #[test]

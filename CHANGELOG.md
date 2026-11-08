@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.306 — 2026-11-07
+
+**Fix: a SideMenu's footer Panel shows in a Web application, pinned to the rail's footer band as on the desktop.** *(Written on fixes-2x-web-activateitem, after 2.0.305.)*
+
+- **Symptom:** PowerOficina put a name card in its rail's footer Panel (`SIDEMENU-1-Footer`). The card showed on the desktop but not in the browser. The web player gave the rail's footer no height. It also placed the Panel at the rectangle written in the file, measured from the footer's top. The Panel and everything in it landed far below the window, where the rail clips them. Any web form with a footer Panel was affected.
+- **Fix:** the web player now follows the desktop's rule (`FormModel::sync_side_menu_footer_panels`).
+  - The footer band is `FooterHeight` tall (72 when unset) while the rail holds its footer Panel. A rail without one keeps a footer that takes no room.
+  - The Panel fills the band.
+  - The controls inside it count their positions from the band, the place the desktop pins the Panel to, so they sit where the designer showed them.
+  - The player in `assets/web-player/` is rebuilt.
+- **Checked:**
+  - New test `a_side_menus_footer_panel_fills_the_footer_band_and_its_controls_count_from_the_band`. It covers a Panel whose file rectangle is wrong, the band's height, a child's position, a rail with no footer Panel, and a Panel that is not the footer.
+  - The whole `cobolt-web-player` sweep passes: 436 library tests plus the integration suites. The freshness test passes after the rebuild.
+  - In the browser, PowerOficina's rail shows its name card at the foot of the rail on every screen.
+
 ## 2.0.305 — 2026-11-07
 
 **Fix: `SideMenu::ActivateItem` works in a Web application, so a page can open on the form its program chooses.** *(Written on fixes-2x-web-activateitem, after 2.0.304.)*

@@ -209,7 +209,7 @@ div.pr-line > svg > line { stroke: var(--pr-line-color, currentColor); stroke-wi
 .pr-sidemenu .pr-chevron { margin-left: auto; opacity: .7; }
 .pr-sidemenu.pr-collapsed .pr-menu-label, .pr-sidemenu.pr-collapsed .pr-menu-accel, .pr-sidemenu.pr-collapsed .pr-badge, .pr-sidemenu.pr-collapsed .pr-chevron,
 .pr-sidemenu.pr-collapsed .pr-menu-section { display: none; }
-.pr-sm-footer { flex: none; position: relative; }
+.pr-sm-footer { flex: none; position: relative; height: var(--pr-sm-footer-h, auto); }
 .pr-main[data-shell] > .pr-form-root > .pr-form > .pr-surface > .pr-sidemenu { width: var(--pr-rail, 220px) !important; top: 0 !important; bottom: 0 !important; height: auto !important; }
 .pr-shell-pane { position: absolute; top: 0; right: 0; bottom: 0; left: var(--pr-rail-end, 220px); display: flex; flex-direction: column; pointer-events: none; }
 .pr-shell-pane > * { pointer-events: auto; }
