@@ -1724,6 +1724,53 @@ impl From<std::io::Error> for ProjectError {
     }
 }
 
+/// Make a picked file part of the project: a file already under `root` is
+/// returned as its relative path; any other is copied into `root/Assets/` and
+/// returned as that copy's relative path. A name already taken by a file with
+/// the same content is reused; by a different one, `-2`, `-3`… is added before
+/// the extension, so nothing of the developer's is overwritten. The flag says
+/// whether a file was added (the caller registers it in the manifest).
+pub fn import_asset(root: &Path, src: &Path) -> std::io::Result<(String, bool)> {
+    if let Ok(rel) = src.strip_prefix(root) {
+        return Ok((rel.to_string_lossy().replace('\\', "/"), false));
+    }
+    let name = src.file_name().and_then(|n| n.to_str()).ok_or_else(|| std::io::Error::other("the file has no name"))?;
+    let dir = root.join(Category::Assets.root_subdir());
+    std::fs::create_dir_all(&dir)?;
+    let bytes = std::fs::read(src)?;
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) => (s.to_owned(), format!(".{e}")),
+        None => (name.to_owned(), String::new()),
+    };
+    for n in 1u32.. {
+        let candidate = if n == 1 { name.to_owned() } else { format!("{stem}-{n}{ext}") };
+        let dest = dir.join(&candidate);
+        let rel = format!("{}/{candidate}", Category::Assets.root_subdir());
+        match std::fs::read(&dest) {
+            Ok(existing) if existing == bytes => return Ok((rel, false)),
+            Ok(_) => continue,
+            Err(_) => {
+                std::fs::write(&dest, &bytes)?;
+                return Ok((rel, true));
+            }
+        }
+    }
+    unreachable!()
+}
+
+/// Files imported by a picker, waiting for the IDE to list them in the manifest.
+static IMPORTED_ASSETS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+pub fn queue_imported_asset(rel: String) {
+    if let Ok(mut q) = IMPORTED_ASSETS.lock() {
+        q.push(rel);
+    }
+}
+
+pub fn take_imported_assets() -> Vec<String> {
+    IMPORTED_ASSETS.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default()
+}
+
 pub fn load_project(path: &Path) -> Result<CoboltProject, ProjectError> {
     let text = std::fs::read_to_string(path)?;
     let mut project: CoboltProject = toml::from_str(&text).map_err(|e| ProjectError::Toml(e.to_string()))?;
@@ -3109,6 +3156,27 @@ mod project_kind_tests {
         let mut desktop = CoboltProject::new("D", "");
         assert!(desktop.adopt_backend_files(&dir).is_empty(), "Desktop has no Backend");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A picked image from outside the project is copied into `Assets/` and stored
+    /// relative; a name taken by other content is not overwritten; the same
+    /// content is reused; a file inside the project is only made relative.
+    #[test]
+    fn a_picked_image_from_outside_is_copied_into_assets() {
+        let base = std::env::temp_dir().join("prc-ide-import-asset");
+        let _ = std::fs::remove_dir_all(&base);
+        let (root, out) = (base.join("proj"), base.join("downloads"));
+        std::fs::create_dir_all(root.join("Assets")).unwrap();
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("logo.png"), b"one").unwrap();
+        assert_eq!(import_asset(&root, &out.join("logo.png")).unwrap(), ("Assets/logo.png".to_owned(), true));
+        assert_eq!(std::fs::read(root.join("Assets/logo.png")).unwrap(), b"one");
+        assert_eq!(import_asset(&root, &out.join("logo.png")).unwrap(), ("Assets/logo.png".to_owned(), false), "same content: reused");
+        std::fs::write(out.join("logo.png"), b"two").unwrap();
+        assert_eq!(import_asset(&root, &out.join("logo.png")).unwrap(), ("Assets/logo-2.png".to_owned(), true), "other content: a new name");
+        assert_eq!(std::fs::read(root.join("Assets/logo.png")).unwrap(), b"one", "the first is untouched");
+        assert_eq!(import_asset(&root, &root.join("Assets/logo.png")).unwrap(), ("Assets/logo.png".to_owned(), false));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// Forms and the Backend go to their lists by the project's kind; a Desktop

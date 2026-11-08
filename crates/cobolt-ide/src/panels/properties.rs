@@ -451,6 +451,27 @@ fn store_asset_path(p: &std::path::Path) -> String {
     }
 }
 
+/// A picked **image**, stored the way a form must carry it. One inside the
+/// project is stored relative; one outside it is copied into the project's
+/// `Assets/` first and stored relative to that copy — an absolute path into the
+/// developer's Downloads folder reaches the browser bundle as it is, where the
+/// file does not exist (PowerOficina: the sidebar logo showed in the Designer
+/// and not in the page). The copy is queued so the project lists it.
+fn store_image_path(p: &std::path::Path) -> String {
+    match cobolt_forms::assets::current_base() {
+        Some(root) => match crate::project_model::import_asset(&root, p) {
+            Ok((rel, imported)) => {
+                if imported {
+                    crate::project_model::queue_imported_asset(rel.clone());
+                }
+                rel
+            }
+            Err(_) => cobolt_forms::assets::store(&root, p),
+        },
+        None => p.to_string_lossy().to_string(),
+    }
+}
+
 pub(crate) fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response {
     use egui::color_picker::show_color_at;
     use egui::{Sense, Stroke, Vec2};
@@ -5770,7 +5791,7 @@ impl PropertiesPanel {
                 ui.ctx().request_repaint();
             }
             if let Some(Some(p)) = crate::file_dialog::take(&pick_key) {
-                let picked = store_asset_path(&p);
+                let picked = store_image_path(&p);
                 *buf = picked.clone();
                 action
                     .set_props
@@ -12682,7 +12703,7 @@ impl PropertiesPanel {
                     ui.ctx().request_repaint();
                 }
                 if let Some(Some(p)) = crate::file_dialog::take(&pick_k) {
-                    let path_str = store_asset_path(&p);
+                    let path_str = store_image_path(&p);
                     *buf = path_str.clone();
                     action.layer_props.push(("BackgroundImage".into(), path_str));
                 }
@@ -12973,7 +12994,7 @@ impl PropertiesPanel {
                             ui.ctx().request_repaint();
                         }
                         if let Some(Some(p)) = crate::file_dialog::take(&pick_k) {
-                            let path_str = store_asset_path(&p);
+                            let path_str = store_image_path(&p);
                             *tb_buf = path_str.clone();
                             action.form_props.push(("TaskbarIcon".into(), path_str));
                         }
@@ -13549,7 +13570,7 @@ impl PropertiesPanel {
                             ui.ctx().request_repaint();
                         }
                         if let Some(Some(p)) = crate::file_dialog::take(&pick_k) {
-                            let path_str = store_asset_path(&p);
+                            let path_str = store_image_path(&p);
                             *buf = path_str.clone();
                             action.form_props.push(("BackgroundImage".into(), path_str));
                         }
@@ -16186,7 +16207,7 @@ fn image_browse_row(
             ui.ctx().request_repaint();
         }
         if let Some(Some(p)) = crate::file_dialog::take(&pick_key) {
-            let path_str = store_asset_path(&p);
+            let path_str = store_image_path(&p);
             *buf = path_str.clone();
             action.set_props.push((
                 ctrl_id.to_owned(),

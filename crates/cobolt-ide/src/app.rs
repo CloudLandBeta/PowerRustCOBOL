@@ -16940,6 +16940,16 @@ impl eframe::App for CoboltApp {
         self.show_native_project_step(ctx);
         self.show_web_preview(ctx);
         self.poll_backend(ctx);
+        // Images a property picker copied into Assets/: list them in the project.
+        let imported = crate::project_model::take_imported_assets();
+        if !imported.is_empty() {
+            if let Some(proj) = &mut self.cobolt_project {
+                for rel in &imported {
+                    proj.add_file_to(rel, crate::project_model::Category::Assets);
+                }
+            }
+            self.do_save_project();
+        }
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
