@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.309 — 2026-11-08
+
+**Fix: a BarChart writes its category labels — each point's label under its bars, or left of them when horizontal — on the desktop and on the web alike.** *(Written on fixes-2x-chart-legend-labels, after 2.0.307. Numbered 2.0.308 there; merged into 2.x.x as 2.0.309.)*
+
+- **Symptom:** PowerOficina's `CH-MONTHS` was fed twelve months with `AddPoint(label, v1, v2)` and showed no month at all, in the browser or on the desktop.
+- **Cause:** neither painter wrote them. The desktop's `draw_chart_preview` named a category only in its hover tip. The web player's parity painter (`view/chart_paint.rs`, since 2.0.65) matched the desktop and dropped the labels the older web renderer had drawn. Every bar chart labels its categories, so this is baseline behaviour (a fix, per the 2026-09-01 ruling).
+- **Fix**, shared in `cobolt_forms::chart` and used by both painters, so the desktop and the web write the same labels at the same places:
+  - **The band:** `category_band` keeps room for the labels in the chart's frame (`paint::chart_frame`, `chart_paint::frame`). Under vertical bars it is one row of the labels' type (the legend's `9 × 2 × FontSize / 14`) plus 4 px. Beside horizontal bars it is the widest label, at most 30 % of the chart's width. The band lies between the plot and the X caption and legend, so a label is never written over either. On a chart squeezed so small that the band no longer fits, no label is written.
+  - **Where each label goes:** each label goes under the middle of its row's bars, or beside the middle of its bars and right aligned against the plot when horizontal.
+  - **A crowded axis:** `category_label_step` writes every second (or third…) label, the smallest step at which no two come closer than 4 px.
+  - **A long label:** beside horizontal bars, a label too long for its room is cut with an ellipsis (`fit_category_label`), so it never reaches the Y caption or the chart's edge.
+  - **When labels are written:** only for live data that has labels, and only while the axis line they stand on shows: `ShowXAxis` under vertical bars, `ShowYAxis` beside horizontal ones. A chart with no labelled data reserves no band, so the designer's sample is unchanged. A chart that hides its axes (PowerSpatial's waveform `Cht-Wave`) stays bare.
+- **Checked:**
+  - New tests, all passing:
+    - `chart::tests::category_labels_are_thinned_until_none_touch_and_cut_to_their_room`;
+    - on the desktop: `bar_category_labels_stand_under_their_bars_and_clear_the_caption_and_legend` and `a_horizontal_bar_chart_labels_its_bars_on_the_left_and_a_bare_one_none`;
+    - on the web: `bar_category_labels_match_the_desktop` and `a_horizontal_bar_chart_labels_its_bars_on_the_left_as_the_desktop_does`.
+  - Both painters' tests use the same two fixtures. The vertical one is twelve months, two series, with a legend and an X caption; the horizontal one has a long label and the axes hidden. Both pin the same literal table of each label's text, left and top pixel, so either painter drifting from the other fails its own test.
+  - `cargo test -p cobolt-forms --features render`: the library's 1498 tests and all 96 integration test binaries pass, with no snapshot moved.
+  - `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --workspace`: green, `freshness` included after the rebuild.
+  - The labels were not looked at in a browser or in the IDE.
+- **Player:** the player in `assets/web-player/` is rebuilt.
+- **Not done:** the System KB does not mention the labels yet. Updating the `ShowXAxis` / `ShowYAxis` descriptions in `cobolt-compiler` needs `assets/knowledge/chunked.data` rebuilt, and `build_chunked_kb` needs the semantic model, which is not downloaded on this machine.
+
 ## 2.0.308 — 2026-11-08
 
 **Fix: a PieChart's or DonutChart's legend no longer draws its entries over one another, on the desktop or on the web.** *(Written on fixes-2x-chart-legend-labels, after 2.0.304; 2.0.305 and 2.0.306 are on fixes-2x-web-activateitem. Numbered 2.0.307 there; merged into 2.x.x as 2.0.308.)*

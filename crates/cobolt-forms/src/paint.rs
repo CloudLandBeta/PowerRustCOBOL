@@ -13781,6 +13781,31 @@ pub struct ChartFrame {
     pub margin_b: f32,
     pub margin_r: f32,
     pub title_font: f32,
+    /// The band a BarChart keeps for its category labels: under the plot
+    /// (`cat_h`) or, horizontal, left of it (`cat_w`). Zero when it writes none.
+    pub cat_h: f32,
+    pub cat_w: f32,
+}
+
+/// The category labels a BarChart writes (`chart::category_labels`): its live
+/// rows' labels, when the axis line they stand on shows (`ShowXAxis` under
+/// vertical bars, `ShowYAxis` beside horizontal ones). A chart that hides its
+/// axes, like PowerSpatial's waveform, stays bare. The web player decides the
+/// same way (`chart_paint::frame`).
+pub(crate) fn chart_category_labels(ctrl: &Control) -> Vec<String> {
+    if ctrl.control_type != crate::model::ControlType::BarChart {
+        return Vec::new();
+    }
+    let flag = |key: &str, default: bool| ctrl.get_prop(key).map(|v| v.as_bool()).unwrap_or(default);
+    let axis = if flag("Horizontal", false) { "ShowYAxis" } else { "ShowXAxis" };
+    if !flag(axis, true) {
+        return Vec::new();
+    }
+    let raw = ctrl.get_prop("__ChartData").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    if raw.trim().is_empty() {
+        return Vec::new();
+    }
+    crate::chart::category_labels(&crate::chart::parse_chart_rows(&raw))
 }
 
 pub fn chart_frame(ctrl: &Control, rect: egui::Rect) -> ChartFrame {
@@ -13814,6 +13839,12 @@ pub fn chart_frame(ctrl: &Control, rect: egui::Rect) -> ChartFrame {
         0.0
     };
     let legend_h = if show_legend && !is_pie { 13.0 * type_scale } else { 0.0 };
+    // A BarChart's category labels take a band of their own, between the plot
+    // and the caption under it (or left of the plot, horizontal), so they are
+    // never written over the X caption or the legend.
+    let horizontal = ctrl.get_prop("Horizontal").map(|v| v.as_bool()).unwrap_or(false);
+    let cat_band = crate::chart::category_band(&chart_category_labels(ctrl), 9.0 * type_scale, horizontal, rect.width());
+    let (cat_h, cat_w) = if horizontal { (0.0, cat_band) } else { (cat_band, 0.0) };
 
     // Inner plot area (leave margin for axes / labels).
     //
@@ -13836,8 +13867,8 @@ pub fn chart_frame(ctrl: &Control, rect: egui::Rect) -> ChartFrame {
     } else {
         title_font * 1.5
     };
-    let mut margin_l = rect.width() * 0.10 + cap_w;
-    let mut margin_b = rect.height() * 0.12 + cap_h + legend_h;
+    let mut margin_l = rect.width() * 0.10 + cap_w + cat_w;
+    let mut margin_b = rect.height() * 0.12 + cap_h + legend_h + cat_h;
     let mut margin_t = (rect.height() * 0.12).max(title_band);
     let mut margin_r = rect.width() * 0.04 + legend_w;
     if ctrl.control_type == CT::RadarChart {
@@ -13871,7 +13902,7 @@ pub fn chart_frame(ctrl: &Control, rect: egui::Rect) -> ChartFrame {
         Pos2::new(rect.min.x + margin_l, rect.min.y + margin_t),
         Pos2::new(rect.max.x - margin_r, rect.max.y - margin_b),
     );
-    ChartFrame { plot, cap_h, cap_w, legend_w, legend_h, margin_t, margin_b, margin_r, title_font }
+    ChartFrame { plot, cap_h, cap_w, legend_w, legend_h, margin_t, margin_b, margin_r, title_font, cat_h, cat_w }
 }
 
 /// What a chart's data becomes on its plot — shared by the painter and the
@@ -14574,7 +14605,7 @@ pub fn draw_chart_preview(
     let title_text = chart_str("Title");
     let cap_font = egui::FontId::proportional(9.0 * type_scale);
     let legend_font = egui::FontId::proportional(9.0 * type_scale);
-    let ChartFrame { plot, cap_h, cap_w, legend_w, legend_h, margin_t, margin_b, margin_r, title_font } =
+    let ChartFrame { plot, cap_h, cap_w, legend_w, legend_h, margin_t, margin_b, margin_r, title_font, cat_h, .. } =
         chart_frame(ctrl, rect);
     // Captions and the legend live in the MARGINS, outside the plot's own clip,
     // so they need a painter bounded by the whole control instead.
@@ -15290,6 +15321,45 @@ pub fn draw_chart_preview(
         let mut shape = egui::epaint::TextShape::new(at, galley, chrome_c);
         shape.angle = -std::f32::consts::FRAC_PI_2;
         chrome.add(egui::Shape::Text(shape));
+    }
+    // A BarChart's category labels: each row's label in the band `chart_frame`
+    // kept for them, under the middle of that row's bars (left of them, right
+    // aligned, when the chart is horizontal). A crowded axis writes every k-th
+    // label and a long one beside horizontal bars is cut to its room
+    // (`chart::category_label_layout`), so no two labels overlap, and none is
+    // written over the X caption, the Y caption or the legend. The web player
+    // writes the same labels at the same places.
+    let category_labels = chart_category_labels(ctrl);
+    if !category_labels.is_empty() {
+        let horizontal = ctrl.get_prop("Horizontal").map(|v| v.as_bool()).unwrap_or(false);
+        let px = 9.0 * type_scale;
+        let gap = crate::chart::CATEGORY_LABEL_GAP;
+        let k = plotted.len().max(1);
+        let centres: Vec<f32> = (0..category_labels.len())
+            .map(|i| {
+                let bars = (0..k)
+                    .map(|si| chart_bar_rect(plot, horizontal, stacked, k, n, 0.0, 1.0, si, i))
+                    .reduce(|a, b| a.union(b))
+                    .unwrap_or(plot);
+                if horizontal { bars.center().y } else { bars.center().x }
+            })
+            .collect();
+        let font = egui::FontId::proportional(px);
+        if horizontal {
+            let room = plot.min.x - gap - (rect.min.x + cap_w);
+            if room > 0.0 {
+                let pitch = plot.height() / n as f32;
+                for l in crate::chart::category_label_layout(&category_labels, &centres, pitch, px, true, room) {
+                    chrome.text(Pos2::new(plot.min.x - gap, l.at), egui::Align2::RIGHT_CENTER, l.text, font.clone(), chrome_c);
+                }
+            }
+        } else if plot.max.y + cat_h <= rect.max.y - cap_h - legend_h + 0.5 {
+            let pitch = plot.width() / n as f32;
+            let row = crate::textmetrics::row_height(px as f64) as f32;
+            for l in crate::chart::category_label_layout(&category_labels, &centres, pitch, px, false, 0.0) {
+                chrome.text(Pos2::new(l.at, plot.max.y + gap + row * 0.5), egui::Align2::CENTER_CENTER, l.text, font.clone(), chrome_c);
+            }
+        }
     }
     if show_legend {
         // A pie's legend names its SLICES, a category chart's its SERIES --
@@ -24773,6 +24843,147 @@ slice = [4, 4, 4, 4]
             assert!(step >= *a_h, "{b} starts {step} px below {a}, whose text is {a_h} px tall: they overlap");
             assert!((step - pitch).abs() < 1.01, "{a} → {b}: step {step}, pitch {pitch}");
         }
+    }
+
+    /// Paints one chart and returns every leaf shape it drew, in order.
+    fn painted_chart_leaves(c: &Control) -> Vec<egui::Shape> {
+        let ctx = egui::Context::default();
+        set_surface_theme(&ctx, glass());
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+        let mut full = ctx.run_ui(input, |ui| {
+            draw_control(ui.painter(), Pos2::ZERO, c, false, true, 1.0, 1.0, None);
+        });
+        full.textures_delta.clear();
+        fn walk(s: &egui::Shape, out: &mut Vec<egui::Shape>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                s => out.push(s.clone()),
+            }
+        }
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    /// The BarChart fixtures shared with the web player's
+    /// `chart_paint::tests::bar_category_labels_*`: 420 × 260 at the default
+    /// `FontSize`, two series in `#D01010` and `#10D010`.
+    const MONTHS: &str = "Jan\t5\t3\nFeb\t6\t4\nMar\t7\t2\nApr\t4\t5\nMay\t8\t6\nJun\t9\t7\nJul\t6\t3\nAug\t5\t4\nSep\t7\t5\nOct\t8\t6\nNov\t6\t2\nDec\t9\t8";
+    const PAYMENTS: &str = "Cash\t5\nCard\t3\nTransferencia bancaria internacional\t2\nPix\t4";
+
+    fn bar_chart(props: &[(&str, &str)]) -> Control {
+        let mut c = Control::new("CH", CT::BarChart, 0, 0);
+        c.rect = crate::model::Rect::new(0, 0, 420, 260);
+        c.set_prop("FontSize", PropValue::Int(14));
+        c.set_prop("SeriesColors", PropValue::String("#D01010,#10D010".into()));
+        for (k, v) in props {
+            c.set_prop(*k, PropValue::String((*v).into()));
+        }
+        c
+    }
+
+    /// Where the desktop writes the labels of the two fixtures, pinned in the
+    /// web player's tests too: (text, left, top) on the pixel the galley is
+    /// painted at.
+    const BAR_CATEGORY_LABELS_VERTICAL: &[(&str, i32, i32)] =
+        &[("Jan", 42, 156), ("Mar", 100, 156), ("May", 159, 156), ("Jul", 224, 156), ("Sep", 282, 156), ("Nov", 341, 156)];
+    const BAR_CATEGORY_LABELS_HORIZONTAL: &[(&str, i32, i32)] =
+        &[("Cash", 126, 45), ("Card", 127, 95), ("Transferencia ban…", 4, 144), ("Pix", 140, 194)];
+
+    /// (text, galley rect) of every text the chart wrote, and the rects of its
+    /// bars, series by series.
+    fn texts_and_bars(c: &Control) -> (Vec<(String, Rect)>, Vec<Vec<Rect>>) {
+        let leaves = painted_chart_leaves(c);
+        let texts = leaves
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => Some((t.galley.text().to_owned(), Rect::from_min_size(t.pos, t.galley.size()))),
+                _ => None,
+            })
+            .collect();
+        let bars = [Color32::from_rgb(0xD0, 0x10, 0x10), Color32::from_rgb(0x10, 0xD0, 0x10)]
+            .iter()
+            .map(|colour| {
+                leaves
+                    .iter()
+                    .filter_map(|s| match s {
+                        // The legend's 7 px swatches wear the same colours.
+                        egui::Shape::Rect(r) if r.fill == *colour && r.rect.width() > 7.5 => Some(r.rect),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .collect();
+        (texts, bars)
+    }
+
+    /// A BarChart writes its categories under its bars (PowerOficina's
+    /// `CH-MONTHS`, 2026-11-08: twelve months of `AddPoint` and no month
+    /// shown). On a crowded axis it writes every second label so none touch.
+    /// Each label sits under the middle of its two bars, in a band of its own
+    /// between the plot and the X caption, and above the legend. The literal
+    /// places are the web player's too
+    /// (`chart_paint::tests::bar_category_labels_match_the_desktop`).
+    #[test]
+    fn bar_category_labels_stand_under_their_bars_and_clear_the_caption_and_legend() {
+        let c = bar_chart(&[("__ChartData", MONTHS), ("ShowLegend", "true"), ("XAxisLabel", "Month")]);
+        let (texts, bars) = texts_and_bars(&c);
+        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        let labels: Vec<&(String, Rect)> = texts.iter().filter(|(t, _)| months.contains(&t.as_str())).collect();
+        let placed: Vec<(&str, i32, i32)> = labels.iter().map(|(t, r)| (t.as_str(), r.min.x.round() as i32, r.min.y.round() as i32)).collect();
+        println!("desktop category labels: {placed:?}");
+        assert_eq!(placed, BAR_CATEGORY_LABELS_VERTICAL, "the labels the web player writes, at the same places");
+
+        assert_eq!((bars[0].len(), bars[1].len()), (12, 12), "two series of twelve bars");
+        let plot_bottom = bars.iter().flatten().map(|r| r.max.y).fold(0.0_f32, f32::max);
+        let caption = texts.iter().find(|(t, _)| t == "Month").expect("the X caption is written").1;
+        let legend_top = texts.iter().filter(|(t, _)| t.starts_with("Series ")).map(|(_, r)| r.min.y).fold(f32::MAX, f32::min);
+        for (name, r) in &labels {
+            let i = months.iter().position(|m| m == name).unwrap();
+            let centre = (bars[0][i].min.x + bars[1][i].max.x) * 0.5;
+            assert!((r.center().x - centre).abs() <= 1.0, "{name} is centred at {}, its bars at {centre}", r.center().x);
+            assert!(r.min.y >= plot_bottom, "{name} starts at {} inside the plot (bottom {plot_bottom})", r.min.y);
+            assert!(r.max.y <= caption.min.y, "{name} ends at {}, over the X caption at {}", r.max.y, caption.min.y);
+            assert!(r.max.y <= legend_top, "{name} ends at {}, over the legend at {legend_top}", r.max.y);
+        }
+        for pair in labels.windows(2) {
+            assert!(pair[0].1.max.x < pair[1].1.min.x, "{} and {} overlap", pair[0].0, pair[1].0);
+        }
+    }
+
+    /// A horizontal BarChart writes its labels left of the bars, right
+    /// aligned against the plot and centred on each bar, and cuts a label too
+    /// long for its band with an ellipsis rather than writing it off the
+    /// chart. A chart that hides the axis its labels stand on (PowerSpatial's
+    /// waveform hides both) writes none.
+    #[test]
+    fn a_horizontal_bar_chart_labels_its_bars_on_the_left_and_a_bare_one_none() {
+        let c = bar_chart(&[("__ChartData", PAYMENTS), ("Horizontal", "true"), ("ShowLegend", "false")]);
+        let (texts, bars) = texts_and_bars(&c);
+        let names = ["Cash", "Card", "Pix"];
+        let labels: Vec<&(String, Rect)> = texts.iter().filter(|(t, _)| names.contains(&t.as_str()) || t.ends_with('…')).collect();
+        let placed: Vec<(&str, i32, i32)> = labels.iter().map(|(t, r)| (t.as_str(), r.min.x.round() as i32, r.min.y.round() as i32)).collect();
+        println!("desktop horizontal labels: {placed:?}");
+        assert_eq!(placed, BAR_CATEGORY_LABELS_HORIZONTAL, "the labels the web player writes, at the same places");
+        let plot_left = bars[0].iter().map(|r| r.min.x).fold(f32::MAX, f32::min);
+        for ((name, r), bar) in labels.iter().zip(&bars[0]) {
+            assert!((r.max.x - (plot_left - crate::chart::CATEGORY_LABEL_GAP)).abs() <= 1.0, "{name} ends at {}, the plot starts at {plot_left}", r.max.x);
+            assert!((r.center().y - bar.center().y).abs() <= 1.0, "{name} is not beside its bar");
+            assert!(r.min.x >= 0.0, "{name} is written off the chart");
+        }
+        assert!(labels[2].0.starts_with("Transfer") && labels[2].0.ends_with('…'), "the long label is cut: {:?}", labels[2].0);
+
+        for hidden in [&[("__ChartData", MONTHS), ("ShowXAxis", "false")][..], &[("__ChartData", PAYMENTS), ("Horizontal", "true"), ("ShowYAxis", "false")][..]] {
+            let (texts, _) = texts_and_bars(&bar_chart(hidden));
+            let written: Vec<&String> = texts.iter().map(|(t, _)| t).filter(|t| MONTHS.contains(t.as_str()) || PAYMENTS.contains(t.as_str())).collect();
+            assert!(written.is_empty(), "no axis line, no labels: {written:?}");
+        }
+        let bare = chart_frame(&bar_chart(&[("__ChartData", MONTHS), ("ShowXAxis", "false")]), Rect::from_min_size(Pos2::ZERO, Vec2::new(420.0, 260.0)));
+        let unlabelled = chart_frame(&bar_chart(&[("__ChartData", "\t5\t3\n\t6\t4")]), Rect::from_min_size(Pos2::ZERO, Vec2::new(420.0, 260.0)));
+        assert_eq!((bare.cat_h, unlabelled.cat_h), (0.0, 0.0), "and no band kept for them");
     }
 
     /// The LAST full-size paint on a chart's frame is the developer's own

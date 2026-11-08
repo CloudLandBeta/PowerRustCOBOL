@@ -180,6 +180,26 @@ struct Frame {
     margin_b: f64,
     title_font: f64,
     type_scale: f64,
+    /// The band a vertical BarChart keeps for its category labels under the plot (a horizontal one's is in the left
+    /// margin, and its labels are fitted to what that margin holds).
+    cat_h: f64,
+}
+
+/// `paint::chart_category_labels`: a BarChart's live rows' labels, when the axis line they stand on shows
+/// (`ShowXAxis` under vertical bars, `ShowYAxis` beside horizontal ones).
+fn category_labels(c: &Ctx) -> Vec<String> {
+    if c.ty != ControlType::BarChart {
+        return Vec::new();
+    }
+    let axis = if c.flag("Horizontal", false) { "ShowYAxis" } else { "ShowXAxis" };
+    if !c.flag(axis, true) {
+        return Vec::new();
+    }
+    let raw = c.s("__ChartData");
+    if raw.trim().is_empty() {
+        return Vec::new();
+    }
+    chart::category_labels(&parse_chart_rows(&raw))
 }
 
 impl Frame {
@@ -206,13 +226,16 @@ fn frame(c: &Ctx) -> Frame {
     let cap_w = if y_caption.is_empty() { 0.0 } else { 13.0 * type_scale };
     let legend_w = if show_legend && is_pie { (c.w * 0.30).min(90.0 * type_scale) } else { 0.0 };
     let legend_h = if show_legend && !is_pie { 13.0 * type_scale } else { 0.0 };
+    let horizontal = c.flag("Horizontal", false);
+    let cat_band = chart::category_band(&category_labels(c), (9.0 * type_scale) as f32, horizontal, c.w as f32) as f64;
+    let (cat_h, cat_w) = if horizontal { (0.0, cat_band) } else { (cat_band, 0.0) };
     let title_font = match c.num("TitleFontSize") {
         Some(pt) if pt > 0.0 => pt.clamp(4.0, 200.0),
         _ => 10.0 * type_scale,
     };
     let title_band = if title_text.is_empty() { 0.0 } else { title_font * 1.5 };
-    let mut margin_l = c.w * 0.10 + cap_w;
-    let mut margin_b = c.h * 0.12 + cap_h + legend_h;
+    let mut margin_l = c.w * 0.10 + cap_w + cat_w;
+    let mut margin_b = c.h * 0.12 + cap_h + legend_h + cat_h;
     let mut margin_t = (c.h * 0.12).max(title_band);
     let mut margin_r = c.w * 0.04 + legend_w;
     if c.ty == ControlType::RadarChart {
@@ -234,7 +257,7 @@ fn frame(c: &Ctx) -> Frame {
         margin_l *= k;
         margin_r *= k;
     }
-    Frame { plot: (margin_l, margin_t, c.w - margin_r, c.h - margin_b), cap_h, cap_w, legend_w, legend_h, margin_t, margin_b, title_font, type_scale }
+    Frame { plot: (margin_l, margin_t, c.w - margin_r, c.h - margin_b), cap_h, cap_w, legend_w, legend_h, margin_t, margin_b, title_font, type_scale, cat_h }
 }
 
 // ── the data (`paint::chart_geometry`) ───────────────────────────────────────
@@ -598,6 +621,42 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
                 .attr("transform", format!("translate({} {}) rotate(-90)", f(at_x + metrics::ascent(size9) - row), f(at_y)))
                 .text(y_caption),
         );
+    }
+    // A BarChart's category labels, as the desktop writes them (`paint::draw_chart_preview`): in the band the frame kept,
+    // under the middle of each row's bars, or right aligned left of them when horizontal; thinned and cut by
+    // `chart::category_label_layout` so none overlaps another, a caption or the legend.
+    let cat_labels = category_labels(&c);
+    if !cat_labels.is_empty() {
+        let horizontal = c.flag("Horizontal", false);
+        let gap = chart::CATEGORY_LABEL_GAP as f64;
+        let k = geo.plotted.len().max(1);
+        let centres: Vec<f32> = (0..cat_labels.len())
+            .map(|i| {
+                let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+                for si in 0..k {
+                    let (x, y, bw, bh) = bar_rect(fr.plot, horizontal, geo.stacked, k, geo.n, 0.0, 1.0, si, i);
+                    let (a, b) = if horizontal { (y, y + bh) } else { (x, x + bw) };
+                    lo = lo.min(a);
+                    hi = hi.max(b);
+                }
+                ((lo + hi) * 0.5) as f32
+            })
+            .collect();
+        if horizontal {
+            let room = pl - gap - fr.cap_w;
+            if room > 0.0 {
+                let pitch = (pb - pt) / geo.n as f64;
+                for l in chart::category_label_layout(&cat_labels, &centres, pitch as f32, size9 as f32, true, room as f32) {
+                    chrome = chrome.child(text(pl - gap, baseline_centred(l.at as f64, size9), "end", size9, &l.text, chrome_c));
+                }
+            }
+        } else if pb + fr.cat_h <= h - fr.cap_h - fr.legend_h + 0.5 {
+            let pitch = (pr - pl) / geo.n as f64;
+            let row = metrics::row_height(size9);
+            for l in chart::category_label_layout(&cat_labels, &centres, pitch as f32, size9 as f32, false, 0.0) {
+                chrome = chrome.child(text(l.at as f64, baseline_centred(pb + gap + row * 0.5, size9), "middle", size9, &l.text, chrome_c));
+            }
+        }
     }
     if c.flag("ShowLegend", false) {
         let entries: Vec<(String, Rgba)> = if c.is_pie() {
@@ -981,6 +1040,104 @@ mod tests {
             let step = pair[1] - pair[0];
             assert!(step >= row, "entries {step} px apart, text {row} px tall: they overlap");
             assert!((step - pitch).abs() < 1e-6, "step {step}, pitch {pitch}");
+        }
+    }
+
+    /// The desktop painter's BarChart fixtures (`paint::elegance_tests::MONTHS`, `PAYMENTS`): 420 × 260 at the
+    /// default `FontSize`, two series in `#D01010` and `#10D010`.
+    const MONTHS: &str = "Jan\t5\t3\nFeb\t6\t4\nMar\t7\t2\nApr\t4\t5\nMay\t8\t6\nJun\t9\t7\nJul\t6\t3\nAug\t5\t4\nSep\t7\t5\nOct\t8\t6\nNov\t6\t2\nDec\t9\t8";
+    const PAYMENTS: &str = "Cash\t5\nCard\t3\nTransferencia bancaria internacional\t2\nPix\t4";
+
+    /// Where the desktop writes those fixtures' labels (`paint::elegance_tests::BAR_CATEGORY_LABELS_*`): (text, left,
+    /// top) on the pixel the desktop paints the galley at.
+    const BAR_CATEGORY_LABELS_VERTICAL: &[(&str, i32, i32)] =
+        &[("Jan", 42, 156), ("Mar", 100, 156), ("May", 159, 156), ("Jul", 224, 156), ("Sep", 282, 156), ("Nov", 341, 156)];
+    const BAR_CATEGORY_LABELS_HORIZONTAL: &[(&str, i32, i32)] =
+        &[("Cash", 126, 45), ("Card", 127, 95), ("Transferencia ban…", 4, 144), ("Pix", 140, 194)];
+
+    /// (text, left, top, width) of every text the chart writes, and its bars as `(x, y, w, h)`, series by series.
+    #[allow(clippy::type_complexity)]
+    fn texts_and_bars(props: &[(&str, &str)]) -> (Vec<(String, f64, f64, f64)>, Vec<Vec<(f64, f64, f64, f64)>>) {
+        let mut all = vec![("Width", "420"), ("Height", "260"), ("FontSize", "14"), ("SeriesColors", "#D01010,#10D010")];
+        all.extend_from_slice(props);
+        let (t, i) = crate::tree::testing::tree_with("BarChart", "CH", &all);
+        let e = super::super::Empty::default();
+        let n = chart(&e.cx(&t), i).expect("a BarChart is drawn by this painter");
+        let size9 = 9.0 * CHART_FONT_SCALE;
+        let num = |v: &VNode, k: &str| v.attr_of(k).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+        let mut nodes = Vec::new();
+        n.find_all(&|v| v.tag == "text", &mut nodes);
+        let texts = nodes
+            .iter()
+            .filter_map(|v| v.text.clone().map(|s| (s, num(v, "x"), num(v, "y") - metrics::ascent(size9))))
+            .map(|(s, x, top)| {
+                let w = metrics::text_width(&s, size9);
+                (s, x, top, w)
+            })
+            .collect();
+        let bars = [[0xD0, 0x10, 0x10, 255], [0x10, 0xD0, 0x10, 255]]
+            .iter()
+            .map(|colour| {
+                let mut rects = Vec::new();
+                // The legend's 7 px swatches wear the same colours.
+                n.find_all(&|v| v.tag == "rect" && v.attr_of("fill") == Some(rgb(*colour).as_str()) && v.attr_of("width") != Some("7"), &mut rects);
+                rects.iter().map(|v| (num(v, "x"), num(v, "y"), num(v, "width"), num(v, "height"))).collect()
+            })
+            .collect();
+        (texts, bars)
+    }
+
+    /// Parity with the desktop (`paint::elegance_tests::bar_category_labels_stand_under_their_bars_and_clear_the_caption_and_legend`):
+    /// a BarChart writes its categories under its bars, every second one on this crowded axis, each under the middle of
+    /// its two bars and in its own band between the plot and the X caption, and at the very places the desktop does.
+    /// PowerOficina's `CH-MONTHS` (2026-11-08) showed twelve months of `AddPoint` and no month.
+    #[test]
+    fn bar_category_labels_match_the_desktop() {
+        let (texts, bars) = texts_and_bars(&[("__ChartData", MONTHS), ("ShowLegend", "true"), ("XAxisLabel", "Month")]);
+        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        let labels: Vec<&(String, f64, f64, f64)> = texts.iter().filter(|(t, ..)| months.contains(&t.as_str())).collect();
+        let placed: Vec<(&str, i32, i32)> = labels.iter().map(|(t, x, top, _)| (t.as_str(), x.round() as i32, top.round() as i32)).collect();
+        assert_eq!(placed, BAR_CATEGORY_LABELS_VERTICAL, "the labels the desktop writes, at the same places");
+
+        assert_eq!((bars[0].len(), bars[1].len()), (12, 12));
+        let plot_bottom = bars.iter().flatten().map(|b| b.1 + b.3).fold(0.0_f64, f64::max);
+        let row = metrics::row_height(9.0 * CHART_FONT_SCALE);
+        let caption_top = texts.iter().find(|(t, ..)| t == "Month").expect("the X caption is written").2;
+        let legend_top = texts.iter().filter(|(t, ..)| t.starts_with("Series ")).map(|(_, _, top, _)| *top).fold(f64::MAX, f64::min);
+        for (name, x, top, w) in &labels {
+            let i = months.iter().position(|m| m == name).unwrap();
+            let centre = (bars[0][i].0 + bars[1][i].0 + bars[1][i].2) * 0.5;
+            assert!((x + w * 0.5 - centre).abs() <= 1.0, "{name} is centred at {}, its bars at {centre}", x + w * 0.5);
+            assert!(*top >= plot_bottom && top + row <= caption_top && top + row <= legend_top, "{name} at {top} leaves its band");
+        }
+        for pair in labels.windows(2) {
+            assert!(pair[0].1 + pair[0].3 < pair[1].1, "{} and {} overlap", pair[0].0, pair[1].0);
+        }
+    }
+
+    /// Parity with the desktop (`paint::elegance_tests::a_horizontal_bar_chart_labels_its_bars_on_the_left_and_a_bare_one_none`):
+    /// horizontal, the labels stand right aligned left of the bars and a long one is cut with an ellipsis; a chart that hides
+    /// the axis its labels stand on writes none and keeps no band for them.
+    #[test]
+    fn a_horizontal_bar_chart_labels_its_bars_on_the_left_as_the_desktop_does() {
+        let (texts, bars) = texts_and_bars(&[("__ChartData", PAYMENTS), ("Horizontal", "true"), ("ShowLegend", "false")]);
+        let names = ["Cash", "Card", "Pix"];
+        let labels: Vec<&(String, f64, f64, f64)> = texts.iter().filter(|(t, ..)| names.contains(&t.as_str()) || t.ends_with('…')).collect();
+        let row = metrics::row_height(9.0 * CHART_FONT_SCALE);
+        let placed: Vec<(&str, i32, i32)> = labels.iter().map(|(t, x, top, _)| (t.as_str(), x.round() as i32, top.round() as i32)).collect();
+        assert_eq!(placed, BAR_CATEGORY_LABELS_HORIZONTAL, "the labels the desktop writes, at the same places");
+        let plot_left = bars[0].iter().map(|b| b.0).fold(f64::MAX, f64::min);
+        for ((name, x, top, w), bar) in labels.iter().zip(&bars[0]) {
+            assert!((x + w - (plot_left - chart::CATEGORY_LABEL_GAP as f64)).abs() <= 1.0, "{name} does not end at the plot");
+            assert!((top + row * 0.5 - (bar.1 + bar.3 * 0.5)).abs() <= 1.0, "{name} is not beside its bar");
+            assert!(*x >= 0.0, "{name} is written off the chart");
+        }
+        assert!(labels[2].0.starts_with("Transfer") && labels[2].0.ends_with('…'), "the long label is cut: {:?}", labels[2].0);
+
+        for hidden in [&[("__ChartData", MONTHS), ("ShowXAxis", "false")][..], &[("__ChartData", PAYMENTS), ("Horizontal", "true"), ("ShowYAxis", "false")][..]] {
+            let (texts, _) = texts_and_bars(hidden);
+            let written: Vec<&String> = texts.iter().map(|(t, ..)| t).filter(|t| MONTHS.contains(t.as_str()) || PAYMENTS.contains(t.as_str())).collect();
+            assert!(written.is_empty(), "no axis line, no labels: {written:?}");
         }
     }
 

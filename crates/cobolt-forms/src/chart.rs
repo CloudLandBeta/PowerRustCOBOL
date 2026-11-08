@@ -212,6 +212,114 @@ pub fn pie_legend_pitch(font_px: f32) -> f32 {
     crate::textmetrics::row_height(font_px as f64) as f32 + PIE_LEGEND_ROW_GAP
 }
 
+// ── BarChart: the category labels ───────────────────────────────────────────
+//
+// A BarChart writes each row's label under its bars, or beside them on the left when it is horizontal. Both
+// painters reserve a band for them in their frame (`paint::chart_frame`, the web player's `chart_paint::frame`)
+// and lay them out with the functions below, measured with the desktop's own text arithmetic
+// (`textmetrics`), so the two write the same labels at the same places.
+
+/// Pixels between the plot and its category labels, and the least room kept between two labels.
+pub const CATEGORY_LABEL_GAP: f32 = 4.0;
+
+/// The widest a horizontal BarChart's label band may grow, as a fraction of the chart's width.
+pub const CATEGORY_BAND_MAX_FRACTION: f32 = 0.30;
+
+/// The labels a BarChart writes along its category axis: its rows' labels, or none at all when no row has
+/// one. A chart showing its sample, or given values without labels, writes nothing and reserves nothing.
+pub fn category_labels(rows: &[Row]) -> Vec<String> {
+    if rows.iter().all(|(l, _)| l.trim().is_empty()) {
+        return Vec::new();
+    }
+    rows.iter().map(|(l, _)| l.trim().to_owned()).collect()
+}
+
+/// How wide `label` is in `font_px` type, as the desktop lays it out.
+pub fn category_label_width(label: &str, font_px: f32) -> f32 {
+    crate::textmetrics::text_width(label, font_px as f64) as f32
+}
+
+/// The band reserved for the labels: one row of their type plus [`CATEGORY_LABEL_GAP`] under the plot, or,
+/// horizontal, the widest label plus the gap beside it, held to [`CATEGORY_BAND_MAX_FRACTION`] of `chart_w`.
+/// Zero when there are no labels.
+pub fn category_band(labels: &[String], font_px: f32, horizontal: bool, chart_w: f32) -> f32 {
+    if labels.is_empty() {
+        return 0.0;
+    }
+    if horizontal {
+        let widest = labels.iter().map(|l| category_label_width(l, font_px)).fold(0.0_f32, f32::max);
+        (widest + CATEGORY_LABEL_GAP).min(chart_w * CATEGORY_BAND_MAX_FRACTION)
+    } else {
+        crate::textmetrics::row_height(font_px as f64) as f32 + CATEGORY_LABEL_GAP
+    }
+}
+
+/// How often a label is written when the categories are `pitch` px apart along the axis and label `i`
+/// takes `extents[i]` px of it. The answer is the smallest step at which no two written labels come
+/// closer than [`CATEGORY_LABEL_GAP`]: 1 writes every label, and a crowded axis writes the first label
+/// and every step-th after it.
+pub fn category_label_step(pitch: f32, extents: &[f32]) -> usize {
+    let n = extents.len();
+    (1..=n.max(1))
+        .find(|&k| {
+            (0..n)
+                .step_by(k)
+                .zip((k..n).step_by(k))
+                .all(|(a, b)| k as f32 * pitch >= (extents[a] + extents[b]) * 0.5 + CATEGORY_LABEL_GAP)
+        })
+        .unwrap_or(1)
+}
+
+/// `label` as it fits in `max_w` px of `font_px` type: whole when it fits, otherwise cut and ended with an
+/// ellipsis, and empty when not even one letter and the ellipsis fit.
+pub fn fit_category_label(label: &str, font_px: f32, max_w: f32) -> String {
+    if category_label_width(label, font_px) <= max_w {
+        return label.to_owned();
+    }
+    let chars: Vec<char> = label.chars().collect();
+    (1..chars.len())
+        .rev()
+        .map(|end| format!("{}…", chars[..end].iter().collect::<String>().trim_end()))
+        .find(|s| category_label_width(s, font_px) <= max_w)
+        .unwrap_or_default()
+}
+
+/// One category label as a painter writes it: the category it names, its text, and where along the axis
+/// its middle goes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CategoryLabel {
+    pub index: usize,
+    pub text: String,
+    pub at: f32,
+}
+
+/// The labels a BarChart writes, and where.
+///
+/// - `centres[i]` is the middle of category `i`'s bars along the axis, as the painter drew them.
+/// - `pitch` is the step from one category to the next.
+/// - `room` is how wide a horizontal chart's label may be; a longer one is cut by [`fit_category_label`].
+///
+/// Labels never overlap one another: a crowded axis is thinned by [`category_label_step`]. Under vertical
+/// bars the extent is each label's width; beside horizontal ones it is a row of the type.
+pub fn category_label_layout(labels: &[String], centres: &[f32], pitch: f32, font_px: f32, horizontal: bool, room: f32) -> Vec<CategoryLabel> {
+    let n = labels.len().min(centres.len());
+    let extents: Vec<f32> = if horizontal {
+        vec![crate::textmetrics::row_height(font_px as f64) as f32; n]
+    } else {
+        labels[..n].iter().map(|l| category_label_width(l, font_px)).collect()
+    };
+    let step = category_label_step(pitch, &extents);
+    (0..n)
+        .step_by(step)
+        .map(|i| CategoryLabel {
+            index: i,
+            text: if horizontal { fit_category_label(&labels[i], font_px, room) } else { labels[i].clone() },
+            at: centres[i],
+        })
+        .filter(|l| !l.text.is_empty())
+        .collect()
+}
+
 // ── RadarChart: the geometry ────────────────────────────────────────────────
 //
 // A radar has one spoke per LABEL (a row of the chart's data) and one polygon
@@ -624,6 +732,45 @@ mod tests {
             let row = crate::textmetrics::row_height(px as f64) as f32;
             assert!(pie_legend_pitch(px) >= row + PIE_LEGEND_ROW_GAP, "{px} px: pitch {} under row {row}", pie_legend_pitch(px));
         }
+    }
+
+    /// A BarChart's category labels: none for rows without labels; every label when they fit, every second
+    /// when the neighbours would touch, never two closer than the gap; and a label too long for its room cut
+    /// with an ellipsis that fits it.
+    #[test]
+    fn category_labels_are_thinned_until_none_touch_and_cut_to_their_room() {
+        let rows = |ls: &[&str]| -> Vec<Row> { ls.iter().map(|l| ((*l).to_owned(), vec![1.0])).collect() };
+        assert!(category_labels(&rows(&["", " ", ""])).is_empty(), "no label anywhere: nothing written, nothing reserved");
+        assert_eq!(category_labels(&rows(&["Jan", "", "Mar"])), ["Jan", "", "Mar"]);
+        assert_eq!(category_band(&[], 18.0, false, 400.0), 0.0);
+        assert_eq!(category_band(&["Jan".into()], 18.0, false, 400.0), 21.0 + CATEGORY_LABEL_GAP, "a row of 18 px type and the gap");
+        assert!((category_band(&["A very long category name".into()], 18.0, true, 400.0) - 120.0).abs() < 1e-3, "held to 30 % of the width");
+
+        assert_eq!(category_label_step(50.0, &[30.0; 6]), 1, "30 px labels 50 px apart all fit");
+        assert_eq!(category_label_step(30.0, &[30.0; 6]), 2, "30 px apart they touch: every second");
+        assert_eq!(category_label_step(10.0, &[30.0; 6]), 4);
+        assert_eq!(category_label_step(1.0, &[30.0; 3]), 3, "only the first when nothing else fits");
+        assert_eq!(category_label_step(5.0, &[30.0]), 1);
+        assert_eq!(category_label_step(5.0, &[]), 1);
+        for (pitch, n) in [(7.0_f32, 31_usize), (23.5, 12), (61.0, 9)] {
+            let widths: Vec<f32> = (0..n).map(|i| 20.0 + (i % 5) as f32 * 9.0).collect();
+            let k = category_label_step(pitch, &widths);
+            for i in (0..n).step_by(k).skip(1) {
+                let gap = k as f32 * pitch - (widths[i - k] + widths[i]) * 0.5;
+                assert!(gap >= CATEGORY_LABEL_GAP, "pitch {pitch}, step {k}: labels {} and {i} only {gap} px apart", i - k);
+            }
+        }
+
+        assert_eq!(fit_category_label("Jan", 18.0, 100.0), "Jan");
+        let cut = fit_category_label("Transferencia bancaria", 18.0, 80.0);
+        assert!(cut.ends_with('…') && category_label_width(&cut, 18.0) <= 80.0, "{cut:?}");
+        assert_eq!(fit_category_label("Transferencia", 18.0, 2.0), "", "no room at all: nothing");
+
+        let labels: Vec<String> = ["Jan", "Feb", "Mar", "Apr"].map(String::from).to_vec();
+        let at = category_label_layout(&labels, &[10.0, 40.0, 70.0, 100.0], 30.0, 18.0, false, 0.0);
+        assert_eq!(at.iter().map(|l| (l.index, l.text.as_str(), l.at)).collect::<Vec<_>>(), [(0, "Jan", 10.0), (2, "Mar", 70.0)]);
+        let side = category_label_layout(&labels, &[10.0, 40.0, 70.0, 100.0], 30.0, 18.0, true, 200.0);
+        assert_eq!(side.len(), 4, "beside horizontal bars a row of type is the extent, and 30 px holds 21 + 4");
     }
 
     fn pts(v: &[(&str, f32)]) -> Vec<Point> {
