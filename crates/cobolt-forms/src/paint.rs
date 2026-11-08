@@ -15317,9 +15317,10 @@ pub fn draw_chart_preview(
         };
         let swatch = 7.0_f32;
         if is_pie {
-            // Beside the chart, one entry per line.
+            // Beside the chart, one entry per line, a row of the legend's
+            // type apart (`chart::pie_legend_pitch`; the web player steps by it too).
             let x = rect.max.x - legend_w + 4.0;
-            let line_h = 12.0_f32;
+            let line_h = crate::chart::pie_legend_pitch(legend_font.size);
             let total = entries.len() as f32 * line_h;
             let mut y = (plot.center().y - total * 0.5).max(rect.min.y + 4.0);
             for (name, colour) in &entries {
@@ -24727,6 +24728,53 @@ slice = [4, 4, 4, 4]
         );
     }
 
+    /// A donut's legend steps by a row of its own type. The pitch was a fixed
+    /// 12 px while the type is `9 × 2 × FontSize / 14` — 18 px at the default
+    /// `FontSize` — so the entries were drawn over one another (PowerOficina's
+    /// `CH-PAYS`, 2026-11-08). Each entry's text now starts at least a whole
+    /// row below the last, at the step the web player takes too.
+    #[test]
+    fn a_donut_legend_keeps_a_row_of_its_type_between_entries() {
+        let ctx = egui::Context::default();
+        set_surface_theme(&ctx, glass());
+        let mut c = Control::new("CH", CT::DonutChart, 0, 0);
+        c.rect = crate::model::Rect::new(0, 0, 420, 260);
+        c.set_prop("ShowLegend", PropValue::Bool(true));
+        c.set_prop("ShowLabels", PropValue::Bool(false));
+        c.set_prop("FontSize", PropValue::Int(14));
+        c.set_prop("__ChartData", PropValue::String("Cash\t5\nCard\t3\nPix\t2\nOther\t1".into()));
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+        let mut full = ctx.run_ui(input, |ui| {
+            draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+        });
+        full.textures_delta.clear();
+        // (name, top, row height) of each legend entry's galley.
+        fn walk(s: &egui::Shape, out: &mut Vec<(String, f32, f32)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Text(t) if ["Cash", "Card", "Pix", "Other"].contains(&t.galley.text()) => {
+                    out.push((t.galley.text().to_owned(), t.pos.y, t.galley.size().y));
+                }
+                _ => {}
+            }
+        }
+        let mut entries = Vec::new();
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut entries);
+        }
+        let names: Vec<&str> = entries.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert_eq!(names, ["Cash", "Card", "Pix", "Other"], "every entry is drawn, in order");
+        let pitch = crate::chart::pie_legend_pitch(9.0 * CHART_FONT_SCALE);
+        assert_eq!(pitch, 23.0);
+        for pair in entries.windows(2) {
+            let ((a, a_top, a_h), (b, b_top, _)) = (&pair[0], &pair[1]);
+            let step = b_top - a_top;
+            assert!(step >= *a_h, "{b} starts {step} px below {a}, whose text is {a_h} px tall: they overlap");
+            assert!((step - pitch).abs() < 1.01, "{a} → {b}: step {step}, pitch {pitch}");
+        }
+    }
+
     /// The LAST full-size paint on a chart's frame is the developer's own
     /// border — its colour when plain, its gradient ring when enabled. A
     /// fixed 1 px outline used to be stroked over the frame after the border
@@ -27898,15 +27946,22 @@ mod elegance_baseline_tests {
         // two tabs 66 px wide in a 130 px box, two pixels short, so its second
         // tab now shows, 64 px of it: one fill and one label, the same two under
         // both themes and all four styles. One control, not the seam.
+        //
+        // **−8 on every row, 2.0.307.** A pie's legend steps by a row of its
+        // own type (`chart::pie_legend_pitch`), where it stepped a fixed 12 px
+        // and the 18 px entries overlapped. In the fixture's 70 px tile the
+        // 23 px step fits two of the four sample entries, so the PieChart and
+        // the DonutChart each draw two swatches and two names fewer: 2 × 4 = 8,
+        // under both themes and all four styles. Two charts, not the seam.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 636),
-            ("asset-pack", GS::Classic, 642),
-            ("liquid-glass", GS::Enhanced, 727),
-            ("asset-pack", GS::Enhanced, 717),
-            ("liquid-glass", GS::Neumorphic, 600),
-            ("asset-pack", GS::Neumorphic, 614),
-            ("liquid-glass", GS::NeumorphicDark, 600),
-            ("asset-pack", GS::NeumorphicDark, 614),
+            ("liquid-glass", GS::Classic, 628),
+            ("asset-pack", GS::Classic, 634),
+            ("liquid-glass", GS::Enhanced, 719),
+            ("asset-pack", GS::Enhanced, 709),
+            ("liquid-glass", GS::Neumorphic, 592),
+            ("asset-pack", GS::Neumorphic, 606),
+            ("liquid-glass", GS::NeumorphicDark, 592),
+            ("asset-pack", GS::NeumorphicDark, 606),
         ];
         // (Every row fell by 6 at 1.80.184: the fixture's six charts no longer
         // letter their type — "BAR", "PIE", … — in a corner.)

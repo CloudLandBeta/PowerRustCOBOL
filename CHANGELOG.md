@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.308 — 2026-11-08
+
+**Fix: a PieChart's or DonutChart's legend no longer draws its entries over one another, on the desktop or on the web.** *(Written on fixes-2x-chart-legend-labels, after 2.0.304; 2.0.305 and 2.0.306 are on fixes-2x-web-activateitem. Numbered 2.0.307 there; merged into 2.x.x as 2.0.308.)*
+
+- **Symptom:** in PowerOficina's dashboard (`CH-PAYS`, a DonutChart), the legend's names overlapped.
+- **Cause:** both painters stepped from one entry to the next by a fixed 12 px:
+  - the desktop: `draw_chart_preview` in `cobolt-forms/src/paint.rs`;
+  - the web player: `view/chart_paint.rs`.
+
+  The legend's type is `9 × 2 × FontSize / 14`, which is 18 px at the default `FontSize`. The 12 px step held only the 9 px type of a chart at `FontSize` 7.
+- **Fix:** a new `cobolt_forms::chart::pie_legend_pitch` sets the step to one row of the legend's type (`textmetrics::row_height`) plus 2 px. That is 23 px at 18 px, and still 12 px at 9 px. Both painters call it, so the desktop and the web lay the legend out alike.
+
+  A legend taller than its chart now stops at the chart's edge instead of overlapping. The 130 × 70 tiles of the elegance-baseline fixture now fit two of the four sample entries.
+- **Snapshots:**
+  - `elegance_baseline_reports_untouched_paths`: every row falls by 8, two swatches and two names fewer on the fixture's PieChart and on its DonutChart. The reason is written beside the table.
+  - The 056 corpus golden `PowerDemo3/Charts__charts-form.cfrm.txt`: only its digests move (same shape counts, same control rects). It was regenerated with `COBOLT_WRITE_GOLDEN=1`, and no other form moved.
+- **Player:** the player in `assets/web-player/` is rebuilt.
+- **Not changed:**
+  - A BarChart still writes no category label under its bars, on either surface. The desktop painter never drew them; only the hover tip names the category. Adding them is a feature, so it is left for a separate decision.
+  - Monochrome charts still use the older web renderer (`view/charts.rs`), which keeps its own legend.
+- **Checked:**
+  - New tests, all passing:
+    - `chart::tests::the_pie_legend_steps_by_a_row_of_its_text`;
+    - `paint::elegance_tests::a_donut_legend_keeps_a_row_of_its_type_between_entries`;
+    - `view::chart_paint::tests::a_donut_legend_keeps_a_row_of_its_type_between_entries`.
+  - `cargo test -p cobolt-forms --features render`: the library's 1495 tests and all 96 integration test binaries pass. They were run in chunks of 12 because disk space was short.
+  - `cargo test --manifest-path crates/cobolt-web-player/Cargo.toml --workspace`: green, and the `freshness` test passes after the rebuild.
+  - The charts were not looked at in a browser or in the IDE.
+
 ## 2.0.307 — 2026-11-08
 
 **Fix: a PartiQL `?` parameter is typed by the data item's PICTURE, so a numeric key filled through a group no longer fails with 94.** *(Written on fixes-2x-partiql-param-type, after 2.0.304; 2.0.305 and 2.0.306 are on fixes-2x-web-activateitem.)*

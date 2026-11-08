@@ -610,7 +610,8 @@ pub fn chart(cx: &ViewCtx, i: usize) -> Option<VNode> {
         let swatch = 7.0;
         if c.is_pie() {
             let x = w - fr.legend_w + 4.0;
-            let line_h = 12.0;
+            // A row of the legend's type apart, as the desktop steps (`chart::pie_legend_pitch`).
+            let line_h = chart::pie_legend_pitch(size9 as f32) as f64;
             let total = entries.len() as f64 * line_h;
             let mut y = (fr.centre().1 - total * 0.5).max(4.0);
             for (name, colour) in &entries {
@@ -955,6 +956,32 @@ mod tests {
         let (x, y, w, h) = bar_rect(plot, false, false, 2, 4, 0.0, 0.5, 1, 2);
         assert!((x - (10.0 + 2.0 * 25.0 + 1.0 * (9.5 + 1.25) + 1.25)).abs() < 1e-9, "{x}");
         assert!((w - 9.5).abs() < 1e-9 && (h - 25.0).abs() < 1e-9 && (y - 30.0).abs() < 1e-9, "{y} {w} {h}");
+    }
+
+    /// A donut's legend steps by a row of its own type, as the desktop's does (`chart::pie_legend_pitch`): the
+    /// fixed 12 px drew the 18 px entries of a chart at the default `FontSize` over one another (PowerOficina's
+    /// `CH-PAYS`, 2026-11-08).
+    #[test]
+    fn a_donut_legend_keeps_a_row_of_its_type_between_entries() {
+        let (t, i) = crate::tree::testing::tree_with(
+            "DonutChart",
+            "CH",
+            &[("ShowLegend", "true"), ("ShowLabels", "false"), ("FontSize", "14"), ("Width", "420"), ("Height", "260"), ("__ChartData", "Cash\t5\nCard\t3\nPix\t2\nOther\t1")],
+        );
+        let e = super::super::Empty::default();
+        let n = chart(&e.cx(&t), i).expect("a donut is drawn by this painter");
+        let mut swatches = Vec::new();
+        n.find_all(&|v| v.tag == "rect" && v.attr_of("width") == Some("7"), &mut swatches);
+        let tops: Vec<f64> = swatches.iter().map(|s| s.attr_of("y").and_then(|y| y.parse().ok()).expect("a swatch has a y")).collect();
+        assert_eq!(tops.len(), 4, "every entry is drawn: {tops:?}");
+        let size9 = 9.0 * CHART_FONT_SCALE;
+        let (pitch, row) = (chart::pie_legend_pitch(size9 as f32) as f64, metrics::row_height(size9));
+        assert_eq!(pitch, 23.0);
+        for pair in tops.windows(2) {
+            let step = pair[1] - pair[0];
+            assert!(step >= row, "entries {step} px apart, text {row} px tall: they overlap");
+            assert!((step - pitch).abs() < 1e-6, "step {step}, pitch {pitch}");
+        }
     }
 
     #[test]

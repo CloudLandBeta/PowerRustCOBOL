@@ -197,6 +197,21 @@ pub fn tween_series(from: &[Point], to: &[Point], t: f32) -> Vec<Point> {
         .collect()
 }
 
+/// Pixels between the rows of a pie's or a donut's legend, beyond the text's own row.
+pub const PIE_LEGEND_ROW_GAP: f32 = 2.0;
+
+/// The step from one entry of a pie's or a donut's legend to the next, for legend type of
+/// `font_px`: one row of that text plus [`PIE_LEGEND_ROW_GAP`]. Both painters (the desktop's
+/// `draw_chart_preview` and the web player's `chart_paint`) step by it, so the two lay the
+/// legend out alike.
+///
+/// It was a fixed 12 px, which held only the 9 px type of a chart at `FontSize` 7: the legend's
+/// type is `9 × 2 × FontSize / 14`, 18 px at the default `FontSize`, and the rows overlapped.
+/// At 9 px this is still 12.
+pub fn pie_legend_pitch(font_px: f32) -> f32 {
+    crate::textmetrics::row_height(font_px as f64) as f32 + PIE_LEGEND_ROW_GAP
+}
+
 // ── RadarChart: the geometry ────────────────────────────────────────────────
 //
 // A radar has one spoke per LABEL (a row of the chart's data) and one polygon
@@ -595,6 +610,20 @@ mod tests {
         assert_eq!(format_chart_rows(&[("A".into(), vec![1.5])]), format_chart_data(&[("A".into(), 1.5)]));
         let mid = tween_rows(&[("A".into(), vec![0.0, 10.0])], &[("A".into(), vec![10.0, 10.0, 4.0])], 1.0);
         assert_eq!(mid, vec![("A".into(), vec![10.0, 10.0, 4.0])]);
+    }
+
+    /// A pie's legend steps by its text's own row: 12 px for the 9 px type it was laid out for, and
+    /// never less than a row at any size, so the entries cannot overlap (the 18 px type of a chart at
+    /// the default `FontSize` did, under the fixed 12).
+    #[test]
+    fn the_pie_legend_steps_by_a_row_of_its_text() {
+        assert_eq!(pie_legend_pitch(9.0), 12.0, "the size the fixed 12 px was made for keeps it");
+        assert_eq!(pie_legend_pitch(18.0), 23.0, "the default FontSize's 18 px type");
+        for px in 4..=120 {
+            let px = px as f32;
+            let row = crate::textmetrics::row_height(px as f64) as f32;
+            assert!(pie_legend_pitch(px) >= row + PIE_LEGEND_ROW_GAP, "{px} px: pitch {} under row {row}", pie_legend_pitch(px));
+        }
     }
 
     fn pts(v: &[(&str, f32)]) -> Vec<Point> {
