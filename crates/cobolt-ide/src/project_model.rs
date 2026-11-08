@@ -1010,6 +1010,38 @@ impl CoboltProject {
 
     // ── File membership helpers ───────────────────────────────────────────────
 
+    /// Adopt the COBOL files that sit under `backend/` on disk but that the
+    /// manifest does not list (a program or copybook written outside the IDE).
+    /// Only a Web or Mobile project has a Backend. Nothing is ever removed;
+    /// the adopted paths are returned, in sorted order.
+    pub fn adopt_backend_files(&mut self, root: &Path) -> Vec<String> {
+        if !self.project.kind.has_backend() {
+            return Vec::new();
+        }
+        let mut found = Vec::new();
+        let mut stack = vec![root.join(Category::Backend.root_subdir())];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if let Ok(rel) = p.strip_prefix(root) {
+                    let rel = rel.to_string_lossy().replace('\\', "/");
+                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+                    if matches!(ext.as_str(), "cbl" | "cob" | "cpy") && !self.files.backend.contains(&rel) {
+                        found.push(rel);
+                    }
+                }
+            }
+        }
+        found.sort();
+        for rel in &found {
+            self.add_file(rel);
+        }
+        found
+    }
+
     /// Add a file to the appropriate list (deduplicates), routed by `Category`
     /// (so a `.cbl` can be added as Common Code even though its extension is the
     /// same as a generated file).
@@ -1694,7 +1726,11 @@ impl From<std::io::Error> for ProjectError {
 
 pub fn load_project(path: &Path) -> Result<CoboltProject, ProjectError> {
     let text = std::fs::read_to_string(path)?;
-    toml::from_str(&text).map_err(|e| ProjectError::Toml(e.to_string()))
+    let mut project: CoboltProject = toml::from_str(&text).map_err(|e| ProjectError::Toml(e.to_string()))?;
+    if let Some(root) = path.parent() {
+        project.adopt_backend_files(root);
+    }
+    Ok(project)
 }
 
 pub fn save_project(project: &CoboltProject, path: &Path) -> Result<(), ProjectError> {
@@ -3049,6 +3085,30 @@ mod project_kind_tests {
         assert_eq!(Category::from_root_component("forms"), Some(Category::Forms));
         assert!(Category::Forms.is_forms() && Category::WebForms.is_forms() && Category::MobileForms.is_forms());
         assert!(!Category::Backend.is_forms() && Category::Backend.is_addable());
+    }
+
+    /// A program or copybook written under `backend/` outside the IDE is in the
+    /// project the next time it opens; a Desktop project and listed files are untouched.
+    #[test]
+    fn unlisted_backend_files_are_adopted_on_load() {
+        let dir = std::env::temp_dir().join("prc-ide-adopt-backend");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("backend/src")).unwrap();
+        std::fs::create_dir_all(dir.join("backend/COPYBOOKS")).unwrap();
+        for f in ["backend/src/a.cbl", "backend/COPYBOOKS/r.cpy", "backend/COPYBOOKS/notes.txt"] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let mut web = CoboltProject::new("W", "");
+        web.project.kind = ProjectKind::Web;
+        web.files.backend.push("backend/src/a.cbl".into());
+        let manifest = dir.join("W.project.toml");
+        save_project(&web, &manifest).unwrap();
+        let loaded = load_project(&manifest).unwrap();
+        assert_eq!(loaded.files.backend, ["backend/src/a.cbl", "backend/COPYBOOKS/r.cpy"]);
+
+        let mut desktop = CoboltProject::new("D", "");
+        assert!(desktop.adopt_backend_files(&dir).is_empty(), "Desktop has no Backend");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Forms and the Backend go to their lists by the project's kind; a Desktop

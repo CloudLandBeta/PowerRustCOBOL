@@ -224,7 +224,7 @@ fn list_files_shows_the_backend_and_the_web_assets_of_a_web_project() {
     let added = call(&mut tools, "add_to_project", json!({"path": "src/shared.cbl"})).unwrap();
     assert_eq!(added["list"], "sources", "Common Code stays Common Code");
     let listed = call(&mut tools, "list_files", json!({})).unwrap();
-    assert_eq!(listed["files"]["backend"].as_array().unwrap().len(), 2);
+    assert_eq!(listed["files"]["backend"].as_array().unwrap().len(), 3, "health.cbl, the status copybook and the added program");
     let checked = call(&mut tools, "check", json!({})).unwrap();
     assert_eq!(checked["errors"], 0, "{checked}");
     assert!(checked["checked"]["sources"].as_u64().unwrap() >= 3, "the Backend's programs are checked with the rest: {checked}");
@@ -437,7 +437,7 @@ fn the_backend_scaffold_gains_the_authentication_programs_when_identity_is_turne
         let programs = written.iter().filter(|n| n.ends_with(".cbl")).count();
         assert!(programs > 0, "{template}: no authentication program");
         let view = cobolt_compiler::project_manifest_view(&folder.join("Shop.project.toml")).unwrap();
-        assert_eq!(view.backend, ["backend/src/health.cbl"], "{template}: generated programs stay out of the manifest");
+        assert_eq!(view.backend, ["backend/src/health.cbl", "backend/COPYBOOKS/WS-STATUS.cpy"], "{template}: generated programs stay out of the manifest");
 
         // Turned off again, the generated programs go; the developer's files stay.
         std::fs::write(folder.join(BACKEND_CONFIG), &config).unwrap();
@@ -496,7 +496,7 @@ fn a_new_backend_has_its_exports_and_a_development_deployment() {
         assert_eq!(stub["identity"]["provider"].as_str(), Some("cognito"));
 
         let view = cobolt_compiler::project_manifest_view(&folder.join("Shop.project.toml")).unwrap();
-        assert_eq!(view.backend, ["backend/src/health.cbl"], "{template}: the settings files are not COBOL");
+        assert_eq!(view.backend, ["backend/src/health.cbl", "backend/COPYBOOKS/WS-STATUS.cpy"], "{template}: the settings files are not COBOL");
         println!("    {template:<14} exports.toml {:>3} bytes, backend.toml {:>3} bytes, listen {listen}, {:.1} ms", exports.len(), config.len(), started.elapsed().as_secs_f64() * 1000.0);
     }
 

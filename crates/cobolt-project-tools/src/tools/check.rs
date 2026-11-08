@@ -323,6 +323,11 @@ pub fn indexed_findings(abs: &Path) -> Vec<(Severity, String)> {
 }
 
 fn check_source(root: &ProjectRoot, rel: &str, crates: &[String], report: &mut Report) {
+    // A copybook is a fragment with no divisions of its own: it is checked through the
+    // programs that `COPY` it, and read alone it is always an error.
+    if ext(rel) == "cpy" {
+        return;
+    }
     let Ok(abs) = root.resolve(rel) else {
         report
             .findings
@@ -345,5 +350,31 @@ fn check_source(root: &ProjectRoot, rel: &str, crates: &[String], report: &mut R
             form: None,
             site: None,
         });
+    }
+}
+
+#[cfg(test)]
+mod copybook_tests {
+    use super::*;
+
+    /// A copybook listed in the manifest (a Backend's `backend/COPYBOOKS/*.cpy`) is a fragment:
+    /// it is checked through the programs that `COPY` it, never alone.
+    #[test]
+    fn a_listed_copybook_is_not_checked_as_a_program() {
+        let dir = std::env::temp_dir().join(format!("prc-check-cpy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("backend/COPYBOOKS")).unwrap();
+        std::fs::write(
+            dir.join("Shop.project.toml"),
+            "[project]\nname = \"Shop.project\"\nversion = \"1.0.0\"\nmain = \"\"\nkind = \"web\"\n\n[files]\nbackend = [\"backend/COPYBOOKS/rec.cpy\"]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("backend/COPYBOOKS/rec.cpy"), "       01 REC.\n          05 A PIC X.\n").unwrap();
+        let root = ProjectRoot::open(&dir).unwrap();
+        let mut report = Report::default();
+        check_source(&root, "backend/COPYBOOKS/rec.cpy", &[], &mut report);
+        assert!(report.findings.is_empty(), "{:?}", report.findings);
+        assert_eq!(report.sources, 0, "it is not counted as a checked program");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

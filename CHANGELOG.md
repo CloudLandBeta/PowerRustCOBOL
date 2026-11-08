@@ -1,5 +1,10 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.312 — 2026-11-08
+
+**Fix: a Web or Mobile project lists every program and copybook under `backend/`, including the ones written outside the IDE.** The project creator wrote `backend/COPYBOOKS/WS-STATUS.cpy` but never listed it in the manifest, and nothing adopted files that appeared on disk later, so the Project tree showed an empty `COPYBOOKS` folder (PowerOficina: 68 copybooks and one program unlisted). The creator now lists the copybook, and opening a project adopts any `.cbl`/`.cob`/`.cpy` under `backend/` that the manifest lacks; nothing is ever removed. Check no longer reads a listed copybook (`.cpy`) as a program, which it always failed: a copybook is checked through the programs that `COPY` it. *(Written on fixes-2x-backend-adopt, after 2.0.311.)*
+Tests: `a_listed_copybook_is_not_checked_as_a_program`; the three `kinds` tests now expect the scaffold's `WS-STATUS.cpy` in the list; `unlisted_backend_files_are_adopted_on_load` plus the 59 `project_model` tests pass; `cobolt-project-tools` passes except the two Chrome-driven tests, which fail the same way without this change.
+
 ## 2.0.311 — 2026-11-08
 
 **Fix: a SideMenu follows the form when the form is stretched taller in the designer.** *(Written on fixes-2x, after 2.0.310.)*

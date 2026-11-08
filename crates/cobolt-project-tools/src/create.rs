@@ -518,6 +518,7 @@ pub fn plan(request: &CreateRequest, catalogue: &[TemplateDescriptor]) -> Result
         files.push(PlannedFile { rel: BACKEND_EXPORTS.to_owned(), contents: starter_backend_exports(&stored) });
         files.push(PlannedFile { rel: BACKEND_CONFIG.to_owned(), contents: starter_backend_config(&stored) });
         files.push(PlannedFile { rel: BACKEND_STATUS_COPYBOOK.to_owned(), contents: WS_STATUS_COPYBOOK.to_owned() });
+        backend_files.push(BACKEND_STATUS_COPYBOOK.to_owned());
     }
 
     let manifest = build_manifest(
@@ -622,6 +623,14 @@ fn build_manifest(
         let mut list = Array::new();
         for f in backend_files {
             list.push(f.as_str());
+        }
+        // The IDE's own save writes a list of two or more one per line; so does this.
+        if list.len() > 1 {
+            for item in list.iter_mut() {
+                item.decor_mut().set_prefix("\n    ");
+            }
+            list.set_trailing("\n");
+            list.set_trailing_comma(true);
         }
         files.insert("backend", value(list));
     }
