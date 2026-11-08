@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.323 — 2026-11-08
+
+**Feature: the IDE's top toolbar shows icons only, and the designer's toolbar is 20% smaller.** Open, Save, Check, Search, Build, Run, Debug, Stop and the Task Wizard switch lose their text labels, which overlapped on a narrow window; each label is now the button's tooltip. The designer's icon toolbar draws its buttons at 80% of the former size (a 29 px cell, a 21 px icon) so the row no longer runs into the language selector. Under the Aurora Pastel theme the pills keep their labels.
+
 ## 2.0.322 — 2026-11-08
 
 **Feature: a Backend button in the top bar of the IDE, for Web and Mobile projects.** Grey and disabled while no Backend runs; green while the Backend runs for the open project and for the page the Preview serves; red when something is wrong: the Backend belongs to another project, it was started to accept another page origin than the Preview serves (the stale Backend that made the page say "Connecting to the server…"), or it ended with an error. In every state but grey a click stops the Backend (on a Backend that already ended, it clears the red mark). The tooltip says which state it is, in the six languages. Tests: `the_button_is_grey_green_or_red_by_what_the_backend_is_doing`.

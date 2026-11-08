@@ -18731,10 +18731,10 @@ pub(crate) fn draw_icon_toolbar(
     //  - `icon_size` is the coordinate space the painters draw in (kept a touch
     //    larger so the normalisation factor stays near 1, keeping strokes crisp).
     //  - `btn_size` is the click/hover cell (icon size + a little padding).
-    let icon_ref_ext = 26.25_f32;
+    let icon_ref_ext = 21.0_f32; // 80% of the former 26.25 (operator, 2026-11-08: the row overlapped at the right)
     let icon_size = 30.0_f32;
     // Cell = icon + 5px padding on each side, so icons aren't crowded together.
-    let btn_size = icon_ref_ext + 10.0;
+    let btn_size = icon_ref_ext + 8.0; // 80% of the former 36.25
     // Inter-group gap — half of one icon (button) width, with a separator line.
     let group_gap = btn_size * 0.5;
 
@@ -19198,7 +19198,7 @@ fn icon_redo(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 }
 
 /// Checkmark — the transient "form saved" cue shown on the Save button for ~1s.
-fn icon_check(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+pub(crate) fn icon_check(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(2.2, c);
     let p0 = Pos2::new(r.min.x + r.width() * 0.20, r.min.y + r.height() * 0.55);
     let p1 = Pos2::new(r.min.x + r.width() * 0.42, r.min.y + r.height() * 0.75);
@@ -19215,7 +19215,7 @@ fn icon_check(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 /// has no background to punch a gap with, and crossing outlines read as noise at
 /// this size. The old drawing put the arrow *inside* the disk, where it collided
 /// with the label and looked like a scribble.
-fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+pub(crate) fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.8, c);
     // 0.62 / 0.20 keeps the badge clear of the disk: with the badge centred at
     // `max - rad`, the disk's far corner is `sqrt(2)·(0.80 - rad)` away, which
@@ -19265,7 +19265,7 @@ fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     ));
 }
 
-fn icon_generate(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+pub(crate) fn icon_generate(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.8, c);
     let cx = r.center().x;
     let cy = r.center().y;
@@ -19373,7 +19373,7 @@ fn icon_layout_grid(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 
 /// A magnifying glass: the lens and its handle.
 /// Spec 104 — the Task Wizard: a folded map, the 🗺 the IDE toolbar's switch shows.
-fn icon_task_wizard(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+pub(crate) fn icon_task_wizard(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.6, c);
     let (l, t, w, h) = (r.left() + r.width() * 0.10, r.top() + r.height() * 0.18, r.width() * 0.80, r.height() * 0.64);
     let dip = h * 0.10;
@@ -19393,7 +19393,7 @@ fn icon_task_wizard(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::line_segment([Pos2::new(x(2.0 / 3.0), t + dip), Pos2::new(x(2.0 / 3.0), t + h)], s));
 }
 
-fn icon_magnifier(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+pub(crate) fn icon_magnifier(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let lens_r = r.width() * 0.30;
     let centre = r.center() - Vec2::splat(r.width() * 0.08);
     out.push(Shape::circle_stroke(centre, lens_r, Stroke::new(1.6, c)));
@@ -19429,7 +19429,7 @@ fn icon_glass(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     ));
 }
 
-fn icon_run(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+pub(crate) fn icon_run(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let pts = vec![
         Pos2::new(r.min.x + r.width() * 0.28, r.min.y + r.height() * 0.18),
         Pos2::new(r.max.x - r.width() * 0.15, r.center().y),
@@ -19438,8 +19438,76 @@ fn icon_run(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::convex_polygon(pts, c, Stroke::NONE));
 }
 
-fn icon_stop(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+pub(crate) fn icon_stop(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::rect_filled(r.shrink(r.width() * 0.22), 2.0, c));
+}
+
+/// Open — a folder.
+pub(crate) fn icon_folder_open(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let s = Stroke::new(1.8, c);
+    let (l, t, w, h) = (r.left() + r.width() * 0.08, r.top() + r.height() * 0.22, r.width() * 0.84, r.height() * 0.58);
+    let tab = w * 0.38;
+    let outline = vec![
+        Pos2::new(l, t),
+        Pos2::new(l + tab, t),
+        Pos2::new(l + tab + h * 0.18, t + h * 0.18),
+        Pos2::new(l + w, t + h * 0.18),
+        Pos2::new(l + w, t + h),
+        Pos2::new(l, t + h),
+    ];
+    out.push(Shape::closed_line(outline, s));
+}
+
+/// Build — a cube.
+pub(crate) fn icon_build(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let s = Stroke::new(1.8, c);
+    let (cx, cy) = (r.center().x, r.center().y);
+    let k = r.width().min(r.height()) * 0.36;
+    let top = Pos2::new(cx, cy - k);
+    let ul = Pos2::new(cx - k * 0.87, cy - k * 0.5);
+    let ur = Pos2::new(cx + k * 0.87, cy - k * 0.5);
+    let mid = Pos2::new(cx, cy);
+    let ll = Pos2::new(cx - k * 0.87, cy + k * 0.5);
+    let lr = Pos2::new(cx + k * 0.87, cy + k * 0.5);
+    let bot = Pos2::new(cx, cy + k);
+    out.push(Shape::closed_line(vec![top, ur, lr, bot, ll, ul], s));
+    out.push(Shape::line_segment([ul, mid], s));
+    out.push(Shape::line_segment([ur, mid], s));
+    out.push(Shape::line_segment([mid, bot], s));
+}
+
+/// One icon-only button for the IDE's top toolbar: the label is the tooltip.
+/// Same cell and icon size as the designer's toolbar, painted the same way.
+pub(crate) fn toolbar_icon_button(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    toggled: bool,
+    tooltip: &str,
+    tint: Option<Color32>,
+    draw_fn: &dyn Fn(&mut Vec<Shape>, Rect, Color32),
+) -> egui::Response {
+    let btn = 29.0_f32;
+    let sense = if enabled { egui::Sense::click() } else { egui::Sense::hover() };
+    let (resp, painter) = ui.allocate_painter(Vec2::splat(btn), sense);
+    let theme = crate::theme::active();
+    let (normal, dim) = if theme.dark {
+        (Color32::from_rgba_premultiplied(215, 225, 255, 210), Color32::from_rgba_premultiplied(215, 225, 255, 70))
+    } else {
+        (theme.text_bright, theme.text_dim.gamma_multiply(0.45))
+    };
+    let col = if !enabled { dim } else { tint.unwrap_or(normal) };
+    if enabled && (resp.hovered() || toggled) {
+        painter.rect_filled(resp.rect, 6.0, Color32::from_rgba_premultiplied(80, 110, 200, if toggled { 70 } else { 40 }));
+    }
+    let icon_rect = Rect::from_center_size(resp.rect.center(), Vec2::splat(30.0));
+    let mut shapes: Vec<Shape> = Vec::new();
+    draw_fn(&mut shapes, icon_rect, col);
+    normalize_icon(&mut shapes, icon_rect.center(), 21.0);
+    painter.extend(shapes);
+    if enabled {
+        crate::theme::flash_on_click(ui, &resp);
+    }
+    resp.on_hover_text(tooltip).on_disabled_hover_text(tooltip)
 }
 
 fn icon_inspector(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -20000,7 +20068,7 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     ));
 }
 
-fn icon_bug(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+pub(crate) fn icon_bug(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.4, c);
     let cx = r.center().x;
     let cy = r.center().y;

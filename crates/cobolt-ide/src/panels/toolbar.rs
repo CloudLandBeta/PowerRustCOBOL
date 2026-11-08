@@ -9,7 +9,19 @@
 use egui::{Button, Color32, Context, Panel, RichText};
 
 use crate::i18n::{Language, Tr};
+use crate::panels::designer;
 use crate::runner::Runner;
+
+type IconFn = dyn Fn(&mut Vec<egui::Shape>, egui::Rect, Color32);
+
+/// An icon-only toolbar button: the label is its tooltip (operator, 2026-11-08: the labels overlapped).
+fn icon_only(ui: &mut egui::Ui, enabled: bool, label: &str, tint: Option<Color32>, icon: &IconFn) -> egui::Response {
+    designer::toolbar_icon_button(ui, enabled, false, label, tint, icon)
+}
+
+fn toolbar_icon(ui: &mut egui::Ui, enabled: bool, toggled: bool, label: &str, icon: &IconFn) -> egui::Response {
+    designer::toolbar_icon_button(ui, enabled, toggled, label, None, icon)
+}
 
 /// Render the toolbar and return the user's action (if any).
 ///
@@ -62,7 +74,7 @@ pub fn show(
             let open_resp = if aurora {
                 crate::aurora::pill(ui, true, tr.tb_open, pills.open)
             } else {
-                ui.button(tr.tb_open)
+                icon_only(ui, true, tr.tb_open, None, &designer::icon_folder_open)
             };
             if open_resp.clicked() {
                 action = ToolbarAction::Open;
@@ -77,7 +89,7 @@ pub fn show(
             let save_resp = if aurora {
                 crate::aurora::pill(ui, save_enabled, tr.tb_save, pills.open)
             } else {
-                ui.add_enabled(save_enabled, Button::new(tr.tb_save))
+                icon_only(ui, save_enabled, tr.tb_save, None, &designer::icon_save)
             };
             if save_resp.clicked() {
                 action = ToolbarAction::Save;
@@ -93,7 +105,7 @@ pub fn show(
             let check_resp = if aurora {
                 crate::aurora::pill(ui, has_active, tr.tb_check, pills.check)
             } else {
-                ui.add_enabled(has_active, Button::new(tr.tb_check))
+                icon_only(ui, has_active, tr.tb_check, None, &designer::icon_check)
             };
             if check_resp.clicked() {
                 action = ToolbarAction::Check;
@@ -104,7 +116,7 @@ pub fn show(
             let search_resp = if aurora {
                 crate::aurora::pill(ui, has_active, tr.tb_search, pills.search)
             } else {
-                ui.add_enabled(has_active, Button::new(tr.tb_search))
+                icon_only(ui, has_active, tr.tb_search, None, &designer::icon_magnifier)
             }
             .on_hover_text(tr.tb_search_hint);
             if search_resp.clicked() {
@@ -116,7 +128,7 @@ pub fn show(
             let build_resp = if aurora {
                 crate::aurora::pill(ui, compilable && !building, tr.tb_build, pills.build)
             } else {
-                ui.add_enabled(compilable && !building, Button::new(tr.tb_build))
+                icon_only(ui, compilable && !building, tr.tb_build, None, &designer::icon_build)
             };
             if build_resp.clicked() {
                 action = ToolbarAction::Build;
@@ -136,15 +148,10 @@ pub fn show(
             ui.separator();
 
             // ── Run (interpreted) ─────────────────────────────────────────────
-            let run_btn = Button::new(RichText::new(tr.tb_run).color(if busy || !compilable {
-                Color32::GRAY
-            } else {
-                Color32::from_rgb(80, 200, 80)
-            }));
             let run_resp = if aurora {
                 crate::aurora::pill(ui, !busy && compilable, tr.tb_run, pills.run)
             } else {
-                ui.add_enabled(!busy && compilable, run_btn)
+                icon_only(ui, !busy && compilable, tr.tb_run, Some(Color32::from_rgb(80, 200, 80)), &designer::icon_run)
             };
             if run_resp.clicked() {
                 action = ToolbarAction::Run;
@@ -158,14 +165,7 @@ pub fn show(
             let dbg_resp = if aurora {
                 crate::aurora::pill(ui, !busy && debuggable, tr.tb_debug, pills.debug)
             } else {
-                ui.add_enabled(
-                !busy && debuggable,
-                Button::new(RichText::new(tr.tb_debug).color(if busy || !debuggable {
-                    Color32::GRAY
-                } else {
-                    Color32::from_rgb(200, 150, 80)
-                })),
-            )
+                icon_only(ui, !busy && debuggable, tr.tb_debug, Some(Color32::from_rgb(200, 150, 80)), &designer::icon_bug)
             };
             if dbg_resp.clicked() {
                 action = ToolbarAction::Debug;
@@ -176,15 +176,10 @@ pub fn show(
             }
 
             // ── Stop ─────────────────────────────────────────────────────────
-            let stop_btn = Button::new(RichText::new(tr.tb_stop).color(if busy {
-                Color32::from_rgb(220, 80, 80)
-            } else {
-                Color32::GRAY
-            }));
             let stop_resp = if aurora {
                 crate::aurora::pill(ui, busy, tr.tb_stop, pills.stop)
             } else {
-                ui.add_enabled(busy, stop_btn)
+                icon_only(ui, busy, tr.tb_stop, Some(Color32::from_rgb(220, 80, 80)), &designer::icon_stop)
             };
             if stop_resp.clicked() {
                 action = ToolbarAction::Stop;
@@ -263,7 +258,7 @@ fn task_wizard_toggle(
         };
         crate::aurora::pill(ui, true, tr.task_wizard_toggle, look)
     } else {
-        ui.add(Button::new(tr.task_wizard_toggle).selected(on))
+        toolbar_icon(ui, true, on, tr.task_wizard_toggle, &designer::icon_task_wizard)
     };
     let switch = switch.on_hover_text(if on {
         tr.task_wizard_tip_on
