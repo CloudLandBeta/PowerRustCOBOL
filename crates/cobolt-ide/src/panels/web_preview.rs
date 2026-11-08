@@ -704,6 +704,11 @@ impl WebPreview {
         self.job.is_some() || self.live.is_some() || self.backend_wait.is_some()
     }
 
+    /// The port the Preview serves the page on, while it serves.
+    pub fn page_port(&self) -> Option<u16> {
+        self.page_port
+    }
+
     /// Is a start waiting for the Backend to listen?
     pub fn awaiting_backend(&self) -> bool {
         self.backend_wait.is_some()

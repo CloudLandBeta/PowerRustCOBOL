@@ -991,6 +991,8 @@ pub struct CoboltApp {
     /// The Backend window (the counterpart of the desktop Building window) and whether it has seen the current run.
     backend_window: crate::panels::backend_window::BackendWindow,
     backend_window_live: bool,
+    /// The Backend ended with an error: the top-bar button stays red until it is clicked.
+    backend_failed: bool,
     /// `backend_run` was started by the web Preview: it stops with the Preview.
     backend_by_preview: bool,
 
@@ -2390,6 +2392,7 @@ impl CoboltApp {
             backend_run: None,
             backend_window: Default::default(),
             backend_window_live: false,
+            backend_failed: false,
             backend_by_preview: false,
 
             pending_open_in_editor: None,
@@ -3032,6 +3035,7 @@ impl CoboltApp {
     /// Run menu → Stop Backend, and a project change.
     fn stop_backend(&mut self) {
         self.backend_by_preview = false;
+        self.backend_failed = false;
         if let Some(mut run) = self.backend_run.take() {
             let was_running = run.is_running();
             run.stop();
@@ -3059,6 +3063,7 @@ impl CoboltApp {
         let up = self.backend_run.is_some();
         if up && !self.backend_window_live {
             self.backend_window.begin();
+            self.backend_failed = false;
         }
         self.backend_window_live = up;
         if !up {
@@ -3080,6 +3085,7 @@ impl CoboltApp {
                 }
                 crate::backend_run::BackendEvent::Exited(code) => {
                     // It ended by itself; the lines above say why.
+                    self.backend_failed = code != Some(0);
                     let why = code.map(|c| format!("exit {c}")).unwrap_or_else(|| "signal".to_owned());
                     self.backend_window.push_line(format!("{} ({why})", tr.backend_stopped));
                     self.output.push_status(format!("{} ({why})", tr.backend_stopped));
@@ -17105,6 +17111,20 @@ impl eframe::App for CoboltApp {
         } else {
             tr.tb_debug_hint
         };
+        let backend_running = self.backend_run.as_ref().is_some_and(|r| r.is_running());
+        let backend_health = crate::panels::backend_button::health(
+            backend_running,
+            self.backend_failed,
+            self.backend_run.as_ref().is_none_or(|r| {
+                let here = self.project_path.as_ref().and_then(|p| p.parent()).and_then(|d| std::fs::canonicalize(d).ok());
+                here.is_some() && here == std::fs::canonicalize(&r.project_dir).ok()
+            }),
+            self.backend_run.as_ref().and_then(|r| r.page_origin.as_deref()).and_then(cobolt_project_tools::web::devbackend::page_port_of),
+            self.web_preview.active(),
+            self.web_preview.page_port(),
+        );
+        let show_backend_button = self.is_web_project() || self.backend_run.is_some() || self.backend_failed;
+        let mut stop_backend_clicked = false;
         egui::Panel::top("menu_bar").show(root_ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 // Spec 099 — the bar is declared in `menu_layout`: File, Settings, View, Help,
@@ -17197,8 +17217,19 @@ impl eframe::App for CoboltApp {
                         }
                     }
                 }
+                // The Backend button, at the right end of the bar: grey, green or red; any click stops it.
+                if show_backend_button {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if crate::panels::backend_button::show(ui, backend_health, &tr) {
+                            stop_backend_clicked = true;
+                        }
+                    });
+                }
             });
         });
+        if stop_backend_clicked {
+            self.stop_backend();
+        }
 
         // ── Toolbar ───────────────────────────────────────────────────────────
         // A project compiles only if it has a COBOL program or a form; with no

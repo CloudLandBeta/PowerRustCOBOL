@@ -1,5 +1,9 @@
 # PowerRustCOBOL — Changelog
 
+## 2.0.322 — 2026-11-08
+
+**Feature: a Backend button in the top bar of the IDE, for Web and Mobile projects.** Grey and disabled while no Backend runs; green while the Backend runs for the open project and for the page the Preview serves; red when something is wrong: the Backend belongs to another project, it was started to accept another page origin than the Preview serves (the stale Backend that made the page say "Connecting to the server…"), or it ended with an error. In every state but grey a click stops the Backend (on a Backend that already ended, it clears the red mark). The tooltip says which state it is, in the six languages. Tests: `the_button_is_grey_green_or_red_by_what_the_backend_is_doing`.
+
 ## 2.0.321 — 2026-11-08
 
 **Feature: a Backend window for Web and Mobile projects, the counterpart of the desktop's Building window.** It opens when the Backend starts (Run → Start Backend, or the Preview), shows what the Backend prints, stays up while it runs, and has a **Stop Backend** button and a Copy button. Closing it while the Backend runs stops the Backend, after a warning ("Stop Backend and close" / "Keep running"); once the Backend has ended it closes without one. Its size changes only when the developer drags its grip. *(Written on features-2x-backend-window, after 2.0.311; 2.0.312 is on fixes-2x-backend-adopt.)*
